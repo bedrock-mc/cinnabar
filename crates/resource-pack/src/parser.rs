@@ -15,8 +15,8 @@ use uuid::Uuid;
 use zip::{CompressionMethod, ZipArchive};
 
 use crate::{
-    AdmissionError, MAX_ARCHIVE_BYTES, MAX_DECLARED_BYTES_PER_PACK, MAX_ENTRIES_PER_PACK,
-    MAX_FILE_BYTES, MAX_MANIFEST_BYTES, MAX_PATH_BYTES,
+    AdmissionError, MAX_DECLARED_BYTES_PER_PACK, MAX_ENTRIES_PER_PACK, MAX_FILE_BYTES,
+    MAX_MANIFEST_BYTES, MAX_PATH_BYTES,
     crypto::{ContentKey, contents_file_keys},
     manifest::read_manifest,
     pack::{ArchiveBytes, EntryIndex, ValidatedPack, read_entry},
@@ -24,38 +24,32 @@ use crate::{
 };
 #[cfg(feature = "handoff")]
 use crate::{
-    MAX_DECLARED_BYTES_PER_STACK, MAX_ENTRIES_PER_STACK, MAX_PACKS, MAX_STACK_ARCHIVE_BYTES,
-    PackRejection, ValidatedPackStack,
+    MAX_DECLARED_BYTES_PER_STACK, MAX_ENTRIES_PER_STACK, PackRejection, ValidatedPackStack,
 };
 
 const MAX_CONTENTS_INDEX_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Validates one unencrypted archive under a nil identity; used by fuzzing.
 pub fn validate_archive_bytes(bytes: &[u8]) -> Result<(), AdmissionError> {
-    if bytes.len() > MAX_ARCHIVE_BYTES {
-        return Err(AdmissionError::ArchiveTooLarge);
-    }
     validate_archive_parts(Uuid::nil(), "0.0.0", "", bytes.to_vec(), None, None).map(|_| ())
 }
 
 /// Admits highest-priority-first server entries, then stores layers lowest priority first.
-/// Stack-wide bounds drop later entries; rejection indexes retain the server order.
+/// Structural checks retain rejection indexes in the server order.
 #[cfg(feature = "handoff")]
 pub(super) fn validate_stack(
     archives: Vec<ResourcePackArchive>,
     memory: Option<u32>,
 ) -> ValidatedPackStack {
-    let mut packs = Vec::with_capacity(archives.len().min(MAX_PACKS));
+    let mut packs = Vec::with_capacity(archives.len());
     let mut rejections = Vec::new();
-    let (mut archive_bytes, mut entry_count, mut declared_bytes) = (0usize, 0usize, 0u64);
+    let (mut entry_count, mut declared_bytes) = (0usize, 0u64);
     let mut seen = HashSet::with_capacity(archives.len());
     let reads = Arc::new(ReadCache::default());
     for (stack_index, archive) in archives.into_iter().enumerate() {
         let admitted = admit_stack_entry(
             archive,
             &mut seen,
-            packs.len(),
-            archive_bytes,
             memory,
             Arc::clone(&reads),
             |pack, declared| {
@@ -71,8 +65,7 @@ pub(super) fn validate_stack(
             },
         );
         match admitted {
-            Ok((pack, size, (entries, declared))) => {
-                archive_bytes += size;
+            Ok((pack, (entries, declared))) => {
                 (entry_count, declared_bytes) = (entries, declared);
                 packs.push(pack);
             }
@@ -93,22 +86,10 @@ pub(super) fn validate_stack(
 fn admit_stack_entry<T>(
     archive: ResourcePackArchive,
     seen: &mut HashSet<Uuid>,
-    admitted: usize,
-    archive_bytes: usize,
     memory: Option<u32>,
     reads: Arc<ReadCache>,
     stack_bounds: impl FnOnce(&ValidatedPack, u64) -> Result<T, AdmissionError>,
-) -> Result<(ValidatedPack, usize, T), AdmissionError> {
-    if admitted >= MAX_PACKS {
-        return Err(AdmissionError::TooManyPacks);
-    }
-    let size = archive.archive.len();
-    if size > MAX_ARCHIVE_BYTES {
-        return Err(AdmissionError::ArchiveTooLarge);
-    }
-    if archive_bytes.saturating_add(size) > MAX_STACK_ARCHIVE_BYTES {
-        return Err(AdmissionError::StackArchiveTooLarge);
-    }
+) -> Result<(ValidatedPack, T), AdmissionError> {
     if seen.contains(&archive.pack_id) {
         return Err(AdmissionError::DuplicatePack);
     }
@@ -129,7 +110,7 @@ fn admit_stack_entry<T>(
     )?;
     let bounds = stack_bounds(&pack, declared)?;
     seen.insert(pack.pack_id);
-    Ok((pack, size, bounds))
+    Ok((pack, bounds))
 }
 
 /// Admits one archive with its own bounded read cache.
@@ -162,9 +143,6 @@ pub(crate) fn validate_archive_parts_cached(
     memory: Option<u32>,
     reads: Arc<ReadCache>,
 ) -> Result<(ValidatedPack, u64), AdmissionError> {
-    if archive_bytes.len() > MAX_ARCHIVE_BYTES {
-        return Err(AdmissionError::ArchiveTooLarge);
-    }
     let expected_entries = prepare_zip_bytes(&mut archive_bytes)?;
     let bytes = Arc::new(archive_bytes);
     let mut zip = ZipArchive::new(Cursor::new(ArchiveBytes(Arc::clone(&bytes))))

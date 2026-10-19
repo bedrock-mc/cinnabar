@@ -43,8 +43,15 @@ pub(super) fn delta(now: Allocations, before: Allocations) -> Allocations {
 }
 
 /// Inclusive allocation totals for all timed CPU stages in one frame window.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(super) struct AllocationProfiler(Mutex<Window>);
+
+impl Default for AllocationProfiler {
+    /// Prepares the accumulator lock outside the allocation intervals it measures.
+    fn default() -> Self {
+        Self(crate::runtime_profile::initialized_mutex(Window::default()))
+    }
+}
 
 #[derive(Debug)]
 struct Window {

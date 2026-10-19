@@ -36,7 +36,8 @@ pub const EXIT: u32 = 4;
 /// UTF-8 text of the error `main` failed with before the game started.
 pub const STARTUP_FAILURE: u32 = 5;
 /// Before every dump request: a [`DumpContext`] when [`Hello::full_dump`] is set on Windows,
-/// else empty. The monitor keeps only dumps announced this way.
+/// a little-endian `u64` receipt identity on macOS, else empty. The monitor keeps only dumps
+/// announced this way.
 pub const DUMP_REQUEST: u32 = 6;
 /// UTF-8 text of the error `main` failed with after the game started.
 pub const RUNTIME_FAILURE: u32 = 7;

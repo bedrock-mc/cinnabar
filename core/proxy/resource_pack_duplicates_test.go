@@ -21,8 +21,8 @@ func TestAcquisitionBudgetChargesRepeatedOffersOnce(t *testing.T) {
 		repeats   int
 		offerSize uint64
 	}{
-		{name: "count", repeats: maxSelectedResourcePacks},
-		{name: "bytes", repeats: 2, offerSize: maxResourcePackArchiveBytes},
+		{name: "count", repeats: 40},
+		{name: "bytes", repeats: 2, offerSize: 300 * 1024 * 1024},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			info := packInfos(0, 0)
@@ -58,7 +58,7 @@ func TestAcquisitionBudgetChargesRepeatedOffersOnce(t *testing.T) {
 }
 
 func TestAcquisitionBudgetKeepsFirstRepeatedOfferSize(t *testing.T) {
-	info := packInfos(maxResourcePackArchiveBytes, maxResourcePackArchiveBytes)
+	info := packInfos(300*1024*1024, 300*1024*1024)
 	first, second := info.TexturePacks[0], info.TexturePacks[1]
 	repeated := first
 	repeated.Size = 1
@@ -72,12 +72,12 @@ func TestAcquisitionBudgetKeepsFirstRepeatedOfferSize(t *testing.T) {
 		t.Fatal("a repeated estimate replaced the first offer's reserved size")
 	}
 
-	// A repeated smaller estimate cannot replace an over-limit first offer either.
-	first.Size = maxResourcePackArchiveBytes + 1
+	// A repeated smaller estimate cannot replace an unrepresentable first offer either.
+	first.Size = ^uint64(0)
 	info.TexturePacks = []protocol.TexturePackInfo{first, repeated, second}
 	budget, _ = observedBudget(t, info)
 	if got, want := admitted(budget, len(info.TexturePacks)), []bool{false, false, true}; !slices.Equal(got, want) {
-		t.Fatalf("oversized first offer admitted = %v, want %v", got, want)
+		t.Fatalf("unrepresentable first offer admitted = %v, want %v", got, want)
 	}
 }
 
@@ -96,7 +96,7 @@ func TestRequiredRepeatedURLOfferRetainsLaterChunkPack(t *testing.T) {
 	if !ok {
 		t.Fatal("fixture did not negotiate a stack")
 	}
-	packs := append(slices.Repeat([]*resource.Pack{first}, maxSelectedResourcePacks), second)
+	packs := append(slices.Repeat([]*resource.Pack{first}, 40), second)
 	offer, ok := negotiatedAdmissionPacks(t, packs, true).ResourcePackOffer()
 	if !ok {
 		t.Fatal("fixture did not negotiate an offer")
