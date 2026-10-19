@@ -4,17 +4,13 @@
 
 use serde_json::{Map, Value};
 
-use pack_json::normalize_jsonc;
+use pack_json::parse_jsonc;
 
 use crate::LayeredPackView;
 
 pub const MAX_MERGED_ENTRIES: usize = 65_536;
 pub const MAX_WINNING_FILES: usize = 1024;
 pub const MAX_WINNING_BYTES: usize = 32 * 1024 * 1024;
-
-fn parse(bytes: &[u8]) -> Option<Value> {
-    serde_json::from_slice(&normalize_jsonc(bytes)?).ok()
-}
 
 /// Folds `object` into `merged`; a later (higher) layer replaces a key wholesale.
 fn fold(merged: &mut Map<String, Value>, object: Map<String, Value>) {
@@ -36,7 +32,7 @@ impl LayeredPackView {
     pub fn merged_json_object(&self, path: &str, section: Option<&str>) -> Map<String, Value> {
         let mut merged = Map::new();
         for layer in self.read_layers(path) {
-            let Some(mut root) = parse(&layer) else {
+            let Ok(mut root) = parse_jsonc::<Value>(&layer) else {
                 continue;
             };
             let object = match section {
@@ -56,7 +52,7 @@ impl LayeredPackView {
     pub fn merged_sound_definitions(&self) -> Map<String, Value> {
         let mut merged = Map::new();
         for layer in self.read_layers("sounds/sound_definitions.json") {
-            let Some(Value::Object(mut root)) = parse(&layer) else {
+            let Ok(Value::Object(mut root)) = parse_jsonc(&layer) else {
                 continue;
             };
             match root.remove("sound_definitions") {
