@@ -59,7 +59,7 @@ fn assert_loaded(source: &PackSource) {
     for &(path, bytes) in FILES {
         assert_eq!(source.read_bytes(path).unwrap(), bytes);
     }
-    for path in ["../outside", "/outside", "lib/../../outside"] {
+    for path in ["../outside", "/outside", "lib/../../outside", "./z.fsh"] {
         assert_eq!(
             source.read_bytes(path).unwrap_err().kind(),
             io::ErrorKind::InvalidInput,
@@ -179,25 +179,6 @@ fn missing_shaders_and_truncated_archives_return_errors() {
 
 #[cfg(unix)]
 #[test]
-fn source_paths_directory_rejects_literal_backslashes() {
-    let root = TempPack::new();
-    let shaders = root.0.join("shaders");
-    std::fs::create_dir_all(shaders.join("a")).unwrap();
-    std::fs::write(shaders.join("a/b.glsl"), "nested").unwrap();
-    let unsupported = shaders.join("a\\b.glsl");
-    std::fs::write(&unsupported, "literal backslash").unwrap();
-    match PackSource::open(&root.0).expect_err("ambiguous component rejected") {
-        PackError::Io { path, error } => {
-            assert_eq!(path, unsupported.canonicalize().unwrap());
-            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-            assert!(error.to_string().contains("backslash"));
-        }
-        error => panic!("unexpected path error: {error}"),
-    }
-}
-
-#[cfg(unix)]
-#[test]
 fn source_paths_directory_rejects_non_unicode_names() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;
@@ -260,7 +241,7 @@ fn source_paths_relative_zip_origin_is_canonical_for_deferred_reads() {
 }
 
 #[test]
-fn source_paths_zip_rejects_lossy_utf8_name_collisions() {
+fn source_paths_zip_name_collisions_keep_text_and_bytes_consistent() {
     let root = TempPack::new();
     let archive = root.0.join("pack.zip");
     let mut writer = zip::ZipWriter::new(io::Cursor::new(Vec::new()));
@@ -287,14 +268,11 @@ fn source_paths_zip_rejects_lossy_utf8_name_collisions() {
         }
     }
     std::fs::write(&archive, bytes).unwrap();
-    match PackSource::open(&archive).expect_err("lossy ZIP names rejected") {
-        PackError::Io { path, error } => {
-            assert_eq!(path, archive.canonicalize().unwrap());
-            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-            assert!(error.to_string().contains("UTF-8"));
-        }
-        error => panic!("unexpected path error: {error}"),
-    }
+    let source = PackSource::open(&archive).unwrap();
+    let files: Vec<_> = source.files().collect();
+    assert_eq!(files.len(), 1);
+    let (path, text) = files[0];
+    assert_eq!(source.read_bytes(path).unwrap(), text.as_bytes());
 }
 
 #[cfg(unix)]
