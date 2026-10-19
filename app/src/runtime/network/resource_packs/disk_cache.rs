@@ -9,7 +9,7 @@ use sha2::Digest;
 struct References {
     world: Option<[u8; 32]>,
     readers: Vec<[u8; 32]>,
-    keys: Option<Vec<u8>>,
+    keys: Option<[u8; 32]>,
     terrain: std::collections::BTreeMap<String, String>,
     device: assets::texture::policy::TexturePolicy,
     terrain_policy: assets::texture::policy::TexturePolicy,
@@ -35,7 +35,9 @@ fn visual_key(
             .iter()
             .map(|pack| pack.compile_identity())
             .collect(),
-        keys: BASE_MATERIAL_KEYS.get().map(|(keys, _)| keys.to_json(0)),
+        keys: BASE_MATERIAL_KEYS
+            .get()
+            .map(|(keys, _)| sha2::Sha256::digest(keys.to_json(0)).into()),
         terrain: pack_runtime::pack_textures::base_terrain_catalog()
             .into_iter()
             .collect(),

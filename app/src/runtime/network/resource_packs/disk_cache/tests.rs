@@ -5,7 +5,7 @@ fn every_stack_reference_device_and_session_input_changes_the_key() {
     let references = References {
         world: Some([1; 32]),
         readers: vec![[7; 32]],
-        keys: Some(vec![2]),
+        keys: Some([2; 32]),
         terrain: Default::default(),
         device: assets::texture::policy::TexturePolicy::for_device(1024),
         terrain_policy: assets::texture::policy::TexturePolicy::for_terrain(1024, 0),
@@ -31,7 +31,7 @@ fn every_stack_reference_device_and_session_input_changes_the_key() {
             let mut changed = references.clone();
             match index {
                 0 => changed.world = Some([4; 32]),
-                1 => changed.keys = Some(vec![5]),
+                1 => changed.keys = Some([5; 32]),
                 2 => {
                     changed.terrain.insert("key".into(), "path".into());
                 }
