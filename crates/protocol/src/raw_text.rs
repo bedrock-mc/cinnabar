@@ -408,8 +408,8 @@ pub fn parse_raw_text(value: &str) -> Result<Arc<RawTextDocument>, UiPacketError
 pub(crate) fn parse_raw_text_envelope(
     value: &str,
 ) -> Result<Option<Arc<RawTextDocument>>, UiPacketError> {
-    // Packet validation and `bounded_text` reject oversized UI strings. Avoid doing an
-    // additional semantic JSON pass over input outside that shared protocol bound.
+    // Rawtext probing has its own input budget. Larger admitted Text messages stay literal
+    // here instead of entering another semantic JSON pass.
     if value.len() > MAX_RAW_TEXT_INPUT_BYTES || !starts_with_json_object(value) {
         return Ok(None);
     }
