@@ -298,6 +298,14 @@ Core transfer/disconnect terminals can abandon unfinished join preparation; ordi
 preparation and presentation readiness remain required for a successful join. Live
 server latency impact and the complete transfer acceptance matrix remain unqualified.
 
+Server pack acquisition, handoff and stack composition no longer impose fixed archive-count
+or compressed-byte quotas. Saved server lists retain every imported entry. Declared sizes,
+identity, digests and framing remain validated. Experience selections preserve service errors
+and wait for the account core result. Complete featured-server acceptance remains open:
+large-pack preparation can be slow or fail, and sparse startup terrain can leave loading open.
+Local imports, decompression, UI/text expansion, language memory and other admission limits
+still need version-matched verification; the limit inventory closes no whole-client parity gate.
+
 Cosmetics require live authenticated multi-account acceptance, catalog/motion envelope
 coverage, supported slot/ownership enforcement, player-preview acceptance and hardware
 qualification. Payments and moderation remain incomplete; rollout must respect API/client

@@ -141,7 +141,7 @@ impl Default for SlowFrameRecorder {
             totals: std::array::from_fn(|_| AtomicU64::new(0)),
             interval_nanos: AtomicU64::new(0),
             violations: AtomicU8::new(0),
-            frame: Mutex::new(FrameWindow::default()),
+            frame: crate::runtime_profile::initialized_mutex(FrameWindow::default()),
         }
     }
 }
