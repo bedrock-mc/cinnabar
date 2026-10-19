@@ -40,8 +40,11 @@ pub use view::LayeredPackView;
 /// Maximum compressed source bytes decoded for one pack texture.
 pub const MAX_PACK_TEXTURE_BYTES: u64 = 4 * 1024 * 1024;
 
+/// Maximum number of globally selected local packs; server selections are independent.
 pub const MAX_PACKS: usize = 32;
+/// Maximum compressed archive bytes accepted by local import readers.
 pub const MAX_ARCHIVE_BYTES: usize = 64 * 1024 * 1024;
+/// Maximum compressed archive bytes accepted in one local import.
 pub const MAX_STACK_ARCHIVE_BYTES: usize = 128 * 1024 * 1024;
 pub const MAX_MANIFEST_BYTES: usize = 256 * 1024;
 pub const MAX_PATH_BYTES: usize = 512;

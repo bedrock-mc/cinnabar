@@ -252,16 +252,8 @@ impl std::fmt::Debug for ValidatedPackStack {
 impl ValidatedPackStack {
     /// Combines optional layers in increasing precedence, sharing archive bytes.
     pub fn compose(lower: &Self, higher: &Self) -> Result<Self, AdmissionError> {
-        use crate::{
-            MAX_DECLARED_BYTES_PER_STACK, MAX_ENTRIES_PER_STACK, MAX_PACKS, MAX_STACK_ARCHIVE_BYTES,
-        };
+        use crate::{MAX_DECLARED_BYTES_PER_STACK, MAX_ENTRIES_PER_STACK};
         let layers = lower.packs.iter().chain(higher.packs.iter());
-        if layers.clone().count() > MAX_PACKS {
-            return Err(AdmissionError::TooManyPacks);
-        }
-        if layers.clone().map(|pack| pack.archive_bytes).sum::<usize>() > MAX_STACK_ARCHIVE_BYTES {
-            return Err(AdmissionError::StackArchiveTooLarge);
-        }
         if layers
             .clone()
             .map(ValidatedPack::entry_count)
