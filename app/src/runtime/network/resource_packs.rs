@@ -693,7 +693,7 @@ fn compile_icons(
 
 use pack_runtime::pack_language::merged_server_lang;
 
-use pack_runtime::StackFingerprint;
+use resource_pack::StackFingerprint;
 #[cfg(test)]
 use pack_runtime::stack_fingerprint;
 

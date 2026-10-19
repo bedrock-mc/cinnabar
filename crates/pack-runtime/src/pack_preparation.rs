@@ -198,7 +198,7 @@ pub fn custom_block_items(
     pairs.into_boxed_slice()
 }
 
-pub use resource_pack::StackFingerprint;
+use resource_pack::StackFingerprint;
 
 /// Copies the admission-time pack identities and digests in stack order.
 pub fn stack_fingerprint(stack: &resource_pack::ValidatedPackStack) -> StackFingerprint {

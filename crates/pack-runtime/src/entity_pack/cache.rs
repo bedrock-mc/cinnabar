@@ -1,6 +1,6 @@
-use crate::StackFingerprint;
 use assets::SessionEntityPack;
 use resource_pack::LayeredPackView;
+use resource_pack::StackFingerprint;
 use std::{path::PathBuf, sync::Arc};
 
 #[path = "pixel_reuse.rs"]
