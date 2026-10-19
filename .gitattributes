@@ -49,3 +49,4 @@ crates/protocol-ids/src/generated.rs text eol=lf
 # Agents append independent entries; keep both sides instead of conflicting.
 plan.md merge=union
 docs/evidence/*-completion-ledger.md merge=union
+crates/render-model/src/hats/**/*.json text eol=lf
