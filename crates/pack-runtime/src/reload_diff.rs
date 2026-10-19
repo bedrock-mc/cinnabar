@@ -50,12 +50,10 @@ pub fn compile<T>(
     build: impl FnOnce(&resource_pack::LayeredPackView) -> T,
 ) -> T {
     let _zone = subscriber.zone().entered();
-    tracing::debug!(?subscriber, "pack compiler started");
     let view = resource_pack::LayeredPackView::tracked(stack.clone());
     let output = build(&view);
     let inputs = view.dependencies().expect("tracked view").snapshot();
     dependencies.insert(subscriber, inputs);
-    tracing::debug!(?subscriber, "pack compiler finished");
     output
 }
 
