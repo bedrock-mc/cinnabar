@@ -183,6 +183,8 @@ fn command_macro_precedes_a_mouse_emote_binding() {
 
 #[test]
 fn command_macro_keeps_an_open_emote_wheel_in_control() {
+    // Space accepts slot 0, which only plays and closes the wheel when it holds an owned clip.
+    let _catalog = cosmetics::test_support::playback_catalog();
     for code in [KeyCode::Space, KeyCode::KeyB] {
         let mut app = crate::tests::gameplay_click::gameplay_app(false);
         arm(
