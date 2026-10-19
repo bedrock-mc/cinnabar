@@ -274,7 +274,7 @@ type dialerDownstream interface {
 // server may batch a whole pack transfer into a single batch, so the default 16 MiB
 // ceiling would reject the join that vanilla accepts; the acquisition budget's own
 // transfer ceiling still bounds what those bytes can amount to.
-const maxUpstreamDecompressedBatch = 256 * 1024 * 1024
+const maxUpstreamDecompressedBatch = maxResourcePackTransferBytes
 
 // newUpstreamDialerForAdmission observes incoming pack negotiation before filtering
 // subclients and leaves payload observation to callers that need packet bodies.

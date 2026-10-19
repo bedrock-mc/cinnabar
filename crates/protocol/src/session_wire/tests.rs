@@ -351,3 +351,11 @@ fn pack_receiver_rejects_unadmitted_declarations() {
     assert_eq!(sizes.iter().sum::<u64>(), MAX_SELECTED_PACK_BYTES as u64);
     assert!(HandoffPackReceiver::new(&handoff_with_sizes(&sizes), None).is_ok());
 }
+
+/// Large required experience packs reach archive delivery without allocating their payloads here.
+#[test]
+fn pack_receiver_admits_large_experience_declarations() {
+    let mib = 1024 * 1024;
+    let handoff = handoff_with_sizes(&[72 * mib, 3 * mib, 7 * mib]);
+    assert!(HandoffPackReceiver::new(&handoff, None).is_ok());
+}

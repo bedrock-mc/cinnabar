@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -179,5 +180,17 @@ func TestAcquisitionBudgetReplacementDoesNotReserveSizeTwice(t *testing.T) {
 	}
 	if len(*causes) != 0 {
 		t.Fatalf("fallback transfers cancelled the join: %v", *causes)
+	}
+}
+
+// TestAcquisitionBudgetAdmitsLargeRequiredOffer covers experiences with archives above 64 MiB.
+func TestAcquisitionBudgetAdmitsLargeRequiredOffer(t *testing.T) {
+	const mib = 1024 * 1024
+	budget, causes := observedBudget(t, packInfos(72*mib, 3*mib, 7*mib))
+	if got := admitted(budget, 3); !slices.Equal(got, []bool{true, true, true}) {
+		t.Fatalf("required experience pack admission = %v, want all packs", got)
+	}
+	if len(*causes) != 0 {
+		t.Fatalf("offer cancelled acquisition: %v", *causes)
 	}
 }

@@ -1518,7 +1518,7 @@ func admitted(budget *resourcePackAcquisitionBudget, total int) []bool {
 // Packs past the count or byte bound are ignored individually, never fatal.
 func TestAcquisitionBudgetAdmitsOfferOrderWithinCountAndByteBounds(t *testing.T) {
 	const mib = 1024 * 1024
-	budget, _ := observedBudget(t, packInfos(10*mib, 65*mib, 60*mib, 60*mib, 8*mib))
+	budget, _ := observedBudget(t, packInfos(10*mib, maxResourcePackArchiveBytes+1, maxResourcePackArchiveBytes, maxResourcePackArchiveBytes, 8*mib))
 	if got, want := admitted(budget, 5), []bool{true, false, true, false, true}; !slices.Equal(got, want) {
 		t.Fatalf("admitted = %v, want %v", got, want)
 	}

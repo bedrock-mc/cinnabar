@@ -24,9 +24,9 @@ const (
 	// MaxSelectedPacks: Most selected server pack archives admitted for one join.
 	MaxSelectedPacks = 32
 	// MaxPackArchiveBytes: Largest admitted server pack archive in bytes.
-	MaxPackArchiveBytes = 67108864
+	MaxPackArchiveBytes = 134217728
 	// MaxSelectedPackBytes: Largest total selected server pack archives in bytes.
-	MaxSelectedPackBytes = 134217728
+	MaxSelectedPackBytes = 268435456
 	// SessionPackChunkBytes: Archive bytes in one resource-pack data frame.
 	SessionPackChunkBytes = 4194304
 	// LatencyTraceEnv: Names the directory both processes write packet latency traces to; unset disables tracing.

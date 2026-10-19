@@ -2064,6 +2064,11 @@ not close a parity or visual acceptance gate.
 
 ## Servers tab experiences
 
+- Required server packs use one generated admission policy across the Go core, Rust handoff
+  and archive parser: 128 MiB per archive and 256 MiB per selected stack. Large experience
+  offers remain subject to the existing transfer, entry and decompressed-content limits.
+  Live compatibility coverage beyond the tested catalog remains incomplete.
+
 - The Servers tab lists the ServerTab layout's experiences, joined by experience ID. The Go core
   now consumes typed player counts, using the service client's five-minute cache and retaining
   the last successful values on refresh failure. Counts are requested for visible experience
