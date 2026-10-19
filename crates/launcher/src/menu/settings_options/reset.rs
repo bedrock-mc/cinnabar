@@ -25,7 +25,10 @@ impl SettingsOptions {
     pub fn reset_group(&mut self, group: SettingsGroup) -> bool {
         let mut changed = false;
         for option in group.options() {
-            if option.id == SettingId::RenderDistance {
+            if matches!(
+                option.id,
+                SettingId::RenderDistance | SettingId::RenderResolution
+            ) {
                 changed |= self.values.remove(option.name).is_some();
             } else {
                 changed |= self.set(option.id.index(), option.default);

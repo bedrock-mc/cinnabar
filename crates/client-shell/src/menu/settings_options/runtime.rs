@@ -15,6 +15,13 @@ use launcher::menu::settings_options::{
 use {crate::menu::MenuRuntime, client_state::RuntimeSettings};
 
 impl MenuRuntime {
+    /// Applies the device's resolution default without persisting an inferred user choice.
+    pub fn sync_render_resolution_default(&mut self, percent: u8) {
+        if Arc::make_mut(&mut self.settings_options).set_render_resolution_default(percent) {
+            self.settings_apply = true;
+        }
+    }
+
     /// Refreshes untouched render distance from the selected device before settings publication.
     pub fn sync_render_distance_device(&mut self, device: ui::RenderDistanceDevice) {
         if Arc::make_mut(&mut self.settings_options).set_render_distance_device(device) {

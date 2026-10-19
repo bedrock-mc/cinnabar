@@ -14,6 +14,7 @@ pub mod layout;
 pub mod macro_modifier;
 pub mod persistence;
 pub mod render_distance;
+pub mod render_resolution;
 pub mod reset;
 pub mod runtime;
 pub mod touch_layout;
@@ -87,6 +88,8 @@ pub struct SettingsOptions {
     anti_aliasing_support: ui::AntiAliasingSupport,
     #[serde(skip)]
     render_distance_defaults: ui::RenderDistanceDefaults,
+    #[serde(skip)]
+    render_resolution_default: u8,
     keys: BTreeMap<String, u16>,
     /// Layout labels observed this session, independent of persisted bindings.
     #[serde(skip)]
@@ -108,6 +111,7 @@ impl Default for SettingsOptions {
             graphics_api_revision: 0,
             anti_aliasing_support: ui::AntiAliasingSupport::default(),
             render_distance_defaults: ui::RenderDistanceDefaults::default(),
+            render_resolution_default: ui::DEFAULT_RENDER_SCALE_PERCENT,
             keys: BTreeMap::new(),
             key_labels: BTreeMap::new(),
             language: None,
@@ -245,8 +249,11 @@ impl SettingsOptions {
             .copied()
             .unwrap_or_else(|| self.option_default(definition))
             == value
-            && (definition.id != SettingId::RenderDistance
-                || self.values.contains_key(definition.name))
+            && (self.values.contains_key(definition.name)
+                || !matches!(
+                    definition.id,
+                    SettingId::RenderDistance | SettingId::RenderResolution
+                ))
         {
             return false;
         }

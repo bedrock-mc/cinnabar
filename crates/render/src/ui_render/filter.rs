@@ -7,6 +7,7 @@
 //! reuses its composited pixels, so a static filter costs nothing after its first frame. Layers
 //! without filter batches draw exactly as before.
 
+use super::target::UiTarget;
 use super::*;
 use super::{
     backdrop::{Pyramid, UiBackdropPipeline, UiBackdropStore, pyramid},
@@ -49,7 +50,7 @@ pub(super) fn prepare<'a>(
     device: &RenderDevice,
     layouts: [&BindGroupLayout; 2],
     sampler: &Sampler,
-    views: impl Iterator<Item = (Entity, &'a ViewTarget)>,
+    views: impl Iterator<Item = (Entity, UiTarget<'a>)>,
 ) {
     let pipelines = [pipeline.downsample(cache), pipeline.filter_composite(cache)];
     for (entity, target) in views {
@@ -224,7 +225,8 @@ impl Blur<'_> {
         let profile = self.draw.world.get_resource::<profile::UiProfile>();
         let extent = self.targets.pyramid.scene;
         let sigma = super::backdrop_levels::batch_maximum(self.input, composite.1);
-        let Some(bounds) = group_bounds(self.input, run, sigma, extent) else {
+        let Some(bounds) = group_bounds(self.input, run, sigma, extent, self.draw.output_extent)
+        else {
             return (false, false);
         };
         let pyramid = &self.targets.pyramid;
@@ -298,6 +300,7 @@ impl Blur<'_> {
             self.draw.indices,
             self.draw.viewport,
             extent,
+            self.draw.output_extent,
             std::slice::from_ref(composite),
             None,
             Some(bounds),
@@ -314,6 +317,7 @@ pub(super) fn group_bounds(
     run: &[(usize, &UiRenderBatch, UiTextureLocation)],
     sigma: f32,
     extent: [u32; 2],
+    output_extent: Option<[u32; 2]>,
 ) -> Option<UiScissor> {
     let mut bounds = [
         f32::INFINITY,
@@ -338,6 +342,17 @@ pub(super) fn group_bounds(
             }
         }
     }
+    if let Some(output) = output_extent {
+        if output.contains(&0) {
+            return None;
+        }
+        for axis in 0..2 {
+            let scale = extent[axis] as f32 / output[axis] as f32;
+            bounds[axis] *= scale;
+            bounds[axis + 2] *= scale;
+        }
+    }
+    // The shader's blur radius remains in target pixels, including for scaled views.
     let spread = sigma.max(0.0) * 3.0 + 1.0;
     let left = (bounds[0] - spread).floor().max(0.0);
     let top = (bounds[1] - spread).floor().max(0.0);

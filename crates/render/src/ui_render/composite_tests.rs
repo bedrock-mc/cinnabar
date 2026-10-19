@@ -2,6 +2,77 @@ use super::*;
 use render_model::{UiRenderBatch, UiScissor, UiTextureCatalog, UiTexturePage};
 
 #[test]
+fn reduced_layers_defer_full_output_to_the_upscaler_and_follow_resize() {
+    use bevy::{
+        camera::{CameraMainTextureUsages, RenderTarget},
+        ecs::system::RunSystemOnce,
+        math::UVec4,
+        prelude::{GlobalTransform, Mat4},
+        render::{
+            camera::CameraMainPassTextureFormats,
+            texture::{OutputColorAttachment, TextureCache},
+            view::{RetainedViewEntity, ViewTargetAttachments, prepare_view_targets},
+        },
+    };
+    let mut world = super::super::ordered_command_tests::binding_world();
+    world.init_resource::<UiLayerStore>();
+    world.init_resource::<TextureCache>();
+    world.init_resource::<ClearColor>();
+    world.init_resource::<CameraMainPassTextureFormats>();
+    let device = world.resource::<RenderDevice>().clone();
+    let output = retained_layer(
+        &device,
+        Extent3d {
+            width: 800,
+            height: 600,
+            depth_or_array_layers: 1,
+        },
+    );
+    let target = RenderTarget::Window(bevy::window::WindowRef::Entity(Entity::PLACEHOLDER))
+        .normalize(None)
+        .unwrap();
+    let mut attachments = ViewTargetAttachments::default();
+    attachments.insert(
+        target.clone(),
+        OutputColorAttachment::new(output.view.clone(), output.texture.format()),
+    );
+    world.insert_resource(attachments);
+    let mut camera = crate::render_test_support::camera(false);
+    camera.target = Some(target);
+    let entity = world
+        .spawn((
+            camera,
+            ExtractedView {
+                retained_view_entity: RetainedViewEntity::new(Entity::PLACEHOLDER.into(), None, 0),
+                clip_from_view: Mat4::IDENTITY,
+                world_from_view: GlobalTransform::default(),
+                clip_from_world: None,
+                target_format: render_scene::SCENE_COLOR_FORMAT,
+                viewport: UVec4::new(0, 0, 800, 600),
+                color_grading: default(),
+                invert_culling: false,
+            },
+            CameraMainTextureUsages::default(),
+            Msaa::Off,
+        ))
+        .id();
+    for size in [[800, 600], [400, 300], [536, 402], [800, 600]] {
+        let mut camera = world.get_mut::<ExtractedCamera>(entity).unwrap();
+        camera.physical_target_size = Some(UVec2::from_array(size));
+        camera.physical_viewport_size = Some(UVec2::from_array(size));
+        world.run_system_once(prepare_view_targets).unwrap();
+        world.run_system_once(prepare_ui_layers).unwrap();
+        let layer = world.get::<UiLayerTexture>(entity).unwrap();
+        assert_eq!([layer.texture.width(), layer.texture.height()], size);
+        assert_eq!(
+            layer.direct_output,
+            size == [800, 600],
+            "integer-load composite needs matching output pixels"
+        );
+    }
+}
+
+#[test]
 fn composite_bindings_reuse_both_scene_orientations_and_expire_replaced_sources() {
     let world = super::super::ordered_command_tests::binding_world();
     let device = world.resource::<RenderDevice>();

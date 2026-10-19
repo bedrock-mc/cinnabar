@@ -16,6 +16,12 @@ pub const MAX_FOV_DEGREES: i32 = 130;
 
 /// Desktop vanilla starts with two coverage samples per pixel.
 pub const DEFAULT_ANTI_ALIASING_SAMPLES: u32 = 2;
+/// Lowest supported world-rendering resolution relative to the output.
+pub const MIN_RENDER_SCALE_PERCENT: u8 = 10;
+/// Native world-rendering resolution relative to the output.
+pub const MAX_RENDER_SCALE_PERCENT: u8 = 100;
+/// Native world resolution remains the default; menus and the HUD stay at output resolution.
+pub const DEFAULT_RENDER_SCALE_PERCENT: u8 = MAX_RENDER_SCALE_PERCENT;
 #[path = "settings/render_distance.rs"]
 mod render_distance;
 pub use render_distance::{
@@ -185,6 +191,8 @@ pub struct VideoSettings {
     pub vsync: bool,
     pub vrr: VrrPreference,
     pub anti_aliasing_samples: u32,
+    /// World resolution relative to the output; menus and the HUD stay at output resolution.
+    pub render_scale_percent: u8,
     pub motion_blur: MotionBlurQuality,
     pub smaa_mode: SmaaMode,
     pub ui_scale: f32,
@@ -225,6 +233,7 @@ impl Default for VideoSettings {
             vsync: true,
             vrr: VrrPreference::Automatic,
             anti_aliasing_samples: DEFAULT_ANTI_ALIASING_SAMPLES,
+            render_scale_percent: DEFAULT_RENDER_SCALE_PERCENT,
             motion_blur: MotionBlurQuality::default(),
             smaa_mode: DEFAULT_SMAA_MODE,
             ui_scale: 1.0,
