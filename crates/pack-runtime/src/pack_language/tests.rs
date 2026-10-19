@@ -86,3 +86,42 @@ fn invalid_language_layer_preserves_other_pack_definitions() {
     assert_eq!(table.lookup("test.shared"), Some("After"));
     assert_eq!(table.lookup("test.higher"), Some("Higher=value"));
 }
+
+#[test]
+fn enabling_a_pack_after_an_empty_stack_reloads_translations() {
+    use crate::reload_diff::{Changes, Dependencies, Subscriber, compile, compile_part};
+
+    let empty = layered_pack_view(&[]).shared_stack();
+    assert!(empty.packs().is_empty());
+    let mut dependencies = Dependencies::default();
+    let previous = compile(
+        Subscriber::Language,
+        &empty,
+        &mut dependencies,
+        merged_server_lang,
+    );
+    assert!(previous.is_none());
+
+    let enabled = english("test.title=Enabled\n".into()).shared_stack();
+    let admission = resource_pack::PackAdmission::Validated(empty);
+    let changes = Changes::between(&enabled, Some((&admission, &dependencies)));
+    assert!(
+        changes.language,
+        "enabling a pack must invalidate the empty overlay"
+    );
+    let (reloaded, _) = compile_part(
+        &enabled,
+        &|| false,
+        changes.language,
+        Subscriber::Language,
+        previous,
+        merged_server_lang,
+    )
+    .expect("reload was not cancelled");
+    assert_eq!(
+        reloaded
+            .expect("enabled language overlay")
+            .lookup("test.title"),
+        Some("Enabled")
+    );
+}

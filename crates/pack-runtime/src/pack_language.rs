@@ -38,6 +38,8 @@ pub fn merged_server_lang(view: &LayeredPackView) -> Option<Arc<assets::ServerLa
         .into_iter()
         .flatten()
         .flat_map(|path| {
+            // Constructing the lazy reader records this path even when there are no layers.
+            let _ = view.read_layers_capped(path, u64::MAX);
             view.layers().enumerate().filter_map(move |(layer_index, layer)| {
                 match layer.read_file(path) {
                     Ok(source) => source,
