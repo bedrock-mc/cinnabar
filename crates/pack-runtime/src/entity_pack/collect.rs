@@ -15,6 +15,7 @@ use crate::pack_textures::parse_pack_json;
 thread_local! {
     static PEAK_ENTITY_PAYLOAD_BYTES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static PEAK_DEFINITION_DOCUMENTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static PEAK_GEOMETRY_BATCH_BYTES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 const DEFINITION_FAMILIES: [(&str, &str, &str); 3] = [
@@ -130,10 +131,14 @@ pub fn collect_files(
         mut references,
     } = unique_entities(view);
     let mut geometry = unshadowed_geometry(view);
-    let pack_geometry = geometry
-        .par_iter()
-        .flat_map_iter(|(_, bytes)| geometry_identifiers(bytes))
-        .collect::<BTreeSet<_>>();
+    let mut pack_geometry = BTreeSet::new();
+    for batch in bounded_batches(&geometry, |(_, bytes)| bytes.len() as u64) {
+        pack_geometry.par_extend(
+            batch
+                .par_iter()
+                .flat_map_iter(|(_, bytes)| geometry_identifiers(bytes)),
+        );
+    }
     let definitions = DEFINITION_FAMILIES
         .map(|(prefix, key, merged)| (key, merged, merged_definitions(view, prefix, key)));
     let mut overrides = pack_geometry.clone();
@@ -325,23 +330,36 @@ fn material_definitions(view: &LayeredPackView) -> Option<Vec<u8>> {
     serde_json::to_vec(&serde_json::json!({"materials": materials})).ok()
 }
 
-/// Bounds parallel JSON input by workers and one source's byte budget; larger files run alone.
-fn parse_batch_len(paths: &[&str], size: impl Fn(&str) -> Option<u64>) -> usize {
-    let mut bytes = 0u64;
-    let end = paths.len().min(rayon::current_num_threads());
-    for (index, path) in paths[..end].iter().enumerate() {
-        let length = if path.ends_with(".json") {
-            size(path).unwrap_or(0)
-        } else {
-            0
-        };
-        let next = bytes.saturating_add(length);
-        if index > 0 && next > assets::MAX_ENTITY_SOURCE_BYTES as u64 {
-            return index;
+/// Splits `items` into parallel batches bounded by workers and one source's byte budget;
+/// a larger item runs alone.
+fn bounded_batches<T>(mut items: &[T], size: impl Fn(&T) -> u64) -> Vec<&[T]> {
+    let mut batches = Vec::new();
+    while !items.is_empty() {
+        let end = items.len().min(rayon::current_num_threads());
+        let mut bytes = 0u64;
+        let mut len = end;
+        for (index, item) in items[..end].iter().enumerate() {
+            let next = bytes.saturating_add(size(item));
+            if index > 0 && next > assets::MAX_ENTITY_SOURCE_BYTES as u64 {
+                len = index;
+                break;
+            }
+            bytes = next;
         }
-        bytes = next;
+        let (batch, rest) = items.split_at(len);
+        batches.push(batch);
+        items = rest;
     }
-    end
+    batches
+}
+
+/// A JSON source's stored size bounds its parse; other files are not parsed.
+fn json_size(path: &str, size: Option<u64>) -> u64 {
+    if path.ends_with(".json") {
+        size.unwrap_or(0)
+    } else {
+        0
+    }
 }
 
 /// Named definitions of `prefix` files, lowest layer first so a higher one replaces a name.
@@ -349,11 +367,7 @@ fn merged_definitions(view: &LayeredPackView, prefix: &str, key: &str) -> Map<St
     let mut merged = Map::new();
     for layer in view.layers() {
         let paths = layer.files_under(prefix);
-        let mut paths = paths.as_ref();
-        while !paths.is_empty() {
-            let (batch, rest) =
-                paths.split_at(parse_batch_len(paths, |path| layer.file_size(path)));
-            paths = rest;
+        for batch in bounded_batches(&paths, |path| json_size(path, layer.file_size(path))) {
             let definitions = batch
                 .par_iter()
                 .copied()
@@ -388,11 +402,7 @@ fn unique_entities(view: &LayeredPackView) -> CollectedEntities {
     let mut owners = BTreeMap::new();
     for layer in view.layers() {
         let paths = layer.files_under("entity/");
-        let mut paths = paths.as_ref();
-        while !paths.is_empty() {
-            let (batch, rest) =
-                paths.split_at(parse_batch_len(paths, |path| layer.file_size(path)));
-            paths = rest;
+        for batch in bounded_batches(&paths, |path| json_size(path, layer.file_size(path))) {
             let entities = batch
                 .par_iter()
                 .copied()
@@ -450,18 +460,30 @@ fn unique_entities(view: &LayeredPackView) -> CollectedEntities {
 fn unshadowed_geometry(view: &LayeredPackView) -> Vec<(Box<str>, Vec<u8>)> {
     let mut files = Vec::new();
     for layer in view.layers() {
-        let layer_files = layer
-            .files_under("models/")
-            .into_par_iter()
-            .map(|path| {
-                if !path.ends_with(".json") {
-                    return None;
-                }
-                let bytes = layer.read_file(path).ok()??;
-                Some((path.into(), canonical_json(&bytes)?))
-            })
-            .collect::<Vec<_>>();
-        files.extend(layer_files.into_iter().flatten());
+        let paths = layer.files_under("models/");
+        for batch in bounded_batches(&paths, |path| json_size(path, layer.file_size(path))) {
+            #[cfg(test)]
+            PEAK_GEOMETRY_BATCH_BYTES.update(|peak| {
+                peak.max(
+                    batch
+                        .iter()
+                        .filter_map(|path| layer.file_size(path))
+                        .sum::<u64>(),
+                )
+            });
+            let parsed = batch
+                .par_iter()
+                .copied()
+                .map(|path| {
+                    if !path.ends_with(".json") {
+                        return None;
+                    }
+                    let bytes = layer.read_file(path).ok()??;
+                    Some((path.into(), canonical_json(&bytes)?))
+                })
+                .collect::<Vec<_>>();
+            files.extend(parsed.into_iter().flatten());
+        }
     }
     pack_entity_compiler::select_entity_geometry(files)
 }
@@ -489,6 +511,15 @@ fn geometry_identifiers(bytes: &[u8]) -> Vec<String> {
 
 /// Texture path stems (no extension) named by any string in the entity sources.
 fn referenced_textures(files: &[(Box<str>, Vec<u8>)]) -> BTreeSet<String> {
+    let mut stems = BTreeSet::new();
+    for batch in bounded_batches(files, |(_, bytes)| bytes.len() as u64) {
+        stems.extend(batch_texture_stems(batch));
+    }
+    stems
+}
+
+/// Texture stems named by one bounded batch of sources.
+fn batch_texture_stems(files: &[(Box<str>, Vec<u8>)]) -> BTreeSet<String> {
     files
         .par_iter()
         .map(|(path, bytes)| {

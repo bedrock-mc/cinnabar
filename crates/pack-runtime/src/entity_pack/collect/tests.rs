@@ -739,3 +739,39 @@ fn entity_collection_memory_releases_superseded_payloads() {
             );
         });
 }
+
+#[test]
+fn geometry_collection_bounds_parallel_parse_input() {
+    let padding = "x".repeat(3 * 1024 * 1024);
+    let files = (0..6)
+        .map(|index| {
+            (
+                format!("models/entity/large_{index}.json"),
+                json!({"format_version":"1.12.0","minecraft:geometry":[{"description":
+                    {"identifier":format!("geometry.large_{index}")}}],"padding":padding})
+                .to_string()
+                .into_bytes(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let largest = files.iter().map(|(_, bytes)| bytes.len()).max().unwrap() as u64;
+    let entries = files
+        .iter()
+        .map(|(path, bytes)| (path.as_str(), bytes.as_slice()))
+        .collect::<Vec<_>>();
+    let stack = crate::test_support::stack(&entries);
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build()
+        .unwrap()
+        .install(|| {
+            super::PEAK_GEOMETRY_BATCH_BYTES.set(0);
+            let view = resource_pack::LayeredPackView::new(stack);
+            assert_eq!(super::unshadowed_geometry(&view).len(), 6);
+            let peak = super::PEAK_GEOMETRY_BATCH_BYTES.get();
+            assert!(
+                peak <= (assets::MAX_ENTITY_SOURCE_BYTES as u64).max(largest),
+                "parsed {peak} geometry input bytes in one parallel batch"
+            );
+        });
+}
