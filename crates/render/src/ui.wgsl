@@ -122,7 +122,14 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
     // bled a column of the neighbouring glyph in on the right. Model extrusion
     // side faces instead supply native fractional texel centers; preserve those too.
     // Preserve source interpolation and SDF derivatives when a glyph moves in the atlas.
-    let sample_uv = input.uv + input.atlas_offset;
+    var sample_uv = input.uv + input.atlas_offset;
+    let particle = (input.style_flags & STYLE_PARTICLE) != 0u;
+    if particle && all(input.overlay_color.zw > vec2<f32>(0.0)) {
+        let low = input.overlay_color.xy + input.atlas_offset + vec2<f32>(0.5);
+        let high = input.overlay_color.xy + input.overlay_color.zw
+            + input.atlas_offset - vec2<f32>(0.5);
+        sample_uv = clamp(sample_uv, low, max(low, high));
+    }
     let normalized_uv = sample_uv / dimensions;
     let native_font = (input.style_flags & STYLE_FONT_GAMMA) != 0u;
     let sdf_font = (input.style_flags & STYLE_FONT_SDF) != 0u;
@@ -163,14 +170,16 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
         if (input.style_flags & STYLE_ALPHA_TEST) != 0u { sample.a = 1.0; }
         if sample.a * input.color.a < 0.01 { discard; }
     }
+    // Particle vertices carry sprite bounds in the overlay field.
+    let entity_overlay = select(input.overlay_color, vec4<f32>(0.0), particle);
     var straight_color = input.color;
     // Mix the render-controller overlay into sampled RGB before lighting.
     // Sampled and node alpha remain unchanged.
-    var model_rgb = mix(sample.rgb * straight_color.rgb, input.overlay_color.rgb, input.overlay_color.a);
+    var model_rgb = mix(sample.rgb * straight_color.rgb, entity_overlay.rgb, entity_overlay.a);
     let color_mask = (input.style_flags & STYLE_COLOR_MASK) != 0u;
     if color_mask {
         model_rgb = mix(mix(sample.rgb, sample.rgb * straight_color.rgb, sample.a),
-            input.overlay_color.rgb, input.overlay_color.a);
+            entity_overlay.rgb, entity_overlay.a);
         sample.a = 1.0;
     }
     if direct {
@@ -180,7 +189,7 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
             model_rgb = srgb_to_linear(model_rgb);
         } else {
             model_rgb = mix(sample.rgb * straight_color.rgb,
-                srgb_to_linear(input.overlay_color.rgb), input.overlay_color.a);
+                srgb_to_linear(entity_overlay.rgb), entity_overlay.a);
         }
     }
     let alpha = sample.a * straight_color.a;

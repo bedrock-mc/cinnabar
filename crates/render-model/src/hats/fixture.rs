@@ -217,3 +217,22 @@ pub fn sprite_crown() -> Item {
         super::admit(item, include_bytes!("crown.geo.json"), include_bytes!("crown.png"), &animation).unwrap()
     })
 }
+
+/// Admits an original moving spark fountain for readable paper-doll captures.
+pub fn sparkling_crown() -> Item {
+    static ITEM: OnceLock<Item> = OnceLock::new();
+    *ITEM.get_or_init(|| {
+        let mut effect: serde_json::Value = serde_json::from_str(EMITTER_EFFECT).unwrap();
+        let components = &mut effect["particle_effect"]["components"];
+        components["minecraft:emitter_rate_steady"] = serde_json::json!({"spawn_rate": 8, "max_particles": 16});
+        components["minecraft:emitter_shape_point"] = serde_json::json!({"offset": ["math.random(-0.35, 0.35)", 0, "math.random(-0.35, 0.35)"]});
+        components["minecraft:particle_initial_speed"] = serde_json::json!([0, 0.25, 0]);
+        components["minecraft:particle_motion_dynamic"] = serde_json::json!({});
+        components["minecraft:particle_appearance_billboard"]["size"] = serde_json::json!([0.025, 0.025]);
+        let animation = serde_json::to_vec(&serde_json::json!({"particles": [{"bone": "head", "offset": [0, 10, 0], "effect": effect}]})).unwrap();
+        let mut item = glowing_crown().descriptor().clone();
+        item.id = "fixture:sparkling_crown".into();
+        item.assets.animation = Some(animation_asset(&animation));
+        super::admit(item, include_bytes!("crown.geo.json"), include_bytes!("crown.png"), &animation).unwrap()
+    })
+}

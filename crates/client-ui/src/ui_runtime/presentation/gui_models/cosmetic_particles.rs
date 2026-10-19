@@ -235,20 +235,11 @@ fn particle_mesh(draw: &particles::DrawLists, page: u16, side: u32) -> Option<Ar
                 let point: [f32; 3] = std::array::from_fn(|i| {
                     instance.center_light[i] + instance.axis_x[i] * x + instance.axis_y[i] * y
                 });
-                let mut uv = [
+                let uv = [
                     instance.uv[0] + (x * 0.5 + 0.5) * instance.uv[2],
                     instance.uv[1] + (0.5 - y * 0.5) * instance.uv[3],
                 ]
                 .map(|v| v * side as f32);
-                if instance.texture_bounds[2] > 0.0 && instance.texture_bounds[3] > 0.0 {
-                    for (i, value) in uv.iter_mut().enumerate() {
-                        let low = instance.texture_bounds[i] * side as f32 + 0.5;
-                        let high = (instance.texture_bounds[i] + instance.texture_bounds[i + 2])
-                            * side as f32
-                            - 0.5;
-                        *value = value.clamp(low, high.max(low));
-                    }
-                }
                 vertices.push(UiMeshVertex {
                     position: [
                         (player_preview::PREVIEW_WIDTH as f32 * 0.5
@@ -265,7 +256,7 @@ fn particle_mesh(draw: &particles::DrawLists, page: u16, side: u32) -> Option<Ar
                         .color
                         .map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8),
                     model_light: 1.0,
-                    overlay_color: [0.0; 4],
+                    overlay_color: instance.texture_bounds.map(|value| value * side as f32),
                     style_flags: u16::try_from(
                         render_model::UI_STYLE_PARTICLE
                             | if additive {

@@ -6,6 +6,15 @@ use std::sync::Arc;
 
 use ui::{UiBlendMode, UiDrawBatch, UiDrawList, UiVertex};
 
+/// Applies the particle source bounds after triangle interpolation, as the GPU shader does.
+fn particle_uv(uv: [f32; 2], vertex: &UiVertex) -> [f32; 2] {
+    if u32::from(vertex.style_flags) & render_model::UI_STYLE_PARTICLE != 0 {
+        render_model::ui_particle_uv(uv, vertex.overlay_color)
+    } else {
+        uv
+    }
+}
+
 /// An RGBA8 (straight alpha) image a batch samples, in texel coordinates.
 #[derive(Clone, Debug)]
 pub struct Page {
@@ -156,7 +165,7 @@ impl Canvas {
                 let fx = (x as f32 + 0.5 - x0) / w;
                 let texel = shaded_sample(
                     texture,
-                    [u0 + (u1 - u0) * fx, tv],
+                    particle_uv([u0 + (u1 - u0) * fx, tv], v[0]),
                     color,
                     v[0].style_flags,
                     scale,
@@ -239,7 +248,10 @@ impl Canvas {
                     (straight(mixed), [255; 4])
                 } else {
                     let scale = texels_per_pixel(&v);
-                    (shaded_sample(texture, [u, t], color, flags, scale), color)
+                    (
+                        shaded_sample(texture, particle_uv([u, t], v[0]), color, flags, scale),
+                        color,
+                    )
                 };
                 let at = y as usize * self.width as usize + x as usize;
                 blend_styled(&mut self.pixels[at], texel, tint, blend, flags);
@@ -479,6 +491,41 @@ mod tests {
         .unwrap()
         .build_draw_list()
         .unwrap()
+    }
+
+    #[test]
+    fn particle_sprite_columns_keep_equal_width_and_stay_inside_source_bounds() {
+        let texture = Page {
+            width: 18,
+            height: 1,
+            rgba: (0..18).flat_map(|i| [i * 10, 0, 0, 255]).collect(),
+        };
+        let mut list = quad();
+        for vertex in &mut list.vertices {
+            vertex.uv = [1.0 + vertex.position[0] * 4.0, 0.5];
+            vertex.position[0] *= 8.0;
+            vertex.overlay_color = [1.0, 0.0, 16.0, 1.0];
+            vertex.style_flags = render_model::UI_STYLE_PARTICLE as u16;
+        }
+        list.batches[0].clip = rect(0., 0., 32., 4.);
+        for draw in [&list, &triangle(list.clone())] {
+            let mut canvas = Canvas::new(32, 4);
+            canvas.draw(draw, |_| Some(&texture));
+            for (x, pixel) in canvas.into_rgba().as_chunks::<4>().0[..32]
+                .iter()
+                .enumerate()
+            {
+                if pixel[3] != 0 {
+                    assert_eq!(*pixel, [((x / 2 + 1) * 10) as u8, 0, 0, 255]);
+                }
+            }
+        }
+        for u in [-100.0, 100.0] {
+            assert_eq!(
+                render_model::ui_particle_uv([u, 0.5], [1., 0., 16., 1.])[0],
+                if u < 0.0 { 1.5 } else { 16.5 }
+            );
+        }
     }
 
     #[test]

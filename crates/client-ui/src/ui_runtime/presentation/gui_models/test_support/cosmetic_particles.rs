@@ -21,7 +21,7 @@ pub fn cosmetic_particle_preview(
         })
         .collect();
     runtime.gui_models.skin = Some(UiTexturePage::owned([64; 2], skin.into()).unwrap());
-    let item = render_model::hats::fixture::glowing_crown();
+    let item = render_model::hats::fixture::sparkling_crown();
     let model = render_model::hats::rig(item);
     runtime.set_preview_cosmetics(&[item]);
     runtime.player_preview_view = view;

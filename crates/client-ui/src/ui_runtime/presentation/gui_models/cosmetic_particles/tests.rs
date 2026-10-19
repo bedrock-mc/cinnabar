@@ -58,8 +58,8 @@ fn paper_dolls_draw_authored_particles_without_a_world() {
         assert!(mesh.vertices()[particles.index_range.start as usize].alpha_test);
         let texture = runtime.gui_models.particles.page.as_ref().unwrap();
         let vertex = &mesh.vertices()[particles.index_range.start as usize];
-        let offset =
-            (vertex.uv[1] as usize * texture.dimensions()[0] as usize + vertex.uv[0] as usize) * 4;
+        let uv = render_model::ui_particle_uv(vertex.uv, vertex.overlay_color);
+        let offset = (uv[1] as usize * texture.dimensions()[0] as usize + uv[0] as usize) * 4;
         assert_eq!(&texture.pixels()[offset..offset + 4], &[255, 80, 20, 255]);
         let texture = texture.clone();
         runtime.menu_seconds += 0.125;
@@ -193,7 +193,8 @@ fn cosmetic_sprites_render_without_an_installed_particle_carrier() {
     let particles = &runtime.gui_models.particles;
     let mesh = particles.mesh.as_ref().unwrap();
     let page = particles.page.as_ref().unwrap();
-    let uv = mesh.vertices()[0].uv;
+    let vertex = mesh.vertices()[0];
+    let uv = render_model::ui_particle_uv(vertex.uv, vertex.overlay_color);
     let at = (uv[1] as usize * page.dimensions()[0] as usize + uv[0] as usize) * 4;
     let sprite = hats::rig(item).emitters()[0].sprite.as_ref().unwrap();
     let side = hats::COSMETIC_SPRITE_SIDE as usize;
@@ -241,4 +242,28 @@ fn changing_hud_actor_identity_restarts_preview_effects() {
     runtime.menu_seconds = 0.75;
     runtime.sync_player_particles(true);
     assert!(runtime.gui_models.particles.mesh.is_some());
+}
+
+#[test]
+fn particle_sprite_edges_survive_mesh_projection_until_fragment_sampling() {
+    let instance = particles::ParticleInstance {
+        center_light: [0.0, 1.0, 0.0, 0.0],
+        axis_x: [0.1, 0.0, 0.0, 0.0],
+        axis_y: [0.0, 0.1, 0.0, 0.0],
+        uv: [0.25, 0.5, 16.0 / 1024.0, 16.0 / 1024.0],
+        texture_bounds: [0.25, 0.5, 16.0 / 1024.0, 16.0 / 1024.0],
+        color: [1.0; 4],
+    };
+    let mesh = particle_mesh(
+        &particles::DrawLists {
+            blend: vec![instance],
+            ..Default::default()
+        },
+        3,
+        1024,
+    )
+    .unwrap();
+    assert_eq!(mesh.vertices()[0].uv, [256.0, 528.0]);
+    assert_eq!(mesh.vertices()[2].uv, [272.0, 512.0]);
+    assert_eq!(mesh.vertices()[0].overlay_color, [256.0, 512.0, 16.0, 16.0]);
 }
