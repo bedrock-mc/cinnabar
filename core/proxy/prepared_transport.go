@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"sync/atomic"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/joinprofile"
 	"github.com/sandertv/gophertunnel/minecraft"
 )
 
@@ -39,9 +40,12 @@ func newPreparedTransport(ctx context.Context, network minecraft.Network, addres
 		}()
 		prepared.selected = network
 		if addressed, ok := network.(addressedServerNetwork); ok {
+			selectionDone := joinprofile.Stage(ctx, "transport_selection")
 			if prepared.selected, prepared.err = addressed.Select(ctx, address); prepared.err != nil {
+				selectionDone()
 				return
 			}
+			selectionDone()
 		}
 		if _, ok := prepared.selected.(identityProviderDialer); ok {
 			return // NetherNet proves possession during setup, so it dials after authentication
@@ -82,6 +86,7 @@ type identityProviderDialer interface {
 
 // claim takes the single handoff and waits for setup to finish.
 func (prepared *preparedTransport) claim(ctx context.Context, address string) error {
+	joinprofile.Mark(ctx, "authentication_ready")
 	if address != prepared.address {
 		return errors.New("proxy: prepared transport target changed")
 	}

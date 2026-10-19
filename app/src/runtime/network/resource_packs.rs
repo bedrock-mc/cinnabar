@@ -137,7 +137,10 @@ pub(super) fn prepare_join(
     cancelled: &(dyn Fn() -> bool + Sync),
     bases: JoinBases<'_>,
 ) -> Option<Result<PackApplication, pack_runtime::RequiredPackRejected>> {
-    let prepare = || prepare_join_with(&reuse::LATEST, preparation, game_data, cancelled, bases);
+    let profile = bridge::join_profile::JoinProfile::current();
+    let prepare = || {
+        profile.run(|| prepare_join_with(&reuse::LATEST, preparation, game_data, cancelled, bases))
+    };
     #[cfg(not(target_arch = "wasm32"))]
     if preparation.has_applied_packs() {
         return chunk_pipeline::on_idle_world_cores(prepare);
@@ -301,8 +304,10 @@ fn compile_application(
     let mut block_entity_art = None;
     // The entity compile checks cancellation between its own steps, as it outlasts the rest.
     let mut entities_stopped = false;
+    let profile = bridge::join_profile::JoinProfile::current();
     scope(|scope| {
         scope.spawn(|_| {
+            let _binding = profile.enter();
             block_entity_art = compile_part(
                 &stack,
                 cancelled,
@@ -313,6 +318,7 @@ fn compile_application(
             );
         });
         scope.spawn(|_| {
+            let _binding = profile.enter();
             aim_assist = compile_part(
                 &stack,
                 cancelled,
@@ -325,6 +331,7 @@ fn compile_application(
             );
         });
         scope.spawn(|_| {
+            let _binding = profile.enter();
             blocks = compile_part(
                 &stack,
                 cancelled,
@@ -409,6 +416,7 @@ fn compile_application(
             );
         });
         scope.spawn(|_| {
+            let _binding = profile.enter();
             language = compile_part(
                 &stack,
                 cancelled,
@@ -419,6 +427,7 @@ fn compile_application(
             );
         });
         scope.spawn(|_| {
+            let _binding = profile.enter();
             glyphs = compile_part(
                 &stack,
                 cancelled,
@@ -429,6 +438,7 @@ fn compile_application(
             );
         });
         scope.spawn(|_| {
+            let _binding = profile.enter();
             entities = compile_part(
                 &stack,
                 cancelled,
@@ -447,6 +457,7 @@ fn compile_application(
             );
         });
         scope.spawn(|_| {
+            let _binding = profile.enter();
             artwork = compile_part(
                 &stack,
                 cancelled,
@@ -457,6 +468,7 @@ fn compile_application(
             );
         });
         scope.spawn(|_| {
+            let _binding = profile.enter();
             ui = compile_part(
                 &stack,
                 cancelled,
@@ -467,6 +479,7 @@ fn compile_application(
             );
         });
         scope.spawn(|_| {
+            let _binding = profile.enter();
             sounds = compile_part(
                 &stack,
                 cancelled,

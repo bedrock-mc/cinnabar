@@ -110,6 +110,16 @@ pub enum AdmissionError {
     InvalidFileData,
 }
 
+impl From<zip_footer::FooterError> for AdmissionError {
+    fn from(error: zip_footer::FooterError) -> Self {
+        match error {
+            zip_footer::FooterError::Invalid => Self::InvalidZipFooter,
+            zip_footer::FooterError::Zip64 => Self::UnsupportedZip64,
+            zip_footer::FooterError::TooManyEntries => Self::TooManyEntries,
+        }
+    }
+}
+
 /// Admission result carried with StartGame. Dropped packs never fail the session.
 #[derive(Clone, Debug)]
 pub enum PackAdmission {

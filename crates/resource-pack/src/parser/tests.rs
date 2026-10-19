@@ -3,6 +3,7 @@ use std::io::Write;
 use zip::{ZipWriter, write::SimpleFileOptions};
 
 use super::*;
+use zip_footer::EOCD_MIN_BYTES;
 
 const PACK_ID: Uuid = Uuid::from_u128(0x11111111_2222_3333_4444_555555555555);
 const MODULE_ID: Uuid = Uuid::from_u128(0xaaaaaaaa_bbbb_cccc_dddd_eeeeeeeeeeee);

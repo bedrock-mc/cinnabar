@@ -49,7 +49,12 @@ pub fn compile<T>(
     dependencies: &mut Dependencies,
     build: impl FnOnce(&resource_pack::LayeredPackView) -> T,
 ) -> T {
-    let _zone = subscriber.zone().entered();
+    let zone = subscriber.zone();
+    let _timing = bridge::join_profile::JoinProfile::current().stage(
+        zone.metadata()
+            .map_or("pack.compile", |metadata| metadata.name()),
+    );
+    let _zone = zone.entered();
     let view = resource_pack::LayeredPackView::tracked(stack.clone());
     let output = build(&view);
     let inputs = view.dependencies().expect("tracked view").snapshot();

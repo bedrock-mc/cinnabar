@@ -212,6 +212,26 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
         }
     }
 
+    /// Inspects the core terminal retained by read-ahead without consuming or reordering frames.
+    /// Startup may abandon preparation on this boundary; play must retain ordinary FIFO delivery.
+    pub(crate) fn buffered_startup_terminal(&self) -> Result<Option<Terminal>, SessionError> {
+        let Some(Some(Ok(frame))) = self.ahead.back() else {
+            return Ok(None);
+        };
+        if crate::session_wire::batch_frame_body(frame).is_some() {
+            return Ok(None);
+        }
+        Ok(
+            match crate::session_wire::decode_core_message(frame.clone())
+                .map_err(SessionFailure::Transport)?
+            {
+                CoreMessage::Transfer(transfer) => Some(Terminal::Transfer(transfer)),
+                CoreMessage::Disconnect(disconnect) => Some(Terminal::Disconnect(disconnect)),
+                _ => None,
+            },
+        )
+    }
+
     /// Reads core frames ahead of [`Self::recv`], unparsed, until `max_bytes` are held or the core
     /// ends the session, so short preparation or world-admission pauses do not block the core.
     /// Cancelling the wait loses nothing.

@@ -46,6 +46,8 @@ pub struct RasterState {
     pub layout: Option<wgpu::PipelineLayout>,
     pub primitive: wgpu::PrimitiveState,
     pub depth_compare: wgpu::CompareFunction,
+    /// Optional depth comparison for each draw in a mixed-material fixture.
+    pub depth_compares: Vec<wgpu::CompareFunction>,
     pub write_mask: wgpu::ColorWrites,
     pub multisample: wgpu::MultisampleState,
     /// Optional per-draw polygon offsets, applied after clipping and rasterization.
@@ -74,6 +76,7 @@ impl Default for RasterState {
             layout: None,
             primitive: Default::default(),
             depth_compare: wgpu::CompareFunction::GreaterEqual,
+            depth_compares: Vec::new(),
             write_mask: wgpu::ColorWrites::ALL,
             multisample: Default::default(),
             depth_biases: Vec::new(),
@@ -446,7 +449,13 @@ impl Gpu {
                     depth_stencil: Some(wgpu::DepthStencilState {
                         format: wgpu::TextureFormat::Depth32Float,
                         depth_write_enabled: Some(draw.write_depth),
-                        depth_compare: Some(state.depth_compare),
+                        depth_compare: Some(
+                            state
+                                .depth_compares
+                                .get(index)
+                                .copied()
+                                .unwrap_or(state.depth_compare),
+                        ),
                         stencil: Default::default(),
                         bias: state.depth_biases.get(index).copied().unwrap_or_default(),
                     }),

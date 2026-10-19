@@ -442,6 +442,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     ui_presentation
         .set_gui_models(&loaded_assets.runtime, &entity_runtime)
         .context("prepare native GUI model geometry and original texture pages")?;
+    ui_presentation.set_gui_particle_assets(particle_assets.clone());
     ui_presentation
         .set_gui_fire_texture(flame_texture)
         .context("prepare native HUD actor flame texture frames")?;

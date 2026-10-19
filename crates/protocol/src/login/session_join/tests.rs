@@ -637,3 +637,5 @@ async fn invalid_spawn_prerequisites_are_recorded_as_failed() {
 }
 
 mod prepared;
+
+mod preparation_terminal;

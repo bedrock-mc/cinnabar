@@ -72,7 +72,7 @@ const fn tab(section: launcher::menu::settings_sections::SettingSection) -> Tab 
             Glyph::Grid,
             Some("options.general"),
         ),
-        Updates => (None, [64, 113, 78], Glyph::Download, Some("Application")),
+        Updates => (None, [64, 113, 78], Glyph::Download, None),
         Video => (
             Some(SETTINGS_ICONS[6]),
             [193, 142, 62],

@@ -33,6 +33,9 @@ const START_GAME_PACKET_ID: u32 = PacketId::StartGame as u32;
 #[serde(deny_unknown_fields)]
 pub struct ConnectRequest {
     pub protocol: i32,
+    /// Optional local diagnostic correlation; omitted in shipping builds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub join_profile_id: Option<u64>,
     /// `None` joins the core's current selection, which follows a pending server transfer.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<ConnectTarget>,

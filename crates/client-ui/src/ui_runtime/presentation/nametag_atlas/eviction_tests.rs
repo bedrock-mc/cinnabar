@@ -1,3 +1,4 @@
+use super::super::nametags::NAMETAG_RECORDS_PER_LINE;
 use super::*;
 use std::cell::Cell;
 
@@ -232,7 +233,10 @@ fn cache_pressure_preserves_complete_label_records_and_rasterizes_only_the_miss(
         .filter(|record| record.anchor[0] != 4.0)
         .collect();
     assert_eq!(before.records, retained);
-    assert_eq!(after.records.len(), before.records.len() + 3);
+    assert_eq!(
+        after.records.len(),
+        before.records.len() + NAMETAG_RECORDS_PER_LINE
+    );
     for old in before.atlas.iter() {
         assert!(
             after
@@ -248,7 +252,7 @@ fn labels_outside_the_record_budget_do_not_block_admission() {
     use super::super::nametags::{MAX_PRESENTED_NAMETAGS, build_nametag_scene, tests::anchor};
     let mut atlas = NametagAtlas::default();
     let mut anchors = vec![anchor("A")];
-    let lines = render_model::MAX_NAMETAG_RECORDS / 3;
+    let lines = render_model::MAX_NAMETAG_RECORDS / NAMETAG_RECORDS_PER_LINE;
     anchors[0].lines = vec![Arc::from("A"); lines].into();
     anchors[0].view_depth = 10.0;
     for first in (0..MAX_ATLAS_LINES).step_by(MAX_PRESENTED_NAMETAGS) {
@@ -278,7 +282,7 @@ fn labels_outside_the_record_budget_do_not_block_admission() {
         },
     );
     assert_eq!(reads.get(), 1);
-    assert_eq!(scene.records.len(), lines * 3);
+    assert_eq!(scene.records.len(), lines * NAMETAG_RECORDS_PER_LINE);
     assert!(
         scene
             .records
@@ -598,7 +602,10 @@ fn reclaiming_a_tall_cell_releases_its_tail_without_moving_short_requested_cells
     protected.runtime_id = 0;
     anchors.insert(0, protected);
     let after = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
-    assert_eq!(after.records.len(), anchors.len() * 3);
+    assert_eq!(
+        after.records.len(),
+        anchors.len() * NAMETAG_RECORDS_PER_LINE
+    );
     assert_eq!(
         atlas.line(&Arc::from("0"), &font, &mut layouts, &pages),
         Some(kept)
@@ -639,7 +646,10 @@ fn short_first_tall_ink_grows_through_both_unallocated_and_reclaimed_tails() {
         &mut NametagAtlas::default(),
         &pages,
     );
-    assert_eq!(expected.records.len(), 6);
+    assert_eq!(
+        expected.records.len(),
+        anchors.len() * NAMETAG_RECORDS_PER_LINE
+    );
     for reclaimed_tail in [false, true] {
         let mut atlas = NametagAtlas::default();
         let mut layouts = TextLayoutCache::new(3, 1 << 20);
@@ -772,14 +782,7 @@ fn partially_live_shelves_recover_next_frame_and_match_a_fresh_scene() {
         &counted_pages,
     );
     assert!(!atlas.lines.contains_key("/"));
-    assert_eq!(
-        blocked.records.len(),
-        anchors[..rows]
-            .iter()
-            .map(|tag| 2 + usize::from(!tag.depth_tested))
-            .sum::<usize>()
-            + 3
-    );
+    assert_eq!(blocked.records.len(), (rows + 1) * NAMETAG_RECORDS_PER_LINE);
     // The wide miss samples nothing; the smaller later miss reclaims a stale neighbor.
     assert_eq!(reads.get(), 1);
     for (row, anchor) in anchors.iter().enumerate().take(rows) {
@@ -851,7 +854,7 @@ fn impossible_requests_rebuild_once_until_actual_admission_order_changes() {
         font_page(&font, page)
     };
     let initial = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
-    assert_eq!(initial.records.len(), 3);
+    assert_eq!(initial.records.len(), NAMETAG_RECORDS_PER_LINE);
     assert_eq!(reads.get(), 1);
     let rebuilt = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
     assert_eq!(rebuilt.records, initial.records);
@@ -893,7 +896,7 @@ fn rebuild_retry_includes_lines_reached_after_rejected_budget_prefixes() {
     let font = changing_height_font();
     let mut prefix = anchor("0");
     prefix.runtime_id = 1;
-    let prefix_lines = render_model::MAX_NAMETAG_RECORDS / 3;
+    let prefix_lines = render_model::MAX_NAMETAG_RECORDS / NAMETAG_RECORDS_PER_LINE;
     prefix.lines = std::iter::once(Arc::from("0"))
         .chain(std::iter::repeat_n(Arc::from("/"), prefix_lines - 1))
         .collect::<Vec<_>>()
@@ -921,7 +924,10 @@ fn rebuild_retry_includes_lines_reached_after_rejected_budget_prefixes() {
     // The predicted budget prefix stays identical; only a later actual request changes.
     anchors[1].lines = vec![Arc::from("2")].into();
     let changed = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
-    assert_eq!(changed.records.len(), 6);
+    assert_eq!(
+        changed.records.len(),
+        anchors.len() * NAMETAG_RECORDS_PER_LINE
+    );
     assert_eq!(reads.get(), 3);
     let recovered = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
     let expected = build_nametag_scene(

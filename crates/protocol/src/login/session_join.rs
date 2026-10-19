@@ -62,6 +62,8 @@ impl LoginSequence {
         preparation: &impl JoinPreparation,
         prepare: impl FnOnce(ResourcePackHandoff, GameData) -> P + Send + 'static,
     ) -> Result<(PlaySession<R>, P), ProtocolError> {
+        let profile = bridge::join_profile::JoinProfile::current();
+        let handoff_stage = profile.stage("upstream_login_and_pack_handoff");
         send_connect(&io.frames, &login).await?;
         let (handoff, archives) = receive_handoff(
             &mut io.reader,
@@ -69,6 +71,7 @@ impl LoginSequence {
             preparation,
         )
         .await?;
+        drop(handoff_stage);
         Self::continue_handoff(io, login, preparation, prepare, handoff, archives).await
     }
 
@@ -92,6 +95,7 @@ impl LoginSequence {
             tap,
             ..
         } = login;
+        let profile = bridge::join_profile::JoinProfile::current();
         let packs = resource_pack_handoff(&handoff, archives)?;
         // A blob cache serves only a session whose upstream login advertised one.
         let cache = cache.filter(|_| handoff.client_cache);
@@ -99,6 +103,7 @@ impl LoginSequence {
         let mut transport =
             SessionTransport::with_timers(reader, frames, &handoff.startup, timers).with_tap(tap);
         let mut prepared_job = None;
+        let spawn_stage = profile.stage("spawn_prerequisites");
         let spawned = match super::startup::await_spawn(
             &mut transport,
             settings.view_distance_chunks,
@@ -120,13 +125,12 @@ impl LoginSequence {
                 return Err(error);
             }
         };
+        drop(spawn_stage);
+        let pack_wait = profile.stage("remaining_pack_preparation");
         let preparation = prepared_job.expect("spawn waits for StartGame and the item registry");
-        tokio::pin!(preparation);
-        // Keep reading while the packs prepare, so the server's backlog never stalls the core.
-        let prepared = tokio::select! {
-            prepared = &mut preparation => prepared,
-            () = transport.read_ahead(MAX_READ_AHEAD_BYTES) => preparation.await,
-        };
+        let prepared = prepare_with_read_ahead(&mut transport, preparation).await?;
+        drop(pack_wait);
+        profile.mark("session_ready");
         let session = PlaySession::new(
             transport,
             cache,
@@ -137,6 +141,26 @@ impl LoginSequence {
     }
 }
 
+/// Keeps bounded play frames in order while preparation runs, abandoning obsolete work on a
+/// usable core terminal. An unusable transfer retains its ordinary later handling.
+async fn prepare_with_read_ahead<R: FrameRead, P>(
+    transport: &mut SessionTransport<R>,
+    preparation: impl Future<Output = P>,
+) -> Result<P, ProtocolError> {
+    tokio::pin!(preparation);
+    tokio::select! {
+        prepared = &mut preparation => Ok(prepared),
+        () = transport.read_ahead(MAX_READ_AHEAD_BYTES) => {
+            if let Some(terminal) = transport.buffered_startup_terminal()?
+                && let Ok(error) = super::startup::terminal_error(terminal)
+            {
+                return Err(error);
+            }
+            Ok(preparation.await)
+        },
+    }
+}
+
 /// Sends the same login request through native or injected web play I/O.
 pub(super) async fn send_connect(
     frames: &FrameQueue,
@@ -144,6 +168,7 @@ pub(super) async fn send_connect(
 ) -> Result<(), ProtocolError> {
     let request = ConnectRequest {
         protocol: PROTOCOL_VERSION,
+        join_profile_id: bridge::join_profile::JoinProfile::current().id(),
         target: login.target.clone(),
         client_cache: login.cache.is_some(),
         client_data: super::client_data::login_client_data(

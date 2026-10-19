@@ -147,6 +147,12 @@ pub(super) fn prepare_loading(
         presentation.startup_mut().completion_queued =
             transfer_finished && network.finish_loading();
     }
+    if released
+        && presentation.startup_mut().completion_queued
+        && !client_world.dimension_transfer.active()
+    {
+        bridge::join_profile::JoinProfile::current().ready_for_presentation();
+    }
     diagnostics.set_startup_probe_enabled(presentation.startup_mut().probe_enabled(connected));
     presentation.set_loading_stage(if !connected {
         Some(LoadingStage::Connecting)

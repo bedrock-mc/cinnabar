@@ -28,6 +28,7 @@ pub use contract::{
 mod endpoint;
 mod error;
 mod framed;
+pub mod join_profile;
 pub mod latency_trace;
 #[cfg(not(target_arch = "wasm32"))]
 mod packet_delay;

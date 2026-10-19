@@ -680,7 +680,7 @@ fn drive_mod(
         warn!("Cinnabar extension HUD rejected: {error}");
     }
     let combined_hud = extension.hosts.merged_hud();
-    let hud = combined_hud.as_ref();
+    let hud = combined_hud.as_deref();
     if let Some(style) = actor_style.as_mut() {
         style.attackable_color = hud
             .and_then(|hud| hud.actor_style.as_ref())
@@ -697,7 +697,7 @@ fn drive_mod(
             .and_then(|hud| hud.actor_style.as_ref())
             .and_then(|style| style.hurt_color);
     }
-    if let Err(error) = presentation.set_mod_hud(hud) {
+    if let Err(error) = presentation.set_shared_mod_hud(combined_hud) {
         warn!("Cinnabar extension HUD cards rejected: {error}");
     }
     presentation

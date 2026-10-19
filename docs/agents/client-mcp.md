@@ -47,3 +47,35 @@ schemas document every argument. Agents drive the client only through this endpo
 
 Keep default features enabled for client MCP builds so acceptance evidence remains available.
 `make package-binaries` excludes the acceptance harness and developer control.
+
+## Join timing logs
+
+Default developer builds include the `bridge/join-profile` feature through
+`acceptance`; shipping `--no-default-features` builds omit it. `make play-build`
+builds the core with `-tags joinprofile`; packaging leaves that tag off. For a
+manual core build, use `go build -tags joinprofile` when collecting these timings.
+
+Set `CINNABAR_LOG=join_profile=debug,core=debug` before launching. Rust milestones
+and core logs share `join_profile_id`. Rust `elapsed_ms` starts when the accepted
+menu request runs, including a wait for sign-in and core readiness. Core
+`core_elapsed_ms` starts when it receives Connect; packet `dial_elapsed_ms` starts
+at that dial attempt, including automatic pre-login transfers. HTTP records carry
+`http_request_id`; background account requests can have no join ID. They log
+redacted hosts and timing fields, with no URLs, headers or bodies.
+
+The `terrain_ready` milestone uses the existing loading-screen gate and queues
+loading completion. The terminal `first_world_presented` milestone waits until
+the render world presents a frame extracted after that gate, with the loading
+screen removed. It includes rendering stalls after readiness; a skipped present
+does not complete the attempt. The timing includes completion of the submitted GPU
+work. Hidden windows render without an OS swap chain, so headless runs instead
+end at `first_world_frame_completed` after the same loading-free frame's GPU work.
+Neither endpoint claims OS display feedback. `player_spawn` is an earlier
+protocol milestone. Independent `duration_ms` sections, transport
+setup and authentication can overlap; use cumulative milestones for total join
+time. Cancellation, failure and replacement end the old attempt. Detailed frame
+and packet traces remain available for attributing work between these milestones.
+
+`devtool diag` includes both processes in `join-timeline.txt` alongside the full
+retained logs, without uploading them. Client and core sections retain their
+own monotonic origins; correlate them by ID and their recorded timestamps.
