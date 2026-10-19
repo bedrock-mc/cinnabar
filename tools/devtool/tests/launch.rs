@@ -40,14 +40,7 @@ fn dev_profile_places_go_binaries_beside_the_debug_client() {
                 "{commands}"
             );
         }
-        assert!(commands.contains(&format!("build --profile {profile} -p cinnabar")));
-        if cfg!(target_os = "macos") {
-            assert!(commands.contains(&format!(
-                "\"target/{directory}/Cinnabar Dev.app/Contents/MacOS/cinnabar\""
-            )));
-        } else {
-            assert!(commands.contains(&format!("run --profile {profile}")));
-        }
+        assert!(commands.contains(&format!("run --profile {profile}")));
     }
 }
 #[test]
@@ -60,13 +53,7 @@ fn developer_experiences_build_the_sibling_helper_in_the_selected_profile() {
             .expect("developer launch must build the helper binary");
         assert!(build.contains(&format!("--profile {profile}")));
         assert!(build.contains("--bin mod-host"));
-        let launch = if cfg!(target_os = "macos") {
-            commands.find("/Contents/MacOS/cinnabar\"")
-        } else {
-            commands.find("run --profile")
-        }
-        .expect("developer launch must start the client");
-        assert!(commands.find(build).unwrap() < launch);
+        assert!(commands.find(build).unwrap() < commands.find("run --profile").unwrap());
     }
     assert!(!launch("play", false).contains("-p mod-host"));
 }

@@ -145,7 +145,7 @@ impl FrameTrace {
             gpu_sequence: AtomicU64::new(0),
             flushed: AtomicBool::new(false),
             export: Mutex::new(None),
-            events: crate::runtime_profile::initialized_mutex(TraceWindow {
+            events: Mutex::new(TraceWindow {
                 events: VecDeque::with_capacity(capacity),
                 next_sequence: 0,
                 pending: VecDeque::with_capacity(MAX_PENDING_HITCHES),

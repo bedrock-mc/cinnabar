@@ -369,29 +369,9 @@ pub struct RuntimeStageProfileSnapshot {
     pub samples: [RuntimeStageSample; RuntimeStage::ALL.len()],
 }
 
-/// Creates the native lock during setup so its first timed use cannot allocate.
-pub(super) fn initialized_mutex<T>(value: T) -> Mutex<T> {
-    let mutex = Mutex::new(value);
-    drop(
-        mutex
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner),
-    );
-    mutex
-}
-
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct StageSampleAccumulator {
     sample: Mutex<RuntimeStageSample>,
-}
-
-impl Default for StageSampleAccumulator {
-    /// Prepares the sample and its lock before any timed stage runs.
-    fn default() -> Self {
-        Self {
-            sample: initialized_mutex(RuntimeStageSample::default()),
-        }
-    }
 }
 
 impl StageSampleAccumulator {
@@ -476,7 +456,7 @@ impl RuntimeStageProfiler {
                 started,
                 last_snapshot_nanos: AtomicU64::new(0),
                 stages: std::array::from_fn(|_| StageSampleAccumulator::default()),
-                latest_gpu: initialized_mutex(None),
+                latest_gpu: Mutex::new(None),
                 #[cfg(any(test, feature = "alloc-stats"))]
                 allocations: crate::runtime_profile_alloc::AllocationProfiler::default(),
             }),

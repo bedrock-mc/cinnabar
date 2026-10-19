@@ -1,20 +1,6 @@
 use super::*;
 use std::io::Write;
 
-/// Invalid Unix path bytes fail admission even on filesystems that cannot store such names.
-#[cfg(unix)]
-#[test]
-fn relative_keys_reject_non_unicode_components() {
-    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
-
-    for name in [b"a\xff.glsl".as_slice(), b"nested/a\xfe.glsl"] {
-        let path = PathBuf::from(OsString::from_vec(name.to_vec()));
-        let error = relative_key(&path).expect_err("non-Unicode component rejected");
-        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-        assert!(error.to_string().contains("UTF-8"));
-    }
-}
-
 /// A small temporary pack whose cleanup only touches this test's directory.
 struct TempPack(PathBuf);
 

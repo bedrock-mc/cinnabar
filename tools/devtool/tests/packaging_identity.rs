@@ -26,7 +26,7 @@ fn development_and_packaging_builds_receive_the_selected_revision() {
         (Some("CINNABAR_BUILD_COMMIT"), "selected-revision"),
         (Some("RUST_MCBE_BUILD_COMMIT"), "legacy-revision"),
     ] {
-        for goal in ["play-build", "package-binaries"] {
+        for goal in ["play", "package-binaries"] {
             let mut make = Command::new("make");
             make.current_dir(&root)
                 .args([

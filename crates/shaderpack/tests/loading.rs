@@ -173,12 +173,11 @@ fn missing_shaders_and_truncated_archives_return_errors() {
     writer.finish().unwrap();
     assert!(matches!(
         PackSource::open(&archive),
-        Err(PackError::NotAShaderPack(path)) if path == archive.canonicalize().unwrap()
+        Err(PackError::NotAShaderPack(path)) if path == archive
     ));
 }
 
-// APFS rejects these names before the loader runs; the component contract is also unit-tested.
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(unix)]
 #[test]
 fn source_paths_directory_rejects_non_unicode_names() {
     use std::ffi::OsString;
