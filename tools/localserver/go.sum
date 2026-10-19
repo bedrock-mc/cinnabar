@@ -1,5 +1,5 @@
-github.com/bedrock-mc/dragonfly v0.0.0-20261019171911-ad11e6336052 h1:CqZNs6KwC/lOQwbxvsgQBXst0Jij2X7/BRBlzIKq7k4=
-github.com/bedrock-mc/dragonfly v0.0.0-20261019171911-ad11e6336052/go.mod h1:i/1xcQYPWK3tfYDE7Rde5N04CCmsdNkrAlhQIgByIUg=
+github.com/bedrock-mc/dragonfly v0.0.0-20261019182109-afe402e7a8fc h1:bKkm4ADsY4v1r65V3Vh80ywKhupMW1b35Ok8ps6OgX0=
+github.com/bedrock-mc/dragonfly v0.0.0-20261019182109-afe402e7a8fc/go.mod h1:5gl+GtL66Nvgnzs+4y59Jx2UQGsvDBm5ygvwD2DtU7o=
 github.com/bedrock-mc/vanilla-gen v0.0.0-20261007153212-e56215898732 h1:OZ/ChZFeaai/IdDsrraECMldzPYKMfIqi0a7TwF1sY0=
 github.com/bedrock-mc/vanilla-gen v0.0.0-20261007153212-e56215898732/go.mod h1:KXTHlUeGYIVp3z1synzJ0zJ6CVdr4ZQoaSE1I1eBzjY=
 github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479 h1:UZbbt19ACBOFO+CiDQFjaEoPJkBhj7GNGtIq59WR6Os=
@@ -8,8 +8,8 @@ github.com/cenkalti/backoff/v7 v7.0.0 h1:ZP+QAaaOnVUHo+ufFpZ835hbT3x2fy+h2lecVEo
 github.com/cenkalti/backoff/v7 v7.0.0/go.mod h1:qcKBGwsu4hpxHtQ8tWYsQ+ifzx2+sS+Xx/3jfe30lI8=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
 github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
-github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261019170717-cf01aa84b74d h1:TKmWmF+c3i/yHlQRyjmtTqLfxnx7471YpSmZvsfX29g=
-github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261019170717-cf01aa84b74d/go.mod h1:kBTWfCuCMRGWmcsX3bojKsX8yUyLpXVjquuPn12vB7c=
+github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261019181927-1b7677ddec59 h1:rBFry3/th+w69zgrrF3sn7j23iJVLHZ+1PJ/LiWlZhI=
+github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261019181927-1b7677ddec59/go.mod h1:kBTWfCuCMRGWmcsX3bojKsX8yUyLpXVjquuPn12vB7c=
 github.com/coder/websocket v1.8.14 h1:9L0p0iKiNOibykf283eHkKUHHrpG7f65OE3BhhO7v9g=
 github.com/coder/websocket v1.8.14/go.mod h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=
 github.com/coreos/go-oidc/v3 v3.17.0 h1:hWBGaQfbi0iVviX4ibC7bk8OKT5qNr4klBaCHVNvehc=

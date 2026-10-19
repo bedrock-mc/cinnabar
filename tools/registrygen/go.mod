@@ -3,7 +3,7 @@ module github.com/hashimthearab/rust-mcbe/tools/registrygen
 go 1.26.1
 
 require (
-	github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261019170717-cf01aa84b74d
+	github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261019181927-1b7677ddec59
 	github.com/df-mc/dragonfly v0.11.5
 	github.com/sandertv/gophertunnel v1.62.0
 	github.com/segmentio/fasthash v1.0.3
