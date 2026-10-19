@@ -1357,7 +1357,7 @@ vocabularies = [
     { path = "crates/protocol/data/retail_items_1_26_50.tsv", column = 1 },
     { path = "crates/protocol/data/retail_actors_1_26_50.txt", column = 0 },
     { path = "crates/protocol/data/retail_biomes_1_26_50.txt", column = 0 },
-    { path = "crates/protocol/data/item_tags_dragonfly.tsv", column = 0 },
+    { path = "crates/protocol/data/item_tags_native.tsv", column = 0 },
 ]
 block_registries = ["crates/assets/data/block-registry-v2193.bin"]
 # The provisional PBR texture-name table must move to a generated mapping (plan.md).

@@ -17,7 +17,7 @@ reads = [
     "crates/protocol/data/retail_items_1_26_50.tsv",
     "crates/protocol/data/retail_actors_1_26_50.txt",
     "crates/protocol/data/retail_biomes_1_26_50.txt",
-    "crates/protocol/data/item_tags_dragonfly.tsv",
+    "crates/protocol/data/item_tags_native.tsv",
     "assets/cinnangles-sans-source.json",
     "assets/fonts/CinnanglesSans.ttf",
     "assets/hud-source-v2193.json",

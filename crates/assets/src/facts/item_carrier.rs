@@ -18,7 +18,7 @@ pub const MAX_ITEM_FACTS_BYTES: usize = 4 * 1024 * 1024;
 pub const ITEM_FACTS_INPUTS: &[&str] = &[
     retail::INPUT_PATH,
     "crates/protocol/data/item_capacity_1_26_50.tsv",
-    "crates/protocol/data/item_tags_dragonfly.tsv",
+    "crates/protocol/data/item_tags_native.tsv",
     "crates/assets/data/item-armour-v2193.json",
     "crates/assets/data/item-durability-v2193.json",
     "crates/assets/data/item-fuel-v2193.tsv",
