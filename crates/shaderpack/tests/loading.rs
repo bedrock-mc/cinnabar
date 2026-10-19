@@ -360,3 +360,75 @@ fn source_paths_zip_keeps_legacy_cp437_names() {
     assert_eq!(source.text("é.glsl"), Some("legacy name"));
     assert_eq!(source.read_bytes("é.glsl").unwrap(), b"legacy name");
 }
+
+#[test]
+fn directory_layout_opens_current_shaders_root() {
+    const CHILD_FLAG: &str = "SHADERPACK_TEST_CURRENT_SHADERS_ROOT";
+    const CHILD_SUCCESS: i32 = 73;
+    if std::env::var_os(CHILD_FLAG).is_some() {
+        let canonical = std::env::current_dir().unwrap().canonicalize().unwrap();
+        for path in [".", "./nested/..", "../shaders", ".."] {
+            let source = PackSource::open(Path::new(path)).unwrap();
+            assert_eq!(source.origin(), &PackOrigin::Directory(canonical.clone()));
+            assert_eq!(
+                source.files().collect::<Vec<_>>(),
+                [("witness.glsl", "root")]
+            );
+            assert_eq!(source.read_bytes("asset.bin").unwrap(), b"raw root");
+        }
+        std::process::exit(CHILD_SUCCESS);
+    }
+
+    let root = TempPack::new();
+    let shaders = root.0.join("shaders");
+    std::fs::create_dir_all(shaders.join("nested")).unwrap();
+    std::fs::write(shaders.join("witness.glsl"), "root").unwrap();
+    std::fs::write(shaders.join("asset.bin"), b"raw root").unwrap();
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "directory_layout_opens_current_shaders_root"])
+        .env(CHILD_FLAG, "1")
+        .current_dir(&shaders)
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(CHILD_SUCCESS),
+        "isolated shaders-root test failed:\n{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn directory_layout_preserves_explicit_shaders_symlinks() {
+    let root = TempPack::new();
+    let target = root.0.join("payload");
+    let wrapper = root.0.join("wrapper");
+    let alias = root.0.join("wrapper-alias");
+    std::fs::create_dir(&target).unwrap();
+    std::fs::create_dir(&wrapper).unwrap();
+    std::fs::write(target.join("witness.glsl"), "linked root").unwrap();
+    std::fs::write(target.join("asset.bin"), b"linked asset").unwrap();
+    std::os::unix::fs::symlink(&target, wrapper.join("shaders")).unwrap();
+    std::os::unix::fs::symlink(&wrapper, &alias).unwrap();
+    for path in [
+        wrapper.clone(),
+        wrapper.join("shaders"),
+        wrapper.join("./shaders"),
+        alias.clone(),
+        alias.join("shaders"),
+    ] {
+        let source = PackSource::open(&path).unwrap();
+        assert_eq!(
+            source.origin(),
+            &PackOrigin::Directory(target.canonicalize().unwrap())
+        );
+        assert_eq!(source.text("witness.glsl"), Some("linked root"));
+        assert_eq!(source.read_bytes("asset.bin").unwrap(), b"linked asset");
+    }
+    assert!(matches!(
+        PackSource::open(&target),
+        Err(PackError::NotAShaderPack(path)) if path == target
+    ));
+}

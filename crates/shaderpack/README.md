@@ -5,11 +5,13 @@ archive or in-memory text files. Open a pack with `PackSource::open`, inspect it
 `PackSource::origin`, enumerate text in sorted path order with `PackSource::files`
 and read text by its `shaders/`-relative name with `PackSource::text`.
 
-Folders may contain `shaders/` or be that directory themselves. ZIP archives may
-hold `shaders/` at the root or under one top-level folder. Directory roots and ZIP
-archive paths are canonicalized when opened, so deferred asset reads keep the
-same origin if the working directory changes. Directory source keys join native
-path components with `/`; non-Unicode components and literal backslashes within
+Folders may contain `shaders/` or be that directory themselves. Directory layout
+is selected after resolving the supplied directory, so `.` works from a shaders
+root. An explicit `shaders/` symlink may identify a root with another target name.
+ZIP archives may hold `shaders/` at the root or under one top-level folder.
+Directory roots and ZIP archive paths are canonicalized when opened, so deferred
+asset reads keep the same origin if the working directory changes. Directory
+source keys join native path components with `/`; non-Unicode components and literal backslashes within
 a component are rejected with a located error. Native Windows directory
 separators still delimit components normally. ZIP names marked as UTF-8 must
 contain valid UTF-8; legacy ZIP names retain their CP437 decoding. ZIP and memory

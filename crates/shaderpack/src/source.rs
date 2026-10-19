@@ -136,19 +136,26 @@ impl PackSource {
         Self::open_dir_limited(path, LoadLimits::DEFAULT)
     }
 
-    /// Loads a directory within the supplied ingestion budget.
+    /// Resolves the directory before choosing its shaders root and loading within the budget.
     fn open_dir_limited(path: &Path, limits: LoadLimits) -> Result<PackSource, PackError> {
-        let root = if path.join("shaders").is_dir() {
-            path.join("shaders")
-        } else if path.file_name().is_some_and(|n| n == "shaders") {
-            path.to_path_buf()
+        let directory = path.canonicalize().map_err(|error| PackError::Io {
+            path: path.to_path_buf(),
+            error,
+        })?;
+        let shaders = directory.join("shaders");
+        let root = if shaders.is_dir() {
+            shaders.canonicalize().map_err(|error| PackError::Io {
+                path: shaders,
+                error,
+            })?
+        } else if directory.file_name().is_some_and(|n| n == "shaders")
+            || path.file_name().is_some_and(|n| n == "shaders")
+        {
+            // A caller's shaders name also identifies an explicit root symlink.
+            directory
         } else {
             return Err(PackError::NotAShaderPack(path.to_path_buf()));
         };
-        let root = root.canonicalize().map_err(|error| PackError::Io {
-            path: root.clone(),
-            error,
-        })?;
         let mut files = BTreeMap::new();
         let mut budget = LoadBudget::new(limits);
         let mut stack = vec![root.clone()];
