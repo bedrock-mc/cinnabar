@@ -20,12 +20,19 @@ impl PackInputs {
     }
 
     /// Whether item icons compiled for `other` also hold for these facts; icons draw custom
-    /// blocks, so they follow the blocks too.
+    /// blocks, so they follow the blocks too. Registry icon keys use the compiler's
+    /// last-value-per-identifier map; block item order still controls bounded artwork selection.
     #[must_use]
     pub fn same_icons(&self, other: &Self) -> bool {
         self.same_blocks(other)
-            && self.icons == other.icons
             && self.block_items == other.block_items
+            && (self.icons == other.icons || {
+                let ours: std::collections::BTreeMap<_, _> =
+                    self.icons.iter().map(|(id, key)| (id, key)).collect();
+                let theirs: std::collections::BTreeMap<_, _> =
+                    other.icons.iter().map(|(id, key)| (id, key)).collect();
+                ours == theirs
+            })
     }
 }
 
@@ -154,23 +161,50 @@ pub fn custom_block_items(
     pairs.into_boxed_slice()
 }
 
-pub type StackFingerprint = Vec<(String, String, String, [u8; 32])>;
+pub use resource_pack::StackFingerprint;
 
-/// Identity of each pack as (uuid, version, subpack, content hash), in stack order.
+/// Copies the admission-time pack identities and digests in stack order.
 pub fn stack_fingerprint(stack: &resource_pack::ValidatedPackStack) -> StackFingerprint {
-    use sha2::{Digest, Sha256};
-    stack
-        .packs()
-        .iter()
-        .map(|pack| {
-            (
-                pack.pack_id().to_string(),
-                pack.version().to_owned(),
-                pack.sub_pack_name().to_owned(),
-                Sha256::digest(&*pack.archive_bytes()).into(),
-            )
-        })
-        .collect()
+    stack.fingerprint().clone()
+}
+
+#[cfg(test)]
+mod icon_input_tests {
+    use super::*;
+
+    #[test]
+    fn reconnect_icon_order_does_not_recompile_icons() {
+        let first = PackInputs {
+            icons: vec![("test:a".into(), "a".into()), ("test:b".into(), "b".into())],
+            ..Default::default()
+        };
+        let mut next = first.clone();
+        next.icons.reverse();
+        assert!(!crate::reload_diff::Changes::for_inputs(&first, &next).icons);
+    }
+
+    #[test]
+    fn icon_key_comparison_preserves_duplicate_precedence_and_block_order() {
+        let first = PackInputs {
+            icons: vec![
+                ("test:a".into(), "first".into()),
+                ("test:a".into(), "last".into()),
+            ],
+            block_items: vec![
+                ("test:a".into(), "test:a".into()),
+                ("test:b".into(), "test:b".into()),
+            ],
+            ..Default::default()
+        };
+        let mut next = first.clone();
+        next.icons.reverse();
+        assert!(!first.same_icons(&next));
+        next = first.clone();
+        next.icons.remove(0);
+        assert!(first.same_icons(&next));
+        next.block_items.reverse();
+        assert!(!first.same_icons(&next));
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

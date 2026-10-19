@@ -24,6 +24,9 @@ use pack_runtime::PackInputs;
 #[cfg(test)]
 mod publication_tests;
 
+#[cfg(test)]
+mod post_join_tests;
+
 struct Prepared {
     revision: u64,
     generation: u64,
@@ -139,7 +142,8 @@ impl PackReload {
     pub(super) fn begin_session(&mut self, generation: u64, packs: &PackApplication) {
         self.generation = generation;
         self.aim_assist_textures = packs.aim_assist_textures.clone();
-        self.previous = None;
+        self.previous = Some(packs.clone());
+        self.previous_assets = None;
         self.server = match &packs.admission {
             PackAdmission::Validated(stack) => stack.clone(),
             PackAdmission::None => {
@@ -195,7 +199,7 @@ impl PackReload {
             let result = ValidatedPackStack::compose(&globals, &server)
                 .map_err(|error| error.to_string())
                 .map(|stack| {
-                    let changes = {
+                    let mut changes = {
                         let _zone = bevy::log::info_span!("pack_apply.diff").entered();
                         pack_runtime::reload_diff::Changes::between(
                             &stack,
@@ -204,6 +208,14 @@ impl PackReload {
                                 .map(|old| (&old.admission, &old.dependencies)),
                         )
                     };
+                    let biomes_changed = changes.blocks || previous_assets.is_none();
+                    // Joins do not prepare environment layers; each new session still needs them.
+                    if let Some(old) = &previous {
+                        use pack_runtime::reload_diff::Subscriber;
+                        changes.atmosphere |=
+                            !old.dependencies.contains_key(&Subscriber::Atmosphere);
+                        changes.particles |= !old.dependencies.contains_key(&Subscriber::Particles);
+                    }
                     let stack = Arc::new(stack);
                     let view = resource_pack::LayeredPackView::new(stack.clone());
                     // Environment layers and the other subscribers read the stack independently.
@@ -238,7 +250,7 @@ impl PackReload {
                             .extend(environment.dependencies.clone());
                     }
                     application.item_components = items;
-                    if changes.blocks {
+                    if biomes_changed {
                         let _zone = bevy::log::info_span!("pack_apply.biome_overlay").entered();
                         let mut biome_overlay = assets::BlockOverlay::default();
                         let biome_view =
@@ -315,7 +327,7 @@ impl PackReload {
                                 Some(resource_packs::ui_catalog::prepare(pack, catalog));
                         }
                     }
-                    if changes.blocks {
+                    if biomes_changed {
                         application.terrain_identity =
                             resource_packs::terrain_identity(&stack, &application.dependencies);
                     }

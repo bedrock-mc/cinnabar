@@ -376,6 +376,7 @@ impl GlobalPackLibrary {
         let mut stack = ValidatedPackStack {
             packs: Box::default(),
             rejections: Box::default(),
+            fingerprint: Default::default(),
         };
         for active in selection.iter().rev() {
             if !seen.insert(active.id) {
@@ -411,9 +412,11 @@ impl GlobalPackLibrary {
             let next = ValidatedPackStack {
                 packs: vec![pack].into_boxed_slice(),
                 rejections: Box::default(),
+                fingerprint: Default::default(),
             };
             stack = ValidatedPackStack::compose(&stack, &next)?;
         }
+        let _ = stack.fingerprint();
         Ok(Arc::new(stack))
     }
 

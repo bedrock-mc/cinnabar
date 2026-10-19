@@ -39,6 +39,7 @@ fn stack(packs: Vec<ValidatedPack>, rejections: &[PackRejection]) -> ValidatedPa
     ValidatedPackStack {
         packs: packs.into_boxed_slice(),
         rejections: rejections.into(),
+        fingerprint: Default::default(),
     }
 }
 
@@ -115,4 +116,41 @@ fn a_different_file_key_makes_the_same_bytes_differ() {
         rekeyed.read_file("texts/en_US.lang").unwrap()
     );
     assert!(!stack(vec![reference], &[]).same_contents(&stack(vec![rekeyed], &[])));
+}
+
+#[test]
+#[cfg(feature = "handoff")]
+fn admission_hashes_each_archive_once_and_composition_reuses_the_digests() {
+    use sha2::{Digest, Sha256};
+    let layers = [
+        vec![("a.txt".into(), b"first".to_vec())],
+        vec![("b.txt".into(), b"second".to_vec())],
+    ];
+    let view = crate::test_support::layered_pack_view(&[&layers[0], &layers[1]]);
+    let admitted = view.stack();
+    for pack in admitted.packs() {
+        assert_eq!(pack.content_hash.computations(), 1);
+    }
+    let expected: crate::StackFingerprint = admitted
+        .packs()
+        .iter()
+        .map(|pack| {
+            (
+                pack.pack_id().to_string(),
+                pack.version().to_owned(),
+                pack.sub_pack_name().to_owned(),
+                Sha256::digest(&*pack.archive_bytes()).into(),
+            )
+        })
+        .collect();
+    let empty = crate::validate_handoff(protocol::ResourcePackHandoff::default());
+    for _ in 0..3 {
+        let composed = ValidatedPackStack::compose(&empty, admitted).unwrap();
+        assert!(admitted.same_contents(&composed));
+        assert_eq!(composed.fingerprint(), &expected);
+    }
+    assert_eq!(admitted.fingerprint(), &expected);
+    for pack in admitted.packs() {
+        assert_eq!(pack.content_hash.computations(), 1);
+    }
 }

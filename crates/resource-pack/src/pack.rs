@@ -3,7 +3,7 @@
 use std::{
     collections::HashMap,
     io::{Cursor, Read},
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 use uuid::Uuid;
@@ -34,6 +34,7 @@ pub struct ValidatedPack {
     pub(crate) archive_bytes: usize,
     pub(crate) declared_bytes: u64,
     pub(crate) zip: PackZip,
+    pub(crate) content_hash: Arc<crate::fingerprint::ContentHash>,
     pub(crate) files: HashMap<Box<str>, EntryIndex>,
     pub(crate) folded: HashMap<Box<str>, Box<str>>,
     pub(crate) file_order: Box<[Box<str>]>,
@@ -105,7 +106,7 @@ impl ValidatedPack {
     }
 
     /// Compares pack identity, logical index and file keys without reading archive bytes.
-    /// Together with same_bytes, this guarantees identical reads, inflation and decryption.
+    /// Together with the archive digest, this preserves reads, inflation and decryption.
     fn same_index(&self, other: &Self) -> bool {
         /// Resolves an indexed entry's optional content key for semantic pack comparisons.
         fn key<'a>(pack: &'a ValidatedPack, entry: &EntryIndex) -> Option<&'a ContentKey> {
@@ -132,12 +133,6 @@ impl ValidatedPack {
                         }
                 })
             })
-    }
-
-    /// Whether both packs admitted identical archive bytes; shared bytes compare by address.
-    fn same_bytes(&self, other: &Self) -> bool {
-        let (ours, theirs) = (self.archive_bytes(), other.archive_bytes());
-        Arc::ptr_eq(&ours, &theirs) || ours == theirs
     }
 
     pub(crate) fn entry(&self, path: &str) -> Option<&EntryIndex> {
@@ -234,6 +229,7 @@ pub struct PackRejection {
 pub struct ValidatedPackStack {
     pub(crate) packs: Box<[ValidatedPack]>,
     pub(crate) rejections: Box<[PackRejection]>,
+    pub(crate) fingerprint: OnceLock<crate::StackFingerprint>,
 }
 
 impl std::fmt::Debug for ValidatedPackStack {
@@ -285,6 +281,7 @@ impl ValidatedPackStack {
         Ok(Self {
             packs: layers.cloned().collect(),
             rejections,
+            fingerprint: OnceLock::new(),
         })
     }
     /// Admitted layers, lowest precedence first.
@@ -293,21 +290,36 @@ impl ValidatedPackStack {
         &self.packs
     }
 
-    /// Compares layered reads and dropped packs, checking archive bytes after every layer index matches.
+    /// Returns the admission-time archive digests without hashing composed copies again.
+    #[must_use]
+    pub fn fingerprint(&self) -> &crate::StackFingerprint {
+        use rayon::prelude::*;
+        self.fingerprint.get_or_init(|| {
+            self.packs
+                .par_iter()
+                .map(|pack| {
+                    (
+                        pack.pack_id.to_string(),
+                        pack.version.to_string(),
+                        pack.sub_pack_name.to_string(),
+                        pack.content_hash.get(&pack.archive_bytes()),
+                    )
+                })
+                .collect()
+        })
+    }
+
+    /// Compares archive digests, layered reads and dropped packs without scanning archive bytes.
     #[must_use]
     pub fn same_contents(&self, other: &Self) -> bool {
         self.rejections == other.rejections
+            && self.fingerprint() == other.fingerprint()
             && self.packs.len() == other.packs.len()
             && self
                 .packs
                 .iter()
                 .zip(other.packs.iter())
                 .all(|(ours, theirs)| ours.same_index(theirs))
-            && self
-                .packs
-                .iter()
-                .zip(other.packs.iter())
-                .all(|(ours, theirs)| ours.same_bytes(theirs))
     }
 
     #[must_use]

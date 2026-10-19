@@ -13,6 +13,7 @@ use thiserror::Error;
 
 mod crypto;
 mod dependencies;
+mod fingerprint;
 mod import;
 mod library;
 mod manifest;
@@ -25,6 +26,7 @@ pub mod test_support;
 mod view;
 
 pub use dependencies::{PackDependencies, PackDependency};
+pub use fingerprint::StackFingerprint;
 pub use import::{
     GlobalSelectionEntry, PACK_IMPORT_EXTENSIONS, ParsedGlobalSelection, PreparedImport,
     is_pack_import_path, merge_global_selection, parse_global_selection, prepare_import,
