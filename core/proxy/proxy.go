@@ -270,10 +270,7 @@ type dialerDownstream interface {
 	Proto() minecraft.Protocol
 }
 
-// maxUpstreamDecompressedBatch bounds one decompressed batch from the upstream. A
-// server may batch a whole pack transfer into a single batch, so the default 16 MiB
-// ceiling would reject the join that vanilla accepts; the acquisition budget's own
-// transfer ceiling still bounds what those bytes can amount to.
+// maxUpstreamDecompressedBatch bounds one decompressed upstream network batch.
 const maxUpstreamDecompressedBatch = 256 * 1024 * 1024
 
 // newUpstreamDialerForAdmission observes incoming pack negotiation before filtering

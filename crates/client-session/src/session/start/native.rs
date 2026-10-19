@@ -14,6 +14,7 @@ pub fn spawn_network<P: Send + 'static>(
     + Send
     + 'static,
     observation: SessionTrace,
+    packet_relay: Option<Arc<dyn protocol::PacketRelay>>,
 ) -> Result<NetworkHandle<P>, std::io::Error> {
     let profile = bridge::join_profile::JoinProfile::current();
     let (mut handle, channels) = network_channels(config.session_generation);
@@ -54,6 +55,7 @@ pub fn spawn_network<P: Send + 'static>(
                                 Some(config.client_blob_cache.clone()),
                                 Some(config.player_skin),
                                 &config.login_settings,
+                                packet_relay,
                                 Some(packet_tap),
                                 move |handoff, game_data| {
                                     let packs = unless_cancelled(&cancelled, || {

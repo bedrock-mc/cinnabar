@@ -142,6 +142,9 @@ and resource qualification; they do not imply these systems need to be written.
 - [ ] `P2-CHUNK-PUBLICATION` — Qualify initial publication, steady streaming and full-view
   remesh against current frame/join/streaming budgets. Attribute decode, light readiness,
   queue wait, worker time, upload, submission and present latency independently.
+  Sparse startup can complete without a publisher update after terrain decodes, stream
+  and render work drain, and a later GPU frame completes. Empty-world initialization is
+  verified; complete server-form and gameplay acceptance remains open.
 - [ ] Close mesh-neighbour readiness acceptance with slow-delivery and seam coverage.
   Distinguish eligible horizontal columns from the provisional full-neighbour/quiet-time
   fallback; its timeout is not established native behavior.
@@ -300,6 +303,14 @@ and keep actual account details out of captures and reports published with PRs.
 Core transfer/disconnect terminals can abandon unfinished join preparation; ordinary
 preparation and presentation readiness remain required for a successful join. Live
 server latency impact and the complete transfer acceptance matrix remain unqualified.
+
+Server pack acquisition, handoff and stack composition no longer impose fixed archive-count
+or compressed-byte quotas. Saved server lists retain every imported entry. Declared sizes,
+identity, digests and framing remain validated. Experience selections preserve service errors
+and wait for the account core result. Complete featured-server acceptance remains open:
+large-pack preparation can be slow or fail, and sparse startup terrain can leave loading open.
+Local imports, decompression, UI/text expansion, language memory and other admission limits
+still need version-matched verification; the limit inventory closes no whole-client parity gate.
 
 Cosmetics require live authenticated multi-account acceptance, catalog/motion envelope
 coverage, supported slot/ownership enforcement, player-preview acceptance and hardware

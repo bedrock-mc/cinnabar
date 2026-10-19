@@ -142,7 +142,7 @@ pub(super) fn prepare_join(
         profile.run(|| prepare_join_with(&reuse::LATEST, preparation, game_data, cancelled, bases))
     };
     #[cfg(not(target_arch = "wasm32"))]
-    if preparation.has_applied_packs() {
+    if preparation.has_packs() {
         return chunk_pipeline::on_idle_world_cores(prepare);
     }
     prepare()
@@ -294,10 +294,7 @@ fn compile_application(
     }
     let max_layers = overlay_texture_layer_limit();
     let view = LayeredPackView::new(Arc::clone(&stack));
-    // Hashing every archive is needed only by the block and entity caches, so only when one of
-    // those subscribers compiles; whichever needs it first computes it.
-    let fingerprint = std::sync::OnceLock::new();
-    let fingerprint = || fingerprint.get_or_init(|| stack_fingerprint(&stack));
+    let fingerprint = stack.fingerprint();
     let (mut blocks, mut icons, mut language, mut glyphs) = (None, None, None, None);
     let (mut entities, mut artwork, mut ui, mut sounds) = (None, None, None, None);
     let mut aim_assist = None;
@@ -340,7 +337,7 @@ fn compile_application(
                 previous.and_then(|old| old.block_overlay.clone()),
                 |view| {
                     cached_block_overlay(
-                        fingerprint(),
+                        fingerprint,
                         view,
                         custom_blocks,
                         hashed_block_ids,
@@ -447,7 +444,7 @@ fn compile_application(
                 previous.and_then(|old| old.entities.clone()),
                 |view| {
                     let compiled = pack_runtime::entity_pack::compile_session_entities(
-                        fingerprint(),
+                        fingerprint,
                         view,
                         cancelled,
                     );
@@ -696,7 +693,9 @@ fn compile_icons(
 
 use pack_runtime::pack_language::merged_server_lang;
 
-use pack_runtime::{StackFingerprint, stack_fingerprint};
+use resource_pack::StackFingerprint;
+#[cfg(test)]
+use pack_runtime::stack_fingerprint;
 
 struct CachedOverlay {
     dependencies: Option<std::collections::BTreeSet<resource_pack::PackDependency>>,

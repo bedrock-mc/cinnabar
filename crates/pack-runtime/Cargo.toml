@@ -24,6 +24,7 @@ thiserror.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+resource-pack = { path = "../resource-pack", features = ["test-support"] }
 block-transform = { path = "../block-transform" }
 sim = { path = "../sim" }
 json-ui = { path = "../json-ui" }

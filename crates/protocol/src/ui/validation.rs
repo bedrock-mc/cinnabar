@@ -50,14 +50,10 @@ impl UiBudget {
 /// The server UI fields the client bounds while decoding; fields whose schema bound is already
 /// tighter carry no budget here.
 const UI_FIELD_BUDGETS: &[(wire::FieldId, UiBudget)] = &[
-    (fields::TEXT_DATA_MESSAGE_ONLY_MESSAGE, UiBudget::Text),
-    (fields::TEXT_DATA_AUTHOR_AND_MESSAGE_MESSAGE, UiBudget::Text),
-    (fields::TEXT_DATA_MESSAGE_AND_PARAMS_MESSAGE, UiBudget::Text),
     (
         fields::TEXT_DATA_MESSAGE_AND_PARAMS_PARAMETER_LIST_ITEM,
         UiBudget::Text,
     ),
-    (fields::TEXT_FILTERED_MESSAGE, UiBudget::Text),
     (fields::DEATH_INFO_DEATH_CAUSE_ATTACK_NAME, UiBudget::Text),
     (
         fields::DEATH_INFO_DEATH_CAUSE_MESSAGE_LIST,

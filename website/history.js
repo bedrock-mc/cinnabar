@@ -21,8 +21,8 @@
   }
 
   /** Maps observed buckets onto the full window and splits lines at missing buckets. */
-  function geometry(data, width) {
-    const left = 32, right = width - 8, top = 16, bottom = 184;
+  function geometry(data, width, height) {
+    const left = 32, right = width - 8, top = 12, bottom = height - 28;
     const peak = Math.max(1, ...data.points.map(function (point) { return point.peak; }));
     const step = Math.max(1, Math.pow(10, Math.floor(Math.log10(peak))) / 2);
     const ceiling = Math.ceil(peak / step) * step;
@@ -89,9 +89,10 @@
   function draw() {
     if (!data || !data.points.length) return;
     const width = Math.max(240, plot.clientWidth);
-    coordinates = geometry(data, width);
+    const height = Math.max(100, plot.clientHeight);
+    coordinates = geometry(data, width, height);
     const g = coordinates;
-    plot.setAttribute("viewBox", "0 0 " + width + " 220");
+    plot.setAttribute("viewBox", "0 0 " + width + " " + height);
     plot.replaceChildren();
     [0, g.ceiling / 2, g.ceiling].forEach(function (value) {
       svg("line", { x1: g.left, x2: g.right, y1: g.y(value), y2: g.y(value), class: "chart-grid" });
@@ -99,7 +100,7 @@
     });
     const format = new Intl.DateTimeFormat(undefined, range === "24h" ? { hour: "2-digit", minute: "2-digit" } : { month: "short", day: "numeric" });
     [data.from, (data.from + data.to) / 2, data.to].forEach(function (at, index) {
-      svg("text", { x: g.x(at), y: 210, "text-anchor": ["start", "middle", "end"][index] }, format.format(at));
+      svg("text", { x: g.x(at), y: height - 8, "text-anchor": ["start", "middle", "end"][index] }, format.format(at));
     });
     g.segments.forEach(function (segment) {
       if (segment.length === 1) {

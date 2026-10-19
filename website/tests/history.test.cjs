@@ -18,12 +18,13 @@ function history(range = '24h') {
 test('keeps a zero baseline, missing-data gaps and the full time window', () => {
   const data = history();
   assert.equal(validHistory(data, '24h'), true);
-  const chart = geometry(data, 600);
+  const chart = geometry(data, 600, 140);
   assert.equal(chart.segments.length, 2);
   assert.equal(chart.segments[0][0].y, chart.bottom);
   assert.equal(chart.x(data.to), chart.right);
   assert.equal(chart.x(data.from), chart.left);
   assert.ok(chart.segments[1][0].x < chart.right / 2);
+  assert.ok(chart.segments.flat().every(point => point.y >= 0 && point.y < 140));
   assert.equal(validHistory({...data, points: []}, '24h'), true);
 });
 
@@ -39,7 +40,7 @@ test('rejects bad ranges, timestamps, averages, weights, ordering and oversized 
 
 /** Creates the small DOM surface used by the chart and records its rendered SVG. */
 function node() {
-  return {textContent: '', hidden: false, clientWidth: 600, children: [], attributes: {}, events: {},
+  return {textContent: '', hidden: false, clientWidth: 600, clientHeight: 140, children: [], attributes: {}, events: {},
     setAttribute(name, value) { this.attributes[name] = value; },
     hasAttribute(name) { return Object.hasOwn(this.attributes, name); },
     toggleAttribute(name, force) { if (force) this.attributes[name] = ''; else delete this.attributes[name]; },
