@@ -22,6 +22,8 @@ pub(super) struct PreparedFile {
     pub(super) length: Option<Option<usize>>,
     /// Unknown until admission; an inner None records failed extraction.
     pub(super) products: Option<Option<ParsedSource>>,
+    #[cfg(test)]
+    retained_documents: Option<std::sync::Arc<memory::RetainedDocuments>>,
 }
 
 impl PreparedFile {
@@ -33,6 +35,8 @@ impl PreparedFile {
             source,
             length,
             products: None,
+            #[cfg(test)]
+            retained_documents: None,
         }
     }
 
@@ -42,20 +46,57 @@ impl PreparedFile {
             check_admission(length, remaining)?;
         }
         if self.products.is_none() {
-            let bytes = if self.source.path.starts_with("models/entity/") {
-                normalize_geometry(&self.source.bytes)
+            let (bytes, document) = if self.source.path.starts_with("models/entity/") {
+                let normalized = normalize_geometry(
+                    &self.source.bytes,
+                    #[cfg(test)]
+                    self.retained_documents.clone(),
+                );
+                self.length = Some(normalized.as_ref().map(|input| input.bytes.len()));
+                check_admission(self.length.flatten(), remaining)?;
+                let normalized = normalized.unwrap();
+                (normalized.bytes, Some(normalized.document))
             } else {
-                Some(self.source.bytes.clone())
+                (self.source.bytes.clone().into_boxed_slice(), None)
             };
-            self.length = Some(bytes.as_ref().map(Vec::len));
-            check_admission(self.length.flatten(), remaining)?;
-            self.products = Some(parse(&self.source, bytes.unwrap().into_boxed_slice()));
+            self.products = Some(parse(&self.source, bytes, document));
         }
         self.products
             .as_ref()
             .and_then(Option::as_ref)
             .ok_or(Skip::Unparsable)
     }
+}
+
+/// Extracts independently only when every possible admitted size fits the remaining budget.
+/// Large input batches and tight budgets stay lazy and ordered; parser trees never queue here.
+pub(super) fn prepare_batch(files: &mut [PreparedFile], remaining: SourceBudget) {
+    let bytes = files
+        .iter()
+        .map(|file| match file.length {
+            Some(length) => length.unwrap_or(0),
+            None => assets::MAX_ENTITY_SOURCE_BYTES,
+        })
+        .sum::<usize>();
+    let input_bytes = files
+        .iter()
+        .map(|file| file.source.bytes.len())
+        .sum::<usize>();
+    if files.len() > remaining.count
+        || bytes > remaining.bytes
+        || input_bytes > assets::MAX_ENTITY_SOURCE_BYTES
+    {
+        return;
+    }
+    #[cfg(test)]
+    let before = files.iter().filter(|file| file.products.is_some()).count();
+    files.par_iter_mut().for_each(|file| {
+        let _ = file.parsed(remaining);
+    });
+    #[cfg(test)]
+    SOURCE_PARSES.update(|count| {
+        count + files.iter().filter(|file| file.products.is_some()).count() - before
+    });
 }
 
 /// Preserves malformed, oversized and admission-budget rejection precedence.
@@ -70,22 +111,47 @@ fn check_admission(length: Option<usize>, remaining: SourceBudget) -> Result<(),
     }
 }
 
-/// Normalizes one geometry document and releases its JSON tree before returning.
-fn normalize_geometry(bytes: &[u8]) -> Option<Vec<u8>> {
+/// A geometry document held only until ordered admission and extraction finish.
+struct NormalizedGeometry {
+    bytes: Box<[u8]>,
+    document: Value,
+    #[cfg(test)]
+    _retained: Option<memory::RetainedDocument>,
+}
+
+/// Normalizes a geometry document once for its payload and extraction.
+fn normalize_geometry(
+    bytes: &[u8],
+    #[cfg(test)] retained: Option<std::sync::Arc<memory::RetainedDocuments>>,
+) -> Option<NormalizedGeometry> {
     let mut value = pack_json::parse_jsonc::<Value>(bytes).ok()?;
     if !sanitize::sanitize_geometry(&mut value) {
         return None;
     }
-    serde_json::to_vec(&value).ok()
+    Some(NormalizedGeometry {
+        bytes: serde_json::to_vec(&value).ok()?.into_boxed_slice(),
+        document: value,
+        #[cfg(test)]
+        _retained: retained.map(memory::RetainedDocument::new),
+    })
 }
 
 /// Extracts final products only after admission, releasing all parser intermediates locally.
-fn parse(source: &PackSource, bytes: Box<[u8]>) -> Option<ParsedSource> {
-    #[cfg(test)]
-    SOURCE_PARSES.update(|count| count + 1);
+fn parse(source: &PackSource, bytes: Box<[u8]>, document: Option<Value>) -> Option<ParsedSource> {
     let mut symbols = BTreeMap::new();
     let mut geometries = BTreeMap::new();
-    source.parse(&bytes, &mut symbols, &mut geometries).ok()?;
+    if let Some(document) = document {
+        parse_geometry(
+            &source.path,
+            Path::new(source.authored_path.as_ref()),
+            &document,
+            &mut symbols,
+            &mut geometries,
+        )
+        .ok()?;
+    } else {
+        source.parse(&bytes, &mut symbols, &mut geometries).ok()?;
+    }
     if !file_identifiers_are_valid(&symbols, &geometries) {
         return None;
     }
@@ -100,3 +166,6 @@ fn parse(source: &PackSource, bytes: Box<[u8]>) -> Option<ParsedSource> {
         geometries,
     })
 }
+
+#[cfg(test)]
+mod memory;

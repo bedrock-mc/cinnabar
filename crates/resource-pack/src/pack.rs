@@ -12,7 +12,7 @@ use zip::{CompressionMethod, ZipArchive};
 use pack_json::parse_jsonc;
 
 use crate::{
-    AdmissionError, MAX_FILE_BYTES,
+    AdmissionError,
     crypto::ContentKey,
     read_cache::{CachedEntry, ReadCache},
 };
@@ -93,7 +93,7 @@ impl ValidatedPack {
     }
 
     /// Entries dropped at admission (directories, unsafe or duplicate paths,
-    /// unsupported codecs, oversized files).
+    /// unsupported codecs).
     #[must_use]
     pub fn skipped_entries(&self) -> usize {
         self.skipped_entries
@@ -117,9 +117,9 @@ impl ValidatedPack {
         self.entry(path).map(|entry| entry.uncompressed_size)
     }
 
-    /// Reads one decrypted file from this pack only, with a hard uncompressed cap.
+    /// Reads one complete decrypted file from this pack, checking its declared size.
     pub fn read_file(&self, path: &str) -> Result<Option<Box<[u8]>>, AdmissionError> {
-        self.read_file_with_limit(path, MAX_FILE_BYTES)
+        self.read_file_with_limit(path, u64::MAX)
     }
 
     /// Compares pack identity, logical index and file keys without reading archive bytes.
@@ -232,6 +232,7 @@ impl ValidatedPack {
     }
 }
 
+/// Reads an indexed member within the caller's allowance and checks its complete output.
 pub(crate) fn read_entry(
     zip: &PackZip,
     entry: &EntryIndex,
@@ -260,7 +261,10 @@ pub(crate) fn read_entry(
     }
     let capacity =
         usize::try_from(entry.uncompressed_size).map_err(|_| AdmissionError::FileTooLarge)?;
-    let mut bytes = Vec::with_capacity(capacity);
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(capacity)
+        .map_err(|_| AdmissionError::FileTooLarge)?;
     file.by_ref()
         .take(entry.uncompressed_size.saturating_add(1))
         .read_to_end(&mut bytes)

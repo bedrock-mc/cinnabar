@@ -168,11 +168,11 @@ fn malformed_geometry_is_rejected_before_admission_budgets() {
 }
 
 #[test]
-fn cancellation_stops_between_lazy_source_preparations() {
+fn cancellation_stops_between_source_batches() {
     SOURCE_PARSES.set(0);
     let result = compile_entity_pack_unless(budgeted_definitions(), &|| SOURCE_PARSES.get() >= 1);
     assert!(result.is_none());
-    assert_eq!(SOURCE_PARSES.get(), 1);
+    assert!((1..=rayon::current_num_threads()).contains(&SOURCE_PARSES.get()));
 }
 
 #[test]

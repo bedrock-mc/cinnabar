@@ -3,6 +3,7 @@
 //! source is skipped and counted, and items and equipment are not compiled.
 
 use super::*;
+use rayon::iter::{IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
 mod prepared;
 use prepared::{PreparedFile, Skip};
@@ -155,7 +156,7 @@ impl PackSource {
 /// Reserve authored and canonical paths before assigning short keys to retained geometry layers.
 fn select_sources(files: Vec<(Box<str>, Vec<u8>)>) -> Vec<PackSource> {
     let mut selected = files
-        .into_iter()
+        .into_par_iter()
         .filter(|(path, _)| in_families(path))
         .map(|(path, bytes)| PackSource {
             path: canonical_path(path.clone()),
@@ -280,33 +281,54 @@ fn compile_selected(
     let mut symbols = BTreeMap::new();
     let mut geometries = BTreeMap::new();
     let mut total = 0usize;
-    for (index, source) in selected.iter_mut().enumerate() {
+    let batch_size = rayon::current_num_threads().max(1);
+    for (batch, chunk) in selected.chunks_mut(batch_size).enumerate() {
         if cancelled() {
             return None;
         }
-        if omit == Some(index) {
-            continue;
-        }
-        let remaining = SourceBudget {
-            count: budget.count - sources.len(),
-            bytes: budget.bytes - total,
-        };
-        let prepared = match source.parsed(remaining) {
-            Ok(prepared) => prepared.clone(),
-            Err(reason) => {
-                match reason {
-                    Skip::Unparsable => skipped.unparsable += 1,
-                    Skip::Oversized => skipped.oversized += 1,
-                    Skip::OverBudget => skipped.over_budget += 1,
-                }
+        prepared::prepare_batch(
+            chunk,
+            SourceBudget {
+                count: budget.count - sources.len(),
+                bytes: budget.bytes - total,
+            },
+        );
+        for (offset, source) in chunk.iter_mut().enumerate() {
+            let index = batch * batch_size + offset;
+            if cancelled() {
+                return None;
+            }
+            if omit == Some(index) {
                 continue;
             }
-        };
-        total += prepared.bytes.len();
-        symbols.extend(prepared.symbols);
-        geometries.extend(prepared.geometries);
-        sources.push(prepared.record);
-        payloads.insert(source.source.path.clone(), prepared.bytes);
+            let remaining = SourceBudget {
+                count: budget.count - sources.len(),
+                bytes: budget.bytes - total,
+            };
+            #[cfg(test)]
+            let was_unprepared = source.products.is_none();
+            let result = source.parsed(remaining).cloned();
+            #[cfg(test)]
+            if was_unprepared && source.products.is_some() {
+                SOURCE_PARSES.update(|count| count + 1);
+            }
+            let prepared = match result {
+                Ok(prepared) => prepared,
+                Err(reason) => {
+                    match reason {
+                        Skip::Unparsable => skipped.unparsable += 1,
+                        Skip::Oversized => skipped.oversized += 1,
+                        Skip::OverBudget => skipped.over_budget += 1,
+                    }
+                    continue;
+                }
+            };
+            total += prepared.bytes.len();
+            symbols.extend(prepared.symbols);
+            geometries.extend(prepared.geometries);
+            sources.push(prepared.record);
+            payloads.insert(source.source.path.clone(), prepared.bytes);
+        }
     }
     if cancelled() {
         return None;
@@ -388,6 +410,7 @@ mod tests {
     use serde_json::json;
 
     mod admission;
+    mod parallel;
     mod preparation;
 
     fn file(path: &str, text: &str) -> (Box<str>, Vec<u8>) {
