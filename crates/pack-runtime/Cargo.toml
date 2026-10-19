@@ -13,6 +13,9 @@ bridge = { path = "../bridge" }
 pack-json = { path = "../pack-json" }
 assets = { path = "../assets" }
 image.workspace = true
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+postcard = { version = "1", default-features = false, features = ["alloc"] }
+serde = { version = "1", features = ["derive"] }
 pack-compile-input = { path = "../pack-compiler/input" }
 pack-entity-compiler = { path = "../pack-compiler/entity" }
 protocol = { path = "../protocol" }

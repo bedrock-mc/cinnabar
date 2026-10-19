@@ -2,7 +2,9 @@ use bytemuck::{Pod, Zeroable};
 
 /// Whether one stored triangle also represents the cube's opposing authored face.
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Pod, Zeroable)]
+#[derive(
+    Clone, Copy, Debug, Default, Eq, PartialEq, Pod, Zeroable, serde::Serialize, serde::Deserialize,
+)]
 pub struct ActorRigSurface(u32);
 
 impl ActorRigSurface {

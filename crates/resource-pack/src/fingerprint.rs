@@ -36,3 +36,43 @@ impl ContentHash {
         self.computations.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
+
+impl crate::ValidatedPack {
+    /// Identifies archive bytes, admitted paths and decryption bindings without reading files.
+    pub fn compile_identity(&self) -> [u8; 32] {
+        /// Frames variable-length paths so adjacent index entries cannot alias.
+        fn part(hash: &mut Sha256, bytes: &[u8]) {
+            hash.update((bytes.len() as u64).to_le_bytes());
+            hash.update(bytes);
+        }
+        let mut hash = Sha256::new();
+        hash.update(self.content_hash.get(&self.archive_bytes()));
+        hash.update((self.archive_bytes as u64).to_le_bytes());
+        hash.update(self.declared_bytes.to_le_bytes());
+        hash.update((self.physical_entry_count as u64).to_le_bytes());
+        hash.update((self.skipped_entries as u64).to_le_bytes());
+        hash.update((self.files.len() as u64).to_le_bytes());
+        let mut files: Vec<_> = self.files.iter().collect();
+        files.sort_unstable_by_key(|(path, _)| *path);
+        for (path, entry) in files {
+            part(&mut hash, path.as_bytes());
+            hash.update((entry.archive_index as u64).to_le_bytes());
+            hash.update(entry.uncompressed_size.to_le_bytes());
+            hash.update([u8::from(entry.key.is_some())]);
+            if let Some(key) = entry.key {
+                hash.update(self.keys[key].digest());
+            }
+        }
+        hash.update((self.file_order.len() as u64).to_le_bytes());
+        for path in &self.file_order {
+            part(&mut hash, path.as_bytes());
+        }
+        let folded: std::collections::BTreeMap<_, _> = self.folded.iter().collect();
+        hash.update((folded.len() as u64).to_le_bytes());
+        for (name, path) in folded {
+            part(&mut hash, name.as_bytes());
+            part(&mut hash, path.as_bytes());
+        }
+        hash.finalize().into()
+    }
+}

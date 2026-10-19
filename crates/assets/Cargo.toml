@@ -31,7 +31,7 @@ test-support = []
 protocol-ids = { path = "../protocol-ids" }
 env-compat = { path = "../env-compat" }
 block-transform = { path = "../block-transform" }
-bitflags = "2"
+bitflags = { version = "2", features = ["serde"] }
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 glam.workspace = true
 png = "0.18"
