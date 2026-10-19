@@ -88,7 +88,7 @@ fn sized_pack(root: &Path, name: &str, id: &str, payload_bytes: usize) -> PathBu
 }
 
 #[test]
-fn combined_archive_limit_skips_activation_before_apply_and_keeps_other_data_importable() {
+fn combined_selected_archives_remain_available_during_import() {
     let root = tempfile::tempdir().unwrap();
     let mut service = service(root.path());
     let mut library = library(root.path());
@@ -130,13 +130,17 @@ fn combined_archive_limit_skips_activation_before_apply_and_keeps_other_data_imp
         &mut library,
     );
     let preview = service.preview.as_ref().unwrap();
-    assert_eq!(preview.selection.len(), original.len() + 1);
+    assert_eq!(preview.selection.len(), original.len() + 2);
     assert_eq!(
         preview.selection[0].id.to_string(),
         "44444444-4444-4444-4444-444444444444"
     );
-    assert_eq!(&preview.selection[1..], original);
-    assert!(preview.skipped > 0);
+    assert_eq!(
+        preview.selection[1].id.to_string(),
+        "33333333-3333-3333-3333-333333333333"
+    );
+    assert_eq!(&preview.selection[2..], original);
+    let selected = preview.selection.clone();
     assert_eq!(library.available(), available);
     assert_eq!(library.active(), original);
     assert!(!storage::has_backup(&service.config_root));
@@ -145,7 +149,7 @@ fn combined_archive_limit_skips_activation_before_apply_and_keeps_other_data_imp
     let imported = applied.state.unwrap();
     assert_eq!(imported.settings.value(SettingId::FieldOfView), 80);
     assert_eq!(imported.servers.len(), 1);
-    assert_eq!(&imported.active[1..], original);
+    assert_eq!(imported.active, selected);
 }
 
 #[test]
