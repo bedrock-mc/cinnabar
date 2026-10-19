@@ -1353,3 +1353,31 @@ Each bounded result contains the existing `actor` record and optional `max-healt
 from the replicated health attribute. Missing attributes remain absent; no default
 maximum is inferred. The original `read-actors` import and actor record stay compatible
 with previously built components.
+
+## Trusted packet mods
+
+Settings → Mods → Import mod accepts raw WASI packet reactors up to the packet
+host's 256 MiB source limit. Ordinary component mods retain their existing limits.
+Import validates the packet ABI without starting the guest; permissions stay off
+by default. The `packet-mod` world in `crates/mod-api/wit/extension.wit` owns the
+session identity, startup packs, batch replacement and timed output contract.
+
+Grant Session packets and, for WASI reactors, WASI runtime before enabling the
+mod. One packet mod can be selected at a time. The prepared source starts in a
+fresh instance on the next server join. Disabling it or revoking grants retires
+the current authority immediately; reloads select the next session's source.
+Compilation and guest execution run off the frame thread. Traps, invalid output
+and expired deadlines quarantine the instance into ordinary packet forwarding.
+
+The host retains one admitted compiled program in memory, keyed by the source
+and exact grants. Its native image is bounded by the source byte limit; compiled
+native artifacts are never read from disk. WASI provides clocks, randomness and
+bounded captured output, without files, inherited environment or network access.
+
+Server batches through spawn use the join deadline, including startup registries
+that arrive after the StartGame handoff. The login owner switches later batches
+to the shorter play deadline after spawn. Ticks always use the play deadline.
+
+Developer launches may select a reactor with `CINNABAR_PACKET_MOD` and add WASI
+with `CINNABAR_PACKET_MOD_WASI=1`, or select a packet entry from
+`CINNABAR_MOD_SET`. Settings uses the same prepared-source and relay path.

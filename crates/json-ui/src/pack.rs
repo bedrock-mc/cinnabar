@@ -241,12 +241,21 @@ fn merge_into(
         }
     };
     if let Some(base) = base {
-        if existing.base.as_ref() != Some(&base) {
-            existing.props.clear();
-            existing.children.clear();
-            existing.has_controls = false;
+        if existing.base.as_deref() != Some(base.as_str()) {
+            // A new inheritance target supplies a new definition, rather than retaining
+            // the previous target's local type, factory and bindings.
+            let key = format!("{}@{base}", existing.name);
+            *existing = RawControl::from_entry(
+                &existing.owner_ns,
+                &key,
+                &Value::Object(body.clone()),
+                diagnostics,
+            );
+            if let Some(Value::Array(items)) = body.get("modifications") {
+                apply_modifications(existing, items, diagnostics);
+            }
+            return;
         }
-        existing.base = Some(base);
     }
     for (property, value) in body {
         match property.as_str() {

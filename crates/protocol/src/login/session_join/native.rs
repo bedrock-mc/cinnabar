@@ -44,6 +44,7 @@ impl LoginSequence {
         cache: Option<ClientBlobCache>,
         skin: Option<ClientSkin>,
         settings: &LoginSettings,
+        relay: Option<Arc<dyn crate::PacketRelay>>,
         tap: Option<Arc<dyn PacketTap>>,
         prepare: impl FnOnce(ResourcePackHandoff, GameData) -> P + Send + 'static,
     ) -> Result<(PlaySession, P), ProtocolError> {
@@ -66,6 +67,7 @@ impl LoginSequence {
                 skin,
                 settings,
                 tap,
+                relay,
                 target: None,
             },
             &NativeJoinPreparation,
