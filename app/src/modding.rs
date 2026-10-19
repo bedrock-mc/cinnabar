@@ -436,11 +436,10 @@ fn configure_systems(app: &mut App, watching: bool) {
 fn begin_mod_frame(
     extension: Option<ResMut<ModRuntime>>,
     gameplay: gameplay::GameplayContext,
-    ui: Res<UiRuntimeResource>,
     actors: Option<Res<render_scene::ActorRenderFrame>>,
 ) {
     if let Some(mut extension) = extension {
-        drawing_policy::bind(&mut extension.hosts, &gameplay, &ui);
+        drawing_policy::bind(&mut extension.hosts, &gameplay);
         anchors::reconcile(&mut extension.hosts, &gameplay);
         let needs_targets = (0..extension.hosts.host_count())
             .any(|index| extension.hosts.host(index).grants().entity_highlight);
@@ -555,7 +554,7 @@ fn drive_mod(
     if extension.suspended {
         return;
     }
-    drawing_policy::bind(&mut extension.hosts, &gameplay, &ui);
+    drawing_policy::bind(&mut extension.hosts, &gameplay);
     anchors::reconcile(&mut extension.hosts, &gameplay);
     // Reconcile screen departures before frame callbacks retry deferred edits.
     let cursor = windows
@@ -655,7 +654,7 @@ fn drive_mod(
     }
     render::publish(render_scene, &mut extension);
     if let Some(watcher) = watcher.as_ref() {
-        watcher.remember_settings(Some(&extension), Some(&ui));
+        watcher.remember_settings(Some(&extension));
     }
     if callback_failed || merged.jump_cancel {
         gameplay.synchronize_jump_scope(false, &ui);

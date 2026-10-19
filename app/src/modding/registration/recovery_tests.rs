@@ -55,8 +55,7 @@ fn registered_fence_round_trip_restarts_without_a_source_or_registration_edit() 
     let watcher = Watcher::start(directory.path().into()).unwrap();
     watcher.drawing.lock().unwrap().insert(
         entry.component.clone(),
-        crate::modding::admission::DrawingContext::capture(prepared.frame_host().unwrap(), None)
-            .unwrap(),
+        crate::modding::admission::DrawingContext::capture(prepared.frame_host().unwrap()).unwrap(),
     );
     select_entry(directory.path(), entry.clone());
     let update = wait_update(&watcher, "initial drawing admission", |update| {
@@ -96,8 +95,7 @@ fn registered_fence_round_trip_restarts_without_a_source_or_registration_edit() 
     assert!(prepared.frame_host().unwrap().is_revoked());
     watcher.drawing.lock().unwrap().insert(
         entry.component,
-        crate::modding::admission::DrawingContext::capture(prepared.frame_host().unwrap(), None)
-            .unwrap(),
+        crate::modding::admission::DrawingContext::capture(prepared.frame_host().unwrap()).unwrap(),
     );
     let replacement = wait_update(
         &watcher,
