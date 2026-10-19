@@ -405,7 +405,7 @@ func TestSessionHandoffObservesStartupItemRegistry(t *testing.T) {
 	frames := readSessionFrames(peer)
 	registry := encodeTestPacket(&packet.ItemRegistry{Items: []protocol.ItemEntry{{Name: "minecraft:shield", RuntimeID: 300}}})
 	plan := sessionPlan{startup: [][]byte{registry, encodeTestPacket(&packet.StartGame{EntityRuntimeID: 9})}}
-	if err := writeSessionHandoff(session, plan); err != nil {
+	if err := writeSessionHandoff(session, plan, nil); err != nil {
 		t.Fatal(err)
 	}
 	if frame := <-frames; frame[0] != bridgecontract.SessionKindHandoff {

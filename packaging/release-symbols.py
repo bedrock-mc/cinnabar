@@ -78,11 +78,11 @@ def pe_codeview(data):
     debug_rva, debug_size = struct.unpack_from("<II", data, directories + 6 * 8)
     table = optional + optional_size
 
-    def file_offset(rva):
+    def file_offset(virtual_address):
         for index in range(sections):
             size, address, raw_size, raw = struct.unpack_from("<IIII", data, table + 40 * index + 8)
-            if address <= rva < address + max(size, raw_size):
-                return raw + rva - address
+            if address <= virtual_address < address + max(size, raw_size):
+                return raw + virtual_address - address
         return None
 
     start = file_offset(debug_rva) if debug_size else None

@@ -40,7 +40,7 @@ pub mod npc;
 mod oreui_runtime;
 #[cfg(test)]
 mod oreui_tests;
-mod preview_renderer;
+pub(in crate::ui_runtime::presentation) mod preview_renderer;
 #[cfg(test)]
 mod retained_image_tests;
 mod retained_menu;

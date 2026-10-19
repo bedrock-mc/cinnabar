@@ -63,6 +63,8 @@ type Config struct {
 	SessionTarget func(ctx context.Context, kind, value string) (string, error)
 	// Device, when set, is the install's device, claimed on every session login in place of the client's.
 	Device *device.Profile
+	// Interceptor, when set, joins every session's packet relay.
+	Interceptor Interceptor
 }
 
 const maxInitialTransferHops = 8
@@ -115,6 +117,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 		device:       cfg.Device,
 		dialTarget:   dial,
 		delay:        cfg.PacketDelay,
+		interceptor:  cfg.Interceptor,
 		logger:       logger,
 	}
 	sessionEndpoint.start(serveCtx)
@@ -361,18 +364,17 @@ type upstreamSession interface {
 }
 
 // relayPackets preserves batches and drains terminal delivery before asking the owner to close.
+// delay and intercept are optional.
 func relayPackets(
 	ctx context.Context,
 	downstream, upstream packetSession,
 	stop func(),
-	delays ...*PacketDelay,
+	delay *PacketDelay,
+	intercept SessionInterceptor,
 ) error {
-	var delay *PacketDelay
-	if len(delays) != 0 {
-		delay = delays[0]
-	}
 	session := delay.beginSession()
 	defer delay.endSession(session)
+	upstream = trackPositionWrites(upstream, delay, session, ownRuntimeID(downstream, upstream))
 	pumpCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	type result struct {
@@ -381,10 +383,10 @@ func relayPackets(
 	}
 	results := make(chan result, 2)
 	go func() {
-		results <- result{"downstream to upstream", pumpPacketsWithDelay(pumpCtx, delay, downstream, upstream, true, session)}
+		results <- result{"downstream to upstream", pumpPacketsWithDelay(pumpCtx, delay, intercept, downstream, upstream, true, session)}
 	}()
 	go func() {
-		results <- result{"upstream to downstream", pumpPacketsWithDelay(pumpCtx, delay, upstream, downstream, false)}
+		results <- result{"upstream to downstream", pumpPacketsWithDelay(pumpCtx, delay, intercept, upstream, downstream, false)}
 	}()
 
 	var first result
@@ -462,10 +464,11 @@ func pumpPackets(
 	source, destination packetSession,
 	fromDownstream bool,
 ) (err error) {
-	return pumpPacketsWithDelay(context.Background(), nil, source, destination, fromDownstream)
+	return pumpPacketsWithDelay(context.Background(), nil, nil, source, destination, fromDownstream)
 }
 
-func pumpPacketsWithDelay(ctx context.Context, delay *PacketDelay, source, destination packetSession, fromDownstream bool, sessions ...uint64) (err error) {
+// pumpPacketsWithDelay relays source's batches to destination; delay and intercept are optional.
+func pumpPacketsWithDelay(ctx context.Context, delay *PacketDelay, intercept SessionInterceptor, source, destination packetSession, fromDownstream bool, sessions ...uint64) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = panicTypeError("relaying packets", recovered)
@@ -475,7 +478,7 @@ func pumpPacketsWithDelay(ctx context.Context, delay *PacketDelay, source, desti
 	if fromDownstream {
 		// Local logins carry a transport identity; the upstream connection owns
 		// the server's canonical player identity.
-		if identitySession, ok := destination.(interface {
+		if identitySession, ok := unwrapUpstream(destination).(interface {
 			IdentityData() login.IdentityData
 		}); ok {
 			upstreamIdentity = identitySession.IdentityData()
@@ -492,6 +495,7 @@ func pumpPacketsWithDelay(ctx context.Context, delay *PacketDelay, source, desti
 		if len(sessions) != 0 {
 			session = sessions[0]
 		}
+		destination = trackPositionWrites(destination, delay, session, ownID)
 		inspect = func(id uint32) bool {
 			if inspectsUpstreamIdentity(id, upstreamIdentity) {
 				return true
@@ -503,6 +507,11 @@ func pumpPacketsWithDelay(ctx context.Context, delay *PacketDelay, source, desti
 			return enabled
 		}
 	}
+	direction := FromServer
+	if fromDownstream {
+		direction = FromClient
+	}
+	inspect = interceptDecode(intercept, direction, inspect)
 	reader := newDelayedPacketReader(ctx, delay, source, destination, !fromDownstream, relayIdleFlush, inspect)
 	defer reader.Close()
 	trace := newRelayTrace(source, destination, fromDownstream)
@@ -517,23 +526,23 @@ func pumpPacketsWithDelay(ctx context.Context, delay *PacketDelay, source, desti
 			return err
 		}
 		trace.read(batch, reader.readAt, destination)
-		epoch, tracking := delay.positionToken()
-		var position *ForwardedPosition
+		if intercept != nil {
+			intercept.BeginBatch(direction)
+		}
 		for _, raw := range batch {
-			if err := forwardPacket(destination, raw, upstreamIdentity); err != nil {
+			if err := forwardPacket(destination, raw, upstreamIdentity, intercept, direction); err != nil {
 				return attributeRelayError(err, fromDownstream)
 			}
-			if tracking && fromDownstream {
-				if candidate := ownMovementPosition(raw, ownID); candidate != nil {
-					position = candidate
-				}
+		}
+		if intercept != nil {
+			if err := intercept.EndBatch(direction); err != nil {
+				return err
 			}
 		}
 		if err := reader.Flush(); err != nil {
 			return err
 		}
 		trace.forwarded()
-		delay.commitPosition(session, epoch, position)
 	}
 }
 
@@ -548,16 +557,42 @@ func inspectsUpstreamIdentity(id uint32, identity login.IdentityData) bool {
 	}
 }
 
-// forwardPacket writes raw's received bytes unless the proxy rewrote one of its decoded packets.
-func forwardPacket(destination packetSession, raw minecraft.RawPacket, identity login.IdentityData) error {
+// forwardPacket writes raw's received bytes unless the proxy rewrote one of its decoded packets or an
+// intercept changed or dropped one. intercept is optional.
+func forwardPacket(destination packetSession, raw minecraft.RawPacket, identity login.IdentityData, intercept SessionInterceptor, direction Direction) error {
+	writer, observing := destination.(interface {
+		receivedPosition([]packet.Packet) *ForwardedPosition
+		writeReceived([]byte, *ForwardedPosition) error
+	})
+	var received *ForwardedPosition
+	if observing {
+		received = writer.receivedPosition(raw.Decoded)
+	}
+	intercepted := intercept != nil && len(raw.Decoded) != 0 && intercept.Intercepts(direction, raw.ID)
+	var verdictBuffer [4]Verdict
+	verdicts := verdictBuffer[:0]
 	rewritten := len(raw.Decoded) > 1
 	for _, value := range raw.Decoded {
-		rewritten = rewritten || normalizeUpstreamIdentity(value, identity) != value
+		verdict := Forward
+		if intercepted {
+			var err error
+			if verdict, err = intercept.HandlePacket(direction, value); err != nil {
+				return err
+			}
+		}
+		verdicts = append(verdicts, verdict)
+		rewritten = rewritten || verdict != Forward || normalizeUpstreamIdentity(value, identity) != value
 	}
 	if !rewritten {
+		if observing {
+			return writer.writeReceived(raw.Data, received)
+		}
 		return destination.WritePacketRaw(raw.Data)
 	}
-	for _, value := range raw.Decoded {
+	for index, value := range raw.Decoded {
+		if verdicts[index] == Drop {
+			continue
+		}
 		if err := destination.WritePacket(normalizeUpstreamIdentity(value, identity)); err != nil {
 			return err
 		}

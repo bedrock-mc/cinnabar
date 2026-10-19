@@ -1,6 +1,6 @@
 //! A component's own requests and Mods-library metadata, read by parsing its sections only.
 
-use crate::{MAX_COMPONENT_SOURCE_BYTES, ModGrants, local_files};
+use crate::{ModGrants, SourceKind, packet_mod::native_capabilities, read_source};
 use anyhow::{Result, anyhow, ensure};
 use std::{io::Cursor, path::Path, sync::Arc};
 use ui::mod_metadata::{GitHubModAsset, GitHubRepository, MAX_VERSION_BYTES, ModMetadata};
@@ -27,16 +27,13 @@ pub struct Declarations {
 /// Reads a component's declarations in one bounded read, without instantiating or granting it.
 /// Only an unreadable file or malformed module framing is an error.
 pub fn declarations(path: &Path) -> Result<Declarations> {
-    let bytes = local_files::read(path, MAX_COMPONENT_SOURCE_BYTES)?;
+    let bytes = read_source(path)?;
     declarations_snapshot(&bytes)
 }
 
 /// Parses declarations from the exact bytes selected for admission.
 pub fn declarations_snapshot(bytes: &[u8]) -> Result<Declarations> {
-    ensure!(
-        bytes.len() <= MAX_COMPONENT_SOURCE_BYTES,
-        "component declarations exceed byte limit"
-    );
+    crate::source::check_size(bytes)?;
     let mut metadata = ModMetadata::default();
     // Developer text fixtures do not contain binary custom sections.
     if !bytes.starts_with(b"\0asm") {
@@ -48,10 +45,16 @@ pub fn declarations_snapshot(bytes: &[u8]) -> Result<Declarations> {
     let mut depth = 0usize;
     let mut grants = Vec::new();
     let mut icons = Vec::new();
+    let packet = SourceKind::of(bytes) == SourceKind::Packet;
+    let mut native = native_capabilities::Metadata::default();
     let mut update_repositories = Vec::new();
     let mut update_urls = Vec::new();
     for payload in Parser::new(0).parse_all(bytes) {
-        let section = match payload? {
+        let payload = payload?;
+        if packet && depth == 0 {
+            native.observe(&payload)?;
+        }
+        let section = match payload {
             Payload::ModuleSection { .. } | Payload::ComponentSection { .. } => {
                 depth += 1;
                 continue;
@@ -113,6 +116,11 @@ pub fn declarations_snapshot(bytes: &[u8]) -> Result<Declarations> {
             .and_then(GitHubModAsset::parse);
     }
     let requested = match grants.as_slice() {
+        [] if packet => Ok(Some(ModGrants {
+            packets: true,
+            wasi: native.needs_wasi,
+            ..native.requested()?
+        })),
         [] => Ok(None),
         [data] => requested(data).map(Some),
         _ => Err(anyhow!("duplicate requested grants section")),

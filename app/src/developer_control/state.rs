@@ -18,6 +18,9 @@ use {
 const DEFAULT_WAIT: Duration = Duration::from_secs(120);
 /// Actors listed in a state snapshot, nearest first.
 const MAX_LISTED_ACTORS: usize = 32;
+/// Recent chat output is bounded so command tests cannot return a session's entire history.
+const MAX_CHAT_ROWS: usize = 16;
+const MAX_CHAT_CHARS: usize = 1024;
 /// Largest `chunks_loaded` radius, in columns.
 const MAX_CHUNK_RADIUS: u32 = 64;
 
@@ -310,6 +313,11 @@ pub(super) fn snapshot(world: &World) -> Value {
             json!({ "yaw": yaw, "pitch": pitch })
         }),
         "health": health,
+        "form": form_snapshot(world),
+        "hud": world.get_resource::<UiRuntimeResource>().map(|ui| json!({
+            "title": ui.hud().title_text(),
+            "subtitle": ui.hud().subtitle_text(),
+        })),
         "java_animations": world.get_resource::<client_presentation::camera::CameraSettingsAuthority>()
             .map(|settings| settings.feel().java_animations),
         "perspective": world.get_resource::<client_presentation::camera::CameraSettingsAuthority>()
@@ -329,6 +337,15 @@ pub(super) fn snapshot(world: &World) -> Value {
         "actor_draw": super::actors::snapshot(world),
         "player_motion": player_motion(world),
         "local_mods": local_mods,
+        "chat": world.get_resource::<UiRuntimeResource>().map(|ui| {
+            let messages = ui.chat().messages();
+            messages.iter().skip(messages.len().saturating_sub(MAX_CHAT_ROWS))
+                .map(|message| message.message.chars().take(MAX_CHAT_CHARS).collect::<String>())
+                .collect::<Vec<_>>()
+        }),
+        "vision": world.get_resource::<client_presentation::camera::VisionEffects>()
+            .map(|vision| json!({"night_vision": vision.night_vision,
+                "blindness": vision.blindness, "darkness": vision.darkness})),
         "primitive_shapes": crate::primitive_shapes::snapshot(world),
         "sidebar": world.get_resource::<UiRuntimeResource>()
             .and_then(|ui| super::scoreboards::snapshot(ui.scoreboards())),
@@ -384,6 +401,39 @@ pub(super) fn snapshot(world: &World) -> Value {
             "upload_acknowledged": runtime.prediction_frames.upload_acknowledged_frame,
         })),
     })
+}
+
+/// Exposes the active form's rendered input targets in window coordinates for headless checks.
+fn form_snapshot(world: &World) -> Option<Value> {
+    let entry = world
+        .get_resource::<UiRuntimeResource>()?
+        .server_forms()
+        .active()?;
+    let presentation =
+        world.get_resource::<client_shell::ui_resources::UiPresentationResource>()?;
+    let frame = presentation.form_engine_frame(entry.identity)?;
+    let rect = |r: json_ui::RectOut| {
+        [
+            f64::from(frame.origin[0]) + r.x * f64::from(frame.scale),
+            f64::from(frame.origin[1]) + r.y * f64::from(frame.scale),
+            r.w * f64::from(frame.scale),
+            r.h * f64::from(frame.scale),
+        ]
+    };
+    Some(json!({
+        "id": entry.form_id, "kind": format!("{:?}", entry.kind), "title": entry.title,
+        "content": match &entry.model {
+            protocol::ServerFormModel::TextMenu(form) => Some(form.content.to_string()),
+            protocol::ServerFormModel::Modal(form) => Some(form.content.to_string()),
+            _ => None,
+        },
+        "cancel_target": frame.cancel_target,
+        "hits": frame.hits.iter().take(1024).map(|hit| json!({
+            "key": hit.key, "name": hit.name, "kind": format!("{:?}", hit.kind),
+            "index": hit.collection_index, "pressed": hit.pressed, "enabled": hit.enabled,
+            "checked": hit.checked, "rect": rect(hit.rect), "clip": rect(hit.clip),
+        })).collect::<Vec<_>>()
+    }))
 }
 
 /// Publishes camera diagnostics only when the developer explicitly requests a state snapshot.

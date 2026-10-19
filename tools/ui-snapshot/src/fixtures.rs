@@ -36,6 +36,8 @@ pub enum Fixture {
     TabList(Vec<RosterRow>),
     /// Two original custom-form inputs after selection moves from the first to the second.
     EditSelection,
+    /// An externally supplied bounded native mod panel.
+    ModPanel(Box<ui::mod_panel::Panel>),
     /// A damaged stack picked up from the survival inventory.
     #[cfg(feature = "test-support")]
     CursorDurability,

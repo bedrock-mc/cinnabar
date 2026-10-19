@@ -154,6 +154,9 @@ sha2 = "=0.10.9"
 uuid = "1"
 wasmtime = { version = "=36.0.16", default-features = false, features = ["component-model", "cranelift", "runtime", "std", "wat"] }
 wit-bindgen = "=0.57.1"
+# WASI for trusted packet mods only, pinned with wasmtime.
+wasmtime-wasi = { version = "=36.0.16", default-features = false, features = ["preview1"] }
+wasi-preview1-component-adapter-provider = "=36.0.16"
 wit-component = "=0.247.0"
 
 

@@ -1512,6 +1512,6 @@ func relayWithSessions(ctx context.Context, downstream, upstream packetSession) 
 	var closeErr error
 	err = relayPackets(ctx, downstream, upstream, func() {
 		closeErr = errors.Join(shutdownSession(downstream), shutdownSession(upstream))
-	})
+	}, nil, nil)
 	return errors.Join(err, closeErr)
 }

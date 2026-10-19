@@ -19,6 +19,8 @@ pub const MAX_TERRAIN_METADATA_BYTES: usize = 256 * 1024;
 pub const MAX_TERRAIN_RESPONSE_BYTES: usize = 512 * 1024;
 
 mod guest;
+pub mod native_frame;
+pub mod native_menu;
 
 /// Converts observed actor YXZ degrees (forward -Z, pitch up) to Bedrock view degrees.
 pub fn bedrock_view_angles(yaw: f32, pitch: f32) -> [f32; 2] {
@@ -95,6 +97,13 @@ pub const COMPONENT_ASSET_SECTIONS: [&str; 6] = [
 pub const MAX_CONTROL_KEYS: usize = 64;
 /// Maximum bytes in a physical key name supplied by local controls.
 pub const MAX_CONTROL_KEY_BYTES: usize = 32;
+/// Whether a physical key name fits the shared controls wire contract.
+pub fn control_key_valid(key: &str) -> bool {
+    !key.is_empty()
+        && key.len() <= MAX_CONTROL_KEY_BYTES
+        && key.bytes().all(|c| c.is_ascii_alphanumeric())
+}
+
 /// Maximum nearby mobs in one snapshot, and the radius they are drawn from.
 pub const MAX_GAMEPLAY_MOBS: usize = 64;
 pub const MAX_MOB_RANGE_BLOCKS: f32 = 64.0;
@@ -195,6 +204,24 @@ pub mod player_mod {
         generate_all,
         pub_export_macro: true,
         export_macro_name: "export_player_mod",
+    });
+}
+
+/// The `packet-mod` world: a trusted mod that relays every session packet.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "wit-bindgen flattens the start identity into canonical ABI parameters"
+)]
+pub mod packet_mod {
+    wit_bindgen::generate!({
+        path: [
+            "../experience-sdk/wit/client/deps/server-experience",
+            "../experience-sdk/wit/session",
+            "wit",
+        ],
+        world: "cinnabar:extension/packet-mod@0.1.0",
+        pub_export_macro: true,
+        export_macro_name: "export_packet_mod",
     });
 }
 

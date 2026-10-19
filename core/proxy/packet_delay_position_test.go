@@ -3,13 +3,17 @@ package proxy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"log/slog"
 	"math"
+	"net"
 	"testing"
 	"testing/synctest"
 	"time"
 
 	"github.com/go-gl/mathgl/mgl32"
+	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
@@ -24,7 +28,7 @@ func TestPacketDelayPositionAdvancesOnlyAfterSuccessfulUpstreamFlush(t *testing.
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		done := make(chan error, 1)
-		go func() { done <- pumpPacketsWithDelay(ctx, delay, src, dst, true, session) }()
+		go func() { done <- pumpPacketsWithDelay(ctx, delay, nil, src, dst, true, session) }()
 		first := &packet.PlayerAuthInput{Position: mgl32.Vec3{1, 70, 3}}
 		src.batchReads <- batchResult{packets: []packet.Packet{first}}
 		synctest.Wait()
@@ -58,21 +62,197 @@ func TestPacketDelayPositionAdvancesOnlyAfterSuccessfulUpstreamFlush(t *testing.
 	})
 }
 
-func TestPacketDelayPositionFiltersOwnFiniteMovement(t *testing.T) {
-	raw := func(value packet.Packet) minecraft.RawPacket {
-		return minecraft.RawPacket{Decoded: []packet.Packet{value}}
+// movementBatchSource can model one received packet decoded into several movements.
+type movementBatchSource struct {
+	*fakeDownstream
+	combined bool
+}
+
+// ReadBatchRaw optionally combines the decoded movements into one received packet.
+func (source *movementBatchSource) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.RawPacket, error) {
+	batch, err := source.fakeDownstream.ReadBatchRaw(decode)
+	if source.combined && len(batch) > 1 {
+		for _, raw := range batch[1:] {
+			batch[0].Decoded = append(batch[0].Decoded, raw.Decoded...)
+		}
+		batch = batch[:1]
 	}
-	if ownMovementPosition(raw(&packet.MovePlayer{EntityRuntimeID: 8, Position: mgl32.Vec3{1, 2, 3}}), 9) != nil {
+	return batch, err
+}
+
+func TestPacketDelayPositionTracksOnlyMovementsForwardedByInterceptor(t *testing.T) {
+	for _, combined := range []bool{false, true} {
+		for _, action := range []string{"drop all", "drop first", "drop last", "modify first", "forward all"} {
+			t.Run(fmt.Sprintf("%s/combined=%t", action, combined), func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					delay := new(PacketDelay)
+					session := delay.beginSession()
+					_ = delay.SetWithPosition(200, true)
+					src := &movementBatchSource{fakeDownstream: newFakeDownstream(nil), combined: combined}
+					defer src.Close()
+					src.useBatchReads = true
+					dst := newFakeUpstream(nil)
+					dst.data.EntityRuntimeID = 9
+					first := &packet.PlayerAuthInput{Position: mgl32.Vec3{1, 70, 3}}
+					last := &packet.MovePlayer{EntityRuntimeID: 9, Position: mgl32.Vec3{4, 71, 6}}
+					src.batchReads <- batchResult{packets: []packet.Packet{first, last}}
+					src.batchReads <- batchResult{err: io.EOF}
+					intercept := &scriptedIntercept{
+						selects: map[uint32]bool{packet.IDPlayerAuthInput: true, packet.IDMovePlayer: true},
+						handle: func(_ Direction, value packet.Packet) (Verdict, error) {
+							if action == "forward all" {
+								return Forward, nil
+							}
+							if action == "drop first" {
+								if value == first {
+									return Drop, nil
+								}
+								return Forward, nil
+							}
+							if action == "drop all" || value == last {
+								return Drop, nil
+							}
+							if action == "modify first" {
+								first.Position = mgl32.Vec3{7, 72, 9}
+								return ForwardModified, nil
+							}
+							return Forward, nil
+						},
+					}
+					if err := pumpPacketsWithDelay(context.Background(), delay, intercept, src, dst, true, session); !errors.Is(err, io.EOF) {
+						t.Fatal(err)
+					}
+					var want *ForwardedPosition
+					wantWrites := 1
+					switch action {
+					case "drop all":
+						wantWrites = 0
+					case "drop last":
+						want = &ForwardedPosition{1, 70, 3}
+					case "drop first":
+						want = &ForwardedPosition{4, 71, 6}
+					case "modify first":
+						want = &ForwardedPosition{7, 72, 9}
+					case "forward all":
+						want, wantWrites = &ForwardedPosition{4, 71, 6}, 2
+					}
+					_, got := delay.PositionSnapshot()
+					if (got == nil) != (want == nil) || got != nil && *got != *want {
+						t.Fatalf("position = %#v, want %#v", got, want)
+					}
+					if got := len(dst.written()); got != wantWrites {
+						t.Fatalf("forwarded %d packets, want %d", got, wantWrites)
+					}
+				})
+			})
+		}
+	}
+}
+
+func TestPacketDelayPositionFiltersOwnFiniteMovement(t *testing.T) {
+	decoded := func(value packet.Packet) []packet.Packet {
+		return []packet.Packet{value}
+	}
+	if ownMovementPosition(decoded(&packet.MovePlayer{EntityRuntimeID: 8, Position: mgl32.Vec3{1, 2, 3}}), 9) != nil {
 		t.Fatal("observed another player")
 	}
-	if ownMovementPosition(raw(&packet.MovePlayer{EntityRuntimeID: 9, Mode: packet.MoveModeRotation, Position: mgl32.Vec3{1, 2, 3}}), 9) != nil {
+	if ownMovementPosition(decoded(&packet.MovePlayer{EntityRuntimeID: 9, Mode: packet.MoveModeRotation, Position: mgl32.Vec3{1, 2, 3}}), 9) != nil {
 		t.Fatal("rotation-only update moved witness")
 	}
-	if ownMovementPosition(raw(&packet.PlayerAuthInput{Position: mgl32.Vec3{1, float32(math.NaN()), 3}}), 9) != nil {
+	if ownMovementPosition(decoded(&packet.PlayerAuthInput{Position: mgl32.Vec3{1, float32(math.NaN()), 3}}), 9) != nil {
 		t.Fatal("observed nonfinite position")
 	}
-	if got := ownMovementPosition(raw(&packet.MovePlayer{EntityRuntimeID: 9, Position: mgl32.Vec3{1, 2, 3}}), 9); got == nil || got.Y != 2 {
+	if got := ownMovementPosition(decoded(&packet.MovePlayer{EntityRuntimeID: 9, Position: mgl32.Vec3{1, 2, 3}}), 9); got == nil || got.Y != 2 {
 		t.Fatal("own network position was changed")
+	}
+}
+
+func TestPacketDelayPositionIncludesInterceptorInjections(t *testing.T) {
+	for _, phase := range []string{"before", "after", "flush"} {
+		for _, drop := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/drop_original=%t", phase, drop), func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					delay := new(PacketDelay)
+					id := delay.beginSession()
+					_ = delay.SetWithPosition(200, true)
+					up := newFakeUpstream(nil)
+					up.useBatchReads = true
+					up.data.EntityRuntimeID = 9
+					up.batchReads <- batchResult{packets: []packet.Packet{&packet.StartGame{EntityRuntimeID: 9}}}
+					logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+					connections := newPreparedConnections("", nil, logger)
+					connections.connectPrepared = func(context.Context, dialerDownstream) (*preparedConnection, error) {
+						return &preparedConnection{upstream: up, packStack: &selectedResourcePackStack{}}, nil
+					}
+					var intercepted *InterceptedSession
+					// inject appends a movement through the interceptor's public writer.
+					inject := func() error {
+						return intercepted.WriteToServer(&packet.MovePlayer{EntityRuntimeID: 9, Position: mgl32.Vec3{4, 71, 6}})
+					}
+					intercept := &scriptedIntercept{
+						selects: map[uint32]bool{packet.IDPlayerAuthInput: true},
+						handle: func(Direction, packet.Packet) (Verdict, error) {
+							if phase == "before" {
+								if err := inject(); err != nil {
+									return Forward, err
+								}
+							}
+							if drop {
+								return Drop, nil
+							}
+							return Forward, nil
+						},
+						end: func(Direction) error {
+							if phase == "before" {
+								return nil
+							}
+							if err := inject(); err != nil {
+								return err
+							}
+							if phase == "flush" {
+								return intercepted.FlushServer()
+							}
+							return nil
+						},
+					}
+					server := &sessionServer{prepared: connections, delay: delay, logger: logger,
+						interceptor: interceptorFunc(func(_ context.Context, session *InterceptedSession) (SessionInterceptor, error) {
+							intercepted = session
+							return intercept, nil
+						})}
+					local, peer := net.Pipe()
+					defer peer.Close()
+					client := newSessionConn(streamnet.NewFramedConn(local))
+					defer client.Close()
+					ctx, cancel := context.WithCancelCause(context.Background())
+					defer cancel(nil)
+					downstream, err := newSessionDownstream(testSessionConnect(t), nil)
+					if err != nil {
+						t.Fatal(err)
+					}
+					_, prepared, err := server.prepare(ctx, cancel, client, downstream, nil)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer prepared.close()
+					src := newFakeDownstream(nil)
+					defer src.Close()
+					src.useBatchReads = true
+					src.batchReads <- batchResult{packets: []packet.Packet{&packet.PlayerAuthInput{Position: mgl32.Vec3{1, 70, 3}}}}
+					src.batchReads <- batchResult{err: io.EOF}
+					if err := pumpPacketsWithDelay(ctx, delay, prepared.intercept, src, prepared.upstream, true, id); !errors.Is(err, io.EOF) {
+						t.Fatal(err)
+					}
+					want := ForwardedPosition{4, 71, 6}
+					if phase == "before" && !drop {
+						want = ForwardedPosition{1, 70, 3}
+					}
+					if _, got := delay.PositionSnapshot(); got == nil || *got != want {
+						t.Fatalf("injected movement position = %#v", got)
+					}
+				})
+			})
+		}
 	}
 }
 
@@ -140,7 +320,7 @@ func TestPacketDelayPositionOffDoesNotDecodeMovement(t *testing.T) {
 		dst := newFakeUpstream(nil)
 		src.batchReads <- batchResult{packets: []packet.Packet{&packet.PlayerAuthInput{Position: mgl32.Vec3{1, 2, 3}}}}
 		src.batchReads <- batchResult{err: io.EOF}
-		if err := pumpPacketsWithDelay(context.Background(), delay, src, dst, true); !errors.Is(err, io.EOF) {
+		if err := pumpPacketsWithDelay(context.Background(), delay, nil, src, dst, true); !errors.Is(err, io.EOF) {
 			t.Fatal(err)
 		}
 		if src.decoded != 0 {

@@ -80,7 +80,7 @@ func TestStalledWebPackOpenDoesNotBlockPlayOrCancellation(t *testing.T) {
 	if err := delivery.prepare(ctx, &plan); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeSessionHandoff(session, plan); err != nil {
+	if err := writeSessionHandoff(session, plan, nil); err != nil {
 		t.Fatal(err)
 	}
 	<-opened

@@ -6,6 +6,7 @@
 pub mod crosshair;
 mod experience;
 pub mod experience_modal;
+pub mod fonts;
 mod mod_hud;
 mod mod_hud_editor;
 mod mod_panel;

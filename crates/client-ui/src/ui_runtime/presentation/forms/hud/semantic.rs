@@ -5,6 +5,7 @@ use std::sync::Arc;
 use json_ui::{Catalog, HudChanges, HudModel, HudSlot, HudTitle, Timed};
 use launcher::menu::settings_options::{SettingId, SettingsOptions};
 use ui::{BossBarView, IconRef, TimedText};
+use ui_screens::text::bounded_text;
 
 use super::super::super::{HudFrame, bounded_visible_text, resolve_chat_line};
 use super::{ITEM_NAME_MILLIS, MAX_BOSS_BARS, MAX_CHAT_LINES};
@@ -17,7 +18,7 @@ use components::{boss_model, sidebar_model, world_text_input, world_text_lines};
 #[derive(Default)]
 pub(in crate::ui_runtime::presentation) struct SemanticHud {
     pub(super) model: HudModel,
-    pub(super) icons: Vec<IconRef>,
+    pub(in crate::ui_runtime::presentation) icons: Vec<IconRef>,
     session: Option<u64>,
     catalog: Option<Arc<Catalog>>,
     language: [usize; 3],
@@ -278,6 +279,9 @@ impl SemanticHud {
         let title = runtime.hud().title().filter(|text| text.visible_at(now));
         let subtitle = runtime.hud().subtitle().filter(|text| text.visible_at(now));
         let mut changed = refresh_title(&mut self.model.title, title, subtitle);
+        changed |= refresh_binding_text(&mut self.model.title_text, runtime.hud().title_text());
+        changed |=
+            refresh_binding_text(&mut self.model.subtitle_text, runtime.hud().subtitle_text());
         changed |= refresh_timed(
             &mut self.model.actionbar,
             runtime
@@ -299,7 +303,7 @@ impl SemanticHud {
             .filter(|changed| now.saturating_sub(*changed) < ITEM_NAME_MILLIS)
             .zip(frame.selected_item_name.as_deref())
             .filter(|_| self.model.hotbar_visible && player.selected_hotbar_slot().is_some())
-            .map(|(changed, name)| (name, changed));
+            .map(|(changed, name)| (bounded_visible_text(name), changed));
         changed |= refresh_timed(&mut self.model.item_name, item_name);
         changed
     }
@@ -383,9 +387,24 @@ fn seconds(millis: u64) -> f64 {
     millis as f64 / 1_000.0
 }
 
+/// Retains unexpired binding content independently of a title's visible animation.
+fn refresh_binding_text(model: &mut Option<String>, text: &str) -> bool {
+    let text = bounded_text(text, protocol::MAX_UI_TEXT_BYTES);
+    if model.as_deref() == Some(text) {
+        return false;
+    }
+    *model = Some(text.to_owned());
+    true
+}
+
 /// Allocates bounded timed text only when its visible content or creation clock changes.
 fn refresh_timed(model: &mut Option<Timed>, input: Option<(&str, u64)>) -> bool {
-    let input = input.map(|(text, born)| (bounded_visible_text(text), seconds(born)));
+    let input = input.map(|(text, born)| {
+        (
+            bounded_text(text, protocol::MAX_UI_TEXT_BYTES),
+            seconds(born),
+        )
+    });
     if model.as_ref().map(|text| (text.text.as_str(), text.born)) == input {
         return false;
     }
@@ -405,8 +424,10 @@ fn refresh_title(
     let Some(title) = title else {
         return model.take().is_some();
     };
-    let text = bounded_visible_text(&title.text);
-    let subtitle = subtitle.map_or("", |text| bounded_visible_text(&text.text));
+    let text = bounded_text(&title.text, protocol::MAX_UI_TEXT_BYTES);
+    let subtitle = subtitle.map_or("", |text| {
+        bounded_text(&text.text, protocol::MAX_UI_TEXT_BYTES)
+    });
     let fade_in = seconds(title.fade_in_millis);
     let fade_out = seconds(title.fade_out_millis);
     let total = title.expires_millis.saturating_sub(title.started_millis);

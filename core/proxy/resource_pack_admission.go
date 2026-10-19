@@ -421,6 +421,7 @@ type preparedConnection struct {
 	releaseTarget func() error
 	packAdmission *resourcePackAdmissionTelemetry
 	packStack     *selectedResourcePackStack
+	intercept     SessionInterceptor // nil relays untouched; the session's owner closes it
 
 	closeOnce sync.Once
 	closeErr  error
@@ -809,7 +810,7 @@ func (connections *preparedConnections) shutdown() error {
 func servePreparedConnection(ctx context.Context, downstream downstreamSession, prepared *preparedConnection) (err error) {
 	prepared.downstream = downstream
 	defer func() { err = errors.Join(err, prepared.close()) }()
-	return relayPackets(ctx, downstream, prepared.upstream, func() { _ = prepared.close() }, prepared.packetDelay)
+	return relayPackets(ctx, downstream, prepared.upstream, func() { _ = prepared.close() }, prepared.packetDelay, prepared.intercept)
 }
 
 // finish stops progress once the dial has returned.

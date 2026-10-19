@@ -240,11 +240,7 @@ pub(super) fn read_text_events(
         .collect()))
 }
 
-fn key_valid(key: &str) -> bool {
-    !key.is_empty()
-        && key.len() <= mod_api::MAX_CONTROL_KEY_BYTES
-        && key.bytes().all(|c| c.is_ascii_alphanumeric())
-}
+use mod_api::control_key_valid as key_valid;
 
 pub(super) fn validate_frame(frame: &ControlFrame) -> Result<()> {
     ensure!(

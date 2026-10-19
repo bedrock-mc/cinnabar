@@ -22,3 +22,22 @@ func TestRoundTripMillisPreservesUnknownAndRoundsFullRTT(t *testing.T) {
 		}
 	}
 }
+
+// Both native observations and relay traces share one optional transport estimator.
+func TestLatencyConsumersPreserveMissingOrUnavailableEstimators(t *testing.T) {
+	for _, latency := range []func() time.Duration{
+		nil,
+		func() time.Duration { panic("adapter has no estimator") },
+	} {
+		session := &InterceptedSession{latency: latency}
+		if got := session.Latency(); got != 0 {
+			t.Fatalf("native latency = %v; want unknown", got)
+		}
+		if got := sampleRoundTrip(latency); got != 0 {
+			t.Fatalf("trace RTT = %v; want unknown", got)
+		}
+	}
+	if got := latencySampler(latencyUpstream{})(); got == nil || *got != 14 {
+		t.Fatalf("network RTT = %v; want 14ms", got)
+	}
+}

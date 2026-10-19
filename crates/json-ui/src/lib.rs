@@ -33,6 +33,7 @@ mod localize;
 mod lru;
 mod merge;
 mod pack;
+pub mod position;
 mod predicate;
 mod resolve;
 mod scene;
@@ -74,9 +75,9 @@ pub use emit::{
 pub use env::Env;
 pub use expr::{AxisContext, Length, Resolved, Term, Unit, length_from_value, parse_length};
 pub use form::{
-    ActionElement, ActionForm, ButtonImage, CachedLibrary, CatalogLibrary, CustomElement,
-    CustomForm, FormButton, FormModel, FormRender, ModalForm, ResolveCache, bind_form,
-    bind_form_over, form_context, form_data_source, form_factory_id, form_screen_cancel,
+    ActionElement, ActionForm, BoundedCatalogLibrary, ButtonImage, CachedLibrary, CatalogLibrary,
+    CustomElement, CustomForm, FormButton, FormModel, FormRender, ModalForm, ResolveCache,
+    bind_form, bind_form_over, form_context, form_data_source, form_factory_id, form_screen_cancel,
     form_template, render_bound, render_bound_cached, render_bound_gated, render_form,
     render_form_with,
 };

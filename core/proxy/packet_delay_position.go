@@ -62,16 +62,17 @@ func isOwnMovement(id uint32) bool {
 
 func ownRuntimeID(source, destination packetSession) uint64 {
 	for _, session := range []packetSession{source, destination} {
-		if data, ok := session.(interface{ GameData() minecraft.GameData }); ok {
+		if data, ok := unwrapUpstream(session).(interface{ GameData() minecraft.GameData }); ok {
 			return data.GameData().EntityRuntimeID
 		}
 	}
 	return 0
 }
 
-func ownMovementPosition(raw minecraft.RawPacket, ownID uint64) *ForwardedPosition {
+// ownMovementPosition returns the last local movement if its position is finite.
+func ownMovementPosition(forwarded []packet.Packet, ownID uint64) *ForwardedPosition {
 	var position *ForwardedPosition
-	for _, decoded := range raw.Decoded {
+	for _, decoded := range forwarded {
 		switch value := decoded.(type) {
 		case *packet.PlayerAuthInput:
 			position = &ForwardedPosition{value.Position[0], value.Position[1], value.Position[2]}

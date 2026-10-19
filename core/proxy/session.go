@@ -42,6 +42,7 @@ type sessionServer struct {
 	dialTarget   func(ctx context.Context, address string) (*resolvedUpstreamTarget, error)
 	device       *device.Profile // nil keeps the client's claimed device
 	delay        *PacketDelay
+	interceptor  Interceptor // nil relays sessions untouched
 	logger       *slog.Logger
 
 	acceptDone chan struct{}
@@ -133,7 +134,7 @@ func (server *sessionServer) serveConn(ctx context.Context, raw net.Conn) error 
 }
 
 // serveConnWithPacks injects archive delivery at the existing handoff owner.
-func (server *sessionServer) serveConnWithPacks(ctx context.Context, raw net.Conn, delivery *sessionPackDelivery) error {
+func (server *sessionServer) serveConnWithPacks(ctx context.Context, raw net.Conn, delivery *sessionPackDelivery) (err error) {
 	framed := streamnet.NewFramedConn(raw)
 	if err := raw.SetReadDeadline(time.Now().Add(sessionConnectTimeout)); err != nil {
 		return err
@@ -166,6 +167,7 @@ func (server *sessionServer) serveConnWithPacks(ctx context.Context, raw net.Con
 		}
 		return err
 	}
+	defer func() { closeIntercept(prepared.intercept, err) }()
 	if server.onNetwork != nil && prepared.packAdmission != nil {
 		attempt := prepared.packAdmission.attemptID
 		server.onNetwork(NetworkObservation{AttemptID: attempt, LocalRuntimeID: session.runtimeID.Load(), RoundTripMillis: plan.latency})
@@ -226,9 +228,11 @@ func (server *sessionServer) prepare(
 	}
 	prepared.packetDelay = server.delay
 	latency := latencySampler(prepared.upstream)
+	intercepted := &InterceptedSession{client: session, clientData: downstream.ClientData(), latency: upstreamLatency(prepared.upstream)}
 	// The dial returned at StartGame; the observing wrappers below hide the upstream's game data.
 	if game, ok := prepared.upstream.(interface{ GameData() minecraft.GameData }); ok {
-		session.runtimeID.Store(game.GameData().EntityRuntimeID)
+		intercepted.gameData = game.GameData()
+		session.runtimeID.Store(intercepted.gameData.EntityRuntimeID)
 	}
 	prepared.upstream = observeTransfers(prepared.upstream, server.transfers, server.logger)
 	defer func() {
@@ -248,6 +252,7 @@ func (server *sessionServer) prepare(
 	}
 	// The caller reports a disconnect read above, so the disconnect observer wraps only the relay.
 	prepared.upstream = observeDisconnects(prepared.upstream, server.onDisconnect)
+	prepared.upstream = observeUpstreamPositions(prepared.upstream, server.delay, intercepted.gameData.EntityRuntimeID)
 	selected, packs, err := selectSessionPacks(prepared.packStack, server.logger)
 	prepared.packAdmission.observePolicyOutcome(prepared.packStack, err == nil)
 	if err != nil {
@@ -258,6 +263,12 @@ func (server *sessionServer) prepare(
 		return plan, prepared, err
 	}
 	identity := prepared.upstream.IdentityData()
+	if server.interceptor != nil {
+		intercepted.server, intercepted.identity = prepared.upstream, identity
+		if selected, packs, err = server.intercept(ctx, prepared, intercepted, selected, packs); err != nil {
+			return plan, prepared, err
+		}
+	}
 	plan.handoff = sessionHandoff{
 		Identity:      sessionIdentity{DisplayName: identity.DisplayName, XUID: identity.XUID, UUID: identity.Identity},
 		ClientCache:   server.prepared.upstreamClientCache && downstream.clientCache,
@@ -271,10 +282,33 @@ func (server *sessionServer) prepare(
 	return plan, prepared, nil
 }
 
+// intercept starts the configured interceptor on a prepared session and adds its packs to the
+// selection. On success prepared owns the session interceptor.
+func (server *sessionServer) intercept(
+	ctx context.Context,
+	prepared *preparedConnection,
+	session *InterceptedSession,
+	selected []sessionPack,
+	packs []*resource.Pack,
+) ([]sessionPack, []*resource.Pack, error) {
+	intercept, err := interceptSession(ctx, server.interceptor, session)
+	if err != nil || intercept == nil {
+		return selected, packs, err
+	}
+	above, below, err := interceptedResourcePacks(intercept)
+	if err != nil {
+		closeIntercept(intercept, err)
+		return selected, packs, err
+	}
+	prepared.intercept = intercept
+	selected, packs = addInterceptedPacks(selected, packs, above, below)
+	return selected, packs, nil
+}
+
 // handOffSession writes the handoff, the pack archives and the rest of StartGame's batch, then relays.
 func handOffSession(ctx context.Context, session *sessionConn, prepared *preparedConnection, plan sessionPlan) error {
 	deliveryDone := joinprofile.Stage(ctx, "core_pack_handoff")
-	if err := writeSessionHandoff(session, plan); err != nil {
+	if err := writeSessionHandoff(session, plan, prepared.intercept); err != nil {
 		if errors.Is(err, errSessionEnded) {
 			err = nil
 		}
@@ -286,7 +320,7 @@ func handOffSession(ctx context.Context, session *sessionConn, prepared *prepare
 	return servePreparedConnection(ctx, session, prepared)
 }
 
-func writeSessionHandoff(session *sessionConn, plan sessionPlan) error {
+func writeSessionHandoff(session *sessionConn, plan sessionPlan, intercept SessionInterceptor) error {
 	for _, data := range plan.startup {
 		session.observeItemRegistry(data)
 	}
@@ -304,12 +338,40 @@ func writeSessionHandoff(session *sessionConn, plan sessionPlan) error {
 	if err := sink(plan.packs); err != nil {
 		return err
 	}
-	for _, data := range plan.rest {
-		if err := session.WritePacketRaw(data); err != nil {
+	if err := forwardStartupRest(session, plan.rest, intercept); err != nil {
+		return err
+	}
+	return session.Flush()
+}
+
+// forwardStartupRest relays the rest of StartGame's batch, which intercept sees as the session's
+// first server batch. intercept is optional.
+func forwardStartupRest(session *sessionConn, rest [][]byte, intercept SessionInterceptor) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = panicTypeError("intercepting startup packets", recovered)
+		}
+	}()
+	if intercept != nil {
+		intercept.BeginBatch(FromServer)
+	}
+	for _, data := range rest {
+		raw := minecraft.RawPacket{Data: data}
+		raw.ID, _ = sessionPacketID(data)
+		// Decoded in turn, after any ItemRegistry ahead of it set the shield ID.
+		if intercept != nil && intercept.Intercepts(FromServer, raw.ID) {
+			if value := decodeSessionPacket(session.serverPool, data, session.shieldID.Load(), false); value != nil {
+				raw.Decoded = []packet.Packet{value}
+			}
+		}
+		if err := forwardPacket(session, raw, login.IdentityData{}, intercept, FromServer); err != nil {
 			return err
 		}
 	}
-	return session.Flush()
+	if intercept != nil {
+		return intercept.EndBatch(FromServer)
+	}
+	return nil
 }
 
 // readSessionStartup reads upstream batches through StartGame, which a HandoffAtStartGame dial has

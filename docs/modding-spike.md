@@ -372,6 +372,12 @@ and read budget. Native integrations drain
 `ModUi::take_mod_panel_text_events(owner)` and call that owner's
 `ModHost::queue_text_events` before running its frame. Admission validates the
 entire batch against its current text controls before updating any retained value.
+Optional `show_gameplay_hud: true` retains the resource-pack gameplay HUD behind an
+open panel, for example while placing HUD elements. It defaults to false. Hide HUD
+and death-screen suppression still apply, and the crosshair stays hidden while a
+panel owns input. This does not enable other extensions' overlay cards. The value
+can change with a full panel update without replacing the retained document.
+
 Optional `motion: true` enables short native hover and toggle transitions and
 smooth discrete wheel scrolling. Pixel scrolling and scrollbar dragging remain
 immediate. Authored surfaces can bind `#row_N_hover` and
@@ -1353,3 +1359,31 @@ Each bounded result contains the existing `actor` record and optional `max-healt
 from the replicated health attribute. Missing attributes remain absent; no default
 maximum is inferred. The original `read-actors` import and actor record stay compatible
 with previously built components.
+
+## Trusted packet mods
+
+Settings → Mods → Import mod also accepts raw WASI packet reactors, including
+Go `wasip1` reactors, up to the packet host's 256 MiB source limit. Ordinary
+component mods retain their existing limits. Import validates the packet ABI
+without starting the guest; permission toggles remain off by default.
+
+The host retains one admitted compiled program in memory, keyed by its source
+and exact grants, with a native image no larger than the source byte limit.
+It never reads compiled native artifacts from disk. Restarting the client
+requires compiling the selected reactor again.
+
+Grant Packets and, for WASI reactors, WASI before enabling the mod. Only one
+packet mod can be enabled at a time. “Ready for your next server join” means
+the compiled source will start in a fresh instance when you next join a server.
+Reloading changes the next session; disabling or revoking a grant immediately
+revokes existing instances. Compilation and instance work run off the frame
+thread, and failed or trapped mods fall back to ordinary packet forwarding.
+Server batches through spawn pass through the mod under the join deadline,
+including registries and other startup data arriving after the StartGame handoff.
+The login owner switches later batches to the shorter play deadline when spawn
+completes. Ticks retain their play deadline.
+
+Developer launches can select a reactor with `CINNABAR_PACKET_MOD`, with
+the packet grant and `CINNABAR_PACKET_MOD_WASI=1` for WASI, or select a packet
+entry from `CINNABAR_MOD_SET`.
+Settings registration uses the same prepared-source and session relay path.

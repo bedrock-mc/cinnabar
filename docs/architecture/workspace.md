@@ -199,8 +199,9 @@ the SDK for their own host contract; they do not import client runtime authority
 
 | Go package (`core/`) | What it does |
 | --- | --- |
-| `cmd/bedrock-core` | The core binary. |
-| `proxy` | Upstream session, resource-pack download and packet relay. |
+| `cmd/bedrock-core` | The core binary; it runs `coreapp` without extensions. |
+| `coreapp` | The core process: flags, authentication, the control endpoint, launcher services and the relay. A binary that extends the core calls `coreapp.Main` with its `Options`. |
+| `proxy` | Upstream session, resource-pack download and packet relay, with an optional in-process packet `Interceptor`. |
 | `authflow`, `authcache` | Microsoft device sign-in and token cache. |
 | `catalog`, `launcher`, `control`, `xboxpresence` | Menu data and services: featured servers, Realms, friends and presence. |
 | `localworld` | The launcher's open local world as the core routes it; `proxy` hosts it for Xbox friends. |

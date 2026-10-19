@@ -13,7 +13,7 @@ use ui_engine::engine::{
 
 /// The preview raster, posed and framed as each vanilla player renderer asks.
 #[derive(Default)]
-pub(super) struct PreviewRenderer<'a> {
+pub(in crate::ui_runtime::presentation) struct PreviewRenderer<'a> {
     pub(super) preview: Option<IconRef>,
     /// Where a drawn player renderer records how it wants the model posed.
     pub(super) view: Option<&'a Cell<Option<PreviewView>>>,
@@ -27,10 +27,7 @@ impl CustomRenderer for PreviewRenderer<'_> {
         node: &CustomDraw<'_>,
         canvas: &mut Canvas<'_>,
     ) -> Result<bool, PaintError> {
-        if !matches!(
-            node.renderer,
-            "live_player_renderer" | "paper_doll_renderer" | "hud_player_renderer"
-        ) {
+        if !Self::handles(node.renderer) {
             return Ok(false);
         }
         if let Some((visual, bounds)) = self.player_preview(canvas, node) {
@@ -41,6 +38,13 @@ impl CustomRenderer for PreviewRenderer<'_> {
 }
 
 impl PreviewRenderer<'_> {
+    /// The player-model custom controls handled by this shared renderer.
+    pub(in crate::ui_runtime::presentation) fn handles(renderer: &str) -> bool {
+        matches!(
+            renderer,
+            "live_player_renderer" | "paper_doll_renderer" | "hud_player_renderer"
+        )
+    }
     /// The preview raster for `node`; the pose is requested for the next raster.
     fn player_preview(
         &self,
