@@ -693,9 +693,9 @@ fn compile_icons(
 
 use pack_runtime::pack_language::merged_server_lang;
 
-use resource_pack::StackFingerprint;
 #[cfg(test)]
 use pack_runtime::stack_fingerprint;
+use resource_pack::StackFingerprint;
 
 struct CachedOverlay {
     dependencies: Option<std::collections::BTreeSet<resource_pack::PackDependency>>,

@@ -27,45 +27,29 @@ pub fn active_language_code() -> String {
 
 const SERVER_LANG_PATH: &str = "texts/en_US.lang";
 
-/// Merges every pack's language file so a higher-precedence pack overrides a
-/// key and keys it does not define still come from lower packs; the UI
-/// language's files override en_US. Lowest layers are dropped first if the
-/// merged text would exceed the overlay input bound.
+/// Merges every readable English and selected-locale source in precedence order.
+/// A higher layer overrides matching keys while lower layers retain their other keys.
 pub fn merged_server_lang(view: &LayeredPackView) -> Option<Arc<assets::ServerLangOverlay>> {
-    let mut kept = Vec::new();
-    let mut total = 0usize;
-    let mut layers = view.read_layers(SERVER_LANG_PATH);
     let active = ACTIVE_LANG_PATH
         .read()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some(active) = active.as_deref() {
-        layers.extend(view.read_layers(active));
-    }
-    for layer in layers.into_iter().rev() {
-        let text = layer
-            .strip_prefix(b"\xef\xbb\xbf")
-            .unwrap_or(&layer)
-            .to_vec();
-        let Some(next) = total.checked_add(text.len() + 1) else {
-            break;
-        };
-        if next > assets::MAX_SERVER_LANG_INPUT_BYTES {
-            break;
-        }
-        total = next;
-        kept.push(text);
-    }
-    if kept.is_empty() {
-        return None;
-    }
-    // The overlay keeps the last definition of a key, so write lowest first.
-    let mut merged = Vec::with_capacity(total);
-    for text in kept.iter().rev() {
-        merged.extend_from_slice(text);
-        merged.push(b'\n');
-    }
-    assets::ServerLangOverlay::read(merged.len(), |output| {
-        output.copy_from_slice(&merged);
-        true
-    })
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    let sources = [Some(SERVER_LANG_PATH), active.as_deref()]
+        .into_iter()
+        .flatten()
+        .flat_map(|path| {
+            view.layers().enumerate().filter_map(move |(layer_index, layer)| {
+                match layer.read_file(path) {
+                    Ok(source) => source,
+                    Err(error) => {
+                        tracing::warn!(path, layer_index, reason = %error, "skipping unreadable server language file");
+                        None
+                    }
+                }
+            })
+        });
+    assets::ServerLangOverlay::from_layers(sources)
 }
+
+#[cfg(test)]
+mod tests;

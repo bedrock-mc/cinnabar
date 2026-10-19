@@ -306,7 +306,10 @@ or compressed-byte quotas. Saved server lists retain every imported entry. Decla
 identity, digests and framing remain validated. Experience selections preserve service errors
 and wait for the account core result. Complete featured-server acceptance remains open:
 large-pack preparation can be slow or fail, and sparse startup terrain can leave loading open.
-Local imports, decompression, UI/text expansion, language memory and other admission limits
+Server language loading retains every readable English and selected-locale layer without fixed
+table, entry or process quotas, and folds inserted keys to ASCII lowercase. Unreadable sources
+and allocation failures are diagnosed without discarding other definitions. Complete pack-content
+acceptance remains open. Local imports, decompression, UI/text expansion and other admission limits
 still need version-matched verification; the limit inventory closes no whole-client parity gate.
 
 Cosmetics require live authenticated multi-account acceptance, catalog/motion envelope
