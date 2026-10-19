@@ -26,6 +26,13 @@ const WORLD_FILES: Filter = Filter {
     unavailable_hint: "Drop a world file onto the Worlds tab to import it.",
 };
 
+const WORLD_EXPORT_FILES: Filter = Filter {
+    title: "Export world",
+    name: "Minecraft worlds",
+    extensions: &[WORLD_ARCHIVE_EXTENSION],
+    unavailable_hint: "Cannot open file save dialog.",
+};
+
 /// Work kept on the local-world worker, including thumbnail persistence.
 enum Request {
     Effect(Effect),
@@ -239,6 +246,20 @@ fn execute(
                 errors: vec![error],
             },
         },
+        Effect::Export(id) => match manager.get(&id) {
+            Ok(world) => {
+                let default_name = sanitize_export_name(&world.name);
+                match picker::pick_save(&WORLD_EXPORT_FILES, &default_name) {
+                    Ok(Some(path)) => match manager.export(&id, &path) {
+                        Ok(()) => Event::Exported(path),
+                        Err(error) => failed(error),
+                    },
+                    Ok(None) => return None,
+                    Err(error) => Event::Failed(error),
+                }
+            }
+            Err(error) => failed(error),
+        },
         Effect::PollStatus => Event::Status(route.status(manager)),
         Effect::Close => {
             manager.close();
@@ -254,6 +275,26 @@ fn execute(
         }
         Effect::OpenUrl(_) => return None,
     })
+}
+
+/// Sanitizes a world name into a valid export filename with .mcworld extension.
+fn sanitize_export_name(name: &str) -> String {
+    let sanitized: String = name
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\0' => '_',
+            c if c.is_control() => '_',
+            c => c,
+        })
+        .collect();
+    let trimmed = sanitized.trim();
+    if trimmed.is_empty() {
+        format!("world.{WORLD_ARCHIVE_EXTENSION}")
+    } else if trimmed.ends_with(&format!(".{WORLD_ARCHIVE_EXTENSION}")) {
+        trimmed.to_owned()
+    } else {
+        format!("{trimmed}.{WORLD_ARCHIVE_EXTENSION}")
+    }
 }
 
 /// Imports each file in turn; a refusal names its file.
@@ -397,6 +438,15 @@ mod tests {
             !events.is_empty()
         });
         assert!(matches!(&events[0].event, Event::Listed(worlds) if worlds.is_empty()));
+    }
+
+    #[test]
+    fn export_filename_sanitizes_illegal_characters_and_appends_mcworld() {
+        assert_eq!(sanitize_export_name("My World"), "My World.mcworld");
+        assert_eq!(sanitize_export_name("Cool/World:1"), "Cool_World_1.mcworld");
+        assert_eq!(sanitize_export_name("World.mcworld"), "World.mcworld");
+        assert_eq!(sanitize_export_name("   "), "world.mcworld");
+        assert_eq!(sanitize_export_name("Test*<>?|"), "Test_____.mcworld");
     }
 }
 

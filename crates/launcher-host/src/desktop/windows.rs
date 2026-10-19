@@ -15,8 +15,9 @@ use windows_sys::Win32::{
     },
     UI::{
         Controls::Dialogs::{
-            CommDlgExtendedError, GetOpenFileNameW, OFN_ALLOWMULTISELECT, OFN_EXPLORER,
-            OFN_FILEMUSTEXIST, OFN_NOCHANGEDIR, OFN_PATHMUSTEXIST, OPENFILENAMEW,
+            CommDlgExtendedError, GetOpenFileNameW, GetSaveFileNameW, OFN_ALLOWMULTISELECT,
+            OFN_EXPLORER, OFN_FILEMUSTEXIST, OFN_NOCHANGEDIR, OFN_OVERWRITEPROMPT,
+            OFN_PATHMUSTEXIST, OPENFILENAMEW,
         },
         Shell::ShellExecuteW,
         WindowsAndMessaging::{
@@ -82,6 +83,38 @@ pub fn physical_memory() -> Option<u64> {
 /// Shows the Open dialog; `Ok(None)` on cancel, `Err` with the dialog error code on failure.
 /// `filter` is a double-NUL-terminated list of `name\0patterns\0` pairs.
 /// Empty input disables filtering; malformed pairs return `ERROR_INVALID_PARAMETER`.
+/// Shows the Save dialog; \Ok(None)\ on cancel, \Err\ with the dialog error code on failure.
+pub fn pick_save_file(
+    title: &str,
+    default_name: &str,
+    filter: &str,
+) -> Result<Option<PathBuf>, u32> {
+    let filter = super::windows_filter::encode(filter).map_err(|()| ERROR_INVALID_PARAMETER)?;
+    let _apartment = ComApartment::enter();
+    let title = wide(title);
+    let mut file = vec![0u16; PATH_CAPACITY];
+    let def_units = wide(default_name);
+    let copy_len = def_units.len().min(file.len() - 1);
+    file[..copy_len].copy_from_slice(&def_units[..copy_len]);
+    let mut dialog = OPENFILENAMEW {
+        lStructSize: size_of::<OPENFILENAMEW>() as u32,
+        lpstrFilter: filter.as_ref().map_or(ptr::null(), |units| units.as_ptr()),
+        nFilterIndex: 1,
+        lpstrFile: file.as_mut_ptr(),
+        nMaxFile: file.len() as u32,
+        lpstrTitle: title.as_ptr(),
+        Flags: OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_OVERWRITEPROMPT,
+        ..Default::default()
+    };
+    if unsafe { GetSaveFileNameW(&mut dialog) } != 0 {
+        return Ok(selected_paths(&file).into_iter().next());
+    }
+    match unsafe { CommDlgExtendedError() } {
+        0 => Ok(None),
+        code => Err(code),
+    }
+}
+
 pub fn pick_file(title: &str, filter: &str) -> Result<Option<PathBuf>, u32> {
     file_chooser(title, filter, false).map(|paths| paths.into_iter().next())
 }

@@ -22,6 +22,34 @@ pub fn pick_files(filter: &Filter) -> Result<Vec<PathBuf>, String> {
     choose(filter, true)
 }
 
+/// Returns a chosen destination path for saving/exporting, cancellation, or a visible picker error.
+pub fn pick_save(filter: &Filter, default_name: &str) -> Result<Option<PathBuf>, String> {
+    choose_save(filter, default_name)
+}
+
+#[cfg_attr(windows, allow(clippy::needless_return))]
+fn choose_save(filter: &Filter, default_name: &str) -> Result<Option<PathBuf>, String> {
+    #[cfg(windows)]
+    {
+        super::windows::pick_save_file(filter.title, default_name, &windows_filter(filter)).map_err(
+            |code| {
+                format!(
+                    "File picker failed (error {code:#x}). {}",
+                    filter.unavailable_hint
+                )
+            },
+        )
+    }
+    #[cfg(not(windows))]
+    {
+        let paths = run_tools(
+            save_tool_commands(std::env::consts::OS, filter, default_name),
+            filter,
+        )?;
+        Ok(paths.into_iter().next())
+    }
+}
+
 /// Shares filters and fallback tools while preserving each caller's selection mode.
 // Windows compiles only its own branch, so that branch's early return is the tail.
 #[cfg_attr(windows, allow(clippy::needless_return))]
@@ -142,6 +170,38 @@ fn output_paths(output: &[u8]) -> Vec<PathBuf> {
 
 /// Picker tools in fallback order; Linux reaches these only when the portal is unavailable.
 #[cfg(any(not(windows), test))]
+fn save_tool_commands(platform: &str, filter: &Filter, default_name: &str) -> Vec<Command> {
+    let (title, name) = (filter.title, filter.name);
+    if platform == "macos" {
+        let script = format!(
+            "POSIX path of (choose file name with prompt \"{title}\" default name \"{default_name}\")"
+        );
+        let mut command = Command::new("osascript");
+        command.args(["-e", &script]);
+        return vec![command];
+    }
+    let patterns = patterns(filter).join(" ");
+    let mut zenity = Command::new("zenity");
+    zenity.args([
+        "--file-selection".to_owned(),
+        "--save".to_owned(),
+        "--confirm-overwrite".to_owned(),
+        format!("--title={title}"),
+        format!("--filename={default_name}"),
+        format!("--file-filter={name} | {patterns}"),
+    ]);
+    let mut kdialog = Command::new("kdialog");
+    kdialog.args([
+        "--title".to_owned(),
+        title.to_owned(),
+        "--getsavefilename".to_owned(),
+        default_name.to_owned(),
+        format!("{patterns}|{name}"),
+    ]);
+    vec![zenity, kdialog]
+}
+
+#[cfg(any(not(windows), test))]
 fn tool_commands(platform: &str, filter: &Filter, multiple: bool) -> Vec<Command> {
     let (title, name) = (filter.title, filter.name);
     if platform == "macos" {
@@ -206,6 +266,14 @@ mod tests {
     }
 
     /// macOS cannot match unregistered types like `.wasm`, so the dialog lists every file.
+    #[test]
+    fn save_tool_commands_include_default_name_and_filters() {
+        let commands = save_tool_commands("linux", &PACKS, "test.mcpack");
+        assert!(commands.iter().any(|cmd| args(cmd).contains(&"--save")));
+        let macos = save_tool_commands("macos", &PACKS, "test.mcpack");
+        assert!(args(&macos[0])[1].contains("choose file name with prompt"));
+    }
+
     #[test]
     fn macos_picker_leaves_extension_checks_to_the_selection() {
         for multiple in [false, true] {

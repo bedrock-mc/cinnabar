@@ -111,6 +111,11 @@ fn reopening_while_the_last_server_saves_waits_for_it() {
     manager.close();
     assert_eq!(manager.status().state, WorldState::Stopping);
     assert!(matches!(manager.delete(&world.id), Err(WorldError::InUse)));
+    let dest = fixture._dir.path().join("test.mcworld");
+    assert!(matches!(
+        manager.export(&world.id, &dest),
+        Err(WorldError::InUse)
+    ));
     manager
         .open(&world.id, None)
         .expect("an open during the save is accepted");
@@ -246,6 +251,11 @@ fn another_world_is_busy_while_one_runs() {
         Err(WorldError::Busy)
     ));
     assert!(matches!(manager.delete(&world.id), Err(WorldError::InUse)));
+    let dest = fixture._dir.path().join("test.mcworld");
+    assert!(matches!(
+        manager.export(&world.id, &dest),
+        Err(WorldError::InUse)
+    ));
     manager
         .delete(&other.id)
         .expect("another world can be deleted");
@@ -363,6 +373,11 @@ fn an_unexpected_exit_keeps_cleanup_ahead_of_reopen_and_delete() {
         old.exit();
         wait_for(manager, WorldState::Failed);
         assert!(matches!(manager.delete(&world.id), Err(WorldError::InUse)));
+        let dest = fixture._dir.path().join("test.mcworld");
+        assert!(matches!(
+            manager.export(&world.id, &dest),
+            Err(WorldError::InUse)
+        ));
         assert!(
             lock(&manager.inner.life)
                 .retiring

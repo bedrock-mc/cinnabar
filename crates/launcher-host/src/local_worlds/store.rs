@@ -15,12 +15,12 @@ use super::{
     world::{WorldError, failed, validate_name},
 };
 
-const META_FILE: &str = "world.json";
+pub(crate) const META_FILE: &str = "world.json";
 const PREFS_FILE: &str = "prefs.json";
 /// The Bedrock world folder (`level.dat`, `db/`) inside a world's directory.
 pub(crate) const LEVEL_DIR: &str = "db";
 /// A world's menu thumbnail, beside its metadata, named as vanilla names its world icon.
-const THUMBNAIL_FILE: &str = "world_icon.jpeg";
+pub(crate) const THUMBNAIL_FILE: &str = "world_icon.jpeg";
 /// Scratch folders of imports in progress; ids never start with it, so listings skip them.
 const STAGING_PREFIX: &str = ".import-";
 /// Beside each scratch folder, a file its importer holds locked until the folder is gone.
