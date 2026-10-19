@@ -27,8 +27,6 @@ use crate::{
     PackRejection, ValidatedPackStack,
 };
 
-const EOCD_MIN_BYTES: usize = 22;
-const EOCD_MAX_SEARCH_BYTES: usize = EOCD_MIN_BYTES + u16::MAX as usize;
 const MAX_CONTENTS_INDEX_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Validates one unencrypted archive under a nil identity; used by fuzzing.
@@ -349,97 +347,14 @@ pub(crate) const MANIFEST_NAMES: [&str; 2] = ["manifest.json", "pack_manifest.js
 /// Checks fixture footer bounds without changing its comment bytes.
 #[cfg(test)]
 fn preflight_eocd(bytes: &[u8]) -> Result<usize, AdmissionError> {
-    find_eocd(bytes).map(|(_, entries)| entries)
+    zip_footer::find_eocd(bytes, MAX_ENTRIES_PER_PACK)
+        .map(|(_, entries)| entries)
+        .map_err(AdmissionError::from)
 }
 
 /// Removes only the validated ZIP comment so downstream footer searches cannot select its bytes.
 pub(crate) fn prepare_zip_bytes(bytes: &mut Vec<u8>) -> Result<usize, AdmissionError> {
-    let (footer, entries) = find_eocd(bytes)?;
-    bytes[footer + 20..footer + 22].fill(0);
-    bytes.truncate(footer + EOCD_MIN_BYTES);
-    Ok(entries)
-}
-
-/// Finds the last structurally valid footer rather than an arbitrary signature in its comment.
-fn find_eocd(bytes: &[u8]) -> Result<(usize, usize), AdmissionError> {
-    if bytes.len() < EOCD_MIN_BYTES {
-        return Err(AdmissionError::InvalidZipFooter);
-    }
-    let start = bytes.len().saturating_sub(EOCD_MAX_SEARCH_BYTES);
-    let signature = b"PK\x05\x06";
-    let mut failure = AdmissionError::InvalidZipFooter;
-    for eocd in (start..=bytes.len() - EOCD_MIN_BYTES)
-        .rev()
-        .filter(|offset| bytes[*offset..].starts_with(signature))
-    {
-        match validate_eocd_at(bytes, eocd) {
-            Ok(entries) => return Ok((eocd, entries)),
-            Err(error) => failure = error,
-        }
-    }
-    Err(failure)
-}
-
-/// Validates one footer candidate, including its central directory and exact comment extent.
-fn validate_eocd_at(bytes: &[u8], eocd: usize) -> Result<usize, AdmissionError> {
-    let tail = &bytes[eocd..];
-    let disk = le_u16(tail, 4)?;
-    let central_disk = le_u16(tail, 6)?;
-    let disk_entries = le_u16(tail, 8)?;
-    let total_entries = le_u16(tail, 10)?;
-    let central_size = le_u32(tail, 12)?;
-    let central_offset = le_u32(tail, 16)?;
-    let comment_len = usize::from(le_u16(tail, 20)?);
-    if eocd + EOCD_MIN_BYTES + comment_len != bytes.len() || disk != 0 || central_disk != 0 {
-        return Err(AdmissionError::InvalidZipFooter);
-    }
-    if disk_entries == u16::MAX
-        || total_entries == u16::MAX
-        || central_size == u32::MAX
-        || central_offset == u32::MAX
-        || eocd >= 20 && bytes[eocd - 20..eocd].starts_with(b"PK\x06\x07")
-    {
-        return Err(AdmissionError::UnsupportedZip64);
-    }
-    if disk_entries != total_entries || usize::from(total_entries) > MAX_ENTRIES_PER_PACK {
-        return Err(AdmissionError::TooManyEntries);
-    }
-    let central_end = usize::try_from(central_offset)
-        .ok()
-        .and_then(|offset| {
-            usize::try_from(central_size)
-                .ok()
-                .and_then(|size| offset.checked_add(size))
-        })
-        .ok_or(AdmissionError::InvalidZipFooter)?;
-    if central_end > eocd {
-        return Err(AdmissionError::InvalidZipFooter);
-    }
-    if central_end != eocd {
-        let gap = &bytes[central_end..eocd];
-        if gap
-            .windows(4)
-            .any(|window| window == b"PK\x06\x06" || window == b"PK\x06\x07")
-        {
-            return Err(AdmissionError::UnsupportedZip64);
-        }
-        return Err(AdmissionError::InvalidZipFooter);
-    }
-    Ok(usize::from(total_entries))
-}
-
-fn le_u16(bytes: &[u8], offset: usize) -> Result<u16, AdmissionError> {
-    let value = bytes
-        .get(offset..offset + 2)
-        .ok_or(AdmissionError::InvalidZipFooter)?;
-    Ok(u16::from_le_bytes([value[0], value[1]]))
-}
-
-fn le_u32(bytes: &[u8], offset: usize) -> Result<u32, AdmissionError> {
-    let value = bytes
-        .get(offset..offset + 4)
-        .ok_or(AdmissionError::InvalidZipFooter)?;
-    Ok(u32::from_le_bytes([value[0], value[1], value[2], value[3]]))
+    Ok(zip_footer::prepare_zip_bytes(bytes, MAX_ENTRIES_PER_PACK)?)
 }
 
 pub(crate) fn is_regular_file(mode: Option<u32>) -> bool {

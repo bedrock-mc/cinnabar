@@ -7719,6 +7719,7 @@ dependencies = [
  "uuid",
  "zeroize",
  "zip",
+ "zip-footer",
 ]
 
 [[package]]
@@ -8173,6 +8174,7 @@ name = "shaderpack"
 version = "0.1.21"
 dependencies = [
  "zip",
+ "zip-footer",
 ]
 
 [[package]]
@@ -11205,6 +11207,14 @@ dependencies = [
  "indexmap",
  "memchr",
  "typed-path",
+]
+
+[[package]]
+name = "zip-footer"
+version = "0.1.21"
+dependencies = [
+ "thiserror 2.0.18",
+ "zip",
 ]
 
 [[package]]

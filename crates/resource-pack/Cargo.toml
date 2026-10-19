@@ -20,6 +20,7 @@ thiserror.workspace = true
 uuid = { workspace = true, features = ["serde"] }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 zeroize = "1"
+zip-footer = { path = "../zip-footer" }
 
 [dev-dependencies]
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }

@@ -9,6 +9,7 @@ publish = false
 doctest = false
 
 [dependencies]
+zip-footer = { path = "../zip-footer" }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [lints]

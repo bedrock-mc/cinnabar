@@ -67,7 +67,7 @@ struct LoadLimits {
     file_bytes: usize,
     total_bytes: usize,
     entries: usize,
-    archive_bytes: u64,
+    archive_bytes: usize,
 }
 
 impl LoadLimits {
@@ -172,9 +172,6 @@ impl PackSource {
         })?;
         let path = archive_path.as_path();
         let mut archive = open_archive(path, limits)?;
-        if archive.len() > limits.entries {
-            return Err(limit_error(path, "entry"));
-        }
         let prefix = shaders_prefix(archive.file_names())
             .ok_or_else(|| PackError::NotAShaderPack(path.to_path_buf()))?;
         let mut budget = Budget::new(limits);
@@ -311,23 +308,41 @@ fn is_binary_name(path: &str) -> bool {
         .is_some_and(|(_, ext)| BINARY_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()))
 }
 
-/// Opens an archive no larger than the archive limit.
+/// Opens an archive no larger than the archive limit whose footer, checked before parsing,
+/// declares at most the entry limit and exactly the entries the parser indexes.
 fn open_archive(
     path: &Path,
     limits: LoadLimits,
-) -> Result<zip::ZipArchive<std::fs::File>, PackError> {
-    let io_err = |error| PackError::Io {
+) -> Result<zip::ZipArchive<io::Cursor<Vec<u8>>>, PackError> {
+    let invalid = |error| PackError::Io {
         path: path.to_path_buf(),
-        error,
+        error: io::Error::new(io::ErrorKind::InvalidData, error),
     };
-    let file = std::fs::File::open(path).map_err(io_err)?;
-    if file.metadata().map_err(io_err)?.len() > limits.archive_bytes {
-        return Err(limit_error(path, "archive size"));
-    }
-    zip::ZipArchive::new(file).map_err(|error| PackError::Zip {
+    let file = std::fs::File::open(path).map_err(|error| PackError::Io {
         path: path.to_path_buf(),
         error,
-    })
+    })?;
+    let mut bytes =
+        read_bounded(file, limits.archive_bytes).map_err(|error| match error.kind() {
+            io::ErrorKind::FileTooLarge => limit_error(path, "archive size"),
+            _ => PackError::Io {
+                path: path.to_path_buf(),
+                error,
+            },
+        })?;
+    let entries =
+        zip_footer::prepare_zip_bytes(&mut bytes, limits.entries).map_err(|error| match error {
+            zip_footer::FooterError::TooManyEntries => limit_error(path, "entry"),
+            error => invalid(error.to_string()),
+        })?;
+    let archive = zip::ZipArchive::new(io::Cursor::new(bytes)).map_err(|error| PackError::Zip {
+        path: path.to_path_buf(),
+        error,
+    })?;
+    if archive.len() != entries {
+        return Err(invalid("ZIP entry names repeat".to_string()));
+    }
+    Ok(archive)
 }
 
 /// Entry and byte counters shared by every file one pack ingests, including discarded text.

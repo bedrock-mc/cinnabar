@@ -241,7 +241,7 @@ fn source_paths_relative_zip_origin_is_canonical_for_deferred_reads() {
 }
 
 #[test]
-fn source_paths_zip_name_collisions_keep_text_and_bytes_consistent() {
+fn source_paths_zip_rejects_names_that_collide_after_decoding() {
     let root = TempPack::new();
     let archive = root.0.join("pack.zip");
     let mut writer = zip::ZipWriter::new(io::Cursor::new(Vec::new()));
@@ -268,11 +268,7 @@ fn source_paths_zip_name_collisions_keep_text_and_bytes_consistent() {
         }
     }
     std::fs::write(&archive, bytes).unwrap();
-    let source = PackSource::open(&archive).unwrap();
-    let files: Vec<_> = source.files().collect();
-    assert_eq!(files.len(), 1);
-    let (path, text) = files[0];
-    assert_eq!(source.read_bytes(path).unwrap(), text.as_bytes());
+    assert!(PackSource::open(&archive).is_err());
 }
 
 #[cfg(unix)]
