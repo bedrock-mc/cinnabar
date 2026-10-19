@@ -4,7 +4,7 @@
 use serde_json::Value;
 use uuid::Uuid;
 
-use pack_json::normalize_jsonc;
+use pack_json::parse_jsonc;
 
 use crate::{AdmissionError, MAX_SUBPACKS, Subpack};
 
@@ -54,9 +54,7 @@ pub(crate) fn read_manifest(
     pack_id: Uuid,
     version: &str,
 ) -> Result<Manifest, AdmissionError> {
-    let json = normalize_jsonc(bytes).ok_or(AdmissionError::MalformedManifest)?;
-    let root: Value =
-        serde_json::from_slice(&json).map_err(|_| AdmissionError::MalformedManifest)?;
+    let root: Value = parse_jsonc(bytes).map_err(|_| AdmissionError::MalformedManifest)?;
     let format = match &root["format_version"] {
         Value::Number(number) => number.as_f64(),
         Value::String(text) => text.trim().parse::<u64>().ok().map(|number| number as f64),
