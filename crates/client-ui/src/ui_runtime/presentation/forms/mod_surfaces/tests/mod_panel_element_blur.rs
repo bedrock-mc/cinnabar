@@ -26,6 +26,7 @@ fn entering_panel() -> Panel {
             "color":color})
     };
     let mut panel = panel();
+    panel.motion = true;
     panel.surface = Some(Surface { collections: Default::default(), previews: Default::default(),
         screen: "extension.screen".into(),
         document: json!({"namespace":"extension","screen":{

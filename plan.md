@@ -292,6 +292,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   face selection across measurement and painting; broader text acceptance remains open.
   Rounded JSON-UI chrome supports bounded analytic box shadows with cached geometry;
   full menu visual and hardware frame-work acceptance remains open.
+  Client-owned panel collections support bounded four-column card grids with
+  item-scoped expressions and vector artwork; hardware frame-work acceptance remains open.
   stable retained resources and correct supported DPI/aspect behavior. Tiled images
   retain full coverage with bounded repeat geometry across cropped regions and sliced
   borders; large collection admission and hardware frame-work acceptance remain incomplete.
@@ -443,6 +445,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Personal panels and HUD editor surfaces can bind the host local player's name
   and skin head, with neutral artwork when the identity is unavailable. Skin and
   session changes retire the previous portrait; full in-world acceptance remains pending.
+  populated-world and displayed-frame acceptance remain pending. Panel motion
+  preferences now settle feedback, wheel scrolling and surface transitions
+  immediately, retain prepared routes and apply across route changes.
   displayed-frame pacing and complete rendering acceptance.
   HUD layout editing stores nine anchors and GUI-pixel offsets after completed
   moves, resizes and nudges, with an additive anchored-layout read and normalized
