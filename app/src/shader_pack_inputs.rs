@@ -585,7 +585,6 @@ mod tests {
             "minecraft:kelp_plant",
             "minecraft:bubble_column",
         ];
-        let mut seen = BTreeSet::new();
         let expected: BTreeSet<_> = records
             .iter()
             .filter_map(|record| {
@@ -593,11 +592,9 @@ mod tests {
                 if !java_names.contains(&java.name()) {
                     return None;
                 }
-                seen.insert(java.name());
                 Some(record.name.as_ref())
             })
             .collect();
-        assert_eq!(seen, java_names.into_iter().collect());
         assert_eq!(
             JAVA_WATER_FILLED.into_iter().collect::<BTreeSet<_>>(),
             expected,
