@@ -110,6 +110,8 @@ pub struct Animated {
     pub color: Option<[u8; 4]>,
     /// A replacement sprite uv rect, from uv or flip-book animations or a clip crop.
     pub uv: Option<UvRect>,
+    /// Tile coordinates after clipping; source UV animations remain independent.
+    pub repeat: Option<crate::SpriteRepeat>,
     /// Removed by `destroy_at_end`.
     pub hidden: bool,
     /// The paint transform mapping `dest` to painted coordinates; `clip` is already painted.
@@ -132,6 +134,10 @@ impl DrawNode {
             opacity: self.alpha,
             color: None,
             uv: None,
+            repeat: match &self.draw {
+                Draw::Sprite { repeat, .. } => *repeat,
+                _ => None,
+            },
             hidden: false,
             transform: None,
         };
@@ -168,7 +174,14 @@ impl DrawNode {
                 } else {
                     *uv
                 };
-                let (dest, uv) = clip_crop(anim, own, &written, self.dest, uv);
+                let (dest, uv) = if let Some(mut repeat) = out.repeat {
+                    let (dest, coords) = clip_crop(anim, own, &written, self.dest, repeat.uv);
+                    repeat.uv = coords;
+                    out.repeat = Some(repeat);
+                    (dest, uv)
+                } else {
+                    clip_crop(anim, own, &written, self.dest, uv)
+                };
                 out.dest = dest;
                 out.uv = Some(uv);
             }
