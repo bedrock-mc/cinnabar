@@ -19,15 +19,22 @@ pub(super) struct FieldRenderer<'a> {
     editor: Option<&'a mut Editor>,
     now: f64,
     palette: Palette,
+    window_origin: [f32; 2],
 }
 
 impl<'a> FieldRenderer<'a> {
-    /// Borrows the editor for one paint, with caller-owned animation time.
-    pub fn new(editor: Option<&'a mut Editor>, now: f64, palette: Palette) -> Self {
+    /// Borrows the editor with caller-owned time and the content area's window origin.
+    pub fn new(
+        editor: Option<&'a mut Editor>,
+        now: f64,
+        palette: Palette,
+        window_origin: [f32; 2],
+    ) -> Self {
         Self {
             editor,
             now,
             palette,
+            window_origin,
         }
     }
 }
@@ -90,6 +97,11 @@ impl CustomRenderer for FieldRenderer<'_> {
                 geometry
             }
         };
+        state.left = geometry.text[0] + self.window_origin[0];
+        state.ime_position = [
+            geometry.caret[0] + self.window_origin[0],
+            geometry.caret[3] + self.window_origin[1],
+        ];
         let previous_clip = canvas.clip().unwrap_or(canvas.screen());
         let clip = [
             dest[0].max(previous_clip[0]),
@@ -154,8 +166,6 @@ impl Geometry {
         let left = dest[0] - state.scroll;
         let height = (layout.size_64()[1] as f32 / 64.).max(px * 8.);
         let top = dest[1] + ((dest[3] - dest[1] - height) * 0.5).max(0.);
-        state.left = left;
-        state.ime_position = [left + caret, top + height];
         let selection = state.selection();
         let x = |at| left + layout.first_line_caret_x_64(at) as f32 / 64.;
         Self {

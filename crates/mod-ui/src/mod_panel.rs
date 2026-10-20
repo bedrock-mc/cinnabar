@@ -500,6 +500,7 @@ impl ModUi {
                 panel.edit.as_mut(),
                 paint_frame.now,
                 Palette::for_panel(&panel.panel),
+                [paint_frame.safe_area.left(), paint_frame.safe_area.top()],
             );
             renderers.push(&mut field);
             let mut nested_frame = paint_frame.with_renderers(&mut renderers);

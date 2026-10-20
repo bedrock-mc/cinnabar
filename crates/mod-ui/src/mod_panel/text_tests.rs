@@ -360,6 +360,18 @@ fn paint_field(
     layouts: &mut ui::TextLayoutCache,
     now: f64,
 ) -> Vec<ui::UiNode> {
+    paint_field_with_safe_area(ui, engine, font, layouts, now, ui::SafeArea::ZERO)
+}
+
+/// Paints with content insets while retaining window-relative input coordinates.
+fn paint_field_with_safe_area(
+    ui: &mut ModUi,
+    engine: &FormEngine,
+    font: &assets::RuntimeFontCatalog,
+    layouts: &mut ui::TextLayoutCache,
+    now: f64,
+    safe_area: ui::SafeArea,
+) -> Vec<ui::UiNode> {
     let mut nodes = Vec::new();
     ui.paint_mod_panel(
         Some(engine),
@@ -372,8 +384,11 @@ fn paint_field(
                 Some(2),
             ),
             solid_page: 0,
-            safe_area: ui::SafeArea::ZERO,
-            content: [1280., 720.],
+            safe_area,
+            content: [
+                1280. - safe_area.left() - safe_area.right(),
+                720. - safe_area.top() - safe_area.bottom(),
+            ],
             translate: &|_| None,
             language: [0; 3],
             now,
@@ -385,20 +400,25 @@ fn paint_field(
     nodes
 }
 
-/// Blink, movement and selection retain the shaped glyphs and the resolved screen.
-#[test]
-fn native_field_blink_reuses_shaping_and_catalog() {
+/// Creates the production painter with an empty redistributable UI catalog.
+fn field_engine() -> FormEngine {
     use ui_engine::{engine::screen::ScreenRegistry, sources::ImageWork};
     static REGISTRY: std::sync::OnceLock<ScreenRegistry> = std::sync::OnceLock::new();
     let bytes = assets::encode_ui_catalog([1; 32], &[], &[], &[], &[]).unwrap();
-    let engine = FormEngine::new(
+    FormEngine::new(
         Arc::new(assets::RuntimeUiAssets::decode(&bytes).unwrap()),
         Catalog::default(),
         0,
         REGISTRY.get_or_init(|| ScreenRegistry::new(Context::desktop())),
         Arc::new(NoImages),
         ImageWork::inline(),
-    );
+    )
+}
+
+/// Blink, movement and selection retain the shaped glyphs and the resolved screen.
+#[test]
+fn native_field_blink_reuses_shaping_and_catalog() {
+    let engine = field_engine();
     let font = ui_engine::test_support::fixture_font();
     let mut layouts = ui::TextLayoutCache::new(64, 1 << 24);
     let mut ui = live_field("0000", false);
@@ -638,4 +658,48 @@ fn native_live_field_coalescing_keeps_retained_values_in_sync() {
         .unwrap();
     assert!(ui.mod_panel_field_focused());
     assert_eq!(field_state(&ui).text, "");
+}
+
+/// Mouse selection and IME candidates share the painted glyph's window position with insets.
+#[test]
+fn native_field_safe_area_preserves_pointer_and_ime_geometry() {
+    let engine = field_engine();
+    let font = ui_engine::test_support::fixture_font();
+    let mut layouts = ui::TextLayoutCache::new(64, 1 << 24);
+    for safe_area in [
+        ui::SafeArea::ZERO,
+        ui::SafeArea::new(72., 44., 24., 16.).unwrap(),
+    ] {
+        let mut ui = live_field("0000", false);
+        paint_field_with_safe_area(&mut ui, &engine, &font, &mut layouts, 0., safe_area);
+        ui.mod_panel
+            .as_mut()
+            .unwrap()
+            .open_editor(0, [40., 40., 180., 26.]);
+        ui.mod_panel_key("End", None);
+        let nodes =
+            paint_field_with_safe_area(&mut ui, &engine, &font, &mut layouts, 1., safe_area);
+        let layout = Arc::clone(field_state(&ui).layout.as_ref().unwrap());
+        let text_id = nodes.iter().find(|node| matches!(node.visual(), ui::UiVisual::Text { layout: painted, .. } if Arc::ptr_eq(painted, &layout))).unwrap().id();
+        let mut tree = ui::UiTree::new(nodes).unwrap();
+        let frame = tree
+            .layout(
+                ui::UiRect::new(
+                    ui::UiPoint::new(0., 0.).unwrap(),
+                    ui::UiPoint::new(1280., 720.).unwrap(),
+                )
+                .unwrap(),
+                ui::UiScale::default(),
+                safe_area,
+            )
+            .unwrap();
+        let text = frame.bounds(text_id).unwrap();
+        let x = |at| text.min().x() + layout.first_line_caret_x_64(at) as f32 / 64.;
+        let y = text.min().y() + text.height() * 0.5;
+        assert_eq!(ui.mod_panel_ime_position(), Some([x(4), text.max().y()]));
+        ui.mod_panel_events([x(1), y], true, true);
+        assert_eq!(field_state(&ui).cursor, 1);
+        ui.mod_panel_events([x(3), y], false, true);
+        assert_eq!(&field_state(&ui).text[field_state(&ui).selection()], "00");
+    }
 }
