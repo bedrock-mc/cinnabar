@@ -15,7 +15,7 @@ use text::{literal_value, optional_text, text_value};
 
 use std::sync::Arc;
 
-pub use custom::{CustomForm, CustomFormElement, FormNumber};
+pub use custom::{CustomForm, CustomFormElement, FormControlLock, FormNumber};
 pub use npc::{
     NPC_DIALOGUE_FORM_ID, NpcButton, NpcDialogueForm, NpcRequestKind, npc_request_packet,
     server_settings_request_packet,

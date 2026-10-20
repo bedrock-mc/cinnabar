@@ -1,7 +1,7 @@
 //! The OptiFine/Iris expression language.
 //!
-//! One grammar serves `program.*.enabled` rules, `#if`/`#elif` conditions in
-//! `shaders.properties` and the `uniform.*`/`variable.*` custom uniform expressions.
+//! The shared parser supports program conditions and Iris custom uniform expressions
+//! with their respective operator precedence.
 //! Parsing never panics on malformed text and bounds nesting so hostile packs cannot
 //! exhaust the stack.
 
@@ -15,8 +15,10 @@ const MAX_NESTING: u32 = 64;
 /// A parsed expression.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
-    /// Numeric literal; integer, float and hex literals all become `f64`.
+    /// A floating literal, or a number in standard condition syntax.
     Number(f64),
+    /// A custom-expression integer literal, kept exact until float promotion.
+    Integer(i32),
     /// `true` or `false`.
     Bool(bool),
     /// Identifier, including dotted member paths such as `cameraPosition.y`.
@@ -107,11 +109,22 @@ impl Expr {
     /// with `u`/`U`/`f`/`F` suffixes ignored), `true`/`false`, `defined NAME`,
     /// `defined(NAME)`, dotted identifiers, calls and parenthesised expressions.
     pub fn parse(text: &str) -> Result<Expr, ExprError> {
-        let tokens = lex(text)?;
+        Self::parse_with_precedence(text, false)
+    }
+
+    /// Parses an Iris custom expression, retaining integer literals and shared operator levels.
+    pub(crate) fn parse_custom(text: &str) -> Result<Expr, ExprError> {
+        Self::parse_with_precedence(text, true)
+    }
+
+    /// Parses a complete expression using the requested operator groups.
+    fn parse_with_precedence(text: &str, iris: bool) -> Result<Expr, ExprError> {
+        let tokens = lex(text, iris)?;
         let mut parser = Parser {
             tokens,
             pos: 0,
             nesting: 0,
+            iris,
         };
         let (expr, _) = parser.parse_binary(0)?;
         match parser.peek() {
@@ -134,7 +147,7 @@ impl Expr {
     /// Appends referenced names once, preserving their first-use order.
     fn collect_identifiers<'a>(&'a self, out: &mut Vec<&'a str>) {
         match self {
-            Expr::Number(_) | Expr::Bool(_) => {}
+            Expr::Number(_) | Expr::Integer(_) | Expr::Bool(_) => {}
             Expr::Ident(name) | Expr::Defined(name) => {
                 if !out.contains(&name.as_str()) {
                     out.push(name);
@@ -160,6 +173,7 @@ impl Expr {
     pub fn eval(&self, lookup: &dyn Fn(&str) -> Option<f64>) -> Result<f64, ExprError> {
         Ok(match self {
             Expr::Number(value) => *value,
+            Expr::Integer(value) => f64::from(*value),
             Expr::Bool(value) => bool_value(*value),
             Expr::Ident(name) => lookup(name.as_str()).unwrap_or(0.0),
             Expr::Defined(name) => bool_value(lookup(name.as_str()).is_some()),
@@ -179,7 +193,7 @@ impl Expr {
 /// Parses a lone numeric literal with an optional sign (`12`, `-0.5`, `0x1F`, `2u`),
 /// as used for macro values in `#if` conditions. Anything else is `None`.
 pub(crate) fn parse_number_literal(text: &str) -> Option<f64> {
-    let tokens = lex(text).ok()?;
+    let tokens = lex(text, false).ok()?;
     match tokens.as_slice() {
         [Token::Number(value)] | [Token::Plus, Token::Number(value)] => Some(*value),
         [Token::Minus, Token::Number(value)] => Some(-value),
@@ -318,6 +332,7 @@ fn variadic_args(
 #[derive(Debug, Clone, PartialEq)]
 enum Token {
     Number(f64),
+    Integer(i32),
     Ident(String),
     LParen,
     RParen,
@@ -343,6 +358,7 @@ impl Token {
     fn describe(&self) -> String {
         let symbol = match self {
             Token::Number(value) => return format!("number `{value}`"),
+            Token::Integer(value) => return format!("integer `{value}`"),
             Token::Ident(name) => return format!("`{name}`"),
             Token::LParen => "(",
             Token::RParen => ")",
@@ -367,7 +383,7 @@ impl Token {
 }
 
 /// Tokenizes an expression, reporting unsupported characters and invalid numbers.
-fn lex(text: &str) -> Result<Vec<Token>, ExprError> {
+fn lex(text: &str, iris: bool) -> Result<Vec<Token>, ExprError> {
     let bytes = text.as_bytes();
     let mut tokens = Vec::new();
     let mut i = 0;
@@ -378,8 +394,12 @@ fn lex(text: &str) -> Result<Vec<Token>, ExprError> {
         }
         let next = bytes.get(i + 1).copied();
         if c.is_ascii_digit() || (c == b'.' && next.is_some_and(|b| b.is_ascii_digit())) {
-            let (value, end) = lex_number(text, i)?;
-            tokens.push(Token::Number(value));
+            let (value, integer, end) = lex_number(text, i, iris)?;
+            tokens.push(
+                integer
+                    .filter(|_| iris)
+                    .map_or(Token::Number(value), Token::Integer),
+            );
             i = end;
             continue;
         }
@@ -409,7 +429,13 @@ fn lex(text: &str) -> Result<Vec<Token>, ExprError> {
             (b'|', Some(b'|')) => (Token::OrOr, 2),
             _ => {
                 let found = text[i..].chars().next().unwrap_or('?');
-                return Err(ExprError::new(format!("unexpected character `{found}`")));
+                let token = match (iris, found) {
+                    (true, '≠') => Token::NotEq,
+                    (true, '≤') => Token::Le,
+                    (true, '≥') => Token::Ge,
+                    _ => return Err(ExprError::new(format!("unexpected character `{found}`"))),
+                };
+                (token, found.len_utf8())
             }
         };
         tokens.push(token);
@@ -443,23 +469,36 @@ fn digits_end(bytes: &[u8], mut end: usize) -> usize {
     end
 }
 
-/// Lexes the number starting at `start`, returning its value and end offset.
-fn lex_number(text: &str, start: usize) -> Result<(f64, usize), ExprError> {
+/// Returns the numeric value, its Iris integer value when applicable, and its end offset.
+fn lex_number(
+    text: &str,
+    start: usize,
+    iris: bool,
+) -> Result<(f64, Option<i32>, usize), ExprError> {
     let bytes = text.as_bytes();
-    let is_hex =
-        bytes.get(start) == Some(&b'0') && matches!(bytes.get(start + 1), Some(b'x' | b'X'));
-    let (value, mut end) = if is_hex {
+    let radix = match (bytes.get(start), bytes.get(start + 1)) {
+        (Some(b'0'), Some(b'x' | b'X')) => Some(16),
+        (Some(b'0'), Some(b'b' | b'B')) => Some(2),
+        _ => None,
+    };
+    let (value, integer, mut end) = if let Some(radix) = radix {
         let digits_start = start + 2;
         let mut end = digits_start;
-        while bytes.get(end).is_some_and(u8::is_ascii_hexdigit) {
+        while bytes
+            .get(end)
+            .is_some_and(|&byte| char::from(byte).is_digit(radix))
+        {
             end += 1;
         }
-        let value = u64::from_str_radix(&text[digits_start..end], 16)
-            .map_err(|_| ExprError::new(format!("invalid hex literal `{}`", &text[start..end])))?;
+        let value = u64::from_str_radix(&text[digits_start..end], radix).map_err(|_| {
+            ExprError::new(format!("invalid integer literal `{}`", &text[start..end]))
+        })?;
+        let mut integer = i32::try_from(value).ok();
         if matches!(bytes.get(end), Some(b'u' | b'U')) {
+            integer = None;
             end += 1;
         }
-        (value as f64, end)
+        (value as f64, integer, end)
     } else {
         let mut end = digits_end(bytes, start);
         if bytes.get(end) == Some(&b'.') {
@@ -474,13 +513,24 @@ fn lex_number(text: &str, start: usize) -> Result<(f64, usize), ExprError> {
                 end = digits_end(bytes, exponent);
             }
         }
-        let value = text[start..end]
-            .parse::<f64>()
-            .map_err(|_| ExprError::new(format!("invalid number `{}`", &text[start..end])))?;
+        let literal = &text[start..end];
+        let value = if iris {
+            literal.parse::<f32>().map(f64::from)
+        } else {
+            literal.parse::<f64>()
+        }
+        .map_err(|_| ExprError::new(format!("invalid number `{literal}`")))?;
+        let mut integer =
+            if let Some(octal) = literal.strip_prefix('0').filter(|rest| !rest.is_empty()) {
+                i32::from_str_radix(octal, 8).ok()
+            } else {
+                literal.parse().ok()
+            };
         if matches!(bytes.get(end), Some(b'u' | b'U' | b'f' | b'F')) {
+            integer = None;
             end += 1;
         }
-        (value, end)
+        (value, integer, end)
     };
     if bytes
         .get(end)
@@ -492,7 +542,7 @@ fn lex_number(text: &str, start: usize) -> Result<(f64, usize), ExprError> {
             &text[start..end]
         )));
     }
-    Ok((value, end))
+    Ok((value, integer, end))
 }
 
 /// An expression together with its tree depth (a leaf is 1).
@@ -502,7 +552,7 @@ type Parsed = (Expr, u32);
 const UNARY_LEVEL: u8 = 6;
 
 /// Returns the operator only when it belongs to the requested precedence level.
-fn binary_op(token: &Token, level: u8) -> Option<BinaryOp> {
+fn binary_op(token: &Token, level: u8, iris: bool) -> Option<BinaryOp> {
     let (op, op_level) = match token {
         Token::OrOr => (BinaryOp::Or, 0),
         Token::AndAnd => (BinaryOp::And, 1),
@@ -518,6 +568,15 @@ fn binary_op(token: &Token, level: u8) -> Option<BinaryOp> {
         Token::Slash => (BinaryOp::Div, 5),
         Token::Percent => (BinaryOp::Rem, 5),
         _ => return None,
+    };
+    let op_level = if iris {
+        match op {
+            BinaryOp::And => 0,
+            BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => 2,
+            _ => op_level,
+        }
+    } else {
+        op_level
     };
     (op_level == level).then_some(op)
 }
@@ -536,6 +595,8 @@ struct Parser {
     pos: usize,
     /// Current recursion depth through [`Parser::parse_unary`].
     nesting: u32,
+    /// Whether logical and comparison operators use Iris's shared levels.
+    iris: bool,
 }
 
 impl Parser {
@@ -579,7 +640,10 @@ impl Parser {
             return self.parse_unary();
         }
         let mut lhs = self.parse_binary(level + 1)?;
-        while let Some(op) = self.peek().and_then(|token| binary_op(token, level)) {
+        while let Some(op) = self
+            .peek()
+            .and_then(|token| binary_op(token, level, self.iris))
+        {
             self.pos += 1;
             let rhs = self.parse_binary(level + 1)?;
             let depth = lhs.1.max(rhs.1);
@@ -621,6 +685,7 @@ impl Parser {
     fn parse_primary(&mut self) -> Result<Parsed, ExprError> {
         match self.next_token() {
             Some(Token::Number(value)) => Ok((Expr::Number(value), 1)),
+            Some(Token::Integer(value)) => Ok((Expr::Integer(value), 1)),
             Some(Token::Ident(name)) => self.parse_ident(name),
             Some(Token::LParen) => {
                 let inner = self.parse_binary(0)?;
@@ -874,5 +939,23 @@ mod tests {
         assert_eq!(parse_number_literal(""), None);
         assert_eq!(parse_number_literal("ABC"), None);
         assert_eq!(parse_number_literal("1 + 1"), None);
+    }
+    #[test]
+    fn custom_integer_spellings_use_their_declared_radix() {
+        for (text, expected) in [("012 + 1", 11.0), ("0b101 + 0xF", 20.0), ("09 + 1", 10.0)] {
+            assert_eq!(
+                Expr::parse_custom(text).unwrap().eval(&|_| None).unwrap(),
+                expected,
+                "{text}"
+            );
+        }
+    }
+    #[test]
+    fn custom_float_literals_round_once_at_float_precision() {
+        let value = Expr::parse_custom("1.00000005960464477539062501")
+            .unwrap()
+            .eval(&|_| None)
+            .unwrap();
+        assert_eq!(value as f32, f32::from_bits(0x3f800001));
     }
 }
