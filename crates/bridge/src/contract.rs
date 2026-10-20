@@ -651,4 +651,10 @@ pub struct CinnabarPlayerUpdates {
     pub emotes: Vec<CinnabarRemoteEmote>,
     /// Nearby authenticated loadouts.
     pub loadouts: Vec<CinnabarRemoteLoadout>,
+    /// Verified local account identity, empty while disconnected.
+    #[serde(default)]
+    pub ownership_xuid: String,
+    /// Paid grants supplied by the account API database.
+    #[serde(default)]
+    pub owned_cosmetics: Vec<String>,
 }

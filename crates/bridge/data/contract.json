@@ -511,6 +511,20 @@
           "go_name": "Loadouts",
           "type": "list:CinnabarRemoteLoadout",
           "doc": "Nearby authenticated loadouts."
+        },
+        {
+          "name": "ownership_xuid",
+          "go_name": "OwnershipXUID",
+          "type": "string",
+          "default": true,
+          "doc": "Verified local account identity, empty while disconnected."
+        },
+        {
+          "name": "owned_cosmetics",
+          "go_name": "OwnedCosmetics",
+          "type": "strings",
+          "default": true,
+          "doc": "Paid grants supplied by the account API database."
         }
       ]
     }

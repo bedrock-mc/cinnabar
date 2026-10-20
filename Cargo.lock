@@ -20,7 +20,7 @@ checksum = "366ffbaa4442f4684d91e2cd7c5ea7c4ed8add41959a31447066e279e432b618"
 
 [[package]]
 name = "acceptance"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "bevy",
@@ -118,10 +118,11 @@ dependencies = [
 
 [[package]]
 name = "actor-animation"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "cosmetics",
+ "criterion",
  "protocol",
  "protocol-ids",
  "rayon",
@@ -129,6 +130,8 @@ dependencies = [
  "render-model",
  "sha2",
  "simulation-clock",
+ "test-alloc",
+ "test-time",
  "tracing",
  "world",
 ]
@@ -397,7 +400,7 @@ dependencies = [
 
 [[package]]
 name = "architecture"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "cfg-expr",
@@ -451,11 +454,12 @@ dependencies = [
 
 [[package]]
 name = "asset-compiler"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "block-transform",
  "clap",
+ "flate2",
  "image",
  "pack-compile-input",
  "pack-compiler",
@@ -470,11 +474,12 @@ dependencies = [
  "tempfile",
  "tokio",
  "world",
+ "zip",
 ]
 
 [[package]]
 name = "assets"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "bitflags 2.13.0",
  "block-transform",
@@ -712,7 +717,7 @@ dependencies = [
 
 [[package]]
 name = "bedrock-replay"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "bridge",
@@ -1843,7 +1848,7 @@ dependencies = [
 
 [[package]]
 name = "block-transform"
-version = "0.1.21"
+version = "0.1.22"
 
 [[package]]
 name = "block2"
@@ -1878,7 +1883,7 @@ dependencies = [
 
 [[package]]
 name = "bootstrap-ui"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "assets",
@@ -1919,7 +1924,7 @@ dependencies = [
 
 [[package]]
 name = "bridge"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "bytes",
@@ -2212,7 +2217,7 @@ dependencies = [
 
 [[package]]
 name = "chunk-pipeline"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "actor-animation",
  "assets",
@@ -2270,7 +2275,7 @@ dependencies = [
 
 [[package]]
 name = "cinnabar"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "acceptance",
  "actor-animation",
@@ -2306,7 +2311,7 @@ dependencies = [
  "gameplay",
  "glam",
  "image",
- "inventory 0.1.21",
+ "inventory 0.1.22",
  "json-ui",
  "launcher",
  "launcher-host",
@@ -2360,7 +2365,6 @@ dependencies = [
  "ui",
  "ui-engine",
  "ui-screens",
- "update-installer",
  "update-manifest",
  "url",
  "uuid",
@@ -2376,7 +2380,7 @@ dependencies = [
 
 [[package]]
 name = "cinnabar-android"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "assets",
@@ -2392,7 +2396,7 @@ dependencies = [
 
 [[package]]
 name = "cinnabar-cxb"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "protocol",
@@ -2409,7 +2413,7 @@ dependencies = [
 
 [[package]]
 name = "cinnabar-mcp"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "developer-control",
  "diagnostics",
@@ -2489,7 +2493,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "client-audio"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "actor-animation",
  "anyhow",
@@ -2499,7 +2503,7 @@ dependencies = [
  "client-ui",
  "client-world",
  "crossbeam-queue",
- "inventory 0.1.21",
+ "inventory 0.1.22",
  "pack-json",
  "particles",
  "player-state",
@@ -2524,7 +2528,7 @@ dependencies = [
 
 [[package]]
 name = "client-extensions"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "assets",
@@ -2533,7 +2537,7 @@ dependencies = [
  "client-ui",
  "client-world",
  "fontdue",
- "inventory 0.1.21",
+ "inventory 0.1.22",
  "mod-api",
  "mod-host",
  "mod-render",
@@ -2553,7 +2557,7 @@ dependencies = [
 
 [[package]]
 name = "client-interaction"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "actor-animation",
  "assets",
@@ -2566,7 +2570,7 @@ dependencies = [
  "client-world",
  "diagnostics",
  "gameplay",
- "inventory 0.1.21",
+ "inventory 0.1.22",
  "player-state",
  "protocol",
  "protocol-ids",
@@ -2581,7 +2585,7 @@ dependencies = [
 
 [[package]]
 name = "client-presentation"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "actor-animation",
  "anyhow",
@@ -2594,7 +2598,7 @@ dependencies = [
  "diagnostics",
  "glam",
  "image",
- "inventory 0.1.21",
+ "inventory 0.1.22",
  "launcher",
  "meshing",
  "pack-compiler",
@@ -2624,7 +2628,7 @@ dependencies = [
 
 [[package]]
 name = "client-runtime"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "bevy",
@@ -2655,7 +2659,7 @@ dependencies = [
 
 [[package]]
 name = "client-session"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "bridge",
  "bytes",
@@ -2680,7 +2684,7 @@ dependencies = [
 
 [[package]]
 name = "client-shell"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "ash",
  "assets",
@@ -2728,7 +2732,7 @@ dependencies = [
 
 [[package]]
 name = "client-state"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "bevy",
  "player-state",
@@ -2739,7 +2743,7 @@ dependencies = [
 
 [[package]]
 name = "client-ui"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "actor-animation",
  "anyhow",
@@ -2753,7 +2757,7 @@ dependencies = [
  "env-compat",
  "glam",
  "image",
- "inventory 0.1.21",
+ "inventory 0.1.22",
  "js-sys",
  "json-ui",
  "launcher",
@@ -2799,13 +2803,13 @@ dependencies = [
 
 [[package]]
 name = "client-world"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "actor-animation",
  "assets",
  "bytes",
  "hashbrown 0.16.1",
- "inventory 0.1.21",
+ "inventory 0.1.22",
  "protocol",
  "protocol-ids",
  "render-api",
@@ -3041,7 +3045,7 @@ dependencies = [
 
 [[package]]
 name = "cosmetics"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "serde",
  "serde_json",
@@ -3268,7 +3272,7 @@ dependencies = [
 
 [[package]]
 name = "crash-monitor"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "bootstrap-ui",
  "bytes",
@@ -3291,7 +3295,6 @@ dependencies = [
  "tiny-skia",
  "tracing",
  "ui",
- "update-installer",
  "wgpu",
  "windows-sys 0.61.2",
  "winit",
@@ -3299,7 +3302,7 @@ dependencies = [
 
 [[package]]
 name = "crash-report"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "libc",
  "regex",
@@ -3546,7 +3549,7 @@ dependencies = [
 
 [[package]]
 name = "developer-control"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "crossbeam-channel",
  "mio",
@@ -3558,7 +3561,7 @@ dependencies = [
 
 [[package]]
 name = "devtool"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "crash-report",
  "csv",
@@ -3585,7 +3588,7 @@ dependencies = [
 
 [[package]]
 name = "diagnostics"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "android_log-sys",
  "assets",
@@ -3704,7 +3707,7 @@ checksum = "c9c272297e804878a2a4b707cfcfc6d2328b5bb936944613b4fdf2b9269afdfd"
 
 [[package]]
 name = "dist-local"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "same-file",
@@ -3851,7 +3854,7 @@ dependencies = [
 
 [[package]]
 name = "env-compat"
-version = "0.1.21"
+version = "0.1.22"
 
 [[package]]
 name = "equivalent"
@@ -3927,14 +3930,14 @@ dependencies = [
 
 [[package]]
 name = "experience-probe"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "experience-sdk",
 ]
 
 [[package]]
 name = "experience-runtime"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "serde",
@@ -3950,7 +3953,7 @@ dependencies = [
 
 [[package]]
 name = "experience-sdk"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "serde",
  "serde_json",
@@ -3960,7 +3963,7 @@ dependencies = [
 
 [[package]]
 name = "experience-terminal-client"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "experience-sdk",
  "serde_json",
@@ -3980,7 +3983,7 @@ checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
 
 [[package]]
 name = "far-terrain"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "criterion",
@@ -4032,7 +4035,7 @@ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
 name = "first-run"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "assets",
@@ -4284,14 +4287,14 @@ dependencies = [
 
 [[package]]
 name = "gameplay"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "actor-animation",
  "assets",
  "block-transform",
  "client-world",
  "env-compat",
- "inventory 0.1.21",
+ "inventory 0.1.22",
  "meshing",
  "player-state",
  "protocol",
@@ -4618,7 +4621,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "hello-mod"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "mod-api",
 ]
@@ -4955,7 +4958,7 @@ dependencies = [
 
 [[package]]
 name = "inventory"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "bytes",
@@ -5136,7 +5139,7 @@ dependencies = [
 
 [[package]]
 name = "json-ui"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "pack-json",
  "serde",
@@ -5147,7 +5150,7 @@ dependencies = [
 
 [[package]]
 name = "jsonui-editor"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "image",
@@ -5164,7 +5167,7 @@ dependencies = [
 
 [[package]]
 name = "jsonui-mcp"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "image",
  "json-ui",
@@ -5211,7 +5214,7 @@ dependencies = [
 
 [[package]]
 name = "launcher"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "bridge",
@@ -5231,7 +5234,7 @@ dependencies = [
 
 [[package]]
 name = "launcher-host"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "async-io",
@@ -5616,7 +5619,7 @@ checksum = "4facc753ae494aeb6e3c22f839b158aebd4f9270f55cd3c79906c45476c47ab4"
 
 [[package]]
 name = "mcp-stdio"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "serde_json",
 ]
@@ -5656,7 +5659,7 @@ dependencies = [
 
 [[package]]
 name = "meshing"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "block-transform",
@@ -5876,7 +5879,7 @@ dependencies = [
 
 [[package]]
 name = "mod-api"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "serde",
  "serde_json",
@@ -5885,7 +5888,7 @@ dependencies = [
 
 [[package]]
 name = "mod-host"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "assets",
@@ -5921,7 +5924,7 @@ dependencies = [
 
 [[package]]
 name = "mod-render"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "bytemuck",
  "mod-api",
@@ -5931,7 +5934,7 @@ dependencies = [
 
 [[package]]
 name = "mod-ui"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "glam",
@@ -5996,6 +5999,7 @@ dependencies = [
  "naga-types",
  "num-traits",
  "once_cell",
+ "pp-rs",
  "rustc-hash 1.1.0",
  "spirv",
  "thiserror 2.0.18",
@@ -6671,7 +6675,7 @@ dependencies = [
 
 [[package]]
 name = "oreui"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "bridge",
@@ -6713,7 +6717,7 @@ dependencies = [
 
 [[package]]
 name = "pack-compile-input"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "image",
@@ -6726,7 +6730,7 @@ dependencies = [
 
 [[package]]
 name = "pack-compiler"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "cap-fs-ext",
@@ -6743,7 +6747,7 @@ dependencies = [
 
 [[package]]
 name = "pack-entity-compiler"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "image",
@@ -6760,7 +6764,7 @@ dependencies = [
 
 [[package]]
 name = "pack-font-compiler"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "cap-fs-ext",
@@ -6777,7 +6781,7 @@ dependencies = [
 
 [[package]]
 name = "pack-json"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "serde",
  "serde_json",
@@ -6785,19 +6789,22 @@ dependencies = [
 
 [[package]]
 name = "pack-runtime"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "block-transform",
  "bridge",
+ "flate2",
  "image",
  "json-ui",
  "pack-compile-input",
  "pack-entity-compiler",
  "pack-json",
+ "postcard",
  "protocol",
  "rayon",
  "resource-pack",
+ "serde",
  "serde_json",
  "sha2",
  "sim",
@@ -6848,7 +6855,7 @@ dependencies = [
 
 [[package]]
 name = "particles"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "bytemuck",
@@ -6970,10 +6977,10 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "player-state"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "client-world",
- "inventory 0.1.21",
+ "inventory 0.1.22",
 ]
 
 [[package]]
@@ -7044,6 +7051,14 @@ name = "powerfmt"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
+
+[[package]]
+name = "pp-rs"
+version = "0.2.1"
+source = "git+https://github.com/cinnabar-mc/glslpp-rs?rev=2032a88999c95c6ca0b397758dc97930089a6608#2032a88999c95c6ca0b397758dc97930089a6608"
+dependencies = [
+ "unicode-xid",
+]
 
 [[package]]
 name = "ppv-lite86"
@@ -7222,7 +7237,7 @@ dependencies = [
 
 [[package]]
 name = "protocol"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "base64",
@@ -7253,7 +7268,7 @@ dependencies = [
 
 [[package]]
 name = "protocol-ids"
-version = "0.1.21"
+version = "0.1.22"
 
 [[package]]
 name = "pulley-interpreter"
@@ -7650,7 +7665,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "release-manifest"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "base64",
  "serde_json",
@@ -7662,12 +7677,13 @@ dependencies = [
 
 [[package]]
 name = "render"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "bevy",
  "block-transform",
  "bytemuck",
+ "criterion",
  "env-compat",
  "far-terrain",
  "glam",
@@ -7701,11 +7717,11 @@ dependencies = [
 
 [[package]]
 name = "render-api"
-version = "0.1.21"
+version = "0.1.22"
 
 [[package]]
 name = "render-model"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "block-transform",
@@ -7731,14 +7747,14 @@ dependencies = [
 
 [[package]]
 name = "render-sample-mod"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "mod-api",
 ]
 
 [[package]]
 name = "render-scene"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "bevy",
@@ -7813,7 +7829,7 @@ dependencies = [
 
 [[package]]
 name = "resource-pack"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "aes",
  "pack-json",
@@ -7831,7 +7847,7 @@ dependencies = [
 
 [[package]]
 name = "rich-presence"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "crossbeam-channel",
  "discord-presence",
@@ -8079,7 +8095,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "screen-probe-mod"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "experience-sdk",
  "mod-api",
@@ -8140,7 +8156,7 @@ dependencies = [
 
 [[package]]
 name = "semantic-input"
-version = "0.1.21"
+version = "0.1.22"
 
 [[package]]
 name = "semver"
@@ -8235,7 +8251,7 @@ dependencies = [
 
 [[package]]
 name = "server-experience"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "dav1d",
@@ -8278,8 +8294,11 @@ dependencies = [
 
 [[package]]
 name = "shaderpack"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
+ "assets",
+ "naga",
+ "pp-rs",
  "zip",
  "zip-footer",
 ]
@@ -8317,7 +8336,7 @@ dependencies = [
 
 [[package]]
 name = "sim"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "block-transform",
@@ -8355,7 +8374,7 @@ checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
 name = "simulation-clock"
-version = "0.1.21"
+version = "0.1.22"
 
 [[package]]
 name = "slab"
@@ -8622,7 +8641,7 @@ dependencies = [
 
 [[package]]
 name = "test-alloc"
-version = "0.1.21"
+version = "0.1.22"
 
 [[package]]
 name = "test-assembler"
@@ -8635,7 +8654,7 @@ dependencies = [
 
 [[package]]
 name = "test-time"
-version = "0.1.21"
+version = "0.1.22"
 
 [[package]]
 name = "thiserror"
@@ -8702,7 +8721,7 @@ dependencies = [
 
 [[package]]
 name = "time-changer-mod"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "mod-api",
 ]
@@ -9187,7 +9206,7 @@ dependencies = [
 
 [[package]]
 name = "ui"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "criterion",
@@ -9203,7 +9222,7 @@ dependencies = [
 
 [[package]]
 name = "ui-engine"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "crossbeam-channel",
@@ -9224,13 +9243,13 @@ dependencies = [
 
 [[package]]
 name = "ui-screens"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "bridge",
  "cosmetics",
  "image",
- "inventory 0.1.21",
+ "inventory 0.1.22",
  "json-ui",
  "launcher",
  "player-state",
@@ -9248,14 +9267,14 @@ dependencies = [
 
 [[package]]
 name = "ui-snapshot"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "bridge",
  "client-ui",
  "cosmetics",
  "image",
- "inventory 0.1.21",
+ "inventory 0.1.22",
  "json-ui",
  "jsonui-editor",
  "launcher",
@@ -9317,7 +9336,7 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "update-installer"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "rustix 1.1.4",
@@ -9331,7 +9350,7 @@ dependencies = [
 
 [[package]]
 name = "update-manifest"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "base64",
  "ring",
@@ -10055,7 +10074,7 @@ dependencies = [
 
 [[package]]
 name = "web-client"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "assets",
  "bridge",
@@ -10113,7 +10132,7 @@ dependencies = [
 
 [[package]]
 name = "web-transport"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "bridge",
  "bytes",
@@ -11172,11 +11191,11 @@ dependencies = [
 
 [[package]]
 name = "workspace-declarations"
-version = "0.1.21"
+version = "0.1.22"
 
 [[package]]
 name = "world"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "criterion",
  "hashbrown 0.16.1",
@@ -11452,7 +11471,7 @@ dependencies = [
 
 [[package]]
 name = "zip-footer"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "thiserror 2.0.18",
  "zip",

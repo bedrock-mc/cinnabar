@@ -7,7 +7,7 @@ import render::chunk_bindings::{
     LIQUID_FACE_INSET, LIQUID_TOP_INSET_BIT, LIQUID_DEPTH_WRITE_BIT, LIQUID_TWO_SIDED_BIT,
     TRANSPARENT_WATER_RECORD_FLAG,
 };
-import render::material::{MaterialGpu, materials, positional_material, texture_layer, texture_page, texture_uv_scale, texture_gradient_scale};
+import render::material::{MaterialGpu, materials, positional_material_id, texture_layer, texture_page, texture_uv_scale, texture_gradient_scale};
 import render::world_projection::{section_camera_offset, camera_offset_clip};
 import render::biome_tint::blended_biome_tint;
 import render::lighting::{light_ao_factor, light_colour, face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour};
@@ -221,11 +221,28 @@ fn depth_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     return vertex_for_record(instance_index, vertex_index);
 }
 
-/// Projects corner `vertex_index & 3` of liquid record `record_index`. The record names its own
-/// origin slot, and its lighting record sits at the same offset from the origin's liquid lighting
-/// base as the record does from its liquid base.
-fn vertex_for_record(record_index: u32, vertex_index: u32) -> VertexOutput {
-    let corner = vertex_index & 3u;
+/// One corner of a liquid record, decoded as every liquid program reads it.
+struct LiquidCorner {
+    face: u32,
+    /// Corner position relative to the section origin.
+    local_position: vec3<f32>,
+    /// The liquid block, relative to the section origin.
+    block_coordinate: vec3<u32>,
+    /// Texture coordinates in the material's texture, before its page scale.
+    uv: vec2<f32>,
+    /// Section origin in blocks, and the section's biome record in `w`.
+    chunk_origin: vec4<i32>,
+    /// Packed light sample, laid out as `cube_light_sample` describes in `chunk.wesl`.
+    light_sample: u32,
+    packed_material: u32,
+    /// The record's material after positional variation at its block.
+    selected_material_id: u32,
+}
+
+/// Decodes corner `corner` of liquid record `record_index`. The record names its own origin
+/// slot, and its lighting record sits at the same offset from the origin's liquid lighting base
+/// as the record does from its liquid base.
+fn liquid_record_corner(record_index: u32, corner: u32) -> LiquidCorner {
     let liquid_word = record_index * 4u;
     let geometry = geometry_streams[liquid_word];
     let height_word = geometry_streams[liquid_word + 1u];
@@ -240,35 +257,47 @@ fn vertex_for_record(record_index: u32, vertex_index: u32) -> VertexOutput {
     );
     let face = (geometry >> 12u) & 7u;
     let local_position = liquid_corner(geometry, height_word, corner, packed_material);
-    let world_position = vec3<f32>(chunk_origin.value.xyz) + local_position;
-    let camera_offset = section_camera_offset(chunk_origin.value.xyz, local_position, view.world_position);
     let block_coordinate = vec3<u32>(
         geometry & 15u,
         (geometry >> 4u) & 15u,
         (geometry >> 8u) & 15u,
     );
-
-    let material = positional_material(packed_material & LIQUID_MATERIAL_MASK, chunk_origin.value.xyz + vec3<i32>(block_coordinate));
-    let frame = animation_sample(material);
-
-    var out: VertexOutput;
-    out.clip_position = camera_offset_clip(view.clip_from_world, view.world_position, camera_offset);
-    out.uv = liquid_uv(
+    let uv = liquid_uv(
         face,
         corner,
         local_position.y - f32(block_coordinate.y),
         signed_i8(geometry, 16u),
         signed_i8(geometry, 24u),
     );
+    let selected_material_id = positional_material_id(packed_material & LIQUID_MATERIAL_MASK, chunk_origin.value.xyz + vec3<i32>(block_coordinate));
+    return LiquidCorner(face, local_position, block_coordinate, uv, chunk_origin.value, light_sample, packed_material, selected_material_id);
+}
+
+/// Projects corner `vertex_index & 3` of liquid record `record_index`.
+fn vertex_for_record(record_index: u32, vertex_index: u32) -> VertexOutput {
+    let decoded = liquid_record_corner(record_index, vertex_index & 3u);
+    let light_sample = decoded.light_sample;
+    let packed_material = decoded.packed_material;
+    let face = decoded.face;
+    let local_position = decoded.local_position;
+    let block_coordinate = decoded.block_coordinate;
+    let world_position = vec3<f32>(decoded.chunk_origin.xyz) + local_position;
+    let camera_offset = section_camera_offset(decoded.chunk_origin.xyz, local_position, view.world_position);
+    let material = materials[decoded.selected_material_id];
+    let frame = animation_sample(material);
+
+    var out: VertexOutput;
+    out.clip_position = camera_offset_clip(view.clip_from_world, view.world_position, camera_offset);
+    out.uv = decoded.uv;
     out.current_texture = frame.current;
     out.next_texture = frame.next;
     out.frame_blend = frame.blend;
     out.water_tint = blended_biome_tint(
         0x30u,
         0u,
-        u32(chunk_origin.value.w),
+        u32(decoded.chunk_origin.w),
         vec3<f32>(block_coordinate),
-        vec3<f32>(chunk_origin.value.xyz),
+        vec3<f32>(decoded.chunk_origin.xyz),
     );
     @if(!ENHANCED)
     out.water_tint.a = liquid_vertex_alpha(out.water_tint.a, distance(world_position, view.world_position), atmosphere.liquid_distance.x);

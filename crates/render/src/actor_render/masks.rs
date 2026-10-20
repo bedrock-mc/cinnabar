@@ -418,8 +418,7 @@ pub(crate) fn prepare(
                     gpu.artwork_current
                         && gpu
                             .artwork
-                            .pages
-                            .get(usize::from(span.page) - 1)
+                            .page(usize::from(span.page) - 1)
                             .is_some_and(|page| page.bind_group.is_some())
                 };
                 let kind = span.material & assets::EntityRenderMaterialState::KIND_MASK;
@@ -590,8 +589,7 @@ fn draw(
                         gpu.bind_group.as_ref()
                     } else {
                         gpu.artwork
-                            .pages
-                            .get(usize::from(span.page) - 1)
+                            .page(usize::from(span.page) - 1)
                             .and_then(|page| page.bind_group.as_ref())
                     };
                     let Some(binding) = binding else {

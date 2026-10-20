@@ -238,17 +238,30 @@ pub(in crate::chunk) fn identity_vertex_offsets(
     })
 }
 
+fn storage_buffer_descriptor(label: &'static str, size: u64) -> BufferDescriptor<'static> {
+    BufferDescriptor {
+        label: Some(label),
+        size,
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    }
+}
+
 pub(in crate::chunk) fn create_storage_buffer(
     render_device: &RenderDevice,
     label: &'static str,
     size: u64,
 ) -> Buffer {
-    render_device.create_buffer(&BufferDescriptor {
-        label: Some(label),
-        size,
-        usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    })
+    render_device.create_buffer(&storage_buffer_descriptor(label, size))
+}
+
+/// [`create_storage_buffer`], or `None` when the device is out of memory.
+pub(in crate::chunk) fn try_create_storage_buffer(
+    render_device: &RenderDevice,
+    label: &'static str,
+    size: u64,
+) -> Option<Buffer> {
+    crate::gpu_allocation::buffer(render_device, &storage_buffer_descriptor(label, size))
 }
 
 pub(in crate::chunk) fn create_indirect_buffer(

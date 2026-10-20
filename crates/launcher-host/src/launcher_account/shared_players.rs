@@ -35,7 +35,22 @@ impl LauncherAccount {
                 u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX)
             });
             let remote = &snapshot.shared_players.remote;
+            let ownership_current = age < STALE_EXCHANGE_MS
+                && snapshot
+                    .account
+                    .as_ref()
+                    .is_some_and(|account| matches!(account.state, CoreAuth::SignedIn));
             CinnabarPlayerUpdates {
+                ownership_xuid: if ownership_current {
+                    remote.ownership_xuid.clone()
+                } else {
+                    String::new()
+                },
+                owned_cosmetics: if ownership_current {
+                    remote.owned_cosmetics.clone()
+                } else {
+                    Vec::new()
+                },
                 emotes: remote
                     .emotes
                     .iter()

@@ -152,6 +152,8 @@ pub struct UiRuntime {
     death_reason: Arc<str>,
     death_rules: protocol::DeathRules,
     toast_display_millis: u64,
+    /// Developer captures never draw toasts.
+    hide_toasts: bool,
     chat: ChatStore,
     scoreboards: ScoreboardStore,
     boss_bars: BossBarStore,
@@ -253,6 +255,7 @@ impl UiRuntime {
             death_reason: Arc::from(""),
             death_rules: protocol::DeathRules::default(),
             toast_display_millis: ui::TOAST_DISPLAY_MILLIS,
+            hide_toasts: false,
             chat: ChatStore::default(),
             scoreboards: ScoreboardStore::default(),
             boss_bars: BossBarStore::default(),
@@ -926,6 +929,16 @@ impl UiRuntime {
     /// Applies the toast preference even when this frame cannot publish a viewport.
     pub fn set_toast_lifetime(&mut self, lifetime: u64) {
         self.toast_display_millis = lifetime;
+    }
+
+    /// Stops drawing toasts for the session (developer `--hide-toasts`); they still queue
+    /// and expire as usual, so nothing else changes.
+    pub fn set_hide_toasts(&mut self, hide: bool) {
+        self.hide_toasts = hide;
+    }
+
+    pub fn hides_toasts(&self) -> bool {
+        self.hide_toasts
     }
 
     /// Expires retained HUD output when the app has admitted a valid viewport.

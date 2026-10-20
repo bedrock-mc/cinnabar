@@ -2,10 +2,14 @@
 
 mod character;
 #[cfg(feature = "test-support")]
+mod control_locked;
+#[cfg(feature = "test-support")]
 mod cosmetic_particles;
 #[cfg(feature = "test-support")]
 mod crafting;
 mod edit_selection;
+#[cfg(feature = "test-support")]
+mod form_overlap;
 mod panorama;
 
 use std::{
@@ -106,8 +110,16 @@ fn png_fixture(
     resource_pack: Option<&Path>,
 ) -> Result<Vec<u8>, Error> {
     #[cfg(feature = "test-support")]
+    if matches!(&fixture, Fixture::ControlLocked) {
+        return control_locked::png(state, dir);
+    }
+    #[cfg(feature = "test-support")]
     if let Fixture::CosmeticParticles { view, emitting } = &fixture {
         return cosmetic_particles::png(state.size, *view, seconds, *emitting);
+    }
+    #[cfg(feature = "test-support")]
+    if matches!(&fixture, Fixture::FormOverlap) {
+        return form_overlap::png(state, dir);
     }
     let menu = matches!(&fixture, Fixture::Menu(_) | Fixture::Loading(_));
     let show_panorama = match &fixture {
@@ -120,6 +132,8 @@ fn png_fixture(
         #[cfg(feature = "test-support")]
         Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
+        | Fixture::FormOverlap
+        | Fixture::ControlLocked
         | Fixture::CosmeticParticles { .. } => false,
     };
     let mut carriers = carriers::load(dir, menu)?;
@@ -156,7 +170,9 @@ fn png_fixture(
     };
     match fixture {
         #[cfg(feature = "test-support")]
-        Fixture::CosmeticParticles { .. } => unreachable!("particle capture returned above"),
+        Fixture::CosmeticParticles { .. } | Fixture::FormOverlap | Fixture::ControlLocked => {
+            unreachable!("specialized capture returned above")
+        }
         #[cfg(feature = "test-support")]
         Fixture::CursorDurability => {
             let mut engine = json_engine(&carriers)?;

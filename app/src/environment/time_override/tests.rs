@@ -81,6 +81,41 @@ fn ordinary_world_publisher_preserves_native_nighttime_ambient_floor() {
 }
 
 #[test]
+fn fixed_time_outranks_mod_output() {
+    let server = *atmosphere_app(true).world().resource::<WorldClock>();
+    let clock_at = |ticks| VisualTimeOverride(Some(ticks)).rendering_clock(server);
+    let fixed = FixedTime(Some(13_013));
+    let visual = VisualTimeOverride(Some(18_000));
+    assert_eq!(rendered_clock(server, None, None), server);
+    assert_eq!(
+        rendered_clock(server, Some(&FixedTime(None)), Some(&visual)),
+        clock_at(18_000)
+    );
+    assert_eq!(
+        rendered_clock(server, Some(&fixed), Some(&visual)),
+        clock_at(13_013)
+    );
+
+    // The atmosphere publisher draws the pinned time while a mod keeps writing its own.
+    let mut app = atmosphere_app(true);
+    app.world_mut().resource_mut::<VisualTimeOverride>().0 = Some(18_000);
+    let modded = output(&mut app);
+    app.insert_resource(fixed);
+    let pinned = output(&mut app);
+    assert_ne!(pinned.0.sun_direction(), modded.0.sun_direction());
+    assert_eq!(
+        pinned.0.day_fraction(),
+        AtmosphereFrame::from_bedrock_time(
+            client_presentation::environment::visual_world_time(clock_at(13_013), 0.0),
+            0.0,
+            0.0
+        )
+        .day_fraction()
+    );
+    assert_eq!(*app.world().resource::<WorldClock>(), server);
+}
+
+#[test]
 fn override_replaces_atmosphere_and_light_and_clearing_restores_server() {
     for cycle in [true, false] {
         let mut app = atmosphere_app(cycle);

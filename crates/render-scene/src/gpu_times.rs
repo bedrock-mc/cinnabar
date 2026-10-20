@@ -46,6 +46,13 @@ impl GpuFrameTimes {
         self
     }
 
+    /// Adds the GPU gap before this frame, measured from the previous frame's last timestamp.
+    #[must_use]
+    pub fn with_idle(mut self, idle: Duration) -> Self {
+        self.add(RuntimeStage::GpuIdle, idle);
+        self
+    }
+
     /// `None` when the stage is not GPU-timed or did not run in this frame.
     #[must_use]
     pub fn get(&self, stage: RuntimeStage) -> Option<Duration> {

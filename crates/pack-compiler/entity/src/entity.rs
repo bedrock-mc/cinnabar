@@ -8,8 +8,8 @@ use assets::{
     AssetError, CompiledEntityAssets, EntityAssetKind, EntityAssetSource, EntityAssetSymbol,
     EntityDependency, EntityDependencyKind, EntityDependencyResolution, EntityGeometry,
     EntityGeometryBone, EntityGeometryInheritance, EquipmentBinding, MAX_ENTITY_ASSET_SOURCES,
-    MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_DEPENDENCIES, MAX_ENTITY_GEOMETRIES,
-    MAX_ENTITY_TOTAL_SOURCE_BYTES, validate_entity_geometry_inheritance,
+    MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_DEPENDENCIES, MAX_ENTITY_TOTAL_SOURCE_BYTES,
+    validate_entity_geometry_inheritance,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -405,9 +405,6 @@ fn assemble(
                 EntityDependencyResolution::External
             };
         }
-    }
-    if geometries.len() > MAX_ENTITY_GEOMETRIES {
-        return Err(invalid("entity geometry count exceeds bound"));
     }
     let pending_geometries = geometries.into_values().collect::<Vec<_>>();
     let local_bob_flags = pending_geometries

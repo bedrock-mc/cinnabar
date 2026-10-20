@@ -299,8 +299,8 @@ fn ui_model_resize_replaces_only_changed_buckets_and_rebinds_them() {
         .iter()
         .map(|bucket| bucket.as_ref().unwrap().texture.id())
         .collect::<Vec<_>>();
-    assert_eq!(gpu.textures.bytes, resized.plan().bytes());
-    assert_eq!(gpu.textures.locations, resized.plan().locations());
+    assert_eq!(gpu.textures.bytes, resized.resident_plan().bytes());
+    assert_eq!(gpu.textures.locations, resized.resident_plan().locations());
     world
         .run_system_once(super::super::prepare_ui_bind_group)
         .unwrap();
@@ -337,21 +337,21 @@ fn assert_only_changed_buckets_replaced(
     from_textures: &[bevy::render::render_resource::TextureId],
 ) {
     assert!(
-        to.plan()
+        to.resident_plan()
             .buckets()
             .iter()
-            .any(|bucket| from.plan().buckets().contains(bucket)),
+            .any(|bucket| from.resident_plan().buckets().contains(bucket)),
         "fixture keeps at least one bucket"
     );
-    for (bucket, planned) in gpu.buckets.iter().zip(to.plan().buckets()) {
+    for (bucket, planned) in gpu.buckets.iter().zip(to.resident_plan().buckets()) {
         let bucket = bucket.as_ref().unwrap();
-        let unchanged = from.plan().buckets().contains(planned);
+        let unchanged = from.resident_plan().buckets().contains(planned);
         assert_eq!(from_textures.contains(&bucket.texture.id()), unchanged);
         assert_eq!(bucket.bind_group.is_some(), unchanged);
     }
 }
 
-/// Builds a static 1024 page with three blank dynamic pages, and a resize of the
+/// Builds a static 1024 page with three filled dynamic pages, and a resize of the
 /// player skin and first model atlas that moves two pages to new buckets.
 fn resizable_catalogs() -> (UiTextureCatalog, UiTextureCatalog) {
     use render_model::{
@@ -362,7 +362,7 @@ fn resizable_catalogs() -> (UiTextureCatalog, UiTextureCatalog) {
         UiTexturePage::owned([side; 2], vec![value; (side * side * 4) as usize].into()).unwrap()
     };
     let mut pages = vec![page(1024, 1)];
-    pages.extend((0..=UI_MODEL_ATLAS_PAGE_OFFSET).map(|_| page(UI_DYNAMIC_PAGE_SIDE, 0)));
+    pages.extend((0..=UI_MODEL_ATLAS_PAGE_OFFSET).map(|_| page(UI_DYNAMIC_PAGE_SIDE, 3)));
     let base = UiTextureCatalog::new(pages, 1).unwrap();
     let mut replacements = base.pages()[base.dynamic_start()..].to_vec();
     replacements[UI_PLAYER_SKIN_PAGE_OFFSET] = page(render_api::CLASSIC_SKIN_SIDE as u32, 7);
@@ -411,6 +411,77 @@ fn resizing_a_page_reuploads_only_pages_in_replaced_buckets() {
         uploads.borrow().iter().sum::<u64>(),
         all_bytes - static_bytes
     );
+}
+
+/// Unused reserved pages after a bucket's last used page share one GPU layer; filling one
+/// gives it its own layer and leaves the other buckets' textures alone.
+#[test]
+fn blank_reserved_pages_share_one_layer_until_filled() {
+    use render_model::{UI_DYNAMIC_PAGE_SIDE, UI_LOCAL_FONT_PAGE_OFFSET, UI_LOCAL_FONT_PAGE_SIDE};
+    let (device, queue) = noop_device();
+    let page = |side: u32, value| {
+        UiTexturePage::owned([side; 2], vec![value; (side * side * 4) as usize].into()).unwrap()
+    };
+    let side = UI_DYNAMIC_PAGE_SIDE;
+    let mut pages = vec![page(1024, 1), page(side, 2)];
+    pages.extend((0..=UI_LOCAL_FONT_PAGE_OFFSET).map(|offset| {
+        if offset == UI_LOCAL_FONT_PAGE_OFFSET {
+            page(UI_LOCAL_FONT_PAGE_SIDE, 0)
+        } else {
+            page(side, 0)
+        }
+    }));
+    let base = UiTextureCatalog::new(pages, 2).unwrap();
+    let mut gpu = UiGpuTextures::default();
+    gpu.prepare(&base, &device, &queue, None, Duration::ZERO)
+        .unwrap();
+    let layers = |gpu: &UiGpuTextures, side: u32| {
+        let bucket = base
+            .plan()
+            .buckets()
+            .iter()
+            .position(|bucket| bucket.dimensions == [side; 2])
+            .unwrap();
+        gpu.buckets[bucket]
+            .as_ref()
+            .unwrap()
+            .texture
+            .depth_or_array_layers()
+    };
+    // The static page and one layer shared by every blank reserved page.
+    assert_eq!(layers(&gpu, side), 2);
+    assert_eq!(layers(&gpu, UI_LOCAL_FONT_PAGE_SIDE), 1);
+    let shared = gpu.locations[2];
+    assert!(
+        gpu.locations[2..2 + UI_LOCAL_FONT_PAGE_OFFSET]
+            .iter()
+            .all(|location| *location == shared)
+    );
+    let kept = layers(&gpu, UI_LOCAL_FONT_PAGE_SIDE);
+    let font_texture = |gpu: &UiGpuTextures| {
+        gpu.buckets[gpu.locations[2 + UI_LOCAL_FONT_PAGE_OFFSET].bucket]
+            .as_ref()
+            .unwrap()
+            .texture
+            .id()
+    };
+    let font_before = font_texture(&gpu);
+    let mut replacement = base.pages()[base.dynamic_start()..].to_vec();
+    replacement[3] = page(side, 9);
+    let filled = base.replace_dynamic(replacement).unwrap();
+    gpu.prepare(&filled, &device, &queue, None, Duration::ZERO)
+        .unwrap();
+    assert!(gpu.resident(&filled));
+    // Pages up to the filled slot keep their own layers, the rest share the one after it.
+    assert_eq!(
+        layers(&gpu, side),
+        6,
+        "static, three kept blanks, the filled page, shared"
+    );
+    assert_eq!(gpu.locations[2 + 3].layer, 4);
+    assert_eq!(gpu.locations[2 + 4].layer, 5);
+    assert_eq!(layers(&gpu, UI_LOCAL_FONT_PAGE_SIDE), kept);
+    assert_eq!(font_texture(&gpu), font_before);
 }
 
 #[test]
@@ -488,7 +559,7 @@ fn ui_model_plan_change_requires_all_writes_and_commits_only_after_complete_issu
             })
             .is_err()
     );
-    assert_eq!(state.plan.as_ref(), Some(base.plan()));
+    assert_eq!(state.plan.as_ref(), Some(base.resident_plan()));
     assert_eq!(state.dirty(&resized).unwrap(), all);
     let mut issued = Vec::new();
     state
@@ -500,7 +571,7 @@ fn ui_model_plan_change_requires_all_writes_and_commits_only_after_complete_issu
     assert_eq!(issued[1].1, [UI_DYNAMIC_PAGE_SIDE; 2]);
     assert_eq!(issued[2].1, [side; 2]);
     assert!(state.dirty(&resized).unwrap().is_empty());
-    assert_eq!(state.plan.as_ref(), Some(resized.plan()));
+    assert_eq!(state.plan.as_ref(), Some(resized.resident_plan()));
 }
 
 #[test]

@@ -42,7 +42,7 @@ pub struct Surface {
 
 /// Server form button images, as the vanilla client fetches them.
 pub const FORM_IMAGES: Surface = Surface {
-    max_bytes: 2 * 1024 * 1024,
+    max_bytes: resource_pack::MAX_FILE_BYTES as usize,
     max_files: 0,
     max_dir_bytes: 0,
     max_url_bytes: 0,

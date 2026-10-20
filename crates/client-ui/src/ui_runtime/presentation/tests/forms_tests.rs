@@ -135,6 +135,10 @@ fn stale_pointer_hit_after_same_id_reissue_cannot_answer_new_content() {
         .unwrap()
         .1;
     let captured = presentation.hit_test_form(bounds.min()).unwrap();
+    runtime
+        .respond_to_server_form(captured.0, LocalFormAction::Dismiss)
+        .unwrap();
+    crate::ui_runtime::flush_form_response(&mut runtime, |_| false, |_| Ok(())).unwrap();
     let replacement = form_runtime(&mut player_runtime)
         .server_forms()
         .active()

@@ -152,12 +152,11 @@ fn flagged_rawtext_preserves_literal_and_resolved_percent_text() {
 fn large_server_translation_streams_through_text_and_death_consumers() {
     let value = "a".repeat(assets::MAX_LANG_VALUE_BYTES);
     let language = format!("k={value}\n");
-    assert!(language.len() <= assets::MAX_SERVER_LANG_INPUT_BYTES);
     let overlay = assets::ServerLangOverlay::read(language.len(), |target| {
         target.copy_from_slice(language.as_bytes());
         true
     })
-    .expect("the server language value fits the retained input policy");
+    .expect("the server language value is readable");
     let message: Arc<str> = "%k ".repeat(5_000).into();
     assert!(message.len() <= protocol::MAX_UI_TEXT_BYTES);
     let localized_token = format!("{value} ");

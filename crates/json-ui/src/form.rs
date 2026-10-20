@@ -99,11 +99,13 @@ pub enum CustomElement {
     Divider,
     Toggle {
         text: String,
+        enabled: bool,
         on: bool,
         tooltip: String,
     },
     Slider {
         text: String,
+        enabled: bool,
         /// Normalized `0..=1` position.
         fraction: f64,
         /// Seconds between repeated directional slider edits.
@@ -112,6 +114,7 @@ pub enum CustomElement {
     },
     StepSlider {
         text: String,
+        enabled: bool,
         steps: usize,
         index: i32,
         tooltip: String,
@@ -132,6 +135,7 @@ pub enum CustomElement {
     },
     Input {
         text: String,
+        enabled: bool,
         value: String,
         placeholder: String,
         tooltip: String,
@@ -442,15 +446,20 @@ fn custom_item(element: &CustomElement) -> CollectionItem {
         CustomElement::Divider => CollectionItem::new("divider"),
         CustomElement::Toggle {
             text: label,
+            enabled,
             on,
             tooltip,
         } => CollectionItem::new("toggle")
             .with(Binding::CustomText.as_str(), text(label))
             .with(Binding::CustomToggleState.as_str(), Scalar::Bool(*on))
-            .with(Binding::CustomToggleEnabled.as_str(), Scalar::Bool(true))
+            .with(
+                Binding::CustomToggleEnabled.as_str(),
+                Scalar::Bool(*enabled),
+            )
             .with(Binding::CustomTooltipText.as_str(), text(tooltip)),
         CustomElement::Slider {
             text: label,
+            enabled,
             fraction,
             timeout,
             tooltip,
@@ -462,10 +471,14 @@ fn custom_item(element: &CustomElement) -> CollectionItem {
                 Scalar::Num(fraction.clamp(0.0, 1.0)),
             )
             .with(Binding::CustomSliderTimeout.as_str(), Scalar::Num(*timeout))
-            .with(Binding::CustomSliderEnabled.as_str(), Scalar::Bool(true))
+            .with(
+                Binding::CustomSliderEnabled.as_str(),
+                Scalar::Bool(*enabled),
+            )
             .with(Binding::CustomTooltipText.as_str(), text(tooltip)),
         CustomElement::StepSlider {
             text: label,
+            enabled,
             steps,
             index,
             tooltip,
@@ -480,7 +493,10 @@ fn custom_item(element: &CustomElement) -> CollectionItem {
                 Binding::CustomSliderSteps.as_str(),
                 Scalar::Num((*steps).max(1) as f64),
             )
-            .with(Binding::CustomSliderEnabled.as_str(), Scalar::Bool(true))
+            .with(
+                Binding::CustomSliderEnabled.as_str(),
+                Scalar::Bool(*enabled),
+            )
             .with(Binding::CustomTooltipText.as_str(), text(tooltip)),
         CustomElement::Dropdown {
             text: label,
@@ -518,6 +534,7 @@ fn custom_item(element: &CustomElement) -> CollectionItem {
             .with(Binding::CustomTooltipText.as_str(), text(tooltip)),
         CustomElement::Input {
             text: label,
+            enabled,
             value,
             placeholder,
             tooltip,
@@ -525,7 +542,7 @@ fn custom_item(element: &CustomElement) -> CollectionItem {
             .with(Binding::CustomText.as_str(), text(label))
             .with(Binding::CustomInputText.as_str(), text(value))
             .with(Binding::CustomPlaceholderText.as_str(), text(placeholder))
-            .with(Binding::CustomInputEnabled.as_str(), Scalar::Bool(true))
+            .with(Binding::CustomInputEnabled.as_str(), Scalar::Bool(*enabled))
             .with(Binding::CustomTooltipText.as_str(), text(tooltip)),
     }
 }
