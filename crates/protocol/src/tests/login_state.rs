@@ -136,6 +136,7 @@ async fn join(script: Script) -> Result<(PlaySession, GameData, Core), ProtocolE
         None,
         &protocol::LoginSettings::default(),
         None,
+        None,
         |packs, game_data| (packs, game_data),
     )
     .await;
@@ -429,6 +430,20 @@ fn play_traffic(script: &Script) -> Vec<Bytes> {
     frames
 }
 
+/// Reads `count` scripted prelude events, echoing latency probes as the client does.
+async fn recv_prelude(session: &mut PlaySession, count: usize) {
+    let mut events = 0;
+    while events < count {
+        match session.recv_world_event(0).await.expect("login prelude") {
+            WorldEvent::NetworkStackLatency(creation_time) => session
+                .send(protocol::network_stack_latency_reply(creation_time))
+                .await
+                .unwrap(),
+            _ => events += 1,
+        }
+    }
+}
+
 /// Answers one client batch sent during play.
 async fn answer(
     core: &mut ScriptedCore,
@@ -609,6 +624,15 @@ async fn play_keeps_startup_order_and_skips_semantic_world_errors() {
         assert_eq!(chunk.1.len(), 1024 * 1024);
         assert!(chunk.1.iter().all(|byte| *byte == 0x5a));
 
+        // Only the from-server probe surfaces; the caller echoes it in stream order.
+        assert_eq!(
+            session.recv_world_event(0).await.unwrap(),
+            WorldEvent::NetworkStackLatency(777)
+        );
+        session
+            .send(protocol::network_stack_latency_reply(777))
+            .await
+            .unwrap();
         assert_eq!(
             session
                 .recv_world_event(0)

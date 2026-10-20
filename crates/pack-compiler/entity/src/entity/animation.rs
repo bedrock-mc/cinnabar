@@ -9,7 +9,7 @@ use assets::{
 };
 use serde_json::Value;
 
-use super::{SourcePayloads, invalid, molang::MolangCompiler};
+use super::{SourceDocuments, invalid, molang::MolangCompiler};
 
 mod clip;
 mod controller;
@@ -56,7 +56,7 @@ type ClipIndices = BTreeMap<(Box<str>, u32), u32>;
 
 pub(super) fn compile(
     root: &Path,
-    payloads: &SourcePayloads,
+    payloads: &SourceDocuments<'_>,
     sources: &[EntityAssetSource],
     symbols: &[EntityAssetSymbol],
     geometries: &[EntityGeometry],
@@ -90,7 +90,7 @@ pub(super) fn compile(
         .filter(|source| source.path.starts_with("animations/"))
     {
         let value = read_json(root, payloads, source)?;
-        let entries = required_object(&value, "animations")?;
+        let entries = required_object(value, "animations")?;
         for (identifier, definition) in entries {
             let symbol = *symbol_indices
                 .get(&(
@@ -99,11 +99,7 @@ pub(super) fn compile(
                     source_index(source, &source_indices)?,
                 ))
                 .ok_or_else(|| invalid("animation symbol is absent from catalog"))?;
-            pending_clips.push((
-                symbol,
-                source.source_path_index(sources)?,
-                definition.clone(),
-            ));
+            pending_clips.push((symbol, source.source_path_index(sources)?, definition));
         }
     }
     pending_clips.sort_by_key(|(symbol, _, _)| *symbol);

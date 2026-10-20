@@ -1,7 +1,7 @@
 //! Neutral actor artwork for a server pack's entities, compiled in memory.
 
 use super::*;
-use crate::entity::{EntityPackSkips, compile_entity_pack};
+use crate::entity::{EntityPackSkips, compile_entity_pack_unless};
 
 /// A pack's entity catalog with the artwork of its eligible rigs. Indices are
 /// local to `entities`, which is its own index space beside the vanilla catalog.
@@ -64,20 +64,20 @@ fn compile_stages(
             Ok(())
         }
     };
-    let Some(pack) = compile_entity_pack(files)? else {
+    let Some(pack) = compile_entity_pack_unless(files, cancelled).ok_or(Stop::Cancelled)?? else {
         return Ok(None);
     };
     check()?;
     let runtime = assets::RuntimeEntityAssets::from_compiled(pack.assets.clone())?;
     check()?;
-    let mut read = |index: u32| -> Result<Vec<u8>, AssetError> {
+    let read = |index: u32| -> Result<&[u8], AssetError> {
         let source = &pack.assets.sources[index as usize];
         pack.payloads
             .get(source.path.as_ref())
-            .map(|bytes| bytes.to_vec())
+            .map(AsRef::as_ref)
             .ok_or_else(|| invalid("pack entity source payload is absent"))
     };
-    let build = build_artwork(&pack.assets, &runtime, &mut read, true)?;
+    let build = build_artwork(&pack.assets, &runtime, &read, true)?;
     check()?;
     let equipment_textures = crate::entity::compile_equipment_textures_for_assets_with(
         &pack.assets,

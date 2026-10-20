@@ -130,10 +130,11 @@ fn playback(blending: bool) -> (Vec<WeightedClip>, f32) {
         static_draw: None,
     };
     let mut clips = Vec::new();
+    let mut runtime = Controllers::tick(&mut controllers);
     ControllerWalk {
         evaluator: &evaluator,
         variables: &mut variables,
-        controllers: &mut controllers,
+        controllers: &mut runtime,
         clip_clocks: &Default::default(),
         clips: &mut clips,
         budget: &mut budget,
@@ -145,6 +146,7 @@ fn playback(blending: bool) -> (Vec<WeightedClip>, f32) {
     }
     .evaluate(0, 1.0, 0)
     .unwrap();
+    drop(runtime);
     super::super::super::clock::prepare(
         &evaluator,
         &mut variables,

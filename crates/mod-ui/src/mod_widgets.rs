@@ -23,6 +23,7 @@ use ui_engine::{
 };
 
 pub(super) struct ModWidgets {
+    published: Arc<Hud>,
     content: Hud,
     pub(super) catalog: Arc<Catalog>,
     screen: CachedScreen,
@@ -45,6 +46,26 @@ impl ModUi {
     /// Replaces card values while retaining the template when its geometry is unchanged. Chat
     /// state bound to the previous [`Self::mod_chat_actions`] is the caller's to revoke.
     pub fn set_mod_hud(&mut self, content: Option<&Hud>) -> Result<(), String> {
+        if self
+            .mod_widgets
+            .as_ref()
+            .is_some_and(|w| Some(w.published.as_ref()) == content)
+        {
+            return Ok(());
+        }
+        self.set_shared_mod_hud(content.cloned().map(Arc::new))
+    }
+
+    /// Retains immutable published output; identical shared identity needs no validation or scan.
+    pub fn set_shared_mod_hud(&mut self, content: Option<Arc<Hud>>) -> Result<(), String> {
+        if self
+            .mod_widgets
+            .as_ref()
+            .zip(content.as_ref())
+            .is_some_and(|(w, c)| Arc::ptr_eq(&w.published, c))
+        {
+            return Ok(());
+        }
         let Some(content) = content.filter(|hud| {
             hud.hunger_overlay.is_some()
                 || hud.actor_style.is_some()
@@ -59,22 +80,25 @@ impl ModUi {
         };
         content.validate()?;
         if let Some(widgets) = &mut self.mod_widgets {
-            if widgets.content == *content {
+            if widgets.published == content {
+                widgets.published = content;
                 return Ok(());
             }
-            if !template::same_shape(&widgets.content, content) {
-                widgets.catalog = Arc::new(template::catalog(content)?);
+            if !template::same_shape(&widgets.content, &content) {
+                widgets.catalog = Arc::new(template::catalog(&content)?);
                 widgets.screen = CachedScreen::default();
             }
-            widgets.content = content.clone();
-            widgets.data = Arc::new(template::data(content, widgets.viewport));
+            widgets.published = content.clone();
+            widgets.content = content.as_ref().clone();
+            widgets.data = Arc::new(template::data(&content, widgets.viewport));
             widgets.resolved.clear();
         } else {
             self.mod_widgets = Some(ModWidgets {
-                content: content.clone(),
-                catalog: Arc::new(template::catalog(content)?),
+                published: content.clone(),
+                content: content.as_ref().clone(),
+                catalog: Arc::new(template::catalog(&content)?),
                 screen: CachedScreen::default(),
-                data: Arc::new(template::data(content, [0.; 2])),
+                data: Arc::new(template::data(&content, [0.; 2])),
                 icons: Vec::new(),
                 resolved: Vec::new(),
                 viewport: [0.; 2],

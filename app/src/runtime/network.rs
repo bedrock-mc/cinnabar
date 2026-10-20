@@ -160,7 +160,7 @@ mod bootstrap_timing;
 mod compile_execution;
 pub(crate) mod entity_pack;
 mod entity_texture_reload;
-mod glyph_sheets;
+pub(crate) mod glyph_sheets;
 mod item_icons;
 mod server_animation;
 pub(crate) use item_icons::install_vanilla_item_assets;

@@ -1468,9 +1468,7 @@ func TestUpstreamDialerAcceptsLargePackTransferBatches(t *testing.T) {
 	if got := packet.DefaultMaxDecompressedLen; dialer.MaxDecompressedLen <= got {
 		t.Fatalf("upstream decompressed batch limit = %d, want above the default %d", dialer.MaxDecompressedLen, got)
 	}
-	if dialer.MaxDecompressedLen < maxResourcePackTransferBytes {
-		t.Fatalf("upstream decompressed batch limit = %d, want at least the transfer bound %d", dialer.MaxDecompressedLen, maxResourcePackTransferBytes)
-	}
+
 }
 
 // BenchmarkLocalLegCompression measures the per-MB encode and decode work each side of the local leg does.

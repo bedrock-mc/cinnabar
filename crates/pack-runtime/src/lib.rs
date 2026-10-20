@@ -12,8 +12,8 @@ pub mod reload_diff;
 
 pub use pack_preparation::{
     BootstrapGenerationDisposition, PackInputs, PackPreparation, RequiredPackRejected,
-    ResourcePackAdmissionState, StackFingerprint, classify_bootstrap_generation,
-    custom_block_items, prepare_session_packs, required_packs_applied, stack_fingerprint,
+    ResourcePackAdmissionState, classify_bootstrap_generation, custom_block_items,
+    prepare_session_packs, required_packs_applied, stack_fingerprint,
 };
 
 #[cfg(test)]

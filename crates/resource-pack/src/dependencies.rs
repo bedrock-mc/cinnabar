@@ -1,8 +1,9 @@
 //! Records the files a compiler actually consumes, including missing fallback candidates.
 
 use std::{
-    collections::BTreeSet,
-    sync::{Arc, Mutex},
+    collections::{BTreeSet, HashMap, hash_map::DefaultHasher},
+    hash::{Hash, Hasher},
+    sync::{Arc, Mutex, RwLock},
 };
 
 /// A content read or directory listing that can affect a compiled subscriber.
@@ -24,46 +25,84 @@ pub enum PackDependency {
 
 /// Shared only within one compilation; clones record into the same dependency set.
 #[derive(Clone, Debug, Default)]
-pub struct PackDependencies(Arc<Mutex<BTreeSet<PackDependency>>>);
+pub struct PackDependencies(Arc<Recorded>);
+
+#[derive(Debug, Default)]
+struct Recorded {
+    files: [RwLock<HashMap<String, BTreeSet<u64>>>; 16],
+    other: Mutex<BTreeSet<PackDependency>>,
+}
 
 impl PackDependencies {
     /// Returns an immutable copy without retaining the compilation's lock.
     pub fn snapshot(&self) -> BTreeSet<PackDependency> {
-        self.0
+        let mut inputs = self
+            .0
+            .other
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .clone()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        for shard in &self.0.files {
+            for (path, limits) in shard.read().unwrap_or_else(|e| e.into_inner()).iter() {
+                inputs.extend(limits.iter().map(|limit| PackDependency::File {
+                    path: path.clone(),
+                    limit: *limit,
+                }));
+            }
+        }
+        inputs
     }
 
     /// Restores the inputs retained alongside a reused compilation result.
     pub fn extend(&self, inputs: impl IntoIterator<Item = PackDependency>) {
-        self.0
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .extend(inputs);
+        for input in inputs {
+            match input {
+                PackDependency::File { path, limit } => self.file(&path, limit),
+                other => {
+                    self.0
+                        .other
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(other);
+                }
+            }
+        }
     }
 
-    /// Records an attempted read, even when the stack contains no matching file.
+    /// Records an attempted read without allocating for an already recorded path and limit.
     pub(crate) fn file(&self, path: &str, limit: u64) {
-        self.0
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .insert(PackDependency::File {
-                path: path.to_owned(),
-                limit,
-            });
+        let mut hash = DefaultHasher::new();
+        path.hash(&mut hash);
+        let shard = &self.0.files[hash.finish() as usize % self.0.files.len()];
+        if shard
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(path)
+            .is_some_and(|limits| limits.contains(&limit))
+        {
+            return;
+        }
+        let mut files = shard.write().unwrap_or_else(|e| e.into_inner());
+        if let Some(limits) = files.get_mut(path) {
+            limits.insert(limit);
+        } else {
+            files.insert(path.to_owned(), BTreeSet::from([limit]));
+        }
     }
 
     /// Directory dependencies track names and order separately from file contents.
     pub(crate) fn directory(&self, prefix: &str) {
         self.0
+            .other
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .insert(PackDependency::Directory(prefix.to_owned()));
     }
 
+    /// Records all names and bytes that may be consumed after compilation.
     pub(crate) fn contents(&self, prefix: &str) {
         self.0
+            .other
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .insert(PackDependency::Contents(prefix.to_owned()));
@@ -76,6 +115,7 @@ impl PackDependencies {
         suffixes.sort();
         suffixes.dedup();
         self.0
+            .other
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .insert(PackDependency::DirectoryWithSuffixes {
@@ -168,6 +208,50 @@ impl<'a> Reader<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cloned_recorders_preserve_every_path_limit_and_missing_read() {
+        let recorded = PackDependencies::default();
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                let recorded = recorded.clone();
+                scope.spawn(move || {
+                    for _ in 0..32 {
+                        recorded.file("missing.json", 7);
+                        recorded.file("missing.json", 9);
+                        recorded.file("Missing.json", 7);
+                    }
+                });
+            }
+        });
+        recorded.directory("ui/");
+        recorded.contents("sounds/");
+        recorded.directory_with_suffixes("textures/", &[".png", ".jpg", ".png"]);
+        let expected = BTreeSet::from([
+            PackDependency::File {
+                path: "missing.json".into(),
+                limit: 7,
+            },
+            PackDependency::File {
+                path: "missing.json".into(),
+                limit: 9,
+            },
+            PackDependency::File {
+                path: "Missing.json".into(),
+                limit: 7,
+            },
+            PackDependency::Directory("ui/".into()),
+            PackDependency::Contents("sounds/".into()),
+            PackDependency::DirectoryWithSuffixes {
+                prefix: "textures/".into(),
+                suffixes: vec![".jpg".into(), ".png".into()],
+            },
+        ]);
+        assert_eq!(recorded.snapshot(), expected);
+        let restored = PackDependencies::default();
+        restored.extend(expected.clone());
+        assert_eq!(restored.snapshot(), expected);
+    }
 
     #[test]
     fn an_encoded_set_round_trips_and_truncation_is_rejected() {

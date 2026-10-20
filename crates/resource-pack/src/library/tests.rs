@@ -429,6 +429,7 @@ fn failed_apply_leaves_persisted_selection_and_composition_gives_higher_layer_pr
     let empty = ValidatedPackStack {
         packs: Box::default(),
         rejections: Box::default(),
+        fingerprint: Default::default(),
     };
     let composed = ValidatedPackStack::compose(&empty, &initial).unwrap();
     assert_eq!(composed.packs().len(), 1);

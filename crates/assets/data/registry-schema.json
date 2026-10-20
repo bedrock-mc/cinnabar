@@ -79,6 +79,7 @@
     {
       "name": "ContributorRole",
       "default": "Primary",
+      "serde": true,
       "go_prefix": "Contributor",
       "go_max": "maxContributorRole",
       "values": [
@@ -208,6 +209,7 @@
     {
       "name": "BlockFlags",
       "go_all": "allBlockFlags",
+      "serde": true,
       "values": [
         {"name": "AIR", "bit": 0, "go_name": "flagAir", "source": true, "doc": null},
         {"name": "CUBE_GEOMETRY", "bit": 1, "go_name": "flagCubeGeometry", "source": true, "doc": null},

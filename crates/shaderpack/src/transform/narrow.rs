@@ -192,6 +192,7 @@ mod tests {
     use super::*;
     use crate::token::Emitter;
 
+    /// Lowers a narrow-type fixture and emits the resulting token stream.
     fn lowered(src: &str) -> String {
         let mut e = Emitter::default();
         e.tokens(&lower(&lex(src)).expect("lowers"));

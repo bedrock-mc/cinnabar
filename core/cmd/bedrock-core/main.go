@@ -50,22 +50,13 @@ var (
 )
 
 func main() {
-	code := runAtUserLevel(normalUser, os.Stderr, runMain)
+	code := runMain()
 	if code != 0 {
 		os.Exit(code)
 	}
 }
 
-// runAtUserLevel refuses elevated or unknown permissions before starting any core work.
-func runAtUserLevel(check func() error, stderr io.Writer, run func() int) int {
-	if err := check(); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	return run()
-}
-
-// runMain owns the core's runtime settings, lifeline and services after the permission check.
+// runMain owns the core's runtime settings, lifeline and services.
 func runMain() int {
 	configureRuntime(os.Getenv)
 	args := os.Args[1:]

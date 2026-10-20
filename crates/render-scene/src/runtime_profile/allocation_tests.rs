@@ -1,11 +1,23 @@
 use super::*;
 
+/// Always-on tracing and slow-frame accounting also prepare every stage before its first use.
+#[test]
+fn gameplay_timers_allocate_nothing_from_their_first_sample() {
+    let profiler = RuntimeStageProfiler::for_gameplay(true, None);
+    for stage in RuntimeStage::ALL {
+        let (_, overhead) = test_alloc::measure(|| drop(profiler.time(stage)));
+        assert_eq!(overhead.calls, 0, "{}", stage.name());
+    }
+}
+
 /// RAII timers report actual nested allocations on their calling thread and drain per frame.
 #[test]
 fn timers_count_nested_requests_without_allocating_themselves() {
     let profiler = RuntimeStageProfiler::new(true);
-    let (_, overhead) = test_alloc::measure(|| drop(profiler.time(RuntimeStage::WorldPoll)));
-    assert_eq!(overhead.calls, 0);
+    for stage in RuntimeStage::ALL {
+        let (_, overhead) = test_alloc::measure(|| drop(profiler.time(stage)));
+        assert_eq!(overhead.calls, 0, "{}", stage.name());
+    }
     {
         let _outer = profiler.time(RuntimeStage::MainFrame);
         let bytes = std::hint::black_box(vec![0_u8; 64]);

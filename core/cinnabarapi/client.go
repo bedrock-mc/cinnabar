@@ -91,11 +91,15 @@ type Client struct {
 	configured      bool
 	reconnect       context.CancelFunc // ends the current session; guarded by mu
 	loadoutRevision uint64
+	ownershipXUID   string
+	ownedCosmetics  []string
 	live            *session // authenticated session; guarded by mu
 }
 
 // session is one authenticated connection.
 type session struct {
+	ownershipXUID   string
+	ownedCosmetics  []string
 	loadoutDirty    chan struct{}
 	loadoutSent     bool
 	loadoutSlots    []bridgecontract.CinnabarCosmeticSlot
@@ -357,6 +361,8 @@ func (c *Client) session(ctx context.Context, config Config) (bool, string, erro
 		parameters: c.parameters, visible: config.Visible, pending: make(map[uint32]chan lookupReply), closed: make(chan struct{}),
 	}
 	c.mu.Lock()
+	s.ownershipXUID = c.ownershipXUID
+	s.ownedCosmetics = append([]string(nil), c.ownedCosmetics...)
 	c.live = s
 	if c.config.Visible != config.Visible {
 		s.dirty <- struct{}{}
@@ -437,6 +443,12 @@ func (c *Client) handshake(ctx context.Context, conn *websocket.Conn, key *ecdsa
 		case typeWelcome:
 			c.mu.Lock()
 			c.loadoutRevision = max(c.loadoutRevision, min(msg.LoadoutRevision, uint64(maxBuildNumber)))
+			c.ownershipXUID = ""
+			c.ownedCosmetics = nil
+			if ValidXUID(msg.XUID) {
+				c.ownershipXUID = msg.XUID
+				c.ownedCosmetics = admittedOwnership(msg.OwnedCosmetics)
+			}
 			c.mu.Unlock()
 			c.mu.Lock()
 			c.parameters = msg.parameters.normalized()
@@ -467,6 +479,10 @@ func (c *Client) read(ctx context.Context, s *session) error {
 		switch msg.Type {
 		case typeRelease:
 			c.release(msg)
+		case typeCosmeticOwnership:
+			c.mu.Lock()
+			s.ownedCosmetics = admittedOwnership(msg.OwnedCosmetics)
+			c.mu.Unlock()
 		case typeLoadout:
 			c.receiveLoadout(s, msg)
 		case typeEmote:

@@ -11,7 +11,7 @@ use serde_json::{Map, Value};
 
 use super::selection::{Selector, Step, condition_text};
 use super::{
-    super::{SourcePayloads, invalid},
+    super::{SourceDocuments, invalid},
     clip::{read_json, required_object},
 };
 use crate::entity::molang::MolangCompiler;
@@ -41,7 +41,7 @@ pub(super) type GeometrySelections = BTreeMap<(Box<str>, u32), GeometrySelection
 
 pub(super) fn collect(
     root: &Path,
-    payloads: &SourcePayloads,
+    payloads: &SourceDocuments<'_>,
     sources: &[EntityAssetSource],
     symbols: &[EntityAssetSymbol],
     geometries: &[EntityGeometry],
@@ -56,7 +56,7 @@ pub(super) fn collect(
     }) {
         let source = &sources[entity.source_index as usize];
         let value = read_json(root, payloads, source)?;
-        let description = super::roots::description(&value)
+        let description = super::roots::description(value)
             .ok_or_else(|| invalid("client entity description is absent"))?;
         let geometry_aliases: BTreeMap<Box<str>, Box<str>> = description
             .get("geometry")
@@ -88,8 +88,8 @@ pub(super) fn collect(
                 _ => None,
             })
             .collect();
-        let animation_aliases = super::roots::animation_aliases(&value)?;
-        let mut controller_aliases = super::roots::legacy_controller_aliases(&value)?;
+        let animation_aliases = super::roots::animation_aliases(value)?;
+        let mut controller_aliases = super::roots::legacy_controller_aliases(value)?;
         for (alias, target) in &animation_aliases {
             if target.starts_with("controller.animation.") {
                 match controller_aliases.get(alias) {
@@ -122,7 +122,7 @@ pub(super) fn collect(
 
 pub(super) fn compile_geometry_selections(
     root: &Path,
-    payloads: &SourcePayloads,
+    payloads: &SourceDocuments<'_>,
     sources: &[EntityAssetSource],
     geometries: &[EntityGeometry],
     environments: &[EntityEnvironment],
@@ -135,7 +135,7 @@ pub(super) fn compile_geometry_selections(
         .filter(|source| source.path.starts_with("render_controllers/"))
     {
         let value = read_json(root, payloads, source)?;
-        for (controller_name, definition) in required_object(&value, "render_controllers")? {
+        for (controller_name, definition) in required_object(value, "render_controllers")? {
             let definition = definition
                 .as_object()
                 .ok_or_else(|| invalid("render controller must be an object"))?;
@@ -262,7 +262,7 @@ pub(super) fn default_geometry(value: Option<&Value>) -> Option<&str> {
 
 pub(super) fn controller_clip_references(
     root: &Path,
-    payloads: &SourcePayloads,
+    payloads: &SourceDocuments<'_>,
     sources: &[EntityAssetSource],
 ) -> Result<BTreeMap<Box<str>, BTreeSet<Box<str>>>, AssetError> {
     let mut output = BTreeMap::new();
@@ -271,7 +271,7 @@ pub(super) fn controller_clip_references(
         .filter(|source| source.path.starts_with("animation_controllers/"))
     {
         let value = read_json(root, payloads, source)?;
-        for (identifier, definition) in required_object(&value, "animation_controllers")? {
+        for (identifier, definition) in required_object(value, "animation_controllers")? {
             let mut references = BTreeSet::new();
             if let Some(states) = definition.get("states").and_then(Value::as_object) {
                 for state in states.values().filter_map(Value::as_object) {
