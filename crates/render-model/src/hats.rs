@@ -237,10 +237,37 @@ impl Motion {
 
 #[derive(Default)]
 pub struct HatPoseCache {
+    anchor: Option<(Item, Arc<crate::ActorAttachmentBindings>, Option<usize>)>,
     key: Option<(Item, RenderBoneTransform, Motion)>,
     pose: Arc<[RenderBoneTransform]>,
 }
 impl HatPoseCache {
+    /// Rebinds an equipped anchor only when its item or retained appearance changes.
+    /// Newly admitted items use the same skeleton index without rebuilding the appearance.
+    pub fn anchor(
+        &mut self,
+        item: Item,
+        bindings: Option<&Arc<crate::ActorAttachmentBindings>>,
+        names: &[Box<str>],
+    ) -> Option<usize> {
+        let Some(bindings) = bindings else {
+            #[cfg(test)]
+            crate::actor_bindings::ANCHOR_LOOKUPS.with(|count| count.set(count.get() + 1));
+            return names
+                .iter()
+                .position(|name| name.eq_ignore_ascii_case(&item.descriptor().attachment_bone));
+        };
+        if let Some((previous, appearance, bone)) = &self.anchor
+            && *previous == item
+            && Arc::ptr_eq(appearance, bindings)
+        {
+            return *bone;
+        }
+        let bone = bindings.anchor(item);
+        self.anchor = Some((item, Arc::clone(bindings), bone));
+        bone
+    }
+
     /// Reuses immutable poses when the attachment bone and its evaluated motion are unchanged.
     pub fn pose(
         &mut self,
