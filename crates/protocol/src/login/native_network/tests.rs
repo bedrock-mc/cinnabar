@@ -1,5 +1,6 @@
 use super::*;
 use bedrock_protocol_1_26_51::{enums::PlayStatusType, wire};
+mod preparation_terminal;
 mod provider;
 
 #[tokio::test]
