@@ -1,7 +1,7 @@
 //! Rendezvous on the original Home and publisher workers, without service authentication.
 
 use super::*;
-use crate::native_account::NativeAccount;
+use crate::native_account::{NativeAccount, test_support::service_operation};
 use std::{
     future::Future,
     io::{self, Write},
@@ -114,7 +114,7 @@ impl State {
     pub(super) async fn read(&self) {
         let publication = self.publication.lock().unwrap().take().unwrap();
         publication.await.unwrap();
-        let operation = self.account.test_service_operation().unwrap();
+        let operation = service_operation(&self.account).unwrap();
         let read = HeldRead {
             operation: Some(operation),
             entered: self.read_entered.lock().unwrap().take(),
@@ -134,7 +134,7 @@ impl State {
             .send(())
             .unwrap();
         self.read_released.notified().await;
-        let operation = self.account.test_service_operation()?;
+        let operation = service_operation(&self.account)?;
         let cleanup = self.cleanup.lock().unwrap().take().unwrap();
         let result = cleanup
             .await
