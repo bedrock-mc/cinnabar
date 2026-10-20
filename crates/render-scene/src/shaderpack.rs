@@ -400,7 +400,10 @@ mod tests {
                 .unwrap()
         };
         assert_eq!(skips(&mut world), [false, false], "no pack loaded");
-        world.insert_resource(ShaderPackDrawnCategories { terrain: true });
+        world.insert_resource(ShaderPackDrawnCategories {
+            terrain: true,
+            ..Default::default()
+        });
         assert_eq!(skips(&mut world), [true, false]);
         world.insert_resource(ShaderPackDrawnCategories::default());
         assert_eq!(

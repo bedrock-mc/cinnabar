@@ -916,7 +916,10 @@ mod camera_tests {
         let mut world = World::new();
         world.init_resource::<ShaderPackViews>();
         world.init_resource::<ShaderPackEffects>();
-        world.insert_resource(ShaderPackDrawnCategories { terrain: true });
+        world.insert_resource(ShaderPackDrawnCategories {
+            terrain: true,
+            ..Default::default()
+        });
         world.init_resource::<QueuedTerrain>();
         let mut schedule = bevy::ecs::schedule::Schedule::default();
         schedule.configure_sets(
