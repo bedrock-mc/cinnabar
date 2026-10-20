@@ -115,7 +115,11 @@ fn a_failed_required_program_fails_the_load() {
 /// Requests only fixture features and reports device failures as test failures.
 fn gpu() -> Option<GpuContext> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    let adapter = bevy::tasks::block_on(instance.request_adapter(&Default::default())).ok()?;
+    let adapter = match bevy::tasks::block_on(instance.request_adapter(&Default::default())) {
+        Ok(adapter) => adapter,
+        Err(wgpu::RequestAdapterError::NotFound { .. }) => return None,
+        Err(error) => panic!("shader pack frame fixture adapter: {error}"),
+    };
     let (device, queue) = bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("shader pack frame fixture"),
         required_features: adapter.features()
