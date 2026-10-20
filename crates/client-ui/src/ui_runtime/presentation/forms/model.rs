@@ -243,9 +243,10 @@ fn custom_element(
             default,
             tooltip: tip,
         } => {
+            // Editable values have their own admission limit; clipping them here would rewrite the draft.
             let current = match value {
-                Some(FormValue::Text(current)) => budget.copy(current),
-                _ => budget.copy(default),
+                Some(FormValue::Text(current)) => current.clone(),
+                _ => default.to_string(),
             };
             CustomElement::Input {
                 text: resolve(text),
@@ -368,6 +369,37 @@ mod tests {
         assert!(
             matches!(form.elements.last(), Some(CustomElement::Slider { text, tooltip, .. })
             if text.is_empty() && tooltip.is_empty())
+        );
+    }
+
+    /// An exhausted display budget must not clip an input's value, which seeds its edit draft.
+    #[test]
+    fn exhausted_display_budget_keeps_input_values_whole() {
+        let mut content =
+            vec![serde_json::json!({"type":"slider", "text":"Label", "min":0, "max":10}); 32];
+        content.push(serde_json::json!({"type":"input", "text":"Name", "default":"keep me"}));
+        let source = serde_json::json!({"type":"custom_form", "content":content}).to_string();
+        let packet = protocol::test_support::packets::modal_form_request_packet(1, &source);
+        let Some(protocol::WorldEvent::Ui(protocol::UiEvent::Form(event))) =
+            protocol::into_world_event(packet, 0).unwrap()
+        else {
+            panic!("server form");
+        };
+        let state = FormEngineState::for_model(&event.model);
+        let template: Arc<str> = "x".repeat(protocol::MAX_FORM_JSON_BYTES).into();
+        let Some(FormModel::Custom(form)) = engine_model(
+            &event.model,
+            &state,
+            true,
+            &|_| Some(Arc::clone(&template)),
+            &|_| RemoteImage::Failed,
+            &|text, budget| budget.copy(text),
+        ) else {
+            panic!("custom form");
+        };
+        assert!(
+            matches!(form.elements.last(), Some(CustomElement::Input { text, value, .. })
+            if text.is_empty() && value == "keep me")
         );
     }
 
