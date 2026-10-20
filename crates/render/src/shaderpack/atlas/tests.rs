@@ -668,3 +668,25 @@ fn pending_atlas_identity_keeps_its_source_alive_until_replaced() {
         "replacing the request releases its previous source"
     );
 }
+
+#[test]
+fn vanilla_sessions_do_not_prepare_or_update_shaderpack_atlases() {
+    use bevy::app::SubApp;
+    use bevy::ecs::schedule::Schedule;
+    use bevy::prelude::Assets;
+    use bevy::shader::Shader;
+
+    let mut render_app = SubApp::new();
+    render_app.add_schedule(Schedule::new(Render));
+    let mut app = App::new();
+    app.init_resource::<Assets<Shader>>()
+        .insert_sub_app(RenderApp, render_app)
+        .add_plugins(ShaderpackAtlasPlugin);
+    // No GPU resources are needed when no shader-pack geometry is requested.
+    app.sub_app_mut(RenderApp).world_mut().run_schedule(Render);
+    let world = app.sub_app(RenderApp).world();
+    assert!(world.resource::<AtlasBuild>().requested.is_none());
+    assert!(world.resource::<AtlasBuild>().task.is_none());
+    assert!(!world.contains_resource::<ShaderpackAtlas>());
+    assert!(!world.contains_resource::<AtlasAnimations>());
+}
