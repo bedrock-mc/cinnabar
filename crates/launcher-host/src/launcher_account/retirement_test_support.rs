@@ -4,7 +4,7 @@ use super::*;
 use crate::native_account::NativeAccount;
 use std::{
     future::Future,
-    io,
+    io::{self, Write},
     pin::Pin,
     sync::atomic::{AtomicBool, Ordering},
     task::{Context, Poll},
@@ -48,7 +48,18 @@ pub fn account(
     tasks: TaskTracker,
 ) -> (LauncherAccount, Signals) {
     let path = namespace.join("retirement-lease.json");
-    std::fs::write(&path, br#"{"refresh_token":"synthetic-refresh","cinnabar_sign_in_generation":"retirement-fixture"}"#).unwrap();
+    let mut options = std::fs::OpenOptions::new();
+    options.create_new(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options
+        .open(&path)
+        .unwrap()
+        .write_all(br#"{"refresh_token":"synthetic-refresh","cinnabar_sign_in_generation":"retirement-fixture"}"#)
+        .unwrap();
     let account = Arc::new(NativeAccount::new(
         launcher::accounts::AccountStore::new(path),
         namespace.join("device.json"),
