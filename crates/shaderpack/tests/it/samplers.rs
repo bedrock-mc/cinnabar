@@ -20,7 +20,12 @@ fn fragment_stage(t: &shaderpack::ProgramTranslation) -> &CompiledStage {
         .iter()
         .find(|s| s.stage == StageKind::Fragment)
         .and_then(|s| s.result.as_ref().ok())
-        .expect("fragment compiles");
+        .unwrap_or_else(|| {
+            panic!(
+                "fragment compiles: {:#?}",
+                t.all_diagnostics().collect::<Vec<_>>()
+            )
+        });
     stage
 }
 

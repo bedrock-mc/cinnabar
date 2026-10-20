@@ -2,7 +2,7 @@
 //! integer-backed bool uniforms.
 
 use super::TransformError;
-use super::items::{arr_len, mat_cols, matching, sampler_info, shadowed_bindings};
+use super::items::{arr_len, mat_cols, matching, sampler_info, shadowed_bindings, struct_body_end};
 use crate::reflection::{SAMPLER_NAME, SHADOW_SAMPLER_NAME};
 use crate::token::{Tok, TokKind, id, int, p};
 use std::collections::{HashMap, HashSet};
@@ -78,7 +78,15 @@ pub(super) fn rewrite_body(toks: &[Tok], cx: &BodyContext<'_>, used: &mut Sample
     let mut read_ends: Vec<(usize, bool)> = Vec::new();
     let mut out = vec![];
     let mut calls: Vec<Option<String>> = vec![];
+    let mut type_end = 0;
     for (i, t) in toks.iter().enumerate() {
+        if let Some(end) = struct_body_end(toks, i) {
+            type_end = type_end.max(end);
+        }
+        if i < type_end {
+            out.push(t.clone());
+            continue;
+        }
         while read_ends.last().is_some_and(|(end, _)| *end == i) {
             let (_, scalar) = read_ends.pop().unwrap();
             if scalar {

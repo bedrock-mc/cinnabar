@@ -428,10 +428,99 @@ fn compiler_specialization_respects_local_parameter_shadows() {
 
 #[test]
 fn compiler_specialization_distinguishes_shadowed_resource_arguments() {
-    success(
+    let translation = success(
         VERTEX,
         "#version 330\nuniform sampler2D plane; out vec4 color; vec4 read(sampler2D source, vec2 uv) { return texture(source, uv); } vec4 read(float value, vec2 uv) { return vec4(value + uv.x); } void main() { color = read(plane, vec2(0.5)); { float plane = 1.0; color += read(plane, vec2(0.5)); } }",
     );
+    let module = &program(&translation, "composite")
+        .stages
+        .iter()
+        .find(|stage| stage.stage == shaderpack::StageKind::Fragment)
+        .unwrap()
+        .result
+        .as_ref()
+        .unwrap()
+        .module;
+    let (value_helper, _) = module
+        .functions
+        .iter()
+        .find(|(_, function)| function.name.as_deref() == Some("read"))
+        .expect("value overload remains");
+    assert!(
+        module
+            .functions
+            .iter()
+            .map(|(_, function)| function)
+            .chain(module.entry_points.iter().map(|entry| &entry.function))
+            .any(|function| function.expressions.iter().any(|(_, expression)| {
+                matches!(expression, naga::Expression::CallResult(callee) if *callee == value_helper)
+            })),
+        "the shadowed float argument must still call the value overload"
+    );
+}
+
+#[test]
+fn compiler_specialization_avoids_capturing_resource_names() {
+    for helper in [
+        "vec4 tap(sampler2D s, vec2 source) { return texture(s, source); }",
+        "vec4 tap(sampler2D s, vec2 uv) { vec2 source = uv; return texture(s, source); }",
+        "vec4 tap(sampler2D s, vec2 uv) { vec4 result = texture(s, uv); { vec2 source = uv; result += texture(s, source); } return result; }",
+        "vec4 tap(sampler2D s, vec2 uv) { vec4 result = texture(s, uv); for (int source = 0; source < 2; source++) result += texture(s, uv) * float(source); return result + texture(source, uv); }",
+        "vec4 tap(sampler2D s, vec2 uv) { vec2 unused = uv, source = uv; return texture(s, source); }",
+        "vec4 tap(sampler2D s, vec2 uv) { struct Data { vec2 source; }; Data value; value.source = uv; return texture(s, value.source); }",
+        "vec4 tap(sampler2D s, vec2 uv) { struct Data { vec2 uv; } source; source.uv = uv; return texture(s, source.uv); }",
+    ] {
+        success(
+            VERTEX,
+            &format!(
+                "#version 330\nuniform sampler2D source;\n{helper}\nout vec4 color; void main() {{ color = tap(source, vec2(0.5)); }}"
+            ),
+        );
+    }
+}
+
+#[test]
+fn compiler_specializes_nested_calls_without_overlapping_edits() {
+    success(
+        VERTEX,
+        "#version 330
+        uniform sampler2D source;
+        vec4 tap(sampler2D s, vec2 uv) { return texture(s, uv); }
+        vec4 join(vec4 a, sampler2D s, vec4 b, sampler2D t) {
+            return a + texture(s, b.xy) + texture(t, b.zw);
+        }
+        out vec4 color;
+        void main() {
+            color = join(tap(source, tap(source, vec2(0.5)).xy), source,
+                tap(source, vec2(0.25)), source);
+        }",
+    );
+}
+
+#[test]
+fn compiler_attribute_location_overflow_reports_diagnostics() {
+    for declaration in [
+        "vec4 huge[4294967295u]",
+        "mat4 huge[4294967295u]",
+        "dvec4 huge[4294967295u]",
+        "vec4[4294967295u] huge",
+        "vec4 huge[65536][65536]",
+    ] {
+        let translation = translate(
+            &format!("#version 450\nin {declaration};\nvoid main() {{ gl_Position = vec4(0.0); }}"),
+            FRAGMENT,
+        );
+        let failed = program(&translation, "composite");
+        assert!(!failed.is_ok());
+        assert!(failed.all_diagnostics().any(|diagnostic| {
+            diagnostic.phase == Phase::Transform
+                && diagnostic.message.contains("attribute location overflow")
+                && diagnostic
+                    .location
+                    .as_ref()
+                    .is_some_and(|location| location.file == "composite.vsh" && location.line == 2)
+        }));
+    }
 }
 
 #[test]
