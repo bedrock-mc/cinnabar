@@ -70,6 +70,16 @@ impl RawPacket {
         &self.inner_frame
     }
 
+    /// Shares the original encoded header and payload, removing only its validated entry length.
+    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+    pub(crate) fn encoded(&self) -> Bytes {
+        let mut reader = wire::Reader::from_shared(&self.inner_frame);
+        reader
+            .read_var_u32()
+            .expect("raw packet retains its validated entry length");
+        self.inner_frame.slice(reader.position()..)
+    }
+
     /// Copies the entry into an allocation of its own, so a queued packet cannot keep its
     /// whole batch resident.
     pub(crate) fn into_compact(self) -> Self {

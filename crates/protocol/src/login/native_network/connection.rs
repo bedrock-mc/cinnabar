@@ -399,12 +399,7 @@ impl Connection {
     /// Restores early raw frames ahead of unread siblings on this same FIFO.
     pub(super) fn replay_deferred(&mut self) {
         for packet in self.take_deferred().into_iter().rev() {
-            let bytes = packet.inner_frame();
-            let mut reader = wire::Reader::from_shared(bytes);
-            reader
-                .read_var_u32()
-                .expect("deferred packet has a validated length prefix");
-            self.pending.push_front(bytes.slice(reader.position()..));
+            self.pending.push_front(packet.encoded());
         }
     }
 
@@ -506,6 +501,27 @@ impl Connection {
         std::mem::take(&mut self.deferred).into_packets()
     }
 
+    /// Retains the relay's startup prefix in the same bounded owner until first StartGame.
+    pub(super) async fn defer_through_start_game(&mut self) -> Result<(), crate::ProtocolError> {
+        for raw in self.deferred.as_slice() {
+            if raw.id == packets::PacketId::StartGame {
+                return Ok(());
+            }
+            if raw.id == packets::PacketId::PlayStatus {
+                check_startup_packet(&raw.clone().decode()?.data)?;
+            }
+        }
+        loop {
+            let packet = self.next_packet().await.map_err(super::failure)?;
+            let start_game = packet.header.id == packets::PacketId::StartGame;
+            check_startup_packet(&packet.data)?;
+            self.defer_unhandled(*packet.data)?;
+            if start_game {
+                return Ok(());
+            }
+        }
+    }
+
     /// Checks ciphertext input before decrypting or allocating decoded state.
     fn check_wire_size(&self, message: &[u8]) -> io::Result<()> {
         if message.len() > self.limits.max_encoded_bytes {
@@ -516,6 +532,26 @@ impl Connection {
         }
         Ok(())
     }
+}
+
+/// Preserves startup refusal and Disconnect causes before waiting for another original packet.
+fn check_startup_packet(packet: &packets::Packet) -> Result<(), crate::ProtocolError> {
+    if let packets::Packet::Disconnect(disconnect) = packet {
+        return Err(super::super::startup::packet_disconnect(disconnect).into());
+    }
+    if let packets::Packet::PlayStatus(status) = packet
+        && let Ok(status_kind) = crate::ui::player_status(status.status)
+        && !matches!(
+            status_kind,
+            crate::ui::PlayerStatus::LoginSuccess | crate::ui::PlayerStatus::PlayerSpawn
+        )
+    {
+        return Err(crate::codec::SessionFailure::ClientHandshake(
+            bedrock_client::handshake::HandshakeError::LoginRefused(status.status),
+        )
+        .into());
+    }
+    Ok(())
 }
 
 /// Restores only the length prefix around original packet bytes under the existing startup bound.

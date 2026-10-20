@@ -16,11 +16,18 @@ pub(super) async fn continue_join<P: Send + 'static>(
         mut connection,
         packs,
     } = negotiated;
+    if login.relay.is_some() {
+        connection.defer_through_start_game().await?;
+    }
     let deferred = connection.take_deferred();
     let packs = if let Some(relay) = &login.relay {
-        let startup: Vec<_> = deferred
+        let last = deferred
             .iter()
-            .map(|packet| packet.body().clone())
+            .position(|packet| packet.id == bedrock_protocol_1_26_51::packets::PacketId::StartGame)
+            .expect("the original deferred prefix reached first StartGame");
+        let startup: Vec<_> = deferred[..=last]
+            .iter()
+            .map(crate::raw_packet::RawPacket::encoded)
             .collect();
         let added = crate::packet_relay::start(
             std::sync::Arc::clone(relay),

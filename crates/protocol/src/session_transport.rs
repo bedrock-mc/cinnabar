@@ -409,11 +409,11 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
         )
     }
 
-    /// Adopts previously unobserved startup packets ahead of unread input, preserving their bodies.
+    /// Adopts previously unobserved startup packets ahead of unread input, preserving their headers.
     #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
     pub(crate) fn adopt_startup(&mut self, mut packets: Vec<RawPacket>) {
         if self.relay.is_some() {
-            let bodies: Vec<_> = packets.iter().map(|packet| packet.body().clone()).collect();
+            let bodies: Vec<_> = packets.iter().map(RawPacket::encoded).collect();
             self.startup.extend(startup_batches(&bodies));
         } else {
             self.record_received(&mut packets, 0);

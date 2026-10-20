@@ -54,6 +54,12 @@ impl DeferredPackets {
     pub(super) fn into_packets(self) -> Vec<RawPacket> {
         self.packets
     }
+
+    /// Borrows the retained wire order without releasing its aggregate byte charge.
+    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+    pub(super) fn as_slice(&self) -> &[RawPacket] {
+        &self.packets
+    }
 }
 
 /// Runs the spawn sequence: requests the radius once StartGame has arrived, then returns once the
@@ -311,7 +317,7 @@ pub(super) async fn startup_write_failure<R: bridge::FrameRead>(
 }
 
 /// The failure a server's Disconnect packet ends the spawn sequence with.
-fn packet_disconnect(disconnect: &Disconnect) -> SessionFailure {
+pub(super) fn packet_disconnect(disconnect: &Disconnect) -> SessionFailure {
     let (message, filtered_message) = packet_texts(disconnect);
     join_disconnect(STAGE, &disconnect.reason, &message, &filtered_message)
 }
