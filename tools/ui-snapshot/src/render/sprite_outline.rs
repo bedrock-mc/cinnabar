@@ -7,7 +7,7 @@ use std::sync::Arc;
 use ui::{SafeArea, UiBlendMode, UiNode, UiNodeId, UiPoint, UiRect, UiScale, UiTree, UiVisual};
 
 /// Converts finite fixture bounds into the same checked geometry used by native UI.
-fn rect(bounds: [f32; 4]) -> Result<UiRect, Error> {
+pub(super) fn rect(bounds: [f32; 4]) -> Result<UiRect, Error> {
     let point = |x, y| UiPoint::new(x, y).map_err(|error| Error::Invalid(format!("{error:?}")));
     UiRect::new(point(bounds[0], bounds[1])?, point(bounds[2], bounds[3])?)
         .map_err(|error| Error::Invalid(format!("{error:?}")))
@@ -61,6 +61,7 @@ pub(super) fn png(size: [u32; 2], outline: bool) -> Result<Vec<u8>, Error> {
             UiVisual::SpriteOutline {
                 texture_page: 1,
                 uv,
+                overlap_offset: [0.; 2],
                 source: [2., 2., 11., 11.],
                 color,
                 blend: if inverse {

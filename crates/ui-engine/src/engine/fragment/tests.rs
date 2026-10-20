@@ -486,6 +486,7 @@ fn fades_sprite_outline_fragments_without_changing_the_mask() {
         texture_page: 7,
         uv: [4.5, 0., 9., 9.],
         source: [0., 0., 9., 9.],
+        overlap_offset: [8. / 9., -1. / 9.],
         color: [255, 198, 0, 128],
         blend: UiBlendMode::Invert,
     };
@@ -496,6 +497,7 @@ fn fades_sprite_outline_fragments_without_changing_the_mask() {
             texture_page: 7,
             uv: [4.5, 0., 9., 9.],
             source: [0., 0., 9., 9.],
+            overlap_offset: [8. / 9., -1. / 9.],
             color: [255, 198, 0, 64],
             blend: UiBlendMode::Invert
         }

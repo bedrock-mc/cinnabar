@@ -11,6 +11,7 @@ mod edit_selection;
 #[cfg(feature = "test-support")]
 mod form_overlap;
 mod panorama;
+mod saturation_overlap;
 #[cfg(feature = "test-support")]
 mod settings_draft;
 mod sprite_outline;
@@ -116,6 +117,9 @@ fn png_fixture(
     if let Fixture::SpriteOutline { outline } = &fixture {
         return sprite_outline::png(state.size, *outline);
     }
+    if let Fixture::SaturationOverlap { crop } = &fixture {
+        return saturation_overlap::png(state.size, *crop);
+    }
     if let Fixture::TiledImage { scale } = &fixture {
         return tiled_image::png(state.size, *scale);
     }
@@ -142,6 +146,7 @@ fn png_fixture(
         Fixture::Chat { .. }
         | Fixture::TabList(_)
         | Fixture::EditSelection
+        | Fixture::SaturationOverlap { .. }
         | Fixture::SpriteOutline { .. }
         | Fixture::TiledImage { .. }
         | Fixture::ModPanel(_) => false,
@@ -186,7 +191,9 @@ fn png_fixture(
         renderers: &mut [],
     };
     match fixture {
-        Fixture::SpriteOutline { .. } | Fixture::TiledImage { .. } => {
+        Fixture::SpriteOutline { .. }
+        | Fixture::SaturationOverlap { .. }
+        | Fixture::TiledImage { .. } => {
             unreachable!("asset-free capture returned above")
         }
         #[cfg(feature = "test-support")]

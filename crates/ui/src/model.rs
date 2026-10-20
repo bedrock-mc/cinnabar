@@ -115,6 +115,8 @@ pub enum UiVisual {
         texture_page: u16,
         uv: [f32; 4],
         source: [f32; 4],
+        /// Position of a previously drawn copy in source-size units; positive X enables masking.
+        overlap_offset: [f32; 2],
         color: [u8; 4],
         blend: UiBlendMode,
     },
@@ -396,13 +398,13 @@ pub struct UiVertex {
     pub clip_w: f32,
     pub uv: [f32; 2],
     pub color: [u8; 4],
-    /// Interpolated linear lighting, or border area for coverage paint.
+    /// Linear lighting, coverage border area, or sprite-outline overlap X.
     pub model_light: f32,
     /// Entity overlay RGB and mix amount, or the coverage paint's packed constant colors.
     pub overlay_color: [f32; 4],
     pub style_flags: u16,
     pub alpha_test: bool,
-    /// Explicit sampled-texture cutoff; negative disables this material override.
+    /// Sampled-texture cutoff (negative disables it), or sprite-outline overlap Y.
     pub alpha_cutoff: f32,
 }
 

@@ -419,7 +419,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   displayed-frame pacing and complete rendering acceptance.
   Saturation overlays now use alpha-only sprite outlines with separate current and
   held-food coverage. CPU/GPU regressions cover tint, atlas edges, cropped masks and
-  inversion; complete in-game and platform acceptance remain pending.
+  inversion, including sparse edge art and overlapping shaking icons; complete in-game
+  and platform acceptance remain pending.
 - Enhanced rendering remains restricted until its GPU faults and freezes are resolved.
   Diagnostics or bounded fixtures do not establish safe general gameplay use. Java
   shader-pack source loading and configuration metadata are implemented in

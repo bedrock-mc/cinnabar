@@ -265,7 +265,15 @@ impl Canvas {
                     let paint = render_api::UiCoveragePaint::from_vertex_colors(color, overlay);
                     (straight(paint.sample(u, [t, border])), [255; 4])
                 } else if flags & render_api::UI_STYLE_SPRITE_OUTLINE != 0 {
-                    (outline::sample(texture, [u, t], v[0].overlay_color), color)
+                    (
+                        outline::sample(
+                            texture,
+                            [u, t],
+                            v[0].overlay_color,
+                            [v[0].model_light, v[0].alpha_cutoff],
+                        ),
+                        color,
+                    )
                 } else if u32::from(flags) & render_model::UI_STYLE_RADIAL_GRADIENT != 0 {
                     let radius = u.hypot(t).clamp(0.0, 1.0);
                     let outer: [f32; 4] = std::array::from_fn(|channel| {

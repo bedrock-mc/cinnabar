@@ -28,9 +28,9 @@ pub struct UiRenderVertex {
     pub uv: [f32; 2],
     pub color: [u8; 4],
     pub style_flags: u32,
-    /// Negative disables explicit model-material sampled alpha testing.
+    /// Negative disables model-material alpha testing; sprite outlines use this for overlap Y.
     pub alpha_cutoff: f32,
-    /// Native linear lighting, or border area for coverage paint, without byte quantization.
+    /// Linear lighting, coverage border area, or sprite-outline overlap X, without quantization.
     pub model_light: f32,
     /// Entity overlay RGB and mix amount, coverage paint colors, or particle source bounds
     /// (x, y, width, height) in texture-page texels.

@@ -184,15 +184,13 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
     if (input.style_flags & STYLE_SPRITE_OUTLINE) != 0u {
         let source = input.overlay_color + vec4<f32>(input.atlas_offset, input.atlas_offset);
         let texel = vec2<i32>(floor(sample_uv));
-        let center = sprite_alpha(texel, source, i32(input.texture_page));
-        var interior = center;
-        for (var y = -1; y <= 1; y += 1) {
-            for (var x = -1; x <= 1; x += 1) {
-                interior = min(interior, sprite_alpha(texel + vec2<i32>(x, y), source,
-                    i32(input.texture_page)));
-            }
+        var coverage = sprite_outline(texel, source, i32(input.texture_page));
+        if input.model_light > 0.0 {
+            let offset = vec2<f32>(input.model_light, input.alpha_cutoff) * (source.zw - source.xy);
+            let neighbor = vec2<i32>(floor(sample_uv - offset));
+            coverage *= 1.0 - sprite_outline(neighbor, source, i32(input.texture_page));
         }
-        let alpha = max(center - interior, 0.0) * input.color.a;
+        let alpha = coverage * input.color.a;
         var rgb = input.color.rgb;
         if direct { rgb = srgb_to_linear(rgb); }
         return vec4<f32>(rgb * alpha, alpha);
@@ -275,6 +273,18 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
     return vec4<f32>(premultiplied_rgb, coverage);
 }
 
+// Coverage belongs to the authored inner edge, including transparent holes.
+fn sprite_outline(texel: vec2<i32>, source: vec4<f32>, page: i32) -> f32 {
+    let center = sprite_alpha(texel, source, page);
+    var interior = center;
+    for (var y = -1; y <= 1; y += 1) {
+        for (var x = -1; x <= 1; x += 1) {
+            interior = min(interior, sprite_alpha(texel + vec2<i32>(x, y), source, page));
+        }
+    }
+    return max(center - interior, 0.0);
+}
+
 // Restrict mask taps to this sprite, including at atlas and texture-page boundaries.
 fn sprite_alpha(texel: vec2<i32>, source: vec4<f32>, page: i32) -> f32 {
     let point = vec2<f32>(texel) + vec2<f32>(0.5);
@@ -284,7 +294,7 @@ fn sprite_alpha(texel: vec2<i32>, source: vec4<f32>, page: i32) -> f32 {
         return 0.0;
     }
     let sample = textureLoad(ui_pages, texel, page, 0);
-    return select(sample.a, sample.r, ui_page_format.x != 0u);
+    return select(sample.a, sample.r, ui_page_format.format.x != 0u);
 }
 
 // Keep the existing UI clock and scrolling rates while sampling pack artwork.

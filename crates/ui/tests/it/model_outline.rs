@@ -21,6 +21,7 @@ fn cropped_sprite_outlines_share_one_invert_batch_and_keep_the_full_mask() {
                     UiVisual::SpriteOutline {
                         texture_page: 3,
                         uv: [14.5, 20., 19., 29.],
+                        overlap_offset: [0.; 2],
                         source: [10., 20., 19., 29.],
                         color: [255, 255, 255, 110],
                         blend: UiBlendMode::Invert,

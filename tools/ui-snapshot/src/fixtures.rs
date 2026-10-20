@@ -29,6 +29,10 @@ pub enum Fixture {
     SpriteOutline {
         outline: bool,
     },
+    /// Adjacent sparse saturation masks before and after overlap-aware exclusion.
+    SaturationOverlap {
+        crop: bool,
+    },
     /// An original checker repeated beyond a small sprite's former draw cutoff.
     TiledImage {
         scale: f64,
@@ -93,6 +97,18 @@ pub const STATES: &[State] = &[
         size: [800, 240],
         gui_scale: 1,
         fixture: || Fixture::SpriteOutline { outline: true },
+    },
+    State {
+        name: "saturation-overlap-before",
+        size: [640, 240],
+        gui_scale: 1,
+        fixture: || Fixture::SaturationOverlap { crop: true },
+    },
+    State {
+        name: "saturation-overlap",
+        size: [640, 240],
+        gui_scale: 1,
+        fixture: || Fixture::SaturationOverlap { crop: false },
     },
     State {
         name: "jsonui-tiled-image",

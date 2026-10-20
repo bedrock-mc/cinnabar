@@ -292,6 +292,7 @@ fn emit_untransformed(
             texture_page,
             uv,
             source,
+            overlap_offset,
             color,
             blend,
         } => {
@@ -324,6 +325,8 @@ fn emit_untransformed(
             for vertex in &mut vertices[start..] {
                 vertex.style_flags = render_api::UI_STYLE_SPRITE_OUTLINE;
                 vertex.overlay_color = *source;
+                vertex.model_light = overlap_offset[0];
+                vertex.alpha_cutoff = overlap_offset[1];
             }
             Ok(())
         }
