@@ -268,11 +268,13 @@ fn custom_form_renders_elements_in_order_with_a_submit_button() {
                 text: "Intro".into(),
             },
             CustomElement::Toggle {
+                enabled: true,
                 text: "Sound".into(),
                 on: true,
                 tooltip: String::new(),
             },
             CustomElement::Slider {
+                enabled: true,
                 text: "Volume: 5".into(),
                 fraction: 0.5,
                 timeout: 0.0,
@@ -286,6 +288,7 @@ fn custom_form_renders_elements_in_order_with_a_submit_button() {
                 tooltip: String::new(),
             },
             CustomElement::Input {
+                enabled: true,
                 text: "Name".into(),
                 value: String::new(),
                 placeholder: "type".into(),
@@ -432,6 +435,7 @@ fn custom_toggle_reports_its_name_and_index() {
                 text: "Intro".into(),
             },
             CustomElement::Toggle {
+                enabled: true,
                 text: "Sound".into(),
                 on: false,
                 tooltip: String::new(),
@@ -572,6 +576,7 @@ fn custom_slider_timeout_reaches_fake_clock_direction_dispatch() {
         submit_text: "Submit".into(),
         submit_visible: true,
         elements: vec![CustomElement::Slider {
+            enabled: true,
             text: "Volume: 0".into(),
             fraction: 0.0,
             timeout: 0.25,
