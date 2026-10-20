@@ -679,9 +679,9 @@ fn vanilla_sessions_do_not_prepare_or_update_shaderpack_atlases() {
     let mut render_app = SubApp::new();
     render_app.add_schedule(Schedule::new(Render));
     let mut app = App::new();
-    app.init_resource::<Assets<Shader>>()
-        .insert_sub_app(RenderApp, render_app)
-        .add_plugins(ShaderpackAtlasPlugin);
+    app.init_resource::<Assets<Shader>>();
+    app.insert_sub_app(RenderApp, render_app);
+    app.add_plugins(ShaderpackAtlasPlugin);
     // No GPU resources are needed when no shader-pack geometry is requested.
     app.sub_app_mut(RenderApp).world_mut().run_schedule(Render);
     let world = app.sub_app(RenderApp).world();

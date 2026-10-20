@@ -3,7 +3,6 @@
 //! render-graph system.
 
 use super::atlas::{ShaderpackAtlas, ShaderpackAtlasPlugin};
-use super::draws::DrawKind;
 use super::frame_geometry::{FrameGeometry, TerrainDraws};
 use super::geometry::{
     GeometryCategory, ShaderpackBlockIds, ShaderpackGeometry, ShaderpackGeometryPlugin,
