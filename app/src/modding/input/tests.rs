@@ -84,8 +84,8 @@ fn shift_snapshot_uses_the_focused_physical_key_owner() {
 fn native_menu_reopen_consumes_its_toggle_but_focused_capture_keeps_it() {
     let input = || {
         vec![
-            ("ShiftRight".into(), None, false, Default::default()),
-            ("KeyR".into(), None, false, Default::default()),
+            PanelSample::Key(("ShiftRight".into(), None, false, Default::default())),
+            PanelSample::Key(("KeyR".into(), None, false, Default::default())),
         ]
     };
     for owned in [false, true] {
@@ -98,7 +98,7 @@ fn native_menu_reopen_consumes_its_toggle_but_focused_capture_keeps_it() {
             true
         ));
         assert_eq!(keys.len(), 1);
-        assert_eq!(keys[0].0, "KeyR");
+        assert_eq!(keys[0].key().unwrap().0, "KeyR");
     }
     let mut keys = input();
     assert!(!take_packet_toggle(

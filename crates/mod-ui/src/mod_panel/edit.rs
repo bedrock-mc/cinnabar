@@ -11,7 +11,7 @@ pub(super) enum Editor {
     Field {
         control: usize,
         rect: [f64; 4],
-        state: super::field::Field,
+        state: Box<super::field::Field>,
         invalid: bool,
     },
 }
@@ -75,6 +75,12 @@ impl ModUi {
                 .mod_panel
                 .as_ref()
                 .is_some_and(|panel| panel.open && panel.editing_text())
+    }
+
+    /// Reports the focused field's one authoritative IME composition state.
+    pub fn mod_panel_composing(&self) -> bool {
+        self.mod_panel_field_focused()
+            && matches!(self.mod_panel.as_ref().and_then(|panel| panel.edit.as_ref()), Some(Editor::Field { state, .. }) if state.composing)
     }
 
     /// Places the platform's candidate popup below the last painted caret in window pixels.
@@ -143,6 +149,41 @@ impl ModPanel {
         matches!(self.edit.as_ref(),Some(Editor::Field {control,..})
             if matches!(self.panel.controls.get(*control),Some(Control::Text {..})))
     }
+    /// Reconciles explicit guest replacements for persistent fields without discarding focus.
+    pub(super) fn reconcile_editor_value(&mut self, next: &Panel) {
+        let Some(Editor::Field {
+            control,
+            state,
+            invalid,
+            ..
+        }) = &mut self.edit
+        else {
+            return;
+        };
+        let (
+            Some(Control::Text {
+                value: previous,
+                live,
+                navigation_keys,
+                ..
+            }),
+            Some(Control::Text { value, .. }),
+        ) = (
+            self.panel.controls.get(*control),
+            next.controls.get(*control),
+        )
+        else {
+            return;
+        };
+        if (*live || *navigation_keys) && previous != value && state.text != *value {
+            state.replace_value(value);
+            let was_invalid = std::mem::replace(invalid, false);
+            if was_invalid {
+                self.refresh_editor();
+            }
+        }
+    }
+
     pub(super) fn cancel_edit(&mut self) {
         if self.edit.take().is_some() {
             self.refresh_editor();
@@ -172,14 +213,14 @@ impl ModPanel {
                 Some(Editor::Field {
                     control: index,
                     rect,
-                    state: super::field::Field::new(text),
+                    state: Box::new(super::field::Field::new(text)),
                     invalid: false,
                 })
             }
             Some(Control::Text { value, .. }) => Some(Editor::Field {
                 control: index,
                 rect,
-                state: super::field::Field::new(value.clone()),
+                state: Box::new(super::field::Field::new(value.clone())),
                 invalid: false,
             }),
             _ => None,
@@ -308,8 +349,7 @@ impl ModPanel {
             self.cancel_edit();
             return Vec::new();
         }
-        if matches!(&self.edit, Some(Editor::Field { state, .. }) if !state.composition.is_empty())
-        {
+        if matches!(&self.edit, Some(Editor::Field { state, .. }) if state.composing) {
             return Vec::new();
         }
         let passthrough = self.field_navigation(key);
@@ -362,7 +402,7 @@ impl ModPanel {
                 invalid,
                 ..
             }) => {
-                if !state.composition.is_empty() {
+                if state.composing {
                     return Vec::new();
                 }
                 let (limit, numeric) = match &self.panel.controls[*control] {
@@ -422,7 +462,7 @@ impl ModPanel {
                 navigation_keys: true,
                 ..
             })
-        ) && state.composition.is_empty()
+        ) && !state.composing
             && match key {
                 "ArrowUp" | "ArrowDown" | "Enter" | "NumpadEnter" => true,
                 "ArrowLeft" => state.selection().is_empty() && state.cursor == 0,

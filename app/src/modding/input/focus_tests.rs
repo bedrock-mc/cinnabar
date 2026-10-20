@@ -929,3 +929,41 @@ fn native_text_submit_then_typing_keeps_latest_value() {
         matches!(&app.world().resource::<ModRuntime>().hosts.host(0).panel().unwrap().controls[0], ui::mod_panel::Control::Text { value, .. } if value == "ab")
     );
 }
+
+/// Ordered window events keep the keystroke after a composition commit in the same update.
+#[test]
+fn native_text_orders_ime_and_keyboard_in_one_update() {
+    let component = fixture_with_panel(
+        r#"{"title":"Search","toggle_key":"F10","dark":true,"controls":[{"kind":"text","id":"name","label":"Search","value":"Main","live":true}]}"#,
+    );
+    let (mut app, window) = personal_panel_app_with_fixture(false, &component);
+    app.add_message::<WindowEvent>();
+    open_rendered_field(&mut app);
+    app.world_mut()
+        .write_message(WindowEvent::Ime(Ime::Preedit {
+            window,
+            value: "ka".into(),
+            cursor: Some((2, 2)),
+        }));
+    app.update();
+    let key = |key_code, text: &str| {
+        WindowEvent::KeyboardInput(KeyboardInput {
+            key_code,
+            logical_key: Key::Character(text.into()),
+            state: ButtonState::Pressed,
+            text: Some(text.into()),
+            repeat: false,
+            window,
+        })
+    };
+    app.world_mut().write_message(key(KeyCode::KeyQ, "discard"));
+    app.world_mut().write_message(WindowEvent::Ime(Ime::Commit {
+        window,
+        value: "か".into(),
+    }));
+    app.world_mut().write_message(key(KeyCode::KeyA, "a"));
+    app.update();
+    assert!(
+        matches!(&app.world().resource::<ModRuntime>().hosts.host(0).panel().unwrap().controls[0], ui::mod_panel::Control::Text { value, .. } if value == "かa")
+    );
+}

@@ -210,6 +210,7 @@ impl ModUi {
             if panel.capture_key && !current.editing_text() {
                 current.cancel_edit();
             }
+            current.reconcile_editor_value(panel);
             current.panel = panel.clone();
             current.refresh_data();
         } else {

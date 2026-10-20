@@ -1,8 +1,30 @@
-//! Platform IME and modifier observations for focused native mod fields.
+//! Ordered platform input and modifier observations for focused native mod fields.
 
-use super::{Ime, PhysicalControls};
-use bevy::prelude::*;
+use super::{Ime, PhysicalControls, WindowEvent};
+use bevy::{input::keyboard::KeyboardInput, prelude::*};
 use ui::mod_panel::FieldModifiers;
+
+pub(super) type KeySample = (String, Option<String>, bool, FieldModifiers);
+
+pub(super) enum PanelSample {
+    Key(KeySample),
+    Ime(Ime),
+}
+
+impl PanelSample {
+    /// Exposes only physical key samples to panel toggle and reservation policy.
+    pub fn key(&self) -> Option<&KeySample> {
+        match self {
+            Self::Key(key) => Some(key),
+            Self::Ime(_) => None,
+        }
+    }
+}
+
+pub(super) enum RawSample {
+    Key(KeyboardInput),
+    Ime(Ime),
+}
 
 /// Captures modifiers at a key edge so later releases cannot change their meaning.
 pub(super) fn modifiers(keys: &[String]) -> FieldModifiers {
@@ -15,74 +37,122 @@ pub(super) fn modifiers(keys: &[String]) -> FieldModifiers {
     }
 }
 
-/// Drains platform IME messages once, admitting only the primary window's messages.
-pub(super) fn take_ime(
+/// Uses the platform/developer-control stream's original order without replaying typed mirrors.
+/// Adapters without that stream apply pending IME commits before their keyboard samples.
+pub(super) fn samples(
     physical: &mut PhysicalControls,
-    events: Option<&Messages<Ime>>,
+    ordered: Option<&Messages<WindowEvent>>,
+    keyboard: Option<&Messages<KeyboardInput>>,
+    ime: Option<&Messages<Ime>>,
     window: Entity,
-) -> Vec<Ime> {
-    events.map_or_else(Vec::new, |events| {
-        physical
-            .ime
+) -> Vec<RawSample> {
+    if let Some(events) = ordered {
+        let samples: Vec<RawSample> = physical
+            .ordered
             .read(events)
-            .filter(|event| match event {
-                Ime::Preedit { window: owner, .. }
-                | Ime::Commit { window: owner, .. }
-                | Ime::Enabled { window: owner }
-                | Ime::Disabled { window: owner } => *owner == window,
+            .filter_map(|event| match event {
+                WindowEvent::KeyboardInput(event) if event.window == window => {
+                    Some(RawSample::Key(event.clone()))
+                }
+                WindowEvent::Ime(event) if ime_window(event) == window => {
+                    Some(RawSample::Ime(event.clone()))
+                }
+                _ => None,
             })
-            .cloned()
-            .collect()
-    })
+            .collect();
+        if !samples.is_empty() {
+            if let Some(events) = keyboard {
+                physical.keys.clear(events);
+            }
+            if let Some(events) = ime {
+                physical.ime.clear(events);
+            }
+            return samples;
+        }
+    }
+    let mut samples = Vec::new();
+    if let Some(events) = ime {
+        samples.extend(
+            physical
+                .ime
+                .read(events)
+                .filter(|event| ime_window(event) == window)
+                .cloned()
+                .map(RawSample::Ime),
+        );
+    }
+    if let Some(events) = keyboard {
+        samples.extend(
+            physical
+                .keys
+                .read(events)
+                .filter(|event| event.window == window)
+                .cloned()
+                .map(RawSample::Key),
+        );
+    }
+    samples
 }
 
-/// Updates preedit/committed text only while a native field owns focused input.
-pub(super) fn apply_ime(
-    physical: &mut PhysicalControls,
-    events: &[Ime],
+/// Associates every platform IME event with its originating window.
+fn ime_window(event: &Ime) -> Entity {
+    match event {
+        Ime::Preedit { window, .. }
+        | Ime::Commit { window, .. }
+        | Ime::Enabled { window }
+        | Ime::Disabled { window } => *window,
+    }
+}
+
+/// Applies composition at its position in the input stream, before any subsequent keystroke.
+pub(super) fn route_sample(
+    sample: PanelSample,
     ui: &mut mod_ui::ModUi,
     accepting: bool,
-) {
-    if !accepting || !ui.mod_panel_field_focused() {
-        physical.composing = false;
-        ui.mod_panel_preedit("", None);
-        return;
-    }
-    for event in events {
-        match event {
-            Ime::Preedit { value, cursor, .. } => {
-                physical.composing = !value.is_empty();
-                ui.mod_panel_preedit(value, cursor.map(|(start, _)| start));
+) -> Option<KeySample> {
+    let accepting = accepting && ui.mod_panel_field_focused();
+    match sample {
+        PanelSample::Key(key) if accepting && ui.mod_panel_composing() && key.0 != "Escape" => None,
+        PanelSample::Key(key) => Some(key),
+        PanelSample::Ime(event) => {
+            if accepting {
+                match event {
+                    Ime::Preedit { value, cursor, .. } => {
+                        ui.mod_panel_preedit(&value, cursor.map(|(start, _)| start));
+                    }
+                    Ime::Commit { value, .. } => {
+                        ui.mod_panel_ime_commit(&value);
+                    }
+                    Ime::Disabled { .. } => {
+                        ui.mod_panel_preedit("", None);
+                    }
+                    Ime::Enabled { .. } => {}
+                }
             }
-            Ime::Commit { value, .. } => {
-                physical.composing = false;
-                ui.mod_panel_ime_commit(value);
-            }
-            Ime::Disabled { .. } => {
-                physical.composing = false;
-                ui.mod_panel_preedit("", None);
-            }
-            Ime::Enabled { .. } => {}
+            None
         }
     }
 }
 
-/// Enables platform composition only for focused native text fields and releases our ownership.
+/// Enables platform composition for our focused field without publishing unchanged window state.
 pub(super) fn sync_ime(
     physical: &mut PhysicalControls,
     window: &mut Window,
-    ui: &mod_ui::ModUi,
+    ui: &mut mod_ui::ModUi,
     accepting: bool,
 ) {
     let enabled = accepting && ui.mod_panel_field_focused();
-    if enabled || physical.ime_owned {
+    if (enabled || physical.ime_owned) && window.ime_enabled != enabled {
         window.ime_enabled = enabled;
     }
     if let Some(position) = ui.mod_panel_ime_position() {
-        window.ime_position = Vec2::from_array(position);
+        let position = Vec2::from_array(position);
+        if window.ime_position != position {
+            window.ime_position = position;
+        }
     }
     physical.ime_owned = enabled;
     if !enabled {
-        physical.composing = false;
+        ui.mod_panel_preedit("", None);
     }
 }

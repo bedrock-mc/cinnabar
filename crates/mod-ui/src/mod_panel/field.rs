@@ -8,6 +8,7 @@ pub(super) struct Field {
     pub cursor: usize,
     anchor: usize,
     pub composition: String,
+    pub composing: bool,
     pub composition_cursor: Option<usize>,
     pub display: String,
     pub layout: Option<Arc<ui::TextLayout>>,
@@ -31,6 +32,7 @@ impl Field {
             cursor,
             anchor: 0,
             composition: String::new(),
+            composing: false,
             composition_cursor: None,
             layout: None,
             blink_start: None,
@@ -44,6 +46,19 @@ impl Field {
         }
     }
 
+    /// Accepts an explicit guest value replacement while keeping the existing field focused.
+    pub fn replace_value(&mut self, value: &str) {
+        self.text.clear();
+        self.text.push_str(value);
+        self.cursor = self.text.len();
+        self.anchor = self.cursor;
+        self.composing = false;
+        self.composition.clear();
+        self.composition_cursor = None;
+        self.dragging = false;
+        self.refresh_display();
+    }
+
     /// Returns the selected byte range, or the empty range at the caret.
     pub fn selection(&self) -> Range<usize> {
         self.anchor.min(self.cursor)..self.anchor.max(self.cursor)
@@ -51,6 +66,7 @@ impl Field {
 
     /// Replaces inline preedit without changing the committed value or selection.
     pub fn preedit(&mut self, text: &str, cursor: Option<usize>, limit: usize) {
+        self.composing = !text.is_empty();
         if text.chars().any(char::is_control) || text.chars().count() > limit {
             return;
         }
@@ -110,6 +126,7 @@ impl Field {
         self.text.replace_range(range.clone(), input);
         self.cursor = range.start + input.len();
         self.anchor = self.cursor;
+        self.composing = false;
         self.composition.clear();
         self.composition_cursor = None;
         self.refresh_display();
@@ -118,6 +135,7 @@ impl Field {
 
     /// Clears transient preedit when the platform cancels or commits its composition.
     pub fn clear_composition(&mut self) {
+        self.composing = false;
         if !self.composition.is_empty() {
             self.composition.clear();
             self.composition_cursor = None;
@@ -195,7 +213,7 @@ impl Field {
 
     /// Places or extends a mouse selection using the retained glyph boundaries.
     pub fn place_cursor(&mut self, window_x: f32, selecting: bool) {
-        if !self.composition.is_empty() {
+        if self.composing {
             return;
         }
         let Some(layout) = &self.layout else {

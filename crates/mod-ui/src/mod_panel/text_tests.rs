@@ -296,6 +296,7 @@ fn native_live_field_ime_composes_then_commits() {
     ui.mod_panel_preedit("日本", Some(3));
     assert_eq!(field_state(&ui).text, "old");
     assert_eq!(field_state(&ui).display, "日本");
+    assert!(ui.mod_panel_composing());
     assert_eq!(field_state(&ui).display_cursor(), 3);
     assert!(ui.take_mod_panel_field_events(owner).is_empty());
     ui.mod_panel_key("Unidentified", Some("leak"));
@@ -303,6 +304,7 @@ fn native_live_field_ime_composes_then_commits() {
     ui.mod_panel_ime_commit("日本");
     assert_eq!(field_state(&ui).text, "日本");
     assert!(field_state(&ui).composition.is_empty());
+    assert!(!ui.mod_panel_composing());
     assert!(
         matches!(&ui.take_mod_panel_field_events(owner)[0], ui::mod_panel::FieldEvent::Change(event) if event.value == "日本")
     );
@@ -506,5 +508,30 @@ fn native_live_field_dismissal_keeps_published_value() {
             .data
             .global_value("#row_0_value"),
         Some(&json_ui::Scalar::Text("Latest".into()))
+    );
+}
+
+/// Guests can clear or replace a submitted search while the persistent editor keeps focus.
+#[test]
+fn native_live_field_guest_replaces_focused_value() {
+    let mut ui = live_field("Main", true);
+    ui.mod_panel_key("TextInput", Some("query"));
+    ui.mod_panel_key("Enter", None);
+    let mut panel = ui.mod_panel.as_ref().unwrap().panel.clone();
+    if let Control::Text { value, .. } = &mut panel.controls[0] {
+        value.clear();
+    }
+    ui.set_mod_panel(PanelUiOwner::Environment(0), Some(&panel))
+        .unwrap();
+    assert!(ui.mod_panel_field_focused());
+    assert_eq!(field_state(&ui).text, "");
+    ui.mod_panel_key("TextInput", Some("next"));
+    ui.mod_panel_key("Enter", None);
+    assert_eq!(
+        ui.take_mod_panel_text_events(PanelUiOwner::Environment(0))
+            .last()
+            .unwrap()
+            .value,
+        "next"
     );
 }
