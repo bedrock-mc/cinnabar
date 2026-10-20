@@ -12,6 +12,7 @@ platform-specific = ["macos"]
 doctest = false
 
 [dependencies]
+naga.workspace = true
 pp-rs = "0.2.1"
 zip-footer = { path = "../zip-footer" }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
