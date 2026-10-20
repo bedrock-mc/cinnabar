@@ -170,10 +170,10 @@ impl ViewState {
             let Some(block) = &self.pack.programs[draw.program].reflection.uniforms else {
                 continue;
             };
-            if binding.update_atlas_size(block, context.atlas_size(draw.kind)) {
-                if let Some(buffer) = &binding.uniforms {
-                    queue.write_buffer(buffer, 0, &binding.base);
-                }
+            if binding.update_atlas_size(block, context.atlas_size(draw.kind))
+                && let Some(buffer) = &binding.uniforms
+            {
+                queue.write_buffer(buffer, 0, &binding.base);
             }
         }
     }
@@ -395,6 +395,7 @@ pub(crate) fn record_frame(
 ) {
     let pack = Arc::clone(&state.pack);
     write_depth_parameters(queue, &state.depth_parameters, io);
+    state.targets.clear_images(encoder, &pack.custom_images);
     for plan in &pack.buffers {
         let (Some(clear), Some(buffer)) = (
             plan.clear,
@@ -507,31 +508,30 @@ fn record_composite(
     state.targets.swap_sides(&pack.frame.exchange);
     let targets = &state.targets;
     let source = io.scene_colour.texture();
-    if io.viewport != [0, 0, source.width(), source.height()] {
-        if let Some((_, pipeline)) = pack
+    if io.viewport != [0, 0, source.width(), source.height()]
+        && let Some((_, pipeline)) = pack
             .host
             .preserve
             .iter()
             .find(|(f, _)| *f == io.destination_format)
-        {
-            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("shader pack preserve viewport exterior"),
-                layout: &pipeline.get_bind_group_layout(0),
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(io.scene_colour),
-                }],
-            });
-            let mut render = pass(
-                encoder,
-                "shader pack preserve viewport exterior",
-                &[load_attachment(io.destination)],
-                None,
-            );
-            render.set_pipeline(pipeline);
-            render.set_bind_group(0, &group, &[]);
-            render.draw(0..3, 0..1);
-        }
+    {
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("shader pack preserve viewport exterior"),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(io.scene_colour),
+            }],
+        });
+        let mut render = pass(
+            encoder,
+            "shader pack preserve viewport exterior",
+            &[load_attachment(io.destination)],
+            None,
+        );
+        render.set_pipeline(pipeline);
+        render.set_bind_group(0, &group, &[]);
+        render.draw(0..3, 0..1);
     }
     let present = pack
         .host
@@ -773,18 +773,7 @@ fn run_step(
             let Some(dispatch) = &program.reflection.compute else {
                 return;
             };
-            let groups_count = dispatch.work_groups.unwrap_or_else(|| {
-                let scale = dispatch.work_groups_render.unwrap_or([1.0, 1.0]);
-                std::array::from_fn(|i| {
-                    if i == 2 {
-                        1
-                    } else {
-                        ((size[i] as f32 * scale[i]).ceil() as u32)
-                            .div_ceil(dispatch.workgroup_size[i].max(1))
-                            .max(1)
-                    }
-                })
-            });
+            let groups_count = super::dispatch::groups(dispatch, size);
             let mut compute = encoder
                 .begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: Some(&program.name),

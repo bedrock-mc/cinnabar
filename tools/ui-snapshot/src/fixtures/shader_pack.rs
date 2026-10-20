@@ -70,7 +70,7 @@ pub(super) fn settings_video(failed: bool) -> Fixture {
     let mut view = super::settings(SettingSection::Video.definition().name);
     view.render_mode = ui::RenderMode::ShaderPack;
     view.shader_packs = std::sync::Arc::from([PACK.to_owned(), "Lumen".to_owned()]);
-    view.renderer = Some(RendererChoice::ShaderPack(0));
+    view.renderer = Some(RendererChoice::ShaderPack(0, view.shader_packs_revision));
     view.renderer_failure = failed.then(|| failure_description(REASON).into());
     Fixture::Menu(Box::new(view))
 }

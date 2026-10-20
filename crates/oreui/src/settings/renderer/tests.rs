@@ -75,7 +75,10 @@ fn renderer_choices_follow_the_compiled_features() {
         expected.push(RendererChoice::Enhanced);
     }
     if render_model::SHADER_PACKS_ENABLED {
-        expected.extend([RendererChoice::ShaderPack(0), RendererChoice::ShaderPack(1)]);
+        expected.extend([
+            RendererChoice::ShaderPack(0, view.shader_packs_revision),
+            RendererChoice::ShaderPack(1, view.shader_packs_revision),
+        ]);
     }
     assert_eq!(renderers.len(), expected.len(), "{renderers:?}");
     assert!(expected.iter().all(|choice| renderers.contains(choice)));
