@@ -72,7 +72,11 @@ impl PlayerInventoryLedger {
         if self.storage.is_some() {
             return;
         }
-        if state.confirmed.is_none() && state.sent.is_none() && self.personal_close_pending() {
+        if !state.desired_open
+            && state.confirmed.is_none()
+            && state.sent.is_none()
+            && self.personal_close_pending()
+        {
             return;
         }
         match (state.desired_open, state.confirmed) {
@@ -85,8 +89,17 @@ impl PlayerInventoryLedger {
                 if state.sent.is_none() && self.controls.storage.server_window().is_none() =>
             {
                 if !matches!(self.personal, Some(PersonalWindow::Opening { .. })) {
-                    let generation = self.next_open_generation;
-                    self.next_open_generation = generation.wrapping_add(1).max(1);
+                    let generation = if let Some(PersonalWindow::Closing {
+                        generation,
+                        awaiting_open: true,
+                    }) = self.personal
+                    {
+                        generation
+                    } else {
+                        let generation = self.next_open_generation;
+                        self.next_open_generation = generation.wrapping_add(1).max(1);
+                        generation
+                    };
                     self.confirmed.clear_result();
                     self.refold();
                     self.personal = Some(PersonalWindow::Opening {
@@ -127,7 +140,12 @@ impl PlayerInventoryLedger {
                     let owned_screen = self
                         .personal
                         .is_some_and(|personal| personal.generation() == generation);
-                    if owned_screen && self.personal_close_pending() {
+                    if owned_screen && self.personal_generation_pending(generation) {
+                        if let Some(PersonalWindow::Opening { admitted, .. }) =
+                            self.personal.as_mut()
+                        {
+                            *admitted = false;
+                        }
                         continue;
                     }
                     if owned_screen {

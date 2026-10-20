@@ -59,7 +59,13 @@ impl PlayerInventoryLedger {
     /// Keeps a closing screen's authority until its queued item returns have settled.
     pub(super) fn personal_close_pending(&self) -> bool {
         matches!(self.personal, Some(PersonalWindow::Closing { generation, .. })
-            if self.pending_requests().any(|request| request.personal_generation == Some(generation)))
+            if self.personal_generation_pending(generation))
+    }
+
+    /// Whether retained item requests still belong to this personal window generation.
+    pub(super) fn personal_generation_pending(&self, generation: u64) -> bool {
+        self.pending_requests()
+            .any(|request| request.personal_generation == Some(generation))
     }
 
     /// Queues inventory input for the runtime actor selected when the user pressed it.
@@ -69,6 +75,17 @@ impl PlayerInventoryLedger {
         }
         self.controls.personal_target = target_runtime_id;
         self.controls.personal.desired_open = true;
+        if let Some(PersonalWindow::Closing {
+            generation,
+            awaiting_open: true,
+        }) = self.personal
+            && self.controls.personal.sent.is_some()
+        {
+            self.personal = Some(PersonalWindow::Opening {
+                generation,
+                admitted: true,
+            });
+        }
         self.reconcile_personal();
         true
     }

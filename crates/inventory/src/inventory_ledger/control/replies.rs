@@ -33,10 +33,13 @@ impl PlayerInventoryLedger {
         let requested_generation = self.settle_open_request();
         let generation = requested_generation
             .or(match self.personal {
-                Some(PersonalWindow::Closing {
-                    generation,
-                    awaiting_open: true,
-                }) if self.personal_close_pending() => Some(generation),
+                Some(
+                    PersonalWindow::Closing {
+                        generation,
+                        awaiting_open: true,
+                    }
+                    | PersonalWindow::Opening { generation, .. },
+                ) if self.personal_generation_pending(generation) => Some(generation),
                 _ => None,
             })
             .or_else(|| {
