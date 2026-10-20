@@ -47,14 +47,28 @@ pub(super) fn particle_quads(
     atlas_side: u32,
 ) {
     for instance in instances {
+        let [u0, v0, du, dv] = instance.uv;
+        let bounds = instance.texture_bounds;
+        if !instance
+            .uv
+            .into_iter()
+            .chain(bounds)
+            .chain([
+                u0 + du,
+                v0 + dv,
+                bounds[0] + bounds[2],
+                bounds[1] + bounds[3],
+            ])
+            .all(f32::is_finite)
+        {
+            continue;
+        }
         let centre = bevy::math::Vec4::from_array(instance.center_light).xyz() - camera;
         let x = Vec3::from_slice(&instance.axis_x[..3]);
         let y = Vec3::from_slice(&instance.axis_y[..3]);
-        let [u0, v0, du, dv] = instance.uv;
         let light = instance_light(instance);
         let normal = x.cross(y);
         let half = 0.5 / atlas_side.max(1) as f32;
-        let bounds = instance.texture_bounds;
         let bounded = bounds[2] > 0.0 && bounds[3] > 0.0;
         let axis = |start, delta, index: usize| {
             if bounded {

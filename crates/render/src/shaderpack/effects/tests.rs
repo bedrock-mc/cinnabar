@@ -331,6 +331,31 @@ fn instance(lit: bool) -> ParticleInstance {
 }
 
 #[test]
+fn particles_skip_non_finite_uvs_without_losing_valid_instances() {
+    let valid = instance(false);
+    let mut expected = Mesh::default();
+    particle_quads(&mut expected, &[valid], Vec3::ZERO, 256);
+    for bounds in [[0.0; 4], [0.25, 0.25, 0.5, 0.5]] {
+        for uv in [
+            [f32::INFINITY, 0.0, f32::NEG_INFINITY, 1.0],
+            [0.0, f32::NAN, 1.0, 1.0],
+            [0.0, 0.0, f32::INFINITY, 1.0],
+            [f32::MAX, 0.0, f32::MAX, 1.0],
+        ] {
+            let invalid = ParticleInstance {
+                uv,
+                texture_bounds: bounds,
+                ..valid
+            };
+            let mut mesh = Mesh::default();
+            particle_quads(&mut mesh, &[invalid, valid], Vec3::ZERO, 256);
+            assert_eq!(mesh.words, expected.words);
+            assert_eq!(mesh.indices, expected.indices);
+        }
+    }
+}
+
+#[test]
 fn particles_expand_like_the_vanilla_shader() {
     assert_eq!(instance_light(&instance(true)), [7.0 * 16.0, 12.0 * 16.0]);
     assert_eq!(instance_light(&instance(false)), FULL_BRIGHT);
