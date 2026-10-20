@@ -12,6 +12,8 @@ fn text_field(value: &str, min_chars: usize, max_chars: usize) -> ModUi {
         value: value.into(),
         min_chars,
         max_chars,
+        live: false,
+        navigation_keys: false,
     }];
     panel.sections.clear();
     let mut ui = ModUi::default();
@@ -26,62 +28,15 @@ fn text_field(value: &str, min_chars: usize, max_chars: usize) -> ModUi {
     ui
 }
 
-/// Drafts remain literal text even when they resemble JSON-UI bindings or template variables.
+/// Drafts retain binding-like user text literally and never append a fake caret glyph.
 #[test]
 fn native_text_editor_renders_binding_like_drafts_literally() {
-    use json_ui::{Context, Draw, LayoutEnv, TextMeasure, TextureMeta, TextureSource, ViewState};
-    use ui_engine::cached_screen::CachedScreen;
-    struct Metrics;
-    impl TextMeasure for Metrics {
-        /// Supplies stable glyph extents without a local font carrier.
-        fn extent(&self, text: &str) -> [f64; 2] {
-            [text.chars().count() as f64 * 4., 8.]
-        }
-    }
-    impl TextureSource for Metrics {
-        /// Native editor chrome has no texture dependency.
-        fn texture(&self, _: &str) -> Option<TextureMeta> {
-            None
-        }
-    }
     for value in ["#FFFFFFFF", "$profile", "(#missing)", "##literal"] {
-        let expected = format!("{value}|");
         let mut ui = text_field("Main", 0, 24);
         ui.mod_panel_key("TextInput", Some(value));
-        ui.mod_panel
-            .as_mut()
-            .unwrap()
-            .open_editor(0, [40., 40., 100., 40.]);
-        ui.mod_panel_key("TextInput", Some(value));
-        let panel = ui.mod_panel.as_ref().unwrap();
-        let (catalog, _) =
-            template::catalog(&panel.panel, [400., 200.], 0, 0, 4, panel.edit.as_ref()).unwrap();
-        let catalog = std::sync::Arc::new(catalog);
-        let mut screen = CachedScreen::default();
-        let render = screen
-            .render_shared_with(
-                SCREEN,
-                &catalog,
-                &Context::default(),
-                std::sync::Arc::clone(&panel.data),
-                ([400., 200.], 1., [0; 3]),
-                &LayoutEnv {
-                    text: &Metrics,
-                    textures: &Metrics,
-                },
-                &ViewState::default(),
-            )
-            .unwrap();
-        let node = render
-            .nodes
-            .iter()
-            .find(|node| matches!(&node.draw,Draw::Text {text,..} if text==&expected))
-            .unwrap_or_else(|| panic!("native draft disappeared: {value}"));
-        assert!(
-            (node.dest.y + node.dest.h * 0.5 - 60.).abs() < 5.,
-            "draft must cover the saved value in the focused row: {:?}",
-            node.dest
-        );
+        let state = field_state(&ui);
+        assert_eq!(state.display, value);
+        assert_eq!(state.cursor, value.len());
     }
 }
 
@@ -151,7 +106,6 @@ fn native_text_fields_respect_bounds_cancel_and_unchanged_values() {
     assert!(
         matches!(&ui.mod_panel.as_ref().unwrap().panel.controls[0],Control::Text {value,..} if value=="é🙂")
     );
-    assert!(super::edit::visible_draft("é🙂مرحبا", false, "é🙂مرحبا".len(), 24.).ends_with('|'));
 }
 
 /// Text patches retain immutable character bounds and reject non-string or multiline values.
@@ -211,4 +165,318 @@ fn native_clipboard_selection_follows_caret_and_focus() {
     assert_eq!(ui.mod_panel_field_selection(), None);
     ui.set_mod_panel_open(false);
     assert_eq!(ui.mod_panel_field_selection(), None);
+}
+
+/// Returns the focused field's retained editing state for behavior assertions.
+fn field_state(ui: &ModUi) -> &super::field::Field {
+    let Some(super::edit::Editor::Field { state, .. }) = &ui.mod_panel.as_ref().unwrap().edit
+    else {
+        panic!("expected focused text field");
+    };
+    state
+}
+
+/// Enables additive field capabilities while retaining the same focused draft.
+fn live_field(value: &str, navigation: bool) -> ModUi {
+    let mut ui = text_field(value, 0, 32);
+    if let Control::Text {
+        live,
+        navigation_keys,
+        ..
+    } = &mut ui.mod_panel.as_mut().unwrap().panel.controls[0]
+    {
+        *live = true;
+        *navigation_keys = navigation;
+    }
+    ui
+}
+
+/// Multiple edits in one input frame publish only the latest full value.
+#[test]
+fn native_live_field_changes_coalesce_and_submit_keeps_focus() {
+    use ui::mod_panel::FieldEvent;
+    let owner = PanelUiOwner::Environment(0);
+    let mut ui = live_field("Main", false);
+    ui.mod_panel_key("TextInput", Some("a"));
+    ui.mod_panel_key("TextInput", Some("b"));
+    ui.mod_panel_key("Backspace", None);
+    assert!(
+        ui.take_mod_panel_field_events(PanelUiOwner::Environment(1))
+            .is_empty()
+    );
+    assert_eq!(
+        ui.take_mod_panel_field_events(owner),
+        vec![FieldEvent::Change(TextEvent {
+            id: "name".into(),
+            value: "a".into()
+        })]
+    );
+    assert!(ui.take_mod_panel_text_events(owner).is_empty());
+    ui.mod_panel_key("Paste", Some("é🙂"));
+    assert_eq!(
+        ui.take_mod_panel_field_events(owner),
+        vec![FieldEvent::Change(TextEvent {
+            id: "name".into(),
+            value: "aé🙂".into()
+        })]
+    );
+    ui.mod_panel_key("Enter", None);
+    assert_eq!(
+        ui.take_mod_panel_field_events(owner),
+        vec![FieldEvent::Submit(TextEvent {
+            id: "name".into(),
+            value: "aé🙂".into()
+        })]
+    );
+    assert!(ui.mod_panel_field_focused());
+}
+
+/// Selection replacement and word deletion keep all UTF-8 positions on character boundaries.
+#[test]
+fn native_live_field_word_movement_selection_and_paste() {
+    use ui::mod_panel::FieldModifiers;
+    let mut ui = live_field("héllo world 🙂", false);
+    ui.mod_panel_key("End", None);
+    ui.mod_panel_field_key(
+        "ArrowLeft",
+        None,
+        FieldModifiers {
+            alt: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(field_state(&ui).cursor, "héllo world ".len());
+    ui.mod_panel_field_key(
+        "ArrowLeft",
+        None,
+        FieldModifiers {
+            control: true,
+            shift: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(ui.mod_panel_field_selection(), Some("world "));
+    ui.mod_panel_key("Paste", Some("earth "));
+    assert_eq!(field_state(&ui).text, "héllo earth 🙂");
+    ui.mod_panel_field_key(
+        "Backspace",
+        None,
+        FieldModifiers {
+            alt: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(field_state(&ui).text, "héllo 🙂");
+    ui.mod_panel_field_key(
+        "Delete",
+        None,
+        FieldModifiers {
+            control: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(field_state(&ui).text, "héllo ");
+    ui.mod_panel_key("Home", None);
+    ui.mod_panel_field_key(
+        "End",
+        None,
+        FieldModifiers {
+            shift: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(ui.mod_panel_field_selection(), Some("héllo "));
+}
+
+/// Preedit is transient, replaces selection inline, and emits only when the platform commits.
+#[test]
+fn native_live_field_ime_composes_then_commits() {
+    let owner = PanelUiOwner::Environment(0);
+    let mut ui = live_field("old", true);
+    ui.mod_panel_preedit("日本", Some(3));
+    assert_eq!(field_state(&ui).text, "old");
+    assert_eq!(field_state(&ui).display, "日本");
+    assert_eq!(field_state(&ui).display_cursor(), 3);
+    assert!(ui.take_mod_panel_field_events(owner).is_empty());
+    ui.mod_panel_key("Unidentified", Some("leak"));
+    assert_eq!(field_state(&ui).text, "old");
+    ui.mod_panel_ime_commit("日本");
+    assert_eq!(field_state(&ui).text, "日本");
+    assert!(field_state(&ui).composition.is_empty());
+    assert!(
+        matches!(&ui.take_mod_panel_field_events(owner)[0], ui::mod_panel::FieldEvent::Change(event) if event.value == "日本")
+    );
+    ui.mod_panel_key("Unidentified", Some("leak"));
+    assert_eq!(field_state(&ui).text, "日本");
+}
+
+/// Navigation stays native unless opted in and horizontal motion reaches an unselected edge.
+#[test]
+fn native_live_field_navigation_retains_edge_modifiers() {
+    use ui::mod_panel::{FieldEvent, FieldModifiers};
+    let owner = PanelUiOwner::Environment(0);
+    for navigation in [false, true] {
+        let mut ui = live_field("ab", navigation);
+        let modifiers = FieldModifiers {
+            shift: true,
+            alt: true,
+            ..Default::default()
+        };
+        ui.mod_panel_field_key("ArrowDown", None, modifiers);
+        assert_eq!(
+            ui.take_mod_panel_field_events(owner).len(),
+            usize::from(navigation)
+        );
+        ui.mod_panel_key("ArrowRight", None); // collapse the opening selection
+        assert!(ui.take_mod_panel_field_events(owner).is_empty());
+        ui.mod_panel_field_key("ArrowRight", None, modifiers);
+        let events = ui.take_mod_panel_field_events(owner);
+        assert_eq!(events.len(), usize::from(navigation));
+        if navigation {
+            assert!(
+                matches!(&events[0], FieldEvent::Key(event) if event.key == "ArrowRight" && event.modifiers == modifiers)
+            );
+        }
+        ui.mod_panel_key("Home", None);
+        ui.mod_panel_field_key("Enter", None, modifiers);
+        let events = ui.take_mod_panel_field_events(owner);
+        assert!(matches!(&events[0], FieldEvent::Submit(_)));
+        assert_eq!(events.len(), if navigation { 2 } else { 1 });
+        if navigation {
+            assert!(
+                matches!(&events[1], FieldEvent::Key(event) if event.key == "Enter" && event.modifiers.shift)
+            );
+        }
+    }
+}
+
+/// Paints native field feedback through the production engine without local game assets.
+fn paint_field(
+    ui: &mut ModUi,
+    engine: &FormEngine,
+    font: &assets::RuntimeFontCatalog,
+    layouts: &mut ui::TextLayoutCache,
+    now: f64,
+) -> Vec<ui::UiNode> {
+    let mut nodes = Vec::new();
+    ui.paint_mod_panel(
+        Some(engine),
+        &mut PaintFrame {
+            layouts,
+            font,
+            metrics: ui_engine::text_metrics::TextMetrics::for_viewport(
+                [1280, 720],
+                ui::DpiScale::new(1.).unwrap(),
+                Some(2),
+            ),
+            solid_page: 0,
+            safe_area: ui::SafeArea::ZERO,
+            content: [1280., 720.],
+            translate: &|_| None,
+            language: [0; 3],
+            now,
+            nodes: &mut nodes,
+            next: &mut 1,
+            renderers: &mut [],
+        },
+    );
+    nodes
+}
+
+/// Blink, movement and selection retain the shaped glyphs and the resolved screen.
+#[test]
+fn native_field_blink_reuses_shaping_and_catalog() {
+    use ui_engine::{engine::screen::ScreenRegistry, sources::ImageWork};
+    static REGISTRY: std::sync::OnceLock<ScreenRegistry> = std::sync::OnceLock::new();
+    let bytes = assets::encode_ui_catalog([1; 32], &[], &[], &[], &[]).unwrap();
+    let engine = FormEngine::new(
+        Arc::new(assets::RuntimeUiAssets::decode(&bytes).unwrap()),
+        Catalog::default(),
+        0,
+        REGISTRY.get_or_init(|| ScreenRegistry::new(Context::desktop())),
+        Arc::new(NoImages),
+        ImageWork::inline(),
+    );
+    let font = ui_engine::test_support::fixture_font();
+    let mut layouts = ui::TextLayoutCache::new(64, 1 << 24);
+    let mut ui = live_field("0000", false);
+    paint_field(&mut ui, &engine, &font, &mut layouts, 0.);
+    ui.mod_panel
+        .as_mut()
+        .unwrap()
+        .open_editor(0, [40., 40., 180., 26.]);
+    ui.mod_panel_key("End", None);
+    let first = paint_field(&mut ui, &engine, &font, &mut layouts, 1.);
+    let catalog = Arc::clone(ui.mod_panel.as_ref().unwrap().catalog.as_ref().unwrap());
+    let passes = ui.mod_panel.as_ref().unwrap().screen.passes;
+    let shaped = layouts.built_layout_count();
+    let layout = Arc::clone(field_state(&ui).layout.as_ref().unwrap());
+    let second = paint_field(&mut ui, &engine, &font, &mut layouts, 1.6);
+    assert_eq!(
+        first.len(),
+        second.len() + 1,
+        "blink removes only the caret rectangle"
+    );
+    assert_eq!(layouts.built_layout_count(), shaped);
+    assert_eq!(ui.mod_panel.as_ref().unwrap().screen.passes, passes);
+    assert!(Arc::ptr_eq(
+        &catalog,
+        ui.mod_panel.as_ref().unwrap().catalog.as_ref().unwrap()
+    ));
+    ui.mod_panel_field_key(
+        "ArrowLeft",
+        None,
+        ui::mod_panel::FieldModifiers {
+            shift: true,
+            ..Default::default()
+        },
+    );
+    paint_field(&mut ui, &engine, &font, &mut layouts, 2.);
+    assert_eq!(layouts.built_layout_count(), shaped);
+    assert!(Arc::ptr_eq(
+        &layout,
+        field_state(&ui).layout.as_ref().unwrap()
+    ));
+    ui.mod_panel_key("TextInput", Some("2"));
+    paint_field(&mut ui, &engine, &font, &mut layouts, 2.1);
+    assert_eq!(layouts.built_layout_count(), shaped + 1);
+    // Pointer placement uses the same retained stops as the painted glyphs.
+    let state = match ui.mod_panel.as_mut().unwrap().edit.as_mut().unwrap() {
+        super::edit::Editor::Field { state, .. } => state,
+        _ => unreachable!(),
+    };
+    let left = state.left;
+    let stop = state.layout.as_ref().unwrap().first_line_caret_x_64(2) as f32 / 64.;
+    state.place_cursor(left + stop, false);
+    assert_eq!(state.cursor, 2);
+    state.place_cursor(left + stop + 1000., true);
+    assert_eq!(&state.text[state.selection()], "02");
+
+    ui.mod_panel_preedit("00", Some(1));
+    let composition = paint_field(&mut ui, &engine, &font, &mut layouts, 2.2);
+    let composition_shapes = layouts.built_layout_count();
+    ui.mod_panel_preedit("00", Some(2));
+    paint_field(&mut ui, &engine, &font, &mut layouts, 2.3);
+    assert_eq!(
+        layouts.built_layout_count(),
+        composition_shapes,
+        "preedit cursor changes reuse the same glyphs"
+    );
+
+    assert!(
+        composition
+            .iter()
+            .filter(|node| matches!(node.visual(), ui::UiVisual::Solid { .. }))
+            .count()
+            >= 2,
+        "composition paints underline and caret"
+    );
+}
+
+struct NoImages;
+impl ui_engine::sources::RemoteSource for NoImages {
+    /// Native text fields never need a network image fixture.
+    fn state(&self, _: &str) -> ui_engine::sources::RemoteImage {
+        ui_engine::sources::RemoteImage::Failed
+    }
 }

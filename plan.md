@@ -427,7 +427,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   blur, element blur, route exits and current-world visual integration remain incomplete.
 - Native extension UI and HUD APIs (retained modules, profile fields, text plates,
   compass markers, totem annotations and bounded camera overrides) still need
-  displayed-frame pacing and complete rendering acceptance.
+  displayed-frame pacing and complete rendering acceptance. Native text fields now
+  support opt-in live changes and navigation, selection, clipboard editing and IME
+  preedit/commit; target-platform input and rendering acceptance remains incomplete.
   Backdrop and element blur now limit downsampling to referenced mip levels and
   cache the admitted maximum blur. Pixel-equivalence regressions are included;
   executed GPU checks and measured frame-budget acceptance remain pending.

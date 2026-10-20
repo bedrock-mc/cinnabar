@@ -6,7 +6,10 @@ use serde::{Deserialize, Serialize};
 
 mod axis;
 mod control;
-pub use control::{Control, Event, MAX_PANEL_VALUE_CHARS, TextEvent, validate_text_value};
+pub use control::{
+    Control, Event, FieldEvent, FieldKey, FieldModifiers, MAX_PANEL_VALUE_CHARS, TextEvent,
+    validate_text_value,
+};
 pub(crate) mod surface;
 mod update;
 pub use axis::{AxisExtent, AxisRoute};

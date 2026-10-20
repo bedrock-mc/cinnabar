@@ -610,3 +610,112 @@ fn opening_panel_is_granted_transactional_and_requires_content() {
     state.controls.commit();
     assert!(!state.controls.open);
 }
+
+/// Live changes survive deferred callbacks, coalesce, and remain separate from legacy commits.
+#[test]
+fn native_field_input_coalesces_and_retains_modifiers() {
+    use ui::mod_panel::{FieldEvent, FieldKey, FieldModifiers, TextEvent};
+    let mut state = state(ModGrants {
+        controls: true,
+        ..Default::default()
+    });
+    text_panel(&mut state);
+    if let ui::mod_panel::Control::Text {
+        live,
+        navigation_keys,
+        ..
+    } = &mut state.controls.panel.as_mut().unwrap().controls[0]
+    {
+        *live = true;
+        *navigation_keys = true;
+    }
+    let change = |value: &str| {
+        FieldEvent::Change(TextEvent {
+            id: "name".into(),
+            value: value.into(),
+        })
+    };
+    super::queue_field_events(&mut state, vec![change("a")]).unwrap();
+    state.controls.begin_frame();
+    state.controls.begin_text_frame();
+    state.controls.finish_text_frame(true);
+    super::queue_field_events(
+        &mut state,
+        vec![
+            change("ab"),
+            FieldEvent::Key(FieldKey {
+                id: "name".into(),
+                key: "Enter".into(),
+                modifiers: FieldModifiers {
+                    shift: true,
+                    ..Default::default()
+                },
+            }),
+        ],
+    )
+    .unwrap();
+    state.controls.begin_frame();
+    assert!(state.read_field_events().unwrap().unwrap().is_empty());
+    state.controls.begin_text_frame();
+    let events = state.read_field_events().unwrap().unwrap();
+    assert_eq!(events.len(), 2);
+    assert!(
+        matches!(&events[0], cinnabar::extension::input::FieldEvent::Change(event) if event.value == "ab")
+    );
+    assert!(
+        matches!(&events[1], cinnabar::extension::input::FieldEvent::Key(event) if event.key == "Enter" && event.shift)
+    );
+    assert_eq!(state.read_field_events().unwrap().unwrap(), events);
+    assert!(state.read_text_events().unwrap().unwrap().is_empty());
+    state.controls.finish_text_frame(false);
+    assert!(state.controls.field_events.is_empty());
+}
+
+/// Invalid additive batches cannot update a valid earlier entry or bypass field bounds/flags.
+#[test]
+fn native_field_input_validation_is_transactional() {
+    use ui::mod_panel::{FieldEvent, FieldKey, TextEvent};
+    let mut state = state(ModGrants {
+        controls: true,
+        ..Default::default()
+    });
+    text_panel(&mut state);
+    let change = |value: &str| {
+        FieldEvent::Change(TextEvent {
+            id: "name".into(),
+            value: value.into(),
+        })
+    };
+    assert!(super::queue_field_events(&mut state, vec![change("a")]).is_err());
+    if let ui::mod_panel::Control::Text { live, .. } =
+        &mut state.controls.panel.as_mut().unwrap().controls[0]
+    {
+        *live = true;
+    }
+    for invalid in [
+        change("123456789"),
+        change("line\nbreak"),
+        FieldEvent::Key(FieldKey {
+            id: "name".into(),
+            key: "ArrowDown".into(),
+            modifiers: Default::default(),
+        }),
+    ] {
+        assert!(super::queue_field_events(&mut state, vec![change("okay"), invalid]).is_err());
+        assert!(state.controls.field_events.is_empty());
+        assert!(
+            matches!(&state.controls.panel.as_ref().unwrap().controls[0], ui::mod_panel::Control::Text { value, .. } if value == "Main")
+        );
+    }
+    super::queue_field_events(&mut state, vec![change("")]).unwrap();
+    assert!(
+        matches!(&state.controls.field_events[0], FieldEvent::Change(event) if event.value.is_empty())
+    );
+    assert!(
+        matches!(&state.controls.panel.as_ref().unwrap().controls[0], ui::mod_panel::Control::Text { value, .. } if value == "Main")
+    );
+    state.grants.controls = false;
+    assert!(state.read_field_events().unwrap().is_err());
+    state.controls.revoke();
+    assert!(state.controls.field_events.is_empty());
+}

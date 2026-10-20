@@ -184,9 +184,9 @@ fn hud_editor_app() -> (App, Entity) {
     personal_panel_app(true, false)
 }
 
-/// Text-only keyboard messages edit native fields without becoming held gameplay controls.
+/// Unidentified messages cannot insert text or become held controls; identified text still edits.
 #[test]
-fn text_without_a_physical_key_reaches_the_native_editor() {
+fn unidentified_text_is_discarded_while_identified_text_edits() {
     let (mut app, window) = personal_panel_app(false, false);
     let directory = tempfile::tempdir().unwrap();
     let other = mod_host::ModHost::load_snapshot_with_grants(
@@ -235,6 +235,13 @@ fn text_without_a_physical_key_reaches_the_native_editor() {
             .keys_pressed
             .is_empty()
     );
+    assert_eq!(
+        app.world()
+            .resource::<UiPresentationResource>()
+            .mod_ui()
+            .mod_panel_field_selection(),
+        Some("35")
+    );
     // The panel clears shared key state each frame; the physical modifier must survive that.
     for (key_code, text) in [
         (KeyCode::SuperLeft, None),
@@ -257,11 +264,7 @@ fn text_without_a_physical_key_reaches_the_native_editor() {
     for (key_code, state, text) in [
         (KeyCode::KeyA, ButtonState::Pressed, None),
         (KeyCode::SuperLeft, ButtonState::Released, None),
-        (
-            KeyCode::Unidentified(bevy::input::keyboard::NativeKeyCode::Unidentified),
-            ButtonState::Pressed,
-            Some("73"),
-        ),
+        (KeyCode::Digit7, ButtonState::Pressed, Some("73")),
     ] {
         app.world_mut().write_message(KeyboardInput {
             key_code,
@@ -839,5 +842,90 @@ fn autosave_editor_escape_closes_entire_panel_without_reopening_it() {
     assert!(
         runtime.controls.keys_pressed.is_empty(),
         "Escape does not leak to gameplay"
+    );
+}
+
+/// Platform composition stays inline until commit and unidentified keyboard text is discarded.
+#[test]
+fn native_text_platform_ime_commits_without_unidentified_leaks() {
+    let component = fixture_with_panel(
+        r#"{"title":"Search","toggle_key":"F10","dark":true,"controls":[{"kind":"text","id":"name","label":"Search","value":"Main","live":true,"navigation_keys":true}]}"#,
+    );
+    let (mut app, window) = personal_panel_app_with_fixture(false, &component);
+    app.add_message::<Ime>();
+    open_rendered_field(&mut app);
+    app.update();
+    assert!(
+        app.world()
+            .entity(window)
+            .get::<Window>()
+            .unwrap()
+            .ime_enabled
+    );
+    app.world_mut().write_message(Ime::Preedit {
+        window,
+        value: "日本".into(),
+        cursor: Some((3, 3)),
+    });
+    app.world_mut().write_message(KeyboardInput {
+        key_code: KeyCode::Unidentified(bevy::input::keyboard::NativeKeyCode::Unidentified),
+        logical_key: Key::Character("leak".into()),
+        state: ButtonState::Pressed,
+        text: Some("leak".into()),
+        repeat: false,
+        window,
+    });
+    app.update();
+    assert!(
+        matches!(&app.world().resource::<ModRuntime>().hosts.host(0).panel().unwrap().controls[0], ui::mod_panel::Control::Text { value, .. } if value == "Main")
+    );
+    app.world_mut().write_message(Ime::Commit {
+        window,
+        value: "日本".into(),
+    });
+    app.update();
+    assert!(
+        matches!(&app.world().resource::<ModRuntime>().hosts.host(0).panel().unwrap().controls[0], ui::mod_panel::Control::Text { value, .. } if value == "日本")
+    );
+    app.world_mut()
+        .entity_mut(window)
+        .get_mut::<Window>()
+        .unwrap()
+        .focused = false;
+    app.update();
+    assert!(
+        !app.world()
+            .entity(window)
+            .get::<Window>()
+            .unwrap()
+            .ime_enabled
+    );
+}
+
+/// A submit followed by more typing in the same physical frame retains the newest live value.
+#[test]
+fn native_text_submit_then_typing_keeps_latest_value() {
+    let component = fixture_with_panel(
+        r#"{"title":"Search","toggle_key":"F10","dark":true,"controls":[{"kind":"text","id":"name","label":"Search","value":"Main","live":true,"navigation_keys":true}]}"#,
+    );
+    let (mut app, window) = personal_panel_app_with_fixture(false, &component);
+    open_rendered_field(&mut app);
+    for (key_code, text) in [
+        (KeyCode::KeyA, Some("a")),
+        (KeyCode::Enter, None),
+        (KeyCode::KeyB, Some("b")),
+    ] {
+        app.world_mut().write_message(KeyboardInput {
+            key_code,
+            logical_key: Key::Unidentified(bevy::input::keyboard::NativeKey::Unidentified),
+            state: ButtonState::Pressed,
+            text: text.map(Into::into),
+            repeat: false,
+            window,
+        });
+    }
+    app.update();
+    assert!(
+        matches!(&app.world().resource::<ModRuntime>().hosts.host(0).panel().unwrap().controls[0], ui::mod_panel::Control::Text { value, .. } if value == "ab")
     );
 }

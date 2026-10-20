@@ -803,3 +803,26 @@ fn surface_definition_tracks_previews_but_not_scalar_bindings() {
     changed.previews.get_mut("sample").unwrap().reference = "fixture.second".into();
     assert!(!original.same_definition(&changed));
 }
+
+/// Live and navigation capabilities are additive defaults and part of immutable route schemas.
+#[test]
+fn text_field_capabilities_default_off_and_preserve_schema() {
+    let control: Control = serde_json::from_value(
+        serde_json::json!({"kind":"text", "id":"search", "label":"Search", "value":""}),
+    )
+    .unwrap();
+    assert!(matches!(
+        &control,
+        Control::Text {
+            live: false,
+            navigation_keys: false,
+            ..
+        }
+    ));
+    for flag in ["live", "navigation_keys"] {
+        let mut changed = serde_json::to_value(&control).unwrap();
+        changed[flag] = true.into();
+        let changed: Control = serde_json::from_value(changed).unwrap();
+        assert!(!control.same_schema(&changed));
+    }
+}

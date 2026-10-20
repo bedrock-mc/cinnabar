@@ -84,8 +84,8 @@ fn shift_snapshot_uses_the_focused_physical_key_owner() {
 fn native_menu_reopen_consumes_its_toggle_but_focused_capture_keeps_it() {
     let input = || {
         vec![
-            ("ShiftRight".into(), None, false, false),
-            ("KeyR".into(), None, false, false),
+            ("ShiftRight".into(), None, false, Default::default()),
+            ("KeyR".into(), None, false, Default::default()),
         ]
     };
     for owned in [false, true] {

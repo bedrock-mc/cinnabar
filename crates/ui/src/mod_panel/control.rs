@@ -46,6 +46,10 @@ pub enum Control {
         min_chars: usize,
         #[serde(default = "text_capacity")]
         max_chars: usize,
+        #[serde(default)]
+        live: bool,
+        #[serde(default)]
+        navigation_keys: bool,
     },
 }
 
@@ -106,4 +110,31 @@ impl Control {
             Self::Text { label, .. } => label,
         }
     }
+}
+
+/// Modifier state sampled with a focused field key, before later releases in the same frame.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FieldModifiers {
+    pub shift: bool,
+    pub control: bool,
+    pub alt: bool,
+    pub super_key: bool,
+}
+
+/// An opted-in navigation key belongs to its focused field and retains its modifiers.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FieldKey {
+    pub id: String,
+    pub key: String,
+    pub modifiers: FieldModifiers,
+}
+
+/// Additive field input distinguishes live changes, submissions and guest navigation.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum FieldEvent {
+    Change(TextEvent),
+    Submit(TextEvent),
+    Key(FieldKey),
 }
