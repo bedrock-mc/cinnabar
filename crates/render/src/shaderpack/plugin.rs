@@ -245,9 +245,9 @@ fn configure_replacement(
         .filter(|pack| {
             !cameras.is_empty()
                 && cameras.iter().all(|entity| {
-                    states
-                        .get(&entity)
-                        .is_some_and(|state| Arc::ptr_eq(&state.pack, pack))
+                    states.get(&entity).is_some_and(|state| {
+                        Arc::ptr_eq(&state.pack, pack) && state.geometry_targets_ready()
+                    })
                 })
         });
     let draws = |kind| ready.is_some_and(|pack| pack.draws.iter().any(|draw| draw.kind == kind));
