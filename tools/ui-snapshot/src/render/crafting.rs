@@ -64,6 +64,7 @@ pub fn icons(pages: &mut Vec<Page>) -> Result<[IconRef; session::ITEMS.len()], E
         }
     });
     pages.push(Page {
+        repeat_content: None,
         width: width.into(),
         height: ICON_SIZE.into(),
         rgba: rgba.into(),

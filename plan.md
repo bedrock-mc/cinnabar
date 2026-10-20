@@ -285,6 +285,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
 
 - [ ] `P5.1-UI` — Close pack-driven UI, bounded text/draw work, formatting, scaling,
   safe areas, focus/navigation and keyboard/mouse/controller/touch acceptance. Prove
+  stable retained resources and correct supported DPI/aspect behavior. Tiled images
+  retain full coverage with bounded repeat geometry across cropped regions and sliced
+  borders; large collection admission and hardware frame-work acceptance remain incomplete.
   stable retained resources and correct supported DPI/aspect behavior. Form JSON
   container parsing and cleanup use heap stacks and accept line/block comments.
   Structured text keeps its separate

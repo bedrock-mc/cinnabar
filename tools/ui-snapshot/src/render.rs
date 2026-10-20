@@ -11,6 +11,7 @@ mod edit_selection;
 #[cfg(feature = "test-support")]
 mod form_overlap;
 mod panorama;
+mod tiled_image;
 
 use std::{
     collections::HashMap,
@@ -109,6 +110,9 @@ fn png_fixture(
     seconds: f64,
     resource_pack: Option<&Path>,
 ) -> Result<Vec<u8>, Error> {
+    if let Fixture::TiledImage { scale } = &fixture {
+        return tiled_image::png(state.size, *scale);
+    }
     #[cfg(feature = "test-support")]
     if matches!(&fixture, Fixture::ControlLocked) {
         return control_locked::png(state, dir);
@@ -128,6 +132,7 @@ fn png_fixture(
         Fixture::Chat { .. }
         | Fixture::TabList(_)
         | Fixture::EditSelection
+        | Fixture::TiledImage { .. }
         | Fixture::ModPanel(_) => false,
         #[cfg(feature = "test-support")]
         Fixture::CraftOverlap { .. }
@@ -169,6 +174,7 @@ fn png_fixture(
         renderers: &mut [],
     };
     match fixture {
+        Fixture::TiledImage { .. } => unreachable!("tiled image capture returned above"),
         #[cfg(feature = "test-support")]
         Fixture::CosmeticParticles { .. } | Fixture::FormOverlap | Fixture::ControlLocked => {
             unreachable!("specialized capture returned above")
@@ -242,6 +248,7 @@ fn png_fixture(
                 })
                 .collect();
             carriers.pages.extend(images.pages.iter().map(|page| Page {
+                repeat_content: None,
                 width: page.dimensions[0],
                 height: page.dimensions[1],
                 rgba: Arc::clone(&page.pixels),
@@ -255,6 +262,7 @@ fn png_fixture(
                 glint: false,
             };
             carriers.pages.push(Page {
+                repeat_content: None,
                 width: logo.width(),
                 height: logo.height(),
                 rgba: logo.into_raw().into(),
@@ -351,6 +359,7 @@ fn png_fixture(
             let first = carriers.pages.len() as u16;
             let artwork = HashMap::new();
             carriers.pages.extend(images.pages.iter().map(|page| Page {
+                repeat_content: None,
                 width: page.dimensions[0],
                 height: page.dimensions[1],
                 rgba: Arc::clone(&page.pixels),
@@ -577,6 +586,7 @@ fn add_server_pages(engine: &mut FormEngine, pages: &mut Vec<Page>) {
             .map(|page| {
                 let [width, height] = page.dimensions();
                 Page {
+                    repeat_content: page.repeat_content(),
                     width,
                     height,
                     rgba: page.pixels().into(),
@@ -593,6 +603,7 @@ fn add_server_pages(engine: &mut FormEngine, pages: &mut Vec<Page>) {
             pages.extend(engine.server_sheet_pages.iter().map(|page| {
                 let [width, height] = page.dimensions();
                 Page {
+                    repeat_content: page.repeat_content(),
                     width,
                     height,
                     rgba: page.pixels().into(),
@@ -627,6 +638,7 @@ fn mod_icons(
             },
         );
         pages.push(Page {
+            repeat_content: None,
             width,
             height,
             rgba: image.into_raw().into(),
@@ -663,6 +675,7 @@ fn cosmetic_icons(artwork: &mut HashMap<String, ui::IconRef>, pages: &mut Vec<Pa
             },
         );
         pages.push(Page {
+            repeat_content: None,
             width: image.width,
             height: image.height,
             rgba: image.rgba8,
