@@ -48,5 +48,5 @@ async fn completed_native_read_survives_same_account_checkout() {
     );
     let cards = cards.expect("the completed original catalog remains current");
     assert_eq!(cards.realms.unwrap()[0].name, "Completed catalog");
-    assert_eq!(cards.friends.unwrap_err().kind(), io::ErrorKind::TimedOut);
+    assert!(matches!(cards.friends, Err(error) if error.kind() == io::ErrorKind::TimedOut));
 }
