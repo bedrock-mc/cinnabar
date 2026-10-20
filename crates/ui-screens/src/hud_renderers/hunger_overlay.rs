@@ -6,6 +6,7 @@ use render_api::sprite_mask::{MaskLayout, MaskPatch, SpriteMask};
 use std::sync::Arc;
 
 const RASTER_NAMESPACE: &str = "client-raster:hunger/";
+const ICON_SIDE: f32 = 9.;
 const EXTENT: [f32; 2] = [81., 11.];
 
 /// Combines current and held-food bands before filtering, including each icon's independent shake.
@@ -40,7 +41,12 @@ pub fn saturation_mask(
         for (start, end, opacity) in [(0, current, 255), (current, potential, 110)] {
             if end > start {
                 patches.push(MaskPatch {
-                    bounds: [x + start as f32 * 4.5, y, x + end as f32 * 4.5, y + 9.],
+                    bounds: [
+                        x + start as f32 * 4.5,
+                        y,
+                        x + end as f32 * 4.5,
+                        y + ICON_SIDE,
+                    ],
                     uv: [start as f32 * 0.5, 0., end as f32 * 0.5, 1.],
                     opacity,
                 });
@@ -86,10 +92,16 @@ pub(super) fn paint(
     {
         return;
     }
-    let Some(source) = canvas.textures().outline_mask(path) else {
+    let size = canvas.raster_size(bounds);
+    let source_size = std::array::from_fn(|axis| {
+        (size[axis] as f32 * ICON_SIDE / EXTENT[axis])
+            .ceil()
+            .max(1.) as u32
+    });
+    let Some(source) = canvas.outline_mask(path, source_size) else {
         return;
     };
-    let layout = saturation_mask(source, hunger, updates, canvas.raster_size(bounds));
+    let layout = saturation_mask(source, hunger, updates, size);
     let mut color = hunger.overlay_color;
     let blend = if hunger.inverse_overlay {
         color[..3].fill(255);
@@ -121,7 +133,7 @@ mod tests {
 
     /// Reads production row pixels without a renderer, pack file, or GPU fixture.
     fn row(left: u8, right: u8, hunger: &HungerPaint, updates: u64) -> Vec<u8> {
-        let mask = Arc::new(SpriteMask::outline([9, 9], |x, _| {
+        let mask = Arc::new(SpriteMask::outline([9, 9], [9, 9], |x, _| {
             if x == 0 {
                 left
             } else if x == 8 {

@@ -57,7 +57,7 @@ fn custom(key: &str, renderer: &str, data: serde_json::Value) -> DrawNode {
 
 /// Copies a request's paths only for stable, order-independent fixture comparisons.
 fn requested(base: &Dependencies<'_>, art: ScreenArt<'_>) -> BTreeSet<String> {
-    paths(base, art, &[], &mut |_| {})
+    paths(base, art, &[])
         .into_iter()
         .map(str::to_owned)
         .collect()
@@ -216,7 +216,7 @@ fn overlays_and_every_renderer_callback_remain_live_on_cached_and_empty_membersh
             overlay,
             ..Default::default()
         };
-        let paths: BTreeSet<String> = paths(&base, art, &[&mut renderer], &mut |_| {})
+        let paths: BTreeSet<String> = paths(&base, art, &[&mut renderer])
             .into_iter()
             .map(str::to_owned)
             .collect();
@@ -233,7 +233,7 @@ fn overlays_and_every_renderer_callback_remain_live_on_cached_and_empty_membersh
         omit_controls: &["live", "held", "banner"],
         ..Default::default()
     };
-    let paths: BTreeSet<String> = paths(&base, art, &[&mut renderer], &mut |_| {})
+    let paths: BTreeSet<String> = paths(&base, art, &[&mut renderer])
         .into_iter()
         .map(str::to_owned)
         .collect();

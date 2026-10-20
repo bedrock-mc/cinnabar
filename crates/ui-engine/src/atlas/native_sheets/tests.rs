@@ -153,9 +153,9 @@ fn full_native_sheet_table_still_prepares_source_outline() {
         atlas.placement(path).is_some(),
         "the ordinary sprite remains drawable"
     );
-    atlas.prepare_outline(path);
+    atlas.prepare_outline(path, [18; 2]);
     assert!(
-        atlas.original_outline(path).is_some(),
+        atlas.original_outline(path, [18; 2]).is_some(),
         "GPU page admission must not suppress CPU outlines"
     );
     assert_eq!(atlas.native.pages().len(), MAX_UI_NATIVE_SHEET_PAGES);

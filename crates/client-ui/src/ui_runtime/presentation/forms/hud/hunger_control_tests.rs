@@ -376,7 +376,7 @@ fn a_destroyed_factory_hunger_renderer_restarts_when_recreated_with_the_same_ide
 
 #[test]
 fn prepared_saturation_masks_publish_once_and_reuse_texels_for_faded_inverse_rows() {
-    let engine = engine();
+    let mut engine = engine();
     let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(1.).unwrap(), Some(2));
     let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
     let mut screen = CachedScreen::default();
@@ -399,7 +399,7 @@ fn prepared_saturation_masks_publish_once_and_reuse_texels_for_faded_inverse_row
         },
         ..Default::default()
     };
-    let mut render = |paint: &ui_screens::hud_renderers::HudPaint| {
+    let mut render = |engine: &FormEngine, paint: &ui_screens::hud_renderers::HudPaint| {
         let mut layouts = TextLayoutCache::new(32, 1024 * 1024);
         let mut nodes = Vec::new();
         let mut next = 1;
@@ -438,7 +438,18 @@ fn prepared_saturation_masks_publish_once_and_reuse_texels_for_faded_inverse_row
             .unwrap();
         ui::UiTree::new(nodes).unwrap().build_draw_list().unwrap()
     };
-    let draw = render(&paint);
+    let pending = render(&engine, &paint);
+    assert!(
+        pending
+            .batches
+            .iter()
+            .all(|batch| batch.blend != ui::UiBlendMode::Invert)
+    );
+    assert!(
+        engine.poll_native_images(),
+        "prepared source readiness must invalidate retained HUD frames"
+    );
+    let draw = render(&engine, &paint);
     let inverse: Vec<_> = draw
         .batches
         .iter()
@@ -481,7 +492,7 @@ fn prepared_saturation_masks_publish_once_and_reuse_texels_for_faded_inverse_row
     drop(atlas);
     engine.textures.lock().take_dirty();
     paint.hunger.overlay_color[3] = 180;
-    let faded = render(&paint);
+    let faded = render(&engine, &paint);
     assert!(
         faded
             .batches
@@ -493,7 +504,7 @@ fn prepared_saturation_masks_publish_once_and_reuse_texels_for_faded_inverse_row
         "tint opacity changes must not rebuild or upload mask pixels"
     );
     paint.hunger.saturation_overlay = Some(18);
-    let changed = render(&paint);
+    let changed = render(&engine, &paint);
     let batch = changed
         .batches
         .iter()

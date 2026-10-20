@@ -76,7 +76,7 @@ fn adjacent_outlines_preserve_sparse_edges_and_suppress_all_shared_coverage() {
             for dy in [0, 1] {
                 for opacity in [110, 255] {
                     let layout = MaskLayout {
-                        source: Arc::new(SpriteMask::outline([9, 9], |x, _| {
+                        source: Arc::new(SpriteMask::outline([9, 9], [9, 9], |x, _| {
                             if x == 0 {
                                 left
                             } else if x == 8 {
@@ -134,7 +134,7 @@ fn adjacent_outlines_preserve_sparse_edges_and_suppress_all_shared_coverage() {
 #[test]
 fn high_resolution_outline_survives_minification_in_both_blend_modes() {
     let layout = MaskLayout {
-        source: Arc::new(SpriteMask::outline([72, 72], |_, _| 255)),
+        source: Arc::new(SpriteMask::outline([72, 72], [18, 18], |_, _| 255)),
         extent: [72., 72.],
         size: [18, 18],
         patches: vec![MaskPatch {
@@ -154,7 +154,7 @@ fn high_resolution_outline_survives_minification_in_both_blend_modes() {
 
 #[test]
 fn cropped_masks_preserve_the_original_inner_transparency() {
-    let source = Arc::new(SpriteMask::outline([4, 4], |x, y| {
+    let source = Arc::new(SpriteMask::outline([4, 4], [4, 4], |x, y| {
         if x == 0 && y == 0 { 0 } else { 255 }
     }));
     let layout = MaskLayout {

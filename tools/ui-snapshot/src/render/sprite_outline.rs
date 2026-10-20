@@ -36,7 +36,7 @@ pub(super) fn png(size: [u32; 2], outline: bool) -> Result<Vec<u8>, Error> {
             repeat_content: None,
         },
     ];
-    let mask = Arc::new(SpriteMask::outline([9, 9], |x, y| {
+    let mask = Arc::new(SpriteMask::outline([9, 9], [9, 9], |x, y| {
         pages[1].rgba[(((y + 2) * 13 + x + 2) * 4 + 3) as usize]
     }));
     let mut nodes = vec![

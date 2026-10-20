@@ -10,7 +10,7 @@ use ui::{UiBlendMode, UiMesh, UiNode, UiNodeId, UiTree, UiVisual};
 
 /// One original sparse or shared-edge source, independent of any installed pack.
 fn edge_mask(left: u8, right: u8) -> Arc<SpriteMask> {
-    Arc::new(SpriteMask::outline([9, 9], |x, _| {
+    Arc::new(SpriteMask::outline([9, 9], [9, 9], |x, _| {
         if x == 0 {
             left
         } else if x == 8 {
@@ -154,7 +154,7 @@ pub(super) fn regression_png(size: [u32; 2]) -> Result<Vec<u8>, Error> {
             &mut nodes,
             &mut pages,
             layout(
-                Arc::new(SpriteMask::outline([72, 72], |_, _| 255)),
+                Arc::new(SpriteMask::outline([72, 72], [18, 18], |_, _| 255)),
                 false,
                 [50, 18],
             ),

@@ -503,9 +503,9 @@ impl ServerAtlas {
             }
     }
 
-    /// Requests source coverage independently of GPU sheets, before any renderer paints.
-    pub(crate) fn prepare_outline(&mut self, key: &str) {
-        if !self.outlines.needs(key) {
+    /// Requests draw-sized source coverage independently of GPU sheets, outside painting.
+    pub(crate) fn prepare_outline(&mut self, key: &str, size: [u32; 2]) {
+        if !self.outlines.needs(key, size) {
             return;
         }
         let carrier = (!self.has_image(key))
@@ -521,16 +521,17 @@ impl ServerAtlas {
         if let Some(input) =
             carrier.or_else(|| self.native_source(key).map(outlines::Input::Encoded))
         {
-            self.outlines.request(key, input, self.work.workers);
+            self.outlines.request(key, size, input, self.work.workers);
         }
     }
 
-    /// Reads a ready original-resolution mask without doing source work during paint.
+    /// Reads a ready draw-sized mask without doing source work during paint.
     pub(crate) fn original_outline(
         &self,
         key: &str,
+        size: [u32; 2],
     ) -> Option<Arc<render_api::sprite_mask::SpriteMask>> {
-        self.outlines.get(key)
+        self.outlines.get(key, size)
     }
 
     /// Whether an original virtual image has finished its one-time decode.

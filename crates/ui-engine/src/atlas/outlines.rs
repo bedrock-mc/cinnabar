@@ -23,7 +23,7 @@ pub(super) enum Input {
 
 impl Input {
     /// Derives alpha coverage on the image worker, retaining no decoded source pixels.
-    fn outline(self) -> Option<Arc<SpriteMask>> {
+    fn outline(self, size: [u32; 2]) -> Option<Arc<SpriteMask>> {
         Some(match self {
             Self::Encoded(source) => {
                 let mut reader = super::reader(&source.bytes)?;
@@ -38,24 +38,31 @@ impl Input {
                     image.as_raw(),
                     source.size[0],
                     [0, 0, source.size[0], source.size[1]],
+                    size,
                 )
             }
-            Self::Carrier { page, bounds } => outline(&page.rgba8, page.width, bounds),
+            Self::Carrier { page, bounds } => outline(&page.rgba8, page.width, bounds, size),
         })
     }
 }
 
 /// Derives a source-local outline from a validated RGBA rectangle without copying its pixels.
-fn outline(pixels: &[u8], stride: u32, [x, y, width, height]: [u32; 4]) -> Arc<SpriteMask> {
-    Arc::new(SpriteMask::outline([width, height], |px, py| {
+fn outline(
+    pixels: &[u8],
+    stride: u32,
+    [x, y, width, height]: [u32; 4],
+    size: [u32; 2],
+) -> Arc<SpriteMask> {
+    Arc::new(SpriteMask::outline([width, height], size, |px, py| {
         pixels[((y + py) as usize * stride as usize + (x + px) as usize) * 4 + 3]
     }))
 }
 
-type Completed = (String, Option<Arc<SpriteMask>>);
+type Key = (String, [u32; 2]);
+type Completed = (Key, Option<Arc<SpriteMask>>);
 
 struct Job {
-    key: String,
+    key: Key,
     input: Input,
     cancelled: Arc<AtomicBool>,
     done: Sender<Completed>,
@@ -67,7 +74,7 @@ impl ImageJob for Job {
         if self.cancelled.load(Ordering::Acquire) {
             return;
         }
-        let outline = self.input.outline();
+        let outline = self.input.outline(self.key.1);
         if !self.cancelled.load(Ordering::Acquire) {
             let _ = self.done.try_send((self.key, outline));
         }
@@ -90,7 +97,8 @@ pub(crate) fn run_one() -> bool {
 
 /// Keeps ready masks and one pending input for the atlas's source lifetime.
 pub(super) struct Outlines {
-    ready: BTreeMap<String, Option<Arc<SpriteMask>>>,
+    ready: BTreeMap<String, BTreeMap<[u32; 2], Option<Arc<SpriteMask>>>>,
+    dirty: bool,
     pending: bool,
     retry: Option<Job>,
     sender: Sender<Completed>,
@@ -103,6 +111,7 @@ impl Default for Outlines {
         let (sender, receiver) = crossbeam_channel::bounded(1);
         Self {
             ready: BTreeMap::new(),
+            dirty: false,
             pending: false,
             retry: None,
             sender,
@@ -120,27 +129,35 @@ impl Drop for Outlines {
 
 impl Outlines {
     /// Avoids resolving inputs already cached or while this atlas has outstanding work.
-    pub(super) fn needs(&self, key: &str) -> bool {
-        !self.pending && !self.ready.contains_key(key)
+    pub(super) fn needs(&self, key: &str, size: [u32; 2]) -> bool {
+        !self.pending
+            && self
+                .ready
+                .get(key)
+                .is_none_or(|sizes| !sizes.contains_key(&size))
     }
 
     /// Reads completed coverage without decoding, hashing or sampling any pixels.
-    pub(super) fn get(&self, key: &str) -> Option<Arc<SpriteMask>> {
-        self.ready.get(key).and_then(Clone::clone)
+    pub(super) fn get(&self, key: &str, size: [u32; 2]) -> Option<Arc<SpriteMask>> {
+        self.ready.get(key)?.get(&size).and_then(Clone::clone)
     }
 
-    /// Schedules one source; explicitly inline hosts prepare it here, before painting.
-    pub(super) fn request(&mut self, key: &str, input: Input, workers: bool) {
-        if !self.needs(key) {
+    /// Schedules one draw-sized source; explicitly inline hosts also prepare it outside paint.
+    pub(super) fn request(&mut self, key: &str, size: [u32; 2], input: Input, workers: bool) {
+        if !self.needs(key, size) {
             return;
         }
         if !workers {
-            self.ready.insert(key.to_owned(), input.outline());
+            self.ready
+                .entry(key.to_owned())
+                .or_default()
+                .insert(size, input.outline(size));
+            self.dirty = true;
             return;
         }
         self.pending = true;
         let job = Job {
-            key: key.to_owned(),
+            key: (key.to_owned(), size),
             input,
             cancelled: self.cancelled.clone(),
             done: self.sender.clone(),
@@ -153,10 +170,11 @@ impl Outlines {
         if let Some(job) = self.retry.take() {
             self.submit(job);
         }
-        let Ok((key, mask)) = self.receiver.try_recv() else {
-            return false;
+        let dirty = std::mem::take(&mut self.dirty);
+        let Ok(((key, size), mask)) = self.receiver.try_recv() else {
+            return dirty;
         };
-        self.ready.insert(key, mask);
+        self.ready.entry(key).or_default().insert(size, mask);
         self.pending = false;
         true
     }

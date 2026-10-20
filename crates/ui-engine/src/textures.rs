@@ -489,14 +489,14 @@ mod review_tests {
         let mut atlas = ServerAtlas::new(&[(format!("{path}.png"), png)], None, 1)
             .with_image_work(ImageWork::inline());
         atlas.require([path]);
-        atlas.prepare_outline(path);
+        atlas.prepare_outline(path, [9, 9]);
         let first = Textures {
             assets: &assets,
             set: &set,
             atlas: &atlas,
             images: None,
         }
-        .outline_mask(path)
+        .outline_mask(path, [9, 9])
         .unwrap();
         let other = "client-raster:other/test";
         atlas.set_client_rasters(
@@ -513,7 +513,7 @@ mod review_tests {
             atlas: &atlas,
             images: None,
         }
-        .outline_mask(path)
+        .outline_mask(path, [9, 9])
         .unwrap();
         assert!(
             Arc::ptr_eq(&first, &second),
@@ -535,15 +535,18 @@ mod review_tests {
             .with_image_work(ImageWork::inline());
         atlas.require([path]);
         assert_eq!(atlas.placement(path).unwrap().rect[2..], [256, 256]);
-        atlas.prepare_outline(path);
+        atlas.prepare_outline(path, [512, 512]);
         let view = Textures {
             assets: &assets,
             set: &set,
             atlas: &atlas,
             images: None,
         };
-        let source = view.outline_mask(path).unwrap();
-        assert!(Arc::ptr_eq(&source, &view.outline_mask(path).unwrap()));
+        let source = view.outline_mask(path, [512, 512]).unwrap();
+        assert!(Arc::ptr_eq(
+            &source,
+            &view.outline_mask(path, [512, 512]).unwrap()
+        ));
         let pixels = MaskLayout {
             source,
             extent: [512.; 2],
@@ -580,7 +583,7 @@ mod review_tests {
         atlas.require([path]);
         assert!(atlas.native_sheet_ready(path));
         atlas = atlas.with_image_work(ImageWork::default());
-        atlas.prepare_outline(path);
+        atlas.prepare_outline(path, [4096, 9]);
         let paint = |atlas: &ServerAtlas| {
             Textures {
                 assets: &assets,
@@ -588,7 +591,7 @@ mod review_tests {
                 atlas,
                 images: None,
             }
-            .outline_mask(path)
+            .outline_mask(path, [4096, 9])
         };
         for _ in 0..3 {
             assert!(
@@ -645,9 +648,9 @@ mod review_tests {
         let mut atlas = ServerAtlas::new(&[], None, 1)
             .with_carrier(Some(assets.clone()))
             .with_image_work(ImageWork::inline());
-        assert!(atlas.original_outline(path).is_none());
-        atlas.prepare_outline(path);
-        let source = atlas.original_outline(path).unwrap();
+        assert!(atlas.original_outline(path, [3, 3]).is_none());
+        atlas.prepare_outline(path, [3, 3]);
+        let source = atlas.original_outline(path, [3, 3]).unwrap();
         let pixels = MaskLayout {
             source: source.clone(),
             extent: [3.; 2],
@@ -663,13 +666,44 @@ mod review_tests {
         assert_eq!(pixels[3], 128, "the crop edge is a source edge");
         assert_eq!(pixels[4 * 4 + 3], 0);
         atlas = atlas.with_carrier(Some(assets));
-        assert!(Arc::ptr_eq(&source, &atlas.original_outline(path).unwrap()));
+        assert!(Arc::ptr_eq(
+            &source,
+            &atlas.original_outline(path, [3, 3]).unwrap()
+        ));
         atlas = atlas.with_carrier(Some(make_carrier(255)));
-        assert!(atlas.original_outline(path).is_none());
-        atlas.prepare_outline(path);
+        assert!(atlas.original_outline(path, [3, 3]).is_none());
+        atlas.prepare_outline(path, [3, 3]);
         assert!(!Arc::ptr_eq(
             &source,
-            &atlas.original_outline(path).unwrap()
+            &atlas.original_outline(path, [3, 3]).unwrap()
+        ));
+    }
+
+    #[test]
+    fn outline_draw_size_changes_wait_for_their_own_prepared_coverage() {
+        let path = "textures/ui/resized_mask";
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(72, 72, image::Rgba([255; 4]))
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let mut atlas = ServerAtlas::new(&[(format!("{path}.png"), png.into_inner())], None, 1)
+            .with_image_work(ImageWork::inline());
+        atlas.prepare_outline(path, [18; 2]);
+        let first = atlas.original_outline(path, [18; 2]).unwrap();
+        assert!(atlas.original_outline(path, [36; 2]).is_none());
+        assert!(
+            atlas.poll_native_images(),
+            "inline completion must also invalidate retained frames"
+        );
+        assert!(!atlas.poll_native_images());
+        atlas.prepare_outline(path, [36; 2]);
+        assert!(!Arc::ptr_eq(
+            &first,
+            &atlas.original_outline(path, [36; 2]).unwrap()
+        ));
+        assert!(Arc::ptr_eq(
+            &first,
+            &atlas.original_outline(path, [18; 2]).unwrap()
         ));
     }
 

@@ -37,10 +37,6 @@ pub trait CustomRenderer {
     /// Reports every texture this paint may draw, so it is resident first; `drawn` says
     /// whether a renderer name is laid out this frame.
     fn textures<'s>(&'s self, _drawn: &dyn Fn(&str) -> bool, _texture: &mut dyn FnMut(&'s str)) {}
-
-    /// Reports sources whose outlines need original pixels before any fitted sprite preview.
-    fn mask_sources<'s>(&'s self, _drawn: &dyn Fn(&str) -> bool, _source: &mut dyn FnMut(&'s str)) {
-    }
 }
 
 /// A laid-out `custom` node.

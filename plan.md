@@ -418,8 +418,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   compass markers, totem annotations and bounded camera overrides) still need
   displayed-frame pacing and complete rendering acceptance.
   Saturation overlays prepare source outlines on image workers independently of GPU-sheet
-  capacity, skip pending sources during paint, union whole-row coverage
-  before area filtering, and draw ordinary prepared sprites. Current and held-food
+  capacity and area-filter them to the requested draw size. Paint skips pending sources,
+  unions small masks with work bounded by output pixels and draws ordinary prepared
+  sprites. Current and held-food
   coverage share one mask. CPU/GPU regressions cover tint, cropping, unequal translucent
   edges, independent shake, inversion and high-resolution minification; complete in-game
   and platform acceptance remain pending.

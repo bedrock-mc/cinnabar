@@ -47,7 +47,7 @@ fn mask_scene(size: [u32; 2], rgba: Vec<u8>, inverse: bool, opacity: u8) -> UiRe
 /// Uses two repeated source masks at their real eight-pixel pitch, combining before compositing.
 fn adjacent_mask(left: u8, right: u8, dy: u32) -> Vec<u8> {
     MaskLayout {
-        source: Arc::new(SpriteMask::outline([9, 9], |x, _| {
+        source: Arc::new(SpriteMask::outline([9, 9], [9, 9], |x, _| {
             if x == 0 {
                 left
             } else if x == 8 {
@@ -140,7 +140,7 @@ fn assert_color(pixels: &[u8], at: usize, coverage: u8, opacity: u8, inverse: bo
 #[test]
 fn high_resolution_outline_keeps_coverage_when_minified_to_eighteen_pixels() {
     let layout = MaskLayout {
-        source: Arc::new(SpriteMask::outline([72, 72], |_, _| 255)),
+        source: Arc::new(SpriteMask::outline([72, 72], [18, 18], |_, _| 255)),
         extent: [72., 72.],
         size: [18, 18],
         patches: vec![MaskPatch {
@@ -166,7 +166,7 @@ fn high_resolution_outline_keeps_coverage_when_minified_to_eighteen_pixels() {
 
 #[test]
 fn source_cutouts_and_cropped_bands_do_not_create_filled_icons_or_new_edges() {
-    let source = Arc::new(SpriteMask::outline([4, 4], |x, y| {
+    let source = Arc::new(SpriteMask::outline([4, 4], [4, 4], |x, y| {
         if x == 0 && y == 0 { 0 } else { 255 }
     }));
     let layout = MaskLayout {

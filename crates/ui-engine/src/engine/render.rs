@@ -71,8 +71,7 @@ fn prepare_with<R: Borrow<FormRender>>(
         .unwrap_or_else(|poison| poison.into_inner())
         .get(&laid_render.nodes, art);
     let mut atlas = textures.set.lock();
-    let mut masks = Vec::new();
-    let paths = dependencies::paths(&base, art, frame.renderers, &mut |path| masks.push(path));
+    let paths = dependencies::paths(&base, art, frame.renderers);
     let drawn = Textures {
         assets: textures.assets,
         set: textures.set,
@@ -81,18 +80,6 @@ fn prepare_with<R: Borrow<FormRender>>(
     }
     .atlas_keys(paths.into_iter());
     atlas.require(drawn.iter().map(std::ops::Deref::deref));
-    for path in masks {
-        let view = Textures {
-            assets: textures.assets,
-            set: textures.set,
-            atlas: &atlas,
-            images: art.images,
-        };
-        if view.admits(path) {
-            let key = view.canonical(path).into_owned();
-            atlas.prepare_outline(&key);
-        }
-    }
     drop(base);
     Some(render)
 }

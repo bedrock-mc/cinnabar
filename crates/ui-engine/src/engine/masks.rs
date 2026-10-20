@@ -32,6 +32,7 @@ struct PendingSprite {
 
 #[derive(Default)]
 pub(crate) struct PreparedRasters {
+    sources: BTreeSet<(String, [u32; 2])>,
     namespaces: BTreeSet<String>,
     rows: BTreeSet<String>,
     images: BTreeMap<String, UiTexturePage>,
@@ -47,6 +48,9 @@ impl PreparedRasters {
         nodes: &mut [UiNode],
         set: &crate::textures::TextureSet,
     ) -> Result<(), PaintError> {
+        for (key, size) in self.sources {
+            atlas.prepare_outline(&key, size);
+        }
         for namespace in self.namespaces {
             set.masks
                 .lock()
@@ -83,14 +87,25 @@ impl PreparedRasters {
 
 impl Textures<'_> {
     /// Reads the prepared source outline, skipping the overlay until its worker completes.
-    pub fn outline_mask(&self, path: &str) -> Option<Arc<SpriteMask>> {
+    pub fn outline_mask(&self, path: &str, size: [u32; 2]) -> Option<Arc<SpriteMask>> {
         self.admits(path)
-            .then(|| self.atlas.original_outline(&self.canonical(path)))
+            .then(|| self.atlas.original_outline(&self.canonical(path), size))
             .flatten()
     }
 }
 
 impl Canvas<'_> {
+    /// Requests draw-sized source coverage after paint; until it is ready the overlay is skipped.
+    pub fn outline_mask(&mut self, path: &str, size: [u32; 2]) -> Option<Arc<SpriteMask>> {
+        if !self.textures.admits(path) {
+            return None;
+        }
+        self.prepared
+            .sources
+            .insert((self.textures.canonical(path).into_owned(), size));
+        self.textures.outline_mask(path, size)
+    }
+
     /// Chooses mask texels from the final physical scale, including a control's paint transform.
     pub fn raster_size(&self, bounds: [f32; 4]) -> [u32; 2] {
         let scale = self.residual.map_or([1., 1.], |map| {
@@ -220,6 +235,42 @@ mod tests {
         }
     }
 
+    #[test]
+    fn checkerboard_source_keeps_row_paint_allocations_proportional_to_output() {
+        use render_api::sprite_mask::MaskPatch;
+        let source = Arc::new(SpriteMask::outline([1024; 2], [18; 2], |x, y| {
+            if (x + y).is_multiple_of(2) { 255 } else { 0 }
+        }));
+        let mut layout = MaskLayout {
+            source,
+            extent: [81., 11.],
+            size: [162, 22],
+            patches: (0..10)
+                .map(|icon| MaskPatch {
+                    bounds: [icon as f32 * 8., 1., icon as f32 * 8. + 9., 10.],
+                    uv: [0., 0., 1., 1.],
+                    opacity: 255,
+                })
+                .collect(),
+        };
+        for change in 0..3 {
+            layout.patches[0].opacity = 255 - change * 50;
+            layout.patches[1].bounds[1] = 1. + f32::from(change % 2);
+            layout.patches[1].bounds[3] = layout.patches[1].bounds[1] + 9.;
+            let (pixels, allocations) = test_alloc::measure(|| layout.rasterize().unwrap());
+            assert_eq!(pixels.len(), 162 * 22 * 4);
+            assert!(
+                allocations.calls <= 8,
+                "row paint requested {allocations:?}"
+            );
+            assert!(
+                allocations.bytes <= 162 * 22 * 32,
+                "row paint requested {allocations:?}"
+            );
+            assert!((127..=128).contains(&pixels[(8 * 162 + 80) * 4 + 3]));
+        }
+    }
+
     struct Offline;
     impl RemoteSource for Offline {
         /// Prepared masks never need downloaded artwork.
@@ -245,6 +296,7 @@ mod tests {
         ];
         let key = "client-raster:fixture/row".to_owned();
         let prepared = PreparedRasters {
+            sources: BTreeSet::new(),
             namespaces: BTreeSet::from(["client-raster:fixture/".into()]),
             rows: Default::default(),
             images: BTreeMap::from([(
