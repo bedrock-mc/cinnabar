@@ -5995,6 +5995,7 @@ dependencies = [
  "naga-types",
  "num-traits",
  "once_cell",
+ "pp-rs",
  "rustc-hash 1.1.0",
  "spirv",
  "thiserror 2.0.18",
@@ -8291,6 +8292,7 @@ dependencies = [
 name = "shaderpack"
 version = "0.1.22"
 dependencies = [
+ "naga",
  "pp-rs",
  "zip",
  "zip-footer",
