@@ -465,6 +465,47 @@ fn form_display_resolution_keeps_expanded_translations_without_changing_chat() {
 }
 
 #[test]
+fn form_display_expansion_shares_one_budget_across_large_unused_arguments() {
+    use std::sync::Arc;
+    let arguments = vec!["%large"; protocol::MAX_RAW_TEXT_COMPONENTS - 1];
+    let ServerFormModel::TextMenu(menu) = model(json!({"type":"form","buttons":[
+        {"text":{"rawtext":[{"translate":"tiny","with":arguments}]}}
+    ]})) else {
+        panic!("form with large arguments");
+    };
+    let protocol::FormText::Raw(document) = &menu.buttons[0] else {
+        panic!("rawtext");
+    };
+    let large: Arc<str> = "x".repeat(protocol::MAX_RAW_TEXT_EXPANSION_BYTES).into();
+    let lookups = std::cell::Cell::new(0);
+    let translate = |key: &str| match key {
+        "tiny" => Some(Arc::from("OK")),
+        "large" => {
+            lookups.set(lookups.get() + 1);
+            Some(Arc::clone(&large))
+        }
+        _ => None,
+    };
+    let (resolved, allocations) = test_alloc::measure(|| {
+        document.resolve(&protocol::RawTextResolver {
+            reader_name: "Player",
+            translate: &translate,
+            score: &|_, _| None,
+            selector: &|_| None,
+        })
+    });
+    // Allow small per-component bookkeeping beyond the single expanded-text allowance.
+    let allowance = protocol::MAX_RAW_TEXT_EXPANSION_BYTES;
+    assert!(
+        allocations.bytes <= allowance + allowance / 16,
+        "{allocations:?}"
+    );
+    assert!("OK".starts_with(&resolved.text));
+    assert!(resolved.truncated);
+    assert_eq!(lookups.get(), 1);
+}
+
+#[test]
 fn form_display_expansion_stops_nested_amplification_with_bounded_allocations() {
     use std::sync::Arc;
     // The safe reduction fails first, before an unbounded resolver can attempt the 100 GB case.
@@ -475,7 +516,7 @@ fn form_display_expansion_stops_nested_amplification_with_bounded_allocations() 
             component = json!({"translate":"repeat","with":{"rawtext":[component]}});
         }
         let ServerFormModel::TextMenu(menu) = model(json!({"type":"form","buttons":[
-            {"text":{"rawtext":[component, {"selector":"@s"}]}}
+            {"text":{"rawtext":[{"text":"prefix"}, component, {"selector":"@s"}]}}
         ]})) else {
             panic!("amplified form");
         };
@@ -495,8 +536,9 @@ fn form_display_expansion_stops_nested_amplification_with_bounded_allocations() 
             selector: &|_| panic!("expansion must stop after exhaustion"),
         };
         let (resolved, allocations) = test_alloc::measure(|| document.resolve(&resolver));
-        assert_eq!(resolved.text.len(), protocol::MAX_RAW_TEXT_EXPANSION_BYTES);
-        assert!(resolved.text.bytes().all(|byte| byte == b'x'));
+        let suffix = resolved.text.strip_prefix("prefix").unwrap();
+        assert!(resolved.text.len() <= protocol::MAX_RAW_TEXT_EXPANSION_BYTES);
+        assert!(suffix.bytes().all(|byte| byte == b'x'));
         assert!(resolved.truncated);
         assert!(resolved.text.capacity() <= protocol::MAX_RAW_TEXT_EXPANSION_BYTES);
         assert_eq!(lookups.get(), 3);
@@ -510,17 +552,25 @@ fn form_display_expansion_stops_nested_amplification_with_bounded_allocations() 
 #[test]
 fn form_display_expansion_keeps_the_utf8_prefix_when_translation_or_parameter_exhausts_it() {
     use std::sync::Arc;
-    let expected = "p".repeat(protocol::MAX_RAW_TEXT_EXPANSION_BYTES - 1);
-    let expanded: Arc<str> = format!("{expected}🌍Z").into();
-    let translate = |key: &str| match key {
-        "long" => Some(Arc::clone(&expanded)),
-        "argument" => Some(Arc::from("%1")),
-        _ => None,
-    };
-    for component in [
-        json!({"translate":"long"}),
-        json!({"translate":"argument","with":["%long"]}),
-    ] {
+    for parameter in [false, true] {
+        let bytes = if parameter {
+            // The key, argument and output leave two bytes for the four-byte scalar.
+            (protocol::MAX_RAW_TEXT_EXPANSION_BYTES - "%long".len() - "🌍Z".len() - 2) / 2
+        } else {
+            protocol::MAX_RAW_TEXT_EXPANSION_BYTES - 1
+        };
+        let expected = "p".repeat(bytes);
+        let expanded: Arc<str> = format!("{expected}🌍Z").into();
+        let translate = |key: &str| match key {
+            "long" => Some(Arc::clone(&expanded)),
+            "argument" => Some(Arc::from("%1")),
+            _ => None,
+        };
+        let component = if parameter {
+            json!({"translate":"argument","with":["%long"]})
+        } else {
+            json!({"translate":"long"})
+        };
         let ServerFormModel::TextMenu(menu) = model(json!({"type":"form","buttons":[
             {"text":{"rawtext":[component,{"text":"Z"}]}}
         ]})) else {

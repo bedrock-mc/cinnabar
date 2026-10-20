@@ -725,6 +725,34 @@ fn bounded_translation_keeps_parent_text_after_an_unused_argument_is_truncated()
 }
 
 #[test]
+fn clipped_numeric_translation_arguments_keep_the_template_and_following_suffixes() {
+    let number: Arc<str> = format!("0.{}", "0".repeat(MAX_RAW_TEXT_OUTPUT_BYTES)).into();
+    for template in ["%.2f coins", "%.2f coins %1"] {
+        let document = parse_raw_text(
+            r#"{"rawtext":[{"translate":"coins","with":["%number"]},{"text":" afterwards"}]}"#,
+        )
+        .unwrap();
+        let result = document.resolve(&protocol::RawTextResolver {
+            reader_name: "Player",
+            translate: &|key| match key {
+                "coins" => Some(Arc::from(template)),
+                "number" => Some(Arc::clone(&number)),
+                _ => None,
+            },
+            score: &|_, _| None,
+            selector: &|_| None,
+        });
+        if template.ends_with("%1") {
+            assert!(result.text.starts_with("0.00 coins 0."));
+            assert!(!result.text.ends_with(" afterwards"));
+        } else {
+            assert_eq!(result.text, "0.00 coins afterwards");
+        }
+        assert!(result.truncated);
+    }
+}
+
+#[test]
 fn form_translation_formatting_keeps_long_labels_and_bounds_substitution_growth() {
     let long = "界".repeat(10_000);
     let arguments = [long.clone(), "5".into()];
