@@ -12,7 +12,7 @@ use super::classify::{
     DrawValues, ENTITY_GLINT_SCALE, ITEM_GLINT_SCALE, classify, entity_colour,
     glint_texture_matrix, vertex_colour,
 };
-use super::skin::{JOB_ONE_SIDED, JOB_VIEW_SPACE, SkinJob};
+use super::skin::{JOB_GLINT, JOB_ONE_SIDED, JOB_VIEW_SPACE, SkinJob};
 use super::{ActorSources, BlockEntitySource, Hand, LayerTexture, RigSource};
 use crate::shaderpack::atlas::{NEUTRAL_NORMAL, NEUTRAL_SPECULAR};
 use crate::shaderpack::draws::DrawKind;
@@ -69,7 +69,7 @@ impl Growable {
                 size: super::pages::allocation_size(
                     size,
                     if usage.contains(wgpu::BufferUsages::STORAGE) {
-                        u64::from(device.limits().max_storage_buffer_binding_size)
+                        device.limits().max_storage_buffer_binding_size
                     } else {
                         device.limits().max_buffer_size
                     },
@@ -325,6 +325,7 @@ impl ViewActors {
                     DrawKind::ArmorGlint
                 };
                 if class.glint
+                    && data.glint[2] > 0.0
                     && drawn(glint_kind)
                     && let Some(glint) = glint_keys[usize::from(item)]
                 {
@@ -333,10 +334,22 @@ impl ViewActors {
                     } else {
                         ENTITY_GLINT_SCALE
                     };
-                    let texture_matrix = glint_texture_matrix(sources.seconds, scale);
+                    let texture_matrix = glint_texture_matrix(data.glint, scale);
+                    let strength = data.glint[2];
+                    let glint_first = *output;
+                    self.jobs.push(SkinJob {
+                        first_output: glint_first as u32,
+                        first_output_high: (glint_first >> 32) as u32,
+                        flags: job.flags | JOB_GLINT,
+                        colour: render_model::pack_overlay_rgba8([
+                            strength, strength, strength, 1.0,
+                        ]),
+                        ..job
+                    });
+                    *output += u64::from(job.output_vertices());
                     self.push(
                         glint_kind,
-                        vertices.clone(),
+                        glint_first..*output,
                         glint,
                         DrawValues {
                             texture_matrix,
