@@ -142,6 +142,18 @@ interface player-state {
     /// None outside a current snapshot. Shares the read-snapshot grant and read budget.
     /// Contents equal to the last full read reuse its token, even after unimported changes.
     read-revision: func() -> result<option<u64>, string>;
+    record equipment {
+        session: u64, dimension: s32, selected-slot: option<u8>,
+        inventory: list<slot>, armor: list<slot>, offhand: slot,
+    }
+    record effects { session: u64, dimension: s32, effects: list<effect> }
+    record revisions { session: u64, dimension: s32, equipment: u64, effects: u64 }
+    /// Independent exact observation tokens. Equipment is unaffected by ticking effects.
+    /// Tokens advance on observed changes and never repeat within an instance, including reconnects.
+    /// These three reads share read-snapshot's grant, bounds, and callback read allowance.
+    read-revisions: func() -> result<option<revisions>, string>;
+    read-equipment: func() -> result<option<equipment>, string>;
+    read-effects: func() -> result<option<effects>, string>;
 }
 
 /// An opt-in retained settings panel, rendered and hit-tested by the host.
@@ -567,4 +579,51 @@ world player-mod {
     export data-changed: func(sources: list<data-source>);
     /// The host closed the view (Escape, or the container closing), not the mod.
     export view-closed: func();
+}
+
+/// Every session packet, relayed through one trusted mod. A batch is the session contract's batch
+/// body: each packet as a varuint32 byte length followed by the encoded packet, header included,
+/// in the session's protocol.
+interface packet-relay {
+    /// The way a batch travels.
+    enum direction { from-client, from-server }
+
+    /// The upstream login's canonical player identity.
+    record session-identity {
+        display-name: string,
+        xuid: string,
+        uuid: string,
+    }
+
+    /// A resource pack the mod adds to the session.
+    record session-pack {
+        /// The pack's zip archive; its manifest identity must not repeat another pack in the stack.
+        archive: list<u8>,
+        /// Whether the pack applies above the server's packs rather than below them.
+        above-server: bool,
+    }
+
+    /// Batch bodies the mod sends outside a relayed batch; an empty body sends nothing.
+    record outbound {
+        to-client: list<u8>,
+        to-server: list<u8>,
+    }
+}
+
+/// A trusted mod that relays every session packet. It needs the `packets` grant; WASI preview 2
+/// is linked only with the `wasi` grant, without files, environment, arguments or network.
+world packet-mod {
+    use packet-relay.{direction, session-identity, session-pack, outbound};
+
+    /// Begins a session: the upstream identity, the login client data as the session's Connect sent
+    /// it (JSON), and the server's startup packets through StartGame as one batch body. Returns the
+    /// resource packs the mod adds.
+    export start: func(identity: session-identity, client-data: string, startup: list<u8>) -> result<list<session-pack>, string>;
+    /// Handles one relayed batch: none forwards it unchanged; some replaces it, and an empty body
+    /// drops it.
+    export on-batch: func(direction: direction, batch: list<u8>) -> result<option<list<u8>>, string>;
+    /// Runs timed work about once per client tick (50 ms) and returns packets to send now.
+    export tick: func() -> result<outbound, string>;
+    /// Ends the session.
+    export stop: func();
 }

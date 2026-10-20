@@ -5,7 +5,7 @@
 //! what arrived by the previous frame's poll.
 
 use bevy::{
-    prelude::*,
+    prelude::{IntoScheduleConfigs, Res, ResMut, Resource, SubApp, SystemSet, warn},
     render::{
         Render, RenderSystems,
         render_resource::PollType,
@@ -15,7 +15,7 @@ use bevy::{
 
 /// Owners whose systems register completion callbacks or request readbacks after the graph.
 #[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct FrameSubmissions;
+pub struct FrameSubmissions;
 
 /// Polls issued so far; tests read it to prove there is exactly one per frame.
 #[derive(Resource, Default, Debug)]

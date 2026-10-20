@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
+	"github.com/hashimthearab/rust-mcbe/core/internal/joinprofile"
 	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
@@ -152,7 +153,7 @@ func (server *sessionServer) serveConnWithPacks(ctx context.Context, raw net.Con
 	if err != nil {
 		return errors.Join(err, refuseSessionConnect(raw, framed, err))
 	}
-	sessionCtx, cancel := context.WithCancelCause(ctx)
+	sessionCtx, cancel := context.WithCancelCause(joinprofile.Start(ctx, request.JoinProfileID))
 	defer cancel(nil)
 	session := newSessionConn(framed)
 	defer func() { _ = session.Close() }()
@@ -272,12 +273,15 @@ func (server *sessionServer) prepare(
 
 // handOffSession writes the handoff, the pack archives and the rest of StartGame's batch, then relays.
 func handOffSession(ctx context.Context, session *sessionConn, prepared *preparedConnection, plan sessionPlan) error {
+	deliveryDone := joinprofile.Stage(ctx, "core_pack_handoff")
 	if err := writeSessionHandoff(session, plan); err != nil {
 		if errors.Is(err, errSessionEnded) {
 			err = nil
 		}
+		deliveryDone()
 		return errors.Join(err, prepared.close())
 	}
+	deliveryDone()
 	prepared.packAdmission.observeLocalHandoff(prepared.packStack)
 	return servePreparedConnection(ctx, session, prepared)
 }

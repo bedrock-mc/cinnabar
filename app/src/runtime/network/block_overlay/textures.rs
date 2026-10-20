@@ -1,6 +1,6 @@
 //! Terrain texture keys and flipbooks resolved across the stack.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use assets::texture::flipbook::FlipbookSource;
 use resource_pack::LayeredPackView;
@@ -32,14 +32,33 @@ pub(super) struct TextureImage {
 /// Texture keys resolved across the stack; a higher pack replaces a key.
 pub(super) struct TextureCatalog<'a> {
     view: &'a LayeredPackView,
-    terrain: HashMap<String, pack_runtime::pack_textures::terrain::Entry>,
-    base_terrain: HashMap<String, pack_runtime::pack_textures::terrain::Entry>,
-    flipbooks: HashMap<String, Vec<FlipbookSource>>,
-    destinations: HashMap<String, Vec<u32>>,
-    diagnostics: TextureDiagnostics,
+    data: CatalogData,
     pub(super) texture_policy: assets::texture::policy::TexturePolicy,
     #[cfg(test)]
     pub(super) decode_attempts: std::cell::Cell<usize>,
+}
+
+/// Parsed terrain inputs can be rebound to each subscriber's independent read recorder.
+#[derive(Clone)]
+struct CatalogData {
+    terrain: Arc<HashMap<String, pack_runtime::pack_textures::terrain::Entry>>,
+    base_terrain: Arc<HashMap<String, pack_runtime::pack_textures::terrain::Entry>>,
+    flipbooks: Arc<HashMap<String, Vec<FlipbookSource>>>,
+    destinations: Arc<HashMap<String, Vec<u32>>>,
+    diagnostics: TextureDiagnostics,
+}
+
+/// Shares parsed tables within one blocks/icons compile, retaining their read dependencies.
+#[derive(Default)]
+pub(in crate::runtime::network) struct SharedTextures {
+    parsed: std::cell::RefCell<Option<PreparedTextures>>,
+    #[cfg(test)]
+    pub(in crate::runtime::network) catalog_builds: std::cell::Cell<usize>,
+}
+
+struct PreparedTextures {
+    data: CatalogData,
+    files: std::collections::BTreeSet<resource_pack::PackDependency>,
 }
 
 impl<'a> TextureCatalog<'a> {
@@ -102,21 +121,56 @@ impl<'a> TextureCatalog<'a> {
         }
         Self {
             view,
-            terrain: server_terrain,
-            base_terrain: terrain,
-            flipbooks,
-            destinations,
-            diagnostics,
+            data: CatalogData {
+                terrain: Arc::new(server_terrain),
+                base_terrain: Arc::new(terrain),
+                flipbooks: Arc::new(flipbooks),
+                destinations: Arc::new(destinations),
+                diagnostics,
+            },
             texture_policy: assets::texture::policy::device_policy(),
             #[cfg(test)]
             decode_attempts: std::cell::Cell::new(0),
         }
     }
 
+    /// Reuses parsed catalog inputs while replaying their dependencies into this subscriber.
+    pub(super) fn reusing(
+        view: &'a LayeredPackView,
+        base: Option<&assets::material_keys::MaterialKeys>,
+        shared: Option<&SharedTextures>,
+    ) -> Self {
+        let Some(shared) = shared else {
+            return Self::new(view, base);
+        };
+        if let Some(PreparedTextures { data, files }) = shared.parsed.borrow().as_ref() {
+            if let Some(dependencies) = view.dependencies() {
+                dependencies.extend(files.clone());
+            }
+            return Self {
+                view,
+                data: data.clone(),
+                texture_policy: assets::texture::policy::device_policy(),
+                #[cfg(test)]
+                decode_attempts: std::cell::Cell::new(0),
+            };
+        }
+        #[cfg(test)]
+        shared.catalog_builds.set(shared.catalog_builds.get() + 1);
+        let catalog = Self::new(view, base);
+        if let Some(dependencies) = view.dependencies() {
+            *shared.parsed.borrow_mut() = Some(PreparedTextures {
+                data: catalog.data.clone(),
+                files: dependencies.snapshot(),
+            });
+        }
+        catalog
+    }
+
     /// Returns the last animation created for a destination, including all-variant descriptions.
     pub(super) fn flipbook(&self, key: &str, selector: (u32, u32)) -> Option<&FlipbookSource> {
         let selector = self.normalize_selector(key, selector);
-        self.flipbooks.get(key)?.iter().rev().find(|source| {
+        self.data.flipbooks.get(key)?.iter().rev().find(|source| {
             source.atlas_index == selector.0
                 && (source.all_variants || source.atlas_tile_variant == selector.1)
         })
@@ -125,6 +179,7 @@ impl<'a> TextureCatalog<'a> {
     /// Clamps material indices to the winning layout, then normalizes their UV variants.
     pub(super) fn normalize_selector(&self, key: &str, selector: (u32, u32)) -> (u32, u32) {
         let Some(counts) = self
+            .data
             .destinations
             .get(key)
             .filter(|counts| !counts.is_empty())
@@ -142,8 +197,8 @@ impl<'a> TextureCatalog<'a> {
 
     /// Whether the winning state choices or UV grid differ from the immutable base catalog.
     pub(super) fn redefined(&self, key: &str, variant: u32) -> bool {
-        self.terrain.get(key).is_some_and(|entry| {
-            self.base_terrain.get(key).is_none_or(|base| {
+        self.data.terrain.get(key).is_some_and(|entry| {
+            self.data.base_terrain.get(key).is_none_or(|base| {
                 entry.grid != base.grid || entry.variant(variant) != base.variant(variant)
             })
         })
@@ -151,7 +206,10 @@ impl<'a> TextureCatalog<'a> {
 
     /// Resolves a complete entry from the optional stack before falling back to the base.
     fn entry(&self, key: &str) -> Option<&pack_runtime::pack_textures::terrain::Entry> {
-        self.terrain.get(key).or_else(|| self.base_terrain.get(key))
+        self.data
+            .terrain
+            .get(key)
+            .or_else(|| self.data.base_terrain.get(key))
     }
 
     /// Choices for one state variant, independent of the other variants.
@@ -232,7 +290,8 @@ impl<'a> TextureCatalog<'a> {
     /// Retains every pixel or animation property that can change an admitted raster slot.
     pub(super) fn identity(&self, route: &super::TextureRoute) -> Option<TextureIdentity> {
         let Some((resolved_variant, index, choice)) = self.resolve_choice(route) else {
-            self.diagnostics
+            self.data
+                .diagnostics
                 .failure(FailureReason::TerrainKeyMissing, route.key(), None);
             return None;
         };
@@ -240,11 +299,15 @@ impl<'a> TextureCatalog<'a> {
             super::TextureRoute::Catalog { variant, .. }
             | super::TextureRoute::Path { variant, .. } => *variant,
         };
-        let variant = if self.terrain.contains_key(route.key())
-            || self.destinations.get(route.key()).is_some_and(|counts| {
-                self.entry(route.key())
-                    .is_some_and(|entry| counts.len() == entry.variant_count())
-            }) {
+        let variant = if self.data.terrain.contains_key(route.key())
+            || self
+                .data
+                .destinations
+                .get(route.key())
+                .is_some_and(|counts| {
+                    self.entry(route.key())
+                        .is_some_and(|entry| counts.len() == entry.variant_count())
+                }) {
             resolved_variant
         } else {
             requested_variant
@@ -278,19 +341,21 @@ impl<'a> TextureCatalog<'a> {
 
     /// Records a route the overlay could not admit because its texture array is full.
     pub(super) fn report_full(&self, key: &str) {
-        self.diagnostics
+        self.data
+            .diagnostics
             .failure(FailureReason::TextureArrayFull, key, None);
     }
 
     /// Names a route whose full-resolution storage would exceed the page budget.
     pub(super) fn report_budget(&self, key: &str) {
-        self.diagnostics
+        self.data
+            .diagnostics
             .failure(FailureReason::TextureBudgetExceeded, key, None);
     }
 
     /// Emits the counted terrain failures for this stack.
     pub(super) fn emit_diagnostics(&self) {
-        self.diagnostics.emit();
+        self.data.diagnostics.emit();
     }
 }
 

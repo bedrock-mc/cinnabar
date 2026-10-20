@@ -94,9 +94,21 @@ allowed_dependencies = []
 forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 
 [[crates]]
+name = "zip-footer"
+path = "crates/zip-footer"
+allowed_dependencies = []
+forbidden_dependencies = ["bevy", "wgpu"]
+
+[[crates]]
+name = "shaderpack"
+path = "crates/shaderpack"
+allowed_dependencies = ["zip-footer"]
+forbidden_dependencies = ["bevy", "wgpu"]
+
+[[crates]]
 name = "resource-pack"
 path = "crates/resource-pack"
-allowed_dependencies = ["pack-json", "protocol"]
+allowed_dependencies = ["pack-json", "protocol", "zip-footer"]
 forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 test_support_features = ["test-support"]
 
@@ -188,7 +200,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap"
 name = "pack-runtime"
 path = "crates/pack-runtime"
 forbidden_dependencies = ["pack-compiler", "pack-font-compiler"]
-allowed_dependencies = ["pack-json", "assets", "block-transform", "json-ui", "pack-compile-input", "pack-entity-compiler", "protocol", "resource-pack", "sim"]
+allowed_dependencies = ["bridge", "pack-json", "assets", "block-transform", "json-ui", "pack-compile-input", "pack-entity-compiler", "protocol", "resource-pack", "sim"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "client-session", "client-ui", "client-presentation", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
@@ -274,7 +286,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "client-runtime", "clien
 name = "client-ui"
 path = "crates/client-ui"
 # Extension edges support presentation adapters; render data comes from render-model, never render.
-allowed_dependencies = ["cosmetics", "pack-json", "env-compat", "simulation-clock", "actor-animation", "launcher-host", "bridge", "assets", "chunk-pipeline", "client-world", "player-state", "launcher", "inventory", "json-ui", "oreui", "protocol", "render-api", "render-model", "resource-pack", "semantic-input", "ui", "ui-engine", "ui-screens", "mod-ui", "world", "mod-host", "server-experience", "test-time", "protocol-ids"]
+allowed_dependencies = ["particles", "cosmetics", "pack-json", "env-compat", "simulation-clock", "actor-animation", "launcher-host", "bridge", "assets", "chunk-pipeline", "client-world", "player-state", "launcher", "inventory", "json-ui", "oreui", "protocol", "render-api", "render-model", "resource-pack", "semantic-input", "ui", "ui-engine", "ui-screens", "mod-ui", "world", "mod-host", "server-experience", "test-time", "protocol-ids"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-session", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
@@ -525,7 +537,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "mod-ui"
 path = "crates/mod-ui"
-allowed_dependencies = ["assets", "json-ui", "render-model", "server-experience", "ui", "ui-engine"]
+allowed_dependencies = ["assets", "json-ui", "render-model", "server-experience", "test-alloc", "ui", "ui-engine"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu", "client-ui", "launcher-host", "oreui", "ui-screens"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "launcher-host", "render", "oreui", "ui-screens", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
@@ -576,7 +588,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "ui-snapshot"
 path = "tools/ui-snapshot"
-allowed_dependencies = ["cosmetics", "assets", "bridge", "inventory", "json-ui", "jsonui-editor", "launcher", "oreui", "player-state", "protocol", "render-api", "render-model", "ui", "ui-engine", "ui-screens"]
+allowed_dependencies = ["client-ui", "cosmetics", "assets", "bridge", "inventory", "json-ui", "jsonui-editor", "launcher", "oreui", "player-state", "protocol", "render-api", "render-model", "ui", "ui-engine", "ui-screens"]
 test_support_features = ["test-support"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "bevy", "bevy_*", "wgpu*"]
 
@@ -1345,7 +1357,7 @@ vocabularies = [
     { path = "crates/protocol/data/retail_items_1_26_50.tsv", column = 1 },
     { path = "crates/protocol/data/retail_actors_1_26_50.txt", column = 0 },
     { path = "crates/protocol/data/retail_biomes_1_26_50.txt", column = 0 },
-    { path = "crates/protocol/data/item_tags_dragonfly.tsv", column = 0 },
+    { path = "crates/protocol/data/item_tags_native.tsv", column = 0 },
 ]
 block_registries = ["crates/assets/data/block-registry-v2193.bin"]
 # The provisional PBR texture-name table must move to a generated mapping (plan.md).

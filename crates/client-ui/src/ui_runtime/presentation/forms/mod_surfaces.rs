@@ -55,6 +55,21 @@ impl UiPresentationRuntime {
         self.screens.mod_ui.set_mod_hud(content)
     }
 
+    /// Publishes a shared merged HUD without copying unchanged card data.
+    pub fn set_shared_mod_hud(
+        &mut self,
+        content: Option<std::sync::Arc<Hud>>,
+    ) -> Result<(), String> {
+        if self.screens.mod_ui.mod_chat_actions()
+            != content
+                .as_ref()
+                .map_or(&[][..], |hud| hud.chat_actions.as_slice())
+        {
+            self.screens.chat.forget_annotations();
+        }
+        self.screens.mod_ui.set_shared_mod_hud(content)
+    }
+
     /// Follows the client part's modal in the dynamic pages reserved to its atlas.
     pub fn set_experience_modal(&mut self, modal: Option<ExperienceModal<'_>>) {
         let page = (self.textures.dynamic_start() + pages::MODAL_UI_PAGE) as u16;

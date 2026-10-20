@@ -222,12 +222,12 @@ fn pitched_camera_sorts_lifted_multiline_planes_and_keeps_label_passes_together(
             let far_anchor = single.position.to_array();
             let scene = scaled_scene(&[multiline, single], scale);
             assert!(
-                scene.records[..3]
+                scene.records[..NAMETAG_RECORDS_PER_LINE]
                     .iter()
                     .all(|record| record.anchor == far_anchor)
             );
             assert!(
-                scene.records[3..]
+                scene.records[NAMETAG_RECORDS_PER_LINE..]
                     .iter()
                     .all(|record| record.anchor == near_anchor)
             );
@@ -268,7 +268,7 @@ fn pitched_camera_sorts_lifted_multiline_planes_and_keeps_label_passes_together(
                     depth = at;
                 }
             }
-            assert_eq!(near_text_samples, if sneaking { 1 } else { 2 });
+            assert_eq!(near_text_samples, 1);
             let near_ink = if sneaking { DIM_TEXT_ALPHA } else { 1.0 };
             assert!(
                 (pixel - near_ink).abs() < 1e-6,
@@ -282,8 +282,12 @@ fn pitched_camera_sorts_lifted_multiline_planes_and_keeps_label_passes_together(
 fn lifted_sorting_uses_the_line_count_that_fits_the_record_budget() {
     let forward = Vec3::new(0.0, 1.0, -1.0).normalize();
     let mut single = anchor("A");
-    single.position = forward * 40.0;
-    single.view_depth = 40.0;
+    let placed_lines = (MAX_NAMETAG_RECORDS - NAMETAG_RECORDS_PER_LINE) / NAMETAG_RECORDS_PER_LINE;
+    let full_depth = 5.0 + forward.y * EXTRA_LINE_LIFT * (MAX_NAMETAG_LINES - 1) as f32;
+    let truncated_depth = 5.0 + forward.y * EXTRA_LINE_LIFT * (placed_lines - 1) as f32;
+    single.view_depth = (full_depth + truncated_depth) * 0.5;
+    single.position = forward * single.view_depth;
+    let single_depth = single.view_depth;
     single.camera_forward_y = forward.y;
     let mut multiline = anchor(&vec!["A"; MAX_NAMETAG_LINES].join("\n"));
     multiline.runtime_id = 2;
@@ -296,18 +300,23 @@ fn lifted_sorting_uses_the_line_count_that_fits_the_record_budget() {
     // The requested lift would put the multiline label beyond the single-line plane.
     // Its budget-truncated lift leaves it nearer, so the single label still draws first.
     assert!(
-        scene.records[..3]
+        scene.records[..NAMETAG_RECORDS_PER_LINE]
             .iter()
             .all(|record| record.anchor == far_anchor)
     );
-    let placed_lines = (MAX_NAMETAG_RECORDS - 3) / 3;
-    assert_eq!(scene.records.len(), 3 + placed_lines * 3);
-    for record in &scene.records[3..] {
+    assert_eq!(
+        scene.records.len(),
+        NAMETAG_RECORDS_PER_LINE + placed_lines * NAMETAG_RECORDS_PER_LINE
+    );
+    for record in &scene.records[NAMETAG_RECORDS_PER_LINE..] {
         assert_eq!(record.anchor, near_anchor);
         assert_eq!(
             record.line_lift,
             EXTRA_LINE_LIFT * (placed_lines - 1) as f32
         );
-        assert!(forward.dot(Vec3::from_array(record.anchor) + Vec3::Y * record.line_lift) < 40.0);
+        assert!(
+            forward.dot(Vec3::from_array(record.anchor) + Vec3::Y * record.line_lift)
+                < single_depth
+        );
     }
 }

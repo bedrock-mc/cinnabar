@@ -24,6 +24,10 @@ Headless sessions render through a hidden window. They can verify pixels and
 rendering work, but displayed-frame pacing, OS focus, and occlusion gates require
 appropriate presentation evidence and remain incomplete without it.
 
+A signed-in capture account still receives Xbox join requests and other toasts, which `F1` does
+not hide. `--hide-toasts` (`developer-control` builds only) stops drawing toasts for the session
+so they cannot land in a comparison capture; they still queue and expire as usual.
+
 Server compatibility tests can establish connection, transfer, or server-authority
 behavior. They do not by themselves establish version-matched Bedrock parity.
 Choose a reproducible scenario and distinguish server behavior from client output.
@@ -237,7 +241,12 @@ category may cover only some of its passes. Check coverage against native traces
 `CINNABAR_GPU_QUERY_HEALTH=1` logs per-stage invalid-pair and readback counters once a second.
 Node stages
 are `gpu_shadows`, `gpu_opaque`, `gpu_transparent`, `gpu_ui`, `gpu_hand`,
-`gpu_post`, `gpu_tonemapping`, `gpu_fxaa` and `gpu_blit`. With
+`gpu_post`, `gpu_tonemapping`, `gpu_fxaa` and `gpu_blit`. During
+per-pass timing outside Metal, the GPU-cull terrain path also records its existing
+compute passes as `gpu_cull_early`, `gpu_cull_hiz` and `gpu_cull_late`, and its
+late terrain render pass as `gpu_terrain_late`. These stages use one query pair per
+pass without extra passes or submissions; they appear in F3's sampled frames and
+`CINNABAR_STAGE_PROFILE` aggregates. Metal keeps its existing owned-pass timing. With
 `CINNABAR_STAGE_PROFILE=1` on adapters with in-pass timestamps (not Apple GPUs),
 draws add `gpu_terrain_solid`, `gpu_terrain_cutout`, `gpu_terrain_model`,
 `gpu_terrain_depth_liquid` (direct and CPU-planned indirect draws; GPU-cull terrain
@@ -247,7 +256,7 @@ add `gpu_mod_pass_0`–`gpu_mod_pass_7` by execution slot. F3 shows the latest G
 
 `CINNABAR_GPU_CATEGORIES=1` splits the main opaque phase into category passes
 and disables in-pass spans to avoid double counting; separate late GPU-cull draws
-are not category-timed. `CINNABAR_OPAQUE_LAYERS=1` measures submitted alpha-surviving
+retain their whole-pass timing outside Metal. `CINNABAR_OPAQUE_LAYERS=1` measures submitted alpha-surviving
 terrain coverage in a separate raster target. Both are diagnostic workloads;
 keep them out of ordinary performance captures. See the
 [opaque foliage fixture](../../tools/localserver/opaque-overdraw.md). Fast frames use fixed-size counters without formatting or

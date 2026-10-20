@@ -6,9 +6,9 @@
 //! keyframes in the exact `wield_first_person`/`wield_third_person` base clips;
 //! anything Molang/query-derived is left `NeedsMeasurement`.
 
-use pack_compile_input::json::parse_unique_json;
 use pack_compile_input::source::read_bounded_source;
 
+mod literals;
 mod use_profiles;
 pub use use_profiles::compile_item_use_profiles;
 
@@ -23,7 +23,14 @@ use assets::{
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use super::{SourcePayloads, invalid};
+#[cfg(test)]
+use super::SourcePayloads;
+use super::{SourceDocuments, invalid};
+
+#[cfg(test)]
+thread_local! {
+    static ANIMATION_PARSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 mod item_attack;
 mod item_food;
 pub use item_food::compile_item_foods;
@@ -55,7 +62,8 @@ struct ParsedAttachable {
     render_controller: Box<str>,
     first_person: EquipmentTransform,
     third_person: EquipmentTransform,
-    poses: Box<[AttachablePose]>,
+    poses: Vec<AttachablePose>,
+    animations: BTreeMap<String, Box<str>>,
 }
 
 /// Validates one attachable source's shape during collection.
@@ -65,7 +73,7 @@ pub(super) fn validate_source(value: &Value) -> Result<(), AttachableError> {
 
 /// Builds the sorted per-item binding table from every collected attachable.
 pub(super) fn compile_bindings(
-    payloads: &SourcePayloads,
+    payloads: &SourceDocuments<'_>,
     symbols: &[EntityAssetSymbol],
     sources: &[EntityAssetSource],
     controller_resources: &BTreeMap<Box<str>, ControllerResources>,
@@ -73,24 +81,18 @@ pub(super) fn compile_bindings(
 ) -> Result<Box<[EquipmentBinding]>, AttachableError> {
     let materials = super::materials::MaterialStates::load(Path::new(""), payloads, sources)
         .map_err(|_| AttachableError::Malformed)?;
-    let animation_sources = animation_source_index(symbols, sources);
     let geometry_symbols = symbol_identifiers(symbols, EntityAssetKind::Geometry);
     let texture_symbols = symbol_identifiers(symbols, EntityAssetKind::Texture);
     let mut chosen = BTreeMap::<(Box<str>, Box<str>), ParsedAttachable>::new();
-    for (path, bytes) in payloads {
+    for path in payloads.paths() {
         if !path.starts_with("attachables/") {
             continue;
         }
-        let parsed = match parse_unique_json(Path::new(path.as_ref()), bytes)
+        let parsed = match payloads
+            .read(Path::new(""), path)
             .map_err(|_| AttachableError::Malformed)
-            .and_then(|value| {
-                parse_attachable(
-                    &value,
-                    payloads,
-                    &animation_sources,
-                    controller_resources.get(path),
-                )
-            }) {
+            .and_then(|value| parse_attachable(value, controller_resources.get(path)))
+        {
             Ok(parsed) => parsed,
             // A server pack's bad attachable drops only itself.
             Err(_) if lenient => continue,
@@ -115,8 +117,10 @@ pub(super) fn compile_bindings(
             .collect::<Vec<_>>();
         chosen.retain(|identifier, _| keep.contains(identifier));
     }
+    let mut chosen = chosen.into_values().collect::<Vec<_>>();
+    literals::compile(payloads, symbols, sources, &mut chosen);
     let bindings = chosen
-        .into_values()
+        .into_iter()
         .map(|parsed| binding(parsed, &geometry_symbols, &texture_symbols, &materials))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(bindings.into_boxed_slice())
@@ -221,7 +225,7 @@ fn binding(
         render_controller: parsed.render_controller,
         first_person: parsed.first_person,
         third_person: parsed.third_person,
-        poses: parsed.poses,
+        poses: parsed.poses.into_boxed_slice(),
         dropped: EquipmentTransform::NeedsMeasurement,
         category,
         attachable: (parsed.attachable_identifier != parsed.item_identifier)
@@ -272,8 +276,6 @@ fn category(item_identifier: &str, geometry: &str) -> EquipmentCategory {
 
 fn parse_attachable(
     value: &Value,
-    payloads: &SourcePayloads,
-    animation_sources: &BTreeMap<&str, &str>,
     controller_resources: Option<&ControllerResources>,
 ) -> Result<ParsedAttachable, AttachableError> {
     let description = parse_description(value)?;
@@ -284,28 +286,21 @@ fn parse_attachable(
             .and_then(Value::as_str)
             .ok_or(AttachableError::Malformed)?,
     )?;
-    let animations = description.get("animations").and_then(Value::as_object);
+    let animations = description
+        .get("animations")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .filter_map(|(alias, value)| Some((alias.clone(), Box::from(value.as_str()?))))
+        .collect();
     let geometry = named_resource(
         description,
         "geometry",
         controller_resources.and_then(|resources| resources.geometry.as_deref()),
     )?;
-    // Elytra and shields pose their own bones from literal clips; a shield's clip picks values by
-    // the hand it is held in, so it stores one pose per hand.
-    let poses = match category(&item_identifier, &geometry) {
-        EquipmentCategory::Elytra => {
-            literal_poses(animations, payloads, animation_sources, &[None])
-        }
-        EquipmentCategory::Shield => literal_poses(
-            animations,
-            payloads,
-            animation_sources,
-            &[Some("main_hand"), Some("off_hand")],
-        ),
-        _ => Box::new([]),
-    };
     Ok(ParsedAttachable {
-        poses,
+        poses: Vec::new(),
+        animations,
         resources: resources::aliases(description)?,
         geometry,
         texture: named_resource(
@@ -315,18 +310,8 @@ fn parse_attachable(
         )?,
         material: named_resource(description, "materials", None)?,
         render_controller: first_render_controller(description)?,
-        first_person: wield_transform(
-            animations,
-            "wield_first_person",
-            payloads,
-            animation_sources,
-        ),
-        third_person: wield_transform(
-            animations,
-            "wield_third_person",
-            payloads,
-            animation_sources,
-        ),
+        first_person: EquipmentTransform::NeedsMeasurement,
+        third_person: EquipmentTransform::NeedsMeasurement,
         item_identifier,
         attachable_identifier,
     })
@@ -376,164 +361,6 @@ fn first_render_controller(description: &Value) -> Result<Box<str>, AttachableEr
         _ => return Err(AttachableError::Malformed),
     };
     bounded_identifier(identifier)
-}
-
-fn wield_transform(
-    animations: Option<&serde_json::Map<String, Value>>,
-    local_key: &str,
-    payloads: &SourcePayloads,
-    animation_sources: &BTreeMap<&str, &str>,
-) -> EquipmentTransform {
-    let literal = animations
-        .and_then(|animations| animations.get(local_key))
-        .and_then(Value::as_str)
-        .and_then(|identifier| literal_bone_transform(identifier, payloads, animation_sources));
-    match literal {
-        Some(transform) => EquipmentTransform::Literal { transform },
-        None => EquipmentTransform::NeedsMeasurement,
-    }
-}
-
-/// A literal display transform from a single-bone clip whose position and
-/// rotation (and scale, if any) are pure numeric arrays; Molang strings -> None.
-fn literal_bone_transform(
-    identifier: &str,
-    payloads: &SourcePayloads,
-    animation_sources: &BTreeMap<&str, &str>,
-) -> Option<ItemDisplayTransform> {
-    let source = animation_sources.get(identifier)?;
-    let bytes = payloads.get(*source)?;
-    let document: Value = pack_json::parse_jsonc(bytes).ok()?;
-    let bones = document
-        .get("animations")?
-        .get(identifier)?
-        .get("bones")?
-        .as_object()?;
-    if bones.len() != 1 {
-        return None;
-    }
-    let bone = bones.values().next()?;
-    let translation = numeric_vec3(bone.get("position"))?;
-    let rotation = numeric_vec3(bone.get("rotation"))?;
-    let scale = match bone.get("scale") {
-        None => [scalar(1.0)?; 3],
-        Some(scale) => numeric_vec3(Some(scale))?,
-    };
-    Some(ItemDisplayTransform {
-        translation,
-        rotation,
-        scale,
-    })
-}
-
-/// Every animation of the attachable whose bone channels are all literal, sorted by key. A slot
-/// resolves `c.item_slot == 'name' ? a : b` channels and suffixes the key with `@slot`. Clips
-/// with any other Molang are left out (`NeedsMeasurement` at the consumer).
-fn literal_poses(
-    animations: Option<&serde_json::Map<String, Value>>,
-    payloads: &SourcePayloads,
-    animation_sources: &BTreeMap<&str, &str>,
-    slots: &[Option<&str>],
-) -> Box<[AttachablePose]> {
-    let mut poses = Vec::new();
-    for (key, identifier) in animations.into_iter().flatten() {
-        let Some(identifier) = identifier.as_str() else {
-            continue;
-        };
-        for slot in slots {
-            let Some(bones) = literal_clip_bones(identifier, payloads, animation_sources, *slot)
-            else {
-                continue;
-            };
-            let key = match slot {
-                Some(slot) => format!("{key}@{slot}"),
-                None => key.clone(),
-            };
-            if let Ok(key) = bounded_identifier(&key) {
-                poses.push(AttachablePose { key, bones });
-            }
-        }
-    }
-    poses.sort_by(|left, right| left.key.cmp(&right.key));
-    poses.into_boxed_slice()
-}
-
-fn literal_clip_bones(
-    identifier: &str,
-    payloads: &SourcePayloads,
-    animation_sources: &BTreeMap<&str, &str>,
-    slot: Option<&str>,
-) -> Option<Box<[AttachablePoseBone]>> {
-    let source = animation_sources.get(identifier)?;
-    let document: Value = pack_json::parse_jsonc(payloads.get(*source)?).ok()?;
-    let bones = document
-        .get("animations")?
-        .get(identifier)?
-        .get("bones")?
-        .as_object()?;
-    let channel = |bone: &Value, name: &str| -> Option<Option<[ItemDisplayScalar; 3]>> {
-        match bone.get(name) {
-            None => Some(None),
-            // A bare number is a uniform value on every axis.
-            Some(Value::Number(number)) => {
-                let value = scalar(number.as_f64()? as f32)?;
-                Some(Some([value; 3]))
-            }
-            Some(Value::Array(array)) if array.len() == 3 => {
-                let mut out = [scalar(0.0)?; 3];
-                for (target, element) in out.iter_mut().zip(array) {
-                    *target = scalar(slot_number(element, slot)?)?;
-                }
-                Some(Some(out))
-            }
-            Some(_) => None,
-        }
-    };
-    let mut out = Vec::new();
-    for (name, bone) in bones {
-        out.push(AttachablePoseBone {
-            bone: bounded_identifier(name).ok()?,
-            translation: channel(bone, "position")?,
-            rotation: channel(bone, "rotation")?,
-            scale: channel(bone, "scale")?,
-        });
-    }
-    (!out.is_empty() && out.len() <= 32).then(|| out.into_boxed_slice())
-}
-
-/// A JSON number, or `c.item_slot == 'name' ? a : b` with literal branches resolved for `slot`.
-fn slot_number(value: &Value, slot: Option<&str>) -> Option<f32> {
-    match value {
-        Value::Number(number) => number.as_f64().map(|value| value as f32),
-        Value::String(text) => {
-            let compact = text
-                .chars()
-                .filter(|character| !character.is_whitespace())
-                .collect::<String>();
-            let rest = compact.strip_prefix("c.item_slot==")?;
-            let (name, rest) = rest.strip_prefix('\'')?.split_once('\'')?;
-            let (when_true, when_false) = rest.strip_prefix('?')?.split_once(':')?;
-            let chosen = if slot? == name { when_true } else { when_false };
-            chosen.parse::<f32>().ok()
-        }
-        _ => None,
-    }
-}
-
-fn numeric_vec3(value: Option<&Value>) -> Option<[ItemDisplayScalar; 3]> {
-    let array = value?.as_array()?;
-    if array.len() != 3 {
-        return None;
-    }
-    let mut out = [scalar(0.0)?; 3];
-    for (slot, element) in out.iter_mut().zip(array) {
-        *slot = scalar(element.as_f64()? as f32)?;
-    }
-    Some(out)
-}
-
-fn scalar(value: f32) -> Option<ItemDisplayScalar> {
-    ItemDisplayScalar::new(value)
 }
 
 fn animation_source_index<'a>(

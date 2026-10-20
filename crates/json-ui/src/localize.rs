@@ -27,34 +27,104 @@ pub fn localize_text_prefix<'a>(
         };
     }
     let mut out = TextPrefix::new(text.len(), max_bytes);
-    let mut token: Option<usize> = None;
-    for (at, ch) in text.char_indices() {
-        if out.sealed {
+    let mut chunks = localized_chunks(text, lookup);
+    while !out.sealed {
+        let Some(chunk) = chunks.next() else {
             break;
-        }
-        match token {
-            Some(_) if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '.' | '_') => {}
-            Some(start) => {
-                substitute(&text[start..at], lookup, &mut out);
-                out.push(ch);
-                token = None;
-            }
-            None if ch == '%' => token = Some(at + 1),
-            None => out.push(ch),
-        }
-    }
-    if let Some(start) = token {
-        substitute(&text[start..], lookup, &mut out);
+        };
+        out.push_str(chunk.as_str());
     }
     Cow::Owned(out.text)
 }
 
-/// Expands one label token into the bounded output.
-fn substitute(token: &str, lookup: &dyn Fn(&str) -> Option<Arc<str>>, out: &mut TextPrefix) {
-    match key(token, lookup) {
-        Some(value) => out.push_str(&value),
-        None => out.push_str(token),
+/// Yields localized scalars on demand, retaining at most one lookup result at a time.
+/// Returned translations are literal chunks and are never localized recursively.
+pub fn localize_text_chars<'a>(
+    text: &'a str,
+    lookup: &'a dyn Fn(&str) -> Option<Arc<str>>,
+) -> impl Iterator<Item = char> + 'a {
+    let mut chunks = localized_chunks(text, lookup);
+    let mut current = LocalizedChunk::Literal("");
+    let mut offset = 0;
+    std::iter::from_fn(move || {
+        loop {
+            if let Some(character) = current.as_str()[offset..].chars().next() {
+                offset += character.len_utf8();
+                return Some(character);
+            }
+            // Release the consumed translation before looking up the next one.
+            drop(std::mem::replace(&mut current, LocalizedChunk::Literal("")));
+            offset = 0;
+            current = chunks.next()?;
+        }
+    })
+}
+
+enum LocalizedChunk<'a> {
+    Literal(&'a str),
+    Translation(Arc<str>),
+}
+
+impl LocalizedChunk<'_> {
+    /// Borrows either input text or the current shared translation.
+    fn as_str(&self) -> &str {
+        match self {
+            Self::Literal(text) => text,
+            Self::Translation(text) => text,
+        }
     }
+}
+
+enum LocalizationPart {
+    WholeKey,
+    Literal,
+    Token,
+    Delimiter,
+}
+
+/// Shares whole-key lookup and percent-token parsing between collecting and streaming callers.
+fn localized_chunks<'a>(
+    mut text: &'a str,
+    lookup: &'a dyn Fn(&str) -> Option<Arc<str>>,
+) -> impl Iterator<Item = LocalizedChunk<'a>> + 'a {
+    let mut part = if text.contains('%') {
+        LocalizationPart::Literal
+    } else {
+        LocalizationPart::WholeKey
+    };
+    std::iter::from_fn(move || {
+        if text.is_empty() {
+            return None;
+        }
+        let (end, translated) = match part {
+            LocalizationPart::WholeKey => (text.len(), true),
+            LocalizationPart::Literal => {
+                let end = text.find('%').unwrap_or(text.len());
+                let literal = &text[..end];
+                text = text.get(end + 1..).unwrap_or("");
+                part = LocalizationPart::Token;
+                return Some(LocalizedChunk::Literal(literal));
+            }
+            LocalizationPart::Token => {
+                part = LocalizationPart::Delimiter;
+                let end = text
+                    .find(|ch: char| !ch.is_ascii_alphanumeric() && !matches!(ch, '-' | '.' | '_'))
+                    .unwrap_or(text.len());
+                (end, true)
+            }
+            LocalizationPart::Delimiter => {
+                part = LocalizationPart::Literal;
+                (text.chars().next()?.len_utf8(), false)
+            }
+        };
+        let chunk = &text[..end];
+        text = &text[end..];
+        Some(if translated {
+            key(chunk, lookup).map_or(LocalizedChunk::Literal(chunk), LocalizedChunk::Translation)
+        } else {
+            LocalizedChunk::Literal(chunk)
+        })
+    })
 }
 
 /// Keeps complete scalars inside the byte budget.
@@ -80,12 +150,6 @@ impl TextPrefix {
             max_bytes,
             sealed: false,
         }
-    }
-
-    /// Appends one scalar if the retained prefix has room.
-    fn push(&mut self, character: char) {
-        let mut bytes = [0; 4];
-        self.push_str(character.encode_utf8(&mut bytes));
     }
 
     /// Stops permanently at the first scalar outside the budget.
@@ -192,5 +256,55 @@ mod tests {
                 assert!(localized.capacity() <= max_bytes);
             }
         }
+    }
+
+    #[test]
+    fn localized_scalars_preserve_whole_keys_tokens_and_delimiters() {
+        for text in [
+            "",
+            "menu.play",
+            "trial.pauseScreen.buyGame",
+            "Hello 🌍",
+            "§l%menu.play!",
+            "%missing.key x",
+            "100% sure",
+            "%",
+            "%%",
+            "%menu.play%menu.play",
+            "%menu.play!%menu.play",
+            "%!%menu.play",
+            "%menu.play🌍%menu.play",
+        ] {
+            let streamed: String = localize_text_chars(text, &table).collect();
+            assert_eq!(streamed, localize_text(text, &table), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn localized_scalars_lookup_lazily_and_release_each_consumed_value() {
+        let value: Arc<str> = Arc::from("é🌍%nested");
+        let calls = std::cell::Cell::new(0);
+        let lookup = |_: &str| {
+            assert_eq!(Arc::strong_count(&value), 1);
+            calls.set(calls.get() + 1);
+            Some(Arc::clone(&value))
+        };
+        let mut characters = localize_text_chars("%x %x %x", &lookup);
+        assert_eq!(calls.get(), 0);
+        let (prefix, allocations) = test_alloc::measure(|| characters.by_ref().take(2).count());
+        assert_eq!(prefix, 2);
+        assert_eq!(allocations.calls, 0);
+        assert_eq!(calls.get(), 1);
+        assert_eq!(Arc::strong_count(&value), 2);
+        drop(characters);
+        assert_eq!(Arc::strong_count(&value), 1);
+        let mut characters = localize_text_chars("%x %x %x", &lookup);
+        assert_eq!(
+            characters.by_ref().collect::<String>(),
+            format!("{value} {value} {value}")
+        );
+        assert_eq!(calls.get(), 4);
+        assert_eq!(Arc::strong_count(&value), 1);
+        assert_eq!(characters.next(), None);
     }
 }

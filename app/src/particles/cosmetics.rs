@@ -1,5 +1,5 @@
 //! Catalog cosmetic emitters follow the attachments the actor frame draws in the world.
-//! Wardrobe and HUD previews never publish placements, so they show geometry only.
+//! Player previews own a separate simulation in the UI attachment frame.
 
 use std::{
     collections::{HashMap, HashSet},

@@ -123,7 +123,7 @@ fn advertised_overworld_height_controls_destination_probe_and_presentation() {
             name: Arc::from("minecraft:overworld"),
             dimension: 3,
             minimum_y: 0,
-            height_range: 256,
+            maximum_y: 256,
             generator: 1,
         }]);
     air_box(&mut stream, [-1, 0, -1], [1, 1, 1]);
@@ -147,7 +147,7 @@ fn raised_custom_destination_requires_each_authoritative_air_column() {
             name: Arc::from("test:raised"),
             dimension,
             minimum_y: 256,
-            height_range: 256,
+            maximum_y: 512,
             generator: 1,
         }]);
     let staging = [0.0, 4000.0, 0.0];

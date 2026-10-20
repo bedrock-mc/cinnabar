@@ -17,13 +17,11 @@ measured on public Bedrock Dedicated Server 1.26.52.3 (Linux archive SHA-256
   `58caa65a685f531787b9444e43d35c4d8bfafba551ae4ce9742fed24486aa6da`;
   `item_capacity_1_26_50.provenance.json` records the reproducibility inputs.
 
-- `item_tags_dragonfly.tsv` is vanilla item tag membership (one tag per line,
-  space-separated members) compacted by `tools/registrygen/cmd/itemtags` from
-  `server/item/recipe/item_tags.json` of MIT-licensed `hashimthearab/dragonfly`
-  at `3d29a693c54b8412a6a1c619f5b06bd8cb09a0e5` (source SHA-256 pinned in its
-  header and in `assets/block-data-sources.json`). Its SHA-256 is
-  `f291e91d363203b16f92c6625361e09ed367d65ed67d9fb056b527019867c3ac`. It is a
-  server-implementation table, not a Bedrock extraction.
+- `item_tags_native.tsv` contains native item-tag membership (one tag per line,
+  space-separated members), generated from the shared protocolgen runtime
+  catalog by `tools/registrygen/cmd/itemtags`. Its header records the source-lock
+  SHA-256 and native source revision. Regenerate it with
+  `go -C tools/registrygen run ./cmd/itemtags > crates/protocol/data/item_tags_native.tsv`.
 
 Entries not established by those positive retail surfaces are omitted. Numeric
 item IDs are preserved exactly; omissions therefore remain gaps.

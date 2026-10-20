@@ -24,7 +24,7 @@ func TestBusySignOutRetriesFitControlLimiter(t *testing.T) {
 		controller.session.mu.Lock()
 		controller.session.setAuthLocked(control.AuthV1{State: control.AuthSignedIn, Gamertag: "Fixture"})
 		controller.session.mu.Unlock()
-		if _, err := controller.session.beginPlay(t.Context(), controller.ctx); err != nil {
+		if _, err := controller.session.beginPlay(t.Context(), controller.ctx, 0); err != nil {
 			t.Fatal(err)
 		}
 		playing := true

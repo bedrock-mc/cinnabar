@@ -52,11 +52,7 @@ fn faded_sneak_and_through_wall_glyphs_keep_their_atlas_coverage() {
             .unwrap();
             style_scene(&mut scene, &style, None);
             for record in scene.records.iter().filter(|record| record.text != 0) {
-                let native_alpha = if sneaking || record.depth_tested == 0 {
-                    DIM_TEXT_ALPHA
-                } else {
-                    1.0
-                };
+                let native_alpha = if sneaking { DIM_TEXT_ALPHA } else { 1.0 };
                 let fragment = record.fragment_color([1.0, 1.0, 1.0, 0.5]);
                 if opacity == 0.0 {
                     assert!(fragment.is_none());

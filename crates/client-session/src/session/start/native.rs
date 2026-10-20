@@ -14,7 +14,9 @@ pub fn spawn_network<P: Send + 'static>(
     + Send
     + 'static,
     observation: SessionTrace,
+    packet_relay: Option<Arc<dyn protocol::PacketRelay>>,
 ) -> Result<NetworkHandle<P>, std::io::Error> {
+    let profile = bridge::join_profile::JoinProfile::current();
     let (mut handle, channels) = network_channels(config.session_generation);
     let failure = channels.control_event_tx.clone();
     handle.thread = Some(
@@ -44,7 +46,7 @@ pub fn spawn_network<P: Send + 'static>(
                 };
                 run_session_runtime(
                     runtime,
-                    channels.run(
+                    profile.in_scope(channels.run(
                         move |cancelled| async move {
                             LoginSequence::connect_session(
                                 &config.socket_dir,
@@ -53,6 +55,7 @@ pub fn spawn_network<P: Send + 'static>(
                                 Some(config.client_blob_cache.clone()),
                                 Some(config.player_skin),
                                 &config.login_settings,
+                                packet_relay,
                                 Some(packet_tap),
                                 move |handoff, game_data| {
                                     let packs = unless_cancelled(&cancelled, || {
@@ -68,7 +71,7 @@ pub fn spawn_network<P: Send + 'static>(
                         },
                         executor,
                         observation,
-                    ),
+                    )),
                 );
                 if let Some(capture) = packet_capture
                     && !capture.finish(packet_log::CAPTURE_FINISH_TIMEOUT)

@@ -2,7 +2,6 @@
 use super::{ModRuntime, gameplay::GameplayContext};
 use bevy::prelude::*;
 use client_extensions::modding::multi::ModHosts;
-use client_shell::ui_resources::UiRuntimeResource;
 use mod_render::retained::EntityKey;
 use render_scene::mod_scene::retained::{DrawingFrame, RootPose};
 use std::collections::BinaryHeap;
@@ -83,12 +82,11 @@ pub(super) fn publish(
     context: GameplayContext,
     mut scene: ResMut<render_scene::ModRenderScene>,
     actors: Option<Res<render_scene::ActorRenderFrame>>,
-    ui: Res<UiRuntimeResource>,
     mut drawing: ResMut<DrawingFrame>,
     cameras: Query<&GlobalTransform, With<client_presentation::camera::FlyCamera>>,
 ) {
     let Some(mut runtime) = runtime else { return };
-    let changed = super::drawing_policy::bind(&mut runtime.hosts, &context, &ui);
+    let changed = super::drawing_policy::bind(&mut runtime.hosts, &context);
     if changed {
         scene.clear();
         runtime.render_sources.clear();

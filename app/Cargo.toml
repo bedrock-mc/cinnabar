@@ -15,8 +15,10 @@ reads = [
     "crates/mod-api/wit/extension.wit",
     "crates/mod-host/src/tests/gameplay.wat",
     "crates/mod-host/src/tests/guest.wat",
+    "crates/mod-host/src/packet_mod/tests/guest.wat",
     "crates/mod-host/src/tests/render.wat",
     "crates/protocol/fixtures/crafting_data_manual_named_1x1.bin",
+    "crates/protocol/fixtures/start_game.bin",
     "crates/render/src/atmosphere.wesl",
     "crates/render/src/cloud.wesl",
     "examples/mods/screen-probe",
@@ -37,7 +39,7 @@ test = false
 alloc-stats = ["dep:test-alloc", "test-alloc/global-stats", "render/alloc-stats", "render-scene/alloc-stats"]
 # Developer runs and client MCP keep acceptance; packaging opts out with --no-default-features.
 default = ["acceptance"]
-acceptance = ["dep:acceptance"]
+acceptance = ["dep:acceptance", "bridge/join-profile"]
 enhanced = ["render/enhanced"]
 enhanced-diagnostics = ["enhanced", "developer-control", "acceptance", "render/enhanced-diagnostics"]
 # Loopback control endpoint for scripted driving and recording; never in release builds.
@@ -169,6 +171,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+resource-pack = { path = "../crates/resource-pack", features = ["test-support"] }
 mimalloc.workspace = true
 render-model = { path = "../crates/render-model", features = ["test-support"] }
 wat = "1"

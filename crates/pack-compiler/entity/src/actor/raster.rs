@@ -1,12 +1,18 @@
-//! Sequential decoded-raster staging and shared, budgeted actor texture pixels.
+//! Parallel decoded-raster staging and shared, budgeted actor texture pixels.
 
 use super::{ActorTexture, AssetError, DecodedRaster, MAX_ACTOR_TEXTURES};
+use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, BinaryHeap},
     sync::Arc,
 };
+
+#[cfg(test)]
+thread_local! {
+    static PEAK_STAGED_PIXEL_BYTES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 pub(super) struct SharedRaster {
     width: u16,
@@ -55,35 +61,79 @@ impl RasterPlan {
     }
 }
 
-/// Stages unique sources up to `limit` usable rasters, shrinking between decodes to fit `budget`.
-/// The budget must hold at least one RGBA pixel per admitted raster.
+/// Stages at most `limit` usable rasters in source order, shrinking to fit `budget`.
+/// Preparation returns an RGBA byte bound and a deferred decode. Parallel batches fit
+/// the remaining pixel budget; a larger source decodes alone and shrinks immediately.
 /// Failed reads remain absent for the owning rig to retry; unusable images remain cached.
-/// Largest-first planning is prefix-monotone: added rasters cannot undo an earlier halving.
-pub(super) fn prepare_rasters(
+/// The budget must hold at least one RGBA pixel per admitted raster.
+pub(super) fn prepare_rasters<D: FnOnce() -> Option<DecodedRaster> + Send>(
     sources: impl IntoIterator<Item = u32>,
-    mut decode: impl FnMut(u32) -> Result<Option<DecodedRaster>, AssetError>,
+    mut prepare: impl FnMut(u32) -> Result<(usize, D), AssetError>,
     budget: usize,
     limit: usize,
 ) -> BTreeMap<u32, Option<SharedRaster>> {
     let mut rasters = BTreeMap::<u32, Option<DecodedRaster>>::new();
     let mut plan = RasterPlan::default();
     let mut usable = 0;
-    for source in sources {
-        if usable == limit {
+    let mut sources = sources.into_iter();
+    let mut pending = None;
+    while usable < limit {
+        let free = budget.saturating_sub(plan.total);
+        let capacity = (limit - usable).min(rayon::current_num_threads());
+        let mut batch = Vec::new();
+        let mut bytes = 0usize;
+        while batch.len() < capacity {
+            let candidate = if let Some(candidate) = pending.take() {
+                candidate
+            } else {
+                let Some(source) = sources.next() else {
+                    break;
+                };
+                let Ok((bytes, decode)) = prepare(source) else {
+                    continue;
+                };
+                (source, bytes, decode)
+            };
+            if !batch.is_empty() && candidate.1 > free.saturating_sub(bytes) {
+                pending = Some(candidate);
+                break;
+            }
+            bytes = bytes.saturating_add(candidate.1);
+            batch.push(candidate);
+            if bytes > free {
+                break;
+            }
+        }
+        if batch.is_empty() {
             break;
         }
-        let Ok(raster) = decode(source) else {
-            continue;
-        };
-        if let Some(raster) = &raster {
-            plan.insert(source, raster.width, raster.height);
-            usable += 1;
-        }
-        rasters.insert(source, raster);
-        while let Some(source) = plan.shrink(budget) {
-            let raster = rasters.get_mut(&source).unwrap().as_mut().unwrap();
-            raster.pixels = halve(&raster.pixels, raster.width, raster.height);
-            (raster.width, raster.height) = (raster.width.div_ceil(2), raster.height.div_ceil(2));
+        let decoded = batch
+            .into_par_iter()
+            .map(|(source, _, decode)| (source, decode()))
+            .collect::<Vec<_>>();
+        #[cfg(test)]
+        PEAK_STAGED_PIXEL_BYTES.update(|peak| {
+            peak.max(
+                plan.total
+                    + decoded
+                        .iter()
+                        .filter_map(|(_, raster)| raster.as_ref())
+                        .map(|raster| raster.pixels.len())
+                        .sum::<usize>(),
+            )
+        });
+        for (source, raster) in decoded {
+            if let Some(raster) = &raster {
+                plan.insert(source, raster.width, raster.height);
+                usable += 1;
+            }
+            rasters.insert(source, raster);
+            while let Some(source) = plan.shrink(budget) {
+                let raster = rasters.get_mut(&source).unwrap().as_mut().unwrap();
+                raster.pixels = halve(&raster.pixels, raster.width, raster.height);
+                (raster.width, raster.height) =
+                    (raster.width.div_ceil(2), raster.height.div_ceil(2));
+            }
         }
     }
     rasters

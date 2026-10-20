@@ -359,3 +359,47 @@ fn account_is_followed_by_resources_without_an_empty_category_row() {
             .collect::<Vec<_>>()
     );
 }
+
+/// Updates is visible immediately below Accessibility without scrolling.
+#[test]
+fn updates_is_visible_below_accessibility() {
+    use launcher::menu::settings_sections::SettingSection;
+    let view = MenuView::new(true, "Player".into());
+    let (_, hits, _) = crate::review_tests::paint(HashMap::new(), |canvas| {
+        draw(canvas, &view, [20.0, 20.0, 420.0, 400.0], &|_| None, None).unwrap();
+    });
+    let updates = SettingSection::Updates.definition().index;
+    assert_ne!(updates, SettingSection::General.definition().index);
+    assert_eq!(
+        hits[0].0,
+        MenuAction::SettingsSection(SettingSection::Accessibility.definition().index)
+    );
+    assert_eq!(hits[1].0, MenuAction::SettingsSection(updates));
+    assert_eq!(hits[0].1.max().y(), hits[1].1.min().y());
+}
+
+/// The final tab remains fully clickable after scrolling to the sidebar's end.
+#[test]
+fn creator_remains_reachable_at_the_bottom() {
+    use launcher::menu::settings_sections::SettingSection;
+    let view = MenuView::new(true, "Player".into());
+    let creator = MenuAction::SettingsSection(SettingSection::Creator.definition().index);
+    let mut row_height = 0.0;
+    let (scrolls, hits, _) = crate::review_tests::paint(
+        HashMap::from([("oreui_settings_sidebar".into(), 1_000_000.0)]),
+        |canvas| {
+            row_height = canvas.r(4.8);
+            draw(canvas, &view, [20.0, 20.0, 420.0, 400.0], &|_| None, None).unwrap();
+        },
+    );
+    let row = hits
+        .iter()
+        .find(|(action, _)| *action == creator)
+        .expect("Creator must be reachable at the end of the sidebar")
+        .1;
+    assert_eq!(hits.last().unwrap().0, creator);
+    let viewport = scrolls[0].viewport;
+    assert!(row.min().y() >= viewport.min().y());
+    assert!(row.max().y() <= viewport.max().y());
+    assert!(row.max().y() - row.min().y() >= row_height);
+}

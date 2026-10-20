@@ -133,7 +133,10 @@ fn projected_player_tags_follow_always_show_metadata_updates() {
             }
             assert_eq!(tag.lines.as_ref(), expected);
             assert_eq!(tag.lines.len(), expected_lines);
-            assert_eq!(scene(&tags).records.len(), expected_lines * 3);
+            assert_eq!(
+                scene(&tags).records.len(),
+                expected_lines * NAMETAG_RECORDS_PER_LINE
+            );
         }
     }
 }

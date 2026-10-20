@@ -188,6 +188,7 @@ impl Retirement<'_> {
         client_world.network_decode_errors = decode_error_count;
         match end {
             SessionEnd::Failed { failure, .. } => {
+                bridge::join_profile::JoinProfile::current().finish("failed");
                 error!(decode_error_count, "{failure}");
                 record_fatal_error(fatal_error, failure);
             }

@@ -179,12 +179,8 @@ fn matching_missing_geometry_candidates_bound_actual_lookup_work_in_both_asset_l
         protocol_ids::ActorDataKey::Flags.wire_value(),
         protocol::ActorMetadataValue::Flags(1 << protocol_ids::ActorFlag::Sneaking.wire_value()),
     );
-    let (assets, catalog) = catalogs(
-        assets::MAX_ENTITY_GEOMETRIES,
-        assets::MAX_EQUIPMENT_BINDINGS - 1,
-        false,
-    );
-    let per_lookup = 2 * (assets::MAX_ENTITY_GEOMETRIES.ilog2() as usize + 2);
+    let (assets, catalog) = catalogs(4_097, assets::MAX_EQUIPMENT_BINDINGS - 1, false);
+    let per_lookup = 2 * (assets.geometries().len().ilog2() as usize + 2);
     for pack in [false, true] {
         let mut runtime = runtime(Arc::clone(&assets), (!pack).then(|| Arc::clone(&catalog)));
         if pack {

@@ -32,6 +32,7 @@ Options:
   --no-vsync                   Allow tearing and disable display-rate synchronization
   --frame-cap <FPS>            Cap acceptance updates to 1-1000 FPS
   --render-mode <MODE>         vanilla or enhanced; CINNABAR_RENDER_MODE is the fallback
+  --hide-toasts                Developer builds: never draw toasts (join requests, achievements) in captures
   --gui-scale <1-4|auto>       Fix the GUI scale (default: auto, the Bedrock desktop rule)
   --dev-debug-overlay          Compatibility alias; F3 debug controls are always available
   --language <ll_CC>           UI language (default: from LC_ALL/LC_MESSAGES/LANG, else en_US)
@@ -119,6 +120,9 @@ pub struct ClientArgs {
     pub gui_scale: Option<u8>,
     /// Session-only override of the saved rendering mode.
     pub render_mode: Option<RenderMode>,
+    /// Toasts are never drawn (developer-control builds only), so an account's join requests
+    /// or achievements cannot land in a capture.
+    pub hide_toasts: bool,
     /// Enables F3 debug controls; the overlay starts hidden until F3 is pressed.
     /// `--dev-debug-overlay` remains accepted for older launch commands.
     pub dev_debug_overlay: bool,
@@ -152,6 +156,7 @@ impl Default for ClientArgs {
             frame_cap: None,
             gui_scale: None,
             render_mode: None,
+            hide_toasts: false,
             dev_debug_overlay: true,
             language: None,
             full_view_teleport_gate: false,
@@ -176,6 +181,9 @@ pub enum ArgsError {
         "acceptance and evidence options require the app's `acceptance` feature; rebuild without --no-default-features or enable --features acceptance"
     )]
     AcceptanceFeatureRequired,
+
+    #[error("{0} needs a developer-control build; rebuild with --features developer-control")]
+    DeveloperControlFeatureRequired(&'static str),
 
     #[error("unknown argument {0:?}\n\n{HELP}")]
     Unknown(OsString),
@@ -240,6 +248,14 @@ impl ClientArgs {
             || self.movement_candidate_physics;
         if !available && requested {
             return Err(ArgsError::AcceptanceFeatureRequired);
+        }
+        Ok(())
+    }
+
+    /// Rejects developer-only options when this build omits the developer-control feature.
+    pub(crate) fn validate_developer_support(&self, available: bool) -> Result<(), ArgsError> {
+        if !available && self.hide_toasts {
+            return Err(ArgsError::DeveloperControlFeatureRequired("--hide-toasts"));
         }
         Ok(())
     }
@@ -414,6 +430,7 @@ impl ClientArgs {
                     parsed.render_mode =
                         Some(RenderMode::parse(&value).ok_or(ArgsError::InvalidRenderMode(value))?);
                 }
+                Some("--hide-toasts") => parsed.hide_toasts = true,
                 _ if resource_pack::is_pack_import_path(std::path::Path::new(&argument)) => {
                     parsed.import_packs.push(PathBuf::from(argument));
                 }
@@ -432,6 +449,7 @@ impl ClientArgs {
             return Err(ArgsError::MovementEvidenceRequiresAttributableRun);
         }
         parsed.validate_acceptance_support(cfg!(feature = "acceptance"))?;
+        parsed.validate_developer_support(cfg!(feature = "developer-control"))?;
         Ok(ParseOutcome::Run(Box::new(parsed)))
     }
 
@@ -641,6 +659,36 @@ mod tests {
             ClientArgs::parse_from(["client", "--render-mode", "ultra"]),
             Err(ArgsError::InvalidRenderMode("ultra".to_owned()))
         );
+    }
+
+    #[test]
+    fn hide_toasts_is_a_developer_only_flag() {
+        let args = ClientArgs {
+            hide_toasts: true,
+            ..ClientArgs::default()
+        };
+        assert_eq!(args.validate_developer_support(true), Ok(()));
+        assert_eq!(
+            args.validate_developer_support(false),
+            Err(ArgsError::DeveloperControlFeatureRequired("--hide-toasts"))
+        );
+        assert_eq!(
+            ClientArgs::default().validate_developer_support(false),
+            Ok(())
+        );
+        let parsed = ClientArgs::parse_from(["client", "--hide-toasts"]);
+        if cfg!(feature = "developer-control") {
+            let Ok(ParseOutcome::Run(args)) = parsed else {
+                panic!("expected run args, got {parsed:?}");
+            };
+            assert!(args.hide_toasts);
+        } else {
+            assert_eq!(
+                parsed,
+                Err(ArgsError::DeveloperControlFeatureRequired("--hide-toasts"))
+            );
+        }
+        assert!(HELP.contains("--hide-toasts"));
     }
 
     #[test]

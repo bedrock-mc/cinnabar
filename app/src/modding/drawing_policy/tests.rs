@@ -1,7 +1,7 @@
 use super::*;
 use bevy::{ecs::system::SystemState, prelude::World};
 use chunk_pipeline::WorldStream;
-use client_ui::ui_runtime::UiRuntime;
+use mod_api::drawing::DrawingPermissions;
 use mod_host::{ModGrants, ModHost};
 use mod_render::retained::{Anchor, GeometrySpec, Instance, Store, Vertex};
 use protocol::WorldBootstrap;
@@ -118,7 +118,7 @@ fn stream() -> WorldStream {
 }
 
 #[test]
-fn drawing_fence_tracks_actor_incarnations_when_ui_generation_differs() {
+fn drawing_fence_tracks_actor_incarnations_without_server_negotiation() {
     let bytes = br#"(component
         (core module $m (func (export "init")) (func (export "frame")))
         (core instance $i (instantiate $m))
@@ -134,7 +134,6 @@ fn drawing_fence_tracks_actor_incarnations_when_ui_generation_differs() {
     let mut hosts = ModHosts::new(host, vec![]);
     let stream = stream();
     let actor_session = stream.authority().actor_session_id();
-    let ui = UiRuntime::new(actor_session + 1);
     let mut world = World::new();
     world.insert_resource(crate::runtime::world::ClientWorld {
         stream: Some(stream),
@@ -144,13 +143,18 @@ fn drawing_fence_tracks_actor_incarnations_when_ui_generation_differs() {
     let mut frame = DrawingFrame::default();
     {
         let gameplay = state.get_mut(&mut world).unwrap();
-        bind(&mut hosts, &gameplay, &ui);
+        bind(&mut hosts, &gameplay);
         publish_frame(&hosts, &gameplay, &mut frame);
     }
     assert_eq!(
         hosts.host(0).drawing_session().unwrap().connection,
         actor_session
     );
+    assert_eq!(
+        hosts.host(0).drawing_session().unwrap().permissions,
+        DrawingPermissions::ALL
+    );
+    assert_eq!(hosts.host(0).grants(), &ModGrants::default());
 
     assert_eq!(frame.connection, actor_session);
 
@@ -162,7 +166,7 @@ fn drawing_fence_tracks_actor_incarnations_when_ui_generation_differs() {
     let mut frame = DrawingFrame::default();
     {
         let gameplay = state.get_mut(&mut world).unwrap();
-        bind(&mut hosts, &gameplay, &ui);
+        bind(&mut hosts, &gameplay);
         publish_frame(&hosts, &gameplay, &mut frame);
     }
     assert_eq!(
@@ -177,9 +181,13 @@ fn drawing_fence_tracks_actor_incarnations_when_ui_generation_differs() {
     let mut frame = DrawingFrame::default();
     {
         let gameplay = state.get_mut(&mut world).unwrap();
-        bind(&mut hosts, &gameplay, &ui);
+        bind(&mut hosts, &gameplay);
         publish_frame(&hosts, &gameplay, &mut frame);
     }
     assert_eq!(hosts.host(0).drawing_session().unwrap().connection, 0);
+    assert_eq!(
+        hosts.host(0).drawing_session().unwrap().permissions,
+        DrawingPermissions::default()
+    );
     assert_eq!(frame.connection, 0);
 }
