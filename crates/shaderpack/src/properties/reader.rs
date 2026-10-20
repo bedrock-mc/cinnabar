@@ -27,6 +27,8 @@ pub(super) fn read_entries(
     diagnostics: &mut Vec<PropertiesDiagnostic>,
 ) -> Vec<RawEntry> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    // One line convention for the preprocessor and both passes, including lone carriage returns.
+    let text = &text.replace("\r\n", "\n").replace('\r', "\n");
     let source: String = text
         .lines()
         .map(|line| {
@@ -117,32 +119,27 @@ pub(super) fn read_entries(
     }
     let mut entries: Vec<_> =
         // Blank lines stay in the stream: they end a continued entry, as in Java properties.
-        logical_entries(text.lines().enumerate().filter_map(|(index, physical)| {
+        logical_entries(text.lines().enumerate().map(|(index, physical)| {
             let line = (index + 1) as u32;
             if rejected.contains(&line) {
                 // Keep the continuation so the marker poisons every line of the entry.
                 let continued = physical.trim_end().ends_with('\\');
-                return Some((
-                    line,
-                    format!("{REJECTED}{}", if continued { "\\" } else { "" }),
-                ));
+                return (line, format!("{REJECTED}{}", if continued { "\\" } else { "" }));
             }
-            Some((line, lines.remove(&line).unwrap_or_default()))
+            (line, lines.remove(&line).unwrap_or_default())
         }))
         .filter(|entry| !raw_key(&entry.key))
         .filter(|entry| !entry.key.contains(REJECTED) && !entry.value.contains(REJECTED))
         .collect();
     entries.extend(
-        logical_entries(text.lines().enumerate().filter_map(|(index, line)| {
+        logical_entries(text.lines().enumerate().map(|(index, line)| {
             let line = line.trim();
-            Some((
-                (index + 1) as u32,
-                if line.starts_with('#') {
-                    String::new()
-                } else {
-                    line.to_owned()
-                },
-            ))
+            let kept = if line.starts_with('#') {
+                String::new()
+            } else {
+                line.to_owned()
+            };
+            ((index + 1) as u32, kept)
         }))
         .filter(|entry| raw_key(&entry.key)),
     );

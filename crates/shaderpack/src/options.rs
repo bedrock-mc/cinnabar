@@ -432,10 +432,10 @@ fn tested_names<'a>(files: impl IntoIterator<Item = &'a str>) -> BTreeSet<&'a st
             };
             match keyword {
                 "ifdef" | "ifndef" => {
-                    if let Some((start, len)) = next_code_word(rest) {
-                        if let Some((name, _)) = split_ident(&rest[start..start + len]) {
-                            names.insert(name);
-                        }
+                    if let Some((start, len)) = next_code_word(rest)
+                        && let Some((name, _)) = split_ident(&rest[start..start + len])
+                    {
+                        names.insert(name);
                     }
                 }
                 "if" | "elif" => collect_defined(rest, &mut names),

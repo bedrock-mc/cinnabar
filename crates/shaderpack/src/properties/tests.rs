@@ -196,6 +196,14 @@ fn program_rules_match_nested_dimension_folders() {
 }
 
 #[test]
+fn carriage_return_line_endings_split_entries() {
+    let properties = parse("alpha=1\rbeta=2\r\ngamma=3\r");
+    assert_eq!(properties.get("alpha"), Some("1"));
+    assert_eq!(properties.get("beta"), Some("2"));
+    assert_eq!(properties.get("gamma"), Some("3"));
+}
+
+#[test]
 fn blank_lines_end_continued_entries() {
     let properties = parse(
         "#define QUALITY 2\nscreen=A \\\n  B \\\n\nsliders=QUALITY\nvalue=1 \\\n\nafter=QUALITY\n",
