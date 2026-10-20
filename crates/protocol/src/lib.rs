@@ -244,7 +244,7 @@ pub use ui::{
     ElementMenuForm, FormButtonImage, FormKind, FormNumber, FormRequestEvent, FormText,
     GameModeEvent, GameModeUpdate, HudEvent, HudRules, MAX_BOSS_EVENTS, MAX_CHAT_AUTOCOMPLETE,
     MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_PARAMETERS, MAX_COMMAND_OUTPUT_MESSAGES,
-    MAX_CUSTOM_FORM_ITEMS, MAX_FORM_JSON_BYTES, MAX_FORM_JSON_DEPTH, MAX_OUTBOUND_CHAT_BYTES,
+    MAX_CUSTOM_FORM_ITEMS, MAX_FORM_JSON_BYTES, MAX_OUTBOUND_CHAT_BYTES,
     MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, MenuElement, ModalDialogForm,
     ModalFormResponseSelection, NPC_DIALOGUE_FORM_ID, NpcButton, NpcDialogueForm, NpcRequestKind,
     ObjectiveEvent, PlayerStatus, RawTextEvent, ScoreAction, ScoreEntry, ScoreEvent, ScoreIdentity,

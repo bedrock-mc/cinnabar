@@ -16,6 +16,7 @@ mod disconnect_wire;
 mod fixtures;
 mod form_compatibility;
 mod form_element_images;
+mod form_json;
 mod form_menu_capacity;
 mod furnace_options;
 mod held_placement_packets;
