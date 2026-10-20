@@ -35,8 +35,12 @@ fn axis_target(at: f64, size: f64, viewport: f64) -> Option<(f64, f64)> {
 }
 
 impl HudEditor {
-    /// Ends capture and retains one bounded Save or Cancel result for the host.
+    /// Ends capture once; later presentation failures stop painting without replacing the result.
     pub(super) fn finish(&mut self, saved: bool) {
+        if !self.open {
+            self.stop_exit();
+            return;
+        }
         if self.autosave {
             self.cancel_drag();
         }
@@ -65,7 +69,12 @@ impl HudEditor {
     fn snapshot(&self, saved: bool) -> EditorResult {
         EditorResult {
             saved,
-            reset: saved && self.reset,
+            reset: saved
+                && (self.reset
+                    || self
+                        .result
+                        .as_ref()
+                        .is_some_and(|result| result.saved && result.reset)),
             placements: if saved {
                 self.draft
                     .cards

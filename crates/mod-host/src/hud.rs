@@ -42,6 +42,17 @@ pub(super) struct HudState {
     source_totem_uses: Option<u32>,
 }
 impl HudState {
+    /// Coalesces unread reset metadata into the newest saved placements until callback commit.
+    pub(super) fn deliver_editor_result(&mut self, mut result: EditorResult) {
+        if result.saved {
+            result.reset |= self
+                .editor_result
+                .as_ref()
+                .is_some_and(|previous| previous.saved && previous.reset);
+        }
+        self.editor_result = Some(result);
+    }
+
     /// Identifies changed committed output across component replacement and reload.
     pub(super) fn changed(&mut self) {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -567,6 +578,55 @@ mod tests {
         state.hud.commit();
         assert!(state.hud.editor_result.is_none());
         assert!(read_editor_result(&mut state).unwrap().unwrap().is_none());
+    }
+
+    #[test]
+    fn editor_result_delivery_coalesces_unread_resets_until_a_callback_consumes_them() {
+        let mut state = State::new(
+            ModGrants {
+                hud: true,
+                controls: true,
+                ..Default::default()
+            },
+            String::new(),
+            Default::default(),
+        );
+        state.hud.deliver_editor_result(EditorResult {
+            saved: true,
+            reset: true,
+            placements: vec![ui::mod_hud::Placement {
+                id: "equipment".into(),
+                scale: 1.,
+                position: None,
+            }],
+        });
+        let newest = EditorResult {
+            saved: true,
+            reset: false,
+            placements: vec![ui::mod_hud::Placement {
+                id: "equipment".into(),
+                scale: 1.5,
+                position: Some([0.25, 0.75]),
+            }],
+        };
+        state.hud.deliver_editor_result(newest.clone());
+        let pending = read_editor_layout(&mut state).unwrap().unwrap().unwrap();
+        assert!(pending.saved && pending.reset);
+        assert_eq!(pending.placements[0].scale, 1.5);
+        assert_eq!(pending.placements[0].position.as_ref().unwrap().x, 0.25);
+        state.hud.commit();
+        state.hud.deliver_editor_result(newest);
+        let following = read_editor_layout(&mut state).unwrap().unwrap().unwrap();
+        assert!(following.saved && !following.reset);
+        state.hud.commit();
+        state.hud.deliver_editor_result(EditorResult {
+            saved: true,
+            reset: true,
+            placements: Vec::new(),
+        });
+        state.hud.deliver_editor_result(EditorResult::default());
+        let cancelled = read_editor_layout(&mut state).unwrap().unwrap().unwrap();
+        assert!(!cancelled.saved && !cancelled.reset && cancelled.placements.is_empty());
     }
     #[test]
     fn bounded_json_and_unknown_fields_fail_without_staging_output() {

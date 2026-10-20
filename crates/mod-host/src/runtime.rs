@@ -737,7 +737,7 @@ impl Instance {
 
     /// Makes one host result available to this instance's next callback.
     pub(super) fn deliver_hud_editor_result(&mut self, result: ui::mod_hud::EditorResult) {
-        self.store.data_mut().hud.editor_result = Some(result);
+        self.store.data_mut().hud.deliver_editor_result(result);
     }
 
     pub(super) fn crosshair(&self) -> Option<&ui::mod_hud::Crosshair> {

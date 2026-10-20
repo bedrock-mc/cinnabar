@@ -113,6 +113,23 @@ fn autosave_nudge_and_reset_each_keep_the_editor_live() {
 }
 
 #[test]
+fn reset_before_dismissal_survives_until_consumed_without_sticking_to_later_results() {
+    for reset_consumed in [false, true] {
+        let mut p = presentation(false);
+        autosave_editor(&mut p);
+        click(&mut p, "hud.reset");
+        if reset_consumed {
+            assert!(p.mod_ui_mut().take_mod_hud_editor_result().unwrap().reset);
+        }
+        p.mod_ui_mut().mod_panel_key("Escape", None);
+        let result = p.mod_ui_mut().take_mod_hud_editor_result().unwrap();
+        assert!(result.saved);
+        assert_eq!(result.reset, !reset_consumed);
+        assert_eq!(result.placements[0].position, None);
+    }
+}
+
+#[test]
 fn supplied_editor_chrome_forwards_declared_buttons_and_omits_builtin_toolbar() {
     let mut p = presentation(false);
     let mut panel = panel();
