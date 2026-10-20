@@ -1,6 +1,6 @@
 //! Host-owned detached camera presentation, independent of the body's input pose.
 
-use bevy::prelude::*;
+use bevy::prelude::{EulerRot, Quat, Vec2, Vec3};
 
 /// Local camera motion requested by an admitted extension.
 #[derive(Clone, Copy, Debug, PartialEq)]
