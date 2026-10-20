@@ -1,4 +1,6 @@
-//! Session-bound form authority and bounded, single-enqueue responses.
+//! Session-bound form authority and single-enqueue responses.
+#[cfg(test)]
+mod busy_tests;
 pub mod engine_focus;
 pub mod engine_input;
 pub mod engine_scroll;
@@ -18,8 +20,6 @@ use protocol::{
 use std::{collections::VecDeque, sync::Arc};
 pub use values::{FormEngineState, FormValue};
 
-/// One displayed form; at most eight pending busy cancellations.
-pub const MAX_RETAINED_SERVER_FORMS: usize = 8;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ServerFormIdentity {
     pub session: u64,
@@ -112,7 +112,6 @@ pub struct ServerFormStore {
     busy: VecDeque<PendingFormResponse>,
     next_revision: u64,
     replaced_by_reissue: u64,
-    dropped_over_capacity: u64,
     watched_dimension: Option<i32>,
     watched_epoch: Option<(u64, u64)>,
     focus: usize,
@@ -149,8 +148,6 @@ impl ServerFormStore {
                 .pending
                 .as_ref()
                 .is_some_and(|response| response.identity.form_id == event.form_id);
-        self.busy
-            .retain(|response| response.identity.form_id != event.form_id);
         if replaces {
             self.active = None;
             self.pending = None;
@@ -179,14 +176,10 @@ impl ServerFormStore {
             if event.form_id == NPC_DIALOGUE_FORM_ID {
                 return;
             }
-            if self.busy.len() < MAX_RETAINED_SERVER_FORMS {
-                self.busy.push_back(PendingFormResponse {
-                    identity,
-                    answer: RetainedAnswer::Busy,
-                });
-            } else {
-                self.dropped_over_capacity = self.dropped_over_capacity.saturating_add(1);
-            }
+            self.busy.push_back(PendingFormResponse {
+                identity,
+                answer: RetainedAnswer::Busy,
+            });
             return;
         }
         self.focus = 0;
@@ -257,7 +250,7 @@ impl ServerFormStore {
         &mut self.engine
     }
     /// Retires an active NPC through its closing protocol when another menu takes ownership.
-    /// Ordinary forms retain the bounded busy-response queue.
+    /// Ordinary forms retain one busy response per rejected request.
     pub fn reject_active_busy(&mut self) {
         if let Some(entry) = self.active.take() {
             if entry.kind == FormKind::NpcDialogue {
@@ -268,14 +261,10 @@ impl ServerFormStore {
                 self.engine = FormEngineState::default();
                 return;
             }
-            if self.busy.len() < MAX_RETAINED_SERVER_FORMS {
-                self.busy.push_back(PendingFormResponse {
-                    identity: entry.identity,
-                    answer: RetainedAnswer::Busy,
-                });
-            } else {
-                self.dropped_over_capacity = self.dropped_over_capacity.saturating_add(1);
-            }
+            self.busy.push_back(PendingFormResponse {
+                identity: entry.identity,
+                answer: RetainedAnswer::Busy,
+            });
         }
     }
     pub fn respond(
@@ -360,9 +349,6 @@ impl ServerFormStore {
     }
     pub const fn replaced_by_reissue(&self) -> u64 {
         self.replaced_by_reissue
-    }
-    pub const fn dropped_over_capacity(&self) -> u64 {
-        self.dropped_over_capacity
     }
     pub fn queued_busy_count(&self) -> usize {
         self.busy.len()
