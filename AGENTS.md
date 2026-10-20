@@ -23,6 +23,7 @@ Keep internal notes and agent reports in the private checkout. Public implementa
 - Never keep a hand-maintained list, mapping, table or duplicated value that can go stale silently; derive it from its source, or check it with a compile-time assertion, test or architecture-gate rule so a missed update fails CI.
 - Use Rust for client behavior, updaters, packaging, and shared product policy. Go may own integrations with Go libraries such as Gophertunnel, go-raknet, go-xsapi and Dragonfly, their process-local support, and small standalone tools or test helpers where that keeps dependencies and iteration cheaper. Shared policy gets one implementation, or one schema with generated bindings and cross-language conformance tests; never add IPC only to satisfy a language choice.
 - Reject malformed framing. Skip, count, and log odd but well-formed server data without disconnecting. Match Bedrock's lenient chunk decoding, and tolerate unknown data the client does not use.
+- Never impose stricter observable limits than version-matched Bedrock. Check admission, truncation, recursion, work and timeout limits against identified native behavior. Use deferred work, streaming or recoverable caches when an implementation budget would otherwise discard valid content. Unverified limits remain incomplete parity work.
 - Require valid, hash-checked atmosphere, entity, HUD, and JSON-UI carriers at startup. Fail from `main` with the path and `make assets` rebuild command. Missing world or font carriers may use their diagnostic textures or font; optional carriers degrade gracefully.
 
 ## Tests and documentation
@@ -49,8 +50,12 @@ Cinnabar's Gophertunnel integration uses `HashimTheArab/gophertunnel:resource-pa
 
 ## Cosmetic asset ownership
 
-The API repository owns cosmetic authoring projects, exports, production catalog
-assets and export/catalog checks. The client owns download, validation, caching,
-rendering and small stable regression fixtures. Do not copy new catalog items into
-the client for tests. Use the external-catalog compatibility check documented in
-`crates/render-model/src/hats/README.md` when validating the complete API catalog.
+The private `cinnabar-mc/cinnabar-cosmetics` repository owns cosmetic and emote
+authoring projects, exports, production catalog assets and export/catalog checks.
+Keep new geometry, texture, animation and embedded preview assets out of public
+repositories. The API owns delivery and database entitlements; account ownership
+belongs in its database rather than code or catalog allowlists. The client owns
+download, validation, caching, rendering and small stable regression fixtures.
+Do not copy new catalog items into the client for tests. Use the external-catalog
+compatibility check documented in `crates/render-model/src/hats/README.md` when
+validating the complete private catalog.

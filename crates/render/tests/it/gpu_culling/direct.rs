@@ -882,7 +882,7 @@ fn occlusion_cuts_submitted_terrain_only_while_the_view_holds_still() {
                         |encoder| {
                             occluder
                                 .kernels
-                                .encode_pyramid(encoder, &pyramid, &bindings);
+                                .encode_pyramid(encoder, &pyramid, &bindings, None);
                             occluder.encode(encoder, &input, &pyramid);
                         },
                     )

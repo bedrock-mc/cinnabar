@@ -150,14 +150,39 @@ impl EquipmentRuntime {
         let model_scale = std::array::from_fn::<_, 3, _>(|axis| {
             evaluated.scale * evaluated.axis_scale[axis] * held_scale
         });
-        let placed = self.poses.sample_pair(
+        let placed = self.attachment_poses.sample(
             body,
-            if input.off_hand {
-                LAYER_OFF_HAND
-            } else {
-                LAYER_MAIN_HAND
+            (
+                false,
+                if input.off_hand {
+                    LAYER_OFF_HAND
+                } else {
+                    LAYER_MAIN_HAND
+                },
+            ),
+            self.poses.frame,
+            placement_cache::Inputs {
+                assets: &assets,
+                bones: &body_bones,
+                owner_names: owner_rig.bone_names,
+                geometry: (geometry_index, evaluated.geometry),
+                local: pose,
+                paired: !input.first_person,
+                hidden: &selected.hidden_bones,
+                scale: model_scale,
+                alpha: input
+                    .first_person
+                    .then(|| {
+                        placement_cache::alpha(
+                            body,
+                            &evaluated,
+                            geometry_index,
+                            pose.len(),
+                            input.frame_alpha,
+                        )
+                    })
+                    .flatten(),
             },
-            pose.len(),
             |endpoint, index| {
                 if selected.hidden_bones.contains(&(index as u32)) {
                     return Some(hidden_bone());

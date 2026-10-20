@@ -12,12 +12,6 @@ use std::io::Write;
     reason = "--query-build and --help answer on stdout; argument errors precede logging setup"
 )]
 pub(crate) fn dispatch() {
-    if let Err(error) = update_installer::privilege::normal_user(|| Ok(())) {
-        eprintln!("{error}");
-        use launcher_host::native_dialog::{NativePrompter, Prompter};
-        NativePrompter.alert(launcher::PRODUCT_NAME, &error.to_string());
-        std::process::exit(1);
-    }
     let mode = std::env::args_os().nth(1);
     if mode
         .as_ref()

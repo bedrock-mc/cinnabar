@@ -106,6 +106,8 @@ fn an_emitter_lands_on_the_rendered_point_of_its_authored_bone_offset() {
             .emitter_transform(0, &rest, &rest, preview, 0.0)
             .unwrap();
         let expected = Vec3::from_array(rig.rest_vertices[index].position);
+        let preview = rig.preview_emitter_transform(0, Motion::default()).unwrap();
+        assert!(Vec3::from_array(preview.position).distance(expected) < 1e-5);
         assert!(
             Vec3::from_array(placed.position).distance(expected) < 1e-5,
             "{offset:?}: {placed:?} != {expected}"

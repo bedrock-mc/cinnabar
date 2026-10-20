@@ -131,6 +131,7 @@ impl Expr {
         out
     }
 
+    /// Appends referenced names once, preserving their first-use order.
     fn collect_identifiers<'a>(&'a self, out: &mut Vec<&'a str>) {
         match self {
             Expr::Number(_) | Expr::Bool(_) => {}

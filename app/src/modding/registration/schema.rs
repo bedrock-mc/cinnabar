@@ -98,6 +98,15 @@ impl Registration {
         if self.mods.len() > mod_api::MAX_LOADED_MODS {
             return Err("local extension limit reached".into());
         }
+        if self
+            .mods
+            .iter()
+            .filter(|entry| entry.enabled && entry.grants.packets)
+            .count()
+            > 1
+        {
+            return Err("Only one packet mod can be enabled at a time.".into());
+        }
         for (index, entry) in self.mods.iter().enumerate() {
             if !entry.component.is_absolute()
                 || entry.font.as_ref().is_some_and(|path| !path.is_absolute())

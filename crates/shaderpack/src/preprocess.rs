@@ -2,13 +2,11 @@
 //! conditional expansion with pp-rs (the preprocessor naga's GLSL frontend uses).
 
 use crate::diagnostics::{Diagnostic, Phase, SourceLocation};
-use crate::expr::truncated;
 use crate::options::{OptionValues, PackOption, rewrite_option_line};
 use crate::source::PackSource;
 use crate::token::{Tok, TokKind};
 use pp_rs::pp::Preprocessor;
 use pp_rs::token::{Punct, TokenValue};
-use std::collections::HashMap;
 
 /// Identifier prefix of the markers that stand in for comment and `const` directives while
 /// the preprocessor decides which of them sit in active code. Stripped before transforming.
@@ -49,6 +47,7 @@ impl LineMap {
         })
     }
 
+    /// Interns a file path and returns its stable line-map index.
     fn file_index(&mut self, path: &str) -> u32 {
         match self.files.iter().position(|f| f == path) {
             Some(i) => i as u32,
@@ -87,12 +86,7 @@ struct Expander<'a> {
     out: String,
     map: LineMap,
     directives: Vec<Directive>,
-    stack: Vec<String>,
     pending: Vec<usize>,
-    in_block: bool,
-    /// Object-like macros defined so far as a float literal, with the integer JCPP reads
-    /// them as in `#if` (`daySpeed` → `1`).
-    float_macros: HashMap<String, String>,
 }
 
 /// Expands `#include`s of the `shaders/`-relative `path` textually, like Iris: absolute
@@ -111,10 +105,7 @@ pub(crate) fn expand(
         out: String::new(),
         map: LineMap::default(),
         directives: Vec::new(),
-        stack: Vec::new(),
         pending: Vec::new(),
-        in_block: false,
-        float_macros: HashMap::new(),
     };
     x.file(path, None)?;
     Ok(Expanded {
@@ -124,77 +115,110 @@ pub(crate) fn expand(
     })
 }
 
-impl Expander<'_> {
+/// One source file being expanded, with its own comment scope and line iterator.
+struct FileFrame<'a> {
+    path: String,
+    file: u32,
+    lines: std::iter::Enumerate<std::str::Lines<'a>>,
+    in_block: bool,
+}
+
+impl<'a> Expander<'a> {
+    /// Loads a frame without copying its source; include errors retain the caller's location.
+    fn frame(
+        &mut self,
+        path: &str,
+        from: Option<SourceLocation>,
+    ) -> Result<FileFrame<'a>, Diagnostic> {
+        let source = self.source;
+        let text = source.text(path).ok_or_else(|| {
+            Diagnostic::new(Phase::Include, format!("cannot find `{path}`")).at(from)
+        })?;
+        Ok(FileFrame {
+            path: path.to_string(),
+            file: self.map.file_index(path),
+            lines: text.lines().enumerate(),
+            in_block: false,
+        })
+    }
+
+    /// Expands includes in source order using heap frames, reporting cycles and malformed files.
     fn file(&mut self, path: &str, from: Option<SourceLocation>) -> Result<(), Diagnostic> {
-        let Some(text) = self.source.text(path) else {
-            return Err(Diagnostic::new(Phase::Include, format!("cannot find `{path}`")).at(from));
-        };
-        if self.stack.iter().any(|p| p == path) {
-            return Err(
-                Diagnostic::new(Phase::Include, format!("include cycle through `{path}`")).at(from),
-            );
-        }
-        self.stack.push(path.to_string());
-        let file = self.map.file_index(path);
-        for (n, line) in text.lines().enumerate() {
+        let mut frames = vec![self.frame(path, from)?];
+        while let Some(frame) = frames.last_mut() {
+            let Some((n, line)) = frame.lines.next() else {
+                if frame.in_block {
+                    return Err(
+                        Diagnostic::new(Phase::Preprocess, "unterminated block comment").at(Some(
+                            SourceLocation {
+                                file: frame.path.clone(),
+                                line: self
+                                    .source
+                                    .text(&frame.path)
+                                    .map_or(0, |text| text.lines().count() as u32),
+                            },
+                        )),
+                    );
+                }
+                frames.pop();
+                continue;
+            };
             let here = SourceLocation {
-                file: path.to_string(),
+                file: frame.path.clone(),
                 line: n as u32 + 1,
             };
-            let trimmed = line.trim_start();
-            if let Some(rest) = trimmed.strip_prefix("#include") {
-                let target = resolve_include(path, rest);
-                self.file(&target, Some(here))?;
-                continue;
-            }
             let rewritten = if self.values.is_empty() {
                 None
             } else {
                 rewrite_option_line(line, self.options, self.values)
             };
             let line = rewritten.as_deref().unwrap_or(line);
-            let line = if !self.in_block && is_unknown_directive(trimmed) {
-                // Iris's preprocessor (JCPP) warns about and skips unknown directives,
-                // which some packs use as `#====` banner comments.
-                String::new()
-            } else if trimmed.starts_with("#error") {
-                // pp-rs tokenizes lines inside skipped groups and rejects the `"` of `#error "…"`.
+            // pp-rs tokenizes skipped groups and rejects quotes in #error messages.
+            let line = if line.trim_start().starts_with("#error") {
                 line.replace('"', "")
             } else {
                 line.to_string()
             };
-            if !self.in_block
-                && let Some(name) = defined_name(trimmed)
-            {
-                // Iris's preprocessor (JCPP) lets a later `#define` replace an earlier one;
-                // pp-rs rejects a redefinition, so each define drops any earlier one first.
-                self.out.push_str(&format!("#undef {name}\n"));
-                self.map.lines.push((file, n as u32 + 1));
-                match float_macro_value(&line, name) {
-                    Some(value) => self.float_macros.insert(name.to_string(), value),
-                    None => self.float_macros.remove(name),
-                };
+            let mut out = self.directives_in(&line, &mut frame.in_block);
+            if is_unknown_directive(out.trim_start()) {
+                out.clear();
             }
-            let line = if !self.in_block && is_condition(trimmed) {
-                integer_condition(&line, &self.float_macros)
+            if let Some(name) = defined_name(out.trim_start()) {
+                self.out.push_str(&format!("#undef {name}\n"));
+                self.map.lines.push((frame.file, n as u32 + 1));
+            }
+            let directive = out.trim_start().strip_prefix('#').map(str::trim_start);
+            if let Some(rest) = directive
+                .and_then(|d| d.strip_prefix("include"))
+                .filter(|rest| {
+                    rest.is_empty()
+                        || rest.starts_with(|c: char| c.is_whitespace() || c == '"' || c == '<')
+                })
+            {
+                let target = resolve_include(&frame.path, rest).map_err(|message| {
+                    Diagnostic::new(Phase::Include, message).at(Some(here.clone()))
+                })?;
+                if frames.iter().any(|frame| frame.path == target) {
+                    return Err(Diagnostic::new(
+                        Phase::Include,
+                        format!("include cycle through `{target}`"),
+                    )
+                    .at(Some(here)));
+                }
+                frames.push(self.frame(&target, Some(here))?);
             } else {
-                line
-            };
-            let out = self.directives_in(&line);
-            self.out.push_str(&out);
-            self.out.push('\n');
-            self.map.lines.push((file, n as u32 + 1));
+                self.out.push_str(&out);
+                self.out.push('\n');
+                self.map.lines.push((frame.file, n as u32 + 1));
+            }
         }
-        self.stack.pop();
         Ok(())
     }
 
-    /// Records the directives on `line` and returns the line with marker identifiers placed
-    /// in code right after the comment that held them, so only directives in active code
-    /// survive preprocessing.
-    fn directives_in(&mut self, line: &str) -> String {
-        let started_in_block = self.in_block;
-        let scan = scan_line(line, &mut self.in_block);
+    /// Removes comments and places directive markers in code so conditional preprocessing
+    /// selects them in source order.
+    fn directives_in(&mut self, line: &str, in_block: &mut bool) -> String {
+        let scan = scan_line(line, in_block);
         for comment in &scan.block_comments {
             if let Some(d) = comment_directive(comment) {
                 self.directives.push(d);
@@ -206,95 +230,16 @@ impl Expander<'_> {
             self.directives.push(Directive::Const(c));
             self.pending.push(self.directives.len() - 1);
         }
-        let preprocessor_line = !started_in_block && trimmed.starts_with('#');
-        if self.pending.is_empty()
-            || self.in_block
-            || preprocessor_line
-            || line.trim_end().ends_with('\\')
-        {
-            return line.to_string();
+        let preprocessor_line = scan.code.trim_start().starts_with('#');
+        if self.pending.is_empty() || preprocessor_line || scan.code.trim_end().ends_with('\\') {
+            return scan.code;
         }
-        let mut out = line[..scan.code_end].to_string();
+        let mut out = scan.code;
         for i in self.pending.drain(..) {
             out.push_str(&format!(" {MARKER}{i} "));
         }
-        out.push_str(&line[scan.code_end..]);
         out
     }
-}
-
-/// The integer value of `#define <name> <float literal>`, or `None` for any other define.
-fn float_macro_value(line: &str, name: &str) -> Option<String> {
-    let body = line.trim_start().strip_prefix('#')?.trim_start();
-    let body = body
-        .strip_prefix("define")?
-        .trim_start()
-        .strip_prefix(name)?;
-    if !body.starts_with([' ', '\t']) {
-        return None;
-    }
-    let end = body.find("//").unwrap_or(body.len());
-    let end = body[..end].find("/*").unwrap_or(end);
-    truncated(body[..end].trim())
-}
-
-/// Whether the line is an `#if` or `#elif`.
-fn is_condition(trimmed: &str) -> bool {
-    let Some(rest) = trimmed.strip_prefix('#') else {
-        return false;
-    };
-    let rest = rest.trim_start();
-    ["if", "elif"].iter().any(|d| {
-        rest.strip_prefix(d)
-            .is_some_and(|r| r.starts_with([' ', '\t', '(', '!']))
-    })
-}
-
-/// Rewrites an `#if`/`#elif` condition the way JCPP evaluates it: float literals, and
-/// macros defined as float literals, read as their integer part (`daySpeed >= 1.0` with
-/// `daySpeed 0.5` is `0 >= 1`). pp-rs rejects floats in conditions.
-fn integer_condition(line: &str, float_macros: &HashMap<String, String>) -> String {
-    let code_end = line.find("//").unwrap_or(line.len());
-    let (code, comment) = line.split_at(code_end);
-    let mut out = String::with_capacity(line.len());
-    let mut after_defined = false;
-    let mut rest = code;
-    while let Some(c) = rest.chars().next() {
-        let word = if c.is_ascii_alphabetic() || c == '_' {
-            rest.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-        } else if c.is_ascii_digit()
-            || (c == '.' && rest[1..].starts_with(|d: char| d.is_ascii_digit()))
-        {
-            let mut prev = ' ';
-            rest.find(|c: char| {
-                let more = c.is_ascii_alphanumeric()
-                    || c == '.'
-                    || ((c == '+' || c == '-') && matches!(prev, 'e' | 'E'));
-                prev = c;
-                !more
-            })
-        } else {
-            if !c.is_whitespace() && c != '(' {
-                after_defined = false;
-            }
-            out.push(c);
-            rest = &rest[c.len_utf8()..];
-            continue;
-        };
-        let (token, tail) = rest.split_at(word.unwrap_or(rest.len()));
-        rest = tail;
-        let replaced = if after_defined {
-            None
-        } else if c.is_ascii_digit() || c == '.' {
-            truncated(token)
-        } else {
-            float_macros.get(token).cloned()
-        };
-        after_defined = token == "defined";
-        out.push_str(replaced.as_deref().unwrap_or(token));
-    }
-    out.push_str(comment);
-    out
 }
 
 /// The macro name a `#define` line defines.
@@ -344,10 +289,20 @@ fn is_unknown_directive(trimmed: &str) -> bool {
 }
 
 /// `shaders/`-relative target of an `#include` argument written in `from`.
-fn resolve_include(from: &str, arg: &str) -> String {
-    let name = arg
-        .trim()
-        .trim_matches(|c| c == '"' || c == '<' || c == '>');
+fn resolve_include(from: &str, arg: &str) -> Result<String, String> {
+    let arg = arg.trim();
+    let (tail, close) = if let Some(tail) = arg.strip_prefix('"') {
+        (tail, '"')
+    } else if let Some(tail) = arg.strip_prefix('<') {
+        (tail, '>')
+    } else {
+        return Err("include requires a delimited filename".into());
+    };
+    let end = tail.find(close).ok_or("unterminated include filename")?;
+    let name = &tail[..end];
+    if name.is_empty() || !tail[end + close.len_utf8()..].trim().is_empty() {
+        return Err("include requires one non-empty filename".into());
+    }
     let joined = match name.strip_prefix('/') {
         Some(abs) => abs.to_string(),
         None => match from.rsplit_once('/') {
@@ -365,22 +320,23 @@ fn resolve_include(from: &str, arg: &str) -> String {
             s => parts.push(s),
         }
     }
-    parts.join("/")
+    Ok(parts.join("/"))
 }
 
 struct LineScan {
-    /// Byte offset where a trailing `//` comment starts, or the line length.
-    code_end: usize,
+    /// Source code with comments replaced by whitespace.
+    code: String,
     /// Text of the block comments (or parts of them) on this line.
     block_comments: Vec<String>,
 }
 
+/// Replaces comments with whitespace while collecting their text and tracking multiline scope.
 fn scan_line(line: &str, in_block: &mut bool) -> LineScan {
     let b = line.as_bytes();
     let mut i = 0;
     let mut comments = Vec::new();
     let mut current = String::new();
-    let mut code_end = line.len();
+    let mut code = String::new();
     while i < b.len() {
         if *in_block {
             if b[i] == b'*' && b.get(i + 1) == Some(&b'/') {
@@ -396,28 +352,34 @@ fn scan_line(line: &str, in_block: &mut bool) -> LineScan {
         }
         match b[i] {
             b'/' if b.get(i + 1) == Some(&b'/') => {
-                code_end = i;
                 break;
             }
             b'/' if b.get(i + 1) == Some(&b'*') => {
                 *in_block = true;
+                code.push(' ');
                 i += 2;
             }
             b'"' => {
+                let start = i;
                 i += 1;
                 while i < b.len() && b[i] != b'"' {
                     i += 1;
                 }
-                i += 1;
+                i = (i + 1).min(b.len());
+                code.push_str(&line[start..i]);
             }
-            _ => i += 1,
+            _ => {
+                let ch = line[i..].chars().next().expect("cursor is within the line");
+                code.push(ch);
+                i += ch.len_utf8();
+            }
         }
     }
     if *in_block {
         comments.push(current);
     }
     LineScan {
-        code_end: code_end.min(line.len()),
+        code,
         block_comments: comments,
     }
 }
@@ -457,6 +419,7 @@ fn parse_const(rest: &str) -> Option<ConstDirective> {
     })
 }
 
+/// Checks whether text is a non-empty ASCII identifier.
 fn is_identifier(s: &str) -> bool {
     let mut chars = s.chars();
     chars
@@ -480,6 +443,7 @@ pub(crate) fn preprocess(
         line_starts.partition_point(|s| *s <= offset) as u32
     };
     let mut pp = Preprocessor::new(text);
+    pp.set_allow_float_conditions(true);
     for (k, v) in defines {
         pp.add_define(k, v).map_err(|e| {
             Diagnostic::new(Phase::Preprocess, format!("cannot define `{k}`: {e:?}"))
@@ -567,6 +531,7 @@ fn float_literal(v: f32) -> String {
     }
 }
 
+/// Returns the GLSL spelling of a punctuation token.
 fn punct(p: Punct) -> &'static str {
     use Punct::*;
     match p {
@@ -622,6 +587,7 @@ fn punct(p: Punct) -> &'static str {
 mod tests {
     use super::*;
 
+    /// Expands and preprocesses in-memory files with the supplied macros.
     fn run(files: &[(&str, &str)], entry: &str, defines: &[(&str, &str)]) -> Preprocessed {
         let source = PackSource::from_files(files.iter().copied());
         let expanded = expand(&source, entry, &[], &OptionValues::new()).expect("expands");
@@ -633,17 +599,129 @@ mod tests {
     }
 
     #[test]
+    fn include_filenames_end_before_trailing_comments() {
+        for include in [
+            "#include \"/lib/common.glsl\" // shared",
+            "#include \"/lib/common.glsl\" /* shared */",
+            "/* leading */ #include \"/lib/common.glsl\"",
+            "/* previous\n*/ #include \"/lib/common.glsl\"",
+        ] {
+            let pp = run(
+                &[("a.fsh", include), ("lib/common.glsl", "float shared;")],
+                "a.fsh",
+                &[],
+            );
+            let token = pp
+                .tokens
+                .iter()
+                .find(|t| t.ident() == Some("shared"))
+                .unwrap();
+            assert_eq!(
+                pp.map.locate(token.line).unwrap().to_string(),
+                "lib/common.glsl:1"
+            );
+        }
+    }
+
+    #[test]
+    fn includes_inside_comments_are_ignored() {
+        let pp = run(
+            &[("a.fsh", "/*\n#include \"missing.glsl\"\n*/\nfloat present;")],
+            "a.fsh",
+            &[],
+        );
+        assert!(pp.tokens.iter().any(|t| t.ident() == Some("present")));
+    }
+
+    #[test]
+    fn deep_includes_expand_without_call_stack_recursion() {
+        let mut files = Vec::new();
+        for i in 0..8192 {
+            files.push((
+                format!("lib/{i}.glsl"),
+                if i == 8191 {
+                    "float deepest;".to_string()
+                } else {
+                    format!("#include \"{}.glsl\"", i + 1)
+                },
+            ));
+        }
+        let source = PackSource::from_files(files);
+        let expanded = expand(&source, "lib/0.glsl", &[], &OptionValues::new()).unwrap();
+        let pp = preprocess(expanded, &[]).unwrap();
+        let token = pp
+            .tokens
+            .iter()
+            .find(|t| t.ident() == Some("deepest"))
+            .unwrap();
+        assert_eq!(
+            pp.map.locate(token.line).unwrap().to_string(),
+            "lib/8191.glsl:1"
+        );
+    }
+
+    /// Returns the active integer constant chosen by a preprocessor condition.
+    fn selected_float_condition(text: &str, defines: &[(&str, &str)]) -> i32 {
+        let pp = run(&[("a.fsh", text)], "a.fsh", defines);
+        pp.consts.last().unwrap().value.parse().unwrap()
+    }
+
+    #[test]
+    fn float_macro_undef_removes_its_condition_value() {
+        assert_eq!(
+            selected_float_condition(
+                "#define S 1.5\n#undef S\n#if S\nconst int chosen = 1;\n#else\nconst int chosen = 0;\n#endif",
+                &[]
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn float_macro_inactive_redefinitions_do_not_change_conditions() {
+        assert_eq!(
+            selected_float_condition(
+                "#define S 0.5\n#if 0\n#define S 2.5\n#endif\n#if S\nconst int chosen = 1;\n#else\nconst int chosen = 0;\n#endif",
+                &[]
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn float_macro_aliases_expand_before_truncation() {
+        assert_eq!(
+            selected_float_condition(
+                "#define BASE 1.5\n#define S BASE\n#if S\nconst int chosen = 1;\n#else\nconst int chosen = 0;\n#endif",
+                &[]
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn float_macro_environment_values_expand_before_truncation() {
+        assert_eq!(
+            selected_float_condition(
+                "#if S\nconst int chosen = 1;\n#else\nconst int chosen = 0;\n#endif",
+                &[("S", "1.5")]
+            ),
+            1
+        );
+    }
+
+    #[test]
     fn includes_resolve_absolute_and_relative_paths() {
         assert_eq!(
-            resolve_include("world0/a.fsh", " \"/lib/x.glsl\""),
+            resolve_include("world0/a.fsh", " \"/lib/x.glsl\"").unwrap(),
             "lib/x.glsl"
         );
         assert_eq!(
-            resolve_include("world0/a.fsh", " \"../lib/x.glsl\""),
+            resolve_include("world0/a.fsh", " \"../lib/x.glsl\"").unwrap(),
             "lib/x.glsl"
         );
         assert_eq!(
-            resolve_include("program/a.glsl", " \"b.glsl\""),
+            resolve_include("program/a.glsl", " \"b.glsl\"").unwrap(),
             "program/b.glsl"
         );
     }
