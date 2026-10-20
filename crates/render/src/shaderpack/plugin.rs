@@ -323,9 +323,9 @@ fn configure_replacement(
         .filter(|pack| {
             !cameras.is_empty()
                 && cameras.iter().all(|entity| {
-                    states
-                        .get(&entity)
-                        .is_some_and(|state| Arc::ptr_eq(&state.pack, pack))
+                    states.get(&entity).is_some_and(|state| {
+                        Arc::ptr_eq(&state.pack, pack) && state.geometry_targets_ready()
+                    })
                 })
         });
     let draws = |kind| ready.is_some_and(|pack| pack.draws.iter().any(|draw| draw.kind == kind));
@@ -367,6 +367,22 @@ fn configure_replacement(
             .filter(|_| drawn.terrain)
             .map_or_else(Default::default, |pack| replaced_effects(pack)),
     );
+}
+
+/// Reads the atlas dimensions that current geometry bindings will sample.
+fn atlas_context(
+    atlas: Option<&ShaderpackAtlas>,
+    effects: Option<&ShaderpackEffectTextures>,
+) -> DrawContext {
+    DrawContext {
+        chunk_offset: Vec3::ZERO,
+        hand_projection: Mat4::IDENTITY,
+        atlas_size: atlas.map_or([0; 2], |atlas| {
+            atlas.size.to_array().map(|side| side as i32)
+        }),
+        particle_atlas_size: effects.map_or([0; 2], ShaderpackEffectTextures::particle_atlas_size),
+        crack_atlas_size: effects.map_or([0; 2], ShaderpackEffectTextures::crack_atlas_size),
+    }
 }
 
 /// Allocates or resizes view targets, writes this frame's uniforms and builds each view's
@@ -457,20 +473,11 @@ fn prepare_views(
             .as_ref()
             .and_then(|g| g.chunk_offset(position.as_dvec3()))
             .unwrap_or(Vec3::ZERO);
-        let atlas_size = atlas.as_ref().map_or([0; 2], |atlas| {
-            atlas.size.to_array().map(|side| side as i32)
-        });
         let far = inputs.render_distance.max(16.0) * FAR_PLANE_SCALE;
         let context = DrawContext {
             chunk_offset,
-            atlas_size,
-            crack_atlas_size: effect_textures
-                .as_ref()
-                .map_or([0; 2], |t| t.crack_atlas_size()),
-            particle_atlas_size: effect_textures
-                .as_ref()
-                .map_or([0; 2], |t| t.particle_atlas_size()),
             hand_projection: actors::hand_projection(hand_fov, screen, far),
+            ..atlas_context(atlas.as_deref(), effect_textures.as_deref())
         };
         state.write_uniforms(&queue, &frame, clock.delta_seconds, &context);
         if let Some(geometry) = geometry.as_deref_mut()
@@ -593,6 +600,13 @@ fn shaderpack_post(
     let render_device = world.resource::<RenderDevice>();
     let device = render_device.wgpu_device().clone();
     let queue: wgpu::Queue = (**world.resource::<RenderQueue>()).clone();
+    state.sync_draw_atlas_sizes(
+        &queue,
+        &atlas_context(
+            world.get_resource::<ShaderpackAtlas>(),
+            world.get_resource::<ShaderpackEffectTextures>(),
+        ),
+    );
     let destination_format = target.main_texture_format();
     let terrain = pack_terrain(world).map(|geometry| ViewTerrain {
         geometry,
