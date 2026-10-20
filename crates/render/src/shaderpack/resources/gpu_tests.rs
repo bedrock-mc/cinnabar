@@ -1,7 +1,7 @@
 use super::*;
 
 /// Requests a device for resource fixtures, skipping only an absent adapter.
-#[expect(
+#[allow(
     clippy::print_stderr,
     reason = "names the absent GPU fixture when tests skip"
 )]
