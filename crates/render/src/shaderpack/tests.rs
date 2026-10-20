@@ -1219,7 +1219,14 @@ fn shadow_colour_feedback_is_rejected_before_recording() {
         let fragment = format!(
             "#version 120\nuniform sampler2D shadowcolor0;\n/* DRAWBUFFERS:{output} */\nvoid main() {{ gl_FragData[0] = texture2D(shadowcolor0, vec2(0.5)); }}"
         );
-        let source = pack(&[("shadow.vsh", PASS_VERTEX), ("shadow.fsh", &fragment)]);
+        let source = pack(&[
+            ("gbuffers_basic.vsh", PASS_VERTEX),
+            ("gbuffers_basic.fsh", FILL),
+            ("gbuffers_terrain.vsh", PASS_VERTEX),
+            ("gbuffers_terrain.fsh", FILL),
+            ("shadow.vsh", PASS_VERTEX),
+            ("shadow.fsh", &fragment),
+        ]);
         let result = build(
             &source,
             "fixture",
@@ -1234,9 +1241,10 @@ fn shadow_colour_feedback_is_rejected_before_recording() {
             };
             assert!(error.contains("shadowcolor0"), "{error}");
         } else {
+            let loaded = result.expect("sampling a different shadow attachment remains supported");
             assert!(
-                result.is_ok(),
-                "sampling a different shadow attachment remains supported"
+                loaded.shadow.is_some(),
+                "the fixture prepares active shadow draws"
             );
         }
     }
