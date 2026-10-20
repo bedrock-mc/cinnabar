@@ -834,7 +834,7 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 [[package]]
 name = "bedrock-client"
 version = "0.1.0"
-source = "git+https://github.com/cinnabar-mc/bedrock-net?rev=ca17b6a80fb1c78677e18f8d21f86726928a2b0d#ca17b6a80fb1c78677e18f8d21f86726928a2b0d"
+source = "git+https://github.com/cinnabar-mc/bedrock-net?rev=a96048e1252a3c0995dc160a5d60efe8e08c4eab#a96048e1252a3c0995dc160a5d60efe8e08c4eab"
 dependencies = [
  "bedrock-net",
  "bedrock-packs",
@@ -852,7 +852,7 @@ dependencies = [
 [[package]]
 name = "bedrock-net"
 version = "0.1.0"
-source = "git+https://github.com/cinnabar-mc/bedrock-net?rev=ca17b6a80fb1c78677e18f8d21f86726928a2b0d#ca17b6a80fb1c78677e18f8d21f86726928a2b0d"
+source = "git+https://github.com/cinnabar-mc/bedrock-net?rev=a96048e1252a3c0995dc160a5d60efe8e08c4eab#a96048e1252a3c0995dc160a5d60efe8e08c4eab"
 dependencies = [
  "aes 0.9.3",
  "base64 0.22.1",
@@ -880,7 +880,7 @@ dependencies = [
 [[package]]
 name = "bedrock-packs"
 version = "0.1.0"
-source = "git+https://github.com/cinnabar-mc/bedrock-net?rev=ca17b6a80fb1c78677e18f8d21f86726928a2b0d#ca17b6a80fb1c78677e18f8d21f86726928a2b0d"
+source = "git+https://github.com/cinnabar-mc/bedrock-net?rev=a96048e1252a3c0995dc160a5d60efe8e08c4eab#a96048e1252a3c0995dc160a5d60efe8e08c4eab"
 dependencies = [
  "serde",
  "serde_json",
@@ -8383,7 +8383,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 [[package]]
 name = "raknet"
 version = "0.1.0"
-source = "git+https://github.com/cinnabar-mc/raknet?rev=8adfb1ded51bd4897f83046ad12d2fbc0a916720#8adfb1ded51bd4897f83046ad12d2fbc0a916720"
+source = "git+https://github.com/cinnabar-mc/raknet?rev=014065474467f73dff39562d22050f02fa715108#014065474467f73dff39562d22050f02fa715108"
 dependencies = [
  "byteorder",
  "facet",
