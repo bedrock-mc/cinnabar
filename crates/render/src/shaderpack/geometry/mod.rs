@@ -66,7 +66,7 @@ mod residency;
     not(test),
     expect(dead_code, reason = "consumed by the shader-pack frame host")
 )]
-mod shadow_cull;
+pub(super) mod shadow_cull;
 #[expect(dead_code, reason = "consumed by the shader-pack frame host")]
 mod vertex;
 

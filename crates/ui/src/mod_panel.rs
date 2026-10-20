@@ -90,7 +90,7 @@ pub struct Panel {
     /// Hide HUD and death screens still apply; focused panels always hide the crosshair.
     #[serde(default)]
     pub show_gameplay_hud: bool,
-    /// Opts into native hover/toggle easing and smooth discrete wheel scrolling.
+    /// Enables native feedback easing, smooth wheel scrolling and surface transitions.
     #[serde(default)]
     pub motion: bool,
     #[serde(default)]

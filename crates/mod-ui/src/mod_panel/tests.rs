@@ -307,7 +307,7 @@ impl json_ui::TextureSource for InputArt {
 }
 
 /// Resolves the native panel's input regions without a renderer or local game assets.
-fn panel_frame(panel: &ModPanel) -> EngineFrame {
+pub(super) fn panel_frame(panel: &ModPanel) -> EngineFrame {
     let (catalog, _) = template::catalog(
         &panel.panel,
         panel.viewport,
@@ -637,6 +637,7 @@ fn exiting_panel(exit: Option<f64>) -> Panel {
     use ui::mod_panel::{Surface, SurfaceTransition, SurfaceValue};
 
     let mut content = panel();
+    content.motion = true;
     content.surface = Some(Surface {
         collections: Default::default(),
         previews: Default::default(),
@@ -980,10 +981,7 @@ fn packet_prepared_updates_accept_route_schemas_and_reject_changed_documents() {
 /// Samples the displayed surface values through the same transition state used by painting.
 fn transition_values(ui: &mut ModUi, now: f64) -> json_ui::DataSource {
     let current = ui.mod_panel.as_mut().unwrap();
-    current
-        .motion
-        .transitions
-        .advance(current.panel.surface.as_ref().unwrap(), now, true);
+    current.advance_motion(now, !ui.reduced_motion);
     let mut values = json_ui::DataSource::new();
     current.motion.transitions.write(&mut values);
     values
@@ -1038,6 +1036,7 @@ fn open_route_changes_preserve_surface_transition_progress() {
     assert_eq!(transition_values(&mut ui, 3.5), values(0.0));
     let mut builtin = content.clone();
     builtin.surface = None;
+    builtin.motion = false;
     ui.set_mod_panel(PanelUiOwner::Environment(1), Some(&builtin))
         .unwrap();
     assert!(ui.mod_panel_open());

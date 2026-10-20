@@ -34,6 +34,7 @@ pub mod runtime_profile_uploads;
 pub mod screen_fire;
 pub mod screen_overlay;
 pub mod screen_overlay_portal;
+pub mod shaderpack;
 pub mod skybox;
 pub mod startup_presentation;
 pub mod terrain_publication;

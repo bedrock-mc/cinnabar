@@ -161,7 +161,16 @@ pub(super) fn rewrite_body(toks: &[Tok], cx: &BodyContext<'_>, used: &mut Sample
                     used.comparison = true;
                     SHADOW_SAMPLER_NAME
                 } else {
-                    used.filtering.insert(*class);
+                    let class = if ctor.starts_with("isampler") || ctor.starts_with("usampler") {
+                        if class.clamps() {
+                            SamplerClass::ClampNearest
+                        } else {
+                            SamplerClass::RepeatNonFiltering
+                        }
+                    } else {
+                        *class
+                    };
+                    used.filtering.insert(class);
                     class.glsl_name()
                 };
                 out.extend([
@@ -468,6 +477,37 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(error.line, 7);
+    }
+    #[test]
+    fn integer_gathers_use_nearest_classes_without_changing_float_filtering() {
+        let mut samplers = samplers();
+        for (name, ctor, class) in [
+            ("signedTex", "isampler2D", SamplerClass::ClampLinear),
+            ("unsignedTex", "usampler2D", SamplerClass::RepeatLinear),
+        ] {
+            samplers.insert(name.into(), (ctor.into(), false, class));
+        }
+        let cx = BodyContext {
+            samplers: &samplers,
+            bools: &HashMap::new(),
+            user_funcs: &HashSet::new(),
+        };
+        let mut used = SamplerUse::default();
+        rewrite_body(
+            &lex(
+                "textureGather(signedTex, uv); textureGather(unsignedTex, uv); texture(colortex0, uv);",
+            ),
+            &cx,
+            &mut used,
+        );
+        assert_eq!(
+            used.filtering,
+            BTreeSet::from([
+                SamplerClass::ClampNearest,
+                SamplerClass::RepeatNonFiltering,
+                SamplerClass::ClampLinear,
+            ])
+        );
     }
 
     #[test]
