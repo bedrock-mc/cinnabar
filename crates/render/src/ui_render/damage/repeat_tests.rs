@@ -80,7 +80,7 @@ fn repeated_atlas_regions_keep_coverage_clipping_and_filtered_seams() {
             Arc::make_mut(&mut input.batches)[0].scissor = UiScissor::new(3, 5, 56, 51);
             let output = target(&raster.gpu, false);
             raster.draw(&input, &output, None);
-            for (at, actual) in raster.pixels(&output).chunks_exact(4).enumerate() {
+            for (at, actual) in raster.pixels(&output).as_chunks::<4>().0.iter().enumerate() {
                 let x = at as u32 % SIDE;
                 let y = at as u32 / SIDE;
                 if !(3..59).contains(&x) || !(5..56).contains(&y) {
@@ -116,7 +116,9 @@ fn repeated_atlas_regions_keep_coverage_clipping_and_filtered_seams() {
     assert!(
         raster
             .pixels(&output)
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .all(|pixel| pixel[3] == 255)
     );
     assert_eq!(input.vertices.len(), 4);
@@ -129,7 +131,7 @@ fn repeated_original_image_pages_keep_filter_halos_without_overlapping_coverage(
     input.indices = Arc::from([]);
     input.batches = Arc::from([]);
     let mut pixels = PAGE;
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0.iter_mut() {
         pixel[3] = 128;
     }
     input.textures = Arc::new(
@@ -160,7 +162,11 @@ fn repeated_original_image_pages_keep_filter_halos_without_overlapping_coverage(
     };
     for bounds in [[0.0, 0.0, 2.0, 2.0], [-1.0, -1.0, 4.0, 4.0]] {
         for linear in [false, true] {
-            for vertices in Arc::make_mut(&mut input.vertices).chunks_exact_mut(4) {
+            for vertices in Arc::make_mut(&mut input.vertices)
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+            {
                 for (vertex, uv) in vertices.iter_mut().zip([
                     [0.25, 0.375],
                     [13.5, 0.375],
@@ -180,7 +186,7 @@ fn repeated_original_image_pages_keep_filter_halos_without_overlapping_coverage(
             }
             let output = target(&raster.gpu, false);
             raster.draw(&input, &output, None);
-            for (at, actual) in raster.pixels(&output).chunks_exact(4).enumerate() {
+            for (at, actual) in raster.pixels(&output).as_chunks::<4>().0.iter().enumerate() {
                 let x = at as u32 % SIDE;
                 let y = at as u32 / SIDE;
                 let coords = [
