@@ -29,6 +29,9 @@ impl UiPresentationRuntime {
         let Some(renderer) = self.engine.as_deref() else {
             return Ok(());
         };
+        if runtime.hides_toasts() {
+            return Ok(());
+        }
         let Some(toast) = runtime.hud().showing_toast(now_millis) else {
             return Ok(());
         };

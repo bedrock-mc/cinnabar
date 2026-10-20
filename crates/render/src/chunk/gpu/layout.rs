@@ -498,6 +498,9 @@ pub(in crate::chunk) struct ArenaGrowthPlan {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::chunk) struct ArenaGrowthError;
 
+/// Growth of a stream from `current_capacity` that holds `required_len` items: at least a
+/// quarter more than it had, so streaming growth stays amortised, then
+/// [`round_arena_capacity`].
 pub(in crate::chunk) fn plan_arena_growth(
     current_capacity: usize,
     required_len: usize,
@@ -510,12 +513,20 @@ pub(in crate::chunk) fn plan_arena_growth(
     if required_len <= current_capacity {
         return Ok(None);
     }
-    let new_capacity = required_len
-        .checked_next_power_of_two()
-        .unwrap_or(max_items)
-        .min(max_items);
+    let wanted = required_len.max(current_capacity.saturating_add(current_capacity / 4));
     Ok(Some(ArenaGrowthPlan {
-        new_capacity,
+        new_capacity: round_arena_capacity(wanted, max_items),
         gpu_copy_bytes: buffer_byte_len(current_capacity, item_bytes),
     }))
+}
+
+/// `items` rounded up to an eighth of the power of two that holds it, within `max_items`: a
+/// sized growth (the join backlog) reserves less than a quarter more than it needs, where
+/// rounding to the power of two reserved up to twice that.
+pub(in crate::chunk) fn round_arena_capacity(items: usize, max_items: usize) -> usize {
+    let granule = (items.checked_next_power_of_two().unwrap_or(max_items) / 8).max(1);
+    items
+        .div_ceil(granule)
+        .saturating_mul(granule)
+        .min(max_items)
 }
