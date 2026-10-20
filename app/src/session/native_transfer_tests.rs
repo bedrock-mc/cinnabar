@@ -4,7 +4,7 @@ use client_shell::menu::test_support as menu_fixture;
 use client_shell::ui_resources::UiRuntimeResource;
 use client_ui::ui_runtime::UiRuntime;
 
-/// The actual Transfer follow keeps native I/O while replacing discovery with addressed transport selection.
+/// Transfer discovery is scoped to that handoff; a fresh join uses the launch selection.
 #[test]
 fn native_lan_transfer_selects_addressed_transport_after_tearing_down_the_original_session() {
     let layout = launcher::test_support::scratch("native-lan-transfer");
@@ -73,5 +73,32 @@ fn native_lan_transfer_selects_addressed_transport_after_tearing_down_the_origin
             .resource::<crate::runtime::world::ClientWorld>()
             .transfer_notice
             .is_none()
+    );
+
+    let mut controller = app
+        .world_mut()
+        .remove_resource::<SessionController>()
+        .unwrap();
+    controller.begin_fresh_transfer_chain();
+    let generation = controller.generation;
+    let JoinStage::Native(next) = controller
+        .start_core(
+            app.world().resource::<MenuRuntime>(),
+            app.world().resource::<BlobCache>(),
+            "127.0.0.1:19134",
+            None,
+            generation,
+        )
+        .unwrap()
+    else {
+        panic!("the next user join must retain its native owner");
+    };
+    next.validate().unwrap();
+    drop(controller);
+    drop(app);
+    assert_eq!(
+        next.transport,
+        protocol::NativeTransport::NetherNetLan,
+        "a completed transfer must not replace the launch transport for the next user join"
     );
 }
