@@ -46,6 +46,10 @@ core/internal/redact/rules.json text eol=lf
 core/cinnabarapi/schema/*.json text eol=lf
 *_generated.rs text eol=lf
 crates/protocol-ids/src/generated.rs text eol=lf
+crates/assets/data/java-mapping-*.bin binary
+assets/geyser-mappings-source.json text eol=lf
+assets/licenses/GeyserMC-mappings-MIT.txt text eol=lf
+assets/licenses/GeyserMC-Geyser-MIT.txt text eol=lf
 # Agents append independent entries; keep both sides instead of conflicting.
 plan.md merge=union
 docs/evidence/*-completion-ledger.md merge=union

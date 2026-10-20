@@ -109,7 +109,7 @@ impl WorldStream {
             .map(|(key, mesh, biome)| {
                 let dirty_since = Instant::now();
                 let generation = self.mark_dirty_exact(key, dirty_since);
-                self.mesh_jobs.pending.remove(&key);
+                self.mesh_jobs.remove_pending(&key);
                 self.mesh_jobs.in_flight.insert(key, generation);
                 let source = self
                     .authority
