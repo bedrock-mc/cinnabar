@@ -123,19 +123,20 @@ fn long_comments_scroll_above_the_footer_buttons() {
         control: Control::Link,
         modified: false,
     };
-    let options = View::loading("Fixture");
-    let draw = |canvas: &mut crate::paint::Canvas<'_>| {
+    let mut options = View::loading("Fixture");
+    options.elements = vec![element.clone(), element];
+    let draw = |index, canvas: &mut crate::paint::Canvas<'_>| {
         let height = super::footer_height(canvas);
         super::footer(
             canvas,
             &view,
             &options,
             [300.0, SIZE[1] - height, 1200.0, SIZE[1]],
-            Some(&element),
+            Some((index, &options.elements[index])),
         )
         .unwrap();
     };
-    let (areas, hits, _) = crate::review_tests::paint(HashMap::new(), draw);
+    let (areas, hits, _) = crate::review_tests::paint(HashMap::new(), |canvas| draw(0, canvas));
     let area = areas
         .iter()
         .find(|area| area.max > 0.0)
@@ -147,7 +148,9 @@ fn long_comments_scroll_above_the_footer_buttons() {
         .unwrap();
     assert!(area.viewport.max().y() < button_top);
     let (scrolled, _, _) =
-        crate::review_tests::paint(HashMap::from([(area.key.clone(), area.max)]), draw);
+        crate::review_tests::paint(HashMap::from([(area.key.clone(), area.max)]), |canvas| {
+            draw(0, canvas)
+        });
     let scrolled = scrolled
         .iter()
         .find(|scrolled| scrolled.key == area.key)
@@ -155,5 +158,14 @@ fn long_comments_scroll_above_the_footer_buttons() {
     assert_eq!(
         scrolled.offset, area.max,
         "the last help lines can be revealed"
+    );
+    let (other, _, _) =
+        crate::review_tests::paint(HashMap::from([(area.key.clone(), area.max)]), |canvas| {
+            draw(1, canvas)
+        });
+    let other = other.iter().find(|other| other.max > 0.0).unwrap();
+    assert_eq!(
+        other.offset, 0.0,
+        "options with equal labels scroll independently"
     );
 }

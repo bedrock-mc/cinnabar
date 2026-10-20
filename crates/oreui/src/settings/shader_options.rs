@@ -52,11 +52,11 @@ fn engaged(view: &MenuView, actions: &[MenuAction]) -> bool {
     })
 }
 
-/// Draws the title and grid at `content.y`; returns the element the footer describes.
+/// Draws the title and grid at `content.y`; returns the described element and its index.
 pub(super) fn body<'v>(
     content: &mut Content<'_, '_>,
     options: &'v View,
-) -> Result<Option<&'v Element>, PaintError> {
+) -> Result<Option<(usize, &'v Element)>, PaintError> {
     let [left, right] = content.inset();
     let width = (right - left).max(1.0);
     let mut top = content.y + content.canvas.r(2.4);
@@ -105,16 +105,17 @@ pub(super) fn body<'v>(
             .map(|element| content.canvas.r(cell_height(&element.control)))
             .fold(0.0, f32::max);
         for (column, element) in cells.iter().enumerate() {
+            let index = row * columns + column;
             let x = left + column as f32 * (cell_width + gap);
             if cell(
                 content.canvas,
                 content.view,
                 options,
-                row * columns + column,
+                index,
                 element,
                 [x, y, x + cell_width, y + height],
             )? {
-                described = Some(element);
+                described = Some((index, element));
             }
         }
         y += height + gap;
@@ -337,7 +338,7 @@ pub(super) fn footer(
     view: &MenuView,
     options: &View,
     b: Bounds,
-    described: Option<&Element>,
+    described: Option<(usize, &Element)>,
 ) -> Result<(), PaintError> {
     canvas.fill(b, NEUTRAL.fill)?;
     widgets::divider(canvas, b[0], b[2], b[1])?;
@@ -352,7 +353,7 @@ pub(super) fn footer(
         b[3] - canvas.r(PAD),
     ];
     let mut top = b[1] + canvas.r(PAD);
-    if let Some(element) = described.filter(|element| !element.label.is_empty()) {
+    if let Some((index, element)) = described.filter(|(_, element)| !element.label.is_empty()) {
         top += canvas
             .text_line(&element.label, [left, top], width, BODY, TEXT)?
             .max(canvas.r(BODY.line));
@@ -360,7 +361,7 @@ pub(super) fn footer(
             let bottom = (row[1] - canvas.r(PAD)).max(top + 1.0);
             let key = format!(
                 "shader_option_comment/{}/{}/{}",
-                options.pack, options.screen, element.label
+                options.pack, options.screen, index
             );
             let layout = canvas.layout(
                 comment,
