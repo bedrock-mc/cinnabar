@@ -8292,6 +8292,7 @@ dependencies = [
 name = "shaderpack"
 version = "0.1.22"
 dependencies = [
+ "assets",
  "naga",
  "pp-rs",
  "zip",

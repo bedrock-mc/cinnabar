@@ -106,7 +106,7 @@ forbidden_dependencies = ["bevy", "wgpu"]
 [[crates]]
 name = "shaderpack"
 path = "crates/shaderpack"
-allowed_dependencies = ["zip-footer"]
+allowed_dependencies = ["zip-footer", "assets"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 [[crates]]
@@ -1374,6 +1374,16 @@ baselines = [
 path = "crates/shaderpack/src/dimensions.rs"
 literal = "the_end"
 reason = "Java Edition dimension id in the default OptiFine/Iris shader-pack folder mapping, not a Bedrock identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/shaderpack/src/custom_uniforms/compile.rs"
+literal = "log2"
+reason = "GLSL built-in function name in the custom-uniform expression language, not a game identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/shaderpack/src/custom_uniforms/compile.rs"
+literal = "sign"
+reason = "GLSL built-in function name in the custom-uniform expression language, not a game identifier."
 
 [[identifier_literal_exceptions]]
 path = "tools/devtool/src/web.rs"
