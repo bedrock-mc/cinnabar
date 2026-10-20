@@ -1371,6 +1371,11 @@ baselines = [
 ]
 
 [[identifier_literal_exceptions]]
+path = "crates/mod-ui/src/mod_hud_editor/feedback.rs"
+literal = "height"
+reason = "Suffix of the editor's own #measurement_<axis>_height data binding, not a vanilla UI property."
+
+[[identifier_literal_exceptions]]
 path = "crates/shaderpack/src/dimensions.rs"
 literal = "the_end"
 reason = "Java Edition dimension id in the default OptiFine/Iris shader-pack folder mapping, not a Bedrock identifier."
