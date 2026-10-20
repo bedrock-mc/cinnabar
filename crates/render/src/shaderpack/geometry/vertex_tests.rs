@@ -167,6 +167,30 @@ fn inputs_of_types_terrain_cannot_supply_are_rejected() {
         }
     );
     assert!(wide(&[input(1, "iris_Color", vector(4, ScalarType::Int))]).is_err());
+    for scalar in [
+        ScalarType::Bool,
+        ScalarType::Int8,
+        ScalarType::Int16,
+        ScalarType::Int64,
+        ScalarType::Uint8,
+        ScalarType::Uint16,
+        ScalarType::Uint64,
+        ScalarType::Half,
+        ScalarType::Double,
+    ] {
+        for ty in [ValueType::Scalar(scalar), vector(4, scalar)] {
+            let inputs = [input(0, "iris_Vertex", ty)];
+            for layout in [TerrainLayout::WIDE, TerrainLayout::compact(&inputs)] {
+                assert_eq!(
+                    vertex_buffer_layouts(&inputs, &layout).unwrap_err(),
+                    VertexLayoutError::UnsupportedType {
+                        name: "iris_Vertex".into(),
+                        ty
+                    },
+                );
+            }
+        }
+    }
 }
 
 #[test]

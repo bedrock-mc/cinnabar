@@ -39,6 +39,7 @@ fn sprite(key: &str, path: &str) -> DrawNode {
             uv: json_ui::UvRect::full(),
             color: [255; 4],
             filter: Default::default(),
+            repeat: None,
         },
     )
 }
