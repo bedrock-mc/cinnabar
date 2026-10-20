@@ -473,9 +473,146 @@ fn glint_draws_honor_strength_and_the_configured_clock() {
                 let test = draw.kind.alpha_test("gbuffers_basic", &[]).unwrap();
                 assert_eq!(test.function, shaderpack::CompareFunction::Greater);
                 assert!(f32::from(alpha) / 255.0 > test.reference);
-                assert_eq!([red, green, blue], [(strength * 255.0).round() as u8; 3]);
+                assert_eq!(
+                    [red, green, blue],
+                    render_model::ActorGlint::TINT_RGB
+                        .map(|value| (value * strength * 255.0).round() as u8)
+                );
                 assert_eq!(alpha, u8::MAX);
             }
         }
+    }
+}
+
+/// A scalar-lit top face keeps the outward normal of the source mesh builder.
+#[test]
+fn scalar_lit_block_entity_top_faces_keep_outward_normals() {
+    use super::skin::block_entity_layout;
+    use render_model::block_entity::mesh::{Layer, MeshBuilder};
+    let Some(gpu) = Gpu::for_fixture("shader-pack scalar-lit block-entity normals") else {
+        return;
+    };
+    let mut mesh = MeshBuilder::new([16; 2]);
+    mesh.quad(
+        Layer::Solid,
+        [[0., 1., 0.], [1., 1., 0.], [1., 1., 1.], [0., 1., 1.]],
+        [0., 0., 1., 1.],
+        [1.; 4],
+    );
+    assert!(mesh.solid.iter().all(|vertex| vertex.normal == [0.; 3]));
+    let storage = |contents: &[u8]| {
+        gpu.device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents,
+                usage: wgpu::BufferUsages::STORAGE,
+            })
+    };
+    let vertices = storage(bytemuck::cast_slice(&mesh.solid));
+    let jobs = storage(bytemuck::bytes_of(&SkinJob::default()));
+    let output_bytes = mesh.solid.len() as u64 * u64::from(ACTOR_VERTEX_WORDS) * 4;
+    let output = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: output_bytes,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+    let params = SkinParams {
+        counts: [mesh.solid.len() as u32, 0, u32::MAX, 0],
+        ..Default::default()
+    };
+    let uniform = gpu
+        .device
+        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::bytes_of(&params),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+    let source = crate::shader_source::composed_prepared_with(
+        &skin_shader_source(include_str!("skin.wesl")),
+        &[],
+        Vec::new(),
+    );
+    let module = gpu
+        .device
+        .create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: None,
+            source: wgpu::ShaderSource::Wgsl(source.into()),
+        });
+    let source_layout = layout(&gpu, &block_entity_layout());
+    let output_layout = layout(&gpu, &output_layout());
+    let pipeline_layout = gpu
+        .device
+        .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[Some(&source_layout), Some(&output_layout)],
+            immediate_size: 0,
+        });
+    let pipeline = gpu
+        .device
+        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: None,
+            layout: Some(&pipeline_layout),
+            module: &module,
+            entry_point: Some("convert_block_entities"),
+            compilation_options: Default::default(),
+            cache: None,
+        });
+    let sources = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &source_layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 5,
+            resource: vertices.as_entire_binding(),
+        }],
+    });
+    let bindings = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &output_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: jobs.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: output.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: uniform.as_entire_binding(),
+            },
+        ],
+    });
+    let readback = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: output_bytes,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+    {
+        let mut pass = encoder.begin_compute_pass(&Default::default());
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &sources, &[]);
+        pass.set_bind_group(1, &bindings, &[]);
+        pass.dispatch_workgroups(1, 1, 1);
+    }
+    encoder.copy_buffer_to_buffer(&output, 0, &readback, 0, output_bytes);
+    gpu.queue.submit([encoder.finish()]);
+    let (send, receive) = std::sync::mpsc::channel();
+    readback
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            send.send(result).unwrap()
+        });
+    gpu.device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .unwrap();
+    receive.recv().unwrap().unwrap();
+    let bytes = readback.slice(..).get_mapped_range().unwrap();
+    let words: &[u32] = bytemuck::cast_slice(&bytes);
+    for vertex in words.chunks_exact(ACTOR_VERTEX_WORDS as usize) {
+        assert_eq!(vertex[NORMAL.word as usize].to_le_bytes(), [0, 127, 0, 0]);
     }
 }

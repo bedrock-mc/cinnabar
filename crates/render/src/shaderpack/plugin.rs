@@ -836,6 +836,11 @@ mod camera_tests {
     #[test]
     fn shaderpack_render_schedule_initializes_without_a_selected_pack() {
         let mut render_app = bevy::app::SubApp::new();
+        let (device, _) = wgpu::Device::noop(&Default::default());
+        render_app.insert_resource(bevy::render::render_resource::PipelineCache::new(
+            RenderDevice::from(device),
+            true,
+        ));
         render_app.add_schedule(Render::base_schedule());
         let mut app = App::new();
         app.insert_sub_app(RenderApp, render_app);

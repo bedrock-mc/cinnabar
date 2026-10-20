@@ -270,7 +270,7 @@ fn convert_block_entities(
     var normal = vec3(block_f32(base + 9u), block_f32(base + 10u), block_f32(base + 11u));
     let positions = array(corners[0].position, corners[1].position, corners[2].position);
     let uvs = array(corners[0].uv, corners[1].uv, corners[2].uv);
-    let face = cross(positions[1] - positions[0], positions[2] - positions[0]);
+    let face = cross(positions[2] - positions[0], positions[1] - positions[0]);
     if (beam || dot(normal, normal) < 1e-6) {
         normal = select(vec3(0.0, 1.0, 0.0), normalize(face), dot(face, face) > 1e-12);
     }
