@@ -368,14 +368,31 @@ A `text` control has `id`, `label`, `value`, optional `min_chars` (default 0) an
 Its native editor supports selection, character-safe navigation and cancellation.
 Command/Ctrl-A, C, X and V select, copy, cut and paste only while a native field
 has focus. Paste remains subject to the field's single-line and character bounds.
+Optional `live: true` emits the complete value on every edit, coalesced per field
+between frame callbacks. Enter submits and keeps a live field focused. The additive
+`input.read-field-events()` API returns `change({id, value})`, `submit({id, value})`
+and `key({id, key, shift, control, alt, super-key})` variants. Changes may temporarily
+fall below `min_chars`; submitting still requires the full bounds. Omitting `live`
+preserves Enter-to-commit behavior. The legacy text-event API receives commits only.
+
+Optional `navigation_keys: true` forwards Up/Down, Left at the start, Right at the
+end, and Enter/Shift+Enter through field key events while the field has focus.
+Horizontal arrows first collapse any selection. Other horizontal movement,
+Home/End, Shift selection, and Ctrl/Option word movement and deletion stay native.
+IME preedit appears inline with an underline and remains local until commit.
+Its transient spelling may exceed the field's committed character limit.
+The caret uses the painted glyph positions and the caller's animation time.
+
 Committed text arrives through `input.read-text-events()` as `{id, value}` entries,
 separately from the unchanged numeric events in `input.read-controls()`.
 The batch is visible only during its regular frame callback, remains stable across
 reads and stays queued when the callback is deferred. It shares the controls grant
-and read budget. Native integrations drain
-`ModUi::take_mod_panel_text_events(owner)` and call that owner's
-`ModHost::queue_text_events` before running its frame. Admission validates the
-entire batch against its current text controls before updating any retained value.
+and read budget. Before running a frame, native integrations first drain
+`ModUi::take_mod_panel_text_events(owner)` into `ModHost::queue_text_events`, then
+`ModUi::take_mod_panel_field_events(owner)` into `ModHost::queue_field_events`.
+Draining field events retains the same valid, coalesced values that the host
+admits. Below-minimum drafts remain editable without changing the retained value.
+Admission validates each complete batch before updating any retained value.
 Optional `show_gameplay_hud: true` retains the resource-pack gameplay HUD behind an
 open panel, for example while placing HUD elements. It defaults to false. Hide HUD
 and death-screen suppression still apply, and the crosshair stays hidden while a

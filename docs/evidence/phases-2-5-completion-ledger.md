@@ -451,6 +451,16 @@ tooltip controls. Native command-edit acceptance and broader JSON-UI parity rema
 
 ## P5.5-INTERACTION-COMBAT-INVENTORY
 
+Custom block mining retains component defaults, disabled values, ordered item
+overrides and resolved state permutations in both runtime identity spaces.
+Discarded mining data stays unresolved through state merging. Item-tag filters
+compile during session preparation and reuse those programs without allocating.
+Mining uncertainty does not prevent prediction with known physical bounds.
+Mining state storage and admission are independent of the physical state budget.
+Regression tests cover component decoding, progress rates and completion packets.
+Complex item-tag scripts and live custom-block acceptance remain incomplete;
+this does not advance the interaction completion gate.
+
 Ordered desktop interactions now attempt each edge only in its input frame.
 Refused presses retain no proposal or movement reservation. Gameplay owners retain
 accepted mining and release work, while overload recovery suppresses current held

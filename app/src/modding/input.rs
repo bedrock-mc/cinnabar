@@ -1,6 +1,8 @@
 //! Routes granted personal controls before the ordinary gameplay sample.
 
+mod field;
 mod physical;
+use field::PanelSample;
 
 use super::{MenuRuntime, ModRuntime};
 use bevy::{
@@ -13,7 +15,7 @@ use bevy::{
         },
     },
     prelude::*,
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow},
+    window::{CursorGrabMode, CursorOptions, Ime, PrimaryWindow, WindowEvent},
 };
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 #[cfg(test)]
@@ -23,6 +25,8 @@ use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 #[derive(SystemParam)]
 pub(super) struct PanelInput<'w> {
     keyboard_events: Option<Res<'w, Messages<KeyboardInput>>>,
+    ime_events: Option<Res<'w, Messages<Ime>>>,
+    ordered_events: Option<Res<'w, Messages<WindowEvent>>>,
     clipboard: Option<ResMut<'w, client_shell::menu::MenuClipboard>>,
     mouse_events: Option<Res<'w, Messages<MouseButtonInput>>>,
     scroll: Option<Res<'w, AccumulatedMouseScroll>>,
@@ -40,6 +44,9 @@ const TEXT_INPUT: &str = "TextInput";
 pub(super) struct PhysicalControls {
     keys: MessageCursor<KeyboardInput>,
     mouse: MessageCursor<MouseButtonInput>,
+    ime: MessageCursor<Ime>,
+    ordered: MessageCursor<WindowEvent>,
+    ime_owned: bool,
     left_held: bool,
     held_keys: Vec<String>,
     /// Whether `held_keys` was seeded from physical input since the mod attached or refocused.
@@ -98,7 +105,7 @@ pub(super) fn prepare_mod_input(
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: Option<ResMut<ButtonInput<MouseButton>>>,
     mut motion: Option<ResMut<AccumulatedMouseMotion>>,
-    mut windows: Query<(Entity, &Window, &mut CursorOptions), With<PrimaryWindow>>,
+    mut windows: Query<(Entity, &mut Window, &mut CursorOptions), With<PrimaryWindow>>,
     ui: Res<UiRuntimeResource>,
     player: Res<client_state::PlayerRuntime>,
     menu: Option<Res<MenuRuntime>>,
@@ -109,6 +116,8 @@ pub(super) fn prepare_mod_input(
 ) {
     let PanelInput {
         keyboard_events,
+        ime_events,
+        ordered_events,
         mut clipboard,
         mouse_events,
         scroll,
@@ -134,11 +143,17 @@ pub(super) fn prepare_mod_input(
         .is_some_and(|packets| packets.menu_owns_panel());
     if extension.is_none() && !packet_owned && !packet_available {
         physical.discard_pending(keyboard_events.as_deref(), mouse_events.as_deref());
-        if !physical.panel_owned {
+        if let Some(events) = &ime_events {
+            physical.ime.clear(events);
+        }
+        if let Some(events) = &ordered_events {
+            physical.ordered.clear(events);
+        }
+        if !physical.panel_owned && !physical.ime_owned {
             return;
         }
     }
-    let Ok((entity, window, mut cursor)) = windows.single_mut() else {
+    let Ok((entity, mut window, mut cursor)) = windows.single_mut() else {
         return;
     };
     let focused = driven.is_some()
@@ -156,56 +171,54 @@ pub(super) fn prepare_mod_input(
         }
     }
     let mut panel_keys = Vec::new();
-    if let Some(events) = keyboard_events {
-        let samples: Vec<_> = physical.keys.read(&events).cloned().collect();
-        for event in samples {
-            if event.window != entity {
-                continue;
+    for sample in field::samples(
+        &mut physical,
+        ordered_events.as_deref(),
+        keyboard_events.as_deref(),
+        ime_events.as_deref(),
+        entity,
+    ) {
+        let field::RawSample::Key(event) = sample else {
+            if let field::RawSample::Ime(event) = sample {
+                panel_keys.push(PanelSample::Ime(event));
             }
-            let identified = !matches!(event.key_code, KeyCode::Unidentified(_));
-            let name = if identified {
-                format!("{:?}", event.key_code)
-            } else {
-                TEXT_INPUT.into()
-            };
-            let down = event.state == ButtonState::Pressed;
-            if identified {
-                physical.track_held(name.clone(), down);
-            }
-            if down
-                && !event.repeat
-                && extension.as_ref().is_some_and(|extension| {
-                    (0..extension.hosts.host_count()).any(|index| {
-                        extension
-                            .hosts
-                            .host(index)
-                            .panel()
-                            .is_some_and(|panel| panel.is_toggle_key(&name))
-                    })
+            continue;
+        };
+        let identified = !matches!(event.key_code, KeyCode::Unidentified(_));
+        if !identified {
+            continue;
+        }
+        let name = format!("{:?}", event.key_code);
+        let down = event.state == ButtonState::Pressed;
+        physical.track_held(name.clone(), down);
+        if down
+            && !event.repeat
+            && extension.as_ref().is_some_and(|extension| {
+                (0..extension.hosts.host_count()).any(|index| {
+                    extension
+                        .hosts
+                        .host(index)
+                        .panel()
+                        .is_some_and(|panel| panel.is_toggle_key(&name))
                 })
-            {
-                debug!(key = %name, focused, "personal panel hotkey received");
-            }
-            if down && focused {
-                panel_keys.push((
-                    name,
-                    event
-                        .text
-                        .as_deref()
-                        .or_else(|| match &event.logical_key {
-                            bevy::input::keyboard::Key::Character(text) => Some(text.as_str()),
-                            _ => None,
-                        })
-                        .map(str::to_owned),
-                    event.repeat,
-                    physical.held_keys.iter().any(|key| {
-                        matches!(
-                            key.as_str(),
-                            "ControlLeft" | "ControlRight" | "SuperLeft" | "SuperRight"
-                        )
-                    }),
-                ));
-            }
+            })
+        {
+            debug!(key = %name, focused, "personal panel hotkey received");
+        }
+        if down && focused {
+            panel_keys.push(PanelSample::Key((
+                name,
+                event
+                    .text
+                    .as_deref()
+                    .or_else(|| match &event.logical_key {
+                        bevy::input::keyboard::Key::Character(text) => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .map(str::to_owned),
+                event.repeat,
+                field::modifiers(&physical.held_keys),
+            )));
         }
     }
     let pointer_pressed =
@@ -220,7 +233,7 @@ pub(super) fn prepare_mod_input(
         pointer_pressed
             .iter()
             .cloned()
-            .map(|key| (key, None, false, false)),
+            .map(|key| PanelSample::Key((key, None, false, Default::default()))),
     );
     let absorbed = menu.as_deref().map_or_else(
         || ui.ui_focused(&player),
@@ -258,6 +271,7 @@ pub(super) fn prepare_mod_input(
                 .unwrap_or_default();
             packets.menu.pending.keys = panel_keys
                 .iter()
+                .filter_map(PanelSample::key)
                 .filter(|(key, _, repeat, _)| !repeat && subscriptions.contains(key))
                 .take(mod_api::MAX_CONTROL_KEYS)
                 .map(|(key, _, _, _)| mod_api::native_menu::Key {
@@ -298,7 +312,7 @@ pub(super) fn prepare_mod_input(
             .mod_ui_mut()
             .set_mod_hud_editor_shift(physical.shift_held(focused));
     }
-    if extension.is_none() && !packet_owned && !physical.panel_owned {
+    if extension.is_none() && !packet_owned && !physical.panel_owned && !physical.ime_owned {
         return;
     }
     if packet_owned {
@@ -316,12 +330,17 @@ pub(super) fn prepare_mod_input(
             presentation.mod_ui_mut().cancel_mod_panel_edit();
             open = false;
         }
-        for (key, text, _, shortcut) in panel_keys {
+        for sample in panel_keys {
+            let Some((key, text, _, modifiers)) =
+                field::route_sample(sample, presentation.mod_ui_mut(), focused && !absorbed)
+            else {
+                continue;
+            };
             if !open || !focused || absorbed {
                 continue;
             }
             if editing {
-                if shortcut
+                if (modifiers.control || modifiers.super_key)
                     && native_editor_shortcut(
                         presentation.mod_ui_mut(),
                         clipboard.as_deref_mut(),
@@ -330,12 +349,16 @@ pub(super) fn prepare_mod_input(
                 {
                     continue;
                 }
-                let text = if shortcut && key != TEXT_INPUT {
+                let text = if (modifiers.control || modifiers.super_key) && key != TEXT_INPUT {
                     Some("")
                 } else {
                     text.as_deref()
                 };
-                events.extend(presentation.mod_ui_mut().mod_panel_key(&key, text));
+                events.extend(
+                    presentation
+                        .mod_ui_mut()
+                        .mod_panel_field_key(&key, text, modifiers),
+                );
             } else if key == "Escape" && !capture {
                 open = false;
             } else if key != TEXT_INPUT {
@@ -346,6 +369,12 @@ pub(super) fn prepare_mod_input(
                 });
             }
         }
+        field::sync_ime(
+            &mut physical,
+            &mut window,
+            presentation.mod_ui_mut(),
+            focused && !absorbed,
+        );
         presentation.mod_ui_mut().set_mod_panel_open(open);
         if open && focused {
             if let Some(position) = window.cursor_position() {
@@ -411,7 +440,7 @@ pub(super) fn prepare_mod_input(
             open,
             focused,
             absorbed,
-            crate::camera::mouse_input_active(window, &cursor, focus.as_deref(), driven.is_some()),
+            crate::camera::mouse_input_active(&window, &cursor, focus.as_deref(), driven.is_some()),
         );
         finish_capture(
             open,
@@ -425,6 +454,7 @@ pub(super) fn prepare_mod_input(
         return;
     }
     let Some(mut extension) = extension else {
+        field::sync_ime(&mut physical, &mut window, presentation.mod_ui_mut(), false);
         let absorbed = menu.as_deref().map_or_else(
             || ui.ui_focused(&player),
             |menu| presentation.base_absorbs_gameplay_input(&player, &ui, menu),
@@ -433,7 +463,7 @@ pub(super) fn prepare_mod_input(
             false,
             focused,
             absorbed,
-            crate::camera::mouse_input_active(window, &cursor, focus.as_deref(), driven.is_some()),
+            crate::camera::mouse_input_active(&window, &cursor, focus.as_deref(), driven.is_some()),
         );
         if let Some(mouse) = mouse.as_mut() {
             mouse.clear();
@@ -459,6 +489,7 @@ pub(super) fn prepare_mod_input(
     if focused && !absorbed {
         let toggles: Vec<_> = panel_keys
             .iter()
+            .filter_map(PanelSample::key)
             .filter(|(key, _, repeat, _)| key != TEXT_INPUT && !repeat)
             .map(|(key, _, _, _)| key.clone())
             .collect();
@@ -481,12 +512,15 @@ pub(super) fn prepare_mod_input(
     let had_panel = open;
     let editing = open && presentation.mod_ui().mod_panel_editing();
     let interrupt = editing
-        && panel_keys.iter().any(|(key, _, repeat, _)| {
-            key != TEXT_INPUT
-                && !repeat
-                && (key == ui::mod_panel::FALLBACK_TOGGLE_KEY
-                    || presentation.mod_ui().mod_panel_toggle_key() == Some(key.as_str()))
-        });
+        && panel_keys
+            .iter()
+            .filter_map(PanelSample::key)
+            .any(|(key, _, repeat, _)| {
+                key != TEXT_INPUT
+                    && !repeat
+                    && (key == ui::mod_panel::FALLBACK_TOGGLE_KEY
+                        || presentation.mod_ui().mod_panel_toggle_key() == Some(key.as_str()))
+            });
     if !focused {
         presentation.mod_ui_mut().cancel_mod_panel_pointer_input();
     }
@@ -495,23 +529,32 @@ pub(super) fn prepare_mod_input(
     }
     let mut pressed = pointer_pressed;
     let mut events = Vec::new();
-    for (key, text, repeat, shortcut) in panel_keys {
+    for sample in panel_keys {
+        let Some((key, text, repeat, modifiers)) =
+            field::route_sample(sample, presentation.mod_ui_mut(), focused && !absorbed)
+        else {
+            continue;
+        };
         if POINTER_BUTTONS.iter().any(|(_, name)| *name == key) {
             continue;
         }
         if open && focused && !absorbed && editing && !interrupt {
-            if shortcut
+            if (modifiers.control || modifiers.super_key)
                 && native_editor_shortcut(presentation.mod_ui_mut(), clipboard.as_deref_mut(), &key)
             {
                 continue;
             }
             // An empty text value also suppresses the editor's physical digit fallback.
-            let text = if shortcut && key != TEXT_INPUT {
+            let text = if (modifiers.control || modifiers.super_key) && key != TEXT_INPUT {
                 Some("")
             } else {
                 text.as_deref()
             };
-            events.extend(presentation.mod_ui_mut().mod_panel_key(&key, text));
+            events.extend(
+                presentation
+                    .mod_ui_mut()
+                    .mod_panel_field_key(&key, text, modifiers),
+            );
         } else if key != TEXT_INPUT
             && !repeat
             && (!editing
@@ -603,7 +646,7 @@ pub(super) fn prepare_mod_input(
         open,
         focused,
         absorbed,
-        crate::camera::mouse_input_active(window, &cursor, focus.as_deref(), driven.is_some()),
+        crate::camera::mouse_input_active(&window, &cursor, focus.as_deref(), driven.is_some()),
     );
     extension.controls = mod_host::ControlFrame {
         seconds: time
@@ -628,6 +671,12 @@ pub(super) fn prepare_mod_input(
         },
         events,
     };
+    field::sync_ime(
+        &mut physical,
+        &mut window,
+        presentation.mod_ui_mut(),
+        focused && !absorbed,
+    );
     let text_events = presentation
         .mod_ui_mut()
         .take_mod_panel_text_events(extension.panel_ui_owner(owner));
@@ -640,6 +689,19 @@ pub(super) fn prepare_mod_input(
             .queue_text_events(text_events)
     {
         warn!(%error,"native mod text edit rejected");
+    }
+    let field_events = presentation
+        .mod_ui_mut()
+        .take_mod_panel_field_events(extension.panel_ui_owner(owner));
+    if focused
+        && !absorbed
+        && !field_events.is_empty()
+        && let Err(error) = extension
+            .hosts
+            .host_mut(owner)
+            .queue_field_events(field_events)
+    {
+        warn!(%error, "native mod field input rejected");
     }
     finish_capture(
         open,
@@ -709,7 +771,7 @@ fn finish_capture(
 
 /// A locally handled toggle cannot also become an immediate guest close action.
 fn take_packet_toggle(
-    keys: &mut Vec<(String, Option<String>, bool, bool)>,
+    keys: &mut Vec<PanelSample>,
     toggle: &str,
     owned: bool,
     open: bool,
@@ -718,11 +780,12 @@ fn take_packet_toggle(
     if (open && (!owned || capture))
         || !keys
             .iter()
+            .filter_map(PanelSample::key)
             .any(|(key, _, repeat, _)| !repeat && key == toggle)
     {
         return false;
     }
-    keys.retain(|(key, _, _, _)| key != toggle);
+    keys.retain(|sample| sample.key().is_none_or(|(key, _, _, _)| key != toggle));
     true
 }
 
