@@ -234,6 +234,27 @@ fn import_credentials(lease: &NativeLease, policy: &xbox::Config) -> io::Result<
 
 /// Keeps HTTP bodies, URLs and credential values out of the application error surface.
 fn service_error(error: bedrock_services::Error) -> io::Error {
+    let (class, http_status, xbox_error) = match &error {
+        bedrock_services::Error::Http(_) => ("http", None, None),
+        bedrock_services::Error::Status { status, xerr } => {
+            ("status", Some(status.as_u16()), *xerr)
+        }
+        bedrock_services::Error::AccountCreationRequired(_) => {
+            ("account_creation_required", None, None)
+        }
+        bedrock_services::Error::Invalid(_) => ("invalid", None, None),
+        bedrock_services::Error::ResponseTooLarge => ("response_too_large", None, None),
+        bedrock_services::Error::TimeRange => ("time_range", None, None),
+        bedrock_services::Error::DeviceCodeExpired => ("device_code_expired", None, None),
+        bedrock_services::Error::AuthorizationDeclined => ("authorization_declined", None, None),
+        bedrock_services::Error::SignInRequired => ("sign_in_required", None, None),
+    };
+    tracing::warn!(
+        class,
+        http_status,
+        xbox_error,
+        "native account service failed"
+    );
     match error {
         bedrock_services::Error::SignInRequired => io::Error::other(RenewSignIn),
         bedrock_services::Error::AccountCreationRequired(challenge) => io::Error::other(challenge),

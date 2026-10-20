@@ -110,7 +110,10 @@ impl NativeAuth {
                     if let Err(error) = result {
                         let state = match error {
                             Failure::Cancelled => AuthState::SignedOut,
-                            Failure::Failed(message) => AuthState::Failed(message.into()),
+                            Failure::Failed(message) => {
+                                tracing::warn!(reason = message, "native sign-in failed");
+                                AuthState::Failed(message.into())
+                            }
                         };
                         let _ = sender.try_send(Message::State(state));
                     }
