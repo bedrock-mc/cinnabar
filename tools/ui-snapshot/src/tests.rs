@@ -17,6 +17,17 @@ fn tiled_image_capture_covers_the_viewport_with_the_original_checker() {
 }
 
 #[test]
+fn extreme_tiled_image_capture_covers_every_pixel() {
+    let state = fixtures::STATES
+        .iter()
+        .find(|state| state.name == "jsonui-tiled-image-extreme")
+        .unwrap();
+    let png = render::png(state, std::path::Path::new("unused")).unwrap();
+    let pixels = image::load_from_memory(&png).unwrap().to_rgba8();
+    assert!(pixels.pixels().all(|pixel| pixel[3] == 255));
+}
+
+#[test]
 fn every_registered_state_renders_identical_png_bytes() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/assets/compiled");
     let mut names = std::collections::HashSet::new();

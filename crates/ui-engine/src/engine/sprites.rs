@@ -26,6 +26,18 @@ impl Canvas<'_> {
         color: [u8; 4],
         filter: json_ui::SpriteFilter,
     ) -> Option<UiVisual> {
+        self.sprite_with_repeat(path, uv, color, filter, None)
+    }
+
+    /// Maps a repeated region into its atlas page while retaining tile coordinates separately.
+    pub(super) fn sprite_with_repeat(
+        &self,
+        path: &str,
+        uv: json_ui::UvRect,
+        color: [u8; 4],
+        filter: json_ui::SpriteFilter,
+        repeat: Option<json_ui::SpriteRepeat>,
+    ) -> Option<UiVisual> {
         let Some((page, [x, y, w, h])) = self.textures.sprite(path) else {
             // An unresolved texture draws vanilla's default white texture.
             return self.textures.missing(path).then_some(UiVisual::Solid {
@@ -47,7 +59,10 @@ impl Canvas<'_> {
             pixel(x, w, uv.u1),
             pixel(y, h, uv.v1),
         ];
-        Some(visual(page, uv, color, filter))
+        match repeat {
+            Some(repeat) => UiVisual::repeated_sprite(page, uv, repeat, color, filter, false).ok(),
+            None => Some(visual(page, uv, color, filter)),
+        }
     }
 
     /// Paints an original virtual image, or consumes its pending draw until exact texels arrive.
@@ -58,14 +73,31 @@ impl Canvas<'_> {
         color: [u8; 4],
         filter: json_ui::SpriteFilter,
         dest: [f32; 4],
+        repeat: Option<json_ui::SpriteRepeat>,
     ) -> Result<bool, PaintError> {
         if !self.textures.native_sheet(path) {
             return Ok(false);
         }
         if let Some(quads) = self.textures.native_quads(path, uv, dest) {
+            let mut seen = std::collections::BTreeSet::new();
             for quad in quads {
                 let page = u16::try_from(quad.page).map_err(|_| PaintError::InvalidFontTexture)?;
-                self.push(visual(page, quad.uv, color, filter), quad.dest)?;
+                if let Some(repeat) = repeat {
+                    if seen.insert(page)
+                        && let Ok(visual) = UiVisual::repeated_sprite(
+                            page,
+                            quad.repeat_source,
+                            repeat,
+                            color,
+                            filter,
+                            true,
+                        )
+                    {
+                        self.push(visual, dest)?;
+                    }
+                } else {
+                    self.push(visual(page, quad.uv, color, filter), quad.dest)?;
+                }
             }
         }
         Ok(true)

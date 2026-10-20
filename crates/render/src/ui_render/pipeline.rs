@@ -64,7 +64,7 @@ pub(crate) fn ui_bind_group_layout() -> BindGroupLayoutDescriptor {
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(16),
+                    min_binding_size: BufferSize::new(super::page_uniform::BYTE_SIZE),
                 },
                 count: None,
             },

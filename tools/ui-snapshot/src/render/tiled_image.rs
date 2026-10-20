@@ -6,7 +6,7 @@ use jsonui_editor::scene::{Session, View};
 use crate::carriers::Error;
 
 /// Repeats an original two-pixel checker across the entire capture viewport.
-pub(super) fn png(size: [u32; 2]) -> Result<Vec<u8>, Error> {
+pub(super) fn png(size: [u32; 2], scale: f64) -> Result<Vec<u8>, Error> {
     let encode = |pixels: &[u8], size: [u32; 2]| {
         let mut png = Vec::new();
         image::codecs::png::PngEncoder::new(&mut png)
@@ -27,7 +27,7 @@ pub(super) fn png(size: [u32; 2]) -> Result<Vec<u8>, Error> {
         "tiled_image": {
             "type": "image", "size": size,
             "anchor_from": "top_left", "anchor_to": "top_left",
-            "texture": "textures/checker", "tiled": true
+            "texture": "textures/checker", "tiled": true, "tiled_scale": [scale, scale]
         }
     });
     session.workspace.add_files(

@@ -41,6 +41,18 @@ pub(crate) fn source(raw: &str) -> String {
         &format!("{}u", render_model::UI_STYLE_PARTICLE),
     )
     .replace(
+        "UI_STYLE_BILINEAR",
+        &format!("{}u", render_api::UI_STYLE_BILINEAR),
+    )
+    .replace(
+        "UI_STYLE_REPEAT_X",
+        &format!("{}u", render_api::ui_repeat::UI_STYLE_REPEAT_X),
+    )
+    .replace(
+        "UI_STYLE_REPEAT_Y",
+        &format!("{}u", render_api::ui_repeat::UI_STYLE_REPEAT_Y),
+    )
+    .replace(
         "UI_STYLE_RADIAL_GRADIENT",
         &format!("{}u", render_model::UI_STYLE_RADIAL_GRADIENT),
     )
@@ -49,6 +61,14 @@ pub(crate) fn source(raw: &str) -> String {
         &format!("{}u", assets::FONT_STYLE_COVERAGE_GAMMA),
     )
     .replace("FONT_STYLE_SDF", &format!("{}u", assets::FONT_STYLE_SDF))
+    .replace(
+        "MAX_UI_TEXTURE_LAYERS",
+        &render_model::MAX_UI_TEXTURE_LAYERS.to_string(),
+    )
+    .replace(
+        "UI_STYLE_REPEAT_PAGE",
+        &format!("{}u", render_api::ui_repeat::UI_STYLE_REPEAT_PAGE),
+    )
     .replace(
         "SDF_DISTANCE_SCALE",
         &format!("{:?}", render_model::font_shading::SDF_DISTANCE_SCALE),

@@ -71,8 +71,8 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
 /// Samples caller-owned UI and cosmetic animation time without reading the clock.
 pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error> {
     let fixture = (state.fixture)();
-    if matches!(&fixture, Fixture::TiledImage) {
-        return tiled_image::png(state.size);
+    if let Fixture::TiledImage { scale } = &fixture {
+        return tiled_image::png(state.size, *scale);
     }
     #[cfg(feature = "test-support")]
     if let Fixture::CosmeticParticles { view, emitting } = &fixture {
@@ -85,7 +85,7 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
         Fixture::Chat { .. }
         | Fixture::TabList(_)
         | Fixture::EditSelection
-        | Fixture::TiledImage => false,
+        | Fixture::TiledImage { .. } => false,
         #[cfg(feature = "test-support")]
         Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
@@ -124,7 +124,7 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
         renderers: &mut [],
     };
     match fixture {
-        Fixture::TiledImage => unreachable!("tiled image capture returned above"),
+        Fixture::TiledImage { .. } => unreachable!("tiled image capture returned above"),
         #[cfg(feature = "test-support")]
         Fixture::CosmeticParticles { .. } => unreachable!("particle capture returned above"),
         #[cfg(feature = "test-support")]
@@ -170,6 +170,7 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
                 })
                 .collect();
             carriers.pages.extend(images.pages.iter().map(|page| Page {
+                repeat_content: None,
                 width: page.dimensions[0],
                 height: page.dimensions[1],
                 rgba: Arc::clone(&page.pixels),
@@ -183,6 +184,7 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
                 glint: false,
             };
             carriers.pages.push(Page {
+                repeat_content: None,
                 width: logo.width(),
                 height: logo.height(),
                 rgba: logo.into_raw().into(),
@@ -279,6 +281,7 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
             let first = carriers.pages.len() as u16;
             let artwork = HashMap::new();
             carriers.pages.extend(images.pages.iter().map(|page| Page {
+                repeat_content: None,
                 width: page.dimensions[0],
                 height: page.dimensions[1],
                 rgba: Arc::clone(&page.pixels),
@@ -443,6 +446,7 @@ fn add_server_pages(engine: &mut FormEngine, pages: &mut Vec<Page>) {
         pages.extend(server.iter().map(|page| {
             let [width, height] = page.dimensions();
             Page {
+                repeat_content: page.repeat_content(),
                 width,
                 height,
                 rgba: page.pixels().into(),
@@ -476,6 +480,7 @@ fn mod_icons(
             },
         );
         pages.push(Page {
+            repeat_content: None,
             width,
             height,
             rgba: image.into_raw().into(),
@@ -512,6 +517,7 @@ fn cosmetic_icons(artwork: &mut HashMap<String, ui::IconRef>, pages: &mut Vec<Pa
             },
         );
         pages.push(Page {
+            repeat_content: None,
             width: image.width,
             height: image.height,
             rgba: image.rgba8,

@@ -221,6 +221,45 @@ fn emit_untransformed(
                 batches,
             )
         }
+        UiVisual::RepeatedSprite {
+            texture_page,
+            tile_uv: uv,
+            source,
+            color,
+            style,
+        } => {
+            if is_empty(bounds) {
+                return Ok(());
+            }
+            let first = vertices.len();
+            emit_colored_quad(
+                [
+                    [bounds.min().x(), bounds.min().y()],
+                    [bounds.max().x(), bounds.min().y()],
+                    [bounds.max().x(), bounds.max().y()],
+                    [bounds.min().x(), bounds.max().y()],
+                ],
+                [
+                    [uv[0], uv[1]],
+                    [uv[2], uv[1]],
+                    [uv[2], uv[3]],
+                    [uv[0], uv[3]],
+                ],
+                *texture_page,
+                [*color; 4],
+                0,
+                UiBlendMode::Alpha,
+                clip,
+                vertices,
+                indices,
+                batches,
+            )?;
+            for vertex in &mut vertices[first..] {
+                vertex.style_flags |= *style;
+                vertex.overlay_color = *source;
+            }
+            Ok(())
+        }
         UiVisual::RotatedSprite {
             texture_page,
             uv,
