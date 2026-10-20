@@ -3,6 +3,7 @@
 mod experience;
 mod experience_modal;
 mod gameplay_hud;
+mod hud_card_preview;
 mod mod_hud;
 mod mod_hud_anchors;
 mod mod_hud_editor;

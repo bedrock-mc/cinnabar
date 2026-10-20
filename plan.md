@@ -436,6 +436,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   blur, element blur, route exits and current-world visual integration remain incomplete.
 - Native extension UI and HUD APIs (retained modules, profile fields, text plates,
   compass markers, totem annotations and bounded camera overrides) still need
+  displayed-frame pacing and complete rendering acceptance. Panel previews now
+  select owner-scoped HUD cards, including preview-only cards, and share retained
+  gameplay artwork. Focused rendering and cache regressions cover visible previews;
+  populated-world and displayed-frame acceptance remain pending.
   displayed-frame pacing and complete rendering acceptance.
   HUD layout editing stores nine anchors and GUI-pixel offsets after completed
   moves, resizes and nudges, with an additive anchored-layout read and normalized

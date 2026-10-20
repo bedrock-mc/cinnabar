@@ -453,9 +453,6 @@ fn snapping_highlight_and_measurements_update_through_bindings() {
     );
 }
 
-#[global_allocator]
-static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
-
 #[test]
 fn snapping_candidate_search_allocates_nothing_during_steady_drag() {
     let editor = snapping_editor();

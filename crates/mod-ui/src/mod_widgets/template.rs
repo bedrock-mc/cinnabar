@@ -3,6 +3,8 @@ use serde_json::{Value, json};
 use ui::mod_hud::{Card, DEFAULT_ROW_HEIGHT, Hud, RowLayout};
 
 const HEADER: f64 = 18.;
+/// Keeps canonical artwork away from viewport edges until its actual bounds are measured.
+pub(super) const CANVAS_INSET: f64 = ui::mod_panel::preview::MAX_PREVIEW_EXTENT;
 
 #[cfg(test)]
 mod tests;
@@ -336,20 +338,47 @@ fn grid_columns(card: &Card) -> usize {
     ((card.width / card.row_height).floor() as usize).max(1)
 }
 pub(super) fn catalog(hud: &Hud) -> Result<Catalog, String> {
-    let mut index = 0;
-    let mut controls: Vec<_> = hud
-        .cards
-        .iter()
-        .enumerate()
-        .map(|(n, c)| named(&c.id, card(c, n, &mut index)))
-        .collect();
-    controls.extend(
-        hud.world_labels
-            .iter()
-            .enumerate()
-            .map(|(n, label)| super::world_labels::control(n, label)),
-    );
-    let definition = json!({"namespace":"cinnabar_personal_hud","cards":{"type":"panel","size":["100%","100%"],"controls":controls}}).to_string();
+    let mut document = json!({"namespace":"cinnabar_personal_hud"});
+    let mut row = 0;
+    let mut controls = Vec::new();
+    let mut gameplay = Vec::new();
+    for (index, source) in hud.cards.iter().enumerate() {
+        let mut body = card(source, index, &mut row);
+        let mut placement = body["bindings"].clone();
+        placement
+            .as_array_mut()
+            .expect("card bindings")
+            .push(json!({
+            "binding_name":format!("#card_{index}_visible"),"binding_name_override":"#visible"}));
+        body["bindings"]
+            .as_array_mut()
+            .expect("card bindings")
+            .retain(|binding| {
+                !matches!(
+                    binding["binding_name_override"].as_str(),
+                    Some("#offset" | "#visible")
+                )
+            });
+        body["offset"] = json!([CANVAS_INSET, CANVAS_INSET]);
+        document[format!("card_{index}")] = body;
+        controls.push(named(
+            &format!("{}@cinnabar_personal_hud.card_{index}", source.id),
+            json!({"bindings":placement}),
+        ));
+        gameplay.push(named(
+            &format!("card_{index}"),
+            json!({"type":"custom","renderer":"cinnabar_gameplay_card",
+            "card_index":index,"size":["100%","100%"]}),
+        ));
+    }
+    for (index, label) in hud.world_labels.iter().enumerate() {
+        let control = super::world_labels::control(index, label);
+        controls.push(control.clone());
+        gameplay.push(control);
+    }
+    document["cards"] = json!({"type":"panel","size":["100%","100%"],"controls":controls});
+    document["gameplay"] = json!({"type":"panel","size":["100%","100%"],"controls":gameplay});
+    let definition = document.to_string();
     Catalog::from_files([
         ("ui/_global_variables.json", &b"{}"[..]),
         (
@@ -364,40 +393,56 @@ pub(in super::super) fn data(hud: &Hud, viewport: [f64; 2]) -> DataSource {
     let mut data = DataSource::new();
     let mut index = 0;
     for (n, card) in hud.cards.iter().enumerate() {
-        data.set_global(format!("#card_{n}_title"), Scalar::Text(card.title.clone()));
-        data.set_global(
-            format!("#card_{n}_offset"),
-            Scalar::Json(json!(origin(card, viewport))),
-        );
-        data.set_global(
-            format!("#card_{n}_background"),
-            Scalar::Json(json!([0.045, 0.05, 0.065, card.background_opacity])),
-        );
-        super::cells::data(&mut data, card, n);
-        super::text_plate::data(&mut data, card, n, viewport);
-        super::compass::data(&mut data, card, n);
-        for row in &card.rows {
-            data.set_global(
-                format!("#row_{index}_label"),
-                Scalar::Text(row.label.clone()),
-            );
-            data.set_global(
-                format!("#row_{index}_value"),
-                Scalar::Text(row.value.clone()),
-            );
-            data.set_global(
-                format!("#row_{index}_color"),
-                Scalar::Json(json!(row.color)),
-            );
-            data.set_global(
-                format!("#row_{index}_progress"),
-                Scalar::Num(f64::from(row.progress.unwrap_or(0.))),
-            );
-            data.set_global(format!("#row_{index}_icon"), Scalar::Json(Value::Null));
-            index += 1;
-        }
+        card_data(&mut data, card, n, index, viewport);
+        index += card.rows.len();
     }
     data
+}
+
+/// Writes one card's indexed bindings for both aggregate HUDs and isolated retained cards.
+pub(super) fn card_data(
+    data: &mut DataSource,
+    card: &Card,
+    n: usize,
+    mut index: usize,
+    viewport: [f64; 2],
+) {
+    data.set_global(
+        format!("#card_{n}_visible"),
+        Scalar::Bool(!card.preview_only),
+    );
+    data.set_global(format!("#card_{n}_title"), Scalar::Text(card.title.clone()));
+    data.set_global(
+        format!("#card_{n}_offset"),
+        Scalar::Json(json!(origin(card, viewport))),
+    );
+    data.set_global(
+        format!("#card_{n}_background"),
+        Scalar::Json(json!([0.045, 0.05, 0.065, card.background_opacity])),
+    );
+    super::cells::data(data, card, n);
+    super::text_plate::data(data, card, n, viewport);
+    super::compass::data(data, card, n);
+    for row in &card.rows {
+        data.set_global(
+            format!("#row_{index}_label"),
+            Scalar::Text(row.label.clone()),
+        );
+        data.set_global(
+            format!("#row_{index}_value"),
+            Scalar::Text(row.value.clone()),
+        );
+        data.set_global(
+            format!("#row_{index}_color"),
+            Scalar::Json(json!(row.color)),
+        );
+        data.set_global(
+            format!("#row_{index}_progress"),
+            Scalar::Num(f64::from(row.progress.unwrap_or(0.))),
+        );
+        data.set_global(format!("#row_{index}_icon"), Scalar::Json(Value::Null));
+        index += 1;
+    }
 }
 
 /// Shared card geometry for gameplay publication and native layout editing.
