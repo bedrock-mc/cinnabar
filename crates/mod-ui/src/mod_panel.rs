@@ -236,10 +236,8 @@ impl ModUi {
     pub fn set_mod_panel_open(&mut self, open: bool) {
         let editor_owned = self.mod_hud_editor_open();
         let exit = !self.reduced_motion && !editor_owned;
-        if !open {
-            if let Some(editor) = self.mod_hud_editor.as_mut() {
-                editor.close(!self.reduced_motion);
-            }
+        if !open && let Some(editor) = self.mod_hud_editor.as_mut() {
+            editor.close(!self.reduced_motion);
         }
         if let Some(panel) = self.mod_panel.as_mut() {
             if open {
