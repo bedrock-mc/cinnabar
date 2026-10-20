@@ -34,7 +34,7 @@ pub(super) fn image_extent(size: ImageSize, screen: [u32; 2]) -> (TextureDimensi
 }
 
 /// Rejects empty extents or dimensions beyond this device's limit for the texture kind.
-fn texture_extent(
+pub(in crate::shaderpack) fn texture_extent(
     dimension: TextureDimension,
     size: [u32; 3],
     limits: &Limits,

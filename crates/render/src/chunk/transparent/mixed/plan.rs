@@ -3,21 +3,22 @@ use crate::chunk::transparent::face_metric::TransparentFaceMetric;
 use render_scene::{ChunkRenderInstance, ChunkTextureAssets};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) enum MixedStream {
+pub(crate) enum MixedStream {
     Model,
     Water,
 }
 
-pub(super) struct MixedFace {
-    pub(super) stream: MixedStream,
-    pub(super) index: u32,
-    pub(super) centroid: Vec3,
-    pub(super) stable: [u32; 2],
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct MixedFace {
+    pub(crate) stream: MixedStream,
+    pub(crate) index: u32,
+    pub(crate) centroid: Vec3,
+    pub(crate) stable: [u32; 2],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct MixedTerrainSegment {
-    pub(super) stream: MixedStream,
+    pub(crate) stream: MixedStream,
     pub(super) range: Range<u32>,
 }
 
@@ -27,14 +28,7 @@ pub(super) fn merge_faces(
     mut faces: Vec<MixedFace>,
     segment_limit: usize,
 ) -> Option<Vec<MixedTerrainSegment>> {
-    let metric = TransparentFaceMetric::new(camera).for_chunk(key);
-    faces.sort_by(|left, right| {
-        metric
-            .distance(right.centroid)
-            .total_cmp(&metric.distance(left.centroid))
-            .then_with(|| left.stream.cmp(&right.stream))
-            .then_with(|| left.stable.cmp(&right.stable))
-    });
+    sort_faces(key, camera, &mut faces);
     let mut segments = Vec::<MixedTerrainSegment>::new();
     for face in faces {
         if let Some(last) = segments.last_mut()
@@ -103,4 +97,16 @@ pub(super) fn collect_faces(
         });
     }
     Some(faces)
+}
+
+/// Orders one section’s model and water faces with the native metric and stable ties.
+pub(crate) fn sort_faces(key: SubChunkKey, camera: Vec3, faces: &mut [MixedFace]) {
+    let metric = TransparentFaceMetric::new(camera).for_chunk(key);
+    faces.sort_by(|left, right| {
+        metric
+            .distance(right.centroid)
+            .total_cmp(&metric.distance(left.centroid))
+            .then_with(|| left.stream.cmp(&right.stream))
+            .then_with(|| left.stable.cmp(&right.stable))
+    });
 }

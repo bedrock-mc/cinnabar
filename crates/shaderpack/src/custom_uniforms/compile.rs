@@ -2,7 +2,7 @@
 //! checking function arity and every type that is known before the first frame.
 
 use std::collections::HashMap;
-use std::f64::consts::PI;
+use std::f32::consts::PI;
 use std::fmt;
 
 use crate::{BinaryOp, Expr, UnaryOp};
@@ -118,7 +118,7 @@ pub(super) enum Func2 {
     Pow,
     /// `atan2(y, x)` / `atan(y, x)`.
     Atan2,
-    /// `fmod(x, y)`: floor modulus `x - y * floor(x / y)`.
+    /// `fmod(x, y)`: remainder with the divisor's sign.
     Fmod,
     /// `edge(k, x)`: 0 when `x < k`, else 1 (GLSL `step`).
     Edge,
@@ -180,7 +180,7 @@ pub(super) enum Node {
     Smooth(Box<SmoothNode>),
     /// `random()` or `random(min, max)`.
     Random(Option<Box<[Node; 2]>>),
-    /// `randomInt()` or `randomInt(min, max)`.
+    /// `randomInt()`, `randomInt(bound)` or `randomInt(min, max)`.
     RandomInt(Option<Box<[Node; 2]>>),
 }
 
@@ -203,20 +203,18 @@ pub(super) struct Compiler<'a> {
     pub(super) current: &'a str,
     /// Every earlier definition by name.
     pub(super) bindings: &'a HashMap<String, Binding>,
-    /// Line of the first definition of every name in the file.
-    pub(super) first_lines: &'a HashMap<&'a str, u32>,
     /// Built-in names read so far; new names are appended.
     pub(super) inputs: &'a mut Vec<String>,
-    /// One entry per `smooth()` accumulator: its explicit id, or `None` for a call site
-    /// without one. New entries are appended.
-    pub(super) smooth_keys: &'a mut Vec<Option<i32>>,
+    /// Number of independent `smooth()` call sites compiled so far.
+    pub(super) smooth_count: &'a mut usize,
 }
 
 impl Compiler<'_> {
     /// Compiles `expr`, returning the node and its static shape or an error message.
     pub(super) fn compile(&mut self, expr: &Expr) -> Result<Compiled, String> {
         match expr {
-            Expr::Number(value) => Ok((Node::Const(Value::Num(*value)), Shape::Scalar)),
+            Expr::Number(value) => Ok((Node::Const(Value::Num(*value as f32)), Shape::Scalar)),
+            Expr::Integer(value) => Ok((Node::Const(Value::Int(*value)), Shape::Scalar)),
             Expr::Bool(value) => Ok((Node::Const(Value::Bool(*value)), Shape::Scalar)),
             Expr::Ident(name) => self.ident(name),
             Expr::Defined(name) => Err(format!(
@@ -238,7 +236,7 @@ impl Compiler<'_> {
     }
 
     /// Resolves a (possibly dotted) name: an earlier definition, `pi`, or a built-in read
-    /// whole, by component, or as a matrix element. Self and forward references fail.
+    /// whole, by component, or as a matrix element. Dependencies have already compiled.
     fn ident(&mut self, name: &str) -> Result<Compiled, String> {
         let (base, path) = match name.split_once('.') {
             Some((base, path)) => (base, Some(path)),
@@ -271,11 +269,6 @@ impl Compiler<'_> {
                 return Err(format!("`{base}` failed to compile"));
             }
             None => {}
-        }
-        if let Some(line) = self.first_lines.get(base) {
-            return Err(format!(
-                "`{base}` is used before its definition on line {line}"
-            ));
         }
         let Some(path) = path else {
             if base == PI_NAME {
@@ -403,7 +396,7 @@ impl Compiler<'_> {
             "log" if args.len() == 2 => self.map2(Func2::LogBase, name, args),
             "atan" => self.map1(Func1::Atan, name, args),
             "log" => self.map1(Func1::Ln, name, args),
-            "random" | "randomInt" => {
+            "random" => {
                 let range = match args.len() {
                     0 => None,
                     2 => Some(Box::new(self.scalars::<2>(name, args)?)),
@@ -411,18 +404,40 @@ impl Compiler<'_> {
                         return Err(format!("`{name}` expects 0 or 2 arguments, found {found}"));
                     }
                 };
-                let node = if name == "random" {
-                    Node::Random(range)
-                } else {
-                    Node::RandomInt(range)
+                Ok((Node::Random(range), Shape::Scalar))
+            }
+            "randomInt" => {
+                let range = match args {
+                    [] => None,
+                    [bound] => Some(Box::new([Node::Const(Value::Int(0)), self.integer(bound)?])),
+                    [min, max] => Some(Box::new([self.integer(min)?, self.integer(max)?])),
+                    _ => {
+                        return Err(format!(
+                            "`{name}` expects 0, 1 or 2 arguments, found {}",
+                            args.len()
+                        ));
+                    }
                 };
-                Ok((node, Shape::Scalar))
+                Ok((Node::RandomInt(range), Shape::Scalar))
             }
             _ => match Func1::from_name(name) {
                 Some(func) => self.map1(func, name, args),
                 None => Err(format!("unknown function `{name}`")),
             },
         }
+    }
+
+    /// Compiles an integer argument without rounding integer literals through a float.
+    fn integer(&mut self, expr: &Expr) -> Result<Node, String> {
+        if let Expr::Number(value) = expr {
+            return Ok(Node::Const(Value::Int(*value as i32)));
+        }
+        if let Expr::Unary(UnaryOp::Neg, operand) = expr
+            && let Expr::Number(value) = **operand
+        {
+            return Ok(Node::Const(Value::Int(-value as i32)));
+        }
+        self.scalar(expr, "an integer argument")
     }
 
     /// OptiFine multi-branch `if`: an odd number of at least 3 arguments, scalar conditions
@@ -461,13 +476,14 @@ impl Compiler<'_> {
         ))
     }
 
-    /// `smooth([id,] value[, fadeUpTime[, fadeDownTime]])`. As in OptiFine, a leading
-    /// numeric literal followed by more arguments is the id; calls sharing an id share one
-    /// accumulator, and every call without one gets its own.
+    /// `smooth([id,] value[, fadeUpTime[, fadeDownTime]])`. A leading numeric literal
+    /// followed by more arguments is an ignored compatibility id. Every
+    /// call site has its own accumulator.
     fn smooth(&mut self, args: &[Expr]) -> Result<Compiled, String> {
-        let (id, rest) = match args {
-            [Expr::Number(id), rest @ ..] if !rest.is_empty() => (Some(*id as i32), rest),
-            _ => (None, args),
+        let constant_id = matches!(args.first(), Some(Expr::Number(_) | Expr::Integer(_)));
+        let rest = match args {
+            [_, rest @ ..] if constant_id && !rest.is_empty() => rest,
+            _ => args,
         };
         let (value, fades) = match rest.split_first() {
             Some((value, fades)) if fades.len() <= 2 => (value, fades),
@@ -489,11 +505,8 @@ impl Compiler<'_> {
             Some(fade) => Some(self.scalar(fade, "a `smooth` fade time")?),
             None => None,
         };
-        let existing = id.and_then(|id| self.smooth_keys.iter().position(|key| *key == Some(id)));
-        let slot = existing.unwrap_or_else(|| {
-            self.smooth_keys.push(id);
-            self.smooth_keys.len() - 1
-        });
+        let slot = *self.smooth_count;
+        *self.smooth_count += 1;
         let node = Node::Smooth(Box::new(SmoothNode {
             slot,
             value,

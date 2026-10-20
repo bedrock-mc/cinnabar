@@ -133,6 +133,7 @@ fn rig<'a>(
         body_yaw: 0.0,
         render: &[],
         bone_names: &[],
+        attachments: None,
         skin_geometry: None,
         skin_mesh: None,
         skin_layers: &[],

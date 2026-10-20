@@ -118,6 +118,8 @@ pub struct ShaderPackFrameInputs {
     pub dimension: i32,
     /// Lowest block Y of the current dimension (`bedrockLevel`, Iris's dimension `minY`).
     pub bedrock_level: i32,
+    /// Positive range over which void fog fades; normal worlds use 32, flat worlds use 1.
+    pub void_darkness_range: f32,
     /// Local player is sneaking, sprinting, hurt, burning (`is_sneaking` …).
     pub sneaking: bool,
     pub sprinting: bool,
@@ -157,6 +159,7 @@ impl Default for ShaderPackFrameInputs {
             biome_block_y: 64,
             dimension: 0,
             bedrock_level: 0,
+            void_darkness_range: 32.0,
             sneaking: false,
             sprinting: false,
             hurt: false,

@@ -376,7 +376,6 @@ impl AttachablesRuntime {
             static_draw: (!self.previewing)
                 .then_some(self.assets.rig_bindings()[binding].geometry_count == 1),
         };
-        render::cache_layer_skeletons(&self.assets, state);
         let geometry = if self.previewing {
             geometry::reselect_geometry_preview(
                 &self.assets,

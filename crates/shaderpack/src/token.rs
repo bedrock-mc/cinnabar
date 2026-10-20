@@ -1,6 +1,9 @@
 //! Preprocessed GLSL tokens that remember their source line, and the emitter that turns them
 //! back into text while recording which source line each output line came from.
 
+use pp_rs::pp::Preprocessor;
+use pp_rs::token::{Punct, TokenValue};
+
 /// Token payload. Literals keep their spelling so the emitter reproduces them exactly.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum TokKind {
@@ -71,48 +74,83 @@ pub(crate) fn int(value: impl ToString) -> Tok {
     }
 }
 
-const PUNCTS: &[&str] = &[
-    "!=", "==", "<=", ">=", "&&", "||", "(", ")", "[", "]", "{", "}", ";", ",", "=", "*", ".", "<",
-    ">", "+", "-", "/", "!", "?", ":",
-];
-
-/// Lexes transformer-generated GLSL snippets (never pack text). Tokens get source line 0.
+/// Lexes transformer-generated GLSL snippets with the same lexer as pack code.
+/// Tokens retain numeric spelling and receive source line zero.
 pub(crate) fn lex(src: &str) -> Vec<Tok> {
-    let mut out = vec![];
-    let bytes = src.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        let c = bytes[i];
-        if c.is_ascii_whitespace() {
-            i += 1;
-        } else if c.is_ascii_alphabetic() || c == b'_' {
-            let start = i;
-            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
-                i += 1;
-            }
-            out.push(id(&src[start..i]));
-        } else if c.is_ascii_digit() {
-            let start = i;
-            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'.') {
-                i += 1;
-            }
-            let s = src[start..i].to_string();
-            let kind = if s.contains('.') {
-                TokKind::Float(s)
-            } else {
-                TokKind::Int(s)
+    Preprocessor::new(src)
+        .map(|token| {
+            let token = token.expect("generated GLSL must tokenize");
+            let spelling = &src[token.location.start as usize..token.location.end as usize];
+            let kind = match token.value {
+                TokenValue::Ident(name) => TokKind::Ident(name),
+                TokenValue::Integer(value) => {
+                    TokKind::Int(if spelling.starts_with(|ch: char| ch.is_ascii_digit()) {
+                        spelling.to_string()
+                    } else if value.signed {
+                        value.value.to_string()
+                    } else {
+                        format!("{}u", value.value)
+                    })
+                }
+                TokenValue::Float(_) => TokKind::Float(spelling.to_string()),
+                TokenValue::Punct(value) => TokKind::Punct(punct(value)),
+                _ => unreachable!("generated snippets contain no directives"),
             };
-            out.push(Tok { kind, line: 0 });
-        } else {
-            let punct = PUNCTS
-                .iter()
-                .find(|p| src[i..].starts_with(**p))
-                .unwrap_or_else(|| panic!("generated GLSL uses an unknown punctuator in {src:?}"));
-            out.push(p(punct));
-            i += punct.len();
-        }
+            Tok { kind, line: 0 }
+        })
+        .collect()
+}
+
+/// Returns the GLSL spelling of a punctuation token.
+pub(crate) fn punct(p: Punct) -> &'static str {
+    use Punct::*;
+    match p {
+        AddAssign => "+=",
+        SubAssign => "-=",
+        MulAssign => "*=",
+        DivAssign => "/=",
+        ModAssign => "%=",
+        LeftShiftAssign => "<<=",
+        RightShiftAssign => ">>=",
+        AndAssign => "&=",
+        XorAssign => "^=",
+        OrAssign => "|=",
+        Increment => "++",
+        Decrement => "--",
+        LogicalAnd => "&&",
+        LogicalOr => "||",
+        LogicalXor => "^^",
+        LessEqual => "<=",
+        GreaterEqual => ">=",
+        EqualEqual => "==",
+        NotEqual => "!=",
+        LeftShift => "<<",
+        RightShift => ">>",
+        LeftBrace => "{",
+        RightBrace => "}",
+        LeftParen => "(",
+        RightParen => ")",
+        LeftBracket => "[",
+        RightBracket => "]",
+        LeftAngle => "<",
+        RightAngle => ">",
+        Semicolon => ";",
+        Comma => ",",
+        Colon => ":",
+        Dot => ".",
+        Equal => "=",
+        Bang => "!",
+        Minus => "-",
+        Tilde => "~",
+        Plus => "+",
+        Star => "*",
+        Slash => "/",
+        Percent => "%",
+        Pipe => "|",
+        Caret => "^",
+        Ampersand => "&",
+        Question => "?",
     }
-    out
 }
 
 /// Accumulates GLSL text and, for every output line, the include-expanded source line it
@@ -208,11 +246,7 @@ fn needs_space(prev: &Tok, t: &Tok) -> bool {
         || prev.is("[")
         || prev.is(".")
         || (t.is("(") && matches!(prev.kind, TokKind::Ident(_)))
-        || (t.is("[") && !prev.is("="))
-        || t.is("++")
-        || t.is("--")
-        || prev.is("!")
-        || prev.is("~");
+        || (t.is("[") && !prev.is("="));
     !tight
 }
 
@@ -235,5 +269,53 @@ mod tests {
         assert_eq!(origins[1], 7);
         assert_eq!(text.lines().nth(1), Some("float a = 1.0;"));
         assert!(origins[2..].iter().all(|o| *o == 9));
+    }
+}
+
+#[cfg(test)]
+mod boundary_tests {
+    use super::*;
+
+    #[test]
+    fn frontend_operator_boundaries() {
+        for (a, b) in [("+", "++"), ("-", "--"), ("!", "="), ("~", "~")] {
+            let tokens = vec![id("a"), p(a), p(b), id("b")];
+            let mut emitter = Emitter::default();
+            emitter.tokens(&tokens);
+            let (text, _) = emitter.finish();
+            let parsed: Vec<_> = pp_rs::pp::Preprocessor::new(&text)
+                .map(|token| token.unwrap().value)
+                .collect();
+            let expected: Vec<_> = tokens
+                .iter()
+                .flat_map(|token| pp_rs::pp::Preprocessor::new(token.text()))
+                .map(|token| token.unwrap().value)
+                .collect();
+            assert_eq!(parsed, expected, "{text}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod generated_tests {
+    use super::*;
+
+    #[test]
+    fn generated_lexer_preserves_glsl_token_values() {
+        for source in [
+            "float x = 1e-3; x <<= 2; ++x; --x;",
+            "a /* hidden */ ++ + b;",
+        ] {
+            let expected: Vec<_> = pp_rs::pp::Preprocessor::new(source)
+                .map(|token| token.unwrap().value)
+                .collect();
+            let mut emitter = Emitter::default();
+            emitter.tokens(&lex(source));
+            let (text, _) = emitter.finish();
+            let actual: Vec<_> = pp_rs::pp::Preprocessor::new(&text)
+                .map(|token| token.expect("valid generated tokens").value)
+                .collect();
+            assert_eq!(actual, expected);
+        }
     }
 }

@@ -165,17 +165,14 @@ impl UiPresentationRuntime {
         live.hat_pose
             .retain(|item, _| self.menu_preview_model.cosmetics.contains(item));
         for &hat in &self.menu_preview_model.cosmetics {
-            let Some(index) = rig
-                .bone_names
-                .iter()
-                .position(|bone| bone.eq_ignore_ascii_case(&hat.descriptor().attachment_bone))
-            else {
+            let cache = live.hat_pose.entry(hat).or_default();
+            let Some(index) = cache.anchor(hat, rig.attachments, rig.bone_names) else {
                 continue;
             };
             let Some(head) = live.bones.get(index) else {
                 continue;
             };
-            let pose = live.hat_pose.entry(hat).or_default().pose(
+            let pose = cache.pose(
                 hat,
                 *head,
                 live.hat_motion.get(&hat).copied().unwrap_or_default(),
@@ -207,8 +204,15 @@ impl UiPresentationRuntime {
             discard_collapsed_faces(vertices);
         }
         if draw_cape && let Some(cape) = &self.gui_models.cape {
-            let pose = cape.pose(
-                rig.bone_names,
+            let bindings = rig
+                .attachments
+                .and_then(|bindings| bindings.cape_for(cape))
+                .map_or_else(
+                    || std::borrow::Cow::Owned(cape.bind(rig.bone_names)),
+                    std::borrow::Cow::Borrowed,
+                );
+            let pose = cape.pose_bound(
+                &bindings,
                 |index| rig.rest.get(index).and_then(render_bone),
                 &live.bones,
                 None,
