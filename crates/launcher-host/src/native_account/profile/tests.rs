@@ -108,8 +108,8 @@ pub(in crate::native_account) fn account() -> (tempfile::TempDir, Arc<NativeAcco
 }
 
 /// A refresh revision does not retire presentation; a replacement generation or XUID does.
-#[test]
-fn completed_profile_remains_bound_to_selected_generation_after_artwork() {
+#[tokio::test]
+async fn completed_profile_remains_bound_to_selected_generation_after_artwork() {
     let (directory, account) = account();
     let result = || NativeProfile {
         account: Arc::clone(&account),
@@ -129,14 +129,14 @@ fn completed_profile_remains_bound_to_selected_generation_after_artwork() {
     cached.checkpoint_revision = lease.checkpoint_revision();
     drop(state);
     drop(lease);
-    assert!(result().into_current().is_some());
+    assert!(result().into_current().await.is_some());
     seed(&directory.path().join("oauth.json"), "replacement");
-    assert!(result().into_current().is_none());
+    assert!(result().into_current().await.is_none());
 }
 
 /// Even a matching storage generation cannot authorize another Xbox identity's presentation.
-#[test]
-fn completed_profile_rejects_another_verified_xuid() {
+#[tokio::test]
+async fn completed_profile_rejects_another_verified_xuid() {
     let (_directory, account) = account();
     let mut state = account.state.lock().unwrap();
     let cached = state.cached.as_mut().unwrap();
@@ -154,6 +154,7 @@ fn completed_profile_rejects_another_verified_xuid() {
             },
         }
         .into_current()
+        .await
         .is_none()
     );
 }
@@ -183,7 +184,7 @@ async fn completed_native_read_survives_same_account_checkout() {
         let state = account.state.lock().unwrap();
         state.busy && state.cached.is_none()
     };
-    let mut publishing = Box::pin(async { loaded.into_current() });
+    let mut publishing = Box::pin(loaded.into_current());
     let first = publishing
         .as_mut()
         .poll(&mut Context::from_waker(Waker::noop()));
@@ -254,7 +255,7 @@ async fn optional_profile_cutoff_preserves_loaded_data_and_unrelated_operation()
     assert!(loaded.partial);
     assert!(account.state.lock().unwrap().busy);
     drop(held);
-    assert!(loaded.into_current().is_some());
+    assert!(loaded.into_current().await.is_some());
 }
 
 /// Optional enrichment cannot continue under a replaced sign-in even when its prior DTO remains loaded.
@@ -277,5 +278,5 @@ async fn optional_profile_facet_rejects_replacement_generation_before_authentica
         .await
         .unwrap_err();
     assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
-    assert!(loaded.into_current().is_none());
+    assert!(loaded.into_current().await.is_none());
 }

@@ -158,7 +158,7 @@ async fn artwork_budget_preserves_loaded_profile_and_completed_image() {
         panic!("optional artwork budget discarded the loaded profile");
     };
     assert!(queued, "same-account refresh must be retained");
-    let profile = profile.into_current().unwrap();
+    let profile = profile.into_current().await.unwrap();
     assert_eq!(profile.gamertag, "Completed Profile");
     assert_eq!(profile.xuid, "123");
     assert_eq!(

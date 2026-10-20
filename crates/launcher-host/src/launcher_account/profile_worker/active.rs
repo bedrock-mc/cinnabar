@@ -17,7 +17,7 @@ pub(super) enum Failure {
     TimedOut,
 }
 
-enum Exit {
+pub(super) enum Exit {
     Retired,
     Stopped,
     TimedOut,
@@ -81,7 +81,7 @@ pub(super) async fn run(
 
 /// Retains one phase through completion or retirement, enforcing a caller deadline only when supplied.
 /// Optional image work owns its finite budget and drains unfinished downloads before returning paths.
-async fn wait<T>(
+pub(super) async fn wait<T>(
     operation: impl Future<Output = T>,
     shared: &Mutex<Snapshot>,
     selection: &Selection,

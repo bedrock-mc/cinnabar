@@ -69,11 +69,11 @@ impl Loaded {
     }
 
     /// Rechecks native authority only after artwork has released its asynchronous I/O.
-    pub(super) fn into_current(self) -> Result<Vec<bridge::Person>, ()> {
+    pub(super) async fn into_current(self) -> Result<Vec<bridge::Person>, ()> {
         match self {
             Self::Core(people) => Ok(people),
             #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-            Self::Native(people) => people.into_current().ok_or(()),
+            Self::Native(people) => people.into_current().await.ok_or(()),
         }
     }
 }

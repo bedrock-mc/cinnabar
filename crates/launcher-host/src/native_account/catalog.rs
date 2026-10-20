@@ -1,6 +1,6 @@
 //! One account operation for independent Realms and friend-world catalog sections.
 
-use super::*;
+use super::{read_identity::AccountAvailability, *};
 use launcher::menu::view::MenuRealmCard;
 
 /// Each section retains its own service failure; successful sections can still replace visible rows.
@@ -19,19 +19,24 @@ pub struct CatalogListing {
 }
 
 impl CatalogListing {
-    /// Moves rows out only after the operation returned its current verified owner.
-    /// The menu additionally checks its selected account and request epoch.
-    pub fn into_current_cards(self, account: &NativeAccount) -> Option<CatalogCards> {
-        let state = account.state.try_lock().ok()?;
-        let cached = state.cached.as_ref()?;
-        (!state.busy
-            && cached.generation == self.generation
-            && cached.binding == self.binding
-            && cached
-                .identity
-                .as_ref()
-                .is_some_and(|identity| identity.current_credential))
-        .then_some(self.cards)
+    /// Returns this same listing in Err during temporary checkout or lock contention, for a later frame.
+    /// Ok(None) retires unavailable or replaced identity; Ok(Some) preserves the exact read binding.
+    /// The menu additionally checks its selected account and request epoch before calling this.
+    pub fn into_current_cards(self, account: &NativeAccount) -> Result<Option<CatalogCards>, Self> {
+        let state = match account.available_state() {
+            AccountAvailability::Available(state) => state,
+            AccountAvailability::Busy => return Err(self),
+            AccountAvailability::Unavailable => return Ok(None),
+        };
+        let current = state.cached.as_ref().is_some_and(|cached| {
+            cached.generation == self.generation
+                && cached.binding == self.binding
+                && cached
+                    .identity
+                    .as_ref()
+                    .is_some_and(|identity| identity.current_credential)
+        });
+        Ok(current.then_some(self.cards))
     }
 }
 

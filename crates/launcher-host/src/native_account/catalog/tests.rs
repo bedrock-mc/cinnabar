@@ -30,8 +30,16 @@ async fn completed_native_read_survives_same_account_checkout() {
         let state = account.state.lock().unwrap();
         state.busy && state.cached.is_none()
     };
-    // The async block uses the original finalizer; no service or replacement read is started.
-    let mut publishing = Box::pin(async { listing.into_current_cards(&account) });
+    let mut pending = Some(listing);
+    let mut publishing = Box::pin(std::future::poll_fn(|_| {
+        match pending.take().unwrap().into_current_cards(&account) {
+            Ok(cards) => Poll::Ready(cards),
+            Err(listing) => {
+                pending = Some(listing);
+                Poll::Pending
+            }
+        }
+    }));
     let first = publishing
         .as_mut()
         .poll(&mut Context::from_waker(Waker::noop()));

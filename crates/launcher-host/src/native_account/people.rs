@@ -11,9 +11,9 @@ pub(crate) struct NativePeople {
 }
 
 impl NativePeople {
-    /// Rechecks protected account selection after all artwork awaits, without authenticating.
-    pub(crate) fn into_current(self) -> Option<Vec<bridge::Person>> {
-        self.identity.current().then_some(self.people)
+    /// Retains the original rows through account contention under the invite worker's cancellation.
+    pub(crate) async fn into_current(self) -> Option<Vec<bridge::Person>> {
+        self.identity.wait_current().await.then_some(self.people)
     }
 }
 
