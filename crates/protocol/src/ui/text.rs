@@ -5,7 +5,7 @@ use bedrock_protocol_1_26_51::packets::{SetTitle, Text};
 use bedrock_protocol_1_26_51::types::TextData;
 use bedrock_protocol_1_26_51::wire;
 
-use super::{MAX_CHAT_PARAMETERS, UiEvent, UiPacketError, bounded_text};
+use super::{MAX_CHAT_PARAMETERS, MAX_TEXT_MESSAGE_BYTES, UiEvent, UiPacketError, bounded_text};
 
 /// Which of the three Text payload shapes the packet carried.
 ///
@@ -134,7 +134,7 @@ pub(crate) fn normalize_text(packet: Text) -> Result<UiEvent, UiPacketError> {
         parameters,
         xuid: bounded_text(packet.sender_xuid)?,
         platform_chat_id: bounded_text(packet.platform_id)?,
-        filtered_message: packet.filtered_message.map(bounded_text).transpose()?,
+        filtered_message: packet.filtered_message.map(bounded_message).transpose()?,
     };
     Ok(match raw_text {
         Some(document) => UiEvent::RawText(RawTextEvent {
@@ -161,14 +161,27 @@ type NormalizedTextParts = (
     Arc<[Arc<str>]>,
 );
 
+/// Retains a Text message within its schema byte bound, including for directly built packets.
+fn bounded_message(value: wire::Str) -> Result<Arc<str>, UiPacketError> {
+    let value = value.to_string_lossy();
+    if value.len() > MAX_TEXT_MESSAGE_BYTES {
+        return Err(UiPacketError::TextTooLong {
+            bytes: value.len(),
+            max: MAX_TEXT_MESSAGE_BYTES,
+        });
+    }
+    Ok(Arc::from(value))
+}
+
 fn normalize_message_only(
     kind: TextKind,
     message: wire::Str,
 ) -> Result<NormalizedTextParts, UiPacketError> {
-    let document = crate::raw_text::parse_raw_text_envelope(&message.to_string_lossy())?;
+    let message = bounded_message(message)?;
+    let document = crate::raw_text::parse_raw_text_envelope(&message)?;
     let message = match &document {
         Some(document) => Arc::from(document.literal_text()),
-        None => bounded_text(message)?,
+        None => message,
     };
     Ok((
         TextCategory::MessageOnly,
@@ -184,7 +197,8 @@ fn normalize_json_message(
     kind: TextKind,
     message: wire::Str,
 ) -> Result<NormalizedTextParts, UiPacketError> {
-    let document = crate::parse_raw_text(&message.to_string_lossy())?;
+    let message = bounded_message(message)?;
+    let document = crate::parse_raw_text(&message)?;
     Ok((
         TextCategory::MessageOnly,
         kind,
@@ -204,7 +218,7 @@ fn normalize_authored(
         TextCategory::Authored,
         kind,
         Some(bounded_text(player_name)?),
-        bounded_text(message)?,
+        bounded_message(message)?,
         None,
         Arc::from([]),
     ))
@@ -229,7 +243,7 @@ fn normalize_parameters(
         TextCategory::Parameters,
         kind,
         None,
-        bounded_text(message)?,
+        bounded_message(message)?,
         None,
         Arc::from(parameters),
     ))

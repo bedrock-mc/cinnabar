@@ -140,7 +140,7 @@ pub use actor_render::equipment_test_support::{
 };
 #[cfg(feature = "publication-test-support")]
 pub use actor_render::publication_test_support::{
-    PublicationActorPreparation, publication_actor_preparation,
+    ActorArtworkBenchmark, PublicationActorPreparation, publication_actor_preparation,
 };
 
 pub use atmosphere_render::AtmospherePlugin;

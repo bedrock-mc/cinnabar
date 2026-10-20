@@ -48,6 +48,7 @@ async fn prepared_startup_does_not_wait_for_radius_but_keeps_spawn_and_registry_
                 skin: None,
                 settings: &settings,
                 tap: None,
+                relay: None,
                 target: Some(bridge::ConnectTarget::RakNet(
                     "game.example.test:19132".into(),
                 )),

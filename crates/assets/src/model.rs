@@ -189,7 +189,9 @@ const TEXTURE_RESERVED_MASK: u32 =
 /// texture-array pages: page zero is the base carrier, higher pages are
 /// overlay shards in order.
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize,
+)]
 pub struct TextureRef(u32);
 
 impl TextureRef {
@@ -248,7 +250,7 @@ impl TexturePage {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum VisualKind {
     Diagnostic = 0,
     Cube = 1,
@@ -274,7 +276,7 @@ impl VisualKind {
 
 /// Evidence status of a compiled canonical block visual.
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum VisualSupport {
     Exact = 0,
     VanillaFallback = 1,
@@ -294,7 +296,7 @@ impl VisualSupport {
 
 /// A bounded span of immutable model quads.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ModelTemplate {
     pub quad_start: u32,
     pub quad_count: u32,
@@ -322,7 +324,7 @@ pub const MODEL_UV_SCALE: u16 = 4096;
 
 /// Fixed-point template quad. Position coordinates use 1/256 block units.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ModelQuad {
     pub positions: [[i16; 3]; 4],
     /// Per-vertex UV coordinates in 1/4096 texture-tile units. Values above
@@ -350,7 +352,7 @@ pub(crate) const fn model_quad_flags_are_valid(flags: u32) -> bool {
 
 /// Immutable animation timeline descriptor.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Animation {
     pub frame_start: u32,
     pub frame_count: u32,

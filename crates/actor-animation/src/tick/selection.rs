@@ -18,6 +18,40 @@ pub(crate) fn select(
     input: Input<'_>,
     budget: &mut EvalBudget<'_>,
 ) -> Result<Vec<WeightedClip>, EvalError> {
+    select_with(
+        evaluator,
+        variables,
+        controller::Controllers::tick(controllers),
+        input,
+        budget,
+    )
+}
+
+/// Replays weights against frozen controllers without cloning their history.
+pub(crate) fn replay(
+    evaluator: &Evaluator<'_>,
+    variables: &mut MolangVariables,
+    controllers: &[ControllerState],
+    input: Input<'_>,
+    budget: &mut EvalBudget<'_>,
+) -> Result<Vec<WeightedClip>, EvalError> {
+    select_with(
+        evaluator,
+        variables,
+        controller::Controllers::replay(controllers),
+        input,
+        budget,
+    )
+}
+
+/// Shares authored traversal between committed ticks and sparse presentation replay.
+fn select_with(
+    evaluator: &Evaluator<'_>,
+    variables: &mut MolangVariables,
+    mut controllers: controller::Controllers<'_>,
+    input: Input<'_>,
+    budget: &mut EvalBudget<'_>,
+) -> Result<Vec<WeightedClip>, EvalError> {
     let Input {
         clocks: clip_clocks,
         geometry: geometry_binding,
@@ -79,7 +113,7 @@ pub(crate) fn select(
                 let mut walk = ControllerWalk {
                     evaluator,
                     variables,
-                    controllers,
+                    controllers: &mut controllers,
                     clip_clocks,
                     clips: &mut weighted_clips,
                     budget,
@@ -91,7 +125,7 @@ pub(crate) fn select(
                 };
                 walk.evaluate(binding.controller as usize, weight, 0)?;
             } else if replay {
-                journal.replay_inactive(reference, &[], controllers, variables)?;
+                journal.replay_inactive(reference, &[], &mut controllers, variables)?;
             }
         }
     }
@@ -103,7 +137,7 @@ pub(crate) fn select(
         ControllerWalk {
             evaluator,
             variables,
-            controllers,
+            controllers: &mut controllers,
             clip_clocks,
             clips: &mut weighted_clips,
             budget,

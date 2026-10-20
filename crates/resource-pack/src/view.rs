@@ -6,7 +6,7 @@
 
 use std::{collections::BTreeSet, sync::Arc};
 
-use crate::{AdmissionError, MAX_FILE_BYTES, PackDependencies, ValidatedPack, ValidatedPackStack};
+use crate::{AdmissionError, PackDependencies, ValidatedPack, ValidatedPackStack};
 
 /// A read-only merged namespace over one session's admitted packs.
 #[derive(Clone, Debug)]
@@ -51,7 +51,7 @@ impl LayeredPackView {
     /// skipped so the next layer down can still supply it.
     #[must_use]
     pub fn read(&self, path: &str) -> Option<Box<[u8]>> {
-        self.read_capped(path, MAX_FILE_BYTES)
+        self.read_capped(path, u64::MAX)
     }
 
     /// Like [`read`](Self::read) but reads at most `limit` uncompressed bytes; a
@@ -71,7 +71,7 @@ impl LayeredPackView {
     /// Every readable copy of `path`, lowest precedence first.
     #[must_use]
     pub fn read_layers(&self, path: &str) -> Vec<Box<[u8]>> {
-        self.read_layers_capped(path, MAX_FILE_BYTES).collect()
+        self.read_layers_capped(path, u64::MAX).collect()
     }
 
     /// Records even empty-stack lookups while streaming bounded layer candidates.
@@ -154,7 +154,7 @@ impl<'a> PackLayer<'a> {
     /// Records successful and missing layer reads so a newly added override invalidates them.
     pub fn read_file(&self, path: &str) -> Result<Option<Box<[u8]>>, AdmissionError> {
         if let Some(dependencies) = self.dependencies {
-            dependencies.file(path, MAX_FILE_BYTES);
+            dependencies.file(path, u64::MAX);
         }
         self.pack.read_file(path)
     }
@@ -163,7 +163,7 @@ impl<'a> PackLayer<'a> {
     #[must_use]
     pub fn file_size(&self, path: &str) -> Option<u64> {
         if let Some(dependencies) = self.dependencies {
-            dependencies.file(path, MAX_FILE_BYTES);
+            dependencies.file(path, u64::MAX);
         }
         self.pack.file_size(path)
     }

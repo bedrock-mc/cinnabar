@@ -32,9 +32,9 @@ pub(super) fn prepare(source: &Source, state: &UserState, library: &GlobalPackLi
         .map_or_else(options::ParsedOptions::default, |bytes| {
             options::parse(&bytes)
         });
-    let mut servers = read_optional(&source.root, "external_servers.txt", &mut skipped)
+    let mut servers = read_optional(&source.root, servers::FILE_NAME, &mut skipped)
         .map_or_else(servers::ParsedServers::default, |bytes| {
-            servers::parse(&bytes, crate::servers::MAX_SAVED_SERVERS)
+            servers::parse(&bytes)
         });
     let selection = read_optional(&source.root, "global_resource_packs.json", &mut skipped)
         .map_or_else(ParsedGlobalSelection::default, |bytes| {
@@ -111,30 +111,13 @@ pub(super) fn prepare(source: &Source, state: &UserState, library: &GlobalPackLi
     }
 }
 
-/// Merges endpoints while also enforcing the saved file's serialized byte ceiling.
+/// Merges endpoints while preserving every distinct server.
 pub(super) fn merge_servers(
     existing: &[launcher::menu::SavedServer],
     incoming: &[launcher::menu::SavedServer],
 ) -> (Vec<launcher::menu::SavedServer>, usize) {
     let mut merged = existing.to_vec();
-    let mut skipped = 0;
-    for server in incoming {
-        if servers::merge(
-            &mut merged,
-            std::slice::from_ref(server),
-            crate::servers::MAX_SAVED_SERVERS,
-        ) != 0
-        {
-            skipped += 1;
-            continue;
-        }
-        if serde_json::to_vec_pretty(&merged).map_or(true, |bytes| {
-            bytes.len() > crate::servers::MAX_SAVED_SERVER_FILE_BYTES
-        }) {
-            merged.pop();
-            skipped += 1;
-        }
-    }
+    let skipped = servers::merge(&mut merged, incoming);
     (merged, skipped)
 }
 
@@ -203,13 +186,19 @@ pub(super) fn safe_path(root: &Path, relative: &Path) -> Result<PathBuf> {
     Ok(path)
 }
 
-/// Reads no more than the text ceiling plus one byte, rejecting non-regular files.
+/// Reads complete server lists and bounded settings text, rejecting non-regular files.
 fn read(root: &Path, relative: &Path) -> Result<Vec<u8>> {
     let path = safe_path(root, relative)?;
     anyhow::ensure!(
         fs::metadata(&path)?.is_file(),
         "User-data source is not a regular file"
     );
+    if relative
+        .file_name()
+        .is_some_and(|name| name == servers::FILE_NAME)
+    {
+        return Ok(fs::read(path)?);
+    }
     let mut bytes = Vec::new();
     fs::File::open(path)?
         .take(MAX_TEXT_BYTES + 1)

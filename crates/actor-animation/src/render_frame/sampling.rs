@@ -25,13 +25,13 @@ pub(super) fn render_controller_expressions(
 }
 
 /// Separate selection gates preserve dependencies of conditionally executed assignments.
-pub(super) struct RenderExpressions {
+pub(crate) struct RenderExpressions {
     pub expressions: Vec<u32>,
     pub gates: Vec<u32>,
 }
 
 /// Layer conditions and choices control which following scripts execute.
-pub(super) fn render_layer_expressions(
+pub(crate) fn render_layer_expressions(
     assets: &RuntimeEntityAssets,
     layer: &assets::EntityRenderLayer,
 ) -> RenderExpressions {

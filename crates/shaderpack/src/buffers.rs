@@ -163,6 +163,7 @@ impl BufferDirectives {
     }
 }
 
+/// Reads a trimmed GLSL boolean constant.
 fn parse_bool(v: &str) -> Option<bool> {
     match v.trim() {
         "true" => Some(true),
@@ -175,6 +176,7 @@ fn parse_bool(v: &str) -> Option<bool> {
 mod tests {
     use super::*;
 
+    /// Creates an integer directive fixture with the supplied name and value.
     fn c(name: &str, value: &str) -> ConstDirective {
         ConstDirective {
             ty: "int".into(),

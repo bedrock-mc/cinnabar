@@ -68,6 +68,7 @@ mod tests {
     use super::*;
     use crate::token::Emitter;
 
+    /// Reorders a fixture expression and emits its resulting token stream.
     fn ordered(src: &str) -> Option<String> {
         let mut e = Emitter::default();
         e.tokens(&order(&lex(src))?);

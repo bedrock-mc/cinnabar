@@ -98,6 +98,12 @@ pub fn run(args: &Args, layout: Option<&InstallLayout>) -> Result<Option<PathBuf
         events.clone(),
         Arc::clone(&liveness),
     );
+    #[cfg(target_os = "macos")]
+    let handler = handler.with_dump_receipts(launch.hang.as_ref().and_then(|hang| {
+        Heartbeat::open(&hang.heartbeat)
+            .map_err(|error| tracing::warn!("dump receipts unavailable: {error}"))
+            .ok()
+    }));
     let shutdown = Arc::new(AtomicBool::new(false));
     let (finished, server_finished) = mpsc::channel();
     let serving = {
