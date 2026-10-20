@@ -20,9 +20,10 @@
 //! reads a pack's block, item and entity ids and [`IdMaps`] resolves them for Bedrock
 //! blocks, entities and items; [`BiomeUniforms`] and the `BIOME_*`/`CAT_*`/`PPT_*` macros
 //! describe Java biomes; [`sky_fog`] gives Java's sky and fog colours.
-//! [`CustomUniforms`] evaluates a pack's custom uniform and variable expressions each frame.
 //!
 //! Render-host integration and in-game acceptance remain incomplete.
+//! [`CustomUniforms`] evaluates a pack's custom uniform and variable expressions each frame;
+//! nothing uploads or renders them yet.
 mod biomes;
 mod buffers;
 mod compile;

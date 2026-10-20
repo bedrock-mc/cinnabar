@@ -25,6 +25,9 @@ pub struct State {
 
 /// Inputs borrowed by the same screen painters the client uses.
 pub enum Fixture {
+    /// A server form whose editable controls are locked during a session.
+    #[cfg(feature = "test-support")]
+    ControlLocked,
     /// An equipped original cosmetic rendered by the full production particle-preview path.
     #[cfg(feature = "test-support")]
     CosmeticParticles {
@@ -44,6 +47,11 @@ pub enum Fixture {
     TabList(Vec<RosterRow>),
     /// Two original custom-form inputs after selection moves from the first to the second.
     EditSelection,
+    /// An externally supplied bounded native mod panel.
+    ModPanel(Box<ui::mod_panel::Panel>),
+    /// Two same-ID requests arriving while the first menu is still open.
+    #[cfg(feature = "test-support")]
+    FormOverlap,
     /// A damaged stack picked up from the survival inventory.
     #[cfg(feature = "test-support")]
     CursorDurability,
@@ -63,6 +71,20 @@ const TALL_SIZE: [u32; 2] = [1280, 900];
 const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 
 pub const STATES: &[State] = &[
+    #[cfg(feature = "test-support")]
+    State {
+        name: "form-overlap",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::FormOverlap,
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "form-control-locked",
+        size: [1280, 960],
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::ControlLocked,
+    },
     #[cfg(feature = "test-support")]
     State {
         name: "paper-doll-particles-before",

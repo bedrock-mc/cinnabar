@@ -531,6 +531,37 @@ fn chat_translation_and_duration_refresh_without_rebuilding_hotbar() {
     assert_eq!(cache.model.chat.len(), MAX_CHAT_LINES);
 }
 
+/// Server packs can consume title bindings beyond the native visible label and after its expiry.
+#[test]
+fn title_controller_inputs_survive_native_title_expiry_without_truncation() {
+    let mut fixture = Fixture::default();
+    let text = "x".repeat(ui_screens::text::MAX_PRESENTED_TEXT_BYTES + 1);
+    fixture
+        .runtime
+        .hud
+        .set_title(Arc::from(text.as_str()), 1, 0);
+    fixture
+        .runtime
+        .hud
+        .set_subtitle(Arc::from("retained subtitle"), 2, 0);
+    fixture
+        .runtime
+        .hud
+        .set_actionbar(Arc::from(text.as_str()), 3, 0);
+    let mut cache = SemanticHud::default();
+    fixture.check(&mut cache);
+    assert_eq!(cache.model.title.as_ref().unwrap().title, text);
+    assert_eq!(cache.model.actionbar.as_ref().unwrap().text, text);
+    fixture.frame.now_millis = 60_000;
+    fixture.check(&mut cache);
+    assert!(cache.model.title.is_none());
+    assert_eq!(cache.model.title_text.as_deref(), Some(text.as_str()));
+    assert_eq!(
+        cache.model.subtitle_text.as_deref(),
+        Some("retained subtitle")
+    );
+}
+
 #[test]
 fn chat_color_keeps_encoded_hud_message_inputs_unmodified() {
     let mut fixture = Fixture::default();

@@ -18,6 +18,9 @@ use {
 const DEFAULT_WAIT: Duration = Duration::from_secs(120);
 /// Actors listed in a state snapshot, nearest first.
 const MAX_LISTED_ACTORS: usize = 32;
+/// Recent chat output is bounded so command tests cannot return a session's entire history.
+const MAX_CHAT_ROWS: usize = 16;
+const MAX_CHAT_CHARS: usize = 1024;
 /// Largest `chunks_loaded` radius, in columns.
 const MAX_CHUNK_RADIUS: u32 = 64;
 
@@ -297,7 +300,7 @@ pub(super) fn snapshot(world: &World) -> Value {
     });
     let local_mods = crate::modding::developer_state(world);
 
-    json!({
+    let mut snapshot = json!({
         "in_world": stream.is_some(),
         "sign_in": menu.map(|menu| menu.sign_in_status().as_str()),
         "immobile": world.get_resource::<client_state::PlayerRuntime>()
@@ -388,7 +391,30 @@ pub(super) fn snapshot(world: &World) -> Value {
             "staged": runtime.prediction_frames.staged_frame,
             "upload_acknowledged": runtime.prediction_frames.upload_acknowledged_frame,
         })),
-    })
+    });
+    // Keep added diagnostics outside the large snapshot macro's expansion budget.
+    snapshot["chat"] = json!(world.get_resource::<UiRuntimeResource>().map(|ui| {
+        let messages = ui.chat().messages();
+        messages
+            .iter()
+            .skip(messages.len().saturating_sub(MAX_CHAT_ROWS))
+            .map(|message| {
+                message
+                    .message
+                    .chars()
+                    .take(MAX_CHAT_CHARS)
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+    }));
+    snapshot["vision"] = world
+        .get_resource::<client_presentation::camera::VisionEffects>()
+        .map(|vision| {
+            json!({"night_vision": vision.night_vision,
+            "blindness": vision.blindness, "darkness": vision.darkness})
+        })
+        .unwrap_or(Value::Null);
+    snapshot
 }
 
 /// Exposes the active form's rendered input targets in window coordinates for headless checks.

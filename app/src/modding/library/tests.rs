@@ -1,3 +1,4 @@
+mod native_import;
 use super::*;
 use mod_host::ModHost;
 

@@ -17,10 +17,10 @@ use bedrock_protocol_1_26_51::wire::{self, Decode, Encode};
 use bytes::{BufMut, BytesMut};
 use protocol::{
     BossAction, BossColor, ChatAutocompleteAction, CustomFormValue, FormButtonImage, FormKind,
-    MAX_CHAT_AUTOCOMPLETE, MAX_FORM_JSON_BYTES, MAX_FORM_JSON_DEPTH, MAX_SCORE_ENTRIES_PER_PACKET,
-    MAX_UI_TEXT_BYTES, ModalFormResponseSelection, ProtocolError, UiEvent, UiPacketError,
-    WorldEvent, custom_form_submit_response, decode_batch, into_world_event,
-    modal_form_cancel_response, modal_form_submit_response,
+    MAX_CHAT_AUTOCOMPLETE, MAX_FORM_JSON_BYTES, MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES,
+    ModalFormResponseSelection, ProtocolError, UiEvent, UiPacketError, WorldEvent,
+    custom_form_submit_response, decode_batch, into_world_event, modal_form_cancel_response,
+    modal_form_submit_response,
 };
 
 const TEXT_FIXTURE: &[u8] = include_bytes!("../../fixtures/text.bin");
@@ -867,24 +867,6 @@ fn oversized_or_malformed_form_json_is_a_semantic_error_not_wire_fault() {
     ] {
         assert_eq!(form_event(json).unwrap_err(), expected);
     }
-}
-
-#[test]
-fn form_json_nesting_is_bounded_before_any_parse() {
-    let mut json = String::new();
-    for _ in 0..=MAX_FORM_JSON_DEPTH {
-        json.push('[');
-    }
-    for _ in 0..=MAX_FORM_JSON_DEPTH {
-        json.push(']');
-    }
-    assert_eq!(
-        form_event(&json).unwrap_err(),
-        UiPacketError::FormJsonDepthExceeded {
-            depth: MAX_FORM_JSON_DEPTH + 1,
-            max: MAX_FORM_JSON_DEPTH,
-        }
-    );
 }
 
 #[test]

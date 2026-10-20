@@ -20,7 +20,7 @@ const SERVER_FORM_SCREEN: &str = "server_form.third_party_server_screen";
 pub enum Scene {
     /// The world and its in-world overlays: vanilla's in-game play screen.
     Gameplay,
-    /// The crosshair overlay, which stays drawn under other screens.
+    /// The crosshair overlay, drawn while gameplay owns input.
     Crosshair,
     Hud,
     Bed,
