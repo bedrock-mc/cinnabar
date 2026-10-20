@@ -12,6 +12,7 @@ mod draw;
 mod mesh;
 mod painted_bounds;
 mod projection;
+mod repeat;
 mod retained;
 
 use budget::DrawCounts;
@@ -92,6 +93,14 @@ pub enum UiVisual {
         uv: [f32; 4],
         color: [u8; 4],
         style: u8,
+    },
+    /// A source region addressed by tile coordinates, with no geometry per repeat.
+    RepeatedSprite {
+        texture_page: u16,
+        tile_uv: [f32; 4],
+        source: [f32; 4],
+        color: [u8; 4],
+        style: u16,
     },
     /// A solid rect blending `colors[0]` into `colors[1]` top to bottom (or left
     /// to right when `horizontal`).
@@ -366,7 +375,7 @@ pub const UI_STYLE_GLINT: u8 = 1 << 1;
 /// Vertex style bit for JSON-UI `grayscale` sprites.
 pub const UI_STYLE_GRAYSCALE: u8 = 1 << 2;
 /// Vertex style bit for JSON-UI `bilinear` sprites.
-pub const UI_STYLE_BILINEAR: u8 = 1 << 3;
+pub const UI_STYLE_BILINEAR: u8 = render_api::UI_STYLE_BILINEAR;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -429,6 +438,7 @@ pub enum UiError {
     MissingParent { node: UiNodeId, parent: UiNodeId },
     ParentCycle { node: UiNodeId },
     InvalidSafeViewport,
+    InvalidSpriteCoordinates,
     LayoutRevisionOverflow,
     MissingLayoutBounds { node: UiNodeId },
     StaleFrame { expected: u64, actual: u64 },
