@@ -790,6 +790,14 @@ fn form_text_budget_charges_nested_arguments_and_later_literals_and_formats() {
 }
 
 #[test]
+fn form_translation_does_not_reserve_unused_template_bytes() {
+    let template = "%s".repeat(protocol::MAX_FORM_JSON_BYTES / 2);
+    let formatted = protocol::FormTextBudget::default().format_translation(&template, &[]);
+    assert!(formatted.is_empty());
+    assert_eq!(formatted.capacity(), 0);
+}
+
+#[test]
 fn form_translation_formatting_keeps_long_labels_and_bounds_substitution_growth() {
     let long = "界".repeat(10_000);
     let arguments = [long.clone(), "5".into()];

@@ -171,7 +171,10 @@ fn custom_element(
                 enabled: control_locked.is_enabled(in_game),
                 text: budget.format_translation(
                     slider_format,
-                    &[resolve(text), number_text(current, step.get())],
+                    &[
+                        resolve(text),
+                        budget.copy(&number_text(current, step.get())),
+                    ],
                 ),
                 fraction: slider_fraction(min.get(), max.get(), current),
                 tooltip: tooltip(tip),

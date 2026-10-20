@@ -45,7 +45,8 @@ impl FormTextBudget {
     /// Formats a control label within the same allowance as its resolved arguments.
     pub fn format_translation(&self, template: &str, arguments: &[String]) -> String {
         self.spend(|remaining| {
-            let prefix = TranslationPrefix::new(template.len(), *remaining);
+            // Template bytes can all disappear into empty substitutions; reserve only output.
+            let prefix = TranslationPrefix::new(0, *remaining);
             let output = format_translation_chars_into(
                 template.chars(),
                 |index| arguments.get(index).map(|text| (text.as_str(), false)),
