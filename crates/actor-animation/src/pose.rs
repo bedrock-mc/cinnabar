@@ -198,19 +198,19 @@ pub(super) fn sample_clips_reused<'a>(
             .ok_or(EvalError::Invalid)?;
         // An override clip first restores every bone it animates to its whole default pose.
         if clip.override_previous {
-            for (offset, channel) in channels.iter().enumerate() {
-                let Some(index) = channel_bones.resolve_index(first + offset, channel) else {
+            for channel in channels {
+                let Some(index) = channel_bones.resolve(channel) else {
                     continue;
                 };
                 *pose.get_mut(index).ok_or(EvalError::Invalid)? = LocalDelta::default();
             }
         }
-        for (offset, channel) in channels.iter().enumerate() {
+        for channel in channels {
             if let Some(cacheable) = budget.static_draw.as_mut() {
                 *cacheable &= channel.keyframe_count == 1;
             }
             budget.charge_work()?;
-            let Some(index) = channel_bones.resolve_index(first + offset, channel) else {
+            let Some(index) = channel_bones.resolve(channel) else {
                 continue;
             };
             let bone = pose.get_mut(index).ok_or(EvalError::Invalid)?;
@@ -258,28 +258,27 @@ pub(super) fn sample_clips_reused<'a>(
     Ok(local)
 }
 
-/// Immutable named-channel indices for one exact catalog and skeleton.
+/// Immutable indices for the names of one skeleton, independent of catalog size.
 #[derive(Clone, Debug, Default)]
 pub(super) struct ChannelBindings {
-    named: Box<[(usize, Option<usize>)]>,
+    named: Box<[(Box<str>, usize)]>,
     #[cfg(test)]
     reference: bool,
 }
 
 impl ChannelBindings {
-    /// Resolves named channels once, preserving the first exact lowercase-name match.
-    pub(super) fn new(assets: &RuntimeEntityAssets, names: &[Box<str>]) -> Self {
-        let mut resolver = ChannelBones::new(names);
+    /// Indexes each skeleton name once, preserving the first exact match for duplicates.
+    pub(super) fn new(names: &[Box<str>]) -> Self {
+        let mut named = BTreeMap::new();
+        for (index, name) in names.iter().enumerate() {
+            #[cfg(test)]
+            BINDING_BUILD_WORK.with(|work| work.set(work.get() + 1));
+            named.entry(name.clone()).or_insert(index);
+        }
         Self {
             #[cfg(test)]
             reference: false,
-            named: assets
-                .animation_channels()
-                .iter()
-                .enumerate()
-                .filter(|(_, channel)| channel.bone_name.is_some())
-                .map(|(index, channel)| (index, resolver.resolve(channel)))
-                .collect(),
+            named: named.into_iter().collect(),
         }
     }
 
@@ -300,6 +299,13 @@ impl ChannelBindings {
                 reference: _,
         } = self;
         std::mem::size_of_val(named.as_ref())
+            + named.iter().map(|(name, _)| name.len()).sum::<usize>()
+    }
+
+    /// Tests whether two skeleton handles retain the same immutable binding payload.
+    #[cfg(test)]
+    pub(super) fn shares_data(&self, other: &Self) -> bool {
+        std::ptr::eq(self.named.as_ptr(), other.named.as_ptr())
     }
 }
 
@@ -322,7 +328,7 @@ impl<'a> ChannelBones<'a> {
         }
     }
 
-    /// Samples one prepared skeleton without searching named channels again.
+    /// Uses prepared skeleton indices and retains name search for absent bindings.
     pub(super) fn bound(names: &'a [Box<str>], bound: &'a ChannelBindings) -> Self {
         #[cfg(test)]
         if bound.reference {
@@ -335,29 +341,18 @@ impl<'a> ChannelBones<'a> {
         }
     }
 
-    /// Reads the catalog channel's prepared index, retaining numeric channels directly.
-    pub(super) fn resolve_index(
-        &mut self,
-        index: usize,
-        channel: &'a assets::EntityAnimationChannel,
-    ) -> Option<usize> {
-        if channel.bone_name.is_some()
-            && let Some(bound) = self.bound
-        {
-            return bound
-                .named
-                .binary_search_by_key(&index, |(channel, _)| *channel)
-                .ok()
-                .and_then(|slot| bound.named[slot].1);
-        }
-        self.resolve(channel)
-    }
-
     /// The first bone named by `channel`, or its compiled index when it names none.
     pub(super) fn resolve(&mut self, channel: &'a assets::EntityAnimationChannel) -> Option<usize> {
         let Some(name) = channel.bone_name.as_deref() else {
             return Some(channel.bone as usize);
         };
+        if let Some(bound) = self.bound
+            && let Ok(slot) = bound
+                .named
+                .binary_search_by(|(bone, _)| bone.as_ref().cmp(name))
+        {
+            return Some(bound.named[slot].1);
+        }
         if let Some((last, index)) = self.last
             && last == name
         {
@@ -700,6 +695,13 @@ fn catmull(p0: f32, p1: f32, p2: f32, p3: f32, amount: f32) -> f32 {
 #[cfg(test)]
 thread_local! {
     static NAME_LOOKUPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static BINDING_BUILD_WORK: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Counts input records visited while constructing bindings on this thread.
+#[cfg(test)]
+pub(super) fn binding_build_work() -> usize {
+    BINDING_BUILD_WORK.with(std::cell::Cell::get)
 }
 
 /// Counts real named-channel scans on this sampling thread for work-regression tests.

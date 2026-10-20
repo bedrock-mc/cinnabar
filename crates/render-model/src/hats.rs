@@ -243,7 +243,7 @@ pub struct HatPoseCache {
 }
 impl HatPoseCache {
     /// Rebinds an equipped anchor only when its item or retained appearance changes.
-    /// Newly admitted items bind here before the next tick updates the shared rig plan.
+    /// Newly admitted items use the same skeleton index without rebuilding the appearance.
     pub fn anchor(
         &mut self,
         item: Item,
@@ -251,6 +251,8 @@ impl HatPoseCache {
         names: &[Box<str>],
     ) -> Option<usize> {
         let Some(bindings) = bindings else {
+            #[cfg(test)]
+            crate::actor_bindings::ANCHOR_LOOKUPS.with(|count| count.set(count.get() + 1));
             return names
                 .iter()
                 .position(|name| name.eq_ignore_ascii_case(&item.descriptor().attachment_bone));
@@ -261,7 +263,7 @@ impl HatPoseCache {
         {
             return *bone;
         }
-        let bone = bindings.bind_anchor(item, names);
+        let bone = bindings.anchor(item);
         self.anchor = Some((item, Arc::clone(bindings), bone));
         bone
     }

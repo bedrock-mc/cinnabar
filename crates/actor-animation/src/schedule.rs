@@ -183,7 +183,6 @@ impl ActorAnimationStore {
                     state.rest_completed_tick = 0;
                 }
             }
-            state.refresh_attachment_bindings();
             let context = context(owned);
             let initial = !state.initialized;
             if (reset_motion_history || initial)
@@ -600,7 +599,6 @@ fn evaluate_job(
         stack: OperandStack::lease(),
         static_draw: None,
     };
-    render::cache_layer_skeletons(assets, state);
     if job.refresh_view {
         geometry::reselect_geometry_replay(
             assets,

@@ -223,8 +223,9 @@ and rendered qualification, not initial implementation of those systems.
 Frame sampling retains matching expression, layer and composition results and evaluates
 remote body batches on the caller and available shared workers with ordered budget
 reservations. Equipment placement reuses unchanged owner and attachment inputs. Rig plans
-retain clip masks and named channel indices; appearance bindings retain cape and cosmetic
-anchors. Hardware crowd captures and full temporal/visual qualification remain open.
+retain clip masks and name indices sized to each skeleton. Rig plans and prepared skins
+share cape and cosmetic attachment bindings. Hardware crowd captures and full temporal/visual
+qualification remain open.
 
 Pure numeric Molang expressions use bound f32 lane programs with load fusion;
 mixed values and effects retain the generic evaluator, including exact budget tails.

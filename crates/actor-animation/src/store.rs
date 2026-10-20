@@ -392,7 +392,13 @@ impl ActorAnimationStore {
             previous_body_yaw: state.motion.previous_body_yaw,
             body_yaw: state.motion.body_yaw,
             render: &state.render,
-            attachments: Some(&state.attachment_bindings),
+            attachments: Some(
+                state
+                    .skin_skeleton()
+                    .map_or(&state.attachment_bindings, |skeleton| {
+                        &skeleton.prepared.attachments
+                    }),
+            ),
             bone_names: state.posed_bone_names(),
             skin_geometry: state
                 .skin_skeleton()

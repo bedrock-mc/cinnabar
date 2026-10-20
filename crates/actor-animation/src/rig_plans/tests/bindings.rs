@@ -182,11 +182,11 @@ fn catalog_replacement_rebinds_named_channels_in_the_existing_plan_owner() {
     let mut new_bones = pose::ChannelBones::bound(&new.names, &new.channels);
     assert_ne!(old.names, new.names);
     assert_eq!(
-        old_bones.resolve_index(0, &original.animation_channels()[0]),
+        old_bones.resolve(&original.animation_channels()[0]),
         Some(0)
     );
     assert_eq!(
-        new_bones.resolve_index(0, &replacement.animation_channels()[0]),
+        new_bones.resolve(&replacement.animation_channels()[0]),
         Some(1)
     );
     assert!(!Arc::ptr_eq(&old, &new));

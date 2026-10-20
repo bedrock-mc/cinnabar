@@ -2,10 +2,7 @@
 use assets::{EntityGeometryBone, RuntimeEntityAssets};
 use cosmetics::Item;
 use sha2::{Digest, Sha256};
-use std::{
-    mem::{align_of, size_of},
-    sync::Arc,
-};
+use std::{collections::BTreeMap, mem::size_of};
 
 /// One cape bone's body driver and parent, matched with the original case-insensitive rule.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -15,20 +12,12 @@ pub struct CapeBoneBinding {
     pub(crate) needs_parent: bool,
 }
 
-#[derive(Debug)]
-struct CapeNames {
-    bone: Box<str>,
-    parent: Option<Box<str>>,
-}
-
-/// Static attachment selection for one posed skeleton and admitted cosmetic catalog.
+/// Static attachment indices for one posed skeleton, independent of cosmetic catalog size.
 #[derive(Debug)]
 pub struct ActorAttachmentBindings {
-    cape_names: Arc<[CapeNames]>,
     cape_key: [u8; 32],
     cape: Box<[CapeBoneBinding]>,
-    anchors: Box<[(Item, Option<usize>)]>,
-    generation: u64,
+    anchors: Box<[(Box<str>, usize)]>,
 }
 
 impl ActorAttachmentBindings {
@@ -40,52 +29,31 @@ impl ActorAttachmentBindings {
         Self::from_cape(&bones, names)
     }
 
-    /// Binds an authored cape and every admitted cosmetic revision to the first matching bone.
+    /// Binds a cape and indexes each skeleton name, preserving its first ASCII-insensitive match.
     pub fn from_cape(bones: &[EntityGeometryBone], names: &[Box<str>]) -> Self {
-        let cape_names = bones
+        let mut anchors = BTreeMap::new();
+        for (index, name) in names.iter().enumerate() {
+            anchors
+                .entry(name.to_ascii_lowercase().into_boxed_str())
+                .or_insert(index);
+        }
+        let anchors: Box<[_]> = anchors.into_iter().collect();
+        let cape = bones
             .iter()
-            .map(|bone| CapeNames {
-                bone: bone.name.clone(),
-                parent: bone.parent.clone(),
+            .map(|bone| CapeBoneBinding {
+                bone: lookup(&anchors, &bone.name),
+                parent: bone
+                    .parent
+                    .as_deref()
+                    .and_then(|parent| lookup(&anchors, parent)),
+                needs_parent: bone.parent.is_some(),
             })
             .collect();
-        Self::bind(cape_names, cape_binding_key(bones), names)
-    }
-
-    /// Rebinds an appearance while sharing the immutable cape metadata with its rig plan.
-    pub fn rebind(&self, names: &[Box<str>]) -> Self {
-        Self::bind(Arc::clone(&self.cape_names), self.cape_key, names)
-    }
-
-    /// Prepares every selection before animation sampling, including retained old item handles.
-    fn bind(cape_names: Arc<[CapeNames]>, cape_key: [u8; 32], names: &[Box<str>]) -> Self {
-        let find = |name: &str| {
-            names
-                .iter()
-                .position(|bone| bone.eq_ignore_ascii_case(name))
-        };
         Self {
-            cape: cape_names
-                .iter()
-                .map(|frame| CapeBoneBinding {
-                    bone: find(&frame.bone),
-                    parent: frame.parent.as_deref().and_then(find),
-                    needs_parent: frame.parent.is_some(),
-                })
-                .collect(),
-            cape_names,
-            cape_key,
-            generation: Item::generation(),
-            anchors: Item::registered()
-                .into_iter()
-                .map(|item| (item, find(&item.descriptor().attachment_bone)))
-                .collect(),
+            cape,
+            cape_key: cape_binding_key(bones),
+            anchors,
         }
-    }
-
-    /// Detects admitted anchor changes so the appearance owner can rebuild before sampling.
-    pub fn is_current(&self) -> bool {
-        self.generation == Item::generation()
     }
 
     /// Returns a cape's ordered body indices without a frame-time name scan.
@@ -98,51 +66,36 @@ impl ActorAttachmentBindings {
         (self.cape_key == cape.binding_key).then_some(&self.cape)
     }
 
-    /// Returns the selected item's body anchor using its stable admitted handle.
+    /// Resolves any admitted revision against the skeleton, without retaining catalog items.
     pub fn anchor(&self, item: Item) -> Option<usize> {
-        self.anchors
-            .binary_search_by_key(&item, |(item, _)| *item)
-            .ok()
-            .and_then(|slot| self.anchors[slot].1)
+        lookup(&self.anchors, &item.descriptor().attachment_bone)
     }
 
-    /// Binds a newly admitted item before the next actor tick has refreshed the shared plan.
-    pub(crate) fn bind_anchor(&self, item: Item, names: &[Box<str>]) -> Option<usize> {
-        match self.anchors.binary_search_by_key(&item, |(item, _)| *item) {
-            Ok(slot) => self.anchors[slot].1,
-            Err(_) => {
-                #[cfg(test)]
-                ANCHOR_LOOKUPS.with(|count| count.set(count.get() + 1));
-                names
-                    .iter()
-                    .position(|name| name.eq_ignore_ascii_case(&item.descriptor().attachment_bone))
-            }
-        }
-    }
-
-    /// Counts boxed arrays and the complete shared metadata conservatively for plan admission.
+    /// Counts both boxed arrays and every owned name for shared plan admission.
     pub fn retained_bytes(&self) -> Option<usize> {
         let Self {
-            cape_names,
             cape_key: _,
             cape,
             anchors,
-            generation: _,
         } = self;
         let arrays = std::mem::size_of_val(cape.as_ref())
-            .checked_add(std::mem::size_of_val(anchors.as_ref()))?
-            .checked_add(std::mem::size_of_val(cape_names.as_ref()))?
-            .checked_add(2 * size_of::<usize>())?
-            .checked_add(align_of::<CapeNames>())?;
-        cape_names
-            .iter()
-            .try_fold(size_of::<Self>().checked_add(arrays)?, |bytes, name| {
-                let CapeNames { bone, parent } = name;
-                bytes
-                    .checked_add(bone.len())?
-                    .checked_add(parent.as_ref().map_or(0, |parent| parent.len()))
-            })
+            .checked_add(std::mem::size_of_val(anchors.as_ref()))?;
+        anchors.iter().try_fold(
+            size_of::<Self>().checked_add(arrays)?,
+            |bytes, (name, _)| bytes.checked_add(name.len()),
+        )
     }
+}
+
+/// Searches lowercase skeleton keys without allocating or folding the query into a new string.
+fn lookup(anchors: &[(Box<str>, usize)], name: &str) -> Option<usize> {
+    anchors
+        .binary_search_by(|(bone, _)| {
+            bone.bytes()
+                .cmp(name.bytes().map(|byte| byte.to_ascii_lowercase()))
+        })
+        .ok()
+        .map(|slot| anchors[slot].1)
 }
 
 #[cfg(test)]

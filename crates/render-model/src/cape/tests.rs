@@ -370,6 +370,27 @@ fn prepared_cape_indices_preserve_missing_duplicate_case_and_skin_reordering() {
 }
 
 #[test]
+fn cosmetic_binding_payload_does_not_grow_with_catalog() {
+    let names = vec![Box::<str>::from("body")];
+    let bones = fixture_model().bones;
+    let before = crate::ActorAttachmentBindings::from_cape(&bones, &names);
+    let seed = crate::hats::fixture::cloth().descriptor().clone();
+    let items: Vec<_> = (0..16)
+        .map(|index| {
+            let mut descriptor = seed.clone();
+            descriptor.id = format!("fixture:sparse_anchor_{index}");
+            descriptor.attachment_bone = "BODY".into();
+            cosmetics::Item::admit(descriptor).unwrap()
+        })
+        .collect();
+    let after = crate::ActorAttachmentBindings::from_cape(&bones, &names);
+    assert_eq!(after.retained_bytes(), before.retained_bytes());
+    for item in items {
+        assert_eq!(after.anchor(item), Some(0));
+    }
+}
+
+#[test]
 fn prepared_cosmetic_anchors_rebind_skins_and_retain_equipped_catalog_revisions() {
     let original = crate::hats::fixture::cloth();
     let mut descriptor = original.descriptor().clone();
@@ -387,12 +408,18 @@ fn prepared_cosmetic_anchors_rebind_skins_and_retain_equipped_catalog_revisions(
     assert_eq!(initial.anchor(old), Some(0));
     descriptor.attachment_bone = "rightitem".into();
     let new = cosmetics::Item::admit(descriptor).unwrap();
-    assert!(!initial.is_current());
+    assert_eq!(initial.anchor(new), Some(1));
     let mut cache = crate::hats::HatPoseCache::default();
+    let before = crate::actor_bindings::ANCHOR_LOOKUPS.with(std::cell::Cell::get);
+    assert_eq!(cache.anchor(new, None, &names), Some(1));
+    assert_eq!(
+        crate::actor_bindings::ANCHOR_LOOKUPS.with(std::cell::Cell::get),
+        before + 1
+    );
     let before = crate::actor_bindings::ANCHOR_LOOKUPS.with(std::cell::Cell::get);
     assert_eq!(cache.anchor(new, Some(&initial), &names), Some(1));
     let bound = crate::actor_bindings::ANCHOR_LOOKUPS.with(std::cell::Cell::get);
-    assert_eq!(bound, before + 1);
+    assert_eq!(bound, before);
     for _ in 0..8 {
         assert_eq!(cache.anchor(new, Some(&initial), &names), Some(1));
     }
@@ -400,7 +427,7 @@ fn prepared_cosmetic_anchors_rebind_skins_and_retain_equipped_catalog_revisions(
         crate::actor_bindings::ANCHOR_LOOKUPS.with(std::cell::Cell::get),
         bound
     );
-    let rebound = initial.rebind(&names);
+    let rebound = crate::ActorAttachmentBindings::from_cape(&fixture_model().bones, &names);
     for item in [old, new] {
         assert_eq!(
             rebound.anchor(item),
@@ -410,10 +437,13 @@ fn prepared_cosmetic_anchors_rebind_skins_and_retain_equipped_catalog_revisions(
         );
     }
     let names: Vec<Box<str>> = ["rightitem", "body"].into_iter().map(Into::into).collect();
-    let changed = rebound.rebind(&names);
+    let changed = crate::ActorAttachmentBindings::from_cape(&fixture_model().bones, &names);
     assert_eq!(changed.anchor(old), Some(1));
     assert_eq!(changed.anchor(new), Some(0));
-    assert_eq!(changed.rebind(&[]).anchor(old), None);
+    assert_eq!(
+        crate::ActorAttachmentBindings::from_cape(&fixture_model().bones, &[]).anchor(old),
+        None
+    );
 }
 
 #[test]

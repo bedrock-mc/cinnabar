@@ -1,7 +1,7 @@
 //! Bounded immutable constructor analysis, owned by one finalized catalog layout.
 
 use std::{
-    mem::{align_of, size_of},
+    mem::{align_of, size_of, size_of_val},
     sync::{Mutex, Weak},
 };
 
@@ -73,6 +73,7 @@ pub(super) struct RigPlan {
     pub(super) names: Box<[Box<str>]>,
     pub(super) rest: Box<[BoneTransform]>,
     pub(super) channels: Arc<pose::ChannelBindings>,
+    pub(super) skeletons: Box<[(u32, Option<Arc<render::LayerSkeleton>>)]>,
     pub(super) attachments: Arc<render_model::ActorAttachmentBindings>,
     pub(super) controllers: Box<[ControllerState]>,
     pub(super) camera: bool,
@@ -313,6 +314,15 @@ impl RigPlan {
             geometry,
             &controllers,
         );
+        let skeletons = render::layer_skeletons(assets, binding);
+        let channels = skeletons
+            .iter()
+            .find(|(geometry, _)| *geometry == candidate.geometry)
+            .and_then(|(_, skeleton)| skeleton.as_ref())
+            .map_or_else(
+                || Arc::new(pose::ChannelBindings::new(&names)),
+                |skeleton| Arc::clone(&skeleton.channels),
+            );
         Some(Self {
             attachments: Arc::new(render_model::ActorAttachmentBindings::new(
                 layout
@@ -323,7 +333,8 @@ impl RigPlan {
                     .unwrap_or(assets),
                 &names,
             )),
-            channels: Arc::new(pose::ChannelBindings::new(assets, &names)),
+            channels,
+            skeletons,
             bones: bones.into(),
             composition,
             names: names.into(),
@@ -351,6 +362,7 @@ impl RigPlan {
             names,
             rest,
             channels,
+            skeletons,
             attachments,
             controllers,
             camera: _,
@@ -376,11 +388,42 @@ impl RigPlan {
         let arrays = arrays.checked_add(arc_bytes::<render_model::ActorAttachmentBindings>(
             attachments.retained_bytes()?,
         )?)?;
+        let arrays = skeletons.iter().try_fold(
+            arrays.checked_add(size_of_val(skeletons.as_ref()))?,
+            |bytes, (_, skeleton)| {
+                bytes.checked_add(match skeleton {
+                    Some(skeleton) => {
+                        arc_bytes::<render::LayerSkeleton>(skeleton.retained_bytes()?)?
+                    }
+                    None => 0,
+                })
+            },
+        )?;
         names
             .iter()
             .try_fold(size_of::<Self>().checked_add(arrays)?, |bytes, name| {
                 bytes.checked_add(name.len())
             })
+    }
+}
+
+impl render::LayerSkeleton {
+    /// Charges full vector capacity, owned names and shared binding payload conservatively.
+    fn retained_bytes(&self) -> Option<usize> {
+        let Self {
+            bones,
+            names,
+            channels,
+        } = self;
+        let bytes = size_of::<Self>()
+            .checked_add(bones.capacity().checked_mul(size_of::<RuntimeBone>())?)?
+            .checked_add(names.capacity().checked_mul(size_of::<Box<str>>())?)?
+            .checked_add(arc_bytes::<pose::ChannelBindings>(
+                size_of::<pose::ChannelBindings>().checked_add(channels.retained_bytes())?,
+            )?)?;
+        names
+            .iter()
+            .try_fold(bytes, |bytes, name| bytes.checked_add(name.len()))
     }
 }
 

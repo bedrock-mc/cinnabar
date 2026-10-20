@@ -145,7 +145,7 @@ pub(super) fn resolve_binding(
         may_use_always_depth_material: plan.always_depth,
         scale: None,
         held_item_scale: None,
-        layer_skeletons: BTreeMap::new(),
+        layer_skeletons: plan.skeletons.iter().cloned().collect(),
         controllers,
         server_animations: Vec::new(),
         previous: current.clone(),
@@ -541,9 +541,6 @@ fn reselect_geometry_with_checkpoint(
     state.bone_names = bone_names;
     state.channel_bindings = Arc::clone(&plan.channels);
     state.attachment_bindings = Arc::clone(&plan.attachments);
-    if state.skin_skeleton().is_some() {
-        state.rebind_attachments();
-    }
     state.controllers = controllers;
     state.reset_to_skeleton(pose);
     checkpoint

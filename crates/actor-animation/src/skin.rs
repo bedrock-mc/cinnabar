@@ -97,26 +97,12 @@ impl ActorRigState {
 
     /// Resets the stored poses to the posed skeleton's rest, after its bones changed.
     pub(super) fn rest_on_posed_skeleton(&mut self) {
-        self.rebind_attachments();
         let rest = match self.skin_skeleton() {
             Some(skeleton) => skeleton.prepared.rest.as_ref().map(|rest| rest.to_vec()),
             None => compose_pose(&self.bones, &[]),
         };
         if let Some(rest) = rest {
             self.reset_to_skeleton(rest);
-        }
-    }
-
-    /// Rebuilds appearance indices while retaining the rig plan's drawing-catalog metadata.
-    pub(super) fn rebind_attachments(&mut self) {
-        self.attachment_bindings =
-            Arc::new(self.attachment_bindings.rebind(self.posed_bone_names()));
-    }
-
-    /// Refreshes newly admitted cosmetic anchors before any frame consumes the appearance.
-    pub(super) fn refresh_attachment_bindings(&mut self) {
-        if !self.attachment_bindings.is_current() {
-            self.rebind_attachments();
         }
     }
 
@@ -145,7 +131,6 @@ pub(super) fn sync_skin(
     source: Option<&Arc<SkinGeometrySource>>,
     cache: &SkinPreparationQueue,
 ) -> bool {
-    state.refresh_attachment_bindings();
     let unchanged = match (&state.skin, source) {
         (None, None) => true,
         (Some(model), Some(source)) => Arc::ptr_eq(model.source(), source),

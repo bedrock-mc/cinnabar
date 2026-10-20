@@ -363,3 +363,4 @@ fn simultaneous_same_key_requests_publish_one_shared_constructor_plan() {
 }
 
 mod bindings;
+mod sparse;
