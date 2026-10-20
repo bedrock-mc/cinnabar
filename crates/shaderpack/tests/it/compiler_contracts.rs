@@ -434,3 +434,356 @@ fn boolean_storage_writes_follow_array_and_swizzle_accesses() {
         assert!(!reflected.storage_buffers[0].read_only);
     }
 }
+
+#[test]
+fn compiler_calls_with_unmatched_delimiters_report_diagnostics() {
+    for body in [
+        "void main() { gl_Position = texture2D(",
+        "void main() { gl_Position = shadow2D(",
+        "void main() { float x[] = float[](",
+    ] {
+        let translation = translate(&format!("#version 120\n{body}"), FRAGMENT);
+        let failed = program(&translation, "composite");
+        assert!(!failed.is_ok());
+        assert!(failed.all_diagnostics().next().is_some());
+    }
+}
+
+#[test]
+fn compiler_reserved_members_follow_declaration_names() {
+    success(
+        VERTEX,
+        "#version 330\nstruct S { vec4 sampler; }; out vec4 color; void main() { S s; s.sampler = vec4(1.0); color = s.sampler; }",
+    );
+    success(
+        VERTEX,
+        "#version 120\nstruct S { vec4 sample; vec4 texture; }; void main() { S s; s.sample = vec4(1.0); s.texture = s.sample; gl_FragColor = s.texture; }",
+    );
+}
+
+#[test]
+fn compiler_boolean_uniform_elements_convert_after_access() {
+    success(
+        VERTEX,
+        "#version 330\nuniform bool flags[2]; uniform bvec2 masks[2]; out vec4 color; void main() { int i = 1; color = vec4(flags[i] && masks[i].x ? 1.0 : 0.0); }",
+    );
+}
+
+#[test]
+fn compiler_boolean_uniforms_respect_lexical_bindings() {
+    success(
+        VERTEX,
+        "#version 330\nuniform bool enabled; out vec4 color; bool choose(bool enabled) { return enabled; } void main() { bool result = choose(true); { bool enabled = false; result = result && enabled; } color = vec4(result && enabled ? 1.0 : 0.0); }",
+    );
+    success(
+        VERTEX,
+        "#version 330\nuniform bool enabled; out vec4 color; void main() { bool unused = false, enabled = true; color = vec4(enabled ? 1.0 : 0.0); }",
+    );
+}
+
+#[test]
+fn compiler_specialized_helpers_have_forward_declarations() {
+    success(
+        VERTEX,
+        "#version 330\nuniform sampler2D source; vec4 read(sampler2D s, vec2 uv); out vec4 color; void main() { color = read(source, vec2(0.5)); } vec4 read(sampler2D s, vec2 uv) { return texture(s, uv); }",
+    );
+}
+
+#[test]
+fn compiler_uniforms_share_struct_and_constant_dependencies() {
+    success(
+        VERTEX,
+        "#version 330\nconst int COUNT = 2; struct Light { vec4 color; }; uniform Light lights[COUNT]; out vec4 color; void main() { color = lights[1].color; }",
+    );
+}
+
+#[test]
+fn compiler_loop_bindings_end_after_the_loop_statement() {
+    success(
+        VERTEX,
+        "#version 330\nuniform bool enabled; out vec4 color; void main() { float value = 0.0; for (int enabled = 0; enabled < 2; enabled++) { value += float(enabled); } color = vec4(enabled ? value : 0.0); }",
+    );
+}
+
+#[test]
+fn compiler_specialization_respects_local_parameter_shadows() {
+    success(
+        VERTEX,
+        "#version 330\nuniform sampler2D plane; out vec4 color; vec4 read(sampler2D source, vec2 uv) { vec4 result = texture(source, uv); { float source = 1.0; result += vec4(source); } return result; } void main() { color = read(plane, vec2(0.5)); }",
+    );
+}
+
+#[test]
+fn compiler_specialization_distinguishes_shadowed_resource_arguments() {
+    success(
+        VERTEX,
+        "#version 330\nuniform sampler2D plane; out vec4 color; vec4 read(sampler2D source, vec2 uv) { return texture(source, uv); } vec4 read(float value, vec2 uv) { return vec4(value + uv.x); } void main() { color = read(plane, vec2(0.5)); { float plane = 1.0; color += read(plane, vec2(0.5)); } }",
+    );
+}
+
+#[test]
+fn compiler_resource_specializations_have_distinct_names() {
+    let translation = success(
+        VERTEX,
+        "#version 330\nuniform sampler2D a_b, c, a, b_c; out vec4 color; vec4 combine(sampler2D x, sampler2D y) { return texture(x, vec2(0.5)) + texture(y, vec2(0.5)); } void main() { color = combine(a_b, c) + combine(a, b_c); }",
+    );
+    assert_eq!(
+        reflection(program(&translation, "composite"))
+            .textures
+            .len(),
+        4
+    );
+}
+
+#[test]
+fn boolean_array_lengths_keep_the_array_receiver() {
+    success(
+        VERTEX,
+        "#version 330\nuniform bool flags[2]; out vec4 color; void main() { color = vec4(float(flags.length())); }",
+    );
+}
+#[test]
+fn atomic_access_is_merged_across_render_stages() {
+    let translation = success(
+        "#version 450\nlayout(r32ui, binding=0) uniform uimage2D counter; void main() { gl_Position = vec4(float(imageLoad(counter, ivec2(0)).r)); }",
+        "#version 450\nlayout(r32ui, binding=0) uniform uimage2D counter; out vec4 color; void main() { imageAtomicAdd(counter, ivec2(0), 1u); color = vec4(float(imageLoad(counter, ivec2(0)).r)); }",
+    );
+    let image = &reflection(program(&translation, "composite")).storage_images[0];
+    assert!(image.read && image.write && image.atomic);
+    assert!(image.stages.vertex && image.stages.fragment);
+}
+
+/// Checks that every stage retains distinct global variable bindings.
+fn assert_unique_globals(translation: &PackTranslation) {
+    for stage in &program(translation, "composite").stages {
+        let module = &stage.result.as_ref().unwrap().module;
+        let names: Vec<_> = module
+            .global_variables
+            .iter()
+            .filter_map(|(_, variable)| variable.name.as_deref())
+            .collect();
+        let unique: std::collections::BTreeSet<_> = names.iter().copied().collect();
+        assert_eq!(
+            names.len(),
+            unique.len(),
+            "duplicate global bindings: {names:?}"
+        );
+    }
+}
+
+#[test]
+fn declaration_lists_preserve_alias_names_after_arrays_and_initializers() {
+    for declarations in [
+        "uniform mat4 view[2], projectionMatrix;",
+        "mat4 view[2], projectionMatrix = mat4(1.0);",
+    ] {
+        success(
+            &format!(
+                "#version 450\n{declarations} void main() {{ gl_Position = projectionMatrix * view[0][0]; }}"
+            ),
+            FRAGMENT,
+        );
+    }
+}
+
+#[test]
+fn declaration_aliases_respect_parameters_locals_and_members() {
+    success(
+        "#version 450\nstruct S { float projectionMatrix; }; float choose(float projectionMatrix) { return projectionMatrix; } void main() { S value; value.projectionMatrix = 1.0; float amount = choose(value.projectionMatrix); { float projectionMatrix = 2.0; amount += projectionMatrix; } gl_Position = projectionMatrix * vec4(amount); }",
+        FRAGMENT,
+    );
+}
+
+#[test]
+fn declaration_block_members_with_underscores_keep_distinct_bindings() {
+    let translated = success(
+        "#version 450\nout A_B { vec4 c; } first; out A { vec4 B_c; } second; void main() { first.c = vec4(0.25); second.B_c = vec4(0.75); gl_Position = vec4(0.0); }",
+        "#version 450\nin A_B { vec4 c; } first; in A { vec4 B_c; } second; out vec4 color; void main() { color = first.c + second.B_c; }",
+    );
+    assert_unique_globals(&translated);
+}
+
+#[test]
+fn declaration_generated_interfaces_do_not_hide_pack_globals() {
+    let translated = success(
+        "#version 450\nvec4 iris_b_DATA_color_0; out DATA { vec4 color; } data; void main() { iris_b_DATA_color_0 = vec4(0.25); data.color = vec4(0.75); gl_Position = iris_b_DATA_color_0; }",
+        "#version 450\nvec4 iris_out_color; in DATA { vec4 color; } data; out vec3 color; void main() { iris_out_color = data.color; color = iris_out_color.rgb; }",
+    );
+    assert_unique_globals(&translated);
+}
+
+#[test]
+fn declaration_converted_inputs_do_not_hide_pack_globals() {
+    let translated = success(
+        "#version 450\nin vec4 vaPosition; vec3 iris_float_vaPosition = vec3(0.25); void main() { gl_Position = vaPosition + vec4(iris_float_vaPosition, 0.0); }",
+        FRAGMENT,
+    );
+    assert!(
+        reflection(program(&translated, "composite"))
+            .vertex_inputs
+            .iter()
+            .any(|input| input.attribute == shaderpack::VertexAttribute::Position)
+    );
+    assert_unique_globals(&translated);
+}
+
+#[test]
+fn numeric_returns_preserve_comma_expressions() {
+    success(
+        VERTEX,
+        "#version 450\nout vec4 color; float choose(float a, float b) { return a, b; } void main() { color = vec4(choose(1.0, 2.0)); }",
+    );
+}
+
+#[test]
+fn boolean_storage_assignments_keep_boolean_values_and_boundaries() {
+    for expression in [
+        "if (flag = true) { mask.x = false; }",
+        "bool result = true ? flag = true : false; mask.x = result;",
+        "bool result = true ? flag = false, flag = true : false; mask.x = result;",
+        "if (flag = mask.x = true) { mask.y = flag; }",
+        "if (mask[0] = flag = true) { mask.xy = bvec2(flag); }",
+        "if (all(mask.xy = bvec2(true))) { flag = mask.x; }",
+        "flag = true ? false : true;",
+    ] {
+        let source = format!(
+            "#version 450\nlayout(local_size_x=1) in; layout(std430, binding=0) buffer State {{ bool flag; bvec2 mask; }}; void main() {{ {expression} }}"
+        );
+        let translation = ShaderPack::new(PackSource::from_files([("begin.csh", source)]))
+            .translate(&TranslateConfig::default());
+        assert!(
+            program(&translation, "begin").is_ok(),
+            "{expression}: {:?}",
+            program(&translation, "begin")
+                .all_diagnostics()
+                .collect::<Vec<_>>()
+        );
+        reflection(program(&translation, "begin"));
+    }
+}
+
+#[test]
+fn dot_calls_preserve_required_constant_contexts() {
+    success(
+        VERTEX,
+        "#version 450\nconst float globalScale = dot(vec2(1.0), vec2(2.0)); out vec4 color; void main() { float values[int(dot(vec2(1.0), vec2(2.0)))]; const float scale = dot(vec2(1.0), vec2(2.0)); int n = 4; switch(n) { case int(dot(vec2(1.0), vec2(2.0))): values[0] = scale; break; default: values[0] = 0.0; } color = vec4(values[0]); }",
+    );
+}
+
+#[test]
+fn dot_calls_preserve_user_overloads() {
+    success(
+        VERTEX,
+        "#version 450\nout vec4 color; float dot(vec2 a) { return a.x; } float dot(float a, vec2 b) { return a + b.x; } void main() { vec2 p = vec2(0.5); color = vec4(dot(p) + dot(1.0, p) + dot(p, p)); }",
+    );
+}
+
+#[test]
+fn const_parameters_do_not_suppress_runtime_dot_rounding() {
+    let translation = success(
+        VERTEX,
+        "#version 450\nout vec4 color; float hash(const vec2 p) { return dot(p, p); } void main() { color = vec4(hash(gl_FragCoord.xy)); }",
+    );
+    let module = &program(&translation, "composite")
+        .stages
+        .iter()
+        .find(|stage| stage.stage == shaderpack::StageKind::Fragment)
+        .unwrap()
+        .result
+        .as_ref()
+        .unwrap()
+        .module;
+    assert!(
+        module
+            .functions
+            .iter()
+            .any(
+                |(_, function)| function.expressions.iter().any(|(_, expression)| matches!(
+                    expression,
+                    naga::Expression::Math {
+                        fun: naga::MathFunction::Fma,
+                        ..
+                    }
+                ))
+            )
+    );
+}
+
+#[test]
+fn integer_packing_preserves_constant_expressions() {
+    let translated = success(
+        VERTEX,
+        "#version 450\nout vec4 color; const uint packed = packUint2x16(u16vec2(1, 2)); const uvec2 unpacked = unpackUint2x16(packed); const int signedPacked = packInt2x16(i16vec2(-1, -2)); const ivec2 signedParts = unpackInt2x16(signedPacked); void main() { const uint local = packUint2x16(u16vec2(unpacked)); float values[int(unpackUint2x16(packed).x)]; values[0] = float(signedParts.x); color = vec4(values[0] + float(local)); }",
+    );
+    let module = &program(&translated, "composite")
+        .stages
+        .iter()
+        .find(|stage| stage.stage == shaderpack::StageKind::Fragment)
+        .unwrap()
+        .result
+        .as_ref()
+        .unwrap()
+        .module;
+    for (name, expected) in [
+        ("packed", naga::Literal::U32(131073)),
+        ("signedPacked", naga::Literal::I32(-65537)),
+    ] {
+        let (_, constant) = module
+            .constants
+            .iter()
+            .find(|(_, constant)| constant.name.as_deref() == Some(name))
+            .unwrap();
+        assert!(
+            matches!(module.global_expressions[constant.init], naga::Expression::Literal(value) if value == expected)
+        );
+    }
+}
+
+#[test]
+fn boolean_assignment_ternary_separator_keeps_both_operands_boolean() {
+    let source = "#version 450\nlayout(local_size_x=1) in; layout(std430, binding=0) buffer State { bool flag; }; void main() { bool result = true ? flag = true : false; flag = result; }";
+    let translation = ShaderPack::new(PackSource::from_files([("begin.csh", source)]))
+        .translate(&TranslateConfig::default());
+    reflection(program(&translation, "begin"));
+}
+
+#[test]
+fn numeric_helpers_do_not_hide_pack_functions() {
+    success(
+        VERTEX,
+        "#version 450\nout vec4 color; float iris_dot(vec2 a, vec2 b) { return a.x; } uint iris_packUint2x16(uvec2 v) { return v.x; } void main() { vec2 p = gl_FragCoord.xy; uvec2 bits = uvec2(p); color = vec4(dot(p, p) + iris_dot(p, p) + float(packUint2x16(bits)) + float(iris_packUint2x16(bits))); }",
+    );
+}
+
+#[test]
+fn dot_overloads_keep_prototypes_and_builtin_replacements() {
+    success(
+        VERTEX,
+        "#version 450\nout vec4 color; float dot(vec2); float dot(float, float); void main() { color = vec4(dot(vec2(1.0)) + dot(2.0, 3.0)); } float dot(vec2 a) { return a.x; } float dot(float a, float b) { return a - b; }",
+    );
+}
+
+#[test]
+fn numeric_calls_with_unmatched_delimiters_report_diagnostics() {
+    for body in [
+        "void main() { float x = dot(",
+        "void main() { uint x = packUint2x16(",
+    ] {
+        let translation = translate(&format!("#version 450\n{body}"), FRAGMENT);
+        assert!(!program(&translation, "composite").is_ok());
+        assert!(
+            program(&translation, "composite")
+                .all_diagnostics()
+                .next()
+                .is_some()
+        );
+    }
+}
+
+#[test]
+fn integer_packing_in_case_labels_is_not_a_function_declaration() {
+    success(
+        VERTEX,
+        "#version 450\nout vec4 color; void main() { switch(int(gl_FragCoord.x)) { case int(packUint2x16(uvec2(1u, 0u))): color = vec4(1.0); break; default: color = vec4(0.0); } }",
+    );
+}

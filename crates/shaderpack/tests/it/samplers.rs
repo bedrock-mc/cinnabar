@@ -10,6 +10,7 @@ use shaderpack::{
 
 const VERTEX: &str = "#version 120\nvarying vec2 uv;\nvoid main() { gl_Position = ftransform(); uv = gl_MultiTexCoord0.st; }\n";
 
+/// Builds an in-memory program with properties and optional texture metadata.
 fn pack(fragment: &str, properties: &str, extra: &[(&str, &str)]) -> ShaderPack {
     let mut files = vec![
         ("composite.vsh", VERTEX.to_owned()),
@@ -20,14 +21,20 @@ fn pack(fragment: &str, properties: &str, extra: &[(&str, &str)]) -> ShaderPack 
     ShaderPack::new(PackSource::from_files(files))
 }
 
-fn fragment_glsl(t: &shaderpack::ProgramTranslation) -> &str {
+/// Returns the validated fragment stage.
+fn fragment_stage(t: &shaderpack::ProgramTranslation) -> &CompiledStage {
     let stage: &CompiledStage = t
         .stages
         .iter()
         .find(|s| s.stage == StageKind::Fragment)
         .and_then(|s| s.result.as_ref().ok())
         .expect("fragment compiles");
-    &stage.glsl
+    stage
+}
+
+/// Returns translated fragment source for sampler-construction checks.
+fn fragment_glsl(t: &shaderpack::ProgramTranslation) -> &str {
+    &fragment_stage(t).glsl
 }
 
 #[test]
@@ -39,13 +46,21 @@ fn a_helper_taking_a_sampler_gets_a_copy_per_global_texture() {
         vec4 tap(sampler2D s) { return texture2D(s, uv); }\n\
         void main() { gl_FragData[0] = tap(colortex0) + tap(colortex1); }\n";
     let t = pack(fragment, "", &[]).translate(&TranslateConfig::default());
-    let glsl = fragment_glsl(program(&t, "composite"));
-    assert!(glsl.contains("vec4 tap__colortex0()"), "{glsl}");
-    assert!(glsl.contains("vec4 tap__colortex1()"), "{glsl}");
-    assert!(
-        glsl.contains("tap__colortex0() + tap__colortex1()"),
-        "{glsl}"
-    );
+    let translated = program(&t, "composite");
+    let stage = fragment_stage(translated);
+    let sampling_functions = stage
+        .module
+        .functions
+        .iter()
+        .filter(|(_, function)| {
+            function
+                .expressions
+                .iter()
+                .any(|(_, expression)| matches!(expression, naga::Expression::ImageSample { .. }))
+        })
+        .count();
+    assert_eq!(sampling_functions, 2);
+    assert_eq!(crate::reflection(translated).textures.len(), 2);
 }
 
 #[test]
@@ -181,23 +196,52 @@ fn locals_and_parameters_shadowing_a_sampler_stay_plain() {
         }\n";
     let p = pack(fragment, "", &[]);
     let t = p.translate(&TranslateConfig::default());
-    let glsl = fragment_glsl(program(&t, "composite"));
-    assert!(glsl.contains("float specular = x * 2.0;"), "{glsl}");
-    assert!(glsl.contains("return float(specular * 0.5);"), "{glsl}");
-    assert!(glsl.contains("s += specular.x;"), "{glsl}");
-    // The initializer and the last read both sample the global.
+    let module = &fragment_stage(program(&t, "composite")).module;
+    let ggx = module
+        .functions
+        .iter()
+        .find(|(_, function)| function.name.as_deref() == Some("ggx"))
+        .unwrap()
+        .1;
+    let local = ggx
+        .local_variables
+        .iter()
+        .find(|(_, variable)| variable.name.as_deref() == Some("specular"))
+        .unwrap()
+        .1;
+    assert!(matches!(
+        module.types[local.ty].inner,
+        naga::TypeInner::Scalar(naga::Scalar {
+            kind: naga::ScalarKind::Float,
+            width: 4
+        })
+    ));
+    let scale = module
+        .functions
+        .iter()
+        .find(|(_, function)| function.name.as_deref() == Some("scale"))
+        .unwrap()
+        .1;
+    assert!(matches!(
+        module.types[scale.arguments[0].ty].inner,
+        naga::TypeInner::Scalar(naga::Scalar {
+            kind: naga::ScalarKind::Float,
+            width: 4
+        })
+    ));
     assert_eq!(
-        glsl.matches("sampler2D(specular, iris_sampler").count(),
-        2,
-        "{glsl}"
+        module
+            .functions
+            .iter()
+            .flat_map(|(_, function)| function.expressions.iter())
+            .filter(|(_, expression)| matches!(expression, naga::Expression::ImageSample { .. }))
+            .count(),
+        2
     );
 }
 
 #[test]
 fn overloads_taking_a_sampler_each_get_a_specialized_copy() {
-    // Solas's water `Raytrace(depthtex1, …)` (10 parameters) calls its 9-parameter overload
-    // with the same sampler; both copies are `Raytrace__depthtex1`, told apart by arity.
-    // A `#====` banner line is an unknown directive Iris's preprocessor skips.
     let fragment = "#version 120\n\
         #====================#\n\
         #   Copyright banner #\n\
@@ -206,18 +250,17 @@ fn overloads_taking_a_sampler_each_get_a_specialized_copy() {
         vec4 trace(sampler2D depth, vec2 p, float s) { return texture2D(depth, p) * s; }\n\
         vec3 trace(sampler2D depth, vec2 p, float s, out float hit) { vec4 c = trace(depth, p, s); hit = c.a; return c.rgb; }\n\
         void main() { float hit; vec3 c = trace(depthtex1, uv, 2.0, hit); gl_FragData[0] = vec4(c, hit); }\n";
-    let p = pack(fragment, "", &[]);
-    let t = p.translate(&TranslateConfig::default());
-    let glsl = fragment_glsl(program(&t, "composite"));
-    assert!(
-        glsl.contains("vec4 trace__depthtex1(vec2 p, float s)"),
-        "{glsl}"
-    );
-    assert!(
-        glsl.contains("vec3 trace__depthtex1(vec2 p, float s, out float hit)"),
-        "{glsl}"
-    );
-    assert!(!glsl.contains("Copyright"), "{glsl}");
+    let t = pack(fragment, "", &[]).translate(&TranslateConfig::default());
+    let stage = fragment_stage(program(&t, "composite"));
+    let mut arities: Vec<_> = stage
+        .module
+        .functions
+        .iter()
+        .map(|(_, function)| function.arguments.len())
+        .filter(|arity| *arity > 0)
+        .collect();
+    arities.sort_unstable();
+    assert_eq!(arities, [2, 3]);
 }
 
 #[test]
@@ -254,4 +297,53 @@ fn sampler_class_bindings_precede_textures_and_round_trip() {
         source: shaderpack::TextureSource::File("a.png".to_owned()),
     };
     assert_eq!(unit.uniform(), "colortex6");
+}
+#[test]
+fn sampler_compatibility_buffer_aliases_share_custom_classes() {
+    for (property, uniform) in [
+        ("gaux1", "colortex4"),
+        ("colortex4", "gaux1"),
+        ("shadowcolor", "shadowcolor0"),
+    ] {
+        let fragment = format!(
+            "#version 330\nuniform sampler2D {uniform}; out vec4 color; void main() {{ color = texture({uniform}, vec2(0.5)); }}"
+        );
+        let properties = format!("texture.composite.{property} = sample.png");
+        let translated = pack(&fragment, &properties, &[]).translate(&TranslateConfig::default());
+        let classes: Vec<_> = reflection(program(&translated, "composite"))
+            .samplers
+            .iter()
+            .filter_map(|sampler| sampler.class())
+            .collect();
+        assert_eq!(
+            classes,
+            [SamplerClass::RepeatNearest],
+            "{property} and {uniform}"
+        );
+    }
+}
+
+#[test]
+fn sampler_compatibility_modern_texture_members() {
+    let fragment = "#version 330\nstruct Surface { vec4 texture; }; out vec4 color; void main() { Surface surface; surface.texture = vec4(1.0); color = surface.texture; }";
+    let translated = pack(fragment, "", &[]).translate(&TranslateConfig::default());
+    reflection(program(&translated, "composite"));
+}
+
+#[test]
+fn sampler_compatibility_renamed_texture_uses_metadata() {
+    let fragment = "#version 330\nuniform sampler2D texture; out vec4 color; void main() { color = texture2D(texture, vec2(0.5)); }";
+    let metadata = r#"{"texture":{"blur":true,"clamp":true}}"#;
+    let translated = pack(
+        fragment,
+        "texture.composite.texture = sample.png",
+        &[("sample.png.mcmeta", metadata)],
+    )
+    .translate(&TranslateConfig::default());
+    let classes: Vec<_> = reflection(program(&translated, "composite"))
+        .samplers
+        .iter()
+        .filter_map(|sampler| sampler.class())
+        .collect();
+    assert_eq!(classes, [SamplerClass::ClampLinear]);
 }

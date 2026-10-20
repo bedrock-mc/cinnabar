@@ -275,8 +275,15 @@ impl VertexAttribute {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ScalarType {
     Bool,
+    Int8,
+    Int16,
     Int,
+    Int64,
+    Uint8,
+    Uint16,
     Uint,
+    Uint64,
+    Half,
     Float,
     Double,
 }
@@ -354,6 +361,7 @@ pub struct UniformBlock {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TextureDimension {
     D1,
+    D1Array,
     D2,
     D2Array,
     D3,

@@ -208,14 +208,24 @@ pub(crate) fn format_kind(format: TextureFormat) -> Kind {
 
 /// The kind of a reflected scalar type.
 pub(crate) fn scalar_kind(ty: ValueType) -> Kind {
-    let scalar = match ty {
+    match scalar_type(ty) {
+        ScalarType::Int8
+        | ScalarType::Int16
+        | ScalarType::Int
+        | ScalarType::Int64
+        | ScalarType::Bool => Kind::Sint,
+        ScalarType::Uint8 | ScalarType::Uint16 | ScalarType::Uint | ScalarType::Uint64 => {
+            Kind::Uint
+        }
+        ScalarType::Half | ScalarType::Float | ScalarType::Double => Kind::Float,
+    }
+}
+
+/// Returns the component type shared by a scalar, vector or matrix.
+fn scalar_type(ty: ValueType) -> ScalarType {
+    match ty {
         ValueType::Scalar(s) | ValueType::Vector { scalar: s, .. } => s,
         ValueType::Matrix { scalar, .. } => scalar,
-    };
-    match scalar {
-        ScalarType::Int | ScalarType::Bool => Kind::Sint,
-        ScalarType::Uint => Kind::Uint,
-        ScalarType::Float | ScalarType::Double => Kind::Float,
     }
 }
 
@@ -229,15 +239,17 @@ pub(crate) fn sample_kind(sample: SampleType) -> Option<Kind> {
     }
 }
 
-pub(crate) fn view_dimension(dimension: PackDimension) -> TextureViewDimension {
-    match dimension {
+/// Rejects texture shapes that wgpu cannot bind.
+fn view_dimension(dimension: PackDimension) -> Result<TextureViewDimension, String> {
+    Ok(match dimension {
+        PackDimension::D1Array => return Err("1D array textures are unsupported by wgpu".into()),
         PackDimension::D1 => TextureViewDimension::D1,
         PackDimension::D2 => TextureViewDimension::D2,
         PackDimension::D2Array => TextureViewDimension::D2Array,
         PackDimension::D3 => TextureViewDimension::D3,
         PackDimension::Cube => TextureViewDimension::Cube,
         PackDimension::CubeArray => TextureViewDimension::CubeArray,
-    }
+    })
 }
 
 fn stages(mask: StageMask) -> ShaderStages {
@@ -370,7 +382,20 @@ pub(crate) fn class_sampler(class: SamplerClass) -> wgpu::SamplerDescriptor<'sta
 pub(crate) fn layout_entries(
     reflection: &ProgramReflection,
     sample_types: &[TextureSampleType],
-) -> [Vec<BindGroupLayoutEntry>; 4] {
+) -> Result<[Vec<BindGroupLayoutEntry>; 4], String> {
+    if let Some(block) = &reflection.uniforms {
+        for member in &block.members {
+            if !matches!(
+                scalar_type(member.ty),
+                ScalarType::Bool | ScalarType::Int | ScalarType::Uint | ScalarType::Float
+            ) {
+                return Err(format!(
+                    "uniform {} has an unsupported component width",
+                    member.name
+                ));
+            }
+        }
+    }
     let mut groups: [Vec<BindGroupLayoutEntry>; 4] = Default::default();
     let mut push = |group: u32, entry: BindGroupLayoutEntry| {
         if let Some(entries) = groups.get_mut(group as usize) {
@@ -438,7 +463,7 @@ pub(crate) fn layout_entries(
                 visibility: stages(texture.stages),
                 ty: BindingType::Texture {
                     sample_type: *sample_type,
-                    view_dimension: view_dimension(texture.dimension),
+                    view_dimension: view_dimension(texture.dimension)?,
                     multisampled: false,
                 },
                 count: None,
@@ -462,7 +487,7 @@ pub(crate) fn layout_entries(
                         _ => StorageTextureAccess::WriteOnly,
                     },
                     format,
-                    view_dimension: view_dimension(image.dimension),
+                    view_dimension: view_dimension(image.dimension)?,
                 },
                 count: None,
             },
@@ -471,7 +496,7 @@ pub(crate) fn layout_entries(
     for entries in &mut groups {
         entries.sort_by_key(|e| e.binding);
     }
-    groups
+    Ok(groups)
 }
 
 /// Creates the four bind-group layouts of a program; empty groups have no layout.
@@ -928,5 +953,35 @@ mod tests {
             allowed,
         );
         assert!(missing_feature.allowed_usages.is_empty());
+    }
+
+    #[test]
+    fn unsupported_reflected_interfaces_fail_layout_admission() {
+        assert_eq!(
+            view_dimension(PackDimension::D2).unwrap(),
+            TextureViewDimension::D2
+        );
+        assert!(view_dimension(PackDimension::D1Array).is_err());
+        let mut reflection = ProgramReflection::default();
+        reflection.uniforms = Some(shaderpack::UniformBlock {
+            name: "host".into(),
+            group: 0,
+            binding: 0,
+            size: 16,
+            members: vec![shaderpack::UniformMember {
+                name: "viewWidth".into(),
+                offset: 0,
+                ty: ValueType::Scalar(ScalarType::Int64),
+                array: None,
+            }],
+            stages: StageMask::default(),
+        });
+        assert!(
+            layout_entries(&reflection, &[])
+                .unwrap_err()
+                .contains("viewWidth")
+        );
+        reflection.uniforms.as_mut().unwrap().members[0].ty = ValueType::Scalar(ScalarType::Int);
+        assert!(layout_entries(&reflection, &[]).is_ok());
     }
 }

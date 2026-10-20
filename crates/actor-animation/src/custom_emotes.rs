@@ -53,6 +53,8 @@ impl CustomEmotePose {
             original.skin_geometry = Some(&rig.geometry);
             original.skin_mesh = Some(&rig.mesh);
             original.bone_names = &rig.names;
+            // Generated joints use this render-only model instead of the owner's bindings.
+            original.attachments = None;
             original.rest = &rig.rest;
         }
         original

@@ -82,10 +82,16 @@ impl ActorAnimationStore {
 
     /// Layers a server-pack entity catalog over the vanilla one for actors spawned afterwards.
     pub fn set_pack(&mut self, assets: Option<(Arc<RuntimeEntityAssets>, Vec<u32>)>) {
-        self.pack = assets.map(|(assets, artwork)| PackCatalog {
-            layout: Arc::new(VariableLayout::new(&assets)),
-            artwork: artwork.into_iter().collect(),
-            assets,
+        self.pack = assets.map(|(assets, artwork)| {
+            let mut layout = VariableLayout::new(&assets);
+            if let Some(vanilla) = &self.assets {
+                layout.plans.bind_attachments(vanilla);
+            }
+            PackCatalog {
+                layout: Arc::new(layout),
+                artwork: artwork.into_iter().collect(),
+                assets,
+            }
         });
     }
 
@@ -386,6 +392,13 @@ impl ActorAnimationStore {
             previous_body_yaw: state.motion.previous_body_yaw,
             body_yaw: state.motion.body_yaw,
             render: &state.render,
+            attachments: Some(
+                state
+                    .skin_skeleton()
+                    .map_or(&state.attachment_bindings, |skeleton| {
+                        &skeleton.prepared.attachments
+                    }),
+            ),
             bone_names: state.posed_bone_names(),
             skin_geometry: state
                 .skin_skeleton()

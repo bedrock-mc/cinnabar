@@ -32,6 +32,7 @@ pub(super) fn owner_rig() -> ActorRigSnapshot<'static> {
         previous_body_yaw: 0.0,
         body_yaw: 0.0,
         render: &[],
+        attachments: None,
         bone_names: &[],
         skin_geometry: None,
         skin_mesh: None,
@@ -238,6 +239,7 @@ fn owner_name_binding_clears_defaults_but_explicit_binding_keeps_native_origin()
     let owner = crate::tests::actor_with_metadata(HashMap::new());
     let names = [Box::<str>::from("rightItem")];
     let owner_rig = ActorRigSnapshot {
+        attachments: None,
         bone_names: &names,
         ..owner_rig()
     };
@@ -738,6 +740,7 @@ fn standby_and_three_pulling_frames_choose_matching_geometry_texture_and_pose() 
     let owner = crate::tests::actor_with_metadata(HashMap::new());
     let names = [Box::<str>::from("rightitem")];
     let owner_rig = ActorRigSnapshot {
+        attachments: None,
         bone_names: &names,
         ..owner_rig()
     };

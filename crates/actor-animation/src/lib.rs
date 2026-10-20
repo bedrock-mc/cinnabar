@@ -95,7 +95,7 @@ use geometry::{collect_controllers, resolve_binding, resolve_bones, skeleton};
 pub use motion::{ACTOR_SWING_TICKS, SwingEffects};
 use motion::{MotionInput, MotionState};
 pub use pose::MODEL_PART_ORIGIN_Y;
-use pose::{compose_pose, sample_clips};
+use pose::compose_pose;
 pub use render::RenderTextureLayer;
 pub use skin_layers::SkinRenderLayer;
 pub use tick::{ActorTickContext, StackVariant, WornArmor};
