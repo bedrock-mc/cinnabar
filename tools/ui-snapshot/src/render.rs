@@ -1,5 +1,6 @@
 //! Production screen painting into the JSON-UI editor's existing CPU target.
 
+mod backup_font;
 mod character;
 #[cfg(feature = "test-support")]
 mod control_locked;
@@ -90,7 +91,10 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
     let show_panorama = match &fixture {
         Fixture::Menu(view) => view.out_of_game(),
         Fixture::Loading(stage) => stage.is_world_entry(),
-        Fixture::Chat { .. } | Fixture::TabList(_) | Fixture::EditSelection => false,
+        Fixture::Chat { .. }
+        | Fixture::TabList(_)
+        | Fixture::EditSelection
+        | Fixture::BackupFont => false,
         #[cfg(feature = "test-support")]
         Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
@@ -98,7 +102,7 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
         | Fixture::ControlLocked
         | Fixture::CosmeticParticles { .. } => false,
     };
-    let mut carriers = carriers::load(dir, menu)?;
+    let mut carriers = carriers::load(dir, menu || matches!(&fixture, Fixture::BackupFont))?;
     #[cfg(feature = "test-support")]
     let craft_icons = matches!(
         &fixture,
@@ -131,6 +135,10 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
         renderers: &mut [],
     };
     match fixture {
+        Fixture::BackupFont => {
+            let engine = json_engine(&carriers)?;
+            backup_font::paint(&engine, &mut frame)?;
+        }
         #[cfg(feature = "test-support")]
         Fixture::CosmeticParticles { .. } | Fixture::FormOverlap | Fixture::ControlLocked => {
             unreachable!("specialized capture returned above")

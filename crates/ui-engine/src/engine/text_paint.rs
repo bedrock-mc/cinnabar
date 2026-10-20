@@ -20,6 +20,18 @@ pub const UNWRAPPED_LOGICAL: f64 = 65_536.0;
 /// Normal outline labels occupy twelve GUI pixels of ascent and descent.
 const OUTLINE_LABEL_HEIGHT_GUI: f32 = 12.0;
 
+/// Selects one installed face for measurement, painting, positioning and edit metadata.
+pub(super) fn label_font<'a>(
+    font: &'a RuntimeFontCatalog,
+    options: &TextOptions,
+) -> &'a RuntimeFontCatalog {
+    let name = font.resolve_font_name(
+        options.font_type.as_deref().unwrap_or("default"),
+        options.backup_font_type.as_deref(),
+    );
+    font.font_named(name)
+}
+
 /// Resolved face geometry shared by label measurement, painting and edit metadata.
 #[derive(Clone, Copy)]
 pub(super) struct LabelMetrics<'a> {
@@ -84,7 +96,7 @@ pub(super) fn label_positioned(
     gui_scale: f32,
     px: f32,
 ) -> [f32; 4] {
-    let selected = font.font_named(options.font_type.as_deref().unwrap_or("default"));
+    let selected = label_font(font, options);
     if !std::ptr::eq(font, selected) && selected.rendering() == FontRendering::NativeSdf {
         let [x, y, w, h] = dest.map(|value| value as f32 * px);
         [x, y, x + w, y + h]
@@ -286,10 +298,12 @@ impl TextMeasure for Measure<'_, '_> {
         &self,
         text: &str,
         font: &str,
+        backup: Option<&str>,
         width: Option<f64>,
         shape: LabelShape,
     ) -> [f64; 2] {
-        self.font_label(text, width, shape, self.font.font_named(font))
+        let name = self.font.resolve_font_name(font, backup);
+        self.font_label(text, width, shape, self.font.font_named(name))
     }
 
     fn localize<'t>(&self, text: &'t str) -> Cow<'t, str> {
@@ -309,7 +323,7 @@ pub fn painted_label_request<'a>(
     align: TextAlign,
     px: f32,
 ) -> TextLayoutRequest<'a> {
-    let selected = font.font_named(options.font_type.as_deref().unwrap_or("default"));
+    let selected = label_font(font, options);
     label_metrics(metrics, font, selected, scale).painted_request(text, dest, options, align, px)
 }
 
@@ -331,9 +345,7 @@ impl Canvas<'_> {
         if text.is_empty() {
             return Ok(());
         }
-        let selected = self
-            .font
-            .font_named(style.options.font_type.as_deref().unwrap_or("default"));
+        let selected = label_font(self.font, style.options);
         let metrics = label_metrics(self.metrics, self.font, selected, style.scale);
         let request = metrics.painted_request(&text, dest, style.options, style.align, self.px);
         let Ok(layout) = self.layouts.layout(request) else {
