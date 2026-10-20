@@ -138,7 +138,13 @@ fn metadata_scale_multiplies_the_box_height_and_the_head_clearance() {
     actor
         .metadata
         .insert(METADATA_HEIGHT, ActorMetadataValue::Float(3.6));
+    assert_eq!(tag_height(&actor), 2.0 * (DEFAULT_HEIGHT + HEAD_CLEARANCE));
+    let player_kind = actor.kind.clone();
+    actor.kind = ActorKind::Entity {
+        identifier: "minecraft:zombie".into(),
+    };
     assert_eq!(tag_height(&actor), 2.0 * (3.6 + HEAD_CLEARANCE));
+    actor.kind = player_kind;
     actor.metadata.insert(
         0,
         ActorMetadataValue::Flags(1 << ActorFlag::Sneaking.wire_value()),
@@ -148,6 +154,54 @@ fn metadata_scale_multiplies_the_box_height_and_the_head_clearance() {
         tag_height(&actor),
         2.0 * (DEFAULT_HEIGHT + HEAD_CLEARANCE) - SNEAK_PLAYER_Y_OFFSET
     );
+}
+
+#[test]
+fn player_collision_height_does_not_lower_java_labels_again_while_crouching() {
+    let mut actor = actor();
+    let feet = Vec3::new(0.0, 0.0, -5.0);
+    let boards = ui::ScoreboardStore::default();
+    for scale in [0.5, 1.0, 2.0] {
+        actor.metadata.insert(38, ActorMetadataValue::Float(scale));
+        for (sneaking, collision_height) in [(false, 1.8), (true, 1.5), (false, 1.8)] {
+            actor.metadata.insert(
+                0,
+                ActorMetadataValue::Flags(
+                    (1 << ActorFlag::ShowName.wire_value())
+                        | if sneaking {
+                            1 << ActorFlag::Sneaking.wire_value()
+                        } else {
+                            0
+                        },
+                ),
+            );
+            actor
+                .metadata
+                .insert(METADATA_HEIGHT, ActorMetadataValue::Float(collision_height));
+            let tag = extract_nametag_at_feet(
+                &actor,
+                view(Vec3::ZERO),
+                None,
+                "Player".into(),
+                &boards,
+                feet,
+            )
+            .unwrap();
+            let rendered = scene(&[tag]);
+            let expected_anchor = feet.y + (DEFAULT_HEIGHT + HEAD_CLEARANCE) * scale
+                - if sneaking { SNEAK_PLAYER_Y_OFFSET } else { 0.0 };
+            for record in &rendered.records {
+                assert!(
+                    (record.anchor[1] - expected_anchor).abs() < 1e-6,
+                    "collision height {collision_height}, scale {scale}: {record:?}"
+                );
+                let corners = record.world_corners(glam::Quat::IDENTITY).unwrap();
+                let expected_top =
+                    expected_anchor - record.rect[1] * render_model::NAMETAG_BLOCKS_PER_FONT_PIXEL;
+                assert!((corners[0][1] - expected_top).abs() < 1e-6);
+            }
+        }
+    }
 }
 
 #[test]
