@@ -440,12 +440,11 @@ impl Connection {
             .map(Option::flatten)
     }
 
-    /// Decodes one handshake packet while preserving every sibling from its batch.
-    pub(super) async fn next_packet(&mut self) -> io::Result<Packet> {
+    /// Shares the original header/body and skips only unknown IDs under the existing policy.
+    async fn next_known_raw(&mut self) -> io::Result<(GameHeader, Bytes)> {
         loop {
+            let bytes = self.next_raw().await?;
             self.current = None;
-            self.fill().await?;
-            let bytes = self.pending.pop_front().expect("fill supplies packets");
             let mut reader = wire::Reader::from_shared(&bytes);
             let header =
                 wire::PacketHeader::from_raw(reader.read_var_u32().map_err(io::Error::other)?);
@@ -459,17 +458,25 @@ impl Connection {
                 continue;
             };
             let body = bytes.slice(reader.position()..);
-            let data = crate::codec::decode_body(id, &body).map_err(io::Error::other)?;
             self.current = Some(bytes);
-            return Ok(Packet::from_parts(
+            return Ok((
                 GameHeader {
                     id,
                     from_subclient: header.sender_subclient.into(),
                     to_subclient: header.target_subclient.into(),
                 },
-                data,
+                body,
             ));
         }
+    }
+
+    /// Decodes one handshake packet while preserving every sibling from its batch.
+    pub(super) async fn next_packet(&mut self) -> io::Result<Packet> {
+        let (header, body) = self.next_known_raw().await?;
+        let data = crate::codec::decode_body(header.id, &body)
+            .map_err(io::Error::other)
+            .inspect_err(|_| self.current = None)?;
+        Ok(Packet::from_parts(header, data))
     }
 
     /// Handles terminals immediately and retains other unhandled input in its original wire form.
@@ -486,6 +493,11 @@ impl Connection {
             }
             return Ok(());
         }
+        self.defer_current()
+    }
+
+    /// Moves the same unread encoded packet into the original aggregate startup bound.
+    fn defer_current(&mut self) -> Result<(), crate::ProtocolError> {
         let bytes = self.current.take().ok_or_else(|| {
             super::failure(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -512,11 +524,24 @@ impl Connection {
             }
         }
         loop {
-            let packet = self.next_packet().await.map_err(super::failure)?;
-            let start_game = packet.header.id == packets::PacketId::StartGame;
-            check_startup_packet(&packet.data)?;
-            self.defer_unhandled(*packet.data)?;
-            if start_game {
+            let (header, body) = self.next_known_raw().await.map_err(super::failure)?;
+            if matches!(
+                header.id,
+                packets::PacketId::StartGame
+                    | packets::PacketId::Disconnect
+                    | packets::PacketId::Transfer
+                    | packets::PacketId::PlayStatus
+            ) {
+                let packet = crate::codec::decode_body(header.id, &body)
+                    .map_err(io::Error::other)
+                    .inspect_err(|_| self.current = None)
+                    .map_err(super::failure)?;
+                check_startup_packet(&packet)?;
+                self.defer_unhandled(packet)?;
+            } else {
+                self.defer_current()?;
+            }
+            if header.id == packets::PacketId::StartGame {
                 return Ok(());
             }
         }
