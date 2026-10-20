@@ -71,7 +71,7 @@ pub struct MenuInput<'a> {
 /// Settings geometry input reads between frames.
 #[derive(Default)]
 pub struct MenuGeometry {
-    pub slider_tracks: Vec<(u16, UiRect, Option<UiRect>)>,
+    pub slider_tracks: Vec<(MenuAction, UiRect, Option<UiRect>)>,
     pub focus_targets: Vec<SettingsFocusTarget>,
     pub focus_landmarks: Vec<SettingsFocusLandmark>,
 }

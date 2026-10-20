@@ -301,13 +301,12 @@ fn graphics_group_rows_keep_the_same_horizontal_gutters_as_regular_rows() {
                 .unwrap();
                 assert_eq!(content.span, [100.0, 100.0 + width]);
                 assert!(!content.nested);
-                tracks.extend(
-                    content
-                        .canvas
-                        .slider_tracks
-                        .iter()
-                        .map(|(index, track, _)| (*index, *track)),
-                );
+                tracks.extend(content.canvas.slider_tracks.iter().filter_map(
+                    |(action, track, _)| match action {
+                        MenuAction::SettingsOption(index, _) => Some((*index, *track)),
+                        _ => None,
+                    },
+                ));
             });
             let row = |name| {
                 let index = index(name);

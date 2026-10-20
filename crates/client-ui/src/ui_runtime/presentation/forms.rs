@@ -161,7 +161,7 @@ pub(super) struct FrameProjections {
     pub(super) menu_focus_context: Option<(launcher::menu::MenuScreen, bool)>,
     pub(super) menu_focus_geometry: Vec<launcher::menu::view::SettingsFocusTarget>,
     pub(super) menu_focus_landmarks: Vec<launcher::menu::view::SettingsFocusLandmark>,
-    pub(super) oreui_slider_tracks: Vec<(u16, UiRect, Option<UiRect>)>,
+    pub(super) oreui_slider_tracks: Vec<(launcher::menu::MenuAction, UiRect, Option<UiRect>)>,
     pub(super) oreui_settings_input: bool,
 }
 

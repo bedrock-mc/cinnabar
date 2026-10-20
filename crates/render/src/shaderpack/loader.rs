@@ -267,9 +267,9 @@ pub(crate) fn translate_config(pack: &ShaderPack, dimension: &str) -> TranslateC
 
 /// Opens, translates and builds `path` for `dimension` (a Java dimension id) with the values
 /// saved in `options` (the pack's Iris option file, if any); `vanilla` answers the pack's
-/// `minecraft:` texture references. As Iris does on every load, the file is rewritten to
-/// keep only values that name the pack's options and differ from their defaults.
-/// Translation reports into `progress`.
+/// `minecraft:` texture references. Saved values are normalized in memory; the option editor
+/// owns file writes so a load worker cannot overwrite a newer edit. Translation reports into
+/// `progress`.
 pub(crate) fn load(
     path: &Path,
     options: Option<&Path>,
@@ -290,8 +290,8 @@ pub(crate) fn load(
     )
 }
 
-/// The pack's values saved in `file`, normalized and written back when that changed them; an
-/// unreadable file loads the defaults.
+/// Reads and normalizes the pack's saved values without changing the file; unreadable files
+/// load the defaults.
 fn saved_options(pack: &ShaderPack, file: &Path) -> OptionValues {
     let saved = match shaderpack::read_option_file(file) {
         Ok(saved) => saved,
@@ -304,17 +304,39 @@ fn saved_options(pack: &ShaderPack, file: &Path) -> OptionValues {
             return OptionValues::new();
         }
     };
-    let values = shaderpack::normalize_values(pack.options(), &saved);
-    if values != saved
-        && let Err(error) = shaderpack::write_option_file(file, pack.options(), &values)
-    {
-        warn!(
-            target: "cinnabar::shaderpack",
-            file = %file.display(),
-            "shader pack options could not be rewritten: {error}"
+    shaderpack::normalize_values(pack.options(), &saved)
+}
+
+#[cfg(test)]
+mod option_tests {
+    use super::*;
+
+    #[test]
+    fn loading_normalizes_options_without_writing_over_editor_saves() {
+        let pack = ShaderPack::new(shaderpack::PackSource::from_files([(
+            "final.fsh",
+            "#define QUALITY 2 // [1 2 3]\nvoid main() {}\n",
+        )]));
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("options.txt");
+        let saved = b"QUALITY=3\nREMOVED=true\n";
+        std::fs::write(&file, saved).unwrap();
+        assert_eq!(
+            saved_options(&pack, &file),
+            OptionValues::from([("QUALITY".into(), "3".into())])
+        );
+        assert_eq!(std::fs::read(&file).unwrap(), saved);
+        shaderpack::write_option_file(
+            &file,
+            pack.options(),
+            &OptionValues::from([("QUALITY".into(), "1".into())]),
+        )
+        .unwrap();
+        assert_eq!(
+            saved_options(&pack, &file),
+            OptionValues::from([("QUALITY".into(), "1".into())])
         );
     }
-    values
 }
 
 /// The enabled programs this host runs, in frame order, with their plans; an error has one

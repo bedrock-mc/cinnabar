@@ -82,7 +82,7 @@ pub(super) struct Canvas<'a> {
     pub(super) transitions: Option<&'a mut super::transitions::Transitions>,
     pub(super) surface: super::motion::Surface,
     entrance_active: bool,
-    pub(super) slider_tracks: Vec<(u16, UiRect, Option<UiRect>)>,
+    pub(super) slider_tracks: Vec<(MenuAction, UiRect, Option<UiRect>)>,
     /// Scroll offsets by view key, as the last input left them.
     pub(super) offsets: HashMap<String, f32>,
     pub(super) scrolls: Vec<ScrollArea>,
@@ -212,7 +212,7 @@ impl<'a> Canvas<'a> {
     /// Drag endpoints retain their full geometry; only the rendered thumb captures a pointer.
     pub(super) fn slider_track(
         &mut self,
-        index: u16,
+        action: MenuAction,
         track: Bounds,
         thumb: Bounds,
     ) -> Result<(), PaintError> {
@@ -231,7 +231,7 @@ impl<'a> Canvas<'a> {
         } else {
             None
         };
-        self.slider_tracks.push((index, track, thumb));
+        self.slider_tracks.push((action, track, thumb));
         Ok(())
     }
 

@@ -577,8 +577,8 @@ impl UiPresentationRuntime {
 
     fn window_slider_tracks(
         &self,
-        tracks: Vec<(u16, UiRect, Option<UiRect>)>,
-    ) -> Result<Vec<(u16, UiRect, Option<UiRect>)>, UiPresentationError> {
+        tracks: Vec<(MenuAction, UiRect, Option<UiRect>)>,
+    ) -> Result<Vec<(MenuAction, UiRect, Option<UiRect>)>, UiPresentationError> {
         tracks
             .into_iter()
             .map(|(index, track, thumb)| {
