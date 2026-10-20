@@ -57,6 +57,7 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
+    /// Creates an unlocated diagnostic for one translation phase.
     pub(crate) fn new(phase: Phase, message: impl Into<String>) -> Diagnostic {
         Diagnostic {
             phase,
@@ -66,6 +67,7 @@ impl Diagnostic {
         }
     }
 
+    /// Attaches the pack location when the source is known.
     pub(crate) fn at(mut self, location: Option<SourceLocation>) -> Diagnostic {
         self.location = location;
         self

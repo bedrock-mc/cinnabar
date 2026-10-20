@@ -6,6 +6,7 @@
 //! Whole-pack translation of the small original packs in `tests/fixtures`.
 
 mod blocks;
+mod compiler_contracts;
 mod compute;
 mod dimensions;
 mod draw_buffers;

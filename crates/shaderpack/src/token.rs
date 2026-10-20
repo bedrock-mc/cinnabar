@@ -132,6 +132,7 @@ impl Emitter {
         }
     }
 
+    /// Appends a character and records the origin of each completed line.
     fn push_char(&mut self, ch: char) {
         self.text.push(ch);
         if ch == '\n' {
@@ -140,6 +141,7 @@ impl Emitter {
         }
     }
 
+    /// Reports whether the next character starts a new output line.
     fn at_line_start(&self) -> bool {
         self.text.is_empty() || self.text.ends_with('\n')
     }
@@ -195,6 +197,7 @@ impl Emitter {
     }
 }
 
+/// Reports whether adjacent emitted tokens need separating whitespace.
 fn needs_space(prev: &Tok, t: &Tok) -> bool {
     let tight = t.is(";")
         || t.is(",")

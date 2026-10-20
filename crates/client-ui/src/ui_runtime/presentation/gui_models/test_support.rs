@@ -1,6 +1,11 @@
 //! Assertions shared with app-owned installed-carrier integration tests.
 use super::*;
+
+mod cosmetic_particles;
 use crate::test_support::fixture_hud;
+pub use cosmetic_particles::cosmetic_particle_preview;
+#[cfg(test)]
+pub(super) use cosmetic_particles::particle_fixture_assets;
 use ui_engine::test_support::fixture_font;
 
 /// Checks installed geometry admission and diagnostic fallback without owning asset paths.

@@ -238,6 +238,14 @@ pub fn prepare_actor_render_frame(
         &mut new_geometries,
     );
     let local_flame_feet = flames::LocalFlameFeet::capture(local.as_ref(), visibility);
+    if !local_visible
+        && let (Some(body), Some(stream)) = (local.as_ref(), stream)
+        && let Some(rig) = stream.authority().actor_rig(bodies.local_runtime_id)
+    {
+        state
+            .hat_state
+            .advance_hidden_local(&body.submission, rig.bone_names, step.partial_tick);
+    }
     let camera_position = cull_view.map(|view| view.camera_position.to_array());
     // Remote bodies passed frame-model admission before bounded skin registration.
     let mut batch = select_actor_presentations(
@@ -289,9 +297,13 @@ pub fn prepare_actor_render_frame(
         ),
         &mut new_geometries,
     );
-    state
-        .hat_state
-        .attach(&mut batch, stream, &input.remote_hats, &mut params.scene);
+    state.hat_state.attach(
+        &mut batch,
+        stream,
+        &input.remote_hats,
+        &mut params.scene,
+        step.partial_tick,
+    );
     layers::apply_style_and_visibility(&mut batch, stream, params.actor_style.as_deref());
     if let Some(placements) = params.cosmetic_emitters.as_deref_mut() {
         state

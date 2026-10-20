@@ -391,15 +391,23 @@ impl MenuRuntime {
                     self.skin_packet_pending = result.packet;
                 }
                 if self.player_skin.cosmetics
-                    != cosmetics::resolve(&result.view.selected_cosmetics, |_| false)
+                    != cosmetics::resolve(&result.view.selected_cosmetics, cosmetics::owns)
                 {
                     self.player_skin.cosmetics =
-                        cosmetics::resolve(&result.view.selected_cosmetics, |_| false);
+                        cosmetics::resolve(&result.view.selected_cosmetics, cosmetics::owns);
                     if let Some(local) = local.as_deref_mut() {
                         local.cosmetics.clone_from(&self.player_skin.cosmetics);
                     }
                 }
                 self.dressing_room = Arc::new(result.view);
+            }
+        }
+        // Account grant changes also update an already-open wardrobe without a new appearance job.
+        let resolved = cosmetics::resolve(&self.dressing_room.selected_cosmetics, cosmetics::owns);
+        if self.player_skin.cosmetics != resolved {
+            self.player_skin.cosmetics = resolved;
+            if let Some(local) = local.as_deref_mut() {
+                local.cosmetics.clone_from(&self.player_skin.cosmetics);
             }
         }
         if !self.skin_update_pending {

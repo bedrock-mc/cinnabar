@@ -172,7 +172,7 @@ fn report_formats_heightmaps_advertised_bounds_and_filter_above_the_eye() {
                 name: Arc::from("minecraft:overworld"),
                 dimension: 0,
                 minimum_y: -128,
-                height_range: 512,
+                maximum_y: 384,
                 generator: 1,
             }]),
         )

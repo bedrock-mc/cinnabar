@@ -27,6 +27,14 @@ struct Preview {
 }
 
 impl Previews {
+    /// Returns the motion already sampled for this frame, or the item's initial preview pose.
+    pub(super) fn motion(&self, item: Item) -> Motion {
+        self.items.get(&item).map_or_else(
+            || hats::rig(item).preview_motion(0.0),
+            |preview| preview.motion,
+        )
+    }
+
     /// Uses the cached authored pose, retaining the rest mesh until the first preview frame.
     pub(super) fn vertices(&self, item: Item) -> &[ActorVertex] {
         self.items
@@ -72,18 +80,21 @@ impl UiPresentationRuntime {
         &mut self,
         nodes: &[UiNode],
     ) {
-        let shown = self.player_preview_view != super::super::player_preview::PreviewView::Hud
-            && self.player_preview_icon.is_some_and(|icon| {
-                nodes.iter().any(|node| {
-                    matches!(node.visual(), UiVisual::Sprite {texture_page, uv, ..}
-                    if (*texture_page, *uv) == (icon.page, icon.uv))
-                })
-            });
-        self.sync_cosmetic_previews(shown);
+        let player_shown = self.player_preview_icon.is_some_and(|icon| {
+            nodes.iter().any(|node| {
+                matches!(node.visual(), UiVisual::Sprite {texture_page, uv, ..}
+                if (*texture_page, *uv) == (icon.page, icon.uv))
+            })
+        });
+        self.sync_cosmetic_previews(
+            player_shown
+                && self.player_preview_view != super::super::player_preview::PreviewView::Hud,
+        );
+        self.sync_player_particles(player_shown);
     }
 
     /// Keeps equipped previews running outside a world and limits tile work to the visible gallery.
-    fn sync_cosmetic_previews(&mut self, player_shown: bool) {
+    pub(super) fn sync_cosmetic_previews(&mut self, player_shown: bool) {
         let mut active = std::mem::take(&mut self.gui_models.cosmetics.active);
         active.clear();
         active.extend(

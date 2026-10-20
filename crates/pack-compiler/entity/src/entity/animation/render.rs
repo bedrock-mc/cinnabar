@@ -11,7 +11,7 @@ use assets::{
 use serde_json::{Map, Value};
 
 use super::{
-    super::{SourcePayloads, molang::MolangCompiler},
+    super::{SourceDocuments, molang::MolangCompiler},
     clip::{read_json, required_object},
     environment::unique_geometry_indices,
     selection::{Selector, condition_text},
@@ -24,7 +24,7 @@ use super::super::materials;
 
 pub(super) struct RenderSources<'a> {
     pub root: &'a Path,
-    pub payloads: &'a SourcePayloads,
+    pub payloads: &'a SourceDocuments<'a>,
     pub sources: &'a [EntityAssetSource],
     pub symbols: &'a [EntityAssetSymbol],
     pub geometries: &'a [EntityGeometry],
@@ -118,21 +118,20 @@ pub(super) fn compile_render(
         rigs,
         rig_geometries,
     } = input;
-    let mut controllers = BTreeMap::<Box<str>, Option<Value>>::new();
+    let mut controllers = BTreeMap::<Box<str>, Option<&Value>>::new();
     let materials = materials::MaterialStates::load(root, payloads, sources)?;
     for source in sources
         .iter()
         .filter(|source| source.path.starts_with("render_controllers/"))
     {
         let value = read_json(root, payloads, source)?;
-        for (name, definition) in required_object(&value, "render_controllers")? {
+        for (name, definition) in required_object(value, "render_controllers")? {
             controllers
                 .entry(name.as_str().into())
                 .and_modify(|existing| *existing = None)
-                .or_insert_with(|| Some(definition.clone()));
+                .or_insert(Some(definition));
         }
     }
-    let mut entity_json = BTreeMap::<u32, Value>::new();
     let (mut layers, mut slots, mut candidates, mut visibility) =
         (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     let mut layer_geometries = Vec::new();
@@ -144,17 +143,8 @@ pub(super) fn compile_render(
             entity.kind,
             EntityAssetKind::Entity | EntityAssetKind::Attachable
         ));
-        if let std::collections::btree_map::Entry::Vacant(slot) =
-            entity_json.entry(entity.source_index)
-        {
-            slot.insert(read_json(
-                root,
-                payloads,
-                &sources[entity.source_index as usize],
-            )?);
-        }
-        let Some(description) = super::roots::description(&entity_json[&entity.source_index])
-        else {
+        let value = read_json(root, payloads, &sources[entity.source_index as usize])?;
+        let Some(description) = super::roots::description(value) else {
             continue;
         };
         if rig.geometry_count == 0 {

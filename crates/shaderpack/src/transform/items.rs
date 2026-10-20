@@ -47,6 +47,7 @@ pub(super) struct Decl {
 }
 
 impl Decl {
+    /// Reports whether the declaration carries the requested qualifier.
     pub fn has(&self, q: &str) -> bool {
         self.quals.iter().any(|x| x == q)
     }
@@ -334,14 +335,17 @@ pub(super) fn sampler_info(ty: &str) -> Option<(&'static str, bool)> {
     })
 }
 
+/// Recognizes GLSL storage image types.
 pub(super) fn is_image(ty: &str) -> bool {
     ty.starts_with("image") || ty.starts_with("iimage") || ty.starts_with("uimage")
 }
 
+/// Recognizes sampler and image types that require resource bindings.
 pub(super) fn is_opaque(ty: &str) -> bool {
     sampler_info(ty).is_some() || is_image(ty) || ty.starts_with("sampler") || ty == "atomic_uint"
 }
 
+/// Recognizes integer and boolean interface types requiring flat interpolation.
 pub(super) fn is_integer(ty: &str) -> bool {
     matches!(ty, "int" | "uint" | "bool")
         || ty.starts_with("ivec")
@@ -422,6 +426,7 @@ mod tests {
     use super::*;
     use crate::token::lex;
 
+    /// Returns the spellings of a fixture token sequence.
     fn texts(toks: &[Tok]) -> Vec<&str> {
         toks.iter().map(Tok::text).collect()
     }

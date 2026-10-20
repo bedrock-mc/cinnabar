@@ -2,7 +2,7 @@
 //! structs, the loose-uniform block, resources with fixed bindings, and interface variables
 //! with locations shared between a program's stages.
 
-use super::body::{SamplerKinds, Structs, flatten_leaves};
+use super::body::{BoolStorage, SamplerKinds, Structs, flatten_leaves};
 use super::items::{
     Decl, Item, arr_len, is_image, is_integer, is_opaque, layout_key, loc_size, mat_cols,
     parse_decl, sampler_info, split_items, strip_layout_keys,
@@ -27,7 +27,7 @@ pub(super) struct Collected {
     /// Functions and remaining statements.
     pub body: Vec<Item>,
     pub samplers: SamplerKinds,
-    pub bools: HashMap<String, String>,
+    pub bools: HashMap<String, BoolStorage>,
     /// Statements run after the user's `main` (vertex varying packing, output widening).
     pub after_main: Vec<String>,
     /// Statements run before the user's `main` (fragment varying unpacking).
@@ -50,6 +50,7 @@ pub(super) struct Collected {
     pub reads_packed_parts: bool,
 }
 
+/// Finds the first non-generated source line in a declaration.
 fn first_line(toks: &[Tok]) -> u32 {
     toks.iter().map(|t| t.line).find(|l| *l != 0).unwrap_or(0)
 }
@@ -236,7 +237,7 @@ pub(super) fn collect(
         }
         if let Some((bname, members, inst)) = &d.block {
             if d.has("uniform") || d.has("buffer") {
-                block(&mut c, &d, bname, members, inst, iface);
+                block(&mut c, &d, bname, members, inst, iface, line)?;
                 continue;
             }
             let between_stages = (stage == StageKind::Vertex && d.has("out"))
@@ -307,12 +308,20 @@ pub(super) fn collect(
             } else {
                 "in"
             };
+            let mut explicit = layout_key(&d.layout, "location");
             for (name, arr, _) in &d.decls {
                 let mut a = d.ty_arr.clone();
                 a.extend(arr.iter().cloned());
-                varying(
-                    &mut c, iface, &structs, name, &d.ty, &a, &d.quals, dir, line,
+                let size = varying(
+                    &mut c, iface, &structs, name, name, &d.ty, &a, &d.quals, dir, explicit, line,
                 )?;
+                explicit = explicit
+                    .map(|start| {
+                        start
+                            .checked_add(size)
+                            .ok_or_else(|| TransformError::new("varying location overflow", line))
+                    })
+                    .transpose()?;
             }
             continue;
         }
@@ -364,6 +373,8 @@ pub(super) fn collect(
     Ok(c)
 }
 
+/// Emits a bound uniform or storage block, rejecting binding conflicts.
+#[allow(clippy::too_many_arguments)]
 fn block(
     c: &mut Collected,
     d: &Decl,
@@ -371,12 +382,15 @@ fn block(
     members: &[Tok],
     inst: &[Tok],
     iface: &mut ProgramInterface,
-) {
+    line: u32,
+) -> Result<(), TransformError> {
     let storage = d.has("buffer");
     let (set, binding) = if storage {
         (
             STORAGE_BUFFER_GROUP,
-            iface.storage_binding(bname, layout_key(&d.layout, "binding")),
+            iface
+                .storage_binding(bname, layout_key(&d.layout, "binding"))
+                .map_err(|message| TransformError::new(message, line))?,
         )
     } else {
         (UNIFORM_GROUP, iface.uniform_block_binding(bname))
@@ -393,7 +407,7 @@ fn block(
         }
         lay.push(id(if storage { "std430" } else { "std140" }));
     }
-    lay.extend(lex(&format!(", set = {set}, binding = {binding}")));
+    lay.extend(lex(&format!(", set = {set}, binding = {binding}u")));
     c.resources.extend([id("layout"), p("(")]);
     c.resources.extend(lay);
     c.resources.push(p(")"));
@@ -409,8 +423,11 @@ fn block(
         match parse_decl(&m).filter(|md| anonymous && is_bool(&md.ty)) {
             Some(md) => {
                 let integer = integer_bool(&md.ty);
-                for (name, _, _) in &md.decls {
-                    c.bools.insert(name.clone(), md.ty.clone());
+                for (name, array, _) in &md.decls {
+                    c.bools.insert(
+                        name.clone(),
+                        BoolStorage::new(&md.ty, md.ty_arr.iter().chain(array)),
+                    );
                 }
                 c.resources.extend(m.iter().map(|t| {
                     if t.ident() == Some(md.ty.as_str()) {
@@ -426,6 +443,7 @@ fn block(
     c.resources.push(p("}"));
     c.resources.extend(inst.iter().cloned());
     c.resources.push(p(";"));
+    Ok(())
 }
 
 /// Whether naga's parser takes a resource qualifier. It has no `coherent` or `volatile`;
@@ -469,6 +487,7 @@ pub(super) fn vertex_input(io: &mut String, c: &mut Collected, name: &str, ty: &
     }
 }
 
+/// Lowers loose uniforms, sampled textures and storage images.
 fn uniforms(
     c: &mut Collected,
     d: &Decl,
@@ -532,7 +551,10 @@ fn uniforms(
             continue;
         }
         let ty = if is_bool(&d.ty) {
-            c.bools.insert(name.clone(), d.ty.clone());
+            c.bools.insert(
+                name.clone(),
+                BoolStorage::new(&d.ty, d.ty_arr.iter().chain(arr)),
+            );
             integer_bool(&d.ty)
         } else {
             d.ty.clone()
@@ -569,13 +591,20 @@ fn varying(
     c: &mut Collected,
     iface: &mut ProgramInterface,
     structs: &Structs,
-    name: &str,
+    key: &str,
+    path: &str,
     ty: &str,
     arr: &[Tok],
     quals: &[String],
     dir: &str,
+    explicit: Option<u32>,
     line: u32,
-) -> Result<(), TransformError> {
+) -> Result<u32, TransformError> {
+    let stage = if dir == "out" {
+        StageKind::Vertex
+    } else {
+        StageKind::Fragment
+    };
     let interp: Vec<&str> = quals
         .iter()
         .map(String::as_str)
@@ -588,44 +617,39 @@ fn varying(
         }
         q.join(" ")
     };
-    if dir == "out" {
-        iface.write(name);
-    } else if !iface.written(name) {
-        // No vertex output feeds this input: GLSL links it when the fragment never reads
-        // it, WebGPU rejects the pipeline. It becomes a zeroed private global.
-        let mut leaves = vec![];
-        flatten_leaves(name.to_string(), ty, arr, structs, line, &mut leaves)?;
-        c.split_globals.extend([id(ty).at(line), id(name).at(line)]);
-        c.split_globals.extend_from_slice(arr);
-        c.split_globals.push(p(";"));
-        for (path, leaf_ty) in leaves {
-            c.before_main.push(format!("{path} = {leaf_ty}(0);"));
-        }
-        return Ok(());
-    }
-    if arr.is_empty() && mat_cols(ty).is_none() && !structs.contains_key(ty) {
-        let loc = iface.varying(name, loc_size(ty, 1));
+    if key == path && arr.is_empty() && mat_cols(ty).is_none() && !structs.contains_key(ty) {
+        let size = loc_size(ty, 1);
+        let loc = iface.varying(stage, key, size, explicit);
         let q = if dir == "in" {
             qualifiers(ty)
         } else {
             interp.join(" ")
         };
         c.io.extend(
-            lex(&format!("layout(location = {loc}) {q} {dir} {ty} {name};"))
+            lex(&format!("layout(location = {loc}) {q} {dir} {ty} {path};"))
                 .into_iter()
                 .map(|t| t.at(line)),
         );
-        return Ok(());
+        return Ok(size);
     }
     let mut leaves = vec![];
-    flatten_leaves(name.to_string(), ty, arr, structs, line, &mut leaves)?;
-    c.split_globals.extend([id(ty).at(line), id(name).at(line)]);
-    c.split_globals.extend_from_slice(arr);
-    c.split_globals.push(p(";"));
-    let base = iface.varying(name, leaves.len() as u32);
-    for (k, (path, leaf_ty)) in leaves.iter().enumerate() {
-        let vname = format!("iris_v_{name}_{k}");
-        let loc = base + k as u32;
+    flatten_leaves(path.to_string(), ty, arr, structs, line, &mut leaves)?;
+    if key == path {
+        c.split_globals.extend([id(ty).at(line), id(path).at(line)]);
+        c.split_globals.extend_from_slice(arr);
+        c.split_globals.push(p(";"));
+    }
+    let size = leaves.iter().map(|(_, ty)| loc_size(ty, 1)).sum();
+    let base = iface.varying(stage, key, size, explicit);
+    let mut offset = 0;
+    for (k, (leaf_path, leaf_ty)) in leaves.iter().enumerate() {
+        let vname = if key == path {
+            format!("iris_v_{key}_{k}")
+        } else {
+            format!("iris_b_{}_{k}", key.replace('.', "_"))
+        };
+        let loc = format!("{base} + {offset}");
+        offset += loc_size(leaf_ty, 1);
         c.io.extend(
             lex(&format!(
                 "layout(location = {loc}) {} {dir} {leaf_ty} {vname};",
@@ -635,12 +659,12 @@ fn varying(
             .map(|t| t.at(line)),
         );
         if dir == "out" {
-            c.after_main.push(format!("{vname} = {path};"));
+            c.after_main.push(format!("{vname} = {leaf_path};"));
         } else {
-            c.before_main.push(format!("{path} = {vname};"));
+            c.before_main.push(format!("{leaf_path} = {vname};"));
         }
     }
-    Ok(())
+    Ok(size)
 }
 
 /// Declares an `in`/`out` interface block between the vertex and fragment stages. GLSL
@@ -665,7 +689,13 @@ fn interface_block(
             for (name, arr, _) in md.decls {
                 let mut a = md.ty_arr.clone();
                 a.extend(arr);
-                fields.push((md.quals.clone(), md.ty.clone(), name, a));
+                fields.push((
+                    md.quals.clone(),
+                    md.ty.clone(),
+                    name,
+                    a,
+                    layout_key(&md.layout, "location"),
+                ));
             }
         }
     }
@@ -674,7 +704,7 @@ fn interface_block(
         let sname = format!("iris_block_{bname}");
         c.hoisted
             .extend([id("struct").at(line), id(&sname).at(line), p("{").at(line)]);
-        for (_, ty, name, arr) in &fields {
+        for (_, ty, name, arr, _) in &fields {
             c.hoisted.extend([id(ty).at(line), id(name).at(line)]);
             c.hoisted.extend(arr.iter().cloned());
             c.hoisted.push(p(";").at(line));
@@ -683,7 +713,8 @@ fn interface_block(
         c.split_globals
             .extend([id(&sname).at(line), id(instance).at(line), p(";").at(line)]);
     }
-    for (quals, ty, name, arr) in &fields {
+    let mut explicit = layout_key(&d.layout, "location");
+    for (quals, ty, name, arr, member_location) in &fields {
         if instance.is_none() {
             c.split_globals.extend([id(ty).at(line), id(name).at(line)]);
             c.split_globals.extend(arr.iter().cloned());
@@ -691,45 +722,18 @@ fn interface_block(
         }
         let key = format!("{bname}.{name}");
         let path = instance.map_or_else(|| name.clone(), |i| format!("{i}.{name}"));
-        let mut leaves = vec![];
-        flatten_leaves(path, ty, arr, structs, line, &mut leaves)?;
-        if dir == "out" {
-            iface.write(&key);
-        } else if !iface.written(&key) {
-            for (path, leaf_ty) in leaves {
-                c.before_main.push(format!("{path} = {leaf_ty}(0);"));
-            }
-            continue;
-        }
-        let interp: Vec<&str> = d
-            .quals
-            .iter()
-            .chain(quals)
-            .map(String::as_str)
-            .filter(|q| matches!(*q, "flat" | "smooth" | "noperspective" | "centroid"))
-            .collect();
-        let base = iface.varying(&key, leaves.len() as u32);
-        for (k, (path, leaf_ty)) in leaves.iter().enumerate() {
-            let vname = format!("iris_b_{bname}_{name}_{k}");
-            let mut q = interp.clone();
-            if is_integer(leaf_ty) && !q.contains(&"flat") {
-                q.push("flat");
-            }
-            c.io.extend(
-                lex(&format!(
-                    "layout(location = {}) {} {dir} {leaf_ty} {vname};",
-                    base + k as u32,
-                    q.join(" ")
-                ))
-                .into_iter()
-                .map(|t| t.at(line)),
-            );
-            if dir == "out" {
-                c.after_main.push(format!("{vname} = {path};"));
-            } else {
-                c.before_main.push(format!("{path} = {vname};"));
-            }
-        }
+        let quals: Vec<_> = d.quals.iter().chain(quals).cloned().collect();
+        let location = member_location.or(explicit);
+        let size = varying(
+            c, iface, structs, &key, &path, ty, arr, &quals, dir, location, line,
+        )?;
+        explicit = location
+            .map(|start| {
+                start
+                    .checked_add(size)
+                    .ok_or_else(|| TransformError::new("varying location overflow", line))
+            })
+            .transpose()?;
     }
     Ok(())
 }
@@ -793,6 +797,7 @@ mod tests {
         }
     }
 
+    /// Parses fixture declarations into collector input items.
     fn items(src: &str) -> Vec<Item> {
         split_items(&lex(src))
             .into_iter()
@@ -803,6 +808,7 @@ mod tests {
             .collect()
     }
 
+    /// Joins fixture token spellings.
     fn text(toks: &[Tok]) -> String {
         toks.iter().map(Tok::text).collect::<Vec<_>>().join(" ")
     }
@@ -824,7 +830,7 @@ out vec3 color;
 void main() {}";
 
     #[test]
-    fn stages_declare_resources_and_varyings_at_shared_numbers() {
+    fn stages_collect_shared_resources_and_vertex_inputs() {
         let mut iface = ProgramInterface::default();
         let formats = HashMap::new();
         let names = names(&formats);
@@ -841,30 +847,10 @@ void main() {}";
 
         let ubo: Vec<_> = vertex.ubo.iter().map(|m| m.name.as_str()).collect();
         assert_eq!(ubo, ["isDay", "viewWidth"]);
-        assert_eq!(vertex.bools["isDay"], "bool");
+        assert_eq!(vertex.bools["isDay"].ty, "bool");
         assert_eq!(
             vertex.vertex_inputs,
             [(FIRST_OTHER_ATTRIBUTE_LOCATION, "myAttr".to_owned())]
-        );
-
-        let vertex_io = text(&vertex.io);
-        let fragment_io = text(&fragment.io);
-        assert!(vertex_io.contains("layout ( location = 0 ) out vec2 texcoord ;"));
-        assert!(fragment_io.contains("layout ( location = 0 ) in vec2 texcoord ;"));
-        assert!(vertex_io.contains("layout ( location = 3 ) flat out int blockId ;"));
-        assert!(fragment_io.contains("layout ( location = 3 ) flat in int blockId ;"));
-
-        // A matrix varying travels as one vector per column, copied around `main`.
-        assert!(vertex_io.contains("layout ( location = 2 ) out vec2 iris_v_rot_1 ;"));
-        assert!(
-            vertex
-                .after_main
-                .contains(&"iris_v_rot_1 = rot[1];".to_owned())
-        );
-        assert!(
-            fragment
-                .before_main
-                .contains(&"rot[1] = iris_v_rot_1;".to_owned())
         );
     }
 
