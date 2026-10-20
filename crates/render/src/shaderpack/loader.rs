@@ -335,6 +335,7 @@ fn planned(
     PlannedProgram {
         name: name.to_owned(),
         group: program.program.group,
+        kind: program.program.kind,
         outputs,
         reads: reflection
             .textures
