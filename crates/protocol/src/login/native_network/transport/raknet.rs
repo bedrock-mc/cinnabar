@@ -1,16 +1,19 @@
 //! Established RakNet admission and retained finite local retirement.
 
-use bedrock_net::raknet::{ClosingRakNetConnection, RakNetConnection};
+use super::Inbox;
+use bedrock_net::raknet::{ClosingRakNetConnection, RakNetConnection, RakNetError};
 use bytes::Bytes;
 use std::{io, time::Instant};
 
 pub(in crate::login::native_network) struct RakNetTransport {
     connection: Option<Connection>,
+    inbox: Inbox,
 }
 
 enum Connection {
     Established(RakNetConnection),
     Closing(ClosingRakNetConnection),
+    Failed(Option<io::Error>),
 }
 
 impl RakNetTransport {
@@ -28,6 +31,7 @@ impl RakNetTransport {
     pub(super) fn new(connection: RakNetConnection) -> Self {
         Self {
             connection: Some(Connection::Established(connection)),
+            inbox: Inbox::default(),
         }
     }
 
@@ -61,15 +65,40 @@ impl RakNetTransport {
 
     /// Receives the same accepted FIFO and terminal before or after consuming local send permission.
     pub(super) async fn recv(&mut self) -> io::Result<Bytes> {
+        if let Some(message) = self.inbox.pop() {
+            return Ok(message);
+        }
         match self
+            .connection
+            .as_mut()
+            .expect("synchronous transport transition")
+        {
+            Connection::Established(connection) => {
+                connection.recv().await.map_err(io::Error::other)
+            }
+            Connection::Closing(connection) => connection.recv().await.map_err(io::Error::other),
+            Connection::Failed(failure) => Err(failure
+                .take()
+                .unwrap_or_else(|| io::Error::other(RakNetError::Closed))),
+        }
+    }
+
+    /// Services the same socket while retaining raw input before its first terminal.
+    pub(super) async fn maintain(&mut self) {
+        let received = match self
             .connection
             .as_mut()
             .expect("synchronous transport transition")
         {
             Connection::Established(connection) => connection.recv().await,
             Connection::Closing(connection) => connection.recv().await,
+            Connection::Failed(_) => std::future::pending().await,
         }
-        .map_err(io::Error::other)
+        .map_err(io::Error::other);
+        if let Err(error) = received.and_then(|message| self.inbox.push(message)) {
+            // A rejected front seals the remainder; ordinary reads still drain its accepted prefix.
+            self.connection = Some(Connection::Failed(Some(error)));
+        }
     }
 
     /// Installs the closing owner before awaiting teardown, retaining it across canceled waits.
@@ -87,6 +116,10 @@ impl RakNetTransport {
                 }
             },
             Connection::Closing(connection) => (connection, None),
+            Connection::Failed(failure) => {
+                self.connection = Some(Connection::Failed(failure));
+                return Ok(());
+            }
         };
         self.connection = Some(Connection::Closing(connection));
         if let Some(failure) = failure {

@@ -245,3 +245,6 @@ fn invalid(message: &'static str) -> io::Error {
 
 #[cfg(test)]
 mod service_tests;
+
+#[cfg(test)]
+mod raknet_tests;
