@@ -533,12 +533,21 @@ fn outline_text_selects_linear_sampler_without_changing_default_text_geometry() 
 
 #[test]
 fn native_text_modes_emit_gamma_and_distance_flags_with_their_sampler() {
-    use assets::{FONT_STYLE_COVERAGE_GAMMA, FONT_STYLE_SDF, FontRendering};
+    use assets::{
+        FONT_STYLE_COVERAGE_GAMMA, FONT_STYLE_OUTLINE_COVERAGE, FONT_STYLE_SDF, FontRendering,
+    };
     for (rendering, flags) in [
-        (FontRendering::NativeCoverage, FONT_STYLE_COVERAGE_GAMMA),
+        (
+            FontRendering::NativeCoverage,
+            u16::from(FONT_STYLE_COVERAGE_GAMMA),
+        ),
         (
             FontRendering::NativeSdf,
-            FONT_STYLE_COVERAGE_GAMMA | FONT_STYLE_SDF | ui::UI_STYLE_BILINEAR,
+            u16::from(FONT_STYLE_COVERAGE_GAMMA | FONT_STYLE_SDF | ui::UI_STYLE_BILINEAR),
+        ),
+        (
+            FontRendering::OutlineCoverage,
+            FONT_STYLE_OUTLINE_COVERAGE | u16::from(ui::UI_STYLE_BILINEAR),
         ),
     ] {
         let draw = draw_list(UiVisual::Text {
@@ -549,7 +558,7 @@ fn native_text_modes_emit_gamma_and_distance_flags_with_their_sampler() {
         assert!(
             draw.vertices
                 .iter()
-                .all(|vertex| vertex.style_flags == u16::from(flags))
+                .all(|vertex| vertex.style_flags == flags)
         );
         assert_eq!(draw.vertices.len(), 8);
     }

@@ -6,6 +6,7 @@
 pub mod crosshair;
 mod experience;
 pub mod experience_modal;
+pub mod fonts;
 mod mod_hud;
 mod mod_hud_editor;
 mod mod_panel;
@@ -35,7 +36,7 @@ pub struct ModUi {
     experience_modal: Option<experience_modal::ModalScreen>,
     /// A player mod's overlay and view.
     mod_screens: Option<mod_screens::ModScreens>,
-    /// The Screen animations setting is off, so mod surface motion changes at once.
+    /// An explicit embedding override settles mod motion independently of built-in screens.
     reduced_motion: bool,
 }
 
