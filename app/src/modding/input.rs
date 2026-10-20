@@ -573,11 +573,10 @@ pub(super) fn prepare_mod_input(
             .host(owner)
             .panel()
             .is_some_and(|panel| panel.capture_key);
-    let toggle_requested = extension
-        .hosts
-        .host(owner)
-        .panel()
-        .is_some_and(|panel| pressed.iter().any(|key| panel.is_toggle_key(key)));
+    let toggle_requested = extension.hosts.host(owner).panel().is_some_and(|panel| {
+        // An open capture receives menu shortcuts for guest conflict validation.
+        !(had_panel && panel.capture_key) && pressed.iter().any(|key| panel.is_toggle_key(key))
+    });
     if !extension.hosts.host(owner).is_active() || (focused && (absorbed || close_requested)) {
         open = false;
     } else if toggle_requested {
