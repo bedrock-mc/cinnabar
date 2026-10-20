@@ -175,12 +175,15 @@ fn bind_with(
     incremental: bool,
 ) -> Vec<String> {
     state.scroll_observed = false;
-    state.node_budget_exceeded = false;
+    let truncated = std::mem::take(&mut state.node_budget_exceeded);
     state.built.clear();
     state.views_run = 0;
     let mut changes = match &state.data {
         Some(previous)
-            if incremental && state.published.is_empty() && data.components.is_empty() =>
+            if incremental
+                && !truncated
+                && state.published.is_empty()
+                && data.components.is_empty() =>
         {
             reuse::changes(previous, data)
         }
@@ -345,9 +348,14 @@ struct Binder<'a> {
 }
 
 impl<'a> Binder<'a> {
+    /// Slots still available for controls or collection storage on this bind.
+    fn remaining_nodes(&self) -> usize {
+        self.state.node_limit().saturating_sub(self.created)
+    }
+
     /// Stops every creation path at the shared resolved-tree node budget.
     fn can_create(&mut self) -> bool {
-        if self.created < crate::resolve::MAX_NODES {
+        if self.remaining_nodes() != 0 {
             return true;
         }
         self.state.node_budget_exceeded = true;
@@ -669,7 +677,7 @@ impl<'a> Binder<'a> {
     fn literal_children(&mut self, src: &Src, scope: &Scope) -> Vec<Node> {
         let control = src.get();
         let columns = static_grid_columns(src);
-        let mut nodes = Vec::with_capacity(control.children.len());
+        let mut nodes = Vec::with_capacity(control.children.len().min(self.remaining_nodes()));
         let mut created = Vec::new();
         let mut siblings = crate::layout::SiblingKeys::default();
         for index in 0..control.children.len() {

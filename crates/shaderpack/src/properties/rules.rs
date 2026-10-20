@@ -43,7 +43,11 @@ fn apply_rule(
         properties.flips.push(FlipRule {
             program,
             buffer,
-            flip: parse_bool(value)?,
+            flip: match value {
+                "0" => false,
+                "1" => true,
+                _ => parse_bool(value)?,
+            },
         });
     } else if let Some(program) = key.strip_prefix("scale.") {
         properties.scales.push(scale_rule(program, value)?);
@@ -268,7 +272,7 @@ fn custom_uniform(
     line: u32,
 ) -> Result<CustomUniform, String> {
     let (ty, name) = split_target(target, "type", "name")?;
-    let expr = Expr::parse(value).map_err(|err| format!("invalid expression: {err}"))?;
+    let expr = Expr::parse_custom(value).map_err(|err| format!("invalid expression: {err}"))?;
     Ok(CustomUniform {
         kind,
         ty,

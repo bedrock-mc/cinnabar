@@ -1,6 +1,6 @@
 //! Top-level item splitting, the light declaration parser, and GLSL type helpers.
 
-use crate::token::{Tok, TokKind, int, p};
+use crate::token::{Tok, TokKind, id, int, p};
 use std::collections::HashSet;
 
 /// Storage, interpolation and precision qualifiers recognised before a declaration's type.
@@ -279,8 +279,10 @@ pub(super) fn parse_decl(toks: &[Tok]) -> Option<Decl> {
             }
         }
         decls.push((name, arr, init));
-        if toks.get(i)?.is(",") {
-            i += 1;
+        match toks.get(i)? {
+            token if token.is(",") && i + 1 < last => i += 1,
+            token if token.is(";") && i == last => {}
+            _ => return None,
         }
     }
     Some(Decl {
@@ -353,13 +355,12 @@ pub(super) fn is_integer(ty: &str) -> bool {
         || ty.starts_with("bvec")
 }
 
-/// Interface locations a value of `ty` occupies (`arr` elements).
-pub(super) fn loc_size(ty: &str, arr: u32) -> u32 {
-    let base = match ty {
+/// Interface locations occupied by one value of `ty`.
+pub(super) fn loc_size(ty: &str) -> u32 {
+    match ty {
         "dvec3" | "dvec4" => 2,
         t => mat_cols(t).map(|(c, _)| c).unwrap_or(1),
-    };
-    base * arr.max(1)
+    }
 }
 
 /// (columns, column type) of a `matC[xR]` type.
@@ -421,10 +422,19 @@ pub(super) fn strip_layout_keys(layout: &[Tok], keys: &[&str]) -> Vec<Tok> {
     out
 }
 
-/// Finds every local declarator with the shared declaration parser, excluding initializer uses.
+/// Finds local variable declarators with the shared parser, excluding initializer uses
+/// and struct fields. Inline struct instances are variables in the enclosing scope.
 pub(super) fn local_declarators(toks: &[Tok]) -> HashSet<usize> {
     let mut declarations = HashSet::new();
+    let mut fields_end = 0;
     for start in 0..toks.len() {
+        if start < fields_end {
+            continue;
+        }
+        let struct_end = struct_body_end(toks, start);
+        if let Some(end) = struct_end {
+            fields_end = end;
+        }
         if start > 0
             && !toks[start - 1].is("{")
             && !toks[start - 1].is(";")
@@ -434,7 +444,7 @@ pub(super) fn local_declarators(toks: &[Tok]) -> HashSet<usize> {
             continue;
         }
         let mut depth = 0;
-        let end = (start..toks.len()).find(|&index| {
+        let end = (struct_end.unwrap_or(start)..toks.len()).find(|&index| {
             let token = &toks[index];
             if token.is("(") || token.is("[") {
                 depth += 1;
@@ -446,7 +456,16 @@ pub(super) fn local_declarators(toks: &[Tok]) -> HashSet<usize> {
         let Some(end) = end.filter(|&end| toks[end].is(";")) else {
             continue;
         };
-        let Some(declaration) = parse_decl(&toks[start..=end]) else {
+        let inline;
+        let tokens = if let Some(end_struct) = struct_end {
+            inline = std::iter::once(id("_struct"))
+                .chain(toks[end_struct..=end].iter().cloned())
+                .collect::<Vec<_>>();
+            &inline
+        } else {
+            &toks[start..=end]
+        };
+        let Some(declaration) = parse_decl(tokens) else {
             continue;
         };
         if matches!(declaration.ty.as_str(), "return" | "else" | "do" | "case") {
@@ -460,6 +479,18 @@ pub(super) fn local_declarators(toks: &[Tok]) -> HashSet<usize> {
         }
     }
     declarations
+}
+
+/// Returns the token after a struct body beginning at `start`, excluding its instances.
+pub(super) fn struct_body_end(tokens: &[Tok], start: usize) -> Option<usize> {
+    if tokens.get(start)?.ident() != Some("struct") {
+        return None;
+    }
+    let open = start + 1 + usize::from(tokens.get(start + 1).and_then(Tok::ident).is_some());
+    tokens
+        .get(open)
+        .filter(|token| token.is("{"))
+        .map(|_| matching(tokens, open, "{", "}") + 1)
 }
 
 /// Returns the token after one complete statement, including attached else and do/while parts.
@@ -650,8 +681,8 @@ mod tests {
         assert_eq!(sampler_info("usampler2D"), Some(("utexture2D", false)));
         assert!(is_opaque("image2D") && is_opaque("sampler2D") && !is_opaque("vec4"));
         assert_eq!(mat_cols("mat3x2"), Some((3, "vec2")));
-        assert_eq!(loc_size("mat4", 2), 8);
-        assert_eq!(loc_size("dvec4", 1), 2);
+        assert_eq!(loc_size("mat4"), 4);
+        assert_eq!(loc_size("dvec4"), 2);
         let layout = lex("std430, binding = 3, set = 1");
         assert_eq!(
             texts(&strip_layout_keys(&layout, &["binding", "set"])),

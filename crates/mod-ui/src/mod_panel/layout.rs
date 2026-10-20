@@ -258,6 +258,7 @@ mod capacity_tests {
             dark: true,
             controls,
             capture_key: false,
+            show_gameplay_hud: false,
             motion: false,
             sections,
         };

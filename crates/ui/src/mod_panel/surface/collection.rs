@@ -131,6 +131,7 @@ impl SurfaceCollection {
                 return Err("surface collection item has too many fields".into());
             }
             let values = Surface {
+                previews: Default::default(),
                 collections: Default::default(),
                 screen: String::new(),
                 document: String::new(),

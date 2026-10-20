@@ -297,6 +297,18 @@ pub mod tests {
         );
         assert_eq!(images.state("file:///etc/passwd"), RemoteState::Failed);
     }
+
+    #[test]
+    fn form_url_images_larger_than_two_megabytes_are_downloaded() {
+        let body = vec![7; 2 * 1024 * 1024 + 1];
+        let url = format!("{}/large.png?size=1024", serve(body.clone()));
+        let RemoteState::Ready(downloaded) = settle(&RemoteImages::default(), &url) else {
+            panic!("image download failed");
+        };
+        assert_eq!(downloaded.len(), body.len());
+        assert!(downloaded.iter().all(|byte| *byte == 7));
+    }
+
     #[test]
     fn review_download_completion_restores_the_cache_capacity() {
         let remote = Remote::default();
