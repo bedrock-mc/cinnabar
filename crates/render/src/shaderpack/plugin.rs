@@ -265,7 +265,6 @@ fn replaced_effects(pack: &PackGpu) -> ShaderPackEffects {
     }
 }
 
-
 /// Replaces native queues only after every pack view and terrain category is ready.
 fn configure_replacement(
     pack: Option<Res<LoadedShaderPack>>,
