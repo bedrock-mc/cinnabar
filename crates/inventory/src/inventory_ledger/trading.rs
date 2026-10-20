@@ -354,7 +354,7 @@ impl PlayerInventoryLedger {
         }
     }
 
-    /// Whether one input has the selected offer's matching item and required count.
+    /// Whether an occupied input belongs to a complete payment for the selected offer.
     pub fn trade_input_valid(&self, index: usize) -> bool {
         let Some(state) = self.trading() else {
             return false;
@@ -373,24 +373,11 @@ impl PlayerInventoryLedger {
         } else {
             protocol::LEGACY_TRADE_SLOTS
         };
-        let Some(stack) = slots
+        slots
             .get(index)
             .and_then(|slot| self.view_stack(Cell::Craft(*slot)))
-        else {
-            return false;
-        };
-        trade
-            .inputs
-            .get(index)
-            .and_then(Option::as_ref)
-            .or_else(|| {
-                trade.inputs[0]
-                    .as_ref()
-                    .filter(|_| trade.offer.inputs[1].is_none())
-            })
-            .is_some_and(|required| {
-                trade_item_matches(stack, required) && stack.count >= required.count
-            })
+            .is_some()
+            && self.trade_consumption(trade).is_some()
     }
 
     /// Allocates one recipe's payment, allowing a single ingredient in either input cell.

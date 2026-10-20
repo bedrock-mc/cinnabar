@@ -228,25 +228,37 @@ fn registry_replacement_rebinds_every_trade_preview() {
 
 #[test]
 fn one_ingredient_can_be_paid_from_either_or_both_inputs() {
-    for counts in [[0, 5], [1, 1], [5, 0]] {
-        let mut ledger = ledger(true);
-        let trade = ledger.storage.as_mut().unwrap().trade.as_mut().unwrap();
-        let offer = &mut Arc::make_mut(&mut trade.offers)[0];
-        offer.offer.inputs[1] = None;
-        offer.inputs[1] = None;
-        for (index, slot) in protocol::MODERN_TRADE_SLOTS.iter().enumerate() {
-            let stack = NetworkItemStack {
-                network_id: 6,
-                stack_network_id: index as i32 + 20,
-                count: counts[index],
-                ..NetworkItemStack::empty()
+    for modern in [false, true] {
+        for counts in [[0, 5], [1, 1], [5, 0], [5, 5]] {
+            let mut ledger = ledger(modern);
+            let trade = ledger.storage.as_mut().unwrap().trade.as_mut().unwrap();
+            let offer = &mut Arc::make_mut(&mut trade.offers)[0];
+            offer.offer.inputs[1] = None;
+            offer.inputs[1] = None;
+            let slots = if modern {
+                protocol::MODERN_TRADE_SLOTS
+            } else {
+                protocol::LEGACY_TRADE_SLOTS
             };
-            ledger
-                .confirmed
-                .set(Cell::Craft(*slot), super::super::cells::Held::new(&stack));
+            for (index, slot) in slots.iter().enumerate() {
+                let stack = NetworkItemStack {
+                    network_id: 6,
+                    stack_network_id: index as i32 + 20,
+                    count: counts[index],
+                    ..NetworkItemStack::empty()
+                };
+                ledger
+                    .confirmed
+                    .set(Cell::Craft(*slot), super::super::cells::Held::new(&stack));
+            }
+            assert_eq!(
+                [ledger.trade_input_valid(0), ledger.trade_input_valid(1)],
+                counts.map(|count| count != 0)
+            );
+            assert!(!ledger.trade_input_valid(2));
+            assert!(ledger.begin_trade().is_ok());
+            assert_eq!(ledger.cursor_stack().unwrap().count, 1);
         }
-        assert!(ledger.begin_trade().is_ok());
-        assert_eq!(ledger.cursor_stack().unwrap().count, 1);
     }
 }
 
