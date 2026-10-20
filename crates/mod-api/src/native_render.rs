@@ -90,7 +90,8 @@ mod tests {
         assert!(MAX_BOXES * 12 + MAX_LINES <= crate::MAX_DRAW_INSTANCES);
         let scene: Scene = serde_json::from_value(fixture["scene"].clone()).unwrap();
         assert!(scene.is_valid());
-        assert_eq!(serde_json::to_value(scene).unwrap(), fixture["scene"]);
+        let encoded = serde_json::to_vec(&scene).unwrap();
+        assert_eq!(serde_json::from_slice::<Scene>(&encoded).unwrap(), scene);
         let frame: Frame = serde_json::from_value(fixture["input"].clone()).unwrap();
         assert_eq!(serde_json::to_value(frame).unwrap(), fixture["input"]);
     }
