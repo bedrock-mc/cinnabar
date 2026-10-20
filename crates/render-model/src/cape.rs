@@ -17,12 +17,14 @@ mod tests;
 #[derive(Clone)]
 pub struct CapeRig {
     pub geometry: ActorRigGeometry,
+    pub(crate) binding_key: [u8; 32],
     bone_names: Vec<Box<str>>,
     pose_frames: Vec<CapePoseFrame>,
 }
 
 #[derive(Clone)]
 struct CapePoseFrame {
+    is_cape: bool,
     parent: Option<Box<str>>,
     bind: Quat,
     pivot_offset: Vec3,
@@ -38,6 +40,7 @@ fn pose_frames(bones: &[assets::EntityGeometryBone], pivots: &[[f32; 3]]) -> Vec
                 angles.map(|angle| angle.get().to_radians())
             });
             CapePoseFrame {
+                is_cape: bone.name.eq_ignore_ascii_case("cape"),
                 parent: bone.parent.clone(),
                 bind: Quat::from_euler(EulerRot::XYZEx, -x, -y, z),
                 pivot_offset: Vec3::from_array(pivots[index])
@@ -59,6 +62,7 @@ impl CapeRig {
     /// Retains a resolved mesh with its matching authored bone order and bind frames.
     pub fn new(geometry: ActorRigGeometry, bones: &[assets::EntityGeometryBone]) -> Self {
         Self {
+            binding_key: crate::actor_bindings::cape_binding_key(bones),
             pose_frames: pose_frames(bones, &geometry.bone_pivots),
             bone_names: bones.iter().map(|bone| bone.name.clone()).collect(),
             geometry,
@@ -83,9 +87,40 @@ impl CapeRig {
         body: &[RenderBoneTransform],
         java: Option<&JavaCapeInput>,
     ) -> Arc<[RenderBoneTransform]> {
+        let bindings = self.bind(body_names);
+        self.pose_bound(&bindings, rest, body, java)
+    }
+
+    /// Resolves a caller-owned appearance before its repeated frame samples.
+    pub fn bind(&self, body_names: &[Box<str>]) -> Vec<crate::CapeBoneBinding> {
+        self.bone_names
+            .iter()
+            .zip(&self.pose_frames)
+            .map(|(name, frame)| crate::CapeBoneBinding {
+                bone: body_names
+                    .iter()
+                    .position(|bone| bone.eq_ignore_ascii_case(name)),
+                parent: frame.parent.as_deref().and_then(|parent| {
+                    body_names
+                        .iter()
+                        .position(|bone| bone.eq_ignore_ascii_case(parent))
+                }),
+                needs_parent: frame.parent.is_some(),
+            })
+            .collect()
+    }
+
+    /// Retargets the cape using indices prepared for this exact cape and body skeleton.
+    pub fn pose_bound(
+        &self,
+        bindings: &[crate::CapeBoneBinding],
+        rest: impl Fn(usize) -> Option<RenderBoneTransform>,
+        body: &[RenderBoneTransform],
+        java: Option<&JavaCapeInput>,
+    ) -> Arc<[RenderBoneTransform]> {
         match java {
-            Some(input) => pose::java_cape_pose(self, body_names, &rest, body, input),
-            None => pose::cape_pose(self, body_names, &rest, body),
+            Some(input) => pose::java_cape_pose(self, bindings, &rest, body, input),
+            None => pose::cape_pose(self, bindings, &rest, body),
         }
     }
 }

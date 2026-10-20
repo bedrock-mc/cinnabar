@@ -80,10 +80,8 @@ impl MenuRuntime {
                 let Some(name) = self.shader_packs.get(usize::from(index)) else {
                     return;
                 };
-                if self.shader_pack.as_ref() != Some(name) {
-                    self.shader_pack = Some(name.clone());
-                    self.shader_pack_request = Some(name.clone());
-                }
+                self.shader_pack = Some(name.clone());
+                self.shader_pack_request = Some(name.clone());
                 RenderMode::ShaderPack
             }
             _ => return,
@@ -127,6 +125,18 @@ mod tests {
             assert_eq!(menu.view().renderer, Some(RendererChoice::Vanilla));
         }
         assert_eq!(menu.take_render_mode_request(), None);
+    }
+
+    #[test]
+    fn reselecting_the_saved_pack_requests_it_again() {
+        if !render_model::SHADER_PACKS_ENABLED {
+            return;
+        }
+        let mut menu = menu();
+        menu.sync_render_mode(RenderMode::ShaderPack);
+        menu.sync_shader_pack(Some("Lumen"));
+        menu.select_renderer(RendererChoice::ShaderPack(1));
+        assert_eq!(menu.take_shader_pack_request().as_deref(), Some("Lumen"));
     }
 
     #[test]

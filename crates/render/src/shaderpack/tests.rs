@@ -1,8 +1,9 @@
 //! Original fixture packs through planning and, with a GPU, through a whole frame.
 
-use super::loader::{build, class_sampler, runnable_programs, translate_config};
+use super::loader::{build, runnable_programs, translate_config};
 use super::passes::{FrameIo, ViewState, record_frame};
 use super::pipelines::GpuContext;
+use super::pipelines::class_sampler;
 use super::plan::plan_frame;
 use super::plugin::{BlockIdRevisions, JAVA_DIMENSIONS};
 use super::uniforms::{FrameClock, FrameUniforms, ViewCamera};
@@ -127,7 +128,7 @@ fn the_next_packs_block_ids_never_reuse_a_revision() {
     );
 }
 
-fn gpu() -> Option<GpuContext> {
+pub(super) fn gpu() -> Option<GpuContext> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = bevy::tasks::block_on(instance.request_adapter(&Default::default())).ok()?;
     let (device, queue) = bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
@@ -158,6 +159,18 @@ fn render_frames(
     gpu: &GpuContext,
     files: &[(&str, &str)],
     frames: usize,
+) -> (Arc<super::loader::PackGpu>, Vec<u8>) {
+    render_frame_options(gpu, files, frames, [0, 0, SIZE[0], SIZE[1]], false, false)
+}
+
+/// Renders a viewport and optionally records a second camera before submitting the first.
+fn render_frame_options(
+    gpu: &GpuContext,
+    files: &[(&str, &str)],
+    frames: usize,
+    viewport: [u32; 4],
+    second_view: bool,
+    geometry_fixture: bool,
 ) -> (Arc<super::loader::PackGpu>, Vec<u8>) {
     let pack = pack(files);
     let pack = Arc::new(
@@ -224,14 +237,15 @@ fn render_frames(
         format,
         wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
     );
-    let mut state = ViewState::new(&gpu.device, Arc::clone(&pack), size).unwrap();
+    let mut state =
+        ViewState::new(&gpu.device, Arc::clone(&pack), [viewport[2], viewport[3]]).unwrap();
     let game = ShaderPackFrameInputs::default();
     let frame = FrameUniforms::new(
         ViewCamera {
             position: Vec3::new(0.0, 64.0, 0.0),
             rotation: Quat::IDENTITY,
             focal: [1.0, 1.0],
-            screen: size,
+            screen: [viewport[2], viewport[3]],
         },
         &game,
         &pack.settings,
@@ -245,6 +259,7 @@ fn render_frames(
         atlas_size: [0; 2],
         particle_atlas_size: [0; 2],
         hand_projection: bevy::math::Mat4::IDENTITY,
+        crack_atlas_size: [0; 2],
     };
     state.write_uniforms(&gpu.queue, &frame, 0.016, &context);
     let scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
@@ -255,7 +270,11 @@ fn render_frames(
         depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
             view: &depth.create_view(&Default::default()),
             depth_ops: Some(wgpu::Operations {
-                load: wgpu::LoadOp::Clear(0.0),
+                load: wgpu::LoadOp::Clear(if second_view || geometry_fixture {
+                    0.5
+                } else {
+                    0.0
+                }),
                 store: wgpu::StoreOp::Store,
             }),
             stencil_ops: None,
@@ -265,7 +284,10 @@ fn render_frames(
         multiview_mask: None,
     });
     drop(clear);
+    let render_device = bevy::render::renderer::RenderDevice::from(gpu.device.clone());
+    let terrain = EmptyTerrain(pack.terrain_layout);
     let io = FrameIo {
+        viewport,
         scene_colour: &scene.create_view(&Default::default()),
         scene_depth: &depth.create_view(&Default::default()),
         scene_near: 0.1,
@@ -274,11 +296,58 @@ fn render_frames(
         fog_color: super::uniforms::sky_fog(&game, Quat::IDENTITY, Vec3::new(0.0, 64.0, 0.0)).fog,
         destination: &output.create_view(&Default::default()),
         destination_format: format,
-        geometry: None,
+        geometry: geometry_fixture.then_some(super::frame_geometry::FrameGeometry {
+            device: &render_device,
+            terrain: &terrain,
+            atlas: None,
+            effect_textures: None,
+            actors: super::actors::ActorSources::default(),
+            effects: super::effects::EffectInputs {
+                camera: super::effects::EffectCamera {
+                    position: Vec3::new(0., 64., 0.),
+                    model_view: bevy::math::Mat4::IDENTITY,
+                    focal: [1.; 2],
+                    screen: [viewport[2], viewport[3]],
+                },
+                frame: game,
+                atmosphere: None,
+                atmosphere_view: None,
+                atmosphere_textures: None,
+                clouds_visible: false,
+                particles: None,
+                precipitation: None,
+                lightning: None,
+                selection: None,
+                block_entities: None,
+                seconds: 0.,
+            },
+            sky: super::sky::SkyInputs {
+                sky_color: [0.; 3],
+                fog_color: [0.; 3],
+                render_distance: game.render_distance,
+                celestial_angle: 0.,
+                camera_y: 64.,
+                sunrise: false,
+            },
+            overlay_radius: f32::MAX,
+        }),
         timestamps: None,
     };
     for _ in 0..frames {
         record_frame(&gpu.device, &gpu.queue, &mut encoder, &mut state, &io);
+    }
+    if second_view {
+        let mut other =
+            ViewState::new(&gpu.device, Arc::clone(&pack), [viewport[2], viewport[3]]).unwrap();
+        other.write_uniforms(&gpu.queue, &frame, 0.016, &context);
+        let mut encoder = gpu.device.create_command_encoder(&Default::default());
+        let other_io = FrameIo {
+            scene_near: 10.0,
+            geometry: None,
+            ..io
+        };
+        record_frame(&gpu.device, &gpu.queue, &mut encoder, &mut other, &other_io);
+        gpu.queue.submit([encoder.finish()]);
     }
     let readback = gpu.device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
@@ -687,23 +756,21 @@ fn programs_without_colour_outputs_load_and_keep_their_stores() {
 }
 
 #[test]
-fn a_draw_pipeline_the_device_rejects_drops_only_that_draw() {
+fn a_rejected_required_actor_pipeline_keeps_native_world_rendering() {
     let Some(gpu) = gpu() else {
         eprintln!("missing fixture: native GPU adapter for the shader pack frame");
         return;
     };
-    // The entities stages disagree on `tint`'s type: both translate, the pipeline fails
-    // validation. Iris falls back per program; the pack still loads with its terrain draw.
+    // Integer fragment output cannot bind the default normalized color target.
     let pack = pack(&[
+        ("gbuffers_basic.vsh", PASS_VERTEX),
+        ("gbuffers_basic.fsh", FILL),
         ("gbuffers_terrain.vsh", PASS_VERTEX),
         ("gbuffers_terrain.fsh", FILL),
-        (
-            "gbuffers_entities.vsh",
-            "#version 120\nvarying vec2 tint;\nvoid main() { tint = vec2(1.0); gl_Position = ftransform(); }\n",
-        ),
+        ("gbuffers_entities.vsh", PASS_VERTEX),
         (
             "gbuffers_entities.fsh",
-            "#version 120\nvarying vec3 tint;\nvoid main() { gl_FragData[0] = vec4(tint, 1.0); }\n",
+            "#version 430\nlayout(location=0) out uvec4 colour; void main() { colour = uvec4(1); }",
         ),
     ]);
     let pack = build(
@@ -715,17 +782,15 @@ fn a_draw_pipeline_the_device_rejects_drops_only_that_draw() {
         &Default::default(),
         &Default::default(),
     )
-    .expect("one rejected draw does not reject the pack");
+    .expect("pipeline rejection retains the loaded pack and native scene");
     let entities = pack
         .programs
         .iter()
         .position(|p| p.name == "gbuffers_entities")
         .expect("gbuffers_entities translated");
     assert!(
-        pack.draws
-            .iter()
-            .any(|d| d.kind == super::draws::DrawKind::TerrainSolid),
-        "the terrain draw survives"
+        pack.draws.is_empty(),
+        "a rejected required draw retains the native world path"
     );
     let kept: Vec<_> = pack
         .draws
@@ -803,4 +868,275 @@ fn sampler_classes_map_to_wrap_and_filter_modes() {
         };
         assert_eq!([d.mag_filter, d.min_filter], [filter; 2]);
     }
+}
+
+#[test]
+fn fallback_presentation_uses_the_exchanged_composite_output() {
+    let Some(gpu) = gpu() else {
+        eprintln!("missing fixture: native GPU adapter for the shader pack frame");
+        return;
+    };
+    let (pack, bytes) = render_frames(
+        &gpu,
+        &[
+            ("composite.vsh", PASS_VERTEX),
+            (
+                "composite.fsh",
+                "#version 120\nvoid main() { gl_FragData[0] = vec4(0.25, 0.5, 0.75, 1.0); }",
+            ),
+        ],
+        2,
+    );
+    assert!(pack.frame.exchange.contains(&0));
+    assert_pixels(&bytes, |_| [64, 128, 191]);
+}
+
+#[test]
+fn viewport_copies_crop_and_preserve_pixels_outside_the_view() {
+    let Some(gpu) = gpu() else {
+        eprintln!("missing fixture: native GPU adapter for the shader pack frame");
+        return;
+    };
+    let (_, bytes) = render_frame_options(
+        &gpu,
+        &[
+            ("composite.vsh", PASS_VERTEX),
+            ("composite.fsh", INVERT),
+            ("final.vsh", PASS_VERTEX),
+            ("final.fsh", FINAL),
+        ],
+        1,
+        [1, 1, 2, 2],
+        false,
+        false,
+    );
+    for y in 0..4 {
+        for x in 0..4 {
+            let inside = (1..3).contains(&x) && (1..3).contains(&y);
+            let original = if y < 2 { [255u8, 0, 0] } else { [128u8; 3] };
+            let expected = original.map(|c| if inside { 255 - c } else { c });
+            let at = y * 256 + x * 4;
+            for c in 0..3 {
+                assert!(bytes[at + c].abs_diff(expected[c]) <= 1);
+            }
+        }
+    }
+}
+
+#[test]
+fn recorded_views_keep_their_own_depth_conversion_planes() {
+    let Some(gpu) = gpu() else {
+        eprintln!("missing fixture: native GPU adapter for the shader pack frame");
+        return;
+    };
+    let (_, bytes) = render_frame_options(
+        &gpu,
+        &[
+            ("final.vsh", PASS_VERTEX),
+            (
+                "final.fsh",
+                "#version 120\nuniform sampler2D depthtex0; varying vec2 texcoord; void main() { gl_FragColor = vec4(vec3(texture2D(depthtex0, texcoord).r), 1.0); }",
+            ),
+        ],
+        1,
+        [0, 0, 4, 4],
+        true,
+        false,
+    );
+    assert_pixels(&bytes, |_| [191; 3]);
+}
+
+/// Supplies an empty terrain list while retaining the host's geometry and overlay passes.
+struct EmptyTerrain(super::geometry::TerrainLayout);
+impl super::frame_geometry::TerrainDraws for EmptyTerrain {
+    fn draw<'w>(
+        &'w self,
+        _pass: &mut bevy::render::render_phase::TrackedRenderPass<'w>,
+        _category: super::geometry::GeometryCategory,
+        _shadow: bool,
+    ) -> u32 {
+        0
+    }
+    fn layout(&self) -> super::geometry::TerrainLayout {
+        self.0
+    }
+}
+
+#[test]
+fn native_overlay_refreshes_pre_translucent_depth() {
+    let Some(gpu) = gpu() else {
+        eprintln!("missing fixture: native GPU adapter for the shader pack frame");
+        return;
+    };
+    let (_, bytes) = render_frame_options(
+        &gpu,
+        &[
+            ("gbuffers_basic.vsh", PASS_VERTEX),
+            ("gbuffers_basic.fsh", FILL),
+            ("gbuffers_terrain.vsh", PASS_VERTEX),
+            ("gbuffers_terrain.fsh", INVERT),
+            ("final.vsh", PASS_VERTEX),
+            (
+                "final.fsh",
+                "#version 120\nuniform sampler2D depthtex1; varying vec2 texcoord; void main() { gl_FragColor = vec4(vec3(texture2D(depthtex1, texcoord).r), 1.0); }",
+            ),
+        ],
+        1,
+        [0, 0, 4, 4],
+        false,
+        true,
+    );
+    assert_pixels(&bytes, |_| [191; 3]);
+}
+
+#[test]
+fn geometry_draws_refresh_custom_image_feedback_before_opening_the_pass() {
+    use super::frame_geometry::open_kind;
+    let Some(gpu) = gpu() else {
+        eprintln!("missing fixture: native GPU adapter for the shader pack frame");
+        return;
+    };
+    let source = pack(&[
+        ("gbuffers_basic.vsh", PASS_VERTEX),
+        ("gbuffers_basic.fsh", FILL),
+        (
+            "shaders.properties",
+            "image.marker = markerSampler RGBA RGBA8 UNSIGNED_BYTE true false 1 1\n",
+        ),
+        ("gbuffers_terrain.vsh", PASS_VERTEX),
+        (
+            "gbuffers_terrain.fsh",
+            "#version 430\nuniform image2D marker; uniform sampler2D markerSampler; void main() { vec4 c = texelFetch(markerSampler, ivec2(0), 0); imageStore(marker, ivec2(0), c); gl_FragData[0] = c; }",
+        ),
+    ]);
+    let pack = Arc::new(
+        build(
+            &source,
+            "fixture",
+            JAVA_DIMENSIONS[0],
+            None,
+            &gpu,
+            &Default::default(),
+        )
+        .unwrap(),
+    );
+    let mut state = ViewState::new(&gpu.device, Arc::clone(&pack), SIZE).unwrap();
+    let texture = &state.targets.images[0].0;
+    gpu.queue.write_texture(
+        texture.as_image_copy(),
+        &[255, 0, 0, 255],
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(4),
+            rows_per_image: None,
+        },
+        texture.size(),
+    );
+    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+    drop(
+        open_kind(
+            &mut encoder,
+            &mut state,
+            super::draws::DrawKind::TerrainSolid,
+            0,
+            None,
+        )
+        .unwrap(),
+    );
+    let source = &state.targets.image_snapshots[0].as_ref().unwrap().view;
+    let pipeline = &pack
+        .host
+        .present
+        .iter()
+        .find(|(f, _)| *f == render_scene::SCENE_COLOR_FORMAT)
+        .unwrap()
+        .1;
+    let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &pipeline.get_bind_group_layout(0),
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::TextureView(source),
+        }],
+    });
+    // Read the snapshot through a compatible color attachment, without requiring COPY_SRC on it.
+    let output = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: render_scene::SCENE_COLOR_FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    {
+        let view = output.create_view(&Default::default());
+        let mut pass = super::passes::pass(
+            &mut encoder,
+            "snapshot probe",
+            &[super::passes::load_attachment(&view)],
+            None,
+        );
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, &group, &[]);
+        pass.draw(0..3, 0..1);
+    }
+    let readback = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: 256,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    encoder.copy_texture_to_buffer(
+        output.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &readback,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(256),
+                rows_per_image: None,
+            },
+        },
+        output.size(),
+    );
+    gpu.queue.submit([encoder.finish()]);
+    readback
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, |r| r.unwrap());
+    gpu.device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .unwrap();
+    assert_eq!(
+        &readback.slice(..).get_mapped_range().unwrap()[..4],
+        &[255, 0, 0, 255]
+    );
+}
+
+#[test]
+fn geometry_overlay_crops_the_native_camera_viewport() {
+    let Some(gpu) = gpu() else {
+        eprintln!("missing fixture: native GPU adapter for the shader pack frame");
+        return;
+    };
+    let (_, bytes) = render_frame_options(
+        &gpu,
+        &[
+            ("gbuffers_basic.vsh", PASS_VERTEX),
+            ("gbuffers_basic.fsh", FILL),
+            ("gbuffers_terrain.vsh", PASS_VERTEX),
+            ("gbuffers_terrain.fsh", INVERT),
+            ("final.vsh", PASS_VERTEX),
+            ("final.fsh", FINAL),
+        ],
+        1,
+        [1, 0, 2, 2],
+        false,
+        true,
+    );
+    assert_pixels(&bytes, |row| if row < 2 { [255, 0, 0] } else { [128; 3] });
 }

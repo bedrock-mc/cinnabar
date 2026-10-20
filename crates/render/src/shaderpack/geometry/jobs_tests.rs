@@ -86,11 +86,11 @@ fn greedy_quads_expand_to_one_job_per_covered_block_and_categories_stay_contiguo
 
     // Solid: the 2x3 quad's six blocks, then lava.
     // Cutout: the overlay quad (face + overlay), the two-sided (leaf) quad and the quad whose
-    // positional variant is two-sided as one-sided faces, then the two-sided model quad.
+    // positional variant is two-sided, then the two-sided model quad.
     // Translucent: the back of the flat two-sided water top, its front, then the same model
     // drawn translucent.
-    assert_eq!(plan.categories, [0..7, 7..13, 13..17]);
-    assert_eq!(plan.faces, 17);
+    assert_eq!(plan.categories, [0..7, 7..15, 15..19]);
+    assert_eq!(plan.faces, 19);
     // Single-sided cube faces and flat liquid faces group by direction ahead of everything
     // else in their category.
     assert_eq!(
@@ -105,17 +105,17 @@ fn greedy_quads_expand_to_one_job_per_covered_block_and_categories_stay_contiguo
     );
     assert_eq!(
         plan.facing[1][Face::PositiveZ as usize],
-        9..11,
-        "leaf cubes face one way, as Java's"
+        9..9,
+        "two-sided leaves stay outside axis culling"
     );
-    assert_eq!(plan.facing[1][FACING_REST], 11..13, "the model");
+    assert_eq!(plan.facing[1][FACING_REST], 9..15, "leaves and the model");
     assert_eq!(
         plan.facing[2][Face::NegativeY as usize],
-        13..14,
+        15..16,
         "the water top's back faces down"
     );
-    assert_eq!(plan.facing[2][Face::PositiveY as usize], 14..15);
-    assert_eq!(plan.facing[2][FACING_REST], 15..17);
+    assert_eq!(plan.facing[2][Face::PositiveY as usize], 16..17);
+    assert_eq!(plan.facing[2][FACING_REST], 17..19);
     let cubes = &plan.jobs[JobKind::Cube as usize];
     let blocks: Vec<_> = cubes[..6]
         .iter()
@@ -147,13 +147,13 @@ fn greedy_quads_expand_to_one_job_per_covered_block_and_categories_stay_contiguo
             (4, 1),
             (5, 1),
             (7, 2),
-            (9, 1),
-            (10, 1)
+            (9, 2),
+            (11, 2)
         ]
     );
     assert_eq!(cubes[6][3], JOB_OVERLAY_FACE);
-    assert_eq!(cubes[7][3], 0);
-    assert_eq!(face_range(&plan, JobKind::Model), [(11, 2), (15, 2)]);
+    assert_eq!(cubes[7][3], JOB_REVERSE_FACE);
+    assert_eq!(face_range(&plan, JobKind::Model), [(13, 2), (17, 2)]);
     assert_eq!(
         plan.jobs[JobKind::Model as usize]
             .iter()
@@ -163,7 +163,7 @@ fn greedy_quads_expand_to_one_job_per_covered_block_and_categories_stay_contiguo
     );
     assert_eq!(
         face_range(&plan, JobKind::Liquid),
-        [(6, 1), (13, 1), (14, 1)],
+        [(6, 1), (15, 1), (16, 1)],
         "jobs follow category and group order; the back face is a job of its own"
     );
     let liquids = &plan.jobs[JobKind::Liquid as usize];
@@ -321,4 +321,38 @@ fn draws_naming_missing_templates_reserve_a_single_face() {
     };
     let plan = plan_section(&section, &tables);
     assert_eq!(face_range(&plan, JobKind::Model), [(0, 1), (1, 1)]);
+}
+
+#[test]
+fn two_sided_cube_materials_and_variants_keep_unculled_reverse_faces() {
+    let materials = materials();
+    let tables = MaterialTables {
+        materials: &materials,
+        model_templates: &[],
+        model_quads: &[],
+    };
+    for material in [TWO_SIDED, VARIED] {
+        let quads = [PackedQuad::new([0; 3], Face::PositiveZ, 1, 1, material)];
+        let section = SectionGeometry {
+            metadata_index: 0,
+            quad_base: 0,
+            cube_quads: &quads,
+            solid_len: 1,
+            model_refs: &[],
+            model_draw_base: 0,
+            model_draw_refs: &[],
+            transparent_model_draw_base: 0,
+            transparent_model_draw_refs: &[],
+            liquid_base: 0,
+            liquid_quads: &[],
+        };
+        let plan = plan_section(&section, &tables);
+        assert_eq!(plan.faces, 2);
+        assert_eq!(plan.categories[GeometryCategory::Cutout.index()], 0..2);
+        assert_eq!(
+            plan.facing[GeometryCategory::Cutout.index()][FACING_REST],
+            0..2
+        );
+        assert_eq!(plan.jobs[JobKind::Cube as usize][0][3], JOB_REVERSE_FACE);
+    }
 }

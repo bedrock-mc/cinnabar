@@ -247,23 +247,50 @@ fn configure_geometry(
 /// The Vanilla effects `pack` replaces: those it draws, and clouds and weather its
 /// directives turn off.
 fn replaced_effects(pack: &PackGpu) -> ShaderPackEffects {
-    let draws = |effects: &[Effect]| {
-        pack.draws
-            .iter()
-            .any(|d| matches!(d.kind, DrawKind::Effect(e) if effects.contains(&e)))
-    };
+    effect_coverage(
+        |effect| {
+            pack.draws
+                .iter()
+                .any(|d| d.kind == DrawKind::Effect(effect))
+        },
+        |effect| !pack.effects.draws(effect),
+    )
+}
+
+/// Keeps each native effect until that effect has a replacement or is explicitly disabled.
+fn effect_coverage(
+    draws: impl Fn(Effect) -> bool,
+    disabled: impl Fn(Effect) -> bool,
+) -> ShaderPackEffects {
     ShaderPackEffects {
-        particles: draws(&[
-            Effect::Particles,
-            Effect::ParticlesTranslucent,
-            Effect::ParticlesAdditive,
-        ]),
-        weather: draws(&[Effect::Weather]) || !pack.effects.draws(Effect::Weather),
-        lightning: draws(&[Effect::Lightning]),
-        clouds: draws(&[Effect::Clouds]) || !pack.effects.draws(Effect::Clouds),
-        selection: draws(&[Effect::Outline]),
-        cracks: draws(&[Effect::DamagedBlock]),
+        particles_opaque: draws(Effect::Particles),
+        particles_translucent: draws(Effect::ParticlesTranslucent),
+        particles_additive: draws(Effect::ParticlesAdditive),
+        weather: draws(Effect::Weather) || disabled(Effect::Weather),
+        lightning: draws(Effect::Lightning),
+        clouds: draws(Effect::Clouds) || disabled(Effect::Clouds),
+        selection: draws(Effect::Outline),
+        cracks: draws(Effect::DamagedBlock),
     }
+}
+
+/// Whether native layers need the scene-copy path until the geometry host can compose them.
+fn needs_native_scene(
+    atmosphere: Option<&render_scene::AtmosphereFrame>,
+    particles: Option<&render_scene::ParticleGpuFrame>,
+    weather: Option<&render_scene::PrecipitationScene>,
+    covered: impl Fn(Effect) -> bool,
+) -> bool {
+    atmosphere.is_some_and(|frame| {
+        frame.sky_kind() == render_scene::SkyKind::Overworld
+            && [Effect::Sun, Effect::Moon, Effect::Stars, Effect::Clouds]
+                .into_iter()
+                .any(|effect| !covered(effect))
+    }) || particles.is_some_and(|frame| {
+        (!frame.opaque.is_empty() && !covered(Effect::Particles))
+            || (!frame.blend.is_empty() && !covered(Effect::ParticlesTranslucent))
+            || (!frame.add.is_empty() && !covered(Effect::ParticlesAdditive))
+    }) || weather.is_some_and(|scene| !scene.layers.is_empty() && !covered(Effect::Weather))
 }
 
 /// Hands out the revisions [`ShaderpackBlockIds`] are published under, each one no earlier
@@ -297,9 +324,18 @@ fn configure_replacement(
     cameras: Query<Entity, With<ShaderPackRendering>>,
     geometry: Option<Res<ShaderpackGeometry>>,
     views: Res<ShaderPackViews>,
-    (pipelines, cache): (Res<ActorSkinPipelines>, Res<PipelineCache>),
+    (pipelines, cache): (Option<Res<ActorSkinPipelines>>, Option<Res<PipelineCache>>),
     mut drawn: ResMut<ShaderPackDrawnCategories>,
     mut replaced: ResMut<ShaderPackEffects>,
+    textures: Option<Res<ShaderpackEffectTextures>>,
+    atmosphere: Option<Res<render_scene::AtmosphereFrame>>,
+    particles: Option<Res<render_scene::ParticleGpuFrame>>,
+    weather: Option<Res<render_scene::PrecipitationScene>>,
+    native: (
+        Option<Res<render_scene::ActorRenderFrame>>,
+        Option<Res<render_scene::HandRigScene>>,
+        Option<Res<render_scene::BlockEntityFrameResource>>,
+    ),
 ) {
     let states = views.states.lock().unwrap_or_else(|e| e.into_inner());
     let ready = pack
@@ -308,27 +344,66 @@ fn configure_replacement(
         .filter(|pack| {
             !cameras.is_empty()
                 && cameras.iter().all(|entity| {
-                    states
-                        .get(&entity)
-                        .is_some_and(|state| Arc::ptr_eq(&state.pack, pack))
+                    states.get(&entity).is_some_and(|state| {
+                        Arc::ptr_eq(&state.pack, pack) && state.geometry_targets_ready()
+                    })
                 })
         });
     let draws = |kind| ready.is_some_and(|pack| pack.draws.iter().any(|draw| draw.kind == kind));
     let replaces = geometry.is_some_and(|geometry| {
         geometry.supported() && geometry.all_sections_fit() && geometry.origin().is_some()
-    }) && pipelines.kernels(&cache).is_some()
-        && super::draws::complete_world(draws);
-    replaced.set_if_neq(
-        ready
-            .filter(|_| replaces)
-            .map_or_else(Default::default, |pack| replaced_effects(pack)),
-    );
+    }) && pipelines
+        .as_deref()
+        .zip(cache.as_deref())
+        .and_then(|(pipelines, cache)| pipelines.kernels(cache))
+        .is_some()
+        && super::draws::complete_world(draws)
+        && actors::compatibility::frame_supported(
+            native.0.as_deref(),
+            native.1.as_deref(),
+            native.2.as_deref().map(|frame| &frame.0),
+        )
+        && !needs_native_scene(
+            atmosphere.as_deref(),
+            particles.as_deref(),
+            weather.as_deref(),
+            |effect| {
+                ready.is_some_and(|pack| {
+                    !pack.effects.draws(effect)
+                        || (draws(DrawKind::Effect(effect))
+                            && textures
+                                .as_ref()
+                                .is_some_and(|textures| textures.views(effect).is_some()))
+                })
+            },
+        );
     drawn.set_if_neq(ShaderPackDrawnCategories {
         terrain: replaces,
         actors: replaces,
         block_entities: replaces,
         hand: replaces,
     });
+    replaced.set_if_neq(
+        ready
+            .filter(|_| drawn.terrain)
+            .map_or_else(Default::default, |pack| replaced_effects(pack)),
+    );
+}
+
+/// Reads the atlas dimensions that current geometry bindings will sample.
+fn atlas_context(
+    atlas: Option<&ShaderpackAtlas>,
+    effects: Option<&ShaderpackEffectTextures>,
+) -> DrawContext {
+    DrawContext {
+        chunk_offset: Vec3::ZERO,
+        hand_projection: Mat4::IDENTITY,
+        atlas_size: atlas.map_or([0; 2], |atlas| {
+            atlas.size.to_array().map(|side| side as i32)
+        }),
+        particle_atlas_size: effects.map_or([0; 2], ShaderpackEffectTextures::particle_atlas_size),
+        crack_atlas_size: effects.map_or([0; 2], ShaderpackEffectTextures::crack_atlas_size),
+    }
 }
 
 /// Allocates or resizes view targets, writes this frame's uniforms and builds each view's
@@ -419,17 +494,11 @@ fn prepare_views(
             .as_ref()
             .and_then(|g| g.chunk_offset(position.as_dvec3()))
             .unwrap_or(Vec3::ZERO);
-        let atlas_size = atlas.as_ref().map_or([0; 2], |atlas| {
-            atlas.size.to_array().map(|side| side as i32)
-        });
         let far = inputs.render_distance.max(16.0) * FAR_PLANE_SCALE;
         let context = DrawContext {
             chunk_offset,
-            atlas_size,
-            particle_atlas_size: effect_textures
-                .as_ref()
-                .map_or([0; 2], |t| t.particle_atlas_size()),
             hand_projection: actors::hand_projection(hand_fov, screen, far),
+            ..atlas_context(atlas.as_deref(), effect_textures.as_deref())
         };
         state.write_uniforms(&queue, &frame, clock.delta_seconds, &context);
         if let Some(geometry) = geometry.as_deref_mut()
@@ -552,6 +621,13 @@ fn shaderpack_post(
     let render_device = world.resource::<RenderDevice>();
     let device = render_device.wgpu_device().clone();
     let queue: wgpu::Queue = (**world.resource::<RenderQueue>()).clone();
+    state.sync_draw_atlas_sizes(
+        &queue,
+        &atlas_context(
+            world.get_resource::<ShaderpackAtlas>(),
+            world.get_resource::<ShaderpackEffectTextures>(),
+        ),
+    );
     let destination_format = target.main_texture_format();
     let terrain = pack_terrain(world).map(|geometry| ViewTerrain {
         geometry,
@@ -612,6 +688,7 @@ fn shaderpack_post(
         entity_ids: world.get_resource::<ShaderPackActorIds>(),
         held_items: [inputs.held_item_id, inputs.held_item_id2],
         camera: view.world_from_view.translation(),
+        view_forward: view.world_from_view.rotation() * Vec3::NEG_Z,
         seconds: world
             .get_resource::<Time>()
             .map_or(0.0, |time| time.elapsed_secs()),
@@ -635,6 +712,7 @@ fn shaderpack_post(
     });
     let post = target.post_process_write();
     let io = FrameIo {
+        viewport: view.viewport.to_array(),
         scene_colour: post.source,
         scene_depth: crate::scene_sampling::view_depth(depth),
         scene_near: view.clip_from_view.w_axis.z,
@@ -701,6 +779,20 @@ fn publish_id_maps(loaded: Res<LoadedShaderPack>, mut maps: ResMut<ShaderPackIdM
     };
 }
 
+/// Keeps opted-in cameras compatible with the host's single-sample depth reads.
+fn admit_cameras(
+    mut cameras: Query<(&mut bevy::render::view::Msaa, &mut Camera3d), With<ShaderPackRendering>>,
+) {
+    for (mut msaa, mut camera) in &mut cameras {
+        msaa.set_if_neq(bevy::render::view::Msaa::Off);
+        let usage = wgpu::TextureUsages::from(camera.depth_texture_usages)
+            | wgpu::TextureUsages::TEXTURE_BINDING;
+        if wgpu::TextureUsages::from(camera.depth_texture_usages) != usage {
+            camera.depth_texture_usages = usage.into();
+        }
+    }
+}
+
 pub(super) fn build(app: &mut App) {
     actors::load_shaders(app);
     app.init_resource::<ShaderPackRequest>()
@@ -721,7 +813,8 @@ pub(super) fn build(app: &mut App) {
             ShaderpackGeometryPlugin,
             ShaderpackAtlasPlugin,
         ))
-        .add_systems(Update, (drive_loader, publish_id_maps).chain());
+        .add_systems(Update, (drive_loader, publish_id_maps).chain())
+        .add_systems(PostUpdate, admit_cameras);
 }
 
 pub(super) fn finish(app: &mut App) {
@@ -738,7 +831,8 @@ pub(super) fn finish(app: &mut App) {
             Render,
             (
                 configure_geometry
-                    .in_set(RenderSystems::PrepareResources)
+                    .after(RenderSystems::PrepareViews)
+                    .before(RenderSystems::Queue)
                     .before(super::geometry::prepare_shaderpack_geometry),
                 prepare_effect_textures
                     .in_set(RenderSystems::PrepareResources)
@@ -746,14 +840,112 @@ pub(super) fn finish(app: &mut App) {
                     .after(crate::block_entity::prepare_block_entity_resources)
                     .before(prepare_views),
                 prepare_views
-                    .in_set(RenderSystems::PrepareResources)
+                    .after(RenderSystems::PrepareViews)
+                    .before(RenderSystems::Queue)
                     .after(bevy::render::view::prepare_view_targets)
                     .after(super::geometry::prepare_shaderpack_geometry),
-                configure_replacement
-                    .in_set(RenderSystems::PrepareResources)
-                    .after(prepare_views),
+                crate::chunk::shaderpack_sources::before_native_terrain_queues(
+                    configure_replacement.after(prepare_views),
+                ),
                 super::lightmap::update_lightmap.in_set(RenderSystems::PrepareResources),
             ),
         );
     install_graph(render_app.world_mut());
+}
+
+#[cfg(test)]
+mod camera_tests {
+    use super::*;
+    use bevy::render::view::Msaa;
+
+    #[test]
+    fn particle_streams_keep_independent_replacement_coverage() {
+        let coverage = effect_coverage(
+            |effect| effect == Effect::ParticlesTranslucent || effect == Effect::ParticlesAdditive,
+            |_| false,
+        );
+        assert!(!coverage.particles_opaque);
+        assert!(coverage.particles_translucent && coverage.particles_additive);
+        let native = render_scene::AtmosphereFrame::default();
+        assert!(!needs_native_scene(Some(&native), None, None, |_| true));
+    }
+
+    #[test]
+    fn unresolved_native_layers_keep_the_scene_copy_path() {
+        assert!(!needs_native_scene(None, None, None, |_| false));
+        assert!(needs_native_scene(
+            Some(&render_scene::AtmosphereFrame::default()),
+            None,
+            None,
+            |_| false
+        ));
+        for additive in [false, true] {
+            let mut particles = render_scene::ParticleGpuFrame::default();
+            let instances = std::sync::Arc::from([particles::ParticleInstance::default()]);
+            if additive {
+                particles.add = instances;
+            } else {
+                particles.blend = instances;
+            }
+            assert!(needs_native_scene(None, Some(&particles), None, |_| false));
+        }
+    }
+
+    #[test]
+    fn replacement_is_published_before_native_queue_consumers() {
+        #[derive(Resource, Default)]
+        struct QueuedTerrain(bool);
+        /// Captures the replacement decision observed by a native queue.
+        fn native_queue(drawn: Res<ShaderPackDrawnCategories>, mut queued: ResMut<QueuedTerrain>) {
+            queued.0 = drawn.terrain;
+        }
+        let mut world = World::new();
+        world.init_resource::<ShaderPackViews>();
+        world.init_resource::<ShaderPackEffects>();
+        world.insert_resource(ShaderPackDrawnCategories {
+            terrain: true,
+            ..default()
+        });
+        world.init_resource::<QueuedTerrain>();
+        let mut schedule = bevy::ecs::schedule::Schedule::default();
+        schedule.configure_sets(
+            (
+                RenderSystems::PrepareViews,
+                RenderSystems::Queue,
+                RenderSystems::PrepareResources,
+            )
+                .chain(),
+        );
+        schedule.add_systems((
+            crate::chunk::shaderpack_sources::before_native_terrain_queues(configure_replacement),
+            native_queue.in_set(RenderSystems::Queue),
+        ));
+        schedule.run(&mut world);
+        assert!(!world.resource::<QueuedTerrain>().0);
+    }
+
+    #[test]
+    fn opted_in_cameras_admit_single_sample_depth_sampling() {
+        let mut app = App::new();
+        app.init_resource::<Assets<bevy::shader::Shader>>();
+        build(&mut app);
+        let camera = app
+            .world_mut()
+            .spawn((Camera3d::default(), Msaa::Sample4, ShaderPackRendering))
+            .id();
+        app.update();
+        assert_eq!(*app.world().get::<Msaa>(camera).unwrap(), Msaa::Off);
+        assert!(
+            wgpu::TextureUsages::from(
+                app.world()
+                    .get::<Camera3d>(camera)
+                    .unwrap()
+                    .depth_texture_usages
+            )
+            .contains(wgpu::TextureUsages::TEXTURE_BINDING)
+        );
+        *app.world_mut().get_mut::<Msaa>(camera).unwrap() = Msaa::Sample8;
+        app.update();
+        assert_eq!(*app.world().get::<Msaa>(camera).unwrap(), Msaa::Off);
+    }
 }

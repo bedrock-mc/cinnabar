@@ -1,10 +1,13 @@
 //! Token-level rewrites of compatibility-profile and GLSL 1.20 constructs.
 
 use super::TransformError;
-use super::items::{matching, size_unsized_arrays, split_args};
+use super::items::{
+    func_params, matching, parse_decl, shadowed_bindings, size_unsized_arrays, split_args,
+    split_items,
+};
 use crate::programs::StageKind;
 use crate::token::{Tok, TokKind, id, int, lex, p};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 
 /// Identifiers reserved or built in since GLSL 1.30 that 1.20 code may use as names.
 const RESERVED_SINCE_130: &[&str] = &[
@@ -109,21 +112,41 @@ const CORE_NAMES: &[(&str, &str, bool)] = &[
 /// uses both (`gl_Normal` and `vaNormal`) reads one input. A declared name stays the
 /// pack's own variable.
 fn undeclared_core_names(src: &[Tok], stage: StageKind) -> Option<Vec<Tok>> {
-    // `<type> <name>`, or a later declarator of a list: `in mat4 unproject, projectionMatrix`.
-    let declares = |i: usize| {
-        let mut j = i;
-        while j >= 2 && src[j - 1].is(",") && src[j - 2].ident().is_some() {
-            j -= 2;
+    let mut declared = HashSet::new();
+    let mut shadowed = shadowed_bindings(src, CORE_NAMES.iter().map(|(name, _, _)| *name));
+    let mut offset = 0;
+    for item in split_items(src) {
+        if let Some(declaration) = parse_decl(&item) {
+            declared.extend(declaration.decls.into_iter().map(|(name, _, _)| name));
+            if let Some((name, _, instance)) = declaration.block {
+                declared.insert(name.clone());
+                let mut tokens = vec![id(&name)];
+                tokens.extend(instance);
+                tokens.push(p(";"));
+                if let Some(instances) = parse_decl(&tokens) {
+                    declared.extend(instances.decls.into_iter().map(|(name, _, _)| name));
+                }
+            }
+        } else if let Some((lp, params)) = func_params(&item) {
+            if let Some(name) = lp.checked_sub(1).and_then(|index| item[index].ident()) {
+                declared.insert(name.to_string());
+            }
+            let names: HashSet<_> = params.into_iter().map(|param| param.name).collect();
+            shadowed.extend(
+                item.iter()
+                    .enumerate()
+                    .filter(|(_, token)| token.ident().is_some_and(|name| names.contains(name)))
+                    .map(|(i, _)| offset + i),
+            );
         }
-        j > 0 && src[j - 1].ident().is_some_and(|ty| ty != "return")
-    };
-    let declared = |n: &str| (1..src.len()).any(|i| src[i].ident() == Some(n) && declares(i));
+        offset += item.len();
+    }
     let replace: Vec<(&str, &str)> = CORE_NAMES
         .iter()
         .filter(|(n, _, attribute)| {
             (!attribute || stage == StageKind::Vertex)
                 && src.iter().any(|t| t.ident() == Some(n))
-                && !declared(n)
+                && !declared.contains(*n)
         })
         .map(|(n, compat, _)| (*n, *compat))
         .collect();
@@ -135,7 +158,7 @@ fn undeclared_core_names(src: &[Tok], stage: StageKind) -> Option<Vec<Tok>> {
         let member = i > 0 && src[i - 1].is(".");
         match replace
             .iter()
-            .find(|(n, _)| !member && t.ident() == Some(n))
+            .find(|(n, _)| !member && !shadowed.contains(&i) && t.ident() == Some(n))
         {
             Some((_, compat)) => {
                 out.push(p("(").at(t.line));
@@ -251,11 +274,6 @@ pub(super) fn rewrite(
             i += 1;
             continue;
         };
-        if i > 0 && src[i - 1].is(".") {
-            toks.push(t.clone());
-            i += 1;
-            continue;
-        }
         let name = name.as_str();
         let called = src.get(i + 1).is_some_and(|n| n.is("("));
         // Iris renames a non-call `texture` to `gtexture` in every version (SEUS Renewed's
@@ -267,6 +285,11 @@ pub(super) fn rewrite(
         }
         if (legacy && RESERVED_SINCE_130.contains(&name)) || RESERVED_VULKAN.contains(&name) {
             toks.push(id(&format!("_r_{name}")).at(line));
+            i += 1;
+            continue;
+        }
+        if i > 0 && src[i - 1].is(".") {
+            toks.push(t.clone());
             i += 1;
             continue;
         }

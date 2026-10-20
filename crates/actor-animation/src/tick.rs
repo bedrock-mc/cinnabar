@@ -682,14 +682,15 @@ pub(super) fn evaluate_state(
         .as_ref()
         .filter(|frame| !frame.samples_camera_poses)
         .map(|_| variables.begin_effects());
-    let local = sample_clips(
+    let local = pose::sample_clips_reused(
         &evaluator,
         &mut variables,
         &state.bones,
-        &state.bone_names,
+        pose::ChannelBones::bound(&state.bone_names, &state.channel_bindings),
         &weighted_clips,
         budget,
-    )?;
+    )?
+    .into_vec();
     if let Some(capture) = pose_capture {
         render_frame.as_mut().unwrap().retained_pose_effects = variables.finish_effects(capture);
     }

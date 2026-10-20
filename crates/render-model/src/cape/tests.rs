@@ -70,6 +70,13 @@ fn installed_cape_hangs_behind_the_body_with_its_front_raster_outward() {
 
 /// Builds an original cape rig for pose and wing-routing tests.
 pub(super) fn fixture_cape() -> super::CapeRig {
+    let model = fixture_model();
+    let geometry = crate::skin_geometry(&model, crate::EntityRigId(1)).unwrap();
+    super::CapeRig::new(geometry, &model.bones)
+}
+
+/// Supplies the original authored cape bones for independent appearance-binding tests.
+fn fixture_model() -> assets::SkinGeometry {
     let source = serde_json::json!({
         "format_version":"1.12.0",
         "minecraft:geometry":[{
@@ -79,14 +86,12 @@ pub(super) fn fixture_cape() -> super::CapeRig {
                 "cubes":[{"origin":[-5,8,3],"size":[10,16,1],"uv":[0,0]}]}]
         }]
     });
-    let model = assets::parse_skin_geometry(
+    assets::parse_skin_geometry(
         r#"{"geometry":{"default":"geometry.fixture"}}"#,
         &source.to_string(),
     )
     .unwrap()
-    .unwrap();
-    let geometry = crate::skin_geometry(&model, crate::EntityRigId(1)).unwrap();
-    super::CapeRig::new(geometry, &model.bones)
+    .unwrap()
 }
 
 /// Supplies immutable render-space rest frames to the shared cape pose.
@@ -327,4 +332,130 @@ fn cape_retargeting_preserves_neck_motion_under_parent_rotation_and_scale() {
         assert!((super::pose::position(&poses[1]) - expected).length() < 1e-6);
         assert_eq!(poses[1].axis_scale, body[1].axis_scale);
     }
+}
+
+#[test]
+fn prepared_cape_indices_preserve_missing_duplicate_case_and_skin_reordering() {
+    let cape = fixture_cape();
+    let mut body = fixture_poses(0.45, 0.3).to_vec();
+    let rest = fixture_poses(0.0, 0.0).to_vec();
+    for names in [
+        vec!["body", "cape"],
+        vec!["CAPE", "BODY"],
+        vec!["cape"],
+        vec!["body", "missing"],
+        vec!["body", "cape", "CAPE"],
+        vec![],
+    ] {
+        let names: Vec<Box<str>> = names.into_iter().map(Into::into).collect();
+        body.resize(names.len(), fixture_poses(0.2, 0.1)[0]);
+        let bound = crate::ActorAttachmentBindings::from_cape(&fixture_model().bones, &names);
+        for java in [None, Some(crate::java_animation::JavaCapeInput::default())] {
+            assert_eq!(
+                cape.pose(
+                    &names,
+                    |index| rest.get(index).copied(),
+                    &body,
+                    java.as_ref()
+                ),
+                cape.pose_bound(
+                    bound.cape(),
+                    |index| rest.get(index).copied(),
+                    &body,
+                    java.as_ref()
+                )
+            );
+        }
+    }
+}
+
+#[test]
+fn cosmetic_binding_payload_does_not_grow_with_catalog() {
+    let names = vec![Box::<str>::from("body")];
+    let bones = fixture_model().bones;
+    let before = crate::ActorAttachmentBindings::from_cape(&bones, &names);
+    let seed = crate::hats::fixture::cloth().descriptor().clone();
+    let items: Vec<_> = (0..16)
+        .map(|index| {
+            let mut descriptor = seed.clone();
+            descriptor.id = format!("fixture:sparse_anchor_{index}");
+            descriptor.attachment_bone = "BODY".into();
+            cosmetics::Item::admit(descriptor).unwrap()
+        })
+        .collect();
+    let after = crate::ActorAttachmentBindings::from_cape(&bones, &names);
+    assert_eq!(after.retained_bytes(), before.retained_bytes());
+    for item in items {
+        assert_eq!(after.anchor(item), Some(0));
+    }
+}
+
+#[test]
+fn prepared_cosmetic_anchors_rebind_skins_and_retain_equipped_catalog_revisions() {
+    let original = crate::hats::fixture::cloth();
+    let mut descriptor = original.descriptor().clone();
+    descriptor.id = "fixture:anchor_revisions".into();
+    descriptor.attachment_bone = "BODY".into();
+    let old = cosmetics::Item::admit(descriptor.clone()).unwrap();
+    let names: Vec<Box<str>> = ["body", "rightitem", "BODY"]
+        .into_iter()
+        .map(Into::into)
+        .collect();
+    let initial = std::sync::Arc::new(crate::ActorAttachmentBindings::from_cape(
+        &fixture_model().bones,
+        &names,
+    ));
+    assert_eq!(initial.anchor(old), Some(0));
+    descriptor.attachment_bone = "rightitem".into();
+    let new = cosmetics::Item::admit(descriptor).unwrap();
+    assert_eq!(initial.anchor(new), Some(1));
+    let mut cache = crate::hats::HatPoseCache::default();
+    let before = crate::actor_bindings::ANCHOR_LOOKUPS.with(std::cell::Cell::get);
+    assert_eq!(cache.anchor(new, None, &names), Some(1));
+    assert_eq!(
+        crate::actor_bindings::ANCHOR_LOOKUPS.with(std::cell::Cell::get),
+        before + 1
+    );
+    let before = crate::actor_bindings::ANCHOR_LOOKUPS.with(std::cell::Cell::get);
+    assert_eq!(cache.anchor(new, Some(&initial), &names), Some(1));
+    let bound = crate::actor_bindings::ANCHOR_LOOKUPS.with(std::cell::Cell::get);
+    assert_eq!(bound, before);
+    for _ in 0..8 {
+        assert_eq!(cache.anchor(new, Some(&initial), &names), Some(1));
+    }
+    assert_eq!(
+        crate::actor_bindings::ANCHOR_LOOKUPS.with(std::cell::Cell::get),
+        bound
+    );
+    let rebound = crate::ActorAttachmentBindings::from_cape(&fixture_model().bones, &names);
+    for item in [old, new] {
+        assert_eq!(
+            rebound.anchor(item),
+            names
+                .iter()
+                .position(|name| name.eq_ignore_ascii_case(&item.descriptor().attachment_bone))
+        );
+    }
+    let names: Vec<Box<str>> = ["rightitem", "body"].into_iter().map(Into::into).collect();
+    let changed = crate::ActorAttachmentBindings::from_cape(&fixture_model().bones, &names);
+    assert_eq!(changed.anchor(old), Some(1));
+    assert_eq!(changed.anchor(new), Some(0));
+    assert_eq!(
+        crate::ActorAttachmentBindings::from_cape(&fixture_model().bones, &[]).anchor(old),
+        None
+    );
+}
+
+#[test]
+fn prepared_cape_indices_decline_a_different_cape_with_the_same_bone_count() {
+    let model = fixture_model();
+    let names = vec![Box::<str>::from("body"), Box::<str>::from("cape")];
+    let bound = crate::ActorAttachmentBindings::from_cape(&model.bones, &names);
+    let cape = fixture_cape();
+    assert!(bound.cape_for(&cape).is_some());
+    let mut different = model.bones.into_vec();
+    different[0].name = "torso".into();
+    different[1].parent = Some("torso".into());
+    let other = super::CapeRig::new(cape.geometry.clone(), &different);
+    assert!(bound.cape_for(&other).is_none());
 }

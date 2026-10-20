@@ -280,6 +280,7 @@ pub(crate) fn sky_fog(
         render_distance_chunks: game.render_distance / CHUNK_BLOCKS,
         look: (rotation * Vec3::NEG_Z).to_array(),
         camera_y: position.y,
+        void_darkness_range: game.void_darkness_range,
         medium: match game.eye_medium {
             1 => FogMedium::Water,
             2 => FogMedium::Lava,
@@ -728,13 +729,13 @@ fn write_value(out: &mut [u8], offset: usize, ty: ValueType, value: &HostValue) 
             };
             let at = offset + column * 16 + row * 4;
             let bytes = match scalar {
-                shaderpack::ScalarType::Float | shaderpack::ScalarType::Double => {
-                    (v as f32).to_le_bytes()
-                }
+                shaderpack::ScalarType::Float => (v as f32).to_le_bytes(),
                 shaderpack::ScalarType::Int | shaderpack::ScalarType::Bool => {
                     (v as i32).to_le_bytes()
                 }
                 shaderpack::ScalarType::Uint => (v.max(0.0) as u32).to_le_bytes(),
+                // Pipeline layout admission rejects widths the host does not supply.
+                _ => continue,
             };
             if let Some(slot) = out.get_mut(at..at + 4) {
                 slot.copy_from_slice(&bytes);

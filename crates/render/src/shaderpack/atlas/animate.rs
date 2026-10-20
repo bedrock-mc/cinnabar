@@ -107,7 +107,7 @@ struct AnimatedLayer {
     targets: Vec<wgpu::TextureView>,
 }
 
-/// Blend pipelines writing the sRGB colour atlas alone, or it and both linear LabPBR atlases.
+/// Blend pipelines writing the encoded colour atlas alone, or it and both linear LabPBR atlases.
 #[derive(Clone, Copy)]
 pub(crate) struct BlendPipelines<'a> {
     pub colour: &'a wgpu::RenderPipeline,

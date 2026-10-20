@@ -361,3 +361,6 @@ fn simultaneous_same_key_requests_publish_one_shared_constructor_plan() {
     assert!(plans.iter().all(|plan| Arc::ptr_eq(plan, &plans[0])));
     assert_eq!(layout.plans.rig_builds.load(Ordering::Relaxed), 1);
 }
+
+mod bindings;
+mod sparse;
