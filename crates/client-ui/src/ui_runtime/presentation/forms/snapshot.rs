@@ -1,5 +1,5 @@
 //! Local-only visual check: rasterizes a presentation frame's UI draw input on
-//! the CPU (nearest sampling, alpha blending, scissors) into a PNG, so form
+//! the CPU (sprite filtering, alpha blending, scissors) into a PNG, so form
 //! layouts can be inspected without a window. Written only when
 //! `CINNABAR_FORM_SNAPSHOT_DIR` names a directory; images are never committed.
 
@@ -8,7 +8,7 @@ use std::path::Path;
 use image::{Rgba, RgbaImage};
 use render_model::{
     UI_BLEND_BACKDROP, UI_BLEND_FILTER, UI_BLEND_INVERT, UI_STYLE_RADIAL_GRADIENT, UiRenderInput,
-    UiRenderVertex, UiTextureFormat,
+    UiRenderVertex, UiTextureFormat, UiTexturePage,
 };
 
 const SNAPSHOT_ENV: &str = "CINNABAR_FORM_SNAPSHOT_DIR";
@@ -85,7 +85,6 @@ fn rasterize_offsets(input: &UiRenderInput, offset: impl Fn(usize) -> [f32; 2]) 
         let Some(page) = pages.get(batch.texture_page as usize) else {
             continue;
         };
-        let [page_width, page_height] = page.dimensions();
         let pixels = page.pixels();
         let scissor = batch.scissor;
         let indices = &input.indices
@@ -123,15 +122,25 @@ fn rasterize_offsets(input: &UiRenderInput, offset: impl Fn(usize) -> [f32; 2]) 
                             inner[channel] * (1.0 - radius) + outer[channel] * radius
                         }));
                     }
-                    let (u, v) = (
-                        ((u + du).floor() as u32).min(page_width - 1),
-                        ((v + dv).floor() as u32).min(page_height - 1),
-                    );
-                    let at = (v * page_width + u) as usize;
-                    let mut texel: [u8; 4] = match page.format() {
-                        UiTextureFormat::Coverage => [255, 255, 255, pixels[at]],
-                        UiTextureFormat::Rgba8 => pixels[at * 4..at * 4 + 4].try_into().unwrap(),
+                    let flags = corners[0].style_flags as u16;
+                    let repeated = flags & render_api::ui_repeat::UI_STYLE_REPEAT != 0;
+                    let uv = if repeated {
+                        render_api::ui_repeat::decode_uv(
+                            [u, v],
+                            [overlay[0] + du, overlay[1] + dv, overlay[2], overlay[3]],
+                            flags,
+                            page.dimensions(),
+                            page.repeat_content(),
+                        )?
+                    } else {
+                        [u + du, v + dv]
                     };
+                    let mut texel = sample(
+                        page,
+                        pixels,
+                        uv,
+                        repeated && flags & u16::from(render_api::UI_STYLE_BILINEAR) != 0,
+                    );
                     if u32::from(ui::UI_STYLE_GRAYSCALE) & corners[0].style_flags != 0 {
                         let luma = (0.299 * f32::from(texel[0])
                             + 0.587 * f32::from(texel[1])
@@ -148,6 +157,34 @@ fn rasterize_offsets(input: &UiRenderInput, offset: impl Fn(usize) -> [f32; 2]) 
         }
     }
     image
+}
+
+/// Samples texel centers with nearest or linear filtering, clamped to the page edges.
+fn sample(page: &UiTexturePage, pixels: &[u8], uv: [f32; 2], linear: bool) -> [u8; 4] {
+    let [width, height] = page.dimensions();
+    let texel = |uv: [f32; 2]| -> [u8; 4] {
+        let x = (uv[0].floor() as u32).min(width - 1);
+        let y = (uv[1].floor() as u32).min(height - 1);
+        let at = (y * width + x) as usize;
+        match page.format() {
+            UiTextureFormat::Coverage => [255, 255, 255, pixels[at]],
+            UiTextureFormat::Rgba8 => pixels[at * 4..at * 4 + 4].try_into().unwrap(),
+        }
+    };
+    if !linear {
+        return texel(uv);
+    }
+    let low = uv.map(|value| (value - 0.5).floor());
+    let mix: [f32; 2] = std::array::from_fn(|axis| uv[axis] - 0.5 - low[axis]);
+    let taps =
+        [[0., 0.], [1., 0.], [0., 1.], [1., 1.]].map(|at| texel([low[0] + at[0], low[1] + at[1]]));
+    std::array::from_fn(|channel| {
+        let top =
+            f32::from(taps[0][channel]) * (1. - mix[0]) + f32::from(taps[1][channel]) * mix[0];
+        let bottom =
+            f32::from(taps[2][channel]) * (1. - mix[0]) + f32::from(taps[3][channel]) * mix[0];
+        (top * (1. - mix[1]) + bottom * mix[1]).round() as u8
+    })
 }
 
 /// Converts an RGBA byte color into normalized premultiplied color for composition.
@@ -260,6 +297,9 @@ pub(in crate::ui_runtime::presentation) fn write_image(image: &RgbaImage, name: 
     image.save(&path).unwrap();
     eprintln!("snapshot: {}", path.display());
 }
+
+#[cfg(test)]
+mod repeat_tests;
 
 #[cfg(test)]
 mod tests {

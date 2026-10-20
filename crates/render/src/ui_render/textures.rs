@@ -298,6 +298,11 @@ impl UiGpuTextures {
             let state = &mut self.state;
             let issued = gpu_allocation::checked(device, "UI texture page upload", bytes, || {
                 state.execute(catalog, &pages, |_, page, location| {
+                    queue.profiled_write_buffer(
+                        &bucket.format_uniform,
+                        render_model::ui_page_uniform::offset(location.layer),
+                        bytemuck::cast_slice(&render_model::ui_page_uniform::region(page)),
+                    );
                     write_page(queue, &bucket.texture, page, location, profile);
                     Ok::<(), UiRenderRejectReason>(())
                 })
@@ -437,12 +442,13 @@ fn bind_texture(
         dimension: Some(TextureViewDimension::D2Array),
         ..Default::default()
     });
-    let coverage = u32::from(bucket.format == UiTextureFormat::Coverage);
+    let format = render_model::ui_page_uniform::words(bucket.format == UiTextureFormat::Coverage);
     let format_uniform =
         device.create_buffer_with_data(&bevy::render::render_resource::BufferInitDescriptor {
             label: Some("UI bucket page format"),
-            contents: bytemuck::cast_slice(&[coverage, 0, 0, 0]),
-            usage: bevy::render::render_resource::BufferUsages::UNIFORM,
+            contents: bytemuck::cast_slice(&format),
+            usage: bevy::render::render_resource::BufferUsages::UNIFORM
+                | bevy::render::render_resource::BufferUsages::COPY_DST,
         });
     GpuBucket {
         texture,
