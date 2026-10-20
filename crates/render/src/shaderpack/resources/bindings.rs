@@ -32,7 +32,7 @@ pub(crate) fn resolve_bindings(
                 } else if let Some(layer) = atlas_layer(&t.name).filter(|_| geometry) {
                     Some(TextureSource::Atlas(layer))
                 } else if t.name == "lightmap" && geometry {
-                    let (index, format) = constants.lightmap();
+                    let (index, format) = constants.lightmap()?;
                     Some(TextureSource::Constant { index, format })
                 } else if t.name == "noisetex" {
                     let (index, format) = constants.noise()?;
