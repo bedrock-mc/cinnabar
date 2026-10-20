@@ -221,7 +221,7 @@ fn render_frame_options(
             position: Vec3::new(0.0, 64.0, 0.0),
             rotation: Quat::IDENTITY,
             focal: [1.0, 1.0],
-            screen: size,
+            screen: [viewport[2], viewport[3]],
         },
         &game,
         &pack.settings,
