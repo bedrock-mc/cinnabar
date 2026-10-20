@@ -45,6 +45,7 @@ pub(super) fn exchange(
     state: &mut State,
 ) -> Updates {
     let Some(account) = account else {
+        cosmetics::set_ownership("", &[]);
         return Updates::default();
     };
     let session = stream.map(|stream| stream.authority().actor_session_id());
@@ -148,10 +149,11 @@ pub(super) fn exchange(
         state.cosmetics = cosmetics.to_vec();
         state.reported = Some(now);
     }
+    let updates = account.shared_player_updates();
+    cosmetics::set_ownership(&updates.ownership_xuid, &updates.owned_cosmetics);
     let Some(stream) = stream else {
         return Updates::default();
     };
-    let updates = account.shared_player_updates();
     let peer = |xuid: &str, uuid: &str| {
         let peer = state
             .peers

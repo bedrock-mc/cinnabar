@@ -39,6 +39,38 @@ fn block_highlights_cross_the_component_boundary_and_require_permission() {
     host.frame(false).unwrap();
     assert_eq!(host.block_highlights(), Some(&selected));
 }
+
+#[test]
+fn block_highlights_need_only_user_consent_across_remote_sessions() {
+    use mod_api::drawing::{DrawingPermissions, DrawingSession};
+
+    for granted in [false, true] {
+        let (_directory, mut host) = load("call $selection", "call $selection", granted);
+        let session = DrawingSession {
+            connection: 1,
+            permissions: DrawingPermissions::ALL,
+            ..Default::default()
+        };
+        host.bind_drawing_session(session);
+        assert!(host.block_highlights().is_none());
+        assert!(host.reload_if_changed().unwrap());
+        host.frame(false).unwrap();
+        assert_eq!(host.block_highlights().is_some(), granted);
+
+        host.bind_drawing_session(DrawingSession {
+            connection: 2,
+            ..session
+        });
+        assert!(host.block_highlights().is_none());
+        assert!(host.reload_if_changed().unwrap());
+        host.frame(false).unwrap();
+        assert_eq!(host.block_highlights().is_some(), granted);
+
+        host.revoke();
+        assert!(host.block_highlights().is_none());
+    }
+}
+
 #[test]
 fn block_highlights_reset_on_trap_and_successful_reload() {
     let (_directory, mut host) = load("call $selection", "call $clear unreachable", true);

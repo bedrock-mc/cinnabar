@@ -99,7 +99,7 @@ pub use layout::{
     LaidOut, LayoutEnv, MeasureCache, Rect, TextMeasure, TextureSource, layout, layout_with,
 };
 pub use layout_cache_key::LayoutCacheKey;
-pub use localize::{localize_text, localize_text_prefix};
+pub use localize::{localize_text, localize_text_chars, localize_text_prefix};
 pub use pack::{GLOBAL_VARIABLES_PATH, UI_DEFS_PATH};
 pub use predicate::{Bindings, Scalar};
 pub use resolve::Resolver;

@@ -254,14 +254,50 @@ fn reloading_waits_for_the_new_runtime_ack_and_preserves_grants() {
             .unwrap_err()
             .contains("reload failed")
     );
-    status(&registration, "loaded");
-    assert!(
-        pending
-            .poll(&scan(&mods, &registration, String::new()), now)
-            .unwrap()
-            .unwrap()
-            .contains("Updated zoom.wasm to 1.1.0")
-    );
+    for state in ["loaded", "next-join"] {
+        status(&registration, state);
+        assert!(
+            pending
+                .poll(&scan(&mods, &registration, String::new()), now)
+                .unwrap()
+                .unwrap()
+                .contains("Updated zoom.wasm to 1.1.0")
+        );
+    }
     pending.finish();
     completion.recv().unwrap();
+}
+
+/// Packet reactors use the same opt-in update flow and keep the user's existing grants.
+#[test]
+fn automatic_packet_install_preserves_registration_and_authority() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("packet.wasm");
+    let code = include_str!("../../../../../crates/mod-host/src/packet_mod/tests/guest.wat")
+        .replace("$IMPORTS", "")
+        .replace("$START", "");
+    let mut original = wat::parse_str(&code).unwrap();
+    section(&mut original, "version", b"1.0.0");
+    section(
+        &mut original,
+        mod_api::UPDATE_URL_SECTION,
+        SOURCE.as_bytes(),
+    );
+    fs::write(&path, &original).unwrap();
+    let config = directory.path().join("config");
+    selection::select(&config, &path, true, "enabled".into()).unwrap();
+    let before = selection::registered(&config).remove(0).entry;
+    let mut next = wat::parse_str(&code).unwrap();
+    section(&mut next, "version", b"1.1.0");
+    section(&mut next, mod_api::UPDATE_URL_SECTION, SOURCE.as_bytes());
+    let download = Downloaded::fixture(
+        installed(directory.path())[0].0.id,
+        "1.1.0",
+        "example/zoom",
+        "zoom.wasm",
+        &next,
+    );
+    install(directory.path(), &download).unwrap();
+    assert_eq!(fs::read(&path).unwrap(), next);
+    assert_eq!(selection::registered(&config)[0].entry, before);
 }

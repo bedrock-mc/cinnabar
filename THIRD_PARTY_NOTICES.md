@@ -6,6 +6,17 @@ under the ignored `.local/assets/block-data/` directory, and the verified
 download cache stays in the ignored sibling `.local/assets/block-data.downloads/`
 directory. This notice is checked in and is not rewritten by the acquisition script.
 
+## Native Bedrock catalog facts
+
+Block hardness, ordinary-tool tags, harvest requirements and recipe item tags
+come from the shared [protocolgen catalog](https://github.com/cinnabar-mc/protocolgen/tree/cf01aa84b74df45df5fa24569e1ac358e4afbb87/generated/data).
+Its selected native 1.26.51 measurements are from
+[didntpot/bedrock-data](https://github.com/didntpot/bedrock-data), commit
+`bb896a46ba856c58383e3cfb962a38c45a0dea78`, under CC0-1.0. The source lock and
+upstream licence are retained in protocolgen. Sword/shears speed targets still
+use the provisional Prismarine input described below; complete mining parity
+remains incomplete.
+
 ## Block property and component data
 
 `crates/assets/data/block-properties-v2193.json` and
@@ -410,8 +421,7 @@ SOFTWARE.<!-- END AXOLOTL-STACK-MIT -->
 - Copyright: Copyright (c) 2019 Dragonfly Tech
 - Upstream license SHA-256:
   `9b0866098f4b7bfadafa43adec71dae35968053ceaea0487fb4b23c46cc72755`
-- Item tag table: `crates/protocol/data/item_tags_dragonfly.tsv`, derived from
-  the `hashimthearab/dragonfly` fork at
+- Earlier item-tag tables were derived from the `hashimthearab/dragonfly` fork at
   `3d29a693c54b8412a6a1c619f5b06bd8cb09a0e5` under the same license.
 
 <!-- BEGIN DRAGONFLY-MIT -->
@@ -514,3 +524,41 @@ SOFTWARE.
 - Distribution: none. `devtool symbolicate` is a developer tool and is not packaged.
 
 The cosmetic regression geometry and textures in `crates/render-model/src/hats/` are original Cinnabar artwork, distributed under the repository license. Editable projects and production catalog assets are maintained in cinnabar-mc/cinnabar-api.
+
+## pp-rs shader preprocessor
+
+- Source: https://github.com/Kangz/glslpp-rs
+- Cinnabar fork: https://github.com/cinnabar-mc/glslpp-rs, pinned in `Cargo.lock`.
+- Dependency: `pp-rs`, shared by shader-pack preprocessing and naga.
+- License: BSD-3-Clause.
+- The fork adds an opt-in mode for float values in preprocessor conditions.
+
+BSD 3-Clause License
+
+Copyright (c) 2020, Corentin Wallez
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

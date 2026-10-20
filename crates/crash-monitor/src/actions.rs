@@ -26,7 +26,7 @@ pub(crate) fn restart(restart: &Restart) -> std::io::Result<()> {
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
-    update_installer::privilege::normal_user(|| command.spawn()).map(drop)
+    command.spawn().map(drop)
 }
 
 /// The crash window's choices in a native dialog, for when no window can open; true when the

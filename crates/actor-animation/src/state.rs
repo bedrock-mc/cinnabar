@@ -10,6 +10,7 @@ pub(super) struct ActorRigState {
     pub(super) rig_binding: usize,
     pub(super) geometry_binding: usize,
     pub(super) bones: Vec<RuntimeBone>,
+    pub(super) composition: Arc<pose::Composition>,
     /// Lowercase bone names in `bones` order, for part visibility.
     pub(super) bone_names: Vec<Box<str>>,
     /// This tick's render-controller result.

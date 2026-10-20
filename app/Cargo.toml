@@ -15,8 +15,10 @@ reads = [
     "crates/mod-api/wit/extension.wit",
     "crates/mod-host/src/tests/gameplay.wat",
     "crates/mod-host/src/tests/guest.wat",
+    "crates/mod-host/src/packet_mod/tests/guest.wat",
     "crates/mod-host/src/tests/render.wat",
     "crates/protocol/fixtures/crafting_data_manual_named_1x1.bin",
+    "crates/protocol/fixtures/start_game.bin",
     "crates/render/src/atmosphere.wesl",
     "crates/render/src/cloud.wesl",
     "examples/mods/screen-probe",
@@ -125,7 +127,6 @@ bootstrap-ui = { path = "../crates/bootstrap-ui" }
 crash-monitor = { path = "../crates/crash-monitor" }
 first-run = { path = "../crates/first-run" }
 launcher-host = { path = "../crates/launcher-host" }
-update-installer = { path = "../crates/update-installer" }
 experience-sdk = { path = "../crates/experience-sdk", default-features = false, features = ["declarations"] }
 mod-api = { path = "../crates/mod-api" }
 mod-render = { path = "../crates/mod-render" }
@@ -169,6 +170,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+resource-pack = { path = "../crates/resource-pack", features = ["test-support"] }
 mimalloc.workspace = true
 render-model = { path = "../crates/render-model", features = ["test-support"] }
 wat = "1"

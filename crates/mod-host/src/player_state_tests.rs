@@ -2,6 +2,77 @@ use super::*;
 use crate::{ModGrants, PlayerStateEffect, PlayerStateSlot};
 use cinnabar::extension::player_state::Host as _;
 
+/// Effect clocks neither change equipment tokens nor reallocate the retained equipment.
+#[test]
+fn split_observations_isolate_timers_and_fence_disconnects() {
+    let mut state = State::new(
+        ModGrants {
+            player_state: true,
+            ..Default::default()
+        },
+        String::new(),
+        Default::default(),
+    );
+    let mut input = snapshot();
+    state
+        .player_state
+        .set_snapshot(Some(input.clone()))
+        .unwrap();
+    let first = state.read_revisions().unwrap().unwrap().unwrap();
+    assert_eq!(
+        state.read_equipment().unwrap().unwrap().unwrap().inventory,
+        input.inventory
+    );
+    let inventory = state
+        .player_state
+        .split
+        .equipment
+        .as_ref()
+        .unwrap()
+        .inventory
+        .as_ptr();
+    input.effects[0].remaining_ticks = Some(119);
+    state.player_state.begin_frame();
+    state
+        .player_state
+        .set_snapshot(Some(input.clone()))
+        .unwrap();
+    let second = state.read_revisions().unwrap().unwrap().unwrap();
+    assert_eq!(first.equipment, second.equipment);
+    assert_ne!(first.effects, second.effects);
+    assert_eq!(
+        state
+            .player_state
+            .split
+            .equipment
+            .as_ref()
+            .unwrap()
+            .inventory
+            .as_ptr(),
+        inventory
+    );
+    assert_eq!(
+        state.read_effects().unwrap().unwrap().unwrap().effects,
+        input.effects
+    );
+    input.selected_slot = Some(3);
+    state.player_state.set_snapshot(Some(input)).unwrap();
+    let third = state.read_revisions().unwrap().unwrap().unwrap();
+    assert_ne!(second.equipment, third.equipment);
+    assert_eq!(second.effects, third.effects);
+    state.player_state.begin_frame();
+    assert!(state.read_revisions().unwrap().unwrap().is_none());
+    assert!(state.read_equipment().unwrap().unwrap().is_none());
+    assert!(state.read_effects().unwrap().unwrap().is_none());
+    state.player_state.set_snapshot(Some(snapshot())).unwrap();
+    let rejoined = state.read_revisions().unwrap().unwrap().unwrap();
+    assert!(rejoined.equipment > third.equipment && rejoined.effects > third.effects);
+    state.grants.player_state = false;
+    assert!(state.read_revisions().unwrap().is_err());
+    assert!(state.read_equipment().unwrap().is_err());
+    assert!(state.read_effects().unwrap().is_err());
+}
+
 fn snapshot() -> PlayerStateSnapshot {
     PlayerStateSnapshot {
         session: 7,

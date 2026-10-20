@@ -9,79 +9,48 @@
 
 use assets::facts::java_mapping::{JavaBiomeEntry, JavaBlockMapping};
 
-/// Iris's `BiomeCategories`, in ordinal order: `biome_category` and the `CAT_*` macros.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BiomeCategory {
-    None,
-    Taiga,
-    ExtremeHills,
-    Jungle,
-    Mesa,
-    Plains,
-    Savanna,
-    Icy,
-    TheEnd,
-    Beach,
-    Forest,
-    Ocean,
-    Desert,
-    River,
-    Swamp,
-    Mushroom,
-    Nether,
-    Mountain,
-    Underground,
+/// Declares biome categories and macro names together in ordinal order.
+macro_rules! biome_categories {
+    ($($category:ident => $name:literal),+ $(,)?) => {
+        /// Iris's biome categories, in ordinal order.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub enum BiomeCategory { $($category),+ }
+
+        impl BiomeCategory {
+            /// Every category in ordinal order.
+            pub const ALL: [Self; [$(stringify!($category)),+].len()] = [$(Self::$category),+];
+
+            /// The `CAT_*` macro naming this category.
+            pub const fn macro_name(self) -> &'static str {
+                match self { $(Self::$category => $name),+ }
+            }
+        }
+    };
+}
+
+biome_categories! {
+    None => "CAT_NONE",
+    Taiga => "CAT_TAIGA",
+    ExtremeHills => "CAT_EXTREME_HILLS",
+    Jungle => "CAT_JUNGLE",
+    Mesa => "CAT_MESA",
+    Plains => "CAT_PLAINS",
+    Savanna => "CAT_SAVANNA",
+    Icy => "CAT_ICY",
+    TheEnd => "CAT_THE_END",
+    Beach => "CAT_BEACH",
+    Forest => "CAT_FOREST",
+    Ocean => "CAT_OCEAN",
+    Desert => "CAT_DESERT",
+    River => "CAT_RIVER",
+    Swamp => "CAT_SWAMP",
+    Mushroom => "CAT_MUSHROOM",
+    Nether => "CAT_NETHER",
+    Mountain => "CAT_MOUNTAIN",
+    Underground => "CAT_UNDERGROUND",
 }
 
 impl BiomeCategory {
-    /// Every category in ordinal order.
-    pub const ALL: [BiomeCategory; 19] = [
-        BiomeCategory::None,
-        BiomeCategory::Taiga,
-        BiomeCategory::ExtremeHills,
-        BiomeCategory::Jungle,
-        BiomeCategory::Mesa,
-        BiomeCategory::Plains,
-        BiomeCategory::Savanna,
-        BiomeCategory::Icy,
-        BiomeCategory::TheEnd,
-        BiomeCategory::Beach,
-        BiomeCategory::Forest,
-        BiomeCategory::Ocean,
-        BiomeCategory::Desert,
-        BiomeCategory::River,
-        BiomeCategory::Swamp,
-        BiomeCategory::Mushroom,
-        BiomeCategory::Nether,
-        BiomeCategory::Mountain,
-        BiomeCategory::Underground,
-    ];
-
-    /// The `CAT_*` macro naming this category.
-    pub const fn macro_name(self) -> &'static str {
-        match self {
-            BiomeCategory::None => "CAT_NONE",
-            BiomeCategory::Taiga => "CAT_TAIGA",
-            BiomeCategory::ExtremeHills => "CAT_EXTREME_HILLS",
-            BiomeCategory::Jungle => "CAT_JUNGLE",
-            BiomeCategory::Mesa => "CAT_MESA",
-            BiomeCategory::Plains => "CAT_PLAINS",
-            BiomeCategory::Savanna => "CAT_SAVANNA",
-            BiomeCategory::Icy => "CAT_ICY",
-            BiomeCategory::TheEnd => "CAT_THE_END",
-            BiomeCategory::Beach => "CAT_BEACH",
-            BiomeCategory::Forest => "CAT_FOREST",
-            BiomeCategory::Ocean => "CAT_OCEAN",
-            BiomeCategory::Desert => "CAT_DESERT",
-            BiomeCategory::River => "CAT_RIVER",
-            BiomeCategory::Swamp => "CAT_SWAMP",
-            BiomeCategory::Mushroom => "CAT_MUSHROOM",
-            BiomeCategory::Nether => "CAT_NETHER",
-            BiomeCategory::Mountain => "CAT_MOUNTAIN",
-            BiomeCategory::Underground => "CAT_UNDERGROUND",
-        }
-    }
-
     /// The `biome_category` value.
     pub const fn ordinal(self) -> i32 {
         self as i32

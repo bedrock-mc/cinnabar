@@ -276,7 +276,7 @@ fn mixed_streams_match_word_encoder_with_and_without_migration_and_staging() {
                     ArenaStream::Origins => CHUNK_ORIGIN_BYTES,
                     ArenaStream::Biomes => BIOME_WORD_BYTES,
                 };
-                begin_arena_migration(
+                assert!(begin_arena_migration(
                     &mut arena,
                     &device,
                     stream,
@@ -284,7 +284,7 @@ fn mixed_streams_match_word_encoder_with_and_without_migration_and_staging() {
                         new_capacity: (bytes / stride) as usize * 2,
                         gpu_copy_bytes: bytes,
                     },
-                );
+                ));
                 advance_arena_migration(&mut arena, uploads, 128);
             }
             let mut writes = ArenaWrites::default();
@@ -342,7 +342,7 @@ fn overlapping_ranges_preserve_original_stream_order_in_both_destinations() {
             arena.geometry_stream_capacity as u64 * GEOMETRY_STREAM_WORD_BYTES,
         );
         let new_capacity = arena.geometry_stream_capacity * 2;
-        begin_arena_migration(
+        assert!(begin_arena_migration(
             &mut arena,
             &device,
             ArenaStream::GeometryStreams,
@@ -350,7 +350,7 @@ fn overlapping_ranges_preserve_original_stream_order_in_both_destinations() {
                 new_capacity,
                 gpu_copy_bytes: 0,
             },
-        );
+        ));
         let mut writes = ArenaWrites::default();
         // Deliberately append in chunk order; stream order still places models before lights.
         writes.encode(Part::CubeLighting, 0, std::iter::once([3_u32; 4]));

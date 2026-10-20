@@ -170,6 +170,14 @@ pub(in crate::ui_runtime::presentation) fn mesh_from_sources(
         batch.index_range = batch.index_range.start + offset..batch.index_range.end + offset;
         batch
     }));
+    if let Some(particles) = sources.particles {
+        let offset = u32::try_from(vertices.len()).ok()?;
+        vertices.extend_from_slice(particles.vertices());
+        batches.extend(particles.batches().iter().cloned().map(|mut batch| {
+            batch.index_range = batch.index_range.start + offset..batch.index_range.end + offset;
+            batch
+        }));
+    }
     normalize_depth(&mut vertices)?;
     let indices: Vec<_> = (0..u32::try_from(vertices.len()).ok()?).collect();
     UiMesh::new(vertices.into(), indices.into(), batches.into())

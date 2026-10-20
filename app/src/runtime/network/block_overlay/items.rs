@@ -10,6 +10,7 @@ pub(in crate::runtime::network) fn compile_block_item_overlay(
     keys: Option<&MaterialKeys>,
     max_layers: u32,
     base: Option<&assets::RuntimeAssets>,
+    shared: Option<&SharedTextures>,
 ) -> Option<(CompiledBlockOverlay, CustomBlocks)> {
     if !blocks
         .blocks
@@ -60,6 +61,14 @@ pub(in crate::runtime::network) fn compile_block_item_overlay(
         blocks: items,
         ..Default::default()
     };
-    let compiled = compile_block_overlay(view, &definitions, false, keys, max_layers, base)?;
+    let compiled = compile_block_overlay_with_textures(
+        view,
+        &definitions,
+        false,
+        keys,
+        max_layers,
+        base,
+        shared,
+    )?;
     Some((compiled, definitions))
 }
