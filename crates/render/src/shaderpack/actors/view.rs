@@ -69,7 +69,7 @@ impl Growable {
                 size: super::pages::allocation_size(
                     size,
                     if usage.contains(wgpu::BufferUsages::STORAGE) {
-                        u64::from(device.limits().max_storage_buffer_binding_size)
+                        device.limits().max_storage_buffer_binding_size
                     } else {
                         device.limits().max_buffer_size
                     },
@@ -335,12 +335,15 @@ impl ViewActors {
                         ENTITY_GLINT_SCALE
                     };
                     let texture_matrix = glint_texture_matrix(data.glint, scale);
+                    let strength = data.glint[2];
                     let glint_first = *output;
                     self.jobs.push(SkinJob {
                         first_output: glint_first as u32,
                         first_output_high: (glint_first >> 32) as u32,
                         flags: job.flags | JOB_GLINT,
-                        colour: render_model::pack_overlay_rgba8([data.glint[2]; 4]),
+                        colour: render_model::pack_overlay_rgba8([
+                            strength, strength, strength, 1.0,
+                        ]),
                         ..job
                     });
                     *output += u64::from(job.output_vertices());

@@ -430,7 +430,7 @@ fn glint_draws_honor_strength_and_the_configured_clock() {
         },
     ));
     for hand in [false, true] {
-        for strength in [0.0, 0.25, 1.0] {
+        for strength in [0.0, 0.05, 0.25, 1.0] {
             let source = GlintSource {
                 data: render_model::ActorGpuInstance {
                     material: assets::EntityRenderMaterial::Glint as u32,
@@ -469,10 +469,12 @@ fn glint_draws_honor_strength_and_the_configured_clock() {
                     .iter()
                     .find(|job| job.output_start() == draw.vertices.start)
                     .unwrap();
-                assert_eq!(
-                    job.colour.to_le_bytes(),
-                    [(strength * 255.0).round() as u8; 4]
-                );
+                let [red, green, blue, alpha] = job.colour.to_le_bytes();
+                let test = draw.kind.alpha_test("gbuffers_basic", &[]).unwrap();
+                assert_eq!(test.function, shaderpack::CompareFunction::Greater);
+                assert!(f32::from(alpha) / 255.0 > test.reference);
+                assert_eq!([red, green, blue], [(strength * 255.0).round() as u8; 3]);
+                assert_eq!(alpha, u8::MAX);
             }
         }
     }

@@ -297,6 +297,13 @@ impl BlockIdRevisions {
     }
 }
 
+/// Native actor frames checked before shader packs can replace their queues.
+type NativeActorFrames<'w> = (
+    Option<Res<'w, render_scene::ActorRenderFrame>>,
+    Option<Res<'w, render_scene::HandRigScene>>,
+    Option<Res<'w, render_scene::BlockEntityFrameResource>>,
+);
+
 /// Replaces native queues only after every pack view and terrain category is ready.
 fn configure_replacement(
     pack: Option<Res<LoadedShaderPack>>,
@@ -310,11 +317,7 @@ fn configure_replacement(
     atmosphere: Option<Res<render_scene::AtmosphereFrame>>,
     particles: Option<Res<render_scene::ParticleGpuFrame>>,
     weather: Option<Res<render_scene::PrecipitationScene>>,
-    native: (
-        Option<Res<render_scene::ActorRenderFrame>>,
-        Option<Res<render_scene::HandRigScene>>,
-        Option<Res<render_scene::BlockEntityFrameResource>>,
-    ),
+    native: NativeActorFrames<'_>,
 ) {
     let states = views.states.lock().unwrap_or_else(|e| e.into_inner());
     let ready = pack
