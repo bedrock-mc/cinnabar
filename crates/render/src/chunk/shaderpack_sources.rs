@@ -6,7 +6,7 @@ use bevy::ecs::system::{ScheduleSystem, SystemParam};
 
 use crate::chunk::gpu_cull::ChunkHiddenEntities;
 use crate::chunk::*;
-use crate::shaderpack::geometry::jobs::SectionGeometry;
+use crate::shaderpack::geometry::jobs::{ModelDrawRefs, SectionGeometry};
 use meshing::ChunkBiomeTintIdentity;
 use render_scene::ChunkRenderInstance;
 
@@ -76,6 +76,7 @@ impl PackedChunkSources<'_> {
 /// Resident packed sections and their changes this frame.
 #[derive(SystemParam)]
 pub(crate) struct ResidentSections<'w, 's> {
+    model_sorts: Option<Res<'w, TransparentModelSortRuntime>>,
     sections: Query<
         'w,
         's,
@@ -130,6 +131,22 @@ impl ResidentSections<'_, '_> {
         let record = |range: &Option<Range<u32>>, words: u32| {
             range.as_ref().map_or(0, |range| range.start / words)
         };
+        let transparent_model_draw_refs = if instance.transparent_model_draw_refs.is_empty() {
+            ModelDrawRefs::Local(&[])
+        } else {
+            let identity = TransparentModelAllocationIdentity {
+                entity,
+                key: allocation.key,
+                generation: allocation.generation,
+                model_range: allocation.model_range.clone()?,
+                draw_range: allocation.transparent_model_draw_range.clone()?,
+            };
+            let order = self.model_sorts.as_deref()?.draw_orders.get(&identity)?;
+            ModelDrawRefs::Uploaded {
+                words: &order.words,
+                model_base: identity.model_range.start / 4,
+            }
+        };
         Some(ResidentSection {
             geometry: SectionGeometry {
                 metadata_index: allocation.metadata_index,
@@ -140,7 +157,7 @@ impl ResidentSections<'_, '_> {
                 model_draw_base: record(&allocation.model_draw_range, 2),
                 model_draw_refs: &instance.model_draw_refs,
                 transparent_model_draw_base: record(&allocation.transparent_model_draw_range, 2),
-                transparent_model_draw_refs: &instance.transparent_model_draw_refs,
+                transparent_model_draw_refs,
                 liquid_base: record(&allocation.liquid_range, 4),
                 liquid_quads: &instance.liquid_quads,
             },
@@ -150,11 +167,13 @@ impl ResidentSections<'_, '_> {
     }
 }
 
-/// Orders `systems` after the packed chunk upload that publishes this frame's allocations.
+/// Orders expansion after packed uploads and the model sorts that can rewrite their draw refs.
 pub(crate) fn after_packed_chunk_upload<M>(
     systems: impl IntoScheduleConfigs<ScheduleSystem, M>,
 ) -> ScheduleConfigs<ScheduleSystem> {
-    systems.after(prepare_gpu_chunks)
+    systems
+        .after(prepare_gpu_chunks)
+        .after(prepare_transparent_model_sorts)
 }
 
 /// Whether terrain may draw through multi-draw-indirect on this device, by the packed chunk
@@ -201,7 +220,7 @@ impl ResidentSection<'_> {
                                 self.instance.key,
                                 &self.instance.model_refs,
                                 &self.instance.model_lighting,
-                                *draw,
+                                draw,
                                 assets.assets().model_templates(),
                                 assets.assets().model_quads(),
                                 0,

@@ -78,7 +78,7 @@ fn greedy_quads_expand_to_one_job_per_covered_block_and_categories_stay_contiguo
         model_draw_base: 40,
         model_draw_refs: &draws,
         transparent_model_draw_base: 50,
-        transparent_model_draw_refs: &draws,
+        transparent_model_draw_refs: ModelDrawRefs::Local(&draws),
         liquid_base: 60,
         liquid_quads: &liquids,
     };
@@ -202,7 +202,7 @@ fn sloped_liquid_tops_keep_both_sides_in_one_job_of_the_rest_group() {
         model_draw_base: 0,
         model_draw_refs: &[],
         transparent_model_draw_base: 0,
-        transparent_model_draw_refs: &[],
+        transparent_model_draw_refs: ModelDrawRefs::Local(&[]),
         liquid_base: 0,
         liquid_quads: &liquids,
     };
@@ -258,7 +258,7 @@ fn model_back_faces_follow_the_template_quads_sidedness_not_the_material() {
         model_draw_base: 0,
         model_draw_refs: &draws,
         transparent_model_draw_base: 0,
-        transparent_model_draw_refs: &[],
+        transparent_model_draw_refs: ModelDrawRefs::Local(&[]),
         liquid_base: 0,
         liquid_quads: &[],
     };
@@ -285,7 +285,7 @@ fn placing_a_plan_moves_its_faces_and_ranges() {
         model_draw_base: 0,
         model_draw_refs: &[],
         transparent_model_draw_base: 0,
-        transparent_model_draw_refs: &[],
+        transparent_model_draw_refs: ModelDrawRefs::Local(&[]),
         liquid_base: 0,
         liquid_quads: &[],
     };
@@ -315,7 +315,7 @@ fn draws_naming_missing_templates_reserve_a_single_face() {
         model_draw_base: 0,
         model_draw_refs: &draws,
         transparent_model_draw_base: 0,
-        transparent_model_draw_refs: &[],
+        transparent_model_draw_refs: ModelDrawRefs::Local(&[]),
         liquid_base: 0,
         liquid_quads: &[],
     };
@@ -342,7 +342,7 @@ fn two_sided_cube_materials_and_variants_keep_unculled_reverse_faces() {
             model_draw_base: 0,
             model_draw_refs: &[],
             transparent_model_draw_base: 0,
-            transparent_model_draw_refs: &[],
+            transparent_model_draw_refs: ModelDrawRefs::Local(&[]),
             liquid_base: 0,
             liquid_quads: &[],
         };

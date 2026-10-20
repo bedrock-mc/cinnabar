@@ -1,7 +1,7 @@
 //! Expansion kernels against an original packed section; the fixture section and its
 //! expansion are shared with `expansion_draw_tests`.
 
-use super::jobs::{JobKind, MaterialTables, SectionGeometry, plan_section};
+use super::jobs::{JobKind, MaterialTables, ModelDrawRefs, SectionGeometry, plan_section};
 use super::pipelines::{
     EXPAND_PARAMS_BYTES, EXPAND_WORKGROUP_SIZE, expansion_shader_source, output_layout,
     source_layout,
@@ -225,7 +225,7 @@ fn expand_section(name: &str, fixture: Fixture<'_>) -> Option<Expanded> {
         model_draw_base: 0,
         model_draw_refs: &[],
         transparent_model_draw_base: 0,
-        transparent_model_draw_refs: &[],
+        transparent_model_draw_refs: ModelDrawRefs::Local(&[]),
         liquid_base: 0,
         liquid_quads: fixture.liquid_quads,
     };

@@ -53,6 +53,40 @@ pub(crate) enum JobKind {
 
 pub(crate) const JOB_KINDS: [JobKind; 3] = [JobKind::Cube, JobKind::Model, JobKind::Liquid];
 
+/// Borrowed model draws, with uploaded global model addresses resolved back to section indices.
+#[derive(Clone, Copy)]
+pub(crate) enum ModelDrawRefs<'a> {
+    Local(&'a [PackedModelDrawRef]),
+    Uploaded {
+        words: &'a [[u32; 2]],
+        model_base: u32,
+    },
+}
+
+impl ModelDrawRefs<'_> {
+    /// Number of draw records, preserving GPU offsets even for an invalid record.
+    fn len(self) -> usize {
+        match self {
+            Self::Local(draws) => draws.len(),
+            Self::Uploaded { words, .. } => words.len(),
+        }
+    }
+
+    /// Resolves one draw into the section's local model-ref stream.
+    pub(crate) fn get(self, index: usize) -> Option<PackedModelDrawRef> {
+        match self {
+            Self::Local(draws) => draws.get(index).copied(),
+            Self::Uploaded { words, model_base } => {
+                let &[model, quad] = words.get(index)?;
+                Some(PackedModelDrawRef::new(
+                    model.checked_sub(model_base)?,
+                    quad,
+                ))
+            }
+        }
+    }
+}
+
 /// Everything planning reads about one resident section. Record bases are the section's first
 /// global record in each GPU stream, as its allocation placed them.
 pub(crate) struct SectionGeometry<'a> {
@@ -68,7 +102,7 @@ pub(crate) struct SectionGeometry<'a> {
     pub(crate) model_draw_refs: &'a [PackedModelDrawRef],
     /// Global record of the first translucent model draw ref.
     pub(crate) transparent_model_draw_base: u32,
-    pub(crate) transparent_model_draw_refs: &'a [PackedModelDrawRef],
+    pub(crate) transparent_model_draw_refs: ModelDrawRefs<'a>,
     /// Global record of the first liquid record.
     pub(crate) liquid_base: u32,
     pub(crate) liquid_quads: &'a [PackedLiquidQuad],
@@ -227,7 +261,7 @@ pub(crate) fn plan_section(
     for (base, draws, category) in [
         (
             section.model_draw_base,
-            section.model_draw_refs,
+            ModelDrawRefs::Local(section.model_draw_refs),
             GeometryCategory::Cutout,
         ),
         (
@@ -236,8 +270,11 @@ pub(crate) fn plan_section(
             GeometryCategory::Translucent,
         ),
     ] {
-        for (index, draw) in draws.iter().enumerate() {
-            let flags = model_flags(tables, section.model_refs, *draw).unwrap_or(0);
+        for index in 0..draws.len() {
+            let flags = draws
+                .get(index)
+                .and_then(|draw| model_flags(tables, section.model_refs, draw))
+                .unwrap_or(0);
             categories[category.index()].push(
                 FACING_REST,
                 JobKind::Model,
