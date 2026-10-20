@@ -4,7 +4,7 @@ use super::{installed, registered, same_path, selection};
 use crossbeam_channel::Sender;
 use launcher::mods::{Library, Status};
 use launcher_host::mod_updates::Downloaded;
-use mod_host::{MAX_COMPONENT_SOURCE_BYTES, ModHost, declarations_snapshot, local_files};
+use mod_host::{declarations_snapshot, read_source, validate_source};
 use std::time::{Duration, Instant};
 use std::{
     fs,
@@ -16,9 +16,9 @@ use std::{
 /// Existing registration, permission grants and settings companions retain their identities.
 pub(super) fn install(mods: &Path, download: &Downloaded) -> Result<Installed, String> {
     let (item, path) = selected(mods, download)?;
-    let old = local_files::read(&path, MAX_COMPONENT_SOURCE_BYTES)
-        .map_err(|error| format!("Could not read {}: {error}", item.file))?;
-    let bytes = local_files::read(download.path(), MAX_COMPONENT_SOURCE_BYTES)
+    let old =
+        read_source(&path).map_err(|error| format!("Could not read {}: {error}", item.file))?;
+    let bytes = read_source(download.path())
         .map_err(|error| format!("Could not read mod update: {error}"))?;
     validate(&old, &bytes, download)
         .map_err(|error| format!("Could not update {}: {error}", item.file))?;
@@ -36,8 +36,7 @@ pub(super) fn install(mods: &Path, download: &Downloaded) -> Result<Installed, S
         .map_err(|error| format!("Could not stage {}: {error}", item.file))?;
     selected(mods, download)?;
     // Re-read immediately before replacement: an external editor may preserve file metadata.
-    let current =
-        local_files::read(&path, MAX_COMPONENT_SOURCE_BYTES).map_err(|error| error.to_string())?;
+    let current = read_source(&path).map_err(|error| error.to_string())?;
     if current != old {
         return Err("The installed mod changed while its update was prepared.".into());
     }
@@ -113,7 +112,7 @@ impl PendingReload {
             Some(Status::Starting) if now < self.deadline => None,
             Some(Status::Starting) => Some(Err("The update was installed, but reload has not finished. Use Reload or restart Cinnabar.".into())),
             Some(Status::Failed(error) | Status::ReloadFailed(error)) => Some(Err(format!("The update was installed, but reload failed: {error}"))),
-            Some(Status::Running) | None => Some(Ok(self.message.clone())),
+            Some(Status::Running | Status::NextJoin) | None => Some(Ok(self.message.clone())),
         }
     }
 
@@ -169,7 +168,7 @@ fn validate(old: &[u8], bytes: &[u8], download: &Downloaded) -> Result<(), Strin
     {
         return Err("The downloaded version does not match a newer release.".into());
     }
-    ModHost::validate_component(bytes).map_err(|error| format!("invalid component: {error:#}"))
+    validate_source(bytes).map_err(|error| format!("invalid mod: {error:#}"))
 }
 
 #[cfg(test)]

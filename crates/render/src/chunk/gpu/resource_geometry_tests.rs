@@ -206,6 +206,16 @@ fn resource_swaps_reapply_cached_coverage_before_draw_queues_and_preserve_withdr
                 "a swap cannot drop pending retirement"
             );
             assert!(arena.pending_removals.contains(&entity));
+        } else {
+            // Far terrain turned off (as under a shader pack): what the target hid is drawn
+            // again, and stays so while publications skip the admission walk.
+            app.insert_resource(render_scene::FarTerrainScene::default());
+            for _ in 0..2 {
+                app.world_mut()
+                    .run_system_once(crate::chunk::coverage::publish_terrain_coverage)
+                    .unwrap();
+                assert!(app.world().get::<GpuChunkAllocation>(entity).is_some());
+            }
         }
     }
 }

@@ -12,8 +12,8 @@ use crate::ui::{
 
 /// Buckets bind independently; page count and byte limits bound their residency.
 pub const MAX_UI_TEXTURE_BUCKETS: usize = MAX_UI_TEXTURE_LAYERS as usize;
-/// Replaceable pages after static UI: models, session glyphs, server UI, then a local font.
-pub const MAX_UI_DYNAMIC_PAGES: usize = UI_LOCAL_FONT_PAGE_OFFSET + 1;
+/// Replaceable pages after static UI: models, session glyphs, server UI, local font and particles.
+pub const MAX_UI_DYNAMIC_PAGES: usize = UI_PARTICLE_PAGE_OFFSET + 1;
 /// Side length shared by general dynamic UI pages outside original-resolution model slots.
 pub const UI_DYNAMIC_PAGE_SIDE: u32 = 256;
 /// Fixed dynamic slot carrying the original player skin, not a projected thumbnail.
@@ -22,9 +22,15 @@ pub const UI_MODEL_ATLAS_PAGE_OFFSET: usize = UI_PLAYER_SKIN_PAGE_OFFSET + 1;
 pub const MAX_UI_MODEL_ATLAS_PAGES: usize = 7;
 pub const UI_SESSION_ICON_PAGE_OFFSET: usize =
     UI_MODEL_ATLAS_PAGE_OFFSET + MAX_UI_MODEL_ATLAS_PAGES;
+/// Bounded session-font allocation, shared by the default and named bitmap fonts.
+pub const UI_SESSION_GLYPH_PAGE_OFFSET: usize = UI_SESSION_ICON_PAGE_OFFSET + 1;
+pub const UI_SESSION_GLYPH_PAGES: usize = 8;
+pub const UI_SESSION_GLYPH_PAGE_SIDE: u32 = 512;
 pub const UI_MODEL_ATLAS_SIDE: u32 = 512;
 /// Dedicated bounded local-font slot, outside the server glyph and UI allocations.
 pub const UI_LOCAL_FONT_PAGE_OFFSET: usize = 34;
+/// Dedicated original-resolution atlas for particles in player previews.
+pub const UI_PARTICLE_PAGE_OFFSET: usize = UI_LOCAL_FONT_PAGE_OFFSET + 1;
 pub const UI_LOCAL_FONT_PAGE_SIDE: u32 = 512;
 /// Dense local icon fonts use coverage texels, keeping the ordinary RGBA page's byte budget.
 pub const UI_LOCAL_ICON_FONT_PAGE_SIDE: u32 = UI_LOCAL_FONT_PAGE_SIDE * 2;
@@ -43,11 +49,17 @@ pub const MAX_UI_NATIVE_TEXTURE_GROWTH_BYTES: usize = (render_api::MAX_STANDARD_
     * render_api::MAX_STANDARD_SKIN_SIDE as usize
     + MAX_UI_MODEL_ATLAS_PAGES * UI_MODEL_ATLAS_SIDE as usize * UI_MODEL_ATLAS_SIDE as usize
     + MAX_UI_TEXTURE_SIDE as usize * MAX_UI_TEXTURE_SIDE as usize
-    - (MAX_UI_MODEL_ATLAS_PAGES + 2)
+    + UI_SESSION_GLYPH_PAGES
+        * UI_SESSION_GLYPH_PAGE_SIDE as usize
+        * UI_SESSION_GLYPH_PAGE_SIDE as usize
+    - (MAX_UI_MODEL_ATLAS_PAGES + UI_SESSION_GLYPH_PAGES + 2)
         * UI_DYNAMIC_PAGE_SIDE as usize
         * UI_DYNAMIC_PAGE_SIDE as usize)
     * UiTextureFormat::Rgba8.bytes_per_texel()
-    + MAX_UI_NATIVE_SHEET_BYTES;
+    + MAX_UI_NATIVE_SHEET_BYTES
+    + (MAX_UI_TEXTURE_SIDE as usize * MAX_UI_TEXTURE_SIDE as usize
+        - UI_DYNAMIC_PAGE_SIDE as usize * UI_DYNAMIC_PAGE_SIDE as usize)
+        * UiTextureFormat::Rgba8.bytes_per_texel();
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Pixels {
@@ -552,7 +564,10 @@ fn fixed_budget_bytes(pages: &[UiTexturePage], dynamic_start: usize) -> usize {
 /// Original sources can resize within reserved capacity without changing logical slots.
 fn is_resizable_slot(offset: usize) -> bool {
     offset == UI_LOCAL_FONT_PAGE_OFFSET
+        || offset == UI_PARTICLE_PAGE_OFFSET
         || (UI_PLAYER_SKIN_PAGE_OFFSET..=UI_SESSION_ICON_PAGE_OFFSET).contains(&offset)
+        || (UI_SESSION_GLYPH_PAGE_OFFSET..UI_SESSION_GLYPH_PAGE_OFFSET + UI_SESSION_GLYPH_PAGES)
+            .contains(&offset)
         || (UI_NATIVE_SHEET_PAGE_OFFSET..UI_NATIVE_SHEET_PAGE_OFFSET + MAX_UI_NATIVE_SHEET_PAGES)
             .contains(&offset)
 }
@@ -579,6 +594,11 @@ fn valid_dynamic_dimensions(
     if [width, height] == [UI_DYNAMIC_PAGE_SIDE; 2] {
         return true;
     }
+    if (UI_SESSION_GLYPH_PAGE_OFFSET..UI_SESSION_GLYPH_PAGE_OFFSET + UI_SESSION_GLYPH_PAGES)
+        .contains(&offset)
+    {
+        return [width, height] == [UI_SESSION_GLYPH_PAGE_SIDE; 2];
+    }
     if offset == UI_PLAYER_SKIN_PAGE_OFFSET {
         let classic = render_api::CLASSIC_SKIN_SIDE as u32;
         return (width == classic && height == classic / 2)
@@ -589,7 +609,7 @@ fn valid_dynamic_dimensions(
     if (UI_MODEL_ATLAS_PAGE_OFFSET..UI_SESSION_ICON_PAGE_OFFSET).contains(&offset) {
         return [width, height] == [UI_MODEL_ATLAS_SIDE; 2];
     }
-    if offset == UI_SESSION_ICON_PAGE_OFFSET {
+    if offset == UI_SESSION_ICON_PAGE_OFFSET || offset == UI_PARTICLE_PAGE_OFFSET {
         return width == height
             && width.is_power_of_two()
             && (UI_DYNAMIC_PAGE_SIDE..=MAX_UI_TEXTURE_SIDE).contains(&width);

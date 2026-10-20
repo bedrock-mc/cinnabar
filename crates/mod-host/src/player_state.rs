@@ -8,6 +8,9 @@ use mod_api::{
     PLAYER_STATE_INVENTORY_SLOTS,
 };
 
+#[path = "player_state/split.rs"]
+mod split;
+
 #[derive(Default)]
 pub(super) struct PlayerState {
     pub snapshot: Option<PlayerStateSnapshot>,
@@ -16,6 +19,7 @@ pub(super) struct PlayerState {
     current_revision: Option<u64>,
     revision: u64,
     reads: u32,
+    split: split::SplitState,
     pub observations: crate::module_observations::ModuleObservations,
     pub world: Option<crate::WorldObservation>,
     pub fps: Option<f32>,
@@ -29,10 +33,12 @@ impl PlayerState {
         self.snapshot = None;
         self.current_revision = None;
         self.reads = 0;
+        self.split.begin_frame();
     }
 
     /// Compares validated callback facts with the last snapshot imported by the guest.
     pub fn set_snapshot(&mut self, snapshot: Option<PlayerStateSnapshot>) -> Result<()> {
+        self.split.begin_frame();
         let Some(snapshot) = snapshot else {
             self.snapshot = None;
             self.current_revision = None;
@@ -53,6 +59,8 @@ impl PlayerState {
     pub fn revoke(&mut self) {
         self.begin_frame();
         self.comparison_snapshot = None;
+        self.split.equipment = None;
+        self.split.effects = None;
         self.clear_presentation();
     }
 
@@ -286,6 +294,55 @@ impl cinnabar::extension::player_state::Host for State {
                 .expect("a current player-state snapshot has a revision");
         }
         Ok(Ok(self.player_state.snapshot.clone()))
+    }
+
+    fn read_revisions(
+        &mut self,
+    ) -> Result<Result<Option<cinnabar::extension::player_state::Revisions>, String>> {
+        self.player_state.read_budget()?;
+        if !self.grants.player_state {
+            return Ok(Err("player-state capability denied".into()));
+        }
+        Ok(Ok(self
+            .player_state
+            .split
+            .observe(self.player_state.snapshot.as_ref())?))
+    }
+
+    fn read_equipment(
+        &mut self,
+    ) -> Result<Result<Option<cinnabar::extension::player_state::Equipment>, String>> {
+        self.player_state.read_budget()?;
+        if !self.grants.player_state {
+            return Ok(Err("player-state capability denied".into()));
+        }
+        self.player_state
+            .split
+            .observe(self.player_state.snapshot.as_ref())?;
+        Ok(Ok(self
+            .player_state
+            .split
+            .equipment
+            .clone()
+            .filter(|_| self.player_state.snapshot.is_some())))
+    }
+
+    fn read_effects(
+        &mut self,
+    ) -> Result<Result<Option<cinnabar::extension::player_state::Effects>, String>> {
+        self.player_state.read_budget()?;
+        if !self.grants.player_state {
+            return Ok(Err("player-state capability denied".into()));
+        }
+        self.player_state
+            .split
+            .observe(self.player_state.snapshot.as_ref())?;
+        Ok(Ok(self
+            .player_state
+            .split
+            .effects
+            .clone()
+            .filter(|_| self.player_state.snapshot.is_some())))
     }
 
     fn read_revision(&mut self) -> Result<Result<Option<u64>, String>> {

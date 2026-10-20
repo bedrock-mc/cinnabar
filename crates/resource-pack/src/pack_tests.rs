@@ -1,10 +1,11 @@
 use std::io::{Cursor, Write};
 
+use sha2::Digest;
 use uuid::Uuid;
 use zip::{ZipWriter, write::SimpleFileOptions};
 
 use super::*;
-use crate::{crypto::ContentKey, parser::validate_archive_parts};
+use crate::{MAX_FILE_BYTES, crypto::ContentKey, parser::validate_archive_parts};
 
 const PACK_ID: Uuid = Uuid::from_u128(0x0000_0000_0000_0000_0000_0000_0000_5a3e);
 const PACK_KEY: &[u8; 32] = b"0123456789abcdefghijklmnopqrstuv";
@@ -39,6 +40,7 @@ fn stack(packs: Vec<ValidatedPack>, rejections: &[PackRejection]) -> ValidatedPa
     ValidatedPackStack {
         packs: packs.into_boxed_slice(),
         rejections: rejections.into(),
+        fingerprint: Default::default(),
     }
 }
 
@@ -52,6 +54,212 @@ fn encrypted_archive() -> Vec<u8> {
     let mut lang = b"a=secret".to_vec();
     crate::crypto::tests::encrypt(FILE_KEY.as_bytes(), &mut lang);
     zip_files(&[("contents.json", &contents), ("texts/en_US.lang", &lang)])
+}
+
+#[test]
+fn repeated_encrypted_reads_share_one_decode_across_pack_clones() {
+    let pack = admit(encrypted_archive(), "", ContentKey::new(PACK_KEY));
+    let other = pack.clone();
+    for reader in [&pack, &other, &pack, &other] {
+        assert_eq!(
+            reader
+                .read_file("texts/en_US.lang")
+                .unwrap()
+                .unwrap()
+                .as_ref(),
+            b"a=secret"
+        );
+        assert_eq!(
+            reader
+                .file_fingerprint_with_limit("texts/en_US.lang", MAX_FILE_BYTES)
+                .unwrap()
+                .unwrap(),
+            <[u8; 32]>::from(sha2::Sha256::digest(b"a=secret"))
+        );
+    }
+    assert_eq!(
+        pack.entry("texts/en_US.lang")
+            .unwrap()
+            .cached
+            .reads
+            .load(std::sync::atomic::Ordering::Relaxed),
+        1
+    );
+}
+
+/// Gives a fixture fresh entry identities within a chosen plaintext budget.
+fn with_budget(mut pack: ValidatedPack, budget: usize) -> ValidatedPack {
+    pack.reads = Arc::new(ReadCache::new(budget));
+    for entry in pack.files.values_mut() {
+        entry.cached = pack.reads.entry();
+    }
+    pack
+}
+
+#[test]
+fn concurrent_subscribers_share_encrypted_reads_and_fingerprints() {
+    let pack = admit(encrypted_archive(), "", ContentKey::new(PACK_KEY));
+    std::thread::scope(|scope| {
+        for _ in 0..8 {
+            let pack = pack.clone();
+            scope.spawn(move || {
+                for _ in 0..8 {
+                    assert_eq!(
+                        pack.read_file("texts/en_US.lang")
+                            .unwrap()
+                            .unwrap()
+                            .as_ref(),
+                        b"a=secret"
+                    );
+                    assert_eq!(
+                        pack.file_fingerprint_with_limit("TEXTS/EN_US.LANG", MAX_FILE_BYTES)
+                            .unwrap()
+                            .unwrap(),
+                        <[u8; 32]>::from(sha2::Sha256::digest(b"a=secret"))
+                    );
+                }
+            });
+        }
+    });
+    assert_eq!(
+        pack.entry("texts/en_US.lang")
+            .unwrap()
+            .cached
+            .reads
+            .load(std::sync::atomic::Ordering::Relaxed),
+        1
+    );
+}
+
+#[test]
+fn eviction_preserves_bytes_and_keeps_fingerprints_without_reinflation() {
+    let pack = with_budget(
+        admit(
+            zip_files(&[("a.txt", b"aaaa"), ("b.txt", b"bbbb"), ("c.txt", b"cccc")]),
+            "",
+            None,
+        ),
+        8,
+    );
+    for (path, expected) in [("a.txt", b"aaaa"), ("b.txt", b"bbbb"), ("c.txt", b"cccc")] {
+        assert_eq!(pack.read_file(path).unwrap().unwrap().as_ref(), expected);
+    }
+    assert_eq!(
+        pack.file_fingerprint_with_limit("a.txt", MAX_FILE_BYTES)
+            .unwrap()
+            .unwrap(),
+        <[u8; 32]>::from(sha2::Sha256::digest(b"aaaa"))
+    );
+    let reads = &pack.entry("a.txt").unwrap().cached.reads;
+    assert_eq!(reads.load(std::sync::atomic::Ordering::Relaxed), 1);
+    assert_eq!(pack.read_file("a.txt").unwrap().unwrap().as_ref(), b"aaaa");
+    assert_eq!(reads.load(std::sync::atomic::Ordering::Relaxed), 2);
+    assert_eq!(pack.reads.retained_bytes(), 8);
+}
+
+#[test]
+fn cached_and_uncached_encrypted_fingerprints_and_limits_match() {
+    let cached = admit(encrypted_archive(), "", ContentKey::new(PACK_KEY));
+    let uncached = with_budget(admit(encrypted_archive(), "", ContentKey::new(PACK_KEY)), 0);
+    for path in ["texts/en_US.lang", "TEXTS/EN_US.LANG", "missing.json"] {
+        for limit in [MAX_FILE_BYTES, 0, 7, 8, MAX_FILE_BYTES] {
+            let baseline = uncached
+                .entry(path)
+                .map(|entry| {
+                    uncached
+                        .read_uncached(path, entry, limit)
+                        .map(|bytes| <[u8; 32]>::from(sha2::Sha256::digest(&bytes)))
+                })
+                .transpose();
+            assert_eq!(cached.file_fingerprint_with_limit(path, limit), baseline);
+            assert_eq!(
+                cached.file_fingerprint_with_limit(path, limit),
+                uncached.file_fingerprint_with_limit(path, limit)
+            );
+            assert_eq!(
+                cached.read_file_with_limit(path, limit),
+                uncached.read_file_with_limit(path, limit)
+            );
+        }
+    }
+    assert_eq!(uncached.reads.retained_bytes(), 0);
+}
+
+#[test]
+fn files_larger_than_the_budget_keep_only_their_hashes() {
+    let pack = with_budget(admit(encrypted_archive(), "", ContentKey::new(PACK_KEY)), 2);
+    for _ in 0..4 {
+        assert!(
+            pack.file_fingerprint_with_limit("texts/en_US.lang", MAX_FILE_BYTES)
+                .unwrap()
+                .is_some()
+        );
+    }
+    assert_eq!(
+        pack.entry("texts/en_US.lang")
+            .unwrap()
+            .cached
+            .reads
+            .load(std::sync::atomic::Ordering::Relaxed),
+        1
+    );
+    assert_eq!(
+        pack.read_file("texts/en_US.lang")
+            .unwrap()
+            .unwrap()
+            .as_ref(),
+        b"a=secret"
+    );
+    assert_eq!(
+        pack.entry("texts/en_US.lang")
+            .unwrap()
+            .cached
+            .reads
+            .load(std::sync::atomic::Ordering::Relaxed),
+        2
+    );
+    assert_eq!(pack.reads.retained_bytes(), 0);
+}
+
+#[test]
+fn admission_preserves_the_archive_allocation() {
+    let archive = zip_files(&[("test.txt", b"fixture")]);
+    let allocation = archive.as_ptr();
+    let pack = admit(archive, "", None);
+    assert_eq!(pack.archive_bytes().as_ptr(), allocation);
+}
+
+#[test]
+#[cfg(feature = "handoff")]
+fn stack_layers_and_composed_clones_share_the_admission_budget() {
+    let files = [("a.txt".into(), b"fixture".to_vec())];
+    let view = crate::test_support::layered_pack_view(&[&files, &files]);
+    let layers = view.stack().packs();
+    assert!(Arc::ptr_eq(&layers[0].reads, &layers[1].reads));
+    let empty = stack(vec![], &[]);
+    let composed = ValidatedPackStack::compose(view.stack(), &empty).unwrap();
+    assert!(Arc::ptr_eq(&layers[0].reads, &composed.packs()[0].reads));
+    for layer in composed.packs() {
+        assert_eq!(
+            layer.read_file("a.txt").unwrap().unwrap().as_ref(),
+            b"fixture"
+        );
+    }
+    for layer in layers {
+        assert_eq!(
+            layer.read_file("a.txt").unwrap().unwrap().as_ref(),
+            b"fixture"
+        );
+        assert_eq!(
+            layer
+                .entry("a.txt")
+                .unwrap()
+                .cached
+                .reads
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+    }
 }
 
 // Separately received copies of one archive read identically, so either may stand for the other.
@@ -114,5 +322,113 @@ fn a_different_file_key_makes_the_same_bytes_differ() {
         reference.read_file("texts/en_US.lang").unwrap(),
         rekeyed.read_file("texts/en_US.lang").unwrap()
     );
+    assert_ne!(reference.compile_identity(), rekeyed.compile_identity());
     assert!(!stack(vec![reference], &[]).same_contents(&stack(vec![rekeyed], &[])));
+}
+
+#[test]
+#[cfg(feature = "handoff")]
+fn admission_hashes_each_archive_once_and_composition_reuses_the_digests() {
+    use sha2::{Digest, Sha256};
+    let layers = [
+        vec![("a.txt".into(), b"first".to_vec())],
+        vec![("b.txt".into(), b"second".to_vec())],
+    ];
+    let view = crate::test_support::layered_pack_view(&[&layers[0], &layers[1]]);
+    let admitted = view.stack();
+    for pack in admitted.packs() {
+        assert_eq!(pack.content_hash.computations(), 1);
+    }
+    let expected: crate::StackFingerprint = admitted
+        .packs()
+        .iter()
+        .map(|pack| {
+            (
+                pack.pack_id().to_string(),
+                pack.version().to_owned(),
+                pack.sub_pack_name().to_owned(),
+                Sha256::digest(&*pack.archive_bytes()).into(),
+            )
+        })
+        .collect();
+    let empty = crate::validate_handoff(protocol::ResourcePackHandoff::default());
+    for _ in 0..3 {
+        let composed = ValidatedPackStack::compose(&empty, admitted).unwrap();
+        assert!(admitted.same_contents(&composed));
+        assert_eq!(composed.fingerprint(), &expected);
+        for (pack, clone) in admitted.packs().iter().zip(composed.packs()) {
+            assert!(Arc::ptr_eq(&pack.content_hash, &clone.content_hash));
+            assert!(Arc::ptr_eq(&pack.reads, &clone.reads));
+            for path in pack.files_under("") {
+                let bytes = clone.read_file(path).unwrap().unwrap();
+                assert_eq!(
+                    clone.file_fingerprint_with_limit(path, MAX_FILE_BYTES),
+                    Ok(Some(Sha256::digest(&bytes).into()))
+                );
+            }
+        }
+    }
+    assert_eq!(admitted.fingerprint(), &expected);
+    for pack in admitted.packs() {
+        assert_eq!(pack.content_hash.computations(), 1);
+        for entry in pack.files.values() {
+            assert_eq!(
+                entry
+                    .cached
+                    .reads
+                    .load(std::sync::atomic::Ordering::Relaxed),
+                1
+            );
+        }
+    }
+}
+
+#[test]
+fn keyed_jsonc_reads_keep_the_previous_plaintext_selection() {
+    for body in [
+        br#"{"a":1,"a":2,"number":1.0000000000000002}"#.as_slice(),
+        b"\xef\xbb\xbf{/* comment */\"text\":\"\xff\",\"a\":[1,],}",
+        b"{\"ignored\":1e309}",
+        b"{} {}",
+        b"{,}",
+    ] {
+        let index = format!(r#"{{"content":[{{"path":"test.json","key":"{FILE_KEY}"}}]}}"#);
+        let mut ciphertext = body.to_vec();
+        crate::crypto::tests::encrypt(FILE_KEY.as_bytes(), &mut ciphertext);
+        for raw in [body, ciphertext.as_slice()] {
+            let mut decrypted = raw.to_vec();
+            ContentKey::new(FILE_KEY.as_bytes())
+                .unwrap()
+                .decrypt(&mut decrypted);
+            let expected = if pack_json::normalize_jsonc(&decrypted).is_none()
+                && pack_json::normalize_jsonc(raw).is_some()
+            {
+                raw
+            } else {
+                &decrypted
+            };
+            let pack = admit(
+                zip_files(&[("contents.json", index.as_bytes()), ("test.json", raw)]),
+                "",
+                ContentKey::new(PACK_KEY),
+            );
+            assert_eq!(
+                pack.read_file("test.json").unwrap().unwrap().as_ref(),
+                expected
+            );
+        }
+    }
+}
+
+#[test]
+fn compile_identity_tracks_admitted_paths_and_is_stable_across_admissions() {
+    let bytes = zip_files(&[("a.txt", b"a"), ("b.txt", b"b")]);
+    let original = admit(bytes.clone(), "", None);
+    let mut changed = admit(bytes.clone(), "", None);
+    assert_eq!(original.compile_identity(), changed.compile_identity());
+    changed.files.remove("a.txt");
+    assert_ne!(original.compile_identity(), changed.compile_identity());
+    let mut reordered = admit(bytes, "", None);
+    reordered.file_order.reverse();
+    assert_ne!(original.compile_identity(), reordered.compile_identity());
 }

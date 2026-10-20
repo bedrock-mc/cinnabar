@@ -1,68 +1,17 @@
-//! Optional, bounded session localization. This is not a pinned base carrier.
+//! Optional session translations, independent of the pinned base carrier's format limits.
 
-use std::sync::{
-    Arc, OnceLock,
-    atomic::{AtomicUsize, Ordering},
+use std::{
+    collections::{HashMap, TryReserveError},
+    sync::Arc,
 };
 
-pub const MAX_SERVER_LANG_INPUT_BYTES: usize = 1024 * 1024;
-const MAX_ENTRIES: usize = 4096;
-const MAX_TABLE_BYTES: usize = 4 * 1024 * 1024;
-const MAX_METADATA_BYTES: usize = 512 * 1024;
-const POOL_BYTES: usize = 8 * 1024 * 1024;
-const ALLOCATION_OVERHEAD: usize = 64;
-// Fixed inflater/window and buffered CRC reader allowance; no directory rebuild.
-const READER_SCRATCH_BYTES: usize = 1024 * 1024;
-
-#[derive(Debug)]
-struct Credits(AtomicUsize);
-
-impl Credits {
-    fn reserve(self: &Arc<Self>, bytes: usize) -> Option<Permit> {
-        self.0
-            .try_update(Ordering::AcqRel, Ordering::Acquire, |used| {
-                used.checked_add(bytes).filter(|next| *next <= POOL_BYTES)
-            })
-            .ok()?;
-        Some(Permit {
-            owner: Arc::clone(self),
-            bytes,
-        })
-    }
-}
-
-#[derive(Debug)]
-struct Permit {
-    owner: Arc<Credits>,
-    bytes: usize,
-}
-
-impl Drop for Permit {
-    fn drop(&mut self) {
-        self.owner.0.fetch_sub(self.bytes, Ordering::AcqRel);
-    }
-}
-
-fn process_credits() -> Arc<Credits> {
-    static CREDITS: OnceLock<Arc<Credits>> = OnceLock::new();
-    Arc::clone(CREDITS.get_or_init(|| Arc::new(Credits(AtomicUsize::new(0)))))
-}
-
-struct Entry {
-    key: Box<str>,
-    value: Box<str>,
-    ordinal: usize,
-    _strings: Permit,
-}
-
-/// Immutable optional table. Clones share entries and their allocation permits.
-/// Lookup borrows text; independently retained resolved text belongs to its consumer.
+/// Immutable session translations. Clones share the table; lookups borrow its text.
 pub struct ServerLangOverlay {
-    entries: Vec<Entry>,
-    _metadata: Permit,
+    entries: HashMap<String, String>,
 }
 
 impl std::fmt::Debug for ServerLangOverlay {
+    /// Reports table size without exposing server-provided strings.
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("ServerLangOverlay")
@@ -72,198 +21,189 @@ impl std::fmt::Debug for ServerLangOverlay {
 }
 
 impl ServerLangOverlay {
-    /// Reserves candidate memory before invoking a fixed-slice reader. A refused
-    /// or absent file leaves the base table usable; no remote carrier is trusted.
-    /// The reader must verify exact size and integrity, including an EOF probe.
+    /// Reads one complete source. The reader must verify its size and integrity.
+    /// Allocation or read failure is diagnosed without publishing incomplete input.
     pub fn read(declared_bytes: usize, read: impl FnOnce(&mut [u8]) -> bool) -> Option<Arc<Self>> {
-        Self::read_with_credits(declared_bytes, read, process_credits())
+        let mut input = Vec::new();
+        if input.try_reserve_exact(declared_bytes).is_err() {
+            tracing::warn!(
+                reason = "input_allocation",
+                source_bytes = declared_bytes,
+                "skipping server language input"
+            );
+            return None;
+        }
+        input.resize(declared_bytes, 0);
+        if !read(&mut input) {
+            tracing::warn!(
+                reason = "read_failed",
+                source_bytes = declared_bytes,
+                "skipping server language input"
+            );
+            return None;
+        }
+        Self::from_layers([input])
     }
 
-    fn read_with_credits(
-        declared_bytes: usize,
-        read: impl FnOnce(&mut [u8]) -> bool,
-        credits: Arc<Credits>,
-    ) -> Option<Arc<Self>> {
-        if declared_bytes > MAX_SERVER_LANG_INPUT_BYTES {
-            return None;
-        }
-        let _input = credits.reserve(declared_bytes.checked_add(ALLOCATION_OVERHEAD)?)?;
-        let _reader = credits.reserve(READER_SCRATCH_BYTES)?;
-        let mut input = vec![0; declared_bytes];
-        if !read(&mut input) {
-            return None;
-        }
-        let text = std::str::from_utf8(&input).ok()?;
-        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-        let metadata = MAX_ENTRIES
-            .checked_mul(std::mem::size_of::<Entry>())?
-            .checked_add(std::mem::size_of::<Self>())?
-            .checked_add(ALLOCATION_OVERHEAD)?;
-        if metadata > MAX_METADATA_BYTES {
-            return None;
-        }
-        let metadata_permit = credits.reserve(metadata)?;
-        let mut entries = Vec::with_capacity(MAX_ENTRIES);
-        let mut table_bytes = metadata;
-        for (ordinal, line) in text.lines().enumerate() {
-            let line = line.trim_end_matches('\r');
-            if line.is_empty() || line.starts_with("##") {
-                continue;
-            }
-            let Some((key, value)) = line.split_once('=') else {
+    /// Appends sources in precedence order. Invalid sources and entries that cannot
+    /// be allocated are diagnosed and skipped without dropping other definitions.
+    pub fn from_layers(sources: impl IntoIterator<Item = impl AsRef<[u8]>>) -> Option<Arc<Self>> {
+        let mut entries = HashMap::new();
+        let mut readable = false;
+        for (source_index, source) in sources.into_iter().enumerate() {
+            let bytes = source.as_ref();
+            let Ok(text) = std::str::from_utf8(bytes) else {
+                tracing::warn!(
+                    reason = "invalid_utf8",
+                    source_index,
+                    source_bytes = bytes.len(),
+                    "skipping server language input"
+                );
                 continue;
             };
-            let key = key.trim();
-            if key.is_empty() {
-                continue;
+            readable = true;
+            let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+            let mut skipped = 0usize;
+            for (key, value) in translation_rows(text) {
+                let candidate = (|| {
+                    let mut key = copy_text(key)?;
+                    key.make_ascii_lowercase();
+                    let value = copy_text(value)?;
+                    if let Some(previous) = entries.get_mut(&key) {
+                        *previous = value;
+                    } else {
+                        entries.try_reserve(1)?;
+                        entries.insert(key, value);
+                    }
+                    Ok::<_, TryReserveError>(())
+                })();
+                if candidate.is_err() {
+                    skipped += 1;
+                }
             }
-            let value = value.split_once("\t#").map_or(value, |(value, _)| value);
-            if entries.len() == MAX_ENTRIES
-                || key.len() > super::MAX_LANG_KEY_BYTES
-                || value.len() > super::MAX_LANG_VALUE_BYTES
-            {
-                return None;
+            if skipped != 0 {
+                tracing::warn!(
+                    reason = "entry_allocation",
+                    source_index,
+                    skipped_entries = skipped,
+                    "skipping server language definitions"
+                );
             }
-            let strings = key
-                .len()
-                .checked_add(value.len())?
-                .checked_add(2 * ALLOCATION_OVERHEAD)?;
-            table_bytes = table_bytes.checked_add(strings)?;
-            if table_bytes > MAX_TABLE_BYTES {
-                return None;
-            }
-            let permit = credits.reserve(strings)?;
-            entries.push(Entry {
-                key: key.into(),
-                value: value.into(),
-                ordinal,
-                _strings: permit,
-            });
         }
-        // The ordinal makes duplicate resolution deterministic despite an unstable sort.
-        entries.sort_unstable_by(|a, b| a.key.cmp(&b.key).then(a.ordinal.cmp(&b.ordinal)));
-        entries.reverse();
-        entries.dedup_by(|later, earlier| later.key == earlier.key);
-        entries.reverse();
-        Some(Arc::new(Self {
-            entries,
-            _metadata: metadata_permit,
-        }))
+        if !readable {
+            return None;
+        }
+        Some(Arc::new(Self { entries }))
     }
 
+    /// Finds a definition using the same ASCII case folding as insertion.
     #[must_use]
     pub fn lookup(&self, key: &str) -> Option<&str> {
-        self.entries
-            .binary_search_by(|entry| entry.key.as_ref().cmp(key))
-            .ok()
-            .map(|index| self.entries[index].value.as_ref())
+        if let Some(value) = self.entries.get(key) {
+            return Some(value);
+        }
+        if !key.bytes().any(|byte| byte.is_ascii_uppercase()) {
+            return None;
+        }
+        let mut folded = copy_text(key).ok()?;
+        folded.make_ascii_lowercase();
+        self.entries.get(&folded).map(String::as_str)
     }
+}
+
+/// Copies one translation field only after its allocation succeeds.
+fn copy_text(text: &str) -> Result<String, TryReserveError> {
+    let mut owned = String::new();
+    owned.try_reserve_exact(text.len())?;
+    owned.push_str(text);
+    Ok(owned)
+}
+
+/// Borrows valid translations in source order without copying ignored rows.
+fn translation_rows(text: &str) -> impl Iterator<Item = (&str, &str)> {
+    text.lines().filter_map(|line| {
+        let line = line.trim_end_matches('\r');
+        if line.is_empty() || line.starts_with("##") {
+            return None;
+        }
+        let (key, value) = line.split_once('=')?;
+        let key = key.trim();
+        if key.is_empty() {
+            return None;
+        }
+        let value = value.split_once("\t#").map_or(value, |(value, _)| value);
+        Some((key, value))
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn owner() -> Arc<Credits> {
-        Arc::new(Credits(AtomicUsize::new(0)))
+    #[test]
+    fn small_tables_fit_without_reserving_unused_rows() {
+        let large =
+            ServerLangOverlay::from_layers([format!("large={}\n", "v".repeat(9 * 1024 * 1024))])
+                .unwrap();
+        let small = ServerLangOverlay::from_layers([b"k=v"]).unwrap();
+        assert_eq!(small.lookup("k"), Some("v"));
+        assert_eq!(large.lookup("large").unwrap().len(), 9 * 1024 * 1024);
     }
 
     #[test]
-    fn permits_survive_clones_and_return_only_on_final_drop() {
-        let credits = owner();
-        let table = ServerLangOverlay::read_with_credits(
-            5,
-            |target| {
-                target.copy_from_slice(b"k=old");
-                true
-            },
-            Arc::clone(&credits),
-        )
+    fn ignored_rows_preserve_valid_definitions() {
+        let mut input = "## comment\nmalformed\n=empty\n".repeat(20_000);
+        input.push_str("k=v\n");
+        let table = ServerLangOverlay::from_layers([input]).unwrap();
+        assert_eq!(table.lookup("k"), Some("v"));
+    }
+
+    #[test]
+    fn invalid_layers_do_not_discard_other_sources() {
+        let table = ServerLangOverlay::from_layers([
+            b"first=First\nshared=Before".as_slice(),
+            b"bad=\xff".as_slice(),
+            b"\xef\xbb\xbfshared=After\nlast=Last".as_slice(),
+        ])
         .unwrap();
+        assert_eq!(table.lookup("first"), Some("First"));
+        assert_eq!(table.lookup("shared"), Some("After"));
+        assert_eq!(table.lookup("last"), Some("Last"));
+    }
+
+    #[test]
+    fn snapshots_survive_input_drop_and_later_tables() {
+        let input = String::from("k=old");
+        let table = ServerLangOverlay::from_layers([input.as_bytes()]).unwrap();
         let retained = Arc::clone(&table);
-        let charged = credits.0.load(Ordering::Acquire);
-        assert!(charged >= MAX_ENTRIES * std::mem::size_of::<Entry>());
+        drop(input);
         drop(table);
-        assert_eq!(credits.0.load(Ordering::Acquire), charged);
-        let new = ServerLangOverlay::read_with_credits(
-            5,
-            |target| {
-                target.copy_from_slice(b"k=new");
-                true
-            },
-            Arc::clone(&credits),
-        )
-        .unwrap();
+        let new = ServerLangOverlay::from_layers([b"k=new"]).unwrap();
         assert_eq!(retained.lookup("k"), Some("old"));
         assert_eq!(new.lookup("k"), Some("new"));
-        drop(new);
-        assert_eq!(credits.0.load(Ordering::Acquire), charged);
-        drop(retained);
-        assert_eq!(credits.0.load(Ordering::Acquire), 0);
     }
 
     #[test]
-    fn shared_pool_refusal_and_parse_failure_never_remint() {
-        let credits = owner();
-        let full = credits.reserve(POOL_BYTES).unwrap();
-        assert!(
-            ServerLangOverlay::read_with_credits(
-                3,
-                |_| panic!("uncredited reader"),
-                Arc::clone(&credits)
-            )
-            .is_none()
-        );
-        assert_eq!(credits.0.load(Ordering::Acquire), POOL_BYTES);
-        drop(full);
-        assert!(
-            ServerLangOverlay::read_with_credits(
-                3,
-                |target| {
-                    target.copy_from_slice(b"k=\xff");
-                    true
-                },
-                Arc::clone(&credits)
-            )
-            .is_none()
-        );
-        assert_eq!(credits.0.load(Ordering::Acquire), 0);
-        assert!(ServerLangOverlay::read_with_credits(3, |_| false, Arc::clone(&credits)).is_none());
-        assert_eq!(credits.0.load(Ordering::Acquire), 0);
+    fn allocation_read_and_parse_failures_do_not_publish_partial_input() {
+        assert!(ServerLangOverlay::read(usize::MAX, |_| panic!("unallocatable input")).is_none());
+        assert!(ServerLangOverlay::read(3, |_| false).is_none());
+        assert!(ServerLangOverlay::from_layers([b"k=\xff"]).is_none());
+        assert!(ServerLangOverlay::from_layers(std::iter::empty::<&[u8]>()).is_none());
     }
 
     #[test]
-    fn real_retained_candidates_exhaust_one_owner_without_resetting_it() {
-        let credits = owner();
+    fn retained_candidates_do_not_exhaust_a_process_policy() {
         let input = (0..512)
             .map(|index| format!("key{index}={}\n", "x".repeat(1024)))
             .collect::<String>();
-        let mut retained = Vec::new();
-        let mut refused = false;
-        for _ in 0..32 {
-            let before = credits.0.load(Ordering::Acquire);
-            match ServerLangOverlay::read_with_credits(
-                input.len(),
-                |target| {
-                    target.copy_from_slice(input.as_bytes());
-                    true
-                },
-                Arc::clone(&credits),
-            ) {
-                Some(table) => retained.push(table),
-                None => {
-                    assert_eq!(credits.0.load(Ordering::Acquire), before);
-                    refused = true;
-                    break;
-                }
-            }
+        let retained: Vec<_> = (0..32)
+            .map(|_| ServerLangOverlay::from_layers([input.as_bytes()]).unwrap())
+            .collect();
+        for table in &retained {
+            assert_eq!(table.lookup("key0").unwrap().len(), 1024);
         }
-        assert!(refused);
         let last = Arc::clone(retained.last().unwrap());
-        retained.clear();
-        assert!(credits.0.load(Ordering::Acquire) > 0);
-        assert_eq!(last.lookup("key0").unwrap().len(), 1024);
-        drop(last);
-        assert_eq!(credits.0.load(Ordering::Acquire), 0);
+        drop(retained);
+        assert_eq!(last.lookup("key511").unwrap().len(), 1024);
     }
 }

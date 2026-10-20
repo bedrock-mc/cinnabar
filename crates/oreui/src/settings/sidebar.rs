@@ -91,6 +91,7 @@ const fn tab(section: launcher::menu::settings_sections::SettingSection) -> Tab 
         ),
         Language => (Some(SETTINGS_ICONS[11]), [55, 110, 187], Glyph::Grid, None),
         Creator => (Some(SETTINGS_ICONS[12]), [159, 105, 65], Glyph::Grid, None),
+        Server => (None, [65, 99, 216], Glyph::Grid, None),
         _ => panic!("visible settings section needs artwork"),
     };
     let definition = section.definition();
@@ -162,7 +163,17 @@ pub(super) fn draw(
     );
     let right = viewport[2] - canvas.r(1.6);
     let width = (right - viewport[0] - canvas.r(6.4)).max(1.0);
-    let labels: Vec<_> = TABS
+    let tabs: Vec<_> = TABS
+        .iter()
+        .filter(|tab| {
+            tab.section
+                != launcher::menu::settings_sections::SettingSection::Server
+                    .definition()
+                    .name
+                || view.over_world
+        })
+        .collect();
+    let labels: Vec<_> = tabs
         .iter()
         .map(|Tab { title: key, .. }| {
             translate(key).map_or_else(
@@ -179,7 +190,7 @@ pub(super) fn draw(
                 .map(|height| canvas.r(4.8).max(height + canvas.r(1.6)))
         })
         .collect::<Result<_, _>>()?;
-    let groups = TABS.iter().filter(|tab| tab.group.is_some()).count() as f32;
+    let groups = tabs.iter().filter(|tab| tab.group.is_some()).count() as f32;
     let content = heights.iter().sum::<f32>() + canvas.r(1.6 + groups * (GROUP_HEIGHT + EDGE));
     let max = (content - (viewport[3] - viewport[1])).max(0.0);
     let key = "oreui_settings_sidebar";
@@ -189,7 +200,7 @@ pub(super) fn draw(
     let scroll = canvas.begin_scroll(key, viewport)?;
     let mut y = viewport[1] + canvas.r(1.6) - scroll.offset;
     let mut focused_outline = None;
-    for (index, (tab, label)) in TABS.iter().zip(&labels).enumerate() {
+    for (index, (tab, label)) in tabs.iter().zip(&labels).enumerate() {
         let selector = tab.section;
         if let Some(group) = tab.group {
             let text = translate(group).map_or_else(

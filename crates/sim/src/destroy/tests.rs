@@ -213,7 +213,7 @@ fn table_header_identifies_shared_catalog() {
     assert!(catalog.contains(&format!("\"source_lock_sha256\": \"{source_lock}\"")));
     let mining = headers
         .iter()
-        .find(|line| line.starts_with("# tools (provisional): PrismarineJS Bedrock "))
+        .find(|line| line.starts_with("# special-tool speeds (provisional): PrismarineJS Bedrock "))
         .expect("mining evidence header");
     let (_, digest) = mining.split_once("sha256=").expect("mining digest");
     assert_eq!(digest.len(), 64);
@@ -232,38 +232,35 @@ const EVERY_TOOL: [&str; 9] = [
     "minecraft:stick",
 ];
 
+/// Untagged native blocks have known hand harvestability instead of the slow fallback.
 #[test]
-fn rows_without_tool_evidence_take_the_slowest_rate_for_every_tool() {
-    let rows = table();
-    let unresolved = rows
-        .iter()
-        .filter(|(_, info)| info.harvest == HarvestRequirement::Unresolved && info.hardness > 0.0)
-        .collect::<Vec<_>>();
-    for name in [
-        "minecraft:crafter",
-        "minecraft:glowingobsidian",
-        "minecraft:trial_spawner",
-    ] {
-        assert!(
-            unresolved.iter().any(|(identifier, _)| *identifier == name),
+fn native_no_tool_blocks_use_the_hand_harvest_rate() {
+    assert_eq!(ticks("minecraft:bed", grounded(None)), Some(6));
+    for name in ["minecraft:bed", "minecraft:glass"] {
+        let block = block_destroy_info(name).unwrap();
+        let expected = 1.0 / block.hardness / 30.0;
+        assert_eq!(
+            destroy_progress_per_tick(&block, &grounded(None)),
+            Some(expected),
             "{name}"
         );
-    }
-    for (identifier, info) in unresolved {
-        let slowest = 1.0 / info.hardness / 100.0;
         for tool in EVERY_TOOL {
             let conditions = DestroyConditions {
                 tool: held_tool(tool),
-                on_ground: true,
-                ..DestroyConditions::default()
+                ..grounded(None)
             };
             assert_eq!(
-                destroy_progress_per_tick(info, &conditions),
-                Some(slowest),
-                "{identifier} with {tool}"
+                destroy_progress_per_tick(&block, &conditions),
+                Some(expected),
+                "{name} with {tool}"
             );
         }
     }
+    assert!(
+        table()
+            .iter()
+            .all(|(_, info)| info.hardness < 0.0 || info.harvest != HarvestRequirement::Unresolved)
+    );
 }
 
 #[test]

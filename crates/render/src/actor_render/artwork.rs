@@ -317,22 +317,29 @@ fn upload_page(
     Some(texture)
 }
 
-/// Rebuilds `spans` in place, reusing its capacity across frames. Opaque instances share runs;
-/// sorted-pass instances retain individual sort positions.
+/// Reuses span storage for adjacent opaque instances with equal vertex counts, pages,
+/// materials and layers. Sorted-pass instances retain individual sort positions.
 pub(super) fn draw_spans(
     spans: &mut Vec<ActorDrawSpan>,
     pages: &[ActorArtworkPageId],
     instances: &[render_model::ActorGpuInstance],
     geometry: &[render_model::ActorRigGeometrySpan],
+    layers: impl IntoIterator<Item = u8>,
 ) {
     spans.clear();
-    let mut last_geometry = None;
-    for (index, (page, instance)) in pages.iter().copied().zip(instances).enumerate() {
+    let mut last_layer = None;
+    for (index, ((page, instance), layer)) in
+        pages.iter().copied().zip(instances).zip(layers).enumerate()
+    {
+        let vertex_count = geometry
+            .get(instance.geometry_id as usize)
+            .map_or(0, |span| span.vertex_count);
         if let Some(span) = spans.last_mut().filter(|span| {
             span.page == page
                 && !super::phase::sorted(instance.material)
-                && last_geometry == Some(instance.geometry_id)
+                && span.vertex_count == vertex_count
                 && span.material == instance.material
+                && last_layer == Some(layer)
         }) {
             span.count += 1;
         } else {
@@ -341,11 +348,9 @@ pub(super) fn draw_spans(
                 page,
                 first: index as u32,
                 count: 1,
-                vertex_count: geometry
-                    .get(instance.geometry_id as usize)
-                    .map_or(0, |span| span.vertex_count),
+                vertex_count,
             });
-            last_geometry = Some(instance.geometry_id);
+            last_layer = Some(layer);
         }
     }
 }
@@ -374,6 +379,7 @@ mod tests {
                 first_vertex: 0,
                 vertex_count: 36,
             }],
+            std::iter::repeat(0),
         );
         assert_eq!(
             spans
@@ -405,6 +411,7 @@ mod tests {
                 first_vertex: 0,
                 vertex_count: 36,
             }],
+            std::iter::repeat(0),
         );
         assert_eq!(
             spans
@@ -512,6 +519,7 @@ mod tests {
             &instance_pages,
             &frame.instances,
             &frame.geometry_spans,
+            frame.manifest.iter().map(|entry| entry.identity.layer),
         );
         assert_eq!(spans.len(), 2);
         assert_eq!((spans[0].page, spans[0].count), (low.page(), 1));
@@ -537,6 +545,7 @@ mod tests {
                 first_vertex: 0,
                 vertex_count: 36,
             }],
+            std::iter::repeat(0),
         );
         assert_eq!(spans.len(), 2);
         assert_eq!(
@@ -576,6 +585,7 @@ mod tests {
                 instance(0),
             ],
             &geometry,
+            std::iter::repeat(0),
         );
         let span = |page, first, count, vertex_count| ActorDrawSpan {
             material: 0,

@@ -45,17 +45,14 @@ func (handler *SessionHandler) ServeConnWithPacks(ctx context.Context, conn net.
 
 // prepare admits the selection and declares the digest of its acquired compressed bytes.
 func (delivery *sessionPackDelivery) prepare(ctx context.Context, plan *sessionPlan) error {
-	if len(plan.packs) != len(plan.handoff.Packs) || len(plan.packs) > maxSelectedResourcePacks {
+	if len(plan.packs) != len(plan.handoff.Packs) {
 		return errors.New("proxy: invalid pack selection")
 	}
-	var total uint64
 	for index, pack := range plan.packs {
 		declared := &plan.handoff.Packs[index]
-		if pack == nil || declared.Cache != nil || declared.Size > maxResourcePackArchiveBytes ||
-			declared.Size > maxSelectedResourcePackTotalBytes-total || uint64(pack.Size()) != declared.Size {
+		if pack == nil || declared.Cache != nil || uint64(pack.Size()) != declared.Size {
 			return errors.New("proxy: invalid web pack archive")
 		}
-		total += declared.Size
 		digest := pack.Checksum()
 		declared.SHA256 = &digest
 		if err := ctx.Err(); err != nil {
