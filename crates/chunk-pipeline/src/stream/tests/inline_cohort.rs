@@ -1,10 +1,8 @@
 use super::*;
 
-/// Cohort stream with a publisher epoch over the radius-one column set
-/// {(-1,0),(0,0),(1,0)} so inline admissions are cohort-gated exactly like
-/// request-mode announcements.
-fn publisher_cohort_stream() -> WorldStream {
-    let mut stream = WorldStream::new(WorldBootstrap {
+/// Starts a stream before the server has published any view geometry.
+fn unpublished_stream() -> WorldStream {
+    WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 1,
@@ -12,7 +10,14 @@ fn publisher_cohort_stream() -> WorldStream {
         world_spawn_position: [0; 3],
         air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
-    });
+    })
+}
+
+/// Cohort stream with a publisher epoch over the radius-one column set
+/// {(-1,0),(0,0),(1,0)} so inline admissions are cohort-gated exactly like
+/// request-mode announcements.
+fn publisher_cohort_stream() -> WorldStream {
+    let mut stream = unpublished_stream();
     stream
         .submit(
             1,
@@ -60,6 +65,42 @@ fn inline_only_server_reaches_an_exact_required_cohort() {
         snapshot.required_cohort_hash,
         super::super::diagnostics::deterministic_chunk_key_hash(&BTreeSet::new())
     );
+}
+
+#[test]
+fn startup_view_without_publisher_completes_after_sparse_terrain_decodes() {
+    let mut stream = unpublished_stream();
+    assert!(!stream.startup_view_complete());
+
+    stream.submit(1, inline_air_event(0)).unwrap();
+    assert!(!stream.startup_view_complete(), "decoding is still pending");
+    complete_pending_decode_jobs(&mut stream);
+
+    assert_eq!(stream.loaded_column_count(), 1);
+    assert!(!stream.local_terrain_ready());
+    assert!(stream.committed_view_cohort().is_none());
+    assert!(
+        stream.startup_view_complete(),
+        "decoded sparse terrain must not wait for an unannounced publisher view"
+    );
+
+    stream
+        .submit(
+            2,
+            WorldEvent::PublisherUpdate(PublisherUpdateEvent {
+                center: [0, 64, 0],
+                radius_blocks: 16,
+            }),
+        )
+        .unwrap();
+    assert!(stream.committed_view_cohort().is_some());
+    assert!(
+        !stream.startup_view_complete(),
+        "a later published view still needs its own terrain"
+    );
+    stream.submit(3, inline_air_event(1)).unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    assert!(stream.startup_view_complete());
 }
 
 // Dragonfly sends no terrain until the client reports initialized; a session whose

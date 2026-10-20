@@ -41,7 +41,7 @@ func TestNearbyPlayerControlExchangesHatsAndClearsWithoutAnAccount(t *testing.T)
 	if err := json.Unmarshal(payload, &answer); err != nil {
 		t.Fatal(err)
 	}
-	if len(answer.Result.Loadouts) != 1 || answer.Result.Loadouts[0].Slots[0].ItemID != "cinnabar:bunny_ears" || answer.Result.Emotes == nil {
+	if len(answer.Result.Loadouts) != 1 || answer.Result.Loadouts[0].Slots[0].ItemID != "cinnabar:bunny_ears" || answer.Result.Emotes == nil || answer.Result.OwnedCosmetics == nil {
 		t.Fatalf("updates: %s", payload)
 	}
 	offline, _ := startCinnabarControl(t, nil)
@@ -49,7 +49,26 @@ func TestNearbyPlayerControlExchangesHatsAndClearsWithoutAnAccount(t *testing.T)
 	if err := json.Unmarshal(payload, &answer); err != nil {
 		t.Fatal(err)
 	}
-	if answer.Result.Loadouts == nil || len(answer.Result.Loadouts) != 0 || answer.Result.Emotes == nil {
+	if answer.Result.Loadouts == nil || len(answer.Result.Loadouts) != 0 || answer.Result.Emotes == nil || answer.Result.OwnedCosmetics == nil {
 		t.Fatalf("offline updates: %s", payload)
+	}
+}
+
+func TestNearbyPlayerControlForwardsPaidOwnership(t *testing.T) {
+	api := &fakeSharedPlayers{states: make(chan cinnabarapi.PlayerState, 1), updates: cinnabarapi.PlayerUpdates{
+		OwnershipXUID: "11", OwnedCosmetics: []string{"fixture:paid"},
+	}}
+	dir, _ := startCinnabarControl(t, api)
+	request, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": bridgecontract.MethodCinnabarPlayers,
+		"params": cinnabarapi.PlayerState{}})
+	payload := exchange(t, dir, request)
+	var answer struct {
+		Result bridgecontract.CinnabarPlayerUpdates `json:"result"`
+	}
+	if err := json.Unmarshal(payload, &answer); err != nil {
+		t.Fatal(err)
+	}
+	if answer.Result.OwnershipXUID != "11" || len(answer.Result.OwnedCosmetics) != 1 || answer.Result.OwnedCosmetics[0] != "fixture:paid" {
+		t.Fatalf("ownership updates: %s", payload)
 	}
 }

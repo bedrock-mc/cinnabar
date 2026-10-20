@@ -46,16 +46,11 @@ impl ModGrants {
         grants.render_post &= policy.render_post;
         grants.render &= policy.world_draw;
         grants.render_depth &= policy.render_post;
-        // Player poses retain their independent gameplay consent. Unfiltered entity
-        // and terrain observations still require the session's drawing authority.
-        let protected = policy.entity_observe
-            && policy.render_through_walls
-            && (session.local || (self.entity_observe && self.render_through_walls));
+        // Each legacy capability retains its own consent in local and remote worlds.
+        let protected = policy.entity_observe && policy.render_through_walls;
         grants.entities &= protected;
-        grants.terrain &=
-            policy.render_through_walls && (session.local || self.render_through_walls);
-        grants.block_highlights &=
-            policy.render_through_walls && (session.local || self.render_through_walls);
+        grants.terrain &= policy.render_through_walls;
+        grants.block_highlights &= policy.render_through_walls;
         grants
     }
 }
@@ -94,7 +89,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn remote_default_preserves_player_consent_but_denies_protected_drawing() {
+    fn active_worlds_preserve_each_individual_user_permission() {
+        let request = ModGrants {
+            commands: vec!["fixture".into()],
+            ..Default::default()
+        };
+        for capability in ModGrants::CAPABILITIES {
+            for granted in [false, true] {
+                let mut grants = ModGrants::default();
+                (capability.set)(&mut grants, granted, Some(&request));
+                for local in [false, true] {
+                    assert_eq!(
+                        grants.for_drawing_session(DrawingSession {
+                            connection: 1,
+                            local,
+                            permissions: DrawingPermissions::ALL,
+                            ..Default::default()
+                        }),
+                        grants,
+                        "{}: local={local}, granted={granted}",
+                        capability.name,
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn restricted_session_preserves_player_consent_but_denies_protected_drawing() {
         let grants = ModGrants {
             render: true,
             players: true,

@@ -2,6 +2,47 @@ use assets::{RuntimeEntityAssets, encode_entity_blob};
 
 use super::suite::inherited_geometry_fixture;
 
+#[test]
+fn large_geometry_catalog_roundtrips_through_both_admission_paths() {
+    let mut compiled = inherited_geometry_fixture();
+    let mut geometries = compiled.geometries.to_vec();
+    let mut symbols = compiled.symbols.to_vec();
+    for index in geometries.len()..4_097 {
+        let mut geometry = geometries[1].clone();
+        geometry.identifier = format!("geometry.fixture_{index:04}").into();
+        geometry.inherits = None;
+        let mut symbol = symbols[2].clone();
+        symbol.identifier = geometry.identifier.clone();
+        geometries.push(geometry);
+        symbols.push(symbol);
+    }
+    compiled.geometries = geometries.into();
+    compiled.symbols = symbols.into();
+    let admitted = RuntimeEntityAssets::from_compiled(compiled.clone()).unwrap();
+    let encoded = encode_entity_blob(&compiled).unwrap();
+    let decoded = RuntimeEntityAssets::decode(&encoded).unwrap();
+    assert_eq!(decoded.geometries(), compiled.geometries.as_ref());
+    assert_eq!(decoded.symbols(), compiled.symbols.as_ref());
+    assert_eq!(admitted.geometries(), decoded.geometries());
+    assert_eq!(decoded.encode().unwrap().as_ref(), encoded.as_ref());
+}
+
+#[test]
+fn geometry_header_count_must_match_the_payload() {
+    use sha2::{Digest, Sha256};
+
+    let mut encoded = encode_entity_blob(&inherited_geometry_fixture()).unwrap();
+    encoded[20..24].copy_from_slice(&u32::MAX.to_le_bytes());
+    let payload_end = encoded.len() - 32;
+    let digest = Sha256::digest(&encoded[..payload_end]);
+    encoded[payload_end..].copy_from_slice(&digest);
+    let error = RuntimeEntityAssets::decode(&encoded).unwrap_err();
+    assert!(
+        error.to_string().contains("counts do not match header"),
+        "{error}"
+    );
+}
+
 /// Both admission paths retain the selected parent graph and clones share it unchanged.
 #[test]
 fn admitted_geometry_parents_are_shared_and_match_the_decoded_catalog() {

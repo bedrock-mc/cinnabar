@@ -34,9 +34,14 @@ pub(crate) fn merge_uniforms<'a>(
 
 /// GLSL text of a draft with the program's merged uniform block, and the include-expanded
 /// source line of every output line (0 for generated lines).
-pub(crate) fn assemble(draft: &StageDraft, ubo: &[UboMember]) -> (String, Vec<u32>) {
+pub(crate) fn assemble(
+    draft: &StageDraft,
+    ubo: &[UboMember],
+    locations: &str,
+) -> (String, Vec<u32>) {
     let mut e = Emitter::default();
     e.raw(&draft.header);
+    e.raw(locations);
     e.tokens(&draft.hoisted);
     if ubo.iter().any(|m| m.name == "iris_Fog") {
         e.raw(FOG_STRUCT);
@@ -80,6 +85,7 @@ pub(crate) struct UboMember {
 }
 
 impl UboMember {
+    /// Creates a named loose uniform from its complete declaration.
     pub(super) fn new(name: &str, toks: Vec<Tok>) -> UboMember {
         UboMember {
             name: name.to_string(),
@@ -87,6 +93,7 @@ impl UboMember {
         }
     }
 
+    /// Returns the declaration spelling used to compare stage uniforms.
     fn spelling(&self) -> String {
         self.toks
             .iter()
@@ -104,6 +111,7 @@ mod tests {
     use crate::transform::body::SamplerUse;
     use std::collections::BTreeSet;
 
+    /// Creates a stage fixture with the supplied uniforms, body and sampler usage.
     fn draft(ubo: &[(&str, &str)], body: &str, samplers: SamplerUse) -> StageDraft {
         StageDraft {
             header: "#version 450\n".to_owned(),
@@ -146,7 +154,7 @@ mod tests {
         let names: Vec<_> = ubo.iter().map(|m| m.name.as_str()).collect();
         assert_eq!(names, ["frameTimeCounter", "viewWidth"]);
 
-        let (glsl, origins) = assemble(&fragment, &ubo);
+        let (glsl, origins) = assemble(&fragment, &ubo, "");
         assert!(glsl.contains(&format!(
             "uniform {LOOSE_UNIFORM_BLOCK} {{\nfloat frameTimeCounter;\nfloat viewWidth;\n}};"
         )));

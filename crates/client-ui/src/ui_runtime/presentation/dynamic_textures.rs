@@ -27,6 +27,7 @@ pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64)
     runtime.player_preview_pixels = None;
     runtime.player_preview_drawn = None;
     runtime.gui_models.skin = None;
+    runtime.gui_models.particles.reset();
     runtime.held_viewmodel_source = None;
     runtime.offhand_viewmodel_source = None;
     runtime.menu_artwork_set = Default::default();
@@ -261,6 +262,14 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             .mod_panel_font
             .as_ref()
             .map_or_else(super::mod_panel_font::blank_page, |font| font.page.clone()),
+    );
+    dynamic.push(
+        runtime
+            .gui_models
+            .particles
+            .page
+            .clone()
+            .unwrap_or_else(|| runtime.blank_dynamic_page.clone()),
     );
     // Unused art pages keep their old pixels; nothing references them.
     let art_pages = previous

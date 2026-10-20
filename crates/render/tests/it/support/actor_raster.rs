@@ -10,6 +10,30 @@ use bevy::math::{Mat4, Vec3, Vec4};
 use gpu_snapshot::{Draw, Gpu};
 use render_model::ActorGpuInstance;
 use render_model::{ActorRigVertex, EntityRigId};
+use std::ops::Range;
+
+/// Geometry and ordered instance ranges submitted to the production actor shader.
+pub(crate) struct RasterBatch<'a> {
+    pub vertices: &'a [ActorRigVertex],
+    pub geometry: &'a [render_model::ActorRigGeometrySpan],
+    pub instances: &'a [ActorGpuInstance],
+    pub draws: &'a [(Range<u32>, Range<u32>)],
+}
+
+/// Renders an opaque actor batch with its exact per-instance geometry selection.
+pub(crate) fn raster_batch(gpu: &Gpu, batch: RasterBatch<'_>, scene: RasterScene<'_>) -> Vec<u8> {
+    raster_batch_in_scene(
+        gpu,
+        batch,
+        Default::default(),
+        scene,
+        false,
+        false,
+        &[],
+        Default::default(),
+        None,
+    )
+}
 
 /// Camera, actor transform and original texture inputs for a production shader raster.
 pub(crate) struct RasterScene<'a> {
@@ -293,15 +317,6 @@ pub(crate) fn raster_material_in_scene(
             definitions.push("MASK_DISSOLVE_MSAA");
         }
     }
-    let view = gpu.buffer(
-        &gpu_snapshot::view(scene.clip_from_world, scene.camera_position),
-        wgpu::BufferUsages::UNIFORM,
-    );
-    let affine: [[f32; 4]; 3] = [
-        [1.0, 0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-    ];
     let instance = ActorGpuInstance {
         world_from_actor: scene.world_from_actor,
         partial_tick: 1.0,
@@ -316,13 +331,62 @@ pub(crate) fn raster_material_in_scene(
         glint: material.glint.parameters(),
         ..Default::default()
     };
+    raster_batch_in_scene(
+        gpu,
+        RasterBatch {
+            vertices,
+            geometry: &[render_model::ActorRigGeometrySpan {
+                first_vertex: 0,
+                vertex_count: vertices.len() as u32,
+            }],
+            instances: &[instance],
+            draws: &[(0..vertices.len() as u32, 0..1)],
+        },
+        material,
+        scene,
+        srgb,
+        gamma,
+        &definitions,
+        state,
+        companion,
+    )
+}
+
+/// Binds shared artwork and independent geometry, bones and draw ranges for an actor batch.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "preserves the existing independent raster inputs"
+)]
+fn raster_batch_in_scene(
+    gpu: &Gpu,
+    batch: RasterBatch<'_>,
+    material: render_model::ActorMaterial,
+    scene: RasterScene<'_>,
+    srgb: bool,
+    gamma: bool,
+    definitions: &[&str],
+    mut state: gpu_snapshot::RasterState,
+    companion: Option<wgpu::TextureView>,
+) -> Vec<u8> {
+    let view = gpu.buffer(
+        &gpu_snapshot::view(scene.clip_from_world, scene.camera_position),
+        wgpu::BufferUsages::UNIFORM,
+    );
+    let affine: [[f32; 4]; 3] = [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+    ];
     let instance = gpu.buffer(
-        bytemuck::cast_slice(&[instance]),
+        bytemuck::cast_slice(batch.instances),
         wgpu::BufferUsages::STORAGE,
     );
-    let mesh = gpu.buffer(bytemuck::cast_slice(vertices), wgpu::BufferUsages::STORAGE);
+    let mesh = gpu.buffer(
+        bytemuck::cast_slice(batch.vertices),
+        wgpu::BufferUsages::STORAGE,
+    );
     let spans = gpu.buffer(
-        &[f32::from_bits(0), f32::from_bits(vertices.len() as u32)],
+        bytemuck::cast_slice(batch.geometry),
         wgpu::BufferUsages::STORAGE,
     );
     let bones = gpu.buffer(bytemuck::cast_slice(&affine), wgpu::BufferUsages::STORAGE);
@@ -443,14 +507,23 @@ pub(crate) fn raster_material_in_scene(
             resource: wgpu::BindingResource::TextureView(view),
         });
     }
-    let draws = [Draw {
-        fragment: state.actor_fragment.unwrap_or("actor_fragment"),
-        vertices: 0..vertices.len() as u32,
-        bindings: &bindings,
-        blend: material.state.and_then(render::actor_material_blend_state),
-        write_depth: state.actor_fragment.is_none()
-            && material.state.is_none_or(|state| state.depth_write),
-    }];
+    let draws: Vec<_> = batch
+        .draws
+        .iter()
+        .map(|(vertices, _)| Draw {
+            fragment: state.actor_fragment.unwrap_or("actor_fragment"),
+            vertices: vertices.clone(),
+            bindings: &bindings,
+            blend: material.state.and_then(render::actor_material_blend_state),
+            write_depth: state.actor_fragment.is_none()
+                && material.state.is_none_or(|state| state.depth_write),
+        })
+        .collect();
+    state.instance_ranges = batch
+        .draws
+        .iter()
+        .map(|(_, instances)| instances.clone())
+        .collect();
     // Automatic stage inference treats a dimensions-only vertex texture as unfilterable.
     let entries: Vec<_> = bindings
         .iter()
@@ -507,14 +580,14 @@ pub(crate) fn raster_material_in_scene(
     };
     if srgb {
         gpu.render_srgb_with_state(
-            &source_with_definitions(gamma, &definitions),
+            &source_with_definitions(gamma, definitions),
             "actor_vertex",
             &draws,
             state,
         )
     } else {
         gpu.render_with_state(
-            &source_with_definitions(gamma, &definitions),
+            &source_with_definitions(gamma, definitions),
             "actor_vertex",
             &draws,
             state,

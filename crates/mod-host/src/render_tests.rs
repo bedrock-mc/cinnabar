@@ -221,7 +221,7 @@ fn solid_lines_share_the_legacy_ribbon_budget() {
 }
 
 #[test]
-fn legacy_post_imports_cannot_bypass_remote_policy() {
+fn legacy_post_imports_obey_the_world_fence() {
     let mut state = state();
     state.drawing_policy = Some(mod_api::drawing::DrawingSession {
         connection: 1,
@@ -251,6 +251,35 @@ fn legacy_post_imports_cannot_bypass_remote_policy() {
     assert!(state.remove_pass("grade".into()).unwrap().is_err());
     state.render.commit();
     assert!(state.render.output().passes.is_empty());
+}
+
+#[test]
+fn legacy_post_effects_use_the_same_user_consent_in_local_and_remote_worlds() {
+    for local in [false, true] {
+        for granted in [false, true] {
+            let mut state = state();
+            state.grants.render = granted;
+            state.drawing_policy = Some(mod_api::drawing::DrawingSession {
+                connection: 1,
+                local,
+                permissions: mod_api::drawing::DrawingPermissions::ALL,
+                ..Default::default()
+            });
+            assert_eq!(
+                state
+                    .register_pass(wit::PassSpec {
+                        name: "grade".into(),
+                        order: 0,
+                        source: "fn effect(uv: vec2<f32>) -> vec3<f32> { return scene(uv); }"
+                            .into(),
+                        depth: false,
+                    })
+                    .unwrap()
+                    .is_ok(),
+                granted
+            );
+        }
+    }
 }
 
 /// Native overlays share the ribbon budget and revocation invalidates even native-only output.

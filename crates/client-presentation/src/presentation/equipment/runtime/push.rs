@@ -492,9 +492,9 @@ impl EquipmentRuntime {
         let input = animation.worn_input(equipment, slot, &variables);
         let (assets, runtime) = if from_pack {
             let pack = self.pack.as_mut().ok_or(())?;
-            (&pack.assets, &mut pack.attachables)
+            (Arc::clone(&pack.assets), &mut pack.attachables)
         } else {
-            (&self.assets, &mut self.attachables)
+            (Arc::clone(&self.assets), &mut self.attachables)
         };
         let evaluated = runtime
             .evaluate(attachable_identifier, animation.owner, animation.rig, input)
@@ -518,37 +518,63 @@ impl EquipmentRuntime {
         } else {
             &layer.pose
         };
-        let pose = local
-            .iter()
-            .enumerate()
-            .map(|(index, local)| {
-                if layer.hidden_bones.contains(&(index as u32))
-                    || (geometry_index == evaluated.geometry
-                        && evaluated.bone_names.get(index).is_some_and(|name| {
-                            bones
-                                .names
-                                .iter()
-                                .any(|owner| owner.eq_ignore_ascii_case(name))
-                        }))
-                {
-                    return Some(hidden_bone());
-                }
-                let root = evaluated.bone_parent(geometry_index, index)?;
-                if root == actor_animation::AttachableBoneParent::BindingExpression {
-                    return None;
-                }
-                let parent = modern::parent_for_root(
-                    &body.input.previous_bones,
-                    &body.input.current_bones,
+        let pose = self
+            .attachment_poses
+            .sample(
+                body,
+                (true, input.worn_slot),
+                self.poses.frame,
+                placement_cache::Inputs {
+                    assets: &assets,
                     bones,
-                    input,
-                    root,
-                    evaluated.axis_scale.map(|axis| axis * evaluated.scale),
-                )?;
-                modern::compose_parent(parent, *local)
-            })
-            .map(|pose| pose.unwrap_or_else(hidden_bone))
-            .collect();
+                    owner_names: animation.rig.bone_names,
+                    geometry: (geometry_index, evaluated.geometry),
+                    local,
+                    paired: false,
+                    hidden: &layer.hidden_bones,
+                    scale: evaluated.axis_scale.map(|axis| axis * evaluated.scale),
+                    alpha: placement_cache::alpha(
+                        body,
+                        &evaluated,
+                        geometry_index,
+                        local.len(),
+                        input.frame_alpha,
+                    ),
+                },
+                |_, index| {
+                    let local = &local[index];
+                    if layer.hidden_bones.contains(&(index as u32))
+                        || (geometry_index == evaluated.geometry
+                            && evaluated.bone_names.get(index).is_some_and(|name| {
+                                bones
+                                    .names
+                                    .iter()
+                                    .any(|owner| owner.eq_ignore_ascii_case(name))
+                            }))
+                    {
+                        return Some(hidden_bone());
+                    }
+                    let Some(root) = evaluated.bone_parent(geometry_index, index) else {
+                        return Some(hidden_bone());
+                    };
+                    if root == actor_animation::AttachableBoneParent::BindingExpression {
+                        return Some(hidden_bone());
+                    }
+                    let Some(parent) = modern::parent_for_root(
+                        &body.input.previous_bones,
+                        &body.input.current_bones,
+                        bones,
+                        input,
+                        root,
+                        evaluated.axis_scale.map(|axis| axis * evaluated.scale),
+                    ) else {
+                        return Some(hidden_bone());
+                    };
+                    Some(modern::compose_parent(parent, *local).unwrap_or_else(hidden_bone))
+                },
+            )
+            .ok_or(())?[0]
+            .clone();
         let path = &assets.sources().get(layer.source as usize).ok_or(())?.path;
         let texture = path
             .strip_suffix(".png")

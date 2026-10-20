@@ -303,6 +303,8 @@ pub struct HudStore {
     /// The tip text: `TextTypeTip` and its JSON variant sit above the hotbar,
     /// bound to `#tip_text` in `hud_screen.json`.
     tip: Option<TimedText>,
+    /// Last presentation clock; expiry ends timed views while preserving pack controller inputs.
+    presentation_millis: u64,
     durations: TitleDurations,
     toasts: VecDeque<Toast>,
     toast_retained_bytes: usize,
@@ -355,20 +357,38 @@ impl HudStore {
         self.experience = Some(HudExperience { level, progress });
     }
 
-    pub const fn title(&self) -> Option<&TimedText> {
-        self.title.as_ref()
+    pub fn title(&self) -> Option<&TimedText> {
+        self.title
+            .as_ref()
+            .filter(|text| text.visible_at(self.presentation_millis))
     }
 
-    pub const fn subtitle(&self) -> Option<&TimedText> {
-        self.subtitle.as_ref()
+    pub fn subtitle(&self) -> Option<&TimedText> {
+        self.subtitle
+            .as_ref()
+            .filter(|text| text.visible_at(self.presentation_millis))
     }
 
-    pub const fn actionbar(&self) -> Option<&TimedText> {
-        self.actionbar.as_ref()
+    pub fn actionbar(&self) -> Option<&TimedText> {
+        self.actionbar
+            .as_ref()
+            .filter(|text| text.visible_at(self.presentation_millis))
     }
 
-    pub const fn tip(&self) -> Option<&TimedText> {
-        self.tip.as_ref()
+    pub fn tip(&self) -> Option<&TimedText> {
+        self.tip
+            .as_ref()
+            .filter(|text| text.visible_at(self.presentation_millis))
+    }
+
+    /// Latest title input for pack bindings, retained until an explicit clear or reset.
+    pub fn title_text(&self) -> &str {
+        self.title.as_ref().map_or("", |text| text.text.as_ref())
+    }
+
+    /// Latest subtitle input, independent of whether a native title is currently displayed.
+    pub fn subtitle_text(&self) -> &str {
+        self.subtitle.as_ref().map_or("", |text| text.text.as_ref())
     }
 
     pub fn toasts(&self) -> &VecDeque<Toast> {
@@ -494,27 +514,7 @@ impl HudStore {
     }
 
     pub fn expire(&mut self, now_millis: u64) {
-        if self
-            .title
-            .as_ref()
-            .is_some_and(|value| !value.visible_at(now_millis))
-        {
-            self.title = None;
-        }
-        if self
-            .subtitle
-            .as_ref()
-            .is_some_and(|value| !value.visible_at(now_millis))
-        {
-            self.subtitle = None;
-        }
-        if self
-            .actionbar
-            .as_ref()
-            .is_some_and(|value| !value.visible_at(now_millis))
-        {
-            self.actionbar = None;
-        }
+        self.presentation_millis = now_millis;
         if self
             .tip
             .as_ref()

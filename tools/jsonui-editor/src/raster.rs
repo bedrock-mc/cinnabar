@@ -6,6 +6,25 @@ use std::sync::Arc;
 
 use ui::{UiBlendMode, UiDrawBatch, UiDrawList, UiVertex};
 
+/// Includes model alpha testing in the shading flags, matching the GPU render adapter.
+fn style_flags(vertex: &UiVertex) -> u16 {
+    vertex.style_flags
+        | if vertex.alpha_test {
+            render_model::UI_STYLE_ALPHA_TEST as u16
+        } else {
+            0
+        }
+}
+
+/// Applies the particle source bounds after triangle interpolation, as the GPU shader does.
+fn particle_uv(uv: [f32; 2], vertex: &UiVertex) -> [f32; 2] {
+    if u32::from(vertex.style_flags) & render_model::UI_STYLE_PARTICLE != 0 {
+        render_model::ui_particle_uv(uv, vertex.overlay_color)
+    } else {
+        uv
+    }
+}
+
 /// An RGBA8 (straight alpha) image a batch samples, in texel coordinates.
 #[derive(Clone, Debug)]
 pub struct Page {
@@ -147,6 +166,7 @@ impl Canvas {
         let [left, right] = span(x0.min(x1), x0.max(x1), clip[0], clip[2]);
         let [top, bottom] = span(y0.min(y1), y0.max(y1), clip[1], clip[3]);
         let color = v[0].color;
+        let flags = style_flags(v[0]);
         let scale = (((u1 - u0) * (v1 - v0)) / (w * h)).abs().sqrt();
         for y in top..bottom {
             let fy = (y as f32 + 0.5 - y0) / h;
@@ -156,12 +176,18 @@ impl Canvas {
                 let fx = (x as f32 + 0.5 - x0) / w;
                 let texel = shaded_sample(
                     texture,
-                    [u0 + (u1 - u0) * fx, tv],
+                    particle_uv([u0 + (u1 - u0) * fx, tv], v[0]),
                     color,
-                    v[0].style_flags,
+                    flags,
                     scale,
                 );
-                blend_into(&mut self.pixels[row + x as usize], texel, color, blend);
+                blend_styled(
+                    &mut self.pixels[row + x as usize],
+                    texel,
+                    color,
+                    blend,
+                    flags,
+                );
             }
         }
     }
@@ -203,7 +229,7 @@ impl Canvas {
                         .sum::<f32>()
                         .round() as u8
                 });
-                let flags = v[0].style_flags;
+                let flags = style_flags(v[0]);
                 let (texel, tint) = if flags & render_api::UI_STYLE_COVERAGE_PAINT != 0 {
                     let overlay = std::array::from_fn(|channel| {
                         (0..3).map(|k| w[k] * v[k].overlay_color[channel]).sum()
@@ -233,10 +259,13 @@ impl Canvas {
                     (straight(mixed), [255; 4])
                 } else {
                     let scale = texels_per_pixel(&v);
-                    (shaded_sample(texture, [u, t], color, flags, scale), color)
+                    (
+                        shaded_sample(texture, particle_uv([u, t], v[0]), color, flags, scale),
+                        color,
+                    )
                 };
                 let at = y as usize * self.width as usize + x as usize;
-                blend_into(&mut self.pixels[at], texel, tint, blend);
+                blend_styled(&mut self.pixels[at], texel, tint, blend, flags);
             }
         }
     }
@@ -360,6 +389,35 @@ fn mul(a: u8, b: u8) -> u32 {
     (u32::from(a) * u32::from(b) + 127) / 255
 }
 
+/// Adds particle light without changing coverage; other styles retain ordinary compositing.
+fn blend_styled(
+    dst: &mut [u8; 4],
+    mut texel: [u8; 4],
+    tint: [u8; 4],
+    blend: UiBlendMode,
+    flags: u16,
+) {
+    if u32::from(flags) & render_model::UI_STYLE_PARTICLE != 0 {
+        if u32::from(flags) & render_model::UI_STYLE_ALPHA_TEST != 0 {
+            if texel[3] < 128 {
+                return;
+            }
+            texel[3] = 255;
+        }
+        if mul(texel[3], tint[3]) < 3 {
+            return;
+        }
+    }
+    if u32::from(flags) & render_model::UI_STYLE_ADDITIVE != 0 {
+        let alpha = mul(texel[3], tint[3]) as u8;
+        for c in 0..3 {
+            dst[c] = (u32::from(dst[c]) + mul(mul(texel[c], tint[c]) as u8, alpha)).min(255) as u8;
+        }
+    } else {
+        blend_into(dst, texel, tint, blend);
+    }
+}
+
 fn blend_into(dst: &mut [u8; 4], texel: [u8; 4], tint: [u8; 4], blend: UiBlendMode) {
     let alpha = mul(texel[3], tint[3]);
     if alpha == 0 {
@@ -390,6 +448,19 @@ fn blend_into(dst: &mut [u8; 4], texel: [u8; 4], tint: [u8; 4], blend: UiBlendMo
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn additive_particles_preserve_destination_coverage() {
+        let mut destination = [40, 60, 80, 255];
+        super::blend_styled(
+            &mut destination,
+            [200, 100, 0, 128],
+            [255; 4],
+            ui::UiBlendMode::Alpha,
+            render_model::UI_STYLE_ADDITIVE as u16,
+        );
+        assert_eq!(destination, [140, 110, 80, 255]);
+    }
+
     use super::*;
     use ui::{UiNode, UiNodeId, UiPoint, UiRect, UiTree, UiVisual};
 
@@ -431,6 +502,75 @@ mod tests {
         .unwrap()
         .build_draw_list()
         .unwrap()
+    }
+
+    #[test]
+    fn particle_mesh_alpha_testing_thresholds_texture_before_node_opacity() {
+        let mut list = quad();
+        for vertex in &mut list.vertices {
+            vertex.style_flags = render_model::UI_STYLE_PARTICLE as u16;
+            vertex.alpha_test = true;
+            vertex.color[3] = 128;
+        }
+        for alpha in [127, 128, 192] {
+            let texture = Page {
+                width: 1,
+                height: 1,
+                rgba: [200, 80, 20, alpha].into(),
+            };
+            for draw in [&list, &triangle(list.clone())] {
+                let expected = if alpha < 128 {
+                    [0; 4]
+                } else {
+                    [199, 80, 20, 128]
+                };
+                assert_eq!(first_pixel(draw, &texture), expected);
+            }
+        }
+        for vertex in &mut list.vertices {
+            vertex.alpha_test = false;
+        }
+        let texture = Page {
+            width: 1,
+            height: 1,
+            rgba: [200, 80, 20, 192].into(),
+        };
+        assert_eq!(first_pixel(&list, &texture)[3], 96);
+    }
+
+    #[test]
+    fn particle_sprite_columns_keep_equal_width_and_stay_inside_source_bounds() {
+        let texture = Page {
+            width: 18,
+            height: 1,
+            rgba: (0..18).flat_map(|i| [i * 10, 0, 0, 255]).collect(),
+        };
+        let mut list = quad();
+        for vertex in &mut list.vertices {
+            vertex.uv = [1.0 + vertex.position[0] * 4.0, 0.5];
+            vertex.position[0] *= 8.0;
+            vertex.overlay_color = [1.0, 0.0, 16.0, 1.0];
+            vertex.style_flags = render_model::UI_STYLE_PARTICLE as u16;
+        }
+        list.batches[0].clip = rect(0., 0., 32., 4.);
+        for draw in [&list, &triangle(list.clone())] {
+            let mut canvas = Canvas::new(32, 4);
+            canvas.draw(draw, |_| Some(&texture));
+            for (x, pixel) in canvas.into_rgba().as_chunks::<4>().0[..32]
+                .iter()
+                .enumerate()
+            {
+                if pixel[3] != 0 {
+                    assert_eq!(*pixel, [((x / 2 + 1) * 10) as u8, 0, 0, 255]);
+                }
+            }
+        }
+        for u in [-100.0, 100.0] {
+            assert_eq!(
+                render_model::ui_particle_uv([u, 0.5], [1., 0., 16., 1.])[0],
+                if u < 0.0 { 1.5 } else { 16.5 }
+            );
+        }
     }
 
     #[test]

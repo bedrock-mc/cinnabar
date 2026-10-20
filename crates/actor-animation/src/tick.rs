@@ -504,6 +504,7 @@ pub(super) fn evaluate_state(
         || (state.samples_swing_poses
             && (state.local_swing.is_some() || state.remote_swing().is_some())))
     .then(|| super::render_frame::FrameState {
+        cache: Default::default(),
         previous_rotation: if context.is_local_first_person {
             input
         } else {
@@ -692,7 +693,10 @@ pub(super) fn evaluate_state(
     if let Some(capture) = pose_capture {
         render_frame.as_mut().unwrap().retained_pose_effects = variables.finish_effects(capture);
     }
-    let pose = state.compose(&local).ok_or(EvalError::Invalid)?;
+    let mut pose = vec![BoneTransform::default(); state.posed_bones().len()];
+    state
+        .compose_into(&local, &mut pose)
+        .ok_or(EvalError::Invalid)?;
     // Initial publication needs a complete selection; later ticks can retain completed layers.
     let mut motion_layers = BTreeMap::new();
     let render = super::render::evaluate_render(
@@ -716,7 +720,7 @@ pub(super) fn evaluate_state(
         };
         let posed = super::render::pose_layers(
             &evaluator,
-            &variables,
+            &mut variables,
             &state.layer_skeletons,
             &weighted_clips,
             &mut layers,

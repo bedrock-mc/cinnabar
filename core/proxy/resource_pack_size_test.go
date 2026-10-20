@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -119,48 +120,28 @@ func TestAcquisitionBudgetRetainsRequiredPackWithUnderstatedOffer(t *testing.T) 
 	}
 }
 
-func TestAcquisitionBudgetCorrectedSizesKeepByteBounds(t *testing.T) {
-	tests := []struct {
-		name     string
-		sizes    []uint64
-		excluded []bool
-	}{
-		{name: "archive boundary", sizes: []uint64{maxResourcePackArchiveBytes}, excluded: []bool{false}},
-		{name: "oversized archive", sizes: []uint64{maxResourcePackArchiveBytes + 1}, excluded: []bool{true}},
-		{
-			name:     "selection boundary",
-			sizes:    []uint64{maxResourcePackArchiveBytes, maxSelectedResourcePackTotalBytes - maxResourcePackArchiveBytes},
-			excluded: []bool{false, false},
-		},
-		{
-			name:     "selection overflow",
-			sizes:    []uint64{maxResourcePackArchiveBytes, maxSelectedResourcePackTotalBytes - maxResourcePackArchiveBytes - 1, 2},
-			excluded: []bool{false, false, true},
-		},
+// TestAcquisitionBudgetAcceptsCorrectedLargeSizes keeps transfer declarations authoritative.
+func TestAcquisitionBudgetAcceptsCorrectedLargeSizes(t *testing.T) {
+	const mib = 1024 * 1024
+	sizes := []uint64{129 * mib, 257 * mib, 513 * mib}
+	info := packInfos(0, 0, 0)
+	budget, causes := observedBudget(t, info)
+	for index, size := range sizes {
+		id := info.TexturePacks[index].UUID
+		budget.event(started(minecraft.ResourcePackSourceChunks, id, size))
+		if budget.excludes(admissionPackWithUUID(t, id.String())) {
+			t.Fatalf("corrected archive %d was excluded", index)
+		}
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			info := packInfos(make([]uint64, len(test.sizes))...)
-			budget, causes := observedBudget(t, info)
-			for index, size := range test.sizes {
-				id := info.TexturePacks[index].UUID
-				budget.event(started(minecraft.ResourcePackSourceChunks, id, size))
-				pack := admissionPackWithUUID(t, id.String())
-				if got := budget.excludes(pack); got != test.excluded[index] {
-					t.Fatalf("transfer %d excluded=%t, want %t", index, got, test.excluded[index])
-				}
-			}
-			if len(*causes) != 0 {
-				t.Fatalf("bounded transfers cancelled the join: %v", *causes)
-			}
-		})
+	if len(*causes) != 0 {
+		t.Fatalf("valid transfer cancelled: %v", *causes)
 	}
 }
 
 func TestAcquisitionBudgetReplacementDoesNotReserveSizeTwice(t *testing.T) {
-	const firstSize = maxResourcePackArchiveBytes
-	const secondSize = maxResourcePackArchiveBytes / 4
-	const thirdSize = maxSelectedResourcePackTotalBytes - firstSize - secondSize
+	const firstSize = 300 * 1024 * 1024
+	const secondSize = 200 * 1024 * 1024
+	const thirdSize = 100 * 1024 * 1024
 	info := packInfos(0, 0, 0)
 	budget, causes := observedBudget(t, info)
 	first, second, third := info.TexturePacks[0].UUID, info.TexturePacks[1].UUID, info.TexturePacks[2].UUID
@@ -179,5 +160,34 @@ func TestAcquisitionBudgetReplacementDoesNotReserveSizeTwice(t *testing.T) {
 	}
 	if len(*causes) != 0 {
 		t.Fatalf("fallback transfers cancelled the join: %v", *causes)
+	}
+}
+
+// TestAcquisitionBudgetAdmitsLargeRequiredOffer covers experiences with archives above 64 MiB.
+func TestAcquisitionBudgetAdmitsLargeRequiredOffer(t *testing.T) {
+	const mib = 1024 * 1024
+	budget, causes := observedBudget(t, packInfos(72*mib, 3*mib, 7*mib))
+	if got := admitted(budget, 3); !slices.Equal(got, []bool{true, true, true}) {
+		t.Fatalf("required experience pack admission = %v, want all packs", got)
+	}
+	if len(*causes) != 0 {
+		t.Fatalf("offer cancelled acquisition: %v", *causes)
+	}
+}
+
+// TestAcquisitionBudgetAdmitsLargeSelections covers independent archive, stack and count limits.
+func TestAcquisitionBudgetAdmitsLargeSelections(t *testing.T) {
+	const mib = 1024 * 1024
+	sizes := slices.Repeat([]uint64{600 * mib}, 40)
+	info := packInfos(sizes...)
+	budget, causes := observedBudget(t, info)
+	if got := admitted(budget, len(sizes)); slices.Contains(got, false) {
+		t.Fatalf("valid offered archives were excluded: %v", got)
+	}
+	for _, pack := range info.TexturePacks {
+		budget.event(started(minecraft.ResourcePackSourceChunks, pack.UUID, pack.Size))
+	}
+	if len(*causes) != 0 {
+		t.Fatalf("declared transfers cancelled acquisition: %v", *causes)
 	}
 }

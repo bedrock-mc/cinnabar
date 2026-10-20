@@ -360,9 +360,12 @@ fn prepare_actor_resources(
         return;
     }
     let rig = &frame.rig;
-    let artwork_valid = gpu
-        .artwork
-        .prepare(&frame.artwork, &uploads.device, &uploads.queue);
+    let artwork_valid = gpu.artwork.prepare_demanded(
+        &frame.artwork,
+        &frame.instance_pages,
+        &uploads.device,
+        &uploads.queue,
+    );
     gpu.artwork_current = artwork_valid;
     if gpu.artwork_identity != frame.artwork.identity() {
         gate.clear();
@@ -493,13 +496,14 @@ fn prepare_actor_resources(
             drop(_span);
             gpu.instance_count = rig.instances.len() as u32;
             gpu.maximum_vertex_count = rig.maximum_vertex_count;
-            gpu.manifest = prepared.manifest;
             draw_spans(
                 &mut gpu.spans,
                 &frame.instance_pages,
                 &prepared.instances,
                 &rig.geometry_spans,
+                prepared.manifest.iter().map(|entry| entry.identity.layer),
             );
+            gpu.manifest = prepared.manifest;
             gpu.instances = prepared.instances;
             let ActorGpu {
                 sorted,
@@ -599,12 +603,14 @@ pub(crate) fn prepare_actor_bind_group(
         .uniforms
         .buffer()
         .expect("a dynamic view binding always owns a GPU buffer");
+    let view_changed = gpu.view_buffer_id != Some(view_buffer.id());
     if gpu.bind_group.is_some()
-        && gpu.view_buffer_id == Some(view_buffer.id())
+        && !view_changed
         && gpu
             .artwork
             .pages
             .iter()
+            .flatten()
             .all(|page| page.bind_group.is_some())
     {
         return;
@@ -615,6 +621,8 @@ pub(crate) fn prepare_actor_bind_group(
                 .artwork
                 .pages
                 .iter()
+                .flatten()
+                .filter(|page| view_changed || page.bind_group.is_none())
                 .map(|page| {
                     render_device.create_bind_group(
                         "neutral actor page bind group",
@@ -765,7 +773,14 @@ pub(crate) fn prepare_actor_bind_group(
         return;
     };
     gpu.bind_group = Some(player_group);
-    for (page, group) in gpu.artwork.pages.iter_mut().zip(generic_groups) {
+    for (page, group) in gpu
+        .artwork
+        .pages
+        .iter_mut()
+        .flatten()
+        .filter(|page| view_changed || page.bind_group.is_none())
+        .zip(generic_groups)
+    {
         page.bind_group = Some(group);
     }
     gpu.view_buffer_id = Some(view_buffer.id());

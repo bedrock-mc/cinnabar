@@ -1,6 +1,25 @@
 use super::*;
 
 #[test]
+fn pack_json_matches_previous_normalized_bytes() {
+    for bytes in [
+        br#"{"texture_data":{"a":{"textures":"textures/first"},"a":{"textures":"textures/last"}},"number":1.0000000000000002}"#.as_slice(),
+        b"\xef\xbb\xbf{/* catalog */\"texture_data\":{\"caf\xe9\":{\"textures\":\"textures/a\",},},}",
+        br#"{"number":18446744073709551616}"#,
+        b"{\"texture_data\":{,}}",
+        b"{} {}",
+        b"1e309",
+    ] {
+        let before = pack_json::normalize_jsonc(bytes)
+            .and_then(|normalized| serde_json::from_slice::<Value>(&normalized).ok());
+        assert_eq!(
+            parse_pack_json(bytes).map(|value| serde_json::to_vec(&value).unwrap()),
+            before.map(|value| serde_json::to_vec(&value).unwrap()),
+        );
+    }
+}
+
+#[test]
 fn full_catalogs_keep_later_valid_overrides_after_skipping_new_keys() {
     let mut paths = (0..MAX_CATALOG_ENTRIES)
         .map(|index| (format!("z_{index:05}"), "textures/old".to_owned()))

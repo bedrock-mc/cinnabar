@@ -5,6 +5,8 @@ use std::cell::RefCell;
 
 use super::*;
 
+pub(crate) mod frame;
+
 /// One stored value. A string names its entry in the owning set's string table.
 #[derive(Clone, Copy, Debug, Default)]
 enum Slot {
@@ -26,6 +28,7 @@ enum SlotView<'a> {
 /// One actor's Molang variables and random stream; an unassigned variable reads as 0.0.
 #[derive(Debug, Default)]
 pub(crate) struct MolangVariables {
+    pub(super) frame: Option<Box<frame::ScratchState>>,
     values: Vec<Slot>,
     temps: Vec<Slot>,
     /// Temporary slots assigned since the last clear; every assigned temporary is listed.
@@ -44,6 +47,7 @@ pub(crate) struct MolangVariables {
 impl Clone for MolangVariables {
     fn clone(&self) -> Self {
         let Self {
+            frame: _,
             values,
             temps,
             live_temps,
@@ -56,6 +60,7 @@ impl Clone for MolangVariables {
             writes,
         } = self;
         Self {
+            frame: None,
             values: values.clone(),
             temps: temps.clone(),
             live_temps: live_temps.clone(),
@@ -72,6 +77,7 @@ impl Clone for MolangVariables {
     /// Copies into this set's existing buffers instead of allocating new ones.
     fn clone_from(&mut self, source: &Self) {
         let Self {
+            frame: _,
             values,
             temps,
             live_temps,
@@ -83,6 +89,7 @@ impl Clone for MolangVariables {
             capture_writes,
             writes,
         } = source;
+        self.frame = None;
         self.values.clone_from(values);
         self.temps.clone_from(temps);
         self.live_temps.clone_from(live_temps);
@@ -192,6 +199,20 @@ impl MolangVariables {
     /// string slot. Returns whether the slot was unassigned before; `None` when out of range.
     fn put(&mut self, place: Place, value: Option<MolangValue>) -> Option<bool> {
         let old = self.slot(place)?;
+        if self
+            .frame
+            .as_ref()
+            .is_some_and(|frame| frame.undo.is_some())
+        {
+            let value = self.load(old);
+            self.frame
+                .as_mut()
+                .unwrap()
+                .undo
+                .as_mut()
+                .unwrap()
+                .push((place, value));
+        }
         #[cfg(test)]
         super::selection_work::record(|work| work.assigned += 1);
         let new = match value {
@@ -238,6 +259,15 @@ impl MolangVariables {
     /// The assigned value of variable `slot`, if any.
     pub(super) fn variable(&self, slot: usize) -> Option<MolangValue> {
         self.read(Place::Variable(slot))
+    }
+
+    /// Reads a numeric variable without constructing a tagged value; unset slots read zero.
+    pub(super) fn numeric_variable(&self, slot: usize) -> Option<f32> {
+        match self.values.get(slot)? {
+            Slot::Unset => Some(0.0),
+            Slot::Number(value) => Some(*value),
+            Slot::String(_) | Slot::ActorReference(_) => None,
+        }
     }
 
     /// Every assigned variable as `(slot, value)`, in slot order.
@@ -471,12 +501,11 @@ impl MolangVariables {
     pub(crate) fn clear_temporaries(&mut self) {
         #[cfg(test)]
         super::selection_work::record(|work| work.reset += self.live_temps.len());
-        for slot in self.live_temps.drain(..) {
-            if let Slot::String(index) = std::mem::take(&mut self.temps[slot]) {
-                self.strings[index as usize] = None;
-                self.free_strings.push(index);
-            }
+        let mut live = std::mem::take(&mut self.live_temps);
+        for slot in live.drain(..) {
+            self.put(Place::Temporary(slot), None);
         }
+        self.live_temps = live;
     }
 
     #[cfg(test)]
@@ -515,66 +544,6 @@ impl MolangVariables {
         self.random = state;
         self.random_draws = self.random_draws.wrapping_add(1);
         (state >> 40) as f32 / (1_u64 << 24) as f32
-    }
-}
-
-thread_local! {
-    /// Buffers of finished scratch copies on this thread, reused by the next copies.
-    static SPARE: RefCell<Vec<MolangVariables>> = const { RefCell::new(Vec::new()) };
-}
-
-/// Most spare buffers a thread keeps; a frame holds at most a few scratch copies at once.
-const MAX_SPARE: usize = 8;
-
-/// A frame-local copy of retained variables. Its buffers come from and return to this thread's
-/// pool, so per-frame sampling copies values into warm storage instead of allocating.
-pub(crate) struct ScratchVariables(MolangVariables);
-
-impl ScratchVariables {
-    /// A copy of `source` identical to `source.clone()`.
-    pub(crate) fn copy_of(source: &MolangVariables) -> Self {
-        let mut scratch = SPARE
-            .try_with(|spare| {
-                spare
-                    .try_borrow_mut()
-                    .ok()
-                    .and_then(|mut spare| spare.pop())
-            })
-            .ok()
-            .flatten()
-            .unwrap_or_default();
-        scratch.clone_from(source);
-        Self(scratch)
-    }
-}
-
-impl std::ops::Deref for ScratchVariables {
-    type Target = MolangVariables;
-
-    fn deref(&self) -> &MolangVariables {
-        &self.0
-    }
-}
-
-impl std::ops::DerefMut for ScratchVariables {
-    fn deref_mut(&mut self) -> &mut MolangVariables {
-        &mut self.0
-    }
-}
-
-impl Drop for ScratchVariables {
-    /// Releases held strings at once and pools the buffers; every pooled field is overwritten
-    /// by the next [`ScratchVariables::copy_of`].
-    fn drop(&mut self) {
-        let mut variables = std::mem::take(&mut self.0);
-        variables.strings.clear();
-        let _ = SPARE.try_with(|spare| {
-            if let Ok(mut spare) = spare.try_borrow_mut()
-                && spare.len() < MAX_SPARE
-            {
-                spare.push(variables);
-            }
-        });
     }
 }
 
@@ -716,9 +685,11 @@ mod tests {
         for symbol in 0..3 {
             assert!(!variables.read_changed(&other, &layout, symbol));
         }
-        let copy = ScratchVariables::copy_of(&variables);
+        let mut pool = frame::FrameVariables::default();
+        let copy = pool.lease(&variables);
         drop(copy);
-        let copy = ScratchVariables::copy_of(&other);
+        let mut pool = frame::FrameVariables::default();
+        let copy = pool.lease(&other);
         assert_eq!(copy.variable(0), other.variable(0));
         assert_eq!(copy.variable(2), other.variable(2));
     }

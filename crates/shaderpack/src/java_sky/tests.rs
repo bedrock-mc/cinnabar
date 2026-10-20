@@ -5,7 +5,7 @@ fn mapping() -> &'static JavaBlockMapping {
 }
 
 /// The colours of the Java biome `name` in `dimension`.
-fn java(name: &str, dimension: SkyDimension) -> BiomeColors {
+fn java(name: &str, dimension: JavaDimension) -> BiomeColors {
     let entry = mapping()
         .java_biomes()
         .find(|biome| biome.name == name)
@@ -14,13 +14,13 @@ fn java(name: &str, dimension: SkyDimension) -> BiomeColors {
 }
 
 fn plains() -> BiomeColors {
-    java("minecraft:plains", SkyDimension::Overworld)
+    java("minecraft:plains", JavaDimension::Overworld)
 }
 
 fn inputs(celestial_angle: f32, look: [f32; 3]) -> SkyFogInputs {
     SkyFogInputs {
         biome: plains(),
-        dimension: SkyDimension::Overworld,
+        dimension: JavaDimension::Overworld,
         celestial_angle,
         rain: 0.0,
         thunder: 0.0,
@@ -42,13 +42,13 @@ fn biome_colours_come_from_the_biome_over_its_dimension_type() {
     assert_eq!(colours.sky, rgb(0x78_A7_FF), "plains' sky is #78A7FF");
     assert_eq!(colours.fog, rgb(0xC0_D8_FF), "the overworld's fog");
     assert_eq!(colours.water_fog, rgb(0x05_05_33), "the attribute default");
-    let desert = java("minecraft:desert", SkyDimension::Overworld);
+    let desert = java("minecraft:desert", JavaDimension::Overworld);
     assert_eq!(desert.sky, rgb(0x6E_B1_FF), "desert's sky is #6EB1FF");
-    let pale = java("minecraft:pale_garden", SkyDimension::Overworld);
+    let pale = java("minecraft:pale_garden", JavaDimension::Overworld);
     assert_eq!(pale.sky, rgb(0xB9_B9_B9));
     assert_eq!(pale.fog, rgb(0x81_77_70));
     assert_eq!(pale.water_fog, rgb(0x55_69_80));
-    let end = java("minecraft:the_end", SkyDimension::End);
+    let end = java("minecraft:the_end", JavaDimension::End);
     assert_eq!(end.fog, rgb(0x18_13_18), "the end's dimension fog");
 }
 
@@ -133,8 +133,8 @@ fn fluids_and_other_dimensions_replace_the_overworld_fog() {
     });
     assert_eq!(lava.fog, LAVA_FOG);
     let nether = sky_fog(&SkyFogInputs {
-        dimension: SkyDimension::Nether,
-        biome: java("minecraft:nether_wastes", SkyDimension::Nether),
+        dimension: JavaDimension::Nether,
+        biome: java("minecraft:nether_wastes", JavaDimension::Nether),
         ..inputs(0.25, [-1.0, 0.0, 0.0])
     });
     assert_eq!(nether.sky, [0.0; 3]);
@@ -162,7 +162,7 @@ fn bedrock_biomes_read_their_java_colours() {
     let plains_id = (0..u32::from(u16::MAX))
         .find(|id| mapping.java_biome(*id) == Some("minecraft:plains"))
         .expect("a Bedrock biome maps to plains");
-    let overworld = SkyDimension::Overworld;
+    let overworld = JavaDimension::Overworld;
     assert_eq!(
         BiomeColors::at(mapping, plains_id, overworld),
         Some(plains())

@@ -13,20 +13,23 @@ use std::collections::{HashMap, HashSet};
 /// Rounds of specialization; each round handles one more level of helper nesting.
 const MAX_ROUNDS: usize = 32;
 
+/// Generates every resource-compatible overload and leaves value typing to naga.
 pub(super) fn specialize_opaque_params(mut items: Vec<Item>) -> Vec<Item> {
-    let globals: HashSet<String> = items
+    let globals: HashMap<String, String> = items
         .iter()
         .filter_map(|it| match it {
-            Item::Decl(d, _) if d.has("uniform") && is_opaque(&d.ty) => {
-                Some(d.decls.iter().map(|x| x.0.clone()).collect::<Vec<_>>())
-            }
+            Item::Decl(d, _) if d.has("uniform") && is_opaque(&d.ty) => Some(
+                d.decls
+                    .iter()
+                    .map(|x| (x.0.clone(), d.ty.clone()))
+                    .collect::<Vec<_>>(),
+            ),
             _ => None,
         })
         .flatten()
         .collect();
-    // Specialized name and template arity: overloads of one helper share the specialized
-    // name (they stay overloads) but each needs its own copy.
-    let mut created: HashSet<(String, usize)> = HashSet::new();
+    // A template signature stays stable when generated definitions shift item indices.
+    let mut created: HashSet<(String, Vec<Vec<String>>, Vec<String>)> = HashSet::new();
     let mut template_names: HashSet<String> = HashSet::new();
     for _ in 0..MAX_ROUNDS {
         let mut templates: HashMap<String, Vec<(usize, Vec<Param>)>> = HashMap::new();
@@ -73,43 +76,67 @@ pub(super) fn specialize_opaque_params(mut items: Vec<Item>) -> Vec<Item> {
                 };
                 let close = matching(toks, i + 1, "(", ")");
                 let args = split_args(&toks[i + 2..close]);
-                let found = templates[&callee]
+                let compatible: Vec<_> = templates[&callee]
                     .iter()
-                    .find(|(_, ps)| ps.len() == args.len())
-                    .cloned();
-                if let Some((tidx, params)) = found {
-                    let ok = params.iter().zip(&args).all(|(p, a)| {
-                        !p.opaque
-                            || (a.len() == 1 && a[0].ident().is_some_and(|x| globals.contains(x)))
-                    });
-                    if ok {
-                        let opaque_args: Vec<String> = params
-                            .iter()
-                            .zip(&args)
-                            .filter(|(p, _)| p.opaque)
-                            .map(|(_, a)| a[0].text().to_string())
-                            .collect();
-                        let sname = format!("{callee}__{}", opaque_args.join("_"));
-                        let line = toks[i].line;
-                        let mut repl = vec![id(&sname).at(line), p("(").at(line)];
-                        let mut first = true;
-                        for (pa, a) in params.iter().zip(&args) {
-                            if pa.opaque {
-                                continue;
-                            }
-                            if !first {
-                                repl.push(p(",").at(line));
-                            }
-                            first = false;
-                            repl.extend(a.iter().cloned());
+                    .filter(|(_, params)| {
+                        params.len() == args.len()
+                            && params.iter().zip(&args).all(|(param, arg)| {
+                                let global = (arg.len() == 1)
+                                    .then(|| arg[0].ident())
+                                    .flatten()
+                                    .and_then(|name| globals.get(name));
+                                if param.opaque {
+                                    param
+                                        .toks
+                                        .iter()
+                                        .find_map(|t| t.ident().filter(|ty| is_opaque(ty)))
+                                        == global.map(String::as_str)
+                                } else {
+                                    global.is_none()
+                                }
+                            })
+                    })
+                    .cloned()
+                    .collect();
+                if let Some((_, params)) = compatible.first() {
+                    let opaque_args: Vec<String> = params
+                        .iter()
+                        .zip(&args)
+                        .filter(|(param, _)| param.opaque)
+                        .map(|(_, arg)| arg[0].text().to_string())
+                        .collect();
+                    let sname = format!("{callee}__{}", opaque_args.join("_"));
+                    let line = toks[i].line;
+                    let mut repl = vec![id(&sname).at(line), p("(").at(line)];
+                    let mut first = true;
+                    for (param, arg) in params.iter().zip(&args) {
+                        if param.opaque {
+                            continue;
                         }
-                        repl.push(p(")").at(line));
-                        toks.splice(i..=close, repl);
-                        if created.insert((sname.clone(), params.len())) {
-                            new_funcs.push((tidx, sname, params, opaque_args));
+                        if !first {
+                            repl.push(p(",").at(line));
                         }
-                        changed = true;
+                        first = false;
+                        repl.extend(arg.iter().cloned());
                     }
+                    repl.push(p(")").at(line));
+                    toks.splice(i..=close, repl);
+                    for (tidx, params) in compatible {
+                        let signature = params
+                            .iter()
+                            .map(|param| {
+                                param
+                                    .toks
+                                    .iter()
+                                    .map(|token| token.text().to_string())
+                                    .collect()
+                            })
+                            .collect();
+                        if created.insert((callee.clone(), signature, opaque_args.clone())) {
+                            new_funcs.push((tidx, sname.clone(), params, opaque_args.clone()));
+                        }
+                    }
+                    changed = true;
                 }
                 i += 1;
             }
