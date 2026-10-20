@@ -447,6 +447,32 @@ fn frontend_include_line_comments_survive_expansion() {
 }
 
 #[test]
+fn frontend_include_leading_comments_precede_included_metadata() {
+    let pp = run(
+        &[
+            ("a.fsh", "/* RENDERTARGETS: 1 */ #include \"lib.glsl\""),
+            ("lib.glsl", "/* RENDERTARGETS: 2 */"),
+        ],
+        "a.fsh",
+        &[],
+    );
+    assert_eq!(pp.render_targets, Some(vec![2]));
+}
+
+#[test]
+fn frontend_include_trailing_comments_follow_included_metadata() {
+    let pp = run(
+        &[
+            ("a.fsh", "#include \"lib.glsl\" /* RENDERTARGETS: 1 */"),
+            ("lib.glsl", "/* RENDERTARGETS: 2 */"),
+        ],
+        "a.fsh",
+        &[],
+    );
+    assert_eq!(pp.render_targets, Some(vec![1]));
+}
+
+#[test]
 fn frontend_metadata_uses_expanded_values_and_comment_whitespace() {
     let pp = run(
         &[(

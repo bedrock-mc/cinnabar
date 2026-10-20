@@ -234,16 +234,11 @@ impl<'a> Expander<'a> {
             let line = rewritten.as_deref().unwrap_or(line);
             let logical = line.replace("\\\n", "");
             let scan = scan_line(&logical, &mut false);
-            let comments = scan
-                .comments
-                .iter()
-                .map(|(_, text)| text.as_str())
-                .collect::<Vec<_>>()
-                .join("\n");
+            let comment_bytes = scan.comments.iter().map(|(_, text)| text.len() + 1).sum();
             // Include lines count too: duplicating empty files still spends traversal work.
             self.remaining = self
                 .remaining
-                .checked_sub(line.len().max(comments.len()).saturating_add(1))
+                .checked_sub(line.len().saturating_add(1).max(comment_bytes))
                 .ok_or_else(|| {
                     Diagnostic::new(Phase::Include, "expanded GLSL exceeds byte limit")
                         .at(Some(here.clone()))
@@ -260,6 +255,7 @@ impl<'a> Expander<'a> {
                 let target = resolve_include(&frame.path, rest).map_err(|message| {
                     Diagnostic::new(Phase::Include, message).at(Some(here.clone()))
                 })?;
+                let file = frame.file;
                 if frames.iter().any(|frame| frame.path == target) {
                     return Err(Diagnostic::new(
                         Phase::Include,
@@ -267,6 +263,18 @@ impl<'a> Expander<'a> {
                     )
                     .at(Some(here)));
                 }
+                let filename_offset = code.len() - rest.trim_start().len();
+                let split = scan
+                    .comments
+                    .partition_point(|(offset, _)| *offset < filename_offset);
+                for (_, comment) in &scan.comments[..split] {
+                    self.append(comment, file, n as u32 + 1);
+                }
+                let comments = scan.comments[split..]
+                    .iter()
+                    .map(|(_, text)| text.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n");
                 if !comments.is_empty() {
                     frames.last_mut().unwrap().pending = Some((comments, n as u32 + 1));
                 }
