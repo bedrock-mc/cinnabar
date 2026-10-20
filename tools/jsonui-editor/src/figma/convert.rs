@@ -1,0 +1,954 @@
+//! The layer-to-control mapping: containers to panels and stack panels, text
+//! to labels, fills and `@image` exports to images.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use serde_json::{Map, Value, json};
+
+use super::names::{self, Directives, NameSet};
+use super::place::{Natural, Place, anchor, number, place_control, stretch};
+use super::{
+    Align, AutoLayout, Constraint, Constraints, Conversion, LayoutMode, Node, Paint, Positioning,
+    Sizing, Warning,
+};
+use crate::mock::MockData;
+
+mod button;
+mod factory;
+mod paint;
+
+use button::button;
+
+pub(super) type Body = Map<String, Value>;
+
+/// The Figma font size drawn at `font_scale_factor` 1: the default font's 8 px glyph cell.
+const BASE_FONT_SIZE: f64 = 8.0;
+/// A reset formatting code: it draws nothing, and keeps literal text from
+/// starting with one of [`EVALUATED_PREFIXES`].
+const LITERAL_PREFIX: &str = "\u{a7}r";
+/// Leading characters that make a property string something the engine reads
+/// rather than draws: a `#` binding reference (`bind::bake_properties`), a `$`
+/// variable or a `(` expression (`json_ui::env::evaluate`).
+const EVALUATED_PREFIXES: [char; 3] = ['#', '$', '('];
+/// The UI file's metadata key, which no control may take.
+const NAMESPACE_KEY: &str = "namespace";
+/// Image key of the generated white texture that solid fills tint.
+const SOLID_KEY: &str = "\0solid";
+const CONTAINERS: [&str; 6] = [
+    "FRAME",
+    "GROUP",
+    "COMPONENT",
+    "COMPONENT_SET",
+    "INSTANCE",
+    "SECTION",
+];
+
+/// Converts `root` into a pack. `images` holds the bytes behind every image
+/// key the tree names (fills' image hashes and `@image` exports).
+pub fn convert(root: &Node, images: &BTreeMap<String, Vec<u8>>) -> Conversion {
+    let namespace = names::identifier(&names::parse(&root.name).words, "figma_screen");
+    let mut ctx = Ctx {
+        namespace: namespace.clone(),
+        images,
+        files: BTreeMap::new(),
+        textures: BTreeMap::new(),
+        stems: NameSet::default(),
+        definitions: BTreeMap::new(),
+        top: NameSet::default(),
+        warnings: Vec::new(),
+        mock: MockData::default(),
+        font_types: BTreeSet::new(),
+    };
+    ctx.top.unique(NAMESPACE_KEY);
+    let root_name = ctx.top.unique(&namespace);
+    let screen_name = ctx.top.unique(&format!("{root_name}_screen"));
+    let body = ctx
+        .control(root, Place::Fill, &Scope::default())
+        .map_or_else(|| panel(Vec::new()), |(_, body)| body);
+    ctx.definitions
+        .insert(root_name.clone(), Value::Object(body));
+    ctx.definitions.insert(
+        screen_name.clone(),
+        json!({
+            "type": "screen",
+            "controls": [{ format!("{root_name}@{namespace}.{root_name}"): {} }],
+        }),
+    );
+    let ui_path = format!("ui/{namespace}.json");
+    ctx.files
+        .insert(ui_path.clone(), ui_file(&namespace, &ctx.definitions));
+    ctx.files.insert(
+        json_ui::UI_DEFS_PATH.to_owned(),
+        pretty(&json!({ "ui_defs": [ui_path] })),
+    );
+    // A state copied from the default repeats the default's warnings.
+    let mut seen = std::collections::BTreeSet::new();
+    ctx.warnings
+        .retain(|warning| seen.insert((warning.node_id.clone(), warning.message.clone())));
+    Conversion {
+        screen: format!("{namespace}.{screen_name}"),
+        namespace,
+        size: [root.width, root.height],
+        files: ctx.files,
+        warnings: ctx.warnings,
+        font_types: ctx.font_types.into_iter().collect(),
+        mock: ctx.mock,
+    }
+}
+
+#[derive(Clone, Default)]
+struct Scope {
+    /// The parent's layer path.
+    path: String,
+    /// The factory collection and item index that bound values sample into.
+    item: Option<(String, usize)>,
+}
+
+impl Scope {
+    fn path_to(&self, node: &Node) -> String {
+        if self.path.is_empty() {
+            node.name.clone()
+        } else {
+            format!("{} / {}", self.path, node.name)
+        }
+    }
+}
+
+struct Ctx<'a> {
+    namespace: String,
+    images: &'a BTreeMap<String, Vec<u8>>,
+    files: BTreeMap<String, Vec<u8>>,
+    /// Image key to exported texture path.
+    textures: BTreeMap<String, String>,
+    stems: NameSet,
+    /// Top-level controls of the UI file.
+    definitions: BTreeMap<String, Value>,
+    top: NameSet,
+    warnings: Vec<Warning>,
+    mock: MockData,
+    /// Named label fonts used.
+    font_types: BTreeSet<String>,
+}
+
+impl Ctx<'_> {
+    fn warn(&mut self, node: &Node, path: &str, message: impl Into<String>) {
+        self.warnings.push(Warning {
+            node_id: node.id.clone(),
+            layer: path.to_owned(),
+            message: message.into(),
+        });
+    }
+
+    /// `node` as a named control placed by `place`; `None` when it has no
+    /// JSON-UI form (after warning why).
+    fn control(&mut self, node: &Node, place: Place, scope: &Scope) -> Option<(String, Body)> {
+        let directives = names::parse(&node.name);
+        let path = scope.path_to(node);
+        for token in &directives.unknown {
+            self.warn(node, &path, format!("`{token}` is not a known directive"));
+        }
+        let inner = Scope {
+            path: path.clone(),
+            item: scope.item.clone(),
+        };
+        let variants = match (&directives.button, &node.raster) {
+            (Some(_), None) => self.state_variants(node, &inner),
+            _ => None,
+        };
+        // An instance's variants are snapshots of it that already carry its opacity.
+        let mut opacity = node.opacity;
+        let mut states: Vec<&'static str> = Vec::new();
+        // An `@image` export already has the layer's opacity baked in.
+        if node.raster.is_some() {
+            opacity = 1.0;
+        }
+        let (mut body, natural, extent) = match variants {
+            Some((panel, found, extent)) => {
+                states = found;
+                if node.kind == "INSTANCE" {
+                    opacity = 1.0;
+                }
+                (panel, [None, None], extent)
+            }
+            None => {
+                self.check_common(node, &path);
+                // A button's state children convert as one overlay frame.
+                let framed = match (&directives.button, &node.raster) {
+                    (Some(_), None) => button::state_frame(node),
+                    _ => None,
+                };
+                let source = match &framed {
+                    Some((framed, found)) => {
+                        states.clone_from(found);
+                        framed
+                    }
+                    None => node,
+                };
+                let (body, natural) = self.content(source, &path, &directives, scope, &inner)?;
+                (body, natural, [node.width, node.height])
+            }
+        };
+        if directives.image && node.raster.is_none() {
+            let message = format!(
+                "`{}` arrived without its export; converted as layers",
+                names::IMAGE
+            );
+            self.warn(node, &path, message);
+        }
+        let name = names::identifier(&directives.words, &node.kind.to_ascii_lowercase());
+        if let Some(id) = &directives.button {
+            body = button(body, id.as_deref().unwrap_or(&name), &states, &natural);
+        }
+        if !node.visible {
+            body.insert("visible".into(), false.into());
+        }
+        if let Some(binding) = &directives.visible {
+            self.bind(&mut body, "visible", binding, node.visible.into(), scope);
+        }
+        if opacity < 0.999 {
+            if matches!(type_of(&body), "label" | "image") {
+                let alpha = body.get("alpha").and_then(Value::as_f64).unwrap_or(1.0);
+                set_alpha(&mut body, alpha * opacity);
+            } else {
+                set_alpha(&mut body, opacity);
+                body.insert("propagate_alpha".into(), true.into());
+                // JSON-UI fades each layer; Figma fades the flattened group.
+                if layers_overlap(node) {
+                    let message = format!(
+                        "a faded group fades each layer, so overlapping layers look stronger than in Figma; name it `{}` to flatten it",
+                        names::IMAGE
+                    );
+                    self.warn(node, &path, message);
+                }
+            }
+        }
+        place_control(&mut body, node, extent, &natural, place);
+        for (key, bounds) in [("min_size", node.min_size), ("max_size", node.max_size)] {
+            if bounds.iter().any(Option::is_some) {
+                let bounds = bounds.map(|bound| bound.map_or_else(|| json!("default"), number));
+                body.insert(key.into(), json!(bounds));
+            }
+        }
+        // A button wrapped around content sized to itself hugs that content.
+        if directives.button.is_some()
+            && let Some(Value::Array(size)) = body.get_mut("size")
+        {
+            for (value, natural) in size.iter_mut().zip(&natural) {
+                if natural.as_ref() == Some(value) {
+                    *value = "100%c".into();
+                }
+            }
+        }
+        Some((name, body))
+    }
+
+    /// `child` placed by its constraints in a parent `parent` in size. A plain
+    /// group spans that parent, with its layers moved into the parent's
+    /// coordinates, since Figma resolves their constraints against the
+    /// enclosing frame rather than the group's box.
+    fn free_child(
+        &mut self,
+        child: &Node,
+        parent: [f64; 2],
+        scope: &Scope,
+    ) -> Option<(String, Body)> {
+        let directives = names::parse(&child.name);
+        let plain =
+            directives.button.is_none() && directives.factory.is_none() && !directives.image;
+        if child.kind != "GROUP" || !plain || child.raster.is_some() {
+            return self.control(child, Place::Free { parent }, scope);
+        }
+        let mut spanning = child.clone();
+        for layer in &mut spanning.children {
+            (layer.x, layer.y) = (layer.x + child.x, layer.y + child.y);
+        }
+        (spanning.x, spanning.y) = (0.0, 0.0);
+        (spanning.width, spanning.height) = (parent[0], parent[1]);
+        spanning.constraints = Constraints {
+            horizontal: Constraint::Stretch,
+            vertical: Constraint::Stretch,
+        };
+        self.control(&spanning, Place::Free { parent }, scope)
+    }
+
+    /// `node`'s own control before placement, and how its axes size to content.
+    fn content(
+        &mut self,
+        node: &Node,
+        path: &str,
+        directives: &Directives,
+        scope: &Scope,
+        inner: &Scope,
+    ) -> Option<(Body, Natural)> {
+        Some(match (node.raster.as_deref(), node.kind.as_str()) {
+            (Some(key), _) => (
+                self.raster(node, key, path, directives, scope)?,
+                [None, None],
+            ),
+            (None, "TEXT") => {
+                let (body, auto) = self.text(node, path, directives, scope)?;
+                (body, auto.map(|auto| auto.then(|| json!("default"))))
+            }
+            (None, "RECTANGLE") => (self.rectangle(node, path, directives, scope), [None, None]),
+            (None, kind) if CONTAINERS.contains(&kind) => {
+                self.container(node, path, directives, inner)
+            }
+            (None, kind) => {
+                let message = format!(
+                    "{} layers are not supported; name it `{}` to export it as a texture",
+                    label(kind),
+                    names::IMAGE
+                );
+                self.warn(node, path, message);
+                return None;
+            }
+        })
+    }
+
+    /// Warnings for properties no control expresses.
+    fn check_common(&mut self, node: &Node, path: &str) {
+        if node.rotation.abs() > 0.01 {
+            self.warn(node, path, "rotation is not supported");
+        }
+        if !matches!(node.blend_mode.as_str(), "" | "NORMAL" | "PASS_THROUGH") {
+            let mode = label(&node.blend_mode);
+            self.warn(node, path, format!("{mode} blend mode is not supported"));
+        }
+        if node.is_mask {
+            self.warn(node, path, "masks are not supported");
+        }
+        if node.raster.is_some() && node.overflows {
+            let message = "content drawn outside the layer's box (shadows, outside strokes, overflowing layers) is cut from its export";
+            self.warn(node, path, message);
+        }
+        // An `@image` export already contains its effects, strokes and corners;
+        // a component set's own fill and stroke are canvas chrome.
+        if node.raster.is_some() || node.kind == "COMPONENT_SET" {
+            return;
+        }
+        for paint in visible_fills(node) {
+            if !matches!(paint.blend_mode.as_str(), "" | "NORMAL" | "PASS_THROUGH") {
+                let mode = label(&paint.blend_mode);
+                self.warn(
+                    node,
+                    path,
+                    format!("{mode} fill blend mode is not supported"),
+                );
+            }
+        }
+        for effect in node.effects.iter().filter(|effect| effect.visible) {
+            let kind = label(&effect.kind);
+            self.warn(node, path, format!("{kind} effect is not supported"));
+        }
+        if node.strokes.iter().any(|stroke| stroke.visible) {
+            self.warn(node, path, "strokes are not supported");
+        }
+        if node.corner_radius > 0.0 && (node.clips_content || visible_fills(node).next().is_some())
+        {
+            self.warn(node, path, "corner radius is not supported");
+        }
+    }
+
+    fn raster(
+        &mut self,
+        node: &Node,
+        key: &str,
+        path: &str,
+        directives: &Directives,
+        scope: &Scope,
+    ) -> Option<Body> {
+        let texture = self.texture(node, key, path)?;
+        let mut body = image(&texture);
+        body.insert("keep_ratio".into(), false.into());
+        if let Some(binding) = &directives.binding {
+            self.bind(&mut body, "texture", binding, texture.into(), scope);
+        }
+        Some(body)
+    }
+
+    fn text(
+        &mut self,
+        node: &Node,
+        path: &str,
+        directives: &Directives,
+        scope: &Scope,
+    ) -> Option<(Body, [bool; 2])> {
+        let Some(text) = &node.text else {
+            self.warn(node, path, "text layer arrived without its text");
+            return None;
+        };
+        let mut body = Body::new();
+        body.insert("type".into(), "label".into());
+        // Design text draws as written: unlocalized, and never evaluated.
+        let literal = if text.characters.starts_with(EVALUATED_PREFIXES) {
+            format!("{LITERAL_PREFIX}{}", text.characters)
+        } else {
+            text.characters.clone()
+        };
+        body.insert("text".into(), literal.into());
+        body.insert("localize".into(), false.into());
+        // `§` and the character after it are a formatting code; Bedrock text has no escape.
+        let code = text.characters.char_indices().any(|(at, character)| {
+            character == '\u{a7}' && at + character.len_utf8() < text.characters.len()
+        });
+        if code && directives.binding.is_none() {
+            let message = "`\u{a7}` starts a Bedrock formatting code, so it and the character after it do not draw";
+            self.warn(node, path, message);
+        }
+        for property in &text.mixed {
+            let message = format!(
+                "mixed {property} within one text is not supported; the first run's is used"
+            );
+            self.warn(node, path, message);
+        }
+        let fills: Vec<&Paint> = visible_fills(node).collect();
+        match fills.last() {
+            None => {
+                self.warn(
+                    node,
+                    path,
+                    "text without a visible fill is exported transparent",
+                );
+                body.insert("alpha".into(), 0.into());
+            }
+            Some(paint) => {
+                if fills.len() > 1 {
+                    self.warn(
+                        node,
+                        path,
+                        "stacked text fills are not supported; the top fill is used",
+                    );
+                }
+                match (paint.kind.as_str(), paint.color) {
+                    ("SOLID", Some(rgb)) => {
+                        body.insert("color".into(), color(rgb));
+                        set_alpha(&mut body, paint.opacity);
+                    }
+                    (kind, _) => {
+                        let message = format!(
+                            "{} text fills are not supported; the text is white",
+                            label(kind)
+                        );
+                        self.warn(node, path, message);
+                    }
+                }
+            }
+        }
+        let (font, known) = font_type(&text.font_family);
+        if font != "default" {
+            body.insert("font_type".into(), font.into());
+            self.font_types.insert(font.to_owned());
+        }
+        if !known {
+            let message = format!(
+                "font `{}` has no Bedrock equivalent; it uses the smooth font",
+                text.font_family
+            );
+            self.warn(node, path, message);
+        }
+        if !matches!(
+            text.font_style.to_ascii_lowercase().as_str(),
+            "" | "regular"
+        ) {
+            let message = format!("font style `{}` is not supported", text.font_style);
+            self.warn(node, path, message);
+        }
+        let scale = text.font_size / BASE_FONT_SIZE;
+        if (scale - 1.0).abs() > 1e-3 {
+            body.insert("font_scale_factor".into(), fraction(scale));
+        }
+        match text.align_h.as_str() {
+            "CENTER" => {
+                body.insert("text_alignment".into(), "center".into());
+            }
+            "RIGHT" => {
+                body.insert("text_alignment".into(), "right".into());
+            }
+            "JUSTIFIED" => self.warn(
+                node,
+                path,
+                "justified text is not supported; it aligns left",
+            ),
+            _ => {}
+        }
+        let unsupported = [
+            (text.letter_spacing != 0.0, "letter spacing"),
+            (text.line_height.is_some(), "a fixed line height"),
+            (
+                !matches!(text.text_case.as_str(), "" | "ORIGINAL"),
+                "text case",
+            ),
+            (
+                !matches!(text.text_decoration.as_str(), "" | "NONE"),
+                "text decoration",
+            ),
+            (
+                text.truncate || text.auto_resize == "TRUNCATE",
+                "text truncation",
+            ),
+        ];
+        for (_, what) in unsupported.into_iter().filter(|(set, _)| *set) {
+            self.warn(node, path, format!("{what} is not supported"));
+        }
+        if text.list {
+            self.warn(node, path, "list bullets and numbering are not exported");
+        }
+        if let Some(binding) = &directives.binding {
+            self.bind(
+                &mut body,
+                "text",
+                binding,
+                text.characters.clone().into(),
+                scope,
+            );
+            body.remove("localize");
+        }
+        let auto = match text.auto_resize.as_str() {
+            "WIDTH_AND_HEIGHT" => [true, true],
+            "HEIGHT" => [false, true],
+            _ => [false, false],
+        };
+        // Truncated text keeps its box so the label ellipsizes as Figma does.
+        let truncates = text.truncate || text.auto_resize == "TRUNCATE";
+        let vertical = match text.align_v.as_str() {
+            "CENTER" => Some("left_middle"),
+            "BOTTOM" => Some("bottom_left"),
+            _ if truncates => None,
+            _ => Some("top_left"),
+        };
+        // Labels have no vertical alignment, and cut lines that overflow their
+        // height: a fixed-height box anchors a natural-height label instead.
+        match vertical {
+            Some(anchor) if !auto[1] => {
+                body.insert("size".into(), json!(["100%", "default"]));
+                body.insert("anchor_from".into(), anchor.into());
+                body.insert("anchor_to".into(), anchor.into());
+                Some((panel(vec![entry("text", body)]), auto))
+            }
+            _ => Some((body, auto)),
+        }
+    }
+
+    fn rectangle(
+        &mut self,
+        node: &Node,
+        path: &str,
+        directives: &Directives,
+        scope: &Scope,
+    ) -> Body {
+        let mut fills = self.fills(node, path);
+        if fills.len() == 1 {
+            let (kind, mut body) = fills.remove(0);
+            if let Some(binding) = &directives.binding {
+                match body.get("texture").and_then(Value::as_str) {
+                    Some(texture) if kind == "IMAGE" => {
+                        let texture = texture.to_owned();
+                        self.bind(&mut body, "texture", binding, texture.into(), scope);
+                    }
+                    _ => self.warn(node, path, "`$binding` binds a text or image layer"),
+                }
+            }
+            return body;
+        }
+        if directives.binding.is_some() {
+            self.warn(node, path, "`$binding` binds a text or image layer");
+        }
+        let mut names = NameSet::default();
+        let controls = fills
+            .into_iter()
+            .map(|(_, mut fill)| {
+                fill.insert("size".into(), json!(["100%", "100%"]));
+                entry(&names.unique("fill"), fill)
+            })
+            .collect();
+        panel(controls)
+    }
+
+    fn container(
+        &mut self,
+        node: &Node,
+        path: &str,
+        directives: &Directives,
+        scope: &Scope,
+    ) -> (Body, Natural) {
+        if directives.binding.is_some() {
+            self.warn(node, path, "`$binding` binds a text or image layer");
+        }
+        let mut names = NameSet::default();
+        let fills = match node.kind.as_str() {
+            "COMPONENT_SET" => Vec::new(),
+            _ => self.fills(node, path),
+        };
+        let mut controls: Vec<Value> = fills
+            .into_iter()
+            .map(|(_, mut fill)| {
+                fill.insert("size".into(), json!(["100%", "100%"]));
+                entry(&names.unique("background"), fill)
+            })
+            .collect();
+        let (mut body, natural) = match &node.layout {
+            Some(layout) if layout.mode != LayoutMode::Other => {
+                let factory = directives.factory.as_deref();
+                self.auto_layout(node, layout, path, factory, scope, (names, controls))
+            }
+            layout => {
+                if layout.is_some() {
+                    self.warn(
+                        node,
+                        path,
+                        "this auto-layout mode is not supported; children keep their positions",
+                    );
+                }
+                if directives.factory.is_some() {
+                    self.warn(node, path, "`@factory` needs an auto-layout frame");
+                }
+                let parent = [node.width, node.height];
+                for child in &node.children {
+                    if let Some((name, body)) = self.free_child(child, parent, scope) {
+                        controls.push(entry(&names.unique(&name), body));
+                    }
+                }
+                (panel(controls), [None, None])
+            }
+        };
+        if node.clips_content {
+            body.insert("clips_children".into(), true.into());
+        }
+        (body, natural)
+    }
+
+    /// A stack panel, wrapped in a panel when backgrounds, padding, primary-axis
+    /// alignment or absolutely positioned children need one.
+    fn auto_layout(
+        &mut self,
+        node: &Node,
+        layout: &AutoLayout,
+        path: &str,
+        factory: Option<&str>,
+        scope: &Scope,
+        (mut names, mut outer): (NameSet, Vec<Value>),
+    ) -> (Body, Natural) {
+        let main = usize::from(layout.mode != LayoutMode::Horizontal);
+        let cross = 1 - main;
+        if layout.wrap {
+            self.warn(node, path, "wrapping auto-layout is not supported");
+        }
+        let primary = match layout.primary_align {
+            align @ (Align::Min | Align::Center | Align::Max) => align,
+            align => {
+                let message = format!(
+                    "{align:?} distribution is not supported; children pack from the start"
+                );
+                self.warn(node, path, message);
+                Align::Min
+            }
+        };
+        let counter = match layout.counter_align {
+            align @ (Align::Min | Align::Center | Align::Max) => align,
+            align => {
+                self.warn(
+                    node,
+                    path,
+                    format!("{align:?} alignment is not supported; children align to the start"),
+                );
+                Align::Min
+            }
+        };
+        let anchored = counter != Align::Min;
+        let place = Place::Stack {
+            main,
+            counter,
+            anchored,
+        };
+        let mut stack = Body::new();
+        stack.insert("type".into(), "stack_panel".into());
+        let orientation = if main == 0 { "horizontal" } else { "vertical" };
+        stack.insert("orientation".into(), orientation.into());
+        if anchored {
+            stack.insert("use_child_anchors".into(), true.into());
+        }
+        let (flow, absolute): (Vec<&Node>, Vec<&Node>) = node
+            .children
+            .iter()
+            .partition(|child| child.positioning == Positioning::Auto);
+        // Fill children that can show take the stack's leftover extent, so it cannot size to its content.
+        let primary = if flow
+            .iter()
+            .any(|child| child.sizing[main] == Sizing::Fill && can_show(child))
+        {
+            Align::Min
+        } else {
+            primary
+        };
+        if layout.item_spacing < 0.0 {
+            self.warn(node, path, "negative spacing is not supported");
+        }
+        if layout.reverse_z_index && flow.len() > 1 {
+            let message = "first-on-top stacking applies only to absolute layers; stacked items draw last on top";
+            self.warn(node, path, message);
+        }
+        if let Some(collection) = factory {
+            if layout.item_spacing > 0.0 {
+                self.warn(node, path, "spacing between factory items is not supported");
+            }
+            self.factory(node, &flow, collection, place, &mut stack, path);
+        } else {
+            let mut inner = NameSet::default();
+            let mut controls = Vec::new();
+            let mut shown = false;
+            for (index, child) in flow.iter().enumerate() {
+                let binding = names::parse(&child.name).visible;
+                let spaced = layout.item_spacing > 0.0;
+                // The gap before an item follows it; the first shown item has none to take along.
+                if spaced && shown && (child.visible || binding.is_some()) {
+                    let mut size = [json!(0), json!(0)];
+                    size[main] = number(layout.item_spacing);
+                    let mut spacer = panel(Vec::new());
+                    spacer.insert("size".into(), json!(size));
+                    if let Some(binding) = &binding {
+                        if !child.visible {
+                            spacer.insert("visible".into(), false.into());
+                        }
+                        self.bind(&mut spacer, "visible", binding, child.visible.into(), scope);
+                    }
+                    controls.push(entry(&inner.unique("spacing"), spacer));
+                } else if let Some(binding) = &binding
+                    && spaced
+                    && index + 1 < flow.len()
+                {
+                    let path = scope.path_to(child);
+                    let message =
+                        format!("the spacing after this layer does not follow `{binding}`");
+                    self.warn(child, &path, message);
+                }
+                if let Some((name, body)) = self.control(child, place, scope) {
+                    controls.push(entry(&inner.unique(&name), body));
+                    shown |= child.visible;
+                }
+            }
+            if !controls.is_empty() {
+                stack.insert("controls".into(), controls.into());
+            }
+        }
+        let [left, top, right, bottom] = layout.padding;
+        let (start, end) = ([left, top], [right, bottom]);
+        let padded = layout.padding.iter().any(|pad| *pad != 0.0);
+        // A hugging axis sizes to the stacked items: their sum along it, the
+        // largest across it.
+        let hug = |axis: usize| node.sizing[axis] == Sizing::Hug;
+        let content = |axis: usize| json!(if axis == main { "100%c" } else { "100%cm" });
+        if outer.is_empty() && !padded && primary == Align::Min && absolute.is_empty() {
+            let natural = std::array::from_fn(|axis| hug(axis).then(|| content(axis)));
+            return (stack, natural);
+        }
+        let mut size = [Value::Null, Value::Null];
+        let mut offset = [Value::Null, Value::Null];
+        let mut parts = [0; 2];
+        size[cross] = stretch(start[cross] + end[cross]);
+        offset[cross] = number(start[cross]);
+        (parts[main], offset[main], size[main]) = match primary {
+            Align::Center => (1, number((start[main] - end[main]) / 2.0), json!("100%c")),
+            Align::Max => (2, number(-end[main]), json!("100%c")),
+            _ => (0, number(start[main]), stretch(start[main] + end[main])),
+        };
+        // A hugging wrapper is its stack plus padding.
+        let mut natural: Natural = [None, None];
+        for axis in (0..2).filter(|axis| hug(*axis)) {
+            size[axis] = content(axis);
+            let padding = start[axis] + end[axis];
+            natural[axis] = Some(match number(padding) {
+                Value::Number(n) if n.as_f64() == Some(0.0) => json!("100%cm"),
+                padding => json!(format!("100%cm + {padding}px")),
+            });
+        }
+        stack.insert("size".into(), json!(size));
+        stack.insert("offset".into(), json!(offset));
+        anchor(&mut stack, parts);
+        // Absolute layers keep Figma's drawing order around the stacked items.
+        let mut drawn: Vec<&Node> = node.children.iter().collect();
+        if layout.reverse_z_index {
+            drawn.reverse();
+        }
+        let is_flow = |child: &&Node| child.positioning == Positioning::Auto;
+        let first_flow = drawn.iter().position(is_flow).unwrap_or(drawn.len());
+        let last_flow = drawn.iter().rposition(is_flow).unwrap_or(0);
+        let parent = [node.width, node.height];
+        let (mut below, mut above) = (Vec::new(), Vec::new());
+        for (at, child) in drawn.into_iter().enumerate() {
+            if is_flow(&child) {
+                continue;
+            }
+            if at > first_flow && at < last_flow {
+                let message = "an absolute layer between auto-layout items draws above all of them";
+                self.warn(child, &scope.path_to(child), message);
+            }
+            let Some((name, body)) = self.free_child(child, parent, scope) else {
+                continue;
+            };
+            let control = entry(&names.unique(&name), body);
+            if at < first_flow {
+                below.push(control);
+            } else {
+                above.push(control);
+            }
+        }
+        // Absolute layers sit in parent-sized overlays, which measure as nothing,
+        // so a hugging wrapper follows only its stack.
+        let mut overlay = |controls: Vec<Value>| {
+            (!controls.is_empty()).then(|| {
+                let mut body = panel(controls);
+                body.insert("size".into(), json!(["100%", "100%"]));
+                entry(&names.unique("overlay"), body)
+            })
+        };
+        let below = overlay(below);
+        let above = overlay(above);
+        outer.extend(below);
+        outer.push(entry(&names.unique("content"), stack));
+        outer.extend(above);
+        (panel(outer), natural)
+    }
+
+    /// Binds `property` (`text`, `texture` or `visible`) to `binding`, sampling
+    /// `value` for previews.
+    fn bind(
+        &mut self,
+        body: &mut Body,
+        property: &str,
+        binding: &str,
+        value: Value,
+        scope: &Scope,
+    ) {
+        let mut entry = Body::new();
+        entry.insert("binding_name".into(), binding.into());
+        if property == "text" {
+            body.insert("text".into(), binding.into());
+        } else {
+            entry.insert(
+                "binding_name_override".into(),
+                format!("#{property}").into(),
+            );
+        }
+        match &scope.item {
+            Some((collection, index)) => {
+                entry.insert("binding_type".into(), "collection".into());
+                entry.insert("binding_collection_name".into(), collection.clone().into());
+                self.item(collection, *index)
+                    .insert(binding.to_owned(), value);
+            }
+            None => {
+                self.mock.globals.insert(binding.to_owned(), value);
+            }
+        }
+        if let Value::Array(bindings) = body.entry("bindings").or_insert_with(|| json!([])) {
+            bindings.push(Value::Object(entry));
+        }
+    }
+}
+
+/// Whether two of `node`'s visible layers (its fills and children) overlap.
+fn layers_overlap(node: &Node) -> bool {
+    let mut rects: Vec<[f64; 4]> = visible_fills(node)
+        .map(|_| [0.0, 0.0, node.width, node.height])
+        .collect();
+    let children = node.children.iter().filter(|child| child.visible);
+    rects.extend(children.map(|child| [child.x, child.y, child.width, child.height]));
+    let overlap = |a: &[f64; 4], b: &[f64; 4]| {
+        a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3]
+    };
+    rects
+        .iter()
+        .enumerate()
+        .any(|(at, a)| rects[at + 1..].iter().any(|b| overlap(a, b)))
+}
+
+/// Whether `node` is shown or a `$visible` binding can show it.
+fn can_show(node: &Node) -> bool {
+    node.visible || names::parse(&node.name).visible.is_some()
+}
+
+fn visible_fills(node: &Node) -> impl Iterator<Item = &Paint> {
+    node.fills
+        .iter()
+        .filter(|paint| paint.visible && paint.opacity > 0.0)
+}
+
+/// The Bedrock `font_type` for a Figma font family, and whether it is a match.
+fn font_type(family: &str) -> (&'static str, bool) {
+    let family = family.to_ascii_lowercase().replace([' ', '-', '_'], "");
+    if family.contains("minecraftten") {
+        ("MinecraftTen", true)
+    } else if family.contains("minecraft") || family.contains("mojangles") {
+        ("default", true)
+    } else {
+        ("smooth", false)
+    }
+}
+
+fn type_of(body: &Body) -> &str {
+    body.get("type").and_then(Value::as_str).unwrap_or_default()
+}
+
+fn image(texture: &str) -> Body {
+    let mut body = Body::new();
+    body.insert("type".into(), "image".into());
+    body.insert("texture".into(), texture.into());
+    body
+}
+
+fn panel(controls: Vec<Value>) -> Body {
+    let mut body = Body::new();
+    body.insert("type".into(), "panel".into());
+    if !controls.is_empty() {
+        body.insert("controls".into(), controls.into());
+    }
+    body
+}
+
+fn entry(name: &str, body: Body) -> Value {
+    json!({ name: Value::Object(body) })
+}
+
+fn set_alpha(body: &mut Body, alpha: f64) {
+    if alpha < 0.999 {
+        body.insert("alpha".into(), fraction(alpha.max(0.0)));
+    } else {
+        body.remove("alpha");
+    }
+}
+
+/// `SOME_ENUM` as `some enum` for messages.
+fn label(kind: &str) -> String {
+    kind.to_ascii_lowercase().replace('_', " ")
+}
+
+fn color(rgb: [f64; 3]) -> Value {
+    json!(rgb.map(|channel| fraction(channel.clamp(0.0, 1.0))))
+}
+
+/// Ratios at 1/1000 precision.
+fn fraction(value: f64) -> Value {
+    let rounded = (value * 1000.0).round() / 1000.0;
+    if rounded.fract() == 0.0 {
+        json!(rounded as i64)
+    } else {
+        json!(rounded)
+    }
+}
+
+fn pretty(value: &Value) -> Vec<u8> {
+    let mut text = serde_json::to_string_pretty(value).unwrap_or_default();
+    text.push('\n');
+    text.into_bytes()
+}
+
+/// The UI file with `namespace` first, as authors write it.
+fn ui_file(namespace: &str, definitions: &BTreeMap<String, Value>) -> Vec<u8> {
+    let body = serde_json::to_string_pretty(definitions).unwrap_or_default();
+    format!(
+        "{{\n  \"{NAMESPACE_KEY}\": {},{}\n",
+        json!(namespace),
+        &body[1..]
+    )
+    .into_bytes()
+}
