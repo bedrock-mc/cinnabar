@@ -34,9 +34,19 @@ impl Evaluator<'_> {
         if reads.is_none() {
             variables.clear_temporaries();
         }
-        stack.reserve(expression.max_stack as usize);
         let mut loops = Vec::new();
         let mut pc = 0;
+        if reads.is_none()
+            && self.program.is_none()
+            && let Some(Some(program)) = self.layout.numeric.get(expression_index)
+            && program.accepts(self, variables)
+        {
+            match program.run(self, variables, this, budget, stack) {
+                numeric::Outcome::Complete(value) => return Ok(MolangValue::Number(value)),
+                numeric::Outcome::Resume(offset) => pc = offset,
+            }
+        }
+        stack.reserve(expression.max_stack as usize);
         while let Some(op) = ops.get(pc) {
             budget.charge()?;
             pc += 1;

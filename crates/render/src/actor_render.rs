@@ -72,6 +72,19 @@ use {
 };
 
 const ACTOR_SHADER_HANDLE: Handle<Shader> = uuid_handle!("09d34708-6fd4-4c65-b27e-ce22f172cc73");
+const ACTOR_RIG_SHADER_HANDLE: Handle<Shader> =
+    uuid_handle!("5b1f0c6e-2f4e-4c55-9a43-7c1d2e8b9f30");
+
+/// Registers `render::actor_rig`, the rig skinning the actor and hand passes share.
+pub(crate) fn load_rig_shader(app: &mut App) {
+    load_internal_asset!(
+        app,
+        ACTOR_RIG_SHADER_HANDLE,
+        "actor_rig.wesl",
+        crate::shader_safety::from_wesl
+    );
+}
+
 #[cfg(test)]
 const ACTOR_SHADER_SOURCE: &str = include_str!("actor.wesl");
 
@@ -114,6 +127,7 @@ fn install_actor_render(app: &mut App) {
         .resource::<render_scene::ActorPipelineReadiness>()
         .clone();
     app.add_plugins(ExtractResourcePlugin::<ActorRenderFrame>::default());
+    load_rig_shader(app);
     load_internal_asset!(
         app,
         ACTOR_SHADER_HANDLE,

@@ -261,6 +261,15 @@ impl MolangVariables {
         self.read(Place::Variable(slot))
     }
 
+    /// Reads a numeric variable without constructing a tagged value; unset slots read zero.
+    pub(super) fn numeric_variable(&self, slot: usize) -> Option<f32> {
+        match self.values.get(slot)? {
+            Slot::Unset => Some(0.0),
+            Slot::Number(value) => Some(*value),
+            Slot::String(_) | Slot::ActorReference(_) => None,
+        }
+    }
+
     /// Every assigned variable as `(slot, value)`, in slot order.
     pub(super) fn assigned_variables(&self) -> impl Iterator<Item = (usize, MolangValue)> + '_ {
         self.values

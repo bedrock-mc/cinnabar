@@ -94,6 +94,8 @@ pub struct UiTexturePage {
     identity: [u8; 32],
     format: UiTextureFormat,
     pixels: Pixels,
+    /// Every texel is zero, as in an unused reserved slot.
+    blank: bool,
 }
 
 impl UiTexturePage {
@@ -110,6 +112,7 @@ impl UiTexturePage {
             dimensions,
             identity: Sha256::digest(&pixels).into(),
             format: UiTextureFormat::Coverage,
+            blank: pixels.iter().all(|&byte| byte == 0),
             pixels: Pixels::Owned(pixels),
         })
     }
@@ -125,6 +128,7 @@ impl UiTexturePage {
             dimensions,
             identity: Sha256::digest(&pixels).into(),
             format: UiTextureFormat::Rgba8,
+            blank: pixels.iter().all(|&byte| byte == 0),
             pixels: Pixels::Owned(pixels),
         })
     }
@@ -157,6 +161,7 @@ impl UiTexturePage {
             identity: identity.finalize().into(),
             format,
             pixels: Pixels::Font { catalog, page },
+            blank: false,
         })
     }
 
@@ -191,6 +196,10 @@ impl UiTexturePage {
     }
     pub const fn identity(&self) -> [u8; 32] {
         self.identity
+    }
+    /// Whether every texel is zero. Font pages fill on demand and never count as blank.
+    pub const fn is_blank(&self) -> bool {
+        self.blank
     }
 }
 
@@ -313,12 +322,67 @@ impl UiTexturePlan {
     pub const fn bytes(&self) -> usize {
         self.bytes
     }
+
+    /// The storage this plan needs when the pages `blank` marks hold only zeros: in each
+    /// bucket, the blank pages after its last non-blank page share one layer after it, so
+    /// unused reserved slots cost one layer per bucket instead of one each. Earlier pages
+    /// keep their layers, so filling a slot or emptying one moves no other page.
+    fn sharing_blank(&self, blank: impl Fn(usize) -> bool) -> Self {
+        let mut used = vec![0_u32; self.buckets.len()];
+        for (page, location) in self.locations.iter().enumerate() {
+            if !blank(page) {
+                used[location.bucket] = used[location.bucket].max(location.layer + 1);
+            }
+        }
+        let mut shared = vec![false; self.buckets.len()];
+        let locations: Box<[UiTextureLocation]> = self
+            .locations
+            .iter()
+            .map(|location| {
+                let used = used[location.bucket];
+                if location.layer < used {
+                    *location
+                } else {
+                    shared[location.bucket] = true;
+                    UiTextureLocation {
+                        bucket: location.bucket,
+                        layer: used,
+                    }
+                }
+            })
+            .collect();
+        let buckets: Box<[UiTextureBucket]> = self
+            .buckets
+            .iter()
+            .zip(used.iter().zip(&shared))
+            .map(|(bucket, (&used, &shared))| UiTextureBucket {
+                layers: used + u32::from(shared),
+                ..*bucket
+            })
+            .collect();
+        let bytes = buckets
+            .iter()
+            .map(|bucket| {
+                bucket.dimensions[0] as usize
+                    * bucket.dimensions[1] as usize
+                    * bucket.layers as usize
+                    * bucket.format.bytes_per_texel()
+            })
+            .sum();
+        Self {
+            buckets,
+            locations,
+            bytes,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
 pub struct UiTextureCatalog {
     pages: Arc<[UiTexturePage]>,
     plan: UiTexturePlan,
+    /// `plan` with blank trailing pages sharing a layer: what the GPU allocates.
+    resident: UiTexturePlan,
     dynamic_start: usize,
     identity: [u8; 32],
     static_identity: [u8; 32],
@@ -422,9 +486,11 @@ impl UiTextureCatalog {
                 static_pages.update(page.identity);
             }
         }
+        let resident = plan.sharing_blank(|page| pages[page].is_blank());
         Ok(Self {
             pages: pages.into(),
             plan,
+            resident,
             dynamic_start,
             identity: all.finalize().into(),
             static_identity: static_pages.finalize().into(),
@@ -454,6 +520,11 @@ impl UiTextureCatalog {
     }
     pub fn plan(&self) -> &UiTexturePlan {
         &self.plan
+    }
+    /// The layout the GPU holds the pages in: [`Self::plan`] with each bucket's trailing
+    /// blank pages sharing one layer.
+    pub fn resident_plan(&self) -> &UiTexturePlan {
+        &self.resident
     }
     /// Native slots are charged at their blank extent; only their growth uses reserved capacity.
     pub fn fixed_budget_bytes(&self) -> usize {
@@ -619,5 +690,51 @@ mod tests {
             }
         );
         assert_eq!(plan.bytes(), 64 * 64 * (1 + 4 + 1));
+    }
+
+    /// Blank pages after a bucket's last used page share one layer; earlier ones keep theirs.
+    #[test]
+    fn trailing_blank_pages_share_one_resident_layer() {
+        let side = UI_DYNAMIC_PAGE_SIDE;
+        let page = |value: u8| {
+            UiTexturePage::owned([side; 2], vec![value; (side * side * 4) as usize].into()).unwrap()
+        };
+        let art = || {
+            let side = UI_ART_PAGE_SIDE as usize;
+            UiTexturePage::owned([UI_ART_PAGE_SIDE; 2], vec![0; side * side * 4].into()).unwrap()
+        };
+        // Bucket 0: used, blank, used, blank, blank. Bucket 1: blank, blank.
+        let pages = [page(1), page(0), page(2), art(), page(0), art(), page(0)];
+        let plan = UiTexturePlan::with_formats(
+            &pages
+                .iter()
+                .map(|page| (page.dimensions(), page.format()))
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        let resident = plan.sharing_blank(|index| pages[index].is_blank());
+        let layers: Vec<_> = resident
+            .locations()
+            .iter()
+            .map(|location| (location.bucket, location.layer))
+            .collect();
+        assert_eq!(
+            layers,
+            [(0, 0), (0, 1), (0, 2), (1, 0), (0, 3), (1, 0), (0, 3)]
+        );
+        assert_eq!(
+            resident
+                .buckets()
+                .iter()
+                .map(|b| b.layers)
+                .collect::<Vec<_>>(),
+            [4, 1]
+        );
+        let rgba = |side: u32| side as usize * side as usize * 4;
+        assert_eq!(
+            resident.bytes(),
+            4 * rgba(side) + rgba(UI_ART_PAGE_SIDE),
+            "one of five small layers and one of two art layers saved"
+        );
     }
 }
