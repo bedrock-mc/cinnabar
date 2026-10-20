@@ -74,13 +74,15 @@ impl HudEditor {
                             id: c.id.clone(),
                             anchor,
                             offset,
-                            position: Some(std::array::from_fn(|axis| {
-                                let available = (self.viewport[axis] - size[axis]).max(0.);
-                                if available > 0. {
-                                    (at[axis] / available) as f32
-                                } else {
-                                    0.
-                                }
+                            position: Some(c.position.unwrap_or_else(|| {
+                                std::array::from_fn(|axis| {
+                                    let available = (self.viewport[axis] - size[axis]).max(0.);
+                                    if available > 0. {
+                                        (at[axis] / available) as f32
+                                    } else {
+                                        0.
+                                    }
+                                })
                             })),
                             scale: c.scale,
                         }

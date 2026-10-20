@@ -27,6 +27,20 @@ fn editor(autosave: bool) -> HudEditor {
     editor
 }
 
+/// Covers negative and zero travel on either axis, both axes, and before the first frame.
+fn collapsed_viewports(card: &Card) -> [[f64; 2]; 7] {
+    let [width, height] = cards::dimensions(card);
+    [
+        [width * 0.75, height + 100.],
+        [width, height + 100.],
+        [width + 100., height * 0.5],
+        [width + 100., height],
+        [width * 0.75, height * 0.5],
+        [width, height],
+        [0., 0.],
+    ]
+}
+
 #[test]
 fn anchored_completed_moves_and_nudges_keep_their_origin_and_legacy_results() {
     let mut editor = editor(true);
@@ -126,6 +140,113 @@ fn anchored_snapshot_converts_untouched_legacy_input_without_mutating_the_draft(
                 .abs()
                 < 0.001
         );
+    }
+}
+
+#[test]
+fn snapshot_preserves_explicit_positions_with_collapsed_travel() {
+    let mut editor = editor(false);
+    let card = &mut editor.draft.cards[0];
+    card.width = 280.;
+    card.scale = 2.;
+    card.position = Some([0.5, 0.75]);
+    let authored = card.clone();
+    for viewport in collapsed_viewports(&authored) {
+        editor.viewport = viewport;
+        let result = editor.snapshot(true);
+        result.validate().unwrap();
+        let placement = &result.placements[0];
+        assert_eq!(
+            placement.position, authored.position,
+            "viewport {viewport:?}"
+        );
+        assert_eq!(editor.draft.cards[0], authored);
+        let restored = Card {
+            position: placement.position,
+            ..authored.clone()
+        };
+        assert_eq!(
+            cards::origin(&restored, [1200., 900.]),
+            cards::origin(&authored, [1200., 900.])
+        );
+    }
+}
+
+#[test]
+fn snapshot_preserves_clamped_anchors_and_reset_offsets() {
+    let mut editor = editor(false);
+    for anchor in [Anchor::TopLeft, Anchor::Center, Anchor::BottomRight] {
+        for offset in [[37., 41.], [-37., -41.]] {
+            let card = &mut editor.draft.cards[0];
+            card.width = 280.;
+            card.scale = 2.;
+            card.anchor = anchor;
+            card.offset = offset;
+            card.position = None;
+            let authored = card.clone();
+            for viewport in collapsed_viewports(&authored) {
+                editor.viewport = viewport;
+                let result = editor.snapshot(true);
+                let placement = &result.placements[0];
+                assert_eq!(placement.anchor, anchor);
+                assert_eq!(placement.offset, offset);
+                assert_eq!(editor.draft.cards[0], authored);
+                let restored = Card {
+                    anchor: placement.anchor,
+                    offset: placement.offset,
+                    ..authored.clone()
+                };
+                assert_eq!(
+                    cards::origin(&restored, [1200., 900.]),
+                    cards::origin(&authored, [1200., 900.])
+                );
+            }
+            let card = &mut editor.draft.cards[0];
+            card.position = Some([0.5, 0.75]);
+            card.reset_anchor = Some(anchor);
+            card.reset_offset = Some(offset);
+            card.reset_scale = Some(2.);
+            editor.reset_layout();
+            let result = editor.snapshot(true);
+            assert!(result.reset);
+            assert_eq!(result.placements[0].anchor, anchor);
+            assert_eq!(result.placements[0].offset, offset);
+            assert_eq!(editor.draft.cards[0].position, None);
+        }
+    }
+}
+
+#[test]
+fn snapshot_preserves_untouched_cards_during_autosave_and_finish() {
+    let mut editor = editor(true);
+    editor.viewport = [400., 4.];
+    let card = &mut editor.draft.cards[0];
+    card.width = 280.;
+    card.scale = 2.;
+    card.position = Some([0.5, 0.75]);
+    editor.draft.cards.extend([
+        Card {
+            id: "anchored".into(),
+            anchor: Anchor::BottomRight,
+            offset: [37., 41.],
+            ..Default::default()
+        },
+        Card {
+            id: "moved".into(),
+            ..Default::default()
+        },
+    ]);
+    editor.committed = editor.draft.clone();
+    editor.move_card(2, [100., 0.]);
+    editor.anchor_card(2);
+    editor.checkpoint();
+    let checkpoint = editor.result.take().unwrap();
+    editor.finish(true);
+    for result in [checkpoint, editor.result.take().unwrap()] {
+        result.validate().unwrap();
+        assert_eq!(result.placements[0].position, Some([0.5, 0.75]));
+        assert_eq!(result.placements[1].anchor, Anchor::BottomRight);
+        assert_eq!(result.placements[1].offset, [37., 41.]);
     }
 }
 
