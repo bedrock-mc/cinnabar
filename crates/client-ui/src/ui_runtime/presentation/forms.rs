@@ -84,6 +84,8 @@ pub mod tests;
 mod texture_sources;
 pub mod toast_screen;
 mod touch_controls;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod url_images_tests;
 
 pub use containers::observe_station_block;
 

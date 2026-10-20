@@ -303,7 +303,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   and responses, including server-pack definitions, structured text, custom controls,
   scaling and image/layout behavior against matched native views. Server settings
   replies are cached until their tab is selected; embedding their controls within
-  the settings panel instead of a separate form remains incomplete.
+  the settings panel instead of a separate form remains incomplete. URL images use
+  the UI texture-file allowance; aggregate encoded-image cache bounds and remaining
+  image admission and download-deadline parity remain incomplete.
 - [ ] `P5.7-PARITY-PERF` — Qualify combined chat, scoreboard, boss bars, inventory and
   forms at supported scales/aspects and devices, with bounded memory and stable frame work.
 - [ ] `P5.8-SETTINGS` — Close menu, control, video and persistence acceptance. Desktop
