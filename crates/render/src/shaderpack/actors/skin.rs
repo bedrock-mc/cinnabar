@@ -75,10 +75,6 @@ pub(crate) fn skin_shader_source(source: &str) -> String {
                 &format!("{}u", super::layout::ACTOR_VERTEX_WORDS),
             )
             .replace(
-                "ACTOR_UV_WORD",
-                &format!("{}u", super::layout::ACTOR_UV_WORD),
-            )
-            .replace(
                 "ACTOR_MID_UV_WORD",
                 &format!("{}u", super::layout::ACTOR_MID_UV_WORD),
             )

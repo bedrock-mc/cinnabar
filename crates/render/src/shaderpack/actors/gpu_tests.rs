@@ -265,10 +265,10 @@ fn a_skinned_actor_triangle_writes_iris_entity_vertices_and_its_back_face() {
         )
     };
     let uv = |index: usize| {
-        let word = vertex(index)[UV0.word as usize];
+        let at = UV0.word as usize;
         [
-            (word & 0xffff) as f32 / 65535.0,
-            (word >> 16) as f32 / 65535.0,
+            f32::from_bits(vertex(index)[at]),
+            f32::from_bits(vertex(index)[at + 1]),
         ]
     };
     let normal = |index: usize| {
@@ -320,7 +320,7 @@ fn animated_uvs_keep_their_fractional_and_repeating_coordinates() {
         return;
     };
     for (index, (_, uv, _)) in CORNERS.iter().enumerate() {
-        let base = index * ACTOR_VERTEX_WORDS as usize + super::layout::ACTOR_UV_WORD as usize;
+        let base = index * ACTOR_VERTEX_WORDS as usize + UV0.word as usize;
         assert_eq!(f32::from_bits(words[base]), -2.5 + uv[0] * 2.);
         assert_eq!(f32::from_bits(words[base + 1]), 3.25 + uv[1] * 4.);
     }

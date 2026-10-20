@@ -1,4 +1,4 @@
-//! Actor vertices retain floating-point UVs alongside the shared Iris fields.
+//! Actor vertices reuse the shared Iris fields with full-precision UV inputs.
 
 use crate::shaderpack::geometry::{
     IRIS_VERTEX_STRIDE, TerrainLayout, VertexLayoutError, vertex_buffer_layouts,
@@ -7,8 +7,7 @@ use bevy::mesh::VertexBufferLayout;
 use bevy::render::render_resource::VertexFormat;
 use shaderpack::{VertexAttribute, VertexInput};
 
-pub(crate) const ACTOR_UV_WORD: u32 = (IRIS_VERTEX_STRIDE / 4) as u32;
-pub(crate) const ACTOR_MID_UV_WORD: u32 = ACTOR_UV_WORD + 2;
+pub(crate) const ACTOR_MID_UV_WORD: u32 = (IRIS_VERTEX_STRIDE / 4) as u32;
 pub(crate) const ACTOR_VERTEX_WORDS: u32 = ACTOR_MID_UV_WORD + 2;
 pub(crate) const ACTOR_VERTEX_STRIDE: u64 = ACTOR_VERTEX_WORDS as u64 * 4;
 
@@ -21,13 +20,15 @@ pub(crate) fn vertex_layouts(
     geometry.array_stride = ACTOR_VERTEX_STRIDE;
     for input in inputs {
         let word = match input.attribute {
-            VertexAttribute::TexCoord => ACTOR_UV_WORD,
-            VertexAttribute::MidTexCoord => ACTOR_MID_UV_WORD,
+            VertexAttribute::TexCoord => None,
+            VertexAttribute::MidTexCoord => Some(ACTOR_MID_UV_WORD),
             _ => continue,
         };
         for attribute in &mut geometry.attributes {
             if attribute.shader_location == input.location {
-                attribute.offset = u64::from(word) * 4;
+                if let Some(word) = word {
+                    attribute.offset = u64::from(word) * 4;
+                }
                 attribute.format = VertexFormat::Float32x2;
             }
         }

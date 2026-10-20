@@ -143,12 +143,10 @@ fn write_vertex(
     vertices[base + IRIS_WORD_POSITION + 1u] = bitcast<u32>(position.y);
     vertices[base + IRIS_WORD_POSITION + 2u] = bitcast<u32>(position.z);
     vertices[base + IRIS_WORD_COLOR] = colour;
-    vertices[base + IRIS_WORD_UV0] = pack2x16unorm(uv);
-    vertices[base + ACTOR_UV_WORD] = bitcast<u32>(uv.x);
-    vertices[base + ACTOR_UV_WORD + 1u] = bitcast<u32>(uv.y);
+    vertices[base + IRIS_WORD_UV0] = bitcast<u32>(uv.x);
+    vertices[base + IRIS_WORD_UV0 + 1u] = bitcast<u32>(uv.y);
     vertices[base + ACTOR_MID_UV_WORD] = bitcast<u32>(mid_uv.x);
     vertices[base + ACTOR_MID_UV_WORD + 1u] = bitcast<u32>(mid_uv.y);
-    vertices[base + IRIS_WORD_MID_TEX] = pack2x16unorm(mid_uv);
     vertices[base + IRIS_WORD_LIGHTMAP] = pack2x16float(raw_light);
     vertices[base + IRIS_WORD_NORMAL] = pack4x8snorm(vec4(normal, 0.0));
     vertices[base + IRIS_WORD_TANGENT] = pack4x8snorm(tangent);
