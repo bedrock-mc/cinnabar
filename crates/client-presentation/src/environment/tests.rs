@@ -824,3 +824,29 @@ fn fog_distance(
         rgb8,
     }
 }
+
+/// Server days follow the canonical clock, preserve pauses and never manufacture a day for missing time.
+#[test]
+fn native_world_days_respect_clock_boundaries_and_missing_or_overflowed_time() {
+    let mut clock = WorldClock {
+        server_time: Some(
+            f64::from(world::TICKS_PER_DAY) - f64::from(simulation_clock::TICKS_PER_SECOND),
+        ),
+        server_time_anchor_seconds: Some(0.),
+        daylight_cycle_enabled: true,
+        ..Default::default()
+    };
+    assert_eq!(clock.world_day(0.), Some(0));
+    assert_eq!(clock.world_day(1.), Some(1));
+    clock.paused = true;
+    assert_eq!(clock.world_day(1000.), Some(0));
+    clock.server_time = Some(-1.);
+    assert_eq!(clock.world_day(1000.), None);
+    clock.server_time = Some(f64::MAX);
+    assert_eq!(clock.world_day(1000.), None);
+    clock.server_time = None;
+    assert_eq!(clock.world_day(1000.), None);
+    clock.server_time = Some(f64::from(world::TICKS_PER_DAY) * 3.);
+    clock.server_time_anchor_seconds = None;
+    assert_eq!(clock.world_day(1000.), None);
+}

@@ -36,7 +36,11 @@ fn draft(
     let source = PackSource::from_files([(file, text)]);
     let expanded = expand(&source, file, &[], &OptionValues::new()).expect("expands");
     let pp = preprocess(expanded, &[]).expect("preprocesses");
-    let draft = transform(&pp, stage, iface, &HashMap::new()).expect("transforms");
+    let names = ResourceNames {
+        image_formats: &HashMap::new(),
+        sampler_classes: &SamplerClasses::new(),
+    };
+    let draft = transform(&pp, stage, iface, &names).expect("transforms");
     (draft, pp.map)
 }
 
