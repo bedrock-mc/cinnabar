@@ -3,6 +3,13 @@
 use super::*;
 use ui::mod_hud::{Card, Placement};
 
+/// Matches stable identity and outer geometry for retained pointer and anchor animation state.
+pub(super) fn matching_geometry(old: &Card, next: &Hud) -> Option<usize> {
+    next.cards
+        .iter()
+        .position(|card| card.id == old.id && cards::dimensions(card) == cards::dimensions(old))
+}
+
 impl ModUi {
     /// Refreshes a live editor preview while preserving placement, visibility and undo history.
     pub fn update_mod_hud_editor(&mut self, preview: &Hud) -> Result<(), String> {
@@ -77,14 +84,21 @@ impl HudEditor {
         if next == self.draft {
             return;
         }
-        // Captured resize geometry belongs to the previous artwork.
-        self.cancel_drag();
+        self.reconcile_drag(&next);
+        if self
+            .anchor_motion
+            .as_mut()
+            .is_some_and(|motion| !motion.rebase(&self.draft, &next))
+        {
+            self.anchor_motion = None;
+        }
         for card in &mut next.cards {
             if let Some(old) = self.draft.cards.iter().find(|old| old.id == card.id) {
                 Placement::capture(old).apply_to(card);
             }
         }
-        if !cards::same_shape(&self.draft, &next) {
+        let rebuild = !cards::same_shape(&self.draft, &next);
+        if rebuild {
             self.catalog = None;
         }
         self.draft = next;
@@ -92,7 +106,6 @@ impl HudEditor {
             .retain(|id| self.draft.cards.iter().any(|card| &card.id == id));
         self.selected =
             selected.and_then(|id| self.draft.cards.iter().position(|card| card.id == id));
-        self.anchor_motion = None;
         self.history.refresh(&self.draft, &self.hidden);
         // Update committed content too, so cancelling a later drag cannot restore stale artwork.
         let mut committed = self.draft.clone();
@@ -103,6 +116,8 @@ impl HudEditor {
         }
         self.committed = committed;
         self.data_dirty = true;
-        self.frame = None;
+        if rebuild && self.drag.is_none() {
+            self.frame = None;
+        }
     }
 }

@@ -25,6 +25,18 @@ struct Resize {
 }
 
 impl HudEditor {
+    /// Retains capture across content updates and card reordering when its geometry still matches.
+    pub(super) fn reconcile_drag(&mut self, next: &Hud) {
+        let index = self.drag.as_ref().and_then(|drag| {
+            super::publication::matching_geometry(&self.draft.cards[drag.index], next)
+        });
+        if self.drag.is_some() && index.is_none() {
+            self.cancel_drag();
+        } else if let Some(drag) = &mut self.drag {
+            drag.index = index.expect("matched captured card");
+        }
+    }
+
     /// Ends capture once; later presentation failures stop painting without replacing the result.
     pub(super) fn finish(&mut self, saved: bool) {
         if !self.open {

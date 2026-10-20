@@ -431,3 +431,82 @@ fn studio_undo_cancels_an_unfinished_first_gesture_in_both_save_modes() {
         assert!(editor.result.is_none());
     }
 }
+
+#[test]
+fn studio_republish_keeps_capture_and_the_completed_history_baseline() {
+    for reorder in [false, true] {
+        let mut editor = editor(true);
+        let original = editor.snapshot(true).placements[0].clone();
+        let point = frame(&mut editor, "hud.card:0");
+        editor.pointer(point, true, true, &mut []);
+        editor.pointer([point[0] + 20., point[1] + 20.], false, true, &mut []);
+        let mut published = editor.draft.cards.clone();
+        published[0].background_opacity = 0.4;
+        if reorder {
+            published.insert(
+                0,
+                Card {
+                    id: "new".into(),
+                    ..Default::default()
+                },
+            );
+        }
+        editor.republish_cards(&published, true);
+        let index = usize::from(reorder);
+        assert!(
+            editor.drag.is_some(),
+            "content-only publication retains pointer capture"
+        );
+        assert_eq!(editor.selected, Some(index));
+        editor.pointer([point[0] + 40., point[1] + 40.], false, false, &mut []);
+        assert_ne!(editor.snapshot(true).placements[index], original);
+        assert!(editor.result.take().unwrap().saved);
+        editor.step_history(false);
+        assert_eq!(editor.snapshot(true).placements[index], original);
+        assert_eq!(editor.draft.cards[index].background_opacity, 0.4);
+        if reorder {
+            assert_eq!(editor.draft.cards[0].offset, [0.; 2]);
+        }
+    }
+}
+
+#[test]
+fn studio_republish_added_cards_remain_undoable_after_restoring_an_older_layout() {
+    let mut editor = editor(false);
+    editor.selected = Some(0);
+    editor.key("ArrowRight");
+    let mut published = editor.draft.cards.clone();
+    published.push(Card {
+        id: "new".into(),
+        ..Default::default()
+    });
+    editor.republish_cards(&published, true);
+    editor.step_history(false);
+    editor.action("hud.select:1", &mut []);
+    editor.action("hud.scale_up", &mut []);
+    editor.step_history(false);
+    assert_eq!(editor.draft.cards[1].scale, 1.);
+    editor.step_history(true);
+    assert!((editor.draft.cards[1].scale - 1.05).abs() < 0.0001);
+    editor.action("hud.visibility:1", &mut []);
+    editor.step_history(false);
+    assert!(!editor.hidden.contains("new"));
+}
+
+#[test]
+fn studio_republish_keeps_anchor_motion_running() {
+    let mut editor = editor(false);
+    editor.selected = Some(0);
+    editor.action("hud.anchor:8", &mut []);
+    editor.advance_feedback(10., true);
+    let from = editor.card_origin(0);
+    let mut published = editor.draft.cards.clone();
+    published[0].background_opacity = 0.4;
+    editor.republish_cards(&published, true);
+    let target = cards::origin(&editor.draft.cards[0], editor.viewport);
+    editor.advance_feedback(10.15, true);
+    let at = editor.card_origin(0);
+    for axis in 0..2 {
+        assert!((at[axis] - (from[axis] + (target[axis] - from[axis]) * 0.875)).abs() < 0.001);
+    }
+}

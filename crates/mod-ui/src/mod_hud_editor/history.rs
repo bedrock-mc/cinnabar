@@ -74,9 +74,25 @@ impl History {
         [!self.undo.is_empty(), !self.redo.is_empty()]
     }
 
-    /// Aligns the current ID set after publication without adding or discarding undo steps.
+    /// Reconciles live IDs without promoting an unfinished gesture to the completed baseline.
     pub(super) fn refresh(&mut self, hud: &Hud, hidden: &HashSet<String>) {
-        self.current = Layout::capture(hud, hidden);
+        let mut next = Layout::capture(hud, hidden);
+        for placement in &mut next.placements {
+            if let Some(old) = self
+                .current
+                .placements
+                .iter()
+                .find(|old| old.id == placement.id)
+            {
+                placement.clone_from(old);
+                if self.current.hidden.contains(&placement.id) {
+                    next.hidden.insert(placement.id.clone());
+                } else {
+                    next.hidden.remove(&placement.id);
+                }
+            }
+        }
+        self.current = next;
     }
 
     /// Restores one completed edit without recording the restoration as a new edit.
@@ -92,7 +108,9 @@ impl History {
         } else {
             self.redo.push(previous);
         }
-        Some(self.current.restore(hud, hidden))
+        let resized = self.current.restore(hud, hidden);
+        self.current = Layout::capture(hud, hidden);
+        Some(resized)
     }
 }
 

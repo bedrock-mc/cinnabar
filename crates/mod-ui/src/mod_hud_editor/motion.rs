@@ -29,6 +29,16 @@ pub(super) struct AnchorMotion {
 }
 
 impl AnchorMotion {
+    /// Rebinds motion to the same live card, settling it only when its geometry is replaced.
+    pub(super) fn rebase(&mut self, old: &Hud, next: &Hud) -> bool {
+        if let Some(index) = super::publication::matching_geometry(&old.cards[self.index], next) {
+            self.index = index;
+            true
+        } else {
+            false
+        }
+    }
+
     /// Retains the currently displayed origin until the first animation sample arrives.
     pub(super) fn new(index: usize, from: [f64; 2]) -> Self {
         Self {
