@@ -23,6 +23,10 @@ use crate::state::{LayoutReport, ViewState};
 use crate::tree::{ControlRef, ResolvedControl};
 use crate::{Context, resolve};
 
+#[cfg(test)]
+#[path = "form/library_tests.rs"]
+mod library_tests;
+
 /// A decoded server form ready to render.
 #[derive(Clone, Debug, PartialEq)]
 pub enum FormModel {
@@ -99,11 +103,13 @@ pub enum CustomElement {
     Divider,
     Toggle {
         text: String,
+        enabled: bool,
         on: bool,
         tooltip: String,
     },
     Slider {
         text: String,
+        enabled: bool,
         /// Normalized `0..=1` position.
         fraction: f64,
         /// Seconds between repeated directional slider edits.
@@ -112,6 +118,7 @@ pub enum CustomElement {
     },
     StepSlider {
         text: String,
+        enabled: bool,
         steps: usize,
         index: i32,
         tooltip: String,
@@ -132,6 +139,7 @@ pub enum CustomElement {
     },
     Input {
         text: String,
+        enabled: bool,
         value: String,
         placeholder: String,
         tooltip: String,
@@ -442,15 +450,20 @@ fn custom_item(element: &CustomElement) -> CollectionItem {
         CustomElement::Divider => CollectionItem::new("divider"),
         CustomElement::Toggle {
             text: label,
+            enabled,
             on,
             tooltip,
         } => CollectionItem::new("toggle")
             .with(Binding::CustomText.as_str(), text(label))
             .with(Binding::CustomToggleState.as_str(), Scalar::Bool(*on))
-            .with(Binding::CustomToggleEnabled.as_str(), Scalar::Bool(true))
+            .with(
+                Binding::CustomToggleEnabled.as_str(),
+                Scalar::Bool(*enabled),
+            )
             .with(Binding::CustomTooltipText.as_str(), text(tooltip)),
         CustomElement::Slider {
             text: label,
+            enabled,
             fraction,
             timeout,
             tooltip,
@@ -462,10 +475,14 @@ fn custom_item(element: &CustomElement) -> CollectionItem {
                 Scalar::Num(fraction.clamp(0.0, 1.0)),
             )
             .with(Binding::CustomSliderTimeout.as_str(), Scalar::Num(*timeout))
-            .with(Binding::CustomSliderEnabled.as_str(), Scalar::Bool(true))
+            .with(
+                Binding::CustomSliderEnabled.as_str(),
+                Scalar::Bool(*enabled),
+            )
             .with(Binding::CustomTooltipText.as_str(), text(tooltip)),
         CustomElement::StepSlider {
             text: label,
+            enabled,
             steps,
             index,
             tooltip,
@@ -480,7 +497,10 @@ fn custom_item(element: &CustomElement) -> CollectionItem {
                 Binding::CustomSliderSteps.as_str(),
                 Scalar::Num((*steps).max(1) as f64),
             )
-            .with(Binding::CustomSliderEnabled.as_str(), Scalar::Bool(true))
+            .with(
+                Binding::CustomSliderEnabled.as_str(),
+                Scalar::Bool(*enabled),
+            )
             .with(Binding::CustomTooltipText.as_str(), text(tooltip)),
         CustomElement::Dropdown {
             text: label,
@@ -518,6 +538,7 @@ fn custom_item(element: &CustomElement) -> CollectionItem {
             .with(Binding::CustomTooltipText.as_str(), text(tooltip)),
         CustomElement::Input {
             text: label,
+            enabled,
             value,
             placeholder,
             tooltip,
@@ -525,7 +546,7 @@ fn custom_item(element: &CustomElement) -> CollectionItem {
             .with(Binding::CustomText.as_str(), text(label))
             .with(Binding::CustomInputText.as_str(), text(value))
             .with(Binding::CustomPlaceholderText.as_str(), text(placeholder))
-            .with(Binding::CustomInputEnabled.as_str(), Scalar::Bool(true))
+            .with(Binding::CustomInputEnabled.as_str(), Scalar::Bool(*enabled))
             .with(Binding::CustomTooltipText.as_str(), text(tooltip)),
     }
 }
@@ -537,10 +558,66 @@ pub struct CatalogLibrary<'a> {
     pub context: &'a Context,
 }
 
+impl<'a> CatalogLibrary<'a> {
+    /// Restricts each factory prototype before its descendants are materialized.
+    pub fn with_node_limit(self, limit: usize) -> BoundedCatalogLibrary<'a> {
+        BoundedCatalogLibrary {
+            library: self,
+            node_limit: limit.clamp(1, crate::resolve::MAX_NODES),
+        }
+    }
+
+    /// Borrows this catalog and context with a caller's prototype budget.
+    fn bounded(&self, limit: usize) -> BoundedCatalogLibrary<'_> {
+        CatalogLibrary {
+            catalog: self.catalog,
+            context: self.context,
+        }
+        .with_node_limit(limit)
+    }
+}
+
 impl ControlLibrary for CatalogLibrary<'_> {
     fn resolve(&self, reference: &ControlRef) -> Option<ResolvedControl> {
-        let name = format!("{}.{}", reference.namespace, reference.name);
-        resolve(self.catalog, &name, self.context).control
+        self.bounded(crate::resolve::MAX_NODES).resolve(reference)
+    }
+
+    fn resolve_with(
+        &self,
+        reference: &ControlRef,
+        key: &str,
+        vars: &dyn Fn() -> std::collections::BTreeMap<String, serde_json::Value>,
+    ) -> Option<ResolvedControl> {
+        self.bounded(crate::resolve::MAX_NODES)
+            .resolve_with(reference, key, vars)
+    }
+}
+
+/// A catalog library with a smaller per-prototype resolution budget.
+pub struct BoundedCatalogLibrary<'a> {
+    library: CatalogLibrary<'a>,
+    node_limit: usize,
+}
+
+impl BoundedCatalogLibrary<'_> {
+    /// Resolves a prototype in the existing root scope under this library's cap.
+    fn resolve_in(
+        &self,
+        reference: &ControlRef,
+        root: &crate::env::Env,
+    ) -> Option<ResolvedControl> {
+        crate::Resolver::new(self.library.catalog)
+            .with_limits(crate::resolve::MAX_DEPTH, self.node_limit)
+            .resolve(&reference.namespace, &reference.name, root)
+    }
+}
+
+impl ControlLibrary for BoundedCatalogLibrary<'_> {
+    fn resolve(&self, reference: &ControlRef) -> Option<ResolvedControl> {
+        self.resolve_in(
+            reference,
+            &self.library.context.root_env(self.library.catalog),
+        )
     }
 
     fn resolve_with(
@@ -549,12 +626,11 @@ impl ControlLibrary for CatalogLibrary<'_> {
         _key: &str,
         vars: &dyn Fn() -> std::collections::BTreeMap<String, serde_json::Value>,
     ) -> Option<ResolvedControl> {
-        let mut context = self.context.clone();
+        let mut context = self.library.context.clone();
         for (name, value) in vars() {
             context = context.with_var(name.trim_start_matches('$'), value);
         }
-        let name = format!("{}.{}", reference.namespace, reference.name);
-        resolve(self.catalog, &name, &context).control
+        self.resolve_in(reference, &context.root_env(self.library.catalog))
     }
 }
 
@@ -563,6 +639,24 @@ impl ControlLibrary for CatalogLibrary<'_> {
 #[derive(Default)]
 pub struct ResolveCache {
     memo: std::sync::Mutex<Option<ResolveMemo>>,
+    node_limit: Option<usize>,
+}
+
+impl ResolveCache {
+    /// Restricts prototype resolutions, discarding entries built under another cap.
+    pub fn with_node_limit(mut self, limit: usize) -> Self {
+        let limit = limit.clamp(1, crate::resolve::MAX_NODES);
+        if self.node_limit() != limit {
+            self.memo = std::sync::Mutex::default();
+            self.node_limit = Some(limit);
+        }
+        self
+    }
+
+    /// The configured cap, or the ordinary resolved-tree maximum.
+    fn node_limit(&self) -> usize {
+        self.node_limit.unwrap_or(crate::resolve::MAX_NODES)
+    }
 }
 
 /// Recent resolutions and the catalog-and-context root scope they resolve in.
@@ -609,11 +703,9 @@ impl ControlLibrary for CachedLibrary<'_> {
         vars: &dyn Fn() -> std::collections::BTreeMap<String, serde_json::Value>,
     ) -> Option<Arc<ResolvedControl>> {
         let cache_key = (reference.clone(), key.to_owned());
+        let library = self.library.bounded(self.cache.node_limit());
         let Ok(mut memo) = self.cache.memo.lock() else {
-            return self
-                .library
-                .resolve_with(reference, key, vars)
-                .map(Arc::new);
+            return library.resolve_with(reference, key, vars).map(Arc::new);
         };
         let memo = memo.get_or_insert_with(|| ResolveMemo {
             trees: crate::lru::Lru::new(RESOLUTIONS),
@@ -623,17 +715,16 @@ impl ControlLibrary for CachedLibrary<'_> {
             return resolved.clone();
         }
         let vars = vars();
-        let name = format!("{}.{}", reference.namespace, reference.name);
         // A null `$var` reads as unset rather than masking a global, which a
         // scope over the shared root cannot express.
         let resolved = if vars.values().any(serde_json::Value::is_null) {
-            self.library.resolve_with(reference, key, &|| vars.clone())
+            library.resolve_with(reference, key, &|| vars.clone())
         } else {
             let mut root = memo.root.child();
             for (name, value) in vars {
                 root.set(name.trim_start_matches('$'), value);
             }
-            crate::resolve_in(self.library.catalog, &name, &root.settle()).control
+            library.resolve_in(reference, &root.settle())
         }
         .map(Arc::new);
         memo.trees.insert(cache_key, resolved.clone());
