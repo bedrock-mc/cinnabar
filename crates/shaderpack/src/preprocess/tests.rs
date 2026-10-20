@@ -78,7 +78,7 @@ fn frontend_original_line_numbers_survive_metadata_and_comments() {
         .tokens
         .iter()
         .filter_map(|t| match &t.kind {
-            TokKind::Int(n) => Some(n.trim_end_matches('u')),
+            TokKind::Int(n) => Some(n.as_str()),
             _ => None,
         })
         .collect();
@@ -319,7 +319,7 @@ fn frontend_newlines_expand_includes_and_keep_source_locations() {
             .tokens
             .iter()
             .filter_map(|token| match &token.kind {
-                TokKind::Int(value) => Some(value.trim_end_matches('u')),
+                TokKind::Int(value) => Some(value.as_str()),
                 _ => None,
             })
             .collect();
@@ -470,6 +470,108 @@ fn frontend_include_trailing_comments_follow_included_metadata() {
         &[],
     );
     assert_eq!(pp.render_targets, Some(vec![1]));
+}
+
+#[test]
+fn frontend_header_line_macro_preserves_spelling() {
+    let pp = run(
+        &[("a.fsh", "\n\nint line = __LINE__;\nuint literal = 0x2Au;")],
+        "a.fsh",
+        &[],
+    );
+    let mut emitter = crate::token::Emitter::default();
+    emitter.tokens(&pp.tokens);
+    assert_eq!(emitter.finish().0, "int line = 3;\nuint literal = 0x2Au;\n");
+}
+
+#[test]
+fn frontend_header_directive_comments_keep_metadata_lines() {
+    for header in [
+        "#version 450 // header",
+        "#extension GL_ARB_shader_texture_lod : enable // x",
+        "#pragma optimize(on) // x",
+    ] {
+        for tail in [
+            "const int shadowMapResolution = 2048;",
+            "/* RENDERTARGETS: 2 */",
+        ] {
+            let source = format!("{header}\n{tail}");
+            let pp = run(&[("a.fsh", &source)], "a.fsh", &[]);
+            if tail.starts_with("const") {
+                assert_eq!(
+                    pp.consts,
+                    [ConstDirective {
+                        ty: "int".into(),
+                        name: "shadowMapResolution".into(),
+                        value: "2048".into(),
+                    }],
+                    "{header}"
+                );
+            } else {
+                assert_eq!(pp.render_targets, Some(vec![2]), "{header}");
+            }
+        }
+    }
+}
+
+#[test]
+fn frontend_header_combines_options_includes_and_conditionals() {
+    let header = "#version 450 // shader header\n\
+        /* DRAWBUFFERS:01 */\n\
+        #extension GL_ARB_shader_texture_lod : enable // texture lookup\n\
+        const int shadowMapResolution = 2048; // [1024 2048]\n\
+        #extension GL_ARB_draw_buffers : enable\n\
+        /* RENDERTARGETS: 3 */ #include \"lib.glsl\" /* RENDERTARGETS: 2 */\n\
+        #ifdef HIGH_QUALITY\n\
+        #define SHADOW_SAMPLES 16 // [8 16]\n\
+        /* RENDERTARGETS: 1 */\n\
+        #else\n\
+        #define SHADOW_SAMPLES 8 // [8 16]\n\
+        /* RENDERTARGETS: 0 */\n\
+        #endif\n\
+        const int samples = SHADOW_SAMPLES;\n\
+        int sourceLine = __LINE__;";
+    for (defines, samples, target) in [(&[][..], "8", 0), (&[("HIGH_QUALITY", "")][..], "16", 1)] {
+        let pp = run(
+            &[
+                ("a.fsh", header),
+                (
+                    "lib.glsl",
+                    "/* DRAWBUFFERS:04 */\nconst float shadowDistance = 128.0;",
+                ),
+            ],
+            "a.fsh",
+            defines,
+        );
+        let mut emitter = crate::token::Emitter::default();
+        emitter.tokens(&pp.tokens);
+        assert_eq!(
+            emitter.finish().0,
+            format!(
+                "const int shadowMapResolution = 2048;\nconst float shadowDistance = 128.0;\nconst int samples = {samples};\nint sourceLine = 15;\n"
+            )
+        );
+        assert_eq!(
+            pp.consts
+                .iter()
+                .map(|value| (value.ty.as_str(), value.name.as_str(), value.value.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                ("int", "shadowMapResolution", "2048"),
+                ("float", "shadowDistance", "128.0"),
+                ("int", "samples", samples)
+            ]
+        );
+        assert_eq!(pp.render_targets, Some(vec![target]));
+        assert_eq!(pp.version, 450);
+        assert_eq!(
+            pp.extensions,
+            [
+                "GL_ARB_shader_texture_lod : enable",
+                "GL_ARB_draw_buffers : enable"
+            ]
+        );
+    }
 }
 
 #[test]

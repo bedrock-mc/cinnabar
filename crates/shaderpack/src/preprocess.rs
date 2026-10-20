@@ -491,8 +491,7 @@ fn is_identifier(s: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-/// Runs pp-rs over the expanded text with `defines`, converting tokens and keeping only the
-/// directives whose markers survived.
+/// Runs pp-rs over expanded text, preserving token spelling and reading active metadata.
 pub(crate) fn preprocess(
     expanded: Expanded,
     defines: &[(String, String)],
@@ -560,15 +559,7 @@ fn preprocess_limited(
         };
         let kind = match value {
             TokenValue::Ident(name) => TokKind::Ident(name),
-            TokenValue::Integer(value) => {
-                TokKind::Int(if value.signed && value.value > i32::MAX as u64 {
-                    format!("0x{:X}", value.value)
-                } else if value.signed {
-                    value.value.to_string()
-                } else {
-                    format!("{}u", value.value)
-                })
-            }
+            TokenValue::Integer(_) => TokKind::Int(token.text.trim_start().to_string()),
             TokenValue::Float(value) => TokKind::Float(float_literal(value.value)),
             TokenValue::Punct(value) => TokKind::Punct(punct(value)),
             TokenValue::Version(value) => {
