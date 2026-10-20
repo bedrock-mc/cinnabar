@@ -92,7 +92,7 @@ pub struct CustomBlockVisuals {
     pub item_visual: Option<CustomVisualComponents>,
     /// In definition order; later matching permutations override earlier ones.
     pub permutations: Box<[CustomPermutation]>,
-    /// Physical components or permutations were discarded while parsing the definition.
+    /// Physical or placement data was discarded while parsing the definition.
     pub components_incomplete: bool,
     /// Discarded component data or permutations could change this block's mining value.
     pub mining_incomplete: bool,
@@ -197,7 +197,7 @@ pub struct CustomPermutation {
     pub physical: CustomPhysicalComponents,
 }
 
-/// Collision and targeting components present in a permutation; absent fields inherit.
+/// State components present in a permutation; absent fields inherit.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CustomPhysicalComponents {
     pub mining: Option<Arc<CustomBlockMining>>,
@@ -656,7 +656,7 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
     }
     let components = root.field("components");
     let (mining, mining_skips) =
-        mining::component(components.and_then(|set| set.field("minecraft:destructible_by_mining")));
+        mining::component(components.and_then(|set| set.field(mining::COMPONENT)));
     placement::components(&mut placement, components);
     let collision_component = components.and_then(|set| set.field("minecraft:collision_box"));
     let collides = collision_enabled(collision_component);
@@ -666,6 +666,7 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
     let (friction, friction_skips) =
         friction_component(components.and_then(|set| set.field("minecraft:friction")));
     let mut permutation_skips = 0;
+    let mut physical_permutation_skips = 0;
     let mut mining_incomplete = mining_skips > 0;
     let permutations = root
         .list("permutations")
@@ -674,21 +675,24 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
         .filter_map(|(index, permutation)| {
             let components = permutation.field("components");
             let changes_mining = components
-                .and_then(|set| set.field("minecraft:destructible_by_mining"))
+                .and_then(|set| set.field(mining::COMPONENT))
                 .is_some();
             if index >= MAX_PERMUTATIONS {
                 permutation_skips += 1;
+                physical_permutation_skips += usize::from(!mining::only_component(components));
                 mining_incomplete |= changes_mining;
                 return None;
             }
             placement::components(&mut placement, components);
             let Some(Nbt::String(condition)) = permutation.field("condition") else {
                 permutation_skips += 1;
+                physical_permutation_skips += usize::from(!mining::only_component(components));
                 mining_incomplete |= changes_mining;
                 return None;
             };
             let (physical, skipped, mining_skips) = physical_components(components);
-            permutation_skips += skipped;
+            permutation_skips += skipped + mining_skips;
+            physical_permutation_skips += skipped;
             mining_incomplete |= mining_skips > 0;
             Some(CustomPermutation {
                 condition: condition.as_str().into(),
@@ -734,7 +738,7 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
                     )
                 }),
             permutations,
-            components_incomplete: physical_skips > 0 || permutation_skips > 0,
+            components_incomplete: physical_skips > 0 || physical_permutation_skips > 0,
             mining_incomplete,
             state_axes: state_axes.into_boxed_slice(),
             state_identity_incomplete,

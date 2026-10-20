@@ -32,7 +32,8 @@ fn custom_mining_discarded_permutations_cannot_use_an_instant_base() {
     ]));
     let root = compound(vec![("permutations", Nbt::List(permutations))]);
     let mut block = custom_block("test:truncated_mining", &root);
-    assert!(block.visual.components_incomplete);
+    assert!(!block.visual.components_incomplete);
+    assert!(block.visual.mining_incomplete);
     assert!(block.mining_for_state(0).is_none());
     assert!(block.physics_for_state(0).mining.is_none());
     let mut cached = block.base_physics();
@@ -84,6 +85,7 @@ fn custom_mining_discarded_condition_and_invalid_values_stay_unresolved() {
         )]),
     ] {
         let block = custom_block("test:incomplete_mining", &root);
+        assert!(!block.visual.components_incomplete);
         assert!(block.mining_for_state(0).is_none());
         assert!(block.base_physics().mining.is_none());
     }

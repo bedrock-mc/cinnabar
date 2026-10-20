@@ -2,6 +2,15 @@
 
 use super::{Arc, Nbt};
 
+/// The mining component carried by a block's component set.
+pub(super) const COMPONENT: &str = "minecraft:destructible_by_mining";
+
+/// Whether omitted component data belongs entirely to mining rather than physical placement.
+pub(super) fn only_component(components: Option<&Nbt>) -> bool {
+    matches!(components, Some(Nbt::Compound(fields)) if !fields.is_empty()
+        && fields.iter().all(|(name, _)| name == COMPONENT))
+}
+
 /// A custom block's base destroy value and ordered item overrides.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CustomBlockMining {

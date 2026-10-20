@@ -52,6 +52,45 @@ fn custom_blocks_predict_locally_in_both_palette_modes() {
 }
 
 #[test]
+fn custom_mining_uncertainty_does_not_reject_known_placement_bounds() {
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        for prepared in [false, true] {
+            let mut definition = block();
+            Arc::make_mut(&mut definition.visual).permutations = [protocol::CustomPermutation {
+                condition: "return 1;".into(),
+                components: Default::default(),
+                physical: protocol::CustomPhysicalComponents {
+                    mining: Some(Arc::new(protocol::CustomBlockMining {
+                        seconds_to_destroy: -1.0,
+                        ..Default::default()
+                    })),
+                    ..Default::default()
+                },
+            }]
+            .into();
+            if prepared {
+                let mut physics = definition.base_physics();
+                physics.mining = None;
+                definition.state_physics = [physics].into();
+                definition.state_physics_complete = true;
+            }
+            let (registry, held) = admit(definition, mode, 0);
+            assert!(registry.custom_block_mining(mode, held).is_none());
+            let prediction = custom_predict(
+                &registry,
+                held,
+                mode,
+                &store(mode),
+                &context(&surroundings()),
+            )
+            .expect("mining uncertainty leaves known placement bounds usable");
+            assert_eq!(prediction.position, [8, 9, 8]);
+            assert_eq!(prediction.block, held);
+        }
+    }
+}
+
+#[test]
 fn custom_server_placing_handlers_keep_prediction_disabled() {
     for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
         let mut block = block();

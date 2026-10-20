@@ -149,8 +149,20 @@ fn block_value<'e, 'a: 'e>(
             }
         }
         Expr::Call(function, arguments) if !function.is_random() => {
-            let values = arguments.iter().map(number).collect::<Option<Vec<_>>>()?;
-            BlockStateValue::Number(molang_call(*function, &values, &mut || 0.0))
+            let mut incomplete = false;
+            let values = arguments
+                .iter()
+                .map_while(|argument| {
+                    let value = number(argument);
+                    incomplete |= value.is_none();
+                    value
+                })
+                .fuse();
+            let value = molang_call(*function, values, &mut || 0.0);
+            if incomplete {
+                return None;
+            }
+            BlockStateValue::Number(value)
         }
         _ => return None,
     })

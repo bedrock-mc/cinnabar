@@ -2,6 +2,25 @@
 
 use super::*;
 
+impl CustomPhysicalComponents {
+    /// Whether this override can change collision, targeting or movement, independently of mining.
+    pub fn affects_physics(&self) -> bool {
+        let Self {
+            mining: _,
+            random_offset,
+            collision,
+            selection,
+            transformation,
+            friction,
+        } = self;
+        random_offset.is_some()
+            || collision.is_some()
+            || selection.is_some()
+            || transformation.is_some()
+            || friction.is_some()
+    }
+}
+
 pub(super) fn collision_enabled(component: Option<&Nbt>) -> bool {
     match component {
         Some(Nbt::Byte(enabled)) => *enabled != 0,
@@ -33,12 +52,12 @@ pub(super) fn selection_component(component: Option<&Nbt>) -> CustomSelection {
     }
 }
 
-/// Retains physical overrides and reports total omissions and mining omissions separately.
+/// Retains state overrides and reports physical omissions and mining omissions separately.
 pub(super) fn physical_components(
     components: Option<&Nbt>,
 ) -> (CustomPhysicalComponents, usize, usize) {
     let (mining, mining_skips) =
-        mining::component(components.and_then(|set| set.field("minecraft:destructible_by_mining")));
+        mining::component(components.and_then(|set| set.field(mining::COMPONENT)));
     let collision = components.and_then(|set| set.field("minecraft:collision_box"));
     let (boxes, collision_skips) = collision_components(collision);
     let (friction, friction_skips) =
@@ -59,8 +78,7 @@ pub(super) fn physical_components(
             transformation: transformation_component(components),
             friction,
         },
-        mining_skips
-            + collision_skips
+        collision_skips
             + friction_skips
             + usize::from(
                 components

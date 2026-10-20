@@ -111,26 +111,34 @@ mod tests {
 
     #[test]
     fn custom_mining_warm_tag_evaluation_does_not_allocate() {
-        let mining = CustomBlockMining {
-            seconds_to_destroy: 4.0,
-            item_specific_speeds: [CustomMiningSpeed {
-                item: CustomMiningItem::Tags("q.any_tag('test:tools')".into()),
-                destroy_speed: 0.5,
-            }]
-            .into(),
-        };
-        let filters = CustomMiningFilters::from_profiles([&mining]);
-        let evaluate = || custom_mining_seconds(&mining, &filters, Some("test:tool"), 0, &|_| true);
-        assert_eq!(evaluate(), Some(0.5));
-        let before = test_alloc::thread_allocations();
-        for _ in 0..16 {
-            std::hint::black_box(evaluate());
+        for expression in [
+            "q.any_tag('test:tools')",
+            "math.abs(q.any_tag('test:tools'))",
+            "math.max(q.any_tag('test:tools'), 0)",
+            "math.clamp(math.abs(-q.any_tag('test:tools')), 0, 1)",
+        ] {
+            let mining = CustomBlockMining {
+                seconds_to_destroy: 4.0,
+                item_specific_speeds: [CustomMiningSpeed {
+                    item: CustomMiningItem::Tags(expression.into()),
+                    destroy_speed: 0.5,
+                }]
+                .into(),
+            };
+            let filters = CustomMiningFilters::from_profiles([&mining]);
+            let evaluate =
+                || custom_mining_seconds(&mining, &filters, Some("test:tool"), 0, &|_| true);
+            assert_eq!(evaluate(), Some(0.5));
+            let before = test_alloc::thread_allocations();
+            for _ in 0..16 {
+                std::hint::black_box(evaluate());
+            }
+            let allocated = test_alloc::thread_allocations() - before;
+            assert_eq!(
+                allocated, 0,
+                "unchanged item filters must reuse their preparation: {expression}"
+            );
         }
-        let allocated = test_alloc::thread_allocations() - before;
-        assert_eq!(
-            allocated, 0,
-            "unchanged item filters must reuse their preparation"
-        );
     }
 
     #[test]

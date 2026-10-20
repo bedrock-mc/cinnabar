@@ -313,6 +313,7 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   default, disabled and item-specific component values, including state overrides.
   Discarded mining data stays unresolved, and item-tag filters compile during
   session preparation for allocation-free evaluation.
+  Mining uncertainty leaves known physics and local placement prediction usable.
   Complex item-tag scripts and live custom-block mining acceptance remain incomplete.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.

@@ -2,6 +2,40 @@ use super::*;
 use protocol::{CustomBox, CustomSelection};
 
 #[test]
+fn custom_mining_uncertainty_does_not_make_known_physics_incomplete() {
+    for condition in ["return 1;", "q.block_state('test:missing')"] {
+        let mut block = slab();
+        Arc::make_mut(&mut block.visual).permutations = [protocol::CustomPermutation {
+            condition: condition.into(),
+            components: Default::default(),
+            physical: protocol::CustomPhysicalComponents {
+                mining: Some(Arc::new(protocol::CustomBlockMining {
+                    seconds_to_destroy: -1.0,
+                    ..Default::default()
+                })),
+                ..Default::default()
+            },
+        }]
+        .into();
+        for budget in [0, MAX_RESOLVED_PHYSICS_STATES] {
+            let mut blocks = CustomBlocks {
+                blocks: [block.clone()].into(),
+                ..Default::default()
+            };
+            resolve_bounded(&mut blocks, budget);
+            let block = &blocks.blocks[0];
+            assert!(
+                block.state_physics_complete,
+                "mining cannot invalidate physical completeness"
+            );
+            for state in 0..block.state_count {
+                assert!(block.mining_for_state(state).is_none());
+            }
+        }
+    }
+}
+
+#[test]
 fn custom_mining_discarded_data_stays_unresolved_after_physics_merge() {
     let mut block = slab();
     let visual = Arc::make_mut(&mut block.visual);
@@ -98,7 +132,7 @@ fn custom_mining_unresolved_conditions_keep_the_state_unresolved() {
             ..Default::default()
         };
         resolve(&mut blocks);
-        assert!(!blocks.blocks[0].state_physics_complete);
+        assert!(blocks.blocks[0].state_physics_complete);
         for state in 0..blocks.blocks[0].state_count {
             assert!(blocks.blocks[0].mining_for_state(state).is_none());
         }

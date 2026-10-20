@@ -10,25 +10,36 @@ const MAX_RESOLVED_PHYSICS_STATES: usize = 1 << 18;
 
 type Condition<'a> = (Option<BlockMolang>, &'a CustomPhysicalComponents);
 
-fn conditions(block: &CustomBlock) -> (Vec<Condition<'_>>, usize) {
+/// Parsed conditions and the physical admission gaps known before state evaluation.
+struct Conditions<'a> {
+    entries: Vec<Condition<'a>>,
+    skipped: usize,
+    physics_incomplete: bool,
+}
+
+/// State evaluation failures remain separate for mining and physical consumers.
+#[derive(Default)]
+struct EvaluationGaps {
+    physics: bool,
+    mining: bool,
+}
+
+/// Prepares relevant expressions while retaining the domain of each unsupported condition.
+fn conditions(block: &CustomBlock) -> Conditions<'_> {
     let mut skipped = 0;
-    let conditions = block
+    let mut physics_incomplete = false;
+    let entries = block
         .visual
         .permutations
         .iter()
         .filter_map(|permutation| {
             let physical = &permutation.physical;
-            if physical.collision.is_none()
-                && physical.selection.is_none()
-                && physical.random_offset.is_none()
-                && physical.transformation.is_none()
-                && physical.friction.is_none()
-                && physical.mining.is_none()
-            {
+            if !physical.affects_physics() && physical.mining.is_none() {
                 return None;
             }
             let expression = BlockMolang::parse(&permutation.condition);
             skipped += usize::from(expression.is_none());
+            physics_incomplete |= expression.is_none() && physical.affects_physics();
             if expression.is_none() && physical.mining.is_none() {
                 None
             } else {
@@ -36,14 +47,19 @@ fn conditions(block: &CustomBlock) -> (Vec<Condition<'_>>, usize) {
             }
         })
         .collect();
-    (conditions, skipped)
+    Conditions {
+        entries,
+        skipped,
+        physics_incomplete,
+    }
 }
 
+/// Resolves one state, leaving unknown mining values separate from physical admission gaps.
 fn evaluate(
     block: &CustomBlock,
     state: u32,
     conditions: &[Condition<'_>],
-    complete: &mut bool,
+    gaps: &mut EvaluationGaps,
 ) -> Option<CustomBlockPhysics> {
     let values = block.state_values(state)?;
     let query = |name: &str| {
@@ -65,7 +81,8 @@ fn evaluate(
             .and_then(|condition| condition.evaluate(&query))
             .filter(|value| value.is_finite())
         else {
-            *complete = false;
+            gaps.physics |= physical.affects_physics();
+            gaps.mining |= physical.mining.is_some();
             if physical.mining.is_some() {
                 physics.mining = None;
             }
@@ -107,32 +124,40 @@ pub(crate) fn resolve(blocks: &mut CustomBlocks) {
 
 fn resolve_bounded(blocks: &mut CustomBlocks, mut remaining: usize) {
     for block in Arc::make_mut(&mut blocks.blocks) {
-        block.state_physics_complete = false;
+        block.state_physics_complete = !block.visual.components_incomplete
+            && !block
+                .visual
+                .permutations
+                .iter()
+                .any(|permutation| permutation.physical.affects_physics());
         if block.visual.materialization_disabled {
             continue;
         }
-        let (conditions, skipped) = conditions(block);
-        blocks.skipped += skipped;
-        if conditions.is_empty() {
-            block.state_physics_complete = !block.visual.components_incomplete && skipped == 0;
+        let conditions = conditions(block);
+        blocks.skipped += conditions.skipped;
+        if conditions.entries.is_empty() {
+            block.state_physics_complete =
+                !block.visual.components_incomplete && !conditions.physics_incomplete;
             continue;
         }
         if block.visual.state_identity_incomplete || block.state_count as usize > remaining {
             blocks.skipped += 1;
             continue;
         }
-        let mut evaluated = true;
+        let mut gaps = EvaluationGaps::default();
         let resolved = (0..block.state_count)
-            .map(|state| evaluate(block, state, &conditions, &mut evaluated))
+            .map(|state| evaluate(block, state, &conditions.entries, &mut gaps))
             .collect::<Option<Vec<_>>>();
-        if !evaluated {
+        if gaps.physics || gaps.mining {
             blocks.skipped += 1;
         }
         if let Some(resolved) = resolved {
+            let complete = !block.visual.components_incomplete
+                && !conditions.physics_incomplete
+                && !gaps.physics;
             remaining -= resolved.len();
             block.state_physics = resolved.into();
-            block.state_physics_complete =
-                !block.visual.components_incomplete && skipped == 0 && evaluated;
+            block.state_physics_complete = complete;
         } else {
             blocks.skipped += 1;
         }
@@ -148,10 +173,10 @@ fn state_physics(
     Option<Arc<[protocol::CustomBox]>>,
     protocol::CustomSelection,
 ) {
-    let (conditions, _) = conditions(block);
-    let mut complete = true;
-    let physics =
-        evaluate(block, state, &conditions, &mut complete).unwrap_or_else(|| block.base_physics());
+    let conditions = conditions(block);
+    let mut gaps = EvaluationGaps::default();
+    let physics = evaluate(block, state, &conditions.entries, &mut gaps)
+        .unwrap_or_else(|| block.base_physics());
     (physics.collides, physics.collision_boxes, physics.selection)
 }
 
