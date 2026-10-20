@@ -374,3 +374,91 @@ fn a_budget_change_retries_unplaceable_sections_without_evicting_other_pages() {
     residency.remove(entity(2));
     assert!(!residency.has_unplaceable());
 }
+
+#[test]
+fn almost_full_pages_decline_draining_without_unsigned_underflow() {
+    let mut residency = Residency::new(100 * FACE_BYTES, 200 * FACE_BYTES, STRIDE);
+    for id in 1..=2 {
+        let placement = residency.place(entity(id), &plan(90)).unwrap();
+        residency.commit(entity(id), &placement, &plan(90), [0; 3]);
+    }
+    settle(&mut residency);
+    assert!(!residency.start_draining());
+    assert!(residency.take_queue().is_empty());
+}
+
+#[test]
+fn a_failed_fragmented_drain_waits_for_space_to_change() {
+    let mut residency = Residency::new(100 * FACE_BYTES, 300 * FACE_BYTES, STRIDE);
+    for (id, faces) in [(1, 40), (2, 70), (3, 70)] {
+        let placement = residency.place(entity(id), &plan(faces)).unwrap();
+        residency.commit(entity(id), &placement, &plan(faces), [0; 3]);
+    }
+    settle(&mut residency);
+    assert!(residency.start_draining());
+    assert_eq!(residency.take_queue(), [entity(1)]);
+    let placement = residency.place(entity(1), &plan(40)).unwrap();
+    assert_eq!(placement.page, 0);
+    residency.commit(entity(1), &placement, &plan(40), [0; 3]);
+    for _ in 0..DRAIN_SETTLED_FRAMES * 2 {
+        residency.observe_frame(false);
+        assert!(!residency.start_draining());
+        assert!(residency.take_queue().is_empty());
+    }
+    let unchanged = residency.place(entity(2), &plan(70)).unwrap();
+    residency.commit(entity(2), &unchanged, &plan(70), [0; 3]);
+    assert!(
+        !residency.start_draining(),
+        "same-size replacement kept the same free ranges"
+    );
+    let placement = residency.place(entity(2), &plan(50)).unwrap();
+    residency.commit(entity(2), &placement, &plan(50), [0; 3]);
+    assert!(
+        residency.start_draining(),
+        "a replacement changed the free ranges"
+    );
+}
+
+#[test]
+fn failed_drains_keep_all_queued_movers_blocked() {
+    let mut residency = Residency::new(100 * FACE_BYTES, 600 * FACE_BYTES, STRIDE);
+    for (id, faces) in [
+        (1, 20),
+        (2, 20),
+        (3, 90),
+        (4, 90),
+        (5, 90),
+        (6, 90),
+        (7, 90),
+    ] {
+        let placement = residency.place(entity(id), &plan(faces)).unwrap();
+        residency.commit(entity(id), &placement, &plan(faces), [0; 3]);
+    }
+    settle(&mut residency);
+    assert!(residency.start_draining());
+    let movers = residency.take_queue();
+    assert_eq!(movers.len(), 2);
+    for mover in movers {
+        let placement = residency.place(mover, &plan(20)).unwrap();
+        assert_eq!(placement.page, 0);
+        residency.commit(mover, &placement, &plan(20), [0; 3]);
+    }
+    assert!(
+        !residency.start_draining(),
+        "later queued movers did not change free space"
+    );
+    assert!(residency.take_queue().is_empty());
+}
+
+#[test]
+fn resident_shrink_retries_sections_waiting_for_room() {
+    let mut residency = Residency::new(100 * FACE_BYTES, 100 * FACE_BYTES, STRIDE);
+    let first = residency.place(entity(1), &plan(90)).unwrap();
+    residency.commit(entity(1), &first, &plan(90), [0; 3]);
+    assert!(residency.place(entity(2), &plan(20)).is_none());
+    residency.wait(entity(2));
+    let smaller = residency.place(entity(1), &plan(70)).unwrap();
+    residency.commit(entity(1), &smaller, &plan(70), [0; 3]);
+    assert_eq!(residency.take_queue(), [entity(2)]);
+    assert!(residency.place(entity(2), &plan(20)).is_some());
+}

@@ -10,7 +10,7 @@ use super::draws::{GeometryDraw, GeometryStage, geometry_draws, select_draws};
 use super::host_pipelines::{HostPipelines, host_pipelines};
 use super::pipeline_cache::PipelineCacheFile;
 use super::pipelines::{
-    GpuContext, Kind, MASKED_TARGET, bind_group_layouts, color_targets, format_kind,
+    GpuContext, Kind, MASKED_TARGET, bind_group_layouts, class_sampler, color_targets, format_kind,
     layout_entries, quad_attributes, quad_layout, shader_modules, storage_format, stores,
     texture_format,
 };
@@ -170,37 +170,6 @@ impl PackGpu {
             Some(class) => &self.filtering[class as usize],
             None => &self.comparison,
         }
-    }
-}
-
-/// The wgpu sampler of a [`SamplerClass`]. Linear classes also filter between mip levels,
-/// as Iris does for buffers with mipmaps enabled; repeat/nearest blends mip levels like
-/// Java's atlas (`NEAREST_MIPMAP_LINEAR`), which single-level custom textures never see.
-pub(crate) fn class_sampler(class: SamplerClass) -> wgpu::SamplerDescriptor<'static> {
-    let address = if class.clamps() {
-        wgpu::AddressMode::ClampToEdge
-    } else {
-        wgpu::AddressMode::Repeat
-    };
-    let filter = if class.linear() {
-        wgpu::FilterMode::Linear
-    } else {
-        wgpu::FilterMode::Nearest
-    };
-    let mipmap = if class == SamplerClass::ClampNearest {
-        wgpu::MipmapFilterMode::Nearest
-    } else {
-        wgpu::MipmapFilterMode::Linear
-    };
-    wgpu::SamplerDescriptor {
-        label: Some(class.glsl_name()),
-        address_mode_u: address,
-        address_mode_v: address,
-        address_mode_w: address,
-        mag_filter: filter,
-        min_filter: filter,
-        mipmap_filter: mipmap,
-        ..Default::default()
     }
 }
 
@@ -369,6 +338,7 @@ fn planned(
     PlannedProgram {
         name: name.to_owned(),
         group: program.program.group,
+        kind: program.program.kind,
         outputs,
         reads: reflection
             .textures
@@ -532,8 +502,7 @@ pub(crate) fn build(
         );
         TextureFormat::R16Float
     };
-    let all_consts = all.iter().flat_map(|p| &p.consts);
-    let mut settings = PackSettings::read(all_consts);
+    let mut settings = pack_settings(&translation.programs);
     settings.shadow.culling = translation
         .properties
         .get("shadow.culling")
@@ -581,7 +550,7 @@ pub(crate) fn build(
             depth_format,
             &translation.properties.images,
             &image_formats,
-        );
+        )?;
         for source in &bindings.textures {
             match *source {
                 TextureSource::DepthCompare(i) => depth_compare[i] = true,
@@ -594,7 +563,7 @@ pub(crate) fn build(
             .iter()
             .map(|s| s.sample_type(support))
             .collect();
-        let entries = layout_entries(reflection, &sample_types);
+        let entries = layout_entries(reflection, &sample_types)?;
         let layouts = bind_group_layouts(&gpu.device, &program.program.name, &entries);
         let layout_refs: Vec<Option<&wgpu::BindGroupLayout>> =
             layouts.iter().map(Option::as_ref).collect();
@@ -618,7 +587,7 @@ pub(crate) fn build(
         ) {
             if program.program.group == ProgramGroup::Shadow {
                 for buffer in reflection.color_outputs.iter().filter_map(|o| o.buffer) {
-                    constants.shadow_color(buffer);
+                    constants.shadow_color(buffer)?;
                 }
             }
             let vertex = modules
@@ -797,7 +766,7 @@ pub(crate) fn build(
         (block_ids, actor_ids)
     };
     let atlas_placeholder = constants
-        .placeholder(ATLAS_FORMAT, shaderpack::TextureDimension::D2, false)
+        .placeholder(ATLAS_FORMAT, shaderpack::TextureDimension::D2, false)?
         .0;
     let flag = |key: &str| translation.properties.get(key) == Some("true");
     let mipmap_formats: Vec<TextureFormat> = buffers
@@ -807,7 +776,7 @@ pub(crate) fn build(
         .filter(|f| format_kind(*f) == Kind::Float)
         .collect();
     let host = host_pipelines(
-        gpu,
+        &gpu.device,
         &buffer_formats,
         depth_format,
         depth_compare.contains(&true) || !draws.is_empty(),
@@ -897,7 +866,7 @@ pub(crate) fn build(
     })
 }
 
-/// Storage-buffer sizes: the reflected minimum, raised by `bufferObject.<binding>=<size>`.
+/// Storage bindings: the reflected minimum, raised to the pack's complete requested words.
 /// Resolves whole-buffer binding sizes, rejecting requests whose alignment would overflow.
 fn storage_sizes(
     reflections: &[&ProgramReflection],
@@ -909,15 +878,78 @@ fn storage_sizes(
             .get(&format!("bufferObject.{}", buffer.binding))
             .and_then(|v| v.split_whitespace().next()?.parse::<u64>().ok())
             .unwrap_or(0);
-        let size = u64::from(buffer.min_size)
-            .max(declared)
-            .max(16)
-            .checked_next_multiple_of(16)
-            .ok_or_else(|| format!("storage binding {} size overflows", buffer.binding))?;
+        let size = storage_binding_size(buffer.min_size, declared)
+            .map_err(|error| format!("storage binding {}: {error}", buffer.binding))?;
         match sizes.iter_mut().find(|(b, _)| *b == buffer.binding) {
             Some((_, s)) => *s = (*s).max(size),
             None => sizes.push((buffer.binding, size)),
         }
     }
     Ok(sizes)
+}
+
+/// Settings declared by the enabled programs in the pack.
+fn pack_settings(programs: &[ProgramTranslation]) -> PackSettings {
+    PackSettings::read(
+        programs
+            .iter()
+            .filter(|p| p.enabled)
+            .flat_map(|p| &p.consts),
+    )
+}
+
+/// Binding size in complete storage words, at least the reflected prefix.
+fn storage_binding_size(minimum: u32, declared: u64) -> Result<u64, String> {
+    let minimum = u64::from(minimum).max(4).next_multiple_of(4);
+    let size = minimum.max(declared);
+    let aligned = size.checked_next_multiple_of(4).ok_or("size overflows")?;
+    Ok(aligned - if size.is_multiple_of(4) { 0 } else { 4 })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A program with one pack-wide setting, independently of host execution support.
+    fn setting_program(group: ProgramGroup, enabled: bool, value: &str) -> ProgramTranslation {
+        ProgramTranslation {
+            program: shaderpack::ProgramSource {
+                name: String::new(),
+                group,
+                kind: ProgramKind::Render,
+                folder: String::new(),
+                stages: vec![],
+            },
+            enabled,
+            forced: vec![],
+            stages: vec![],
+            diagnostics: vec![],
+            reflection: None,
+            draw_buffers: vec![],
+            consts: vec![shaderpack::ConstDirective {
+                ty: "float".into(),
+                name: "sunPathRotation".into(),
+                value: value.into(),
+            }],
+        }
+    }
+
+    #[test]
+    fn pack_settings_include_enabled_geometry_and_shadow_programs() {
+        let programs = [
+            setting_program(ProgramGroup::Gbuffers, true, "30.0"),
+            setting_program(ProgramGroup::Shadow, true, "45.0"),
+            setting_program(ProgramGroup::Composite, false, "90.0"),
+        ];
+        assert_eq!(pack_settings(&programs).sun_path_rotation, 45.0);
+    }
+
+    #[test]
+    fn storage_binding_lengths_keep_complete_declared_words() {
+        for declared in [20, 21, 23] {
+            assert_eq!(storage_binding_size(4, declared).unwrap(), 20);
+        }
+        assert_eq!(storage_binding_size(16, 4).unwrap(), 16);
+        assert!(storage_binding_size(4, u64::MAX).is_err());
+    }
 }

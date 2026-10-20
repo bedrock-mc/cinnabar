@@ -246,3 +246,6 @@ pub use weather::{
 
 pub use block_entity::block_matrix;
 pub use weather::ColumnSampler;
+
+mod actor_bindings;
+pub use actor_bindings::{ActorAttachmentBindings, CapeBoneBinding};

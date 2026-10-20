@@ -28,39 +28,90 @@ pub(super) fn order(src: &[Tok]) -> Option<Vec<Tok>> {
     }) {
         return None;
     }
-    let mut out: Vec<Tok> = Vec::with_capacity(src.len());
+    let constant = super::items::constant_contexts(src);
+    let identifiers: std::collections::HashSet<_> = src.iter().filter_map(Tok::ident).collect();
+    let mut helper = "iris_dot".to_string();
+    while identifiers.contains(helper.as_str()) {
+        helper.push('_');
+    }
+    let items = super::items::split_items(src);
+    let mut user_types = std::collections::HashSet::new();
+    let mut rewritten = Vec::new();
     let mut routed = false;
-    // Brace depth inside the current function body (0 outside one).
-    let mut body_depth = 0_u32;
-    let mut constant = false;
-    for (i, t) in src.iter().enumerate() {
-        if t.is("{") && (body_depth > 0 || i > 0 && src[i - 1].is(")")) {
-            body_depth += 1;
-        } else if t.is("}") && body_depth > 0 {
-            body_depth -= 1;
-        } else if t.is(";") {
-            constant = false;
-        } else if t.ident() == Some("const") {
-            constant = true;
-        }
-        let member = i > 0 && src[i - 1].is(".");
-        if body_depth > 0
-            && !constant
-            && !member
-            && t.ident() == Some("dot")
-            && src.get(i + 1).is_some_and(|n| n.is("("))
+    let mut offset = 0;
+    for item in &items {
+        let body = item.iter().position(|token| token.is("{"));
+        let is_function = body.is_some_and(|b| b > 0 && item[b - 1].is(")"));
+        let params = (is_function || super::items::parse_decl(item).is_none())
+            .then(|| super::items::func_params(item))
+            .flatten();
+        if let Some((lp, params)) = &params
+            && *lp > 0
+            && item[*lp - 1].ident() == Some("dot")
         {
-            routed = true;
-            out.push(id("iris_dot").at(t.line));
-        } else {
-            out.push(t.clone());
+            user_types.insert(signature(params));
         }
+        let mut output = item.clone();
+        if is_function {
+            for i in body.unwrap() + 1..item.len() {
+                if item[i].ident() == Some("dot")
+                    && item.get(i + 1).is_some_and(|token| token.is("("))
+                    && !item[i - 1].is(".")
+                    && !constant.contains(&(offset + i))
+                {
+                    output[i] = id(&helper).at(item[i].line);
+                    routed = true;
+                }
+            }
+        }
+        // Resolve the renamed user overloads and fused built-ins in the same overload set.
+        if let Some((lp, _)) = params
+            && lp > 0
+            && item[lp - 1].ident() == Some("dot")
+        {
+            output[lp - 1] = id(&helper).at(item[lp - 1].line);
+        }
+        rewritten.extend(output);
+        offset += item.len();
     }
     if !routed {
         return None;
     }
-    out.splice(0..0, lex(HELPERS));
+    let mut out = Vec::new();
+    for item in super::items::split_items(&lex(HELPERS)) {
+        let (_, params) = super::items::func_params(&item).unwrap();
+        let types = signature(&params);
+        if !user_types.contains(&types) {
+            out.extend(item.into_iter().map(|token| {
+                if token.ident() == Some("iris_dot") {
+                    id(&helper).at(token.line)
+                } else {
+                    token
+                }
+            }));
+        }
+    }
+    out.extend(rewritten);
     Some(out)
+}
+
+/// Identifies overload parameter types, including array dimensions but excluding names and qualifiers.
+fn signature(params: &[super::items::Param]) -> Vec<String> {
+    params
+        .iter()
+        .map(|param| {
+            param
+                .toks
+                .iter()
+                .filter(|token| {
+                    !token.ident().is_some_and(|name| {
+                        name == param.name || super::items::QUALIFIERS.contains(&name)
+                    })
+                })
+                .map(Tok::text)
+                .collect::<String>()
+        })
+        .collect()
 }
 
 #[cfg(test)]

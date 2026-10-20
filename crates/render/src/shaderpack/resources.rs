@@ -179,7 +179,7 @@ impl<'a> ConstantBuilder<'a> {
         let number = |name: &str, default: u32| {
             const_value(translation, name)
                 .and_then(|v| v.trim().trim_end_matches(['f', 'F']).parse::<f32>().ok())
-                .map_or(default, |v| (v as u32).clamp(1, 16384))
+                .map_or(default, |v| (v as u32).max(1))
         };
         Self {
             gpu,
@@ -220,8 +220,11 @@ impl<'a> ConstantBuilder<'a> {
         size: [u32; 3],
         dimension: TextureDimension,
         usage: TextureUsages,
-    ) -> (wgpu::Texture, wgpu::TextureView) {
+    ) -> Result<(wgpu::Texture, wgpu::TextureView), String> {
         let (wgpu_dimension, layers, view_dimension) = match dimension {
+            TextureDimension::D1Array => {
+                return Err("1D array textures are unsupported by wgpu".into());
+            }
             TextureDimension::D1 => (
                 wgpu::TextureDimension::D1,
                 1,
@@ -275,7 +278,7 @@ impl<'a> ConstantBuilder<'a> {
             dimension: Some(view_dimension),
             ..Default::default()
         });
-        (texture, view)
+        Ok((texture, view))
     }
 
     /// A zero (depth: 1.0) texture of `format` and shape, shared by every unknown binding of
@@ -285,10 +288,10 @@ impl<'a> ConstantBuilder<'a> {
         format: TextureFormat,
         dimension: TextureDimension,
         storage: bool,
-    ) -> (usize, TextureFormat) {
+    ) -> Result<(usize, TextureFormat), String> {
         let key = Key::Placeholder(format, dimension, storage);
         if let Some(found) = self.keys.get(&key) {
-            return *found;
+            return Ok(*found);
         }
         let depth = format.is_depth_stencil_format();
         let dimension = if depth {
@@ -309,32 +312,33 @@ impl<'a> ConstantBuilder<'a> {
             [1, 1, 1],
             dimension,
             usage,
-        );
+        )?;
         let found = self.push(key, texture, view);
         if depth {
             self.clears.push((found.0, wgpu::LoadOp::Clear(1.0), true));
         }
-        found
+        Ok(found)
     }
 
     fn placeholder_for(
         &mut self,
         sample: SampleType,
         dimension: TextureDimension,
-    ) -> TextureSource {
+    ) -> Result<TextureSource, String> {
         let format = match sample {
             SampleType::Float => TextureFormat::Rgba8Unorm,
             SampleType::Sint => TextureFormat::Rgba8Sint,
             SampleType::Uint => TextureFormat::Rgba8Uint,
             SampleType::Depth => TextureFormat::Depth32Float,
         };
-        let (index, format) = self.placeholder(format, dimension, false);
-        TextureSource::Constant { index, format }
+        let (index, format) = self.placeholder(format, dimension, false)?;
+        Ok(TextureSource::Constant { index, format })
     }
 
-    fn noise(&mut self) -> (usize, TextureFormat) {
+    /// Resolves noise, rejecting unsupported generated extents before allocating pixels.
+    fn noise(&mut self) -> Result<(usize, TextureFormat), String> {
         if let Some(found) = self.keys.get(&Key::Noise) {
-            return *found;
+            return Ok(*found);
         }
         let file = self
             .translation
@@ -348,19 +352,19 @@ impl<'a> ConstantBuilder<'a> {
             Some(decoded) => decoded,
             None => {
                 let side = self.noise_resolution;
+                let pixels = generated_noise(side, &self.gpu.device.limits())?;
                 let (texture, view) = self.texture(
                     "shader pack noisetex",
                     TextureFormat::Rgba8Unorm,
                     [side, side, 1],
                     TextureDimension::D2,
                     TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                );
-                let pixels = generated_noise(side);
+                )?;
                 self.upload(&texture, &pixels, 4 * side, [side, side, 1]);
                 (texture, view)
             }
         };
-        self.push(Key::Noise, texture, view)
+        Ok(self.push(Key::Noise, texture, view))
     }
 
     fn upload(&self, texture: &wgpu::Texture, bytes: &[u8], bytes_per_row: u32, size: [u32; 3]) {
@@ -406,7 +410,14 @@ impl<'a> ConstantBuilder<'a> {
         let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
         decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
         let mut reader = decoder.read_info().map_err(|e| format!("{path}: {e}"))?;
-        let mut pixels = vec![0; reader.output_buffer_size().ok_or("png too large")?];
+        let header = reader.info();
+        let size = png_buffer_len(
+            header.width,
+            header.height,
+            reader.output_buffer_size(),
+            MAX_CUSTOM_TEXTURE_SIDE.min(self.gpu.device.limits().max_texture_dimension_2d),
+        )?;
+        let mut pixels = vec![0; size];
         let info = reader
             .next_frame(&mut pixels)
             .map_err(|e| format!("{path}: {e}"))?;
@@ -432,13 +443,14 @@ impl<'a> ConstantBuilder<'a> {
         height: u32,
         rgba: &[u8],
     ) -> Result<(wgpu::Texture, wgpu::TextureView), String> {
-        if width > MAX_CUSTOM_TEXTURE_SIDE || height > MAX_CUSTOM_TEXTURE_SIDE {
-            return Err(format!(
-                "{label}: {width}x{height} exceeds the texture limit"
-            ));
-        }
+        let expected = rgba_byte_len(
+            width,
+            height,
+            MAX_CUSTOM_TEXTURE_SIDE.min(self.gpu.device.limits().max_texture_dimension_2d),
+        )
+        .map_err(|error| format!("{label}: {error}"))?;
         let row = 4 * width as usize;
-        if row == 0 || rgba.len() != row * height as usize {
+        if rgba.len() != expected {
             return Err(format!(
                 "{label}: {width}x{height} does not match its pixels"
             ));
@@ -451,7 +463,7 @@ impl<'a> ConstantBuilder<'a> {
             [width, height, 1],
             TextureDimension::D2,
             TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-        );
+        )?;
         self.upload(&texture, &flipped, 4 * width, [width, height, 1]);
         Ok((texture, view))
     }
@@ -464,6 +476,12 @@ impl<'a> ConstantBuilder<'a> {
     ) -> Result<(wgpu::Texture, wgpu::TextureView), String> {
         let raw = RawSpec::parse(spec)
             .ok_or_else(|| format!("{path}: unsupported raw texture {spec:?}"))?;
+        super::targets::admission::texture_extent(
+            storage_shape(raw.dimension)?,
+            raw.size,
+            &self.gpu.device.limits(),
+        )
+        .map_err(|error| format!("{path}: {error}"))?;
         let bytes = self
             .pack
             .source()
@@ -480,7 +498,7 @@ impl<'a> ConstantBuilder<'a> {
             raw.size,
             raw.dimension,
             TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-        );
+        )?;
         let size = if raw.dimension == TextureDimension::D1 {
             [raw.size[0], 1, 1]
         } else {
@@ -517,16 +535,22 @@ impl<'a> ConstantBuilder<'a> {
         Some(self.push(key, texture, view))
     }
 
-    fn shadow(&mut self, index: u32, sample: SampleType) -> (usize, TextureFormat) {
+    /// Creates a requested shadow texture after checking its device extent.
+    fn shadow(&mut self, index: u32, sample: SampleType) -> Result<(usize, TextureFormat), String> {
         let key = if sample == SampleType::Depth {
             Key::ShadowDepth(index)
         } else {
             Key::ShadowFloat(index)
         };
         if let Some(found) = self.keys.get(&key) {
-            return *found;
+            return Ok(*found);
         }
         let side = self.shadow_resolution;
+        super::targets::admission::texture_extent(
+            wgpu::TextureDimension::D2,
+            [side, side, 1],
+            &self.gpu.device.limits(),
+        )?;
         let format = if sample == SampleType::Depth {
             TextureFormat::Depth32Float
         } else if self.support.float32_filterable {
@@ -543,22 +567,27 @@ impl<'a> ConstantBuilder<'a> {
                 | TextureUsages::RENDER_ATTACHMENT
                 | TextureUsages::COPY_SRC
                 | TextureUsages::COPY_DST,
-        );
+        )?;
         let found = self.push(key, texture, view);
         self.clears.push((
             found.0,
             wgpu::LoadOp::Clear(1.0),
             sample == SampleType::Depth,
         ));
-        found
+        Ok(found)
     }
 
     /// `shadowcolorN`, created on first use; the shadow pass draws into it.
-    pub(crate) fn shadow_color(&mut self, index: u32) -> (usize, TextureFormat) {
+    pub(crate) fn shadow_color(&mut self, index: u32) -> Result<(usize, TextureFormat), String> {
         if let Some(found) = self.keys.get(&Key::ShadowColor(index)) {
-            return *found;
+            return Ok(*found);
         }
         let side = self.shadow_resolution;
+        super::targets::admission::texture_extent(
+            wgpu::TextureDimension::D2,
+            [side, side, 1],
+            &self.gpu.device.limits(),
+        )?;
         let format = texture_format(
             self.translation
                 .buffers
@@ -571,10 +600,10 @@ impl<'a> ConstantBuilder<'a> {
             [side, side, 1],
             TextureDimension::D2,
             TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
-        );
+        )?;
         let found = self.push(Key::ShadowColor(index), texture, view);
         self.clears.push((found.0, wgpu::LoadOp::Clear(1.0), false));
-        found
+        Ok(found)
     }
 
     /// The shadow maps created so far: call after every program is resolved.
@@ -625,7 +654,7 @@ impl<'a> ConstantBuilder<'a> {
 
     /// Whether pack-wide texture `index` has the shape a sampler of `dimension` reads.
     fn has_shape(&self, index: usize, dimension: TextureDimension) -> bool {
-        self.out.textures[index].texture.dimension() == storage_shape(dimension)
+        Ok(self.out.textures[index].texture.dimension()) == storage_shape(dimension)
     }
 
     /// Clears the textures that start at a value other than zero and returns them.
@@ -679,10 +708,12 @@ impl<'a> ConstantBuilder<'a> {
     }
 }
 
-/// Deterministic white noise standing in for Minecraft's generated `noisetex`.
-fn generated_noise(side: u32) -> Vec<u8> {
+/// Deterministic RGBA noise, rejected before allocation when its extent exceeds the device.
+fn generated_noise(side: u32, limits: &wgpu::Limits) -> Result<Vec<u8>, String> {
+    super::targets::admission::texture_extent(wgpu::TextureDimension::D2, [side, side, 1], limits)?;
+    let bytes = rgba_byte_len(side, side, limits.max_texture_dimension_2d)?;
     let mut state = 0x9E37_79B9_7F4A_7C15u64;
-    (0..side as usize * side as usize * 4)
+    Ok((0..bytes)
         .map(|i| {
             if i % 4 == 3 {
                 return 255;
@@ -692,7 +723,7 @@ fn generated_noise(side: u32) -> Vec<u8> {
             state ^= state << 17;
             (state >> 56) as u8
         })
-        .collect()
+        .collect())
 }
 
 /// The buffer index of `depthtexN` (with `gdepthtex` as `depthtex0`).
@@ -707,15 +738,16 @@ fn depth_index(name: &str) -> Option<usize> {
 
 /// The storage shape of a texture a sampler of `dimension` reads: arrays and cubes are 2D
 /// layers.
-fn storage_shape(dimension: TextureDimension) -> wgpu::TextureDimension {
-    match dimension {
+fn storage_shape(dimension: TextureDimension) -> Result<wgpu::TextureDimension, String> {
+    Ok(match dimension {
+        TextureDimension::D1Array => return Err("1D array textures are unsupported by wgpu".into()),
         TextureDimension::D1 => wgpu::TextureDimension::D1,
         TextureDimension::D3 => wgpu::TextureDimension::D3,
         TextureDimension::D2
         | TextureDimension::D2Array
         | TextureDimension::Cube
         | TextureDimension::CubeArray => wgpu::TextureDimension::D2,
-    }
+    })
 }
 
 /// The texture format of each custom image: the format a program declares for it, else the
@@ -741,6 +773,32 @@ pub(crate) fn image_formats(
         .collect()
 }
 
+/// Admitted RGBA8 bytes for a nonempty image, with checked size arithmetic.
+fn rgba_byte_len(width: u32, height: u32, limit: u32) -> Result<usize, String> {
+    if width == 0 || height == 0 || width > limit || height > limit {
+        return Err(format!(
+            "{width}x{height} exceeds the texture limit {limit}"
+        ));
+    }
+    (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|size| size.checked_mul(4))
+        .ok_or_else(|| "RGBA byte count overflows".into())
+}
+
+/// Validates the PNG header and decoded byte count before allocating caller-owned pixels.
+fn png_buffer_len(
+    width: u32,
+    height: u32,
+    output: Option<usize>,
+    limit: u32,
+) -> Result<usize, String> {
+    let rgba = rgba_byte_len(width, height, limit)?;
+    output
+        .filter(|size| *size != 0 && *size <= rgba)
+        .ok_or_else(|| "png decoded byte count exceeds its admitted extent".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -749,9 +807,66 @@ mod tests {
     fn depth_names_and_generated_noise_follow_optifine() {
         assert_eq!(depth_index("gdepthtex"), Some(0));
         assert_eq!(depth_index("depthtex3"), None);
-        let noise = generated_noise(4);
+        let noise = generated_noise(4, &wgpu::Limits::default()).unwrap();
         assert_eq!(noise.len(), 64);
         assert!(noise.as_chunks::<4>().0.iter().all(|p| p[3] == 255));
         assert!(noise.as_chunks::<4>().0.iter().any(|p| p[0] != noise[0]));
+    }
+    /// A tiny compressed image with a valid CRC and a supplied canvas size.
+    fn png_header(width: u32, height: u32) -> Vec<u8> {
+        let mut bytes = vec![];
+        {
+            let mut encoder = png::Encoder::new(&mut bytes, 1, 1);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            encoder
+                .write_header()
+                .unwrap()
+                .write_image_data(&[0; 4])
+                .unwrap();
+        }
+        bytes[16..20].copy_from_slice(&width.to_be_bytes());
+        bytes[20..24].copy_from_slice(&height.to_be_bytes());
+        let crc = bytes[12..29].iter().fold(!0_u32, |crc, byte| {
+            (0..8).fold(crc ^ u32::from(*byte), |crc, _| {
+                (crc >> 1) ^ if crc & 1 != 0 { 0xedb8_8320 } else { 0 }
+            })
+        });
+        bytes[29..33].copy_from_slice(&(!crc).to_be_bytes());
+        bytes
+    }
+
+    #[test]
+    fn oversized_png_headers_are_rejected_before_decode_allocation() {
+        let bytes = png_header(32768, 32768);
+        let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+        decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+        let reader = decoder.read_info().unwrap();
+        let header = reader.info();
+        assert!(
+            png_buffer_len(
+                header.width,
+                header.height,
+                reader.output_buffer_size(),
+                MAX_CUSTOM_TEXTURE_SIDE
+            )
+            .is_err()
+        );
+        assert_eq!(
+            png_buffer_len(2, 3, Some(24), MAX_CUSTOM_TEXTURE_SIDE).unwrap(),
+            24
+        );
+        assert!(png_buffer_len(0, 3, Some(0), MAX_CUSTOM_TEXTURE_SIDE).is_err());
+        assert!(png_buffer_len(2, 3, Some(25), MAX_CUSTOM_TEXTURE_SIDE).is_err());
+    }
+    #[test]
+    fn generated_noise_rejects_unsupported_extents_before_allocating_pixels() {
+        let limits = wgpu::Limits {
+            max_texture_dimension_2d: 4096,
+            ..Default::default()
+        };
+        assert!(generated_noise(8192, &limits).is_err());
+        assert!(generated_noise(0, &limits).is_err());
+        assert!(png_buffer_len(4097, 1, Some(16388), limits.max_texture_dimension_2d).is_err());
     }
 }
