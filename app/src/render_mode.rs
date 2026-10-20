@@ -355,7 +355,7 @@ fn apply_render_mode_to_cameras(
             }
         }
         if shader_pack && !has_shader_pack {
-            entity_commands.insert(ShaderPackRendering);
+            entity_commands.insert((ShaderPackRendering, Msaa::Off));
         } else if !shader_pack && has_shader_pack {
             entity_commands.remove::<ShaderPackRendering>();
         }
@@ -529,7 +529,7 @@ mod tests {
         let original = TextureUsages::from(Camera3d::default().depth_texture_usages);
         let camera = app
             .world_mut()
-            .spawn((Camera3d::default(), FlyCamera::default()))
+            .spawn((Camera3d::default(), FlyCamera::default(), Msaa::Sample4))
             .id();
         let opted_in = |app: &App| app.world().get::<ShaderPackRendering>(camera).is_some();
         set_render_mode(
@@ -545,6 +545,7 @@ mod tests {
         app.world_mut().insert_resource(shader_pack_status_ready());
         app.update();
         assert!(opted_in(&app));
+        assert_eq!(*app.world().get::<Msaa>(camera).unwrap(), Msaa::Off);
         assert!(app.world().get::<EnhancedRendering>(camera).is_none());
         assert_eq!(
             depth_usage(&app, camera),
