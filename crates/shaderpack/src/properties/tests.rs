@@ -334,6 +334,54 @@ fn custom_textures_bind_their_unit_uniform_in_their_stage_programs() {
 }
 
 #[test]
+fn program_rules_match_nested_dimension_folders() {
+    let properties = parse("program.regions/world0/final.enabled=false\n");
+    let rule = properties
+        .program_rule("regions/world0", "final")
+        .expect("nested dimension rule");
+    assert_eq!(rule.dimension.as_deref(), Some("regions/world0"));
+}
+
+#[test]
+fn carriage_return_line_endings_split_entries() {
+    let properties = parse("alpha=1\rbeta=2\r\ngamma=3\r");
+    assert_eq!(properties.get("alpha"), Some("1"));
+    assert_eq!(properties.get("beta"), Some("2"));
+    assert_eq!(properties.get("gamma"), Some("3"));
+}
+
+#[test]
+fn blank_lines_end_continued_entries() {
+    let properties = parse(
+        "#define QUALITY 2\nscreen=A \\\n  B \\\n\nsliders=QUALITY\nvalue=1 \\\n\nafter=QUALITY\n",
+    );
+    assert_eq!(properties.get("sliders"), Some("QUALITY"));
+    assert_eq!(properties.get("after"), Some("2"));
+    assert_eq!(properties.get("value"), Some("1"));
+}
+
+#[test]
+fn a_prefix_cut_off_by_the_work_limit_is_discarded() {
+    use crate::source::MAX_PROPERTIES_PREPROCESSING_BYTES;
+
+    let chunk = "m".repeat(64 * 1024);
+    // Leaves less than one chunk of budget, so the last entry runs out after its prefix.
+    let references = MAX_PROPERTIES_PREPROCESSING_BYTES / (chunk.len() + 1);
+    let text = format!(
+        "#define BIG {chunk}\nfiller={}\nprogram.final.enabled=false BIG\n",
+        vec!["BIG"; references].join(" ")
+    );
+    let properties = parse(&text);
+    assert!(properties.program_rule("world0", "final").is_none());
+    assert!(
+        properties
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("work limit"))
+    );
+}
+
+#[test]
 fn custom_images_relative_absolute_and_malformed() {
     let properties = parse(
         "image.halfImg = halfSampler rgba rgba16f half_float true true 0.5 0.5\n\
