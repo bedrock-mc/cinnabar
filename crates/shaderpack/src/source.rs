@@ -60,6 +60,12 @@ const BINARY_EXTENSIONS: &[&str] = &[
     "ogg", "wav", "mp3", "ttf", "otf", "zip", "jar", "class", "psd", "webp",
 ];
 
+/// Maximum bytes read from one shader-pack text file.
+pub(crate) const MAX_TEXT_FILE_BYTES: usize = 8 * 1024 * 1024;
+
+/// Maximum expanded properties text retained from one input file.
+pub(crate) const MAX_EXPANDED_PROPERTIES_BYTES: usize = 4 * MAX_TEXT_FILE_BYTES;
+
 /// Bounds eager pack ingestion.
 #[derive(Clone, Copy)]
 struct LoadLimits {
@@ -71,7 +77,7 @@ struct LoadLimits {
 
 impl LoadLimits {
     const DEFAULT: Self = Self {
-        file_bytes: 8 * 1024 * 1024,
+        file_bytes: MAX_TEXT_FILE_BYTES,
         total_bytes: 64 * 1024 * 1024,
         entries: 16384,
         archive_bytes: 256 * 1024 * 1024,

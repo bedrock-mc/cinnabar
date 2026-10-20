@@ -84,6 +84,7 @@ mod nametag_opacity;
 mod nametag_transparency;
 mod native_sky;
 mod oreui_font;
+mod packed_decode;
 mod plugin;
 mod portal_overlay;
 mod present_mode_policy;
