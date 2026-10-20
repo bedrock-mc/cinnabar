@@ -104,10 +104,8 @@ impl ModUi {
         let Some(panel) = self.mod_panel.as_mut() else {
             return;
         };
-        if let Some(Editor::Field { control, state, .. }) = &mut panel.edit
-            && let Some((maximum, _)) = field_bounds(&panel.panel.controls[*control])
-        {
-            state.preedit(text, cursor, maximum);
+        if let Some(Editor::Field { state, .. }) = &mut panel.edit {
+            state.preedit(text, cursor);
         }
     }
 

@@ -380,6 +380,7 @@ end, and Enter/Shift+Enter through field key events while the field has focus.
 Horizontal arrows first collapse any selection. Other horizontal movement,
 Home/End, Shift selection, and Ctrl/Option word movement and deletion stay native.
 IME preedit appears inline with an underline and remains local until commit.
+Its transient spelling may exceed the field's committed character limit.
 The caret uses the painted glyph positions and the caller's animation time.
 
 Committed text arrives through `input.read-text-events()` as `{id, value}` entries,

@@ -715,3 +715,25 @@ fn native_field_safe_area_preserves_pointer_and_ime_geometry() {
         );
     }
 }
+
+/// IME spelling can exceed a short field's committed limit before committing one character.
+#[test]
+fn native_field_ime_preedit_exceeds_commit_limit() {
+    let mut ui = text_field("", 0, 1);
+    if let Control::Text { live, .. } = &mut ui.mod_panel.as_mut().unwrap().panel.controls[0] {
+        *live = true;
+    }
+    let owner = PanelUiOwner::Environment(0);
+    ui.mod_panel_preedit("ni", Some(2));
+    assert_eq!(field_state(&ui).display, "ni");
+    assert_eq!(field_state(&ui).text, "");
+    assert!(ui.take_mod_panel_field_events(owner).is_empty());
+    ui.mod_panel_ime_commit("你好");
+    assert_eq!(field_state(&ui).text, "");
+    assert!(ui.take_mod_panel_field_events(owner).is_empty());
+    ui.mod_panel_preedit("ni", Some(2));
+    ui.mod_panel_ime_commit("你");
+    assert_eq!(field_state(&ui).text, "你");
+    assert!(matches!(&ui.take_mod_panel_field_events(owner)[..],
+        [ui::mod_panel::FieldEvent::Change(event)] if event.value == "你"));
+}

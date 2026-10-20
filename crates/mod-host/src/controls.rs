@@ -495,7 +495,7 @@ impl State {
 #[path = "controls_tests.rs"]
 mod tests;
 
-/// Validates the whole additive batch before changing pending events or retained values.
+/// Admits a batch transactionally, retaining new values independently of deferred delivery history.
 pub(super) fn queue_field_events(
     state: &mut State,
     events: Vec<ui::mod_panel::FieldEvent>,
@@ -544,17 +544,17 @@ pub(super) fn queue_field_events(
         }
     }
     let mut pending = state.controls.field_events.clone();
-    for event in events {
-        if let FieldEvent::Change(next) = &event {
+    for event in &events {
+        if let FieldEvent::Change(next) = event {
             pending.retain(|old| !matches!(old, FieldEvent::Change(old) if old.id == next.id));
         }
         ensure!(
             pending.len() < MAX_PANEL_EVENTS,
             "too many native field events"
         );
-        pending.push(event);
+        pending.push(event.clone());
     }
-    for event in &pending {
+    for event in &events {
         if let FieldEvent::Change(e) | FieldEvent::Submit(e) = event
             && let Some(Control::Text {
                 value,

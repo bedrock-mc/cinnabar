@@ -719,3 +719,40 @@ fn native_field_input_validation_is_transactional() {
     state.controls.revoke();
     assert!(state.controls.field_events.is_empty());
 }
+
+/// Deferred delivery never replays an old submission over the last admitted live value.
+#[test]
+fn native_field_input_deferred_submits_preserve_retained_values() {
+    use ui::mod_panel::{Control, FieldEvent, TextEvent};
+    let mut state = state(ModGrants {
+        controls: true,
+        ..Default::default()
+    });
+    text_panel(&mut state);
+    if let Control::Text { live, .. } = &mut state.controls.panel.as_mut().unwrap().controls[0] {
+        *live = true;
+    }
+    let text = |value: &str| TextEvent {
+        id: "name".into(),
+        value: value.into(),
+    };
+    super::queue_field_events(
+        &mut state,
+        vec![
+            FieldEvent::Submit(text("a")),
+            FieldEvent::Change(text("ab")),
+        ],
+    )
+    .unwrap();
+    state.controls.begin_text_frame();
+    state.controls.finish_text_frame(true);
+    super::queue_field_events(&mut state, vec![FieldEvent::Change(text(""))]).unwrap();
+    assert!(
+        matches!(&state.controls.panel.as_ref().unwrap().controls[0],
+        Control::Text { value, .. } if value == "ab")
+    );
+    assert_eq!(
+        state.controls.field_events,
+        vec![FieldEvent::Submit(text("a")), FieldEvent::Change(text(""))]
+    );
+}

@@ -64,10 +64,10 @@ impl Field {
         self.anchor.min(self.cursor)..self.anchor.max(self.cursor)
     }
 
-    /// Replaces inline preedit without changing the committed value or selection.
-    pub fn preedit(&mut self, text: &str, cursor: Option<usize>, limit: usize) {
+    /// Keeps transient preedit within the shared UI text budget, independent of committed bounds.
+    pub fn preedit(&mut self, text: &str, cursor: Option<usize>) {
         self.composing = !text.is_empty();
-        if text.chars().any(char::is_control) || text.chars().count() > limit {
+        if text.chars().any(char::is_control) || text.len() > ui::UiLimits::MAX_TEXT_BYTES {
             return;
         }
         self.composition.clear();
