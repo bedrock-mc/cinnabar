@@ -36,7 +36,8 @@ impl AtlasBlendPipelines {
     }
 }
 
-fn descriptor(
+/// Describes an animation blend pass with the supplied attachment formats.
+pub(super) fn descriptor(
     layout: &BindGroupLayoutDescriptor,
     entry_point: &'static str,
     formats: &[TextureFormat],
@@ -73,7 +74,7 @@ fn descriptor(
     }
 }
 
-/// Queues the colour-only (sRGB storage) pipeline and the colour + LabPBR (linear) one.
+/// Queues the colour-only (encoded UNORM storage) pipeline and the colour + LabPBR (linear) one.
 pub(crate) fn init_blend_pipelines(mut commands: Commands, cache: Res<PipelineCache>) {
     let layout =
         BindGroupLayoutDescriptor::new("shader-pack frame blend sources", &BLEND_SOURCE_ENTRIES);
