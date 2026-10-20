@@ -403,16 +403,16 @@ pub(crate) fn build(
         .iter()
         .filter_map(|p| p.reflection.as_ref())
         .collect();
-    let mut frame = plan_frame(&plans, &translation.properties.flips);
+    let mut frame = plan_frame(&plans, &translation.properties.flips)?;
     let buffers = plan_buffers(
         &plans,
         &[],
         &frame,
         &translation.buffers,
         &translation.properties.buffer_sizes,
-    );
+    )?;
     skip_cleared_swap_back(&mut frame, &buffers, &plans);
-    exchange_swap_back(&mut frame, &plans, &[]);
+    exchange_swap_back(&mut frame, &plans, &[])?;
     let support = gpu.support();
     let mut buffer_formats = [None; MAX_COLOR_BUFFERS as usize];
     for buffer in &buffers {
