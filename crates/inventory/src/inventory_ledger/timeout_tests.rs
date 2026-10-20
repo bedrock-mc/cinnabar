@@ -66,12 +66,12 @@ fn a_late_personal_reply_preserves_gestures_from_the_requested_screen() {
 }
 
 #[test]
-fn timeout_requires_refresh_for_inputs_before_releasing_personal_ownership() {
+fn timeout_requires_refresh_when_personal_inputs_cannot_be_returned() {
     let mut ledger = ledger_with_slot_zero();
     assert!(ledger.request_personal_open(42));
     assert!(ledger.mark_transport_enqueued(10));
     let slot = *protocol::CRAFTING_INPUT_SLOTS.start();
-    let ingredient = stack(32, 2);
+    let ingredient = stack(0, 2);
     ledger.apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
         identity: protocol::SlotIdentity {
             container: ContainerIdentity {
@@ -86,6 +86,7 @@ fn timeout_requires_refresh_for_inputs_before_releasing_personal_ownership() {
     }));
     assert!(!ledger.resync_required());
     ledger.request_personal_close();
+    assert_eq!(ledger.pending_request_count(), 0);
     assert!(ledger.poll_timeout(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS));
     assert!(ledger.resync_required());
     assert_eq!(
