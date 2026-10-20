@@ -3,7 +3,8 @@
 
 use super::jobs::{JobKind, MaterialTables, SectionGeometry, plan_section};
 use super::pipelines::{
-    EXPAND_PARAMS_BYTES, expansion_shader_source, output_layout, source_layout,
+    EXPAND_PARAMS_BYTES, EXPAND_WORKGROUP_SIZE, expansion_shader_source, output_layout,
+    source_layout,
 };
 use super::vertex::{
     BLOCK_ID, COLOR, IRIS_VERTEX_WORDS, LIGHTMAP, MID_BLOCK, MID_TEX, NORMAL, POSITION, TANGENT,
@@ -37,6 +38,10 @@ fn every_expansion_kernel_composes_from_the_packed_decoders_and_validates() {
         include_str!("expand_liquids.wesl"),
     ] {
         let source = kernel(root);
+        let module = naga::front::wgsl::parse_str(&source).expect("composed kernel parses");
+        for entry in &module.entry_points {
+            assert_eq!(entry.workgroup_size, [EXPAND_WORKGROUP_SIZE, 1, 1]);
+        }
         assert!(
             !source.contains("@vertex"),
             "imported draw entry points are pruned"
@@ -389,7 +394,11 @@ fn expand_section(name: &str, fixture: Fixture<'_>) -> Option<Expanded> {
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &sources, &[]);
         pass.set_bind_group(1, &output, &[]);
-        pass.dispatch_workgroups((plan.jobs[kind as usize].len() as u32).div_ceil(64), 1, 1);
+        pass.dispatch_workgroups(
+            (plan.jobs[kind as usize].len() as u32).div_ceil(EXPAND_WORKGROUP_SIZE),
+            1,
+            1,
+        );
     }
     gpu.queue.submit([encoder.finish()]);
     let bytes = read_buffer(&gpu, &vertices, vertex_bytes);

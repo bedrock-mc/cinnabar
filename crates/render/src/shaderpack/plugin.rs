@@ -15,6 +15,7 @@ use super::resources::vanilla::VanillaTextures;
 use super::sky::SkyInputs;
 use super::targets::AtlasViews;
 use super::uniforms::{FrameClock, FrameUniforms, ViewCamera};
+use assets::facts::java_mapping::JavaDimension;
 use bevy::render::render_phase::TrackedRenderPass;
 use bevy::{
     core_pipeline::{Core3d, Core3dSystems},
@@ -41,11 +42,8 @@ use std::{
 
 /// Java ids of the built-in dimensions, indexed by Bedrock dimension id (Overworld, Nether,
 /// End), which select the pack's dimension folder.
-pub(crate) const JAVA_DIMENSIONS: [&str; 3] = [
-    "minecraft:overworld",
-    "minecraft:the_nether",
-    "minecraft:the_end",
-];
+pub(crate) static JAVA_DIMENSIONS: std::sync::LazyLock<[&str; JavaDimension::ALL.len()]> =
+    std::sync::LazyLock::new(|| JavaDimension::ALL.map(JavaDimension::identifier));
 
 /// The least `far` a pack sees: Java's smallest render distance, two chunks.
 const MIN_PACK_FAR: f32 = 32.0;

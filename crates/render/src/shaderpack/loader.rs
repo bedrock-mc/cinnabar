@@ -419,6 +419,14 @@ pub(crate) fn build(
         log_program(name, program);
     }
     let (runnable, plans) = runnable_programs(&translation)?;
+    for program in &runnable {
+        if let Some(dispatch) = program.reflection.as_ref().and_then(|r| r.compute.as_ref())
+            && dispatch.work_groups.is_some()
+        {
+            super::dispatch::validate(dispatch, [1, 1], &gpu.device.limits())
+                .map_err(|error| format!("{}: {error}", program.program.name))?;
+        }
+    }
     let (block_ids, actor_ids) =
         super::ids::id_tables(pack.id_maps(&config.environment, &config.options), name);
     let (geometry, selected_draws) = select_draws(&translation.programs);
@@ -638,6 +646,7 @@ pub(crate) fn build(
             reflection,
             &buffer_formats,
             &translation.properties.blends,
+            None,
         );
         let pipeline = match reflection.kind {
             ProgramKind::Compute => {

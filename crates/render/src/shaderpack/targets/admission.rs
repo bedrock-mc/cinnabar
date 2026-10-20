@@ -68,6 +68,12 @@ fn storage_size(size: u64, limits: &Limits) -> Result<(), String> {
 /// Checks every view-sized request before any resources are created.
 pub(super) fn validate(pack: &PackGpu, screen: [u32; 2], limits: &Limits) -> Result<(), String> {
     texture_extent(TextureDimension::D2, [screen[0], screen[1], 1], limits)?;
+    for program in &pack.programs {
+        if let Some(dispatch) = &program.reflection.compute {
+            super::super::dispatch::validate(dispatch, screen, limits)
+                .map_err(|error| format!("{}: {error}", program.name))?;
+        }
+    }
     for buffer in &pack.buffers {
         let [width, height] = buffer.extent.resolve(screen);
         texture_extent(TextureDimension::D2, [width, height, 1], limits)?;
