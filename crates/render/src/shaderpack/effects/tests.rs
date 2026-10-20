@@ -331,6 +331,39 @@ fn instance(lit: bool) -> ParticleInstance {
 }
 
 #[test]
+fn particles_reuse_mesh_storage_without_per_instance_allocations() {
+    for texture_bounds in [
+        [0.0; 4],
+        [0.4, 0.3, 0.2, 0.4],
+        [0.5, 0.5, 1.0 / 256.0, 1.0 / 256.0],
+    ] {
+        for uv in [
+            [0.2, 0.1, 0.6, 0.8],
+            [0.8, 0.9, -0.6, -0.8],
+            [0.5, 0.5, 0.0, 0.0],
+            [0.5, 0.5, 0.01, 0.01],
+        ] {
+            let instances = [ParticleInstance {
+                uv,
+                texture_bounds,
+                ..instance(true)
+            }; 64];
+            let mut mesh = Mesh::default();
+            particle_quads(&mut mesh, &instances, Vec3::ZERO, 256);
+            let expected_words = mesh.words.clone();
+            let expected_indices = mesh.indices.clone();
+            mesh.clear();
+            let (_, allocations) = test_alloc::count(|| {
+                particle_quads(&mut mesh, &instances, Vec3::ZERO, 256);
+            });
+            assert_eq!(allocations, 0, "UV {uv:?}, bounds {texture_bounds:?}");
+            assert_eq!(mesh.words, expected_words);
+            assert_eq!(mesh.indices, expected_indices);
+        }
+    }
+}
+
+#[test]
 fn particles_skip_non_finite_uvs_without_losing_valid_instances() {
     let valid = instance(false);
     let mut expected = Mesh::default();
