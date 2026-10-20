@@ -136,6 +136,7 @@ impl PresentModeRuntime {
 /// Applies the VSync setting and keeps the window on the policy's present mode.
 pub(crate) fn apply_present_mode(
     settings: Res<RuntimeSettings>,
+    display: Option<Res<DisplayRefresh>>,
     mut runtime: ResMut<PresentModeRuntime>,
     mut windows: Query<(Entity, &mut Window), With<PrimaryWindow>>,
 ) {
@@ -171,13 +172,22 @@ pub(crate) fn apply_present_mode(
         runtime.remedy_adopted = Some(entity);
     }
     let selected = runtime.selected_mode();
+    if let Some(display) = display {
+        runtime.policy.publish_display_timing(
+            display
+                .0
+                .with_vrr_preference(settings.user_settings_update().1.video.vrr),
+        );
+    }
     runtime
         .policy
         .publish_selection(runtime.policy.capabilities().map(|_| selected));
     set_present_mode_if_changed(&mut window, window_present_mode(selected));
-    let latency = Some(render::frame_latency_for_vsync(
-        runtime.intent() == PresentationIntent::Synchronized,
-    ));
+    let latency = Some(
+        runtime
+            .policy
+            .frame_latency_for_vsync(runtime.intent() == PresentationIntent::Synchronized),
+    );
     if window.desired_maximum_frame_latency != latency {
         window.desired_maximum_frame_latency = latency;
     }

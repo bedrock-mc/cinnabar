@@ -78,7 +78,7 @@ impl WorldStream {
 
     pub(super) fn prioritize_transfer_mesh_candidates(
         &self,
-        candidates: &mut Vec<(PendingSchedulerCandidate, PendingMesh, bool)>,
+        candidates: &mut Vec<(PendingSchedulerCandidate, PendingMesh, MeshCandidateOrigin)>,
     ) {
         // A deferred candidate can outlive the transfer that prioritized it.
         for (candidate, _, _) in candidates.iter_mut() {
@@ -109,7 +109,7 @@ impl WorldStream {
             if let Some(existing) = candidates.iter_mut().find(|(entry, _, _)| entry.key == key) {
                 existing.0 = candidate;
             } else {
-                candidates.push((candidate, pending, false));
+                candidates.push((candidate, pending, MeshCandidateOrigin::Probe));
             }
         }
     }
