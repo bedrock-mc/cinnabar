@@ -61,5 +61,8 @@ pub mod presentation;
 mod presentation_generated;
 pub use presentation_generated::{UiItemIcon, dimension_fallback_biome, dimension_id};
 
+pub mod java_mapping;
+pub use java_mapping::{JavaBlockMapping, JavaBlockState, java_biome, java_block_state};
+
 /// Pack texture selectors and native presentation contracts checked against pinned inputs.
 pub mod pack;

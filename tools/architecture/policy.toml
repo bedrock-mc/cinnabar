@@ -50,6 +50,10 @@ ownership_record = "docs/architecture/workspace.md"
 path = "crates/assets/data/item-facts-v2193.bin"
 ownership_record = "docs/architecture/workspace.md"
 
+[[owned_artifacts]]
+path = "crates/assets/data/java-mapping-v2193.bin"
+ownership_record = "docs/architecture/workspace.md"
+
 # The vendored contract codec (`bedrock-protocol-1-26-51`) is a dependency of `protocol` only.
 [[vendored]]
 path = "crates/protocol/vendor/"
@@ -1360,7 +1364,8 @@ vocabularies = [
     { path = "crates/protocol/data/item_tags_native.tsv", column = 0 },
 ]
 block_registries = ["crates/assets/data/block-registry-v2193.bin"]
-# The provisional PBR texture-name table must move to a generated mapping (plan.md).
+# The provisional PBR texture-name table stays: the pinned Java/Bedrock mapping has no texture
+# names, so it waits for a model-derived source (plan.md).
 baselines = [
     { path = "crates/pack-compiler/src/pbr/sources/names.rs", max = 55 },
 ]
