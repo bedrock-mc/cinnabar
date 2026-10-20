@@ -3,14 +3,17 @@
 
 use crate::diagnostics::{Diagnostic, Phase, SourceLocation};
 use crate::options::{OptionValues, PackOption, rewrite_option_line};
-use crate::source::PackSource;
+use crate::source::{MAX_TEXT_FILE_BYTES, PackSource, normalize_newlines};
 use crate::token::{Tok, TokKind, punct};
 use pp_rs::pp::Preprocessor;
 use pp_rs::token::TokenValue;
+use std::collections::HashMap;
+use std::sync::Arc;
 
-/// Identifier prefix of the markers that stand in for comment and `const` directives while
-/// the preprocessor decides which of them sit in active code. Stripped before transforming.
-const MARKER: &str = "__shaderpack_directive_";
+/// Maximum expanded source or retained preprocessing storage for one GLSL stage.
+const MAX_EXPANDED_GLSL_BYTES: usize = 4 * MAX_TEXT_FILE_BYTES;
+/// Macro work includes tokens evaluated only in conditions and discarded expansions.
+const MAX_GLSL_PREPROCESSING_TOKENS: u64 = 4 * MAX_TEXT_FILE_BYTES as u64;
 
 /// A pack directive found in source text (`/* RENDERTARGETS: … */`, `/* DRAWBUFFERS:… */`,
 /// or a `const <type> <name> = <value>;` line, commented or not).
@@ -63,7 +66,6 @@ impl LineMap {
 pub(crate) struct Expanded {
     pub text: String,
     pub map: LineMap,
-    directives: Vec<Directive>,
 }
 
 /// A stage file after full preprocessing.
@@ -81,11 +83,12 @@ pub(crate) struct Preprocessed {
 
 struct Expander<'a> {
     source: &'a PackSource,
+    normalized: HashMap<String, Arc<str>>,
+    remaining: usize,
     options: &'a [PackOption],
     values: &'a OptionValues,
     out: String,
     map: LineMap,
-    directives: Vec<Directive>,
 }
 
 /// Expands `#include`s of the `shaders/`-relative `path` textually, like Iris: absolute
@@ -97,44 +100,79 @@ pub(crate) fn expand(
     options: &[PackOption],
     values: &OptionValues,
 ) -> Result<Expanded, Diagnostic> {
+    expand_limited(source, path, options, values, MAX_EXPANDED_GLSL_BYTES)
+}
+
+/// Expands one stage within the supplied include-processing byte budget.
+fn expand_limited(
+    source: &PackSource,
+    path: &str,
+    options: &[PackOption],
+    values: &OptionValues,
+    limit: usize,
+) -> Result<Expanded, Diagnostic> {
     let mut x = Expander {
         source,
+        normalized: HashMap::new(),
+        remaining: limit,
         options,
         values,
         out: String::new(),
         map: LineMap::default(),
-        directives: Vec::new(),
     };
     x.file(path, None)?;
     Ok(Expanded {
         text: x.out,
         map: x.map,
-        directives: x.directives,
     })
 }
 
 /// One source file being expanded, with its own comment scope and line iterator.
-struct FileFrame<'a> {
+struct FileFrame {
     path: String,
     file: u32,
-    lines: std::iter::Enumerate<std::str::Lines<'a>>,
+    text: Arc<str>,
+    cursor: usize,
+    line: usize,
+    pending: Option<(String, u32)>,
+}
+
+impl FileFrame {
+    /// Takes the next normalized physical line without copying the file for each include.
+    fn next_line(&mut self) -> Option<(usize, &str)> {
+        if self.cursor == self.text.len() {
+            return None;
+        }
+        let start = self.cursor;
+        let end = self.text[start..]
+            .find('\n')
+            .map_or(self.text.len(), |end| start + end);
+        self.cursor = end + usize::from(end < self.text.len());
+        let line = self.line;
+        self.line += 1;
+        Some((line, &self.text[start..end]))
+    }
 }
 
 impl<'a> Expander<'a> {
-    /// Loads a frame without copying its source; include errors retain the caller's location.
-    fn frame(
-        &mut self,
-        path: &str,
-        from: Option<SourceLocation>,
-    ) -> Result<FileFrame<'a>, Diagnostic> {
+    /// Normalizes a file once and opens an include frame; errors retain the caller location.
+    fn frame(&mut self, path: &str, from: Option<SourceLocation>) -> Result<FileFrame, Diagnostic> {
         let source = self.source;
         let text = source.text(path).ok_or_else(|| {
             Diagnostic::new(Phase::Include, format!("cannot find `{path}`")).at(from)
         })?;
+        let text = self
+            .normalized
+            .entry(path.to_string())
+            .or_insert_with(|| Arc::from(normalize_newlines(text).as_ref()))
+            .clone();
         Ok(FileFrame {
             path: path.to_string(),
             file: self.map.file_index(path),
-            lines: text.lines().enumerate(),
+            text,
+            cursor: 0,
+            line: 0,
+            pending: None,
         })
     }
 
@@ -142,7 +180,11 @@ impl<'a> Expander<'a> {
     fn file(&mut self, path: &str, from: Option<SourceLocation>) -> Result<(), Diagnostic> {
         let mut frames = vec![self.frame(path, from)?];
         while let Some(frame) = frames.last_mut() {
-            let Some((n, first)) = frame.lines.next() else {
+            if let Some((comments, line)) = frame.pending.take() {
+                self.append(&comments, frame.file, line);
+                continue;
+            }
+            let Some((n, first)) = frame.next_line() else {
                 frames.pop();
                 continue;
             };
@@ -157,7 +199,7 @@ impl<'a> Expander<'a> {
                         break;
                     }
                 }
-                let Some((_, next)) = frame.lines.next() else {
+                let Some((_, next)) = frame.next_line() else {
                     if in_block {
                         return Err(Diagnostic::new(
                             Phase::Preprocess,
@@ -190,22 +232,30 @@ impl<'a> Expander<'a> {
                 rewrite_option_line(line, self.options, self.values)
             };
             let line = rewritten.as_deref().unwrap_or(line);
-            // pp-rs tokenizes skipped groups and rejects quotes in #error messages.
-            let line = if line.trim_start().starts_with("#error") {
-                line.replace('"', "")
-            } else {
-                line.to_string()
-            };
             let logical = line.replace("\\\n", "");
-            let mut code = scan_line(&logical, &mut false).code;
-            let (mut out, marker_before) = self.directives_in(&logical, &line);
+            let scan = scan_line(&logical, &mut false);
+            let undef = defined_name(scan.code.trim_start()).map(|name| format!("#undef {name}"));
+            let comment_bytes = scan.comments.iter().map(|(_, text)| text.len() + 1).sum();
+            // Include lines count too: duplicating empty files still spends traversal work.
+            self.remaining = self
+                .remaining
+                .checked_sub(
+                    line.len()
+                        .saturating_add(1)
+                        .max(comment_bytes)
+                        .saturating_add(undef.as_ref().map_or(0, |text| text.len() + 1)),
+                )
+                .ok_or_else(|| {
+                    Diagnostic::new(Phase::Include, "expanded GLSL exceeds byte limit")
+                        .at(Some(here.clone()))
+                })?;
+            let code = &scan.code;
             if is_unknown_directive(code.trim_start()) {
-                out.clear();
-                code.clear();
+                self.append("", frame.file, n as u32 + 1);
+                continue;
             }
-            if let Some(name) = defined_name(code.trim_start()) {
-                self.out.push_str(&format!("#undef {name}\n"));
-                self.map.lines.push((frame.file, n as u32 + 1));
+            if let Some(undef) = undef {
+                self.append(&undef, frame.file, n as u32 + 1);
             }
             let directive = code.trim_start().strip_prefix('#').map(str::trim_start);
             if let Some(rest) = directive
@@ -218,6 +268,7 @@ impl<'a> Expander<'a> {
                 let target = resolve_include(&frame.path, rest).map_err(|message| {
                     Diagnostic::new(Phase::Include, message).at(Some(here.clone()))
                 })?;
+                let file = frame.file;
                 if frames.iter().any(|frame| frame.path == target) {
                     return Err(Diagnostic::new(
                         Phase::Include,
@@ -225,70 +276,36 @@ impl<'a> Expander<'a> {
                     )
                     .at(Some(here)));
                 }
+                let filename_offset = code.len() - rest.trim_start().len();
+                let split = scan
+                    .comments
+                    .partition_point(|(offset, _)| *offset < filename_offset);
+                for (_, comment) in &scan.comments[..split] {
+                    self.append(comment, file, n as u32 + 1);
+                }
+                let comments = scan.comments[split..]
+                    .iter()
+                    .map(|(_, text)| text.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if !comments.is_empty() {
+                    frames.last_mut().unwrap().pending = Some((comments, n as u32 + 1));
+                }
                 frames.push(self.frame(&target, Some(here))?);
             } else {
-                self.out.push_str(&out);
-                self.out.push('\n');
-                let count = line.lines().count().max(1);
-                self.map.lines.extend((0..out.split('\n').count()).map(|j| {
-                    let original = if marker_before {
-                        j.saturating_sub(1)
-                    } else {
-                        j
-                    };
-                    (frame.file, (n + original.min(count - 1) + 1) as u32)
-                }));
+                self.append(line, frame.file, n as u32 + 1);
             }
         }
         Ok(())
     }
 
-    /// Keeps source text intact and emits metadata markers in the same conditional group.
-    fn directives_in(&mut self, line: &str, original: &str) -> (String, bool) {
-        let scan = scan_line(line, &mut false);
-        let mut found = Vec::new();
-        for comment in &scan.block_comments {
-            if let Some(d) = comment_directive(comment) {
-                found.push(d);
-            }
-        }
-        for line in line.lines() {
-            if let Some(c) = line
-                .trim_start()
-                .strip_prefix("const")
-                .filter(|s| s.starts_with(char::is_whitespace))
-                .and_then(parse_const)
-            {
-                found.push(Directive::Const(c));
-            }
-        }
-        let mut markers = String::new();
-        for directive in found {
-            let i = self.directives.len();
-            self.directives.push(directive);
-            markers.push_str(&format!(" {MARKER}{i} "));
-        }
-        let control = scan
-            .code
-            .trim_start()
-            .strip_prefix('#')
-            .map(str::trim_start);
-        let closes_group = control.is_some_and(|s| {
-            ["endif", "else", "elif"].iter().any(|name| {
-                s.strip_prefix(name)
-                    .is_some_and(|tail| tail.is_empty() || tail.starts_with(char::is_whitespace))
-            })
-        });
-        let mut out = original.to_string();
-        if !markers.is_empty() {
-            if closes_group {
-                out = format!("{markers}\n{out}");
-            } else {
-                out.push('\n');
-                out.push_str(&markers);
-            }
-        }
-        (out, closes_group && !markers.is_empty())
+    /// Appends expanded text and maps each physical line back to its source file.
+    fn append(&mut self, text: &str, file: u32, line: u32) {
+        self.out.push_str(text);
+        self.out.push('\n');
+        self.map
+            .lines
+            .extend((0..text.split('\n').count()).map(|index| (file, line + index as u32)));
     }
 }
 
@@ -358,64 +375,119 @@ fn resolve_include(from: &str, arg: &str) -> Result<String, String> {
 }
 
 struct LineScan {
-    /// Source code with comments replaced by whitespace.
+    /// Source with comment bytes replaced by spaces, preserving offsets and newlines.
     code: String,
-    /// Text of the block comments (or parts of them) on this line.
-    block_comments: Vec<String>,
+    /// Comments in source order, including delimiters and their byte offsets.
+    comments: Vec<(usize, String)>,
 }
 
-/// Replaces comments with whitespace while collecting their text and tracking multiline scope.
-fn scan_line(line: &str, in_block: &mut bool) -> LineScan {
-    let b = line.as_bytes();
-    let mut i = 0;
+/// Separates comments from code without interpreting preprocessing conditionals.
+fn scan_line(text: &str, in_block: &mut bool) -> LineScan {
+    let mut code = String::with_capacity(text.len());
     let mut comments = Vec::new();
-    let mut current = String::new();
-    let mut code = String::new();
-    while i < b.len() {
-        if *in_block {
-            if b[i] == b'*' && b.get(i + 1) == Some(&b'/') {
-                *in_block = false;
-                comments.push(std::mem::take(&mut current));
-                i += 2;
-            } else {
-                let ch_len = line[i..].chars().next().map_or(1, char::len_utf8);
-                current.push_str(&line[i..i + ch_len]);
-                i += ch_len;
+    let mut i = 0;
+    while i < text.len() {
+        let start = i;
+        if *in_block || text[i..].starts_with("/*") {
+            let body = i + if *in_block { 0 } else { 2 };
+            let end = text[body..].find("*/").map(|end| body + end + 2);
+            *in_block = end.is_none();
+            i = end.unwrap_or(text.len());
+        } else if text[i..].starts_with("//") {
+            i = text[i..].find('\n').map_or(text.len(), |end| i + end);
+        } else if text[i..].starts_with('"') {
+            i += 1;
+            let mut escaped = false;
+            while i < text.len() {
+                let ch = text[i..].chars().next().unwrap();
+                i += ch.len_utf8();
+                if escaped {
+                    escaped = false;
+                } else if ch == '\\' {
+                    escaped = true;
+                } else if ch == '"' {
+                    break;
+                }
             }
+            code.push_str(&text[start..i]);
+            continue;
+        } else {
+            let ch = text[i..].chars().next().unwrap();
+            code.push(ch);
+            i += ch.len_utf8();
             continue;
         }
-        match b[i] {
-            b'/' if b.get(i + 1) == Some(&b'/') => {
-                break;
-            }
-            b'/' if b.get(i + 1) == Some(&b'*') => {
-                *in_block = true;
-                code.push(' ');
-                i += 2;
-            }
-            b'"' => {
-                let start = i;
-                i += 1;
-                while i < b.len() && b[i] != b'"' {
-                    i += 1;
+        comments.push((start, text[start..i].to_string()));
+        code.extend(
+            text[start..i]
+                .bytes()
+                .map(|byte| if byte == b'\n' { '\n' } else { ' ' }),
+        );
+    }
+    LineScan { code, comments }
+}
+
+/// Reads metadata from active code and comments, preserving their source order.
+fn metadata(text: &str, remaining: &mut usize) -> Result<Vec<Directive>, Diagnostic> {
+    let scan = scan_line(text, &mut false);
+    let mut found = Vec::new();
+    let mut keep = |offset, directive: Directive| -> Result<(), Diagnostic> {
+        let bytes = size_of::<Directive>()
+            + match &directive {
+                Directive::RenderTargets(values) | Directive::DrawBuffers(values) => {
+                    values.len() * size_of::<u32>()
                 }
-                i = (i + 1).min(b.len());
-                code.push_str(&line[start..i]);
-            }
-            _ => {
-                let ch = line[i..].chars().next().expect("cursor is within the line");
-                code.push(ch);
-                i += ch.len_utf8();
+                Directive::Const(value) => value.ty.len() + value.name.len() + value.value.len(),
+            };
+        *remaining = remaining.checked_sub(bytes).ok_or_else(storage_limit)?;
+        found.push((offset, directive));
+        Ok(())
+    };
+    for (offset, comment) in &scan.comments {
+        let body = comment
+            .strip_prefix("/*")
+            .and_then(|text| text.strip_suffix("*/"))
+            .or_else(|| comment.strip_prefix("//"))
+            .unwrap_or(comment);
+        if let Some(directive) = comment_directive(body) {
+            keep(*offset, directive)?;
+        }
+        for line in body.lines() {
+            if let Some(value) = line
+                .trim_start()
+                .strip_prefix("const")
+                .filter(|rest| rest.starts_with(char::is_whitespace))
+                .and_then(parse_const)
+            {
+                keep(*offset, Directive::Const(value))?;
             }
         }
     }
-    if *in_block {
-        comments.push(current);
+    let mut offset = 0;
+    for line in scan.code.split_inclusive('\n') {
+        if let Some(value) = line
+            .trim_start()
+            .strip_prefix("const")
+            .filter(|rest| rest.starts_with(char::is_whitespace))
+            .and_then(parse_const)
+        {
+            keep(
+                offset + line.len() - line.trim_start().len(),
+                Directive::Const(value),
+            )?;
+        }
+        offset += line.len();
     }
-    LineScan {
-        code,
-        block_comments: comments,
-    }
+    found.sort_by_key(|(offset, _)| *offset);
+    Ok(found.into_iter().map(|(_, directive)| directive).collect())
+}
+
+/// Reports a recoverable failure before retaining more preprocessing output.
+fn storage_limit() -> Diagnostic {
+    Diagnostic::new(
+        Phase::Preprocess,
+        "GLSL preprocessing exceeds storage limit",
+    )
 }
 
 /// `RENDERTARGETS: 0,1` or `DRAWBUFFERS:01` at the start of a block comment's text.
@@ -462,11 +534,25 @@ fn is_identifier(s: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-/// Runs pp-rs over the expanded text with `defines`, converting tokens and keeping only the
-/// directives whose markers survived.
+/// Runs pp-rs over expanded text, preserving token spelling and reading active metadata.
 pub(crate) fn preprocess(
     expanded: Expanded,
     defines: &[(String, String)],
+) -> Result<Preprocessed, Diagnostic> {
+    preprocess_limited(
+        expanded,
+        defines,
+        MAX_GLSL_PREPROCESSING_TOKENS,
+        MAX_EXPANDED_GLSL_BYTES,
+    )
+}
+
+/// Preprocesses a stage within work and retained-storage budgets.
+fn preprocess_limited(
+    expanded: Expanded,
+    defines: &[(String, String)],
+    work: u64,
+    mut retained: usize,
 ) -> Result<Preprocessed, Diagnostic> {
     let text = &expanded.text;
     let line_starts: Vec<usize> = std::iter::once(0)
@@ -477,13 +563,14 @@ pub(crate) fn preprocess(
         line_starts.partition_point(|s| *s <= offset) as u32
     };
     let mut pp = Preprocessor::new(text);
+    pp.set_work_limit(work);
     pp.set_iris_conditions(true);
+    pp.set_preserve_glsl_text();
     pp.set_source_lines(expanded.map.lines.iter().map(|(_, line)| *line).collect());
     for (k, v) in defines {
-        pp.add_define(k, v).map_err(|e| {
-            Diagnostic::new(Phase::Preprocess, format!("cannot define `{k}`: {e:?}"))
-        })?;
+        add_define(&mut pp, k, v)?;
     }
+    add_define(&mut pp, "__VERSION__", "110")?;
     let mut out = Preprocessed {
         version: 110,
         profile: None,
@@ -493,473 +580,98 @@ pub(crate) fn preprocess(
         render_targets: None,
         consts: Vec::new(),
     };
-    pp.add_define("__VERSION__", "110")
-        .expect("valid version macro");
-    while let Some(item) = pp.next() {
-        let tok = item.map_err(|(e, loc)| {
-            Diagnostic::new(Phase::Preprocess, format!("{e:?}"))
-                .at(expanded.map.locate(line_of(loc.start)))
+    let mut active = String::new();
+    while let Some(item) = pp.next_text() {
+        let token = item.map_err(|(error, location)| {
+            Diagnostic::new(
+                Phase::Preprocess,
+                if pp.work_remaining() == 0 {
+                    "GLSL preprocessing exceeds work limit".into()
+                } else {
+                    format!("{error:?}")
+                },
+            )
+            .at(expanded.map.locate(line_of(location.start)))
         })?;
-        let line = line_of(tok.location.start);
-        let kind = match tok.value {
-            TokenValue::Ident(s) => {
-                if let Some(i) = s.strip_prefix(MARKER).and_then(|n| n.parse::<usize>().ok()) {
-                    match expanded.directives.get(i) {
-                        Some(Directive::RenderTargets(l) | Directive::DrawBuffers(l)) => {
-                            out.render_targets = Some(l.clone());
-                        }
-                        Some(Directive::Const(c)) => out.consts.push(c.clone()),
-                        None => {}
-                    }
-                    continue;
-                }
-                TokKind::Ident(s)
-            }
-            TokenValue::Integer(i) => TokKind::Int(if i.signed && i.value > i32::MAX as u64 {
-                format!("0x{:X}", i.value)
-            } else if i.signed {
-                i.value.to_string()
-            } else {
-                format!("{}u", i.value)
-            }),
-            TokenValue::Float(f) => TokKind::Float(float_literal(f.value)),
-            TokenValue::Punct(p) => TokKind::Punct(punct(p)),
-            TokenValue::Version(v) => {
-                for t in &v.tokens {
-                    match &t.value {
-                        TokenValue::Integer(i) => out.version = i.value as u32,
-                        TokenValue::Ident(s) => out.profile = Some(s.clone()),
+        let line = line_of(token.source_offset);
+        retained = retained
+            .checked_sub(token.text.len())
+            .ok_or_else(|| storage_limit().at(expanded.map.locate(line)))?;
+        active.push_str(&token.text);
+        let Some(value) = token.value else {
+            continue;
+        };
+        let kind = match value {
+            TokenValue::Ident(name) => TokKind::Ident(name),
+            TokenValue::Integer(_) => TokKind::Int(token.text.trim_start().to_string()),
+            TokenValue::Float(_) => TokKind::Float(token.text.trim_start().to_string()),
+            TokenValue::Punct(value) => TokKind::Punct(punct(value)),
+            TokenValue::Version(value) => {
+                for token in value.tokens {
+                    match token.value {
+                        TokenValue::Integer(value) => out.version = value.value as u32,
+                        TokenValue::Ident(name) => out.profile = Some(name),
                         _ => {}
                     }
                 }
-                pp.add_define("__VERSION__", &out.version.to_string())
-                    .expect("valid version macro");
+                add_define(&mut pp, "__VERSION__", &out.version.to_string())
+                    .map_err(|error| error.at(expanded.map.locate(line)))?;
                 continue;
             }
-            TokenValue::Extension(e) => {
-                let words: Vec<String> = e
+            TokenValue::Extension(value) => {
+                let words: Vec<_> = value
                     .tokens
-                    .iter()
-                    .map(|t| match &t.value {
-                        TokenValue::Ident(s) => s.clone(),
-                        TokenValue::Punct(p) => punct(*p).to_string(),
+                    .into_iter()
+                    .map(|token| match token.value {
+                        TokenValue::Ident(name) => name,
+                        TokenValue::Punct(value) => punct(value).to_string(),
                         _ => String::new(),
                     })
                     .collect();
-                out.extensions.push(words.join(" "));
+                let extension = words.join(" ");
+                retained = retained
+                    .checked_sub(size_of::<String>() + extension.len())
+                    .ok_or_else(storage_limit)?;
+                out.extensions.push(extension);
                 continue;
             }
             TokenValue::Pragma(_) => continue,
         };
+        let bytes = size_of::<Tok>()
+            + match &kind {
+                TokKind::Ident(text) | TokKind::Int(text) | TokKind::Float(text) => text.len(),
+                TokKind::Punct(_) => 0,
+            };
+        retained = retained
+            .checked_sub(bytes)
+            .ok_or_else(|| storage_limit().at(expanded.map.locate(line)))?;
         out.tokens.push(Tok { kind, line });
+    }
+    for directive in metadata(&active, &mut retained)? {
+        match directive {
+            Directive::RenderTargets(values) | Directive::DrawBuffers(values) => {
+                out.render_targets = Some(values)
+            }
+            Directive::Const(value) => out.consts.push(value),
+        }
     }
     out.map = expanded.map;
     Ok(out)
 }
 
-/// GLSL spelling of a float literal; pp-rs literals are finite or overflow to infinity.
-fn float_literal(v: f32) -> String {
-    if !v.is_finite() {
-        return "1e38".into();
-    }
-    let s = format!("{v:?}");
-    if s.contains(['.', 'e']) {
-        s
-    } else {
-        format!("{s}.0")
-    }
+/// Adds a macro, reporting invalid definitions and exhausted work as recoverable diagnostics.
+fn add_define(pp: &mut Preprocessor<'_>, name: &str, value: &str) -> Result<(), Diagnostic> {
+    pp.add_define(name, value).map_err(|error| {
+        Diagnostic::new(
+            Phase::Preprocess,
+            if pp.work_remaining() == 0 {
+                "GLSL preprocessing exceeds work limit".to_string()
+            } else {
+                format!("cannot define `{name}`: {error:?}")
+            },
+        )
+    })
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Expands and preprocesses in-memory files with the supplied macros.
-    fn run(files: &[(&str, &str)], entry: &str, defines: &[(&str, &str)]) -> Preprocessed {
-        let source = PackSource::from_files(files.iter().copied());
-        let expanded = expand(&source, entry, &[], &OptionValues::new()).expect("expands");
-        let defines: Vec<(String, String)> = defines
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect();
-        preprocess(expanded, &defines).expect("preprocesses")
-    }
-
-    #[test]
-    fn frontend_version_condition() {
-        for (version, text) in [(450, "#version 450\n"), (110, "")] {
-            let src = format!(
-                "{text}#if __VERSION__ == {version}\nint selected;\n#else\n#error wrong version\n#endif"
-            );
-            assert!(
-                run(&[("a.fsh", &src)], "a.fsh", &[])
-                    .tokens
-                    .iter()
-                    .any(|t| t.ident() == Some("selected"))
-            );
-        }
-    }
-
-    #[test]
-    fn frontend_marker_scope() {
-        for control in ["#endif", "#else\n#endif", "#elif 1\n#endif"] {
-            let src =
-                format!("#if 0\n#define X 1 /* RENDERTARGETS:3 */\n{control}\nvoid main() {{}}");
-            assert_eq!(run(&[("a.fsh", &src)], "a.fsh", &[]).render_targets, None);
-        }
-        let pp = run(
-            &[("a.fsh", "#if 1\n#define X 1 /* RENDERTARGETS:4 */\n#endif")],
-            "a.fsh",
-            &[],
-        );
-        assert_eq!(pp.render_targets, Some(vec![4]));
-    }
-
-    #[test]
-    fn frontend_multiline_macro_comment() {
-        let pp = run(
-            &[(
-                "a.fsh",
-                "#define X /* first\nsecond */ 1\n#if X != 1\n#error wrong macro\n#endif\nint visible;",
-            )],
-            "a.fsh",
-            &[],
-        );
-        assert!(pp.tokens.iter().any(|t| t.ident() == Some("visible")));
-        assert!(!pp.tokens.iter().any(|t| t.text() == "1"));
-    }
-
-    #[test]
-    fn frontend_splices_before_line_comments() {
-        let pp = run(
-            &[("a.fsh", "// ignored \\\n#error hidden\nint visible;")],
-            "a.fsh",
-            &[],
-        );
-        assert!(pp.tokens.iter().any(|t| t.ident() == Some("visible")));
-    }
-
-    #[test]
-    fn frontend_original_line_numbers_survive_metadata_and_comments() {
-        let pp = run(
-            &[(
-                "a.fsh",
-                "#define X 1 /* DRAWBUFFERS:0 */\nint a = __LINE__;\n#define Y /* one\ntwo */ 2\nint b = __LINE__;\n#line 80\nint c = __LINE__;",
-            )],
-            "a.fsh",
-            &[],
-        );
-        let values: Vec<_> = pp
-            .tokens
-            .iter()
-            .filter_map(|t| match &t.kind {
-                TokKind::Int(n) => Some(n.trim_end_matches('u')),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(values, ["2", "5", "81"]);
-    }
-
-    #[test]
-    fn frontend_empty_drawbuffers() {
-        let pp = run(
-            &[("a.fsh", "/* DRAWBUFFERS:01 */\n/* DRAWBUFFERS: */")],
-            "a.fsh",
-            &[],
-        );
-        assert_eq!(pp.render_targets, Some(vec![]));
-    }
-
-    #[test]
-    fn frontend_const_whitespace() {
-        let pp = run(
-            &[("a.fsh", "const\tint shadowMapResolution = 2048;")],
-            "a.fsh",
-            &[],
-        );
-        assert_eq!(pp.consts.len(), 1);
-    }
-
-    #[test]
-    fn include_filenames_end_before_trailing_comments() {
-        for include in [
-            "#include \"/lib/common.glsl\" // shared",
-            "#include \"/lib/common.glsl\" /* shared */",
-            "/* leading */ #include \"/lib/common.glsl\"",
-            "/* previous\n*/ #include \"/lib/common.glsl\"",
-        ] {
-            let pp = run(
-                &[("a.fsh", include), ("lib/common.glsl", "float shared;")],
-                "a.fsh",
-                &[],
-            );
-            let token = pp
-                .tokens
-                .iter()
-                .find(|t| t.ident() == Some("shared"))
-                .unwrap();
-            assert_eq!(
-                pp.map.locate(token.line).unwrap().to_string(),
-                "lib/common.glsl:1"
-            );
-        }
-    }
-
-    #[test]
-    fn includes_inside_comments_are_ignored() {
-        let pp = run(
-            &[("a.fsh", "/*\n#include \"missing.glsl\"\n*/\nfloat present;")],
-            "a.fsh",
-            &[],
-        );
-        assert!(pp.tokens.iter().any(|t| t.ident() == Some("present")));
-    }
-
-    #[test]
-    fn deep_includes_expand_without_call_stack_recursion() {
-        let mut files = Vec::new();
-        for i in 0..8192 {
-            files.push((
-                format!("lib/{i}.glsl"),
-                if i == 8191 {
-                    "float deepest;".to_string()
-                } else {
-                    format!("#include \"{}.glsl\"", i + 1)
-                },
-            ));
-        }
-        let source = PackSource::from_files(files);
-        let expanded = expand(&source, "lib/0.glsl", &[], &OptionValues::new()).unwrap();
-        let pp = preprocess(expanded, &[]).unwrap();
-        let token = pp
-            .tokens
-            .iter()
-            .find(|t| t.ident() == Some("deepest"))
-            .unwrap();
-        assert_eq!(
-            pp.map.locate(token.line).unwrap().to_string(),
-            "lib/8191.glsl:1"
-        );
-    }
-
-    /// Returns the active integer constant chosen by a preprocessor condition.
-    fn selected_float_condition(text: &str, defines: &[(&str, &str)]) -> i32 {
-        let pp = run(&[("a.fsh", text)], "a.fsh", defines);
-        pp.consts.last().unwrap().value.parse().unwrap()
-    }
-
-    #[test]
-    fn float_macro_undef_removes_its_condition_value() {
-        assert_eq!(
-            selected_float_condition(
-                "#define S 1.5\n#undef S\n#if S\nconst int chosen = 1;\n#else\nconst int chosen = 0;\n#endif",
-                &[]
-            ),
-            0
-        );
-    }
-
-    #[test]
-    fn float_macro_inactive_redefinitions_do_not_change_conditions() {
-        assert_eq!(
-            selected_float_condition(
-                "#define S 0.5\n#if 0\n#define S 2.5\n#endif\n#if S\nconst int chosen = 1;\n#else\nconst int chosen = 0;\n#endif",
-                &[]
-            ),
-            0
-        );
-    }
-
-    #[test]
-    fn float_macro_aliases_expand_before_truncation() {
-        assert_eq!(
-            selected_float_condition(
-                "#define BASE 1.5\n#define S BASE\n#if S\nconst int chosen = 1;\n#else\nconst int chosen = 0;\n#endif",
-                &[]
-            ),
-            1
-        );
-    }
-
-    #[test]
-    fn float_macro_environment_values_expand_before_truncation() {
-        assert_eq!(
-            selected_float_condition(
-                "#if S\nconst int chosen = 1;\n#else\nconst int chosen = 0;\n#endif",
-                &[("S", "1.5")]
-            ),
-            1
-        );
-    }
-
-    #[test]
-    fn includes_resolve_absolute_and_relative_paths() {
-        assert_eq!(
-            resolve_include("world0/a.fsh", " \"/lib/x.glsl\"").unwrap(),
-            "lib/x.glsl"
-        );
-        assert_eq!(
-            resolve_include("world0/a.fsh", " \"../lib/x.glsl\"").unwrap(),
-            "lib/x.glsl"
-        );
-        assert_eq!(
-            resolve_include("program/a.glsl", " \"b.glsl\"").unwrap(),
-            "program/b.glsl"
-        );
-    }
-
-    #[test]
-    fn only_directives_in_active_code_survive() {
-        let src = "#version 450\n\
-            #ifdef A\n/* RENDERTARGETS: 3 */\n#else\n/* RENDERTARGETS: 1,2 */\n#endif\n\
-            /*\nconst int colortex1Format = RGBA16F;\n*/\n\
-            #if 0\n/*\nconst int colortex2Format = R8;\n*/\n#endif\n\
-            void main() {}\n";
-        let pp = run(&[("a.fsh", src)], "a.fsh", &[]);
-        assert_eq!(pp.render_targets, Some(vec![1, 2]));
-        assert_eq!(pp.consts.len(), 1);
-        assert_eq!(pp.consts[0].name, "colortex1Format");
-        assert_eq!(pp.consts[0].value, "RGBA16F");
-        let pp = run(&[("a.fsh", src)], "a.fsh", &[("A", "")]);
-        assert_eq!(pp.render_targets, Some(vec![3]));
-    }
-
-    #[test]
-    fn token_lines_map_back_through_includes() {
-        let pp = run(
-            &[
-                (
-                    "world0/a.fsh",
-                    "#version 450\n#include \"/lib/b.glsl\"\nfloat y;\n",
-                ),
-                ("lib/b.glsl", "\nfloat x;\n"),
-            ],
-            "world0/a.fsh",
-            &[],
-        );
-        let x = pp
-            .tokens
-            .iter()
-            .find(|t| t.ident() == Some("x"))
-            .expect("x");
-        let y = pp
-            .tokens
-            .iter()
-            .find(|t| t.ident() == Some("y"))
-            .expect("y");
-        let at = |t: &Tok| pp.map.locate(t.line).expect("mapped");
-        assert_eq!(at(x).to_string(), "lib/b.glsl:2");
-        assert_eq!(at(y).to_string(), "world0/a.fsh:3");
-    }
-
-    #[test]
-    fn missing_include_reports_the_including_line() {
-        let source = PackSource::from_files([("a.fsh", "\n#include \"/nope.glsl\"\n")]);
-        let err = expand(&source, "a.fsh", &[], &OptionValues::new())
-            .err()
-            .expect("fails");
-        assert_eq!(err.phase, Phase::Include);
-        assert_eq!(err.location.expect("located").to_string(), "a.fsh:2");
-    }
-
-    #[test]
-    fn unknown_directives_are_skipped_like_banner_comments() {
-        let pp = run(
-            &[(
-                "a.fsh",
-                "#version 330\n#==== Copyright banner ====\nfloat x;\n/*\n#==== in a comment\n*/\n",
-            )],
-            "a.fsh",
-            &[],
-        );
-        let names: Vec<_> = pp.tokens.iter().filter_map(|t| t.ident()).collect();
-        assert_eq!(names, ["float", "x"]);
-        assert_eq!(
-            pp.map.locate(pp.tokens[0].line).unwrap().to_string(),
-            "a.fsh:3"
-        );
-        assert!(is_unknown_directive("#====") && is_unknown_directive("# banner"));
-        assert!(!is_unknown_directive("#") && !is_unknown_directive("#  // note"));
-        assert!(!is_unknown_directive("#extension GL_ARB_foo : enable"));
-    }
-
-    #[test]
-    fn a_later_define_replaces_an_earlier_one_as_in_jcpp() {
-        let src = "#version 450\n#define D(m) 1\n#define D(m) (m) + 2\nint x = D(3);\n";
-        let pp = run(&[("a.fsh", src)], "a.fsh", &[]);
-        assert!(
-            pp.tokens.iter().any(|t| t.is("+")),
-            "the second body expands"
-        );
-        let x = pp
-            .tokens
-            .iter()
-            .find(|t| t.ident() == Some("x"))
-            .expect("x");
-        assert_eq!(
-            pp.map.locate(x.line).expect("mapped").to_string(),
-            "a.fsh:4"
-        );
-    }
-
-    #[test]
-    fn float_conditions_compare_integer_parts_as_in_jcpp() {
-        let src = "#version 450\n#define speed 0.5 // [0.5 1.0]\n\
-            #if speed < 1.0 && !defined speed2 && 1.9 >= 1\nint slow;\n#else\nint fast;\n#endif\n\
-            #if 0.9\nint truncated_true;\n#endif\n";
-        let pp = run(&[("a.fsh", src)], "a.fsh", &[]);
-        let has = |n: &str| pp.tokens.iter().any(|t| t.ident() == Some(n));
-        assert!(has("slow") && !has("fast"));
-        assert!(!has("truncated_true"));
-    }
-
-    #[test]
-    fn iris_ternaries_use_expanded_float_options() {
-        assert_eq!(
-            selected_float_condition(
-                "#if QUALITY >= 1.0 ? 1 : 0\nconst int chosen = 1;\n#else\nconst int chosen = 0;\n#endif",
-                &[("QUALITY", "1.5")],
-            ),
-            1
-        );
-    }
-
-    #[test]
-    fn deep_glsl_conditions_return_a_diagnostic() {
-        let text = format!(
-            "#if {}1{}\nfloat hidden;\n#endif",
-            "(".repeat(10_000),
-            ")".repeat(10_000)
-        );
-        let source = PackSource::from_files([("a.fsh", text)]);
-        let expanded = expand(&source, "a.fsh", &[], &OptionValues::new()).unwrap();
-        let diagnostic = preprocess(expanded, &[]).err().expect("depth diagnostic");
-        assert_eq!(diagnostic.phase, Phase::Preprocess);
-    }
-    #[test]
-    fn repeated_defines_preserve_original_logical_lines() {
-        let pp = run(
-            &[
-                (
-                    "a.fsh",
-                    "#define VALUE 1\nint first = __LINE__;\n#define VALUE 2\nint second = __LINE__;\n#include \"/lib/value.glsl\"\nint third = __LINE__;\n#line 80\n#define VALUE 3\nint explicitLine = __LINE__;",
-                ),
-                (
-                    "lib/value.glsl",
-                    "#define VALUE 4\nint included = __LINE__;",
-                ),
-            ],
-            "a.fsh",
-            &[],
-        );
-        let values: Vec<_> = pp
-            .tokens
-            .iter()
-            .filter_map(|token| match &token.kind {
-                TokKind::Int(value) => Some(value.trim_end_matches('u')),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(values, ["2", "4", "2", "6", "82"]);
-    }
-}
+mod tests;

@@ -184,25 +184,17 @@ impl Emitter {
         self.text.is_empty() || self.text.ends_with('\n')
     }
 
-    /// Appends tokens, one statement or brace per line, indented by brace depth.
+    /// Appends tokens, one statement or brace per line.
     pub fn tokens(&mut self, toks: &[Tok]) {
-        let mut indent = 0usize;
         let mut paren = 0i32;
         if !self.at_line_start() {
             self.push_char('\n');
         }
         for (i, t) in toks.iter().enumerate() {
-            if t.is("}") {
-                indent = indent.saturating_sub(1);
-                if !self.at_line_start() {
-                    self.push_char('\n');
-                }
+            if t.is("}") && !self.at_line_start() {
+                self.push_char('\n');
             }
-            if self.at_line_start() {
-                for _ in 0..indent {
-                    self.text.push_str("    ");
-                }
-            } else if needs_space(&toks[i - 1], t) {
+            if !self.at_line_start() && needs_space(&toks[i - 1], t) {
                 self.text.push(' ');
             }
             if self.line_origin == 0 {
@@ -214,10 +206,7 @@ impl Emitter {
             } else if t.is(")") {
                 paren -= 1;
             }
-            if t.is("{") {
-                indent += 1;
-                self.push_char('\n');
-            } else if t.is("}") || (t.is(";") && paren == 0) {
+            if t.is("{") || t.is("}") || (t.is(";") && paren == 0) {
                 self.push_char('\n');
             }
         }
@@ -237,6 +226,11 @@ impl Emitter {
 
 /// Reports whether adjacent emitted tokens need separating whitespace.
 fn needs_space(prev: &Tok, t: &Tok) -> bool {
+    if t.is(".") && matches!(prev.kind, TokKind::Int(_))
+        || prev.is(".") && matches!(t.kind, TokKind::Int(_) | TokKind::Float(_))
+    {
+        return true;
+    }
     let tight = t.is(";")
         || t.is(",")
         || t.is(")")
@@ -253,6 +247,36 @@ fn needs_space(prev: &Tok, t: &Tok) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frontend_emitter_size_is_linear_for_nested_blocks() {
+        for depth in [64, 512] {
+            let source = format!(
+                "{}float value = 1.0;{}",
+                "{".repeat(depth),
+                "}".repeat(depth)
+            );
+            let tokens = lex(&source);
+            let mut emitter = Emitter::default();
+            emitter.tokens(&tokens);
+            let (text, _) = emitter.finish();
+            assert!(
+                text.len() <= 4 * source.len(),
+                "depth {depth}: {} bytes",
+                text.len()
+            );
+            assert_eq!(
+                lex(&text)
+                    .into_iter()
+                    .map(|token| token.kind)
+                    .collect::<Vec<_>>(),
+                tokens
+                    .into_iter()
+                    .map(|token| token.kind)
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
 
     #[test]
     fn emitter_records_the_first_source_line_of_each_output_line() {
@@ -275,6 +299,22 @@ mod tests {
 #[cfg(test)]
 mod boundary_tests {
     use super::*;
+
+    #[test]
+    fn frontend_numeric_member_boundaries_survive_relexing() {
+        for source in ["1 .xxx", "0x1 .x", "1u .xx", "1.0 .xxx", ". 1"] {
+            let expected: Vec<_> = Preprocessor::new(source)
+                .map(|token| token.unwrap().value)
+                .collect();
+            let mut emitter = Emitter::default();
+            emitter.tokens(&lex(source));
+            let (text, _) = emitter.finish();
+            let actual: Vec<_> = Preprocessor::new(&text)
+                .map(|token| token.unwrap().value)
+                .collect();
+            assert_eq!(actual, expected, "{text}");
+        }
+    }
 
     #[test]
     fn frontend_operator_boundaries() {
