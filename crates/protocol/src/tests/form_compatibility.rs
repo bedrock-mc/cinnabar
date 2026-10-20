@@ -401,6 +401,7 @@ fn form_display_strings_keep_long_utf8_in_every_family() {
                     placeholder,
                     default,
                     tooltip,
+                    ..
                 } => {
                     assert_eq!(placeholder.as_ref(), long);
                     assert_eq!(default.as_ref(), "Draft");
