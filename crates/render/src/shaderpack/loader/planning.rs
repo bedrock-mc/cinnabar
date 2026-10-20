@@ -3,8 +3,8 @@
 use super::super::plan::{MAX_COLOR_BUFFERS, PlannedProgram, color_buffer_of};
 use super::super::uniforms::PackSettings;
 use shaderpack::{
-    BlendMode, BufferId, ProgramGroup, ProgramKind, ProgramReflection, ProgramTranslation,
-    ShaderProperties, StageKind,
+    BlendMode, BufferId, ProgramKind, ProgramReflection, ProgramTranslation, ShaderProperties,
+    StageKind,
 };
 
 /// Destination buffer per fragment output location.
@@ -148,6 +148,7 @@ fn storage_binding_size(minimum: u32, declared: u64) -> Result<u64, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shaderpack::ProgramGroup;
 
     #[test]
     fn storage_sizes_reject_alignment_overflow() {

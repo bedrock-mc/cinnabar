@@ -23,7 +23,7 @@ fn toast(loads: &[PackLoad<'_>]) -> Fixture {
     let mut raised = None;
     for (frame, load) in (0u32..).zip(loads) {
         let now = LOADING_TOAST_DELAY * frame;
-        raised = notices.observe(*load, now).or(raised);
+        raised = notices.observe(*load, now, true).or(raised);
     }
     let (title, message) = match raised.expect("the loads raise a toast") {
         PackToast::Loading { title, message } | PackToast::Outcome { title, message } => {
