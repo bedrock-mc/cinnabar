@@ -174,7 +174,7 @@ fn mapped_model(element: Value, in_game: bool) -> (FormModel, FormEngineState) {
         in_game,
         &|_| None,
         &|_| RemoteImage::Failed,
-        &|text| text.to_string(),
+        &|text, budget| budget.copy(text),
     )
     .unwrap();
     (form, state)

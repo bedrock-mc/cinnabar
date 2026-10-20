@@ -760,19 +760,20 @@ fn downsample_groups(device: &Device, pack: &PackGpu, targets: &ViewTargets) -> 
                 .iter()
                 .take(levels.len().saturating_sub(1))
                 .map(|source| {
+                    let mut entries = vec![wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(source),
+                    }];
+                    if super::host_pipelines::downsample_filterable(device, format) {
+                        entries.push(wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::Sampler(&pack.host.linear),
+                        });
+                    }
                     device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("shader pack downsample"),
                         layout: &layout,
-                        entries: &[
-                            wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: wgpu::BindingResource::TextureView(source),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 3,
-                                resource: wgpu::BindingResource::Sampler(&pack.host.linear),
-                            },
-                        ],
+                        entries: &entries,
                     })
                 })
                 .collect();

@@ -86,7 +86,16 @@ pub(crate) fn material_attribute_words(
         }
         let parts = block
             .model_template()
-            .and_then(|first| assets::model_template_parts(templates, first))
+            .and_then(|first| {
+                let template = templates.get(first as usize)?;
+                if template.flags & assets::MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN != 0 {
+                    // Meshing selects both positional shells and exposed surfaces.
+                    let start = first as usize;
+                    templates.get(start..start + assets::BUBBLE_COLUMN_TEMPLATE_COUNT as usize)
+                } else {
+                    assets::model_template_parts(templates, first)
+                }
+            })
             .unwrap_or(&[]);
         for template in parts {
             let start = template.quad_start as usize;
@@ -102,6 +111,77 @@ pub(crate) fn material_attribute_words(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Positional shells and exposed surfaces keep the same mapped block attributes.
+    #[test]
+    fn bubble_column_variants_carry_the_column_block_id() {
+        let diagnostic = RuntimeAssets::diagnostic();
+        let mut templates = Vec::new();
+        let mut quads = Vec::new();
+        for offset in 0..assets::BUBBLE_COLUMN_TEMPLATE_COUNT {
+            let count = assets::bubble_column_quad_count(offset);
+            templates.push(assets::ModelTemplate {
+                quad_start: quads.len() as u32,
+                quad_count: count,
+                flags: assets::MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN,
+            });
+            quads.extend(std::iter::repeat_n(
+                assets::ModelQuad {
+                    positions: [[0; 3]; 4],
+                    uvs: [[0; 2]; 4],
+                    material: offset + 1,
+                    flags: 0,
+                },
+                count as usize,
+            ));
+        }
+        let mut column = assets::BlockVisual::diagnostic(
+            assets::BlockFlags::empty(),
+            assets::ContributorRole::Primary,
+        );
+        column.kind = assets::VisualKind::Model;
+        column.support = assets::VisualSupport::Exact;
+        column.faces = [1; 6];
+        column.model_template = 0;
+        let compiled = assets::CompiledAssets {
+            visuals: vec![column].into_boxed_slice(),
+            light_properties: vec![assets::LightProperties::new(7, 0).unwrap()].into_boxed_slice(),
+            hashed: Box::new([]),
+            materials: vec![
+                assets::Material {
+                    texture: assets::TextureRef::DIAGNOSTIC,
+                    flags: 0,
+                    animation: assets::NO_ANIMATION,
+                    ..assets::Material::unvaried()
+                };
+                assets::BUBBLE_COLUMN_TEMPLATE_COUNT as usize + 2
+            ]
+            .into_boxed_slice(),
+            model_templates: templates.into_boxed_slice(),
+            model_quads: quads.into_boxed_slice(),
+            animations: Box::new([]),
+            animation_frames: Box::new([]),
+            texture_pages: diagnostic.texture_pages().to_vec().into_boxed_slice(),
+            biomes: assets::CompiledBiomeAssets::diagnostic(),
+            provenance: assets::BlobProvenance {
+                source_manifest_sha256: [1; 32],
+                block_registry_sha256: [2; 32],
+                light_registry_sha256: [3; 32],
+                biome_registry_sha256: [4; 32],
+            },
+        };
+        let assets = RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
+        let words = material_attribute_words(&assets, Some(&|_| 10501));
+        for offset in 0..assets::BUBBLE_COLUMN_TEMPLATE_COUNT {
+            let material = offset as usize + 1;
+            assert_eq!(words[material * 2] as i32, 10501, "variant {offset}");
+            assert_eq!(words[material * 2 + 1], 7, "variant {offset}");
+        }
+        assert_eq!(
+            words[(assets::BUBBLE_COLUMN_TEMPLATE_COUNT as usize + 1) * 2] as i32,
+            UNASSIGNED_BLOCK_ID,
+        );
+    }
 
     /// The chunk renderer draws leaves with their world-only materials, not the carried faces,
     /// so those must carry the leaves' `block.properties` id (BSL's waving and subsurface).

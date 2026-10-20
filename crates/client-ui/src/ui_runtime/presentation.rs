@@ -31,6 +31,7 @@ pub(super) mod item_glint;
 pub mod item_gui;
 pub mod item_sprite;
 pub mod item_viewmodel;
+mod local_player_identity;
 pub mod menu;
 pub mod menu_artwork;
 pub mod menu_branding;
@@ -116,6 +117,7 @@ pub struct UiPresentationRuntime {
     /// The startup font without the session's glyph sheets.
     base_font: Arc<RuntimeFontCatalog>,
     mod_panel_font: Option<mod_panel_font::InstalledFont>,
+    local_player_identity: local_player_identity::LocalPlayerIdentity,
     textures: Arc<UiRenderTextureArray>,
     texture_session: Option<u64>,
     item_glint: item_glint::ItemGlintTextures,

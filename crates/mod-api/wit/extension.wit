@@ -18,6 +18,9 @@ interface hud {
     record editor-result { saved: bool, reset: bool, placements: list<placement> }
     record layout-placement { id: string, position: option<point>, scale: f32 }
     record layout-result { saved: bool, reset: bool, placements: list<layout-placement> }
+    enum anchor { top-left, top-center, top-right, left, center, right, bottom-left, bottom-center, bottom-right }
+    record anchored-placement { id: string, anchor: anchor, offset: point, scale: f32 }
+    record anchored-layout-result { saved: bool, reset: bool, placements: list<anchored-placement> }
     /// Opens a host-owned layout editor from an input-owning panel. Requires hud and controls.
     /// JSON is bounded HUD preview data, including cards disabled during normal gameplay.
     open-editor: func(json: string) -> result<_, string>;
@@ -26,6 +29,9 @@ interface hud {
     read-editor-result: func() -> result<option<editor-result>, string>;
     /// Reads positions and uniform scales; shares consumption with the legacy result.
     read-editor-layout: func() -> result<option<layout-result>, string>;
+    /// Reads GUI-pixel offsets inward from edges, or right/down from centered axes.
+    /// Shares stable callback lifetime and consumption with both normalized reads.
+    read-editor-anchored-layout: func() -> result<option<anchored-layout-result>, string>;
 }
 
 /// Read-only, session-bound facts about the local player's presented inventory and effects.
@@ -180,6 +186,15 @@ interface settings {
 interface input {
     use panel.{event};
     record text-event { id: string, value: string }
+    record field-key {
+        id: string, key: string,
+        shift: bool, control: bool, alt: bool, super-key: bool,
+    }
+    variant field-event {
+        change(text-event),
+        submit(text-event),
+        key(field-key),
+    }
     record controls {
         seconds: f32,
         focused: bool,
@@ -206,6 +221,9 @@ interface input {
     /// Committed single-line native text edits, separate from legacy numeric control events.
     /// Requires controls authority; repeated reads see the same bounded batch in a frame callback.
     read-text-events: func() -> result<list<text-event>, string>;
+    /// Live values coalesce per field between frame callbacks. Submit and navigation retain order.
+    /// Navigation includes the modifiers sampled at that key edge; preedit stays host-local.
+    read-field-events: func() -> result<list<field-event>, string>;
     /// Physical key names reserved before the ordinary gameplay router samples them.
     reserve-keys: func(keys: list<string>) -> result<_, string>;
 }

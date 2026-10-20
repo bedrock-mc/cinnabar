@@ -3,6 +3,7 @@
 # Usage: build.sh [OUT] [CINNANGLES_SANS_TTF]
 # Needs the wasm32-unknown-unknown target and the wasm-bindgen CLI whose version
 # Cargo.lock pins. Without a Cinnangles Sans source the site measures text with a fallback.
+# JSONUI_EDITOR_TYPESCRIPT=1 also writes the bindings' TypeScript declarations.
 set -euo pipefail
 
 here="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
@@ -29,7 +30,9 @@ target_dir="${CARGO_TARGET_DIR:-$repo/target}"
 
 rm -rf "$out"
 mkdir -p "$out/pkg" "$out/examples"
-wasm-bindgen --target web --no-typescript --out-dir "$out/pkg" \
+typescript=--no-typescript
+if [[ -n "${JSONUI_EDITOR_TYPESCRIPT:-}" ]]; then typescript=; fi
+wasm-bindgen --target web $typescript --out-dir "$out/pkg" \
     "$target_dir/wasm32-unknown-unknown/release/jsonui_editor.wasm"
 cp -R "$here/web/." "$out/"
 touch "$out/.nojekyll"

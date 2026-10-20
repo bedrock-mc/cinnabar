@@ -255,11 +255,12 @@ fn discards(module: &naga::Module) -> bool {
         || module.entry_points.iter().any(|e| kills(&e.function.body))
 }
 
+/// Plans one translated program, rejecting unsupported destinations before building masks.
 fn planned(
     program: &ProgramTranslation,
     reflection: &ProgramReflection,
     properties: &ShaderProperties,
-) -> PlannedProgram {
+) -> Result<PlannedProgram, String> {
     let name = program.program.name.as_str();
     let mipmaps = program
         .consts
@@ -276,6 +277,11 @@ fn planned(
     } else {
         vec![]
     };
+    if let Some(index) = outputs.iter().flatten().find(|&&b| b >= MAX_COLOR_BUFFERS) {
+        return Err(format!(
+            "{name} writes unsupported color buffer {index}; expected an index below {MAX_COLOR_BUFFERS}"
+        ));
+    }
     let whole = properties.scales.iter().all(|s| s.program != name)
         && !program
             .stages
@@ -301,7 +307,7 @@ fn planned(
         .flatten()
         .filter(|&&b| !whole || blends(b))
         .fold(0u32, |mask, b| mask | (1 << b));
-    PlannedProgram {
+    Ok(PlannedProgram {
         name: name.to_owned(),
         group: program.program.group,
         kind: program.program.kind,
@@ -315,7 +321,7 @@ fn planned(
             .collect(),
         mipmaps,
         partial,
-    }
+    })
 }
 
 /// Opens, translates and builds `path` for `dimension` (a Java dimension id); `vanilla`
@@ -335,8 +341,8 @@ pub(crate) fn load(
     build(&pack, &name, dimension, cache_dir, gpu, vanilla)
 }
 
-/// The enabled programs this host runs, in frame order, with their plans; an error names
-/// every such program that failed to translate.
+/// The enabled programs this host runs, in frame order, with their validated plans.
+/// An error names unsupported destinations or required programs that failed to translate.
 pub(crate) fn runnable_programs(
     translation: &shaderpack::PackTranslation,
 ) -> Result<(Vec<&ProgramTranslation>, Vec<PlannedProgram>), String> {
@@ -349,7 +355,7 @@ pub(crate) fn runnable_programs(
         }
         match &program.reflection {
             Some(reflection) => {
-                plans.push(planned(program, reflection, &translation.properties));
+                plans.push(planned(program, reflection, &translation.properties)?);
                 runnable.push(program);
             }
             None => failed.push(program.program.name.clone()),
@@ -405,16 +411,16 @@ pub(crate) fn build(
         .iter()
         .filter_map(|p| p.reflection.as_ref())
         .collect();
-    let mut frame = plan_frame(&plans, &translation.properties.flips);
+    let mut frame = plan_frame(&plans, &translation.properties.flips)?;
     let buffers = plan_buffers(
         &plans,
         &[],
         &frame,
         &translation.buffers,
         &translation.properties.buffer_sizes,
-    );
+    )?;
     skip_cleared_swap_back(&mut frame, &buffers, &plans);
-    exchange_swap_back(&mut frame, &plans, &[]);
+    exchange_swap_back(&mut frame, &plans, &[])?;
     let support = gpu.support();
     let mut buffer_formats = [None; MAX_COLOR_BUFFERS as usize];
     for buffer in &buffers {
@@ -436,266 +442,268 @@ pub(crate) fn build(
             }
         }
     }
-    let depth_format = if support.float32_filterable {
-        TextureFormat::R32Float
-    } else {
-        bevy::log::warn!(
-            target: "cinnabar::shaderpack",
-            "device cannot filter 32-bit floats; depth buffers use 16-bit precision"
-        );
-        TextureFormat::R16Float
-    };
+    let depth_format = TextureFormat::R32Float;
     let settings = pack_settings(&translation.programs);
 
     let scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
-    let key = content_key(pack, &config);
-    let pipeline_cache = PipelineCacheFile::open(gpu, cache_dir, &key);
-    let image_formats = image_formats(&translation.properties.images, &reflections, support);
-    let atomic_images = translation
-        .properties
-        .images
-        .iter()
-        .zip(&image_formats)
-        .map(|(custom, &format)| {
-            gpu.supports_atomics(format)
-                && reflections
-                    .iter()
-                    .flat_map(|r| &r.storage_images)
-                    .any(|image| image.atomic && image.name == custom.name)
-        })
-        .collect();
-    let mut constants = ConstantBuilder::new(gpu, pack, &translation, vanilla, support);
-    let mut depth_compare = [false; 3];
-    let mut depth_sampled = [false; 3];
-    let mut programs = Vec::with_capacity(runnable.len());
-    for (program, reflection) in runnable.iter().zip(&reflections) {
-        let bindings = resolve_bindings(
-            &mut constants,
-            program.program.group,
-            reflection,
-            &buffer_formats,
-            storage_buffers,
-            depth_format,
-            &translation.properties.images,
-            &image_formats,
-        )?;
-        for source in &bindings.textures {
-            match *source {
-                TextureSource::DepthCompare(i) => depth_compare[i] = true,
-                TextureSource::Depth { index, .. } => depth_sampled[index] = true,
-                _ => {}
-            }
-        }
-        let sample_types: Vec<_> = bindings
-            .textures
+    let render_device = bevy::render::renderer::RenderDevice::from(gpu.device.clone());
+    let loaded = crate::gpu_allocation::checked(&render_device, "shader pack load", 0, || {
+        let key = content_key(pack, &config);
+        let pipeline_cache = PipelineCacheFile::open(gpu, cache_dir, &key);
+        let image_formats = image_formats(&translation.properties.images, &reflections, support);
+        let atomic_images = translation
+            .properties
+            .images
             .iter()
-            .map(|s| s.sample_type(support))
+            .zip(&image_formats)
+            .map(|(custom, &format)| {
+                gpu.supports_atomics(format)
+                    && reflections
+                        .iter()
+                        .flat_map(|r| &r.storage_images)
+                        .any(|image| image.atomic && image.name == custom.name)
+            })
             .collect();
-        let entries = layout_entries(reflection, &sample_types)?;
-        let layouts = bind_group_layouts(&gpu.device, &program.program.name, &entries);
-        let layout_refs: Vec<Option<&wgpu::BindGroupLayout>> =
-            layouts.iter().map(Option::as_ref).collect();
-        let pipeline_layout = gpu
-            .device
-            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some(&format!("shader pack {}", program.program.name)),
-                bind_group_layouts: &layout_refs,
-                immediate_size: 0,
-            });
-        let stages: Vec<(StageKind, naga::Module)> = program
-            .stages
-            .iter()
-            .filter_map(|s| s.result.as_ref().ok())
-            .map(|c| (c.stage, c.module.clone()))
-            .collect();
-        let modules = shader_modules(&gpu.device, &program.program.name, &stages);
-        let module = |stage: StageKind| modules.iter().find(|(s, _)| *s == stage).map(|(_, m)| m);
-        let entry = |stage: StageKind| {
-            reflection
-                .entry_points
-                .iter()
-                .find(|(s, _)| *s == stage)
-                .map(|(_, e)| e.as_str())
-        };
-        let cache = pipeline_cache.as_ref().map(|c| &c.cache);
-        let targets = color_targets(
-            program.program.group,
-            &program.program.name,
-            reflection,
-            &buffer_formats,
-            &translation.properties.blends,
-            None,
-        );
-        let pipeline = match reflection.kind {
-            ProgramKind::Compute => {
-                let Some(module) = module(StageKind::Compute) else {
-                    return Err(format!("{} has no compute stage", program.program.name));
-                };
-                ProgramPipeline::Compute(gpu.device.create_compute_pipeline(
-                    &wgpu::ComputePipelineDescriptor {
-                        label: Some(&program.program.name),
-                        layout: Some(&pipeline_layout),
-                        module,
-                        entry_point: entry(StageKind::Compute),
-                        compilation_options: Default::default(),
-                        cache,
-                    },
-                ))
-            }
-            ProgramKind::Render => {
-                let (Some(vertex), Some(fragment)) =
-                    (module(StageKind::Vertex), module(StageKind::Fragment))
-                else {
-                    return Err(format!(
-                        "{} needs a vertex and a fragment stage",
-                        program.program.name
-                    ));
-                };
-                let no_targets = targets.iter().all(Option::is_none);
-                if no_targets && !stores(reflection) {
-                    ProgramPipeline::Inert
-                } else {
-                    let attributes = quad_attributes(reflection);
-                    let pipeline =
-                        gpu.device
-                            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                                label: Some(&program.program.name),
-                                layout: Some(&pipeline_layout),
-                                vertex: wgpu::VertexState {
-                                    module: vertex,
-                                    entry_point: entry(StageKind::Vertex),
-                                    compilation_options: Default::default(),
-                                    buffers: &[Some(quad_layout(&attributes))],
-                                },
-                                primitive: wgpu::PrimitiveState {
-                                    topology: wgpu::PrimitiveTopology::TriangleStrip,
-                                    ..Default::default()
-                                },
-                                depth_stencil: None,
-                                multisample: Default::default(),
-                                fragment: Some(wgpu::FragmentState {
-                                    module: fragment,
-                                    entry_point: entry(StageKind::Fragment),
-                                    compilation_options: Default::default(),
-                                    targets: if no_targets {
-                                        &MASKED_TARGET
-                                    } else {
-                                        targets.as_slice()
-                                    },
-                                }),
-                                multiview_mask: None,
-                                cache,
-                            });
-                    if no_targets {
-                        ProgramPipeline::StoreOnly(pipeline)
-                    } else {
-                        ProgramPipeline::Render(pipeline)
-                    }
+        let mut constants = ConstantBuilder::new(gpu, pack, &translation, vanilla, support);
+        let mut depth_compare = [false; 3];
+        let mut depth_sampled = [false; 3];
+        let mut programs = Vec::with_capacity(runnable.len());
+        for (program, reflection) in runnable.iter().zip(&reflections) {
+            let bindings = resolve_bindings(
+                &mut constants,
+                program.program.group,
+                reflection,
+                &buffer_formats,
+                storage_buffers,
+                depth_format,
+                &translation.properties.images,
+                &image_formats,
+            )?;
+            for source in &bindings.textures {
+                match *source {
+                    TextureSource::DepthCompare(i) => depth_compare[i] = true,
+                    TextureSource::Depth { index, .. } => depth_sampled[index] = true,
+                    _ => {}
                 }
             }
-        };
-        programs.push(GpuProgram {
-            name: program.program.name.clone(),
-            group: program.program.group,
-            reflection: (*reflection).clone(),
-            pipeline,
-            layouts,
-            textures: bindings.textures,
-            images: bindings.images,
-            color_targets: targets.iter().map(Option::is_some).collect(),
-            scale: translation
-                .properties
-                .scales
+            let sample_types: Vec<_> = bindings
+                .textures
                 .iter()
-                .rev()
-                .find(|s| s.program == program.program.name)
-                .cloned(),
+                .map(|s| s.sample_type(support))
+                .collect();
+            let entries = layout_entries(reflection, &sample_types)?;
+            let layouts = bind_group_layouts(&gpu.device, &program.program.name, &entries);
+            let layout_refs: Vec<Option<&wgpu::BindGroupLayout>> =
+                layouts.iter().map(Option::as_ref).collect();
+            let pipeline_layout =
+                gpu.device
+                    .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some(&format!("shader pack {}", program.program.name)),
+                        bind_group_layouts: &layout_refs,
+                        immediate_size: 0,
+                    });
+            let stages: Vec<(StageKind, naga::Module)> = program
+                .stages
+                .iter()
+                .filter_map(|s| s.result.as_ref().ok())
+                .map(|c| (c.stage, c.module.clone()))
+                .collect();
+            let modules = shader_modules(&gpu.device, &program.program.name, &stages);
+            let module =
+                |stage: StageKind| modules.iter().find(|(s, _)| *s == stage).map(|(_, m)| m);
+            let entry = |stage: StageKind| {
+                reflection
+                    .entry_points
+                    .iter()
+                    .find(|(s, _)| *s == stage)
+                    .map(|(_, e)| e.as_str())
+            };
+            let cache = pipeline_cache.as_ref().map(|c| &c.cache);
+            let targets = color_targets(
+                program.program.group,
+                &program.program.name,
+                reflection,
+                &buffer_formats,
+                &translation.properties.blends,
+                None,
+            );
+            let pipeline = match reflection.kind {
+                ProgramKind::Compute => {
+                    let Some(module) = module(StageKind::Compute) else {
+                        return Err(format!("{} has no compute stage", program.program.name));
+                    };
+                    ProgramPipeline::Compute(gpu.device.create_compute_pipeline(
+                        &wgpu::ComputePipelineDescriptor {
+                            label: Some(&program.program.name),
+                            layout: Some(&pipeline_layout),
+                            module,
+                            entry_point: entry(StageKind::Compute),
+                            compilation_options: Default::default(),
+                            cache,
+                        },
+                    ))
+                }
+                ProgramKind::Render => {
+                    let (Some(vertex), Some(fragment)) =
+                        (module(StageKind::Vertex), module(StageKind::Fragment))
+                    else {
+                        return Err(format!(
+                            "{} needs a vertex and a fragment stage",
+                            program.program.name
+                        ));
+                    };
+                    let no_targets = targets.iter().all(Option::is_none);
+                    if no_targets && !stores(reflection) {
+                        ProgramPipeline::Inert
+                    } else {
+                        let attributes = quad_attributes(reflection);
+                        let pipeline =
+                            gpu.device
+                                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                                    label: Some(&program.program.name),
+                                    layout: Some(&pipeline_layout),
+                                    vertex: wgpu::VertexState {
+                                        module: vertex,
+                                        entry_point: entry(StageKind::Vertex),
+                                        compilation_options: Default::default(),
+                                        buffers: &[Some(quad_layout(&attributes))],
+                                    },
+                                    primitive: wgpu::PrimitiveState {
+                                        topology: wgpu::PrimitiveTopology::TriangleStrip,
+                                        ..Default::default()
+                                    },
+                                    depth_stencil: None,
+                                    multisample: Default::default(),
+                                    fragment: Some(wgpu::FragmentState {
+                                        module: fragment,
+                                        entry_point: entry(StageKind::Fragment),
+                                        compilation_options: Default::default(),
+                                        targets: if no_targets {
+                                            &MASKED_TARGET
+                                        } else {
+                                            targets.as_slice()
+                                        },
+                                    }),
+                                    multiview_mask: None,
+                                    cache,
+                                });
+                        if no_targets {
+                            ProgramPipeline::StoreOnly(pipeline)
+                        } else {
+                            ProgramPipeline::Render(pipeline)
+                        }
+                    }
+                }
+            };
+            programs.push(GpuProgram {
+                name: program.program.name.clone(),
+                group: program.program.group,
+                reflection: (*reflection).clone(),
+                pipeline,
+                layouts,
+                textures: bindings.textures,
+                images: bindings.images,
+                color_targets: targets.iter().map(Option::is_some).collect(),
+                scale: translation
+                    .properties
+                    .scales
+                    .iter()
+                    .rev()
+                    .find(|s| s.program == program.program.name)
+                    .cloned(),
+            });
+        }
+        let atlas_placeholder = constants
+            .placeholder(ATLAS_FORMAT, shaderpack::TextureDimension::D2, false)?
+            .0;
+        let mipmap_formats: Vec<TextureFormat> = buffers
+            .iter()
+            .filter(|b| b.mipmapped)
+            .filter_map(|b| buffer_formats[b.index as usize])
+            .filter(|f| format_kind(*f) == Kind::Float)
+            .collect();
+        let host = host_pipelines(
+            &gpu.device,
+            &buffer_formats,
+            depth_format,
+            depth_compare.contains(&true),
+            super::targets::float_depths(depth_sampled),
+            &mipmap_formats,
+        );
+        let shader_storage = storage_sizes(&reflections, &translation.properties)?;
+        let max_uniform = reflections
+            .iter()
+            .flat_map(|r| &r.uniform_buffers)
+            .map(|b| u64::from(b.min_size))
+            .max()
+            .unwrap_or(16)
+            .max(16);
+        let zero_uniforms = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("shader pack zero uniforms"),
+            size: max_uniform.next_multiple_of(16),
+            usage: wgpu::BufferUsages::UNIFORM,
+            mapped_at_creation: false,
         });
-    }
-    let atlas_placeholder = constants
-        .placeholder(ATLAS_FORMAT, shaderpack::TextureDimension::D2, false)?
-        .0;
-    let mipmap_formats: Vec<TextureFormat> = buffers
-        .iter()
-        .filter(|b| b.mipmapped)
-        .filter_map(|b| buffer_formats[b.index as usize])
-        .filter(|f| format_kind(*f) == Kind::Float)
-        .collect();
-    let host = host_pipelines(
-        &gpu.device,
-        &buffer_formats,
-        depth_format,
-        depth_compare.contains(&true),
-        super::targets::float_depths(depth_sampled),
-        &mipmap_formats,
-    );
-    let shader_storage = storage_sizes(&reflections, &translation.properties)?;
-    let max_uniform = reflections
-        .iter()
-        .flat_map(|r| &r.uniform_buffers)
-        .map(|b| u64::from(b.min_size))
-        .max()
-        .unwrap_or(16)
-        .max(16);
-    let zero_uniforms = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("shader pack zero uniforms"),
-        size: max_uniform.next_multiple_of(16),
-        usage: wgpu::BufferUsages::UNIFORM,
-        mapped_at_creation: false,
+        let quad_bytes = super::pipelines::quad_vertices();
+        let quad = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("shader pack full-screen quad"),
+            size: quad_bytes.len() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        gpu.queue.write_buffer(&quad, 0, &quad_bytes);
+        let filtering =
+            SamplerClass::ALL.map(|class| gpu.device.create_sampler(&class_sampler(class)));
+        let comparison = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("shader pack iris_samplerShadow"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            ..Default::default()
+        });
+        let constants = constants.finish();
+        let loaded = PackGpu {
+            name: name.to_string(),
+            programs,
+            frame,
+            buffers,
+            buffer_formats,
+            storage_buffers,
+            atomic_buffers,
+            depth_format,
+            depth_compare,
+            depth_sampled,
+            constants,
+            custom_images: translation.properties.images.clone(),
+            image_formats,
+            atomic_images,
+            shader_storage,
+            settings,
+            custom_uniforms: translation.properties.custom_uniforms.clone(),
+            filtering,
+            comparison,
+            zero_uniforms,
+            quad,
+            host,
+            actor_ids,
+            atlas_placeholder,
+        };
+        Ok((loaded, pipeline_cache))
     });
-    let quad_bytes = super::pipelines::quad_vertices();
-    let quad = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("shader pack full-screen quad"),
-        size: quad_bytes.len() as u64,
-        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
-    gpu.queue.write_buffer(&quad, 0, &quad_bytes);
-    let filtering = SamplerClass::ALL.map(|class| gpu.device.create_sampler(&class_sampler(class)));
-    let comparison = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
-        label: Some("shader pack iris_samplerShadow"),
-        mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Linear,
-        compare: Some(wgpu::CompareFunction::LessEqual),
-        ..Default::default()
-    });
-    let constants = constants.finish();
-    if let Some(error) = bevy::tasks::block_on(scope.pop()) {
+    let validation_error = bevy::tasks::block_on(scope.pop());
+    let (loaded, pipeline_cache) =
+        loaded.ok_or_else(|| "shader pack load ran out of GPU memory".to_owned())??;
+    if let Some(error) = validation_error {
         return Err(format!("the device rejected the pack: {error}"));
     }
-    if let Some(cache) = &pipeline_cache {
+    if let Some(cache) = pipeline_cache {
         cache.store();
     }
     bevy::log::info!(
         target: "cinnabar::shaderpack",
         pack = name, "ready after {:.0?}", started.elapsed()
     );
-    Ok(PackGpu {
-        name: name.to_string(),
-        programs,
-        frame,
-        buffers,
-        buffer_formats,
-        storage_buffers,
-        atomic_buffers,
-        depth_format,
-        depth_compare,
-        depth_sampled,
-        constants,
-        custom_images: translation.properties.images.clone(),
-        image_formats,
-        atomic_images,
-        shader_storage,
-        settings,
-        custom_uniforms: translation.properties.custom_uniforms.clone(),
-        filtering,
-        comparison,
-        zero_uniforms,
-        quad,
-        host,
-        actor_ids,
-        atlas_placeholder,
-    })
+    Ok(loaded)
 }
 
 /// Storage bindings: the reflected minimum, raised to the pack's complete requested words.
@@ -774,6 +782,39 @@ mod tests {
             setting_program(ProgramGroup::Composite, false, "90.0"),
         ];
         assert_eq!(pack_settings(&programs).sun_path_rotation, 45.0);
+    }
+
+    #[test]
+    fn unsupported_outputs_fail_before_partial_write_masks() {
+        for index in [MAX_COLOR_BUFFERS - 1, MAX_COLOR_BUFFERS, 32] {
+            for (fragment, properties) in [
+                ("if (gl_FragCoord.x < 0.0) discard;", ""),
+                ("", "scale.composite=0.5\n"),
+            ] {
+                let fragment = format!(
+                    "#version 330 compatibility\n/* RENDERTARGETS:{index} */\n\
+                     void main() {{ {fragment} gl_FragData[0] = vec4(1.0); }}"
+                );
+                let pack = ShaderPack::new(shaderpack::PackSource::from_files([
+                    (
+                        "composite.vsh",
+                        "#version 330 compatibility\nvoid main() { gl_Position = gl_Vertex; }",
+                    ),
+                    ("composite.fsh", fragment.as_str()),
+                    ("shaders.properties", properties),
+                ]));
+                let translation = pack.translate(&Default::default());
+                let reflection = translation.programs[0]
+                    .reflection
+                    .as_ref()
+                    .expect("translated output fixture");
+                assert_eq!(reflection.color_outputs[0].buffer, Some(index));
+                assert_eq!(
+                    runnable_programs(&translation).is_ok(),
+                    index < MAX_COLOR_BUFFERS
+                );
+            }
+        }
     }
 
     #[test]

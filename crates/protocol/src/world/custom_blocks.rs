@@ -1,4 +1,6 @@
+mod mining;
 mod physical;
+pub use mining::{CustomBlockMining, CustomMiningItem, CustomMiningSpeed};
 mod placement;
 mod shared_states;
 use std::sync::Arc;
@@ -30,6 +32,8 @@ const VANILLA_NAMESPACE: &str = "minecraft";
 /// One server-defined block from StartGame.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CustomBlock {
+    /// Mining values shared by every state unless a permutation replaces them.
+    pub mining: Arc<CustomBlockMining>,
     pub name: Arc<str>,
     /// Server-declared block tags used by target priorities and exclusions.
     pub tags: Arc<[Arc<str>]>,
@@ -47,7 +51,9 @@ pub struct CustomBlock {
     /// `minecraft:custom_components` declares a player-interact handler, so using the block
     /// interacts with it rather than placing the held block against it.
     pub player_interact: bool,
-    /// Resolved palette-order component sets; empty until session preparation.
+    /// Resolved mining components in palette order; an absent component is unknown.
+    pub state_mining: Arc<[Option<Arc<CustomBlockMining>>]>,
+    /// Resolved palette-order physical components; empty until session preparation.
     pub state_physics: Arc<[CustomBlockPhysics]>,
     /// Every physical permutation was parsed and evaluated for every state.
     pub state_physics_complete: bool,
@@ -88,8 +94,10 @@ pub struct CustomBlockVisuals {
     pub item_visual: Option<CustomVisualComponents>,
     /// In definition order; later matching permutations override earlier ones.
     pub permutations: Box<[CustomPermutation]>,
-    /// Physical components or permutations were discarded while parsing the definition.
+    /// Physical or placement data was discarded while parsing the definition.
     pub components_incomplete: bool,
+    /// Discarded component data or permutations could change this block's mining value.
+    pub mining_incomplete: bool,
     /// Block states in palette order: placement trait states, then properties in list order.
     /// The first axis varies fastest across the block's palette run.
     pub state_axes: Box<[CustomStateAxis]>,
@@ -191,9 +199,10 @@ pub struct CustomPermutation {
     pub physical: CustomPhysicalComponents,
 }
 
-/// Collision and targeting components present in a permutation; absent fields inherit.
+/// State components present in a permutation; absent fields inherit.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CustomPhysicalComponents {
+    pub mining: Option<Arc<CustomBlockMining>>,
     pub random_offset: Option<block_transform::random_offset::RandomOffsetComponent>,
     pub collision: Option<CustomCollision>,
     pub selection: Option<CustomSelection>,
@@ -243,13 +252,31 @@ pub struct CustomHashedState {
 }
 
 impl CustomBlock {
-    /// Falls back to the base component set when a state has not been resolved.
+    /// Falls back to base shapes until physical state preparation has completed.
     #[must_use]
     pub fn physics_for_state(&self, index: u32) -> CustomBlockPhysics {
         self.state_physics
             .get(index as usize)
             .cloned()
             .unwrap_or_else(|| self.base_physics())
+    }
+
+    /// Borrows resolved mining data; an unprepared mining permutation cannot use the base value.
+    pub fn mining_for_state(&self, index: u32) -> Option<&Arc<CustomBlockMining>> {
+        if self.visual.mining_incomplete {
+            None
+        } else if let Some(mining) = self.state_mining.get(index as usize) {
+            mining.as_ref()
+        } else if self
+            .visual
+            .permutations
+            .iter()
+            .any(|permutation| permutation.physical.mining.is_some())
+        {
+            None
+        } else {
+            Some(&self.mining)
+        }
     }
 
     #[must_use]
@@ -449,6 +476,7 @@ impl CustomBlocks {
                 Some(definition) => {
                     skipped += definition.skipped;
                     blocks.push(CustomBlock {
+                        mining: definition.mining,
                         name: Arc::from(name),
                         tags: definition.tags,
                         state_count: definition.state_count,
@@ -460,6 +488,7 @@ impl CustomBlocks {
                         visual: Arc::new(definition.visual),
                         state_physics_complete: false,
                         state_physics: Arc::default(),
+                        state_mining: Default::default(),
                     });
                 }
                 None => skipped += 1,
@@ -504,6 +533,7 @@ impl CustomBlocks {
 }
 
 struct Definition {
+    mining: Arc<CustomBlockMining>,
     tags: Arc<[Arc<str>]>,
     skipped: usize,
     state_count: u32,
@@ -616,6 +646,8 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
         return None;
     }
     let components = root.field("components");
+    let (mining, mining_skips) =
+        mining::component(components.and_then(|set| set.field(mining::COMPONENT)));
     placement::components(&mut placement, components);
     let collision_component = components.and_then(|set| set.field("minecraft:collision_box"));
     let collides = collision_enabled(collision_component);
@@ -624,22 +656,35 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
         selection_component(components.and_then(|set| set.field("minecraft:selection_box")));
     let (friction, friction_skips) =
         friction_component(components.and_then(|set| set.field("minecraft:friction")));
-    let mut permutation_skips = root
-        .list("permutations")
-        .len()
-        .saturating_sub(MAX_PERMUTATIONS);
+    let mut permutation_skips = 0;
+    let mut physical_permutation_skips = 0;
+    let mut mining_incomplete = mining_skips > 0;
     let permutations = root
         .list("permutations")
         .iter()
-        .take(MAX_PERMUTATIONS)
-        .filter_map(|permutation| {
-            placement::components(&mut placement, permutation.field("components"));
+        .enumerate()
+        .filter_map(|(index, permutation)| {
+            let components = permutation.field("components");
+            let changes_mining = components
+                .and_then(|set| set.field(mining::COMPONENT))
+                .is_some();
+            if index >= MAX_PERMUTATIONS {
+                permutation_skips += 1;
+                physical_permutation_skips += usize::from(!mining::only_component(components));
+                mining_incomplete |= changes_mining;
+                return None;
+            }
+            placement::components(&mut placement, components);
             let Some(Nbt::String(condition)) = permutation.field("condition") else {
                 permutation_skips += 1;
+                physical_permutation_skips += usize::from(!mining::only_component(components));
+                mining_incomplete |= changes_mining;
                 return None;
             };
-            let (physical, skipped) = physical_components(permutation.field("components"));
-            permutation_skips += skipped;
+            let (physical, skipped, mining_skips) = physical_components(components);
+            permutation_skips += skipped + mining_skips;
+            physical_permutation_skips += skipped;
+            mining_incomplete |= mining_skips > 0;
             Some(CustomPermutation {
                 condition: condition.as_str().into(),
                 components: visual_components(permutation.field("components")),
@@ -661,8 +706,9 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
                 .is_some_and(|_| transformation_component(components).is_none()),
         );
     Some(Definition {
+        mining: mining.unwrap_or_default(),
         tags,
-        skipped: tag_skips + physical_skips + permutation_skips,
+        skipped: tag_skips + mining_skips + physical_skips + permutation_skips,
         state_count: u32::try_from(states).ok()?,
         collides,
         collision_boxes,
@@ -683,7 +729,8 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
                     )
                 }),
             permutations,
-            components_incomplete: physical_skips > 0 || permutation_skips > 0,
+            components_incomplete: physical_skips > 0 || physical_permutation_skips > 0,
+            mining_incomplete,
             state_axes: state_axes.into_boxed_slice(),
             state_identity_incomplete,
             materialization_disabled: false,

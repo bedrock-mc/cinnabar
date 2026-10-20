@@ -20,6 +20,7 @@ use crate::state::{LayoutReport, ViewState};
 use crate::tree::ResolvedControl;
 use crate::widgets;
 
+mod bounds;
 mod grid;
 mod measure;
 mod place;
@@ -109,11 +110,12 @@ pub trait TextMeasure {
         self.extent(text)
     }
 
-    /// Measures a label in a named font; default-only backends keep their label metrics.
+    /// Measures with the authored primary and backup faces; default-only backends keep their metrics.
     fn named_label(
         &self,
         text: &str,
         _font: &str,
+        _backup: Option<&str>,
         width: Option<f64>,
         shape: crate::label::LabelShape,
     ) -> [f64; 2] {
@@ -513,7 +515,15 @@ fn place_subtree<'a>(
         ctx.disabled += 1;
     }
     let own_anims = control_anims(control, &key, rect, parent_rect, inherited, packed, ctx.env);
-    let spaces = inherited.space.place(
+    let mut space = inherited.space;
+    if let Some(region) = control
+        .properties
+        .get(crate::transform::PAINT_REGION_PROPERTY)
+        .and_then(serde_json::Value::as_u64)
+    {
+        space.region = std::num::NonZeroU64::new(region);
+    }
+    let spaces = space.place(
         style.transform,
         crate::transform::ClipInputs {
             rect,
@@ -593,8 +603,20 @@ fn place_subtree<'a>(
                 .scrolls
                 .iter()
                 .any(|frame| frame.adjusts_children(control)))
-        .then_some(child_clip);
-        measure::placed_children(control, rect, ctx.env, indexed_clip)
+        .then(|| {
+            bounds::local_clip(
+                inherit.space.transform,
+                inherit.space.clip.unwrap_or(child_clip),
+            )
+        })
+        .flatten();
+        measure::placed_children(
+            control,
+            rect,
+            ctx.env,
+            indexed_clip,
+            inherit.space.transform,
+        )
     };
     let placed_rects: Vec<(&str, Rect)> = match &dropdown {
         Some(_) => placed
@@ -695,20 +717,29 @@ fn place_subtree<'a>(
         {
             child_rect = frame.place_box(child_rect);
         }
+        let cull_clip = if inherit.space.transform.is_some() {
+            bounds::local_clip(
+                inherit.space.transform,
+                inherit.space.clip.unwrap_or(clip_for_child),
+            )
+            .unwrap_or(clip_for_child)
+        } else {
+            clip_for_child
+        };
         // Clipped cells cannot paint outside their bounds. Other cells retain a viewport of
         // margin so a selection frame or shifted label can reach in from a built cell.
         if placeholders.is_some()
             && child_shown
             && !disjoint(
-                subtree_bounds(child, child_rect, ctx.env),
+                bounds::subtree(child, child_rect, ctx.env, inherit.space.transform),
                 if child.properties.get(GRID_CLIPPED_CELL_KEY) == Some(&Value::Bool(true)) {
-                    clip_for_child
+                    cull_clip
                 } else {
                     Rect {
-                        x: clip_for_child.x - clip_for_child.w,
-                        y: clip_for_child.y - clip_for_child.h,
-                        w: clip_for_child.w * 3.0,
-                        h: clip_for_child.h * 3.0,
+                        x: cull_clip.x - cull_clip.w,
+                        y: cull_clip.y - cull_clip.h,
+                        w: cull_clip.w * 3.0,
+                        h: cull_clip.h * 3.0,
                     }
                 },
             )
@@ -729,7 +760,10 @@ fn place_subtree<'a>(
             && measure::style(child).allows != Some(false)
             && !measure::style(child).unclipped_descendant
             && (child.children.is_empty() || measure::style(child).clips)
-            && disjoint(subtree_bounds(child, child_rect, ctx.env), clip_for_child)
+            && disjoint(
+                bounds::subtree(child, child_rect, ctx.env, inherit.space.transform),
+                cull_clip,
+            )
         {
             continue;
         }
@@ -849,22 +883,6 @@ fn disjoint(rect: Rect, clip: Rect) -> bool {
         || rect.y >= clip.y + clip.h
         || rect.x + rect.w <= clip.x
         || rect.y + rect.h <= clip.y
-}
-
-/// Keeps authored input and child bounds along with conservative path coverage overflow.
-pub(crate) fn subtree_bounds(control: &ResolvedControl, rect: Rect, env: &LayoutEnv) -> Rect {
-    if control.control_type.as_deref() != Some("custom")
-        || control.properties.get("renderer").and_then(Value::as_str)
-            != Some(crate::vector_path::RENDERER)
-    {
-        return rect;
-    }
-    let Some(crate::Draw::Custom { data, .. }) = crate::emit::custom_draw(control) else {
-        return rect;
-    };
-    crate::vector_path::bounds(&data).map_or(rect, |bounds| {
-        bounds.subtree_at(rect, env.text.physical_pixel_size())
-    })
 }
 
 /// A bound `clip_ratio`, or a slider progress image revealing its fraction.

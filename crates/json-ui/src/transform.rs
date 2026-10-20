@@ -10,6 +10,8 @@ use crate::layout::Rect;
 
 /// The control property a mod surface authors: `{"scale", "rotation", "origin"}`.
 pub const TRANSFORM_PROPERTY: &str = "cinnabar_transform";
+/// An application-owned paint region inherited by descendants; zero clears the region.
+pub const PAINT_REGION_PROPERTY: &str = "cinnabar_paint_region";
 /// The transform field holding a number or an `[x, y]` scale.
 pub const SCALE_FIELD: &str = "scale";
 /// The transform field holding the clockwise rotation in degrees.
@@ -208,10 +210,12 @@ pub(crate) fn bind(target: &str, value: &Value, current: Option<&Value>) -> Opti
 }
 
 /// Where a control paints and what clip its draws and hits use once transforms apply.
-/// Both fields are `None` outside every transformed subtree, where layout coordinates and
+/// Transform and clip are `None` outside every transformed subtree, where layout coordinates and
 /// clips are already screen coordinates.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct PaintSpace {
+    /// An application-owned scope carried to emitted artwork without matching control names.
+    pub region: Option<std::num::NonZeroU64>,
     /// The composed map from layout to painted coordinates.
     pub transform: Option<Affine>,
     /// The screen-space clip, replacing the layout clip.
@@ -246,7 +250,7 @@ impl PaintSpace {
             (outer, inner) => outer.or(inner),
         };
         if transform.is_none() && self.clip.is_none() {
-            return (PaintSpace::default(), PaintSpace::default());
+            return (self, self);
         }
         let parent = self.clip.unwrap_or(inputs.parent);
         let handed = if inputs.clips {
@@ -265,10 +269,12 @@ impl PaintSpace {
         let own_clip = if inputs.allows { handed } else { inputs.screen };
         (
             PaintSpace {
+                region: self.region,
                 transform,
                 clip: Some(own_clip),
             },
             PaintSpace {
+                region: self.region,
                 transform,
                 clip: Some(handed),
             },

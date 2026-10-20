@@ -261,3 +261,40 @@ fn control_nineslice_keeps_a_rounded_box_one_box() {
     assert_eq!([centre.w, centre.h], [39.0, 7.0]);
     assert!(nodes.iter().all(|node| node.alpha == 0.6));
 }
+
+// Paint regions follow the resolved subtree, can be cleared, and do not leak to siblings.
+#[test]
+fn paint_regions_inherit_clear_and_isolate_siblings() {
+    let image = |name, props| ctrl(name, "image", props, vec![]);
+    let root = ctrl(
+        "root",
+        "panel",
+        json!({}),
+        vec![
+            ctrl(
+                "region",
+                "panel",
+                json!({"cinnabar_paint_region":7}),
+                vec![
+                    image("inside", json!({"texture":"icon","size":[10,10]})),
+                    ctrl(
+                        "clear",
+                        "panel",
+                        json!({"cinnabar_paint_region":0}),
+                        vec![image("cleared", json!({"texture":"icon","size":[10,10]}))],
+                    ),
+                ],
+            ),
+            image("outside", json!({"texture":"icon","size":[10,10]})),
+        ],
+    );
+    let nodes = draw(&root);
+    assert_eq!(
+        node(&nodes, "inside")
+            .paint_region
+            .map(std::num::NonZeroU64::get),
+        Some(7)
+    );
+    assert_eq!(node(&nodes, "cleared").paint_region, None);
+    assert_eq!(node(&nodes, "outside").paint_region, None);
+}
