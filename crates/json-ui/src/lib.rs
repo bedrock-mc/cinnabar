@@ -36,6 +36,7 @@ mod pack;
 pub mod position;
 mod predicate;
 mod resolve;
+pub mod rounded;
 mod scene;
 mod screens;
 mod sidecar;

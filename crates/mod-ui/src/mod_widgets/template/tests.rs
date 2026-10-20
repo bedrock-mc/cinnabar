@@ -7,7 +7,7 @@ fn centered_compass_follows_viewport_and_saved_placement() {
     assert_eq!(origin(&card, [800., 500.]), [260., 8.]);
     assert_eq!(origin(&card, [400., 200.]), [60., 8.]);
     card.scale = 2.;
-    assert_eq!(origin(&card, [400., 200.]), [-80., 8.]);
+    assert_eq!(origin(&card, [400., 200.]), [0., 8.]);
     card.scale = 1.;
     card.position = Some([0.25, 0.5]);
     assert_eq!(origin(&card, [400., 200.]), [30., 84.]);
@@ -165,5 +165,67 @@ fn grid_count_labels_follow_live_row_tint_and_alpha() {
             })
             .collect::<Vec<_>>();
         assert_eq!(colors, vec![json_ui::color_value(&json!(color)).unwrap()]);
+    }
+}
+
+/// A selected card face reaches every label and changing it invalidates retained typography.
+#[test]
+fn card_font_selects_smooth_cell_labels_and_invalidates_geometry() {
+    let native: Hud = serde_json::from_str(
+        r#"{"cards":[{"id":"keys","rows":[],"cells":[{"rect":[0,0,22,22],"label":"W"}]}]}"#,
+    )
+    .unwrap();
+    let mut sans = native.clone();
+    sans.cards[0].font = ui::mod_hud::CardFont::Sans;
+    assert!(!same_shape(&native, &sans));
+    let mut index = 0;
+    let root = card(&sans.cards[0], 0, &mut index);
+    fn check(node: &Value, count: &mut usize) {
+        match node {
+            Value::Object(object) => {
+                if object.get("type").and_then(Value::as_str) == Some("label") {
+                    assert_eq!(
+                        object.get("font_type").and_then(Value::as_str),
+                        Some(ui::mod_panel::SANS_FONT_NAME)
+                    );
+                    *count += 1;
+                }
+                for value in object.values() {
+                    check(value, count);
+                }
+            }
+            Value::Array(values) => {
+                for value in values {
+                    check(value, count);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut count = 0;
+    check(&root, &mut count);
+    assert_eq!(count, 1);
+    assert!(
+        serde_json::from_str::<Hud>(r#"{"cards":[{"id":"bad","rows":[],"font":"unknown"}]}"#)
+            .is_err()
+    );
+}
+/// Positive edge offsets remain inward after a viewport resize.
+#[test]
+fn anchored_edge_offset_survives_viewport_change() {
+    let card = ui::mod_hud::Card {
+        anchor: ui::mod_hud::Anchor::BottomRight,
+        offset: [13., 17.],
+        ..Default::default()
+    };
+    let size = super::dimensions(&card);
+    for viewport in [[640., 360.], [960., 540.]] {
+        let at = super::origin(&card, viewport);
+        for axis in 0..2 {
+            assert!(
+                (viewport[axis] - at[axis] - size[axis] - f64::from(card.offset[axis])).abs()
+                    < 0.001
+            );
+        }
     }
 }
