@@ -11,10 +11,18 @@ impl ServerAtlas {
         namespace: &str,
         images: &BTreeMap<String, UiTexturePage>,
     ) {
+        let (other_count, other_bytes) = self
+            .client_rasters
+            .iter()
+            .filter(|(key, _)| !key.starts_with(namespace))
+            .fold((0, 0), |(count, bytes), (_, image)| {
+                (count + 1, bytes + image.pixels().len())
+            });
         if !namespace.starts_with("client-raster:")
             || images.keys().any(|key| !key.starts_with(namespace))
-            || images.len() > MAX_EXTRA
-            || images.values().map(|p| p.pixels().len()).sum::<usize>() > MAX_DECODED_BYTES
+            || images.len() + other_count > MAX_EXTRA
+            || images.values().map(|p| p.pixels().len()).sum::<usize>() + other_bytes
+                > MAX_DECODED_BYTES
             || images.iter().any(|(key, image)| {
                 !key.starts_with("client-raster:")
                     || image
@@ -165,6 +173,26 @@ mod tests {
         assert_eq!(atlas.placement(a).unwrap().page, moved.page);
         assert_ne!(atlas.placement(b).unwrap().page, moved.page);
     }
+    #[test]
+    fn namespaces_share_the_existing_raster_admission_budget() {
+        let mut atlas = ServerAtlas::new(&[], None, 1);
+        let image = UiTexturePage::owned([1; 2], vec![255; 4].into()).unwrap();
+        let first: BTreeMap<_, _> = (0..MAX_EXTRA)
+            .map(|index| (format!("client-raster:first/{index}"), image.clone()))
+            .collect();
+        atlas.set_client_rasters("client-raster:first/", &first);
+        atlas.set_client_rasters(
+            "client-raster:second/",
+            &BTreeMap::from([("client-raster:second/one".into(), image)]),
+        );
+        assert_eq!(atlas.client_rasters.len(), MAX_EXTRA);
+        assert!(
+            !atlas
+                .client_rasters
+                .contains_key("client-raster:second/one")
+        );
+    }
+
     #[test]
     fn replacing_one_namespace_preserves_other_painters_and_content_updates_keep_metadata() {
         let mut atlas = ServerAtlas::new(&[], None, 1);
