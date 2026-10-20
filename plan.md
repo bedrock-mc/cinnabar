@@ -423,6 +423,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   `shaderpack`, including options, dimensions, parsed properties, program discovery
   and enable rules, and its programs translate to validated naga modules with a binding
   contract. Pack-specific translation fixes, render-host integration and in-game
+  acceptance remain incomplete; parsed custom uniform expressions are not executed or
+  rendered.
   acceptance remain incomplete.
   and enable rules. Translation, render-host integration and in-game acceptance
   remain incomplete; parsed custom uniform expressions are not executed or rendered.

@@ -308,6 +308,43 @@ fn sampler_overloads_preserve_equal_arity_value_signatures() {
 }
 
 #[test]
+fn sampler_metadata_reads_flags_only_from_the_texture_object() {
+    let texture = shaderpack::CustomTexture {
+        stage: "composite".to_string(),
+        sampler: "colortex0".to_string(),
+        source: shaderpack::TextureSource::File("custom.png".to_string()),
+    };
+    for metadata in [
+        r#"{"other":{"blur":true,"clamp":true},"texture":{"blur":false,"clamp":false}}"#,
+        r#"{"blur":true,"clamp":true,"texture":{}}"#,
+        r#"{"texture":{"blur":"true","clamp":1}}"#,
+        r#"{"texture":{"blur":true,"clamp":true}} trailing"#,
+    ] {
+        let source = PackSource::from_files([("custom.png.mcmeta", metadata)]);
+        assert_eq!(
+            texture.sampler_class(&source),
+            shaderpack::SamplerClass::RepeatNearest
+        );
+    }
+}
+
+#[test]
+fn sampler_locals_cover_every_declarator_and_restore_outer_resources() {
+    success(
+        VERTEX,
+        "#version 450
+        uniform sampler2D specular;
+        out vec4 color;
+        void main() {
+            float value = 0.0;
+            { float unused = 0.0, specular = 1.0; value += unused + specular; }
+            { float a = 0.0, specular = texture(specular, vec2(0.5)).x, b = specular; value += a + b; }
+            color = texture(specular, vec2(0.5)) + vec4(value);
+        }",
+    );
+}
+
+#[test]
 fn unused_fragment_inputs_are_removed_from_the_compiled_interface() {
     let translated = success(
         VERTEX,
