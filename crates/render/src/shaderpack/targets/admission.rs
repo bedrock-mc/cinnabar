@@ -69,6 +69,22 @@ fn storage_size(size: u64, limits: &Limits) -> Result<(), String> {
 pub(super) fn validate(pack: &PackGpu, screen: [u32; 2], limits: &Limits) -> Result<(), String> {
     texture_extent(TextureDimension::D2, [screen[0], screen[1], 1], limits)?;
     for program in &pack.programs {
+        let mut attachments = std::collections::BTreeSet::new();
+        for output in &program.reflection.color_outputs {
+            if program
+                .color_targets
+                .get(output.location as usize)
+                .copied()
+                .unwrap_or(false)
+                && let Some(buffer) = output.buffer
+                && !attachments.insert(buffer)
+            {
+                return Err(format!(
+                    "{} attaches colortex{buffer} more than once",
+                    program.name
+                ));
+            }
+        }
         if let Some(dispatch) = &program.reflection.compute {
             super::super::dispatch::validate(dispatch, screen, limits)
                 .map_err(|error| format!("{}: {error}", program.name))?;
@@ -89,6 +105,9 @@ pub(super) fn validate(pack: &PackGpu, screen: [u32; 2], limits: &Limits) -> Res
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod attachment_tests;
 
 #[cfg(test)]
 mod tests {
