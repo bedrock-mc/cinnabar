@@ -15,7 +15,6 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/control"
-	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
@@ -23,7 +22,7 @@ import (
 )
 
 // sessionIDBytes is the entropy of a rotated resume bearer.
-const sessionIDBytes = bridgecontract.RelayResumeBytes
+const sessionIDBytes = 32
 
 // newSessionID returns a random resume bearer in lowercase hex.
 func newSessionID() string {
@@ -151,7 +150,7 @@ func (session *webSession) SignIn() error {
 	if session.cancelSignIn != nil || session.auth.State == control.AuthSignedIn {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(session.relay.ctx, time.Duration(bridgecontract.RelaySignInSeconds)*time.Second)
+	ctx, cancel := context.WithTimeout(session.relay.ctx, 15*time.Minute)
 	session.signInSeq++
 	session.cancelSignIn = cancel
 	session.signIns.Add(1)

@@ -145,14 +145,7 @@ impl MenuRuntime {
             let world = worlds.menu().worlds().iter().find(|world| world.id == id);
             let hosted = world.is_some_and(|world| world.backend == Backend::Bds);
             self.local_ui.world_id = Some(id.clone());
-            let name = world.map_or_else(|| id.clone(), |world| world.name.clone());
-            #[cfg(feature = "native-networking")]
-            if self.native_sign_in {
-                self.request_native_local_world(worlds, &id, name);
-            } else {
-                self.request_local_world_join(name, hosted);
-            }
-            #[cfg(not(feature = "native-networking"))]
+            let name = world.map_or(id, |world| world.name.clone());
             self.request_local_world_join(name, hosted);
             self.local_ui.max_players = worlds.menu().max_players();
         }
@@ -332,10 +325,6 @@ impl MenuRuntime {
     }
 
     pub fn request_local_world_join(&mut self, name: String, hosted: bool) {
-        #[cfg(feature = "native-networking")]
-        {
-            self.intents.native_world = None;
-        }
         self.retry_target = None;
         self.remember_session_origin();
         self.stop_catalog();

@@ -16,6 +16,8 @@ import (
 	"golang.org/x/oauth2"
 )
 
+const maxCacheSize = 64 * 1024
+
 // errAccountChanged prevents an existing runtime from adopting a different sign-in.
 var errAccountChanged = errors.New("authentication: sign-in changed; reopen the account")
 
@@ -203,7 +205,7 @@ func cloneToken(token *oauth2.Token) *oauth2.Token {
 
 // load decodes exactly one bounded OAuth token from a private regular file.
 func load(path string) (*cachedToken, error) {
-	contents, err := loadPrivate(path, int64(maxCacheSize))
+	contents, err := loadPrivate(path, maxCacheSize)
 	if err != nil {
 		return nil, err
 	}

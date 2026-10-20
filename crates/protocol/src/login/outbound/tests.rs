@@ -14,11 +14,7 @@ fn session() -> (TestSession, DuplexStream, impl Future<Output = ()>) {
         bridge::tasks::prepare_connection(tokio::io::empty(), write, bridge::MAX_FRAME_LEN);
     let transport = crate::session_transport::SessionTransport::new(reader, frames, &[]);
     (
-        PlaySession::new(
-            transport,
-            Some(crate::ClientBlobCache::default()),
-            crate::login::startup::ready_fixture(1),
-        ),
+        PlaySession::new(transport, Some(crate::ClientBlobCache::default()), 1, false),
         peer,
         writer,
     )
@@ -116,14 +112,7 @@ async fn ordinary_frames_do_not_drain_and_status_only_opportunities_combine_clas
 #[tokio::test]
 async fn reset_before_acceptance_retires_only_status_and_preserves_the_ordinary_batch() {
     let (mut session, mut peer, writer) = session();
-    #[cfg(feature = "native-networking")]
-    let frames = match session.transport.sender() {
-        crate::session_transport::PacketSender::Core(frames) => frames,
-        #[cfg(feature = "native-networking")]
-        crate::session_transport::PacketSender::Native(_) => unreachable!("core fixture"),
-    };
-    #[cfg(not(feature = "native-networking"))]
-    let crate::session_transport::PacketSender::Core(frames) = session.transport.sender();
+    let frames = session.transport.frame_queue();
     let mut fillers = 0;
     loop {
         let mut accept = std::pin::pin!(frames.accept(Bytes::from_static(b"filler")));

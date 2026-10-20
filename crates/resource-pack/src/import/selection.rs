@@ -1,7 +1,6 @@
 //! Lenient parsing of an explicitly selected global resource pack list.
 
-use crate::MAX_LOCAL_PACKS;
-use crate::manifest::Version;
+use crate::{MAX_PACKS, manifest::Version};
 use uuid::Uuid;
 
 /// An active pack reference, in highest-priority-first file order.
@@ -38,7 +37,7 @@ pub fn parse_global_selection(bytes: &[u8]) -> ParsedGlobalSelection {
             };
             if id.is_nil()
                 || subpack.len() > crate::MAX_PATH_BYTES
-                || parsed.entries.len() >= MAX_LOCAL_PACKS
+                || parsed.entries.len() >= MAX_PACKS
                 || !seen.insert(id)
             {
                 return None;
@@ -91,7 +90,7 @@ pub fn merge_global_selection(
                         .any(|active: &crate::ActivePack| active.id == old.id)
             })
             .count();
-        if ordered.len() + remaining >= MAX_LOCAL_PACKS
+        if ordered.len() + remaining >= MAX_PACKS
             || ordered
                 .iter()
                 .any(|active: &crate::ActivePack| active.id == entry.id)
@@ -109,7 +108,7 @@ pub fn merge_global_selection(
         if ordered.iter().any(|active| active.id == old.id) {
             continue;
         }
-        if ordered.len() >= MAX_LOCAL_PACKS {
+        if ordered.len() >= MAX_PACKS {
             skipped += 1;
         } else {
             ordered.push(old.clone());
@@ -124,14 +123,14 @@ mod tests {
 
     #[test]
     fn full_existing_selection_is_preserved_when_imported_additions_exceed_the_limit() {
-        let current = (1..=MAX_LOCAL_PACKS)
+        let current = (1..=MAX_PACKS)
             .map(|id| crate::ActivePack {
                 id: Uuid::from_u128(id as u128),
                 subpack: String::new(),
                 revision: 1,
             })
             .collect::<Vec<_>>();
-        let added = Uuid::from_u128(MAX_LOCAL_PACKS as u128 + 1);
+        let added = Uuid::from_u128(MAX_PACKS as u128 + 1);
         let available = [crate::InstalledPack {
             id: added,
             version: [1, 0, 0],

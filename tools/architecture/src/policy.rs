@@ -13,8 +13,6 @@ pub(super) struct Policy {
     #[serde(default)]
     pub(super) vendored: Vec<VendoredRule>,
     #[serde(default)]
-    pub(super) dependency_owners: Vec<DependencyOwner>,
-    #[serde(default)]
     pub(super) forbidden_artifacts: Vec<String>,
     #[serde(default)]
     pub(super) owned_artifacts: Vec<OwnedArtifact>,
@@ -108,14 +106,6 @@ pub(super) struct VendoredRule {
     /// The only crate that may depend on packages in this tree, by any dependency kind.
     #[serde(default)]
     pub(super) owner: Option<String>,
-}
-
-/// The only first-party crate that may declare a named package, regardless of source or alias.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct DependencyOwner {
-    pub(super) package: String,
-    pub(super) owner: String,
 }
 
 /// Original art exempt from `forbidden_artifacts`; its record must name the path.

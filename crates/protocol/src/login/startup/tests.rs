@@ -108,7 +108,6 @@ mod session {
         ChunkRadiusUpdated, NetworkChunkPublisherUpdate, PlayStatus, Transfer,
     };
     use bedrock_protocol_1_26_51::types::ItemData;
-    use bedrock_protocol_1_26_51::{enums::PlayStatusType, types::ActorRuntimeID};
 
     use super::*;
     use crate::raw_packet::MAX_RAW_BATCH_PACKETS;
@@ -195,7 +194,7 @@ mod session {
             )
             .await;
             pair.transport.set_relay(relay.clone());
-            let _ready = await_spawn(&mut pair.transport, DEFAULT_CHUNK_RADIUS, |_, _| {})
+            await_spawn(&mut pair.transport, DEFAULT_CHUNK_RADIUS, |_, _| {})
                 .await
                 .expect("the original prerequisites still complete spawn");
             let Inbound::Packet(radius) = pair.transport.recv().await.unwrap() else {
@@ -230,7 +229,7 @@ mod session {
             ]],
         )
         .await;
-        let _ready = await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {})
+        await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {})
             .await
             .unwrap();
         let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
@@ -291,7 +290,7 @@ mod session {
         })
         .await
         .expect("repeats stay nonfatal");
-        assert_eq!(spawned.runtime_id(), RUNTIME_ID);
+        assert_eq!(spawned.runtime_id, RUNTIME_ID);
         let first = first.expect("the startup facts were delivered");
         assert_eq!(first.item_data.len(), 1);
         assert_eq!(first.item_data[0].item_id.0, 355);
@@ -329,8 +328,8 @@ mod session {
         })
         .await
         .expect("spawn must complete without reading past the required packets to EOF");
-        assert_eq!(spawned.runtime_id(), RUNTIME_ID);
-        assert!(spawned.terrain_received());
+        assert_eq!(spawned.runtime_id, RUNTIME_ID);
+        assert!(spawned.terrain_before_spawn);
         assert_eq!(delivered, 1);
         assert_eq!(next_time(&mut transport).await, 1);
         let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
@@ -343,14 +342,7 @@ mod session {
         writer.await.unwrap();
         let mut actual = Vec::new();
         sent.read_to_end(&mut actual).await.unwrap();
-        let frame = batch_frame(&[
-            crate::request_chunk_radius_packet(
-                view_distance,
-                render_api::MAX_VIEW_RADIUS_CHUNKS as u8,
-            ),
-            crate::loading_screen_packet(LoadingScreenPhase::Start, None),
-        ])
-        .unwrap();
+        let frame = batch_frame(&loading_started(view_distance)).unwrap();
         let mut expected = (frame.len() as u32).to_be_bytes().to_vec();
         expected.extend_from_slice(&frame);
         assert_eq!(actual, expected, "request and loading start are sent once");
@@ -375,7 +367,7 @@ mod session {
             tokio::time::timeout(Duration::from_secs(5), async { tokio::join!(spawn, core) }).await;
         let (spawned, runtime_id) = joined.expect("the facts waited for PlayerSpawn");
         assert_eq!(runtime_id, RUNTIME_ID);
-        let _ready = spawned.expect("spawn");
+        spawned.expect("spawn");
     }
 
     /// Optional packets are deferred to play in order, ahead of a packet the spawning batch
@@ -393,37 +385,10 @@ mod session {
             set_time(-1),
         ]);
         let first = (0..half).map(|time| set_time(time as i32)).collect();
-        let mut raw_chunk = Vec::new();
-        wire::Writer::new(&mut raw_chunk)
-            .write_var_u32(PacketId::LevelChunk as u32)
-            .unwrap();
-        raw_chunk.push(0x80); // Deliberately undecodable until ordinary play asks for this body.
-        let Pair {
-            transport, peer, ..
-        } = &mut pair(
-            "fifo",
-            &[
-                packet_bytes(&start_game(RUNTIME_ID)),
-                Bytes::from(raw_chunk),
-            ],
-        )
-        .await;
-        for batch in [first, second] {
-            write_frame(peer, &batch_frame(&batch).unwrap()).await;
-        }
-        let ready = await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {})
+        let Pair { transport, .. } = &mut handed_off("fifo", &[first, second]).await;
+        await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {})
             .await
             .expect("spawn");
-        assert!(ready.terrain_received());
-        let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
-            panic!("raw terrain remains first")
-        };
-        assert_eq!(raw.id, PacketId::LevelChunk);
-        assert_eq!(raw.body().as_ref(), &[0x80]);
-        assert!(
-            raw.decode().is_err(),
-            "startup must leave unrelated bodies undecoded"
-        );
         for expected in 0..=MAX_RAW_BATCH_PACKETS {
             assert_eq!(next_time(transport).await, expected as i32);
         }
@@ -455,7 +420,7 @@ mod session {
             let spawned = await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {})
                 .await
                 .expect("spawn");
-            assert_eq!(spawned.terrain_received(), expected);
+            assert_eq!(spawned.terrain_before_spawn, expected);
         }
     }
 
@@ -475,22 +440,15 @@ mod session {
             ]],
         )
         .await;
-        let _ready = await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {})
+        await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {})
             .await
             .expect("spawn");
         let length = peer.read_u32().await.unwrap();
         let mut frame = vec![0; length as usize];
         peer.read_exact(&mut frame).await.unwrap();
-        let sent = decode_batch_body(Bytes::from(frame).slice(1..), usize::MAX).unwrap();
-        assert_eq!(sent.len(), 2);
-        let mut sent = sent.into_iter().map(|raw| *raw.decode().unwrap().data);
-        assert!(
-            matches!(sent.next().unwrap(), packets::Packet::RequestChunkRadius(request)
-            if request.chunk_radius.0 == i32::from(DEFAULT_CHUNK_RADIUS))
-        );
-        assert!(
-            matches!(sent.next().unwrap(), packets::Packet::ServerboundLoadingScreen(loading)
-            if loading.loading_screen_packet_type == bedrock_protocol_1_26_51::enums::ServerboundLoadingScreenType::Startloadingscreen)
+        assert_eq!(
+            frame,
+            batch_frame(&loading_started(DEFAULT_CHUNK_RADIUS)).unwrap()
         );
         let more = tokio::time::timeout(Duration::from_millis(100), peer.read_u8()).await;
         assert!(more.is_err(), "the radius request is sent once");
@@ -517,58 +475,6 @@ mod session {
             };
             assert!(error.to_string().contains(expected), "{name}: {error}");
         }
-    }
-
-    /// A refusal wins over later packets without waiting for PlayerSpawn; successful startup keeps its FIFO.
-    #[tokio::test]
-    async fn spawn_reports_login_refusal_before_a_later_disconnect() {
-        let status = PlayStatusType::LoginfailedServerfullsubclient;
-        for (name, mut batch) in [
-            ("spawn-refusal-early", Vec::new()),
-            (
-                "spawn-refusal-late",
-                vec![registry("minecraft:shield", 355), radius(16)],
-            ),
-        ] {
-            batch.extend([
-                Packet::new(PlayStatus { status }),
-                Packet::new(Disconnect::default()),
-            ]);
-            let Pair { transport, .. } = &mut handed_off(name, &[batch]).await;
-            let error = match await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {}).await {
-                Ok(_) => panic!("a refused startup claimed readiness"),
-                Err(error) => error,
-            };
-            assert!(
-                error.to_string().contains(&format!("{status:?}")),
-                "startup lost the original refusal before the later Disconnect: {error}"
-            );
-        }
-
-        let Pair { transport, .. } = &mut handed_off(
-            "spawn-status-success",
-            &[vec![
-                Packet::new(PlayStatus {
-                    status: PlayStatusType::Loginsuccess,
-                }),
-                set_time(1),
-                registry("minecraft:shield", 355),
-                radius(16),
-                player_spawn(),
-                set_time(2),
-            ]],
-        )
-        .await;
-        let spawned = await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {})
-            .await
-            .expect("LoginSuccess still allows the real PlayerSpawn");
-        assert_eq!(spawned.runtime_id(), RUNTIME_ID);
-        assert_eq!(next_time(transport).await, 1);
-        let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
-            panic!("the radius reply retains its FIFO position")
-        };
-        assert_eq!(raw.id, PacketId::ChunkRadiusUpdated);
-        assert_eq!(next_time(transport).await, 2);
     }
 
     /// The bytes deferred while spawning are bounded across batches.

@@ -13,16 +13,15 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/control"
-	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 )
 
 const (
 	cacheVersion       = 2
 	legacyCacheVersion = 1
-	listTTL            = time.Duration(bridgecontract.FeaturedFeedCacheSeconds) * time.Second
-	homeTTL            = time.Duration(bridgecontract.HomeFeedCacheSeconds) * time.Second
-	refreshTimeout     = time.Duration(bridgecontract.HomeFeedRefreshSeconds) * time.Second
+	listTTL            = 5 * time.Minute
+	homeTTL            = 15 * time.Minute
+	refreshTimeout     = 40 * time.Second
 )
 
 // snapshot is the last good catalog, persisted as CacheFile.

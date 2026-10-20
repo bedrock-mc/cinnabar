@@ -22,7 +22,7 @@ async fn a_malformed_world_packet_is_reported_failed_with_its_body() {
     let (mut peer, _) = listener.accept().await.unwrap();
     let tap = Arc::new(RecordingTap::default());
     let transport = SessionTransport::new(reader, frames, &[]).with_tap(Some(tap.clone()));
-    let mut session = PlaySession::new(transport, None, crate::login::startup::ready_fixture(1));
+    let mut session = PlaySession::new(transport, None, 1, false);
 
     let mut frame = batch_frame(&[Packet::new(SetTime {
         time: wire::ZigZag32(5),
@@ -86,8 +86,7 @@ async fn accepted_packets_release_the_observers_batch_storage() {
         };
         let backing = raw.body().clone();
         transport.prepend(vec![raw]);
-        let mut session =
-            PlaySession::new(transport, cache, crate::login::startup::ready_fixture(1));
+        let mut session = PlaySession::new(transport, cache, 1, false);
         if world {
             session
                 .recv_world_event_mapped(0, |_| (), |_, _| ())
@@ -135,11 +134,8 @@ async fn cache_rejections_are_tapped_before_recovery() {
         let id = reader_body.read_var_u32().unwrap();
         let body = wire.slice(reader_body.position()..);
         let transport = SessionTransport::new(reader, frames, &[wire]).with_tap(Some(tap.clone()));
-        let mut session = PlaySession::new(
-            transport,
-            Some(crate::ClientBlobCache::default()),
-            crate::login::startup::ready_fixture(1),
-        );
+        let mut session =
+            PlaySession::new(transport, Some(crate::ClientBlobCache::default()), 1, false);
         session
             .blob_cache
             .as_mut()
@@ -196,8 +192,7 @@ async fn an_unusable_transfer_is_tapped_as_skipped() {
         }));
         let transport =
             SessionTransport::new(reader, frames, &[packet, next]).with_tap(Some(tap.clone()));
-        let mut session =
-            PlaySession::new(transport, cache, crate::login::startup::ready_fixture(1));
+        let mut session = PlaySession::new(transport, cache, 1, false);
         assert!(matches!(
             session.recv_world_event(0).await.unwrap(),
             WorldEvent::SetTime(_)

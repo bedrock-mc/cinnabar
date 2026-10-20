@@ -7,13 +7,12 @@ import (
 	"time"
 
 	"github.com/df-mc/go-xsapi/v2/xal/sisu"
-	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"golang.org/x/oauth2"
 )
 
 const (
-	xboxSignupTimeout = bridgecontract.AuthXboxSignupSeconds * time.Second
-	xboxSignupRetry   = bridgecontract.AuthXboxSignupRetrySeconds * time.Second
+	xboxSignupTimeout = 20 * time.Minute
+	xboxSignupRetry   = 3 * time.Second
 )
 
 // completeXboxSignIn offers Microsoft's hosted Xbox signup when the saved Microsoft account

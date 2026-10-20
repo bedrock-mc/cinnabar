@@ -110,8 +110,6 @@ impl Host {
                         skin: Some(skin),
                         settings: &settings,
                         tap: None,
-                        #[cfg(not(target_arch = "wasm32"))]
-                        relay: None,
                         target: Some(bridge::ConnectTarget::RakNet(address)),
                     },
                     join,

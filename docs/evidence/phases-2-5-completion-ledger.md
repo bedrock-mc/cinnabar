@@ -1,64 +1,5 @@
 # Phases 2-5 Completion Ledger
 
-## Native direct networking (in progress)
-
-Current native application all-target and browser WebAssembly checks pass. Fresh
-renderer-free Linux BDS joins over RakNet and directed NetherNet loaded an original
-resource pack, reached spawn, received terrain and closed. The accepted native
-TLS/WebSocket gateway also passes protocol-refusal, upload-pacing, original-deadline
-and channel-mismatch regressions. Its actual BDS join exercises the shared Rust web
-consumer through required-pack verification, spawn, terrain, play-owner handback
-and control cleanup. This is separate from real-browser rendering and live-account
-acceptance. Native app and gateway strict Clippy pass on the qualified snapshots;
-final review and current-base integration gates remain open.
-
-The optional native backend consumes reusable Login, pack and spawn negotiation
-and shared JSONC/archive handoffs. Cinnabar retains bounded CDN/cache I/O,
-installation and presentation. Owning protocol tests and strict protocol/host
-clippy pass, including service progress during incoming backpressure. Reusable
-networking and SDK candidates pass Linux/macOS/Windows/MSRV CI; pure protocol and
-client WebAssembly checks pass. Concrete friend/Messaging admission retains its
-membership through connection, loading and play on the existing runtime, with
-reserved cleanup capacity and retained network-terminal ownership. The owning
-session suite passes 119 tests; native app and owning-crate compiler checks pass.
-End-to-end account/signaling/cleanup acceptance and native friend UI qualification
-remain incomplete. Go stays the default. Real-account, broad
-server/device/network, performance and source-based parity gates remain open.
-
-Native negotiation passes23 owning tests and transport passes22, including
-early PlayerSpawn, original raw packet observations and held CDN/cache service
-progress. The target-specific resource-pack UUID correction passes its owning
-WebAssembly check. Full current-base browser, application and integration gates
-remain pending; no native default or broader compatibility gate closes.
-
-The unadvertised host directory and native account-lifetime presence owners pass
-the full 450-test host suite. Presence bridge and shell filters pass, including
-actual old-process retirement before policy replacement. Ambiguous updates retain
-the original cleanup authority even after a later successful removal. Live
-account/process handoff and advertised hosting remain unqualified. The complete
-isolated signed Dragonfly-world fixture passes actual Login, pack verification,
-spawn, terrain, a live post-startup radius response and original transport/process/
-membership cleanup. Its real process uses the existing Go world backend; it does
-not establish a live Xbox advertised host or native invitation acceptance.
-
-Native invite-picker controls pass the actual default RPC, missing-native-owner
-refusal, account retirement, terminal cancellation and protected post-artwork lease
-checks. The Go/Rust projection corpus and existing profile regressions pass, with
-strict host Clippy. Six anonymous Linux CPU Profile fallback pairs are byte-identical
-to the baseline renderer with the same fixture inputs and have been visually
-inspected. These captures establish no live native account or artwork-download
-acceptance. Codec cross-wire checks pass; comparative performance remains open.
-
-## Native protected checkpoint revisions (in progress)
-
-The native store binds opaque checkpoints to the selected account, exact OAuth
-record and SDK snapshot revision. Cross-process changes retire stale caches;
-credential dispatch suppresses active and saved cache reuse until publication.
-Proof and completed refresh survive cancellation, and the SDK still requires
-fresh policy/time admission. Owning checkpoint regressions and the pinned SDK's
-CI pass. Live-account restart acceptance, full application integration gates and
-remaining service coverage are incomplete; no account-release gate closes.
-
 This ledger records acceptance evidence, separately from feature implementation. An
 open gate does not mean its feature is absent. Older rows without evidence are not
 a current implementation audit; check the owning code and later entries before
@@ -691,7 +632,7 @@ JSON-UI banner controls draw ordered front-cloth layers from the active artwork.
 
 ## Protocol codec swap
 
-`protocol` uses protocolgen's pinned Git contract crate as its only codec; Valentine and its
+`protocol` uses protocolgen's vendored contract crate as its only codec; Valentine and its
 normalization machinery are gone. Packet routing and UI budgets derive from the generated packet
 table and field sites rather than hand-maintained ID lists. The ported tests have not been
 executed locally. No existing completion entry is advanced.

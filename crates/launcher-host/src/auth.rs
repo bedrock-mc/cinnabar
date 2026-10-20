@@ -23,8 +23,6 @@ const AUTH_SUCCESS_EXIT_GRACE: Duration = Duration::from_millis(500);
 
 use launcher::menu::auth::AuthState;
 
-#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-mod native;
 #[cfg(test)]
 mod signup_tests;
 
@@ -128,8 +126,6 @@ impl LineDecoder {
 
 #[derive(Debug)]
 pub struct AuthSupervisor {
-    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-    native: Option<native::NativeAuth>,
     child: Option<Spawned>,
     receiver: Receiver<ReaderMessage>,
     reader: Option<JoinHandle<()>>,
@@ -167,8 +163,6 @@ impl AuthSupervisor {
         let (sender, receiver) = bounded(EVENT_CAPACITY);
         let reader = thread::spawn(move || read_events(stdout, sender));
         Ok(Self {
-            #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-            native: None,
             child: Some(child),
             receiver,
             reader: Some(reader),
@@ -184,72 +178,11 @@ impl AuthSupervisor {
         })
     }
 
-    /// Starts native sign-in with the same presenter and asynchronous cleanup contract as the Go helper.
-    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-    pub fn spawn_native(
-        store: launcher::accounts::AccountStore,
-        device: std::path::PathBuf,
-        selected: Option<String>,
-        adding: bool,
-        runtime: tokio::runtime::Handle,
-        tasks: tokio_util::task::TaskTracker,
-    ) -> Result<Self> {
-        let native = native::NativeAuth::spawn(store, device, selected, adding, runtime, tasks)?;
-        Ok(Self::from_native(native))
-    }
-
-    /// Adapts one native worker to the presenter's existing supervisor contract.
-    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-    fn from_native(native: native::NativeAuth) -> Self {
-        let (_, receiver) = bounded(EVENT_CAPACITY);
-        Self {
-            native: Some(native),
-            child: None,
-            receiver,
-            reader: None,
-            state: AuthState::Checking,
-            terminal: false,
-            checking_seen: false,
-            reaped: Arc::new(AtomicBool::new(false)),
-            stream_ended: false,
-            child_exited: false,
-            cancel_requested: false,
-            success_exit_deadline: None,
-            success_cleanup_forced: false,
-        }
-    }
-
-    /// Moves native verified metadata and its pending transaction to the existing account mutation owner.
-    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-    pub fn take_native_profile(
-        &mut self,
-    ) -> Option<(
-        launcher::accounts::AccountProfile,
-        Option<launcher::accounts::pending::PendingSignIn>,
-    )> {
-        self.native.as_mut()?.take_profile()
-    }
-
-    /// Returns the native attempt generation for cancellation scoped to that attempt's pending files.
-    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-    pub fn native_attempt_generation(&self) -> Option<&str> {
-        Some(self.native.as_ref()?.generation())
-    }
-
     pub fn state(&self) -> &AuthState {
-        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-        if let Some(native) = &self.native {
-            return native.state();
-        }
         &self.state
     }
 
     pub fn poll(&mut self) {
-        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-        if let Some(native) = &mut self.native {
-            native.poll();
-            return;
-        }
         for _ in 0..EVENT_CAPACITY {
             match self.receiver.try_recv() {
                 Ok(ReaderMessage::Line(line)) if !self.cancel_requested => self.apply_line(&line),
@@ -334,11 +267,6 @@ impl AuthSupervisor {
     }
 
     pub fn request_cancel(&mut self) {
-        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-        if let Some(native) = &mut self.native {
-            native.cancel(false);
-            return;
-        }
         self.cancel_requested = true;
         if !self.terminal {
             self.state = AuthState::SignedOut;
@@ -351,11 +279,6 @@ impl AuthSupervisor {
 
     /// Explicit cancellation dismisses an error after preserving it during helper cleanup.
     pub fn cancel_prompt(&mut self) {
-        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-        if let Some(native) = &mut self.native {
-            native.cancel(true);
-            return;
-        }
         self.request_cancel();
         if matches!(self.state, AuthState::Failed(_)) {
             self.state = AuthState::SignedOut;
@@ -363,18 +286,10 @@ impl AuthSupervisor {
     }
 
     pub fn cleanup_handed_off(&self) -> bool {
-        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-        if let Some(native) = &self.native {
-            return native.complete();
-        }
         self.child.is_none() && self.reader.is_none()
     }
 
     pub fn cleanup_complete(&self) -> bool {
-        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-        if let Some(native) = &self.native {
-            return native.complete();
-        }
         self.reaped.load(Ordering::Acquire)
     }
 

@@ -1,6 +1,5 @@
 //! Receives web archive delivery at the same handoff boundary as native sessions.
 
-use bedrock_packs::ResourcePackHandoff;
 use std::{
     collections::VecDeque,
     future::Future,
@@ -21,7 +20,7 @@ use super::{
     session_join::{bridge_error, join_ended, next_message, send_connect},
 };
 use crate::{
-    GameData, ProtocolError,
+    GameData, ProtocolError, ResourcePackHandoff,
     session_transport::MAX_READ_AHEAD_BYTES,
     session_wire::{
         CoreMessage, HandoffPackReceiver, SessionHandoff, batch_frame_body, decode_core_message,

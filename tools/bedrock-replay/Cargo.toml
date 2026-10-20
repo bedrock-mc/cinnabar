@@ -12,7 +12,7 @@ reads = [
 ]
 
 [dependencies]
-bedrock-packs.workspace = true
+pack-json = { path = "../../crates/pack-json" }
 anyhow.workspace = true
 bridge = { path = "../../crates/bridge" }
 bytes.workspace = true

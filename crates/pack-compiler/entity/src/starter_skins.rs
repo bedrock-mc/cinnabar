@@ -258,7 +258,7 @@ fn pack_skin_geometry(pack: &Path) -> Result<String, String> {
     let mut modern = Vec::new();
     for (_, bytes) in crate::select_entity_geometry(documents) {
         let mut document: Map<String, Value> =
-            bedrock_packs::jsonc::parse_jsonc(&bytes).map_err(|error| error.to_string())?;
+            pack_json::parse_jsonc(&bytes).map_err(|error| error.to_string())?;
         if let Some(Value::Array(entries)) = document.remove("minecraft:geometry") {
             modern.extend(entries);
         } else {

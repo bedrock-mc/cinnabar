@@ -5,20 +5,19 @@ use std::sync::Mutex;
 use std::task::{Context, Poll, ready};
 
 use crate::packet_relay::{BatchWriter, PreparedBatch};
-use crate::session_transport::PacketWritten;
 use bedrock_protocol_1_26_51::{packets::PacketId, wire};
+use bridge::{BridgeError, FrameWritten};
 use bytes::Bytes;
 use simulation_clock::Moment;
 
 use super::PlaySession;
 use super::cache_status::SharedCacheStatus;
 use crate::{Packet, ProtocolError};
-use bedrock_client::spawn::SpawnReady;
 
 /// The write half of a play session: frames whole batches without borrowing the session.
 pub struct PlayOutbound {
     writer: BatchWriter,
-    pending_initialization: Option<SpawnReady>,
+    finish_loading: Vec<Packet>,
     cache_status: SharedCacheStatus,
     pending: VecDeque<PendingBatch>,
 }
@@ -27,7 +26,7 @@ pub struct PlayOutbound {
 mod tests;
 
 type PrepareFrame = Pin<Box<dyn Future<Output = Option<PreparedBatch>> + Send>>;
-type AcceptFrame = Pin<Box<dyn Future<Output = Result<PacketWritten, ProtocolError>> + Send>>;
+type AcceptFrame = Pin<Box<dyn Future<Output = Result<FrameWritten, BridgeError>> + Send>>;
 
 enum BatchState {
     Queued {
@@ -39,7 +38,7 @@ enum BatchState {
         batch: PreparedBatch,
         accepting: Option<Mutex<AcceptFrame>>,
     },
-    Written(PacketWritten),
+    Written(FrameWritten),
     Done,
 }
 
@@ -67,7 +66,7 @@ impl PendingBatch {
         writer: &BatchWriter,
         status: &SharedCacheStatus,
         cx: &mut Context<'_>,
-    ) -> Poll<Result<(), ProtocolError>> {
+    ) -> Poll<Result<(), BridgeError>> {
         let mut status = status.lock().expect("cache status lock");
         loop {
             match &mut self.state {
@@ -81,7 +80,7 @@ impl PendingBatch {
                         self.status_epoch = Some(status.epoch);
                         packets.push(Packet::new(packet));
                     }
-                    let Some(frame) = crate::session_transport::batch_body(packets) else {
+                    let Some(frame) = crate::session_transport::batch_frame(packets) else {
                         self.state = BatchState::Done;
                         continue;
                     };
@@ -107,19 +106,19 @@ impl PendingBatch {
                 }
                 BatchState::Prepared { batch, accepting } => {
                     if self.status_epoch.is_some_and(|epoch| epoch != status.epoch) {
-                        batch.body = without_cache_status(&batch.body)?;
+                        batch.frame = without_cache_status(&batch.frame)?;
                         self.status_epoch = None;
                         *accepting = None;
                     }
-                    if batch.body.is_empty() {
+                    if batch.frame.len() == 1 {
                         self.state = BatchState::Done;
                         continue;
                     }
                     if accepting.is_none() {
-                        let body = batch.body.clone();
+                        let frame = batch.frame.clone();
                         let writer = writer.clone();
                         *accepting = Some(Mutex::new(Box::pin(async move {
-                            writer.accept_prepared(body).await
+                            writer.accept_prepared(frame).await
                         })));
                     }
                     // Admission cannot suspend after committing its permit. Keep the epoch
@@ -143,16 +142,11 @@ impl PendingBatch {
 }
 
 /// Retires stale status entries while preserving the relay's other bytes and packet order.
-fn without_cache_status(frame: &Bytes) -> Result<Bytes, ProtocolError> {
-    let mut retained = Vec::new();
-    for entry in wire::Frames::new(frame.clone(), usize::MAX) {
-        let entry = entry.map_err(|_| {
-            ProtocolError::Bridge(
-                bridge::BridgeError::InvalidSessionMessage {
-                    reason: "malformed relayed outbound batch",
-                }
-                .into(),
-            )
+fn without_cache_status(frame: &Bytes) -> Result<Bytes, BridgeError> {
+    let mut retained = vec![bridge::contract::KIND_BATCH];
+    for entry in wire::Frames::new(frame.slice(1..), usize::MAX) {
+        let entry = entry.map_err(|_| BridgeError::InvalidSessionMessage {
+            reason: "malformed relayed outbound batch",
         })?;
         if entry.header().id != PacketId::ClientCacheBlobStatus as u32 {
             retained.extend_from_slice(entry.frame());
@@ -166,7 +160,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
     pub fn outbound(&mut self) -> Result<PlayOutbound, ProtocolError> {
         Ok(PlayOutbound {
             writer: self.transport.batch_writer(),
-            pending_initialization: self.pending_initialization.take(),
+            finish_loading: self.take_finish_loading_packets(),
             cache_status: self.cache_status.clone(),
             pending: VecDeque::new(),
         })
@@ -195,7 +189,7 @@ impl PlayOutbound {
                 let result = ready!(batch.poll(&self.writer, &self.cache_status, cx));
                 self.pending.pop_front();
                 if let Err(error) = result {
-                    return Poll::Ready(Err(error));
+                    return Poll::Ready(Err(ProtocolError::Bridge(error.into())));
                 }
             }
             Poll::Ready(Ok(()))
@@ -205,9 +199,6 @@ impl PlayOutbound {
 
     /// Takes the one-shot loading-end and initialization packets the session would send.
     pub fn take_finish_loading(&mut self) -> Vec<Packet> {
-        self.pending_initialization
-            .take()
-            .map(super::startup::loading_finished)
-            .unwrap_or_default()
+        std::mem::take(&mut self.finish_loading)
     }
 }

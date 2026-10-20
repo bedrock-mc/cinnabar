@@ -6,7 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-bedrock-packs.workspace = true
+pack-json = { path = "../pack-json" }
 assets = { path = "../assets" }
 render-model = { path = "../render-model" }
 bytemuck = { version = "1", features = ["derive"] }

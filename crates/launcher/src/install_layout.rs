@@ -2,9 +2,7 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 mod android;
-mod executables;
 pub use android::configure_android;
-use executables::{core_filename, local_server_filename};
 
 const APP_DIR: &str = crate::PRODUCT_NAME;
 
@@ -61,8 +59,6 @@ pub struct InstallLayout {
     pub compiled_assets: PathBuf,
     pub physics_registry: PathBuf,
     pub core_executable: PathBuf,
-    /// The Dragonfly integration executable, resolved independently of the legacy client.
-    pub local_server_executable: PathBuf,
     pub user_config_root: PathBuf,
     pub user_data_root: PathBuf,
     pub runtime_root: PathBuf,
@@ -90,7 +86,6 @@ impl InstallLayout {
                     .join("assets/compiled")
                     .join(assets::carriers::physics_registry_basename()),
                 core_executable: binary_dir.join(core_filename(platform)),
-                local_server_executable: binary_dir.join(local_server_filename(platform)),
                 user_config_root: config,
                 user_data_root: data,
                 runtime_root: runtime.clone(),
@@ -106,8 +101,11 @@ impl InstallLayout {
             .executable
             .parent()
             .ok_or(LayoutError::MissingExecutable)?;
-        let resource_root = match platform {
-            Platform::Windows => executable_dir.join("resources"),
+        let (resource_root, core_executable) = match platform {
+            Platform::Windows => (
+                executable_dir.join("resources"),
+                executable_dir.join(core_filename(platform)),
+            ),
             Platform::Linux => {
                 let prefix = executable_dir
                     .parent()
@@ -115,7 +113,10 @@ impl InstallLayout {
                     .ok_or_else(|| {
                         LayoutError::InvalidLinuxLayout(environment.executable.clone())
                     })?;
-                prefix.join("share/cinnabar")
+                (
+                    prefix.join("share/cinnabar"),
+                    executable_dir.join(core_filename(platform)),
+                )
             }
             Platform::MacOs => {
                 let contents = executable_dir
@@ -133,7 +134,10 @@ impl InstallLayout {
                     .ok_or_else(|| {
                         LayoutError::InvalidMacOsBundle(environment.executable.clone())
                     })?;
-                contents.join("Resources")
+                (
+                    contents.join("Resources"),
+                    executable_dir.join(core_filename(platform)),
+                )
             }
         };
         let (user_config_root, user_data_root, runtime_root) = user_roots(platform, environment)?;
@@ -143,8 +147,7 @@ impl InstallLayout {
                 .join("assets")
                 .join(assets::carriers::physics_registry_basename()),
             resource_root,
-            core_executable: executable_dir.join(core_filename(platform)),
-            local_server_executable: executable_dir.join(local_server_filename(platform)),
+            core_executable,
             user_config_root,
             user_data_root,
             transient_runtime_root: runtime_root.clone(),
@@ -559,6 +562,13 @@ fn absolute_for(platform: Platform, path: &Path) -> bool {
     }
 }
 
+const fn core_filename(platform: Platform) -> &'static str {
+    match platform {
+        Platform::Windows => "bedrock-core.exe",
+        Platform::Linux | Platform::MacOs => "bedrock-core",
+    }
+}
+
 const fn home_variable(platform: Platform) -> &'static str {
     match platform {
         Platform::Windows => "USERPROFILE",
@@ -763,10 +773,6 @@ mod tests {
             layout.resource_pack_cache_dir(),
             PathBuf::from("/work/cinnabar/.local/resource-packs/v1/objects")
         );
-        assert_eq!(
-            layout.local_server_executable,
-            PathBuf::from("/work/cinnabar/target/debug/bedrock-local-server")
-        );
     }
 
     #[test]
@@ -790,10 +796,6 @@ mod tests {
         assert_eq!(
             layout.resource_pack_cache_dir(),
             PathBuf::from("C:/Users/dev/AppData/Local/Cinnabar/resource-packs/v1/objects")
-        );
-        assert_eq!(
-            layout.local_server_executable,
-            PathBuf::from("C:/Program Files/Cinnabar/bedrock-local-server.exe")
         );
     }
 
@@ -820,10 +822,6 @@ mod tests {
             layout.resource_pack_cache_dir(),
             PathBuf::from("/data/cinnabar/resource-packs/v1/objects")
         );
-        assert_eq!(
-            layout.local_server_executable,
-            PathBuf::from("/opt/cinnabar/bin/bedrock-local-server")
-        );
     }
 
     #[test]
@@ -849,10 +847,6 @@ mod tests {
             PathBuf::from(
                 "/Users/dev/Library/Application Support/Cinnabar/resource-packs/v1/objects"
             )
-        );
-        assert_eq!(
-            layout.local_server_executable,
-            PathBuf::from("/Applications/Cinnabar.app/Contents/MacOS/bedrock-local-server")
         );
     }
 

@@ -1,5 +1,5 @@
 //! The disk tier: one directory of downloaded images per surface, named by the SHA-256 of
-//! their URL (or validated service content) and evicted least recently used beyond the surface's bounds.
+//! their URL and evicted least recently used beyond the surface's file and byte bounds.
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -155,30 +155,6 @@ impl ImageDirectory {
     /// The file already cached for `url`, without touching the network.
     pub fn cached_path(&self, url: &str) -> Option<PathBuf> {
         self.cached(&self.stem(url)?)
-    }
-
-    /// Decodes bounded authenticated service bytes before publishing them by content hash.
-    /// This performs no network I/O and uses the directory's existing atomic publication and quota.
-    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-    pub(crate) fn store_service_image(&self, body: &[u8]) -> Option<PathBuf> {
-        if body.is_empty() || body.len() > self.0.surface.max_bytes {
-            return None;
-        }
-        let extension = image_extension(body)?;
-        let mut reader = image::ImageReader::new(std::io::Cursor::new(body))
-            .with_guessed_format()
-            .ok()?;
-        let mut limits = image::Limits::default();
-        limits.max_alloc = Some(self.0.surface.max_bytes as u64);
-        reader.limits(limits);
-        let decoded = reader.decode().ok()?;
-        if decoded.width() == 0 || decoded.height() == 0 {
-            return None;
-        }
-        drop(decoded);
-        let stem = self.0.dir.join(hex(&Sha256::digest(body)));
-        self.store(&stem, self.0.surface.extension.unwrap_or(extension), body)
-            .filter(|path| path.is_file())
     }
 
     /// Whether `url` failed within [`RETRY_AFTER`], so fetching it now would return `None`.
@@ -385,6 +361,3 @@ fn create_private_file(path: &Path) -> std::io::Result<fs::File> {
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(all(test, feature = "native-networking", not(target_arch = "wasm32")))]
-mod service_image_tests;

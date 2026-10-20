@@ -9,8 +9,7 @@ use std::{
 use developer_control::{
     camera::CameraPath,
     protocol::{
-        Command, Condition, GlobalPackAction, InputCommand, NativeFriendChoice, RecordSettings,
-        SignInFixtureState,
+        Command, Condition, GlobalPackAction, InputCommand, RecordSettings, SignInFixtureState,
     },
 };
 use serde_json::{Value, json};
@@ -116,29 +115,6 @@ pub fn command(
             }
             let Packs { action } = parse(arguments, "global packs")?;
             (Command::GlobalPacks { action }, CALL_TIMEOUT)
-        }
-        "native_friends" => {
-            if !arguments.is_object() {
-                return Err("native friends expects an object".into());
-            }
-            #[derive(serde::Deserialize)]
-            #[serde(deny_unknown_fields)]
-            struct Friends {
-                join: Option<NativeFriendChoice>,
-                #[serde(default)]
-                allow_remote: bool,
-            }
-            let Friends { join, allow_remote } = parse(arguments, "native friends")?;
-            if join.is_some() && !allow_remote {
-                return Err("native friend joins use the selected account; pass allow_remote for an authorized join".into());
-            }
-            (Command::NativeFriends { join }, CALL_TIMEOUT)
-        }
-        "disconnect" => {
-            if !arguments.as_object().is_some_and(serde_json::Map::is_empty) {
-                return Err("disconnect expects an empty object".into());
-            }
-            (Command::Disconnect, CALL_TIMEOUT)
         }
         "log_filter_set" => {
             #[derive(serde::Deserialize)]

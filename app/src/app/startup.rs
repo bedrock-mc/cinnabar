@@ -467,14 +467,6 @@ pub(super) fn bind_direct_session_directory(
     args: &args::ClientArgs,
     socket_dir: std::path::PathBuf,
 ) -> Result<ScopedSessionDirectory> {
-    if args.address.is_some()
-        && args
-            .session_endpoint(socket_dir.clone())?
-            .core_directory()
-            .is_none()
-    {
-        return Ok(ScopedSessionDirectory::none());
-    }
     if args.address.is_some() && !args.socket_dir_explicit {
         return ScopedSessionDirectory::bind(socket_dir.clone()).with_context(|| {
             format!(

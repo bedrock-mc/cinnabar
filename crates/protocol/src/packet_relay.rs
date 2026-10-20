@@ -1,10 +1,9 @@
-//! An optional trusted relay between the session and its upstream connection. It sees every batch body, in the
+//! An optional trusted relay between the session and the core. It sees every batch body, in the
 //! session contract's batch form, before decoding and after encoding, and may inject its own.
 
-use crate::ProtocolError;
 use crate::packet_tap::PacketTap;
-use crate::session_transport::{PacketSender, PacketWritten};
 use crate::session_wire::SessionIdentity;
+use bridge::{BridgeError, FrameQueue, FrameWritten};
 use bytes::{BufMut, Bytes, BytesMut};
 use std::{
     sync::{
@@ -50,7 +49,12 @@ pub trait PacketRelay: Send + Sync {
     fn stop(&self);
 }
 
-use bedrock_packs::RelayPack;
+/// A resource pack archive the relay adds to the session.
+pub struct RelayPack {
+    pub archive: Vec<u8>,
+    /// Applies above the server's packs rather than below them.
+    pub above_server: bool,
+}
 
 /// Batch bodies a relay sends on its own; an empty body sends nothing.
 #[derive(Default)]
@@ -90,25 +94,25 @@ impl Shared {
     }
 }
 
-/// A relay's final body, retaining its write-order gate until queue admission.
+/// A relay's final frame, retaining its write-order gate until queue admission.
 pub(crate) struct PreparedBatch {
-    pub(crate) body: Bytes,
+    pub(crate) frame: Bytes,
     _gate: Option<OwnedMutexGuard<()>>,
 }
 
-/// Writes whole client batch bodies to the original connection, through its optional relay.
+/// Writes whole client batch frames to the core, through the relay when one is set.
 #[derive(Clone)]
 pub(crate) struct BatchWriter {
-    sender: PacketSender,
+    frames: FrameQueue,
     relay: Option<Arc<Shared>>,
     tap: Option<Arc<dyn PacketTap>>,
 }
 
 impl BatchWriter {
-    /// A writer without a relay; bodies go straight to the original packet FIFO.
-    pub(crate) fn direct(sender: PacketSender) -> Self {
+    /// A writer without a relay; frames go straight to the queue.
+    pub(crate) fn direct(frames: FrameQueue) -> Self {
         Self {
-            sender,
+            frames,
             relay: None,
             tap: None,
         }
@@ -121,82 +125,80 @@ impl BatchWriter {
     }
 
     /// Records the final batch body, including batches injected by the relay.
-    fn record(&self, body: &Bytes) {
+    fn record(&self, frame: &Bytes) {
         if let Some(tap) = &self.tap {
-            crate::packet_tap::record_serverbound_body(tap.as_ref(), body);
+            crate::packet_tap::record_serverbound(tap.as_ref(), frame);
         }
     }
 
-    /// The original connection's packet FIFO, including its native admission policy.
-    pub(crate) fn sender(&self) -> &PacketSender {
-        &self.sender
+    /// The core connection's frame queue.
+    #[cfg(any(test, not(target_arch = "wasm32")))]
+    pub(crate) fn queue(&self) -> FrameQueue {
+        self.frames.clone()
     }
 
-    /// Writes one body after every body accepted before it and resolves once flushed.
+    /// Writes one Batch frame after every frame accepted before it and resolves once flushed.
     /// A relay sees its body first; a batch it drops resolves at once.
-    pub(crate) async fn send(&self, body: Bytes) -> Result<(), ProtocolError> {
-        if let Some(written) = self.accept(body).await? {
+    pub(crate) async fn send(&self, frame: Bytes) -> Result<(), BridgeError> {
+        if let Some(written) = self.accept(frame).await? {
             written.await?;
         }
         Ok(())
     }
 
     /// Accepts one final frame and records it once, retaining the flush ticket across cancellation.
-    pub(crate) async fn accept(&self, body: Bytes) -> Result<Option<PacketWritten>, ProtocolError> {
-        let Some(prepared) = self.prepare(body).await else {
+    pub(crate) async fn accept(&self, frame: Bytes) -> Result<Option<FrameWritten>, BridgeError> {
+        let Some(prepared) = self.prepare(frame).await else {
             return Ok(None);
         };
-        self.accept_prepared(prepared.body.clone()).await.map(Some)
+        self.accept_prepared(prepared.frame.clone()).await.map(Some)
     }
 
     /// Runs the relay once, keeping its replacement and FIFO gate separate from capacity waits.
-    pub(crate) async fn prepare(&self, body: Bytes) -> Option<PreparedBatch> {
+    pub(crate) async fn prepare(&self, frame: Bytes) -> Option<PreparedBatch> {
         let Some(shared) = &self.relay else {
-            return Some(PreparedBatch { body, _gate: None });
+            return Some(PreparedBatch { frame, _gate: None });
         };
         let gate = Arc::clone(&shared.gate).lock_owned().await;
         if !shared.active.load(Ordering::Acquire) {
             return Some(PreparedBatch {
-                body,
+                frame,
                 _gate: Some(gate),
             });
         }
-        let body = match shared.relay.outbound(&body) {
-            None => body,
-            Some(replacement) => {
-                let replacement = Bytes::from(replacement);
-                if !shared.valid(replacement.clone()) {
-                    body
-                } else if replacement.is_empty() {
+        let frame = match shared.relay.outbound(&frame[1..]) {
+            None => frame,
+            Some(body) => {
+                let body = Bytes::from(body);
+                if !shared.valid(body.clone()) {
+                    frame
+                } else if body.is_empty() {
                     return None;
                 } else {
-                    replacement
+                    batch_frame_from_body(&body)
                 }
             }
         };
         Some(PreparedBatch {
-            body,
+            frame,
             _gate: Some(gate),
         })
     }
 
     /// Admits and records already relayed bytes without invoking the guest again.
-    pub(crate) async fn accept_prepared(
-        &self,
-        body: Bytes,
-    ) -> Result<PacketWritten, ProtocolError> {
-        let written = self.sender.accept(body.clone()).await?;
-        self.record(&body);
+    pub(crate) async fn accept_prepared(&self, frame: Bytes) -> Result<FrameWritten, BridgeError> {
+        let written = self.frames.accept(frame.clone()).await?;
+        self.record(&frame);
         Ok(written)
     }
 
     /// Accepts a relay's own server-bound body in write order, without relaying it again.
     #[cfg(not(target_arch = "wasm32"))]
-    async fn inject(&self, shared: &Shared, body: &[u8]) -> Result<(), ProtocolError> {
+    async fn inject(&self, shared: &Shared, body: &[u8]) -> Result<(), BridgeError> {
         let _gate = shared.gate.lock().await;
-        let body = Bytes::copy_from_slice(body);
-        self.sender.accept(body.clone()).await?;
-        self.record(&body);
+        let frame = batch_frame_from_body(body);
+        self.frames.accept(frame.clone()).await?;
+        self.record(&frame);
         Ok(())
     }
 }
@@ -209,11 +211,11 @@ pub(crate) struct RelayLink {
 }
 
 impl RelayLink {
-    /// Starts timed work on the current runtime and routes the original sender through the relay.
+    /// Starts the tick task on the current runtime and routes `frames` through the relay.
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn start(
         relay: Arc<dyn PacketRelay>,
-        sender: PacketSender,
+        frames: FrameQueue,
         tap: Option<Arc<dyn PacketTap>>,
     ) -> (Self, BatchWriter) {
         let shared = Arc::new(Shared {
@@ -222,7 +224,7 @@ impl RelayLink {
             active: AtomicBool::new(true),
         });
         let writer = BatchWriter {
-            sender,
+            frames,
             relay: Some(Arc::clone(&shared)),
             tap,
         };
@@ -320,6 +322,14 @@ pub(crate) fn put_entry(body: &mut BytesMut, packet: &[u8]) {
     }
     body.put_u8(length as u8);
     body.extend_from_slice(packet);
+}
+
+/// One Batch frame carrying `body`.
+fn batch_frame_from_body(body: &[u8]) -> Bytes {
+    let mut frame = Vec::with_capacity(body.len() + 1);
+    frame.push(bridge::contract::KIND_BATCH);
+    frame.extend_from_slice(body);
+    frame.into()
 }
 
 #[cfg(all(test, unix))]

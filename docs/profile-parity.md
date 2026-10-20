@@ -117,7 +117,7 @@ featured-image, statistics and achievement failures finish their own inputs.
 Permissions are still not a separate transported facet; privacy/offline error
 classification remains incomplete as recorded in `plan.md`.
 
-The default Go backend owns an account control core in every startup mode, including direct-address
+Every startup mode owns an account control core, including direct-address
 and external-socket runs. Direct remote sessions retain their separate game
 core; local worlds use the core that opened them, even after a direct-startup
 session returns Home. Account sign-in cannot restart a core serving a local
@@ -134,10 +134,7 @@ diagnostics are limited to one per 15 seconds.
 
 ## Account service transport
 
-Native mode uses its selected Rust account and the existing Profile presentation state without
-an account control Core. The transport details below describe the default Go backend.
-
-The default backend's Profile requests use the Go core's existing authenticated Xbox HTTP client.
+All Profile requests use the Go core's existing authenticated Xbox HTTP client.
 Rust receives display data through `profile.v1`, never account credentials.
 Statistics use gophertunnel's typed Profile API. Its Xbox batch reader owns the
 statistic names, service configurations, request body, headers and response decoding;

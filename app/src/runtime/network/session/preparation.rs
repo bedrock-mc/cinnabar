@@ -16,7 +16,7 @@ impl Preparation {
     /// Compiles one join against its captured carriers, abandoning superseded work.
     pub(crate) fn run(
         self,
-        handoff: bedrock_packs::ResourcePackHandoff,
+        handoff: protocol::ResourcePackHandoff,
         game_data: &protocol::GameData,
         cancelled: &(dyn Fn() -> bool + Sync),
     ) -> Option<Result<client_session::PreparedSession<PackApplication>, String>> {

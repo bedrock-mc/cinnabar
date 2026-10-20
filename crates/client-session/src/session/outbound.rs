@@ -67,7 +67,6 @@ pub(super) struct OutboundRuntime<O, P, F, W> {
     pub(super) trace_line: F,
     pub(super) write_trace: W,
     pub(super) fast_transfer_action_marker: Option<&'static str>,
-    pub(super) terminal: Arc<TerminalOwner>,
 }
 
 struct QueuedPacket {
@@ -128,7 +127,6 @@ where
         mut trace_line,
         mut write_trace,
         fast_transfer_action_marker,
-        terminal,
     } = runtime;
     let mut frame = Vec::new();
     let clock_origin = Instant::now();
@@ -183,7 +181,6 @@ where
                 &experience_gate,
                 (&mut trace_line, &mut write_trace),
                 fast_transfer_action_marker,
-                &terminal,
             )
             .await;
             match flushed {
@@ -218,7 +215,6 @@ async fn flush_frame<O, P, F, W>(
     experience_gate: &experience::ExperienceGate,
     (trace_line, write_trace): (&mut F, &mut W),
     fast_transfer_action_marker: Option<&'static str>,
-    terminal: &TerminalOwner,
 ) -> Flush
 where
     O: OutboundSession,
@@ -293,16 +289,11 @@ where
     let now = opportunity.map(|origin| simulation_clock::Moment::from_elapsed(origin.elapsed()));
     match wait_for_send_or_cancel(outbound.send_batch(packets, now), shutdown_rx).await {
         None => Flush::Stopped,
-        Some(Err(error)) => {
-            if !terminal.network() {
-                return Flush::Stopped;
-            }
-            Flush::Failed(FlushFailure {
-                message: error.to_string(),
-                chats: receipts.iter().filter_map(|receipt| receipt.chat).collect(),
-                trace_armed,
-            })
-        }
+        Some(Err(error)) => Flush::Failed(FlushFailure {
+            message: error.to_string(),
+            chats: receipts.iter().filter_map(|receipt| receipt.chat).collect(),
+            trace_armed,
+        }),
         Some(Ok(())) => {
             if let Some((trace, begun, count, tick)) = traced {
                 trace.record(

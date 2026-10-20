@@ -14,10 +14,8 @@ reads = [
 
 [features]
 test-support = []
-native-networking = ["dep:bedrock-services", "dep:p384", "dep:rand", "dep:uuid", "dep:zeroize", "dep:base64", "dep:image", "bedrock-services/signaling-tokio", "dep:bedrock-net", "dep:bedrock-client", "dep:nethernet-tokio", "dep:bytes", "dep:raknet", "dep:futures", "dep:tokio-websockets", "dep:tokio-rustls", "dep:webpki-roots", "dep:httpdate", "protocol/native-networking"]
 
 [dependencies]
-bedrock-packs.workspace = true
 cosmetics = { path = "../cosmetics" }
 anyhow.workspace = true
 bridge = { path = "../bridge" }
@@ -30,7 +28,6 @@ memmap2 = "0.9"
 minidumper = "0.11"
 resource-pack = { path = "../resource-pack" }
 getrandom = "0.3"
-image = { workspace = true, optional = true }
 protocol = { path = "../protocol" }
 tempfile = "3"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
@@ -39,40 +36,13 @@ serde_json = "1"
 server-experience = { path = "../server-experience" }
 sha2.workspace = true
 thiserror.workspace = true
-time = { version = "0.3", default-features = false, features = ["std", "formatting", "parsing"] }
+time = { version = "0.3", default-features = false, features = ["std"] }
 tokio.workspace = true
-tokio-util = { workspace = true, features = ["rt"] }
 tracing.workspace = true
 update-installer = { path = "../update-installer" }
 update-manifest = { path = "../update-manifest" }
 url = "2"
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-raknet = { workspace = true, optional = true }
-futures = { workspace = true, optional = true }
-bedrock-client = { workspace = true, optional = true }
-nethernet-tokio = { workspace = true, optional = true }
-bytes = { workspace = true, optional = true }
-tokio-websockets = { version = "0.13", default-features = false, features = ["client", "rustls-bring-your-own-connector", "aws_lc_rs", "getrandom"], optional = true }
-tokio-rustls = { version = "0.26", default-features = false, features = ["aws_lc_rs", "tls12"], optional = true }
-webpki-roots = { version = "1", optional = true }
-httpdate = { version = "1", optional = true }
-bedrock-net = { workspace = true, features = ["messaging"], optional = true }
-bedrock-services = { workspace = true, features = ["rta-tokio"], optional = true }
-p384 = { version = "0.14", default-features = false, features = ["std", "ecdsa", "pkcs8"], optional = true }
-rand = { version = "0.10", optional = true }
-uuid = { workspace = true, features = ["v4", "v5", "serde"], optional = true }
-zeroize = { version = "1", optional = true }
-base64 = { version = "0.22", optional = true }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-rsa = { workspace = true, features = ["encoding"] }
-tokio-websockets = { version = "0.13", default-features = false, features = ["server", "aws_lc_rs"] }
-bedrock-services = { workspace = true, features = ["test-support"] }
-nethernet.workspace = true
-protocol = { path = "../protocol", features = ["test-support"] }
-tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

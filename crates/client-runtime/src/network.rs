@@ -20,7 +20,6 @@ pub struct NetworkHandle<P: Send + Sync + 'static> {
     inner: client_session::NetworkHandle<P>,
     pending_world_ingress: VecDeque<client_session::WorldIngress>,
     core_socket_dir: Option<PathBuf>, // Set only while a joined session is live.
-    connected: bool,
     join_profile: bridge::join_profile::JoinProfile,
 }
 
@@ -30,7 +29,6 @@ impl<P: Send + Sync + 'static> From<client_session::NetworkHandle<P>> for Networ
             inner,
             pending_world_ingress: VecDeque::new(),
             core_socket_dir: None,
-            connected: false,
             join_profile: bridge::join_profile::JoinProfile::current(),
         }
     }
@@ -61,7 +59,6 @@ impl<P: Send + Sync + 'static> NetworkHandle<P> {
     pub fn connected(inner: client_session::NetworkHandle<P>, socket_dir: PathBuf) -> Self {
         let mut handle = Self::from(inner);
         handle.core_socket_dir = Some(socket_dir);
-        handle.connected = true;
         handle
     }
 
@@ -75,18 +72,9 @@ impl<P: Send + Sync + 'static> NetworkHandle<P> {
         self.core_socket_dir.as_deref()
     }
 
-    /// Adopts a native session with no Go control endpoint.
-    pub fn native(inner: client_session::NetworkHandle<P>) -> Self {
-        Self {
-            connected: true,
-            ..Self::from(inner)
-        }
-    }
-
     /// Retires the control endpoint and stops the owned network worker.
     pub fn shutdown(&mut self) {
         self.core_socket_dir = None;
-        self.connected = false;
         self.inner.shutdown();
     }
 
@@ -165,7 +153,7 @@ fn advance_network_simulation<P: Send + Sync + 'static>(
     network: Option<Res<NetworkHandle<P>>>,
 ) {
     if let (Some(time), Some(network)) = (time, network)
-        && network.connected
+        && network.core_socket_dir.is_some()
     {
         network.advance_simulation(time.delta());
     }

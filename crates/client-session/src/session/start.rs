@@ -2,20 +2,11 @@ use super::*;
 use simulation_clock::identity::PositionAuthorityGeneration;
 
 #[cfg(not(target_arch = "wasm32"))]
-mod companion;
-#[cfg(not(target_arch = "wasm32"))]
 mod native;
 #[cfg(not(target_arch = "wasm32"))]
-pub use companion::SessionCompanion;
-#[cfg(not(target_arch = "wasm32"))]
 pub use native::spawn_network;
-#[cfg(not(target_arch = "wasm32"))]
-pub use native::spawn_network_with_companion;
 #[cfg(test)]
 use native::{run_session_runtime, unless_cancelled};
-#[cfg(test)]
-#[path = "start/observation_tests.rs"]
-mod observation_tests;
 
 /// Shared login result carrying startup facts and the presentation owner's prepared payload.
 pub type PreparedLogin<R, P> = Result<
@@ -57,10 +48,6 @@ struct NetworkChannels<P> {
     shutdown_rx: watch::Receiver<bool>,
     readiness_ingress: Arc<ReadinessIngressCounter>,
     experience_gate: Arc<experience::ExperienceGate>,
-    terminal: Arc<TerminalOwner>,
-    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-    packet_delay: packet_delay::Control,
-    connection_observation: observation::Observation,
 }
 
 /// Allocates the same bounded FIFOs for native threads and local browser tasks.
@@ -75,9 +62,6 @@ fn network_channels<P>(
     let (shutdown, shutdown_rx) = watch::channel(false);
     let readiness_ingress = Arc::new(ReadinessIngressCounter::default());
     let experience_gate = Arc::new(experience::ExperienceGate::default());
-    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-    let packet_delay = packet_delay::Control::default();
-    let connection_observation = observation::Observation::default();
     let channels = NetworkChannels {
         session_generation,
         control_event_tx,
@@ -86,10 +70,6 @@ fn network_channels<P>(
         shutdown_rx,
         readiness_ingress: Arc::clone(&readiness_ingress),
         experience_gate: Arc::clone(&experience_gate),
-        terminal: Arc::default(),
-        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-        packet_delay: packet_delay.clone(),
-        connection_observation: connection_observation.clone(),
     };
     let handle = NetworkHandle {
         session_generation: session_generation.get(),
@@ -102,10 +82,7 @@ fn network_channels<P>(
         thread: None,
         readiness_ingress,
         experience_gate,
-        connection_observation,
         unflushed: Default::default(),
-        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-        packet_delay,
     };
     (handle, channels)
 }
@@ -127,10 +104,6 @@ impl<P: Send + 'static> NetworkChannels<P> {
             mut shutdown_rx,
             readiness_ingress: network_readiness_ingress,
             experience_gate: network_experience_gate,
-            terminal,
-            #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-            packet_delay,
-            connection_observation,
         } = self;
         let Some(login) =
             wait_for_login_or_cancel(login(shutdown_rx.clone()), &mut shutdown_rx).await
@@ -140,9 +113,6 @@ impl<P: Send + 'static> NetworkChannels<P> {
         let (session, (game_data, packs)) = match login {
             Ok(connected) => connected,
             Err(error) => {
-                if !terminal.network() {
-                    return;
-                }
                 send_login_error(&control_event_tx, &mut shutdown_rx, error).await;
                 return;
             }
@@ -155,9 +125,6 @@ impl<P: Send + 'static> NetworkChannels<P> {
             None => return,
             Some(Ok(packs)) => packs,
             Some(Err(error)) => {
-                if !terminal.network() {
-                    return;
-                }
                 send_startup_failure(&control_event_tx, &mut shutdown_rx, error, None).await;
                 return;
             }
@@ -168,18 +135,11 @@ impl<P: Send + 'static> NetworkChannels<P> {
             packs,
         } = packs;
         let bootstrap = game_data.world;
-        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-        let _packet_delay = packet_delay.install(session.packet_delay());
-        let _observation = connection_observation
-            .install(bootstrap.local_player_runtime_id, session.observe_rtt());
         let settings = &game_data.settings;
         let inventory = start_game_inventory_authority(&game_data);
         let item_registry = match start_game_item_registry(&game_data) {
             Ok(registry) => registry,
             Err(error) => {
-                if !terminal.network() {
-                    return;
-                }
                 send_startup_failure(&control_event_tx, &mut shutdown_rx, error, None).await;
                 return;
             }
@@ -225,7 +185,6 @@ impl<P: Send + 'static> NetworkChannels<P> {
                 control_event_tx,
                 world_event_tx,
                 shutdown_rx,
-                terminal,
                 (network_readiness_ingress, network_experience_gate),
                 observation,
                 executor.clone(),
@@ -356,9 +315,8 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        let executor = runtime.handle().clone();
         let thread = thread::spawn(move || {
-            run_session_runtime(&executor, async move {
+            run_session_runtime(runtime, async move {
                 let join = tokio::task::spawn_blocking(move || blocked.recv().is_ok());
                 let prepared = wait_for_login_or_cancel(join, &mut shutdown_rx).await;
                 assert!(prepared.is_none());
@@ -370,51 +328,6 @@ mod tests {
         let _ = release.send(());
         thread.join().unwrap();
         ended.expect("the network thread outlived its cancelled preparation");
-        runtime.shutdown_background();
-    }
-
-    #[test]
-    fn ending_one_session_keeps_the_shared_reactor_alive() {
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1)
-            .enable_all()
-            .build()
-            .unwrap();
-        let (session, unrelated, peer) = runtime.block_on(async {
-            (
-                tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap(),
-                tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap(),
-                tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap(),
-            )
-        });
-        let address = session.local_addr().unwrap();
-        let executor = runtime.handle().clone();
-        let worker = thread::spawn(move || {
-            run_session_runtime(&executor, async {
-                let mut bytes = [0];
-                tokio::time::timeout(std::time::Duration::from_secs(5), session.recv(&mut bytes))
-                    .await
-                    .unwrap()
-                    .unwrap();
-            });
-        });
-        runtime.block_on(peer.send_to(&[1], address)).unwrap();
-        worker.join().unwrap();
-        runtime.block_on(async {
-            peer.send_to(&[2], unrelated.local_addr().unwrap())
-                .await
-                .unwrap();
-            let mut bytes = [0];
-            let length = tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                unrelated.recv(&mut bytes),
-            )
-            .await
-            .unwrap()
-            .unwrap();
-            assert_eq!(&bytes[..length], &[2]);
-        });
-        runtime.shutdown_background();
     }
 
     // Shutdown must not wait on the watch channel while a compile is running.

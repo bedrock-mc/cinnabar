@@ -57,203 +57,8 @@ fn deflated_zip_file(path: &str, bytes: &[u8]) -> Vec<u8> {
 }
 
 fn validate_fixture(bytes: Vec<u8>, selected: &str) -> Result<ValidatedPack, AdmissionError> {
-    validate_archive_parts(
-        PACK_ID,
-        "1.2.3",
-        selected,
-        bytes,
-        None,
-        None,
-        Purpose::Rendering,
-    )
-    .map(|(pack, _, _)| pack)
+    validate_archive_parts(PACK_ID, "1.2.3", selected, bytes, None, None).map(|(pack, _)| pack)
 }
-
-/// Acquisition may retain opaque archives that the original rendering owner still refuses.
-fn verify_opaque_identity(module: &str) {
-    let manifest =
-        manifest("").replace(r#""type": "resources""#, &format!(r#""type": "{module}""#));
-    let archive = zip_files(&[("manifest.json", manifest.as_bytes())]);
-    assert_eq!(
-        validate_fixture(archive.clone(), "").err(),
-        Some(AdmissionError::InvalidModules),
-        "opaque {module} content must remain unavailable as a rendering layer"
-    );
-    assert!(
-        verify_archive_identity(&archive, PACK_ID, "1.2.3").is_ok(),
-        "valid opaque {module} archive must complete acquisition without rendering admission"
-    );
-}
-
-#[test]
-fn opaque_identity_keeps_behavior_archives_separate_from_rendering() {
-    verify_opaque_identity("data");
-}
-
-#[test]
-fn opaque_identity_keeps_client_data_archives_separate_from_rendering() {
-    verify_opaque_identity("client_data");
-}
-
-#[test]
-fn opaque_identity_keeps_skin_archives_separate_from_rendering() {
-    verify_opaque_identity("skin_pack");
-}
-
-/// Reuses the original matching manifest and ZIP writer with one explicit modules shape.
-fn archive_with_modules(modules: Option<serde_json::Value>) -> Vec<u8> {
-    let mut root: serde_json::Value =
-        bedrock_packs::jsonc::parse_jsonc_lenient(manifest("").as_bytes()).unwrap();
-    let object = root.as_object_mut().expect("fixture manifest object");
-    if let Some(modules) = modules {
-        let _ = object.insert("modules".into(), modules);
-    } else {
-        let _ = object.remove("modules");
-    }
-    let bytes = serde_json::to_vec(&root).unwrap();
-    zip_files(&[("manifest.json", &bytes)])
-}
-
-#[test]
-fn opaque_module_shapes_preserve_null_defaults_and_unknown_strings() {
-    use serde_json::json;
-    for (modules, expected) in [
-        (None, ArchiveKind::Skins),
-        (Some(json!(null)), ArchiveKind::Skins),
-        (Some(json!([])), ArchiveKind::Skins),
-        (Some(json!([null])), ArchiveKind::Skins),
-        (Some(json!([{}])), ArchiveKind::Skins),
-        (Some(json!([{"type": null}])), ArchiveKind::Skins),
-        (
-            Some(json!([{"type": "future_module", "unused": {"value": true}}])),
-            ArchiveKind::Skins,
-        ),
-        (Some(json!([null, {"type": "data"}])), ArchiveKind::Behavior),
-    ] {
-        let archive = archive_with_modules(modules.clone());
-        assert_eq!(
-            validate_fixture(archive.clone(), "").err(),
-            Some(AdmissionError::InvalidModules)
-        );
-        assert_eq!(
-            verify_archive_identity(&archive, PACK_ID, "1.2.3"),
-            Ok(expected),
-            "valid module defaults were rejected: {modules:?}"
-        );
-    }
-}
-
-#[test]
-fn opaque_module_shapes_reject_wrong_containers_elements_and_types() {
-    use serde_json::json;
-    for modules in [
-        json!("bad"),
-        json!({}),
-        json!(false),
-        json!(1),
-        json!(["bad"]),
-        json!([[]]),
-        json!([false]),
-        json!([1]),
-        json!([{"type": false}]),
-        json!([{"type": 1}]),
-        json!([{"type": []}]),
-        json!([{"type": {}}]),
-        json!([{"type": "data"}, {"type": false}]),
-    ] {
-        let archive = archive_with_modules(Some(modules.clone()));
-        assert_eq!(
-            validate_fixture(archive.clone(), "").err(),
-            Some(AdmissionError::InvalidModules)
-        );
-        assert!(
-            verify_archive_identity(&archive, PACK_ID, "1.2.3").is_err(),
-            "malformed modules reached opaque delivery classification: {modules}"
-        );
-    }
-}
-
-#[test]
-fn archive_delivery_kind_uses_the_same_admitted_manifest_and_member_priority() {
-    for (module, member, expected) in [
-        (None, None, ArchiveKind::Resources),
-        (Some("data"), None, ArchiveKind::Addon),
-        (Some("client_data"), None, ArchiveKind::Addon),
-        (Some("script"), None, ArchiveKind::Resources),
-        (
-            Some("data"),
-            Some("world/level.dat"),
-            ArchiveKind::WorldTemplate,
-        ),
-        (Some("data"), Some("../level.dat"), ArchiveKind::Addon),
-    ] {
-        let mut manifest = manifest("");
-        if let Some(module) = module {
-            manifest = manifest.replace(
-                r#""type": "resources","#,
-                &format!(r#""type": "resources"}}, {{"type": "{module}","#),
-            );
-        }
-        let mut files = vec![("manifest.json", manifest.as_bytes())];
-        if let Some(path) = member {
-            files.push((path, b"original world metadata"));
-        }
-        assert_eq!(
-            verify_archive_identity(&zip_files(&files), PACK_ID, "1.2.3"),
-            Ok(expected)
-        );
-    }
-}
-
-#[test]
-fn opaque_archive_kinds_keep_the_original_delivery_priority() {
-    for (module, member, expected) in [
-        ("data", None, ArchiveKind::Behavior),
-        ("client_data", None, ArchiveKind::Behavior),
-        ("skin_pack", None, ArchiveKind::Skins),
-        ("script", None, ArchiveKind::Skins),
-        ("data", Some("world/level.dat"), ArchiveKind::WorldTemplate),
-        ("data", Some("../level.dat"), ArchiveKind::Behavior),
-    ] {
-        let manifest =
-            manifest("").replace(r#""type": "resources""#, &format!(r#""type": "{module}""#));
-        let mut files = vec![("manifest.json", manifest.as_bytes())];
-        if let Some(member) = member {
-            files.push((member, b"original world metadata"));
-        }
-        let bytes = zip_files(&files);
-        assert_eq!(
-            verify_archive_identity(&bytes, PACK_ID, "1.2.3"),
-            Ok(expected)
-        );
-        assert_eq!(
-            validate_fixture(bytes, "").err(),
-            Some(AdmissionError::InvalidModules)
-        );
-    }
-}
-
-#[test]
-fn opaque_identity_still_checks_manifest_identity_and_format() {
-    let manifest = manifest("").replace(r#""type": "resources""#, r#""type": "data""#);
-    let archive = zip_files(&[("manifest.json", manifest.as_bytes())]);
-    for (id, version) in [(Uuid::nil(), "1.2.3"), (PACK_ID, "1.2.4")] {
-        assert_eq!(
-            verify_archive_identity(&archive, id, version),
-            Err(AdmissionError::ManifestIdentityMismatch)
-        );
-    }
-    let manifest = manifest.replace(r#""format_version": 2"#, r#""format_version": 2.5"#);
-    assert_eq!(
-        verify_archive_identity(
-            &zip_files(&[("manifest.json", manifest.as_bytes())]),
-            PACK_ID,
-            "1.2.3"
-        ),
-        Err(AdmissionError::UnsupportedManifestFormat)
-    );
-}
-
 #[test]
 fn admits_jsonc_manifest_and_exposes_only_selected_logical_namespace() {
     let manifest = manifest(
@@ -449,14 +254,13 @@ fn plaintext_archives_with_advertised_keys_keep_root_and_wrapped_resources() {
                 (&asset_path, b"fixture.name=Plain resource"),
                 ("../outside.txt", b"outside"),
             ]);
-            let (pack, _, _) = validate_archive_parts(
+            let (pack, _) = validate_archive_parts(
                 PACK_ID,
                 "1.2.3",
                 "",
                 archive,
                 ContentKey::new(PACK_KEY),
                 None,
-                Purpose::Rendering,
             )
             .expect("plaintext resource pack with an advertised key");
             assert_eq!(
@@ -490,16 +294,8 @@ fn encrypted_pack_decrypts_listed_files_and_keeps_plaintext_despite_key() {
         ("plain.json", b"{\"a\": 1}"),
     ]);
     let key = ContentKey::new(PACK_KEY);
-    let (pack, _, _) = validate_archive_parts(
-        PACK_ID,
-        "1.2.3",
-        "",
-        archive.clone(),
-        key,
-        None,
-        Purpose::Rendering,
-    )
-    .unwrap();
+    let (pack, _) =
+        validate_archive_parts(PACK_ID, "1.2.3", "", archive.clone(), key, None).unwrap();
     assert_eq!(
         pack.read_file("texts/en_US.lang")
             .unwrap()
@@ -515,16 +311,7 @@ fn encrypted_pack_decrypts_listed_files_and_keeps_plaintext_despite_key() {
 
     let wrong = ContentKey::new(b"vutsrqponmlkjihgfedcba9876543210");
     assert_eq!(
-        validate_archive_parts(
-            PACK_ID,
-            "1.2.3",
-            "",
-            archive,
-            wrong,
-            None,
-            Purpose::Rendering
-        )
-        .unwrap_err(),
+        validate_archive_parts(PACK_ID, "1.2.3", "", archive, wrong, None).unwrap_err(),
         AdmissionError::MalformedContentsIndex
     );
 }
@@ -571,14 +358,13 @@ fn local_plaintext_archive_with_advertised_key_reads_stored_resources() {
         .0
         .map(|part| part.to_string())
         .join(".");
-    let (pack, _, _) = validate_archive_parts(
+    let (pack, _) = validate_archive_parts(
         id,
         &version,
         "",
         bytes.clone(),
         ContentKey::new(b"0123456789abcdefghijklmnopqrstuv"),
         None,
-        Purpose::Rendering,
     )
     .expect("keyed plaintext fixture admission");
     let mut compared = 0;
@@ -632,8 +418,7 @@ fn advertised_key_does_not_bypass_bad_indexes_or_manifests() {
                 "",
                 archive,
                 ContentKey::new(PACK_KEY),
-                None,
-                Purpose::Rendering
+                None
             )
             .unwrap_err(),
             AdmissionError::MalformedContentsIndex,
@@ -646,8 +431,7 @@ fn advertised_key_does_not_bypass_bad_indexes_or_manifests() {
                 "",
                 archive,
                 ContentKey::new(PACK_KEY),
-                None,
-                Purpose::Rendering
+                None
             )
             .unwrap_err(),
             AdmissionError::MalformedManifest,
@@ -677,8 +461,7 @@ fn unusable_contents_index_is_not_treated_as_plaintext() {
             "",
             archive,
             ContentKey::new(b"0123456789abcdefghijklmnopqrstuv"),
-            None,
-            Purpose::Rendering
+            None
         )
         .unwrap_err(),
         AdmissionError::MissingContentsIndex,
@@ -686,20 +469,16 @@ fn unusable_contents_index_is_not_treated_as_plaintext() {
 }
 
 #[test]
-fn rejects_incomplete_manifest_jsonc() {
-    let archive = zip_files(&[("manifest.json", br#"{"format_version":2 /* unterminated"#)]);
-    assert_eq!(
-        validate_fixture(archive, "").unwrap_err(),
-        AdmissionError::MalformedManifest
-    );
-}
-
-#[test]
-fn manifest_uses_first_jsonc_value() {
-    for tail in [" {}", " /* unfinished trailing comment"] {
-        let body = format!("{}{tail}", manifest(""));
-        let archive = zip_files(&[("manifest.json", body.as_bytes())]);
-        validate_fixture(archive, "").expect("complete first manifest value");
+fn rejects_malformed_jsonc_and_multiple_json_values() {
+    for body in [
+        br#"{"format_version":2 /* unterminated"#.as_slice(),
+        br#"{} {}"#.as_slice(),
+    ] {
+        let archive = zip_files(&[("manifest.json", body)]);
+        assert_eq!(
+            validate_fixture(archive, "").unwrap_err(),
+            AdmissionError::MalformedManifest
+        );
     }
 }
 

@@ -22,10 +22,10 @@ fn stack(layers: &[PackLayer<'_>]) -> LayeredPackView {
             writer.start_file(format!("{path}.png"), zip::write::SimpleFileOptions::default()).unwrap();
             writer.write_all(&png(16, 16, |_, _| color)).unwrap();
         }
-        bedrock_packs::ResourcePackArchive::unencrypted(id.parse().unwrap(), "1.0.0".into(), String::new(), writer.finish().unwrap().into_inner())
+        protocol::ResourcePackArchive::unencrypted(id.parse().unwrap(), "1.0.0".into(), String::new(), writer.finish().unwrap().into_inner())
     }).collect();
     LayeredPackView::new(resource_pack::validate_handoff(
-        bedrock_packs::ResourcePackHandoff::from_archives(archives),
+        protocol::ResourcePackHandoff::from_archives(archives),
     ))
 }
 

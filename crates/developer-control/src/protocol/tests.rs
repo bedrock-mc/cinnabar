@@ -196,34 +196,3 @@ fn request_and_reply_lines_round_trip() {
         (json!(9), Err("nope".into()))
     );
 }
-
-#[test]
-fn native_friend_choices_use_only_closed_catalog_observations() {
-    assert_eq!(
-        parse(json!({ "cmd": "native_friends" })).unwrap(),
-        Command::NativeFriends { join: None }
-    );
-    let choice = NativeFriendChoice {
-        revision: 7,
-        index: 0,
-        expected_xuid: "456".into(),
-    };
-    let command = Command::NativeFriends { join: Some(choice) };
-    let wire = request_line(9, "control-token", &command);
-    assert_eq!(Request::parse(&wire).unwrap().command().unwrap(), command);
-    for join in [
-        json!([]),
-        json!([7, 0, "456"]),
-        json!({"revision":7,"index":0}),
-        json!({"revision":7,"index":-1,"expected_xuid":"456"}),
-        json!({"revision":7,"index":0,"expected_xuid":456}),
-        json!({"revision":7,"index":0,"expected_xuid":"456","nonce":"unjoined"}),
-    ] {
-        assert!(parse(json!({"cmd":"native_friends","join":join})).is_err());
-    }
-    assert!(parse(json!({"cmd":"native_friends","auth_cache":"unselected"})).is_err());
-    assert_eq!(
-        parse(json!({"cmd":"disconnect"})).unwrap(),
-        Command::Disconnect
-    );
-}

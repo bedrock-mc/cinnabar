@@ -59,35 +59,3 @@ fn deleting_new_messages_after_bulk_read_preserves_unloaded_unread_counts() {
     menu.activate_inbox(Action::Open(0));
     assert_eq!(menu.home.inbox_unread, 8);
 }
-
-/// Only an actual service-session replacement retires optimistic interactions for reused IDs.
-#[test]
-fn native_messaging_session_replacement_retires_old_optimistic_inbox_actions() {
-    let mut menu = refreshed_bulk_read();
-    let mut original = menu.home.clone();
-    original.message_session = Some("original-session".into());
-    original.inbox[0].unread = true;
-    original.inbox_counts.insert(0, 1);
-    original.inbox.truncate(1);
-    menu.home = original.clone();
-    menu.inbox_state.reconcile(&mut menu.home);
-    menu.activate_inbox(Action::Open(0));
-    assert!(!menu.home.inbox[0].unread);
-    assert_eq!(menu.inbox_state.pending.len(), 1);
-    menu.home = original.clone();
-    menu.inbox_state.reconcile(&mut menu.home);
-    assert!(
-        !menu.home.inbox[0].unread,
-        "same-session polling must retain the read"
-    );
-    assert_eq!(menu.inbox_state.pending.len(), 1);
-    original.message_session = Some("replacement-session".into());
-    menu.home = original;
-    menu.inbox_state.reconcile(&mut menu.home);
-    assert!(
-        menu.home.inbox[0].unread,
-        "old read must not modify a new session's row"
-    );
-    assert!(menu.inbox_state.pending.is_empty());
-    assert!(menu.inbox_state.opened.is_none());
-}

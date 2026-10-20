@@ -4,13 +4,11 @@ import (
 	"errors"
 	"sync"
 	"time"
-
-	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 )
 
 const (
-	MaxPacketDelayMS  uint32 = bridgecontract.MaxPacketDelayMS
-	PacketDelayLease         = time.Duration(bridgecontract.PacketDelayLeaseMillis) * time.Millisecond
+	MaxPacketDelayMS  uint32 = 1000
+	PacketDelayLease         = 3 * time.Second
 	maxDelayedBatches        = 64
 	maxDelayedBytes          = 8 << 20
 )

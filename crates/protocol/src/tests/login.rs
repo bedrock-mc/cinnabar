@@ -234,7 +234,7 @@ async fn offline_core_session_preserves_startup_behaviour() {
 }
 
 /// The core hands over the required offer in stack order, keeping each pack's content key.
-fn assert_handed_off_fixture_packs(handoff: bedrock_packs::ResourcePackHandoff) {
+fn assert_handed_off_fixture_packs(handoff: protocol::ResourcePackHandoff) {
     assert!(handoff.required(), "a required offer stays required");
     let archives = handoff.into_archives();
     let identities: Vec<_> = archives

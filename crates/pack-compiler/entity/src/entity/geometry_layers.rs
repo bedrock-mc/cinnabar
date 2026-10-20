@@ -10,7 +10,7 @@ pub fn select_entity_geometry(files: Vec<(Box<str>, Vec<u8>)>) -> Vec<(Box<str>,
     let mut candidates = Vec::new();
     let mut winners = BTreeMap::new();
     for (path, bytes) in files {
-        let Ok(mut root) = bedrock_packs::jsonc::parse_jsonc::<Value>(&bytes) else {
+        let Ok(mut root) = pack_json::parse_jsonc::<Value>(&bytes) else {
             continue;
         };
         let Some(object) = root.as_object_mut() else {

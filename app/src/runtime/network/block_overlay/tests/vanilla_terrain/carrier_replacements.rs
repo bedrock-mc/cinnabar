@@ -319,14 +319,14 @@ fn raster_pack(terrain: Value, blocks: Value, pixels: &assets::TextureMip) -> La
             .unwrap();
         writer.write_all(&bytes).unwrap();
     }
-    let archive = bedrock_packs::ResourcePackArchive::unencrypted(
+    let archive = protocol::ResourcePackArchive::unencrypted(
         id.parse().unwrap(),
         "1.0.0".into(),
         String::new(),
         writer.finish().unwrap().into_inner(),
     );
     LayeredPackView::new(resource_pack::validate_handoff(
-        bedrock_packs::ResourcePackHandoff::from_archives(vec![archive]),
+        protocol::ResourcePackHandoff::from_archives(vec![archive]),
     ))
 }
 
@@ -560,14 +560,14 @@ fn timeline_pack_with_bindings(
             ))
             .unwrap();
     }
-    let archive = bedrock_packs::ResourcePackArchive::unencrypted(
+    let archive = protocol::ResourcePackArchive::unencrypted(
         id.parse().unwrap(),
         "1.0.0".into(),
         String::new(),
         writer.finish().unwrap().into_inner(),
     );
     LayeredPackView::new(resource_pack::validate_handoff(
-        bedrock_packs::ResourcePackHandoff::from_archives(vec![archive]),
+        protocol::ResourcePackHandoff::from_archives(vec![archive]),
     ))
 }
 

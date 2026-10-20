@@ -9,7 +9,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -30,8 +29,6 @@ import (
 
 	"github.com/hashimthearab/rust-mcbe/tools/localserver/experience"
 	"github.com/hashimthearab/rust-mcbe/tools/localserver/extension"
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/hostbridge"
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/internal/hostcontract"
 )
 
 // experienceDataDir is the directory under -dir that holds the Experiences' private data.
@@ -147,14 +144,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		settings.Spawn = generator.DefaultSpawn(world.Overworld)
 		conf.WorldProvider.SaveSettings(settings)
 	}
-	nativeWorld, err := hostbridge.New(conf.MaxPlayers)
-	if err != nil {
-		return err
-	}
-	for i, listen := range conf.Listeners {
-		conf.Listeners[i] = nativeWorld.WrapLocal(listen)
-	}
-	conf.Listeners = append(conf.Listeners, nativeWorld.Factory)
 	if ext != nil {
 		for i, listen := range conf.Listeners {
 			conf.Listeners[i] = ext.Listener(listen)
@@ -196,7 +185,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			return errors.Join(err, conf.WorldProvider.Close(), conf.PlayerProvider.Close())
 		}
 	}
-	cfg.configureLocalPlayers(&conf, nativeWorld.RemotePlayer)
+	cfg.configureLocalPlayers(&conf)
 	var srv *server.Server
 	for i, listen := range conf.Listeners {
 		conf.Listeners[i] = flySpeedListener(listen, func(id uuid.UUID) (*world.EntityHandle, bool) {
@@ -212,14 +201,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		warmup = warmSpawn(srv.World(), pauses)
 	}
 	cmds := commands{pause: pauses.request}
-	cmds.nativeBridge = func(body string) {
-		var bootstrap hostcontract.Bootstrap
-		// Optional remote extension/Experience policy remains unqualified; do not inherit local-only behavior.
-		if ext != nil || exps != nil || len(body) > hostcontract.MAX_CONTROL_BYTES || json.Unmarshal([]byte(body), &bootstrap) != nil ||
-			nativeWorld.Start(ctx, bootstrap) != nil {
-			logger.Warn("native world bridge bootstrap rejected")
-		}
-	}
 	var host *experience.Host
 	var running sync.WaitGroup
 	runCtx, stopRunning := context.WithCancel(context.Background())
@@ -262,11 +243,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		defer close(accepting)
 		for p := range srv.Accept() {
 			warmup()
-			if hostbridge.IsRemote(p.Addr()) {
-				p.Handle(&visitorHandler{host: host})
-			} else {
-				p.Handle(&localPlayerHandler{host: host})
-			}
+			p.Handle(&localPlayerHandler{host: host})
 		}
 	}()
 	fmt.Fprintln(stdout, "ready")

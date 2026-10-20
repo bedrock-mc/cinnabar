@@ -4,27 +4,14 @@ use super::*;
 
 /// Decodes the first client frame without requiring claims supplied only by upstream login.
 pub fn decode_connect(frame: &[u8]) -> Result<ConnectRequest, BridgeError> {
-    let request: ConnectRequest = connect(frame)?;
+    if frame.first() != Some(&KIND_CONNECT) {
+        return Err(invalid("expected connect"));
+    }
+    let request: ConnectRequest = json(&frame[1..])?;
     if !request.client_data.is_object() {
         return Err(invalid("connect has no client data"));
     }
     Ok(request)
-}
-
-/// Preserves opaque native relay metadata; successful framing supplies no account or title approval.
-#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-pub fn decode_native_connect(
-    frame: &[u8],
-) -> Result<ConnectRequest<crate::RawClientData>, BridgeError> {
-    connect(frame)
-}
-
-/// The same wire definition and envelope parser serve the unchanged Value and raw-object consumers.
-fn connect<D: serde::de::DeserializeOwned>(frame: &[u8]) -> Result<ConnectRequest<D>, BridgeError> {
-    if frame.first() != Some(&KIND_CONNECT) {
-        return Err(invalid("expected connect"));
-    }
-    json(&frame[1..])
 }
 
 /// Encodes a core message using the same schema and packet boundaries as the client decoder.

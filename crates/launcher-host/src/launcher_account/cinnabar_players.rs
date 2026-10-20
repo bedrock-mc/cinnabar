@@ -16,11 +16,7 @@ use bridge::{
 };
 use crossbeam_channel::{Receiver, Sender, bounded, select, unbounded};
 
-#[cfg(all(test, unix))]
-use super::worker_runtime;
-use super::{Snapshot, publish};
-use tokio::runtime::Handle;
-use tokio_util::task::TaskTracker;
+use super::{Snapshot, publish, runtime};
 
 /// A short gap coalesces roster churn; the core enforces the negotiated identifier budget.
 const LOOKUP_SPACING: Duration = Duration::from_secs(3);
@@ -221,51 +217,27 @@ impl Lookups {
 }
 
 /// Starts the lookup worker; it stops when the returned sender is dropped.
-pub(super) fn start(
-    socket_dir: Option<PathBuf>,
-    shared: Arc<Mutex<Snapshot>>,
-    runtime: Handle,
-    tasks: TaskTracker,
-) -> Sender<Roster> {
+pub(super) fn start(socket_dir: PathBuf, shared: Arc<Mutex<Snapshot>>) -> Sender<Roster> {
     let (rosters, requests) = unbounded();
-    thread::spawn(crate::worker::tracked(
-        move || run(socket_dir.as_deref(), &shared, &requests, &runtime),
-        &tasks,
-    ));
+    thread::spawn(move || run(&socket_dir, &shared, &requests));
     rosters
 }
 
 /// Schedules lookups and expirations while the network thread handles a single pending request.
-fn run(
-    socket_dir: Option<&std::path::Path>,
-    shared: &Mutex<Snapshot>,
-    requests: &Receiver<Roster>,
-    runtime: &Handle,
-) {
+fn run(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Receiver<Roster>) {
+    let Some(runtime) = runtime() else {
+        return;
+    };
     thread::scope(|scope| {
         let (send, work) = bounded::<Vec<String>>(1);
         let (results, answers) = bounded(1);
         scope.spawn(move || {
             while let Ok(batch) = work.recv() {
                 let answer = runtime.block_on(async {
-                    tokio::time::timeout(LOOKUP_TIMEOUT, async {
-                        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-                        {
-                            let api = shared
-                                .lock()
-                                .unwrap_or_else(|p| p.into_inner())
-                                .native_product_api
-                                .clone();
-                            if let Some(api) = api {
-                                return api.lookup(&batch).await;
-                            }
-                        }
-                        bridge::lookup_cinnabar_players(
-                            super::workers::require_core_directory(socket_dir)?,
-                            &batch,
-                        )
-                        .await
-                    })
+                    tokio::time::timeout(
+                        LOOKUP_TIMEOUT,
+                        bridge::lookup_cinnabar_players(socket_dir, &batch),
+                    )
                     .await
                 });
                 if results.send(answer).is_err() {
@@ -274,15 +246,8 @@ fn run(
             }
         });
         let mut lookups = Lookups::default();
-        let mut pending: Option<(u64, u64)> = None;
-        let mut generation = super::auth_generation(shared);
+        let mut pending: Option<u64> = None;
         loop {
-            if generation != super::auth_generation(shared) {
-                generation = super::auth_generation(shared);
-                lookups.resolved.clear();
-                lookups.refresh.clear();
-                lookups.not_before = None;
-            }
             let now = Instant::now();
             let due = pending.is_none().then(|| lookups.next_wake(now)).flatten();
             let wait = due
@@ -296,8 +261,8 @@ fn run(
                     lookups.set_roster(requests.try_iter().last().unwrap_or(roster));
                 }
                 recv(answers) -> answer => {
-                    let Some((session,requested_generation)) = pending.take() else { return; };
-                    if lookups.session == Some(session) && requested_generation==generation && generation==super::auth_generation(shared) {
+                    let Some(session) = pending.take() else { return; };
+                    if lookups.session == Some(session) {
                         match answer {
                             Ok(Ok(Ok(mut answer))) => {
                                 tracing::debug!(resolved = answer.resolved.len(), resolved_uuids = answer.resolved_uuids.len(), found = answer.cinnabar.len(), found_uuids = answer.cinnabar_uuids.len(), "Cinnabar lookup completed");
@@ -333,9 +298,7 @@ fn run(
             }
             let now = Instant::now();
             publish(shared, |snapshot| {
-                if snapshot.auth_generation == generation
-                    && snapshot.cinnabar_roster_key.map(|key| key.0) == lookups.session
-                {
+                if snapshot.cinnabar_roster_key.map(|key| key.0) == lookups.session {
                     let players = lookups.players(now);
                     if *snapshot.cinnabar_players != players {
                         tracing::debug!(found = players.len(), "Cinnabar badges published");
@@ -346,7 +309,7 @@ fn run(
             if pending.is_none()
                 && let Some(batch) = lookups.next_batch(now)
             {
-                pending = lookups.session.map(|session| (session, generation));
+                pending = lookups.session;
                 tracing::debug!(
                     players = batch.len(),
                     uuids = batch

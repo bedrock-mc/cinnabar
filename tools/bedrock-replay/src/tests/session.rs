@@ -1,12 +1,11 @@
 use super::{arguments, fixtures};
 use crate::{capture::read_capture, options::Options, runner::run};
-use bedrock_packs::{ResourcePackArchive, ResourcePackHandoff};
 use bytes::Bytes;
 use futures::StreamExt;
 use protocol::session_wire::{
     ConnectRequest, CoreMessage, HandoffPackReceiver, decode_core_message, encode_connect,
 };
-
+use protocol::{ResourcePackArchive, ResourcePackHandoff};
 use std::{
     future::pending,
     io::{self, Write},

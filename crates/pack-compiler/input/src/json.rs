@@ -6,7 +6,7 @@ use serde_json::{Map, Value};
 
 /// Parses a pack object while rejecting duplicate root members.
 pub fn parse_unique_json(path: &Path, bytes: &[u8]) -> Result<Value, AssetError> {
-    bedrock_packs::jsonc::parse_jsonc::<UniqueRootValue>(bytes)
+    pack_json::parse_jsonc::<UniqueRootValue>(bytes)
         .map(|root| root.0)
         .map_err(|source| AssetError::Json {
             path: path.to_path_buf(),
@@ -16,7 +16,7 @@ pub fn parse_unique_json(path: &Path, bytes: &[u8]) -> Result<Value, AssetError>
 
 /// Parses a pack document while rejecting duplicate members at every depth.
 pub fn parse_fully_unique_json(path: &Path, bytes: &[u8]) -> Result<Value, AssetError> {
-    bedrock_packs::jsonc::parse_jsonc::<UniqueNestedValue>(bytes)
+    pack_json::parse_jsonc::<UniqueNestedValue>(bytes)
         .map(|root| root.0)
         .map_err(|source| AssetError::Json {
             path: path.to_path_buf(),

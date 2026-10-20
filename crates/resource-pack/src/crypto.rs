@@ -7,7 +7,7 @@ use aes::cipher::{BlockCipherEncrypt, KeyInit};
 use serde::Deserialize;
 use zeroize::{Zeroize, Zeroizing};
 
-use bedrock_packs::jsonc::parse_jsonc;
+use pack_json::parse_jsonc;
 
 use crate::{AdmissionError, MAX_ENTRIES_PER_PACK, parser::canonical_path};
 
@@ -264,7 +264,7 @@ pub(crate) mod tests {
             br#"{"content":false,"truncated":}"#,
             b"{} {}",
         ] {
-            let before = bedrock_packs::jsonc::normalize_jsonc(body)
+            let before = pack_json::normalize_jsonc(body)
                 .and_then(|json| serde_json::from_slice::<Contents>(&json).ok());
             let mut encrypted = vec![0; CONTENTS_HEADER_BYTES];
             let mut tail = body.to_vec();

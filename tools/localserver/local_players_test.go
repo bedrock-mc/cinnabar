@@ -28,7 +28,7 @@ func TestOpaqueOverdrawKeepsPlayerProviderFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.configureLocalPlayers(&conf, nil)
+	cfg.configureLocalPlayers(&conf)
 	if conf.PlayerProvider != nil {
 		t.Fatalf("disabled player storage must keep Dragonfly's no-op fallback, got %T", conf.PlayerProvider)
 	}
@@ -70,7 +70,7 @@ func TestEditedGameModeRestoresHostAndRoundTripsPlayerData(t *testing.T) {
 			cfg := settings{gameMode: mode, diff: "hard"}
 			cfg.applyTo(w)
 			conf := server.Config{PlayerProvider: provider}
-			cfg.configureLocalPlayers(&conf, nil)
+			cfg.configureLocalPlayers(&conf)
 			loaded, loadedWorld, err := conf.PlayerProvider.Load(id, lookup)
 			if err != nil {
 				t.Fatal(err)
@@ -101,7 +101,7 @@ func TestNewLocalPlayerKeepsWorldDefault(t *testing.T) {
 	}
 	conf := server.Config{PlayerProvider: provider}
 	cfg := settings{gameMode: "creative", diff: "normal"}
-	cfg.configureLocalPlayers(&conf, nil)
+	cfg.configureLocalPlayers(&conf)
 	defer conf.PlayerProvider.Close()
 	w := world.Config{}.New()
 	defer w.Close()
@@ -112,30 +112,5 @@ func TestNewLocalPlayerKeepsWorldDefault(t *testing.T) {
 	}
 	if w.DefaultGameMode() != world.GameModeCreative {
 		t.Fatalf("default = %v, want creative", w.DefaultGameMode())
-	}
-}
-
-// TestVisitorRestoresSavedGameMode exercises the actual saved-player owner, without host flight/mode policy.
-func TestVisitorRestoresSavedGameMode(t *testing.T) {
-	w := world.Config{}.New()
-	defer w.Close()
-	id := uuid.New()
-	provider, err := playerdb.NewProvider(filepath.Join(t.TempDir(), "players"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer provider.Close()
-	data := player.Config{UUID: id, Name: "Visitor", GameMode: world.GameModeSurvival,
-		Inventory: inventory.New(36, nil), OffHand: inventory.New(1, nil),
-		Armour: inventory.NewArmour(nil), EnderChestInventory: inventory.New(27, nil)}
-	if err := provider.Save(id, data, w); err != nil {
-		t.Fatal(err)
-	}
-	conf := server.Config{PlayerProvider: provider}
-	cfg := settings{gameMode: "creative"}
-	cfg.configureLocalPlayers(&conf, func(candidate uuid.UUID) bool { return candidate == id })
-	loaded, loadedWorld, err := conf.PlayerProvider.Load(id, func(world.Dimension) *world.World { return w })
-	if err != nil || loadedWorld != w || loaded.GameMode != world.GameModeSurvival {
-		t.Fatal("visitor inherited the local host's launch mode")
 	}
 }

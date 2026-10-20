@@ -6,20 +6,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/df-mc/dragonfly/server/world"
 	"io"
 	"strings"
 	"sync"
-
-	"github.com/df-mc/dragonfly/server/world"
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/internal/hostcontract"
 )
 
 // commands are the actions of the stdin protocol. reload is nil without Experiences, and its
 // lines are then ignored like any unknown line.
 type commands struct {
-	pause        func(paused bool)
-	reload       func(id string)
-	nativeBridge func(body string)
+	pause  func(paused bool)
+	reload func(id string)
 }
 
 // serveCommands runs the stdin protocol until "stop", EOF or ctx ends.
@@ -118,10 +115,6 @@ func serveCommandLines(ctx context.Context, lines <-chan string, cmds commands) 
 			case "resume":
 				cmds.pause(false)
 			default:
-				if body, ok := strings.CutPrefix(line, hostcontract.COMMAND); ok && cmds.nativeBridge != nil {
-					cmds.nativeBridge(body)
-					continue
-				}
 				if id, ok := reloadID(line); ok && cmds.reload != nil {
 					cmds.reload(id)
 				}

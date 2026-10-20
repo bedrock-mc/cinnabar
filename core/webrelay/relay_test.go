@@ -354,7 +354,7 @@ func TestEgressAndOriginPolicy(t *testing.T) {
 			t.Fatal("private address admitted", text)
 		}
 	}
-	for _, prefix := range bridgecontract.GatewayReservedPrefixes() {
+	for _, prefix := range reservedPrefixes {
 		if publicUpstream(prefix.Addr()) {
 			t.Fatal("reserved range admitted", prefix)
 		}

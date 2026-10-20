@@ -9,14 +9,13 @@ import (
 
 	"github.com/df-mc/go-xsapi/v2/social"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
-	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 )
 
 // MaxPeople bounds the friends the invite screen lists; online friends are kept first.
-const MaxPeople = bridgecontract.InviteMaxPeople
+const MaxPeople = 100
 
 // gamerpicSide is the square size friends' gamerpics are requested at, enough for a list row.
-const gamerpicSide = bridgecontract.InviteGamerpicSide
+const gamerpicSide = 128
 
 // Person is one Xbox friend as the invite screen lists them; the client caches Gamerpic.URL.
 type Person struct {

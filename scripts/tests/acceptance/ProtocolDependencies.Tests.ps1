@@ -196,7 +196,7 @@ $PinnedProtocolgenCommit = $expectedProtocolgenRevision
 $PinnedJolyneLicenseSha256 = $expectedLicenseSha256
 $protocolMetadata = Get-ProtocolDependencyProvenanceMetadata
 Assert-Equal 4 $protocolMetadata.Count 'protocol provenance metadata added or omitted a field'
-Assert-Equal 'git-revision' $protocolMetadata.protocol_dependency_resolution 'protocol dependency resolution metadata drifted'
+Assert-Equal 'vendored-path' $protocolMetadata.protocol_dependency_resolution 'protocol dependency resolution metadata drifted'
 Assert-Equal $expectedAxolotlStackRevision $protocolMetadata.pinned_axolotl_stack_commit 'Axolotl Stack metadata drifted'
 Assert-Equal $expectedProtocolgenRevision $protocolMetadata.pinned_protocolgen_commit 'protocolgen metadata drifted'
 Assert-Equal $expectedLicenseSha256 $protocolMetadata.pinned_jolyne_license_sha256 'retained license metadata drifted'
@@ -250,36 +250,50 @@ $null = Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
 
 $manifestPath = Join-Path $fixtureRoot 'crates\protocol\Cargo.toml'
 $canonicalManifest = Get-Content -Raw -LiteralPath $manifestPath
-$canonicalCodec = 'bedrock-protocol-1-26-51 = { git = "https://github.com/cinnabar-mc/protocolgen", rev = "' + $expectedProtocolgenRevision + '" }'
-$canonicalManifest = $canonicalManifest.Replace('bedrock-protocol-1-26-51.workspace = true', $canonicalCodec)
-Assert-True ($canonicalManifest.Contains($canonicalCodec)) `
-    'protocol fixture did not find the inherited or explicit canonical codec'
 Set-Content -LiteralPath $manifestPath -NoNewline -Value `
-    $canonicalManifest.Replace($expectedProtocolgenRevision, ('0' * 40))
+    $canonicalManifest.Replace('path = "vendor/bedrock-protocol-1-26-51"', 'path = "..\outside\bedrock-protocol-1-26-51"')
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
-} '*must use the canonical pinned Git source*' 'protocol provenance accepted a drifted codec Git revision'
+} '*cargo metadata*' 'protocol provenance accepted a drifted codec path declaration'
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $canonicalManifest
 
-$canonicalStringDecoys = "[dependencies]`n$canonicalCodec"
-$renamedCodec = '"wire" = { package = "bedrock-protocol-1-26-51", git = "https://github.com/cinnabar-mc/protocolgen", rev = "' + $expectedProtocolgenRevision + '" }'
-$quotedRenamedCodec = $canonicalManifest.Replace($canonicalCodec, $renamedCodec).Replace(
+$vendorRoot = Join-Path $fixtureRoot 'crates\protocol\vendor'
+Copy-Item -LiteralPath (Join-Path $vendorRoot 'bedrock-protocol-1-26-51') `
+    -Destination (Join-Path $vendorRoot 'bedrock-protocol-1-26-51-decoy') -Recurse
+$canonicalStringDecoys = @'
+[dependencies]
+bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
+'@
+$quotedWrongPaths = $canonicalManifest.Replace(
     'publish = false',
     "publish = false`ndescription = `"`"`"`n$canonicalStringDecoys`n`"`"`""
+).Replace(
+    'bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }',
+    '"bedrock-protocol-1-26-51" = { path = "vendor/bedrock-protocol-1-26-51-decoy" }'
 )
-Set-Content -LiteralPath $manifestPath -NoNewline -Value $quotedRenamedCodec
+Set-Content -LiteralPath $manifestPath -NoNewline -Value $quotedWrongPaths
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
-} '*must not be renamed*' 'protocol provenance accepted canonical string decoys with a quoted renamed codec'
+} '*vendored path*' 'protocol provenance accepted canonical declarations inside a multiline string while quoted real keys resolved wrong paths'
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $canonicalManifest
 
-$targetCodec = "`n[target.'cfg(unix)'.dependencies]`n$canonicalCodec`n"
-Set-Content -LiteralPath $manifestPath -NoNewline -Value ($canonicalManifest + $targetCodec)
+Set-Content -LiteralPath $manifestPath -NoNewline -Value ($canonicalManifest + @'
+
+[target.'cfg(unix)'.dependencies]
+bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
+'@)
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
 } '*bedrock-protocol-1-26-51*exactly once*' 'protocol provenance accepted an additional target-table codec declaration'
 
-$inactiveDecoy = $canonicalManifest.Replace($canonicalCodec, '# active codec declaration removed') + $targetCodec
+$inactiveDecoy = $canonicalManifest.Replace(
+    'bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }',
+    '# active codec declaration removed'
+) + @'
+
+[target.'cfg(unix)'.dependencies]
+bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
+'@
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $inactiveDecoy
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
@@ -310,14 +324,21 @@ Set-Content -LiteralPath $licensePath -NoNewline -Value $canonicalLicense
 
 $lockPath = Join-Path $fixtureRoot 'Cargo.lock'
 $canonicalLock = Get-Content -Raw -LiteralPath $lockPath
-$canonicalCodecSource = "git+https://github.com/cinnabar-mc/protocolgen?rev=$expectedProtocolgenRevision#$expectedProtocolgenRevision"
-$wrongCodecSource = "git+https://github.com/other/protocolgen?rev=$expectedProtocolgenRevision#$expectedProtocolgenRevision"
-$driftedLock = $canonicalLock.Replace($canonicalCodecSource, $wrongCodecSource)
+$driftedLock = $canonicalLock.Replace(
+    "name = `"bedrock-protocol-1-26-51`"`r`nversion = `"0.1.0`"",
+    "name = `"bedrock-protocol-1-26-51`"`r`nversion = `"0.1.0`"`r`n   source   = `"git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$expectedAxolotlStackRevision#$expectedAxolotlStackRevision`""
+)
+if ($driftedLock -ceq $canonicalLock) {
+    $driftedLock = $canonicalLock.Replace(
+        "name = `"bedrock-protocol-1-26-51`"`nversion = `"0.1.0`"",
+        "name = `"bedrock-protocol-1-26-51`"`nversion = `"0.1.0`"`n   source   = `"git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$expectedAxolotlStackRevision#$expectedAxolotlStackRevision`""
+    )
+}
 Assert-True ($driftedLock -cne $canonicalLock) 'lock drift fixture did not mutate codec resolution'
 Set-Content -LiteralPath $lockPath -NoNewline -Value $driftedLock
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
-} '*protocol*' 'protocol provenance accepted a different resolved codec Git repository'
+} '*Cargo.lock*local package*source*' 'protocol provenance accepted a Git source for a local package'
 Set-Content -LiteralPath $lockPath -NoNewline -Value $canonicalLock
 
 $driftedLock = $canonicalLock.Replace(
@@ -334,4 +355,4 @@ Assert-True ($driftedLock -cne $canonicalLock) 'checksum drift fixture did not m
 Set-Content -LiteralPath $lockPath -NoNewline -Value $driftedLock
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
-} '*checksum*' 'protocol provenance accepted a checksum for a Git package'
+} '*Cargo.lock*local package*checksum*' 'protocol provenance accepted a checksum for a local package'

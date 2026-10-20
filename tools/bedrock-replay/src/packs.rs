@@ -45,8 +45,7 @@ pub fn read_pack(path: &Path, content_key: &str) -> Result<Pack> {
         .context("pack has no manifest.json")?;
     let mut manifest = Vec::new();
     zip.by_index(index)?.read_to_end(&mut manifest)?;
-    let normalized =
-        bedrock_packs::jsonc::normalize_jsonc(&manifest).context("invalid pack manifest")?;
+    let normalized = pack_json::normalize_jsonc(&manifest).context("invalid pack manifest")?;
     let manifest: Value = serde_json::from_slice(&normalized)?;
     let header = &manifest["header"];
     let uuid = match header.get("uuid").and_then(Value::as_str) {

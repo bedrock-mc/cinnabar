@@ -11,7 +11,7 @@ reads = ["assets/bedrock-target.json", "assets/vanilla-source.json", "crates/ass
 
 [dependencies]
 pack-compile-input = { path = "../input" }
-bedrock-packs.workspace = true
+pack-json = { path = "../../pack-json" }
 assets = { path = "../../assets" }
 simulation-clock = { path = "../../simulation-clock" }
 image.workspace = true

@@ -14,19 +14,13 @@ mod process;
 mod provision;
 mod store;
 #[cfg(test)]
-pub(crate) mod test_support;
+mod test_support;
 mod unpack;
 mod world;
 
 pub use core_link::{CoreLink, CoreRoute};
 pub use import::{WORLD_ARCHIVE_EXTENSION, is_world_archive};
-#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-pub(crate) use manager::HostOpening;
 pub use manager::Manager;
-#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-pub use manager::NativeHostIntent;
-#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-pub use manager::NativeLocalWorldSelection;
 pub use world::WorldError;
 
 use std::{
@@ -41,6 +35,12 @@ use launcher::install_layout::InstallLayout;
 use serde::Deserialize;
 
 const BEDROCK_TARGET_JSON: &str = include_str!("../../../../assets/bedrock-target.json");
+/// The Dragonfly local server, shipped beside the core.
+const LOCAL_SERVER: &str = if cfg!(windows) {
+    "bedrock-local-server.exe"
+} else {
+    "bedrock-local-server"
+};
 
 /// The dedicated-server build local worlds run, from the target manifest.
 #[derive(Debug, Deserialize)]
@@ -77,9 +77,9 @@ pub fn open(layout: &InstallLayout) -> Result<Manager, WorldError> {
         docker::detect_runtime(platform, docker::DOCKER, &[])
     }));
     let mut parts = manager::Parts::new(store);
-    let local_server = &layout.local_server_executable;
+    let local_server = layout.core_executable.with_file_name(LOCAL_SERVER);
     if local_server.is_file() {
-        parts.runners.dragonfly = Some(Arc::new(process::ProcessRunner::new(local_server.clone())));
+        parts.runners.dragonfly = Some(Arc::new(process::ProcessRunner::new(local_server)));
     } else {
         // Docker detection may still settle on Dragonfly; its worlds are then refused, not saved unopenable.
         parts.unavailable.push((

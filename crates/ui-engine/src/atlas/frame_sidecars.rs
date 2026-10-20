@@ -91,7 +91,7 @@ impl FrameSidecars {
 
 fn parse(bytes: &[u8]) -> Option<Frames> {
     (bytes.len() as u64 <= MAX_PACK_TEXTURE_BYTES).then_some(())?;
-    let text = bedrock_packs::jsonc::normalize_jsonc(bytes)?;
+    let text = pack_json::normalize_jsonc(bytes)?;
     let frames = parse_aseprite_frames(&serde_json::from_slice(&text).ok()?)?;
     let total = frames.iter().try_fold(0_i64, |sum, frame| {
         (frame.x >= 0 && frame.y >= 0 && frame.duration_ms > 0).then_some(())?;

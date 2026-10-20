@@ -7,18 +7,12 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-pub mod native;
-pub mod pending;
-
 const MAX_FILE_BYTES: u64 = 1024 * 1024;
 /// The shared download and local-copy bound for catalog and Xbox profile artwork.
 pub const MAX_ARTWORK_BYTES: usize =
-    embedded_byte_limit(include_bytes!("../../../core/catalog/artwork_limit.txt"));
-/// Serialized active OAuth records must remain readable by the existing Go credential owner.
-pub const MAX_OAUTH_CACHE_BYTES: usize =
-    embedded_byte_limit(include_bytes!("../../../core/authcache/cache_limit.txt"));
+    artwork_byte_limit(include_bytes!("../../../core/catalog/artwork_limit.txt"));
 
-const fn embedded_byte_limit(bytes: &[u8]) -> usize {
+const fn artwork_byte_limit(bytes: &[u8]) -> usize {
     let mut limit = 0usize;
     let mut index = 0;
     while index < bytes.len() {
@@ -26,19 +20,19 @@ const fn embedded_byte_limit(bytes: &[u8]) -> usize {
             b'0'..=b'9' => {
                 limit = match limit.checked_mul(10) {
                     Some(limit) => limit,
-                    None => panic!("embedded byte limit overflow"),
+                    None => panic!("embedded artwork byte limit overflow"),
                 };
                 limit = match limit.checked_add((bytes[index] - b'0') as usize) {
                     Some(limit) => limit,
-                    None => panic!("embedded byte limit overflow"),
+                    None => panic!("embedded artwork byte limit overflow"),
                 };
             }
             b'\r' | b'\n' => {}
-            _ => panic!("invalid embedded byte limit"),
+            _ => panic!("invalid embedded artwork byte limit"),
         }
         index += 1;
     }
-    assert!(limit > 0, "invalid embedded byte limit");
+    assert!(limit > 0, "invalid embedded artwork byte limit");
     limit
 }
 const DERIVED_SUFFIX: &str = include_str!("../../../core/authcache/derived_suffix.txt");
@@ -50,13 +44,6 @@ pub struct AccountProfile {
     pub id: String,
     pub gamertag: String,
     pub picture_path: Option<String>,
-}
-
-impl AccountProfile {
-    /// Validates public metadata from an already authenticated Xbox identity.
-    pub fn from_identity(id: &str, gamertag: &str) -> io::Result<Self> {
-        checked_profile(id, gamertag, None)
-    }
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -96,7 +83,14 @@ impl AccountStore {
 
     pub fn list(&self) -> io::Result<Vec<AccountProfile>> {
         let _lease = self.lease()?;
-        Ok(sorted_profiles(self.index()?.profiles.into_values()))
+        let mut profiles: Vec<_> = self.index()?.profiles.into_values().collect();
+        profiles.sort_by(|a, b| {
+            a.gamertag
+                .to_lowercase()
+                .cmp(&b.gamertag.to_lowercase())
+                .then(a.id.cmp(&b.id))
+        });
+        Ok(profiles)
     }
 
     pub fn active_id(&self) -> io::Result<Option<String>> {
@@ -137,7 +131,7 @@ impl AccountStore {
         }
         let _active = cache_leases(&self.active_cache)?;
         if index.active.as_deref() == Some(id) && read_optional(&self.active_cache)?.is_some() {
-            return read_credentials(&self.active_cache).map(|_| ());
+            return Ok(());
         }
         let credentials = self.credentials(id)?;
         self.activate_locked(&mut index, id, &credentials)
@@ -172,15 +166,13 @@ impl AccountStore {
         let pending = self.pending_cache();
         let _pending = cache_leases(&pending)?;
         remove_optional(&pending)?;
-        remove_optional(&derived_path(&pending))?;
-        pending::remove_attempt(self)
+        remove_optional(&derived_path(&pending))
     }
 
     /// The caller stops its cores before removing the selected account's saved credentials.
     pub fn sign_out(&self) -> io::Result<()> {
         let _lease = self.lease()?;
         let _active = cache_leases(&self.active_cache)?;
-        native::remove_current_checkpoint(self)?;
         remove_optional(&self.active_cache)?;
         remove_optional(&derived_path(&self.active_cache))?;
         let mut index = self.index()?;
@@ -215,11 +207,7 @@ impl AccountStore {
                 &derived_path(&self.active_cache),
                 credentials.derived.as_deref().map(str::as_bytes),
             )?;
-            write_private_bounded(
-                &self.active_cache,
-                credentials.oauth.as_bytes(),
-                MAX_OAUTH_CACHE_BYTES as u64,
-            )?;
+            write_private(&self.active_cache, credentials.oauth.as_bytes())?;
             index.active = Some(id.to_owned());
             self.write_index(index)
         })();
@@ -334,18 +322,6 @@ fn picture_extension(bytes: &[u8]) -> Option<&'static str> {
     }
 }
 
-/// Orders saved identities consistently in blocking and nonblocking account snapshots.
-fn sorted_profiles(profiles: impl Iterator<Item = AccountProfile>) -> Vec<AccountProfile> {
-    let mut profiles: Vec<_> = profiles.collect();
-    profiles.sort_by(|a, b| {
-        a.gamertag
-            .to_lowercase()
-            .cmp(&b.gamertag.to_lowercase())
-            .then(a.id.cmp(&b.id))
-    });
-    profiles
-}
-
 fn checked_id(id: &str) -> io::Result<()> {
     if id.is_empty()
         || id.len() > 20
@@ -377,7 +353,7 @@ fn checked_profile(
 }
 
 fn read_credentials(path: &Path) -> io::Result<Credentials> {
-    let oauth = String::from_utf8(read_private_bounded(path, MAX_OAUTH_CACHE_BYTES as u64)?)
+    let oauth = String::from_utf8(read_private(path)?)
         .map_err(|_| invalid("invalid OAuth cache encoding"))?;
     let derived = read_optional(&derived_path(path))?
         .map(|bytes| {
@@ -390,9 +366,6 @@ fn read_credentials(path: &Path) -> io::Result<Credentials> {
 }
 
 fn validate_credentials(credentials: &Credentials) -> io::Result<()> {
-    if credentials.oauth.len() > MAX_OAUTH_CACHE_BYTES {
-        return Err(invalid("OAuth cache exceeds the shared credential limit"));
-    }
     let oauth: serde_json::Value =
         serde_json::from_str(&credentials.oauth).map_err(|_| invalid("invalid OAuth cache"))?;
     if oauth

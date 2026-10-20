@@ -1,11 +1,6 @@
 //! The core's server trust question: sending the player's answer off the frame thread, and polling
 //! a per-session core, which no account link watches, for its question while it prepares a join.
 
-#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-mod native;
-#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-pub use native::NativeSessionTrust;
-
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;

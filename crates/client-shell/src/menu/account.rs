@@ -41,37 +41,8 @@ pub(super) enum JoinSignIn {
 }
 
 impl MenuRuntime {
-    /// Installs the application's retained edge before any menu/account worker is admitted.
-    /// Offline UI construction requires no runtime; it cannot start workers without this injection.
-    pub fn with_io(
-        mut self,
-        runtime: tokio::runtime::Handle,
-        tasks: tokio_util::task::TaskTracker,
-    ) -> Self {
-        self.native_io = Some((runtime, tasks));
-        self
-    }
-
-    /// Returns execution/accounting capabilities, never ownership of the actual Runtime lifetime.
-    pub fn io_execution(
-        &self,
-    ) -> std::io::Result<(tokio::runtime::Handle, tokio_util::task::TaskTracker)> {
-        self.native_io.clone().ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::NotConnected,
-                "application I/O owner is unavailable",
-            )
-        })
-    }
-    /// Selects the native sign-in worker before any account activity, preserving the existing presenter.
-    #[cfg(feature = "native-networking")]
-    pub fn with_native_sign_in(mut self, enabled: bool) -> Self {
-        self.native_sign_in = enabled;
-        self
-    }
-
     fn start_catalog(&mut self) {
-        if self.native_sign_in || self.catalog_started || !self.visible || self.is_connecting() {
+        if self.catalog_started || !self.visible || self.is_connecting() {
             return;
         }
         if self.auth_attempted && self.auth_process.is_none() {
@@ -114,7 +85,7 @@ impl MenuRuntime {
         }
         self.update_sign_in_browser(false);
         self.poll_catalog_art();
-        if core_feeds || self.native_sign_in {
+        if core_feeds {
             self.stop_catalog();
             return;
         }
@@ -137,11 +108,9 @@ impl MenuRuntime {
     fn apply_catalog(&mut self, catalog: CatalogFile) {
         let featured = self.catalog_cards(catalog.featured);
         self.featured.replace(featured);
-        if !self.native_sign_in {
-            self.realms.replace(catalog.realms);
-            self.friends
-                .replace(catalog.friends.into_iter().map(Into::into).collect());
-        }
+        self.realms.replace(catalog.realms);
+        self.friends
+            .replace(catalog.friends.into_iter().map(Into::into).collect());
         // Service errors may contain URLs, response bodies, or account material.
         // Keep successful sections, but expose only controlled recovery copy.
         self.catalog_message =
@@ -168,20 +137,6 @@ impl MenuRuntime {
     /// A new join waits on the saved account's check instead of cancelling it, starting the
     /// check if the menu has not yet; interactive sign-in is abandoned as before.
     pub(super) fn hold_join_for_sign_in(&mut self) {
-        #[cfg(feature = "native-networking")]
-        self.native_catalog.pause();
-        self.intents.native_auth_required = self.native_sign_in
-            && (self.feeds.account_active_id.is_some()
-                || auth_cache_path(&self.layout).is_some()
-                || matches!(
-                    self.auth_process.as_ref().map(AuthSupervisor::state),
-                    Some(
-                        AuthState::Checking
-                            | AuthState::AwaitingCode { .. }
-                            | AuthState::AwaitingXboxSignup { .. }
-                            | AuthState::Failed(_)
-                    )
-                ));
         if self.should_auto_start_sign_in(auth_cache_path(&self.layout).is_some()) {
             self.start_cached_sign_in();
         }
@@ -209,18 +164,9 @@ impl MenuRuntime {
             // A check that failed or fell back to a prompt is abandoned, as for any join.
             self.stop_sign_in();
         }
-        let native_direct = self.native_sign_in
-            && self.intents.join.as_ref().is_some_and(|join| {
-                !join.local_world
-                    && matches!(
-                        target_for(&join.address),
-                        bridge::ConnectTarget::RakNet(_) | bridge::ConnectTarget::Realm(_)
-                    )
-            });
-        let core_ready = native_direct
-            || self
-                .account_core
-                .is_none_or(|core| core.ready_for(auth_cache.is_some()));
+        let core_ready = self
+            .account_core
+            .is_none_or(|core| core.ready_for(auth_cache.is_some()));
         if !checking && !core_ready && now < deadline {
             return JoinSignIn::Waiting;
         }
@@ -229,61 +175,11 @@ impl MenuRuntime {
             join.auth_cache = auth_cache;
         }
         if checking {
-            if !self.intents.native_auth_required {
-                bevy::log::warn!("sign-in check still running; joining signed out");
-            }
+            bevy::log::warn!("sign-in check still running; joining signed out");
             JoinSignIn::Expired
         } else {
             JoinSignIn::Settled
         }
-    }
-
-    /// The queued join, once the saved account's check has settled (bounded) and any
-    /// sign-in helper the join does not outlive has finished cleaning up.
-    pub fn take_join_intent(&mut self) -> Option<JoinIntent> {
-        if self.external.is_some() {
-            return self.intents.join.take();
-        }
-        if self.sign_out_requested {
-            self.intents.join = None;
-            return None;
-        }
-        if self.account_operation_pending() {
-            return None;
-        }
-        let helper_outlives_join = match self.settle_join_sign_in(std::time::Instant::now()) {
-            JoinSignIn::Waiting => return None,
-            JoinSignIn::Settled => false,
-            JoinSignIn::Expired => true,
-        };
-        if self.intents.native_auth_required
-            && self
-                .intents
-                .join
-                .as_ref()
-                .is_some_and(|join| !join.local_world)
-            && self.launcher_auth_cache().is_none()
-        {
-            self.stop_sign_in();
-            self.cancel_join();
-            self.show_join_failure(
-                "Could not verify the selected account. Sign in again before joining.".into(),
-            );
-            return None;
-        }
-        if !helper_outlives_join
-            && self
-                .auth_process
-                .as_ref()
-                .is_some_and(|process| !process.cleanup_complete())
-        {
-            return None;
-        }
-        let join = self.intents.join.take();
-        if join.is_some() {
-            self.intents.native_auth_required = false;
-        }
-        join
     }
 
     /// Cancels a fallback prompt from a check serving a join before any browser opens for it.
@@ -354,32 +250,6 @@ impl MenuRuntime {
     }
 
     fn spawn_sign_in(&mut self) {
-        #[cfg(feature = "native-networking")]
-        if self.native_sign_in {
-            let result = self
-                .io_execution()
-                .map_err(Into::into)
-                .and_then(|(runtime, tasks)| {
-                    AuthSupervisor::spawn_native(
-                        self.account_store(),
-                        self.layout.device_profile_file(),
-                        self.feeds.account_active_id.clone(),
-                        self.feeds.account_adding,
-                        runtime,
-                        tasks,
-                    )
-                });
-            match result {
-                Ok(process) => self.auth_process = Some(process),
-                Err(_) => {
-                    self.auth_process = None;
-                    self.sign_in_failure = Some(AuthState::Failed(
-                        "Sign-in could not start. Try again.".into(),
-                    ));
-                }
-            }
-            return;
-        }
         let Some(executable) = core_executable(&self.layout) else {
             self.auth_process = None;
             let failure = "Sign-in is unavailable. Try again.";
@@ -579,24 +449,6 @@ impl MenuRuntime {
             self.catalog_started = false;
             self.catalog_message = Some("Signed in. Loading account destinations…".to_owned());
         }
-        #[cfg(feature = "native-networking")]
-        if let Some((profile, pending)) = process.take_native_profile() {
-            self.feeds.profile = MenuProfile {
-                unavailable: false,
-                xuid: profile.id.clone(),
-                gamertag: profile.gamertag.clone(),
-                picture_path: profile.picture_path.clone().unwrap_or_default(),
-                ..MenuProfile::unavailable()
-            };
-            if let Some(pending) = pending {
-                self.accounts.pending_ready = true;
-                self.accounts.operation = Some(launcher_host::accounts::Operation::CommitNative(
-                    profile, pending,
-                ));
-            } else {
-                self.feeds.account_active_id = Some(profile.id);
-            }
-        }
         if reset_focus {
             self.focus_sign_in_prompt();
         }
@@ -643,6 +495,3 @@ mod tests;
 
 #[cfg(test)]
 mod auth_tests;
-
-#[cfg(all(test, feature = "native-networking"))]
-mod native_tests;

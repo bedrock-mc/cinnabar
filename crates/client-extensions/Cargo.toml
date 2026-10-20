@@ -14,7 +14,6 @@ reads = [
 
 [dependencies]
 anyhow.workspace = true
-bedrock-packs.workspace = true
 assets = { path = "../assets" }
 bevy.workspace = true
 client-state = { path = "../client-state" }

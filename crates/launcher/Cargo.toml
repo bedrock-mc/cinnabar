@@ -11,24 +11,20 @@ reads = [
     "assets/branding/icon.png",
     "assets/branding/title.png",
     "core/authcache/derived_suffix.txt",
-    "core/authcache/cache_limit.txt",
     "core/catalog/artwork_limit.txt",
     "core/catalog/profile_overview_limit.txt",
-    "core/catalog/realm_membership_conformance.json",
-    "packaging/common/runtime-binaries.txt",
 ]
 
 [features]
 test-support = []
 
 [dependencies]
-bedrock-packs.workspace = true
 cosmetics = { path = "../cosmetics" }
 bridge = { path = "../bridge" }
 json-ui = { path = "../json-ui" }
 assets = { path = "../assets" }
 render-api = { path = "../render-api" }
-resource-pack = { path = "../resource-pack" }
+resource-pack = { path = "../resource-pack", default-features = false }
 semantic-input = { path = "../input" }
 ui = { path = "../ui" }
 serde = { version = "1", features = ["derive"] }
@@ -37,7 +33,6 @@ update-manifest = { path = "../update-manifest" }
 sha2.workspace = true
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 thiserror.workspace = true
-zeroize = "1"
 
 [lints]
 workspace = true

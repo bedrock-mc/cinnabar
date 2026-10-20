@@ -51,55 +51,9 @@ closes no gate and provides no new runtime or performance evidence.
 
 ## Phase 1 — Core service
 
-The Go backend remains the default. The optional native Rust backend composes the
-Cinnabar service SDK, Bedrock session libraries and RakNet/NetherNet transports.
-Its transport cores use caller-driven state machines; runtime adapters are explicit.
-Native account checkpoints, resource packs, local-world joins and hosted-peer
-lifecycles have focused owning coverage. Local Dragonfly worlds retain their
-existing world-process owner.
-
-Generic signed LAN joins require the selected account's original proof and an
-online-capable advertisement; they do not retry unsigned. Advertisement-driven
-authentication preference and fallback remain unverified. Selected own-world LAN
-joins retain their explicit offline policy.
-
-The native browser gateway has an opt-in HTTPS/WebSocket operator using the existing
-ephemeral account and play owners, with validated certificate-file replacement and
-explicit shutdown. Its new operator controls still require execution. WebTransport
-listener and dedicated pack-stream adoption remain incomplete; WebSocket fallback
-does not close browser transport or deployment acceptance.
-Gateway pack acquisition now has a guarded public HTTP/HTTPS source candidate; CDN-only
-owning controls require execution. Hosted CDN-only packs remain incomplete where original
-upstream data metadata is unavailable; their existing chunk/metadata path is preserved.
-explicit shutdown. The optional paired WebTransport source reuses that registry,
-controller generation, native play pump and original archives on a dedicated uni stream.
-The coherent HTTP/3 header/capsule dependency and paired transport/BDS owning controls
-still require qualification. Latest-draft browser, deployment and live-account acceptance
-remain incomplete; WebSocket fallback does not close those gates.
-Gateway and hosted pack acquisition have a guarded public HTTP/HTTPS source candidate.
-Hosted preloads retain absent upstream DataInfo and derive downstream hash/type from the
-same verified original archive, with the selected delivery policy's false premium default.
-Original in-band metadata is preserved. CDN-only acquisition, downstream delivery and
-retirement controls still require execution. Opaque behavior/skin archive acquisition has a
-separate identity-validation path; strict rendering admission remains unchanged and their
-application remains unsupported. Their CDN-only downstream wire controls require qualification.
-
-A native signout source candidate now waits for the original session Core's exit
-and the account event owner's completed retirement before credential mutation.
-Owning process, account and production session regressions still require execution.
-
-Native menu services now have a source candidate that attaches the original account
-and local-world workers without a Go Core executable or control endpoint. Replacement
-still waits for the original publisher and any real child to retire. The missing-Core
-baseline failed its owning attachment control; the correction and real Core-to-native
-transition still require execution. Backend defaults and native friend UI gates are unchanged.
-
-Complete host messaging and renewal acceptance, addressed HTTP joins and trust,
-remaining account event ownership, and current client integration. Native friend
-UI joining remains gated on end-to-end qualification. Real-account lifecycle,
-featured-server and server-software coverage, WAN/device compatibility and retained
-memory/frame budgets remain open. Passing focused controls does not close these
-gates. Keep dependency identities shared across the reusable libraries and client.
+The Go core and local stream boundary are implemented. Keep authentication,
+encryption and upstream transports with the core, and client behavior with Rust.
+Changes still need current protocol conformance, bounded framing and lifecycle coverage.
 The pinned target comes from [the target manifest](assets/bedrock-target.json).
 
 ## Phase 2 — World rendering
@@ -391,29 +345,26 @@ preparation and presentation readiness remain required for a successful join. Li
 server latency impact and the complete transfer acceptance matrix remain unqualified.
 
 Server pack acquisition, handoff and stack composition no longer impose fixed archive-count
+or compressed-byte quotas. Saved server lists retain every imported entry. Declared sizes,
+identity, digests and framing remain validated. Experience selections preserve service errors
+and wait for the account core result. Complete featured-server acceptance remains open:
+large-pack preparation can be slow or fail, and sparse startup terrain can leave loading open.
+Server language loading retains every readable English and selected-locale layer without fixed
+table, entry or process quotas, and folds inserted keys to ASCII lowercase. Unreadable sources
+and allocation failures are diagnosed without discarding other definitions. Complete pack-content
+acceptance remains open. Local imports, decompression, UI/text expansion and other admission limits
 or compressed-byte quotas. Safe member paths have no added byte cutoff; server manifests
-and default member reads retain complete declared content. Declared sizes, identity,
-digests and framing remain validated. Manifest subpack lists have no separate row-count
-cutoff; server and local loading share the existing field validation and device-tier
+and default member reads retain complete declared content. Manifest subpack lists have no separate
+row-count cutoff; server and local loading share the existing field validation and device-tier
 selection. Native runtime and device acceptance for larger subpack lists remain open.
-
-Server language loading retains every readable English and selected-locale layer without
-fixed table, entry or process quotas, and folds inserted keys to ASCII lowercase.
-Unreadable sources and allocation failures are diagnosed without discarding other
-definitions. Complete pack-content acceptance remains open.
-
-Saved server lists retain every imported entry. Experience selections preserve service
-errors and wait for the account core result. Complete featured-server, menu and gameplay
-qualification remains open: large-pack preparation can be slow or fail, and sparse
-startup terrain can leave loading open. Explicit subscriber limits and large-content
-live and performance acceptance remain open. Local imports, decompression, UI/text
-expansion, language memory and other admission limits still need version-matched
-verification; the limit inventory closes no whole-client parity gate.
-
-Native friend serving has separate Dragonfly and BDS HTTP/LAN backend owners.
-BDS hosting acceptance remains incomplete until the original process, authenticated
-guests, pack delivery, initialization, live traffic and retirement pass together;
-the source implementation alone does not qualify the route or its UI/default gates.
+Explicit subscriber limits and large-content live and performance acceptance remain open.
+Saved server lists retain every
+imported entry. Declared sizes, identity, digests and framing remain validated. Experience
+selections preserve service errors and wait for the account core result. Complete
+featured-server, menu and gameplay qualification remains open, including large-pack
+preparation and broader sparse-startup coverage.
+Local imports, decompression, UI/text expansion, language memory and other admission limits
+still need version-matched verification; the limit inventory closes no whole-client parity gate.
 
 Cosmetics require live authenticated multi-account acceptance, catalog/motion envelope
 coverage, supported slot/ownership enforcement, player-preview acceptance and hardware

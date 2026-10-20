@@ -25,13 +25,13 @@ fn pack_zip(id: u128) -> Vec<u8> {
 /// A server stack of one valid pack and one rejected entry.
 fn server(id: u128) -> ValidatedPackStack {
     let archives = vec![
-        bedrock_packs::ResourcePackArchive::unencrypted(
+        protocol::ResourcePackArchive::unencrypted(
             Uuid::from_u128(id),
             "1.0.0".into(),
             String::new(),
             pack_zip(id),
         ),
-        bedrock_packs::ResourcePackArchive::unencrypted(
+        protocol::ResourcePackArchive::unencrypted(
             Uuid::from_u128(99),
             "1.0.0".into(),
             String::new(),
