@@ -704,6 +704,27 @@ fn bounded_translation_still_resolves_unused_nested_arguments_and_counters() {
 }
 
 #[test]
+fn bounded_translation_keeps_parent_text_after_an_unused_argument_is_truncated() {
+    let document =
+        parse_raw_text(r#"{"rawtext":[{"translate":"outer","with":["%large"]},{"text":"tail"}]}"#)
+            .unwrap();
+    let large: Arc<str> = "x".repeat(MAX_RAW_TEXT_OUTPUT_BYTES + 1).into();
+    let translate = |key: &str| match key {
+        "outer" => Some(Arc::from("OK")),
+        "large" => Some(Arc::clone(&large)),
+        _ => None,
+    };
+    let resolved = document.resolve(&protocol::RawTextResolver {
+        reader_name: "Reader",
+        translate: &translate,
+        score: &|_, _| None,
+        selector: &|_| None,
+    });
+    assert_eq!(resolved.text, "OKtail");
+    assert!(resolved.truncated);
+}
+
+#[test]
 fn death_translation_resolves_marked_entity_parameters_once() {
     let translate = |key: &str| match key {
         "death.attack.mob" => Some(Arc::from("%1$s was slain by %2$s")),

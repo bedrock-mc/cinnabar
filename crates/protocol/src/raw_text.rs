@@ -115,45 +115,42 @@ impl RawTextDocument {
     #[must_use]
     pub fn resolve(&self, resolver: &RawTextResolver<'_>) -> ResolvedRawText {
         let mut resolved = ResolvedRawText::default();
+        let max_bytes = self.max_output_bytes.min(MAX_RAW_TEXT_EXPANSION_BYTES);
         for component in self.components.iter() {
-            resolve_component(
-                component,
-                resolver,
-                &mut resolved,
-                0,
-                self.max_output_bytes.min(MAX_RAW_TEXT_EXPANSION_BYTES),
-            );
+            if resolve_component(component, resolver, &mut resolved, 0, max_bytes) {
+                break;
+            }
         }
         resolved
     }
 }
 
+/// Appends one component and returns whether this output must stop at its retained prefix.
 fn resolve_component(
     component: &RawTextComponent,
     resolver: &RawTextResolver<'_>,
     resolved: &mut ResolvedRawText,
     depth: usize,
     max_output_bytes: usize,
-) {
-    if resolved.truncated || resolved.text.len() == max_output_bytes {
+) -> bool {
+    if resolved.text.len() == max_output_bytes {
         resolved.truncated = true;
-        return;
+        return true;
     }
     if depth > MAX_RAW_TEXT_DEPTH {
         resolved.truncated = true;
-        return;
+        return false;
     }
     match component {
         RawTextComponent::Text(text) => push_bounded(resolved, text, max_output_bytes),
-        RawTextComponent::Sequence(children) => {
-            for child in children.iter() {
-                resolve_component(child, resolver, resolved, depth + 1, max_output_bytes);
-            }
-        }
+        RawTextComponent::Sequence(children) => children
+            .iter()
+            .any(|child| resolve_component(child, resolver, resolved, depth + 1, max_output_bytes)),
         RawTextComponent::Selector(selector) => match (resolver.selector)(selector) {
             Some(text) => push_bounded(resolved, &text, max_output_bytes),
             None => {
                 resolved.skipped_selectors = resolved.skipped_selectors.saturating_add(1);
+                false
             }
         },
         RawTextComponent::Score { name, objective } => {
@@ -166,6 +163,7 @@ fn resolve_component(
                 Some(value) => push_bounded(resolved, &value.to_string(), max_output_bytes),
                 None => {
                     resolved.unresolved_scores = resolved.unresolved_scores.saturating_add(1);
+                    false
                 }
             }
         }
@@ -174,11 +172,11 @@ fn resolve_component(
                 Some(template) => {
                     // Arguments resolve first so positional substitution can
                     // splice them; each argument is itself budget-bounded.
-                    let arguments: Vec<String> = with
+                    let arguments: Vec<(String, bool)> = with
                         .iter()
                         .map(|argument| {
                             let mut nested = ResolvedRawText::default();
-                            resolve_component(
+                            let mut sealed = resolve_component(
                                 argument,
                                 resolver,
                                 &mut nested,
@@ -203,6 +201,7 @@ fn resolve_component(
                                 nested.text.clear();
                                 push_bounded(&mut nested, &localized, max_output_bytes);
                                 nested.truncated |= clipped.get();
+                                sealed |= clipped.get();
                             }
                             resolved.unknown_translations = resolved
                                 .unknown_translations
@@ -214,23 +213,28 @@ fn resolve_component(
                                 .skipped_selectors
                                 .saturating_add(nested.skipped_selectors);
                             resolved.truncated |= nested.truncated;
-                            nested.text
+                            (nested.text, sealed)
                         })
                         .collect();
                     let formatted = format_translation_chars_with_limit(
                         template.chars(),
-                        &arguments,
+                        |index| {
+                            arguments
+                                .get(index)
+                                .map(|(text, sealed)| (text.as_str(), *sealed))
+                        },
                         max_output_bytes
                             .saturating_sub(resolved.text.len())
                             .saturating_add(4),
                     );
-                    push_bounded(resolved, &formatted.text, max_output_bytes);
+                    let omitted = push_bounded(resolved, &formatted.text, max_output_bytes);
                     resolved.truncated |= formatted.sealed;
+                    omitted || formatted.sealed
                 }
                 None => {
                     // The vanilla client presents an unknown key verbatim.
                     resolved.unknown_translations = resolved.unknown_translations.saturating_add(1);
-                    push_bounded(resolved, key, max_output_bytes);
+                    push_bounded(resolved, key, max_output_bytes)
                 }
             }
         }
@@ -253,13 +257,18 @@ pub fn format_translation_chars(
     template: impl Iterator<Item = char>,
     arguments: &[String],
 ) -> String {
-    format_translation_chars_with_limit(template, arguments, MAX_FORMATTED_PREFIX_BYTES).text
+    format_translation_chars_with_limit(
+        template,
+        |index| arguments.get(index).map(|text| (text.as_str(), false)),
+        MAX_FORMATTED_PREFIX_BYTES,
+    )
+    .text
 }
 
 /// Formats substitutions using the caller's byte budget and complete UTF-8 scalars.
-fn format_translation_chars_with_limit(
+fn format_translation_chars_with_limit<'a>(
     template: impl Iterator<Item = char>,
-    arguments: &[String],
+    argument: impl Fn(usize) -> Option<(&'a str, bool)>,
     max_bytes: usize,
 ) -> TranslationPrefix {
     let max_bytes = max_bytes.min(MAX_RAW_TEXT_EXPANSION_BYTES);
@@ -281,8 +290,9 @@ fn format_translation_chars_with_limit(
             }
             Some('s' | 'd') => {
                 chars.next();
-                if let Some(argument) = arguments.get(sequential) {
+                if let Some((argument, sealed)) = argument(sequential) {
                     output.push_str(argument);
+                    output.sealed |= sealed;
                 }
                 sequential += 1;
             }
@@ -293,7 +303,7 @@ fn format_translation_chars_with_limit(
                     if chars.peek() == Some(&'f') {
                         chars.next();
                         let precision = precision as usize - '0' as usize;
-                        if let Some(argument) = arguments.get(sequential) {
+                        if let Some((argument, sealed)) = argument(sequential) {
                             match argument.trim().parse::<f64>() {
                                 Ok(value) if value.is_finite() => {
                                     use std::fmt::Write as _;
@@ -305,6 +315,7 @@ fn format_translation_chars_with_limit(
                                 }
                                 _ => output.push_str(argument),
                             }
+                            output.sealed |= sealed;
                         }
                         sequential += 1;
                     } else {
@@ -327,8 +338,9 @@ fn format_translation_chars_with_limit(
                         chars.next();
                     }
                 }
-                if let Some(argument) = arguments.get(index) {
+                if let Some((argument, sealed)) = argument(index) {
                     output.push_str(argument);
+                    output.sealed |= sealed;
                 } else {
                     output.push('%');
                     output.push(digit);
@@ -399,8 +411,11 @@ impl std::fmt::Write for FixedFloatText {
     }
 }
 
-fn push_bounded(resolved: &mut ResolvedRawText, text: &str, max_bytes: usize) {
-    resolved.truncated |= append_prefix(&mut resolved.text, text, max_bytes);
+/// Appends text within this output's budget and reports whether its suffix was omitted.
+fn push_bounded(resolved: &mut ResolvedRawText, text: &str, max_bytes: usize) -> bool {
+    let omitted = append_prefix(&mut resolved.text, text, max_bytes);
+    resolved.truncated |= omitted;
+    omitted
 }
 
 /// Appends complete UTF-8 scalars without reserving beyond the string's budget.
