@@ -23,6 +23,32 @@ fn device() -> (RenderDevice, RenderQueue) {
 }
 
 #[test]
+fn artwork_arrays_allocate_exact_source_layers() {
+    let (device, queue) = device();
+    for layers in [3, 129, device.limits().max_texture_array_layers] {
+        let pages = publication(1, layers);
+        let expected_bytes = pages.pages[0].rgba8.len() as u64;
+        let _observe = gpu_allocation::inject(move |label, bytes| {
+            if label == "immutable actor page" {
+                assert_eq!(
+                    bytes, expected_bytes,
+                    "artwork must not reserve spare layers"
+                );
+            }
+            false
+        });
+        let mut gpu = GpuArtwork::default();
+        assert!(gpu.prepare(&pages, &device, &queue));
+        assert_eq!(
+            gpu.page(0).unwrap()._texture.depth_or_array_layers(),
+            layers
+        );
+        queue.submit([]);
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    }
+}
+
+#[test]
 fn page_allocation_failure_retains_previous_texture_without_uploading() {
     let (device, queue) = device();
     let mut gpu = GpuArtwork::default();

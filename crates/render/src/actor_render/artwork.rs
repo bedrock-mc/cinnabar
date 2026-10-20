@@ -227,18 +227,17 @@ impl GpuArtwork {
                 continue;
             }
             let source = TextureKey::new(page, &self.source_hasher);
-            let mut previous = self.pages[index].take();
+            let previous = self.pages[index].take();
             let has_fallback = previous
                 .as_ref()
                 .is_some_and(|gpu| gpu.source.contains_layers(page.layers));
-            let reused = previous
-                .as_mut()
-                .is_some_and(|gpu| reuse_page(gpu, page, &source, device, queue).is_some());
-            let gpu = if reused {
-                previous
-            } else {
-                allocate_page(device, queue, page, source, !has_fallback)
-                    .or_else(|| previous.filter(|gpu| gpu.source.contains_layers(page.layers)))
+            let gpu = match previous {
+                Some(mut gpu) if gpu.source == source => {
+                    gpu.source = source;
+                    Some(gpu)
+                }
+                previous => allocate_page(device, queue, page, source, !has_fallback)
+                    .or_else(|| previous.filter(|gpu| gpu.source.contains_layers(page.layers))),
             };
             let Some(gpu) = gpu else {
                 if background {
@@ -275,28 +274,6 @@ impl GpuArtwork {
             page.bind_group = None;
         }
     }
-}
-
-/// Reuses this slot's exact content or appends beyond its own initialized prefix.
-fn reuse_page(
-    previous: &mut GpuArtworkPage,
-    page: &render_model::ActorTexturePage,
-    source: &TextureKey,
-    device: &RenderDevice,
-    queue: &RenderQueue,
-) -> Option<()> {
-    if previous.source != *source {
-        let first = previous.source.appended_layers(page)?;
-        if previous._texture.width() != u32::from(page.width)
-            || previous._texture.height() != u32::from(page.height)
-            || previous._texture.depth_or_array_layers() < page.layers
-        {
-            return None;
-        }
-        write_page(device, queue, &previous._texture, page, first)?;
-    }
-    previous.source = source.clone();
-    Some(())
 }
 
 /// Publishes a page only after both its pixels and array view are usable.
@@ -369,69 +346,29 @@ fn upload_page(
         height: u32::from(page.height),
         depth_or_array_layers: page.layers,
     };
-    let capacity = page
-        .layers
-        .next_power_of_two()
-        .min(device.limits().max_texture_array_layers);
-    let allocate = |layers| {
-        gpu_allocation::checked(
-            device,
-            label,
-            u64::from(size.width) * u64::from(size.height) * u64::from(layers) * 4,
-            || {
-                device.create_texture(&TextureDescriptor {
-                    label: Some(label),
-                    size: Extent3d {
-                        depth_or_array_layers: layers,
-                        ..size
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: TextureDimension::D2,
-                    format: TextureFormat::Rgba8UnormSrgb,
-                    usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                    view_formats: &[],
-                })
-            },
-        )
-    };
-    let texture = allocate(capacity).or_else(|| {
-        (capacity != page.layers)
-            .then(|| allocate(page.layers))
-            .flatten()
+    let texture = gpu_allocation::checked(device, label, page.rgba8.len() as u64, || {
+        device.create_texture(&TextureDescriptor {
+            label: Some(label),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        })
     })?;
-    write_page(device, queue, &texture, page, 0)?;
-    Some(texture)
-}
-
-/// Uploads an unchanged-size layer suffix without writing any retained prefix.
-fn write_page(
-    device: &RenderDevice,
-    queue: &RenderQueue,
-    texture: &Texture,
-    page: &render_model::ActorTexturePage,
-    first: u32,
-) -> Option<()> {
-    let size = Extent3d {
-        width: u32::from(page.width),
-        height: u32::from(page.height),
-        depth_or_array_layers: page.layers - first,
-    };
-    let pixels = &page.rgba8[first as usize * size.width as usize * size.height as usize * 4..];
     #[cfg(test)]
-    work_tests::record_upload(pixels.len());
-    gpu_allocation::checked(device, "actor page upload", pixels.len() as u64, || {
+    work_tests::record_upload(page.rgba8.len());
+    gpu_allocation::checked(device, "actor page upload", page.rgba8.len() as u64, || {
         queue.profiled_write_texture(
             TexelCopyTextureInfo {
-                texture,
+                texture: &texture,
                 mip_level: 0,
-                origin: wgpu::Origin3d {
-                    z: first,
-                    ..default()
-                },
+                origin: default(),
                 aspect: default(),
             },
-            pixels,
+            &page.rgba8,
             TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(size.width * 4),
@@ -439,7 +376,8 @@ fn write_page(
             },
             size,
         )
-    })
+    })?;
+    Some(texture)
 }
 
 /// Reuses span storage for adjacent opaque instances with equal vertex counts, pages,

@@ -28,16 +28,7 @@ impl TextureKey {
             && Arc::ptr_eq(&self.page.rgba8, &page.rgba8)
     }
 
-    /// Returns the preserved layer prefix when a larger page appends identical-sized rasters.
-    pub(super) fn appended_layers(&self, page: &ActorTexturePage) -> Option<u32> {
-        (self.page.width == page.width
-            && self.page.height == page.height
-            && self.page.layers < page.layers
-            && page.rgba8.starts_with(&self.page.rgba8))
-        .then_some(self.page.layers)
-    }
-
-    /// Reports whether uploaded source layers cover the request, excluding spare capacity.
+    /// Reports whether uploaded source layers cover every layer requested by a fallback.
     pub(super) fn contains_layers(&self, layers: u32) -> bool {
         self.page.layers >= layers
     }

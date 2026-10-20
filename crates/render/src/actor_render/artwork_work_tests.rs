@@ -136,44 +136,6 @@ fn failed_background_artwork_does_not_hide_demand_and_retries_when_demanded() {
 }
 
 #[test]
-fn artwork_array_headroom_retains_texture_when_another_layer_arrives() {
-    let (device, queue) = wgpu::Device::noop(&Default::default());
-    let device = RenderDevice::from(device);
-    let queue = RenderQueue::new(queue);
-    let images = [raster(1), raster(2), raster(3), raster(4)];
-    let (first, _) = ActorArtworkPages::default().with_equipment_rasters(&images[..3]);
-    let (next, _) = ActorArtworkPages::default().with_equipment_rasters(&images);
-    let mut gpu = GpuArtwork::default();
-    assert!(gpu.prepare(&first, &device, &queue));
-    let texture = gpu.page(0).unwrap()._texture.id();
-    take_work();
-    assert!(gpu.prepare(&next, &device, &queue));
-    assert_eq!(gpu.page(0).unwrap()._texture.id(), texture);
-    assert_eq!(take_work().uploaded_bytes, images[3].rgba8.len());
-}
-
-#[test]
-fn artwork_headroom_never_exposes_unwritten_layers_after_a_failed_append() {
-    let (device, queue) = wgpu::Device::noop(&Default::default());
-    let device = RenderDevice::from(device);
-    let queue = RenderQueue::new(queue);
-    let images = [raster(1), raster(2), raster(3), raster(4)];
-    let (first, _) = ActorArtworkPages::default().with_equipment_rasters(&images[..3]);
-    let (next, _) = ActorArtworkPages::default().with_equipment_rasters(&images);
-    let mut gpu = GpuArtwork::default();
-    assert!(gpu.prepare(&first, &device, &queue));
-    let layer_bytes = images[3].rgba8.len() as u64;
-    let _fault = gpu_allocation::inject(move |label, bytes| {
-        (label == "actor page upload" && bytes == layer_bytes)
-            || (label == "immutable actor page" && bytes > 4 * 4)
-    });
-    assert!(gpu.prepare(&next, &device, &queue));
-    let page = gpu.page(0).unwrap();
-    assert_eq!(page._texture.width(), 1);
-    assert!(page.source.shares_pixels_with(&next.pages[0]));
-}
-
-#[test]
 fn persona_arrival_hashes_and_uploads_only_the_new_layer() {
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let device = RenderDevice::from(device);
