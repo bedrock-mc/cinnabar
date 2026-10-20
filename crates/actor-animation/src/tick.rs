@@ -504,6 +504,7 @@ pub(super) fn evaluate_state(
         || (state.samples_swing_poses
             && (state.local_swing.is_some() || state.remote_swing().is_some())))
     .then(|| super::render_frame::FrameState {
+        cache: Default::default(),
         previous_rotation: if context.is_local_first_person {
             input
         } else {
@@ -719,7 +720,7 @@ pub(super) fn evaluate_state(
         };
         let posed = super::render::pose_layers(
             &evaluator,
-            &variables,
+            &mut variables,
             &state.layer_skeletons,
             &weighted_clips,
             &mut layers,

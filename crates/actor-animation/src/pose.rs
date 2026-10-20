@@ -3,6 +3,9 @@ pub(super) use composition::Composition;
 
 use assets::{EntityAnimationKeyframe, EntityAnimationProperty};
 
+mod buffer;
+pub(crate) use buffer::PoseBuffer;
+
 use super::{
     tick::{ControllerBlend, WeightedClip},
     *,
@@ -12,7 +15,7 @@ use super::{
 // bone's default position.
 pub const MODEL_PART_ORIGIN_Y: f32 = assets::gui_item::SHIELD_MODEL_PART_HEIGHT;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct LocalDelta {
     pub(super) translation: [f32; 3],
     pub(super) rotation: [f32; 3],
@@ -34,6 +37,26 @@ impl Default for LocalDelta {
 }
 
 impl LocalDelta {
+    /// Composed poses can be reused only when every sampled channel has identical bits.
+    pub(super) fn same_bits(self, other: Self) -> bool {
+        let Self {
+            translation,
+            rotation,
+            scale,
+            rotation_relative_to_entity,
+            legacy_swing,
+        } = self;
+        translation.map(f32::to_bits) == other.translation.map(f32::to_bits)
+            && rotation.map(f32::to_bits) == other.rotation.map(f32::to_bits)
+            && scale.map(f32::to_bits) == other.scale.map(f32::to_bits)
+            && rotation_relative_to_entity == other.rotation_relative_to_entity
+            && match (legacy_swing, other.legacy_swing) {
+                (Some(a), Some(b)) => a.same_bits(b),
+                (None, None) => true,
+                _ => false,
+            }
+    }
+
     fn property(&mut self, property: EntityAnimationProperty) -> &mut [f32; 3] {
         match property {
             EntityAnimationProperty::Translation => &mut self.translation,
@@ -53,8 +76,20 @@ pub(super) fn sample_clips(
     clips: &[WeightedClip],
     budget: &mut EvalBudget<'_>,
 ) -> Result<Vec<LocalDelta>, EvalError> {
+    Ok(sample_clips_reused(evaluator, variables, bones, bone_names, clips, budget)?.into_vec())
+}
+
+/// Frame samples lease local-channel buffers and return them after publication.
+pub(super) fn sample_clips_reused(
+    evaluator: &Evaluator<'_>,
+    variables: &mut MolangVariables,
+    bones: &[RuntimeBone],
+    bone_names: &[Box<str>],
+    clips: &[WeightedClip],
+    budget: &mut EvalBudget<'_>,
+) -> Result<PoseBuffer, EvalError> {
     let assets = evaluator.assets;
-    let mut local = vec![LocalDelta::default(); bones.len()];
+    let mut local = PoseBuffer::lease(bones.len());
     // Shortest-path blends sample each state into its own fresh pose before composing.
     let mut sides = clips.iter().any(|clip| clip.blend.is_some()).then(|| {
         [
@@ -82,7 +117,7 @@ pub(super) fn sample_clips(
             compose_blend(&mut local, sides, blend.amount);
             pending = None;
         }
-        let pose = match (weighted.blend, sides.as_mut()) {
+        let pose: &mut [LocalDelta] = match (weighted.blend, sides.as_mut()) {
             (Some(blend), Some(sides)) => {
                 pending = Some(blend);
                 &mut sides[usize::from(blend.incoming)]

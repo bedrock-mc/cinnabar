@@ -44,10 +44,22 @@ pub(super) fn ordinary(actor: &dyn AnimatedActor, context: &ActorTickContext, sw
 }
 
 /// Attack changes retained by named drivers until their destination skeleton is composed.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Delta {
     rotation: [f32; 3],
     translation: [f32; 3],
+}
+
+impl Delta {
+    /// Retains exact channel identity, including signed zero, when composing a cached pose.
+    pub(super) fn same_bits(self, other: Self) -> bool {
+        let Self {
+            rotation,
+            translation,
+        } = self;
+        rotation.map(f32::to_bits) == other.rotation.map(f32::to_bits)
+            && translation.map(f32::to_bits) == other.translation.map(f32::to_bits)
+    }
 }
 
 /// Records relative attack changes, preserving skin-specific pivots and authored rotations.
