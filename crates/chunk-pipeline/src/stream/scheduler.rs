@@ -1,17 +1,22 @@
 use super::*;
 
+mod candidates;
+pub(super) mod rechecks;
+
+use candidates::CandidateQueue;
+
 pub(super) const NEAR_CAMERA_RADIUS: i32 = 4;
 /// Horizontal light halo around the directly prioritized mesh area.
 const NEAR_LIGHT_COLUMN_RADIUS: i32 = NEAR_CAMERA_RADIUS + 1;
 
-/// Longest wait, in startup ingress polls, before a still-blocked promoted job is rechecked.
-const MAX_RECHECK_BACKOFF_POLLS: u64 = 32;
+/// Longest wait, in readiness polls, before a still-blocked revision is rechecked.
+pub(in crate::stream) const MAX_RECHECK_BACKOFF_POLLS: u64 = 32;
 
 /// Ready work leads during ordinary streaming; startup also rechecks higher-priority deferred work.
 #[derive(Default)]
 pub(super) struct Lane {
-    pub(super) ready: BinaryHeap<PendingSchedulerCandidate>,
-    pub(super) deferred: BinaryHeap<PendingSchedulerCandidate>,
+    pub(super) ready: CandidateQueue,
+    pub(super) deferred: CandidateQueue,
     /// Promoted startup revisions: attempts and the poll before which a blocked one stays deferred.
     rechecks: HashMap<SubChunkKey, Recheck>,
     polls: u64,
@@ -30,7 +35,7 @@ impl Lane {
         self.ready.is_empty() && self.deferred.is_empty()
     }
 
-    fn heap_mut(&mut self, deferred: bool) -> &mut BinaryHeap<PendingSchedulerCandidate> {
+    fn heap_mut(&mut self, deferred: bool) -> &mut CandidateQueue {
         if deferred {
             &mut self.deferred
         } else {
@@ -175,11 +180,16 @@ impl<const L: usize> SchedulerRefresh<L> {
 
 /// A queued record superseded by a newer revision of its key.
 pub(super) trait PendingJob: Copy {
+    /// Whether pending revisions join the ordinary deferred retry rotation.
+    const RECHECK_DEFERRED: bool;
+
     fn revision(&self) -> u64;
     fn urgent(&self) -> bool;
 }
 
 impl PendingJob for PendingLight {
+    const RECHECK_DEFERRED: bool = false;
+
     fn revision(&self) -> u64 {
         self.revision
     }
@@ -189,6 +199,8 @@ impl PendingJob for PendingLight {
 }
 
 impl PendingJob for PendingMesh {
+    const RECHECK_DEFERRED: bool = true;
+
     fn revision(&self) -> u64 {
         self.revision
     }
@@ -207,6 +219,8 @@ pub(super) struct KeyedJobs<P, J, const L: usize> {
     pub(super) startup_scan: VecDeque<(SubChunkKey, u64)>,
     pub(super) lanes: [Lane; L],
     pub(super) refresh: SchedulerRefresh<L>,
+    /// Ordinary retries keep their order and cooldown across camera refreshes.
+    pub(super) retries: rechecks::RecheckQueue,
     pub(super) in_flight: HashMap<SubChunkKey, J>,
 }
 
@@ -218,6 +232,7 @@ impl<P, J, const L: usize> Default for KeyedJobs<P, J, L> {
             startup_scan: VecDeque::new(),
             lanes: std::array::from_fn(|_| Lane::default()),
             refresh: SchedulerRefresh::default(),
+            retries: rechecks::RecheckQueue::default(),
             in_flight: HashMap::new(),
         }
     }
@@ -231,10 +246,20 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
 
     /// Startup dependencies enter ingress ahead of ordinary work but behind urgent records.
     pub(super) fn enqueue_prioritized(&mut self, key: SubChunkKey, pending: P, startup: bool) {
+        if self
+            .pending
+            .get(&key)
+            .is_none_or(|previous| previous.revision() != pending.revision())
+        {
+            self.retire_lane_ownership(&key);
+        }
         if startup && !pending.urgent() {
             self.startup_scan.push_back((key, pending.revision()));
         } else {
             self.rescan(key, pending.revision(), pending.urgent());
+        }
+        if P::RECHECK_DEFERRED {
+            self.retries.enqueue(key, pending.revision());
         }
         self.pending.insert(key, pending);
     }
@@ -247,14 +272,32 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
         }
     }
 
+    /// Removes a pending job and retires its lane ownership and retry history.
+    pub(super) fn remove_pending(&mut self, key: &SubChunkKey) -> Option<P> {
+        self.retries.remove(key);
+        self.retire_lane_ownership(key);
+        self.pending.remove(key)
+    }
+
+    /// Retires a key from both lane generations without scanning unrelated candidates.
+    fn retire_lane_ownership(&mut self, key: &SubChunkKey) {
+        for lane in self.lanes.iter_mut().chain(&mut self.refresh.previous) {
+            lane.ready.remove(key);
+            lane.deferred.remove(key);
+            lane.rechecks.remove(key);
+        }
+    }
+
     /// Drops queued work; dispatched jobs keep their records.
     pub(super) fn clear_queued(&mut self) {
         self.pending.clear();
         self.scan.clear();
         self.startup_scan.clear();
-        for lane in &mut self.lanes {
+        self.retries.clear();
+        for lane in self.lanes.iter_mut().chain(&mut self.refresh.previous) {
             lane.ready.clear();
             lane.deferred.clear();
+            lane.rechecks.clear();
         }
     }
 
@@ -450,7 +493,7 @@ mod tests {
                     )
                 })
                 .collect(),
-            deferred: BinaryHeap::new(),
+            deferred: CandidateQueue::default(),
             ..Lane::default()
         }];
         let mut refresh = SchedulerRefresh::<1>::default();
@@ -577,6 +620,8 @@ mod tests {
         assert!(before > after);
         assert_eq!(after, needed);
     }
+
+    mod deferred;
 
     /// A blocked startup job cooling down costs no allocation however many polls it waits.
     #[test]

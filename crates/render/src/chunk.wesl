@@ -1,4 +1,4 @@
-import render::material::{MaterialGpu, materials, positional_material, texture_layer, texture_page, texture_cube_uv, texture_gradient_scale, material_face_is_visible, material_uses_native_leaf_colour, material_uses_overlay_mask, material_uv_flags, material_leaf_shade};
+import render::material::{MaterialGpu, materials, positional_material_id, texture_layer, texture_page, texture_cube_uv, texture_gradient_scale, material_face_is_visible, material_uses_native_leaf_colour, material_uses_overlay_mask, material_uv_flags, material_leaf_shade};
 @if(ENHANCED_SHADOW)
 import render::enhanced::caster::caster_clip;
 import bevy_render::view::View;
@@ -321,9 +321,25 @@ fn cube_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     return sealed_cube_vertex(vertex_index, instance_index, CUBE_SEAM_SEAL_PIXELS);
 }
 
-/// Builds a cube vertex with the requested seal width; zero retains block-grid corners.
-/// vertex_index / 4 selects its origin, and instance_index selects the packed quad.
-fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) -> VertexOutput {
+/// A packed cube quad and its section, decoded as every cube program reads it.
+struct CubeQuad {
+    /// Block corner of the quad's origin block, relative to the section origin.
+    local_origin: vec3<f32>,
+    face: u32,
+    /// Extent in blocks along the face's width and height axes (`quad_axes`).
+    width: f32,
+    height: f32,
+    /// Section origin in blocks, and the section's biome record in `w`.
+    chunk_origin: vec4<i32>,
+    /// Record index of the quad's four corner light samples in `geometry_streams`.
+    lighting_record_index: u32,
+    material_id: u32,
+    /// `material_id` after positional variation at the origin block.
+    selected_material_id: u32,
+}
+
+/// Decodes packed quad `instance_index` of the section in origin slot `metadata_index`.
+fn cube_quad(instance_index: u32, metadata_index: u32) -> CubeQuad {
     let quad = quads[instance_index];
     let geometry = quad.geometry;
     let local_origin = vec3<f32>(
@@ -331,31 +347,48 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
         f32((geometry >> 5u) & 0x1fu),
         f32((geometry >> 10u) & 0x1fu),
     );
-    let face = (geometry >> 15u) & 0x7u;
-    let width = f32(((geometry >> 18u) & 0xfu) + 1u);
-    let height = f32(((geometry >> 22u) & 0xfu) + 1u);
-    let metadata_index = vertex_index / 4u;
-    let corner = vertex_index & 3u;
     let chunk_origin = chunk_origins[metadata_index];
     let local_quad_index = instance_index - chunk_origin.stream_bases.x;
-    let lighting_record_index = chunk_origin.stream_bases.y + local_quad_index;
-    let lighting_word = geometry_streams[lighting_record_index * 2u + corner / 2u];
-    let light_sample = select(
-        lighting_word & 0xffffu,
-        lighting_word >> 16u,
-        (corner & 1u) != 0u,
+    return CubeQuad(
+        local_origin,
+        (geometry >> 15u) & 0x7u,
+        f32(((geometry >> 18u) & 0xfu) + 1u),
+        f32(((geometry >> 22u) & 0xfu) + 1u),
+        chunk_origin.value,
+        chunk_origin.stream_bases.y + local_quad_index,
+        quad.material_id,
+        positional_material_id(quad.material_id, chunk_origin.value.xyz + vec3<i32>(local_origin)),
     );
+}
+
+/// Packed light sample of `corner`: block light in bits 0-3, sky light in bits 4-7, the
+/// ambient-occlusion level in bits 8-10 and the emitting-face flag in bit 11.
+fn cube_light_sample(lighting_record_index: u32, corner: u32) -> u32 {
+    let lighting_word = geometry_streams[lighting_record_index * 2u + corner / 2u];
+    return select(lighting_word & 0xffffu, lighting_word >> 16u, (corner & 1u) != 0u);
+}
+
+/// Builds a cube vertex with the requested seal width; zero retains block-grid corners.
+/// vertex_index / 4 selects its origin, and instance_index selects the packed quad.
+fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) -> VertexOutput {
+    let cube = cube_quad(instance_index, vertex_index / 4u);
+    let local_origin = cube.local_origin;
+    let face = cube.face;
+    let width = cube.width;
+    let height = cube.height;
+    let corner = vertex_index & 3u;
+    let light_sample = cube_light_sample(cube.lighting_record_index, corner);
     let local_position = quad_corner(face, corner, local_origin, width, height);
-    let world_position = vec3<f32>(chunk_origin.value.xyz) + local_position;
-    let camera_offset = section_camera_offset(chunk_origin.value.xyz, local_position, view.world_position);
-    let material = positional_material(quad.material_id, chunk_origin.value.xyz + vec3<i32>(local_origin));
+    let world_position = vec3<f32>(cube.chunk_origin.xyz) + local_position;
+    let camera_offset = section_camera_offset(cube.chunk_origin.xyz, local_position, view.world_position);
+    let material = materials[cube.selected_material_id];
     let animation_sample = select_animation_frames_gpu(material);
 
     var out: VertexOutput;
     out.clip_position = camera_offset_clip(view.clip_from_world, view.world_position, camera_offset);
     @if(ENHANCED_SHADOW)
-    out.clip_position = caster_clip(world_position, quad.material_id, 1.0);
-    let uv_flags = material_uv_flags(material.flags, chunk_origin.value.xyz + vec3<i32>(local_origin));
+    out.clip_position = caster_clip(world_position, cube.material_id, 1.0);
+    let uv_flags = material_uv_flags(material.flags, cube.chunk_origin.xyz + vec3<i32>(local_origin));
     let corner_position = quad_position(face, local_position - local_origin);
     out.uv = greedy_uv(face, corner_position, width, height, uv_flags);
     out.frame_blend_uv_limit = vec3(animation_sample.blend, greedy_uv_limit(width, height, uv_flags));
@@ -363,7 +396,7 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     out.normal = face_normal(face);
     out.material_flags = material.flags;
     out.local_position = local_position;
-    out.biome_record = u32(chunk_origin.value.w);
+    out.biome_record = u32(cube.chunk_origin.w);
     out.next_texture = animation_sample.next_texture;
     out.world_position = world_position;
     let ao = material_ambient_occlusion(light_ao_factor((light_sample >> 8u) & 7u), material.flags);
@@ -393,11 +426,11 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
             material.flags,
             out.biome_record,
             local_origin + vec3(0.5),
-            vec3<f32>(chunk_origin.value.xyz),
+            vec3<f32>(cube.chunk_origin.xyz),
         ).rgb, 1.0);
     }
     @if(ENHANCED)
-    out.surface_class = material_class(quad.material_id);
+    out.surface_class = material_class(cube.material_id);
     @if(ENHANCED)
     out.world_position = waved_position(world_position, out.surface_class, 1.0);
     @if(ENHANCED)

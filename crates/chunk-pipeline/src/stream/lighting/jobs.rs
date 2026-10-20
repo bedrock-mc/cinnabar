@@ -114,11 +114,10 @@ impl WorldStream {
                 .peek()
                 .is_some_and(|candidate| near.peek().is_none_or(|local| candidate >= local));
             let Some(mut candidate) = (if queued {
-                &mut self.lighting.jobs.lanes[0].ready
+                self.lighting.jobs.lanes[0].ready.pop()
             } else {
-                &mut near
-            })
-            .pop() else {
+                near.pop()
+            }) else {
                 break;
             };
             let mut queued = queued;

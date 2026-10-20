@@ -131,6 +131,7 @@ dependencies = [
  "sha2",
  "simulation-clock",
  "test-alloc",
+ "test-time",
  "tracing",
  "world",
 ]
@@ -7669,6 +7670,7 @@ dependencies = [
  "bevy",
  "block-transform",
  "bytemuck",
+ "criterion",
  "env-compat",
  "far-terrain",
  "glam",
