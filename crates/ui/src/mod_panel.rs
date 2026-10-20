@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-pub use surface::hud_card;
+pub use surface::{hud_card, local_player_head};
 
 mod axis;
 mod control;

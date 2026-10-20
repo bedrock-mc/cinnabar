@@ -97,5 +97,5 @@ pub(super) fn fixture(previews: bool) -> Fixture {
         theme: Default::default(),
         style: Default::default(),
     };
-    Fixture::ModPanel(Box::new(panel), Some(Box::new(hud)))
+    Fixture::ModPanel(Box::new(panel), Some(Box::new(hud)), None)
 }

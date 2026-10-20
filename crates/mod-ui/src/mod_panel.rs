@@ -512,6 +512,7 @@ impl ModUi {
                 .write(&panel.panel, Arc::make_mut(&mut panel.data));
             panel.motion_data_dirty = false;
         }
+        self.local_player_identity.write(&mut panel.data);
         let data = Arc::clone(&panel.data);
         let rollback = (paint_frame.nodes.len(), *paint_frame.next);
         let world = panel

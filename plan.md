@@ -440,6 +440,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   select owner-scoped HUD cards, including preview-only cards, and share retained
   gameplay artwork. Focused rendering and cache regressions cover visible previews;
   populated-world and displayed-frame acceptance remain pending.
+  Personal panels and HUD editor surfaces can bind the host local player's name
+  and skin head, with neutral artwork when the identity is unavailable. Skin and
+  session changes retire the previous portrait; full in-world acceptance remains pending.
   displayed-frame pacing and complete rendering acceptance.
   HUD layout editing stores nine anchors and GUI-pixel offsets after completed
   moves, resizes and nudges, with an additive anchored-layout read and normalized

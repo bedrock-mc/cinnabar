@@ -260,6 +260,7 @@ impl ModUi {
             }
             editor.data_dirty = false;
         }
+        self.local_player_identity.write(&mut editor.data);
         let rollback = (paint_frame.nodes.len(), *paint_frame.next);
         let language = paint_frame.language;
         let world = editor
