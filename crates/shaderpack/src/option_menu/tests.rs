@@ -190,3 +190,16 @@ fn profile_scan_finds_the_current_profile_and_its_neighbours() {
         None
     );
 }
+
+#[test]
+fn the_final_invalid_column_count_restores_automatic_columns() {
+    let many = vec!["<empty>"; 19].join(" ");
+    let menu = menu(&format!(
+        "screen={many}\nscreen.columns=4\nscreen.columns=wide\n\
+         screen.A=GLOW\nscreen.A.columns=5\nscreen.A.columns=wide\n\
+         screen.B=GLOW\nscreen.B.columns=wide\nscreen.B.columns=1\n"
+    ));
+    assert_eq!(menu.main().columns, 3);
+    assert_eq!(menu.screen("A").unwrap().columns, 2);
+    assert_eq!(menu.screen("B").unwrap().columns, 1);
+}

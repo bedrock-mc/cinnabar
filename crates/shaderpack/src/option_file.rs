@@ -137,6 +137,19 @@ mod tests {
     }
 
     #[test]
+    fn plain_properties_round_trip_significant_whitespace() {
+        let values = OptionValues::from([
+            (" key ".to_owned(), " value ".to_owned()),
+            ("line".to_owned(), "last\n\t".to_owned()),
+            ("nonbreaking".to_owned(), "\u{a0}label\u{a0}".to_owned()),
+        ]);
+        assert_eq!(
+            parse_option_file(format_option_file(&values).as_bytes()),
+            values
+        );
+    }
+
+    #[test]
     fn the_file_sits_beside_the_pack_named_after_it() {
         assert_eq!(
             option_file(Path::new("packs/BSL_v10.zip")),

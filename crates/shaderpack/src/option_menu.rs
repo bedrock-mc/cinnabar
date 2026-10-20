@@ -96,17 +96,20 @@ impl OptionMenu {
             }
             // Iris consumes column keys here, even when the count is not a number.
             if key == "screen.columns" {
-                if let Ok(columns) = value.parse() {
-                    main.columns = Some(columns);
-                }
+                main.columns = value.parse().ok();
                 continue;
             }
             if let Some(id) = key
                 .strip_prefix("screen.")
                 .and_then(|rest| rest.strip_suffix(".columns"))
             {
-                if let Ok(columns) = value.parse() {
-                    sub_columns.insert(id.to_owned(), columns);
+                match value.parse() {
+                    Ok(columns) => {
+                        sub_columns.insert(id.to_owned(), columns);
+                    }
+                    Err(_) => {
+                        sub_columns.remove(id);
+                    }
                 }
                 continue;
             }

@@ -119,8 +119,14 @@ struct LoadingToast {
 impl PackNotices {
     /// The toast change `load` calls for at `now`, if any: one per state change, plus
     /// progress updates to a standing loading toast. A load that settles within
-    /// [`LOADING_TOAST_DELAY`] reports only its outcome.
-    pub fn observe(&mut self, load: PackLoad<'_>, now: Duration) -> Option<PackToast> {
+    /// [`LOADING_TOAST_DELAY`] reports only its outcome. `can_stand` is false while another
+    /// toast holds the slot; unchanged progress is retried once the slot is available.
+    pub fn observe(
+        &mut self,
+        load: PackLoad<'_>,
+        now: Duration,
+        can_stand: bool,
+    ) -> Option<PackToast> {
         if !self.seen.is(load) {
             self.seen = Seen::of(load);
             let standing = self
@@ -159,6 +165,10 @@ impl PackNotices {
         else {
             return None;
         };
+        if !can_stand {
+            loading.shown = None;
+            return None;
+        }
         if now < loading.stands_at || loading.shown == Some(programs) {
             return None;
         }

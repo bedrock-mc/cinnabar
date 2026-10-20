@@ -145,8 +145,8 @@ mod tests {
             Some("Makes things glow.")
         );
         assert_eq!(lang.option_comment("MISSING"), None);
-        assert_eq!(lang.value_label("QUALITY", "2"), "QHigh");
-        assert_eq!(lang.value_label("QUALITY", "3"), "Q3x");
+        assert_eq!(lang.value_label("QUALITY", "2"), "Q High");
+        assert_eq!(lang.value_label("QUALITY", "3"), "Q 3x");
         assert_eq!(lang.value_label("OTHER", "1.5"), "1.5");
         assert_eq!(lang.screen_label("SKY"), "Sky");
         assert_eq!(lang.screen_label("FOG"), "FOG");
@@ -173,6 +173,16 @@ mod tests {
             PackLang::from_source(&PackSource::from_files([("a.fsh", "")]), DEFAULT_LANGUAGE),
             PackLang::default()
         );
+    }
+
+    #[test]
+    fn property_values_keep_trailing_escaped_and_nonbreaking_whitespace() {
+        let lang = PackLang::parse(
+            "prefix.QUALITY=Q \nsuffix.QUALITY=\u{a0}x \noption.A=\u{a0}name\\ \noption.B=last\\n\n",
+        );
+        assert_eq!(lang.value_label("QUALITY", "2"), "Q 2\u{a0}x ");
+        assert_eq!(lang.option_label("A"), "\u{a0}name ");
+        assert_eq!(lang.option_label("B"), "last\n");
     }
 
     #[test]

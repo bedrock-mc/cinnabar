@@ -106,6 +106,7 @@ fn drive_loader(
         let Some((path, dimension, _)) = wanted.clone() else {
             loader.key = None;
             loader.job = None;
+            progress.finish();
             status.set_if_neq(ShaderPackStatus::Idle);
             loaded.0 = None;
             return;
@@ -132,7 +133,7 @@ fn drive_loader(
             .map(VanillaTextures::from_atmosphere)
             .unwrap_or_default();
         let (send, receive) = mpsc::channel();
-        let progress = progress.start();
+        let worker_progress = progress.start();
         let spawned = std::thread::Builder::new()
             .name("shader pack load".into())
             .spawn(move || {
@@ -144,13 +145,14 @@ fn drive_loader(
                     cache_dir.as_deref(),
                     &gpu,
                     &vanilla,
-                    &progress,
+                    &worker_progress,
                 );
                 let _ = send.send(outcome);
             });
         match spawned {
             Ok(_) => loader.job = Some(Mutex::new(receive)),
             Err(error) => {
+                progress.finish();
                 if let Some((path, _, revision)) = &loader.key {
                     *status = ShaderPackStatus::Failed {
                         pack: path.clone(),
@@ -172,6 +174,7 @@ fn drive_loader(
         Err(mpsc::TryRecvError::Disconnected) => Err("the load worker stopped".to_string()),
     };
     loader.job = None;
+    progress.finish();
     let Some((path, _, revision)) = loader.key.clone() else {
         return;
     };
