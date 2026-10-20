@@ -161,7 +161,7 @@ impl NativeAccount {
 
     /// Holds the actual service checkout and protected lease without authenticating in fixtures.
     #[cfg(feature = "test-support")]
-    pub(crate) fn test_service_operation(self: &Arc<Self>) -> io::Result<Box<dyn FnOnce()>> {
+    pub(crate) fn test_service_operation(self: &Arc<Self>) -> io::Result<Box<dyn FnOnce() + Send>> {
         let mut operation = self.begin()?;
         operation.lease = Some(self.store.try_native_lease()?);
         Ok(Box::new(move || drop(operation)))

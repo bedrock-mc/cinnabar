@@ -38,6 +38,7 @@ pub(super) struct State {
     cleanup_entered: Mutex<Option<oneshot::Sender<()>>>,
     cleanup: Mutex<Option<oneshot::Receiver<()>>>,
     lease_released: Arc<AtomicBool>,
+    read_released: tokio::sync::Notify,
 }
 
 /// Starts the original worker topology with a retained Home read and acknowledged fixture publisher.
@@ -70,6 +71,7 @@ pub fn account(
         cleanup_entered: Mutex::new(Some(cleanup_entered)),
         cleanup: Mutex::new(Some(cleanup)),
         lease_released: Arc::clone(&lease_released),
+        read_released: tokio::sync::Notify::new(),
     });
     let initial = Snapshot {
         retirement_probe: Some(state),
@@ -120,15 +122,8 @@ impl State {
             .unwrap()
             .send(())
             .unwrap();
-        let operation = loop {
-            match self.account.test_service_operation() {
-                Ok(operation) => break operation,
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                    tokio::time::sleep(crate::native_account::LEASE_RETRY).await;
-                }
-                Err(error) => return Err(error),
-            }
-        };
+        self.read_released.notified().await;
+        let operation = self.account.test_service_operation()?;
         let cleanup = self.cleanup.lock().unwrap().take().unwrap();
         let result = cleanup
             .await
@@ -139,7 +134,7 @@ impl State {
 }
 
 struct HeldRead<'a> {
-    operation: Option<Box<dyn FnOnce()>>,
+    operation: Option<Box<dyn FnOnce() + Send>>,
     entered: Option<oneshot::Sender<()>>,
     inspect: Option<oneshot::Receiver<()>>,
     state: &'a State,
@@ -170,6 +165,7 @@ impl Drop for HeldRead<'_> {
     fn drop(&mut self) {
         self.operation.take().unwrap()();
         self.state.lease_released.store(true, Ordering::Release);
+        self.state.read_released.notify_one();
         if let Some(observation) = self.state.observation.lock().unwrap().take() {
             let _ = observation.send(ReadObservation::Canceled);
         }
