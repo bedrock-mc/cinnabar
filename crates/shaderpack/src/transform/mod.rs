@@ -25,7 +25,7 @@ use crate::token::{Tok, lex};
 pub(crate) use assemble::{UboMember, assemble, merge_uniforms};
 use body::{BodyContext, SamplerUse, convert_returns, return_type, rewrite_body, rewrite_params};
 pub(crate) use interface::ProgramInterface;
-use items::{Item, parse_decl, split_items};
+use items::{Item, func_params, parse_decl, split_items};
 use std::collections::{HashMap, HashSet};
 
 /// A transform failure at a 1-based line of the include-expanded source (0 if unknown).
@@ -89,6 +89,27 @@ pub(crate) fn transform(
     iface: &mut ProgramInterface,
     names: &ResourceNames<'_>,
 ) -> Result<StageDraft, TransformError> {
+    let mut delimiters = Vec::new();
+    for token in &pp.tokens {
+        if token.is("(") || token.is("[") || token.is("{") {
+            delimiters.push(token);
+        } else if token.is(")") || token.is("]") || token.is("}") {
+            let expected = match token.text() {
+                ")" => "(",
+                "]" => "[",
+                _ => "{",
+            };
+            if !delimiters.pop().is_some_and(|open| open.is(expected)) {
+                return Err(TransformError::new(
+                    "unmatched closing delimiter",
+                    token.line,
+                ));
+            }
+        }
+    }
+    if let Some(open) = delimiters.last() {
+        return Err(TransformError::new("unclosed delimiter", open.line));
+    }
     let wide = narrow::lower(&pp.tokens);
     let wide = wide.as_deref().unwrap_or(&pp.tokens);
     let fused = dot::order(wide);
@@ -197,6 +218,13 @@ pub(crate) fn transform(
             Item::Func { name, toks } => {
                 let brace = toks.iter().position(|t| t.is("{")).unwrap_or(toks.len());
                 let mut local = c.samplers.clone();
+                let mut bools = c.bools.clone();
+                if let Some((_, params)) = func_params(&toks) {
+                    for param in params {
+                        local.remove(&param.name);
+                        bools.remove(&param.name);
+                    }
+                }
                 let mut header = rewrite_params(&toks[..brace], &mut local);
                 let return_ty = return_type(&header);
                 if name == "main"
@@ -209,13 +237,19 @@ pub(crate) fn transform(
                 out_body.extend(header);
                 let cx = BodyContext {
                     samplers: &local,
-                    bools: &c.bools,
+                    bools: &bools,
                     user_funcs: &user_funcs,
                 };
                 out_body.extend(convert_returns(
                     rewrite_body(&toks[brace..], &cx, &mut used),
                     &return_ty,
                 ));
+            }
+            Item::Other(toks)
+                if func_params(&toks).is_some()
+                    && toks.last().is_some_and(|token| token.is(";")) =>
+            {
+                out_body.extend(rewrite_params(&toks, &mut HashMap::new()));
             }
             Item::Decl(_, toks) | Item::Other(toks) => {
                 let cx = BodyContext {

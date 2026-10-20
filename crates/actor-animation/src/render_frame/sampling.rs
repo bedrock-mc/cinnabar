@@ -203,7 +203,7 @@ pub(super) fn selection_expressions(
     expressions
 }
 
-fn topology_expressions(
+pub(super) fn topology_expressions(
     assets: &RuntimeEntityAssets,
     geometry: usize,
     controllers: &[ControllerState],

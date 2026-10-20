@@ -1,5 +1,6 @@
 use super::*;
 
+/// Loads the compiled Java mapping fixture.
 fn mapping() -> &'static JavaBlockMapping {
     JavaBlockMapping::pinned().expect("the Java mapping carrier is compiled in")
 }
@@ -13,10 +14,12 @@ fn java(name: &str, dimension: JavaDimension) -> BiomeColors {
     BiomeColors::of(&entry, mapping(), dimension)
 }
 
+/// Returns the Overworld plains colors from the fixture.
 fn plains() -> BiomeColors {
     java("minecraft:plains", JavaDimension::Overworld)
 }
 
+/// Builds a clear normal-world camera state for tests.
 fn inputs(celestial_angle: f32, look: [f32; 3]) -> SkyFogInputs {
     SkyFogInputs {
         biome: plains(),
@@ -27,11 +30,13 @@ fn inputs(celestial_angle: f32, look: [f32; 3]) -> SkyFogInputs {
         render_distance_chunks: 16.0,
         look,
         camera_y: 74.0,
+        void_darkness_range: 32.0,
         medium: FogMedium::Air,
         night_vision: 0.0,
     }
 }
 
+/// Compares colors within the sky/fog test tolerance.
 fn close(a: [f32; 3], b: [f32; 3]) -> bool {
     a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1.5e-3)
 }
@@ -110,7 +115,7 @@ fn rain_and_thunder_grey_the_sky_and_darken_the_fog() {
     });
     let [r, g, b] = rgb(0x78_A7_FF);
     let grey = (r * 0.3 + g * 0.59 + b * 0.11) * 0.6;
-    assert_eq!(rain.sky, quantize(mix([r, g, b], [grey; 3], 0.75)));
+    assert_eq!(rain.sky, mix([r, g, b], [grey; 3], 0.75));
     assert!(rain.fog[2] < clear.fog[2] && rain.fog[0] < clear.fog[0]);
     let storm = sky_fog(&SkyFogInputs {
         rain: 1.0,
@@ -172,4 +177,104 @@ fn bedrock_biomes_read_their_java_colours() {
         BiomeColors::at(mapping, u32::from(u16::MAX) + 7, overworld),
         Some(void)
     );
+}
+
+#[test]
+fn normal_world_void_fading_uses_a_thirty_two_block_onset() {
+    for medium in [FogMedium::Air, FogMedium::Water] {
+        let mut view = SkyFogInputs {
+            medium,
+            ..inputs(0.0, [0.0, 0.0, -1.0])
+        };
+        let full = sky_fog(&view).fog;
+        for (camera_y, multiplier) in [
+            (-80.0, 0.0),
+            (-64.0, 0.0),
+            (-48.0, 0.25),
+            (-32.0, 1.0),
+            (0.0, 1.0),
+        ] {
+            view.camera_y = camera_y;
+            let expected = full.map(|channel| channel * multiplier);
+            assert!(
+                close(sky_fog(&view).fog, expected),
+                "{medium:?} at {camera_y}"
+            );
+        }
+    }
+}
+
+#[test]
+fn night_vision_preserves_fog_with_any_zero_channel() {
+    for colour in [[0.0, 0.4, 0.8], [0.4, 0.0, 0.8], [0.4, 0.8, 0.0]] {
+        let mut view = inputs(0.0, [0.0, 0.0, -1.0]);
+        view.biome.fog = colour;
+        view.render_distance_chunks = 32.0;
+        view.night_vision = 1.0;
+        assert_eq!(sky_fog(&view).fog, colour);
+    }
+    let view = SkyFogInputs {
+        medium: FogMedium::Lava,
+        night_vision: 1.0,
+        ..inputs(0.0, [0.0, 0.0, -1.0])
+    };
+    assert_eq!(sky_fog(&view).fog, LAVA_FOG);
+}
+
+#[test]
+fn storm_transition_uses_separate_rain_and_thunder_weights() {
+    let view = SkyFogInputs {
+        rain: 1.0,
+        thunder: 0.5,
+        ..inputs(0.0, [0.0, 0.0, -1.0])
+    };
+    let expected = [0.2930425, 0.3540964, 0.46841013];
+    let actual = sky_fog(&view).sky;
+    assert!(
+        actual
+            .iter()
+            .zip(expected)
+            .all(|(a, b)| (a - b).abs() < 1e-6),
+        "{actual:?}"
+    );
+}
+
+#[test]
+fn sky_preserves_fractional_biome_colour_precision() {
+    let mut view = inputs(0.0, [0.0, 0.0, -1.0]);
+    view.biome.sky = [0.12345, 0.23456, 0.34567];
+    assert_eq!(sky_fog(&view).sky, view.biome.sky);
+}
+
+#[test]
+fn fog_weather_layers_precede_the_sky_mix() {
+    let view = SkyFogInputs {
+        rain: 1.0,
+        thunder: 0.5,
+        render_distance_chunks: 32.0,
+        ..inputs(0.0, [0.0, 0.0, -1.0])
+    };
+    let expected = [0.35165045, 0.39560676, 0.5192157];
+    let actual = sky_fog(&view).fog;
+    assert!(
+        actual
+            .iter()
+            .zip(expected)
+            .all(|(a, b)| (a - b).abs() < 1e-6),
+        "{actual:?}"
+    );
+}
+
+#[test]
+fn flat_world_void_fading_keeps_its_one_block_range() {
+    let mut view = inputs(0.0, [0.0, 0.0, -1.0]);
+    let full = sky_fog(&view).fog;
+    view.void_darkness_range = 1.0;
+    view.camera_y = -63.5;
+    assert!(close(
+        sky_fog(&view).fog,
+        full.map(|channel| channel * 0.25)
+    ));
+    view.camera_y = -63.0;
+    assert!(close(sky_fog(&view).fog, full));
 }
