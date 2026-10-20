@@ -8,17 +8,22 @@ use std::{collections::VecDeque, future::Future, io};
 pub(in crate::login::native_network) struct Inbox {
     messages: VecDeque<Bytes>,
     bytes: usize,
+    pending_message: Option<Bytes>,
 }
 
 impl Inbox {
-    /// Removes the next wire message while releasing its byte charge.
+    /// Releases the charged FIFO prefix before its one unadmitted wire head.
     pub(super) fn pop(&mut self) -> Option<Bytes> {
-        let message = self.messages.pop_front()?;
-        self.bytes -= message.len();
-        Some(message)
+        if let Some(message) = self.messages.pop_front() {
+            self.bytes -= message.len();
+            Some(message)
+        } else {
+            self.pending_message.take()
+        }
     }
 
     /// Retains one bounded wire message for the ordinary decoder to consume later.
+    #[cfg(test)]
     pub(super) fn push(&mut self, message: Bytes) -> io::Result<()> {
         match self.try_push(message)? {
             None => Ok(()),
@@ -26,10 +31,12 @@ impl Inbox {
         }
     }
 
-    /// Stops another read when the original count or byte allowance is exhausted.
+    /// Stops reads at the original FIFO bound or while its one legal refused head is retained.
     pub(super) fn is_full(&self) -> bool {
         let limits = bedrock_net::BatchLimits::default();
-        self.bytes >= limits.max_encoded_bytes || self.messages.len() >= limits.max_packets
+        self.pending_message.is_some()
+            || self.bytes >= limits.max_encoded_bytes
+            || self.messages.len() >= limits.max_packets
     }
 
     /// Returns the same unadmitted head on aggregate pressure without changing the FIFO.
@@ -42,7 +49,10 @@ impl Inbox {
         if message.len() > limits.max_encoded_bytes {
             return Err(Self::full_error());
         }
-        if bytes > limits.max_encoded_bytes || self.messages.len() >= limits.max_packets {
+        if self.pending_message.is_some()
+            || bytes > limits.max_encoded_bytes
+            || self.messages.len() >= limits.max_packets
+        {
             return Ok(Some(message));
         }
         self.bytes = bytes;
@@ -50,12 +60,30 @@ impl Inbox {
         Ok(None)
     }
 
+    /// Keeps a just-read legal head outside the full FIFO without accepting a successor.
+    /// Callers stop application reads until pop releases this same retained body.
+    pub(super) fn retain(&mut self, message: Bytes) -> io::Result<()> {
+        if self.pending_message.is_some() {
+            return Err(Self::full_error());
+        }
+        self.pending_message = self.try_push(message)?;
+        Ok(())
+    }
+
+    /// Shares the original write-side EOF diagnostic between the concrete input owners.
+    pub(super) fn closed_during_write() -> io::Error {
+        io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "NetherNet peer closed during write",
+        )
+    }
+
     /// Preserves the strict admission failure diagnostic for all original callers.
     fn full_error() -> io::Error {
         io::Error::other("native wire receive queue is full")
     }
 
-    /// Keeps driver input progressing until this write completes, with bounded retention.
+    /// Polls the same write while its independently driven actor retains paused input.
     pub(super) async fn send<T>(
         &mut self,
         sending: impl Future<Output = io::Result<T>> + Send,
@@ -66,9 +94,8 @@ impl Inbox {
             tokio::select! {
                 biased;
                 result = &mut sending => return result,
-                message = incoming.next() => {
-                    let message = message.ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "NetherNet peer closed during write"))??;
-                    self.push(message)?;
+                message = incoming.next(), if !self.is_full() => {
+                    self.retain(message.ok_or_else(Self::closed_during_write)??)?;
                 }
             }
         }

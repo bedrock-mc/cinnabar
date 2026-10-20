@@ -107,14 +107,26 @@ impl MessagingTransport {
                 result => result.map_err(io::Error::other),
             }
         };
-        let incoming = futures::stream::unfold(connection, |connection| async move {
-            match connection.recv().await {
-                Ok(Some(message)) => Some((Ok(message), connection)),
-                Ok(None) => None,
-                Err(error) => Some((Err(io::Error::other(error)), connection)),
+        tokio::pin!(sending);
+        loop {
+            if self.inbox.is_full() {
+                tokio::select! {
+                    biased;
+                    result = &mut sending => return result,
+                    _ = connection.maintain() => {},
+                }
+            } else {
+                tokio::select! {
+                    biased;
+                    result = &mut sending => return result,
+                    message = connection.recv() => {
+                        let message = message.map_err(io::Error::other)?
+                            .ok_or_else(Inbox::closed_during_write)?;
+                        self.inbox.retain(message)?;
+                    }
+                }
             }
-        });
-        self.inbox.send(sending, incoming).await
+        }
     }
 
     /// Preserves messages accepted while a write was pending, ahead of the next transport read.
