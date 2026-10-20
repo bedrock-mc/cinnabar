@@ -1,3 +1,4 @@
+use super::super::jobs::FACING_REST;
 use super::*;
 use std::sync::Arc;
 
@@ -93,22 +94,24 @@ fn palette_refresh_keeps_resident_faces_drawable_until_their_replacement() {
     let previous = expansion_inputs();
     let mut current = previous.clone();
     current.biome_tints = BufferId::new();
-    let mut residency = Residency::new(4096, 4096, 28);
+    let mut residency = Residency::new(4096, 4096, TerrainLayout::WIDE.stride());
     residency.follow_camera(DVec3::ZERO);
-    let plan = SectionPlan {
+    let mut plan = SectionPlan {
         faces: 1,
         categories: [0..1, 1..1, 1..1],
         ..Default::default()
     };
+    plan.facing[GeometryCategory::Solid.index()][FACING_REST] = 0..1;
     let entities = [
         Entity::from_raw_u32(1).unwrap(),
         Entity::from_raw_u32(2).unwrap(),
     ];
     for entity in entities {
         let placement = residency.place(entity, &plan).unwrap();
-        residency.commit(entity, &placement, &plan, [0; 3]);
+        let mut placed = plan.clone();
+        placed.place(placement.faces.start);
+        residency.commit(entity, &placement, &placed, [0; 3]);
     }
-    current.refresh_residency(Some(&previous), false, &mut residency, entities);
     let draws = |residency: &Residency| {
         ViewDraws::build(&DrawInputs::new(
             residency.sections.values(),
@@ -120,11 +123,19 @@ fn palette_refresh_keeps_resident_faces_drawable_until_their_replacement() {
         .commands
         .len()
     };
+    assert_eq!(
+        draws(&residency),
+        entities.len(),
+        "fixture faces draw before refresh"
+    );
+    current.refresh_residency(Some(&previous), false, &mut residency, entities);
     assert_eq!(draws(&residency), entities.len());
     assert_eq!(residency.undrawn_len(), 0);
     assert_eq!(residency.take_queue().len(), entities.len());
     let placement = residency.place(entities[0], &plan).unwrap();
-    residency.commit(entities[0], &placement, &plan, [0; 3]);
+    let mut placed = plan.clone();
+    placed.place(placement.faces.start);
+    residency.commit(entities[0], &placement, &placed, [0; 3]);
     assert_eq!(draws(&residency), entities.len());
     let mut changed_table = current.clone();
     changed_table.biome_tint_table = ChunkBiomeTintIdentity::new(4, 6);
