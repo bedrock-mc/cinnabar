@@ -10,7 +10,7 @@
 use super::plan::{MAX_COLOR_BUFFERS, color_buffer_of};
 use shaderpack::{
     BlendFactor as PackFactor, BlendMode, BlendRule, BufferFormat, ProgramGroup, ProgramReflection,
-    SampleType, SamplerBinding, SamplerClass, ScalarType, StageKind, StageMask,
+    SampleType, SamplerBinding, ScalarType, StageKind, StageMask,
     TextureDimension as PackDimension, ValueType, VertexAttribute,
 };
 use std::borrow::Cow;
@@ -35,15 +35,18 @@ pub(crate) struct GpuContext {
 
 impl GpuContext {
     pub(crate) fn support(&self) -> FormatSupport {
-        FormatSupport::from_features(self.device.features())
+        FormatSupport::for_device(self.device.features(), |format| {
+            self.adapter.get_texture_format_features(format)
+        })
     }
 
     /// Whether the adapter can use `format` with every usage in `usages`.
     pub(crate) fn supports(&self, format: TextureFormat, usages: TextureUsages) -> bool {
-        self.adapter
-            .get_texture_format_features(format)
-            .allowed_usages
-            .contains(usages)
+        effective_format_features(self.device.features(), format, |format| {
+            self.adapter.get_texture_format_features(format)
+        })
+        .allowed_usages
+        .contains(usages)
     }
 
     /// Whether the device has image atomics on `format` (`TEXTURE_ATOMIC`, `r32ui`/`r32i`).
@@ -55,6 +58,23 @@ impl GpuContext {
     }
 }
 
+/// Uses adapter-specific usages only when the device enabled them.
+fn effective_format_features(
+    features: Features,
+    format: TextureFormat,
+    adapter: impl Fn(TextureFormat) -> wgpu::TextureFormatFeatures,
+) -> wgpu::TextureFormatFeatures {
+    let mut support = if features.contains(Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES) {
+        adapter(format)
+    } else {
+        format.guaranteed_format_features(features)
+    };
+    if !features.contains(format.required_features()) {
+        support.allowed_usages = TextureUsages::empty();
+    }
+    support
+}
+
 /// Device features that decide which pack buffer formats need a fallback.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct FormatSupport {
@@ -63,18 +83,45 @@ pub(crate) struct FormatSupport {
     pub float32_filterable: bool,
     /// `RG11B10UFLOAT_RENDERABLE`.
     pub rg11b10_renderable: bool,
-    /// `TEXTURE_FORMAT_16BIT_NORM`: exact 16-bit unorm buffers; without it they use 32-bit
-    /// floats, which hold every 16-bit value exactly.
+    /// Exact 16-bit unorm buffers support render attachments; otherwise they use 32-bit
+    /// floating-point formats.
     pub norm16: bool,
 }
 
 impl FormatSupport {
+    /// Uses only the format usages guaranteed by the enabled device features.
+    #[cfg(test)]
     pub(crate) fn from_features(features: Features) -> Self {
-        Self {
+        Self::for_device(features, |format| {
+            format.guaranteed_format_features(features)
+        })
+    }
+
+    /// Enables exact norm16 targets only when every selected norm16 format can be attached.
+    fn for_device(
+        features: Features,
+        adapter: impl Fn(TextureFormat) -> wgpu::TextureFormatFeatures,
+    ) -> Self {
+        let mut support = Self {
             float32_filterable: features.contains(Features::FLOAT32_FILTERABLE),
             rg11b10_renderable: features.contains(Features::RG11B10UFLOAT_RENDERABLE),
             norm16: features.contains(Features::TEXTURE_FORMAT_16BIT_NORM),
-        }
+        };
+        support.norm16 = support.norm16
+            && BufferFormat::ALL
+                .iter()
+                .map(|format| texture_format(*format, support))
+                .filter(|format| {
+                    format
+                        .required_features()
+                        .contains(Features::TEXTURE_FORMAT_16BIT_NORM)
+                })
+                .all(|format| {
+                    effective_format_features(features, format, &adapter)
+                        .allowed_usages
+                        .contains(TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING)
+                });
+        support
     }
 
     fn float32(self, format: TextureFormat, half: TextureFormat) -> TextureFormat {
@@ -277,11 +324,11 @@ pub(crate) fn texture_sample_type(
 }
 
 /// Binding type of a reflected sampler: depth comparison, or a filtering class. The
-/// clamp/nearest class is non-filtering, so it also reads unfilterable float textures.
+/// nearest classes are non-filtering, so they also read integer and unfilterable textures.
 pub(crate) fn sampler_binding_type(sampler: &SamplerBinding) -> SamplerBindingType {
     match sampler.class() {
         None => SamplerBindingType::Comparison,
-        Some(SamplerClass::ClampNearest) => SamplerBindingType::NonFiltering,
+        Some(class) if !class.linear() => SamplerBindingType::NonFiltering,
         Some(_) => SamplerBindingType::Filtering,
     }
 }
@@ -643,6 +690,7 @@ pub(crate) fn shader_modules(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shaderpack::SamplerClass;
 
     #[test]
     fn every_pack_format_maps_to_a_renderable_format_of_the_same_kind() {
@@ -785,8 +833,60 @@ mod tests {
             SamplerBindingType::Filtering
         );
         assert_eq!(
+            sampler_binding_type(&sampler(SamplerClass::RepeatNearest.binding(), false)),
+            SamplerBindingType::NonFiltering
+        );
+        assert_eq!(
             sampler_binding_type(&sampler(shaderpack::SHADOW_SAMPLER_BINDING, true)),
             SamplerBindingType::Comparison
         );
+    }
+    #[test]
+    fn norm16_feature_alone_does_not_select_an_unrenderable_target() {
+        let support = FormatSupport::from_features(Features::TEXTURE_FORMAT_16BIT_NORM);
+        for format in [BufferFormat::R16, BufferFormat::Rg16, BufferFormat::Rgba16] {
+            assert!(
+                texture_format(format, support)
+                    .guaranteed_format_features(Features::TEXTURE_FORMAT_16BIT_NORM)
+                    .allowed_usages
+                    .contains(TextureUsages::RENDER_ATTACHMENT)
+            );
+        }
+    }
+    #[test]
+    fn norm16_targets_require_effective_adapter_attachment_usages() {
+        let features = Features::TEXTURE_FORMAT_16BIT_NORM
+            | Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
+        let allowed = |format: TextureFormat| {
+            let mut support = format.guaranteed_format_features(features);
+            support.allowed_usages |= TextureUsages::RENDER_ATTACHMENT;
+            support
+        };
+        let exact = FormatSupport::for_device(features, allowed);
+        assert_eq!(
+            texture_format(BufferFormat::R16, exact),
+            TextureFormat::R16Unorm
+        );
+        let limited = FormatSupport::for_device(features, |format| {
+            let mut support = allowed(format);
+            if format == TextureFormat::Rg16Unorm {
+                support
+                    .allowed_usages
+                    .remove(TextureUsages::RENDER_ATTACHMENT);
+            }
+            support
+        });
+        assert_ne!(
+            texture_format(BufferFormat::Rg16, limited),
+            TextureFormat::Rg16Unorm
+        );
+        let guaranteed = FormatSupport::for_device(Features::TEXTURE_FORMAT_16BIT_NORM, allowed);
+        assert!(!guaranteed.norm16);
+        let missing_feature = effective_format_features(
+            Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
+            TextureFormat::R16Unorm,
+            allowed,
+        );
+        assert!(missing_feature.allowed_usages.is_empty());
     }
 }
