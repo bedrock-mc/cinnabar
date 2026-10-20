@@ -340,7 +340,7 @@ fn configure_replacement(
     replaced.set_if_neq(
         ready
             .filter(|_| drawn.terrain)
-            .map_or_else(Default::default, replaced_effects),
+            .map_or_else(Default::default, |pack| replaced_effects(pack)),
     );
 }
 
