@@ -1,6 +1,22 @@
 use super::*;
 use std::io::Write;
 
+#[test]
+fn frontend_newline_pairs_keep_distinct_breaks() {
+    for (source, expected) in [
+        ("a\r\nb", "a\nb"),
+        ("a\n\rb", "a\nb"),
+        ("a\rb", "a\nb"),
+        ("a\n\r\nb", "a\n\nb"),
+        ("a\r\n\rb", "a\n\nb"),
+        ("a\r\rb", "a\n\nb"),
+        ("é\n\r尾", "é\n尾"),
+        ("\r\n\n\r", "\n\n"),
+    ] {
+        assert_eq!(normalize_newlines(source), expected, "{source:?}");
+    }
+}
+
 /// Invalid Unix path bytes fail admission even on filesystems that cannot store such names.
 #[cfg(unix)]
 #[test]

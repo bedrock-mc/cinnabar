@@ -152,13 +152,13 @@ void main() { gl_FragData[0] = vec4(textureGather(colortex0, vec2(0.5))) + vec4(
         .module
         .global_variables
         .iter()
-        .filter_map(|(_, variable)| {
+        .filter(|(_, variable)| {
             matches!(
                 compiled.module.types[variable.ty].inner,
                 naga::TypeInner::Sampler { comparison: false }
             )
-            .then(|| variable.binding.as_ref().unwrap().binding)
         })
+        .map(|(_, variable)| variable.binding.as_ref().unwrap().binding)
         .collect();
     bindings.sort_unstable();
     let mut expected = [
