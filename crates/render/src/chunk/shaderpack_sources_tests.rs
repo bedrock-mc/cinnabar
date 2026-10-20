@@ -122,9 +122,9 @@ fn model_assets() -> ChunkTextureAssets {
     ChunkTextureAssets::with_revision(Arc::new(assets), 1)
 }
 
-/// Expansion jobs and sorting centroids follow the order uploaded by a completed model sort.
+/// Reordering uploaded draw refs cannot change expansion slots or their sorting centroids.
 #[test]
-fn expansion_uses_uploaded_model_order_for_slots_and_centroids() {
+fn expansion_model_jobs_do_not_depend_on_uploaded_draw_order() {
     use crate::chunk::transparent::face_metric::FaceOrderClass;
     use crate::shaderpack::geometry::jobs::{
         JOB_REVERSE_FACE, JobKind, MaterialTables, plan_section,
@@ -173,7 +173,7 @@ fn expansion_uses_uploaded_model_order_for_slots_and_centroids() {
                     .get(0)
                     .unwrap()
                     .words(),
-                [0, 1]
+                [0, 0]
             );
             let plan = plan_section(
                 &section.geometry,
@@ -184,32 +184,16 @@ fn expansion_uses_uploaded_model_order_for_slots_and_centroids() {
                 },
             );
             let jobs = &plan.jobs[JobKind::Model as usize];
-            assert_eq!(jobs[0], [100, 7, 0, JOB_REVERSE_FACE]);
-            assert_eq!(jobs[1], [101, 7, 2, 0]);
+            assert_eq!(jobs[0], [25, 7, 0, 0]);
+            assert_eq!(jobs[1], [25, 7, 1, JOB_REVERSE_FACE | 1]);
             let faces = section.translucent_faces(&plan, &assets);
             assert_eq!(faces.len(), 3);
             assert_eq!(
                 faces.iter().map(|face| face.stable).collect::<Vec<_>>(),
-                [[0, 1], [0, 1], [0, 0]]
+                [[0, 0], [0, 1], [0, 1]]
             );
-            assert_eq!(faces[0].centroid, faces[1].centroid);
-            assert_eq!(faces[0].centroid.y, faces[2].centroid.y + 1.0);
-        })
-        .unwrap();
-    world
-        .get_mut::<GpuChunkAllocation>(entity)
-        .unwrap()
-        .generation += 1;
-    world
-        .get_mut::<ChunkRenderInstance>(entity)
-        .unwrap()
-        .generation += 1;
-    world
-        .run_system_once(move |sections: ResidentSections| {
-            assert!(
-                sections.get(entity, tint).is_none(),
-                "a replaced allocation cannot use the previous upload's order"
-            );
+            assert_eq!(faces[1].centroid, faces[2].centroid);
+            assert_eq!(faces[1].centroid.y, faces[0].centroid.y + 1.0);
         })
         .unwrap();
 }

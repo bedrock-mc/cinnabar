@@ -1,11 +1,11 @@
 // Expands placed block-model quads (plants, stairs, slabs, translucent cubes ...) into Iris faces.
-import render::model::{model_quad, model_corner_position, model_corner_uv, model_light_sample, model_quad_normal, stem_colour};
+import render::model::{model_quad_at, model_corner_position, model_corner_uv, model_light_sample, model_quad_normal, stem_colour};
 import render::material::materials;
 import render::biome_tint::blended_biome_tint_gamma;
 import render::lighting::{light_ao_factor, material_ambient_occlusion, material_face_shade};
 import render::shaderpack::geometry::expand_common::{FaceCorners, FaceSource, JobFace, expand_job, expand_job_count, expand_job_index, write_job_faces, EXPAND_WORKGROUP_SIZE};
 
-/// Job: x = model draw-ref record, y = origin slot, z = first output face, w = reserved face flags.
+/// Job: x = model-ref record, y = origin slot, z = first output face, w = quad index and face flags.
 @compute @workgroup_size(EXPAND_WORKGROUP_SIZE)
 fn expand_models(@builtin(global_invocation_id) id: vec3<u32>, @builtin(num_workgroups) groups: vec3<u32>) {
     let index = expand_job_index(id, groups);
@@ -16,10 +16,10 @@ fn expand_models(@builtin(global_invocation_id) id: vec3<u32>, @builtin(num_work
     write_job_faces(job, model_face(job));
 }
 
-/// The face of the template quad `job`'s draw ref places; invalid when the ref's addresses
+/// The face of the template quad `job` places; invalid when the model's addresses
 /// fail validation.
 fn model_face(job: vec4<u32>) -> JobFace {
-    let quad = model_quad(job.x, job.y);
+    let quad = model_quad_at(job.x, job.w & JOB_MODEL_QUAD_MASK, job.y);
     if (!quad.valid) {
         var invalid: JobFace;
         return invalid;

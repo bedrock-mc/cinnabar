@@ -2,7 +2,9 @@
 //! Iris geometry category, and the jobs the expansion kernels run to write them.
 //!
 //! A job is four words `[record, origin slot, first output face, flags]`. Cube jobs cover one
-//! block of a greedy quad (its width and height steps in flag bits 0-15); every job reserves an
+//! block of a greedy quad (its width and height steps in flag bits 0-15). Model jobs name a
+//! stable model-ref record, with the template quad index in those low flag bits, so sorting
+//! GPU draw refs cannot change what they expand. Every job reserves an
 //! extra slot for a grass-side overlay ([`JOB_OVERLAY_FACE`]) and for the back of a two-sided
 //! face ([`JOB_REVERSE_FACE`]) when it may need them, and the kernel leaves unneeded slots
 //! degenerate. Cube materials and their positional variants reserve reverse faces when two-sided;
@@ -22,6 +24,9 @@ pub(crate) const JOB_REVERSE_FACE: u32 = 1 << 17;
 /// Job flag: the job's only slot holds the back of a two-sided face, as its own job because
 /// it faces the other way and so belongs to the opposite facing group.
 pub(crate) const JOB_BACK_ONLY: u32 = 1 << 18;
+/// Model jobs store the template quad index below the face flags.
+pub(crate) const JOB_MODEL_QUAD_MASK: u32 = JOB_OVERLAY_FACE - 1;
+const _: () = assert!(assets::MAX_MODEL_TEMPLATE_QUADS <= JOB_MODEL_QUAD_MASK as usize + 1);
 
 /// Iris geometry categories, in the order a section's faces are stored.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -53,40 +58,6 @@ pub(crate) enum JobKind {
 
 pub(crate) const JOB_KINDS: [JobKind; 3] = [JobKind::Cube, JobKind::Model, JobKind::Liquid];
 
-/// Borrowed model draws, with uploaded global model addresses resolved back to section indices.
-#[derive(Clone, Copy)]
-pub(crate) enum ModelDrawRefs<'a> {
-    Local(&'a [PackedModelDrawRef]),
-    Uploaded {
-        words: &'a [[u32; 2]],
-        model_base: u32,
-    },
-}
-
-impl ModelDrawRefs<'_> {
-    /// Number of draw records, preserving GPU offsets even for an invalid record.
-    fn len(self) -> usize {
-        match self {
-            Self::Local(draws) => draws.len(),
-            Self::Uploaded { words, .. } => words.len(),
-        }
-    }
-
-    /// Resolves one draw into the section's local model-ref stream.
-    pub(crate) fn get(self, index: usize) -> Option<PackedModelDrawRef> {
-        match self {
-            Self::Local(draws) => draws.get(index).copied(),
-            Self::Uploaded { words, model_base } => {
-                let &[model, quad] = words.get(index)?;
-                Some(PackedModelDrawRef::new(
-                    model.checked_sub(model_base)?,
-                    quad,
-                ))
-            }
-        }
-    }
-}
-
 /// Everything planning reads about one resident section. Record bases are the section's first
 /// global record in each GPU stream, as its allocation placed them.
 pub(crate) struct SectionGeometry<'a> {
@@ -97,12 +68,10 @@ pub(crate) struct SectionGeometry<'a> {
     /// Leading cube quads that are opaque and single-sided.
     pub(crate) solid_len: u32,
     pub(crate) model_refs: &'a [PackedModelRef],
-    /// Global record of the first opaque model draw ref.
-    pub(crate) model_draw_base: u32,
+    /// Global record of the first model ref, which stays fixed when draw refs are sorted.
+    pub(crate) model_base: u32,
     pub(crate) model_draw_refs: &'a [PackedModelDrawRef],
-    /// Global record of the first translucent model draw ref.
-    pub(crate) transparent_model_draw_base: u32,
-    pub(crate) transparent_model_draw_refs: ModelDrawRefs<'a>,
+    pub(crate) transparent_model_draw_refs: &'a [PackedModelDrawRef],
     /// Global record of the first liquid record.
     pub(crate) liquid_base: u32,
     pub(crate) liquid_quads: &'a [PackedLiquidQuad],
@@ -258,29 +227,22 @@ pub(crate) fn plan_section(
             }
         }
     }
-    for (base, draws, category) in [
+    for (draws, category) in [
+        (section.model_draw_refs, GeometryCategory::Cutout),
         (
-            section.model_draw_base,
-            ModelDrawRefs::Local(section.model_draw_refs),
-            GeometryCategory::Cutout,
-        ),
-        (
-            section.transparent_model_draw_base,
             section.transparent_model_draw_refs,
             GeometryCategory::Translucent,
         ),
     ] {
-        for index in 0..draws.len() {
-            let flags = draws
-                .get(index)
-                .and_then(|draw| model_flags(tables, section.model_refs, draw))
-                .unwrap_or(0);
+        for draw in draws {
+            let [model, quad] = draw.words();
+            let flags = model_flags(tables, section.model_refs, *draw).unwrap_or(0);
             categories[category.index()].push(
                 FACING_REST,
                 JobKind::Model,
-                base + index as u32,
+                section.model_base + model,
                 metadata,
-                flags,
+                flags | quad,
             );
         }
     }
