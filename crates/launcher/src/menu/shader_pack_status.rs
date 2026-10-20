@@ -117,6 +117,13 @@ struct LoadingToast {
 }
 
 impl PackNotices {
+    /// Retries the current loading notice after its standing toast was removed.
+    pub fn loading_toast_missing(&mut self) {
+        if let Some(loading) = self.loading.as_mut() {
+            loading.shown = None;
+        }
+    }
+
     /// The toast change `load` calls for at `now`, if any: one per state change, plus
     /// progress updates to a standing loading toast. A load that settles within
     /// [`LOADING_TOAST_DELAY`] reports only its outcome. `can_stand` is false while another

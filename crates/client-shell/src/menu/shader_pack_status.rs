@@ -56,6 +56,9 @@ impl MenuRuntime {
         let millis = u64::try_from(now.as_millis()).unwrap_or(u64::MAX);
         let standing = runtime.hud().standing_toast();
         let ours = standing.is_some_and(|toast| toast.id == LOADING_TOAST && toast.press.is_none());
+        if !ours {
+            status.notices.loading_toast_missing();
+        }
         let can_stand = !standing.is_some_and(|toast| {
             toast.press.is_some()
                 && millis
@@ -221,6 +224,32 @@ mod tests {
         };
         menu.sync_shader_pack_status(retry, &mut &mut runtime, Duration::from_secs(9));
         assert_eq!(menu.view().renderer_failure, None, "loading it again");
+    }
+
+    #[test]
+    fn unchanged_loading_returns_after_the_ui_session_resets() {
+        let mut menu = shader_pack_menu("Dusk.zip");
+        let mut runtime = UiRuntimeResource(UiRuntime::new(1));
+        let loading = PackLoad::Loading {
+            pack: "Dusk.zip",
+            programs: Some((4, 4)),
+        };
+        menu.sync_shader_pack_status(loading, &mut &mut runtime, Duration::ZERO);
+        menu.sync_shader_pack_status(loading, &mut &mut runtime, LOADING_TOAST_DELAY);
+        assert!(runtime.hud().standing_toast().is_some());
+        runtime.begin_session(2);
+        assert!(runtime.hud().standing_toast().is_none());
+        let now = LOADING_TOAST_DELAY + Duration::from_secs(1);
+        menu.sync_shader_pack_status(loading, &mut &mut runtime, now);
+        let standing = runtime.hud().standing_toast().expect("loading feedback");
+        assert_eq!(standing.id, LOADING_TOAST);
+        assert_eq!(standing.message.as_ref(), "Building pipelines");
+        assert_eq!(standing.until_millis, u64::MAX);
+        menu.sync_shader_pack_status(loading, &mut &mut runtime, now + Duration::from_secs(1));
+        assert_eq!(
+            runtime.hud().standing_toast().unwrap().since_millis,
+            millis(now)
+        );
     }
 
     #[test]
