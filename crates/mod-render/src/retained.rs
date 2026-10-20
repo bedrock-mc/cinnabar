@@ -1,13 +1,7 @@
 //! Owner-scoped immutable geometry and transactional drawing instances.
 
 use mod_api::drawing::{DrawingHandle as Handle, DrawingPermissions};
-use std::{
-    collections::BTreeMap,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
-};
+use std::{collections::BTreeMap, sync::Arc};
 
 mod entities;
 mod materials;
@@ -180,7 +174,6 @@ pub struct Resources {
     pub instance_revision: u64,
 }
 
-static NEXT_OWNER: AtomicU64 = AtomicU64::new(1);
 /// A store owns a single guest incarnation. Tokens are never reused after rollback.
 pub struct Store {
     owner: u64,
@@ -199,11 +192,7 @@ impl Default for Store {
     /// Assigns a process-unique owner even to a replacement guest.
     fn default() -> Self {
         Self {
-            owner: NEXT_OWNER
-                .try_update(Ordering::Relaxed, Ordering::Relaxed, |owner| {
-                    owner.checked_add(1)
-                })
-                .expect("drawing owners exhausted"),
+            owner: crate::identity::next_owner(),
             generation: 1,
             next_slot: 0,
             committed: Arc::default(),
@@ -218,11 +207,6 @@ impl Default for Store {
 }
 
 impl Store {
-    /// Shares this host-owned drawing namespace with its actor-mask adapter.
-    pub fn owner(&self) -> u64 {
-        self.owner
-    }
-
     /// Binds snapshots to the trusted connection before the guest initializes resources.
     pub fn bind_session(&mut self, connection: u64, dimension: i32) {
         self.revoke();

@@ -14,10 +14,10 @@ pub(super) struct Highlights {
     pub(super) dirty: bool,
 }
 impl Highlights {
-    /// Shares the drawing owner's namespace without exposing handles to the packet guest.
-    pub(super) fn new(owner: u64) -> Self {
+    /// Allocates a unique host mask owner without exposing handles to the packet guest.
+    pub(super) fn new() -> Self {
         Self {
-            store: MaskStore::new(owner),
+            store: MaskStore::default(),
             scope: Default::default(),
             targets: Vec::new(),
             handles: Vec::new(),
@@ -83,7 +83,7 @@ mod tests {
     /// Drives the adapter through a live selection, reused actor ID, despawn and revocation.
     #[test]
     fn actor_incarnations_and_scope_release_follow_the_shared_mask_owner() {
-        let mut highlights = Highlights::new(9);
+        let mut highlights = Highlights::new();
         let scope = DrawingSession {
             connection: 1,
             dimension: 0,

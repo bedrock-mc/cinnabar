@@ -22,10 +22,10 @@ pub(super) struct Drawing {
     highlights: super::packet_highlights::Highlights,
 }
 impl Default for Drawing {
-    /// Allocates one host-owned drawing namespace for geometry and actor masks.
+    /// Allocates independent host-owned resources for geometry and actor masks.
     fn default() -> Self {
         let store = draw::Store::default();
-        let highlights = super::packet_highlights::Highlights::new(store.owner());
+        let highlights = super::packet_highlights::Highlights::new();
         Self {
             store,
             highlights,
