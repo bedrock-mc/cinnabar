@@ -6,6 +6,7 @@ pub mod block_entity;
 pub mod chunk;
 pub mod cloud_config;
 pub mod cloud_visibility;
+pub mod device_memory;
 pub mod dropped_item;
 pub mod enhanced;
 pub mod entity_shadow;

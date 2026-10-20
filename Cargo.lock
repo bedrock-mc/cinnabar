@@ -7704,6 +7704,7 @@ dependencies = [
  "render-scene",
  "serde_json",
  "sha2",
+ "shaderpack",
  "tempfile",
  "test-alloc",
  "test-time",

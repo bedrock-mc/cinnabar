@@ -142,7 +142,10 @@ launcher runs and `app/previous` the one it replaced; each install keeps only th
 `--channel nightly` or `--version TAG` when invoking the script directly to test a particular release; these are explicit opt-ins to builds outside the Beta channel.
 
 Windows users download the self-contained setup EXE. macOS users choose the native Apple silicon
-or Intel DMG. The website is deployed separately and links directly to GitHub's latest release.
+or Intel DMG. The [website](https://github.com/cinnabar-mc/website) owns its deployment
+and links directly to this repository's latest release. Its build reads the release
+manifest, API contract and branding from a pinned client revision; shared inputs
+remain in this repository.
 
 ## Release symbols
 
