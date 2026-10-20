@@ -221,6 +221,9 @@ Frame sampling retains matching expression, layer and composition results; equip
 placement reuses unchanged owner and attachment inputs. Hardware crowd captures and
 full temporal/visual qualification remain open.
 
+Pure numeric Molang expressions use bound f32 lane programs with load fusion;
+mixed values and effects retain the generic evaluator, including exact budget tails.
+Full rig history and rendered qualification remain part of `P4.3-RIGS`.
 Body and custom-skin composition use shared parent-first programs and caller-owned
 output, including attachable root modes and legacy attacks. Alternate render
 geometries and skin layers retain recursive composition. Rendered and live

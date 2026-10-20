@@ -1,3 +1,4 @@
+import render::actor_rig::{BoneMatrix, posed_point, placed_point};
 import render::lighting::{lit_colour, light_colour, native_light_texel, tint_to_gamma, tint_to_linear};
 import render::glint::glint_layer_uvs;
 
@@ -12,12 +13,6 @@ struct HandView {
 struct GeometrySpan {
     first_vertex: u32,
     vertex_count: u32,
-}
-
-struct BoneMatrix {
-    row_0: vec4<f32>,
-    row_1: vec4<f32>,
-    row_2: vec4<f32>,
 }
 
 // block/sky are raw 0..=15 light levels sampled at the player; daylight scales the sky channel.
@@ -75,15 +70,6 @@ fn instance_row(base: u32, row: u32) -> vec4<f32> {
         word_f32(offset + 1u),
         word_f32(offset + 2u),
         word_f32(offset + 3u),
-    );
-}
-
-fn transform_point(matrix: BoneMatrix, point: vec3<f32>) -> vec3<f32> {
-    let homogeneous = vec4(point, 1.0);
-    return vec3(
-        dot(matrix.row_0, homogeneous),
-        dot(matrix.row_1, homogeneous),
-        dot(matrix.row_2, homogeneous),
     );
 }
 
@@ -161,15 +147,9 @@ fn hand_vertex(
         bitcast<f32>(vertex_words[vertex_base + 9u]),
     );
     let bone_index = vertex_words[vertex_base + 10u];
-    let previous = transform_point(previous_bones[previous_bone_base + bone_index], local);
-    let current = transform_point(current_bones[current_bone_base + bone_index], local);
-    let posed = mix(previous, current, partial_tick);
-    let world = vec4(
-        dot(instance_row(instance_base, 0u), vec4(posed, 1.0)),
-        dot(instance_row(instance_base, 1u), vec4(posed, 1.0)),
-        dot(instance_row(instance_base, 2u), vec4(posed, 1.0)),
-        1.0,
-    );
+    let posed = posed_point(previous_bones[previous_bone_base + bone_index], current_bones[current_bone_base + bone_index], local, partial_tick);
+    let placement = BoneMatrix(instance_row(instance_base, 0u), instance_row(instance_base, 1u), instance_row(instance_base, 2u));
+    let world = vec4(placed_point(placement, posed), 1.0);
     out.position = view.clip_from_hand * world;
     if (hand_light.java_lights[0].w != 0.0) {
         let previous_matrix = previous_bones[previous_bone_base + bone_index];

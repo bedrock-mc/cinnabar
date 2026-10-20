@@ -5,6 +5,7 @@ use {super::*, simulation_clock::TICK_DURATION as ACTOR_TICK_DURATION};
 
 pub(crate) mod frame_cache;
 mod input_reads;
+mod numeric;
 mod observed;
 #[cfg(test)]
 pub(super) mod selection_work;
@@ -87,6 +88,8 @@ pub(super) struct VariableLayout {
     controller_inputs: Vec<PresentationReads>,
     presentation_symbols: Vec<PresentationReads>,
     expression_inputs: Vec<PresentationReads>,
+    /// Pure numeric plans bound to this catalog's immutable bytecode and variable slots.
+    numeric: Vec<Option<numeric::Program>>,
     pub(super) engine: EngineSlots,
     /// Immutable analysis cached only for this finalized layout and its exact catalog.
     pub(super) plans: rig_plans::RigPlans,
@@ -185,6 +188,7 @@ impl VariableLayout {
     pub(super) fn new(assets: &Arc<RuntimeEntityAssets>) -> Self {
         let mut layout = Self::from_symbols(assets.molang_symbols());
         layout.bind_input_reads(assets);
+        layout.numeric = numeric::compile(assets, &layout);
         layout.plans = rig_plans::RigPlans::new(assets);
         layout
     }
@@ -219,6 +223,7 @@ impl VariableLayout {
             controller_inputs: Vec::new(),
             presentation_symbols: Vec::new(),
             expression_inputs: Vec::new(),
+            numeric: Vec::new(),
             engine: EngineSlots {
                 seeded: SEEDED_VARIABLES
                     .iter()
@@ -506,12 +511,22 @@ impl Evaluator<'_> {
     }
 
     pub(super) fn query(&self, symbol: u32, arguments: &[MolangValue]) -> MolangValue {
-        #[cfg(test)]
-        QUERY_WORK.with(|work| work.set(work.get() + 1));
         let binding = self.program.map_or_else(
             || self.assets.molang_query_binding(symbol),
             |program| program.query_binding(symbol),
         );
+        self.bound_query(symbol, binding, arguments)
+    }
+
+    /// Reads an already bound query with the same history and presentation overrides.
+    fn bound_query(
+        &self,
+        symbol: u32,
+        binding: Option<assets::MolangQuery>,
+        arguments: &[MolangValue],
+    ) -> MolangValue {
+        #[cfg(test)]
+        QUERY_WORK.with(|work| work.set(work.get() + 1));
         if let Some(alpha) = self.presentation_alpha
             && binding == Some(assets::MolangQuery::FrameAlpha)
         {
