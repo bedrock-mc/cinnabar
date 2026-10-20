@@ -136,6 +136,7 @@ async function serialize(node: SceneNode, parent: Transform, images: Images): Pr
     // sRGB is what the pack's PNGs are read as.
     images[key] = await node.exportAsync({ format: 'PNG', useAbsoluteBounds: true, colorProfile: 'SRGB' });
     out.raster = key;
+    out.overflows = overflows(node);
     return out;
   }
   if ('effects' in node) out.effects = node.effects.map((effect) => ({ type: effect.type, visible: effect.visible }));
@@ -170,6 +171,21 @@ async function serialize(node: SceneNode, parent: Transform, images: Images): Pr
     out.children = children;
   }
   return out;
+}
+
+// Whether the layer draws outside its box (shadows, outside strokes,
+// unclipped children), which an export of that box cuts off.
+function overflows(node: SceneNode): boolean {
+  const drawn = 'absoluteRenderBounds' in node ? node.absoluteRenderBounds : null;
+  const box = node.absoluteBoundingBox;
+  if (!drawn || !box) return false;
+  const slack = 0.01;
+  return (
+    drawn.x < box.x - slack ||
+    drawn.y < box.y - slack ||
+    drawn.x + drawn.width > box.x + box.width + slack ||
+    drawn.y + drawn.height > box.y + box.height + slack
+  );
 }
 
 // Whether the layer name holds the converter's `kind` token, alone or as `token=value`.
@@ -263,6 +279,13 @@ async function paints(list: ReadonlyArray<Paint>, images: Images): Promise<Json[
   return out;
 }
 
+// Whether any of the text uses bullet or numbered list formatting.
+function usesLists(node: TextNode): boolean {
+  if (node.characters.length === 0) return false;
+  const lists = node.getRangeListOptions(0, node.characters.length);
+  return lists === figma.mixed || lists.type !== 'NONE';
+}
+
 // The text and its first run's style; properties that vary are listed in `mixed`.
 function text(node: TextNode, mixed: string[]): Json {
   function first<T>(value: T | PluginAPI['mixed'], name: string, range: () => unknown): T {
@@ -292,6 +315,7 @@ function text(node: TextNode, mixed: string[]): Json {
     text_case: textCase,
     text_decoration: decoration,
     truncate: node.textTruncation === 'ENDING',
+    list: usesLists(node),
     mixed,
   };
 }

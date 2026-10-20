@@ -1000,3 +1000,34 @@ fn named_fonts_are_listed_for_the_preview() {
     let conversion = figma::convert(&fixture("text"), &BTreeMap::new());
     assert_eq!(conversion.font_types, ["MinecraftTen", "smooth"]);
 }
+
+// What the plugin reports it cannot carry (export overflow, list formatting) warns.
+#[test]
+fn export_overflow_and_text_lists_warn() {
+    let node: Node = serde_json::from_value(json!({
+        "id": "32:1", "name": "Drop Test", "type": "FRAME", "width": 60, "height": 20,
+        "children": [
+            { "id": "32:2", "name": "Glow @image", "type": "VECTOR", "raster": "node:32:2", "overflows": true,
+              "width": 20, "height": 20 },
+            { "id": "32:3", "name": "Steps", "type": "TEXT", "x": 20, "width": 40, "height": 9,
+              "fills": [{ "type": "SOLID", "color": [1, 1, 1] }],
+              "text": { "characters": "One", "font_family": "Minecraft", "list": true } }
+        ]
+    }))
+    .unwrap();
+    let images = BTreeMap::from([(
+        "node:32:2".to_owned(),
+        solid_png(20, 20, [255, 255, 255, 255]),
+    )]);
+    let conversion = figma::convert(&node, &images);
+    assert_eq!(
+        messages(&conversion),
+        [
+            (
+                "Drop Test / Glow @image".to_owned(),
+                "content drawn outside the layer's box (shadows, outside strokes, overflowing layers) is cut from its export".to_owned(),
+            ),
+            ("Drop Test / Steps".to_owned(), "list bullets and numbering are not exported".to_owned()),
+        ]
+    );
+}

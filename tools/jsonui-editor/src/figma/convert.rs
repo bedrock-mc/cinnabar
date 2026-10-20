@@ -317,6 +317,10 @@ impl Ctx<'_> {
         if node.is_mask {
             self.warn(node, path, "masks are not supported");
         }
+        if node.raster.is_some() && node.overflows {
+            let message = "content drawn outside the layer's box (shadows, outside strokes, overflowing layers) is cut from its export";
+            self.warn(node, path, message);
+        }
         // An `@image` export already contains its effects, strokes and corners;
         // a component set's own fill and stroke are canvas chrome.
         if node.raster.is_some() || node.kind == "COMPONENT_SET" {
@@ -485,6 +489,9 @@ impl Ctx<'_> {
         ];
         for (_, what) in unsupported.into_iter().filter(|(set, _)| *set) {
             self.warn(node, path, format!("{what} is not supported"));
+        }
+        if text.list {
+            self.warn(node, path, "list bullets and numbering are not exported");
         }
         if let Some(binding) = &directives.binding {
             self.bind(

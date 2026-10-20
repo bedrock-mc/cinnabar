@@ -62,6 +62,8 @@ pub struct Node {
     pub text: Option<Text>,
     /// Image key of the plugin's PNG export of this layer (`@image`).
     pub raster: Option<String>,
+    /// The layer draws outside its box, which its export cuts off.
+    pub overflows: bool,
     pub children: Vec<Node>,
     /// A variant component's or instance's variant property values.
     pub variant_properties: BTreeMap<String, String>,
@@ -97,6 +99,7 @@ impl Default for Node {
             max_size: [None; 2],
             text: None,
             raster: None,
+            overflows: false,
             children: Vec::new(),
             variant_properties: BTreeMap::new(),
             variants: Vec::new(),
@@ -256,6 +259,8 @@ pub struct Text {
     pub text_case: String,
     pub text_decoration: String,
     pub truncate: bool,
+    /// Some of the text uses list formatting.
+    pub list: bool,
     pub mixed: Vec<String>,
 }
 
@@ -274,6 +279,7 @@ impl Default for Text {
             text_case: "ORIGINAL".into(),
             text_decoration: "NONE".into(),
             truncate: false,
+            list: false,
             mixed: Vec::new(),
         }
     }

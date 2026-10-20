@@ -73,5 +73,5 @@ Each of these appears as a warning naming the layer: vectors, shapes and other
 layer types without `@image`, rotation, blend modes, masks, effects, strokes,
 corner radius, gradient fills, crop and tile image scaling, wrapping auto-layout,
 space-between distribution, baseline alignment, mixed text styles, letter spacing,
-fixed line height, text case, decoration, justification, truncation, and a `§` inside text (Bedrock reads it and the next character as a formatting code and has no escape). Importing JSON-UI into Figma and animations are out of
+fixed line height, text case, decoration, justification, truncation, list bullets and numbering, content an `@image` layer draws outside its box, and a `§` inside text (Bedrock reads it and the next character as a formatting code and has no escape). Importing JSON-UI into Figma and animations are out of
 scope.
