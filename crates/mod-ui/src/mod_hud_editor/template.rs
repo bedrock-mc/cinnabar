@@ -78,7 +78,8 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
         line["layer"] = json!(10);
         line["bindings"] = json!([visible.clone(),
             {"binding_name":format!("#measurement_{axis}_offset"), "binding_name_override":"#offset"},
-            {"binding_name":format!("#measurement_{axis}_size"), "binding_name_override":"#size"}]);
+            {"binding_name":format!("#measurement_{axis}_width"), "binding_name_override":"#size_binding_x_absolute"},
+            {"binding_name":format!("#measurement_{axis}_height"), "binding_name_override":"#size_binding_y_absolute"}]);
         controls.push(named(&format!("measurement_{axis}"), line));
         let mut text = label(&format!("#measurement_{axis}_label"), [36., 12.], [0.; 2]);
         text["text_alignment"] = json!("center");

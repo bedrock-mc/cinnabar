@@ -96,7 +96,7 @@ pub(super) fn keep_out(
                 }));
             }
         };
-        let cell_rect = |cell: ui_screens::hud_renderers::Cell| {
+        let cell_rect = |cell: &ui_screens::hud_renderers::Cell| {
             Rect::new(
                 hit.rect.x + f64::from(cell.at[0]),
                 hit.rect.y + f64::from(cell.at[1]),
@@ -116,13 +116,26 @@ pub(super) fn keep_out(
                         (local_clip.y + local_clip.h) as f32,
                     ],
                 ) {
-                    add(cell_rect(cell));
+                    add(cell_rect(&cell));
                 }
             }
             Some("hunger_renderer") => {
                 for cell in paint.hunger.cells(1) {
+                    add(cell_rect(&cell));
+                }
+            }
+            Some(renderer @ ("armor_renderer" | "bubbles_renderer" | "horse_heart_renderer")) => {
+                let cells = match renderer {
+                    "armor_renderer" => &paint.armor,
+                    "bubbles_renderer" => &paint.bubbles,
+                    _ => &paint.mount_hearts,
+                };
+                for cell in cells {
                     add(cell_rect(cell));
                 }
+            }
+            Some("horse_jump_renderer") if paint.mount_jump.is_some() => {
+                add(Rect::new(hit.rect.x, hit.rect.y, hit.rect.w, hit.rect.h))
             }
             Some("hotbar_renderer") => {
                 add(Rect::new(hit.rect.x, hit.rect.y, hit.rect.w, hit.rect.h))

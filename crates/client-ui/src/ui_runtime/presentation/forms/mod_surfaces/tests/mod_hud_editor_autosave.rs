@@ -542,6 +542,21 @@ fn snapping_drag_feedback_retains_catalog_and_shift_bypasses_all_snaps() {
     p.mod_ui_mut().mod_panel_events(at, true, true);
     let before = frame(&mut p, &runtime, [1280, 720], 1.);
     snapshot::write(&before, "hud-snapping-before");
+    let e = p.mod_ui().mod_hud_editor_state().unwrap();
+    for (axis, distance) in original.into_iter().enumerate() {
+        let line = e
+            .frame
+            .unwrap()
+            .hits
+            .iter()
+            .find(|hit| hit.name == format!("measurement_{axis}"))
+            .expect("visible distance line");
+        let length = if axis == 0 { line.rect.w } else { line.rect.h };
+        assert!(
+            (length - distance).abs() < 0.001,
+            "measurement {axis} must span the actual gap"
+        );
+    }
     p.mod_ui_mut().mod_panel_events(destination, false, true);
     let after = frame(&mut p, &runtime, [1280, 720], 1.);
     snapshot::write(&after, "hud-snapping-after");

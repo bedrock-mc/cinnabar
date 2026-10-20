@@ -156,6 +156,38 @@ fn editor_keep_out_uses_the_completed_native_layout_and_rejects_old_sessions() {
         Some([30., 200., 273., 33.].map(|v| v * unit))
     );
     assert_eq!(p.hud_passes(), passes);
+    // Native status cells may extend outside zero-sized renderer controls.
+    let mut native = frame.clone();
+    let mut hit = frame
+        .hits
+        .iter()
+        .find(|hit| hit.name == "hotbar_panel")
+        .unwrap()
+        .clone();
+    hit.transform = None;
+    hit.rect = json_ui::RectOut {
+        x: 200.,
+        y: 100.,
+        w: 0.,
+        h: 0.,
+    };
+    let cell = ui_screens::hud_renderers::Cell::icon([0., -10.], "fixture");
+    let paint = ui_screens::hud_renderers::HudPaint {
+        armor: vec![cell.clone()],
+        bubbles: vec![cell.clone()],
+        mount_hearts: vec![cell],
+        ..Default::default()
+    };
+    for renderer in ["armor_renderer", "bubbles_renderer", "horse_heart_renderer"] {
+        hit.name = renderer.into();
+        hit.renderer = Some(renderer.into());
+        native.hits = vec![hit.clone()].into();
+        assert_eq!(
+            keep_out(&native, &paint),
+            Some([200., 90., 9., 9.].map(|v| v * unit)),
+            "{renderer}"
+        );
+    }
     assert_eq!(p.mod_hud_editor_native_keep_out(8), None);
     p.screens.touch.begin_frame();
     assert_eq!(p.mod_hud_editor_native_keep_out(7), None);

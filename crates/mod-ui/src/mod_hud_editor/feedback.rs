@@ -84,7 +84,8 @@ pub(super) fn measurements(
         for (suffix, value) in [
             ("visible", Scalar::Bool(distance >= 12.)),
             ("offset", Scalar::Json(serde_json::json!(offset))),
-            ("size", Scalar::Json(serde_json::json!(size))),
+            ("width", Scalar::Num(size[0])),
+            ("height", Scalar::Num(size[1])),
             ("pill", Scalar::Json(serde_json::json!(pill))),
             ("label", Scalar::Text(format!("{distance:.0} px"))),
         ] {
