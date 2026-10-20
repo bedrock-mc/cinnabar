@@ -4,6 +4,9 @@ mod data;
 mod input;
 mod template;
 
+#[cfg(test)]
+mod lifecycle_tests;
+
 use crate::{
     ModUi, RowIcons, mod_panel::transitions::SurfaceTransitions, mod_widgets::template as cards,
 };
@@ -55,11 +58,26 @@ impl ModUi {
         if !self.mod_panel_open() {
             return Err("HUD editor requires an open panel".into());
         }
+        let transitions = self.mod_hud_editor.take().and_then(|mut previous| {
+            (!previous.open
+                && previous.transitions.exiting()
+                && previous.result.is_none()
+                && previous.draft.surface == preview.surface)
+                .then(|| {
+                    previous.transitions.cancel_exit();
+                    previous.transitions
+                })
+        });
         self.cancel_mod_panel_edit();
+        let mut preview = preview.clone();
+        for card in &mut preview.cards {
+            card.reset_anchor.get_or_insert(card.anchor);
+            card.reset_offset.get_or_insert(card.offset);
+        }
         self.mod_hud_editor = Some(HudEditor {
-            draft: preview.clone(),
-            committed: preview.clone(),
             autosave: preview.autosave,
+            draft: preview.clone(),
+            committed: preview,
             close_requested: false,
             reset: false,
             snap: false,
@@ -73,7 +91,7 @@ impl ModUi {
             data: Arc::new(DataSource::new()),
             frame: None,
             view: ViewState::default(),
-            transitions: SurfaceTransitions::default(),
+            transitions: transitions.unwrap_or_default(),
         });
         Ok(())
     }
@@ -85,10 +103,35 @@ impl ModUi {
             .is_some_and(|editor| editor.open)
     }
 
+    /// Whether editor previews still draw, including a closed surface playing its exit.
+    pub fn mod_hud_editor_painting(&self) -> bool {
+        self.mod_hud_editor
+            .as_ref()
+            .is_some_and(HudEditor::painting)
+    }
+
+    /// Finishes closing motion before the caller chooses between previews and the live HUD.
+    pub fn advance_mod_hud_editor_exit(&mut self, now: f64) {
+        if let Some(editor) = self.mod_hud_editor.as_mut().filter(|editor| !editor.open) {
+            editor.advance_transitions(now, !self.reduced_motion);
+        }
+    }
+
+    /// Whether editor surface bindings need another frame to finish opening or closing.
+    pub(super) fn mod_hud_editor_motion_active(&self) -> bool {
+        self.mod_hud_editor.as_ref().is_some_and(|editor| {
+            editor.transitions.exiting() || editor.open && editor.transitions.active()
+        })
+    }
+
     /// Cancels a draft on ownership, focus, session or presentation loss.
     pub fn cancel_mod_hud_editor(&mut self) {
-        if let Some(editor) = self.mod_hud_editor.as_mut().filter(|e| e.open) {
-            editor.finish(false);
+        if let Some(editor) = self.mod_hud_editor.as_mut() {
+            if editor.open {
+                editor.finish(false);
+            }
+            editor.transitions.cancel_exit();
+            editor.frame = None;
         }
     }
 
@@ -96,18 +139,18 @@ impl ModUi {
     pub fn take_mod_hud_editor_result(&mut self) -> Option<EditorResult> {
         let editor = self.mod_hud_editor.as_mut()?;
         let result = editor.result.take()?;
-        if !editor.open {
+        if !editor.painting() {
             self.mod_hud_editor = None;
         }
         Some(result)
     }
 
-    /// Each open draft row's item icon from `icon`; `None` while the editor is closed.
+    /// Each painted draft row's item icon, including while a closed surface plays its exit.
     pub fn mod_hud_editor_icons(
         &self,
         icon: impl Fn(&str, u32) -> Option<IconRef>,
     ) -> Option<RowIcons> {
-        let editor = self.mod_hud_editor.as_ref().filter(|e| e.open)?;
+        let editor = self.mod_hud_editor.as_ref().filter(|e| e.painting())?;
         Some(RowIcons::resolve(&editor.draft, icon))
     }
 
@@ -121,9 +164,10 @@ impl ModUi {
     ) {
         let Some(renderer) = engine else {
             self.cancel_mod_hud_editor();
+            self.set_mod_panel_open(false);
             return;
         };
-        let Some(editor) = self.mod_hud_editor.as_mut().filter(|e| e.open) else {
+        let Some(editor) = self.mod_hud_editor.as_mut().filter(|e| e.painting()) else {
             return;
         };
         let px = paint_frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
@@ -131,6 +175,7 @@ impl ModUi {
         let viewport = [f64::from(content[0] / px), f64::from(content[1] / px)];
         if viewport[0] < 220. || viewport[1] < 120. {
             editor.finish(false);
+            self.set_mod_panel_open(false);
             return;
         }
         if editor.viewport != viewport {
@@ -139,11 +184,12 @@ impl ModUi {
             editor.frame = None;
             editor.cancel_pointer_input();
         }
+        editor.advance_transitions(paint_frame.now, !self.reduced_motion);
+        if !editor.painting() {
+            return;
+        }
         let mut data = editor.data();
-        if let Some(surface) = &editor.draft.surface {
-            editor
-                .transitions
-                .advance(surface, paint_frame.now, !self.reduced_motion);
+        if editor.draft.surface.is_some() {
             editor.transitions.write(&mut data);
         }
         let mut icons = Vec::<IconRef>::new();
@@ -173,6 +219,7 @@ impl ModUi {
             *paint_frame.next = rollback.1;
             editor.finish(false);
             tracing::warn!(%error, "HUD editor disabled after rendering failure");
+            self.set_mod_panel_open(false);
             return;
         }
         let mut items = ItemRenderer {
@@ -231,7 +278,31 @@ impl ModUi {
                 if let Err(error) = result {
                     tracing::warn!(%error, "HUD editor disabled after rendering failure");
                 }
+                self.set_mod_panel_open(false);
             }
+        }
+    }
+}
+
+impl HudEditor {
+    /// Removes retained closing visuals immediately when presentation ownership is lost.
+    pub(super) fn stop_exit(&mut self) {
+        self.transitions.cancel_exit();
+        self.frame = None;
+    }
+
+    /// Separates logical input ownership from the lifetime of an animated closing surface.
+    fn painting(&self) -> bool {
+        self.open || self.transitions.exiting()
+    }
+
+    /// Samples the caller's presentation clock and releases a completed or disabled exit.
+    fn advance_transitions(&mut self, now: f64, animate: bool) {
+        if let Some(surface) = &self.draft.surface {
+            self.transitions.advance(surface, now, animate);
+        }
+        if !self.open && (!animate || !self.transitions.active()) {
+            self.stop_exit();
         }
     }
 }
@@ -247,6 +318,7 @@ impl ModUi {
             view: &editor.view,
             viewport: editor.viewport,
             snap: editor.snap,
+            passes: editor.screen.passes,
             drag: editor.drag.as_ref().map(|drag| drag.guides),
         })
     }

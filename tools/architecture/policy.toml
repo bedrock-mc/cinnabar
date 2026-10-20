@@ -406,7 +406,7 @@ test_support_features = ["publication-test-support"]
 name = "render"
 path = "crates/render"
 test_support_features = ["publication-test-support"]
-allowed_dependencies = ["env-compat", "render-scene", "assets", "block-transform", "far-terrain", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "tracy-client", "world", "test-time"]
+allowed_dependencies = ["env-compat", "render-scene", "assets", "block-transform", "far-terrain", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "shaderpack", "tracy-client", "world", "test-time"]
 forbidden_dependencies = ["asset-compiler"]
 # Also reject game-state edges hidden behind another local crate or test dependency.
 forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol"]

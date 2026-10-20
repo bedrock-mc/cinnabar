@@ -290,14 +290,22 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   safe areas, focus/navigation and keyboard/mouse/controller/touch acceptance. Prove
   stable retained resources and correct supported DPI/aspect behavior. Labels share primary/backup
   face selection across measurement and painting; broader text acceptance remains open.
+  Rounded JSON-UI chrome supports bounded analytic box shadows with cached geometry;
+  full menu visual and hardware frame-work acceptance remains open.
   stable retained resources and correct supported DPI/aspect behavior. Tiled images
   retain full coverage with bounded repeat geometry across cropped regions and sliced
   borders; large collection admission and hardware frame-work acceptance remain incomplete.
   stable retained resources and correct supported DPI/aspect behavior. Form JSON
   container parsing and cleanup use heap stacks and accept line/block comments.
-  Structured text keeps its separate
-  container parsing and cleanup use heap stacks; structured text keeps its separate
-  validation limits. Extreme structured-text and rendered-form acceptance remain open.
+  Form display strings retain ordinary long literal and translated text separately
+  from chat byte budgets. Structured text keeps its component/depth validation limits;
+  extreme structured-text and live rendered-form acceptance remain open.
+  The per-form expansion budget (`MAX_FORM_TEXT_EXPANSION_BYTES`), shared by all display strings
+  and their nested arguments, is an unverified parity bound.
+  Rendering text beyond `MAX_TEXT_BYTES` remains an unverified parity gap.
+  Tiled images retain full coverage with bounded repeat geometry across cropped
+  regions and sliced borders; large collection admission and hardware frame-work
+  acceptance remain incomplete.
 - [ ] `P5.2-HUD` — Close received text, titles, actionbar, toasts, survival/status HUD
   and lifecycle behavior without leaking UI-owned input into movement.
 - [ ] `P5.3-CHAT` — Close history/autocomplete, formatting, bounded UTF-8 editing,
@@ -429,6 +437,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 - Native extension UI and HUD APIs (retained modules, profile fields, text plates,
   compass markers, totem annotations and bounded camera overrides) still need
   displayed-frame pacing and complete rendering acceptance.
+  HUD layout editing stores nine anchors and GUI-pixel offsets after completed
+  moves, resizes and nudges, with an additive anchored-layout read and normalized
+  compatibility reads. Displayed-frame pacing acceptance remains pending.
   Backdrop and element blur now limit downsampling to referenced mip levels and
   cache the admitted maximum blur. Pixel-equivalence regressions are included;
   executed GPU checks and measured frame-budget acceptance remain pending.
@@ -440,11 +451,25 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   shader-pack source loading and configuration metadata are implemented in
   `shaderpack`, including options, dimensions, parsed properties, program discovery
   and enable rules, and its programs translate to validated naga modules with a binding
+  contract. Behind the render crate's `shaderpacks` feature, the host builds the Java-style
+  block atlas packs sample. Pack-specific translation fixes, the rest of the render-host
+  integration and in-game acceptance remain incomplete.
   contract. Pack-specific translation fixes, render-host integration and in-game
   acceptance remain incomplete; parsed custom uniform expressions are not executed or
   rendered.
+  and enable rules. Translation, render-host integration and in-game acceptance
+  remain incomplete; parsed custom uniform expressions are not executed or rendered.
+  Pack block, item and entity ids, Java biome values and Java sky and fog colours are
+  computed from the pinned Bedrock→Java mappings but not yet uploaded to shaders.
+  and enable rules, and custom uniform expressions evaluate per frame. Translation,
+  render-host integration and in-game acceptance remain incomplete; evaluated custom
+  uniforms are not uploaded or rendered.
+  rendered. Constant folding for half-float packing and bit casts remains incomplete.
   acceptance remain incomplete.
   and enable rules. Translation, render-host integration and in-game acceptance
+  remain incomplete.
+  shader-pack source loading is implemented in `shaderpack`; configuration parsing,
+  translation, render-host integration and in-game acceptance remain incomplete.
   remain incomplete; parsed custom uniform expressions are not executed or rendered.
   Pack block, item and entity ids, Java biome values and Java sky and fog colours are
   computed from the pinned Bedrock→Java mappings but not yet uploaded to shaders.

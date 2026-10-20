@@ -1,9 +1,6 @@
 use mod_ui::PanelUiOwner;
 use mod_ui::test_support::{card_dimensions, card_origin};
-use ui::{
-    mod_hud::EditorResult,
-    mod_panel::{Control, Event},
-};
+use ui::mod_panel::{Control, Event};
 
 use super::super::super::snapshot;
 use super::mod_hud_editor::{click, panel, point};
@@ -73,17 +70,14 @@ fn completed_drag_autosaves_without_closing_and_interrupted_drag_rolls_back() {
     p.mod_ui_mut()
         .mod_panel_events([at[0] + 120., at[1] + 70.], false, true);
     p.mod_ui_mut().cancel_mod_panel_pointer_input();
-    assert_eq!(
-        p.mod_ui().mod_hud_editor_state().unwrap().draft.cards[0].position,
-        saved.placements[0].position
-    );
+    let card = &p.mod_ui().mod_hud_editor_state().unwrap().draft.cards[0];
+    assert_eq!(card.position, None);
+    assert_eq!(card.anchor, saved.placements[0].anchor);
+    assert_eq!(card.offset, saved.placements[0].offset);
     assert!(p.mod_ui_mut().take_mod_hud_editor_result().is_none());
     p.mod_ui_mut().mod_panel_key("Escape", None);
     assert!(!p.mod_ui().mod_hud_editor_open() && !p.mod_ui().mod_panel_open());
-    assert_eq!(
-        p.mod_ui_mut().take_mod_hud_editor_result(),
-        Some(EditorResult::default())
-    );
+    assert_eq!(p.mod_ui_mut().take_mod_hud_editor_result(), Some(saved));
 }
 
 #[test]
@@ -103,13 +97,34 @@ fn autosave_nudge_and_reset_each_keep_the_editor_live() {
     click(&mut p, "hud.reset");
     let reset = p.mod_ui_mut().take_mod_hud_editor_result().unwrap();
     assert!(reset.saved && reset.reset);
-    assert_eq!(reset.placements[0].position, None);
+    assert_eq!(reset.placements[0].anchor, ui::mod_hud::Anchor::TopLeft);
+    assert_eq!(reset.placements[0].offset, [6., 6.]);
+    assert!(reset.placements[0].position.is_some());
     assert!(p.mod_ui().mod_hud_editor_open());
     p.mod_ui_mut().mod_panel_key("ArrowRight", None);
     assert!(
         !p.mod_ui_mut().take_mod_hud_editor_result().unwrap().reset,
         "subsequent saves do not repeat a completed reset"
     );
+}
+
+#[test]
+fn reset_before_dismissal_survives_until_consumed_without_sticking_to_later_results() {
+    for reset_consumed in [false, true] {
+        let mut p = presentation(false);
+        autosave_editor(&mut p);
+        click(&mut p, "hud.reset");
+        if reset_consumed {
+            assert!(p.mod_ui_mut().take_mod_hud_editor_result().unwrap().reset);
+        }
+        p.mod_ui_mut().mod_panel_key("Escape", None);
+        let result = p.mod_ui_mut().take_mod_hud_editor_result().unwrap();
+        assert!(result.saved);
+        assert_eq!(result.reset, !reset_consumed);
+        assert_eq!(result.placements[0].anchor, ui::mod_hud::Anchor::TopLeft);
+        assert_eq!(result.placements[0].offset, [6., 6.]);
+        assert!(result.placements[0].position.is_some());
+    }
 }
 
 #[test]
@@ -313,7 +328,9 @@ fn supplied_editor_buttons_render_hover_and_captured_press_without_disrupting_au
         .mod_panel_events([card[0] + 40., card[1] + 30.], false, true);
     p.mod_ui_mut().cancel_mod_panel_pointer_input();
     let editor = p.mod_ui().mod_hud_editor_state().unwrap();
-    assert_eq!(editor.draft.cards[0].position, saved.placements[0].position);
+    assert_eq!(editor.draft.cards[0].position, None);
+    assert_eq!(editor.draft.cards[0].anchor, saved.placements[0].anchor);
+    assert_eq!(editor.draft.cards[0].offset, saved.placements[0].offset);
     assert!(editor.view.hovered.is_none() && editor.view.pressed.is_none());
     assert!(p.mod_ui_mut().take_mod_hud_editor_result().is_none());
 }
@@ -467,8 +484,14 @@ fn corners_resize_uniformly_autosave_and_restore_interrupted_drafts() {
             if direction > 0. {
                 assert!(
                     scale == ui::mod_hud::MAX_CARD_SCALE
-                        || (0..2).any(|axis| (size[axis] - editor.viewport[axis]).abs() < 0.001),
-                    "growth fills a limiting dimension or reaches the published maximum"
+                        || (0..2).any(|axis| {
+                            if corner & (1 << axis) == 0 {
+                                origin[axis].abs() < 0.001
+                            } else {
+                                (origin[axis] + size[axis] - editor.viewport[axis]).abs() < 0.001
+                            }
+                        }),
+                    "growth stops at a dragged screen edge or the published maximum"
                 );
             }
             for axis in 0..2 {

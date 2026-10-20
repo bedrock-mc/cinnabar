@@ -368,14 +368,31 @@ A `text` control has `id`, `label`, `value`, optional `min_chars` (default 0) an
 Its native editor supports selection, character-safe navigation and cancellation.
 Command/Ctrl-A, C, X and V select, copy, cut and paste only while a native field
 has focus. Paste remains subject to the field's single-line and character bounds.
+Optional `live: true` emits the complete value on every edit, coalesced per field
+between frame callbacks. Enter submits and keeps a live field focused. The additive
+`input.read-field-events()` API returns `change({id, value})`, `submit({id, value})`
+and `key({id, key, shift, control, alt, super-key})` variants. Changes may temporarily
+fall below `min_chars`; submitting still requires the full bounds. Omitting `live`
+preserves Enter-to-commit behavior. The legacy text-event API receives commits only.
+
+Optional `navigation_keys: true` forwards Up/Down, Left at the start, Right at the
+end, and Enter/Shift+Enter through field key events while the field has focus.
+Horizontal arrows first collapse any selection. Other horizontal movement,
+Home/End, Shift selection, and Ctrl/Option word movement and deletion stay native.
+IME preedit appears inline with an underline and remains local until commit.
+Its transient spelling may exceed the field's committed character limit.
+The caret uses the painted glyph positions and the caller's animation time.
+
 Committed text arrives through `input.read-text-events()` as `{id, value}` entries,
 separately from the unchanged numeric events in `input.read-controls()`.
 The batch is visible only during its regular frame callback, remains stable across
 reads and stays queued when the callback is deferred. It shares the controls grant
-and read budget. Native integrations drain
-`ModUi::take_mod_panel_text_events(owner)` and call that owner's
-`ModHost::queue_text_events` before running its frame. Admission validates the
-entire batch against its current text controls before updating any retained value.
+and read budget. Before running a frame, native integrations first drain
+`ModUi::take_mod_panel_text_events(owner)` into `ModHost::queue_text_events`, then
+`ModUi::take_mod_panel_field_events(owner)` into `ModHost::queue_field_events`.
+Draining field events retains the same valid, coalesced values that the host
+admits. Below-minimum drafts remain editable without changing the retained value.
+Admission validates each complete batch before updating any retained value.
 Optional `show_gameplay_hud: true` retains the resource-pack gameplay HUD behind an
 open panel, for example while placing HUD elements. It defaults to false. Hide HUD
 and death-screen suppression still apply, and the crosshair stays hidden while a
@@ -1211,9 +1228,13 @@ the player's effects. It remains active with empty `cards`; clearing the HUD,
 omitting the flag or setting it to false restores the ordinary icons.
 
 Card data contains `cards`, each with a unique `id`, `rows`, and optional
-`title`, `anchor`, `offset`, `scale`, `position`, and `background_opacity`. Anchors are `top_left`, `top_center`, `top_right`, `bottom_left`,
-and `bottom_right`; offsets are GUI pixels from that anchor. Negative offsets
-move inward from right/bottom anchors. Scale is 0.25–5 and scales card text, icons,
+`title`, `anchor`, `offset`, `scale`, `position`, and `background_opacity`. Anchors are
+`top_left`, `top_center`, `top_right`, `left`, `center`, `right`, `bottom_left`,
+`bottom_center`, and `bottom_right`. Offsets are finite GUI pixels measured inward
+from anchored edges; centered axes use signed offsets toward the right or bottom.
+Anchored cards clamp to the available viewport without changing their saved offsets.
+An explicit `position` keeps its existing normalized-travel behavior and takes precedence.
+Scale is 0.25–5 and scales card text, icons,
 and geometry together. Each row has `label`, `value`, and optional `item`
 (resource identifier), `metadata`, `effect_id` (canonical Bedrock effect icon),
 `progress` (0–1), and `color` (RGBA 0–1). Item and effect icons are mutually exclusive;
@@ -1311,6 +1332,14 @@ opposite corner fixed when space permits, and clamps its placement to the viewpo
 Use `hud.read-editor-layout()` to read `saved`, `reset`, and `placements` containing
 ID, normalized position, and scale. It shares result consumption with the existing
 `hud.read-editor-result()`; the legacy position-only API remains unchanged.
+
+Completed moves, resizes, and arrow nudges choose one of nine anchors from the
+viewport third containing the card's center. The stored GUI-pixel offset preserves
+the current origin and its distance from that anchor on later viewports and GUI scales.
+Use `hud.read-editor-anchored-layout()` for `saved`, `reset`, and placements with
+`id`, `anchor`, `offset`, and `scale`. Republish these cards without `position` to
+retain anchoring. Both older reads still return normalized positions at the current
+viewport and share the same callback lifetime and result consumption.
 
 An editor request may opt into `autosave: true`. Completed pointer drags and resizes, arrow
 nudges, and Reset then return incremental saved results while the editor stays

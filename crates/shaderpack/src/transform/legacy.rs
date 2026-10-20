@@ -6,7 +6,7 @@ use super::items::{
     split_items, struct_body_end,
 };
 use crate::programs::StageKind;
-use crate::token::{Tok, TokKind, id, lex, p};
+use crate::token::{Tok, TokKind, id, int, lex, p};
 use std::collections::{BTreeSet, HashSet};
 
 /// Identifiers reserved or built in since GLSL 1.30 that 1.20 code may use as names.
@@ -177,6 +177,61 @@ fn undeclared_core_names(src: &[Tok], stage: StageKind) -> Option<Vec<Tok>> {
     Some(out)
 }
 
+/// GLSL shifts a signed literal into and past the sign bit (Rethinking Voxels marks texels
+/// with `uvec4(1<<31)`); naga's constant evaluator follows WGSL and rejects the overflow.
+/// A literal shift that overflows, between operators that bind more loosely than `<<`,
+/// becomes its wrapped value.
+fn fold_sign_shifts(src: &[Tok]) -> Option<Vec<Tok>> {
+    let loose_before = |t: &Tok| {
+        t.ident() == Some("return")
+            || [
+                "(", ",", "=", "{", "[", "?", ":", ";", "&", "|", "^", "&&", "||", "==", "!=", "<",
+                ">", "<=", ">=",
+            ]
+            .iter()
+            .any(|p| t.is(p))
+    };
+    let loose_after = |t: &Tok| {
+        [
+            ")", ",", ";", "]", "}", "?", ":", "&", "|", "^", "&&", "||", "==", "!=", "<", ">",
+            "<=", ">=",
+        ]
+        .iter()
+        .any(|p| t.is(p))
+    };
+    let signed = |t: &Tok| match &t.kind {
+        TokKind::Int(s) => s.parse::<i64>().ok(),
+        _ => None,
+    };
+    let fold = |i: usize| {
+        (i > 0 && i + 3 < src.len())
+            .then_some(())
+            .filter(|()| src[i + 1].is("<<") && loose_before(&src[i - 1]))
+            .filter(|()| loose_after(&src[i + 3]))
+            .and_then(|()| Some((signed(&src[i])?, signed(&src[i + 2])?)))
+            .filter(|&(value, shift)| (0..32).contains(&shift) && value >= 0)
+            .filter(|&(value, shift)| value << shift > i64::from(i32::MAX))
+            .map(|(value, shift)| (value as i32).wrapping_shl(shift as u32))
+    };
+    let first = (0..src.len()).find(|&i| fold(i).is_some())?;
+    let mut out = src[..first].to_vec();
+    let mut i = first;
+    while i < src.len() {
+        match fold(i) {
+            Some(wrapped) => {
+                // Large signed literals are spelled in hex, as the preprocessor does.
+                out.push(int(format!("0x{:X}", wrapped as u32)).at(src[i].line));
+                i += 3;
+            }
+            None => {
+                out.push(src[i].clone());
+                i += 1;
+            }
+        }
+    }
+    Some(out)
+}
+
 /// Renames reserved identifiers, maps legacy built-ins and lookup functions, and gives
 /// implicit-LOD sampling outside fragment shaders an explicit LOD.
 pub(super) fn rewrite(
@@ -184,31 +239,13 @@ pub(super) fn rewrite(
     stage: StageKind,
     version: u32,
 ) -> Result<Legacy, TransformError> {
-    let mut delimiters = Vec::new();
-    for token in src {
-        if token.is("(") || token.is("[") || token.is("{") {
-            delimiters.push(token);
-        } else if token.is(")") || token.is("]") || token.is("}") {
-            let expected = match token.text() {
-                ")" => "(",
-                "]" => "[",
-                _ => "{",
-            };
-            if !delimiters.pop().is_some_and(|open| open.is(expected)) {
-                return Err(TransformError::new(
-                    "unmatched closing delimiter",
-                    token.line,
-                ));
-            }
-        }
-    }
-    if let Some(open) = delimiters.last() {
-        return Err(TransformError::new("unclosed delimiter", open.line));
-    }
     let legacy = version < 130;
     let mut sized = size_unsized_arrays(src);
     if let Some(core) = undeclared_core_names(&sized, stage) {
         sized = core;
+    }
+    if let Some(folded) = fold_sign_shifts(&sized) {
+        sized = folded;
     }
     let src = &sized;
     let mut out = Legacy {
