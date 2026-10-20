@@ -90,15 +90,9 @@ impl PlayerInventoryLedger {
         let trade = self
             .trading()
             .ok_or(InventoryGestureError::InvalidRequest)?;
-        let current = trade
-            .selected
+        let index = trade
+            .adjacent_offer(next)
             .ok_or(InventoryGestureError::InvalidRequest)?;
-        let index = if next {
-            current.checked_add(1)
-        } else {
-            current.checked_sub(1)
-        }
-        .ok_or(InventoryGestureError::InvalidRequest)?;
         self.select_trade(index)
     }
     /// Exposes offers only while the owning trader remains the active window.
@@ -453,6 +447,24 @@ fn trade_item_matches(stack: &NetworkItemStack, required: &NetworkItemStack) -> 
 }
 
 impl TradeState {
+    /// Finds the next unlocked offer in one direction without wrapping at an edge.
+    pub fn adjacent_offer(&self, next: bool) -> Option<usize> {
+        let current = self.selected?;
+        let mut candidates = self.offers.iter().enumerate().filter(|(index, offer)| {
+            (if next {
+                *index > current
+            } else {
+                *index < current
+            }) && offer.offer.tier <= self.tier
+        });
+        (if next {
+            candidates.next()
+        } else {
+            candidates.next_back()
+        })
+        .map(|(index, _)| index)
+    }
+
     /// Locates a row in the sorted tier groups used by selection and item previews.
     pub fn row_index(&self, tier_index: usize, row: usize) -> Option<usize> {
         let tier = *self.tiers().get(tier_index)?;

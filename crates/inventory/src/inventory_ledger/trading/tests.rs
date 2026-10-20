@@ -168,6 +168,30 @@ fn repeated_trade_offers_preserve_pending_item_requests() {
 }
 
 #[test]
+fn classic_trade_navigation_skips_locked_offers() {
+    let mut ledger = ledger(false);
+    let trade = ledger.storage.as_mut().unwrap().trade.as_mut().unwrap();
+    let first = trade.offers[0].clone();
+    trade.offers = [0, 1, 0]
+        .into_iter()
+        .enumerate()
+        .map(|(index, tier)| {
+            let mut offer = first.clone();
+            offer.offer.network_id += index as u32;
+            offer.offer.tier = tier;
+            offer
+        })
+        .collect();
+
+    assert!(ledger.cycle_trade(false).is_err());
+    ledger.cycle_trade(true).unwrap();
+    assert_eq!(ledger.trading().unwrap().selected, Some(2));
+    assert!(ledger.cycle_trade(true).is_err());
+    ledger.cycle_trade(false).unwrap();
+    assert_eq!(ledger.trading().unwrap().selected, Some(0));
+}
+
+#[test]
 fn exhausted_or_locked_trades_do_not_consume_items() {
     for locked in [false, true] {
         let mut ledger = ledger(true);

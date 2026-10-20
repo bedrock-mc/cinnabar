@@ -166,16 +166,11 @@ pub(crate) fn data(source: &dyn ContainerSource, data: &mut DataSource) {
         ),
         (
             B::LeftButtonEnabled,
-            Scalar::Bool(trade.selected.is_some_and(|index| index > 0)),
+            Scalar::Bool(trade.adjacent_offer(false).is_some()),
         ),
         (
             B::RightButtonEnabled,
-            Scalar::Bool(trade.selected.is_some_and(|index| {
-                trade
-                    .offers
-                    .get(index + 1)
-                    .is_some_and(|offer| offer.offer.tier <= trade.tier)
-            })),
+            Scalar::Bool(trade.adjacent_offer(true).is_some()),
         ),
     ] {
         data.set_global(key.as_str(), value);

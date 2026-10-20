@@ -58,6 +58,9 @@ fn classic_trade_selection_keeps_an_occupied_second_payment_slot_visible() {
     let mut single = offer.clone();
     single.network_id += 1;
     single.inputs[1] = None;
+    let mut locked = single.clone();
+    locked.network_id += 1;
+    locked.tier = 1;
     source
         .player
         .inventory
@@ -68,7 +71,7 @@ fn classic_trade_selection_keeps_an_occupied_second_payment_slot_visible() {
             title: Arc::from("Trader"),
             modern: false,
             tier: 0,
-            offers: Arc::from([offer, single]),
+            offers: Arc::from([offer, locked, single]),
         }));
     for occupied in [true, false] {
         let ledger = source.player.inventory.ledger_mut();
@@ -92,12 +95,36 @@ fn classic_trade_selection_keeps_an_occupied_second_payment_slot_visible() {
                 storage_item: None,
             },
         ));
-        ledger.select_trade(1).unwrap();
+        ledger.select_trade(0).unwrap();
+        let mut data = json_ui::DataSource::new();
+        crate::trading::data(&source, &mut data);
+        assert_eq!(
+            data.global_value(Binding::RightButtonEnabled.as_str()),
+            Some(&json_ui::Scalar::Bool(true))
+        );
+        assert_eq!(
+            data.global_value(Binding::LeftButtonEnabled.as_str()),
+            Some(&json_ui::Scalar::Bool(false))
+        );
+        source
+            .player
+            .inventory
+            .ledger_mut()
+            .cycle_trade(true)
+            .unwrap();
         let mut data = json_ui::DataSource::new();
         crate::trading::data(&source, &mut data);
         assert_eq!(
             data.global_value(Binding::ShowSecondTradeSlot.as_str()),
             Some(&json_ui::Scalar::Bool(occupied))
+        );
+        assert_eq!(
+            data.global_value(Binding::RightButtonEnabled.as_str()),
+            Some(&json_ui::Scalar::Bool(false))
+        );
+        assert_eq!(
+            data.global_value(Binding::LeftButtonEnabled.as_str()),
+            Some(&json_ui::Scalar::Bool(true))
         );
     }
 }
