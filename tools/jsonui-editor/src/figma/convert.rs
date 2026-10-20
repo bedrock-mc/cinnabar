@@ -20,9 +20,13 @@ pub(super) type Body = Map<String, Value>;
 
 /// The Figma font size drawn at `font_scale_factor` 1: the default font's 8 px glyph cell.
 const BASE_FONT_SIZE: f64 = 8.0;
-/// A reset formatting code: it draws nothing, and keeps literal text that
-/// starts with `#` from reading as a binding reference.
+/// A reset formatting code: it draws nothing, and keeps literal text from
+/// starting with one of [`EVALUATED_PREFIXES`].
 const LITERAL_PREFIX: &str = "\u{a7}r";
+/// Leading characters that make a property string something the engine reads
+/// rather than draws: a `#` binding reference (`bind::bake_properties`), a `$`
+/// variable or a `(` expression (`json_ui::env::evaluate`).
+const EVALUATED_PREFIXES: [char; 3] = ['#', '$', '('];
 /// The UI file's metadata key, which no control may take.
 const NAMESPACE_KEY: &str = "namespace";
 /// Image key of the generated white texture that solid fills tint.
@@ -315,8 +319,8 @@ impl Ctx<'_> {
         };
         let mut body = Body::new();
         body.insert("type".into(), "label".into());
-        // Design text draws as written: unlocalized, and never read as a `#` reference.
-        let literal = if text.characters.starts_with('#') {
+        // Design text draws as written: unlocalized, and never evaluated.
+        let literal = if text.characters.starts_with(EVALUATED_PREFIXES) {
             format!("{LITERAL_PREFIX}{}", text.characters)
         } else {
             text.characters.clone()

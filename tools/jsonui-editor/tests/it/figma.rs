@@ -1008,3 +1008,45 @@ fn the_namespace_key_is_reserved() {
     assert!(ui[conversion.screen.split_once('.').unwrap().1].is_object());
     laid_out(&conversion, 1);
 }
+
+// Text the property evaluator would read (a `#` reference, a `$` variable or a
+// `(` expression) still draws exactly as written.
+#[test]
+fn evaluator_prefixed_text_stays_literal() {
+    let samples = ["#1", "$shown", "(true)", "(1 + 1)"];
+    let children: Vec<Value> = samples
+        .iter()
+        .enumerate()
+        .map(|(index, characters)| {
+            json!({
+                "id": format!("24:{index}"), "name": format!("T{index}"), "type": "TEXT",
+                "y": index as f64 * 10.0, "width": 80, "height": 9,
+                "fills": [{ "type": "SOLID", "color": [1, 1, 1] }],
+                "text": { "characters": characters, "font_family": "Minecraft" }
+            })
+        })
+        .collect();
+    let node: Node = serde_json::from_value(json!({
+        "id": "24:9", "name": "Prefix Test", "type": "FRAME", "width": 80, "height": 40,
+        "children": children
+    }))
+    .unwrap();
+    let conversion = figma::convert(&node, &BTreeMap::new());
+    let mut session = Session::default();
+    let mut view = conversion.load(&mut session, 1);
+    let diagnostics = conversion.validate(&mut session);
+    // A variable the screen defines must not replace the literal `$shown`.
+    view.context.insert("shown".into(), "replaced".into());
+    let frame = session.frame(&view);
+    let texts = drawn_texts(&frame);
+    let lost: Vec<&str> = samples
+        .into_iter()
+        .filter(|sample| !texts.iter().any(|(text, _)| text.ends_with(sample)))
+        .collect();
+    assert_eq!(lost, Vec::<&str>::new(), "drawn: {texts:?}");
+    assert!(
+        diagnostics.is_empty() && frame.diagnostics.is_empty(),
+        "{diagnostics:?} {:?}",
+        frame.diagnostics
+    );
+}
