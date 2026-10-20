@@ -74,7 +74,7 @@ pub use jobs::GeometryCategory;
 pub use residency::{DEFAULT_GEOMETRY_BUDGET_BYTES, device_geometry_budget};
 pub(crate) use shadow_cull::{ShadowCulling, ShadowFrustum};
 #[cfg(test)]
-pub(crate) use vertex::{BLOCK_ID, IRIS_VERTEX_WORDS, LIGHTMAP, NORMAL, POSITION, UV0};
+pub(crate) use vertex::{BLOCK_ID, LIGHTMAP, NORMAL, POSITION, UV0};
 pub(crate) use vertex::{
     CONSTANT_STREAM_WORDS, f32_to_half, host_vertex, substitute_layout_constants,
     textured_host_vertex,
