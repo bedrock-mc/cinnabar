@@ -4,7 +4,10 @@
 
 use super::{
     Direction, Guest, Outbound, PACKET_MOD_LOAD_DEADLINE, PACKET_MOD_TRANSFER_BYTES,
-    SessionIdentity, SessionPack, limits::PacketLimits, wasi,
+    SessionIdentity, SessionPack,
+    limits::PacketLimits,
+    native_capabilities::{FRAME, MENU, NATIVE_INIT, NativeExports},
+    wasi,
 };
 use crate::{ModGrants, execution};
 use anyhow::{Context, Result, bail, ensure};
@@ -47,6 +50,7 @@ struct State {
 #[derive(Clone)]
 pub(super) struct Program {
     pre: InstancePre<State>,
+    native_capabilities: u32,
 }
 
 impl Program {
@@ -68,6 +72,7 @@ impl Program {
                 _ => bail!("packet mod does not export function {name}"),
             }
         }
+        let native_capabilities = NativeExports::from_module(&module).negotiate(grants)?;
         ensure!(
             matches!(module.get_export(MEMORY), Some(ExternType::Memory(_))),
             "packet mod does not export its memory"
@@ -79,7 +84,13 @@ impl Program {
             })?;
         }
         let pre = linker.instantiate_pre(&module).context("link packet mod")?;
-        Ok((Self { pre }, image_bytes))
+        Ok((
+            Self {
+                pre,
+                native_capabilities,
+            },
+            image_bytes,
+        ))
     }
 
     /// Instantiates the module and runs its `_initialize` under the load deadline.
@@ -104,7 +115,13 @@ impl Program {
                     .call_async(&mut store, ()),
             )?;
         }
-
+        if instance.get_func(&mut store, NATIVE_INIT).is_some() {
+            deadline.run(
+                instance
+                    .get_typed_func::<i32, ()>(&mut store, NATIVE_INIT)?
+                    .call_async(&mut store, self.native_capabilities as i32),
+            )?;
+        }
         let memory = instance
             .get_memory(&mut store, MEMORY)
             .context("packet mod memory")?;
@@ -115,14 +132,31 @@ impl Program {
                 None => Ok(None),
             }
         };
-        let posts = [post(START)?, post(ON_BATCH)?, post(TICK)?];
-
+        let posts = [
+            post(START)?,
+            post(ON_BATCH)?,
+            post(TICK)?,
+            post(FRAME)?,
+            post(MENU)?,
+        ];
+        let frame = if self.native_capabilities & mod_api::native_frame::CAMERA_PLAYERS != 0 {
+            Some(instance.get_typed_func(&mut store, FRAME)?)
+        } else {
+            None
+        };
+        let menu = if self.native_capabilities & mod_api::native_menu::CONTROLS != 0 {
+            Some(instance.get_typed_func(&mut store, MENU)?)
+        } else {
+            None
+        };
         let calls = Calls {
             realloc: instance.get_typed_func(&mut store, REALLOC)?,
             start: instance.get_typed_func(&mut store, START)?,
             on_batch: instance.get_typed_func(&mut store, ON_BATCH)?,
             tick: instance.get_typed_func(&mut store, TICK)?,
             stop: instance.get_typed_func(&mut store, STOP)?,
+            frame,
+            menu,
             posts,
         };
         Ok(Box::new(CoreGuest {
@@ -141,8 +175,10 @@ struct Calls {
     on_batch: TypedFunc<(i32, i32, i32), i32>,
     tick: TypedFunc<(), i32>,
     stop: TypedFunc<(), ()>,
-    /// Post-return functions of `start`, `on-batch` and `tick`.
-    posts: [Option<TypedFunc<i32, ()>>; 3],
+    frame: Option<TypedFunc<(i32, i32), i32>>,
+    menu: Option<TypedFunc<(i32, i32), i32>>,
+    /// Post-return functions of `start`, `on-batch`, `tick` and optional `frame` and `menu`.
+    posts: [Option<TypedFunc<i32, ()>>; 5],
 }
 
 struct CoreGuest {
@@ -272,6 +308,41 @@ impl Guest for CoreGuest {
     fn stop(&mut self) -> Result<()> {
         self.deadline
             .run(self.calls.stop.call_async(&mut self.store, ()))
+    }
+
+    fn has_native_frame(&self) -> bool {
+        self.calls.frame.is_some()
+    }
+
+    fn frame(&mut self, json: &[u8]) -> Result<Result<Option<Vec<u8>>, String>> {
+        let Some(frame) = self.calls.frame.clone() else {
+            return Ok(Ok(None));
+        };
+        let input = self.lower(json)?;
+        let result = self
+            .deadline
+            .run(frame.call_async(&mut self.store, input))?;
+        self.lift_bounded(3, result, mod_api::native_frame::MAX_BYTES, |reader, at| {
+            reader.result(at, |reader, at| reader.list(at).map(Some))
+        })
+    }
+
+    fn has_native_menu(&self) -> bool {
+        self.calls.menu.is_some()
+    }
+
+    fn menu(&mut self, json: &[u8]) -> Result<Result<Option<Vec<u8>>, String>> {
+        let Some(menu) = self.calls.menu.clone() else {
+            return Ok(Ok(None));
+        };
+        let input = self.lower(json)?;
+        let result = self.deadline.run(menu.call_async(&mut self.store, input))?;
+        self.lift_bounded(
+            4,
+            result,
+            mod_api::native_menu::MAX_OUTPUT_BYTES,
+            |reader, at| reader.result(at, |reader, at| reader.list(at).map(Some)),
+        )
     }
 
     fn peak_memory(&self) -> usize {

@@ -18,7 +18,7 @@ use components::{boss_model, sidebar_model, world_text_input, world_text_lines};
 #[derive(Default)]
 pub(in crate::ui_runtime::presentation) struct SemanticHud {
     pub(super) model: HudModel,
-    pub(super) icons: Vec<IconRef>,
+    pub(in crate::ui_runtime::presentation) icons: Vec<IconRef>,
     session: Option<u64>,
     catalog: Option<Arc<Catalog>>,
     language: [usize; 3],

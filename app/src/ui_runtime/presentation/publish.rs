@@ -281,6 +281,8 @@ pub(crate) fn prepare_ui_runtime(
         && settings.value(SettingId::HidePaperdoll) == 0
         && !menu_visible
         && !runtime.inventory_open();
+    // A visible control preview may need the local model while the gameplay doll stays hidden.
+    let control_preview_player = presentation.control_preview_needs_player(runtime.session_id());
     let emote_preview = runtime
         .emotes()
         .playback()
@@ -300,7 +302,7 @@ pub(crate) fn prepare_ui_runtime(
                 })
                 .flatten()
         });
-    if hud_doll || runtime.emotes().is_open() {
+    if hud_doll || runtime.emotes().is_open() || control_preview_player {
         presentation.capture_hud_player_with_emote(
             client_world.stream.as_ref(),
             doll_state.is_some_and(|state| state.swimming),
@@ -339,7 +341,11 @@ pub(crate) fn prepare_ui_runtime(
         ready: preview_ready,
         skin,
         pose,
-        shown: runtime.inventory_open() || menu_visible || hud_doll || runtime.emotes().is_open(),
+        shown: runtime.inventory_open()
+            || menu_visible
+            || hud_doll
+            || runtime.emotes().is_open()
+            || control_preview_player,
         hands: first_person && !hide_hand && !hand_rig.hand_is_active() && !java_held_item,
     };
     client_ui::ui_runtime::presentation::forms::observe_station_block(

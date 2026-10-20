@@ -448,6 +448,42 @@ fn compiler_uniforms_share_struct_and_constant_dependencies() {
 }
 
 #[test]
+fn compiler_rejects_missing_declaration_separators() {
+    let translation = translate(
+        VERTEX,
+        "#version 330\nout vec4 color; void main() { float a b c d; color = vec4(1.0); }",
+    );
+    let failed = program(&translation, "composite");
+    assert!(!failed.is_ok());
+    assert!(
+        failed
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.phase == Phase::Parse)
+    );
+}
+
+#[test]
+fn compiler_rejects_imported_dependency_collisions() {
+    for count in [3, 2] {
+        let translation = translate(
+            &format!(
+                "#version 330\nconst int COUNT = {count}; void main() {{ gl_Position = vec4(float(COUNT)); }}"
+            ),
+            "#version 330\nconst int COUNT = 2; uniform float weights[COUNT]; out vec4 color; void main() { color = vec4(weights[1]); }",
+        );
+        let translated = program(&translation, "composite");
+        if count == 2 {
+            reflection(translated);
+        } else {
+            assert!(!translated.is_ok());
+            assert!(translated.all_diagnostics().any(|diagnostic| {
+                diagnostic.phase == Phase::Link && diagnostic.message.contains("COUNT")
+            }));
+        }
+    }
+}
+
+#[test]
 fn compiler_loop_bindings_end_after_the_loop_statement() {
     success(
         VERTEX,
@@ -465,10 +501,99 @@ fn compiler_specialization_respects_local_parameter_shadows() {
 
 #[test]
 fn compiler_specialization_distinguishes_shadowed_resource_arguments() {
-    success(
+    let translation = success(
         VERTEX,
         "#version 330\nuniform sampler2D plane; out vec4 color; vec4 read(sampler2D source, vec2 uv) { return texture(source, uv); } vec4 read(float value, vec2 uv) { return vec4(value + uv.x); } void main() { color = read(plane, vec2(0.5)); { float plane = 1.0; color += read(plane, vec2(0.5)); } }",
     );
+    let module = &program(&translation, "composite")
+        .stages
+        .iter()
+        .find(|stage| stage.stage == shaderpack::StageKind::Fragment)
+        .unwrap()
+        .result
+        .as_ref()
+        .unwrap()
+        .module;
+    let (value_helper, _) = module
+        .functions
+        .iter()
+        .find(|(_, function)| function.name.as_deref() == Some("read"))
+        .expect("value overload remains");
+    assert!(
+        module
+            .functions
+            .iter()
+            .map(|(_, function)| function)
+            .chain(module.entry_points.iter().map(|entry| &entry.function))
+            .any(|function| function.expressions.iter().any(|(_, expression)| {
+                matches!(expression, naga::Expression::CallResult(callee) if *callee == value_helper)
+            })),
+        "the shadowed float argument must still call the value overload"
+    );
+}
+
+#[test]
+fn compiler_specialization_avoids_capturing_resource_names() {
+    for helper in [
+        "vec4 tap(sampler2D s, vec2 source) { return texture(s, source); }",
+        "vec4 tap(sampler2D s, vec2 uv) { vec2 source = uv; return texture(s, source); }",
+        "vec4 tap(sampler2D s, vec2 uv) { vec4 result = texture(s, uv); { vec2 source = uv; result += texture(s, source); } return result; }",
+        "vec4 tap(sampler2D s, vec2 uv) { vec4 result = texture(s, uv); for (int source = 0; source < 2; source++) result += texture(s, uv) * float(source); return result + texture(source, uv); }",
+        "vec4 tap(sampler2D s, vec2 uv) { vec2 unused = uv, source = uv; return texture(s, source); }",
+        "vec4 tap(sampler2D s, vec2 uv) { struct Data { vec2 source; }; Data value; value.source = uv; return texture(s, value.source); }",
+        "vec4 tap(sampler2D s, vec2 uv) { struct Data { vec2 uv; } source; source.uv = uv; return texture(s, source.uv); }",
+    ] {
+        success(
+            VERTEX,
+            &format!(
+                "#version 330\nuniform sampler2D source;\n{helper}\nout vec4 color; void main() {{ color = tap(source, vec2(0.5)); }}"
+            ),
+        );
+    }
+}
+
+#[test]
+fn compiler_specializes_nested_calls_without_overlapping_edits() {
+    success(
+        VERTEX,
+        "#version 330
+        uniform sampler2D source;
+        vec4 tap(sampler2D s, vec2 uv) { return texture(s, uv); }
+        vec4 join(vec4 a, sampler2D s, vec4 b, sampler2D t) {
+            return a + texture(s, b.xy) + texture(t, b.zw);
+        }
+        out vec4 color;
+        void main() {
+            color = join(tap(source, tap(source, vec2(0.5)).xy), source,
+                tap(source, vec2(0.25)), source);
+        }",
+    );
+}
+
+#[test]
+fn compiler_attribute_location_overflow_reports_diagnostics() {
+    for declaration in [
+        "vec4 huge[4294967295u]",
+        "mat4 huge[4294967295u]",
+        "dvec4 huge[4294967295u]",
+        "vec4[4294967295u] huge",
+        "vec4 huge[65536][65536]",
+    ] {
+        let translation = translate(
+            &format!("#version 450\nin {declaration};\nvoid main() {{ gl_Position = vec4(0.0); }}"),
+            FRAGMENT,
+        );
+        let failed = program(&translation, "composite");
+        assert!(!failed.is_ok());
+        assert!(failed.all_diagnostics().any(|diagnostic| {
+            diagnostic.phase == Phase::Transform
+                && diagnostic.message.contains("attribute location overflow")
+                && diagnostic
+                    .location
+                    .as_ref()
+                    .is_some_and(|location| location.file == "composite.vsh" && location.line == 2)
+        }));
+    }
 }
 
 #[test]
@@ -483,6 +608,66 @@ fn compiler_resource_specializations_have_distinct_names() {
             .len(),
         4
     );
+}
+
+#[test]
+fn compiler_specializations_distinguish_opaque_parameter_positions() {
+    success(
+        VERTEX,
+        "#version 330
+        uniform sampler2D source;
+        vec4 tap(sampler2D s, vec2 uv) { return texture(s, uv); }
+        vec4 tap(vec2 uv, sampler2D s) { return 2.0 * texture(s, uv); }
+        out vec4 color;
+        void main() { color = tap(source, vec2(0.25)) + tap(vec2(0.75), source); }",
+    );
+}
+
+#[test]
+fn compiler_cyclic_varyings_report_transform_diagnostics() {
+    for declarations in [
+        "struct S { S child; };\nout S value;",
+        "struct S { S child[2]; };\nout S value[2];",
+        "struct S { T child; }; struct T { S child; };\nout T value;",
+    ] {
+        let translation = translate(
+            &format!("#version 330\n{declarations}\nvoid main() {{ gl_Position = vec4(0.0); }}"),
+            FRAGMENT,
+        );
+        let failed = program(&translation, "composite");
+        assert!(!failed.is_ok());
+        assert!(
+            failed.all_diagnostics().any(|diagnostic| {
+                diagnostic.phase == Phase::Transform
+                    && diagnostic.message.contains("cyclic struct")
+                    && diagnostic.location.as_ref().is_some_and(|location| {
+                        location.file == "composite.vsh" && location.line == 3
+                    })
+            }),
+            "{:#?}",
+            failed.all_diagnostics().collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
+fn compiler_cyclic_declarations_report_diagnostics() {
+    for declaration in [
+        "S value;",
+        "uniform S value;",
+        "uniform Values { S value; };",
+        "layout(std430) buffer Values { S value; };",
+    ] {
+        let translation = translate(
+            VERTEX,
+            &format!(
+                "#version 450\nstruct S {{ S child; }};\n{declaration}\nout vec4 color; void main() {{ color = vec4(1.0); }}"
+            ),
+        );
+        let failed = program(&translation, "composite");
+        assert!(!failed.is_ok());
+        assert!(failed.all_diagnostics().next().is_some());
+    }
 }
 
 #[test]

@@ -1,6 +1,6 @@
 //! A component's own requests and Mods-library metadata, read by parsing its sections only.
 
-use crate::{ModGrants, SourceKind, read_source};
+use crate::{ModGrants, SourceKind, packet_mod::native_capabilities, read_source};
 use anyhow::{Result, anyhow, ensure};
 use std::{io::Cursor, path::Path, sync::Arc};
 use ui::mod_metadata::{GitHubModAsset, GitHubRepository, MAX_VERSION_BYTES, ModMetadata};
@@ -46,18 +46,13 @@ pub fn declarations_snapshot(bytes: &[u8]) -> Result<Declarations> {
     let mut grants = Vec::new();
     let mut icons = Vec::new();
     let packet = SourceKind::of(bytes) == SourceKind::Packet;
-    let mut needs_wasi = false;
+    let mut native = native_capabilities::Metadata::default();
     let mut update_repositories = Vec::new();
     let mut update_urls = Vec::new();
     for payload in Parser::new(0).parse_all(bytes) {
         let payload = payload?;
-        if packet
-            && depth == 0
-            && let Payload::ImportSection(imports) = &payload
-        {
-            for import in imports.clone().into_imports() {
-                needs_wasi |= import?.module == "wasi_snapshot_preview1";
-            }
+        if packet && depth == 0 {
+            native.observe(&payload)?;
         }
         let section = match payload {
             Payload::ModuleSection { .. } | Payload::ComponentSection { .. } => {
@@ -123,8 +118,8 @@ pub fn declarations_snapshot(bytes: &[u8]) -> Result<Declarations> {
     let requested = match grants.as_slice() {
         [] if packet => Ok(Some(ModGrants {
             packets: true,
-            wasi: needs_wasi,
-            ..Default::default()
+            wasi: native.needs_wasi,
+            ..native.requested()?
         })),
         [] => Ok(None),
         [data] => requested(data).map(Some),
