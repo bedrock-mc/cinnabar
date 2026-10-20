@@ -136,6 +136,7 @@ impl MenuRuntime {
             render_mode: initial.render_mode,
             render_mode_request: None,
             shader_packs: initial.shader_packs,
+            shader_packs_revision: initial.shader_packs_revision,
             shader_pack: None,
             shader_pack_request: None,
             shader_pack_reload: false,

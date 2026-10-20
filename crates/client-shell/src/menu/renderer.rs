@@ -11,6 +11,7 @@ impl MenuRuntime {
         names.truncate(usize::from(u16::MAX));
         if self.shader_packs[..] != names[..] {
             self.shader_packs = names.into();
+            self.shader_packs_revision += 1;
         }
     }
 
@@ -59,7 +60,9 @@ impl MenuRuntime {
             RenderMode::ShaderPack => {
                 let selected = self.shader_pack.as_deref()?;
                 let index = self.shader_packs.iter().position(|name| name == selected)?;
-                u16::try_from(index).ok().map(RendererChoice::ShaderPack)
+                u16::try_from(index)
+                    .ok()
+                    .map(|index| RendererChoice::ShaderPack(index, self.shader_packs_revision))
             }
         }
     }
@@ -76,7 +79,9 @@ impl MenuRuntime {
             RendererChoice::Enhanced if render_model::ENHANCED_RENDERING_ENABLED => {
                 RenderMode::Enhanced
             }
-            RendererChoice::ShaderPack(index) if render_model::SHADER_PACKS_ENABLED => {
+            RendererChoice::ShaderPack(index, revision)
+                if render_model::SHADER_PACKS_ENABLED && revision == self.shader_packs_revision =>
+            {
                 let Some(name) = self.shader_packs.get(usize::from(index)) else {
                     return;
                 };
@@ -107,14 +112,20 @@ mod tests {
     #[test]
     fn picking_a_pack_requests_shader_pack_mode_and_its_name_only_when_compiled() {
         let mut menu = menu();
-        menu.activate(MenuAction::SelectRenderer(RendererChoice::ShaderPack(1)));
+        menu.activate(MenuAction::SelectRenderer(RendererChoice::ShaderPack(
+            1,
+            menu.shader_packs_revision,
+        )));
         if render_model::SHADER_PACKS_ENABLED {
             assert_eq!(
                 menu.take_render_mode_request(),
                 Some(RenderMode::ShaderPack)
             );
             assert_eq!(menu.take_shader_pack_request().as_deref(), Some("Lumen"));
-            assert_eq!(menu.view().renderer, Some(RendererChoice::ShaderPack(1)));
+            assert_eq!(
+                menu.view().renderer,
+                Some(RendererChoice::ShaderPack(1, menu.shader_packs_revision))
+            );
             menu.activate(MenuAction::SelectRenderer(RendererChoice::Vanilla));
             assert_eq!(menu.take_render_mode_request(), Some(RenderMode::Vanilla));
             assert_eq!(menu.take_shader_pack_request(), None);
@@ -128,6 +139,22 @@ mod tests {
     }
 
     #[test]
+    fn a_picker_action_from_before_a_pack_refresh_is_ignored() {
+        if !render_model::SHADER_PACKS_ENABLED {
+            return;
+        }
+        let mut menu = menu();
+        menu.sync_shader_packs(vec!["Lumen".to_owned()]);
+        menu.sync_render_mode(RenderMode::ShaderPack);
+        menu.sync_shader_pack(Some("Lumen"));
+        let old_choice = menu.view().renderer.unwrap();
+        menu.sync_shader_packs(vec!["Dusk.zip".to_owned(), "Lumen".to_owned()]);
+        menu.activate(MenuAction::SelectRenderer(old_choice));
+        assert_eq!(menu.take_shader_pack_request(), None);
+        assert_eq!(menu.shader_pack.as_deref(), Some("Lumen"));
+    }
+
+    #[test]
     fn reselecting_the_saved_pack_requests_it_again() {
         if !render_model::SHADER_PACKS_ENABLED {
             return;
@@ -135,7 +162,7 @@ mod tests {
         let mut menu = menu();
         menu.sync_render_mode(RenderMode::ShaderPack);
         menu.sync_shader_pack(Some("Lumen"));
-        menu.select_renderer(RendererChoice::ShaderPack(1));
+        menu.select_renderer(RendererChoice::ShaderPack(1, menu.shader_packs_revision));
         assert_eq!(menu.take_shader_pack_request().as_deref(), Some("Lumen"));
     }
 
@@ -154,14 +181,23 @@ mod tests {
     #[test]
     fn missing_packs_are_ignored_and_the_selection_follows_its_name() {
         let mut menu = menu();
-        menu.activate(MenuAction::SelectRenderer(RendererChoice::ShaderPack(7)));
+        menu.activate(MenuAction::SelectRenderer(RendererChoice::ShaderPack(
+            7,
+            menu.shader_packs_revision,
+        )));
         assert_eq!(menu.take_render_mode_request(), None);
         assert_eq!(menu.take_shader_pack_request(), None);
         menu.sync_render_mode(RenderMode::ShaderPack);
         menu.sync_shader_pack(Some("Lumen"));
-        assert_eq!(menu.view().renderer, Some(RendererChoice::ShaderPack(1)));
+        assert_eq!(
+            menu.view().renderer,
+            Some(RendererChoice::ShaderPack(1, menu.shader_packs_revision))
+        );
         menu.sync_shader_packs(vec!["Lumen".to_owned()]);
-        assert_eq!(menu.view().renderer, Some(RendererChoice::ShaderPack(0)));
+        assert_eq!(
+            menu.view().renderer,
+            Some(RendererChoice::ShaderPack(0, menu.shader_packs_revision))
+        );
         assert_eq!(menu.view().shader_packs[..], ["Lumen".to_owned()]);
         menu.sync_shader_packs(Vec::new());
         assert_eq!(menu.view().renderer, None);
@@ -173,10 +209,16 @@ mod tests {
             return;
         }
         let mut menu = menu();
-        menu.activate(MenuAction::SelectRenderer(RendererChoice::ShaderPack(0)));
+        menu.activate(MenuAction::SelectRenderer(RendererChoice::ShaderPack(
+            0,
+            menu.shader_packs_revision,
+        )));
         menu.sync_render_mode(RenderMode::Vanilla);
         menu.sync_shader_pack(None);
-        assert_eq!(menu.view().renderer, Some(RendererChoice::ShaderPack(0)));
+        assert_eq!(
+            menu.view().renderer,
+            Some(RendererChoice::ShaderPack(0, menu.shader_packs_revision))
+        );
         assert_eq!(menu.take_shader_pack_request().as_deref(), Some("Dusk.zip"));
         assert_eq!(
             menu.take_render_mode_request(),

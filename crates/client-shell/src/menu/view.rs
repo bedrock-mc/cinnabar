@@ -54,6 +54,7 @@ impl MenuRuntime {
             fullscreen: self.fullscreen,
             render_mode: self.render_mode,
             shader_packs: std::sync::Arc::clone(&self.shader_packs),
+            shader_packs_revision: self.shader_packs_revision,
             renderer: self.renderer_choice(),
             vsync_override: self.vsync_override,
             display_name: self.presented_display_name(),
