@@ -179,7 +179,11 @@ pub(super) fn rewrite_body(toks: &[Tok], cx: &BodyContext<'_>, used: &mut Sample
                     SHADOW_SAMPLER_NAME
                 } else {
                     let class = if ctor.starts_with("isampler") || ctor.starts_with("usampler") {
-                        SamplerClass::from_filtering(false, class.clamps())
+                        if class.clamps() {
+                            SamplerClass::ClampNearest
+                        } else {
+                            SamplerClass::RepeatNonFiltering
+                        }
                     } else {
                         *class
                     };
@@ -519,7 +523,7 @@ mod tests {
             used.filtering,
             BTreeSet::from([
                 SamplerClass::ClampNearest,
-                SamplerClass::RepeatNearest,
+                SamplerClass::RepeatNonFiltering,
                 SamplerClass::ClampLinear,
             ])
         );
