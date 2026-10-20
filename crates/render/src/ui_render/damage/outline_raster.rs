@@ -65,7 +65,7 @@ fn sprite_outline_raster_ignores_texture_rgb_and_neighboring_atlas_art() {
                 let interior = (-1..=1).all(|dy| {
                     (-1..=1).all(|dx| opaque(source_x as i32 + dx, source_y as i32 + dy))
                 });
-                let expected = if center && !interior {
+                let expected: [u8; 4] = if center && !interior {
                     [120, 40, 10, 128]
                 } else {
                     [0; 4]

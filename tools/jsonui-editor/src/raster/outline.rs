@@ -230,7 +230,7 @@ mod tests {
                 vec![(0, 0, false), (1, 1, true), (2, 2, false), (3, 3, true)]
             } {
                 let at = (y * 4 + x) * 4;
-                let expected = if painted { [240, 80, 20, 128] } else { [0; 4] };
+                let expected: [u8; 4] = if painted { [240, 80, 20, 128] } else { [0; 4] };
                 for channel in 0..4 {
                     assert!(
                         (i16::from(pixels[at + channel]) - i16::from(expected[channel])).abs() <= 1
