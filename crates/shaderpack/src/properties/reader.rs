@@ -159,7 +159,7 @@ pub(crate) fn read_plain_entries(text: &str) -> Vec<RawEntry> {
                 }
                 None => {
                     logical.push_str(text);
-                    entries.push(parse_entry(start, &logical));
+                    entries.push(parse_plain_entry(start, &logical));
                 }
             }
             continue;
@@ -169,11 +169,11 @@ pub(crate) fn read_plain_entries(text: &str) -> Vec<RawEntry> {
         }
         match strip_continuation(text) {
             Some(head) => pending = Some((line, head.to_owned())),
-            None => entries.push(parse_entry(line, text)),
+            None => entries.push(parse_plain_entry(line, text)),
         }
     }
     if let Some((start, logical)) = pending {
-        entries.push(parse_entry(start, &logical));
+        entries.push(parse_plain_entry(start, &logical));
     }
     entries
 }
@@ -276,10 +276,18 @@ fn strip_continuation(text: &str) -> Option<&str> {
     }
 }
 
+/// Reads a preprocessed property with its key and trailing value whitespace trimmed.
+fn parse_entry(line: u32, logical: &str) -> RawEntry {
+    let mut entry = parse_plain_entry(line, logical);
+    entry.key = entry.key.trim().to_owned();
+    entry.value.truncate(entry.value.trim_end().len());
+    entry
+}
+
 /// Splits a logical line into key and value: the key ends at the first unescaped `=`,
 /// `:` or property whitespace; whitespace and one `=`/`:` separator follow. Unescaping
 /// preserves whitespace in keys and values, including escaped separators.
-fn parse_entry(line: u32, logical: &str) -> RawEntry {
+fn parse_plain_entry(line: u32, logical: &str) -> RawEntry {
     let mut key_end = logical.len();
     let mut escaped = false;
     for (index, c) in logical.char_indices() {
