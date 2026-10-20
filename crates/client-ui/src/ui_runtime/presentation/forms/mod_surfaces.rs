@@ -216,6 +216,7 @@ impl UiPresentationRuntime {
         let mut hud_renderer = ui_screens::hud_renderers::HudRenderer {
             hud: &native_paint,
             hunger_update: None,
+            bounds: None,
         };
         let mut item_renderer = ui_engine::engine::item_renderer::ItemRenderer {
             icons: &self.hud_cache.icons,

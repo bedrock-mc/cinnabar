@@ -33,6 +33,7 @@ pub mod item_renderer;
 #[cfg(test)]
 mod ownership_tests;
 pub mod pack_catalog;
+mod paint_bounds;
 mod paint_transform;
 pub mod pixel_snap;
 mod render;
@@ -555,6 +556,8 @@ pub struct Canvas<'a> {
     length_scale: f32,
     /// The paint transform left for the current draw's nodes, in logical px.
     residual: Option<json_ui::transform::Affine>,
+    /// An optional scoped observer of clipped, transformed logical paint bounds.
+    paint_bounds: Option<Option<[f32; 4]>>,
     /// The filter group receiving the current draws.
     filter: Option<filter::OpenFilter>,
 }
@@ -715,6 +718,7 @@ impl Canvas<'_> {
                 _ => {}
             }
         }
+        self.observe_paint_bounds(bounds, clip);
         let id = self.id();
         self.nodes.push(
             UiNode::new(

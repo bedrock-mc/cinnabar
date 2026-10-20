@@ -99,6 +99,8 @@ fn install_java_hud(catalog: &mut Catalog) {
 #[derive(Default)]
 pub struct HudScreens {
     pub hud: CachedScreen,
+    /// The last native bottom-HUD paint bounds, in the editor's shared GUI coordinates.
+    pub editor_keep_out: Option<[f64; 4]>,
     /// The crosshair overlay screen.
     pub crosshair: CachedScreen,
     /// The toast screen, drawn above everything in game.
@@ -124,6 +126,8 @@ pub struct HudScreens {
 pub struct HudInput<'a> {
     /// The crosshair overlay rather than the HUD.
     pub crosshair: bool,
+    /// Observe actual native bottom-HUD painting while the host's layout editor is open.
+    pub capture_keep_out: bool,
     pub catalog: &'a Arc<Catalog>,
     /// The HUD context with the chat placement.
     pub context: &'a Context,
@@ -196,6 +200,7 @@ impl HudScreens {
     ) -> Result<Option<EngineFrame>, PaintError> {
         let HudInput {
             crosshair,
+            capture_keep_out,
             catalog,
             context,
             data,
@@ -227,10 +232,7 @@ impl HudScreens {
             clocks: Some(&self.clocks),
             ..ScreenArt::default()
         };
-        let mut hud_renderer = HudRenderer {
-            hud: paint,
-            hunger_update: Some(&advance_hunger),
-        };
+        let mut bounds = None;
         let mut items = ItemRenderer { icons, id_aux: &[] };
         let screen = if crosshair {
             &mut self.crosshair
@@ -239,6 +241,11 @@ impl HudScreens {
         };
         let caller = std::mem::take(&mut frame.renderers);
         let drawn = {
+            let mut hud_renderer = HudRenderer {
+                hud: paint,
+                hunger_update: Some(&advance_hunger),
+                bounds: (capture_keep_out && !crosshair).then_some(&mut bounds),
+            };
             let mut renderers: Vec<&mut dyn CustomRenderer> = Vec::with_capacity(caller.len() + 2);
             for renderer in caller.iter_mut() {
                 renderers.push(&mut **renderer);
@@ -251,6 +258,14 @@ impl HudScreens {
             })
         };
         frame.renderers = caller;
+        if !crosshair {
+            self.editor_keep_out = drawn
+                .as_ref()
+                .ok()
+                .and_then(|frame| frame.as_ref())
+                .and(bounds)
+                .map(|b| [b[0], b[1], b[2] - b[0], b[3] - b[1]].map(|v| f64::from(v / px)));
+        }
         drawn
     }
 

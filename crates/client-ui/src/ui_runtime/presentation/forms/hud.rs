@@ -209,6 +209,7 @@ impl UiPresentationRuntime {
         let drawn = self.screens.hud.paint(
             renderer,
             HudInput {
+                capture_keep_out: self.screens.mod_ui.mod_hud_editor_open(),
                 crosshair,
                 catalog: &catalog,
                 context: &context,
@@ -225,10 +226,7 @@ impl UiPresentationRuntime {
         if !crosshair {
             // Touch selects hotbar slots through the HUD's own laid-out cells.
             self.screens.touch.hud_session = drawn.as_ref().map(|_| runtime.session_id());
-            self.screens.touch.hud_keep_out = drawn
-                .as_ref()
-                .filter(|_| self.screens.mod_ui.mod_hud_editor_open())
-                .and_then(|frame| geometry::keep_out(frame, &paint));
+            self.screens.touch.hud_keep_out = self.screens.hud.editor_keep_out;
             self.screens.touch.hud = drawn;
         }
         if let Some(view) = preview_view.get() {

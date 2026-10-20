@@ -120,6 +120,7 @@ pub(super) fn render_with<R: Borrow<FormRender>>(
         clip: None,
         length_scale: 1.0,
         residual: None,
+        paint_bounds: None,
         filter: None,
         animator: textures
             .animator
