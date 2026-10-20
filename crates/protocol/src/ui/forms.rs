@@ -7,6 +7,7 @@
 //! unsupported, and malformed JSON is a semantic skip.
 
 mod custom;
+mod json;
 mod npc;
 mod text;
 pub use text::FormText;
@@ -14,7 +15,7 @@ use text::{literal_value, optional_text, text_value};
 
 use std::sync::Arc;
 
-pub use custom::{CustomForm, CustomFormElement, FormNumber};
+pub use custom::{CustomForm, CustomFormElement, FormControlLock, FormNumber};
 pub use npc::{
     NPC_DIALOGUE_FORM_ID, NpcButton, NpcDialogueForm, NpcRequestKind, npc_request_packet,
     server_settings_request_packet,
@@ -25,13 +26,12 @@ use bedrock_protocol_1_26_51::enums::ModalFormCancelReason;
 use bedrock_protocol_1_26_51::packets::{ModalFormRequest, ModalFormResponse};
 use bedrock_protocol_1_26_51::wire;
 use serde::{
-    Deserialize, Deserializer,
+    Deserializer,
     de::{DeserializeSeed, IgnoredAny},
 };
 
 use super::{MAX_FORM_JSON_BYTES, MAX_UI_TEXT_BYTES, UiEvent, UiPacketError};
 
-pub const MAX_FORM_JSON_DEPTH: usize = 16;
 /// Array entries remain bounded by the document size, including their separators.
 pub const MAX_CUSTOM_FORM_ITEMS: usize = MAX_FORM_JSON_BYTES / 2;
 
@@ -149,10 +149,11 @@ pub struct FormRequestEvent {
 
 pub(crate) fn normalize_form(packet: ModalFormRequest) -> Result<UiEvent, UiPacketError> {
     let json = bounded_form(packet.form_ui_json)?;
+    let parsed = json::comment_free(&json)?;
     let mut header = FormHeader::default();
-    scan_form_header(&json, &mut header)?;
+    scan_form_header(&parsed, &mut header)?;
     let kind = header.kind.unwrap_or(FormKind::Unknown);
-    let model = form_model(&json, kind);
+    let model = form_model(&parsed, kind);
     Ok(UiEvent::Form(FormRequestEvent {
         form_id: packet.form_id.0,
         kind,
@@ -167,12 +168,11 @@ fn form_model(json: &str, kind: FormKind) -> ServerFormModel {
     if kind == FormKind::Unknown {
         return unsupported(UnsupportedForm::Family);
     }
-    // The raw document and nesting were bounded before this second parse;
-    // allocation here is bounded by MAX_FORM_JSON_BYTES, not server counts.
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(json) else {
+    // Syntax was validated by the header reader; containers use a heap stack.
+    let Ok(value) = json::parse_validated(json) else {
         return unsupported(UnsupportedForm::Controls);
     };
-    let Some(object) = value.as_object() else {
+    let Some(object) = value.0.as_object() else {
         return unsupported(UnsupportedForm::Controls);
     };
     let wire_type = object.get("type").and_then(serde_json::Value::as_str);
@@ -327,7 +327,6 @@ struct FormHeader {
 }
 
 fn scan_form_header(json: &str, header: &mut FormHeader) -> Result<(), UiPacketError> {
-    ensure_bounded_depth(json.as_bytes())?;
     let mut deserializer = serde_json::Deserializer::from_str(json);
     FormHeaderProbe { header }
         .deserialize(&mut deserializer)
@@ -337,51 +336,6 @@ fn scan_form_header(json: &str, header: &mut FormHeader) -> Result<(), UiPacketE
         return Err(UiPacketError::TextTooLong { bytes, max });
     }
     Ok(())
-}
-
-/// Counts container nesting outside strings so pathological input is rejected
-/// by an explicit repository bound before any serde walk.
-fn ensure_bounded_depth(bytes: &[u8]) -> Result<(), UiPacketError> {
-    let mut depth = 0usize;
-    let mut cursor = 0;
-    while cursor < bytes.len() {
-        match bytes[cursor] {
-            b'"' => {
-                cursor =
-                    scan_json_string_end(bytes, cursor).ok_or(UiPacketError::InvalidFormJson)?
-            }
-            b'{' | b'[' => {
-                depth += 1;
-                if depth > MAX_FORM_JSON_DEPTH {
-                    return Err(UiPacketError::FormJsonDepthExceeded {
-                        depth,
-                        max: MAX_FORM_JSON_DEPTH,
-                    });
-                }
-                cursor += 1;
-            }
-            b'}' | b']' => {
-                depth = depth.saturating_sub(1);
-                cursor += 1;
-            }
-            _ => cursor += 1,
-        }
-    }
-    Ok(())
-}
-
-fn scan_json_string_end(bytes: &[u8], start: usize) -> Option<usize> {
-    debug_assert_eq!(bytes.get(start), Some(&b'"'));
-    let mut cursor = start + 1;
-    while cursor < bytes.len() {
-        match bytes[cursor] {
-            b'"' => return Some(cursor + 1),
-            b'\\' => cursor = cursor.checked_add(2)?,
-            0x00..=0x1f => return None,
-            _ => cursor += 1,
-        }
-    }
-    None
 }
 
 struct FormHeaderProbe<'a> {
@@ -416,12 +370,12 @@ impl<'de, 'a> serde::de::Visitor<'de> for FormHeaderProbe<'a> {
         while let Some(key) = map.next_key::<String>()? {
             match key.as_str() {
                 "type" => {
-                    if let MetadataMember::Text(value) = map.next_value()? {
+                    if let Some(value) = metadata_text(&mut map)? {
                         self.header.kind = Some(FormKind::from_wire(&value));
                     }
                 }
                 "title" => {
-                    if let MetadataMember::Text(value) = map.next_value()? {
+                    if let Some(value) = metadata_text(&mut map)? {
                         if value.len() > MAX_UI_TEXT_BYTES {
                             self.header.title_overflow = Some((value.len(), MAX_UI_TEXT_BYTES));
                         } else {
@@ -439,11 +393,18 @@ impl<'de, 'a> serde::de::Visitor<'de> for FormHeaderProbe<'a> {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum MetadataMember {
-    Text(String),
-    Other(IgnoredAny),
+/// Reads string metadata while validating other values without recursive buffering.
+fn metadata_text<'de, A: serde::de::MapAccess<'de>>(
+    map: &mut A,
+) -> Result<Option<String>, A::Error> {
+    let raw: &serde_json::value::RawValue = map.next_value()?;
+    if raw.get().starts_with('"') {
+        serde_json::from_str(raw.get())
+            .map(Some)
+            .map_err(serde::de::Error::custom)
+    } else {
+        Ok(None)
+    }
 }
 
 /// A submit answer for a menu or modal form. Per gophertunnel v1.57.0

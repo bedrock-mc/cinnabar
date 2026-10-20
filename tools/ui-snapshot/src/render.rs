@@ -2,10 +2,14 @@
 
 mod character;
 #[cfg(feature = "test-support")]
+mod control_locked;
+#[cfg(feature = "test-support")]
 mod cosmetic_particles;
 #[cfg(feature = "test-support")]
 mod crafting;
 mod edit_selection;
+#[cfg(feature = "test-support")]
+mod form_overlap;
 mod panorama;
 
 use std::{
@@ -69,10 +73,53 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
 
 /// Samples caller-owned UI and cosmetic animation time without reading the clock.
 pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error> {
-    let fixture = (state.fixture)();
+    png_fixture(state, (state.fixture)(), dir, seconds, None)
+}
+
+/// Renders an authored panel at an explicit animation sample without creating a window.
+pub fn panel_png(
+    panel: ui::mod_panel::Panel,
+    size: [u32; 2],
+    gui_scale: u8,
+    seconds: f64,
+    dir: &Path,
+    resource_pack: Option<&Path>,
+) -> Result<Vec<u8>, Error> {
+    panel.validate()?;
+    let state = State {
+        name: "mod-panel",
+        size,
+        gui_scale,
+        fixture: || Fixture::EditSelection,
+    };
+    png_fixture(
+        &state,
+        Fixture::ModPanel(Box::new(panel)),
+        dir,
+        seconds,
+        resource_pack,
+    )
+}
+
+/// Runs every source through the same carrier, production-painter and CPU raster path.
+fn png_fixture(
+    state: &State,
+    fixture: Fixture,
+    dir: &Path,
+    seconds: f64,
+    resource_pack: Option<&Path>,
+) -> Result<Vec<u8>, Error> {
+    #[cfg(feature = "test-support")]
+    if matches!(&fixture, Fixture::ControlLocked) {
+        return control_locked::png(state, dir);
+    }
     #[cfg(feature = "test-support")]
     if let Fixture::CosmeticParticles { view, emitting } = &fixture {
         return cosmetic_particles::png(state.size, *view, seconds, *emitting);
+    }
+    #[cfg(feature = "test-support")]
+    if matches!(&fixture, Fixture::FormOverlap) {
+        return form_overlap::png(state, dir);
     }
     let menu = matches!(&fixture, Fixture::Menu(_) | Fixture::Loading(_));
     let show_panorama = match &fixture {
@@ -81,10 +128,13 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
         Fixture::Chat { .. }
         | Fixture::TabList(_)
         | Fixture::EditSelection
-        | Fixture::Toast { .. } => false,
+        | Fixture::Toast { .. }
+        | Fixture::ModPanel(_) => false,
         #[cfg(feature = "test-support")]
         Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
+        | Fixture::FormOverlap
+        | Fixture::ControlLocked
         | Fixture::CosmeticParticles { .. } => false,
     };
     let mut carriers = carriers::load(dir, menu)?;
@@ -121,7 +171,9 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
     };
     match fixture {
         #[cfg(feature = "test-support")]
-        Fixture::CosmeticParticles { .. } => unreachable!("particle capture returned above"),
+        Fixture::CosmeticParticles { .. } | Fixture::FormOverlap | Fixture::ControlLocked => {
+            unreachable!("specialized capture returned above")
+        }
         #[cfg(feature = "test-support")]
         Fixture::CursorDurability => {
             let mut engine = json_engine(&carriers)?;
@@ -157,6 +209,32 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
                 &mut frame,
             )
             .map_err(|error| error.to_string())?;
+            add_server_pages(&mut engine, &mut carriers.pages);
+        }
+        Fixture::ModPanel(panel) => {
+            let mut engine = json_engine(&carriers)?;
+            if let Some(root) = resource_pack {
+                let files = panel_textures(&panel, root)?;
+                engine.set_server_atlas(
+                    ui_engine::atlas::ServerAtlas::new(
+                        &files,
+                        None,
+                        ui_engine::pages::SERVER_UI_PAGES,
+                    )
+                    .with_image_work(ImageWork::inline()),
+                    (carriers.pages.len() + ui_engine::pages::SERVER_UI_PAGE) as u16,
+                );
+            }
+            let mut ui = mod_ui::ModUi::default();
+            ui.set_mod_panel(mod_ui::PanelUiOwner::Environment(0), Some(&panel))?;
+            ui.set_mod_panel_open(true);
+            for now in [0.0, seconds] {
+                frame.nodes.clear();
+                *frame.next = 1;
+                frame.now = now;
+                ui.paint_mod_panel(Some(&engine), &mut frame);
+                engine.poll_native_images();
+            }
             add_server_pages(&mut engine, &mut carriers.pages);
         }
         Fixture::EditSelection => {
@@ -446,22 +524,101 @@ fn json_engine(carriers: &carriers::Carriers) -> Result<FormEngine, Error> {
     engine.set_server_atlas(
         ui_engine::atlas::ServerAtlas::new(&[], None, ui_engine::pages::SERVER_UI_PAGES)
             .with_image_work(ImageWork::inline()),
-        carriers.pages.len() as u16,
+        (carriers.pages.len() + ui_engine::pages::SERVER_UI_PAGE) as u16,
     );
     Ok(engine)
 }
 
+/// Loads only a custom panel's referenced pack images through the shared atlas input path.
+fn panel_textures(
+    panel: &ui::mod_panel::Panel,
+    root: &Path,
+) -> Result<Vec<(String, Vec<u8>)>, Error> {
+    let Some(surface) = &panel.surface else {
+        return Ok(Vec::new());
+    };
+    let document: serde_json::Value =
+        serde_json::from_str(&surface.resolved_document()?).map_err(|error| error.to_string())?;
+    let mut paths = std::collections::BTreeSet::new();
+    collect_textures(&document, &mut paths);
+    let mut files = Vec::new();
+    for stem in paths {
+        if stem.starts_with('/')
+            || stem.contains('\\')
+            || stem.split('/').any(|part| matches!(part, ".." | "."))
+        {
+            return Err(Error::Invalid(
+                "panel texture must be relative to the resource pack".into(),
+            ));
+        }
+        for extension in ui_engine::atlas::IMAGE_EXTENSIONS
+            .into_iter()
+            .chain([".json"])
+        {
+            let relative = format!("{stem}{extension}");
+            let path = root.join(&relative);
+            if path.is_file() {
+                files.push((
+                    relative,
+                    carriers::read(&path, resource_pack::MAX_FILE_BYTES as usize)?,
+                ));
+            }
+        }
+    }
+    Ok(files)
+}
+
+/// Finds authored image paths without reading unrelated pack assets or UI documents.
+fn collect_textures(value: &serde_json::Value, paths: &mut std::collections::BTreeSet<String>) {
+    match value {
+        serde_json::Value::Object(object) => {
+            if let Some(path) = object.get("texture").and_then(serde_json::Value::as_str) {
+                paths.insert(path.to_owned());
+            }
+            for value in object.values() {
+                collect_textures(value, paths);
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for value in values {
+                collect_textures(value, paths);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Appends the server atlas pages after painting; page order comes from the atlas.
 fn add_server_pages(engine: &mut FormEngine, pages: &mut Vec<Page>) {
+    let first = pages.len();
     if let Some(server) = engine.take_server_pages() {
-        pages.extend(server.iter().map(|page| {
-            let [width, height] = page.dimensions();
-            Page {
-                width,
-                height,
-                rgba: page.pixels().into(),
-            }
-        }));
+        let server = server
+            .iter()
+            .map(|page| {
+                let [width, height] = page.dimensions();
+                Page {
+                    width,
+                    height,
+                    rgba: page.pixels().into(),
+                }
+            })
+            .collect::<Vec<_>>();
+        pages.resize_with(first + ui_engine::pages::SERVER_UI_PAGE, Page::white);
+        pages.extend(server);
+        if !engine.server_sheet_pages.is_empty() {
+            pages.resize_with(
+                first + render_model::UI_NATIVE_SHEET_PAGE_OFFSET,
+                Page::white,
+            );
+            pages.extend(engine.server_sheet_pages.iter().map(|page| {
+                let [width, height] = page.dimensions();
+                Page {
+                    width,
+                    height,
+                    rgba: page.pixels().into(),
+                }
+            }));
+        }
     }
 }
 
