@@ -121,3 +121,62 @@ pub(super) fn string_end(bytes: &[u8], start: usize) -> Option<usize> {
     }
     None
 }
+
+/// Replaces line and block comments with whitespace, preserving quoted strings and token boundaries.
+pub(super) fn comment_free(json: &str) -> Result<std::borrow::Cow<'_, str>, super::UiPacketError> {
+    use std::borrow::Cow;
+    let bytes = json.as_bytes();
+    let mut output: Option<Vec<u8>> = None;
+    let mut cursor = 0;
+    let mut previous = None;
+    let mut comment_after_string = false;
+    while cursor < bytes.len() {
+        let start = cursor;
+        match bytes[cursor] {
+            b'"' => {
+                cursor = string_end(bytes, cursor).ok_or(super::UiPacketError::InvalidFormJson)?;
+                previous = Some(b'"');
+                comment_after_string = false;
+                continue;
+            }
+            b'/' if bytes.get(cursor + 1) == Some(&b'/') => {
+                cursor += 2;
+                while cursor < bytes.len() && !matches!(bytes[cursor], b'\n' | b'\r') {
+                    cursor += 1;
+                }
+            }
+            b'/' if bytes.get(cursor + 1) == Some(&b'*') => {
+                cursor += 2;
+                let length = bytes[cursor..]
+                    .windows(2)
+                    .position(|pair| pair == b"*/")
+                    .ok_or(super::UiPacketError::InvalidFormJson)?;
+                cursor += length + 2;
+            }
+            byte => {
+                if !matches!(byte, b' ' | b'\n' | b'\r' | b'\t') {
+                    // A member name must be followed directly by its colon, apart from whitespace.
+                    if byte == b':' && comment_after_string {
+                        return Err(super::UiPacketError::InvalidFormJson);
+                    }
+                    previous = Some(byte);
+                    comment_after_string = false;
+                }
+                cursor += 1;
+                continue;
+            }
+        }
+        comment_after_string |= previous == Some(b'"');
+        for byte in &mut output.get_or_insert_with(|| bytes.to_vec())[start..cursor] {
+            if !matches!(byte, b'\n' | b'\r') {
+                *byte = b' ';
+            }
+        }
+    }
+    Ok(match output {
+        Some(output) => {
+            Cow::Owned(String::from_utf8(output).expect("comments replaced by ASCII whitespace"))
+        }
+        None => Cow::Borrowed(json),
+    })
+}
