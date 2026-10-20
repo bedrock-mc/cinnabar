@@ -89,7 +89,10 @@ pub fn register(registry: &mut ScreenRegistry) {
         restore: titles::restore,
     });
     catalog.after_layers(chat::prefer_builtin);
-    catalog.after_layers(mark_bottom_region);
+    catalog.after_layers(|catalog, _| {
+        mark_bottom_region(catalog);
+        Vec::new()
+    });
 }
 
 /// Installs the original HUD artwork and marks its resolved bottom subtree.
@@ -101,7 +104,7 @@ fn install_java_hud(catalog: &mut Catalog) {
 /// Tags the native root after pack layering so aliases and inherited children retain its scope.
 fn mark_bottom_region(catalog: &mut Catalog) {
     if let Some(root) = catalog.lookup_mut("hud", BOTTOM_HUD_ROOT) {
-        root.properties.insert(
+        root.props.insert(
             json_ui::transform::PAINT_REGION_PROPERTY.into(),
             serde_json::json!(BOTTOM_HUD_REGION.get()),
         );
