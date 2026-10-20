@@ -647,3 +647,22 @@ fn animation_blend_shader_validates_without_a_gpu() {
     .validate(&module)
     .unwrap();
 }
+
+#[test]
+fn pending_atlas_identity_keeps_its_source_alive_until_replaced() {
+    let source = ChunkTextureAssets::with_revision(Arc::new(RuntimeAssets::diagnostic()), 1);
+    let weak = Arc::downgrade(source.assets());
+    let mut build = AtlasBuild::default();
+    assert!(build.request(&source));
+    drop(source);
+    assert!(
+        weak.upgrade().is_some(),
+        "the cached pointer cannot be reused while requested"
+    );
+    let replacement = ChunkTextureAssets::with_revision(Arc::new(RuntimeAssets::diagnostic()), 2);
+    assert!(build.request(&replacement));
+    assert!(
+        weak.upgrade().is_none(),
+        "replacing the request releases its previous source"
+    );
+}
