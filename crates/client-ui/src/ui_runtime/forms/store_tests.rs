@@ -191,3 +191,79 @@ fn custom_form_submits_the_edited_values_in_order() {
         "answering clears the live values"
     );
 }
+
+/// Supplies another request without changing the currently displayed form.
+fn overlap(runtime: &mut UiRuntime) {
+    let event = FormRequestEvent {
+        form_id: 4,
+        kind: FormKind::Menu,
+        title: Some("Replacement".into()),
+        json: "{}".into(),
+        model: ServerFormModel::TextMenu(protocol::TextMenuForm {
+            title: "Replacement".into(),
+            content: "".into(),
+            buttons: vec!["Next".into()].into(),
+            button_images: [].into(),
+            omitted_images: 0,
+        }),
+    };
+    let session = runtime.session_id();
+    runtime.server_forms_mut().admit(event, 2, session, false);
+}
+
+#[test]
+fn same_id_overlap_keeps_the_displayed_form_and_rejects_the_incoming_request() {
+    let mut runtime = admit(
+        ServerFormModel::Modal(ModalDialogForm {
+            title: "Original".into(),
+            content: "Stay here".into(),
+            button1: "Yes".into(),
+            button2: "No".into(),
+        }),
+        FormKind::Modal,
+    );
+    let original = runtime.server_forms().active().unwrap().clone();
+    overlap(&mut runtime);
+    assert_eq!(runtime.server_forms().active(), Some(&original));
+    assert_eq!(sent(&mut runtime), [protocol::modal_form_busy_response(4)]);
+    answer(&mut runtime, LocalFormAction::SubmitButton(0));
+    assert_eq!(
+        sent(&mut runtime),
+        [modal_form_submit_response(
+            4,
+            ModalFormResponseSelection::ModalButton(true)
+        )]
+    );
+}
+
+#[test]
+fn same_id_overlap_keeps_an_answer_until_backpressure_clears() {
+    let mut runtime = admit(
+        ServerFormModel::Modal(ModalDialogForm {
+            title: "Original".into(),
+            content: "Stay here".into(),
+            button1: "Yes".into(),
+            button2: "No".into(),
+        }),
+        FormKind::Modal,
+    );
+    answer(&mut runtime, LocalFormAction::SubmitButton(1));
+    assert_eq!(
+        flush_form_response(
+            &mut runtime,
+            |_| false,
+            |_| Err(super::FormTransportError::Full)
+        ),
+        Err(super::FormTransportError::Full)
+    );
+    overlap(&mut runtime);
+    assert!(runtime.server_forms().active().is_none());
+    assert_eq!(
+        sent(&mut runtime),
+        [
+            modal_form_submit_response(4, ModalFormResponseSelection::ModalButton(false)),
+            protocol::modal_form_busy_response(4)
+        ]
+    );
+    assert!(sent(&mut runtime).is_empty());
+}

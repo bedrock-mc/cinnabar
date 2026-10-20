@@ -8,6 +8,8 @@ mod cosmetic_particles;
 #[cfg(feature = "test-support")]
 mod crafting;
 mod edit_selection;
+#[cfg(feature = "test-support")]
+mod form_overlap;
 mod panorama;
 mod tiled_image;
 
@@ -84,6 +86,10 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
     if let Fixture::CosmeticParticles { view, emitting } = &fixture {
         return cosmetic_particles::png(state.size, *view, seconds, *emitting);
     }
+    #[cfg(feature = "test-support")]
+    if matches!(&fixture, Fixture::FormOverlap) {
+        return form_overlap::png(state, dir);
+    }
     let menu = matches!(&fixture, Fixture::Menu(_) | Fixture::Loading(_));
     let show_panorama = match &fixture {
         Fixture::Menu(view) => view.out_of_game(),
@@ -95,6 +101,7 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
         #[cfg(feature = "test-support")]
         Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
+        | Fixture::FormOverlap
         | Fixture::ControlLocked
         | Fixture::CosmeticParticles { .. } => false,
     };
@@ -133,9 +140,9 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
     match fixture {
         Fixture::TiledImage { .. } => unreachable!("tiled image capture returned above"),
         #[cfg(feature = "test-support")]
-        Fixture::ControlLocked => unreachable!("form capture returned above"),
-        #[cfg(feature = "test-support")]
-        Fixture::CosmeticParticles { .. } => unreachable!("particle capture returned above"),
+        Fixture::CosmeticParticles { .. } | Fixture::FormOverlap | Fixture::ControlLocked => {
+            unreachable!("specialized capture returned above")
+        }
         #[cfg(feature = "test-support")]
         Fixture::CursorDurability => {
             let mut engine = json_engine(&carriers)?;
