@@ -8301,6 +8301,7 @@ dependencies = [
  "pp-rs",
  "rayon",
  "serde_json",
+ "tempfile",
  "zip",
  "zip-footer",
 ]

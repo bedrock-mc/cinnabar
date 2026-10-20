@@ -30,6 +30,7 @@ mod compile;
 mod custom_uniforms;
 mod diagnostics;
 mod dimensions;
+mod discover;
 mod environment;
 mod expr;
 mod ids;
@@ -52,6 +53,7 @@ pub use buffers::{BufferDirectives, BufferFormat, BufferId, BufferSettings};
 pub use compile::CompiledStage;
 pub use custom_uniforms::{CustomUniformError, CustomUniforms, UniformValue};
 pub use diagnostics::{Diagnostic, Phase, SourceLocation};
+pub use discover::{DiscoveredPack, discover_packs};
 pub use environment::{Environment, GpuVendor, HostOs};
 pub use expr::{BinaryOp, Expr, ExprError, UnaryOp};
 pub use ids::{BlockIdMap, IdMaps, NamedIdMap, RenderLayer, UNMAPPED_BLOCK_ID};
@@ -64,8 +66,9 @@ pub use programs::{
     program_group,
 };
 pub use properties::{
-    BufferSize, CustomImage, CustomTexture, CustomUniform, CustomUniformKind, FlipRule, ImageSize,
-    ProgramRule, PropertiesDiagnostic, ScaleRule, ShaderProperties, SizeValue, TextureSource,
+    AlphaTest, AlphaTestRule, BlendFactor, BlendMode, BlendRule, BufferSize, CompareFunction,
+    CustomImage, CustomTexture, CustomUniform, CustomUniformKind, FlipRule, ImageSize, ProgramRule,
+    PropertiesDiagnostic, ScaleRule, ShaderProperties, SizeValue, TextureSource,
 };
 pub use reflection::{
     BufferBinding, ColorOutput, ComputeDispatch, FIRST_OTHER_ATTRIBUTE_LOCATION,

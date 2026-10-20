@@ -715,7 +715,11 @@ fn anchored_card_bounds_and_icons_scale_together_across_viewports() {
             Anchor::TopLeft,
             Anchor::TopCenter,
             Anchor::TopRight,
+            Anchor::Left,
+            Anchor::Center,
+            Anchor::Right,
             Anchor::BottomLeft,
+            Anchor::BottomCenter,
             Anchor::BottomRight,
         ] {
             let mut p = presentation(false);
@@ -725,9 +729,13 @@ fn anchored_card_bounds_and_icons_scale_together_across_viewports() {
             hud.cards[0].offset = match anchor {
                 Anchor::TopLeft => [6., 6.],
                 Anchor::TopCenter => [0., 6.],
-                Anchor::TopRight => [-6., 6.],
-                Anchor::BottomLeft => [6., -6.],
-                Anchor::BottomRight => [-6., -6.],
+                Anchor::TopRight => [6., 6.],
+                Anchor::Left => [6., 0.],
+                Anchor::Center => [0., 0.],
+                Anchor::Right => [6., 0.],
+                Anchor::BottomLeft => [6., 6.],
+                Anchor::BottomCenter => [0., 6.],
+                Anchor::BottomRight => [6., 6.],
             };
             p.set_mod_hud(Some(&hud)).unwrap();
             frame(&mut p, &UiRuntime::new(1), size, dpi);

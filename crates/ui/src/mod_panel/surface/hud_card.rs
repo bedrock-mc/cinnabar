@@ -44,6 +44,38 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn hud_card_preview_admission_keeps_rounded_shadows_bounded_on_the_same_surface() {
+        use crate::mod_panel::Surface;
+        use json_ui::rounded::{MAX_SHADOW_BLUR, MAX_SHADOW_OFFSET, MAX_SHADOW_SPREAD};
+
+        for (blur, scale, accepted) in [
+            (MAX_SHADOW_BLUR, f64::from(MAX_SCALE), true),
+            (MAX_SHADOW_BLUR + 1., 1., false),
+            (0., f64::from(MAX_SCALE) + 1., false),
+        ] {
+            let document = json!({"namespace":"preview","root":{
+                "type":"panel","controls":[
+                    {"shadow":{"type":"custom","renderer":json_ui::rounded::RENDERER,
+                        "size":[80,40],"shadow_blur":blur,
+                        "shadow_offset":[-MAX_SHADOW_OFFSET,MAX_SHADOW_OFFSET],
+                        "shadow_spread":MAX_SHADOW_SPREAD,"shadow_color":[0,0,0,0.5]}},
+                    {"card":{"type":"custom","renderer":RENDERER,
+                        "size":[80,40],"card_id":"fps","scale":scale}}
+                ]
+            }});
+            let surface: Surface = serde_json::from_value(json!({
+                "screen":"preview.root","document":document.to_string()
+            }))
+            .unwrap();
+            assert_eq!(
+                surface.validate().is_ok(),
+                accepted,
+                "blur={blur}, scale={scale}"
+            );
+        }
+    }
+
+    #[test]
     fn hud_card_preview_admission_bounds_literals_and_allows_bound_selectors() {
         for node in [
             json!({"card_id":"fps","scale":1.5,"alignment":[0,1]}),

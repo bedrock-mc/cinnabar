@@ -502,6 +502,49 @@ fn hud_card_preview_only_keeps_artwork_in_explicit_editor_previews() {
 }
 
 #[test]
+fn hud_card_preview_centers_every_anchored_card_without_its_screen_offset() {
+    let mut anchors = std::collections::BTreeSet::new();
+    for row in 0..3 {
+        for column in 0..3 {
+            let viewport = [640., 360.];
+            let size = [40., 20.];
+            let at = [
+                (f64::from(column) + 0.5) * viewport[0] / 3. - size[0] / 2.,
+                (f64::from(row) + 0.5) * viewport[1] / 3. - size[1] / 2.,
+            ];
+            let (anchor, _) = ui::mod_hud::Anchor::from_origin(at, size, viewport);
+            anchors.insert(serde_json::to_string(&anchor).unwrap());
+            let mut hud = hud(1);
+            hud.cards[0].anchor = anchor;
+            hud.cards[0].offset = [13., 17.];
+            let mut ui = installed(&hud, &panel(false));
+            let mut harness = Harness::new();
+            harness.paint(&mut ui, false);
+            let shared = Arc::clone(&ui.hud_sources.get(OWNER).unwrap().cards[0].nodes);
+            harness.paint(&mut ui, true);
+            let bounds = harness.drawn().painted_bounds().unwrap();
+            assert_eq!(
+                [
+                    bounds.min().x() + bounds.width() / 2.,
+                    bounds.min().y() + bounds.height() / 2.,
+                ],
+                [120., 120.],
+                "{anchor:?} centers inside the preview node",
+            );
+            assert!(Arc::ptr_eq(
+                &shared,
+                &ui.hud_sources.get(OWNER).unwrap().cards[0].nodes,
+            ));
+        }
+    }
+    assert_eq!(
+        anchors.len(),
+        3 * 3,
+        "every viewport third selects a distinct anchor"
+    );
+}
+
+#[test]
 fn hud_card_preview_preserves_snapped_gameplay_geometry() {
     for (offset, position, expected) in [
         ([0.25, 0.75], None, [0., 0.5]),

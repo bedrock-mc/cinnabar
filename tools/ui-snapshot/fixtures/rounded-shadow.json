@@ -1,0 +1,14 @@
+{
+  "title": "Rounded shadows",
+  "toggle_key": "F10",
+  "dark": false,
+  "controls": [],
+  "reference_size": [
+    480,
+    280
+  ],
+  "surface": {
+    "screen": "rounded_shadow.root",
+    "document": "{\"namespace\":\"rounded_shadow\",\"root\":{\"type\":\"panel\",\"size\":[\"100%\",\"100%\"],\"controls\":[{\"background\":{\"anchor_from\":\"top_left\",\"anchor_to\":\"top_left\",\"type\":\"custom\",\"renderer\":\"cinnabar_rounded_rectangle\",\"radius\":0,\"size\":[\"100%\",\"100%\"],\"color\":[0.83,0.85,0.88,1]}},{\"card\":{\"anchor_from\":\"top_left\",\"anchor_to\":\"top_left\",\"type\":\"custom\",\"renderer\":\"cinnabar_rounded_rectangle\",\"size\":[160,100],\"offset\":[40,50],\"radius\":14,\"color\":[0.98,0.97,0.95,1],\"shadow_color\":[0.06,0.08,0.12,0.4],\"shadow_offset\":[0,8],\"shadow_blur\":8,\"shadow_spread\":1,\"controls\":[{\"caption\":{\"anchor_from\":\"top_left\",\"anchor_to\":\"top_left\",\"type\":\"label\",\"font_type\":\"mod_panel_sans\",\"text\":\"Floating card\",\"size\":[140,20],\"offset\":[12,14],\"color\":[0.15,0.18,0.23,1]}}]}},{\"sheet\":{\"anchor_from\":\"top_left\",\"anchor_to\":\"top_left\",\"type\":\"custom\",\"renderer\":\"cinnabar_rounded_rectangle\",\"size\":[160,100],\"offset\":[260,105],\"radius\":24,\"color\":[0.98,0.97,0.95,1],\"shadow_color\":[0.06,0.08,0.12,0.4],\"shadow_offset\":[0,8],\"shadow_blur\":14,\"shadow_spread\":1,\"controls\":[{\"caption\":{\"anchor_from\":\"top_left\",\"anchor_to\":\"top_left\",\"type\":\"label\",\"font_type\":\"mod_panel_sans\",\"text\":\"Rounded sheet\",\"size\":[140,20],\"offset\":[12,14],\"color\":[0.15,0.18,0.23,1]}}]}}]}}"
+  }
+}

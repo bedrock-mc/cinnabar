@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+mod anchor;
 mod bindings;
 mod geometry;
 pub use bindings::{HudBindings, MAX_HUD_BINDINGS};
@@ -76,7 +77,11 @@ pub enum Anchor {
     /// Keeps the card horizontally centered as its size or viewport changes.
     TopCenter,
     TopRight,
+    Left,
+    Center,
+    Right,
     BottomLeft,
+    BottomCenter,
     BottomRight,
 }
 
@@ -214,6 +219,7 @@ pub struct Card {
     pub editor_label: String,
     #[serde(default)]
     pub anchor: Anchor,
+    /// GUI pixels inward from edge anchors, or right/down from centered axes.
     #[serde(default)]
     pub offset: [f32; 2],
     #[serde(default = "unit")]
@@ -327,6 +333,8 @@ impl Default for Cell {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Placement {
     pub id: String,
+    pub anchor: Anchor,
+    pub offset: [f32; 2],
     pub scale: f32,
     pub position: Option<[f32; 2]>,
 }
@@ -594,10 +602,7 @@ impl Hud {
                 !scale.is_finite() || !(MIN_CARD_SCALE..=MAX_CARD_SCALE).contains(&scale)
             }) || !card.scale.is_finite()
                 || !(MIN_CARD_SCALE..=MAX_CARD_SCALE).contains(&card.scale)
-                || card
-                    .offset
-                    .into_iter()
-                    .any(|v| !v.is_finite() || v.abs() > 2048.)
+                || card.offset.into_iter().any(|v| !v.is_finite())
                 || card.rows.len() > MAX_CARD_ROWS
                 || card.cells.len() > MAX_CARD_CELLS
                 || !card.rows.is_empty() && !card.cells.is_empty()
@@ -620,7 +625,7 @@ impl Hud {
                 })
                 || card
                     .reset_offset
-                    .is_some_and(|p| p.into_iter().any(|v| !v.is_finite() || v.abs() > 2048.))
+                    .is_some_and(|p| p.into_iter().any(|v| !v.is_finite()))
             {
                 return Err("HUD card geometry exceeds its bounds".into());
             }
@@ -676,6 +681,8 @@ impl EditorResult {
                 .iter()
                 .map(|p| Card {
                     id: p.id.clone(),
+                    anchor: p.anchor,
+                    offset: p.offset,
                     position: p.position,
                     scale: p.scale,
                     ..Default::default()
