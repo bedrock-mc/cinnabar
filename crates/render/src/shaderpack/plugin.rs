@@ -668,9 +668,6 @@ fn shaderpack_post(
         held_items: [inputs.held_item_id, inputs.held_item_id2],
         camera: view.world_from_view.translation(),
         view_forward: view.world_from_view.rotation() * Vec3::NEG_Z,
-        seconds: world
-            .get_resource::<Time>()
-            .map_or(0.0, |time| time.elapsed_secs()),
     };
     let geometry = terrain.as_ref().map(|terrain| FrameGeometry {
         device: render_device,

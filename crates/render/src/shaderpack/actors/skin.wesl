@@ -39,6 +39,8 @@ const SKIN_WORKGROUP_SIZE: u32 = 64u;
 const JOB_VIEW_SPACE: u32 = 1u;
 // The instance's material culls back faces even where the rig authors them.
 const JOB_ONE_SIDED: u32 = 2u;
+// Glint jobs have separate vertex colours and sprite-local UVs.
+const JOB_GLINT: u32 = JOB_GLINT_FLAG;
 
 @group(0) @binding(0) var<storage, read> instance_words: array<u32>;
 @group(0) @binding(1) var<storage, read> vertex_words: array<u32>;
@@ -101,6 +103,18 @@ fn skin_corner(job: SkinJob, vertex: u32) -> Corner {
     let raw_back_uv = vec2(rig_f32(base + 8u), rig_f32(base + 9u));
     // A one-sided plane's back keeps its sentinel.
     corner.back_uv = select(uv_offset + raw_back_uv * uv_scale, raw_back_uv, raw_back_uv.x < -1.0e8);
+    if ((job.flags & JOB_GLINT) != 0u && word_f32(instance_base + 35u) > 0.0) {
+        let origin = uv_offset + vec2(
+            rig_f32(base + ACTOR_RIG_VERTEX_WORDS - 2u),
+            rig_f32(base + ACTOR_RIG_VERTEX_WORDS - 1u),
+        ) * uv_scale;
+        let glint_scale = vec2(word_f32(instance_base + 33u), word_f32(instance_base + 34u))
+            / word_f32(instance_base + 35u);
+        corner.uv = (corner.uv - origin) * glint_scale;
+        if (corner.back_uv.x >= -1.0e8) {
+            corner.back_uv = (corner.back_uv - origin) * glint_scale;
+        }
+    }
     return corner;
 }
 

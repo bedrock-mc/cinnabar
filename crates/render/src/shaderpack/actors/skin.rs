@@ -24,6 +24,8 @@ pub(crate) const SKIN_PARAMS_BYTES: u64 = 32;
 pub(crate) const JOB_VIEW_SPACE: u32 = 1;
 /// The instance's material culls back faces even where the rig authors them.
 pub(crate) const JOB_ONE_SIDED: u32 = 2;
+/// Writes glint colour and sprite-local texture coordinates instead of base artwork values.
+pub(crate) const JOB_GLINT: u32 = 4;
 
 /// One instance to skin, as the kernel's `SkinJob`.
 #[repr(C)]
@@ -70,6 +72,7 @@ const _: () = assert!(std::mem::size_of::<SkinParams>() as u64 == SKIN_PARAMS_BY
 pub(crate) fn skin_shader_source(source: &str) -> String {
     substitute_layout_constants(
         &crate::material_shader::source(source)
+            .replace("JOB_GLINT_FLAG", &format!("{JOB_GLINT}u"))
             .replace(
                 "ACTOR_VERTEX_WORDS",
                 &format!("{}u", super::layout::ACTOR_VERTEX_WORDS),
