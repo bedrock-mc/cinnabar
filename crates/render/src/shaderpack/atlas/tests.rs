@@ -551,7 +551,7 @@ fn atlas_rebuilds_for_added_replaced_and_removed_authored_maps() {
 #[test]
 fn terrain_source_lod_keeps_detail_on_a_larger_physical_page() {
     let source = |x: u32| {
-        if x % 2 == 0 {
+        if x.is_multiple_of(2) {
             [255, 0, 0, 255]
         } else {
             [0, 0, 255, 255]
