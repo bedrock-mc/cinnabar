@@ -133,6 +133,10 @@ bevy = { version = "=0.20.0", default-features = false, features = [
 # The noop backend only runs when an instance explicitly enables it (render tests).
 # `std` keeps error scopes per thread; without it, concurrent pipeline compiles share one stack.
 wgpu = { version = "30.0.1", default-features = false, features = ["noop", "std", "wgsl"] }
+# Every crate that names naga uses this one feature set, so `-p cinnabar` and `--workspace`
+# builds agree on naga and nothing above it (wgpu, bevy_render) builds twice. `glsl-in` is the
+# Java shader-pack frontend; it adds only naga's GLSL parser and pp-rs.
+naga = { version = "30.0.1", features = ["glsl-in", "wgsl-in"] }
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tga"] }
 # Native bridge and session composition add OS I/O and the multithreaded runtime.
 tokio = { version = "1.52", features = ["io-util", "macros", "rt", "sync", "time"] }
@@ -171,7 +175,7 @@ wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1
 wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1c86cda04099890ab157b1ae5035" }
 
 # Iris conditions allow float option values and conditional expressions.
-pp-rs = { git = "https://github.com/cinnabar-mc/glslpp-rs", rev = "e67c2d3796526e539cf9b1678a83fbdfcfae87c1" }
+pp-rs = { git = "https://github.com/cinnabar-mc/glslpp-rs", rev = "2032a88999c95c6ca0b397758dc97930089a6608" }
 
 [profile.dev]
 opt-level = 1
