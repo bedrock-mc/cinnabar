@@ -417,97 +417,6 @@ pub(super) fn strip_layout_keys(layout: &[Tok], keys: &[&str]) -> Vec<Tok> {
     out
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::token::lex;
-
-    /// Returns the spellings of a fixture token sequence.
-    fn texts(toks: &[Tok]) -> Vec<&str> {
-        toks.iter().map(Tok::text).collect()
-    }
-
-    #[test]
-    fn loop_binding_ends_at_the_statement_boundary() {
-        let tokens = lex(
-            "{ for (int enabled = 0; enabled < 2; enabled++) { float value = float(enabled); } bool result = enabled; }",
-        );
-        let bound = shadowed_bindings(&tokens, ["enabled"]);
-        let flags: Vec<_> = tokens
-            .iter()
-            .enumerate()
-            .filter(|(_, token)| token.ident() == Some("enabled"))
-            .map(|(i, _)| bound.contains(&i))
-            .collect();
-        assert_eq!(flags, [true, true, true, true, false]);
-    }
-
-    #[test]
-    fn top_level_items_split_at_semicolons_and_function_bodies() {
-        let toks =
-            lex("uniform float a; struct S { float x; }; void f(int i) { a = 1.0; } out vec4 c;");
-        let items: Vec<String> = split_items(&toks)
-            .iter()
-            .map(|item| texts(item).join(" "))
-            .collect();
-        assert_eq!(
-            items,
-            [
-                "uniform float a ;",
-                "struct S { float x ; } ;",
-                "void f ( int i ) { a = 1.0 ; }",
-                "out vec4 c ;",
-            ]
-        );
-    }
-
-    #[test]
-    fn declarations_keep_layout_qualifiers_arrays_and_initializers() {
-        let decl = parse_decl(&lex(
-            "layout(location = 2) flat out ivec2 a[4], b = ivec2(1, 2);",
-        ))
-        .unwrap();
-        assert_eq!(layout_key(&decl.layout, "location"), Some(2));
-        assert!(decl.has("flat") && decl.has("out"));
-        assert_eq!(decl.ty, "ivec2");
-        let decls: Vec<_> = decl
-            .decls
-            .iter()
-            .map(|(name, arr, init)| (name.as_str(), arr_len(arr), texts(init).join(" ")))
-            .collect();
-        assert_eq!(
-            decls,
-            [
-                ("a", Some(4), String::new()),
-                ("b", Some(1), "ivec2 ( 1 , 2 )".to_owned()),
-            ]
-        );
-
-        let block = parse_decl(&lex("uniform Light { vec3 dir; } light;")).unwrap();
-        assert_eq!(block.ty, "block");
-        let (name, members, inst) = block.block.unwrap();
-        assert_eq!((name.as_str(), texts(&inst)), ("Light", vec!["light"]));
-        assert_eq!(texts(&members), ["vec3", "dir", ";"]);
-
-        assert!(parse_decl(&lex("vec4 shade(vec3 n);")).is_none());
-    }
-
-    #[test]
-    fn type_helpers_describe_samplers_and_interface_sizes() {
-        assert_eq!(sampler_info("sampler2DShadow"), Some(("texture2D", true)));
-        assert_eq!(sampler_info("usampler2D"), Some(("utexture2D", false)));
-        assert!(is_opaque("image2D") && is_opaque("sampler2D") && !is_opaque("vec4"));
-        assert_eq!(mat_cols("mat3x2"), Some((3, "vec2")));
-        assert_eq!(loc_size("mat4", 2), 8);
-        assert_eq!(loc_size("dvec4", 1), 2);
-        let layout = lex("std430, binding = 3, set = 1");
-        assert_eq!(
-            texts(&strip_layout_keys(&layout, &["binding", "set"])),
-            ["std430"]
-        );
-    }
-}
-
 /// Finds every local declarator with the shared declaration parser, excluding initializer uses.
 pub(super) fn local_declarators(toks: &[Tok]) -> HashSet<usize> {
     let mut declarations = HashSet::new();
@@ -654,4 +563,95 @@ pub(super) fn shadowed_bindings<'a>(
         }
     }
     shadowed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::token::lex;
+
+    /// Returns the spellings of a fixture token sequence.
+    fn texts(toks: &[Tok]) -> Vec<&str> {
+        toks.iter().map(Tok::text).collect()
+    }
+
+    #[test]
+    fn loop_binding_ends_at_the_statement_boundary() {
+        let tokens = lex(
+            "{ for (int enabled = 0; enabled < 2; enabled++) { float value = float(enabled); } bool result = enabled; }",
+        );
+        let bound = shadowed_bindings(&tokens, ["enabled"]);
+        let flags: Vec<_> = tokens
+            .iter()
+            .enumerate()
+            .filter(|(_, token)| token.ident() == Some("enabled"))
+            .map(|(i, _)| bound.contains(&i))
+            .collect();
+        assert_eq!(flags, [true, true, true, true, false]);
+    }
+
+    #[test]
+    fn top_level_items_split_at_semicolons_and_function_bodies() {
+        let toks =
+            lex("uniform float a; struct S { float x; }; void f(int i) { a = 1.0; } out vec4 c;");
+        let items: Vec<String> = split_items(&toks)
+            .iter()
+            .map(|item| texts(item).join(" "))
+            .collect();
+        assert_eq!(
+            items,
+            [
+                "uniform float a ;",
+                "struct S { float x ; } ;",
+                "void f ( int i ) { a = 1.0 ; }",
+                "out vec4 c ;",
+            ]
+        );
+    }
+
+    #[test]
+    fn declarations_keep_layout_qualifiers_arrays_and_initializers() {
+        let decl = parse_decl(&lex(
+            "layout(location = 2) flat out ivec2 a[4], b = ivec2(1, 2);",
+        ))
+        .unwrap();
+        assert_eq!(layout_key(&decl.layout, "location"), Some(2));
+        assert!(decl.has("flat") && decl.has("out"));
+        assert_eq!(decl.ty, "ivec2");
+        let decls: Vec<_> = decl
+            .decls
+            .iter()
+            .map(|(name, arr, init)| (name.as_str(), arr_len(arr), texts(init).join(" ")))
+            .collect();
+        assert_eq!(
+            decls,
+            [
+                ("a", Some(4), String::new()),
+                ("b", Some(1), "ivec2 ( 1 , 2 )".to_owned()),
+            ]
+        );
+
+        let block = parse_decl(&lex("uniform Light { vec3 dir; } light;")).unwrap();
+        assert_eq!(block.ty, "block");
+        let (name, members, inst) = block.block.unwrap();
+        assert_eq!((name.as_str(), texts(&inst)), ("Light", vec!["light"]));
+        assert_eq!(texts(&members), ["vec3", "dir", ";"]);
+
+        assert!(parse_decl(&lex("vec4 shade(vec3 n);")).is_none());
+    }
+
+    #[test]
+    fn type_helpers_describe_samplers_and_interface_sizes() {
+        assert_eq!(sampler_info("sampler2DShadow"), Some(("texture2D", true)));
+        assert_eq!(sampler_info("usampler2D"), Some(("utexture2D", false)));
+        assert!(is_opaque("image2D") && is_opaque("sampler2D") && !is_opaque("vec4"));
+        assert_eq!(mat_cols("mat3x2"), Some((3, "vec2")));
+        assert_eq!(loc_size("mat4", 2), 8);
+        assert_eq!(loc_size("dvec4", 1), 2);
+        let layout = lex("std430, binding = 3, set = 1");
+        assert_eq!(
+            texts(&strip_layout_keys(&layout, &["binding", "set"])),
+            ["std430"]
+        );
+    }
 }
