@@ -173,6 +173,25 @@ impl Default for WorldLabel {
     }
 }
 
+/// Selects host-owned typography for a draggable HUD card.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CardFont {
+    #[default]
+    Native,
+    Sans,
+}
+
+impl CardFont {
+    /// Returns the same font alias for painting and native text measurement.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Native => "default",
+            Self::Sans => crate::mod_panel::SANS_FONT_NAME,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Card {
@@ -206,6 +225,9 @@ pub struct Card {
     /// Row text multiplier, bounded to 0.5 through 2 independently of card geometry.
     #[serde(default = "text_scale")]
     pub text_scale: f32,
+    /// Omitted typography keeps the native pixel font.
+    #[serde(default)]
+    pub font: CardFont,
     /// Draws row labels and values with a shadow; legacy cards keep their shadow.
     #[serde(default = "enabled")]
     pub shadow: bool,
@@ -248,6 +270,7 @@ impl Default for Card {
             row_height: row_height(),
             icon_size: icon_size(),
             text_scale: text_scale(),
+            font: CardFont::default(),
             shadow: true,
             reset_anchor: None,
             reset_offset: None,
