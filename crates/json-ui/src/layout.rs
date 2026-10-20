@@ -867,9 +867,8 @@ pub(crate) fn subtree_bounds(control: &ResolvedControl, rect: Rect, env: &Layout
     };
     if renderer == crate::rounded::RENDERER {
         let pixel = env.text.physical_pixel_size();
-        return crate::rounded::Shadow::read(&data).map_or(rect, |shadow| {
-            rect.union(shadow.bounds(rect, pixel)).expanded(pixel)
-        });
+        return crate::rounded::Shadow::read(&data)
+            .map_or(rect, |shadow| shadow.subtree_bounds(rect, pixel));
     }
     crate::vector_path::bounds(&data).map_or(rect, |bounds| {
         bounds.subtree_at(rect, env.text.physical_pixel_size())

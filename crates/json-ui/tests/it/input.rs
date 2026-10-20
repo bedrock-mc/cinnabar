@@ -702,7 +702,8 @@ fn rounded_shadows_survive_primitive_and_scroll_culling_without_expanding_input(
                 "custom",
                 json!({
                     "size":[16,16], "offset":[x,0], "anchor_from":"top_left", "anchor_to":"top_left",
-                    "renderer":json_ui::rounded::RENDERER, "shadow_color":[0,0,0,1], "shadow_blur":4
+                    "renderer":json_ui::rounded::RENDERER, "shadow_color":[0,0,0,1], "shadow_blur":4,
+                    "collection_index":0
                 }),
                 vec![],
             )
@@ -734,15 +735,50 @@ fn rounded_shadows_survive_primitive_and_scroll_culling_without_expanding_input(
             assert!(render.nodes.iter().all(|node| node.name != "far"));
             assert_eq!(shadow.clip.x, 0.0);
             assert_eq!(shadow.clip.w, if scrolling { 90.0 } else { 200.0 });
-            assert!(
-                render
-                    .hits
-                    .iter()
-                    .filter(|hit| hit.name == "near")
-                    .all(|hit| !hit.contains([1.0, 8.0]))
-            );
+            let hit = render.hits.iter().find(|hit| hit.name == "near").unwrap();
+            assert!(!hit.contains([1.0, 8.0]));
         }
     }
+}
+
+#[test]
+fn rounded_shadows_keep_fractional_edges_at_the_scroll_boundary() {
+    struct Snapped;
+    impl TextMeasure for Snapped {
+        /// This geometry-only fixture measures no labels.
+        fn extent(&self, _: &str) -> [f64; 2] {
+            [0.0; 2]
+        }
+        /// Mirrors the painter's separate truncation of positions and ceiling of sizes.
+        fn paint_rect(&self, rect: json_ui::Rect) -> json_ui::Rect {
+            json_ui::Rect::new(rect.x.trunc(), rect.y.trunc(), rect.w.ceil(), rect.h.ceil())
+        }
+    }
+    let env = LayoutEnv {
+        text: &Snapped,
+        textures: &NoTextures,
+    };
+    let mut root = screen(vec![scroll_view(200.0)]);
+    root.children[0].children[0].children[0].children = vec![ctrl(
+        "edge",
+        "custom",
+        json!({
+            "size":[16,16.1],"offset":[0,-30.9],"anchor_from":"top_left","anchor_to":"top_left",
+            "renderer":json_ui::rounded::RENDERER,"shadow_color":[0,0,0,1],"shadow_offset":[0,13.2]
+        }),
+        vec![],
+    )];
+    let state = ViewState::default();
+    let normal = json_ui::render_bound(root.clone(), [200.0, 100.0], &env, &state);
+    let culled = json_ui::render_bound_gated(
+        root,
+        [200.0, 100.0],
+        &env,
+        &state,
+        &mut json_ui::MeasureCache::default(),
+    );
+    assert!(normal.nodes.iter().any(|node| node.name == "edge"));
+    assert!(culled.nodes.iter().any(|node| node.name == "edge"));
 }
 
 /// Builds a one-column scrolling grid with authored path cells.

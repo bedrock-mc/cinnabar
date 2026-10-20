@@ -66,6 +66,12 @@ impl Shadow {
         self.bounds_at(dest, pixel, [1.0; 2])
     }
 
+    /// Keeps authored bounds and allows both size ceiling and position truncation at paint time.
+    pub(crate) fn subtree_bounds(self, dest: Rect, pixel: f64) -> Rect {
+        let enlarged = Rect::new(dest.x, dest.y, dest.w + pixel, dest.h + pixel);
+        dest.union(self.bounds(enlarged, pixel)).expanded(pixel)
+    }
+
     /// Unbakes the renderer's geometric-mean length scaling for conservative culling.
     fn bounds_at(self, dest: Rect, pixel: f64, axes: [f64; 2]) -> Rect {
         let scale = (axes[0] * axes[1]).sqrt();
