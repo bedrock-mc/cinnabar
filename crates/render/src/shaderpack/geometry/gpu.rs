@@ -658,8 +658,8 @@ pub(crate) fn prepare_shaderpack_geometry(
         geometry
             .residency
             .pending()
-            // Sections moving off a draining page still draw their old faces.
-            .filter(|entity| !geometry.residency.moving(*entity))
+            // Palette refreshes and page moves keep their existing drawable faces.
+            .filter(|entity| !geometry.residency.drawable(*entity))
             .filter_map(|entity| sections.get(entity, buffers.tint_identity))
             .map(|section| section_distance(section.origin, eye))
             .min_by(f64::total_cmp)

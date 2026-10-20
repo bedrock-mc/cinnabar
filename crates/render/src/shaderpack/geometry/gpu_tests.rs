@@ -121,6 +121,7 @@ fn palette_refresh_keeps_resident_faces_drawable_until_their_replacement() {
         .len()
     };
     assert_eq!(draws(&residency), entities.len());
+    assert_eq!(residency.undrawn_len(), 0);
     assert_eq!(residency.take_queue().len(), entities.len());
     let placement = residency.place(entities[0], &plan).unwrap();
     residency.commit(entities[0], &placement, &plan, [0; 3]);
