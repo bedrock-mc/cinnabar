@@ -79,6 +79,26 @@ pub(super) fn validate(pack: &PackGpu, screen: [u32; 2], limits: &Limits) -> Res
                 .map_err(|error| format!("{}: {error}", program.name))?;
         }
     }
+    for draw in pack.draws.iter().filter(|draw| !draw.kind.shadow()) {
+        let program = &pack.programs[draw.program];
+        let read_alt = super::draw_reads(pack, draw).alt;
+        let write_alt = if draw.kind.after_deferred() {
+            pack.frame.translucent_alt
+        } else {
+            pack.frame.scene_alt
+        };
+        for source in &program.images {
+            if let crate::shaderpack::resources::ImageSource::Buffer(buffer) = source
+                && draw.outputs.contains(&Some(*buffer))
+                && (read_alt ^ write_alt) & (1 << buffer) == 0
+            {
+                return Err(format!(
+                    "{} binds colortex{buffer} as both storage image and attachment",
+                    program.name
+                ));
+            }
+        }
+    }
     for buffer in &pack.buffers {
         let [width, height] = buffer.extent.resolve(screen);
         texture_extent(TextureDimension::D2, [width, height, 1], limits)?;
