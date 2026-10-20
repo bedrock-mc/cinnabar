@@ -8,14 +8,12 @@ use std::{
 
 /// Queries the installed executable itself, without loading assets or using the copied helper's version.
 pub fn installed_build(target: &Path) -> Result<update_manifest::build::Build> {
-    let output = crate::privilege::normal_user(|| {
-        crate::startup::client_command(target)
-            .arg(update_manifest::build::QUERY_FLAG)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output()
-    })
-    .context("query installed build")?;
+    let output = crate::startup::client_command(target)
+        .arg(update_manifest::build::QUERY_FLAG)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .context("query installed build")?;
     ensure!(output.status.success(), "installed build query failed");
     serde_json::from_slice(&output.stdout).context("invalid installed build identity")
 }

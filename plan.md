@@ -23,6 +23,11 @@ evidence; the [workspace map](docs/architecture/workspace.md) explains code owne
 
 1. Identify and resolve confirmed terrain, actor, movement and UI behavior gaps with version-matched evidence.
 2. Qualify frame pacing, streaming, joining and retained memory on the reference hardware.
+   Windows VSync queue depth uses coarse work estimates to try one queued frame and
+   observed acquisition cadence to restore two. Failed probes back off exponentially;
+   missing GPU samples leave the cadence policy running.
+   Displayed cadence, input latency and surface-reconfiguration
+   stalls still need hardware qualification; this closes no acceptance gate.
 3. Verify complete session and input paths across supported platforms.
 4. Simplify existing subsystem ownership without adding unnecessary crates or adapter layers.
 
@@ -41,6 +46,8 @@ closes no gate and provides no new runtime or performance evidence.
   conformance findings, classify every decode error, and qualify frame and mutation
   latency against the current [live-testing requirements](docs/agents/live-testing.md).
   Use the current headless client workflow for scripted tests; keep captures local.
+  Dimension definitions use an exclusive maximum Y and retain complete sub-chunks;
+  live custom-dimension transfer acceptance remains open.
 
 ## Phase 1 — Core service
 
@@ -142,6 +149,9 @@ and resource qualification; they do not imply these systems need to be written.
 - [ ] `P2-CHUNK-PUBLICATION` — Qualify initial publication, steady streaming and full-view
   remesh against current frame/join/streaming budgets. Attribute decode, light readiness,
   queue wait, worker time, upload, submission and present latency independently.
+  Ordinary meshing now rechecks higher-priority deferred revisions within a bounded
+  poll budget, with backoff while neighbours or light remain unavailable. Hardware
+  dirty-to-visible latency qualification remains open.
   Sparse startup can complete without a publisher update after terrain decodes, stream
   and render work drain, and a later GPU frame completes. Empty-world initialization is
   verified; complete server-form and gameplay acceptance remains open.
@@ -210,6 +220,20 @@ Implemented: [actor rigs, Molang, controllers, attachables and pose evaluation](
 with [client presentation](crates/client-presentation/src/lib.rs) and
 [rendering](crates/render/src/lib.rs). The open gates require complete behavioral
 and rendered qualification, not initial implementation of those systems.
+Frame sampling retains matching expression, layer and composition results and evaluates
+remote body batches on the caller and available shared workers with ordered budget
+reservations. Equipment placement reuses unchanged owner and attachment inputs. Rig plans
+retain clip masks and name indices sized to each skeleton. Rig plans and prepared skins
+share cape and cosmetic attachment bindings. Hardware crowd captures and full temporal/visual
+qualification remain open.
+
+Pure numeric Molang expressions use bound f32 lane programs with load fusion;
+mixed values and effects retain the generic evaluator, including exact budget tails.
+Full rig history and rendered qualification remain part of `P4.3-RIGS`.
+Body and custom-skin composition use shared parent-first programs and caller-owned
+output, including attachable root modes and legacy attacks. Alternate render
+geometries and skin layers retain recursive composition. Rendered and live
+performance qualification remains open.
 
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
@@ -223,9 +247,20 @@ and rendered qualification, not initial implementation of those systems.
 - [ ] Close custom block-item texture resolution, non-cube shapes, tinting, animation
   and matched inventory/held-item presentation. Shared cube face sheets are bounded coverage.
 
+Continuous cosmetic cloth uses shared vertices, fixed-step constraints, world-space
+inertia and player-body contacts with standard-armor clearance. Vertical follow and
+damping restrain jump and landing motion, and local cloth keeps advancing while
+first-person visibility hides the body. View changes transfer the drape between
+body pose spaces. Self-collision and world collision remain open.
+Paid cosmetic selections use session ownership from the API database and withdraw
+on disconnect or revocation; production rollout qualification remains open.
+
 Equipped cosmetic emitters also run in visible menu and HUD paper dolls using the
 shared particle engine and attachment poses. Catalog-wide, in-world interaction
 and performance qualification for these previews remains open.
+
+Player name tags use Java's standing player height before pose offsets, independent of
+server collision-box changes. Other actors retain their published label height.
 
 Remaining qualification includes attachables and custom item models, action/use timing,
 projectile interpolation and shake, sleep/mount poses, name tags (including over
@@ -244,6 +279,9 @@ Implemented: [chat, HUD and scoreboard state](crates/ui/src/lib.rs),
 [inventory prediction and crafting](crates/inventory/src/lib.rs), and
 [menus and settings](crates/client-shell/src/menu.rs). The boxes track full acceptance
 across these existing features; they are not a list of missing screens or systems.
+Gameplay mouse capture resumes after focus or occlusion returns when it was active
+before switching away. Screen ownership and focus-loss input clearing remain in effect;
+OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
 
 - [ ] `P5.1-UI` — Close pack-driven UI, bounded text/draw work, formatting, scaling,
   safe areas, focus/navigation and keyboard/mouse/controller/touch acceptance. Prove
@@ -263,7 +301,14 @@ across these existing features; they are not a list of missing screens or system
   effective item durability and live mining acceptance remain incomplete.
 - [ ] `P5.6-FORMS` — Close modal/menu/custom form navigation, validation, cancellation
   and responses, including server-pack definitions, structured text, custom controls,
-  scaling and image/layout behavior against matched native views.
+  scaling and image/layout behavior against matched native views. Overlapping requests
+  keep the active form and answer busy, including reused IDs.
+  Custom forms retain control locks and publish enabled bindings for the current
+  game phase without removing locked response values; device acceptance remains open.
+  Server settings replies are cached until their tab is selected; embedding their
+  controls within the settings panel instead of a separate form remains incomplete.
+  URL images use the UI texture-file allowance; aggregate encoded-image cache bounds
+  and remaining image admission and download-deadline parity remain incomplete.
 - [ ] `P5.7-PARITY-PERF` — Qualify combined chat, scoreboard, boss bars, inventory and
   forms at supported scales/aspects and devices, with bounded memory and stable frame work.
 - [ ] `P5.8-SETTINGS` — Close menu, control, video and persistence acceptance. Desktop
@@ -305,9 +350,20 @@ preparation and presentation readiness remain required for a successful join. Li
 server latency impact and the complete transfer acceptance matrix remain unqualified.
 
 Server pack acquisition, handoff and stack composition no longer impose fixed archive-count
+or compressed-byte quotas. Saved server lists retain every imported entry. Declared sizes,
+identity, digests and framing remain validated. Experience selections preserve service errors
+and wait for the account core result. Complete featured-server acceptance remains open:
+large-pack preparation can be slow or fail, and sparse startup terrain can leave loading open.
+Server language loading retains every readable English and selected-locale layer without fixed
+table, entry or process quotas, and folds inserted keys to ASCII lowercase. Unreadable sources
+and allocation failures are diagnosed without discarding other definitions. Complete pack-content
+acceptance remains open. Local imports, decompression, UI/text expansion and other admission limits
 or compressed-byte quotas. Safe member paths have no added byte cutoff; server manifests
-and default member reads retain complete declared content. Explicit subscriber limits and
-large-content live and performance acceptance remain open. Saved server lists retain every
+and default member reads retain complete declared content. Manifest subpack lists have no separate
+row-count cutoff; server and local loading share the existing field validation and device-tier
+selection. Native runtime and device acceptance for larger subpack lists remain open.
+Explicit subscriber limits and large-content live and performance acceptance remain open.
+Saved server lists retain every
 imported entry. Declared sizes, identity, digests and framing remain validated. Experience
 selections preserve service errors and wait for the account core result. Complete
 featured-server, menu and gameplay qualification remains open, including large-pack
@@ -338,6 +394,9 @@ Complete clean-install, first-run asset preparation, update/install recovery, st
 and crash diagnostics, packaging and platform acceptance. Required carriers must pass
 validation; retain only the explicitly permitted diagnostic/optional fallbacks.
 
+Windows runtime executables use `asInvoker` manifests and allow both normal and elevated
+launches. Native Windows startup, update and crash-restart acceptance remains incomplete.
+
 ## Experimental hosts and extensions
 
 - Browser/Android implementation and CI checks do not close their complete join, pack,
@@ -351,8 +410,24 @@ validation; retain only the explicitly permitted diagnostic/optional fallbacks.
   displayed-frame pacing and complete rendering acceptance.
 - Enhanced rendering remains restricted until its GPU faults and freezes are resolved.
   Diagnostics or bounded fixtures do not establish safe general gameplay use. Java
-  shader-pack source loading is implemented in `shaderpack`; configuration parsing,
-  translation, render-host integration and in-game acceptance remain incomplete.
+  shader-pack source loading and configuration metadata are implemented in
+  `shaderpack`, including options, dimensions, parsed properties, program discovery
+  and enable rules. Translation, render-host integration and in-game acceptance
+  remain incomplete; parsed custom uniform expressions are not executed or rendered.
+  Pack block, item and entity ids, Java biome values and Java sky and fog colours are
+  computed from the pinned Bedrock→Java mappings but not yet uploaded to shaders.
+  Sky/fog time curves and sunrise colours remain provisional; lightning, status effects,
+  underwater colour easing and the water-vision ramp are not implemented.
+  and enable rules. Custom uniform expressions evaluate per frame, including numeric
+  operations and smoothing. Complete Iris type checking and target-dependent function
+  return overloads remain incomplete, as do translation, render-host integration and
+  in-game acceptance; evaluated custom uniforms are not uploaded or rendered.
+- `registryc --kind java-mapping` generates `crates/assets/data/java-mapping-v2193.bin` from
+  the GeyserMC data pinned in `assets/geyser-mappings-source.json`: Java block states, block
+  tags, biomes and their colours, entity types and items for every Bedrock id Geyser maps.
+  States Geyser never produces take the closest same-block state and are flagged approximate;
+  Bedrock-only biomes and blocks stay unmapped. Nothing reads the carrier yet; Java shader
+  packs' ids, biome uniforms and sky colours are its first consumers.
 - Runtime pack compatibility still includes custom texture inheritance/tints, authored
   geometry and block/item component behavior beyond the currently supported cases.
 
@@ -366,6 +441,14 @@ Use the current [live-testing guide](docs/agents/live-testing.md) as the single 
 reference hardware, frame/hitch, streaming, join and capture budgets. Capture the
 rendered result on the relevant platform and scale; distinguish hidden-window pixel
 coverage from displayed-frame pacing and OS input/focus evidence.
+
+Compiled entities, blocks and icons share a compressed disk cache. Hits restore dependency
+records; archive, session, startup artwork and device inputs invalidate affected entries.
+Actor artwork prepares current demand immediately and prewarms unused pages within a
+per-frame budget. Artwork arrays allocate exactly their source layer count. Skin slots
+keep geometric capacity. Each artwork slot retains its own unchanged texture and bindings.
+Worker rig-plan preparation and measured cold arrival latency remain open acceptance work.
+Hardware join and frame acceptance still needs the full capture matrix below.
 
 Check deterministic work in CI: bounded queues, invalidation, stale-work rejection,
 retained memory, allocations, uploads and unnecessary rebuilds. Measure release

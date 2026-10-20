@@ -194,7 +194,7 @@ impl<'a> Culler<'a> {
             .kernels
             .bind_groups(&self.gpu.device, &self.storage, pyramid);
         self.kernels
-            .encode_cull(encoder, &groups[phase as usize], self.slots);
+            .encode_cull(encoder, &groups[phase as usize], self.slots, None);
     }
 
     fn run(&self, input: &CullViewInput, phase: CullPhase, pyramid: Option<&HizPyramid>) -> Args {
@@ -580,7 +580,7 @@ impl Target {
         let pyramid = HizPyramid::new(&gpu.device, [size.width, size.height]);
         let depth = self.depth.create_view(&Default::default());
         let bindings = kernels.pyramid_bindings(&gpu.device, &depth, self.samples > 1, &pyramid);
-        kernels.encode_pyramid(encoder, &pyramid, &bindings);
+        kernels.encode_pyramid(encoder, &pyramid, &bindings, None);
         pyramid
     }
 }

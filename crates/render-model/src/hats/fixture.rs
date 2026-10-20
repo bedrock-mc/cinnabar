@@ -2,6 +2,20 @@
 use cosmetics::{Catalog, Item};
 use std::sync::OnceLock;
 
+mod cloth_mesh;
+
+/// Admits a small original fabric mesh shared by cloth and perspective regression tests.
+pub fn cloth() -> Item {
+    static ITEM: OnceLock<Item> = OnceLock::new();
+    *ITEM.get_or_init(|| cloth_mesh::admit(2, 2))
+}
+
+/// Admits a finely subdivided synthetic fabric for jump, landing and drape regressions.
+pub fn dense_cloth() -> Item {
+    static ITEM: OnceLock<Item> = OnceLock::new();
+    *ITEM.get_or_init(|| cloth_mesh::admit(12, 24))
+}
+
 /// Admits the original bunny-ear catalog item through the production asset validator.
 pub fn bunny() -> Item {
     static ITEM: OnceLock<Item> = OnceLock::new();

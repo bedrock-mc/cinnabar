@@ -32,6 +32,7 @@ pub struct HatRig {
     pub pixels: SkinRgba8,
     world_pixels: Option<SkinRgba8>,
     emitters: Box<[emitters::CosmeticEmitter]>,
+    cloth: Option<cloth::ClothRig>,
 }
 
 static RIGS: RwLock<Vec<(Item, &'static HatRig)>> = RwLock::new(Vec::new());
@@ -84,6 +85,10 @@ pub fn admit(
 }
 
 impl HatRig {
+    /// Whether the item declares a fabric surface needing per-actor simulation history.
+    pub fn has_cloth(&self) -> bool {
+        self.cloth.is_some()
+    }
     /// Whether an authored animation changes any attachment joints.
     pub fn bends_in_wind(&self) -> bool {
         self.wind.is_some() && self.flex.iter().any(|weight| *weight > 0.0)
@@ -232,10 +237,37 @@ impl Motion {
 
 #[derive(Default)]
 pub struct HatPoseCache {
+    anchor: Option<(Item, Arc<crate::ActorAttachmentBindings>, Option<usize>)>,
     key: Option<(Item, RenderBoneTransform, Motion)>,
     pose: Arc<[RenderBoneTransform]>,
 }
 impl HatPoseCache {
+    /// Rebinds an equipped anchor only when its item or retained appearance changes.
+    /// Newly admitted items use the same skeleton index without rebuilding the appearance.
+    pub fn anchor(
+        &mut self,
+        item: Item,
+        bindings: Option<&Arc<crate::ActorAttachmentBindings>>,
+        names: &[Box<str>],
+    ) -> Option<usize> {
+        let Some(bindings) = bindings else {
+            #[cfg(test)]
+            crate::actor_bindings::ANCHOR_LOOKUPS.with(|count| count.set(count.get() + 1));
+            return names
+                .iter()
+                .position(|name| name.eq_ignore_ascii_case(&item.descriptor().attachment_bone));
+        };
+        if let Some((previous, appearance, bone)) = &self.anchor
+            && *previous == item
+            && Arc::ptr_eq(appearance, bindings)
+        {
+            return *bone;
+        }
+        let bone = bindings.anchor(item);
+        self.anchor = Some((item, Arc::clone(bindings), bone));
+        bone
+    }
+
     /// Reuses immutable poses when the attachment bone and its evaluated motion are unchanged.
     pub fn pose(
         &mut self,
@@ -274,6 +306,7 @@ pub use emitters::{
     COSMETIC_EFFECT_NAMESPACE, COSMETIC_PARTICLE_TEXTURE, COSMETIC_SPRITE_SIDE, CosmeticEmitter,
     CosmeticSprite, MAX_COSMETIC_EMITTERS,
 };
+pub mod cloth;
 #[cfg(any(test, feature = "test-support"))]
 pub mod fixture;
 #[cfg(test)]

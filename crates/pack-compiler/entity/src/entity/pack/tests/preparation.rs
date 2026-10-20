@@ -1,5 +1,42 @@
 use super::*;
 
+#[test]
+fn large_geometry_catalog_preserves_entities_and_every_geometry() {
+    for counts in [vec![4_097], vec![2_049, 2_049]] {
+        let mut files = vec![file(
+            "entity/fixture.json",
+            &json!({"format_version":"1.10.0", "minecraft:client_entity":{"description":{
+                "identifier":"fixture:actor", "geometry":{"default":"geometry.fixture_0_0"}
+            }}})
+            .to_string(),
+        )];
+        for (source, count) in counts.iter().enumerate() {
+            let geometries = (0..*count)
+                .map(|index| {
+                    json!({
+                        "description":{"identifier":format!("geometry.fixture_{source}_{index}")},
+                        "bones":[]
+                    })
+                })
+                .collect::<Vec<_>>();
+            files.push(file(
+                &format!("models/entity/{source}.json"),
+                &json!({"format_version":"1.12.0", "minecraft:geometry":geometries}).to_string(),
+            ));
+        }
+        let compiled = compile_entity_pack(files).unwrap().unwrap();
+        assert_eq!(compiled.skipped, EntityPackSkips::default());
+        assert_eq!(
+            compiled.assets.geometries.len(),
+            counts.iter().sum::<usize>()
+        );
+        assert!(compiled.assets.symbols.iter().any(|symbol| {
+            symbol.kind == EntityAssetKind::Entity && symbol.identifier.as_ref() == "fixture:actor"
+        }));
+        assert!(compiled.payloads.contains_key("entity/fixture.json"));
+    }
+}
+
 /// Creates a cycle that cannot be isolated within the entity-first attempt budget.
 fn cyclic_pack() -> Vec<(Box<str>, Vec<u8>)> {
     let mut files = (0..65)
@@ -34,24 +71,27 @@ fn isolation_prepares_each_source_once() {
 
 #[test]
 fn impossible_aggregate_count_skips_isolation() {
-    let count = assets::MAX_ENTITY_GEOMETRIES + 2;
+    let per_source = assets::MAX_ENTITY_ASSET_SYMBOLS / 2 + 1;
     let mut files = cyclic_pack();
     files.pop();
-    // No geometry source alone can remove the two excess entries.
-    for index in 0..count {
-        files.push(file(
-            &format!("models/entity/{index}.json"),
-            &json!({
-                "format_version":"1.12.0", "minecraft:geometry":[{
-                    "description":{"identifier":format!("geometry.fixture_{index}")}, "bones":[]
-                }]
+    // No source alone can remove enough symbols to fit the aggregate bound.
+    for source in 0..3 {
+        let controllers = (0..per_source)
+            .map(|index| {
+                (
+                    format!("controller.render.fixture_{source}_{index}"),
+                    json!({}),
+                )
             })
-            .to_string(),
+            .collect::<serde_json::Map<_, _>>();
+        files.push(file(
+            &format!("render_controllers/{source}.json"),
+            &json!({"format_version":"1.8.0", "render_controllers":controllers}).to_string(),
         ));
     }
     ASSEMBLY_ATTEMPTS.set(0);
     let error = compile_entity_pack(files).unwrap_err().to_string();
-    assert!(error.contains("geometry count exceeds bound"), "{error}");
+    assert!(error.contains("symbol count exceeds bound"), "{error}");
     assert_eq!(ASSEMBLY_ATTEMPTS.get(), 1);
 }
 
@@ -59,17 +99,13 @@ fn impossible_aggregate_count_skips_isolation() {
 fn isolation_can_drop_the_single_file_that_exceeds_the_count() {
     let mut files = cyclic_pack();
     files.truncate(1);
-    let geometries = (0..assets::MAX_ENTITY_GEOMETRIES)
-        .map(|index| {
-            json!({
-                "description":{"identifier":format!("geometry.fixture_{index}")}, "bones":[]
-            })
-        })
-        .collect::<Vec<_>>();
+    let controllers = (0..assets::MAX_ENTITY_ASSET_SYMBOLS)
+        .map(|index| (format!("controller.render.fixture_{index}"), json!({})))
+        .collect::<serde_json::Map<_, _>>();
     files.push(file(
-        "models/entity/excess.json",
-        &json!({"format_version":"1.12.0",
-            "minecraft:geometry":geometries
+        "render_controllers/excess.json",
+        &json!({"format_version":"1.8.0",
+            "render_controllers":controllers
         })
         .to_string(),
     ));
@@ -84,7 +120,7 @@ fn isolation_can_drop_the_single_file_that_exceeds_the_count() {
     let compiled = compile_entity_pack(files).unwrap().unwrap();
     assert_eq!(compiled.skipped.isolated, 1);
     assert_eq!(compiled.assets.geometries.len(), 1);
-    assert_eq!(ASSEMBLY_ATTEMPTS.get(), 3);
+    assert_eq!(ASSEMBLY_ATTEMPTS.get(), 4);
 }
 
 #[test]

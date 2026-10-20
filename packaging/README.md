@@ -84,12 +84,12 @@ The update manifest points to the MSI. No Mojang artwork is embedded. Local pack
 ImageMagick and `dotnet tool install --global wix --version 5.0.2`, followed by
 `wix extension add -g WixToolset.BootstrapperApplications.wixext/5.0.2`.
 
-Administrator approval is for installation only. The game and its crash monitor refuse elevated
-startup, and the core refuses elevated service startup. Open Cinnabar normally from the Start menu;
-disable any administrator compatibility setting on the executable or shortcut. All packaged
-executables embed an `asInvoker` manifest before signing. Setup never launches the game, Windows
-Installer's Restart Manager relaunch is disabled, and an elevated update helper refuses to launch
-the client. Windows SDK `mt.exe` is required to embed and verify these manifests during packaging.
+The game, core, crash monitor and update helper do not request administrator rights or reject
+an elevated launch. All packaged executables embed an `asInvoker` manifest before signing,
+so they inherit the launching process's permissions. Installation may still require administrator
+approval. Setup never launches the game, and Windows Installer's Restart Manager relaunch is
+disabled; the update helper owns the client relaunch. Windows SDK `mt.exe` is required to embed
+and verify these manifests during packaging.
 
 Desktop signing and update-manifest signing are optional. Android release signing is required:
 Android must recognize the same signing key to install later APKs over an existing installation.

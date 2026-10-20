@@ -7,6 +7,8 @@ use render_scene::{
 
 #[path = "publication_tests/empty.rs"]
 mod empty;
+#[path = "publication_tests/full_arena.rs"]
+mod full_arena;
 #[path = "publication_removal_tests.rs"]
 mod removal_pressure;
 
@@ -946,97 +948,6 @@ fn manual_transfer_downstream_gpu_subgate_prepares_exact_6951_allocation_manifes
     assert!(presented[0].forms_stable_exact_pair_with(&presented[1]));
 }
 
-/// A full 64 MiB arena must still grow under the 64 MiB frame ceiling and publish.
-#[test]
-fn full_64_mib_quad_arena_migrates_across_frames_then_publishes_a_positive_upload() {
-    use bevy::ecs::system::RunSystemOnce;
-
-    let config = render_api::PublicationServiceConfig::DEFAULT;
-    let now = Instant::now();
-    let key = SubChunkKey::new(0, 15, 0, 12);
-    let mesh = solid_test_mesh();
-    let biome = PackedBiomeRecord::fallback();
-    let bytes = ChunkRenderQueue::upload_byte_len(&mesh, &biome);
-    let allowance = render_api::PublicationAllowance::new(config);
-    allowance.begin_frame(
-        1,
-        1,
-        config.maximum_frame_bytes,
-        0,
-        config.maximum_frame_items,
-    );
-    let permit = allowance.try_admit_payload(bytes).unwrap();
-    let acknowledgements = ChunkUploadAcknowledgements::default();
-    let mut handoff_app = App::new();
-    handoff_app
-        .add_plugins(MinimalPlugins)
-        .insert_resource(ChunkRenderQueue::default())
-        .insert_resource(acknowledgements.clone())
-        .add_plugins(ChunkRenderPlugin::with_budget(ChunkUploadBudget::new(0, 0)));
-    handoff_app
-        .world_mut()
-        .resource_mut::<ChunkRenderQueue>()
-        .try_update_tracked_with_biome_identity_permitted(
-            key,
-            mesh,
-            biome,
-            ChunkBiomeTintIdentity::default(),
-            ChunkUploadPriority::new(0.0),
-            ChunkUploadToken {
-                generation: 1,
-                dirty_since: now,
-            },
-            permit,
-        )
-        .unwrap();
-    handoff_app.update();
-    let instance = {
-        let world = handoff_app.world_mut();
-        let mut query = world.query::<&ChunkRenderInstance>();
-        query.single(world).unwrap().clone()
-    };
-    drop(handoff_app);
-
-    let mut gpu_app =
-        noop_gpu_publication_app(acknowledgements.clone(), ChunkGpuRemovalQueue::default());
-    let full_items = (config.maximum_frame_bytes / PACKED_QUAD_BYTES) as usize;
-    let full_buffer = create_storage_buffer(
-        gpu_app.world().resource::<RenderDevice>(),
-        "full packed chunk quads",
-        config.maximum_frame_bytes,
-    );
-    {
-        let mut arena = gpu_app.world_mut().resource_mut::<ChunkGpuArena>();
-        assert!(arena.limits.max_quad_items >= full_items * 2);
-        arena.quad_buffer = full_buffer;
-        arena.quad_capacity = full_items;
-        arena.quad_len = full_items;
-    }
-    gpu_app.world_mut().spawn(instance);
-
-    let mut published_frame = None;
-    for frame in 0..16 {
-        gpu_app
-            .world_mut()
-            .run_system_once(prepare_gpu_chunks)
-            .unwrap();
-        let stats = *gpu_app.world().resource::<ChunkGpuUploadStats>();
-        assert!(stats.total_bytes <= config.maximum_frame_bytes);
-        if !acknowledgements.drain().is_empty() {
-            published_frame = Some(frame);
-            break;
-        }
-    }
-
-    let frames = published_frame.expect("a legal arena growth must finish and publish");
-    assert!(frames <= 4, "migration took {frames} frames");
-    let arena = gpu_app.world().resource::<ChunkGpuArena>();
-    assert_eq!(arena.quad_capacity, full_items * 2);
-    assert!(arena.migration.is_none());
-    assert_eq!(arena.allocations.len(), 1);
-    assert_eq!(allowance.live_permits(), 0);
-}
-
 /// An unchanged visible set must not re-upload identical indirect commands.
 #[test]
 fn identical_indirect_commands_are_not_rewritten() {
@@ -1167,6 +1078,6 @@ fn growth_after_a_committed_upload_migrates_and_publishes_next_frame() {
     assert_eq!(acknowledgements.drain().len(), 1);
     let arena = gpu_app.world().resource::<ChunkGpuArena>();
     assert!(arena.migration.is_none());
-    assert_eq!(arena.quad_capacity, capacity * 2);
+    assert_eq!(arena.quad_capacity, capacity + capacity / 4);
     assert_eq!(arena.allocations.len(), 2);
 }

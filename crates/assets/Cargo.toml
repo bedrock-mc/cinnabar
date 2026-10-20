@@ -14,6 +14,7 @@ reads = [
     "assets/cinnangles-sans-source.json",
     "assets/cinnangles-seven-source.json",
     "assets/cinnangles-ten-source.json",
+    "assets/geyser-mappings-source.json",
     "assets/oreui-icons-source.json",
     "assets/vanilla-source.json",
     "crates/protocol/data/retail_biomes_1_26_50.txt",
@@ -32,7 +33,7 @@ fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
 protocol-ids = { path = "../protocol-ids" }
 env-compat = { path = "../env-compat" }
 block-transform = { path = "../block-transform" }
-bitflags = "2"
+bitflags = { version = "2", features = ["serde"] }
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 glam.workspace = true
 png = "0.18"

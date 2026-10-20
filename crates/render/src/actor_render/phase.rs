@@ -286,8 +286,7 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
                     gpu.bind_group.as_ref()
                 } else {
                     gpu.artwork
-                        .pages
-                        .get(usize::from(span.page) - 1)
+                        .page(usize::from(span.page) - 1)
                         .and_then(|page| page.bind_group.as_ref())
                 };
                 let Some(bind_group) = bind_group else {

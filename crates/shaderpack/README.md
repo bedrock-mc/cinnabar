@@ -1,13 +1,21 @@
-# Shader-pack loading
+# Shader-pack loading and configuration
 
-`shaderpack` loads Java Edition OptiFine/Iris shader packs from a folder (the pack or its
-`shaders/` directory), a ZIP archive (`shaders/` at the root or under one top-level folder)
-or in-memory text. `PackSource::files` lists text in path order; `PackSource::read_bytes`
-reads any asset, including binaries, without leaving `shaders/`. Ingestion is bounded per
-file, per pack and by entry count.
+`PackSource` loads text and bounded binary assets from a folder, ZIP archive or memory.
+`ShaderPack` discovers options, dimension mappings and shader programs, and parses
+`shaders.properties` under a caller-supplied `Environment` and option values, typing
+program enable rules, buffer sizes, flips, scales, custom texture bindings, custom images
+and custom uniform and variable definitions; other keys stay as raw entries.
+`CustomUniforms` evaluates the custom uniform and variable expressions each frame as Iris
+does (types, built-in functions, `smooth` state); nothing uploads them to shaders yet.
 
-Configuration parsing, shader translation and render-host integration are not implemented
-yet; loading a pack does not activate it.
+Java world identities come from the pinned Bedrock→Java mappings (`assets`): `IdMaps`
+reads `block.properties`, `item.properties` and `entity.properties` (Iris's legacy block
+ids when a pack has no block.properties) and resolves them for Bedrock block states,
+entities and items; `BiomeUniforms` and the `BIOME_*`/`CAT_*`/`PPT_*` macros describe Java
+biomes; `sky_fog` and `BiomeColors` give Java's sky and fog colours.
+
+Shader translation, render-host integration and in-game acceptance remain incomplete.
+Opening or inspecting a pack does not activate it in the client.
 
 ```sh
 cargo test --locked -p shaderpack
