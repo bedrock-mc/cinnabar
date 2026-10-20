@@ -70,7 +70,12 @@ pub(super) fn validate(pack: &PackGpu, screen: [u32; 2], limits: &Limits) -> Res
     texture_extent(TextureDimension::D2, [screen[0], screen[1], 1], limits)?;
     for program in &pack.programs {
         if let Some(dispatch) = &program.reflection.compute {
-            super::super::dispatch::validate(dispatch, screen, limits)
+            let size = super::super::dispatch::extent(
+                program.group,
+                screen,
+                pack.shadow.as_ref().map(|shadow| shadow.slots.resolution),
+            );
+            super::super::dispatch::validate(dispatch, size, limits)
                 .map_err(|error| format!("{}: {error}", program.name))?;
         }
     }
