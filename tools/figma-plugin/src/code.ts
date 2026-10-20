@@ -70,6 +70,7 @@ async function send(): Promise<void> {
       pack: root.getPluginData(PACK_KEY) || null,
     });
   } catch (error) {
+    if (run !== generation) return;
     figma.ui.postMessage({ type: 'empty', message: `Could not read the selection: ${String(error)}` });
   }
 }
@@ -98,7 +99,8 @@ async function serialize(node: SceneNode, parent: Transform, images: Images): Pr
   if (sizing) out.sizing = sizing;
   if (hasToken(node, 'raster')) {
     const key = `node:${node.id}`;
-    images[key] = await node.exportAsync({ format: 'PNG' });
+    // Absolute bounds keep empty margins, so the bitmap covers the serialized box.
+    images[key] = await node.exportAsync({ format: 'PNG', useAbsoluteBounds: true });
     out.raster = key;
     return out;
   }

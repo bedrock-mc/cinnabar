@@ -8,7 +8,7 @@ use serde_json::{Map, Value, json};
 
 use super::names::{self, Directives, NameSet};
 use super::place::{Place, anchor, number, place_control, stretch};
-use super::{Align, AutoLayout, Conversion, LayoutMode, Node, Paint, Positioning, Warning};
+use super::{Align, AutoLayout, Conversion, LayoutMode, Node, Paint, Positioning, Sizing, Warning};
 use crate::mock::MockData;
 
 mod button;
@@ -133,8 +133,15 @@ impl Ctx<'_> {
             (Some(_), None) => self.state_variants(node, &inner),
             _ => None,
         };
+        // An instance's variants are snapshots of it that already carry its opacity.
+        let mut opacity = node.opacity;
         let (mut body, auto, extent) = match variants {
-            Some((states, extent)) => (states, [false; 2], extent),
+            Some((states, extent)) => {
+                if node.kind == "INSTANCE" {
+                    opacity = 1.0;
+                }
+                (states, [false; 2], extent)
+            }
             None => {
                 self.check_common(node, &path);
                 let (body, auto) = self.content(node, &path, &directives, scope, &inner)?;
@@ -158,12 +165,12 @@ impl Ctx<'_> {
         if let Some(binding) = &directives.visible {
             self.bind(&mut body, "visible", binding, node.visible.into(), scope);
         }
-        if node.opacity < 0.999 {
+        if opacity < 0.999 {
             if matches!(type_of(&body), "label" | "image") {
                 let alpha = body.get("alpha").and_then(Value::as_f64).unwrap_or(1.0);
-                set_alpha(&mut body, alpha * node.opacity);
+                set_alpha(&mut body, alpha * opacity);
             } else {
-                set_alpha(&mut body, node.opacity);
+                set_alpha(&mut body, opacity);
                 body.insert("propagate_alpha".into(), true.into());
             }
         }
@@ -527,6 +534,12 @@ impl Ctx<'_> {
             .children
             .iter()
             .partition(|child| child.positioning == Positioning::Auto);
+        // Fill children take the stack's leftover extent, so it cannot size to its content.
+        let primary = if flow.iter().any(|child| child.sizing[main] == Sizing::Fill) {
+            Align::Min
+        } else {
+            primary
+        };
         if layout.item_spacing < 0.0 {
             self.warn(node, path, "negative spacing is not supported");
         }
@@ -539,12 +552,30 @@ impl Ctx<'_> {
             let mut inner = NameSet::default();
             let mut controls = Vec::new();
             let mut shown = false;
-            for child in flow {
-                if child.visible && shown && layout.item_spacing > 0.0 {
+            for (index, child) in flow.iter().enumerate() {
+                let binding = names::parse(&child.name).visible;
+                let spaced = layout.item_spacing > 0.0;
+                // The gap before an item follows it; the first shown item has none to take along.
+                if spaced && shown && (child.visible || binding.is_some()) {
                     let mut size = [json!(0), json!(0)];
                     size[main] = number(layout.item_spacing);
-                    let spacer = json!({ "type": "panel", "size": size });
-                    controls.push(json!({ inner.unique("spacing"): spacer }));
+                    let mut spacer = panel(Vec::new());
+                    spacer.insert("size".into(), json!(size));
+                    if let Some(binding) = &binding {
+                        if !child.visible {
+                            spacer.insert("visible".into(), false.into());
+                        }
+                        self.bind(&mut spacer, "visible", binding, child.visible.into(), scope);
+                    }
+                    controls.push(entry(&inner.unique("spacing"), spacer));
+                } else if let Some(binding) = &binding
+                    && spaced
+                    && index + 1 < flow.len()
+                {
+                    let path = scope.path_to(child);
+                    let message =
+                        format!("the spacing after this layer does not follow `{binding}`");
+                    self.warn(child, &path, message);
                 }
                 if let Some((name, body)) = self.control(child, place, scope) {
                     controls.push(entry(&inner.unique(&name), body));

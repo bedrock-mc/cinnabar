@@ -1,0 +1,12 @@
+{
+  "id": "10:1", "name": "Fill Test", "type": "FRAME", "width": 100, "height": 40,
+  "children": [
+    { "id": "10:2", "name": "Row", "type": "FRAME", "x": 0, "y": 0, "width": 100, "height": 20,
+      "layout": { "mode": "HORIZONTAL", "primary_align": "CENTER" },
+      "children": [
+        { "id": "10:3", "name": "G", "type": "FRAME", "x": 0, "y": 0, "width": 20, "height": 20 },
+        { "id": "10:4", "name": "H", "type": "FRAME", "x": 20, "y": 0, "width": 80, "height": 20,
+          "sizing": ["FILL", "FIXED"] }
+      ] }
+  ]
+}

@@ -538,3 +538,57 @@ fn state_variants_become_button_states() {
     assert_eq!(rect(&frame, "menu_button"), [0.0, 0.0, 80.0, 20.0]);
     assert_eq!(rect(&frame, "quit"), [100.0, 70.0, 80.0, 24.0]);
 }
+
+// A main-axis FILL child of a centred auto-layout keeps its share: the stack
+// stays parent-sized instead of collapsing to its content.
+#[test]
+fn fill_children_keep_their_share_under_primary_alignment() {
+    let conversion = figma::convert(&fixture("fill_center"), &BTreeMap::new());
+    assert!(conversion.warnings.is_empty(), "{:?}", conversion.warnings);
+    let (_, _, frame) = laid_out(&conversion, 1);
+    assert_eq!(rect(&frame, "g"), [0.0, 0.0, 20.0, 20.0]);
+    assert_eq!(rect(&frame, "h"), [20.0, 0.0, 80.0, 20.0]);
+}
+
+// A `@button` instance's variants already carry its opacity; it applies once.
+#[test]
+fn instance_opacity_applies_once_to_button_states() {
+    let conversion = figma::convert(&fixture("variant_opacity"), &BTreeMap::new());
+    assert!(conversion.warnings.is_empty(), "{:?}", conversion.warnings);
+    let (mut session, _, frame) = laid_out(&conversion, 1);
+    let rgba = session.paint(&frame, 0.0).unwrap();
+    let [r, g, b, _] = pixel(&rgba, 100, 20, 10);
+    assert!(
+        (120..=136).contains(&r) && r == g && g == b,
+        "white at 50% over black: {r} {g} {b}"
+    );
+}
+
+// A `$visible` item takes its auto-layout gap with it, whether it starts shown
+// or hidden; the first spaced item cannot, and says so.
+#[test]
+fn spacers_follow_their_items_visibility_bindings() {
+    let conversion = figma::convert(&fixture("visibility"), &BTreeMap::new());
+    assert_eq!(
+        messages(&conversion),
+        [(
+            "Visibility Test / Lead / E $visible=#show_e".to_owned(),
+            "the spacing after this layer does not follow `#show_e`".to_owned(),
+        )]
+    );
+    let (mut session, mut view, frame) = laid_out(&conversion, 1);
+    assert_eq!(rect(&frame, "c"), [0.0, 28.0, 50.0, 10.0]);
+    view.mock.globals.insert("#show_b".into(), false.into());
+    view.mock.globals.insert("#show_d".into(), true.into());
+    let frame = session.frame(&view);
+    assert_eq!(
+        rect(&frame, "c"),
+        [0.0, 14.0, 50.0, 10.0],
+        "B's gap hides with B"
+    );
+    assert_eq!(
+        rect(&frame, "d"),
+        [0.0, 28.0, 50.0, 10.0],
+        "D's gap shows with D"
+    );
+}
