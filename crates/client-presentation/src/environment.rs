@@ -83,6 +83,16 @@ impl WorldClock {
         self.session_generation
     }
 
+    /// Returns the day of the server-authored clock, leaving missing or overflowed clocks unknown.
+    #[must_use]
+    pub fn world_day(self, elapsed_seconds: f64) -> Option<u64> {
+        self.server_time?;
+        self.server_time_anchor_seconds?;
+        let days =
+            (visual_world_time(self, elapsed_seconds) / f64::from(world::TICKS_PER_DAY)).floor();
+        (days.is_finite() && days >= 0. && days < u64::MAX as f64).then_some(days as u64)
+    }
+
     /// Returns the latest time anchor, before local clock advancement.
     #[must_use]
     pub const fn server_time(self) -> Option<f64> {

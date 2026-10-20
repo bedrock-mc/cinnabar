@@ -89,7 +89,7 @@
     {
       "rust_name": "CINNABAR_API_BASE_URL",
       "go_name": "CinnabarAPIBaseURL",
-      "value": "https://cinnabar-api.cinnabar-api.workers.dev",
+      "value": "https://api.cinnabar.gg",
       "rust_type": "str",
       "doc": "Cinnabar API origin; the package workflow reads it from this manifest."
     },

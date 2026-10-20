@@ -13,6 +13,7 @@ use protocol::{
 use super::*;
 
 mod input_locks;
+mod world_days;
 
 #[test]
 fn production_camera_and_extension_schedule_is_acyclic_without_carriers() {

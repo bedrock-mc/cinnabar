@@ -13,7 +13,6 @@ use crate::{
 
 /// Captures the menu left visible after two requests reuse one protocol ID.
 pub(super) fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
-    let carriers = carriers::load(dir, false)?;
     let mut runtime = UiRuntime::new(1);
     for (sequence, title) in [(1, "Original menu"), (2, "Overlapping menu")] {
         runtime.server_forms_mut().admit(
@@ -35,6 +34,12 @@ pub(super) fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
             false,
         );
     }
+    png_for(state, dir, &runtime)
+}
+
+/// Paints an admitted fixture with the same carrier, scale and production presentation.
+pub(super) fn png_for(state: &State, dir: &Path, runtime: &UiRuntime) -> Result<Vec<u8>, Error> {
+    let carriers = carriers::load(dir, false)?;
     let mut presentation =
         UiPresentationRuntime::new(carriers.font).map_err(|error| error.to_string())?;
     presentation
@@ -44,7 +49,7 @@ pub(super) fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
     let frame = presentation
         .build(
             &player_state::PlayerState::new(1),
-            &runtime,
+            runtime,
             1_000,
             state.size,
             ui::DpiScale::new(1.0).unwrap(),

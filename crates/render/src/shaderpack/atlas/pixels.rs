@@ -177,8 +177,8 @@ pub(crate) fn color_texels(inputs: &AtlasInputs<'_>, content: SpriteContent, sid
     texels
 }
 
-/// LabPBR normal and specular texels at `side`² from the authored layer the carrier slot
-/// names; unauthored or malformed entries stay neutral.
+/// LabPBR normal and specular texels at `side`² from the resolved authored layer;
+/// unauthored, conflicting or malformed entries stay neutral.
 pub(crate) fn pbr_texels(
     authored: &AuthoredPbr<'_>,
     content: SpriteContent,

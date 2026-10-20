@@ -23,8 +23,8 @@ pub(crate) struct LayerLayout {
     pub source_side: u32,
 }
 
-/// Enhanced authored maps addressed through the carrier slot table
-/// (`page * (TEXTURE_LAYER_MASK + 1) + layer`); material overrides are not consulted.
+/// Enhanced authored maps resolved to shared carrier sprites. Conflicting material
+/// overrides stay neutral because one sprite cannot hold multiple authored surfaces.
 #[cfg_attr(
     not(any(feature = "enhanced", test)),
     allow(dead_code, reason = "only Enhanced builds carry authored maps")
@@ -32,7 +32,50 @@ pub(crate) struct LayerLayout {
 pub(crate) struct AuthoredPbr<'a> {
     pub normal_pages: [&'a TextureArray; 2],
     pub mer_pages: [&'a TextureArray; 2],
-    pub refs: &'a [u32],
+    pub refs: Vec<u32>,
+}
+
+#[cfg(any(feature = "enhanced", test))]
+impl<'a> AuthoredPbr<'a> {
+    /// Resolves agreeing material/frame overrides once before assembling sprite mips.
+    pub fn new(
+        normal_pages: [&'a TextureArray; 2],
+        mer_pages: [&'a TextureArray; 2],
+        words: &[u32],
+    ) -> Self {
+        use render_scene::EnhancedTextureAssets;
+
+        let (carrier, overrides) =
+            words.split_at(words.len().min(EnhancedTextureAssets::REFERENCE_BASE_WORDS));
+        let mut refs = carrier.to_vec();
+        let mut shared = BTreeMap::new();
+        for &[_, texture, authored] in overrides
+            .as_chunks::<{ EnhancedTextureAssets::REFERENCE_OVERRIDE_WORDS }>()
+            .0
+        {
+            let Ok(texture) = TextureRef::from_raw(texture) else {
+                continue;
+            };
+            let slot =
+                texture.page() as usize * assets::MAX_TEXTURE_LAYERS + texture.layer() as usize;
+            shared
+                .entry(slot)
+                .and_modify(|selected| {
+                    if *selected != authored {
+                        *selected = u32::MAX;
+                    }
+                })
+                .or_insert(authored);
+        }
+        for (slot, authored) in shared {
+            refs[slot] = authored;
+        }
+        Self {
+            normal_pages,
+            mer_pages,
+            refs,
+        }
+    }
 }
 
 /// Plain atlas sources, so planning and pixel assembly run without a GPU or runtime blob.
