@@ -2,14 +2,15 @@
 //! arrays. Files arrive in batches per layer; texture images are announced as
 //! pending and supplied when a render asks for them.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use serde_json::{Value, json};
 use wasm_bindgen::prelude::*;
 
 use crate::api::{self, TreeLimits};
-use crate::export;
 use crate::scene::{Frame, Session, View};
+use crate::{export, figma};
 
 #[wasm_bindgen]
 extern "C" {
@@ -24,6 +25,7 @@ pub struct Editor {
     frame: Option<Arc<Frame>>,
     staged: Vec<(String, Vec<u8>)>,
     staged_pending: Vec<String>,
+    figma_images: BTreeMap<String, Vec<u8>>,
 }
 
 fn js_error(message: impl std::fmt::Display) -> JsValue {
@@ -44,6 +46,7 @@ impl Editor {
             frame: None,
             staged: Vec::new(),
             staged_pending: Vec::new(),
+            figma_images: BTreeMap::new(),
         }
     }
 
@@ -275,6 +278,33 @@ impl Editor {
             request.own_layer,
         );
         export::package(&plan, &request.pack, icon.as_deref(), request.format).map_err(js_error)
+    }
+
+    /// The layer-name token the plugin exports as one texture.
+    pub fn figma_raster_directive(&self) -> String {
+        figma::raster_directive().to_owned()
+    }
+
+    /// Queue the bytes behind an image key the next [`Self::convert_figma`] document names.
+    pub fn stage_figma_image(&mut self, key: &str, bytes: Vec<u8>) {
+        self.figma_images.insert(key.to_owned(), bytes);
+    }
+
+    /// Convert a serialized Figma frame, load it as the only pack (layer 0) and
+    /// view its screen at `gui_scale`: the [`figma::Conversion`] plus its
+    /// `ui_path`, `files` and validation `diagnostics`.
+    pub fn convert_figma(&mut self, document: &str, gui_scale: u8) -> Result<String, JsValue> {
+        let root: figma::Node = serde_json::from_str(document).map_err(js_error)?;
+        let images = std::mem::take(&mut self.figma_images);
+        let conversion = figma::convert(&root, &images);
+        self.frame = None;
+        self.view = conversion.load(&mut self.session, gui_scale);
+        let diagnostics = conversion.validate(&mut self.session);
+        let mut out = json!(conversion);
+        out["ui_path"] = json!(conversion.ui_path());
+        out["files"] = json!(conversion.files.keys().collect::<Vec<_>>());
+        out["diagnostics"] = json!(diagnostics);
+        Ok(out.to_string())
     }
 
     /// The download name for a pack called `name` in `format` (`mcpack`, `zip`, `mcaddon`).
