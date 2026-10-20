@@ -139,11 +139,13 @@ pub(super) fn resolve_binding(
         bones,
         composition: Arc::clone(&plan.composition),
         bone_names,
+        attachment_bindings: Arc::clone(&plan.attachments),
+        channel_bindings: Arc::clone(&plan.channels),
         render: Vec::new(),
         may_use_always_depth_material: plan.always_depth,
         scale: None,
         held_item_scale: None,
-        layer_skeletons: BTreeMap::new(),
+        layer_skeletons: plan.skeletons.iter().cloned().collect(),
         controllers,
         server_animations: Vec::new(),
         previous: current.clone(),
@@ -537,6 +539,8 @@ fn reselect_geometry_with_checkpoint(
     state.bones = bones;
     state.composition = Arc::clone(&plan.composition);
     state.bone_names = bone_names;
+    state.channel_bindings = Arc::clone(&plan.channels);
+    state.attachment_bindings = Arc::clone(&plan.attachments);
     state.controllers = controllers;
     state.reset_to_skeleton(pose);
     checkpoint

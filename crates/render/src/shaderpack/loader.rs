@@ -483,7 +483,7 @@ pub(crate) fn build(
             .iter()
             .map(|s| s.sample_type(support))
             .collect();
-        let entries = layout_entries(reflection, &sample_types);
+        let entries = layout_entries(reflection, &sample_types)?;
         let layouts = bind_group_layouts(&gpu.device, &program.program.name, &entries);
         let layout_refs: Vec<Option<&wgpu::BindGroupLayout>> =
             layouts.iter().map(Option::as_ref).collect();
@@ -604,7 +604,7 @@ pub(crate) fn build(
         });
     }
     let atlas_placeholder = constants
-        .placeholder(ATLAS_FORMAT, shaderpack::TextureDimension::D2, false)
+        .placeholder(ATLAS_FORMAT, shaderpack::TextureDimension::D2, false)?
         .0;
     let mipmap_formats: Vec<TextureFormat> = buffers
         .iter()

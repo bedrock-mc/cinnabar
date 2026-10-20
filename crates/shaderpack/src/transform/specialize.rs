@@ -6,7 +6,7 @@
 //! uniforms is specialized: `f(colortex0, uv)` becomes `f__colortex0(uv)`. Iterating lets
 //! nested helpers specialize too.
 
-use super::items::{Item, Param, func_params, is_opaque, matching, split_args};
+use super::items::{Item, Param, func_params, is_opaque, matching, shadowed_bindings, split_args};
 use crate::token::{Tok, TokKind, id, p};
 use std::collections::{HashMap, HashSet};
 
@@ -31,6 +31,17 @@ pub(super) fn specialize_opaque_params(mut items: Vec<Item>) -> Vec<Item> {
     // A template signature stays stable when generated definitions shift item indices.
     let mut created: HashSet<(String, Vec<Vec<String>>, Vec<String>)> = HashSet::new();
     let mut template_names: HashSet<String> = HashSet::new();
+    let mut generated = HashSet::new();
+    let mut occupied: HashSet<String> = items
+        .iter()
+        .flat_map(|item| match item {
+            Item::Func { toks, .. } | Item::Decl(_, toks) | Item::Other(toks) => {
+                toks.iter().filter_map(Tok::ident).map(str::to_string)
+            }
+        })
+        .collect();
+    let mut instances = HashMap::new();
+    let mut next_name = 0usize;
     for _ in 0..MAX_ROUNDS {
         let mut templates: HashMap<String, Vec<(usize, Vec<Param>)>> = HashMap::new();
         for (idx, it) in items.iter().enumerate() {
@@ -59,6 +70,14 @@ pub(super) fn specialize_opaque_params(mut items: Vec<Item>) -> Vec<Item> {
                 }
                 Item::Decl(_, toks) | Item::Other(toks) => (toks, 0),
             };
+            let shadowed = shadowed_bindings(toks, globals.keys().map(String::as_str));
+            let parameters: HashSet<_> = if start > 0 {
+                func_params(toks)
+                    .map(|(_, params)| params.into_iter().map(|p| p.name).collect())
+                    .unwrap_or_default()
+            } else {
+                HashSet::new()
+            };
             let mut i = start;
             while i < toks.len() {
                 let callee = match &toks[i].kind {
@@ -76,15 +95,24 @@ pub(super) fn specialize_opaque_params(mut items: Vec<Item>) -> Vec<Item> {
                 };
                 let close = matching(toks, i + 1, "(", ")");
                 let args = split_args(&toks[i + 2..close]);
+                let mut argument_start = i + 2;
+                let resources: Vec<_> = args
+                    .iter()
+                    .map(|arg| {
+                        let start = argument_start;
+                        argument_start += arg.len() + 1;
+                        (arg.len() == 1 && !shadowed.contains(&start))
+                            .then(|| arg[0].ident())
+                            .flatten()
+                            .filter(|name| !parameters.contains(*name))
+                            .and_then(|name| globals.get(name))
+                    })
+                    .collect();
                 let compatible: Vec<_> = templates[&callee]
                     .iter()
                     .filter(|(_, params)| {
                         params.len() == args.len()
-                            && params.iter().zip(&args).all(|(param, arg)| {
-                                let global = (arg.len() == 1)
-                                    .then(|| arg[0].ident())
-                                    .flatten()
-                                    .and_then(|name| globals.get(name));
+                            && params.iter().zip(&resources).all(|(param, global)| {
                                 if param.opaque {
                                     param
                                         .toks
@@ -105,7 +133,18 @@ pub(super) fn specialize_opaque_params(mut items: Vec<Item>) -> Vec<Item> {
                         .filter(|(param, _)| param.opaque)
                         .map(|(_, arg)| arg[0].text().to_string())
                         .collect();
-                    let sname = format!("{callee}__{}", opaque_args.join("_"));
+                    let sname = instances
+                        .entry((callee.clone(), opaque_args.clone()))
+                        .or_insert_with(|| {
+                            loop {
+                                let name = format!("iris_specialized_{next_name}");
+                                next_name += 1;
+                                if occupied.insert(name.clone()) {
+                                    break name;
+                                }
+                            }
+                        })
+                        .clone();
                     let line = toks[i].line;
                     let mut repl = vec![id(&sname).at(line), p("(").at(line)];
                     let mut first = true;
@@ -172,15 +211,19 @@ pub(super) fn specialize_opaque_params(mut items: Vec<Item>) -> Vec<Item> {
                 out.extend(pa.toks.iter().cloned());
             }
             out.push(p(")").at(line));
+            let shadowed = shadowed_bindings(&toks[brace..], subst.keys().map(String::as_str));
             for (k, t) in toks[brace..].iter().enumerate() {
                 let after_dot = k > 0 && toks[brace + k - 1].is(".");
                 match &t.kind {
-                    TokKind::Ident(n) if !after_dot && subst.contains_key(n) => {
+                    TokKind::Ident(n)
+                        if !after_dot && !shadowed.contains(&k) && subst.contains_key(n) =>
+                    {
                         out.push(id(&subst[n]).at(t.line))
                     }
                     _ => out.push(t.clone()),
                 }
             }
+            generated.insert(sname.clone());
             items.insert(
                 tidx + 1,
                 Item::Func {
@@ -193,6 +236,11 @@ pub(super) fn specialize_opaque_params(mut items: Vec<Item>) -> Vec<Item> {
             break;
         }
     }
+    // Rebuild opaque prototypes from the definitions that remain after specialization.
+    items.retain(|item| {
+        !matches!(item, Item::Other(tokens)
+        if func_params(tokens).is_some_and(|(_, params)| params.iter().any(|param| param.opaque)))
+    });
     // Drop templates nothing calls any more.
     let referenced = |name: &str, items: &[Item]| {
         items.iter().any(|it| {
@@ -218,5 +266,24 @@ pub(super) fn specialize_opaque_params(mut items: Vec<Item>) -> Vec<Item> {
         .collect();
     let mut keep = keep.into_iter();
     items.retain(|_| keep.next().unwrap_or(true));
+    let prototypes: Vec<_> = items
+        .iter()
+        .filter_map(|item| {
+            let Item::Func { name, toks } = item else {
+                return None;
+            };
+            if !generated.contains(name)
+                && !func_params(toks)
+                    .is_some_and(|(_, params)| params.iter().any(|param| param.opaque))
+            {
+                return None;
+            }
+            let brace = toks.iter().position(|token| token.is("{"))?;
+            let mut header = toks[..brace].to_vec();
+            header.push(p(";"));
+            Some(Item::Other(header))
+        })
+        .collect();
+    items.splice(0..0, prototypes);
     items
 }

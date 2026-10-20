@@ -200,8 +200,11 @@ impl<'a> ConstantBuilder<'a> {
         size: [u32; 3],
         dimension: TextureDimension,
         usage: TextureUsages,
-    ) -> (wgpu::Texture, wgpu::TextureView) {
+    ) -> Result<(wgpu::Texture, wgpu::TextureView), String> {
         let (wgpu_dimension, layers, view_dimension) = match dimension {
+            TextureDimension::D1Array => {
+                return Err("1D array textures are unsupported by wgpu".into());
+            }
             TextureDimension::D1 => (
                 wgpu::TextureDimension::D1,
                 1,
@@ -255,7 +258,7 @@ impl<'a> ConstantBuilder<'a> {
             dimension: Some(view_dimension),
             ..Default::default()
         });
-        (texture, view)
+        Ok((texture, view))
     }
 
     /// A zero (depth: 1.0) texture of `format` and shape, shared by every unknown binding of
@@ -265,10 +268,10 @@ impl<'a> ConstantBuilder<'a> {
         format: TextureFormat,
         dimension: TextureDimension,
         storage: bool,
-    ) -> (usize, TextureFormat) {
+    ) -> Result<(usize, TextureFormat), String> {
         let key = Key::Placeholder(format, dimension, storage);
         if let Some(found) = self.keys.get(&key) {
-            return *found;
+            return Ok(*found);
         }
         let depth = format.is_depth_stencil_format();
         let dimension = if depth {
@@ -289,27 +292,27 @@ impl<'a> ConstantBuilder<'a> {
             [1, 1, 1],
             dimension,
             usage,
-        );
+        )?;
         let found = self.push(key, texture, view);
         if depth {
             self.clears.push((found.0, wgpu::LoadOp::Clear(1.0), true));
         }
-        found
+        Ok(found)
     }
 
     fn placeholder_for(
         &mut self,
         sample: SampleType,
         dimension: TextureDimension,
-    ) -> TextureSource {
+    ) -> Result<TextureSource, String> {
         let format = match sample {
             SampleType::Float => TextureFormat::Rgba8Unorm,
             SampleType::Sint => TextureFormat::Rgba8Sint,
             SampleType::Uint => TextureFormat::Rgba8Uint,
             SampleType::Depth => TextureFormat::Depth32Float,
         };
-        let (index, format) = self.placeholder(format, dimension, false);
-        TextureSource::Constant { index, format }
+        let (index, format) = self.placeholder(format, dimension, false)?;
+        Ok(TextureSource::Constant { index, format })
     }
 
     /// Resolves noise, rejecting unsupported generated extents before allocating pixels.
@@ -336,7 +339,7 @@ impl<'a> ConstantBuilder<'a> {
                     [side, side, 1],
                     TextureDimension::D2,
                     TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                );
+                )?;
                 self.upload(&texture, &pixels, 4 * side, [side, side, 1]);
                 (texture, view)
             }
@@ -440,7 +443,7 @@ impl<'a> ConstantBuilder<'a> {
             [width, height, 1],
             TextureDimension::D2,
             TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-        );
+        )?;
         self.upload(&texture, &flipped, 4 * width, [width, height, 1]);
         Ok((texture, view))
     }
@@ -454,7 +457,7 @@ impl<'a> ConstantBuilder<'a> {
         let raw = RawSpec::parse(spec)
             .ok_or_else(|| format!("{path}: unsupported raw texture {spec:?}"))?;
         super::targets::admission::texture_extent(
-            storage_shape(raw.dimension),
+            storage_shape(raw.dimension)?,
             raw.size,
             &self.gpu.device.limits(),
         )
@@ -475,7 +478,7 @@ impl<'a> ConstantBuilder<'a> {
             raw.size,
             raw.dimension,
             TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-        );
+        )?;
         let size = if raw.dimension == TextureDimension::D1 {
             [raw.size[0], 1, 1]
         } else {
@@ -544,7 +547,7 @@ impl<'a> ConstantBuilder<'a> {
                 | TextureUsages::RENDER_ATTACHMENT
                 | TextureUsages::COPY_SRC
                 | TextureUsages::COPY_DST,
-        );
+        )?;
         let found = self.push(key, texture, view);
         self.clears.push((
             found.0,
@@ -577,7 +580,7 @@ impl<'a> ConstantBuilder<'a> {
             [side, side, 1],
             TextureDimension::D2,
             TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
-        );
+        )?;
         let found = self.push(Key::ShadowColor(index), texture, view);
         self.clears.push((found.0, wgpu::LoadOp::Clear(1.0), false));
         Ok(found)
@@ -585,7 +588,7 @@ impl<'a> ConstantBuilder<'a> {
 
     /// Whether pack-wide texture `index` has the shape a sampler of `dimension` reads.
     fn has_shape(&self, index: usize, dimension: TextureDimension) -> bool {
-        self.out.textures[index].texture.dimension() == storage_shape(dimension)
+        Ok(self.out.textures[index].texture.dimension()) == storage_shape(dimension)
     }
 
     /// Clears the textures that start at a value other than zero and returns them.
@@ -669,15 +672,16 @@ fn depth_index(name: &str) -> Option<usize> {
 
 /// The storage shape of a texture a sampler of `dimension` reads: arrays and cubes are 2D
 /// layers.
-fn storage_shape(dimension: TextureDimension) -> wgpu::TextureDimension {
-    match dimension {
+fn storage_shape(dimension: TextureDimension) -> Result<wgpu::TextureDimension, String> {
+    Ok(match dimension {
+        TextureDimension::D1Array => return Err("1D array textures are unsupported by wgpu".into()),
         TextureDimension::D1 => wgpu::TextureDimension::D1,
         TextureDimension::D3 => wgpu::TextureDimension::D3,
         TextureDimension::D2
         | TextureDimension::D2Array
         | TextureDimension::Cube
         | TextureDimension::CubeArray => wgpu::TextureDimension::D2,
-    }
+    })
 }
 
 /// The texture format of each custom image: the format a program declares for it, else the

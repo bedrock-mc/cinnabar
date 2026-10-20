@@ -3,9 +3,8 @@
 //!
 //! [`CustomUniforms::new`] compiles the definitions once, checking names, function arity
 //! and every type it can know statically; [`CustomUniforms::evaluate`] then runs them each
-//! frame against the host's built-in uniforms without allocating. Arithmetic is done in
-//! `f64` and converted to each definition's declared type, so integer literals divide as
-//! floats (OptiFine) and `int` results truncate toward zero (a Java `(int)` cast).
+//! frame against the host's built-in uniforms without allocating. Float arithmetic uses
+//! `f32` at each operation; `int` results truncate toward zero like a Java cast.
 
 mod compile;
 mod eval;
@@ -63,7 +62,7 @@ impl std::error::Error for CustomUniformError {}
 /// (`smooth()` accumulators and the `random()` generator).
 #[derive(Debug)]
 pub struct CustomUniforms {
-    /// Definitions that compiled, in file order.
+    /// Definitions that compiled, in dependency order.
     definitions: Vec<Definition>,
     /// Built-in names read by the definitions, in first-use order.
     inputs: Vec<String>,
@@ -71,7 +70,7 @@ pub struct CustomUniforms {
     input_values: Vec<Option<Value>>,
     /// Latest value of each definition, converted to its declared type.
     values: Vec<Value>,
-    /// One accumulator per `smooth()` call site or explicit id.
+    /// One accumulator per `smooth()` call site.
     smooth: Vec<SmoothState>,
     /// State of the deterministic generator behind `random()` and `randomInt()`.
     rng: u64,
@@ -89,46 +88,55 @@ struct Definition {
 }
 
 impl CustomUniforms {
-    /// Compiles definitions in file order; a definition may reference built-ins and earlier
-    /// definitions only (Iris rule). Unsupported types, unknown functions, wrong arity,
-    /// statically mismatched types and self or forward references become errors and that
-    /// definition is dropped; later definitions referencing it fail too. A name defined
-    /// twice keeps its first definition.
+    /// Compiles acyclic definitions in dependency order, including forward references.
+    /// Invalid definitions, cycles and their dependents are diagnosed and dropped.
+    /// A repeated name keeps its first definition; results retain declaration order.
     pub fn new(definitions: &[CustomUniform]) -> (CustomUniforms, Vec<CustomUniformError>) {
-        let mut first_lines: HashMap<&str, u32> = HashMap::new();
+        let mut first_lines = HashMap::new();
+        let mut unique = Vec::new();
+        let mut errors = Vec::new();
         for definition in definitions {
-            first_lines
-                .entry(definition.name.as_str())
-                .or_insert(definition.line);
+            if let Some(line) = first_lines.get(definition.name.as_str()) {
+                errors.push(CustomUniformError {
+                    line: definition.line,
+                    name: definition.name.clone(),
+                    message: format!("`{}` is already defined on line {line}", definition.name),
+                });
+            } else {
+                first_lines.insert(definition.name.as_str(), definition.line);
+                unique.push(definition);
+            }
         }
+        let (order, cyclic) = definition_order(&unique);
         let mut bindings: HashMap<String, Binding> = HashMap::new();
         let mut compiled = Vec::new();
         let mut inputs = Vec::new();
-        let mut smooth_keys = Vec::new();
-        let mut results = Vec::new();
-        let mut errors = Vec::new();
-        for definition in definitions {
+        let mut smooth_count = 0;
+        for index in cyclic {
+            let definition = unique[index];
+            bindings.insert(definition.name.clone(), Binding::Failed);
+            errors.push(CustomUniformError {
+                line: definition.line,
+                name: definition.name.clone(),
+                message: "cyclic dependency, or depends on a cyclic definition".to_owned(),
+            });
+        }
+        for source_index in order {
+            let definition = unique[source_index];
             let name = definition.name.as_str();
-            let outcome = if bindings.contains_key(name) {
-                let line = first_lines.get(name).copied().unwrap_or(definition.line);
-                Err(format!("`{name}` is already defined on line {line}"))
-            } else {
-                let inputs_len = inputs.len();
-                let smooth_len = smooth_keys.len();
-                let mut compiler = Compiler {
-                    current: name,
-                    bindings: &bindings,
-                    first_lines: &first_lines,
-                    inputs: &mut inputs,
-                    smooth_keys: &mut smooth_keys,
-                };
-                let outcome = compile_definition(definition, &mut compiler);
-                if outcome.is_err() {
-                    inputs.truncate(inputs_len);
-                    smooth_keys.truncate(smooth_len);
-                }
-                outcome
+            let inputs_len = inputs.len();
+            let smooth_len = smooth_count;
+            let mut compiler = Compiler {
+                current: name,
+                bindings: &bindings,
+                inputs: &mut inputs,
+                smooth_count: &mut smooth_count,
             };
+            let outcome = compile_definition(definition, &mut compiler);
+            if outcome.is_err() {
+                inputs.truncate(inputs_len);
+                smooth_count = smooth_len;
+            }
             match outcome {
                 Ok((ty, node)) => {
                     bindings.insert(
@@ -138,10 +146,8 @@ impl CustomUniforms {
                             shape: ty.shape(),
                         },
                     );
-                    let result = (definition.kind == CustomUniformKind::Uniform).then(|| {
-                        results.push((definition.name.clone(), ty.zero()));
-                        results.len() - 1
-                    });
+                    let result =
+                        (definition.kind == CustomUniformKind::Uniform).then_some(source_index);
                     compiled.push(Definition { ty, node, result });
                 }
                 Err(message) => {
@@ -156,12 +162,26 @@ impl CustomUniforms {
                 }
             }
         }
+        let mut outputs: Vec<_> = compiled
+            .iter_mut()
+            .filter_map(|definition| definition.result.map(|source| (source, definition)))
+            .collect();
+        outputs.sort_by_key(|(source, _)| *source);
+        let results = outputs
+            .into_iter()
+            .enumerate()
+            .map(|(slot, (source, definition))| {
+                definition.result = Some(slot);
+                (unique[source].name.clone(), definition.ty.zero())
+            })
+            .collect();
+        errors.sort_by_key(|error| error.line);
         let uniforms = CustomUniforms {
             values: compiled.iter().map(|d| Value::from(d.ty.zero())).collect(),
             definitions: compiled,
             input_values: vec![None; inputs.len()],
             inputs,
-            smooth: vec![SmoothState::default(); smooth_keys.len()],
+            smooth: vec![SmoothState::default(); smooth_count],
             rng: RANDOM_SEED,
             results,
         };
@@ -203,13 +223,10 @@ impl CustomUniforms {
             *slot = builtin(name).map(Value::from);
         }
         let elapsed = if frame_time.is_finite() && frame_time > 0.0 {
-            f64::from(frame_time)
+            frame_time
         } else {
             0.0
         };
-        for state in &mut self.smooth {
-            state.elapsed += elapsed;
-        }
         for (index, definition) in self.definitions.iter().enumerate() {
             let (earlier, rest) = self.values.split_at_mut(index);
             let mut frame = Frame {
@@ -217,6 +234,7 @@ impl CustomUniforms {
                 values: earlier,
                 smooth: &mut self.smooth,
                 rng: &mut self.rng,
+                elapsed,
             };
             let converted = definition
                 .node
@@ -235,6 +253,52 @@ impl CustomUniforms {
         }
         &self.results
     }
+}
+
+/// Orders definitions after their dependencies and returns unresolved cycles and dependents.
+fn definition_order(definitions: &[&CustomUniform]) -> (Vec<usize>, Vec<usize>) {
+    let names: HashMap<_, _> = definitions
+        .iter()
+        .enumerate()
+        .map(|(index, definition)| (definition.name.as_str(), index))
+        .collect();
+    let mut pending = vec![0; definitions.len()];
+    let mut dependents = vec![Vec::new(); definitions.len()];
+    for (index, definition) in definitions.iter().enumerate() {
+        let mut dependencies = Vec::new();
+        for name in definition.expr.identifiers() {
+            let base = name.split('.').next().unwrap_or(name);
+            if let Some(&dependency) = names.get(base)
+                && !dependencies.contains(&dependency)
+            {
+                dependencies.push(dependency);
+                dependents[dependency].push(index);
+            }
+        }
+        pending[index] = dependencies.len();
+    }
+    let mut order: Vec<_> = pending
+        .iter()
+        .enumerate()
+        .filter_map(|(index, &count)| (count == 0).then_some(index))
+        .collect();
+    let mut cursor = 0;
+    while cursor < order.len() {
+        let dependency = order[cursor];
+        cursor += 1;
+        for &dependent in &dependents[dependency] {
+            pending[dependent] -= 1;
+            if pending[dependent] == 0 {
+                order.push(dependent);
+            }
+        }
+    }
+    let cyclic = pending
+        .iter()
+        .enumerate()
+        .filter_map(|(index, &count)| (count != 0).then_some(index))
+        .collect();
+    (order, cyclic)
 }
 
 /// Compiles one definition's type and expression, checking the expression fits the type.
@@ -313,8 +377,8 @@ impl DeclaredType {
     fn convert(self, value: Value) -> Option<UniformValue> {
         match self {
             Self::Bool => value.truth().map(UniformValue::Bool),
-            Self::Int => value.number().map(|n| UniformValue::Int(n as i32)),
-            Self::Float => value.number().map(|n| UniformValue::Float(n as f32)),
+            Self::Int => value.integer().map(UniformValue::Int),
+            Self::Float => value.number().map(|n| UniformValue::Float(n)),
             Self::Vector(len) => {
                 let Value::Vector { len: found, items } = value else {
                     return None;
@@ -322,7 +386,7 @@ impl DeclaredType {
                 if found != len {
                     return None;
                 }
-                let [x, y, z, w] = items.map(|item| item as f32);
+                let [x, y, z, w] = items;
                 Some(match len {
                     2 => UniformValue::Vec2([x, y]),
                     3 => UniformValue::Vec3([x, y, z]),

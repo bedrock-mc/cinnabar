@@ -93,7 +93,7 @@ pub(crate) fn resolve_bindings(
                         texture = %t.name, resolved = ?other,
                         "binding a placeholder"
                     );
-                    constants.placeholder_for(t.sample_type, t.dimension)
+                    constants.placeholder_for(t.sample_type, t.dimension)?
                 }
             })
         })
@@ -107,16 +107,18 @@ pub(crate) fn resolve_bindings(
                 && storage_buffers & (1 << b) != 0
                 && buffer_formats[b as usize] == format
             {
-                return ImageSource::Buffer(b);
+                return Ok(ImageSource::Buffer(b));
             }
             if let Some(index) = images.iter().position(|i| i.name == image.name)
                 && Some(image_formats[index]) == format
             {
-                return ImageSource::Image(index);
+                return Ok(ImageSource::Image(index));
             }
             let format = format.unwrap_or(TextureFormat::Rgba8Unorm);
-            ImageSource::Constant(constants.placeholder(format, image.dimension, true).0)
+            Ok(ImageSource::Constant(
+                constants.placeholder(format, image.dimension, true)?.0,
+            ))
         })
-        .collect();
+        .collect::<Result<Vec<_>, String>>()?;
     Ok(ProgramBindings { textures, images })
 }

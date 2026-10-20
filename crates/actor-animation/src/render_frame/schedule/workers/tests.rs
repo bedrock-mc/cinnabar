@@ -16,6 +16,61 @@ fn samples<'a>(count: usize) -> Vec<Sample<'a>> {
 }
 
 #[test]
+fn worker_samples_reuse_named_channel_bindings_and_clip_masks() {
+    use super::super::tests::{crowd_with_channel_name, output};
+
+    let count = MIN_PARALLEL_SAMPLES;
+    let ids: Vec<_> = (1..=count as u64).collect();
+    for unbind_channels in [false, true] {
+        let (bound, actors) = crowd_with_channel_name(count as u64, 0, Some("rightitem"));
+        let (mut reference, _) = crowd_with_channel_name(count as u64, 0, Some("rightitem"));
+        for state in reference.rigs.values_mut() {
+            if unbind_channels {
+                state.channel_bindings = Arc::new(pose::ChannelBindings::reference());
+            } else {
+                state.motion_sampling = state
+                    .motion_sampling
+                    .as_ref()
+                    .map(|sampling| sampling.reference_masks());
+            }
+        }
+        let mut reference_scans = 0;
+        for alpha in [0.0, 0.25, 0.5, 0.75, 1.0, 0.25] {
+            let mut expected =
+                ActorRenderFrame::new(&reference, &actors, [0.0; 2], [0.0; 3], alpha);
+            let before = pose::name_lookups();
+            let expected_bytes = output(&mut expected, &ids);
+            reference_scans += pose::name_lookups() - before;
+            let mut actual = ActorRenderFrame::new(&bound, &actors, [0.0; 2], [0.0; 3], alpha);
+            let slots = std::thread::scope(|scope| {
+                scope
+                    .spawn(|| {
+                        let mut slots = samples(count);
+                        let before = pose::name_lookups();
+                        for sample in &mut slots {
+                            sample_one(sample, &actual);
+                        }
+                        // The counter belongs to the sampling thread, not its caller.
+                        assert_eq!(pose::name_lookups(), before);
+                        slots
+                    })
+                    .join()
+                    .unwrap()
+            });
+            for sample in slots {
+                actual.remaining_ops -= sample.used;
+                actual.sampled_layers.insert(sample.id, sample.layers);
+            }
+            assert_eq!(output(&mut actual, &ids), expected_bytes);
+            assert_eq!(actual.remaining_ops(), expected.remaining_ops());
+        }
+        assert!(reference_scans > 0, "unbind_channels={unbind_channels}");
+        assert_eq!(bound.frame_fallbacks(), 0);
+        assert_eq!(reference.frame_fallbacks(), 0);
+    }
+}
+
+#[test]
 fn closed_callbacks_cannot_access_expired_frame_inputs() {
     for panic in [false, true] {
         let board = {
