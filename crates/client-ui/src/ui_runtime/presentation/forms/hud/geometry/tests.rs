@@ -195,13 +195,18 @@ fn editor_keep_out_uses_the_completed_native_layout_and_rejects_old_sessions() {
             "original native sprite paints"
         );
         let painted: [[f32; 2]; 2] = std::array::from_fn(|axis| {
-            native_output.vertices.iter().fold(
-                [f32::INFINITY, f32::NEG_INFINITY],
-                |[low, high], vertex| {
+            native_output
+                .batches
+                .iter()
+                .flat_map(|batch| {
+                    &native_output.indices[batch.first_index as usize
+                        ..(batch.first_index + batch.index_count) as usize]
+                })
+                .map(|index| &native_output.vertices[*index as usize])
+                .fold([f32::INFINITY, f32::NEG_INFINITY], |[low, high], vertex| {
                     let at = vertex.position[axis] / vertex.clip_w / dpi;
                     [low.min(at), high.max(at)]
-                },
-            )
+                })
         });
         p.mod_ui_mut().set_mod_panel_open(true);
         p.mod_ui_mut()
