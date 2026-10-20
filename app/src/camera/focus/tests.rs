@@ -84,11 +84,6 @@ fn transient_overlay_focus_loss_beats_hud_capture_and_same_frame_click() {
             .pressed(KeyCode::KeyW)
     );
     app.update();
-    assert_released(&app, window);
-    app.world_mut()
-        .resource_mut::<ButtonInput<MouseButton>>()
-        .press(MouseButton::Left);
-    app.update();
     let cursor = app.world().get::<CursorOptions>(window).unwrap();
     assert_eq!(cursor.grab_mode, CursorGrabMode::Locked);
     assert!(!cursor.visible);
@@ -100,7 +95,7 @@ fn transient_overlay_focus_loss_beats_hud_capture_and_same_frame_click() {
 }
 
 #[test]
-fn occlusion_releases_until_unoccluded_and_clicked_and_ignores_other_windows() {
+fn occlusion_releases_until_unoccluded_and_ignores_other_windows() {
     let (mut app, window) = focus_app();
     let secondary = app.world_mut().spawn(Window::default()).id();
     app.world_mut().write_message(WindowFocused {
@@ -133,11 +128,6 @@ fn occlusion_releases_until_unoccluded_and_clicked_and_ignores_other_windows() {
         occluded: false,
     });
     app.update();
-    assert_released(&app, window);
-    app.world_mut()
-        .resource_mut::<ButtonInput<MouseButton>>()
-        .press(MouseButton::Left);
-    app.update();
     assert_eq!(
         app.world().get::<CursorOptions>(window).unwrap().grab_mode,
         CursorGrabMode::Locked
@@ -153,15 +143,19 @@ fn restore_screen_capture(mut cursors: Query<&mut CursorOptions, With<PrimaryWin
 }
 
 #[test]
-fn late_screen_capture_cannot_override_loss_or_driven_control() {
+fn late_screen_capture_resumes_after_loss_but_not_during_driven_control() {
     let (mut app, window) = focus_app();
     app.add_systems(Update, restore_screen_capture.after(update_cursor_capture));
+    app.update();
     app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
     app.update();
     assert_released(&app, window);
     app.world_mut().get_mut::<Window>(window).unwrap().focused = true;
     app.update();
-    assert_released(&app, window);
+    assert_eq!(
+        app.world().get::<CursorOptions>(window).unwrap().grab_mode,
+        CursorGrabMode::Locked
+    );
     app.init_resource::<DrivenInput>();
     app.update();
     assert_released(&app, window);
