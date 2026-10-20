@@ -100,7 +100,8 @@ impl PlayerInventoryLedger {
                 true
             })
         } else {
-            false
+            self.personal
+                .is_some_and(|personal| self.personal_generation_pending(personal.generation()))
         };
         self.controls.personal.desired_open = false;
         if let Some(personal) = self.personal {
@@ -111,16 +112,8 @@ impl PlayerInventoryLedger {
                         && pending.state == InventoryPendingState::AwaitingTransport
                 });
             }
-            if matches!(
-                personal,
-                PersonalWindow::Opening {
-                    admitted: false,
-                    ..
-                }
-            ) {
-                self.personal = None;
-            } else if matches!(personal, PersonalWindow::Opening { admitted: true, .. }) {
-                self.personal = Some(PersonalWindow::Closing {
+            if let PersonalWindow::Opening { admitted, .. } = personal {
+                self.personal = (admitted || returning).then_some(PersonalWindow::Closing {
                     generation,
                     awaiting_open: true,
                 });

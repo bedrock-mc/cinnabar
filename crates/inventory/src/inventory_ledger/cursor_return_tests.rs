@@ -89,3 +89,41 @@ fn legacy_return_admission_reconciles_a_waiting_reopen() {
     assert_eq!(ledger.displayed_stack(0).map(|stack| stack.count), Some(32));
     assert!(ledger.begin_click(0).is_ok());
 }
+
+#[test]
+fn canceling_a_recovery_open_retains_its_earlier_cursor_return() {
+    for (authority, sent) in [
+        (InventoryAuthority::Server, false),
+        (InventoryAuthority::Server, true),
+        (InventoryAuthority::Client, false),
+    ] {
+        let mut ledger = ledger_with_slot_zero();
+        ledger.apply(&InventoryEvent::Authority(authority));
+        assert!(ledger.request_personal_open(42));
+        assert!(ledger.mark_transport_enqueued(10));
+        let take = ledger.begin_click(0).unwrap();
+        assert!(ledger.mark_transport_enqueued(20));
+        if authority == InventoryAuthority::Server {
+            accept_cursor_move(&mut ledger, take, false);
+        }
+        ledger.request_personal_close();
+        let returning = ledger.newest_request().unwrap().request_id;
+        if sent {
+            assert!(ledger.mark_transport_enqueued(30));
+        }
+        ledger.poll_timeout(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS);
+        assert!(ledger.request_personal_open(42));
+        ledger.request_personal_close();
+        if !sent {
+            assert!(ledger.mark_transport_enqueued(40 + INVENTORY_REQUEST_TIMEOUT_MILLIS));
+        }
+        if authority == InventoryAuthority::Server {
+            accept_cursor_move(&mut ledger, returning, true);
+        }
+        assert_eq!(ledger.displayed_stack(0).map(|stack| stack.count), Some(32));
+        assert!(ledger.cursor_stack().is_none());
+        assert!(!ledger.resync_required());
+        assert!(ledger.request_personal_open(42));
+        assert!(ledger.pending_batch().unwrap().is_some());
+    }
+}
