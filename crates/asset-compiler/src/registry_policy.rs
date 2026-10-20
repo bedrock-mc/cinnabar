@@ -21,6 +21,7 @@ pub mod events;
 mod format_generated;
 pub mod identities;
 pub mod items;
+pub mod java_mapping;
 mod light;
 mod manifest;
 mod movement;

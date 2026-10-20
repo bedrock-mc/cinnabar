@@ -294,7 +294,7 @@ fn first_generic_only_frame_prepares_after_an_empty_skin_revision() {
     assert!(gpu.artwork_current);
     assert_eq!(gpu.artwork_identity, [3; 32]);
     assert_eq!(gpu.artwork.pages.len(), 1);
-    assert!(gpu.artwork.pages[0].bind_group.is_none());
+    assert!(gpu.artwork.page(0).unwrap().bind_group.is_none());
     let now = std::time::Instant::now();
     assert!(!gate.publish_reserved(old, now, now));
     assert!(gate.drain().is_empty());
@@ -735,6 +735,28 @@ fn skin_arrays_upload_only_newly_admitted_skins() {
     assert_eq!(scene.frame().skins.classes[3].len(), 2);
     assert_eq!(two[..5], one[..]);
     assert_eq!(gpu.uploaded_bytes, 4 * classic + 2 * 256 * 256 * 4);
+}
+
+#[test]
+fn skin_array_burst_uses_existing_geometric_headroom() {
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let device = RenderDevice::from(device);
+    let queue = RenderQueue::new(queue);
+    let mut gpu = super::GpuSkinArrays::new(&device).unwrap();
+    let mut scene = render_scene::ActorRenderScene::default();
+    let skins: Vec<_> = (0..8).map(|seed| upscaled_skin(seed, 64)).collect();
+    let mut view = None;
+    for count in 1..=skins.len() {
+        let shown: Vec<_> = skins[..count]
+            .iter()
+            .enumerate()
+            .map(|(index, skin)| (index as u64 + 1, skin))
+            .collect();
+        publish_and_sync(&mut scene, &mut gpu, &device, &queue, &shown);
+        let current = gpu.view(1).id();
+        assert_eq!(*view.get_or_insert(current), current);
+    }
+    assert_eq!(gpu.uploaded_bytes, (skins.len() * 64 * 64 * 4) as u64);
 }
 
 #[test]

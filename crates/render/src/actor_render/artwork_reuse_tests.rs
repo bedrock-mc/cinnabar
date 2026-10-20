@@ -29,7 +29,7 @@ fn publication_of_one_new_page_retains_existing_textures_and_glint() {
     let original = artwork();
     let mut gpu = GpuArtwork::default();
     assert!(gpu.prepare(&original, &device, &queue));
-    let base = gpu.pages[0]._texture.id();
+    let base = gpu.page(0).unwrap()._texture.id();
     let glint = gpu.glint.texture.as_ref().unwrap().0.id();
     let (extended, _) = original
         .clone()
@@ -41,41 +41,23 @@ fn publication_of_one_new_page_retains_existing_textures_and_glint() {
     assert!(gpu.prepare(&extended, &device, &queue));
     assert_eq!(gpu.pages.len(), 2);
     assert_eq!(
-        gpu.pages[0]._texture.id(),
+        gpu.page(0).unwrap()._texture.id(),
         base,
         "unchanged pages must not allocate or upload again"
     );
     assert_eq!(gpu.glint.texture.as_ref().unwrap().0.id(), glint);
     assert!(gpu.prepare(&original, &device, &queue));
     assert_eq!(gpu.pages.len(), 1);
-    assert_eq!(gpu.pages[0]._texture.id(), base);
+    assert_eq!(gpu.page(0).unwrap()._texture.id(), base);
 }
 
 #[test]
-fn route_and_page_order_changes_reuse_immutable_textures() {
-    let (device, queue) = gpu();
-    let (mut pages, _) = artwork().with_equipment_rasters(&[render_model::EquipmentRaster {
-        width: 8,
-        height: 8,
-        rgba8: vec![31; 8 * 8 * 4].into(),
-    }]);
-    let mut gpu = GpuArtwork::default();
-    assert!(gpu.prepare(&pages, &device, &queue));
-    let ids: Vec<_> = gpu.pages.iter().map(|page| page._texture.id()).collect();
-    pages.entity_identity = [3; 32];
-    pages.pages = pages.pages.iter().rev().cloned().collect();
-    assert!(gpu.prepare(&pages, &device, &queue));
-    assert_eq!(gpu.pages[0]._texture.id(), ids[1]);
-    assert_eq!(gpu.pages[1]._texture.id(), ids[0]);
-}
-
-#[test]
-fn equal_pixels_in_independent_allocations_reuse_textures_after_material_changes() {
+fn equal_pixels_in_the_same_slot_reuse_its_texture_after_material_changes() {
     let (device, queue) = gpu();
     let mut pages = artwork();
     let mut gpu = GpuArtwork::default();
     assert!(gpu.prepare(&pages, &device, &queue));
-    let texture = gpu.pages[0]._texture.id();
+    let texture = gpu.page(0).unwrap()._texture.id();
     let glint = gpu.glint.texture.as_ref().unwrap().0.id();
     let mut page = pages.pages[0].clone();
     page.rgba8 = Arc::from(page.rgba8.to_vec());
@@ -83,8 +65,8 @@ fn equal_pixels_in_independent_allocations_reuse_textures_after_material_changes
     pages.pages = Arc::from([page]);
     pages.entity_identity = [7; 32];
     assert!(gpu.prepare(&pages, &device, &queue));
-    assert_eq!(gpu.pages[0]._texture.id(), texture);
-    assert!(gpu.pages[0].color_mask);
+    assert_eq!(gpu.page(0).unwrap()._texture.id(), texture);
+    assert!(gpu.page(0).unwrap().color_mask);
     assert_eq!(gpu.glint.texture.as_ref().unwrap().0.id(), glint);
 }
 
@@ -94,7 +76,7 @@ fn changed_glint_and_pixels_invalidate_only_their_own_texture() {
     let mut pages = artwork();
     let mut gpu = GpuArtwork::default();
     assert!(gpu.prepare(&pages, &device, &queue));
-    let texture = gpu.pages[0]._texture.id();
+    let texture = gpu.page(0).unwrap()._texture.id();
     let glint = gpu.glint.texture.as_ref().unwrap().0.id();
     pages = pages.with_actor_glint(render_model::EquipmentRaster {
         width: 1,
@@ -102,7 +84,7 @@ fn changed_glint_and_pixels_invalidate_only_their_own_texture() {
         rgba8: Arc::from([19; 4]),
     });
     assert!(gpu.prepare(&pages, &device, &queue));
-    assert_eq!(gpu.pages[0]._texture.id(), texture);
+    assert_eq!(gpu.page(0).unwrap()._texture.id(), texture);
     assert_ne!(gpu.glint.texture.as_ref().unwrap().0.id(), glint);
     let changed_glint = gpu.glint.texture.as_ref().unwrap().0.id();
     let mut page = pages.pages[0].clone();
@@ -110,7 +92,7 @@ fn changed_glint_and_pixels_invalidate_only_their_own_texture() {
     pages.pages = Arc::from([page]);
     pages.entity_identity = [9; 32];
     assert!(gpu.prepare(&pages, &device, &queue));
-    assert_ne!(gpu.pages[0]._texture.id(), texture);
+    assert_ne!(gpu.page(0).unwrap()._texture.id(), texture);
     assert_eq!(gpu.glint.texture.as_ref().unwrap().0.id(), changed_glint);
 }
 

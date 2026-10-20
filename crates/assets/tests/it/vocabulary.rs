@@ -512,6 +512,10 @@ fn references(root: &Path) -> BTreeSet<Reference> {
                     if file.starts_with("block-light-registry-")
                         || file.starts_with("block-physics-")
                         || file.starts_with("vanilla-fallback-") => {}
+                // Generated from the pinned GeyserMC mappings: Java ids, which are outside these
+                // vocabularies, paired with Geyser's Bedrock ids, which include non-retail items
+                // (command blocks, filled maps, `minecraft:air`) and item frames as entities.
+                "bin" if file.starts_with("java-mapping-") => {}
                 "sha256" => {}
                 _ => panic!("unclassified asset data file {}", path.display()),
             }
