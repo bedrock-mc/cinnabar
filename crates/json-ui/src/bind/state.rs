@@ -57,6 +57,8 @@ pub(crate) type KeyMap<V> = HashMap<u64, V, BuildHasherDefault<Prehashed>>;
 /// screen and dropped when the screen changes.
 #[derive(Clone, Debug, Default)]
 pub struct BindState {
+    /// A smaller caller budget; absent keeps the shared resolved-tree maximum.
+    node_limit: Option<usize>,
     /// By layout-key hash.
     pub(super) controls: KeyMap<Retained>,
     /// Bag writes from widgets and components since the last bind.
@@ -171,6 +173,25 @@ impl Retained {
 impl BindState {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Restricts materialized controls, including factory and grid expansions. Changing the
+    /// budget recreates binding state; declared virtualized collections remain configured.
+    pub fn with_node_limit(mut self, limit: usize) -> Self {
+        let limit = limit.clamp(1, crate::resolve::MAX_NODES);
+        if self.node_limit() != limit {
+            self = Self {
+                node_limit: Some(limit),
+                virtual_grids: std::mem::take(&mut self.virtual_grids),
+                ..Self::default()
+            };
+        }
+        self
+    }
+
+    /// The shared node allowance used by both creation and incremental subtree reuse.
+    pub fn node_limit(&self) -> usize {
+        self.node_limit.unwrap_or(crate::resolve::MAX_NODES)
     }
 
     /// Write `name` into the bag of the control at layout `key`, as a widget or

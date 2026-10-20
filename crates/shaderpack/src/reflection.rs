@@ -323,7 +323,6 @@ pub struct StageMask {
 
 impl StageMask {
     /// Marks a stage as using the reflected resource.
-
     pub(crate) fn add(&mut self, stage: StageKind) {
         match stage {
             StageKind::Fragment => self.fragment = true,

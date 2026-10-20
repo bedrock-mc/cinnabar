@@ -746,3 +746,52 @@ fn named_descender_selection_covers_the_painted_glyph() {
         );
     }
 }
+
+/// Smooth outline faces retain fractional placement; pixel faces keep their physical grid.
+#[test]
+fn filtered_outline_labels_preserve_fractional_positions() {
+    for (rendering, smooth) in [
+        (FontRendering::NativeCoverage, false),
+        (FontRendering::OutlineCoverage, true),
+        (FontRendering::NativeSdf, true),
+    ] {
+        let face = native_font(26)
+            .with_rendering(rendering)
+            .with_linear_sampling();
+        let font = fixture_font()
+            .with_named_font("fixture_outline", &face)
+            .unwrap();
+        for dpi in [1., 1.5] {
+            let metrics =
+                TextMetrics::for_viewport([1280, 720], DpiScale::new(dpi).unwrap(), Some(2));
+            let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+            let options = TextOptions {
+                font_type: Some("fixture_outline".into()),
+                ..Default::default()
+            };
+            let first = label_positioned(
+                [8.125, 8.125, 100., 20.],
+                &font,
+                &options,
+                metrics.gui_scale,
+                px,
+            );
+            let next = label_positioned(
+                [8.375, 8.375, 100., 20.],
+                &font,
+                &options,
+                metrics.gui_scale,
+                px,
+            );
+            let delta = next[0] - first[0];
+            if smooth {
+                assert!(
+                    (delta - 0.25 * px).abs() < 0.0001,
+                    "{rendering:?}, DPI {dpi}: {delta}"
+                );
+            } else {
+                assert_eq!(delta, 0.);
+            }
+        }
+    }
+}

@@ -28,6 +28,9 @@ pub(crate) fn read_entries(
     diagnostics: &mut Vec<PropertiesDiagnostic>,
 ) -> Vec<RawEntry> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    // One line convention for the preprocessor and both passes, including lone carriage returns.
+    let text = crate::source::normalize_newlines(text);
+    let text = text.as_ref();
     let source: String = text
         .lines()
         .map(|line| {
@@ -70,6 +73,9 @@ pub(crate) fn read_entries(
             Ok(token) => {
                 // Rejected lines still expand, so recursive macros need a budget of their own.
                 let Some(left) = work.checked_sub(token.text.len().max(1)) else {
+                    // The entry in progress may hold only a prefix of its expansion.
+                    lines.remove(&token.line);
+                    rejected.insert(token.line);
                     diagnostics.push(PropertiesDiagnostic {
                         line: token.line,
                         message: "properties preprocessing exceeds work limit".to_owned(),
@@ -114,38 +120,28 @@ pub(crate) fn read_entries(
         }
     }
     let mut entries: Vec<_> =
-        logical_entries(text.lines().enumerate().filter_map(|(index, physical)| {
-            if physical.trim().is_empty() {
-                return None;
-            }
+        // Blank lines stay in the stream: they end a continued entry, as in Java properties.
+        logical_entries(text.lines().enumerate().map(|(index, physical)| {
             let line = (index + 1) as u32;
             if rejected.contains(&line) {
                 // Keep the continuation so the marker poisons every line of the entry.
                 let continued = physical.trim_end().ends_with('\\');
-                return Some((
-                    line,
-                    format!("{REJECTED}{}", if continued { "\\" } else { "" }),
-                ));
+                return (line, format!("{REJECTED}{}", if continued { "\\" } else { "" }));
             }
-            Some((line, lines.remove(&line).unwrap_or_default()))
+            (line, lines.remove(&line).unwrap_or_default())
         }))
         .filter(|entry| !raw_key(&entry.key))
         .filter(|entry| !entry.key.contains(REJECTED) && !entry.value.contains(REJECTED))
         .collect();
     entries.extend(
-        logical_entries(text.lines().enumerate().filter_map(|(index, line)| {
+        logical_entries(text.lines().enumerate().map(|(index, line)| {
             let line = line.trim();
-            if line.is_empty() {
-                return None;
-            }
-            Some((
-                (index + 1) as u32,
-                if line.starts_with('#') {
-                    String::new()
-                } else {
-                    line.to_owned()
-                },
-            ))
+            let kept = if line.starts_with('#') {
+                String::new()
+            } else {
+                line.to_owned()
+            };
+            ((index + 1) as u32, kept)
         }))
         .filter(|entry| raw_key(&entry.key)),
     );

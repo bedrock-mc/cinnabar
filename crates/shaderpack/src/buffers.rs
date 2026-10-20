@@ -222,7 +222,7 @@ mod tests {
     #[test]
     fn reflection_image_qualifiers_parse() {
         for format in BufferFormat::ALL {
-            let qualifier: Option<String> = format.glsl_qualifier().into();
+            let qualifier = format.glsl_qualifier();
             let Some(qualifier) = qualifier else { continue };
             let source = format!(
                 "#version 450\nlayout(set=0,binding=0,{qualifier}) uniform image2D image;\nvoid main() {{}}"

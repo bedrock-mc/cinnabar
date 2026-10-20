@@ -113,7 +113,7 @@ pub(crate) fn update_cursor_capture(
     screen_focus: Res<client_state::ScreenFocus>,
     consent: Option<Res<client_state::ConsentInput>>,
     driven: Option<Res<DrivenInput>>,
-    focus: Option<ResMut<client_state::CursorFocus>>,
+    mut focus: Option<ResMut<client_state::CursorFocus>>,
     captured_last_frame: Local<bool>,
     #[cfg(all(windows, not(test)))] native: Res<native::NativeCaptureReady>,
 ) {
@@ -124,7 +124,7 @@ pub(crate) fn update_cursor_capture(
         absorbs_input: screen_focus.absorbs_input,
         steals_mouse: screen_focus.steals_mouse,
     };
-    if let Some(mut focus) = focus {
+    if let Some(focus) = focus.as_deref_mut() {
         // Without an OS cursor there is no desktop pointer to steal back, so no click is needed.
         policy.capture_allowed = focus.allow_capture(
             policy.absorbs_input,
@@ -143,7 +143,7 @@ pub(crate) fn update_cursor_capture(
     {
         policy.capture_allowed &= native.0;
     }
-    apply_cursor_policy(
+    let captured = apply_cursor_policy(
         policy,
         window,
         keys,
@@ -152,6 +152,9 @@ pub(crate) fn update_cursor_capture(
         auto_fly,
         captured_last_frame,
     );
+    if let Some(mut focus) = focus {
+        focus.record_capture(captured);
+    }
 }
 
 /// Whether gameplay holds keyboard and mouse input on a platform without an OS cursor grab:
@@ -185,7 +188,7 @@ fn clear_controller_input(
     mouse_motion.delta = Vec2::ZERO;
 }
 
-/// Applies the retained input policy before accepting gameplay pointer motion.
+/// Applies input policy and reports the resulting gameplay capture request.
 #[allow(clippy::too_many_arguments)]
 fn apply_cursor_policy(
     policy: client_presentation::observations::CursorPolicy,
@@ -195,10 +198,10 @@ fn apply_cursor_policy(
     mut mouse_motion: ResMut<AccumulatedMouseMotion>,
     mut auto_fly: ResMut<AutoFly>,
     mut captured_last_frame: Local<bool>,
-) {
+) -> bool {
     let was_captured = std::mem::take(&mut *captured_last_frame);
     if policy.driven {
-        return;
+        return false;
     }
     let (mut window, mut cursor) = window.into_inner();
 
@@ -208,7 +211,7 @@ fn apply_cursor_policy(
         release_cursor(&mut cursor);
         clear_controller_input(&mut keys, &mut mouse_buttons, &mut mouse_motion);
         auto_fly.clear_capture_request();
-        return;
+        return false;
     }
 
     let steals = policy.steals_mouse;
@@ -216,7 +219,7 @@ fn apply_cursor_policy(
         release_cursor(&mut cursor);
         clear_controller_input(&mut keys, &mut mouse_buttons, &mut mouse_motion);
         auto_fly.clear_capture_request();
-        return;
+        return false;
     }
 
     // Escape also wins if it arrives in the same frame as a left click.
@@ -224,7 +227,7 @@ fn apply_cursor_policy(
         release_cursor(&mut cursor);
         clear_controller_input(&mut keys, &mut mouse_buttons, &mut mouse_motion);
         auto_fly.clear_capture_request();
-        return;
+        return false;
     }
 
     let active = client_presentation::camera::input_is_active(&window, &cursor);
@@ -248,6 +251,7 @@ fn apply_cursor_policy(
         mouse_motion.delta = Vec2::ZERO;
     }
     *captured_last_frame = captured;
+    captured
 }
 
 /// Prevents any screen or developer adapter from submitting an unauthorized OS grab.
@@ -275,3 +279,6 @@ mod high_rate_tests;
 
 #[cfg(test)]
 mod recapture_tests;
+
+#[cfg(test)]
+mod regain_tests;
