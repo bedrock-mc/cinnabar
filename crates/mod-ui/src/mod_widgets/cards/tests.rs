@@ -30,6 +30,7 @@ struct Harness {
     layouts: ui::TextLayoutCache,
     nodes: Vec<UiNode>,
     gui_scale: u8,
+    icon: Option<ui::IconRef>,
 }
 
 impl Harness {
@@ -50,19 +51,21 @@ impl Harness {
             layouts: ui::TextLayoutCache::new(1, 1024 * 1024),
             nodes: Vec::new(),
             gui_scale: 2,
+            icon: None,
         }
     }
 
     /// Paints a panel, gameplay HUD or explicit editor at the same scale and clock.
     fn paint(&mut self, ui: &mut ModUi, panel: bool) {
+        let icon = self.icon;
         self.paint_with(|engine, frame| {
             if ui.mod_hud_editor_open() {
-                let icons = ui.mod_hud_editor_icons(|_, _| None).unwrap();
+                let icons = ui.mod_hud_editor_icons(|_, _| icon).unwrap();
                 ui.paint_mod_hud_editor(Some(engine), frame, &icons);
             } else if panel {
-                ui.paint_mod_panel(Some(engine), frame);
+                ui.paint_mod_panel_with_icons(Some(engine), frame, &|_, _| icon);
             } else {
-                let icons = ui.mod_widget_icons(|_, _| None).unwrap();
+                let icons = ui.mod_widget_icons(|_, _| icon).unwrap();
                 ui.paint_mod_widgets(Some(engine), frame, &icons);
             }
         });
@@ -194,7 +197,7 @@ fn hud_card_preview_centers_scales_clips_and_reuses_gameplay_output() {
             bounds.width(),
             bounds.height()
         ],
-        [80., 100., 80., 40.]
+        [79.5, 99.5, 81., 41.]
     );
     let mut panel = panel(false);
     let surface = panel.surface.as_mut().unwrap();
@@ -499,10 +502,10 @@ fn hud_card_preview_only_keeps_artwork_in_explicit_editor_previews() {
 }
 
 #[test]
-fn hud_card_preview_gameplay_origin_stays_on_the_physical_pixel_grid() {
+fn hud_card_preview_preserves_snapped_gameplay_geometry() {
     for (offset, position, expected) in [
-        ([0.25, 0.75], None, [0., 1.]),
-        ([0., 0.], Some([0.333, 0.177]), [399., 120.]),
+        ([0.25, 0.75], None, [0., 0.5]),
+        ([0., 0.], Some([0.333, 0.177]), [398.5, 119.5]),
     ] {
         let mut hud = hud(1);
         hud.cards[0].offset = offset;
@@ -511,7 +514,12 @@ fn hud_card_preview_gameplay_origin_stays_on_the_physical_pixel_grid() {
         let mut harness = Harness::new();
         harness.paint(&mut ui, false);
         let bounds = harness.drawn().painted_bounds().unwrap();
-        assert_eq!([bounds.min().x(), bounds.min().y()], expected);
+        for (actual, expected) in [bounds.min().x(), bounds.min().y()]
+            .into_iter()
+            .zip(expected)
+        {
+            assert!((actual - expected).abs() < 0.01);
+        }
     }
 }
 
@@ -527,7 +535,7 @@ fn hud_card_preview_reuses_gameplay_artwork_when_the_panel_uses_a_different_scal
     assert!(Arc::ptr_eq(&nodes, &source.cards[0].nodes));
     assert_eq!(source.cards[0].paints, 1);
     let bounds = harness.drawn().painted_bounds().unwrap();
-    assert_eq!([bounds.width(), bounds.height()], [80., 40.]);
+    assert_eq!([bounds.width(), bounds.height()], [80.5, 40.5]);
 }
 
 #[test]
@@ -592,12 +600,99 @@ fn hud_card_preview_aligns_the_card_geometry_and_clips_painted_overflow() {
     let mut ui = installed(&hud, &panel(false));
     let mut harness = Harness::new();
     harness.paint(&mut ui, true);
+    let text: Vec<_> = harness
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(
+                node.visual(),
+                ui::UiVisual::None | ui::UiVisual::Text { .. } | ui::UiVisual::RotatedText { .. }
+            )
+        })
+        .cloned()
+        .collect();
+    let text = ui::RetainedDraw::build(
+        &text,
+        ui_engine::engine::rect(0., 0., 1280., 720.).unwrap(),
+        ui::UiScale::default(),
+        ui::SafeArea::ZERO,
+        ui::TextEffects::default(),
+    )
+    .unwrap();
     assert!(
-        harness
-            .drawn()
-            .vertices
-            .iter()
-            .all(|vertex| vertex.color[3] == 0),
+        text.draw_list().painted_bounds().is_none(),
         "right-aligned value lies outside the narrow centered preview node"
     );
+}
+
+#[test]
+fn hud_card_preview_preserves_per_control_pixel_phase_against_direct_rendering() {
+    let icon = ui::IconRef {
+        page: 1,
+        uv: [0, 0, 16, 16],
+        glint: false,
+    };
+    for offset in [[0.25, 0.25], [-0.25, -0.25], [10.25, 20.75]] {
+        let hud: Hud = serde_json::from_value(json!({"cards":[{
+            "id":"card_0","offset":offset,"scale":0.75,"background_opacity":0,
+            "rows":[{"label":"","value":"","item":"minecraft:stone"}]
+        }]}))
+        .unwrap();
+        let mut ui = installed(&hud, &panel(false));
+        let mut harness = Harness::new();
+        harness.icon = Some(icon);
+        harness.paint(&mut ui, false);
+        let actual = harness.drawn();
+        let source = ui.hud_sources.get(OWNER).unwrap();
+        let catalog = Arc::clone(&source.catalog);
+        let mut data = template::data(&source.content, [640., 360.]);
+        data.set_global("#row_0_icon", Scalar::Num(0.));
+        let data = Arc::new(data);
+        let mut screen = CachedScreen::default();
+        harness.paint_with(|engine, frame| {
+            let mut items = ItemRenderer {
+                icons: &[icon],
+                id_aux: &[],
+            };
+            let mut renderers: [&mut dyn ui_engine::engine::screen::CustomRenderer; 1] =
+                [&mut items];
+            let px = frame.metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
+            let language = frame.language;
+            engine
+                .draw(
+                    ScreenArt::default(),
+                    &mut frame.with_renderers(&mut renderers),
+                    |env, root| {
+                        screen.render_shared_with(
+                            "cinnabar_personal_hud.cards",
+                            &catalog,
+                            crate::personal_context(),
+                            data,
+                            (root, px, language),
+                            env,
+                            &ViewState::default(),
+                        )
+                    },
+                )
+                .unwrap();
+        });
+        assert_eq!(
+            sprite_positions(&actual, icon.page),
+            sprite_positions(&harness.drawn(), icon.page),
+            "offset {offset:?}"
+        );
+    }
+}
+
+/// Reads visible sprite geometry without depending on clip-group identities or tree layout.
+fn sprite_positions(draw: &ui::UiDrawList, page: u16) -> Vec<[f32; 2]> {
+    draw.batches
+        .iter()
+        .filter(|batch| batch.texture_page == page)
+        .flat_map(|batch| {
+            draw.indices[batch.index_range.start as usize..batch.index_range.end as usize]
+                .iter()
+                .map(|index| draw.vertices[*index as usize].position)
+        })
+        .collect()
 }

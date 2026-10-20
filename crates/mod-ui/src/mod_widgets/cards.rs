@@ -31,6 +31,7 @@ pub(crate) struct CardPaint {
     metrics: Option<[u64; 9]>,
     language: [usize; 3],
     prepared_revision: Option<u64>,
+    origin: Option<[f64; 2]>,
     pub(super) gameplay: CachedFragment,
     #[cfg(any(test, feature = "test-support"))]
     pub(super) paints: usize,
@@ -78,6 +79,7 @@ pub(super) fn entries(hud: &Hud) -> Vec<CardPaint> {
                 metrics: None,
                 language: [0; 3],
                 prepared_revision: None,
+                origin: None,
                 gameplay: CachedFragment::default(),
                 #[cfg(any(test, feature = "test-support"))]
                 paints: 0,
@@ -130,6 +132,8 @@ impl ModWidgets {
             .as_ref()
             .is_some_and(|laid| engine.refresh_fragment_textures(&mut entry.textures, laid));
         let px = frame.metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
+        let viewport = frame.content.map(|axis| f64::from(axis / px));
+        let mut origin = template::origin(card, viewport);
         let key = [
             frame.font as *const _ as usize as u64,
             u64::from(px.to_bits()),
@@ -143,6 +147,7 @@ impl ModWidgets {
         ];
         if !changed
             && !changed_textures
+            && entry.origin == Some(origin)
             && entry.metrics == Some(key)
             && entry.language == frame.language
             && entry.prepared_revision == Some(entry.revision)
@@ -165,6 +170,7 @@ impl ModWidgets {
                     entry.revision += 1;
                     text_plate::data(Arc::make_mut(&mut entry.data), card, index, self.viewport);
                 }
+                origin = template::origin(card, viewport);
                 entry.screen.render_shared_with(
                     &entry.reference,
                     &self.catalog,
@@ -183,6 +189,7 @@ impl ModWidgets {
         changed_textures |= engine.refresh_fragment_textures(&mut entry.textures, &laid);
         if !changed
             && !changed_textures
+            && entry.origin == Some(origin)
             && entry.metrics == Some(key)
             && entry
                 .laid
@@ -209,7 +216,11 @@ impl ModWidgets {
             now: target.now,
             renderers: target.renderers,
         };
-        engine.draw(ScreenArt::default(), &mut output, |env, _| {
+        let art = ScreenArt {
+            pixel_snap_offset: origin.map(|axis| axis - template::CANVAS_INSET),
+            ..Default::default()
+        };
+        engine.draw(art, &mut output, |env, _| {
             entry.screen.render_shared_with(
                 &entry.reference,
                 &self.catalog,
@@ -230,6 +241,7 @@ impl ModWidgets {
         entry.px = px;
         entry.laid = Some(laid);
         entry.metrics = Some(key);
+        entry.origin = Some(origin);
         entry.prepared_revision = Some(entry.revision);
         entry.language = language;
         #[cfg(any(test, feature = "test-support"))]
@@ -365,12 +377,8 @@ impl ui_engine::engine::screen::CustomRenderer for Gameplay<'_> {
         } else {
             (&mut *self.widgets, index)
         };
-        let origin = template::origin(&source.content.cards[index], self.viewport);
-        let origin = ui_engine::engine::pixel_snap::positioned(
-            [origin[0], origin[1], 0., 0.],
-            canvas.metrics().gui_scale,
-            canvas.px(),
-        );
+        let origin = template::origin(&source.content.cards[index], self.viewport)
+            .map(|axis| axis as f32 * canvas.px());
         let entry = &mut source.cards[index];
         if !entry.textures.matches(canvas.textures()) {
             return Ok(true);
