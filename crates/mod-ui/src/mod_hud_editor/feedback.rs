@@ -7,6 +7,7 @@ use ui_engine::engine::{
 };
 
 /// Paints clipped parallel hatch lines without storing or tessellating geometry.
+/// Strokes stay at least one physical pixel wide at every GUI scale and DPI.
 pub(super) struct KeepOutRenderer<'a> {
     pub rects: &'a [[f64; 4]],
     pub dragging: bool,
@@ -23,6 +24,7 @@ impl CustomRenderer for KeepOutRenderer<'_> {
         }
         if self.dragging {
             let px = f64::from(canvas.px());
+            let hatch_width = GUIDE_WIDTH.max(1. / f64::from(canvas.metrics().gui_scale));
             for rect in self.rects {
                 let x = rect[0].max(0.);
                 let y = rect[1].max(0.);
@@ -43,7 +45,7 @@ impl CustomRenderer for KeepOutRenderer<'_> {
                 let mut line = y;
                 while line < bottom {
                     canvas.solid(
-                        bounds(x, line, right, (line + 0.5).min(bottom)),
+                        bounds(x, line, right, (line + hatch_width).min(bottom)),
                         node.alpha([255, 191, 105, 48]),
                     )?;
                     line += snapping::GRID;

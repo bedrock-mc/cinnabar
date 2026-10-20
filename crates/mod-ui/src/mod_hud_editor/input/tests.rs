@@ -381,9 +381,9 @@ fn snapping_shift_bypasses_guides_and_grid_without_disabling_the_grid_setting() 
         [None; 2]
     );
     editor.move_card(0, at);
-    for axis in 0..2 {
+    for (axis, value) in at.into_iter().enumerate() {
         assert!(
-            (cards::origin(&editor.draft.cards[0], editor.viewport)[axis] - at[axis]).abs() < 0.001
+            (cards::origin(&editor.draft.cards[0], editor.viewport)[axis] - value).abs() < 0.001
         );
     }
     assert!(editor.snap);
