@@ -31,6 +31,7 @@ impl DrawCounts {
             | UiVisual::Sprite { .. }
             | UiVisual::GlintSprite { .. }
             | UiVisual::StyledSprite { .. }
+            | UiVisual::RepeatedSprite { .. }
             | UiVisual::Gradient { .. }
             | UiVisual::RotatedSprite { .. }
             | UiVisual::InvertedSprite { .. } => 1,
