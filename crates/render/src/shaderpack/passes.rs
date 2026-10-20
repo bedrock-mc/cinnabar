@@ -39,6 +39,8 @@ pub(crate) struct ViewState {
     pub pack: Arc<PackGpu>,
     pub targets: ViewTargets,
     pub bindings: ViewBindings,
+    /// View-local scene conversion planes and source rectangle.
+    pub(super) depth_parameters: wgpu::Buffer,
     pub history: super::uniforms::UniformHistory,
     custom: CustomUniforms,
     scratch: Vec<u8>,
@@ -85,6 +87,12 @@ impl ViewState {
             );
         }
         Ok(Self {
+            depth_parameters: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("shader pack view depth parameters"),
+                size: 48,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
             pack,
             targets,
             bindings,
@@ -242,6 +250,8 @@ impl ViewState {
 
 /// What a view hands the pack for one frame.
 pub(crate) struct FrameIo<'a> {
+    /// Physical source and destination rectangle: x, y, width, height.
+    pub viewport: [u32; 4],
     /// The finished scene colour, sampled as linear values.
     pub scene_colour: &'a TextureView,
     /// The scene depth (infinite reverse-Z).
@@ -323,7 +333,7 @@ pub(crate) fn record_frame(
     io: &FrameIo<'_>,
 ) {
     let pack = Arc::clone(&state.pack);
-    write_depth_parameters(queue, &pack, io);
+    write_depth_parameters(queue, &state.depth_parameters, io);
     for plan in &pack.buffers {
         let (Some(clear), Some(buffer)) = (
             plan.clear,
@@ -369,7 +379,14 @@ pub(crate) fn record_frame(
                 Some(geometry) => {
                     record_opaque(device, queue, encoder, state, geometry, timestamps);
                 }
-                None => copy_scene(device, encoder, &pack, &state.targets, io),
+                None => copy_scene(
+                    device,
+                    encoder,
+                    &pack,
+                    &state.targets,
+                    &state.depth_parameters,
+                    io,
+                ),
             }
         },
     );
@@ -399,13 +416,18 @@ pub(crate) fn record_frame(
         timestamps,
         RuntimeStage::GpuShaderpackComposite,
         encoder,
-        |encoder| record_composite(encoder, state, io),
+        |encoder| record_composite(device, encoder, state, io),
     );
 }
 
 /// `composite*` and `final`, the copy-back of buffers that end flipped (or the exchange of
 /// their textures), and the screen's presentation into the view.
-fn record_composite(encoder: &mut CommandEncoder, state: &mut ViewState, io: &FrameIo<'_>) {
+fn record_composite(
+    device: &Device,
+    encoder: &mut CommandEncoder,
+    state: &mut ViewState,
+    io: &FrameIo<'_>,
+) {
     let pack = Arc::clone(&state.pack);
     run_steps(encoder, state, Steps::Composite, state.targets.screen_size);
     let targets = &state.targets;
@@ -419,6 +441,35 @@ fn record_composite(encoder: &mut CommandEncoder, state: &mut ViewState, io: &Fr
             main.as_image_copy(),
             main.size(),
         );
+    }
+    state.targets.swap_sides(&pack.frame.exchange);
+    let targets = &state.targets;
+    let source = io.scene_colour.texture();
+    if io.viewport != [0, 0, source.width(), source.height()] {
+        if let Some((_, pipeline)) = pack
+            .host
+            .preserve
+            .iter()
+            .find(|(f, _)| *f == io.destination_format)
+        {
+            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("shader pack preserve viewport exterior"),
+                layout: &pipeline.get_bind_group_layout(0),
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(io.scene_colour),
+                }],
+            });
+            let mut render = pass(
+                encoder,
+                "shader pack preserve viewport exterior",
+                &[load_attachment(io.destination)],
+                None,
+            );
+            render.set_pipeline(pipeline);
+            render.set_bind_group(0, &group, &[]);
+            render.draw(0..3, 0..1);
+        }
     }
     let present = pack
         .host
@@ -435,15 +486,16 @@ fn record_composite(encoder: &mut CommandEncoder, state: &mut ViewState, io: &Fr
             &[load_attachment(io.destination)],
             None,
         );
+        let [x, y, w, h] = io.viewport.map(|v| v as f32);
+        render.set_viewport(x, y, w, h, 0.0, 1.0);
         render.set_pipeline(pipeline);
         render.set_bind_group(0, group, &[]);
         render.draw(0..3, 0..1);
     }
-    state.targets.swap_sides(&pack.frame.exchange);
 }
 
 /// Writes the planes and limits the host's depth conversions and the Vanilla overlay use.
-fn write_depth_parameters(queue: &Queue, pack: &PackGpu, io: &FrameIo<'_>) {
+fn write_depth_parameters(queue: &Queue, buffer: &wgpu::Buffer, io: &FrameIo<'_>) {
     let far = io.render_distance.max(16.0) * FAR_PLANE_SCALE;
     // Vanilla content beyond `far` (its far-terrain impostors) has no pack geometry behind it
     // and never comes through; inside, only what lies within the fully expanded radius does.
@@ -452,6 +504,7 @@ fn write_depth_parameters(queue: &Queue, pack: &PackGpu, io: &FrameIo<'_>) {
         .as_ref()
         .map_or(f32::MAX, |g| g.overlay_radius)
         .min(io.render_distance.max(16.0));
+    let [x, y, w, h] = io.viewport.map(|v| v as f32);
     let parameters = [
         io.scene_near,
         GL_NEAR,
@@ -461,9 +514,13 @@ fn write_depth_parameters(queue: &Queue, pack: &PackGpu, io: &FrameIo<'_>) {
         io.inverse_focal[1],
         0.0,
         0.0,
+        x,
+        y,
+        w,
+        h,
     ];
     let bytes: Vec<u8> = parameters.iter().flat_map(|v| v.to_le_bytes()).collect();
-    queue.write_buffer(&pack.host.depth_parameters, 0, &bytes);
+    queue.write_buffer(buffer, 0, &bytes);
 }
 
 /// Which of the pack's pass lists to run.
@@ -507,6 +564,7 @@ fn copy_scene(
     encoder: &mut CommandEncoder,
     pack: &PackGpu,
     targets: &ViewTargets,
+    depth_parameters: &wgpu::Buffer,
     io: &FrameIo<'_>,
 ) {
     let host = &pack.host;
@@ -515,10 +573,16 @@ fn copy_scene(
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("shader pack scene colour"),
             layout: &host.scene_colour.get_bind_group_layout(0),
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(io.scene_colour),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(io.scene_colour),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: depth_parameters.as_entire_binding(),
+                },
+            ],
         });
         let mut render = pass(
             encoder,
@@ -541,7 +605,7 @@ fn copy_scene(
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: host.depth_parameters.as_entire_binding(),
+                    resource: depth_parameters.as_entire_binding(),
                 },
             ],
         })

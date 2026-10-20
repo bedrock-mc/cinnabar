@@ -240,6 +240,17 @@ fn replaced_effects(pack: &PackGpu) -> ShaderPackEffects {
     }
 }
 
+/// Whether native layers need the scene-copy path until the geometry host can compose them.
+fn needs_native_scene(
+    atmosphere: Option<&render_scene::AtmosphereFrame>,
+    particles: Option<&render_scene::ParticleGpuFrame>,
+    weather: Option<&render_scene::PrecipitationScene>,
+) -> bool {
+    atmosphere.is_some_and(|frame| frame.sky_kind() == render_scene::SkyKind::Overworld)
+        || particles.is_some_and(|frame| !frame.blend.is_empty() || !frame.add.is_empty())
+        || weather.is_some_and(|scene| !scene.layers.is_empty())
+}
+
 /// Hands out the revisions [`ShaderpackBlockIds`] are published under, each one no earlier
 /// table had. The geometry adapter keeps the revision it last derived terrain attributes from
 /// while Vanilla shows between two packs, so counting on from the current resource, which
@@ -273,6 +284,9 @@ fn configure_replacement(
     views: Res<ShaderPackViews>,
     mut drawn: ResMut<ShaderPackDrawnCategories>,
     mut replaced: ResMut<ShaderPackEffects>,
+    atmosphere: Option<Res<render_scene::AtmosphereFrame>>,
+    particles: Option<Res<render_scene::ParticleGpuFrame>>,
+    weather: Option<Res<render_scene::PrecipitationScene>>,
 ) {
     let states = views.states.lock().unwrap_or_else(|e| e.into_inner());
     let ready = pack
@@ -289,9 +303,14 @@ fn configure_replacement(
     replaced.set_if_neq(ready.map_or_else(Default::default, |pack| replaced_effects(pack)));
     let draws = |kind| ready.is_some_and(|pack| pack.draws.iter().any(|draw| draw.kind == kind));
     drawn.set_if_neq(ShaderPackDrawnCategories {
-        terrain: geometry
-            .is_some_and(|geometry| geometry.supported() && geometry.all_sections_fit())
-            && super::draws::complete_terrain(draws),
+        terrain: geometry.is_some_and(|geometry| {
+            geometry.supported() && geometry.origin().is_some() && geometry.all_sections_fit()
+        }) && super::draws::complete_terrain(draws)
+            && !needs_native_scene(
+                atmosphere.as_deref(),
+                particles.as_deref(),
+                weather.as_deref(),
+            ),
     });
 }
 
@@ -569,6 +588,7 @@ fn shaderpack_post(
     });
     let post = target.post_process_write();
     let io = FrameIo {
+        viewport: view.viewport.to_array(),
         scene_colour: post.source,
         scene_depth: crate::scene_sampling::view_depth(depth),
         scene_near: view.clip_from_view.w_axis.z,
@@ -635,6 +655,20 @@ fn publish_id_maps(loaded: Res<LoadedShaderPack>, mut maps: ResMut<ShaderPackIdM
     };
 }
 
+/// Keeps opted-in cameras compatible with the host's single-sample depth reads.
+fn admit_cameras(
+    mut cameras: Query<(&mut bevy::render::view::Msaa, &mut Camera3d), With<ShaderPackRendering>>,
+) {
+    for (mut msaa, mut camera) in &mut cameras {
+        msaa.set_if_neq(bevy::render::view::Msaa::Off);
+        let usage = wgpu::TextureUsages::from(camera.depth_texture_usages)
+            | wgpu::TextureUsages::TEXTURE_BINDING;
+        if wgpu::TextureUsages::from(camera.depth_texture_usages) != usage {
+            camera.depth_texture_usages = usage.into();
+        }
+    }
+}
+
 pub(super) fn build(app: &mut App) {
     app.init_resource::<ShaderPackRequest>()
         .init_resource::<ShaderPackStatus>()
@@ -650,7 +684,8 @@ pub(super) fn build(app: &mut App) {
             ShaderpackGeometryPlugin,
             ShaderpackAtlasPlugin,
         ))
-        .add_systems(Update, (drive_loader, publish_id_maps).chain());
+        .add_systems(Update, (drive_loader, publish_id_maps).chain())
+        .add_systems(PostUpdate, admit_cameras);
 }
 
 pub(super) fn finish(app: &mut App) {
@@ -666,7 +701,8 @@ pub(super) fn finish(app: &mut App) {
             Render,
             (
                 configure_geometry
-                    .in_set(RenderSystems::PrepareResources)
+                    .after(RenderSystems::PrepareViews)
+                    .before(RenderSystems::Queue)
                     .before(super::geometry::prepare_shaderpack_geometry),
                 prepare_effect_textures
                     .in_set(RenderSystems::PrepareResources)
@@ -674,14 +710,99 @@ pub(super) fn finish(app: &mut App) {
                     .after(crate::block_entity::prepare_block_entity_resources)
                     .before(prepare_views),
                 prepare_views
-                    .in_set(RenderSystems::PrepareResources)
+                    .after(RenderSystems::PrepareViews)
+                    .before(RenderSystems::Queue)
                     .after(bevy::render::view::prepare_view_targets)
                     .after(super::geometry::prepare_shaderpack_geometry),
-                configure_replacement
-                    .in_set(RenderSystems::PrepareResources)
-                    .after(prepare_views),
+                crate::chunk::shaderpack_sources::before_native_terrain_queues(
+                    configure_replacement.after(prepare_views),
+                ),
                 super::lightmap::update_lightmap.in_set(RenderSystems::PrepareResources),
             ),
         );
     install_graph(render_app.world_mut());
+}
+
+#[cfg(test)]
+mod camera_tests {
+    use super::*;
+    use bevy::render::view::Msaa;
+
+    #[test]
+    fn unresolved_native_layers_keep_the_scene_copy_path() {
+        assert!(!needs_native_scene(None, None, None));
+        assert!(needs_native_scene(
+            Some(&render_scene::AtmosphereFrame::default()),
+            None,
+            None
+        ));
+        for additive in [false, true] {
+            let mut particles = render_scene::ParticleGpuFrame::default();
+            let instances = std::sync::Arc::from([particles::ParticleInstance::default()]);
+            if additive {
+                particles.add = instances;
+            } else {
+                particles.blend = instances;
+            }
+            assert!(needs_native_scene(None, Some(&particles), None));
+        }
+    }
+
+    #[test]
+    fn replacement_is_published_before_native_queue_consumers() {
+        #[derive(Resource, Default)]
+        struct QueuedTerrain(bool);
+        /// Captures the replacement decision observed by a native queue.
+        fn native_queue(drawn: Res<ShaderPackDrawnCategories>, mut queued: ResMut<QueuedTerrain>) {
+            queued.0 = drawn.terrain;
+        }
+        let mut world = World::new();
+        world.init_resource::<ShaderPackViews>();
+        world.init_resource::<ShaderPackEffects>();
+        world.insert_resource(ShaderPackDrawnCategories {
+            terrain: true,
+            ..default()
+        });
+        world.init_resource::<QueuedTerrain>();
+        let mut schedule = bevy::ecs::schedule::Schedule::default();
+        schedule.configure_sets(
+            (
+                RenderSystems::PrepareViews,
+                RenderSystems::Queue,
+                RenderSystems::PrepareResources,
+            )
+                .chain(),
+        );
+        schedule.add_systems((
+            crate::chunk::shaderpack_sources::before_native_terrain_queues(configure_replacement),
+            native_queue.in_set(RenderSystems::Queue),
+        ));
+        schedule.run(&mut world);
+        assert!(!world.resource::<QueuedTerrain>().0);
+    }
+
+    #[test]
+    fn opted_in_cameras_admit_single_sample_depth_sampling() {
+        let mut app = App::new();
+        app.init_resource::<Assets<bevy::shader::Shader>>();
+        build(&mut app);
+        let camera = app
+            .world_mut()
+            .spawn((Camera3d::default(), Msaa::Sample4, ShaderPackRendering))
+            .id();
+        app.update();
+        assert_eq!(*app.world().get::<Msaa>(camera).unwrap(), Msaa::Off);
+        assert!(
+            wgpu::TextureUsages::from(
+                app.world()
+                    .get::<Camera3d>(camera)
+                    .unwrap()
+                    .depth_texture_usages
+            )
+            .contains(wgpu::TextureUsages::TEXTURE_BINDING)
+        );
+        *app.world_mut().get_mut::<Msaa>(camera).unwrap() = Msaa::Sample8;
+        app.update();
+        assert_eq!(*app.world().get::<Msaa>(camera).unwrap(), Msaa::Off);
+    }
 }
