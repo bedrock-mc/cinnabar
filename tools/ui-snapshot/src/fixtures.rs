@@ -15,6 +15,7 @@ use launcher::menu::{
     MenuAction, MenuScreen, MenuView, settings_options::SettingId,
     settings_sections::SettingSection,
 };
+use ui_screens::player_list::RosterRow;
 
 /// A repeatable viewport and the runtime observations its screen paints.
 pub struct State {
