@@ -13,7 +13,7 @@ use crate::mock::MockData;
 
 mod button;
 
-use button::button;
+use button::{button, direct_states};
 
 pub(super) type Body = Map<String, Value>;
 
@@ -135,12 +135,14 @@ impl Ctx<'_> {
         };
         // An instance's variants are snapshots of it that already carry its opacity.
         let mut opacity = node.opacity;
+        let mut variants_states = None;
         // An `@image` export already has the layer's opacity baked in.
         if node.raster.is_some() {
             opacity = 1.0;
         }
         let (mut body, auto, extent) = match variants {
             Some((states, extent)) => {
+                variants_states = Some(direct_states(&states));
                 if node.kind == "INSTANCE" {
                     opacity = 1.0;
                 }
@@ -161,7 +163,12 @@ impl Ctx<'_> {
         }
         let name = names::identifier(&directives.words, &node.kind.to_ascii_lowercase());
         if let Some(id) = &directives.button {
-            body = button(body, id.as_deref().unwrap_or(&name));
+            // A variant panel's children are its states; otherwise the Figma children name them.
+            let states = match &variants_states {
+                Some(states) => states.clone(),
+                None => button::named_states(node),
+            };
+            body = button(body, id.as_deref().unwrap_or(&name), &states);
         }
         if !node.visible {
             body.insert("visible".into(), false.into());
@@ -538,8 +545,11 @@ impl Ctx<'_> {
             .children
             .iter()
             .partition(|child| child.positioning == Positioning::Auto);
-        // Fill children take the stack's leftover extent, so it cannot size to its content.
-        let primary = if flow.iter().any(|child| child.sizing[main] == Sizing::Fill) {
+        // Shown fill children take the stack's leftover extent, so it cannot size to its content.
+        let primary = if flow
+            .iter()
+            .any(|child| child.visible && child.sizing[main] == Sizing::Fill)
+        {
             Align::Min
         } else {
             primary

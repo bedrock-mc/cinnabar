@@ -29,36 +29,64 @@ fn button_state(value: &str) -> Option<&'static str> {
         .find(|state| *state == value)
 }
 
-/// Wraps `content` as a button pressed as `button.<id>`. Children named for
-/// button states become them; otherwise the content shows in every state.
-pub(super) fn button(content: Body, id: &str) -> Body {
-    let children: Vec<String> = match (type_of(&content), content.get("controls")) {
-        ("panel", Some(Value::Array(controls))) => controls
-            .iter()
-            .filter_map(|control| control.as_object()?.keys().next().cloned())
-            .collect(),
-        _ => Vec::new(),
+/// The button states `node`'s own Figma children are named for, before any
+/// layout wrapping nests them.
+pub(super) fn named_states(node: &Node) -> Vec<&'static str> {
+    let names: Vec<String> = node
+        .children
+        .iter()
+        .map(|child| super::names::identifier(&super::names::parse(&child.name).words, ""))
+        .collect();
+    BUTTON_STATES
+        .iter()
+        .map(|(state, _)| *state)
+        .filter(|state| names.iter().any(|name| name == state))
+        .collect()
+}
+
+/// The button states among a variant panel's direct children.
+pub(super) fn direct_states(body: &Body) -> Vec<&'static str> {
+    let Some(Value::Array(controls)) = body.get("controls") else {
+        return Vec::new();
     };
-    let has = |state: &str| children.iter().any(|name| name == state);
-    let (mut body, states): (Body, Vec<&str>) = if has("default") {
-        let states = BUTTON_STATES
-            .iter()
-            .map(|(state, _)| *state)
-            .filter(|state| has(state))
-            .collect();
-        (content, states)
-    } else {
-        let mut inner = content;
+    BUTTON_STATES
+        .iter()
+        .map(|(state, _)| *state)
+        .filter(|state| controls.iter().any(|control| control.get(*state).is_some()))
+        .collect()
+}
+
+/// Wraps `content` as a button pressed as `button.<id>`. With a `default`
+/// among `states` (descendants of `content` named for them), each state gets
+/// its own control, a missing hover or pressed one copying the default's;
+/// otherwise the content sits outside the state-switched controls and shows
+/// in every state.
+pub(super) fn button(content: Body, id: &str, states: &[&'static str]) -> Body {
+    let wrap = |mut inner: Body| {
         inner.insert("size".into(), json!(["100%", "100%"]));
-        (panel(vec![entry("default", inner)]), vec!["default"])
+        panel(vec![entry("content", inner)])
     };
+    let mut body = if !states.contains(&"default") {
+        wrap(content)
+    } else if type_of(&content) == "panel" {
+        content
+    } else {
+        wrap(content)
+    };
+    let mut present = states.to_vec();
+    if present.contains(&"default") {
+        let missing: Vec<&str> = ["hover", "pressed"]
+            .into_iter()
+            .filter(|state| !present.contains(state))
+            .collect();
+        if copy_state(&mut body, "default", &missing) {
+            present.extend(missing);
+        }
+    }
     body.insert("type".into(), "button".into());
     for (state, property) in BUTTON_STATES {
-        if states.contains(&state) {
-            body.insert(property.into(), state.into());
-        } else if state != "locked" {
-            body.insert(property.into(), "default".into());
-        }
+        let target = if present.contains(&state) { state } else { "" };
+        body.insert(property.into(), target.into());
     }
     let target = format!("button.{id}");
     body.insert(
@@ -70,6 +98,39 @@ pub(super) fn button(content: Body, id: &str) -> Body {
     );
     body.insert("sound_name".into(), "random.click".into());
     body
+}
+
+/// Inserts copies of the first control named `from` (breadth first, as state
+/// targets resolve) right after it under each of `names`; `false` if absent.
+fn copy_state(body: &mut Body, from: &str, names: &[&str]) -> bool {
+    let mut queue: std::collections::VecDeque<&mut Body> = std::collections::VecDeque::from([body]);
+    while let Some(next) = queue.pop_front() {
+        let Some(Value::Array(controls)) = next.get_mut("controls") else {
+            continue;
+        };
+        let found = controls.iter().position(|control| {
+            control
+                .as_object()
+                .is_some_and(|entry| entry.keys().next().is_some_and(|key| key == from))
+        });
+        if let Some(at) = found {
+            let original = controls[at][from].clone();
+            for (offset, name) in names.iter().enumerate() {
+                controls.insert(at + 1 + offset, json!({ *name: original.clone() }));
+            }
+            return true;
+        }
+        for control in controls.iter_mut() {
+            if let Some(child) = control
+                .as_object_mut()
+                .and_then(|entry| entry.values_mut().next())
+                .and_then(Value::as_object_mut)
+            {
+                queue.push_back(child);
+            }
+        }
+    }
+    false
 }
 
 impl Ctx<'_> {

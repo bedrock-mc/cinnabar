@@ -315,14 +315,14 @@ fn naming_convention_adds_buttons_bindings_and_factories() {
     assert_eq!(play["type"], "button");
     assert_eq!(play["button_mappings"][0]["to_button_id"], "button.play");
     for state in ["default_control", "hover_control", "pressed_control"] {
-        assert_eq!(play[state], "default", "{state}");
+        assert_eq!(play[state], "", "{state}: the content shows in every state");
     }
-    assert_eq!(control(play, "default")["size"], json!(["100%", "100%"]));
+    assert_eq!(control(play, "content")["size"], json!(["100%", "100%"]));
     let quit = control(&ui, "quit");
     assert_eq!(quit["button_mappings"][0]["to_button_id"], "button.quit");
     assert_eq!(
         (&quit["hover_control"], &quit["pressed_control"]),
-        (&json!("hover"), &json!("default"))
+        (&json!("hover"), &json!("pressed"))
     );
     assert_eq!(
         control(&ui, "badge")["bindings"],
@@ -507,7 +507,7 @@ fn state_variants_become_button_states() {
     for (property, state) in [
         ("default_control", "default"),
         ("hover_control", "hover"),
-        ("pressed_control", "default"),
+        ("pressed_control", "pressed"),
         ("locked_control", "locked"),
     ] {
         assert_eq!(menu[property], state, "{property}");
@@ -519,7 +519,11 @@ fn state_variants_become_button_states() {
         .iter()
         .filter_map(|control| control.as_object()?.keys().next())
         .collect();
-    assert_eq!(states, ["default", "hover", "locked"]);
+    assert_eq!(
+        states,
+        ["default", "pressed", "hover", "locked"],
+        "pressed copies default"
+    );
     assert_eq!(control(menu, "default")["size"], json!(["100%", "100%"]));
     assert_eq!(control(control(menu, "default"), "label")["text"], "Play");
     let quit = control(&ui, "quit");
@@ -548,6 +552,11 @@ fn fill_children_keep_their_share_under_primary_alignment() {
     let (_, _, frame) = laid_out(&conversion, 1);
     assert_eq!(rect(&frame, "g"), [0.0, 0.0, 20.0, 20.0]);
     assert_eq!(rect(&frame, "h"), [20.0, 0.0, 80.0, 20.0]);
+    assert_eq!(
+        rect(&frame, "g2"),
+        [40.0, 20.0, 20.0, 20.0],
+        "a hidden fill child takes no share"
+    );
 }
 
 // A `@button` instance's variants already carry its opacity; it applies once.
@@ -638,4 +647,99 @@ fn absolute_children_keep_their_drawing_order() {
         near(pixel(&rgba, 120, 90, 5), [255, 0, 255, 255]),
         "reversed: the cover above C"
     );
+}
+
+/// Fixed-advance text and no textures, for laying out the bound tree directly.
+struct Plain;
+
+impl json_ui::TextMeasure for Plain {
+    fn extent(&self, text: &str) -> [f64; 2] {
+        [text.len() as f64 * 6.0, 9.0]
+    }
+}
+
+impl json_ui::TextureSource for Plain {
+    fn texture(&self, _: &str) -> Option<json_ui::TextureMeta> {
+        None
+    }
+}
+
+/// Sprite tints drawn within the box named `name` under the interaction state
+/// `state` makes from its key, through the engine's button state machinery.
+fn tints(frame: &Frame, name: &str, state: impl Fn(String) -> json_ui::ViewState) -> Vec<[u8; 4]> {
+    let laid = frame.boxes.iter().find(|laid| laid.name == name).unwrap();
+    let env = json_ui::LayoutEnv {
+        text: &Plain,
+        textures: &Plain,
+    };
+    let (out, _) = json_ui::layout_with(&frame.bound, frame.root, &env, &state(laid.key.clone()));
+    let [x, y, w, h] = laid.rect;
+    json_ui::emit(&out, &env)
+        .into_iter()
+        .filter(|node| {
+            node.dest.x >= x
+                && node.dest.y >= y
+                && node.dest.x + node.dest.w <= x + w
+                && node.dest.y + node.dest.h <= y + h
+        })
+        .filter_map(|node| match node.draw {
+            Draw::Sprite { color, .. } => Some(color),
+            _ => None,
+        })
+        .collect()
+}
+
+fn rest(_: String) -> json_ui::ViewState {
+    json_ui::ViewState::default()
+}
+
+fn hover(key: String) -> json_ui::ViewState {
+    json_ui::ViewState {
+        hovered: Some(key),
+        ..Default::default()
+    }
+}
+
+fn press(key: String) -> json_ui::ViewState {
+    json_ui::ViewState {
+        hovered: Some(key.clone()),
+        pressed: Some(key),
+        ..Default::default()
+    }
+}
+
+// Buttons stay drawn when hovered and pressed: without states the content shows
+// in every state, and a missing state shows the default's look.
+#[test]
+fn buttons_draw_in_every_interaction_state() {
+    let conversion = figma::convert(&fixture("button_states"), &BTreeMap::new());
+    assert!(conversion.warnings.is_empty(), "{:?}", conversion.warnings);
+    let (_, _, frame) = laid_out(&conversion, 1);
+    let grey = [51, 51, 51, 255];
+    for state in [rest, hover, press] {
+        assert_eq!(tints(&frame, "plain", state), [grey]);
+    }
+    let (dark, light) = ([102, 0, 0, 255], [204, 0, 0, 255]);
+    assert_eq!(tints(&frame, "pair", rest), [dark]);
+    assert_eq!(tints(&frame, "pair", hover), [light]);
+    assert_eq!(
+        tints(&frame, "pair", press),
+        [dark],
+        "no pressed state: the default look"
+    );
+}
+
+// States nest inside an auto-layout button's generated stack and still switch.
+#[test]
+fn auto_layout_button_states_are_found_in_figma_children() {
+    let conversion = figma::convert(&fixture("button_states"), &BTreeMap::new());
+    let ui = ui(&conversion);
+    let auto = control(&ui, "auto");
+    assert_eq!(
+        (&auto["default_control"], &auto["hover_control"]),
+        (&json!("default"), &json!("hover"))
+    );
+    let (_, _, frame) = laid_out(&conversion, 1);
+    assert_eq!(tints(&frame, "auto", rest), [[0, 102, 0, 255]]);
+    assert_eq!(tints(&frame, "auto", hover), [[0, 204, 0, 255]]);
 }

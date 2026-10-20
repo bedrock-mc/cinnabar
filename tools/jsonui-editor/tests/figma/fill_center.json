@@ -1,12 +1,84 @@
 {
-  "id": "10:1", "name": "Fill Test", "type": "FRAME", "width": 100, "height": 40,
+  "id": "10:1",
+  "name": "Fill Test",
+  "type": "FRAME",
+  "width": 100,
+  "height": 40,
   "children": [
-    { "id": "10:2", "name": "Row", "type": "FRAME", "x": 0, "y": 0, "width": 100, "height": 20,
-      "layout": { "mode": "HORIZONTAL", "primary_align": "CENTER" },
+    {
+      "id": "10:2",
+      "name": "Row",
+      "type": "FRAME",
+      "x": 0,
+      "y": 0,
+      "width": 100,
+      "height": 20,
+      "layout": {
+        "mode": "HORIZONTAL",
+        "primary_align": "CENTER"
+      },
       "children": [
-        { "id": "10:3", "name": "G", "type": "FRAME", "x": 0, "y": 0, "width": 20, "height": 20 },
-        { "id": "10:4", "name": "H", "type": "FRAME", "x": 20, "y": 0, "width": 80, "height": 20,
-          "sizing": ["FILL", "FIXED"] }
-      ] }
+        {
+          "id": "10:3",
+          "name": "G",
+          "type": "FRAME",
+          "x": 0,
+          "y": 0,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "id": "10:4",
+          "name": "H",
+          "type": "FRAME",
+          "x": 20,
+          "y": 0,
+          "width": 80,
+          "height": 20,
+          "sizing": [
+            "FILL",
+            "FIXED"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "10:5",
+      "name": "Hidden Fill Row",
+      "type": "FRAME",
+      "x": 0,
+      "y": 20,
+      "width": 100,
+      "height": 20,
+      "layout": {
+        "mode": "HORIZONTAL",
+        "primary_align": "CENTER"
+      },
+      "children": [
+        {
+          "id": "10:6",
+          "name": "G2",
+          "type": "FRAME",
+          "x": 40,
+          "y": 0,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "id": "10:7",
+          "name": "H2",
+          "type": "FRAME",
+          "visible": false,
+          "x": 60,
+          "y": 0,
+          "width": 40,
+          "height": 20,
+          "sizing": [
+            "FILL",
+            "FIXED"
+          ]
+        }
+      ]
+    }
   ]
 }
