@@ -449,6 +449,66 @@ fn compiler_resource_specializations_have_distinct_names() {
 }
 
 #[test]
+fn compiler_specializations_distinguish_opaque_parameter_positions() {
+    success(
+        VERTEX,
+        "#version 330
+        uniform sampler2D source;
+        vec4 tap(sampler2D s, vec2 uv) { return texture(s, uv); }
+        vec4 tap(vec2 uv, sampler2D s) { return 2.0 * texture(s, uv); }
+        out vec4 color;
+        void main() { color = tap(source, vec2(0.25)) + tap(vec2(0.75), source); }",
+    );
+}
+
+#[test]
+fn compiler_cyclic_varyings_report_transform_diagnostics() {
+    for declarations in [
+        "struct S { S child; };\nout S value;",
+        "struct S { S child[2]; };\nout S value[2];",
+        "struct S { T child; }; struct T { S child; };\nout T value;",
+    ] {
+        let translation = translate(
+            &format!("#version 330\n{declarations}\nvoid main() {{ gl_Position = vec4(0.0); }}"),
+            FRAGMENT,
+        );
+        let failed = program(&translation, "composite");
+        assert!(!failed.is_ok());
+        assert!(
+            failed.all_diagnostics().any(|diagnostic| {
+                diagnostic.phase == Phase::Transform
+                    && diagnostic.message.contains("cyclic struct")
+                    && diagnostic.location.as_ref().is_some_and(|location| {
+                        location.file == "composite.vsh" && location.line == 3
+                    })
+            }),
+            "{:#?}",
+            failed.all_diagnostics().collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
+fn compiler_cyclic_declarations_report_diagnostics() {
+    for declaration in [
+        "S value;",
+        "uniform S value;",
+        "uniform Values { S value; };",
+        "layout(std430) buffer Values { S value; };",
+    ] {
+        let translation = translate(
+            VERTEX,
+            &format!(
+                "#version 450\nstruct S {{ S child; }};\n{declaration}\nout vec4 color; void main() {{ color = vec4(1.0); }}"
+            ),
+        );
+        let failed = program(&translation, "composite");
+        assert!(!failed.is_ok());
+        assert!(failed.all_diagnostics().next().is_some());
+    }
+}
+
+#[test]
 fn boolean_array_lengths_keep_the_array_receiver() {
     success(
         VERTEX,

@@ -134,7 +134,15 @@ pub(super) fn specialize_opaque_params(mut items: Vec<Item>) -> Vec<Item> {
                         .map(|(_, arg)| arg[0].text().to_string())
                         .collect();
                     let sname = instances
-                        .entry((callee.clone(), opaque_args.clone()))
+                        .entry((
+                            callee.clone(),
+                            params
+                                .iter()
+                                .enumerate()
+                                .filter_map(|(index, param)| param.opaque.then_some(index))
+                                .collect::<Vec<_>>(),
+                            opaque_args.clone(),
+                        ))
                         .or_insert_with(|| {
                             loop {
                                 let name = format!("iris_specialized_{next_name}");
