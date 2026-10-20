@@ -187,6 +187,67 @@ impl Gpu {
             })
     }
 
+    /// Executes a compute witness and reads its output binding as four-word records.
+    pub fn compute_readback(
+        &self,
+        source: &str,
+        bindings: &[wgpu::BindGroupEntry<'_>],
+        output_binding: u32,
+        records: usize,
+        invocations: u32,
+    ) -> Vec<[u32; 4]> {
+        let module = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: None,
+                source: wgpu::ShaderSource::Wgsl(source.into()),
+            });
+        let pipeline = self
+            .device
+            .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: None,
+                layout: None,
+                module: &module,
+                entry_point: Some("witness"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
+        let output = self.words(
+            &vec![0; records * 4],
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        );
+        let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: output.size(),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut entries = bindings.to_vec();
+        entries.push(wgpu::BindGroupEntry {
+            binding: output_binding,
+            resource: output.as_entire_binding(),
+        });
+        let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &entries,
+        });
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &group, &[]);
+            pass.dispatch_workgroups(invocations, 1, 1);
+        }
+        encoder.copy_buffer_to_buffer(&output, 0, &readback, 0, output.size());
+        self.queue.submit([encoder.finish()]);
+        readback.slice(..).map_async(wgpu::MapMode::Read, |_| {});
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
+        bytemuck::cast_slice(&readback.slice(..).get_mapped_range().unwrap()).to_vec()
+    }
+
     /// Uploads the packed production uniform or vertex words used by a fixture.
     pub fn buffer(&self, data: &[f32], usage: wgpu::BufferUsages) -> wgpu::Buffer {
         self.device
