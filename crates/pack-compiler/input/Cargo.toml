@@ -10,7 +10,7 @@ platform-specific = ["macos", "windows"]
 reads = ["crates/assets/data/*"]
 
 [dependencies]
-pack-json = { path = "../../pack-json" }
+bedrock-packs.workspace = true
 assets = { path = "../../assets" }
 image.workspace = true
 serde = { version = "1", features = ["derive"] }

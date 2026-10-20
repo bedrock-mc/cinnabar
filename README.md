@@ -56,19 +56,61 @@ Vanilla behaviour is the default. Everything below is extra:
 
 ## How it works
 
-```text
-cinnabar (Rust, Bevy/wgpu)  ── local socket ──  bedrock-core (Go)
-                                                        ├─ RakNet ──── servers
-                                                        └─ NetherNet ─ Realms and friend worlds
+The Rust client owns rendering, input and gameplay. The default backend still uses a local
+Go core for account and network services. An opt-in native backend connects the client directly
+to reusable Rust libraries. The target game version is pinned in `assets/bedrock-target.json`.
+
+Launch the native menu, then sign in or select a saved account and join a server:
+
+```sh
+cargo run -p cinnabar --features native-networking -- --native-networking raknet
 ```
 
-The Rust client owns everything you see and play. The Go core owns Xbox sign-in, encryption and
-the network transports. The target game version is pinned in `assets/bedrock-target.json`.
+Native menu account and local-world services start without a Go Core process or control endpoint.
+Native mode uses the existing account menu for Microsoft device-code sign-in and saved-account
+validation. Pending sign-in leaves the active account unchanged until identity verification and
+account commit finish. Account changes, cancellation and expired credentials stop the original
+join; they do not trigger a signed-out retry. Refresh rotation and private derived-service
+checkpoints share the existing account-cache leases. Native sign-in can present the Xbox profile
+setup page and resume the same pending sign-in.
+
+Native account services include Realms and invitations, Xbox people and profiles, presence,
+featured-server discovery and world signaling. Realms can resolve RakNet or authenticated
+NetherNet. The session retains the selected account and connection key through Login, resource
+packs, startup and play, including retries and transfers.
+
+Direct startup also uses the selected saved account when one is available:
+
+```sh
+cargo run -p cinnabar --features native-networking -- --address HOST:PORT --native-networking raknet
+```
+
+Without a selected account, direct connections can use an offline identity where the server
+permits it. `nethernet-lan` selects directed IPv4 LAN discovery. Selected local worlds keep their
+original HTTP or LAN route and process generation. Desktop pack acquisition supports CDN
+archives and a verified persistent cache before falling back to game-socket chunks.
+
+Friend-world admission and hosting have native implementations, including legacy and Player
+Messaging signaling, signed peer admission and original Dragonfly or BDS worlds. Their native
+menu join gate remains disabled while end-to-end acceptance is completed. Broader retail
+account, server, browser and platform compatibility also remains under validation; Go stays
+the default until that work passes. The `--address friend_xuid/<xuid>` form uses the default Go
+backend; combined with `--native-networking`, it returns an error because the string supplies no
+verified friend-world selection. The native HTTPS/WebSocket relay has a separate operator;
+see [web/gateway/README.md](web/gateway/README.md) for configuration and current transport limits.
+
+The transport protocol cores are sans I/O. Runtime adapters own their sockets and timers;
+Tokio is an explicit adapter dependency rather than a requirement of the cores. The NetherNet
+repository also provides a Bevy adapter for caller-driven outbound sessions. Protocol/session,
+service and client-integration responsibilities stay in their owning libraries.
 
 Built on these libraries:
 
 | Library | Used for |
 | --- | --- |
+| [bedrock-net](https://github.com/cinnabar-mc/bedrock-net) | Native framing, compression, encryption, Login, resource packs and typed session lifecycle. |
+| [bedrock-services](https://github.com/cinnabar-mc/bedrock-services) | Native Microsoft/Xbox authentication, Minecraft credentials, Realms, profiles, presence and signaling. |
+| [nethernet](https://github.com/cinnabar-mc/nethernet) | Sans-I/O ICE, DTLS and SCTP with explicit Tokio and Bevy adapters. |
 | [protocolgen](https://github.com/cinnabar-mc/protocolgen) | Generates the Bedrock packet codec vendored in `crates/protocol/vendor`. |
 | [Axolotl Stack](https://github.com/axolotl-stack/axolotl-stack) | Jolyne (client session library), whose raw packet entries and spawn sequence `crates/protocol` adapts. MIT; see `THIRD_PARTY_NOTICES.md`. |
 | [gophertunnel](https://github.com/Sandertv/gophertunnel) | Bedrock login, encryption, resource packs and the packet relay. |

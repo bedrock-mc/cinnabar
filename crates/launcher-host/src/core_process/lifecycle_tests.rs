@@ -114,6 +114,58 @@ fn core_guard_stop_without_a_child_reports_not_running() {
 }
 
 #[test]
+fn detached_retirement_reports_the_actual_child_exit() {
+    let (child, directory) = stdin_holding_child();
+    let mut guard = CoreProcessGuard::default();
+    guard.replace(child);
+    let (done, retired) = crossbeam_channel::bounded(1);
+    guard.stop_detached_with_outcome(move |outcome| done.send(outcome).unwrap());
+    let outcome = retired.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(outcome, CoreStopOutcome::ExitedAfterGracefulClose);
+    assert_eq!(guard.stop(), CoreStopOutcome::NotRunning);
+    remove_directory(&directory);
+}
+
+/// A replacement cannot hide an earlier original detached child's still-running cleanup.
+#[test]
+fn exit_barrier_retains_every_actual_child_through_detached_cleanup_and_replacement() {
+    let (first, first_directory) = stdin_holding_child();
+    let (second, second_directory) = stdin_holding_child();
+    let mut guard = CoreProcessGuard::default();
+    let exit = guard.exit_barrier();
+    assert_eq!(exit.state(), CoreExitState::Confirmed);
+    guard.replace(first);
+    assert_eq!(exit.state(), CoreExitState::Pending);
+    let (stopped, observed) = crossbeam_channel::bounded(1);
+    let (release, continue_cleanup) = crossbeam_channel::bounded(1);
+    guard.stop_detached_with_outcome(move |outcome| {
+        stopped.send(outcome).unwrap();
+        continue_cleanup
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+    });
+    assert_eq!(
+        observed.recv_timeout(Duration::from_secs(5)).unwrap(),
+        CoreStopOutcome::ExitedAfterGracefulClose
+    );
+    guard.replace(second);
+    assert_eq!(guard.stop(), CoreStopOutcome::ExitedAfterGracefulClose);
+    assert_eq!(
+        exit.state(),
+        CoreExitState::Pending,
+        "the earlier actual callback still owns its receipt"
+    );
+    release.send(()).unwrap();
+    test_time::eventually_within(
+        Duration::from_secs(5),
+        "all original Core child receipts",
+        || exit.state() == CoreExitState::Confirmed,
+    );
+    remove_directory(&first_directory);
+    remove_directory(&second_directory);
+}
+
+#[test]
 fn core_guard_replace_stops_the_previous_child_gracefully() {
     let (first, first_directory) = stdin_holding_child();
     let (second, second_directory) = stdin_holding_child();

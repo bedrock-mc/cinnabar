@@ -427,7 +427,7 @@ pub(crate) fn parse_ui_defs(path: &Path, text: &str) -> Result<Vec<String>, Load
 
 fn read(path: &Path) -> Result<String, LoadError> {
     std::fs::read(path)
-        .map(|bytes| pack_json::decode_text(&bytes).into_owned())
+        .map(|bytes| bedrock_packs::jsonc::decode_text(&bytes).into_owned())
         .map_err(|source| LoadError::Read {
             path: path.to_path_buf(),
             source,

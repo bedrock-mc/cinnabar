@@ -1,6 +1,8 @@
 //! Offline control-endpoint witness: a withheld message reply cannot stall join polling.
 
-use super::super::{AccountControl, JoinStage, LauncherAccount, MessageEvent};
+use super::super::{
+    AccountControl, JoinStage, LauncherAccount, MessageEvent, finish_workers, worker_runtime,
+};
 use std::{
     io::{Read, Write},
     os::unix::net::{UnixListener, UnixStream},
@@ -11,6 +13,7 @@ use std::{
     thread,
     time::Duration,
 };
+use tokio_util::task::TaskTracker;
 
 /// Replies to a framed launcher request, holding message reports until the fixture ends.
 fn respond(mut stream: UnixStream, held: &mut Vec<UnixStream>) {
@@ -63,7 +66,14 @@ fn slow_inbox_report_does_not_block_join_polling() {
             }
         }
     });
-    let mut account = LauncherAccount::new(dir.clone(), dir.join("artwork"));
+    let runtime = worker_runtime();
+    let tasks = TaskTracker::new();
+    let mut account = LauncherAccount::new(
+        dir.clone(),
+        dir.join("artwork"),
+        runtime.handle().clone(),
+        tasks.clone(),
+    );
     account.set_joining(true);
     account.report_message(MessageEvent {
         event_type: "Delete".into(),
@@ -78,6 +88,7 @@ fn slow_inbox_report_does_not_block_join_polling() {
     drop(account);
     done.store(true, Ordering::Relaxed);
     fixture.join().unwrap();
+    finish_workers(runtime, tasks);
     std::fs::remove_dir_all(dir).unwrap();
     assert_eq!(
         stage,

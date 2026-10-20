@@ -1,12 +1,12 @@
 //! Bounded import of ordinary pack archives and resource halves of add-on bundles.
 
-use pack_json::parse_jsonc;
+use bedrock_packs::jsonc::parse_jsonc;
 
 use crate::{
-    AdmissionError, MAX_ARCHIVE_BYTES, MAX_DECLARED_BYTES_PER_PACK, MAX_FILE_BYTES,
-    MAX_MANIFEST_BYTES, MAX_PACKS,
+    AdmissionError, MAX_DECLARED_BYTES_PER_PACK, MAX_FILE_BYTES, MAX_LOCAL_ARCHIVE_BYTES,
+    MAX_LOCAL_PACKS, MAX_MANIFEST_BYTES,
     library::{ImportReport, InstalledPack, LibraryError},
-    manifest::{Version, read_manifest},
+    manifest::{Purpose, Version, read_manifest},
     parser::{
         MANIFEST_NAMES, canonical_path, is_regular_file, prepare_zip_bytes, validate_archive_parts,
     },
@@ -60,7 +60,7 @@ pub fn prepare_import(path: &Path) -> Result<PreparedImport, LibraryError> {
         directory::archive(path)?
     } else if metadata.is_file() && !metadata.file_type().is_symlink() && is_pack_import_path(path)
     {
-        crate::library::read_bounded(path, MAX_ARCHIVE_BYTES)?
+        crate::library::read_bounded(path, MAX_LOCAL_ARCHIVE_BYTES)?
     } else {
         return Err(LibraryError::UnsupportedExtension);
     };
@@ -99,7 +99,8 @@ pub(crate) fn read_import(
         .to_string_lossy();
     read_bundle(bytes, &source, 0, &mut report, &mut imported)
         .map_err(|error| file_error(&source, error))?;
-    if imported.iter().map(|(_, bytes)| bytes.len()).sum::<usize>() > crate::MAX_STACK_ARCHIVE_BYTES
+    if imported.iter().map(|(_, bytes)| bytes.len()).sum::<usize>()
+        > crate::MAX_LOCAL_STACK_ARCHIVE_BYTES
     {
         return Err(AdmissionError::StackArchiveTooLarge.into());
     }
@@ -114,7 +115,7 @@ fn read_bundle(
     report: &mut ImportReport,
     imported: &mut ImportedArchives,
 ) -> Result<(), LibraryError> {
-    if bytes.len() > MAX_ARCHIVE_BYTES {
+    if bytes.len() > MAX_LOCAL_ARCHIVE_BYTES {
         return Err(AdmissionError::ArchiveTooLarge.into());
     }
     prepare_zip_bytes(&mut bytes)?;
@@ -134,11 +135,11 @@ fn read_bundle(
         .collect::<HashSet<_>>();
     let mut roots = roots.into_iter().collect::<Vec<_>>();
     roots.sort();
-    if roots.len() > MAX_PACKS {
+    if roots.len() > MAX_LOCAL_PACKS {
         return Err(AdmissionError::TooManyPacks.into());
     }
     for root in &roots {
-        if imported.len() >= MAX_PACKS {
+        if imported.len() >= MAX_LOCAL_PACKS {
             return Err(AdmissionError::TooManyPacks.into());
         }
         let result = read_candidate(&mut archive, &paths, root, &roots);
@@ -154,7 +155,7 @@ fn read_bundle(
             if !roots.iter().any(|root| path.starts_with(root))
                 && is_pack_import_path(Path::new(path))
             {
-                let bytes = match read_entry(&mut archive, *index, MAX_ARCHIVE_BYTES as u64) {
+                let bytes = match read_entry(&mut archive, *index, MAX_LOCAL_ARCHIVE_BYTES as u64) {
                     Ok(bytes) => bytes,
                     Err(error) => {
                         report.rejected.push(format!("{source}/{path}: {error}"));
@@ -162,7 +163,7 @@ fn read_bundle(
                     }
                 };
                 nested_bytes = nested_bytes.saturating_add(bytes.len());
-                if nested_bytes > crate::MAX_STACK_ARCHIVE_BYTES {
+                if nested_bytes > crate::MAX_LOCAL_STACK_ARCHIVE_BYTES {
                     return Err(AdmissionError::StackArchiveTooLarge.into());
                 }
                 let nested_source = format!("{source}/{path}");
@@ -277,13 +278,14 @@ fn read_candidate(
         .finish()
         .map_err(|_| AdmissionError::MalformedZip)?
         .into_inner();
-    let (validated, _) = validate_archive_parts(
+    let (validated, _, _) = validate_archive_parts(
         metadata.id,
         &metadata.version_text(),
         "",
         bytes.clone(),
         None,
         None,
+        Purpose::Rendering,
     )
     .map_err(|error| file_error(&manifest_path, error.into()))?;
     if let Ok(Some(language)) =
@@ -327,7 +329,7 @@ fn read_metadata(bytes: &[u8]) -> Result<Option<InstalledPack>, LibraryError> {
         .ok_or(AdmissionError::InvalidVersion)?
         .0;
     let version_text = version.map(|part| part.to_string()).join(".");
-    let manifest = read_manifest(bytes, id, &version_text)?;
+    let manifest = read_manifest(bytes, id, &version_text, Purpose::Rendering)?;
     let min_engine_version = if header["min_engine_version"].is_null() {
         None
     } else {

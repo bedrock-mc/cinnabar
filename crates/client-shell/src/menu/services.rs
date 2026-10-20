@@ -10,14 +10,20 @@ impl MenuRuntime {
         client_cache_enabled: bool,
         player_runtime: &client_state::PlayerRuntime,
         in_session: bool,
-        launcher: Option<ResMut<LauncherCoreSlot>>,
+        launcher: Option<ResMut<LauncherServices>>,
         launcher_account: Option<ResMut<launcher_account::LauncherAccount>>,
         mut local_worlds: Option<&mut crate::local_worlds::LocalWorlds>,
     ) {
         if let Some(mut slot) = launcher {
+            #[cfg(feature = "native-networking")]
+            slot.set_title_presence_owner(if self.native_sign_in {
+                launcher_host::launcher_core::TitlePresenceOwner::Native
+            } else {
+                launcher_host::launcher_core::TitlePresenceOwner::Core
+            });
             // Remote direct sessions have a separate game core. Local worlds use the
             // account core, so sign-in must not restart it during local play.
-            let idle = launcher_core::account_core_idle(
+            let idle = launcher_services::account_core_idle(
                 self.is_launcher(),
                 self.joining_past_sign_in(),
                 in_session,
@@ -32,7 +38,8 @@ impl MenuRuntime {
                 std::time::Instant::now(),
             );
             // A held join waits for this core only while it may still start for that join.
-            self.account_core = (idle && self.is_launcher()).then(|| slot.account_core());
+            self.account_core =
+                (idle && self.is_launcher() && !self.native_sign_in).then(|| slot.account_core());
         } else {
             self.account_core = None;
         }
@@ -42,6 +49,15 @@ impl MenuRuntime {
         }
         match launcher_account {
             Some(mut account) => {
+                account.0.set_native_catalog(self.native_sign_in);
+                #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+                account.0.set_native_host_intent(if self.native_sign_in {
+                    local_worlds
+                        .as_deref()
+                        .and_then(|worlds| worlds.native_host_intent())
+                } else {
+                    None
+                });
                 let options = self.settings_snapshot().0;
                 account.set_cinnabar_api(
                     options.update_preferences().channel,
@@ -60,6 +76,8 @@ impl MenuRuntime {
                 self.sign_out_locally();
             }
         }
+        #[cfg(feature = "native-networking")]
+        self.poll_native_catalog(std::time::Instant::now());
         if let Some(worlds) = local_worlds {
             self.sync_local_worlds(worlds, in_session);
         }

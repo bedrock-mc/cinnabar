@@ -95,7 +95,8 @@ fn fixture_pack(paths: &str) -> ServerUiPack {
                 .read_to_end(&mut manifest)
                 .unwrap();
             let manifest: serde_json::Value =
-                serde_json::from_slice(&pack_json::normalize_jsonc(&manifest).unwrap()).unwrap();
+                serde_json::from_slice(&bedrock_packs::jsonc::normalize_jsonc(&manifest).unwrap())
+                    .unwrap();
             let header = &manifest["header"];
             let id = header["uuid"].as_str().unwrap().parse().unwrap();
             let version = header["version"]
@@ -105,11 +106,12 @@ fn fixture_pack(paths: &str) -> ServerUiPack {
                 .map(ToString::to_string)
                 .collect::<Vec<_>>()
                 .join(".");
-            protocol::ResourcePackArchive::unencrypted(id, version, String::new(), bytes)
+            bedrock_packs::ResourcePackArchive::unencrypted(id, version, String::new(), bytes)
         })
         .collect();
-    let stack =
-        resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(archives));
+    let stack = resource_pack::validate_handoff(bedrock_packs::ResourcePackHandoff::from_archives(
+        archives,
+    ));
     assert!(stack.rejections().is_empty());
     let view = resource_pack::LayeredPackView::new(stack);
     let ui_layers = view

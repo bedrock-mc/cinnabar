@@ -124,7 +124,7 @@ fn normalize_geometry(
     bytes: &[u8],
     #[cfg(test)] retained: Option<std::sync::Arc<memory::RetainedDocuments>>,
 ) -> Option<NormalizedGeometry> {
-    let mut value = pack_json::parse_jsonc::<Value>(bytes).ok()?;
+    let mut value = bedrock_packs::jsonc::parse_jsonc::<Value>(bytes).ok()?;
     if !sanitize::sanitize_geometry(&mut value) {
         return None;
     }

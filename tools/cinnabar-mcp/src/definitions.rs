@@ -71,6 +71,23 @@ pub fn definitions() -> Value {
             } }
         },
         {
+            "name": "native_friends",
+            "description": "Read the selected native account's current friend-world rows. To queue a join, pass the returned revision/index/XUID in join and allow_remote:true. Uses the row's private catalog selection; normal friend UI remains unchanged. A queued reply is not admission or remote cleanup.",
+            "inputSchema": { "type": "object", "properties": {
+                "join": { "type": "object", "properties": {
+                    "revision": { "type": "integer", "minimum": 0 },
+                    "index": { "type": "integer", "minimum": 0 },
+                    "expected_xuid": { "type": "string" }
+                }, "required": ["revision", "index", "expected_xuid"], "additionalProperties": false },
+                "allow_remote": { "type": "boolean" }
+            }, "additionalProperties": false }
+        },
+        {
+            "name": "disconnect",
+            "description": "Request ordinary session disconnect and membership cleanup. Poll state afterward; acknowledgement only queues the existing menu action.",
+            "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false }
+        },
+        {
             "name": "input",
             "description": "Synthetic input delivered as real key and mouse events, so bindings, UI, menus and local mods (including showcase ability keys like Digit1..Digit4) see them. Held controls stay down until released. While driven, the window counts as focused and captured without grabbing the OS cursor; release_control hands it back.",
             "inputSchema": { "type": "object", "properties": {

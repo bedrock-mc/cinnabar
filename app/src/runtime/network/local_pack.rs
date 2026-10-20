@@ -14,7 +14,7 @@ pub(super) fn local_pack_view_at(path: &Path) -> Option<LayeredPackView> {
     let key = std::fs::read(path.with_extension("key")).unwrap_or_default();
     let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
     let (id, version) = stem.split_once('_').expect("<uuid>_<version> file name");
-    let archive = protocol::ResourcePackArchive::with_content_key(
+    let archive = bedrock_packs::ResourcePackArchive::with_content_key(
         id.parse().unwrap(),
         version.into(),
         String::new(),
@@ -22,7 +22,7 @@ pub(super) fn local_pack_view_at(path: &Path) -> Option<LayeredPackView> {
         key,
     );
     let stack =
-        resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(vec![
+        resource_pack::validate_handoff(bedrock_packs::ResourcePackHandoff::from_archives(vec![
             archive,
         ]));
     for rejection in stack.rejections() {

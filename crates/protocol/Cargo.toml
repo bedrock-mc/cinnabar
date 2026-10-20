@@ -8,8 +8,12 @@ publish = false
 autotests = false
 
 [package.metadata.cinnabar]
-platform-specific = ["windows"]
+platform-specific = ["windows", "macos"]
 reads = [
+    "core/go.mod",
+    "core/go.sum",
+    "core/authcache/service_device_namespace.txt",
+    "core/proxy/resource_pack_window.txt",
     "assets/bedrock-target.json",
     "assets/block-projection-v2193.json",
     "crates/protocol-ids/data/protocol-ids.json",
@@ -21,12 +25,20 @@ reads = [
 [features]
 # Fixture builders and semantic observations for other crates' tests.
 test-support = []
+native-networking = ["dep:bedrock-net", "dep:p384", "dep:rand", "dep:nethernet", "dep:nethernet-tokio", "dep:rustls", "dep:reqwest", "dep:provider_http", "dep:url", "dep:webpki-roots", "dep:md-5", "uuid/serde", "uuid/v5", "serde_json/raw_value"]
 
 [[test]]
 name = "it"
 path = "tests/it/main.rs"
 
+[[example]]
+name = "native-join"
+required-features = ["native-networking"]
+
 [dependencies]
+bedrock-client.workspace = true
+bedrock-packs.workspace = true
+resource-pack = { path = "../resource-pack" }
 protocol-ids = { path = "../protocol-ids" }
 simulation-clock = { path = "../simulation-clock" }
 zeroize = "1"
@@ -46,16 +58,31 @@ tracing.workspace = true
 web-time.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 xxhash-rust = { version = "0.8.15", features = ["xxh64"] }
-bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
+bedrock-protocol-1-26-51.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 uuid = { workspace = true, features = ["js"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+provider_http = { package = "reqwest", version = "0.12", default-features = false, features = ["rustls-tls"], optional = true }
+url = { version = "2", optional = true }
+md-5 = { version = "0.10", optional = true }
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"], optional = true }
 cap-std = "3.4.5"
 cap-fs-ext = "3.4.5"
+bedrock-net = { workspace = true, features = ["raknet", "login", "messaging"], optional = true }
+p384 = { version = "0.14", default-features = false, features = ["std", "ecdsa", "ecdh", "pkcs8"], optional = true }
+rand = { version = "0.10", optional = true }
+nethernet-tokio = { workspace = true, optional = true }
+nethernet = { workspace = true, optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring"], optional = true }
+webpki-roots = { version = "1", optional = true }
 
 [dev-dependencies]
+rsa.workspace = true
+raknet.workspace = true
+resource-pack = { path = "../resource-pack", features = ["test-support"] }
+tokio = { workspace = true, features = ["test-util", "process"] }
 test-alloc = { path = "../test-alloc" }
 tempfile = "3"
 test-time = { path = "../test-time" }

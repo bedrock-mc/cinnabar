@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/latencytrace"
 	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
@@ -270,9 +271,6 @@ type dialerDownstream interface {
 	Proto() minecraft.Protocol
 }
 
-// maxUpstreamDecompressedBatch bounds one decompressed upstream network batch.
-const maxUpstreamDecompressedBatch = 256 * 1024 * 1024
-
 // newUpstreamDialerForAdmission observes incoming pack negotiation before filtering
 // subclients and leaves payload observation to callers that need packet bodies.
 func newUpstreamDialerForAdmission(
@@ -287,7 +285,7 @@ func newUpstreamDialerForAdmission(
 		DownloadResourcePack: ignoreResourcePack,
 		ResourcePackDownload: boundedResourcePackDownload(),
 		EnableBatchReading:   true,
-		MaxDecompressedLen:   maxUpstreamDecompressedBatch,
+		MaxDecompressedLen:   bridgecontract.MaxUpstreamDecompressedBatchBytes,
 		FlushRate:            -1, // the relay's packet readers own flushing
 		AcceptPacketHeader: func(h packet.Header) bool {
 			// Observe even rejected subclients before body decoding or login handling.
@@ -324,7 +322,7 @@ func ignoreResourcePack(_ uuid.UUID, _ string, _, _ int) bool { return false }
 // outstanding. A pack with more chunks than this window would otherwise defer its
 // overflow to one request per response, so a 123-chunk pack requested through a
 // 100-chunk window tricksles its last 23 chunks one at a time.
-const resourcePackRequestWindow = 1024
+var resourcePackRequestWindow = embeddedResourcePackWindow()
 
 // boundedResourcePackDownload keeps every chunk of a pack in flight at once: a pack's
 // chunk count is bounded by the server's own declaration, so the window only has to

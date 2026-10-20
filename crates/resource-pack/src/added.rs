@@ -3,6 +3,7 @@
 use crate::{
     AdmissionError, LibraryError, ValidatedPack, ValidatedPackStack,
     import::read_import,
+    manifest::Purpose,
     parser::validate_archive_parts,
     subpacks::{device_memory_tier, select},
 };
@@ -77,13 +78,14 @@ fn admit(archive: Vec<u8>, memory: u32) -> Result<Vec<ValidatedPack>, LibraryErr
         .into_iter()
         .map(|(metadata, bytes)| {
             let subpack = select(&metadata.subpacks, memory);
-            let (pack, _) = validate_archive_parts(
+            let (pack, _, _) = validate_archive_parts(
                 metadata.id,
                 &metadata.version_text(),
                 subpack,
                 bytes,
                 None,
                 None,
+                Purpose::Rendering,
             )?;
             Ok(pack)
         })
@@ -105,5 +107,5 @@ fn assemble(
     ValidatedPackStack::compose(&lower, &layer(above))
 }
 
-#[cfg(all(test, feature = "handoff"))]
+#[cfg(test)]
 mod tests;

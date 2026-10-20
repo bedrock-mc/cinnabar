@@ -209,7 +209,7 @@ fn read_json(path: &Path) -> Result<Value, String> {
         return Err("texture metadata exceeds byte limit".to_owned());
     }
     let bytes = fs::read(path).map_err(|error| error.to_string())?;
-    pack_json::parse_jsonc(&bytes).map_err(|error| error.to_string())
+    bedrock_packs::jsonc::parse_jsonc(&bytes).map_err(|error| error.to_string())
 }
 
 /// Decodes a texture set while rejecting conflicting channel definitions.

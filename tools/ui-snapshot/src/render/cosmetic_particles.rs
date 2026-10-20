@@ -53,7 +53,8 @@ pub(super) fn png(
     for batch in mesh.batches() {
         for triangle in mesh.indices()
             [batch.index_range.start as usize..batch.index_range.end as usize]
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
         {
             let vertices = triangle
                 .iter()

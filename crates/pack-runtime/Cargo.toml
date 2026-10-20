@@ -9,8 +9,8 @@ publish = false
 test-support = []
 
 [dependencies]
+bedrock-packs.workspace = true
 bridge = { path = "../bridge" }
-pack-json = { path = "../pack-json" }
 assets = { path = "../assets" }
 image.workspace = true
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }

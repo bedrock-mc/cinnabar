@@ -1,5 +1,3 @@
-#![cfg(feature = "handoff")]
-
 use resource_pack::{LayeredPackView, PackDependency, validate_handoff};
 use std::{
     collections::BTreeSet,
@@ -21,14 +19,14 @@ fn view(paths: &[&str]) -> LayeredPackView {
             .unwrap();
         zip.write_all(b"fixture").unwrap();
     }
-    let archive = protocol::ResourcePackArchive::unencrypted(
+    let archive = bedrock_packs::ResourcePackArchive::unencrypted(
         id.parse().unwrap(),
         "1.0.0".into(),
         String::new(),
         zip.finish().unwrap().into_inner(),
     );
     LayeredPackView::tracked(validate_handoff(
-        protocol::ResourcePackHandoff::from_archives(vec![archive]),
+        bedrock_packs::ResourcePackHandoff::from_archives(vec![archive]),
     ))
 }
 

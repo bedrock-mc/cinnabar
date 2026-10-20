@@ -1,6 +1,6 @@
+use bedrock_packs::{ResourcePackArchive, ResourcePackHandoff};
 use std::sync::Arc;
 
-use protocol::{ResourcePackArchive, ResourcePackHandoff};
 use resource_pack::{PackAdmission, ValidatedPackStack};
 
 use super::{CompileEnvironment, CompiledStacks, compile_reusing};

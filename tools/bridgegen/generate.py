@@ -6,6 +6,9 @@ import json
 from pathlib import Path
 import subprocess
 
+import egress
+import host_world
+
 ROOT = Path(__file__).resolve().parents[2]
 STRUCT_TYPES = {"string": ("String", "string"), "u64": ("u64", "uint64"), "u32": ("u32", "uint32"), "strings": ("Vec<String>", "[]string")}
 
@@ -81,7 +84,7 @@ def declarations(manifest, root=ROOT):
                 raise ValueError("bridge contract values must fit their wire types")
         go += [f'    // {row["go_name"]}: {row["doc"]}', f'    {row["go_name"]} = {value}']
         if row["rust_name"]:
-            visibility = "pub(crate)" if row["rust_name"] in ("CONTROL_MAX_FRAME_LEN", "MAX_PING_TARGETS") else "pub"
+            visibility = "pub(crate)" if row["rust_name"] in ("CONTROL_MAX_FRAME_LEN",) else "pub"
             rust += ["", f'/// {row["doc"]}',
                      f'{visibility} const {row["rust_name"]}: {rust_type} = {value};']
     for row in manifest.get("string_lists", []):
@@ -156,7 +159,11 @@ def main():
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     manifest = json.loads((ROOT / "crates/bridge/data/contract.json").read_text(encoding="utf-8"))
-    for path, content in declarations(manifest).items():
+    outputs = declarations(manifest)
+    policy = json.loads((ROOT / "crates/bridge/data/gateway-egress.json").read_text(encoding="utf-8"))
+    outputs.update(egress.declarations(policy, ROOT))
+    outputs.update(host_world.declarations(ROOT))
+    for path, content in outputs.items():
         if args.check:
             if not path.exists() or path.read_text(encoding="utf-8") != content:
                 parser.exit(1, f"stale bridge contract: {path.relative_to(ROOT)}\n")

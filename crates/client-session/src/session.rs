@@ -31,10 +31,12 @@ const FINAL_CONTROL_FLUSH_TIMEOUT: Duration = Duration::from_millis(250);
 const NETWORK_PUMP_TERMINAL_MARKER: &str = "CINNABAR_NETWORK_PUMP_TERMINAL";
 
 #[cfg(not(target_arch = "wasm32"))]
-#[derive(Debug, Clone)]
 pub struct NetworkConfig {
     pub session_generation: SessionGeneration,
-    pub socket_dir: std::path::PathBuf,
+    pub endpoint: protocol::SessionEndpoint,
+    /// One application-owned acquisition future, polled on this session's runtime and cancelled with it.
+    #[cfg(feature = "native-networking")]
+    native_preparation: Option<NativeConnectionPreparation>,
     pub display_name: String,
     /// The user storage owner's opaque persisted login identifier.
     pub client_random_id: protocol::ClientRandomId,
@@ -47,6 +49,25 @@ pub struct NetworkConfig {
     /// Records this session's full packet capture when set.
     pub packet_capture: Option<packet_log::PacketCaptureRequest>,
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+mod config;
+
+/// One application-owned preparation that resolves its endpoint and moves the connection proof into Login.
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+pub type NativeConnectionPreparation = std::pin::Pin<
+    Box<
+        dyn std::future::Future<
+                Output = Result<
+                    (
+                        protocol::NativeConnectionTarget,
+                        protocol::NativeAuthentication,
+                    ),
+                    std::io::Error,
+                >,
+            > + Send,
+    >,
+>;
 
 /// Prepared facts returned by the pack owner at the join bootstrap boundary.
 #[derive(Debug)]
@@ -361,6 +382,9 @@ pub struct NetworkHandle<P = ()> {
     readiness_ingress: Arc<ReadinessIngressCounter>,
     experience_gate: Arc<experience::ExperienceGate>,
     unflushed: Mutex<frame_flush::FrameFlush>,
+    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+    packet_delay: packet_delay::Control,
+    connection_observation: observation::Observation,
 }
 
 impl<P> NetworkHandle<P> {
@@ -600,7 +624,10 @@ impl<P> NetworkHandle<P> {
             .pending_latency_reply
             .lock()
             .expect("latency reply lock") = None;
+        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+        self.packet_delay.clear();
         self.shutdown.send_replace(true);
+        self.connection_observation.clear();
         self.release_thread();
     }
 
@@ -644,7 +671,10 @@ fn empty_network_channels<P>() -> (
             thread: None,
             readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
             experience_gate: Arc::default(),
+            connection_observation: Default::default(),
             unflushed: Default::default(),
+            #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+            packet_delay: Default::default(),
         },
         physics_reanchor_rx,
     )
@@ -652,17 +682,23 @@ fn empty_network_channels<P>() -> (
 
 impl<P> Drop for NetworkHandle<P> {
     fn drop(&mut self) {
+        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+        self.packet_delay.clear();
         self.shutdown.send_replace(true);
+        self.connection_observation.clear();
         self.release_thread();
     }
 }
 
 pub(crate) mod execution;
+mod observation;
 mod start;
 pub use execution::{NetworkExecutor, SessionRead};
 #[cfg(not(target_arch = "wasm32"))]
 pub use start::spawn_network;
 pub use start::{PreparedLogin, prepare_network};
+#[cfg(not(target_arch = "wasm32"))]
+pub use start::{SessionCompanion, spawn_network_with_companion};
 
 /// The inbound half of a play session; its write half runs on its own task.
 trait NetworkSession: execution::SessionOwner {
@@ -671,6 +707,11 @@ trait NetworkSession: execution::SessionOwner {
 
     /// Detaches the write half before the pump starts.
     fn outbound(&mut self) -> Result<Self::Outbound, Self::Error>;
+
+    /// Completes connection teardown before the network runtime stops.
+    fn close(&mut self) -> impl execution::SessionFuture<Output = ()> {
+        std::future::ready(())
+    }
 
     fn receive_world_event(
         &mut self,
@@ -736,6 +777,14 @@ trait NetworkSession: execution::SessionOwner {
 impl<R: execution::SessionRead> NetworkSession for protocol::PlaySession<R> {
     type Error = protocol::ProtocolError;
     type Outbound = protocol::PlayOutbound;
+
+    fn close(&mut self) -> impl execution::SessionFuture<Output = ()> {
+        async move {
+            if let Err(error) = protocol::PlaySession::close(self).await {
+                tracing::debug!(%error, "connection teardown ended before graceful close");
+            }
+        }
+    }
 
     fn outbound(&mut self) -> Result<Self::Outbound, Self::Error> {
         protocol::PlaySession::outbound(self)
@@ -920,6 +969,8 @@ mod frame_flush;
 pub(crate) mod handle_state;
 mod latency_reply;
 mod outbound;
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+mod packet_delay;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod packet_log;
 use bootstrap::{send_startup_failure, start_game_inventory_authority, start_game_item_registry};
@@ -928,6 +979,8 @@ mod pump;
 use pump::*;
 mod pump_runtime;
 use pump_runtime::*;
+mod terminal;
+use terminal::TerminalOwner;
 mod disconnect_display;
 use disconnect_display::disconnect_display_reason;
 #[cfg(test)]

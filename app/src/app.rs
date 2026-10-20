@@ -90,7 +90,6 @@ use {
         session::{
             SessionController, drive_session, follow_server_transfer, recover_session_failure,
         },
-        shell_adapters::drive_menu_services,
         ui_runtime::{
             drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
             drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
@@ -112,7 +111,7 @@ use {
         publication::PublicationController,
         shutdown::{
             SHUTDOWN_WATCHDOG_TIMEOUT, ShutdownWatchdog, TeardownWatchdog, app_exit_code,
-            arm_shutdown_watchdog,
+            arm_shutdown_watchdog, begin_bounded_shutdown,
         },
     },
     client_shell::menu::MenuRuntime,
@@ -277,8 +276,11 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
 }
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
-    let app = App::new();
     args.validate_acceptance_support(cfg!(feature = "acceptance"))?;
+    // Reverse local-drop order keeps the actual reactor alive beyond App on startup error/unwind.
+    let io =
+        crate::runtime::network::io::IoOwner::new().context("create application I/O runtime")?;
+    let app = App::new();
     #[cfg(feature = "enhanced-diagnostics")]
     let diagnostic_budget = crate::enhanced_diagnostics::configure(&args)?;
     #[cfg(feature = "developer-control")]
@@ -320,6 +322,16 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     // Bound before the core guard is declared so Rust's reverse local-drop
     // order always stops the core before releasing this directory, including
     // every startup `?` before the app takes ownership of the guard.
+    let endpoint = connection_requested
+        .then(|| args.session_endpoint(socket_dir.clone()))
+        .transpose()?;
+    #[cfg(feature = "native-networking")]
+    let (endpoint, initial_trust) = crate::session::native_trust::initial(endpoint, &layout)?;
+    #[cfg(not(feature = "native-networking"))]
+    let initial_trust = None;
+    let core_connection = endpoint
+        .as_ref()
+        .is_some_and(|endpoint| endpoint.core_directory().is_some());
     let _direct_session_directory = bind_direct_session_directory(&args, socket_dir.clone())?;
     let mut core_process = CoreProcessGuard::default();
     let selected_assets =
@@ -499,7 +511,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
 
     // Validate local carriers before starting a connection: an asset failure
     // must not launch the core or wait on a server the client cannot render.
-    if let Some(address) = args.address.as_deref() {
+    if let Some(address) = args.address.as_deref().filter(|_| core_connection) {
         let child = spawn_core_for_address(
             &layout,
             &socket_dir,
@@ -514,7 +526,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             launcher_host::core_process::stop_core_then(&mut core_process, |_| ());
             return Err(error).with_context(|| format!("wait for Go core endpoint for {address}"));
         }
-    } else if connection_requested {
+    } else if core_connection {
         preflight_bridge_endpoint(&socket_dir)?;
     }
 
@@ -533,11 +545,34 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         local_player_skin.clone(),
         minecraft_import,
     )
+    .with_io(io.handle(), io.tasks())
     .with_language_assets(
         loaded_assets.selected_path.clone(),
         args.language.as_deref(),
     );
+    #[cfg(feature = "native-networking")]
+    let menu = menu.with_native_sign_in(args.native_transport.is_some());
+    let mut menu = menu;
+    if initial_trust.is_some() {
+        menu.show_connecting();
+    }
+    let mut session_controller = SessionController::new(core_process)
+        .with_native_transport(args.native_transport)
+        .with_parallel_resource_pack_urls(args.parallel_resource_pack_urls)
+        .with_client_random_id(client_random_id)
+        .with_address(args.address.as_deref())
+        .with_initial_trust(initial_trust);
+    #[cfg(feature = "native-networking")]
+    let native_account = session_controller
+        .native_startup_account(&mut menu, endpoint.as_ref())
+        .context("capture the initial native account selection")?;
     crate::runtime::network::await_overlay_texture_device();
+    session_controller = session_controller.with_startup_endpoint(
+        endpoint,
+        args.address.as_deref(),
+        #[cfg(feature = "native-networking")]
+        native_account,
+    );
     let packet_mods = crate::modding::packets::from_environment();
     let network = NetworkHandle::<PackApplication>::disconnected();
     let movement_ticker = client_interaction::movement::MovementTicker::with_epoch_publisher(
@@ -618,7 +653,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         debug_overlay: args.dev_debug_overlay,
     });
     // Account feeds also serve Profile in direct-address and external-socket runs.
-    app.init_resource::<client_shell::menu::LauncherCoreSlot>();
+    app.init_resource::<client_shell::menu::LauncherServices>();
     app.add_plugins(render::PresentModePolicyPlugin::new(present_mode_policy));
     if diagnostics_enabled {
         app.add_plugins(RenderDiagnosticsPlugin);
@@ -637,15 +672,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(shutdown_watchdog.clone())
     .insert_resource(TeardownWatchdog(shutdown_watchdog.clone()))
     .insert_resource(present_mode_runtime)
-    .insert_resource(
-        SessionController::new(core_process)
-            .with_client_random_id(client_random_id)
-            .with_address(args.address.as_deref())
-            .with_startup_endpoint(
-                connection_requested.then_some(socket_dir),
-                args.address.as_deref(),
-            ),
-    )
+    .insert_resource(session_controller)
     .insert_resource(ui_catalog)
     .insert_resource(client_blob_cache)
     .insert_resource(network)
@@ -860,6 +887,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     startup::install_first_frame_log(&mut app);
     let terminal_cause = TerminalCause::install(&mut app);
     let exit = crate::runtime::frame_profile::run(&mut app);
+    begin_bounded_shutdown(&shutdown_watchdog, &exit);
     PlatformClipboard::shutdown();
     client_shell::discord_presence::shutdown(&mut app);
     if let Some(mut network) = app
@@ -869,6 +897,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         network.shutdown();
     }
     drop(app);
+    io.finish();
     bridge::latency_trace::finish();
     let _ = writeln!(
         diagnostics::console::stderr(),

@@ -223,7 +223,7 @@ function Assert-ProtocolDependencyProvenance {
             throw "protocol dependency provenance drifted: $dependencyName must resolve exactly once from the canonical protocol manifest"
         }
         $dependency = $matches[0]
-        foreach ($field in @('name', 'source', 'kind', 'rename', 'optional', 'uses_default_features', 'features', 'target', 'path')) {
+        foreach ($field in @('name', 'source', 'kind', 'rename', 'optional', 'uses_default_features', 'features', 'target')) {
             if ($dependency.PSObject.Properties.Name -cnotcontains $field) {
                 throw "cargo metadata dependency $dependencyName is missing $field"
             }
@@ -231,22 +231,16 @@ function Assert-ProtocolDependencyProvenance {
         if ([string]$dependency.name -cne $dependencyName -or $null -ne $dependency.rename) {
             throw "protocol dependency provenance drifted: $dependencyName must not be renamed"
         }
-        if ($null -ne $dependency.source -or $null -ne $dependency.kind -or $null -ne $dependency.target -or
+        if ($null -ne $dependency.kind -or $null -ne $dependency.target -or
             $dependency.optional -isnot [bool] -or [bool]$dependency.optional -or
             $dependency.uses_default_features -isnot [bool]) {
-            throw "protocol dependency provenance drifted: $dependencyName must be one normal non-target non-optional local dependency"
+            throw "protocol dependency provenance drifted: $dependencyName must be one normal non-target non-optional Git dependency"
         }
-        $vendoredManifest = Join-Path $ProjectRoot "crates\protocol\vendor\$dependencyName\Cargo.toml"
-        if (-not (Test-Path -LiteralPath $vendoredManifest -PathType Leaf)) {
-            throw "protocol dependency provenance drifted: $dependencyName vendored path has no Cargo.toml"
-        }
-        $expectedPath = (Resolve-Path -LiteralPath (Split-Path -Parent $vendoredManifest)).ProviderPath
-        if ($null -eq $dependency.path -or -not [string]::Equals(
-            [IO.Path]::GetFullPath([string]$dependency.path),
-            $expectedPath,
-            $pathComparison
-        )) {
-            throw "protocol dependency provenance drifted: $dependencyName does not resolve to its canonical vendored path"
+        $expectedSource = "git+https://github.com/cinnabar-mc/protocolgen?rev=$ExpectedProtocolgenRevision"
+        $pathProperty = $dependency.PSObject.Properties['path']
+        if (($null -ne $pathProperty -and $null -ne $pathProperty.Value) -or
+            [string]$dependency.source -cnotin @($expectedSource, "$expectedSource#$ExpectedProtocolgenRevision")) {
+            throw "protocol dependency provenance drifted: $dependencyName must use the canonical pinned Git source"
         }
         $expectedFeatures = @($expectedDependencies[$dependencyName])
         $actualFeatures = @($dependency.features)
@@ -282,25 +276,25 @@ function Assert-ProtocolDependencyProvenance {
         throw "protocol dependency retained license SHA-256 drifted: expected $ExpectedLicenseSha256, got $licenseSha256"
     }
 
-    $resolvedLocalPackages = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-    $packageBlocks = [regex]::Matches($lock, '(?ms)^\[\[package\]\]\r?\n(?<body>.*?)(?=^\[\[package\]\]|\z)')
+    $resolvedPackages = [Collections.Generic.List[string]]::new()
+    $expectedLockSource = "git+https://github.com/cinnabar-mc/protocolgen?rev=$ExpectedProtocolgenRevision#$ExpectedProtocolgenRevision"
+    $packageBlocks = [regex]::Matches($lock, '(?ms)^\s*\[\[package\]\]\r?\n(?<body>.*?)(?=^\s*\[\[package\]\]|\z)')
     foreach ($packageBlock in $packageBlocks) {
         $body = $packageBlock.Groups['body'].Value
-        $nameMatch = [regex]::Match($body, '(?m)^name\s*=\s*"(?<name>[^"]+)"\r?$')
-        if (-not $nameMatch.Success) { continue }
+        $nameMatch = [regex]::Match($body, '(?m)^\s*name\s*=\s*"(?<name>[^"]+)"\r?$')
+        if (-not $nameMatch.Success -or $nameMatch.Groups['name'].Value -cne 'bedrock-protocol-1-26-51') { continue }
         $name = $nameMatch.Groups['name'].Value
-        if ($name -ceq 'bedrock-protocol-1-26-51') {
-            $null = $resolvedLocalPackages.Add($name)
-            $resolutionKey = [regex]::Match($body, '(?m)^\s*(?<key>source|checksum)\s*=')
-            if ($resolutionKey.Success) {
-                throw "Cargo.lock local package $name has a $($resolutionKey.Groups['key'].Value) entry"
-            }
+        $resolvedPackages.Add($name)
+        if ([regex]::IsMatch($body, '(?m)^\s*checksum\s*=')) {
+            throw "Cargo.lock Git package $name must not contain a checksum"
+        }
+        $sourceMatches = [regex]::Matches($body, '(?m)^\s*source\s*=\s*"(?<source>[^"]+)"\r?$')
+        if ($sourceMatches.Count -ne 1 -or $sourceMatches[0].Groups['source'].Value -cne $expectedLockSource) {
+            throw "Cargo.lock Git package $name must resolve the exact canonical revision"
         }
     }
-    foreach ($dependency in @('bedrock-protocol-1-26-51')) {
-        if (-not $resolvedLocalPackages.Contains($dependency)) {
-            throw "Cargo.lock does not contain local package $dependency"
-        }
+    if ($resolvedPackages.Count -ne 1) {
+        throw 'Cargo.lock must contain exactly one pinned generated codec package'
     }
     return $ExpectedAxolotlStackRevision
 }
@@ -320,7 +314,7 @@ function Read-BoundedProtocolMetadataFile {
 
 function Get-ProtocolDependencyProvenanceMetadata {
     return [ordered]@{
-        protocol_dependency_resolution = 'vendored-path'
+        protocol_dependency_resolution = 'git-revision'
         pinned_axolotl_stack_commit = $PinnedAxolotlStackCommit
         pinned_protocolgen_commit = $PinnedProtocolgenCommit
         pinned_jolyne_license_sha256 = $PinnedJolyneLicenseSha256

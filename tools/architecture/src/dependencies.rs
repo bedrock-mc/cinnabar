@@ -64,6 +64,7 @@ pub(super) fn check_dependencies(
     )?;
     check_test_support_features(policy, &graph, &rule_paths, diagnostics);
     check_vendor_owners(root, policy, &graph, diagnostics);
+    check_package_owners(policy, &graph, diagnostics);
     for rule in &policy.crate_rules {
         let dependencies = &graph[rule.name.as_str()].production;
         if rule.dependency_free {
@@ -112,6 +113,50 @@ pub(super) fn check_dependencies(
         }
     }
     Ok(())
+}
+
+/// Preserves direct package ownership when a dependency moves between path and Git sources.
+fn check_package_owners(
+    policy: &Policy,
+    graph: &BTreeMap<String, CrateDependencies>,
+    diagnostics: &mut Vec<String>,
+) {
+    for ownership in &policy.dependency_owners {
+        if !policy
+            .crate_rules
+            .iter()
+            .any(|rule| rule.name == ownership.owner)
+        {
+            diagnostics.push(format!(
+                "dependency `{}` has unknown owner `{}`",
+                ownership.package, ownership.owner,
+            ));
+            continue;
+        }
+        if !graph[ownership.owner.as_str()]
+            .all
+            .iter()
+            .any(|dependency| dependency.package == ownership.package)
+        {
+            diagnostics.push(format!(
+                "{}: owned dependency `{}` is absent from its manifest",
+                ownership.owner, ownership.package,
+            ));
+        }
+        for rule in &policy.crate_rules {
+            if rule.name != ownership.owner
+                && graph[rule.name.as_str()]
+                    .all
+                    .iter()
+                    .any(|dependency| dependency.package == ownership.package)
+            {
+                diagnostics.push(format!(
+                    "{}: dependency `{}` is owned by `{}` only",
+                    rule.name, ownership.package, ownership.owner,
+                ));
+            }
+        }
+    }
 }
 
 /// Rejects any crate other than a vendored tree's owner declaring a package from that tree.

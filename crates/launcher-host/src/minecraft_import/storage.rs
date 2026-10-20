@@ -33,7 +33,8 @@ pub(super) fn restore(root: &Path) -> Result<UserState> {
     let bytes = fs::read(root.join(BACKUP_FILE))?;
     let mut state: UserState = serde_json::from_slice(&bytes)?;
     anyhow::ensure!(
-        state.settings.stored_bindings_valid() && state.active.len() <= resource_pack::MAX_PACKS,
+        state.settings.stored_bindings_valid()
+            && state.active.len() <= resource_pack::MAX_LOCAL_PACKS,
         "Import backup is invalid"
     );
     crate::servers::validate(&state.servers)?;

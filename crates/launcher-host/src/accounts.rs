@@ -9,6 +9,8 @@ use launcher::{
 pub enum Operation {
     Switch(String),
     Commit(AccountProfile),
+    CommitNative(AccountProfile, launcher::accounts::pending::PendingSignIn),
+    RestoreNative(String),
     Restore,
     SignOut,
 }
@@ -40,6 +42,10 @@ pub fn operation_job(
     let (sender, receiver) = bounded(1);
     let job = move || {
         let signed_out = matches!(&operation, Operation::SignOut);
+        let native = matches!(
+            &operation,
+            Operation::CommitNative(..) | Operation::RestoreNative(..)
+        );
         let result = match operation {
             Operation::Switch(id) => store.activate(&id),
             Operation::Commit(profile) => store
@@ -49,10 +55,14 @@ pub fn operation_job(
                     profile.picture_path.as_deref(),
                 )
                 .map(|_| ()),
+            Operation::CommitNative(profile, pending) => pending.try_commit(&profile),
+            Operation::RestoreNative(generation) => store.try_discard_native_pending(&generation),
             Operation::Restore => Ok(()),
             Operation::SignOut => store.sign_out(),
         };
-        let _ = store.discard_pending();
+        if !native {
+            let _ = store.discard_pending();
+        }
         let _ = sender.send((result.is_ok(), signed_out));
     };
     (job, receiver)

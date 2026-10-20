@@ -19,7 +19,7 @@ pub struct ParseError {
 
 /// Parse one document, ignoring anything after its root value.
 pub fn parse(source: &str) -> Result<Value, ParseError> {
-    let text = pack_json::decode_text(source.as_bytes());
+    let text = bedrock_packs::jsonc::decode_text(source.as_bytes());
     let mut reader = Reader {
         bytes: text.as_bytes(),
         pos: 0,

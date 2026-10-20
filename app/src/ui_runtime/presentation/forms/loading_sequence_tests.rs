@@ -22,14 +22,14 @@ pub(super) fn lazy(mut pack: ServerUiPack) -> ServerUiPack {
             .unwrap();
         zip.write_all(&bytes).unwrap();
     }
-    let archive = protocol::ResourcePackArchive::unencrypted(
+    let archive = bedrock_packs::ResourcePackArchive::unencrypted(
         id,
         "1.0.0".into(),
         String::new(),
         zip.finish().unwrap().into_inner(),
     );
     let stack =
-        resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(vec![
+        resource_pack::validate_handoff(bedrock_packs::ResourcePackHandoff::from_archives(vec![
             archive,
         ]));
     assert!(stack.rejections().is_empty(), "{:?}", stack.rejections());

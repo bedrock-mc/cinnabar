@@ -319,6 +319,7 @@ impl ModuleObserver {
         world: Option<&WorldObservation>,
         player: &player_state::PlayerState,
         interaction: Option<&super::interaction::ModInteraction>,
+        network: Option<&super::NetworkHandle<super::PackApplication>>,
     ) -> ModuleObservations {
         let Some(world) = world else {
             self.scope = None;
@@ -509,15 +510,23 @@ impl ModuleObserver {
                 });
             }
         }
-        let ping_ms = self.ping.sample(
-            world.session,
-            authority.local_player_runtime_id(),
-            gameplay
-                .session
-                .as_ref()
-                .and_then(|session| session.socket_directory())
-                .map(PathBuf::from),
-        );
+        let ping_ms = match gameplay
+            .session
+            .as_ref()
+            .and_then(|session| session.socket_directory())
+        {
+            Some(directory) => self.ping.sample(
+                world.session,
+                authority.local_player_runtime_id(),
+                Some(PathBuf::from(directory)),
+            ),
+            None => {
+                self.ping.sample(0, 0, None);
+                network.and_then(|network| {
+                    network.round_trip_ms(world.session, authority.local_player_runtime_id())
+                })
+            }
+        };
         ModuleObservations {
             local_totem_uses: authority.totem_activations(authority.local_player_runtime_id()),
             motion,

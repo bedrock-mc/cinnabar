@@ -5,10 +5,20 @@ package bridgecontract
 const (
 	// MaxFrameLen: Largest session frame payload in bytes.
 	MaxFrameLen = 67108864
+	// MaxUpstreamDecompressedBatchBytes: Largest decoded upstream batch after NetworkSettings enables compression.
+	MaxUpstreamDecompressedBatchBytes = 268435456
 	// MaxControlFrameLen: Largest control request or response payload in bytes.
 	MaxControlFrameLen = 65536
 	// MaxPingTargets: Most server addresses admitted in one ping request.
 	MaxPingTargets = 64
+	// PingWorkers: Maximum concurrent server-row ping attempts.
+	PingWorkers = 8
+	// PingTimeoutMillis: Original whole-attempt server-row ping deadline.
+	PingTimeoutMillis = 2000
+	// MaxPacketDelayMS: Maximum opt-in delay of post-login application packets in either direction.
+	MaxPacketDelayMS = 1000
+	// PacketDelayLeaseMillis: Lifetime of one explicit packet-delay heartbeat.
+	PacketDelayLeaseMillis = 3000
 	// SessionKindConnect: Client session setup carrying JSON login data.
 	SessionKindConnect = 1
 	// SessionKindBatch: A batch of length-prefixed packets in either direction.
@@ -21,26 +31,74 @@ const (
 	SessionKindTransfer = 5
 	// SessionKindDisconnect: Terminal core disconnect message.
 	SessionKindDisconnect = 6
+	// ResourcePackTypeAddon: Resource-pack wire type for an admitted addon archive.
+	ResourcePackTypeAddon = 1
+	// ResourcePackTypeBehaviour: Resource-pack wire type for an opaque behavior archive.
+	ResourcePackTypeBehaviour = 4
+	// ResourcePackTypeResources: Resource-pack wire type for an admitted resource archive.
+	ResourcePackTypeResources = 6
+	// ResourcePackTypeSkins: Resource-pack wire type for an opaque skin-fallback archive.
+	ResourcePackTypeSkins = 7
+	// ResourcePackTypeWorldTemplate: Resource-pack wire type for an admitted world-template archive.
+	ResourcePackTypeWorldTemplate = 8
 	// SessionPackChunkBytes: Archive bytes in one resource-pack data frame.
 	SessionPackChunkBytes = 4194304
 	// LatencyTraceEnv: Names the directory both processes write packet latency traces to; unset disables tracing.
 	LatencyTraceEnv = "CINNABAR_LATENCY_TRACE"
 	// HostedWorldMaxPlayers: Vanilla's player limit for a hosted local world, the host included.
 	HostedWorldMaxPlayers = 8
+	// RelayMaxSessions: Maximum retained relay accounts and transport connections.
+	RelayMaxSessions = 256
+	// RelayMaxPerIP: Maximum relay accounts or connections admitted per peer address.
+	RelayMaxPerIP = 4
+	// RelayIdleSeconds: Original idle lifetime of a detached relay account.
+	RelayIdleSeconds = 600
+	// RelayResumeSeconds: Original lifetime of each independently issued resume bearer.
+	RelayResumeSeconds = 120
+	// RelayHelloSeconds: Original pre-Hello and control write budget.
+	RelayHelloSeconds = 10
+	// RelayCertificateReloadSeconds: Interval between operator certificate file reload attempts.
+	RelayCertificateReloadSeconds = 60
+	// RelayResumeBytes: Random bytes in one relay resume capability.
+	RelayResumeBytes = 32
+	// RelayControlRequestBurst: Control request token-bucket burst.
+	RelayControlRequestBurst = 4
+	// RelayActionRefillMillis: Time to replenish one per-peer admission action.
+	RelayActionRefillMillis = 5000
+	// RelayActionBurst: Per-peer admission action token-bucket burst.
+	RelayActionBurst = 6
+	// RelayMaxActionClients: Maximum remembered peer action limiters.
+	RelayMaxActionClients = 1024
+	// RelaySignInSeconds: Original overall interactive sign-in budget.
+	RelaySignInSeconds = 900
+	// AuthXboxSignupSeconds: Overall budget for completing the hosted Xbox profile page.
+	AuthXboxSignupSeconds = 1200
+	// AuthXboxSignupRetrySeconds: Retry interval for the original hosted Xbox profile authorization.
+	AuthXboxSignupRetrySeconds = 3
+	// RelayUploadBytesPerSecond: Original play upload pacing rate.
+	RelayUploadBytesPerSecond = 262144
+	// RelayProgressCoalesceMillis: Original delay coalescing control join progress.
+	RelayProgressCoalesceMillis = 100
 	// RelayVersion: Browser relay protocol version.
 	RelayVersion = 2
 	// RelayControlBytes: Largest relay Hello or control JSON payload in bytes.
 	RelayControlBytes = 4096
 	// RelayPlayMessageBytes: Largest WebSocket play message in bytes.
 	RelayPlayMessageBytes = 8388608
+	// GatewayEgressCandidates: Maximum resolved address candidates retained by native gateway egress.
+	GatewayEgressCandidates = 16
 	// QueuedFrames: Maximum queued reliable frames or browser receive chunks.
 	QueuedFrames = 16
-	// RelayQueuedFrameBytes: Ordinary browser frame queue budget; a larger bridge frame is admitted alone.
+	// RelayQueuedFrameBytes: Incoming frame queue budget; a larger frame is admitted alone.
 	RelayQueuedFrameBytes = 8388608
 	// RelayUploadBurstBytes: Upload rate limiter burst, independent of message and queue limits.
 	RelayUploadBurstBytes = 8388608
 	// RelayBidirectionalStreams: Concurrent browser streams for control, active play and retiring play.
 	RelayBidirectionalStreams = 3
+	// RelayQuicBidirectionalStreams: QUIC bidirectional stream admission, including HTTP/3 request streams.
+	RelayQuicBidirectionalStreams = 8
+	// RelayQuicUnidirectionalStreams: QUIC unidirectional stream admission, including HTTP/3 control streams.
+	RelayQuicUnidirectionalStreams = 4
 	// RelayKeepAliveSeconds: Interval between control keepalives.
 	RelayKeepAliveSeconds = 30
 	// RelayControlRefillMillis: Time to replenish one relay control request; busy sign-out retries wait at least this long.
@@ -73,6 +131,24 @@ const (
 	RelayEventConnect = "connect"
 	// RelayEventError: Report a bounded public refusal code.
 	RelayEventError = "error"
+	// NativeAuthRelyingParty: Xbox authorization scope used to verify the signing-in account identity.
+	NativeAuthRelyingParty = "http://xboxlive.com"
+	// NativeAuthClientID: Microsoft application used by native and gateway Android account owners.
+	NativeAuthClientID = "0000000048183522"
+	// NativeAuthUserAgent: Android acquisition user agent shared with the configured Go owner.
+	NativeAuthUserAgent = "XAL Android 2025.11.20251111.000"
+	// NativeAuthDeviceVersion: Android Xbox device operating-system version.
+	NativeAuthDeviceVersion = "13"
+	// NativeAuthSandbox: Xbox account environment.
+	NativeAuthSandbox = "RETAIL"
+	// NativeAccountDeviceOS: Bedrock device platform for an authenticated Android account.
+	NativeAccountDeviceOS = 1
+	// NativeAccountDefaultModel: Original Rust Android account profile model.
+	NativeAccountDefaultModel = "GOOGLE Pixel 8"
+	// NativeAccountInputMode: Default input mode claimed by the Android account profile.
+	NativeAccountInputMode = 2
+	// NativeAccountPlatformType: Platform claimed by Android when client metadata leaves it unset.
+	NativeAccountPlatformType = 1
 	// GameVersion: Game version reported by the client.
 	GameVersion = "1.26.50"
 	// DefaultBedrockPort: Default port for an addressed Bedrock server.
@@ -115,6 +191,10 @@ const (
 	MethodFriendsList = "friends_list.v1"
 	// MethodFriendsPeople: Control method for friends people.
 	MethodFriendsPeople = "friends_people.v1"
+	// InviteMaxPeople: Most friends shown by the invite picker, with online friends retained first.
+	InviteMaxPeople = 100
+	// InviteGamerpicSide: Requested square gamerpic size for an invite picker row.
+	InviteGamerpicSide = 128
 	// MethodConnect: Control method for connect.
 	MethodConnect = "connect.v1"
 	// MethodAccountStatus: Control method for account status.
@@ -137,12 +217,16 @@ const (
 	MethodProfile = "profile.v1"
 	// MethodRealmMembership: Control method for realm membership.
 	MethodRealmMembership = "realm_membership.v1"
+	// RealmInviteInputBytes: Largest trimmed Realm invitation link or code input in bytes.
+	RealmInviteInputBytes = 255
 	// MethodPacketDelay: Control method for packet delay.
 	MethodPacketDelay = "packet_delay.v1"
 	// MethodPresence: Control method for presence.
 	MethodPresence = "presence.v1"
 	// MethodLocalWorld: Control method for local world.
 	MethodLocalWorld = "local_world.v1"
+	// LocalLANDiscoveryTimeoutMS: Original discovery budget for a selected local BDS LAN level.
+	LocalLANDiscoveryTimeoutMS = 8000
 	// MethodWorldInvite: Control method for world invite.
 	MethodWorldInvite = "world_invite.v1"
 	// RPCParseError: Control error code for parse error.
@@ -177,6 +261,8 @@ const (
 	CinnabarAPIBaseURL = "https://cinnabar-api.cinnabar-api.workers.dev"
 	// CinnabarAPIMaxLookupXUIDs: Most XUIDs in one Cinnabar player lookup.
 	CinnabarAPIMaxLookupXUIDs = 128
+	// CinnabarAPIMaxFrameBytes: Largest product API WebSocket message in bytes.
+	CinnabarAPIMaxFrameBytes = 65536
 	// CinnabarAPICacheTTLMS: Fallback lifetime of a Cinnabar lookup answer.
 	CinnabarAPICacheTTLMS = 120000
 	// CinnabarAPILookupBucketCapacity: Fallback lookup budget in XUIDs.
@@ -187,6 +273,8 @@ const (
 	CinnabarAPIPingIntervalMS = 30000
 	// CinnabarAPIReconnectMaxMS: Fallback reconnect backoff cap.
 	CinnabarAPIReconnectMaxMS = 300000
+	// PresenceTitleID: Android authentication title used to derive the title presence service configuration.
+	PresenceTitleID = 1739947436
 	// PresenceGameModeSurvival: Xbox presence game mode for survival.
 	PresenceGameModeSurvival = 0
 	// PresenceGameModeCreative: Xbox presence game mode for creative.
@@ -217,6 +305,14 @@ const (
 	MessageEventReadAll = "ReadAll"
 	// MessageEventDelete: Messaging event for delete.
 	MessageEventDelete = "Delete"
+	// FeaturedFeedCacheSeconds: Existing successful featured layout refresh interval.
+	FeaturedFeedCacheSeconds = 300
+	// HomeFeedCacheSeconds: Existing successful Home service refresh interval.
+	HomeFeedCacheSeconds = 900
+	// HomeFeedRefreshSeconds: Original complete Home/featured service refresh budget.
+	HomeFeedRefreshSeconds = 40
+	// DefaultServiceLanguage: Launcher service locale before a client supplies one.
+	DefaultServiceLanguage = "en-US"
 	// MessageEventClick: Messaging event for click.
 	MessageEventClick = "Click"
 	// MessageEventDismiss: Messaging event for dismiss.

@@ -17,6 +17,8 @@ pub struct JoinAttempt<D> {
 /// Endpoint provisioning retains the directory guard until its owning core stops.
 #[derive(Debug)]
 pub enum JoinStage<D> {
+    /// An already-selected endpoint retained until the join admission fence opens.
+    Prepared(protocol::SessionEndpoint),
     /// The launcher core selecting the target on a worker.
     Launcher(crossbeam_channel::Receiver<Result<PathBuf, String>>),
     /// A per-session core that must publish its endpoint by the deadline.
@@ -33,7 +35,7 @@ pub enum JoinPoll<D> {
     Retired,
     Pending(JoinAttempt<D>),
     Ready {
-        socket_dir: PathBuf,
+        endpoint: protocol::SessionEndpoint,
         directory: Option<D>,
     },
     StartCore(JoinAttempt<D>),
@@ -56,6 +58,10 @@ impl<D> JoinAttempt<D> {
             return JoinPoll::Retired;
         }
         match self.stage {
+            JoinStage::Prepared(endpoint) => JoinPoll::Ready {
+                endpoint,
+                directory: None,
+            },
             JoinStage::Launcher(ref receiver) => {
                 let selected = match receiver.try_recv() {
                     Err(crossbeam_channel::TryRecvError::Empty) => return JoinPoll::Pending(self),
@@ -66,7 +72,7 @@ impl<D> JoinAttempt<D> {
                 };
                 match selected {
                     Ok(socket_dir) => JoinPoll::Ready {
-                        socket_dir,
+                        endpoint: protocol::SessionEndpoint::Core(socket_dir),
                         directory: None,
                     },
                     Err(error)
@@ -91,7 +97,7 @@ impl<D> JoinAttempt<D> {
             } => {
                 if bridge_endpoint_exists(&socket_dir) {
                     return JoinPoll::Ready {
-                        socket_dir,
+                        endpoint: protocol::SessionEndpoint::Core(socket_dir),
                         directory: Some(directory),
                     };
                 }
@@ -226,7 +232,7 @@ mod tests {
         let socket_dir = PathBuf::from("gathering-fixture-endpoint");
         sender.send(Ok(socket_dir.clone())).unwrap();
         let JoinPoll::Ready {
-            socket_dir: ready,
+            endpoint: protocol::SessionEndpoint::Core(ready),
             directory: None,
         } = attempt.poll(7, true, || panic!("no session core"))
         else {

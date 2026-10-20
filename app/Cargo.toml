@@ -52,6 +52,7 @@ frame-trace = ["bevy/trace", "bevy/debug", "dep:tracing-chrome"]
 tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "dep:profiling", "chunk-pipeline/tracy", "render/tracy", "client-ui/tracy"]
 # Compiles the offline pack reports and benchmarks into the test build.
 reports = []
+native-networking = ["client-shell/native-networking", "protocol/native-networking", "client-session/native-networking", "launcher-host/native-networking"]
 # Opt-in allocator for release-profile measurements.
 mimalloc = ["dep:mimalloc"]
 
@@ -81,7 +82,7 @@ world = { path = "../crates/world" }
 web-time.workspace = true
 cosmetics = { path = "../crates/cosmetics" }
 protocol-ids = { path = "../crates/protocol-ids" }
-pack-json = { path = "../crates/pack-json" }
+bedrock-packs.workspace = true
 env-compat = { path = "../crates/env-compat" }
 client-shell = { path = "../crates/client-shell" }
 client-interaction = { path = "../crates/client-interaction" }
@@ -120,6 +121,8 @@ ui-engine = { path = "../crates/ui-engine" }
 ui-screens = { path = "../crates/ui-screens" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "net"] }
+tokio-util = { workspace = true, features = ["rt"] }
 test-alloc = { path = "../crates/test-alloc", optional = true }
 mimalloc = { workspace = true, optional = true }
 client-extensions = { path = "../crates/client-extensions" }

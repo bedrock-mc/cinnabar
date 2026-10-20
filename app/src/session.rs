@@ -24,23 +24,42 @@ use {
         shutdown::record_fatal_error,
         world::TransferNotice,
     },
-    client_shell::menu::{LauncherCoreSlot, MenuRuntime},
+    client_shell::menu::{LauncherServices, MenuRuntime},
 };
 
-use std::{path::PathBuf, time::Instant};
+use std::time::Instant;
 
+pub(crate) mod account_retirement;
 mod client_id;
+#[cfg(feature = "native-networking")]
+pub(crate) mod destination;
+#[cfg(feature = "native-networking")]
+mod native_account;
+#[cfg(feature = "native-networking")]
+mod native_friend;
+#[cfg(feature = "native-networking")]
+mod native_gathering;
+#[cfg(feature = "native-networking")]
+mod native_local_world;
+#[cfg(all(test, feature = "native-networking", not(target_arch = "wasm32")))]
+mod native_transfer_tests;
+#[cfg(feature = "native-networking")]
+pub(crate) mod native_trust;
+mod network;
+use network::attempt_connect;
 mod startup;
+mod url_policy;
 
 use client_session::MAX_TRANSFER_CHAIN_HOPS;
 
 type BlobCache = client_runtime::blob_cache::ClientBlobCacheOwner;
 type JoinAttempt = client_session::connection::JoinAttempt<SessionDirectoryGuard>;
 pub(crate) type JoinStage = client_session::connection::JoinStage<SessionDirectoryGuard>;
+pub(crate) type TrustOwner = Box<dyn launcher_host::server_trust::TrustSource + Send + Sync>;
 
 use client_state::{JoinIntent, SessionStatus};
 
-#[derive(Debug, Resource)]
+#[derive(Resource)]
 pub(crate) struct SessionController {
     core: CoreProcessGuard, // declared first: the core stops before the directories below go
     /// Identity-checked owner of the live session's runtime directory.
@@ -59,8 +78,28 @@ pub(crate) struct SessionController {
     /// Automatic transfer-follow hops remaining in the current chain.
     transfer_hops_remaining: u32,
     connecting: bool,
-    /// Polls the per-session core this join started for its server trust question.
-    trust: Option<SessionTrust>,
+    account_retirement_started: bool,
+    parallel_resource_pack_urls: bool,
+    #[cfg(feature = "native-networking")]
+    native_transport: Option<protocol::NativeTransport>,
+    #[cfg(feature = "native-networking")]
+    native_account: Option<native_account::SelectedAccount>,
+    /// The original startup selection retained while packet mods are admitted.
+    #[cfg(feature = "native-networking")]
+    startup_account: Option<std::sync::Arc<launcher_host::native_account::NativeAccount>>,
+    #[cfg(feature = "native-networking")]
+    native_friend: Option<launcher_host::native_account::NativeFriendSelection>,
+    #[cfg(feature = "native-networking")]
+    native_friend_session: bool,
+    #[cfg(feature = "native-networking")]
+    native_gathering: Option<launcher_host::native_account::NativeGatheringSelection>,
+    #[cfg(feature = "native-networking")]
+    native_local_world:
+        Option<crate::runtime::network::session::local_world::WorldConnectionRequest>,
+    #[cfg(feature = "native-networking")]
+    friend_cleanup: crate::runtime::network::session::friend::FriendCleanupOwner,
+    /// Retains this join's original Core or native server trust question and answer lifetime.
+    trust: Option<TrustOwner>,
     /// Server packs recent joins compiled; released once no join follows.
     kept_packs: &'static CompiledStacks,
 }
@@ -72,6 +111,41 @@ impl Default for SessionController {
 }
 
 impl SessionController {
+    /// Retains the direct backend for retries and server transfer follows.
+    pub(crate) fn with_native_transport(
+        self,
+        transport: Option<protocol::NativeTransport>,
+    ) -> Self {
+        #[cfg(feature = "native-networking")]
+        {
+            let mut controller = self;
+            controller.native_transport = transport;
+            controller
+        }
+        #[cfg(not(feature = "native-networking"))]
+        {
+            let _ = transport;
+            self
+        }
+    }
+
+    /// Keeps explicit native requests, including local refusals, out of Core provisioning.
+    fn native_provisioning_selected(&self, address: &str, local_world: bool) -> bool {
+        #[cfg(feature = "native-networking")]
+        {
+            self.native_transport.is_some_and(|transport| {
+                !matches!(
+                    destination::classify(address, transport, local_world),
+                    destination::Destination::LocalWorld
+                )
+            })
+        }
+        #[cfg(not(feature = "native-networking"))]
+        {
+            let _ = (address, local_world);
+            false
+        }
+    }
     /// Adopts `core`, already started for a direct `--address` session.
     pub(crate) fn new(core: CoreProcessGuard) -> Self {
         Self {
@@ -86,6 +160,24 @@ impl SessionController {
             local_world: false,
             transfer_hops_remaining: MAX_TRANSFER_CHAIN_HOPS,
             connecting: false,
+            account_retirement_started: false,
+            parallel_resource_pack_urls: false,
+            #[cfg(feature = "native-networking")]
+            native_transport: None,
+            #[cfg(feature = "native-networking")]
+            native_account: None,
+            #[cfg(feature = "native-networking")]
+            startup_account: None,
+            #[cfg(feature = "native-networking")]
+            native_friend: None,
+            #[cfg(feature = "native-networking")]
+            native_friend_session: false,
+            #[cfg(feature = "native-networking")]
+            native_gathering: None,
+            #[cfg(feature = "native-networking")]
+            native_local_world: None,
+            #[cfg(feature = "native-networking")]
+            friend_cleanup: Default::default(),
             trust: None,
             kept_packs: crate::runtime::network::compiled_stacks(),
         }
@@ -100,9 +192,25 @@ impl SessionController {
 
     /// Names a direct `--address` session's destination.
     pub(crate) fn with_address(mut self, address: Option<&str>) -> Self {
-        self.presence = address.map(|address| presence_target(address, false));
-        self.destination_identity =
-            address.map(|address| format!("remote:{}", address.trim().to_lowercase()));
+        if let Some(address) = address {
+            self.select_remote_destination(address);
+        } else {
+            self.presence = None;
+            self.destination_identity = None;
+        }
+        self
+    }
+
+    /// Retains a host-selected destination independently of its later transport route.
+    fn select_remote_destination(&mut self, address: &str) -> &mut rich_presence::Target {
+        self.destination_identity = Some(format!("remote:{}", address.trim().to_lowercase()));
+        self.presence.insert(presence_target(address, false))
+    }
+
+    /// Retains a direct startup join's original trust source while the same network worker connects.
+    pub(crate) fn with_initial_trust(mut self, trust: Option<TrustOwner>) -> Self {
+        self.connecting |= trust.is_some();
+        self.trust = trust;
         self
     }
 
@@ -166,10 +274,18 @@ impl SessionController {
         bridge::join_profile::JoinProfile::current().finish("failed");
         menu.show_join_failure(message);
         self.connecting = false;
+        #[cfg(feature = "native-networking")]
+        {
+            self.startup_account = None;
+            self.native_friend = None;
+            self.native_friend_session = false;
+            self.native_gathering = None;
+            self.native_local_world = None;
+        }
         self.kept_packs.keep_for_rejoin();
     }
 
-    /// Spawns a per-session core that dials `address` directly.
+    /// Provisions one endpoint, applying any native override only to this attempt.
     fn start_core(
         &mut self,
         menu: &MenuRuntime,
@@ -177,7 +293,56 @@ impl SessionController {
         address: &str,
         auth_cache: Option<&std::path::Path>,
         generation: u64,
+        native_transport_override: Option<protocol::NativeTransport>,
     ) -> Result<JoinStage, String> {
+        #[cfg(not(feature = "native-networking"))]
+        let _ = native_transport_override;
+        #[cfg(feature = "native-networking")]
+        match self.native_transport.map(|configured| {
+            destination::classify(
+                address,
+                native_transport_override.unwrap_or(configured),
+                self.local_world,
+            )
+        }) {
+            Some(destination::Destination::FriendSelectionRequired) => {
+                return Err(crate::args::ArgsError::NativeFriendSelectionRequired.to_string());
+            }
+            Some(destination::Destination::LocalWorld) | None => {}
+            Some(destination::Destination::Network(mut target)) => {
+                let service = launcher_host::native_account::is_realm_target(address)
+                    || protocol::NativeRawTarget::recognizes(address)
+                    || matches!(
+                        launcher_host::launcher_core::target_for(address),
+                        bridge::ConnectTarget::Gathering(_)
+                    );
+                if service && auth_cache.is_none() {
+                    return Err("Joining this service requires a verified native account.".into());
+                }
+                if auth_cache.is_some()
+                    && !matches!(
+                        target.transport,
+                        protocol::NativeTransport::RakNet
+                            | protocol::NativeTransport::Addressed
+                            | protocol::NativeTransport::NetherNetLan
+                    )
+                {
+                    return Err(
+                        "The selected native transport does not support account preparation."
+                            .into(),
+                    );
+                }
+                if target.transport == protocol::NativeTransport::Addressed {
+                    let (selected, trust) = native_trust::bind(target, menu.layout())
+                        .map_err(|_| "Could not prepare native server trust.".to_owned())?;
+                    target = selected;
+                    self.trust = Some(Box::new(trust));
+                }
+                return Ok(JoinStage::Prepared(protocol::SessionEndpoint::Native(
+                    target,
+                )));
+            }
+        }
         // Namespaced by process id like the `--address` path: a bare
         // generation counter restarts at the same value every launch, so a
         // previous run's directory would be reused for this session.
@@ -203,7 +368,7 @@ impl SessionController {
         )
         .map_err(|error| format!("Could not start {address}: {error}"))?;
         self.core.replace(child);
-        self.trust = Some(SessionTrust::watch(socket_dir.clone()));
+        self.trust = Some(Box::new(SessionTrust::watch(socket_dir.clone())));
         Ok(JoinStage::Core {
             socket_dir,
             directory,
@@ -248,7 +413,8 @@ impl SessionController {
         self.connecting = connecting;
     }
 
-    #[cfg(all(test, unix))]
+    /// Borrows the original process owner for cleanup fixtures.
+    #[cfg(test)]
     pub(crate) fn core_mut(&mut self) -> &mut CoreProcessGuard {
         &mut self.core
     }
@@ -260,7 +426,7 @@ pub(crate) struct SessionResources<'w> {
     state: crate::game_session::SessionWorld<'w>,
     network: ResMut<'w, NetworkHandle<PackApplication>>,
     collisions: Res<'w, client_interaction::movement::PhysicsCollisionRegistries>,
-    launcher: Option<Res<'w, LauncherCoreSlot>>,
+    launcher: Option<Res<'w, LauncherServices>>,
     actor_artwork: Option<Res<'w, render_scene::ActorArtworkResource>>,
     ui_catalog: Option<Res<'w, crate::runtime::network::PackUiCatalog>>,
     input: Option<Res<'w, client_state::SemanticInputSnapshot>>,
@@ -288,9 +454,18 @@ impl SessionResources<'_> {
             .core
             .stop_detached(move || drop((join, directory)));
         controller.connecting = false;
+        controller.trust = None;
         controller.presence = None;
         controller.destination_identity = None;
         controller.local_world = false;
+        #[cfg(feature = "native-networking")]
+        {
+            controller.startup_account = None;
+            controller.native_friend = None;
+            controller.native_friend_session = false;
+            controller.native_gathering = None;
+            controller.native_local_world = None;
+        }
         let generation = controller.next_generation();
         if let (Some(far), Some(stream)) = (
             self.far_terrain.as_mut(),
@@ -299,199 +474,8 @@ impl SessionResources<'_> {
             far.retire_stream(stream);
         }
         self.state.retire(generation);
+        self.state.runtime.experiences.audience = None;
         generation
-    }
-}
-
-/// Starts provisioning a fresh core and network session for one address,
-/// replacing any previous session; [`poll_join`] finishes it on later frames.
-///
-/// This is the single replacement-handoff path shared by user joins and
-/// automatic server-transfer follows: identity-checked session directory,
-/// bounded core start wait, old-network shutdown, and a fresh session
-/// generation for every attempt. A running launcher core takes the join
-/// instead: it selects the target over `connect.v1` and the session dials it.
-fn attempt_connect(
-    menu: &mut MenuRuntime,
-    session: &mut SessionResources<'_>,
-    cache: &BlobCache,
-    intent: JoinIntent,
-) {
-    let profile = bridge::join_profile::JoinProfile::current();
-    if profile.id().is_none() {
-        bridge::join_profile::JoinProfile::begin();
-    }
-    bridge::join_profile::JoinProfile::current().mark("session_controller");
-    let JoinIntent {
-        address,
-        auth_cache,
-        local_world,
-    } = intent;
-    menu.remember_retry_target(&address, auth_cache.as_deref(), local_world);
-    // A replacement owns no route back into the old session, even when
-    // provisioning the new endpoint fails before the connecting screen opens.
-    menu.show_home();
-    let generation = session.retire();
-    session.controller.trust = None;
-    session
-        .state
-        .runtime
-        .experiences
-        .select_destination(&address);
-    menu.begin_join_progress(&address, local_world);
-    let mut presence = presence_target(&address, local_world);
-    if local_world {
-        presence.join = menu.hosted_world_address();
-        presence.max_players = menu.hosted_world_max_players();
-    } else {
-        presence.badge = menu.featured_badge(&address);
-        presence.max_players = menu.destination_max_players(&address);
-    }
-    session.controller.presence = Some(presence);
-    session.controller.local_world = local_world;
-    session.controller.destination_identity = Some(
-        if let Some(id) = menu.local_world_identity().filter(|_| local_world) {
-            format!("local:{id}")
-        } else {
-            format!("remote:{}", address.trim().to_lowercase())
-        },
-    );
-    let launcher = session.launcher.as_deref().and_then(|slot| {
-        slot.begin_join(
-            &address,
-            local_world,
-            auth_cache.is_some(),
-            menu.is_launcher(),
-        )
-    });
-    let controller = &mut *session.controller;
-    if let Err(message) = controller.prepare_client_random_id(menu.layout()) {
-        controller.fail_join(menu, message);
-        return;
-    }
-    let stage = match launcher {
-        Some(receiver) => JoinStage::Launcher(receiver),
-        // A local world exists only behind the launcher core.
-        None if local_world => {
-            controller.fail_join(menu, format!("Could not open {address}: no launcher core"));
-            return;
-        }
-        None => {
-            match controller.start_core(menu, cache, &address, auth_cache.as_deref(), generation) {
-                Ok(stage) => stage,
-                Err(message) => {
-                    controller.fail_join(menu, message);
-                    return;
-                }
-            }
-        }
-    };
-    controller.join = Some(JoinAttempt {
-        generation,
-        address,
-        auth_cache,
-        local_world,
-        stage,
-    });
-    controller.connecting = true;
-    menu.show_connecting();
-}
-
-/// Advances the pending join without blocking: starts its network session
-/// once the endpoint is ready, or fails it back to the menu.
-fn poll_join(
-    commands: &mut Commands,
-    menu: &mut MenuRuntime,
-    session: &mut SessionResources<'_>,
-    cache: &BlobCache,
-) {
-    let controller = &mut *session.controller;
-    if controller.join.is_none() {
-        return;
-    }
-    // The join must capture admitted mods, including on a cold cache or a transfer.
-    if session
-        .mod_registration
-        .as_ref()
-        .is_some_and(|watcher| watcher.preparing())
-    {
-        return;
-    }
-    let client_random_id = match controller.poll_client_random_id() {
-        Ok(Some(id)) => id,
-        Ok(None) => return,
-        Err(message) => {
-            let join = controller.join.take();
-            controller.core.stop_detached(move || drop(join));
-            controller.fail_join(menu, message);
-            return;
-        }
-    };
-    let attempt = controller.join.take().expect("pending join");
-    let server_address = attempt.address.clone();
-    use client_session::connection::JoinPoll;
-    match attempt.poll(controller.generation, controller.connecting, || {
-        controller.core.exit_status()
-    }) {
-        JoinPoll::Retired => {}
-        JoinPoll::Pending(attempt) => controller.join = Some(attempt),
-        JoinPoll::StartCore(mut attempt) => {
-            match controller.start_core(
-                menu,
-                cache,
-                &attempt.address,
-                attempt.auth_cache.as_deref(),
-                attempt.generation,
-            ) {
-                Ok(stage) => {
-                    attempt.stage = stage;
-                    controller.join = Some(attempt);
-                }
-                Err(message) => controller.fail_join(menu, message),
-            }
-        }
-        JoinPoll::Ready {
-            socket_dir,
-            directory,
-        } => {
-            let owned_core = directory.is_some();
-            if let Some(directory) = directory {
-                controller.bind_directory(directory);
-            }
-            let mut login_settings = login_settings(menu, session.input.as_deref());
-            login_settings.server_address = server_address;
-            if let Err(error) = start_network(
-                commands,
-                menu,
-                controller.generation,
-                cache,
-                socket_dir,
-                login_settings,
-                client_random_id,
-                session.actor_artwork.as_deref().map(|artwork| &artwork.0),
-                session.ui_catalog.as_deref(),
-                session
-                    .packet_mods
-                    .as_ref()
-                    .and_then(|mods| mods.session_relay()),
-                crate::runtime::network::session_registries::RegistryBase::new(
-                    &session.state.client_world.runtime_assets,
-                    &session.collisions,
-                ),
-            ) {
-                if owned_core {
-                    let directory = controller.directory.take();
-                    controller.core.stop_detached(move || drop(directory));
-                }
-                controller.fail_join(menu, format!("Could not connect: {error}"));
-            }
-        }
-        JoinPoll::Failed { message, directory } => {
-            if let Some(directory) = directory {
-                controller.core.stop_detached(move || drop(directory));
-            }
-            controller.fail_join(menu, message);
-        }
     }
 }
 
@@ -499,6 +483,7 @@ fn poll_join(
 pub(crate) fn login_settings(
     menu: &MenuRuntime,
     input: Option<&client_state::SemanticInputSnapshot>,
+    parallel_resource_pack_urls: bool,
 ) -> protocol::LoginSettings {
     protocol::LoginSettings {
         server_address: String::new(),
@@ -514,55 +499,8 @@ pub(crate) fn login_settings(
         filter_profanity: menu.settings_snapshot().0.value(SettingId::FilterProfanity) != 0,
         view_distance_chunks: menu.settings_snapshot().0.value(SettingId::RenderDistance) as u8,
         resource_pack_cache_dir: Some(menu.layout().resource_pack_cache_dir()),
+        parallel_resource_pack_urls,
     }
-}
-
-/// Starts the network session against the core serving `socket_dir`.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "joining forwards captured session inputs and optional presentation assets"
-)]
-fn start_network(
-    commands: &mut Commands,
-    menu: &MenuRuntime,
-    session_generation: u64,
-    cache: &BlobCache,
-    socket_dir: PathBuf,
-    login_settings: protocol::LoginSettings,
-    client_random_id: protocol::ClientRandomId,
-    actor_artwork: Option<&render_model::ActorArtworkPages>,
-    ui_catalog: Option<&crate::runtime::network::PackUiCatalog>,
-    packet_relay: Option<std::sync::Arc<dyn protocol::PacketRelay>>,
-    registry_base: crate::runtime::network::session_registries::RegistryBase,
-) -> Result<(), String> {
-    bridge::join_profile::JoinProfile::current().mark("core_ready");
-    let replacement = crate::runtime::network::session::spawn_network(
-        NetworkConfig {
-            registry_base,
-            session_generation: simulation_clock::identity::SessionGeneration::new(
-                session_generation,
-            ),
-            socket_dir,
-            display_name: menu.display_name().to_owned(),
-            client_random_id,
-            client_blob_cache: cache.cache(),
-            player_skin: menu.player_skin().clone(),
-            login_settings,
-            actor_artwork: actor_artwork.cloned(),
-            ui_catalog: ui_catalog.map(|base| base.0.clone()),
-            log_dir: menu.layout().log_dir(),
-            record_session: menu.settings_snapshot().0.record_network_session(),
-        },
-        packet_relay,
-    )
-    .map_err(|error| error.to_string())?;
-    commands.insert_resource(
-        client_interaction::movement::MovementTicker::with_epoch_publisher(
-            replacement.physics_epoch_publisher(),
-        ),
-    );
-    commands.insert_resource(replacement);
-    Ok(())
 }
 
 /// Acts on the menu's session intents and advances the pending join.
@@ -573,10 +511,17 @@ pub(crate) fn drive_session(
     client_blob_cache: Res<BlobCache>,
     mut session: SessionResources,
 ) {
+    #[cfg(feature = "native-networking")]
+    if menu.account_operation_pending()
+        && (session.controller.native_account.is_some() || session.controller.native_friend_session)
+    {
+        session.leave();
+        session.controller.native_account = None;
+    }
     session.controller.publish(&mut menu);
     // A queued answer reaches its core before a decline below retires that core.
     if let Some(trust) = session.controller.trust.as_ref() {
-        menu.sync_session_trust(trust);
+        menu.sync_session_trust(trust.as_ref());
     }
     drive_intents(
         &mut commands,
@@ -590,7 +535,7 @@ pub(crate) fn drive_session(
         session.controller.trust = None;
     }
     match session.controller.trust.as_ref() {
-        Some(trust) => menu.sync_session_trust(trust),
+        Some(trust) => menu.sync_session_trust(trust.as_ref()),
         None => menu.forget_session_trust(),
     }
 }
@@ -642,9 +587,21 @@ fn drive_intents(
     if let Some(intent) = menu.take_join_intent() {
         // A user-initiated join always starts a fresh transfer chain.
         session.controller.begin_fresh_transfer_chain();
-        attempt_connect(menu, session, cache, intent);
+        attempt_connect(menu, session, cache, intent, None);
     }
-    poll_join(commands, menu, session, cache);
+    #[cfg(feature = "native-networking")]
+    if let Some(selection) = menu.take_native_friend_intent() {
+        native_friend::begin(menu, session, selection);
+    }
+    #[cfg(feature = "native-networking")]
+    if let Some(selection) = menu.take_native_gathering_intent() {
+        native_gathering::begin(menu, session, selection);
+    }
+    #[cfg(feature = "native-networking")]
+    if let Some(intent) = menu.take_native_local_world_intent() {
+        native_local_world::begin(menu, session, intent);
+    }
+    network::poll_join(commands, menu, session, cache);
 }
 
 /// Returns a failed launcher session to the menu instead of ending the process.
@@ -740,6 +697,7 @@ fn follow_transfer(
             auth_cache,
             local_world: false,
         },
+        Some(protocol::NativeTransport::Addressed),
     );
     if session.controller.connecting {
         menu.show_transfer(&address);
@@ -761,6 +719,108 @@ fn end_transfer_without_follow(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Native service provisioning and unverified friend refusals cannot select Core.
+    #[cfg(feature = "native-networking")]
+    #[test]
+    fn native_routing_preserves_gathering_and_friend_provisioning_owners() {
+        let controller = SessionController::default()
+            .with_native_transport(Some(protocol::NativeTransport::RakNet));
+        assert!(controller.native_provisioning_selected("play.example.net", false));
+        assert!(controller.native_provisioning_selected(
+            &format!("{}7", bridge::contract::REALM_TARGET_PREFIX),
+            false
+        ));
+        assert!(!controller.native_provisioning_selected("play.example.net", true));
+        assert!(controller.native_provisioning_selected(
+            &format!("{}123", bridge::contract::FRIEND_TARGET_PREFIX),
+            false
+        ));
+        let gathering = format!(
+            "{}{}",
+            launcher::menu::EXPERIENCE_ADDRESS_PREFIX,
+            "00000000-0000-0000-0000-000000000007"
+        );
+        assert!(matches!(
+            launcher_host::launcher_core::target_for(&gathering),
+            bridge::ConnectTarget::Gathering(_)
+        ));
+        assert!(
+            controller.native_provisioning_selected(&gathering, false),
+            "gathering destinations must reach their native account allocation owner"
+        );
+    }
+
+    /// The real native provisioning branch preserves the ordinary target owner's endpoint grammar.
+    #[cfg(feature = "native-networking")]
+    #[test]
+    fn native_start_core_normalizes_saved_direct_host_and_ipv6_destinations() {
+        let layout = launcher::test_support::scratch("native-direct-addresses");
+        let menu = MenuRuntime::new_with_layout(
+            false,
+            None,
+            "Direct".into(),
+            layout,
+            client_shell::player_skin::LocalPlayerSkin::generated_default("Direct"),
+        );
+        let mut controller = SessionController::default()
+            .with_native_transport(Some(protocol::NativeTransport::RakNet));
+        let cache = BlobCache::default();
+        for address in [
+            "play.example.net:19133",
+            "[2001:db8::7]:19134",
+            "play.example.net",
+            "2001:db8::7",
+            " play.example.net ",
+        ] {
+            let bridge::ConnectTarget::RakNet(expected) =
+                launcher_host::launcher_core::target_for(address)
+            else {
+                panic!("direct fixture must use the ordinary endpoint owner");
+            };
+            let JoinStage::Prepared(protocol::SessionEndpoint::Native(target)) = controller
+                .start_core(&menu, &cache, address, None, 1, None)
+                .expect("direct native provisioning must not start a Go process")
+            else {
+                panic!("explicit native direct destination did not retain native I/O");
+            };
+            assert_eq!(target.transport, protocol::NativeTransport::RakNet);
+            assert_eq!(
+                target.address, expected,
+                "native provisioning lost the existing endpoint grammar for {address}"
+            );
+            assert!(controller.directory.is_none());
+        }
+        let realm = format!("{}7", bridge::contract::REALM_TARGET_PREFIX);
+        assert!(
+            controller
+                .start_core(&menu, &cache, &realm, None, 1, None)
+                .is_err()
+        );
+        let JoinStage::Prepared(protocol::SessionEndpoint::Native(target)) = controller
+            .start_core(
+                &menu,
+                &cache,
+                &realm,
+                Some(std::path::Path::new("unread.json")),
+                1,
+                None,
+            )
+            .unwrap()
+        else {
+            panic!("Realm keeps native account resolution");
+        };
+        assert_eq!(target.address, realm, "Realm locator is not a DNS endpoint");
+
+        let friend = format!("{}123", bridge::contract::FRIEND_TARGET_PREFIX);
+        assert!(matches!(
+            controller.start_core(&menu, &cache, &friend, None, 1, None),
+            Err(message)
+                if message == crate::args::ArgsError::NativeFriendSelectionRequired.to_string()
+        ));
+        assert!(controller.directory.is_none());
+        assert!(controller.core.id().is_none());
+    }
 
     #[test]
     fn login_profanity_preference_comes_from_saved_settings_with_a_hidden_menu() {
@@ -785,7 +845,7 @@ mod tests {
                 layout,
                 client_shell::player_skin::LocalPlayerSkin::generated_default("Direct"),
             );
-            let settings = login_settings(&menu, None);
+            let settings = login_settings(&menu, None, false);
             assert_eq!(settings.filter_profanity, filter_profanity);
         }
     }
@@ -807,7 +867,7 @@ mod tests {
             layout,
             client_shell::player_skin::LocalPlayerSkin::generated_default("Direct"),
         );
-        let settings = login_settings(&menu, None);
+        let settings = login_settings(&menu, None, false);
         assert_eq!(settings.gui_scale_offset, -1);
         assert_eq!(settings.input_mode, protocol::PlayerInputMode::Mouse);
     }
@@ -835,7 +895,7 @@ mod tests {
                 client_shell::player_skin::LocalPlayerSkin::generated_default("Direct"),
             );
             assert_eq!(
-                login_settings(&menu, None).view_distance_chunks,
+                login_settings(&menu, None, false).view_distance_chunks,
                 radius as u8
             );
         }

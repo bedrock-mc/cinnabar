@@ -38,8 +38,8 @@ anyhow.workspace = true
 chrono = { version = "=0.4.45", default-features = false, features = ["clock"] }
 png = "0.18"
 sha2 = { workspace = true }
-serde = { version = "=1.0.228", features = ["derive"] }
-serde_json = "=1.0.150"
+serde.workspace = true
+serde_json.workspace = true
 server-experience = { path = "../server-experience" }
 wasmtime = { workspace = true }
 wasmtime-wasi = { workspace = true }

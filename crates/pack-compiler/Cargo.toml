@@ -15,7 +15,7 @@ reads = [
 
 [dependencies]
 pack-compile-input = { path = "input" }
-pack-json = { path = "../pack-json" }
+bedrock-packs.workspace = true
 assets = { path = "../assets" }
 image.workspace = true
 serde = { version = "1", features = ["derive"] }

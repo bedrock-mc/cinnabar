@@ -250,7 +250,7 @@ for dependency_name, expected_features in expected_dependencies.items():
     dependency = matches[0]
     required_fields = {
         "name", "source", "kind", "rename", "optional", "uses_default_features",
-        "features", "target", "path",
+        "features", "target",
     }
     missing = sorted(required_fields.difference(dependency))
     if missing:
@@ -262,24 +262,20 @@ for dependency_name, expected_features in expected_dependencies.items():
             f"protocol dependency provenance drifted: {dependency_name} must not be renamed"
         )
     if (
-        dependency["source"] is not None
-        or dependency["kind"] is not None
+        dependency["kind"] is not None
         or dependency["target"] is not None
         or dependency["optional"] is not False
         or not isinstance(dependency["uses_default_features"], bool)
     ):
         raise SystemExit(
-            f"protocol dependency provenance drifted: {dependency_name} must be one normal non-target non-optional local dependency"
+            f"protocol dependency provenance drifted: {dependency_name} must be one normal non-target non-optional Git dependency"
         )
-    vendored_manifest = root / f"crates/protocol/vendor/{dependency_name}/Cargo.toml"
-    if not vendored_manifest.is_file():
+    expected_source = f"git+https://github.com/cinnabar-mc/protocolgen?rev={protocolgen_revision}"
+    if dependency.get("path") is not None or dependency["source"] not in (
+        expected_source, expected_source + "#" + protocolgen_revision
+    ):
         raise SystemExit(
-            f"protocol dependency provenance drifted: {dependency_name} vendored path has no Cargo.toml"
-        )
-    dependency_path = dependency["path"]
-    if dependency_path is None or pathlib.Path(dependency_path).resolve() != vendored_manifest.parent.resolve():
-        raise SystemExit(
-            f"protocol dependency provenance drifted: {dependency_name} does not resolve to its canonical vendored path"
+            f"protocol dependency provenance drifted: {dependency_name} must use the canonical pinned Git source"
         )
     actual_features = dependency["features"]
     if (
@@ -308,24 +304,25 @@ if actual_license_sha256 != license_sha256:
         f"protocol dependency retained license SHA-256 drifted: expected {license_sha256}, got {actual_license_sha256}"
     )
 
-resolved = set()
+resolved = []
 lock = lock_path.read_text(encoding="utf-8-sig")
+expected_lock_source = (
+    f"git+https://github.com/cinnabar-mc/protocolgen?rev={protocolgen_revision}#{protocolgen_revision}"
+)
 for block in re.split(r"(?m)^\s*\[\[package\]\]\s*$", lock)[1:]:
     name_match = re.search(r'(?m)^\s*name\s*=\s*"([^"]+)"\s*$', block)
-    if not name_match:
+    if not name_match or name_match.group(1) != "bedrock-protocol-1-26-51":
         continue
     name = name_match.group(1)
-    if name != "bedrock-protocol-1-26-51":
-        continue
-    resolved.add(name)
-    resolution_key = re.search(r"(?m)^\s*(source|checksum)\s*=", block)
-    if resolution_key:
-        raise SystemExit(
-            f"Cargo.lock local package {name} has a {resolution_key.group(1)} entry"
-        )
-for dependency in ("bedrock-protocol-1-26-51",):
-    if dependency not in resolved:
-        raise SystemExit(f"Cargo.lock does not contain local package {dependency}")
+    resolved.append(name)
+    if re.search(r"(?m)^\s*checksum\s*=", block):
+        raise SystemExit(f"Cargo.lock Git package {name} must not contain a checksum")
+    sources = re.findall(r'(?m)^\s*source\s*=\s*"([^"]+)"\s*$', block)
+    if sources != [expected_lock_source]:
+        raise SystemExit(f"Cargo.lock Git package {name} must resolve the exact canonical revision")
+if resolved != ["bedrock-protocol-1-26-51"]:
+    raise SystemExit("Cargo.lock must contain exactly one pinned generated codec package")
+
 PY
 }
 
@@ -944,7 +941,7 @@ keys = {
 }
 metadata = {name: os.environ[source] for name, source in keys.items()}
 metadata.update({
-    "protocol_dependency_resolution": "vendored-path",
+    "protocol_dependency_resolution": "git-revision",
     "duration_seconds": int(os.environ["CINNABAR_META_DURATION"]),
     "build_app_command": "cargo build --release -p cinnabar --locked",
     "build_profile": "release",

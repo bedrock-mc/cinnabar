@@ -242,7 +242,7 @@ fn decode_pcm(bytes: &[u8], path: &str) -> Option<Pcm> {
 }
 
 fn parse_music(bytes: &[u8]) -> HashMap<Box<str>, MusicEntry> {
-    let Ok(Value::Object(map)) = pack_json::parse_jsonc::<Value>(bytes) else {
+    let Ok(Value::Object(map)) = bedrock_packs::jsonc::parse_jsonc::<Value>(bytes) else {
         return HashMap::new();
     };
     map.iter()
@@ -292,7 +292,8 @@ impl SoundBank {
 
     /// Builds routing and cache state from an already verified bank prefix.
     fn from_index(index: SoundBankIndex, catalog: Option<Arc<RuntimeAudioCatalog>>) -> Self {
-        let json = |bytes: &[u8]| pack_json::parse_jsonc::<Value>(bytes).unwrap_or(Value::Null);
+        let json =
+            |bytes: &[u8]| bedrock_packs::jsonc::parse_jsonc::<Value>(bytes).unwrap_or(Value::Null);
         let tables =
             SoundEventTables::from_json(&json(index.sounds_json()), &json(index.materials_json()));
         Self {

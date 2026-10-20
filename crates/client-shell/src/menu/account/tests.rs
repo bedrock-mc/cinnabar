@@ -674,7 +674,7 @@ fn check_outliving_its_join_cancels_a_later_fallback_prompt() {
 /// A held join that signs in goes through the account core once it serves that account.
 #[test]
 fn signed_in_held_join_waits_for_the_account_core() {
-    use crate::menu::launcher_core::AccountCore;
+    use crate::menu::launcher_services::AccountCore;
     let (mut child, directory) = event_child_waiting(
         &[r#"{"v":1,"event":"checking_cache"}"#],
         &[r#"{"v":1,"event":"authenticated","method":"cached"}"#],

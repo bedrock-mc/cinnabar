@@ -203,6 +203,126 @@ fn app_with_core(root: &Path, script: &str) -> App {
     app
 }
 
+/// The actual account service registration must retire a separate Core before removing its cache.
+#[cfg(unix)]
+#[test]
+fn account_signout_waits_for_the_original_fallback_session_child_to_exit() {
+    use bevy::prelude::IntoScheduleConfigs;
+    use std::{
+        io::{Read, Write},
+        os::unix::net::{UnixListener, UnixStream},
+        process::{Command, Stdio},
+        time::Duration,
+    };
+    const CHILD_SOCKET: &str = "CINNABAR_TEST_SIGNOUT_EXIT_SOCKET";
+    if let Some(path) = std::env::var_os(CHILD_SOCKET) {
+        let mut peer = UnixStream::connect(path).unwrap();
+        peer.write_all(b"R").unwrap();
+        std::io::stdin().read_to_end(&mut Vec::new()).unwrap();
+        peer.write_all(b"S").unwrap();
+        let mut release = [0];
+        peer.read_exact(&mut release).unwrap();
+        assert_eq!(release, *b"X");
+        return;
+    }
+    let root = TempRoot::new();
+    let socket_root = tempfile::Builder::new().prefix("sx").tempdir().unwrap();
+    let socket = socket_root.path().join("s");
+    let listener = UnixListener::bind(&socket).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let module = module_path!().split_once("::").unwrap().1;
+    let child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            &format!(
+                "{module}::account_signout_waits_for_the_original_fallback_session_child_to_exit"
+            ),
+            "--nocapture",
+        ])
+        .env(CHILD_SOCKET, &socket)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut guard = launcher_host::core_process::CoreProcessGuard::default();
+    guard.replace(child);
+    let mut peer = None;
+    test_time::eventually_within(
+        Duration::from_secs(10),
+        "the original fallback child to connect",
+        || match listener.accept() {
+            Ok((stream, _)) => {
+                peer = Some(stream);
+                true
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => false,
+            Err(error) => panic!("fallback child fixture: {error}"),
+        },
+    );
+    let mut peer = peer.unwrap();
+    peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let mut ready = [0];
+    peer.read_exact(&mut ready).unwrap();
+    assert_eq!(ready, *b"R");
+    peer.set_nonblocking(true).unwrap();
+    let mut app = app_with_core(root.path(), "#!/bin/sh\nexit 0\n");
+    let cache = app.world().resource::<MenuRuntime>().layout().auth_cache();
+    fs::create_dir_all(cache.parent().unwrap()).unwrap();
+    fs::write(&cache, b"synthetic fixture cache").unwrap();
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu_fixture::suppress_catalog(&mut menu);
+        menu_fixture::use_missing_core(&mut menu);
+        menu.activate(MenuAction::SignOut);
+    }
+    app.insert_resource(SessionController::new(guard))
+        .init_resource::<client_shell::menu::LauncherServices>()
+        .add_systems(
+            Update,
+            crate::shell_adapters::menu_services().before(drive_session),
+        );
+    test_time::eventually_within(
+        Duration::from_secs(5),
+        "the actual fallback stop or forbidden cache mutation",
+        || {
+            app.update();
+            assert!(
+                cache.exists(),
+                "account credentials were removed before the original fallback Core exited"
+            );
+            match peer.read(&mut ready) {
+                Ok(1) => {
+                    assert_eq!(ready, *b"S");
+                    true
+                }
+                Ok(_) => panic!("fallback child ended before its explicit exit barrier"),
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => false,
+                Err(error) => panic!("fallback stop fixture: {error}"),
+            }
+        },
+    );
+    assert!(cache.exists());
+    peer.write_all(b"X").unwrap();
+    test_time::eventually_within(
+        Duration::from_secs(5),
+        "signout after the original fallback exit",
+        || {
+            app.update();
+            !cache.exists()
+                && !app
+                    .world()
+                    .resource::<MenuRuntime>()
+                    .account_operation_pending()
+        },
+    );
+    assert!(
+        !app.world()
+            .resource::<MenuRuntime>()
+            .account_operation_pending()
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn cancellation_precedes_a_ready_join_response() {

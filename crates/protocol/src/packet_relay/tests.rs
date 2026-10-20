@@ -208,7 +208,7 @@ async fn taps_record_relay_replacements_and_detached_writes_once() {
     pair.transport.send(&[set_time(2)]).await.unwrap();
     pair.transport
         .batch_writer()
-        .send(batch_frame(&[set_time(3)]).unwrap())
+        .send(Bytes::from(body(&[3])))
         .await
         .unwrap();
     for time in [5, 3] {

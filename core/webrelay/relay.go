@@ -18,11 +18,11 @@ import (
 )
 
 const (
-	maxSessions       = 256
-	maxPerIP          = 4
-	idleTTL           = 10 * time.Minute
-	resumeTTL         = 2 * time.Minute
-	helloTimeout      = 10 * time.Second
+	maxSessions       = bridgecontract.RelayMaxSessions
+	maxPerIP          = bridgecontract.RelayMaxPerIP
+	idleTTL           = time.Duration(bridgecontract.RelayIdleSeconds) * time.Second
+	resumeTTL         = time.Duration(bridgecontract.RelayResumeSeconds) * time.Second
+	helloTimeout      = time.Duration(bridgecontract.RelayHelloSeconds) * time.Second
 	keepAliveInterval = time.Duration(bridgecontract.RelayKeepAliveSeconds) * time.Second
 	playMessageLimit  = bridgecontract.RelayPlayMessageBytes
 )
@@ -98,10 +98,10 @@ func (relay *Relay) admit(client netip.Addr, now time.Time) (func(), error) {
 func (relay *Relay) allowLocked(client netip.Addr, now time.Time) bool {
 	entry := relay.limiters[client]
 	if entry == nil {
-		if len(relay.limiters) >= 4*maxSessions {
+		if len(relay.limiters) >= bridgecontract.RelayMaxActionClients {
 			return false
 		}
-		entry = &clientLimiter{limiter: rate.NewLimiter(rate.Limit(12.0/60), 6)}
+		entry = &clientLimiter{limiter: rate.NewLimiter(rate.Every(time.Duration(bridgecontract.RelayActionRefillMillis)*time.Millisecond), bridgecontract.RelayActionBurst)}
 		relay.limiters[client] = entry
 	}
 	entry.lastSeen = now

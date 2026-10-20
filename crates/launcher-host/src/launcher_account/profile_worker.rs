@@ -2,47 +2,95 @@
 
 use super::*;
 
+mod active;
+mod source;
+pub(super) use source::Source;
+
 /// A local RPC guard, longer than the core's service deadline and response write allowance.
 /// This is transport recovery, not a vanilla animation or service timeout constant.
 pub(super) const RESPONSE_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// The single coalesced profile wake is also its one-way retirement signal.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Wake {
+    Refresh,
+    Stop,
+}
+
+/// Creates the existing worker's bounded latest wake, initially requesting a profile.
+pub(super) fn channel() -> (
+    tokio::sync::watch::Sender<Wake>,
+    tokio::sync::watch::Receiver<Wake>,
+) {
+    tokio::sync::watch::channel(Wake::Refresh)
+}
+
+/// Coalesces a refresh without allowing a late account callback to restart a retired worker.
+pub(super) fn refresh(sender: &tokio::sync::watch::Sender<Wake>) -> bool {
+    !sender.is_closed() && sender.send_if_modified(|wake| *wake != Wake::Stop)
+}
+
+/// Retires active reads and future refreshes without waiting on the frame thread.
+pub(super) fn stop(sender: &tokio::sync::watch::Sender<Wake>) {
+    sender.send_replace(Wake::Stop);
+}
+
+struct Selection {
+    generation: u64,
+    source: Source,
+}
+
+impl Selection {
+    /// Captures the presentation generation and its selected request source together.
+    fn capture(shared: &Mutex<Snapshot>) -> Self {
+        let snapshot = shared.lock().unwrap_or_else(|poison| poison.into_inner());
+        Self {
+            generation: snapshot.auth_generation,
+            source: snapshot.profile_source.clone(),
+        }
+    }
+
+    /// Rejects old presentation without file access or a credential acquisition.
+    fn current(&self, snapshot: &Snapshot) -> bool {
+        snapshot.auth_generation == self.generation
+            && self.source.same_account(&snapshot.profile_source)
+    }
+}
+
 /// Publishes a terminal result even if a control endpoint accepts but never answers.
 pub(super) fn poll(
-    socket_dir: &std::path::Path,
+    socket_dir: Option<&std::path::Path>,
     artwork_dir: &std::path::Path,
     shared: &Mutex<Snapshot>,
-    stop: &Receiver<()>,
-    requests: &Receiver<()>,
+    requests: tokio::sync::watch::Receiver<Wake>,
+    runtime: &Handle,
 ) {
     poll_with_timeout(
         socket_dir,
         artwork_dir,
         shared,
-        stop,
         requests,
         RESPONSE_TIMEOUT,
+        runtime,
     );
 }
 
-/// Uses the same socket path and publication rules with a shorter deadline in fixtures.
+/// Uses the same request source and publication rules with a shorter deadline in fixtures.
 fn poll_with_timeout(
-    socket_dir: &std::path::Path,
+    socket_dir: Option<&std::path::Path>,
     artwork_dir: &std::path::Path,
     shared: &Mutex<Snapshot>,
-    stop: &Receiver<()>,
-    requests: &Receiver<()>,
+    mut requests: tokio::sync::watch::Receiver<Wake>,
     timeout: Duration,
+    runtime: &Handle,
 ) {
-    let Some(runtime) = runtime() else {
-        publish(shared, |snapshot| snapshot.profile = Some(Err(())));
-        log_unavailable("runtime_unavailable");
-        return;
-    };
     let images = artwork::feed_images(artwork_dir);
     let mut last_log = None;
     loop {
-        while requests.try_recv().is_ok() {}
-        let generation = auth_generation(shared);
+        if *requests.borrow_and_update() == Wake::Stop {
+            return;
+        }
+        let selection = Selection::capture(shared);
         let started = Instant::now();
         let logging =
             last_log.is_none_or(|last: Instant| started.duration_since(last) >= FEED_RETRY);
@@ -54,24 +102,58 @@ fn poll_with_timeout(
                 "profile request"
             );
         }
-        let result = runtime.block_on(async {
-            let mut result = tokio::time::timeout(timeout, bridge::profile(socket_dir)).await;
-            if let Ok(Ok(profile)) = &mut result {
-                artwork::fill(&images, artwork::profile_slots(profile)).await;
+        let completed = runtime.block_on(active::run(
+            socket_dir,
+            &images,
+            shared,
+            &selection,
+            &mut requests,
+            timeout,
+        ));
+        let (profile, mut outcome, queued_refresh) = match completed {
+            active::Outcome::Stopped => return,
+            active::Outcome::Retired => continue,
+            active::Outcome::Complete(result, mut queued) => {
+                let outcome = match &result {
+                    Ok(profile) if profile.partial() => "partial",
+                    Ok(_) => "success",
+                    Err(active::Failure::Unavailable) => "unavailable",
+                    Err(active::Failure::TimedOut) => "timeout",
+                };
+                let profile = match result {
+                    Ok(profile) => match runtime.block_on(active::wait(
+                        profile.into_current(),
+                        shared,
+                        &selection,
+                        &mut requests,
+                        None,
+                        &mut queued,
+                    )) {
+                        Ok(profile) => profile,
+                        Err(active::Exit::Stopped) => return,
+                        Err(active::Exit::Retired) => continue,
+                        Err(active::Exit::TimedOut | active::Exit::Unavailable) => Err(()),
+                    },
+                    Err(_) => Err(()),
+                };
+                (profile, outcome, queued)
             }
-            result
-        });
-        let outcome = match &result {
-            Ok(Ok(_)) => "success",
-            Ok(Err(_)) => "unavailable",
-            Err(_) => "timeout",
         };
-        let failed = !matches!(result, Ok(Ok(_)));
-        let profile = result.ok().and_then(Result::ok).ok_or(());
-        let current = auth_generation(shared) == generation;
-        publish_account(shared, generation, |snapshot| {
-            snapshot.profile = Some(profile)
-        });
+        if *requests.borrow() == Wake::Stop {
+            return;
+        }
+        let failed = profile.is_err();
+        if failed && matches!(outcome, "success" | "partial") {
+            outcome = "retired_profile";
+        }
+        let current = {
+            let mut snapshot = shared.lock().unwrap_or_else(|poison| poison.into_inner());
+            let current = selection.current(&snapshot);
+            if current {
+                snapshot.profile = Some(profile);
+            }
+            current
+        };
         if logging {
             tracing::info!(
                 request = "profile.v1",
@@ -80,20 +162,20 @@ fn poll_with_timeout(
                 "profile request"
             );
         }
-        let wake = match idle_wait(failed) {
-            Some(wait) => crossbeam_channel::select! {
-                recv(stop) -> _ => return,
-                recv(requests) -> request => request.is_ok(),
-                default(wait) => true,
-            },
-            None => crossbeam_channel::select! {
-                recv(stop) -> _ => return,
-                recv(requests) -> request => request.is_ok(),
-            },
-        };
-        if !wake {
-            return;
+        if !current || queued_refresh {
+            continue;
         }
+        runtime.block_on(async {
+            match idle_wait(failed) {
+                Some(wait) => tokio::select! {
+                    _ = requests.changed() => {},
+                    _ = tokio::time::sleep(wait) => {},
+                },
+                None => {
+                    let _ = requests.changed().await;
+                }
+            }
+        });
     }
 }
 
@@ -146,24 +228,25 @@ mod tests {
             );
         });
         let shared = Arc::new(Mutex::new(Snapshot::default()));
-        let (alive, stop) = bounded(0);
-        let (_sender, requests) = bounded(1);
+        let (sender, requests) = channel();
         let snapshot = Arc::clone(&shared);
         let endpoint = dir.clone();
+        let runtime = worker_runtime();
+        let executor = runtime.handle().clone();
         let worker = thread::spawn(move || {
             poll_with_timeout(
-                &endpoint,
+                Some(&endpoint),
                 &endpoint.join("artwork"),
                 &snapshot,
-                &stop,
-                &requests,
+                requests,
                 Duration::from_millis(100),
+                &executor,
             )
         });
         test_time::wait_until(Duration::from_secs(2), || {
             shared.lock().unwrap().profile.is_some()
         });
-        drop(alive);
+        stop(&sender);
         worker.join().unwrap();
         fixture.join().unwrap();
         assert!(matches!(shared.lock().unwrap().profile, Some(Err(()))));

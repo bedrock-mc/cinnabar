@@ -16,6 +16,10 @@ const MAX_BATCH_PACKETS: usize = 1_600;
 /// Errors produced by raw Bedrock batch encoding and decoding.
 #[derive(Debug, Error)]
 pub enum ProtocolError {
+    /// The application could not prepare its explicitly selected native account.
+    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+    #[error("native account preparation failed: {0}")]
+    Authentication(#[source] std::io::Error),
     #[error("bridge connection failed: {0}")]
     Bridge(#[source] anyhow::Error),
 
@@ -105,8 +109,10 @@ pub(crate) enum SessionFailure {
     BatchTooLarge { actual: usize, max: usize },
     #[error("batch contains more than {max} packets")]
     TooManyPackets { max: usize },
-    #[error("unexpected startup packet: {0}")]
-    UnexpectedStartup(String),
+    #[error("invalid client startup: {0}")]
+    ClientSpawn(#[source] bedrock_client::spawn::SpawnError),
+    #[error("client handshake failed: {0}")]
+    ClientHandshake(#[source] bedrock_client::handshake::HandshakeError),
     /// A Disconnect ended the join; the texts are the server's own, unbounded.
     #[error("server disconnected during {stage}: {reason}")]
     ServerDisconnect {
@@ -120,6 +126,9 @@ pub(crate) enum SessionFailure {
     ServerTransfer(crate::ServerTransferEvent),
     #[error("session transport failed: {0}")]
     Transport(#[source] bridge::BridgeError),
+    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+    #[error("native connection failed: {0}")]
+    NativeTransport(#[source] std::io::Error),
     #[error("connection closed")]
     ConnectionClosed,
 }
@@ -127,16 +136,21 @@ pub(crate) enum SessionFailure {
 impl SessionFailure {
     /// Whether this is a malformed-input failure, which play counts, rather than a closed link.
     pub(crate) const fn is_decode(&self) -> bool {
-        !matches!(self, Self::Transport(_) | Self::ConnectionClosed)
+        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+        if matches!(self, Self::NativeTransport(_)) {
+            return false;
+        }
+        !matches!(
+            self,
+            Self::Transport(_) | Self::ConnectionClosed | Self::ClientHandshake(_)
+        )
     }
 
     /// Whether a delivered packet failed decoding or startup validation.
     pub(crate) const fn is_packet_failure(&self) -> bool {
         matches!(
             self,
-            Self::PacketDecode { .. }
-                | Self::PacketTrailingBytes { .. }
-                | Self::UnexpectedStartup(_)
+            Self::PacketDecode { .. } | Self::PacketTrailingBytes { .. } | Self::ClientSpawn(_)
         )
     }
 }
@@ -195,7 +209,27 @@ pub(crate) fn decode_body(
     id: PacketId,
     body: &Bytes,
 ) -> Result<packets::Packet, wire::DecodeError> {
-    let mut reader = wire::Reader::from_shared(body).with_limits(server_limits());
+    decode_with_limits(id, body, server_limits())
+}
+
+/// Decodes actual accepting-edge input using the generated client field limits.
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+pub(crate) fn decode_client_body(
+    id: PacketId,
+    body: &Bytes,
+) -> Result<packets::Packet, wire::DecodeError> {
+    static LIMITS: LazyLock<wire::Limits> =
+        LazyLock::new(|| wire::Limits::receiving_from(wire::Peer::Client));
+    decode_with_limits(id, body, &LIMITS)
+}
+
+/// Shares complete-body consumption without mixing the two wire directions' field limits.
+fn decode_with_limits(
+    id: PacketId,
+    body: &Bytes,
+    limits: &wire::Limits,
+) -> Result<packets::Packet, wire::DecodeError> {
+    let mut reader = wire::Reader::from_shared(body).with_limits(limits);
     let packet = packets::Packet::decode_body(id, &mut reader)?;
     reader.expect_consumed()?;
     Ok(packet)

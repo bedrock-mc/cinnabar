@@ -7,7 +7,6 @@ import (
 	"github.com/df-mc/go-xsapi/v2/presence"
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
-	"github.com/sandertv/gophertunnel/minecraft/auth"
 )
 
 // State describes the client's committed world state, independent of Xbox credentials.
@@ -41,7 +40,7 @@ func (s State) ID() string {
 
 // request uses the same title identity as the account's authentication configuration.
 func (s State) request() presence.TitleRequest {
-	title := auth.AndroidConfig.TitleID
+	title := bridgecontract.PresenceTitleID
 	scid := uuid.MustParse(fmt.Sprintf("00000000-0000-0000-0000-%012x", title))
 	return presence.TitleRequest{ID: uint32(title), State: presence.StateActive,
 		Activity: &presence.ActivityRequest{RichPresence: &presence.RichPresenceRequest{

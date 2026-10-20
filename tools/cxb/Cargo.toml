@@ -15,8 +15,8 @@ reads = [
 ring = "=0.17.14"
 anyhow.workspace = true
 protocol = { path = "../../crates/protocol" }
-serde = { version = "=1.0.228", features = ["derive"] }
-serde_json = "=1.0.150"
+serde.workspace = true
+serde_json.workspace = true
 server-experience = { path = "../../crates/server-experience" }
 toml = "0.9"
 url = "=2.5.8"

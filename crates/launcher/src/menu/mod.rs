@@ -274,3 +274,6 @@ mod address_tests;
 pub const MAX_SERVER_NAME_BYTES: usize = 64;
 /// Maximum saved server address size in UTF-8 bytes.
 pub const MAX_SERVER_ADDRESS_BYTES: usize = 128;
+
+/// How often visible account catalogs refresh across native and Go menu workers.
+pub const CATALOG_REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);

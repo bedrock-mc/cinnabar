@@ -43,7 +43,7 @@ type controlEvent struct {
 	Error          string                 `json:"error,omitempty"`
 }
 
-const controlRequestBurst = 4
+const controlRequestBurst = bridgecontract.RelayControlRequestBurst
 
 // readJSON admits a nonzero u32 big-endian JSON payload before allocating it.
 func readJSON(conn net.Conn, value any) error {
@@ -184,7 +184,7 @@ func (relay *Relay) runControl(transportCtx context.Context, conn net.Conn, clie
 			event = controlEvent{Type: bridgecontract.RelayEventAccount, Account: &state}
 		case <-connectChanged:
 			// Multiple pack updates become one current observation.
-			timer := time.NewTimer(100 * time.Millisecond)
+			timer := time.NewTimer(time.Duration(bridgecontract.RelayProgressCoalesceMillis) * time.Millisecond)
 			select {
 			case <-timer.C:
 			case <-ctx.Done():
@@ -256,7 +256,7 @@ func (relay *Relay) runPlay(ctx context.Context, conn net.Conn, client netip.Add
 	defer session.endPlay()
 	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
 	defer stop()
-	limited := &uploadLimitedConn{Conn: conn, ctx: ctx, limiter: rate.NewLimiter(256<<10, bridgecontract.RelayUploadBurstBytes)}
+	limited := &uploadLimitedConn{Conn: conn, ctx: ctx, limiter: rate.NewLimiter(bridgecontract.RelayUploadBytesPerSecond, bridgecontract.RelayUploadBurstBytes)}
 	// Provider and server errors can contain private addresses; control receives only refusal codes.
 	if request.Join == 0 {
 		_ = handler.ServeConn(ctx, limited)

@@ -37,6 +37,8 @@ fn tools_list_names_every_tool() {
         [
             "launch_client",
             "connect",
+            "native_friends",
+            "disconnect",
             "input",
             "import_skin",
             "chat",
@@ -409,4 +411,48 @@ fn skin_import_resolves_paths_and_rejects_unknown_arguments() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn native_friend_selection_requires_explicit_remote_intent_and_strict_observations() {
+    let repo = Path::new("/repo");
+    let control = repo.join(".local/developer-control");
+    let call = |arguments: &Value| commands::command("native_friends", arguments, repo, &control);
+    assert_eq!(
+        call(&json!({})).unwrap().0,
+        Command::NativeFriends { join: None }
+    );
+    let choice = json!({"revision":7,"index":0,"expected_xuid":"456"});
+    assert!(
+        call(&json!({"join":choice}))
+            .unwrap_err()
+            .contains("allow_remote")
+    );
+    assert_eq!(
+        call(&json!({"join":choice,"allow_remote":true})).unwrap().0,
+        Command::NativeFriends {
+            join: Some(developer_control::protocol::NativeFriendChoice {
+                revision: 7,
+                index: 0,
+                expected_xuid: "456".into(),
+            })
+        }
+    );
+    for arguments in [
+        json!([]),
+        json!([null, true]),
+        json!({"join":[7,0,"456"],"allow_remote":true}),
+        json!({"join":choice,"allow_remote":true,"auth_cache":"unselected"}),
+        json!({"join":{"revision":7,"index":0,"expected_xuid":"456","handle":"unjoined"},"allow_remote":true}),
+    ] {
+        assert!(call(&arguments).is_err());
+    }
+    assert_eq!(
+        commands::command("disconnect", &json!({}), repo, &control)
+            .unwrap()
+            .0,
+        Command::Disconnect
+    );
+    assert!(commands::command("disconnect", &json!([]), repo, &control).is_err());
+    assert!(commands::command("disconnect", &json!({"address":"unused"}), repo, &control).is_err());
 }

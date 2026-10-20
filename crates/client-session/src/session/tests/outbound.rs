@@ -53,6 +53,7 @@ async fn status_only_delimiters_reach_the_writer_and_keep_its_failure_path() {
             trace_line: |_: u64, _: &Packet| None::<String>,
             write_trace: |_: &str| {},
             fast_transfer_action_marker: None,
+            terminal: Arc::default(),
         })
         .await;
         assert_eq!(*observed.lock().unwrap(), [(0, true)]);

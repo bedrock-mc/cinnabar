@@ -1,6 +1,7 @@
 //! Joins through the core's session endpoint: the core makes the only login and acquires the packs,
 //! and this client continues from StartGame with its own spawn sequence.
 
+use bedrock_packs::{ResourcePackArchive, ResourcePackHandoff};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -16,8 +17,7 @@ use crate::disconnect::{disconnect_reason, join_disconnect};
 use crate::packet_tap::{PacketOutcome, PacketTap};
 use crate::session_transport::{MAX_READ_AHEAD_BYTES, SessionTransport};
 use crate::{
-    ClientBlobCache, ClientSkin, GameData, PROTOCOL_VERSION, ProtocolError, ResourcePackArchive,
-    ResourcePackHandoff, ServerTransferEvent,
+    ClientBlobCache, ClientSkin, GameData, PROTOCOL_VERSION, ProtocolError, ServerTransferEvent,
 };
 
 /// Prepared ordered play I/O and the host's timer registration function.
@@ -66,15 +66,16 @@ impl LoginSequence {
         prepare: impl FnOnce(ResourcePackHandoff, GameData) -> P + Send + 'static,
     ) -> Result<(PlaySession<R>, P), ProtocolError> {
         let profile = bridge::join_profile::JoinProfile::current();
-        let handoff_stage = profile.stage("upstream_login_and_pack_handoff");
-        send_connect(&io.frames, &login).await?;
-        let (handoff, archives) = receive_handoff(
-            &mut io.reader,
-            login.settings.resource_pack_cache_dir.as_deref(),
-            preparation,
-        )
-        .await?;
-        drop(handoff_stage);
+        let (handoff, archives) = {
+            let _handoff_stage = profile.stage("upstream_login_and_pack_handoff");
+            send_connect(&io.frames, &login).await?;
+            receive_handoff(
+                &mut io.reader,
+                login.settings.resource_pack_cache_dir.as_deref(),
+                preparation,
+            )
+            .await?
+        };
         Self::continue_handoff(io, login, preparation, prepare, handoff, archives).await
     }
 
@@ -132,48 +133,48 @@ impl LoginSequence {
             packs
         };
         let mut prepared_job = None;
-        let spawn_stage = profile.stage("spawn_prerequisites");
-        let spawned = match super::startup::await_spawn(
-            &mut transport,
-            settings.view_distance_chunks,
-            |start_game, item_registry| {
-                prepared_job = Some(preparation.submit(move || {
-                    prepare(packs, GameData::from_wire(&start_game, &item_registry))
-                }));
-            },
-        )
-        .await
-        {
-            Ok(spawned) => spawned,
-            Err(error) => {
-                if let ProtocolError::Session(session) = &error
-                    && session.0.is_packet_failure()
-                {
-                    transport.reject_current(PacketOutcome::Failed);
+        let initialization = {
+            let _spawn_stage = profile.stage("spawn_prerequisites");
+            match super::startup::await_spawn(
+                &mut transport,
+                settings.view_distance_chunks,
+                |start_game, item_registry| {
+                    prepared_job = Some(preparation.submit(move || {
+                        prepare(packs, GameData::from_wire(&start_game, &item_registry))
+                    }));
+                },
+            )
+            .await
+            {
+                Ok(spawned) => spawned,
+                Err(error) => {
+                    if let ProtocolError::Session(session) = &error
+                        && session.0.is_packet_failure()
+                    {
+                        transport.reject_current(PacketOutcome::Failed);
+                    }
+                    return Err(error);
                 }
-                return Err(error);
             }
         };
         transport.finish_startup();
-        drop(spawn_stage);
         let pack_wait = profile.stage("remaining_pack_preparation");
         let preparation = prepared_job.expect("spawn waits for StartGame and the item registry");
         let prepared = prepare_with_read_ahead(&mut transport, preparation).await?;
+        #[allow(
+            clippy::drop_non_drop,
+            reason = "inert builds omit Drop; retain the original guard order after preparation on cancellation"
+        )]
         drop(pack_wait);
         profile.mark("session_ready");
-        let session = PlaySession::new(
-            transport,
-            cache,
-            spawned.runtime_id,
-            spawned.terrain_before_spawn,
-        );
+        let session = PlaySession::new(transport, cache, initialization);
         Ok((session, prepared))
     }
 }
 
 /// Keeps bounded play frames in order while preparation runs, abandoning obsolete work on a
 /// usable core terminal. An unusable transfer retains its ordinary later handling.
-async fn prepare_with_read_ahead<R: FrameRead, P>(
+pub(super) async fn prepare_with_read_ahead<R: FrameRead, P>(
     transport: &mut SessionTransport<R>,
     preparation: impl Future<Output = P>,
 ) -> Result<P, ProtocolError> {

@@ -1,4 +1,4 @@
-//! Coalesced private core control, off the frame thread and independent of UI focus.
+//! Original Core control and synchronous native play policy, independent of UI focus.
 use super::ModRuntime;
 use crate::runtime::network::resource_packs::PackApplication;
 use bevy::prelude::*;
@@ -13,6 +13,8 @@ use std::{
     },
     time::{Duration, Instant},
 };
+
+const _: () = assert!(mod_api::MAX_PACKET_DELAY_MS == bridge::contract::MAX_PACKET_DELAY_MS);
 
 const HEARTBEAT: Duration = Duration::from_secs(1);
 const POSITION_POLL: Duration = Duration::from_millis(50);
@@ -207,6 +209,29 @@ pub(super) fn publish_packet_delay(
         *worker = Worker::start(endpoint.to_owned(), app_session);
     }
     *snapshot = RealPositionSnapshot::default();
+    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+    if endpoint.is_none() {
+        if let Some(network) = network.as_deref()
+            && network
+                .configure_packet_delay(app_session, delay, show)
+                .is_ok()
+            && delay != 0
+            && show
+        {
+            snapshot.position = network
+                .packet_delay_position(app_session)
+                .and_then(|point| {
+                    let feet = [
+                        point[0],
+                        point[1] - protocol::PLAYER_NETWORK_OFFSET,
+                        point[2],
+                    ];
+                    feet.iter().all(|value| value.is_finite()).then_some(feet)
+                });
+            snapshot.session_id = app_session;
+        }
+        return;
+    }
     if let Some(worker) = worker.as_ref() {
         worker.publish(delay, show);
         *snapshot = worker.shared.snapshot(Instant::now());

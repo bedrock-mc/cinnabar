@@ -163,7 +163,7 @@ pub fn collect_files(
         binding_inputs.as_ref(),
     );
     for (_, bytes) in &attachables {
-        if let Ok(actor) = pack_json::parse_jsonc::<Value>(bytes) {
+        if let Ok(actor) = bedrock_packs::jsonc::parse_jsonc::<Value>(bytes) {
             references.read(&actor);
         }
     }

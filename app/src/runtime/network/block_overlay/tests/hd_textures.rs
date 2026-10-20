@@ -48,14 +48,14 @@ fn fixture(images: &[(&str, u32, u32)]) -> (LayeredPackView, CustomBlocks) {
             .unwrap();
         writer.write_all(&bytes).unwrap();
     }
-    let archive = protocol::ResourcePackArchive::unencrypted(
+    let archive = bedrock_packs::ResourcePackArchive::unencrypted(
         id.parse().unwrap(),
         "1.0.0".into(),
         String::new(),
         writer.finish().unwrap().into_inner(),
     );
     let view = LayeredPackView::new(resource_pack::validate_handoff(
-        protocol::ResourcePackHandoff::from_archives(vec![archive]),
+        bedrock_packs::ResourcePackHandoff::from_archives(vec![archive]),
     ));
     let blocks = CustomBlocks {
         blocks: images

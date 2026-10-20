@@ -25,8 +25,8 @@ type PingResult struct {
 const (
 	// MaxPingTargets bounds one ping request.
 	MaxPingTargets = bridgecontract.MaxPingTargets
-	pingTimeout    = 2 * time.Second
-	pingWorkers    = 8
+	pingTimeout    = time.Duration(bridgecontract.PingTimeoutMillis) * time.Millisecond
+	pingWorkers    = bridgecontract.PingWorkers
 	defaultPort    = bridgecontract.DefaultBedrockPortText
 )
 

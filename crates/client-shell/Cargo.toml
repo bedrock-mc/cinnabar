@@ -9,10 +9,12 @@ publish = false
 platform-specific = ["macos", "windows"]
 
 [features]
+native-networking = ["launcher-host/native-networking"]
 developer-control = ["dep:developer-control"]
 test-support = ["launcher/test-support", "launcher-host/test-support"]
 
 [dependencies]
+bedrock-packs.workspace = true
 bevy.workspace = true
 client-ui = { path = "../client-ui" }
 semantic-input = { path = "../input" }
@@ -25,6 +27,7 @@ render-api = { path = "../render-api" }
 render-model = { path = "../render-model" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio-util = { workspace = true, features = ["rt"] }
 image.workspace = true
 tokio.workspace = true
 wgpu.workspace = true
@@ -58,6 +61,9 @@ ash = "0.38"
 js-sys = "0.3.104"
 wasm-bindgen = "0.2.127"
 wasm-bindgen-futures = "0.4.77"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 [dev-dependencies]
 render-model = { path = "../render-model", features = ["test-support"] }

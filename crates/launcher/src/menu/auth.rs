@@ -8,7 +8,7 @@ pub enum AccountIntent {
     SignOut,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub enum AuthState {
     SignedOut,
     Checking,
@@ -16,6 +16,26 @@ pub enum AuthState {
     AwaitingXboxSignup { uri: String },
     Authenticated,
     Failed(String),
+}
+
+impl std::fmt::Debug for AuthState {
+    /// The hosted profile URL authenticates its browser and is never a diagnostic field.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SignedOut => formatter.write_str("SignedOut"),
+            Self::Checking => formatter.write_str("Checking"),
+            Self::AwaitingCode { uri, code } => formatter
+                .debug_struct("AwaitingCode")
+                .field("uri", uri)
+                .field("code", code)
+                .finish(),
+            Self::AwaitingXboxSignup { .. } => formatter
+                .debug_struct("AwaitingXboxSignup")
+                .finish_non_exhaustive(),
+            Self::Authenticated => formatter.write_str("Authenticated"),
+            Self::Failed(message) => formatter.debug_tuple("Failed").field(message).finish(),
+        }
+    }
 }
 
 impl AuthState {
@@ -78,5 +98,9 @@ mod tests {
             &AuthState::Authenticated
         );
         assert_eq!(select_auth(None, None), &AuthState::SignedOut);
+        let signed = AuthState::AwaitingXboxSignup {
+            uri: "https://example.invalid/signup?sig=private-signature".into(),
+        };
+        assert!(!format!("{signed:?}").contains("private-signature"));
     }
 }

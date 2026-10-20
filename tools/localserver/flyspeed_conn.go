@@ -6,6 +6,7 @@ import (
 	"github.com/df-mc/dragonfly/server/session"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/google/uuid"
+	"github.com/hashimthearab/rust-mcbe/tools/localserver/hostbridge"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
@@ -30,6 +31,9 @@ func (l *flySpeedPacketListener) Accept() (session.Conn, error) {
 	conn, err := l.Listener.Accept()
 	if err != nil {
 		return nil, err
+	}
+	if hostbridge.IsRemote(conn.RemoteAddr()) {
+		return conn, nil
 	}
 	id, err := uuid.Parse(conn.IdentityData().Identity)
 	if err != nil {

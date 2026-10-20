@@ -70,6 +70,16 @@ impl RawPacket {
         &self.inner_frame
     }
 
+    /// Shares the original encoded header and payload, removing only its validated entry length.
+    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+    pub(crate) fn encoded(&self) -> Bytes {
+        let mut reader = wire::Reader::from_shared(&self.inner_frame);
+        reader
+            .read_var_u32()
+            .expect("raw packet retains its validated entry length");
+        self.inner_frame.slice(reader.position()..)
+    }
+
     /// Copies the entry into an allocation of its own, so a queued packet cannot keep its
     /// whole batch resident.
     pub(crate) fn into_compact(self) -> Self {
@@ -153,7 +163,7 @@ pub(crate) fn decode_batch(
 
 /// Maps a framing failure of the entry starting at `rest`: a declared length past the input is
 /// a truncated entry, while a cut-short or overlong length or header varint is malformed.
-fn framing_failure(rest: &[u8], error: wire::DecodeError) -> SessionError {
+pub(crate) fn framing_failure(rest: &[u8], error: wire::DecodeError) -> SessionError {
     if let wire::DecodeError::TooManyFrames { limit } = error {
         return SessionFailure::TooManyPackets { max: limit }.into();
     }
@@ -169,7 +179,10 @@ fn framing_failure(rest: &[u8], error: wire::DecodeError) -> SessionError {
 }
 
 /// Names a framed entry's packet; an ID the protocol does not define ends the session.
-fn raw_packet(frame: wire::RawFrame, backing_len: usize) -> Result<RawPacket, SessionError> {
+pub(crate) fn raw_packet(
+    frame: wire::RawFrame,
+    backing_len: usize,
+) -> Result<RawPacket, SessionError> {
     let header = frame.header();
     let id = PacketId::from_raw(header.id).ok_or(SessionFailure::UnknownPacketId(header.id))?;
     Ok(RawPacket {

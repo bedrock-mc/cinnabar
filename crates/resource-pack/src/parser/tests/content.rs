@@ -69,13 +69,14 @@ fn server_content_keeps_keys_for_long_safe_paths() {
         ("contents.json", &contents),
         (&path, &encrypted),
     ]);
-    let (pack, _) = validate_archive_parts(
+    let (pack, _, _) = validate_archive_parts(
         PACK_ID,
         "1.2.3",
         "",
         archive,
         ContentKey::new(PACK_KEY),
         None,
+        Purpose::Rendering,
     )
     .unwrap();
     assert_eq!(

@@ -34,7 +34,7 @@ fn report_local_pack_blocks() {
             let Some(bytes) = view.read(file) else {
                 continue;
             };
-            let Some(bytes) = pack_json::normalize_jsonc(&bytes) else {
+            let Some(bytes) = bedrock_packs::jsonc::normalize_jsonc(&bytes) else {
                 continue;
             };
             for (_, geometry) in parse_geometry_file(&bytes) {

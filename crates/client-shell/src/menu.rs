@@ -27,8 +27,14 @@ mod join_requests;
 mod realm_membership;
 pub use join_requests::open_join_requests_from_key;
 pub mod launcher_account;
-mod launcher_core;
+mod launcher_services;
 mod minecraft_import;
+#[cfg(feature = "native-networking")]
+mod native_catalog;
+#[cfg(feature = "native-networking")]
+mod native_gatherings;
+#[cfg(feature = "native-networking")]
+pub mod native_local_world;
 mod navigation;
 mod presence_targets;
 mod reconnect;
@@ -36,7 +42,9 @@ pub mod screen_focus;
 #[cfg(test)]
 mod server_input_tests;
 mod services;
+mod session_intents;
 pub use services::sync_cinnabar_players;
+use session_intents::SessionIntents;
 pub mod settings_options;
 mod settings_paths;
 pub mod settings_storage;
@@ -66,7 +74,7 @@ use launcher::menu::view::{
 };
 
 pub use account::SignInStatus;
-pub use launcher_core::LauncherCoreSlot;
+pub use launcher_services::LauncherServices;
 use servers::{ServerWriter, load_servers};
 pub use video_settings::persist_video_settings;
 
@@ -90,6 +98,8 @@ use launcher::menu::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuServerTa
 
 #[derive(Debug, Resource)]
 pub struct MenuRuntime {
+    /// Execution only; the application keeps the real Runtime outside the World until workers retire.
+    native_io: Option<(tokio::runtime::Handle, tokio_util::task::TaskTracker)>,
     visible: bool,
     screen: MenuScreen,
     focused: usize,
@@ -137,6 +147,9 @@ pub struct MenuRuntime {
     /// The session controller's last published state.
     session: SessionStatus,
     featured: MenuList<MenuServerCard>,
+    #[cfg(feature = "native-networking")]
+    native_gatherings:
+        std::collections::HashMap<String, launcher_host::native_account::NativeGatheringSelection>,
     realms: MenuList<MenuRealmCard>,
     friends: MenuList<MenuFriendCard>,
     catalog_message: Option<String>,
@@ -144,10 +157,13 @@ pub struct MenuRuntime {
     catalog: launcher_host::catalog::Catalog,
     catalog_art: Option<launcher_host::catalog_art::CatalogArt>,
     auth_process: Option<AuthSupervisor>,
+    native_sign_in: bool,
+    #[cfg(feature = "native-networking")]
+    native_catalog: native_catalog::Controller,
     auth_attempted: bool,
     auth_restart_requested: bool,
     /// The account core a held join may still use; `None` when it cannot start for the join.
-    account_core: Option<launcher_core::AccountCore>,
+    account_core: Option<launcher_services::AccountCore>,
     layout: InstallLayout,
     /// The client's own skin, cloned into every reconnection's `NetworkConfig`.
     player_skin: crate::player_skin::LocalPlayerSkin,
@@ -216,19 +232,6 @@ pub struct MenuRuntime {
     realm_membership: realm_membership::RealmUi,
     /// Discord join requests waiting for the host's answer.
     join_requests: join_requests::JoinRequestUi,
-}
-
-/// Session requests raised by menu actions, for the session controller to take.
-#[derive(Debug, Default)]
-struct SessionIntents {
-    join: Option<JoinIntent>,
-    /// The queued join waits for the saved account's check until this passes.
-    join_sign_in_deadline: Option<std::time::Instant>,
-    /// The background sign-in check serves a join: it may finish, but never prompts.
-    join_sign_in_check: bool,
-    disconnect: bool,
-    respawn: bool,
-    exit: bool,
 }
 
 impl MenuRuntime {
@@ -338,28 +341,6 @@ impl MenuRuntime {
         self.visible = true;
     }
 
-    /// The queued join, once the saved account's check has settled (bounded) and any
-    /// sign-in helper the join does not outlive has finished cleaning up.
-    pub fn take_join_intent(&mut self) -> Option<JoinIntent> {
-        if self.external.is_some() {
-            return self.intents.join.take();
-        }
-        let helper_outlives_join = match self.settle_join_sign_in(std::time::Instant::now()) {
-            account::JoinSignIn::Waiting => return None,
-            account::JoinSignIn::Settled => false,
-            account::JoinSignIn::Expired => true,
-        };
-        if !helper_outlives_join
-            && self
-                .auth_process
-                .as_ref()
-                .is_some_and(|process| !process.cleanup_complete())
-        {
-            return None;
-        }
-        self.intents.join.take()
-    }
-
     /// The session is live: the menu gives way to the world.
     pub fn show_world(&mut self) {
         self.reset_death();
@@ -395,8 +376,15 @@ impl MenuRuntime {
     /// A cancelled join drops any queued join and returns to the play screen.
     pub fn cancel_join(&mut self) {
         self.intents.join = None;
+        #[cfg(feature = "native-networking")]
+        {
+            self.native_catalog.cancel_join();
+            self.intents.gathering = None;
+            self.intents.native_world = None;
+        }
         self.intents.join_sign_in_deadline = None;
         self.intents.join_sign_in_check = false;
+        self.intents.native_auth_required = false;
         self.retry_target = None;
         self.show_session_origin(MenuScreen::Play);
     }
@@ -452,11 +440,21 @@ impl MenuRuntime {
     }
 
     pub fn take_disconnect_request(&mut self) -> bool {
-        std::mem::take(&mut self.intents.disconnect)
+        let requested = std::mem::take(&mut self.intents.disconnect);
+        #[cfg(feature = "native-networking")]
+        if requested {
+            self.native_catalog.cancel_join();
+        }
+        requested
     }
 
     pub fn take_exit_request(&mut self) -> bool {
-        std::mem::take(&mut self.intents.exit)
+        let requested = std::mem::take(&mut self.intents.exit);
+        #[cfg(feature = "native-networking")]
+        if requested {
+            self.native_catalog.cancel_join();
+        }
+        requested
     }
 
     pub fn activate_from_input(&mut self, action: MenuAction) {
@@ -603,6 +601,8 @@ impl MenuRuntime {
                 self.focused = 0;
             }
             MenuAction::RefreshCatalog => {
+                #[cfg(feature = "native-networking")]
+                self.native_catalog.refresh();
                 self.stop_catalog();
                 self.catalog_started = false;
                 self.catalog_message = None;
@@ -637,7 +637,12 @@ impl MenuRuntime {
             }
             MenuAction::PlayFeatured(index) => {
                 if let Some(server) = self.featured.get(index) {
-                    self.request_featured_connect(server.address.clone());
+                    let address = server.address.clone();
+                    #[cfg(feature = "native-networking")]
+                    if self.native_sign_in && self.request_native_gathering(&address) {
+                        return;
+                    }
+                    self.request_featured_connect(address);
                 }
             }
             MenuAction::RealmMembership(action) => self.activate_realm_membership(action),
@@ -686,7 +691,10 @@ impl MenuRuntime {
             }
             MenuAction::PlayFriend(index) => {
                 if let Some(friend) = self.friends.get(index) {
-                    if friend.xuid.is_empty() {
+                    if self.native_sign_in {
+                        #[cfg(feature = "native-networking")]
+                        self.request_native_friend(index);
+                    } else if friend.xuid.is_empty() {
                         self.message =
                             Some("That friend world has no stable Xbox identity.".to_owned());
                     } else {
@@ -916,6 +924,12 @@ impl MenuRuntime {
 
     /// Queues a join to `address` for the session controller.
     pub fn request_connect(&mut self, address: String) {
+        #[cfg(feature = "native-networking")]
+        {
+            self.native_catalog.cancel_join();
+            self.intents.gathering = None;
+            self.intents.native_world = None;
+        }
         if self.external.is_some() {
             self.request_external_connect(address);
             return;

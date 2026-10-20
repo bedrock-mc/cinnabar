@@ -83,7 +83,7 @@ impl PackPreparation {
 
 /// Reads StartGame pack facts and validates the one-shot login handoff.
 pub fn prepare_session_packs(
-    mut handoff: protocol::ResourcePackHandoff,
+    mut handoff: bedrock_packs::ResourcePackHandoff,
     game_data: &protocol::GameData,
     physical_memory_bytes: u64,
 ) -> PackPreparation {
@@ -126,7 +126,7 @@ pub fn prepare_session_packs(
 /// fails is only logged and never rejects a required server stack.
 fn with_relay_packs(
     server: Arc<resource_pack::ValidatedPackStack>,
-    added: Vec<protocol::RelayPack>,
+    added: Vec<bedrock_packs::RelayPack>,
     physical_memory_bytes: u64,
 ) -> Arc<resource_pack::ValidatedPackStack> {
     if added.is_empty() {
@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn required_pack_rejection_stays_between_subscriber_compile_and_completion() {
         for required in [false, true] {
-            let archive = protocol::ResourcePackArchive::unencrypted(
+            let archive = bedrock_packs::ResourcePackArchive::unencrypted(
                 "11111111-2222-3333-4444-555555555555".parse().unwrap(),
                 "1.2.3".into(),
                 String::new(),
@@ -354,7 +354,7 @@ mod tests {
             let preparation = PackPreparation {
                 inputs: Arc::default(),
                 admission: PackAdmission::Validated(resource_pack::validate_handoff(
-                    protocol::ResourcePackHandoff::from_archives(vec![archive]),
+                    bedrock_packs::ResourcePackHandoff::from_archives(vec![archive]),
                 )),
                 required,
                 server_packs: false,
@@ -384,7 +384,7 @@ mod tests {
     // session must not also keep the copy this login validated.
     #[test]
     fn preparing_a_session_releases_the_archives_it_validated() {
-        let archive = protocol::ResourcePackArchive::unencrypted(
+        let archive = bedrock_packs::ResourcePackArchive::unencrypted(
             "11111111-2222-3333-4444-555555555555".parse().unwrap(),
             "1.2.3".into(),
             String::new(),
@@ -393,7 +393,7 @@ mod tests {
         let game_data = protocol::GameData::default();
         let mut validated = None;
         let preparation = prepare_session_packs(
-            protocol::ResourcePackHandoff::from_archives(vec![archive]),
+            bedrock_packs::ResourcePackHandoff::from_archives(vec![archive]),
             &game_data,
             u64::MAX,
         );
@@ -439,8 +439,8 @@ mod tests {
     fn relay_packs_layer_around_a_required_server_stack() {
         let server = "11111111-2222-3333-4444-555555555555";
         let relay = "66666666-2222-3333-4444-555555555555";
-        let handoff = protocol::ResourcePackHandoff::from_archives(vec![
-            protocol::ResourcePackArchive::unencrypted(
+        let handoff = bedrock_packs::ResourcePackHandoff::from_archives(vec![
+            bedrock_packs::ResourcePackArchive::unencrypted(
                 server.parse().unwrap(),
                 "1.0.0".into(),
                 String::new(),
@@ -449,11 +449,11 @@ mod tests {
         ])
         .with_required(true)
         .with_relay_packs(vec![
-            protocol::RelayPack {
+            bedrock_packs::RelayPack {
                 archive: b"not a pack".to_vec(),
                 above_server: false,
             },
-            protocol::RelayPack {
+            bedrock_packs::RelayPack {
                 archive: pack_zip(relay),
                 above_server: true,
             },
@@ -476,13 +476,11 @@ mod tests {
     #[test]
     fn relay_only_packs_prepare_without_server_application_reports() {
         let id = "66666666-2222-3333-4444-555555555555";
-        let handoff =
-            protocol::ResourcePackHandoff::from_archives(Vec::new()).with_relay_packs(vec![
-                protocol::RelayPack {
-                    archive: pack_zip(id),
-                    above_server: true,
-                },
-            ]);
+        let handoff = bedrock_packs::ResourcePackHandoff::from_archives(Vec::new())
+            .with_relay_packs(vec![bedrock_packs::RelayPack {
+                archive: pack_zip(id),
+                above_server: true,
+            }]);
         let preparation = prepare_session_packs(handoff, &protocol::GameData::default(), u64::MAX);
         assert!(preparation.has_packs());
         assert!(!preparation.has_applied_packs());

@@ -52,8 +52,8 @@ fn larger_overlays_keep_every_texture_that_fits_the_device() {
             writer.write_all(&bytes).unwrap();
         }
         LayeredPackView::new(resource_pack::validate_handoff(
-            protocol::ResourcePackHandoff::from_archives(vec![
-                protocol::ResourcePackArchive::unencrypted(
+            bedrock_packs::ResourcePackHandoff::from_archives(vec![
+                bedrock_packs::ResourcePackArchive::unencrypted(
                     id.parse().unwrap(),
                     "1.0.0".into(),
                     String::new(),

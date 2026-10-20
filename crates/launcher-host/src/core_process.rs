@@ -29,6 +29,10 @@ use bridge::{
     CORE_START_TIMEOUT, bridge_endpoint_exists, session_endpoint_path as bridge_endpoint_path,
 };
 
+mod exit;
+use exit::Receipt;
+pub use exit::{CoreExitBarrier, CoreExitState};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CoreStopOutcome {
     NotRunning,
@@ -41,14 +45,29 @@ pub enum CoreStopOutcome {
 
 #[derive(Debug, Default)]
 pub struct CoreProcessGuard {
-    child: Option<Spawned>,
+    child: Option<TrackedCore>,
+    exit: CoreExitBarrier,
+}
+
+#[derive(Debug)]
+struct TrackedCore {
+    child: Spawned,
+    receipt: Receipt,
 }
 
 impl CoreProcessGuard {
     /// Stops (and reaps) the current core before adopting `child`.
     pub fn replace(&mut self, child: impl Into<Spawned>) {
         self.stop();
-        self.child = Some(child.into());
+        self.child = Some(TrackedCore {
+            child: child.into(),
+            receipt: self.exit.started(),
+        });
+    }
+
+    /// Observes actual children from this guard, including every still-retiring detached child.
+    pub fn exit_barrier(&self) -> CoreExitBarrier {
+        self.exit.clone()
     }
 
     /// Stops the core gracefully: close its piped stdin (the cancellation
@@ -63,51 +82,74 @@ impl CoreProcessGuard {
         let Some(child) = self.child.take() else {
             return CoreStopOutcome::NotRunning;
         };
-        match child.stop(deadline) {
-            StopOutcome::Exited => CoreStopOutcome::ExitedAfterGracefulClose,
-            StopOutcome::Terminated => CoreStopOutcome::TerminatedAfterGracefulTimeout,
-            StopOutcome::Killed => CoreStopOutcome::KilledAfterGracefulTimeout,
-            StopOutcome::Unreaped => CoreStopOutcome::Unreaped,
-        }
+        let TrackedCore { child, receipt } = child;
+        let outcome = stop_outcome(child.stop(deadline));
+        receipt.finish(outcome);
+        outcome
     }
 
     /// Returns the tracked child PID for process-lifetime fixtures.
     #[cfg(any(test, feature = "test-support"))]
     pub fn id(&self) -> Option<u32> {
-        self.child.as_ref().map(Spawned::id)
+        self.child.as_ref().map(|tracked| tracked.child.id())
     }
 
     /// The tracked core's exit status once it has exited; `None` while it runs, without a
     /// core, or when its status cannot be read.
     pub fn exit_status(&mut self) -> Option<ExitStatus> {
-        self.child.as_ref()?.try_wait().ok().flatten()
+        self.child.as_ref()?.child.try_wait().ok().flatten()
     }
 
-    /// [`Self::stop`] on a reaper thread, running `then` once the core is gone,
-    /// so the frame never waits out the graceful deadline. The child stays
-    /// tracked, so the exit sweep still ends it if the process exits first.
+    /// Runs `then` after the existing reaper's bounded stop attempt, without an exit guarantee.
+    /// Use [`Self::stop_detached_with_outcome`] when a successor requires proof of exit.
     pub fn stop_detached(&mut self, then: impl FnOnce() + Send + 'static) {
+        self.stop_detached_with_outcome(move |_| then());
+    }
+
+    /// Reports the actual stop outcome on the existing reaper.
+    /// A reaper spawn failure uses the existing synchronous stop fallback.
+    /// Unreaped children remain tracked; callers must not admit a replacement on that result.
+    pub fn stop_detached_with_outcome(
+        &mut self,
+        then: impl FnOnce(CoreStopOutcome) + Send + 'static,
+    ) {
         let Some(child) = self.child.take() else {
-            then();
+            then(CoreStopOutcome::NotRunning);
             return;
         };
-        type Job = (Spawned, Box<dyn FnOnce() + Send>);
+        type Job = (TrackedCore, Box<dyn FnOnce(CoreStopOutcome) + Send>);
         let (job, next) = crossbeam_channel::bounded::<Job>(1);
         let spawned = std::thread::Builder::new()
             .name("bedrock-core-reaper".to_owned())
             .spawn(move || {
                 if let Ok((child, then)) = next.recv() {
-                    child.stop(CORE_GRACEFUL_STOP_DEADLINE);
-                    then();
+                    finish_detached(child, then);
                 }
             });
         if let Err(error) = spawned {
             tracing::warn!("core reaper unavailable, stopping inline: {error}");
-            child.stop(CORE_GRACEFUL_STOP_DEADLINE);
-            then();
+            finish_detached(child, then);
             return;
         }
         let _ = job.send((child, Box::new(then)));
+    }
+}
+
+/// Completes the original child receipt only after the actual stop and its captured cleanup.
+fn finish_detached(child: TrackedCore, then: impl FnOnce(CoreStopOutcome)) {
+    let TrackedCore { child, receipt } = child;
+    let outcome = stop_outcome(child.stop(CORE_GRACEFUL_STOP_DEADLINE));
+    then(outcome);
+    receipt.finish(outcome);
+}
+
+/// Preserves one mapping for synchronous and detached stop results.
+fn stop_outcome(outcome: StopOutcome) -> CoreStopOutcome {
+    match outcome {
+        StopOutcome::Exited => CoreStopOutcome::ExitedAfterGracefulClose,
+        StopOutcome::Terminated => CoreStopOutcome::TerminatedAfterGracefulTimeout,
+        StopOutcome::Killed => CoreStopOutcome::KilledAfterGracefulTimeout,
+        StopOutcome::Unreaped => CoreStopOutcome::Unreaped,
     }
 }
 

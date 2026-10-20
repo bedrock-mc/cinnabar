@@ -27,7 +27,7 @@ const (
 	idleTimeout   = 2*pingInterval + 15*time.Second
 	writeTimeout  = 10 * time.Second
 	lookupTimeout = 10 * time.Second
-	maxFrameBytes = 64 << 10
+	maxFrameBytes = bridgecontract.CinnabarAPIMaxFrameBytes
 	minBackoff    = time.Second
 	maxBackoff    = time.Duration(bridgecontract.CinnabarAPIReconnectMaxMS) * time.Millisecond
 	// stableSession is how long a session must last before failures stop compounding.

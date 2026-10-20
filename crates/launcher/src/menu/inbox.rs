@@ -36,11 +36,20 @@ pub struct InboxState {
     delete_all_read: bool,
     bulk_read: BulkRead,
     service_counts: BTreeMap<usize, u32>,
+    message_session: Option<String>,
 }
 
 impl InboxState {
     /// Keeps a stale polled feed from undoing locally submitted read/delete actions.
     pub fn reconcile(&mut self, home: &mut MenuHome) {
+        if self.message_session != home.message_session {
+            *self = Self {
+                category: self.category,
+                filters: self.filters,
+                message_session: home.message_session.clone(),
+                ..Default::default()
+            };
+        }
         self.service_counts.clone_from(&home.inbox_counts);
         self.bulk_read.observe(home);
         self.apply(home);

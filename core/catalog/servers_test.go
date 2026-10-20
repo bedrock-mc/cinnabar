@@ -2,24 +2,19 @@ package catalog
 
 import (
 	"encoding/json"
+	"os"
 	"testing"
 
 	playfab "github.com/df-mc/go-playfab/v2/catalog"
 )
 
 func TestDiscoveryKeepsBothGroupsAndCompleteArtworkRoles(t *testing.T) {
-	const fixture = `[
- {"ContentType":"3PP_V2.0","Title":{"NEUTRAL":"Creator"},"Description":{"NEUTRAL":"Full description"},
-  "DisplayProperties":{"url":"play.example.test","port":19132,"experienceId":"a26af7a2-ed3b-473d-8d1c-a5b4733b85bd","newsTitle":"Update","news":"News body","availableGames":[{"title":"Build","description":"Protect a base","imageTag":"Base"}]},
-  "Images":[{"Tag":"Thumbnail","Url":"https://cdn.example.test/thumb.png"},{"Tag":"Icon","Type":"Screenshot","Url":"https://cdn.example.test/icon.png"},{"Tag":"Banner","Url":"https://cdn.example.test/banner.png"},{"Tag":"Base","Url":"https://cdn.example.test/base.png"}]},
- {"ContentType":"3PP_V2.0","Title":{"en-US":"Ranked"},"DisplayProperties":{"experienceId":"b7f5596c-e811-49ec-b318-80ff3c435d1d","rank":35}},
- {"ContentType":"3PP_V2.0","Title":{"NEUTRAL":"Zero"},"DisplayProperties":{"experienceId":"81ac183c-1d09-44a2-b0b5-78abaf8c9877","rank":0}},
- {"ContentType":"3PP_V2.0","Title":{"NEUTRAL":"Duplicate"},"DisplayProperties":{"url":"play.example.test","port":19132}},
- {"ContentType":"3PP_V2.0","Title":{"NEUTRAL":"Broken"},"DisplayProperties":{"experienceId":"bad"}},
- {"ContentType":"Other","Title":{"NEUTRAL":"Unrelated"},"DisplayProperties":{"url":"other.test","port":19132}}
- ]`
+	fixture, err := os.ReadFile("testdata/featured_projection.json")
+	if err != nil {
+		t.Fatal(err)
+	}
 	var items []playfab.Item
-	if err := json.Unmarshal([]byte(fixture), &items); err != nil {
+	if err := json.Unmarshal(fixture, &items); err != nil {
 		t.Fatal(err)
 	}
 	servers := discoveryServers(items)

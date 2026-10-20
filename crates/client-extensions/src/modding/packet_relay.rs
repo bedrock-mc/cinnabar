@@ -1,11 +1,12 @@
 //! The selected trusted packet mod: compiled off the frame thread, then run for each session on a
 //! thread of its own that serves the session's packet relay.
 
+use bedrock_packs::RelayPack;
 use mod_host::{
     ModGrants,
     packet_mod::{CompiledPacketMod, Direction, PacketMod, SessionIdentity},
 };
-use protocol::{PacketRelay, RelayOutput, RelayPack};
+use protocol::{PacketRelay, RelayOutput};
 use std::{
     path::PathBuf,
     sync::{

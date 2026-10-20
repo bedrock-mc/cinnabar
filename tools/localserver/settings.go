@@ -12,11 +12,12 @@ import (
 	"github.com/df-mc/dragonfly/server/world"
 
 	"github.com/hashimthearab/rust-mcbe/tools/localserver/extension"
+	"github.com/hashimthearab/rust-mcbe/tools/localserver/internal/hostcontract"
 )
 
 const defaultChunkWorkers = 4
 
-const maxPlayers = 4 // one local player plus a reconnect overlapping its predecessor
+const maxPlayers = hostcontract.MAX_PLAYERS // shared process cap, including local reconnects and native visitors
 
 // settings are the per-world options the core passes on the command line.
 type settings struct {

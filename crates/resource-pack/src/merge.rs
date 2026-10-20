@@ -4,7 +4,7 @@
 
 use serde_json::{Map, Value};
 
-use pack_json::parse_jsonc;
+use bedrock_packs::jsonc::parse_jsonc;
 
 use crate::LayeredPackView;
 
@@ -89,7 +89,7 @@ impl LayeredPackView {
     }
 }
 
-#[cfg(all(test, feature = "handoff"))]
+#[cfg(test)]
 mod tests {
     use crate::{LayeredPackView, test_support::layered_pack_view};
 

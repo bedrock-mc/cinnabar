@@ -38,7 +38,7 @@ pub(super) fn prune(root: &Path, catalog: &mut Catalog) -> Result<(), LibraryErr
 impl GlobalPackLibrary {
     /// Preserves a durable restore selection's archive revisions until a new backup replaces it.
     pub fn retain_for_restore(&mut self, selection: &[ActivePack]) -> Result<(), LibraryError> {
-        if selection.len() > crate::MAX_PACKS {
+        if selection.len() > crate::MAX_LOCAL_PACKS {
             return Err(crate::AdmissionError::TooManyPacks.into());
         }
         if self.catalog.restore == selection {

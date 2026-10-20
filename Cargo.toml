@@ -12,6 +12,7 @@ members = [
     "crates/assets",
     "crates/bridge",
     "web/transport",
+    "web/gateway",
     "web/client",
     "crates/block-transform",
     "crates/bootstrap-ui",
@@ -24,7 +25,6 @@ members = [
     "crates/gameplay",
     "crates/client-session",
     "crates/chunk-pipeline",
-    "crates/pack-json",
     "crates/pack-compiler",
     "crates/pack-compiler/input",
     "crates/pack-compiler/entity",
@@ -92,8 +92,6 @@ members = [
     "tools/cxb",
     "tools/release-manifest",
 ]
-# The vendored codec is generated and linted upstream; only `protocol` builds it.
-exclude = ["crates/protocol/vendor/bedrock-protocol-1-26-51"]
 resolver = "3"
 
 [workspace.package]
@@ -102,6 +100,14 @@ edition = "2024"
 rust-version = "1.99.0"
 
 [workspace.dependencies]
+bedrock-protocol-1-26-51 = { git = "https://github.com/cinnabar-mc/protocolgen", rev = "4e9626abbb51b8fa842f49b4aea0fb4d3c01a682" }
+raknet = { git = "https://github.com/cinnabar-mc/raknet", rev = "014065474467f73dff39562d22050f02fa715108" }
+bedrock-services = { git = "https://github.com/cinnabar-mc/bedrock-services", rev = "32c06beba3d9c9770341ff04e2ffe38aae649408" }
+nethernet = { git = "https://github.com/cinnabar-mc/nethernet", rev = "81e6756558fdc59061eac86cfb0ca7c7d91c3f99" }
+nethernet-tokio = { git = "https://github.com/cinnabar-mc/nethernet", rev = "81e6756558fdc59061eac86cfb0ca7c7d91c3f99" }
+bedrock-net = { git = "https://github.com/cinnabar-mc/bedrock-net", rev = "eef8bd632117a880b354ee98b49403c3749e722d" }
+bedrock-client = { git = "https://github.com/cinnabar-mc/bedrock-net", rev = "eef8bd632117a880b354ee98b49403c3749e722d" }
+bedrock-packs = { git = "https://github.com/cinnabar-mc/bedrock-net", rev = "eef8bd632117a880b354ee98b49403c3749e722d" }
 glam = { version = "0.33.2", default-features = false, features = ["std", "f64"] }
 # One feature set per heavy dependency: any per-crate difference rebuilds it and every dependent.
 # wayland/x11 only select winit backends on Linux; winit ignores them on other targets.
@@ -150,6 +156,9 @@ rayon = "1.11"
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 mimalloc = { version = "=0.1.52", default-features = false }
 sha2 = "=0.10.9"
+rsa = { version = "0.10.0-rc.19", default-features = false, features = ["std", "sha2"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
 # Crates that generate random UUIDs add `v4`; wasm32-unknown-unknown has no source for it.
 uuid = "1"
 wasmtime = { version = "=36.0.16", default-features = false, features = ["component-model", "cranelift", "runtime", "std", "wat"] }
@@ -162,6 +171,7 @@ wit-component = "=0.247.0"
 
 # Keep Metal display-link delivery, bounded submissions and indirect validation on wgpu 30.0.1.
 [patch.crates-io]
+tokio-websockets = { git = "https://github.com/cinnabar-mc/tokio-websockets", rev = "6f75363f1d892c42b853476dfba3d58e49e9d506" }
 naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1c86cda04099890ab157b1ae5035" }
 wgpu = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1c86cda04099890ab157b1ae5035" }
 wgpu-core = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1c86cda04099890ab157b1ae5035" }

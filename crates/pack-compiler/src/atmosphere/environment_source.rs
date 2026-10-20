@@ -173,7 +173,7 @@ pub(super) fn read_environment_json<T: for<'de> Deserialize<'de>>(
             max: MAX_ENVIRONMENT_JSON_BYTES,
         });
     }
-    pack_json::parse_jsonc(&bytes).map_err(|source| AssetError::Json {
+    bedrock_packs::jsonc::parse_jsonc(&bytes).map_err(|source| AssetError::Json {
         path: path.to_path_buf(),
         source,
     })

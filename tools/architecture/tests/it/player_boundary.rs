@@ -296,6 +296,37 @@ fn vendored_packages_are_dependencies_of_their_owner_only() {
     assert!(diagnostics(root).iter().any(|line| line == owned));
 }
 
+/// Moving a codec to Git does not permit aliases or inactive targets to bypass its owner.
+#[test]
+fn git_packages_are_dependencies_of_their_owner_only() {
+    let temp = fixture();
+    let root = temp.path();
+    let policy = fs::read_to_string(root.join("policy.toml")).unwrap();
+    write(
+        &root.join("policy.toml"),
+        &format!("{policy}\n[[dependency_owners]]\npackage='wire'\nowner='protocol'\n"),
+    );
+    set_dependencies(
+        root,
+        "protocol",
+        "[dependencies]\nwire={git='https://example.invalid/wire',rev='fixture'}",
+    );
+    let owned = "inventory: dependency `wire` is owned by `protocol` only";
+    assert!(!diagnostics(root).iter().any(|line| line == owned));
+    set_dependencies(
+        root,
+        "inventory",
+        "[target.'cfg(windows)'.dev-dependencies]\ncodec={package='wire',git='https://example.invalid/wire',rev='fixture'}",
+    );
+    assert!(diagnostics(root).iter().any(|line| line == owned));
+    set_dependencies(root, "protocol", "[dependencies]");
+    assert!(
+        diagnostics(root)
+            .iter()
+            .any(|line| line == "protocol: owned dependency `wire` is absent from its manifest")
+    );
+}
+
 #[test]
 fn external_modules_inherit_test_cfg_but_any_production_import_remains_checked() {
     let temp = fixture();

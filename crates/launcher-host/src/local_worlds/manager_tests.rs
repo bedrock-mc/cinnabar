@@ -97,6 +97,29 @@ fn open_runs_the_world_and_close_stops_its_server() {
     assert_eq!(manager.core_report(), LocalWorld::default());
 }
 
+/// The native directory token follows the actual live instance, including failure before watcher delivery.
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+#[test]
+fn native_host_opening_survives_noop_open_and_is_revoked_when_its_instance_exits() {
+    let runner = Arc::new(FakeRunner::default());
+    let fixture = with_runner(&runner);
+    let manager = &fixture.manager;
+    let world = manager.create(&flat("w")).unwrap();
+    manager.open(&world.id, None).unwrap();
+    wait_for(manager, WorldState::Running);
+    let opening = HostOpening::capture(manager).unwrap();
+    manager.open(&world.id, None).unwrap();
+    let unchanged = HostOpening::capture(manager).unwrap();
+    assert!(opening.same(&unchanged));
+    opening.validate().unwrap();
+    runner.last().exit();
+    assert_eq!(
+        opening.validate().unwrap_err().kind(),
+        std::io::ErrorKind::NotConnected
+    );
+    wait_for(manager, WorldState::Failed);
+}
+
 /// Reopening a world that still saves starts its server only once the old one has exited.
 #[test]
 fn reopening_while_the_last_server_saves_waits_for_it() {
@@ -542,6 +565,118 @@ fn bds_targets_use_lan_discovery_when_the_server_advertises() {
     assert_eq!(target.address, "127.0.0.1:1");
     world.backend = Backend::Dragonfly;
     assert_eq!(target_for(&world, &lan).transport, Transport::RakNet);
+}
+
+/// The actual manager handoff retains the selected BDS level, rather than its HTTP projection.
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+#[test]
+fn native_local_bds_lan_selection_uses_the_original_process_discovery_endpoint() {
+    let address = "127.0.0.1:7552";
+    let runner = Arc::new(FakeRunner {
+        lan: Some(address.into()),
+        ..Default::default()
+    });
+    let fixture = fixture(|parts, dir| {
+        let process: Arc<dyn Runner> = runner.clone();
+        parts.runners.bds = Some(process);
+        parts.setup = Some(provisioner(dir, LINUX));
+    });
+    let manager = &fixture.manager;
+    let world = manager
+        .create(&NewWorld {
+            name: "selected-local-bds".into(),
+            backend: Some(Backend::Bds),
+            ..Default::default()
+        })
+        .unwrap();
+    manager.accept_eula().unwrap();
+    manager.open(&world.id, None).unwrap();
+    wait_for(manager, WorldState::Running);
+    let selection = manager.native_local_world(&world.id).unwrap();
+    let target = selection.connection_target().unwrap();
+    assert_eq!(
+        target.transport,
+        protocol::NativeTransport::LocalNetherNetLan
+    );
+    assert_eq!(target.address, address);
+    assert_eq!(
+        target.local_lan_route().unwrap(),
+        (
+            address.parse().unwrap(),
+            world.id.as_str(),
+            Duration::from_millis(u64::from(bridge::contract::LOCAL_LAN_DISCOVERY_TIMEOUT_MS)),
+        )
+    );
+    assert_eq!(
+        manager.core_report().target.unwrap().transport,
+        Transport::NetherNetLan
+    );
+    selection.request_close();
+    wait_for(manager, WorldState::Idle);
+    assert_eq!(
+        selection.connection_target().unwrap_err().kind(),
+        std::io::ErrorKind::NotConnected
+    );
+}
+
+/// BDS intent shares the exact original player route and cannot survive a replacement generation.
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+#[test]
+fn native_bds_host_intent_keeps_the_original_http_or_lan_opening() {
+    for lan in [None, Some("127.0.0.1:7552".to_owned())] {
+        let has_lan = lan.is_some();
+        let runner = Arc::new(FakeRunner {
+            lan,
+            ..Default::default()
+        });
+        let fixture = fixture(|parts, dir| {
+            let process: Arc<dyn Runner> = runner.clone();
+            parts.runners.bds = Some(process);
+            parts.setup = Some(provisioner(dir, LINUX));
+        });
+        let manager = &fixture.manager;
+        let world = manager
+            .create(&NewWorld {
+                name: "original-host-bds".into(),
+                backend: Some(Backend::Bds),
+                ..Default::default()
+            })
+            .unwrap();
+        manager.accept_eula().unwrap();
+        manager.open(&world.id, None).unwrap();
+        wait_for(manager, WorldState::Running);
+        let intent = manager.native_host_intent().unwrap();
+        let selection = manager.native_local_world(&world.id).unwrap();
+        let selected = selection.connection_target().unwrap();
+        let captured = HostOpening::capture(manager)
+            .unwrap()
+            .native_connection_target()
+            .unwrap();
+        assert_eq!(selected.address, captured.address);
+        assert_eq!(selected.transport, captured.transport);
+        if has_lan {
+            assert_eq!(
+                selected.local_lan_route().unwrap(),
+                captured.local_lan_route().unwrap()
+            );
+        } else {
+            assert!(selected.local_lan_route().is_err());
+            assert!(captured.local_lan_route().is_err());
+        }
+        manager.close();
+        wait_for(manager, WorldState::Idle);
+        manager.open(&world.id, None).unwrap();
+        wait_for(manager, WorldState::Running);
+        assert!(!intent.same(&manager.native_host_intent().unwrap()));
+        assert_eq!(
+            selection.validate().unwrap_err().kind(),
+            std::io::ErrorKind::NotConnected
+        );
+        assert!(
+            !runner.last().stopped(),
+            "old host intent stopped the replacement process"
+        );
+    }
 }
 
 /// The unavailable reason reaches the status, and a Retry that finds Docker flips the default.

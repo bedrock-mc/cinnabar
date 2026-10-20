@@ -7,6 +7,8 @@
 pub mod connection;
 pub mod markers;
 mod session;
+#[cfg(not(target_arch = "wasm32"))]
+pub use session::{SessionCompanion, spawn_network_with_companion};
 
 #[cfg(any(test, feature = "test-support"))]
 pub use session::handle_state::CapturedPackets;
@@ -48,5 +50,7 @@ impl Default for SessionTrace {
 #[global_allocator]
 static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+pub use session::NativeConnectionPreparation;
 #[cfg(not(target_arch = "wasm32"))]
 pub use session::{NetworkConfig, packet_log, spawn_network};

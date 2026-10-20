@@ -25,14 +25,14 @@ fn view(files: &[(&str, &[u8])]) -> LayeredPackView {
         .unwrap();
         zip.write_all(bytes).unwrap();
     }
-    let archive = protocol::ResourcePackArchive::unencrypted(
+    let archive = bedrock_packs::ResourcePackArchive::unencrypted(
         id.parse().unwrap(),
         "1.0.0".into(),
         String::new(),
         zip.finish().unwrap().into_inner(),
     );
     LayeredPackView::new(validate_handoff(
-        protocol::ResourcePackHandoff::from_archives(vec![archive]),
+        bedrock_packs::ResourcePackHandoff::from_archives(vec![archive]),
     ))
 }
 
@@ -171,9 +171,10 @@ fn admitted_custom_sound_reaches_the_output_mixer() {
         .collect::<Vec<_>>()
         .join(".");
     drop(zip);
-    let archive = protocol::ResourcePackArchive::unencrypted(id, version, String::new(), bytes);
+    let archive =
+        bedrock_packs::ResourcePackArchive::unencrypted(id, version, String::new(), bytes);
     let view = LayeredPackView::new(validate_handoff(
-        protocol::ResourcePackHandoff::from_archives(vec![archive]),
+        bedrock_packs::ResourcePackHandoff::from_archives(vec![archive]),
     ));
     let pack = Arc::new(ServerSoundPack::from_view(&view).expect("admitted sounds"));
     let event = event.to_str().unwrap();

@@ -200,7 +200,7 @@ pub(crate) fn compiled_stacks() -> &'static reuse::CompiledStacks {
 /// `block_items` pairs each custom block item with the block it draws as.
 #[cfg(test)]
 pub(super) fn prepare_pack_application(
-    handoff: protocol::ResourcePackHandoff,
+    handoff: bedrock_packs::ResourcePackHandoff,
     custom_blocks: &protocol::CustomBlocks,
     icon_keys: &[(Arc<str>, Arc<str>)],
     block_items: &[(Arc<str>, Arc<str>)],

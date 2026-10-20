@@ -7,7 +7,7 @@ static OVERLAY_CACHE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[test]
 fn unchanged_icon_subscribers_reuse_outputs_without_baking_block_art() {
-    let stack = resource_pack::validate_handoff(protocol::ResourcePackHandoff::default());
+    let stack = resource_pack::validate_handoff(bedrock_packs::ResourcePackHandoff::default());
     let previous =
         std::sync::Arc::new(client_ui::ui_runtime::presentation::SessionIcons::default());
     let baked = std::cell::Cell::new(0);
@@ -68,7 +68,7 @@ pub(super) fn overlay_cache() -> std::sync::MutexGuard<'static, ()> {
 fn absent_or_rejected_application_preserves_optional_admission() {
     let _cache = overlay_cache();
     let application = super::prepare_pack_application(
-        protocol::ResourcePackHandoff::default(),
+        bedrock_packs::ResourcePackHandoff::default(),
         &protocol::CustomBlocks::default(),
         &[],
         &[],
@@ -76,14 +76,14 @@ fn absent_or_rejected_application_preserves_optional_admission() {
     );
     assert!(matches!(application.admission, PackAdmission::None));
     assert!(application.server_lang.is_none());
-    let pack = protocol::ResourcePackArchive::unencrypted(
+    let pack = bedrock_packs::ResourcePackArchive::unencrypted(
         "11111111-2222-3333-4444-555555555555".parse().unwrap(),
         "1.2.3".into(),
         String::new(),
         vec![0; 32],
     );
     let application = super::prepare_pack_application(
-        protocol::ResourcePackHandoff::from_archives(vec![pack]),
+        bedrock_packs::ResourcePackHandoff::from_archives(vec![pack]),
         &protocol::CustomBlocks::default(),
         &[],
         &[],
@@ -107,14 +107,14 @@ fn absent_or_rejected_application_preserves_optional_admission() {
 fn a_rejected_required_pack_refuses_the_join() {
     let _cache = overlay_cache();
     for required in [false, true] {
-        let broken = protocol::ResourcePackArchive::unencrypted(
+        let broken = bedrock_packs::ResourcePackArchive::unencrypted(
             "11111111-2222-3333-4444-555555555555".parse().unwrap(),
             "1.2.3".into(),
             String::new(),
             vec![0; 32],
         );
         let handoff =
-            protocol::ResourcePackHandoff::from_archives(vec![broken]).with_required(required);
+            bedrock_packs::ResourcePackHandoff::from_archives(vec![broken]).with_required(required);
         assert_eq!(handoff.required(), required);
         let application = super::prepare_pack_application(
             handoff,
@@ -135,11 +135,11 @@ fn a_rejected_required_pack_refuses_the_join() {
     }
 }
 
-fn lang_pack(id: u128, lang: &[u8]) -> protocol::ResourcePackArchive {
+fn lang_pack(id: u128, lang: &[u8]) -> bedrock_packs::ResourcePackArchive {
     archive(id, &[("texts/en_US.lang", lang)])
 }
 
-fn archive(id: u128, files: &[(&str, &[u8])]) -> protocol::ResourcePackArchive {
+fn archive(id: u128, files: &[(&str, &[u8])]) -> bedrock_packs::ResourcePackArchive {
     use std::io::Write;
     let id = format!("00000000-0000-0000-0000-{id:012x}");
     let manifest = format!(
@@ -155,7 +155,7 @@ fn archive(id: u128, files: &[(&str, &[u8])]) -> protocol::ResourcePackArchive {
         writer.write_all(bytes).unwrap();
     }
     let archive = writer.finish().unwrap().into_inner();
-    protocol::ResourcePackArchive::unencrypted(
+    bedrock_packs::ResourcePackArchive::unencrypted(
         id.parse().unwrap(),
         "1.0.0".into(),
         String::new(),
@@ -178,14 +178,14 @@ fn files_pack(files: &[(&str, &[u8])]) -> resource_pack::LayeredPackView {
             .unwrap();
         writer.write_all(bytes).unwrap();
     }
-    let archive = protocol::ResourcePackArchive::unencrypted(
+    let archive = bedrock_packs::ResourcePackArchive::unencrypted(
         id.parse().unwrap(),
         "1.0.0".into(),
         String::new(),
         writer.finish().unwrap().into_inner(),
     );
     resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
-        protocol::ResourcePackHandoff::from_archives(vec![archive]),
+        bedrock_packs::ResourcePackHandoff::from_archives(vec![archive]),
     ))
 }
 
@@ -207,7 +207,7 @@ fn ui_glint_uses_the_winning_raster_and_restores_the_lower_pack_on_removal() {
     let upper = archive(2, &[(&path, &high)]);
     let read = |archives| {
         let view = resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
-            protocol::ResourcePackHandoff::from_archives(archives),
+            bedrock_packs::ResourcePackHandoff::from_archives(archives),
         ));
         super::collect_server_ui(&view).and_then(|pack| pack.item_glint.clone())
     };
@@ -269,7 +269,7 @@ fn ui_index_in_higher_pack_selects_lower_at_prefixed_document() {
         )],
     );
     let stack =
-        resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(vec![
+        resource_pack::validate_handoff(bedrock_packs::ResourcePackHandoff::from_archives(vec![
             upper, lower,
         ]));
     let view = resource_pack::LayeredPackView::tracked(stack);
@@ -290,7 +290,7 @@ fn root_splashes_load_without_ui_definitions_and_track_removal() {
         )],
     );
     let stack =
-        resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(vec![
+        resource_pack::validate_handoff(bedrock_packs::ResourcePackHandoff::from_archives(vec![
             upper, lower,
         ]));
     let view = resource_pack::LayeredPackView::tracked(stack);
@@ -303,7 +303,7 @@ fn root_splashes_load_without_ui_definitions_and_track_removal() {
         view.dependencies().unwrap().snapshot(),
     )]
     .into();
-    let removed = resource_pack::validate_handoff(protocol::ResourcePackHandoff::default());
+    let removed = resource_pack::validate_handoff(bedrock_packs::ResourcePackHandoff::default());
     let admission = resource_pack::PackAdmission::Validated(view.shared_stack());
     assert!(
         pack_runtime::reload_diff::Changes::between(&removed, Some((&admission, &dependencies))).ui
@@ -335,7 +335,7 @@ fn ui_custom_definition_overrides_across_layers_without_relisting() {
         )],
     );
     let view = resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
-        protocol::ResourcePackHandoff::from_archives(vec![upper, lower]),
+        bedrock_packs::ResourcePackHandoff::from_archives(vec![upper, lower]),
     ));
     let pack = super::collect_server_ui(&view).unwrap();
     assert!(pack.ui_layers[1].iter().any(|(name, _)| name == path));
@@ -457,7 +457,7 @@ fn preparing_packs_leaves_sound_publication_to_bootstrap() {
     let before = client_audio::audio::server_sounds_generation();
     let sounds = br#"{"sound_definitions":{"custom.beep":{"sounds":["sounds/beep"]}}}"#;
     let application = super::prepare_pack_application(
-        protocol::ResourcePackHandoff::from_archives(vec![archive(
+        bedrock_packs::ResourcePackHandoff::from_archives(vec![archive(
             3,
             &[("sounds/sound_definitions.json", sounds)],
         )]),
@@ -504,7 +504,7 @@ fn texture_sets_supply_color_layers() {
 #[test]
 fn language_files_merge_across_the_stack_by_precedence() {
     let _cache = overlay_cache();
-    let handoff = protocol::ResourcePackHandoff::from_archives(vec![
+    let handoff = bedrock_packs::ResourcePackHandoff::from_archives(vec![
         lang_pack(1, b"shared=top\ntop.only=T"),
         lang_pack(2, b"\xef\xbb\xbfshared=bottom\nbottom.only=B"),
     ]);
@@ -544,7 +544,7 @@ fn overlay_cache_reuses_the_previous_session_compile() {
         skipped: 0,
     };
     let stack =
-        resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(vec![
+        resource_pack::validate_handoff(bedrock_packs::ResourcePackHandoff::from_archives(vec![
             lang_pack(7, b"a=b"),
         ]));
     let mut compiles = 0;
@@ -602,7 +602,7 @@ fn reapplied_stack_reuses_blocks_identical_to_a_fresh_compile() {
     let blocks = protocol::CustomBlocks::default();
     let limit = super::overlay_texture_layer_limit();
     let stack = |id| {
-        resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(vec![
+        resource_pack::validate_handoff(bedrock_packs::ResourcePackHandoff::from_archives(vec![
             archive(
                 id,
                 &[
@@ -652,7 +652,7 @@ fn newer_generation_replaces_atomically_and_stale_results_are_ignored() {
     let mut state = ResourcePackAdmissionState::default();
     assert!(state.begin_generation(2));
     assert!(matches!(state.admission(), PackAdmission::None));
-    let stack = resource_pack::validate_handoff(protocol::ResourcePackHandoff::default());
+    let stack = resource_pack::validate_handoff(bedrock_packs::ResourcePackHandoff::default());
     assert!(state.replace_for_generation(2, PackAdmission::Validated(stack)));
     assert!(!state.replace_for_generation(1, PackAdmission::None));
     assert_eq!(state.generation(), 2);
@@ -677,13 +677,16 @@ fn png(width: u32, height: u32) -> Vec<u8> {
 
 /// A stack exercising every subscriber; `id` keeps each copy out of the in-memory caches.
 pub(super) fn every_subscriber(id: u128) -> std::sync::Arc<resource_pack::ValidatedPackStack> {
-    resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(vec![
+    resource_pack::validate_handoff(bedrock_packs::ResourcePackHandoff::from_archives(vec![
         every_subscriber_archive(id, b"a=b"),
     ]))
 }
 
 /// The archive behind [`every_subscriber`], with `lang` as its language file.
-pub(super) fn every_subscriber_archive(id: u128, lang: &[u8]) -> protocol::ResourcePackArchive {
+pub(super) fn every_subscriber_archive(
+    id: u128,
+    lang: &[u8],
+) -> bedrock_packs::ResourcePackArchive {
     let (texture, sheet) = (png(1, 1), png(128, 128));
     archive(
         id,

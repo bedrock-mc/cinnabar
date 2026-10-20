@@ -50,7 +50,7 @@ pub fn compile_vanilla_entity_refs(root: &Path) -> Result<VanillaEntityRefs, Ass
         let Ok(mut value) = parse_semantic_json(&absolute, &bytes) else {
             continue;
         };
-        let mut text = pack_json::decode_text(&bytes).into_owned();
+        let mut text = bedrock_packs::jsonc::decode_text(&bytes).into_owned();
         if relative.as_ref() == assets::LEGACY_ENTITY_GEOMETRY_PATH {
             value = legacy_block_geometry::select(&value);
             text = value.to_string();

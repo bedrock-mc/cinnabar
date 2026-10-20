@@ -82,6 +82,13 @@ impl MenuRuntime {
             Action::Play if state.can_play() => {
                 let target = state.realm.as_ref().map(|realm| realm.target.clone());
                 self.close_realm_membership();
+                #[cfg(feature = "native-networking")]
+                if self.native_sign_in {
+                    if let Some(target) = target {
+                        self.request_connect(target);
+                    }
+                    return;
+                }
                 if let Some(index) = self
                     .realms
                     .iter()
@@ -154,6 +161,11 @@ impl MenuRuntime {
         };
         let success = state.finish(accept, result);
         self.focused = 0;
+        #[cfg(feature = "native-networking")]
+        if success && accept && self.native_sign_in {
+            self.native_catalog.refresh();
+            return;
+        }
         if success
             && accept
             && let Some(realm) = &state.realm

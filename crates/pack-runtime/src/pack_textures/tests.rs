@@ -10,7 +10,7 @@ fn pack_json_matches_previous_normalized_bytes() {
         b"{} {}",
         b"1e309",
     ] {
-        let before = pack_json::normalize_jsonc(bytes)
+        let before = bedrock_packs::jsonc::normalize_jsonc(bytes)
             .and_then(|normalized| serde_json::from_slice::<Value>(&normalized).ok());
         assert_eq!(
             parse_pack_json(bytes).map(|value| serde_json::to_vec(&value).unwrap()),

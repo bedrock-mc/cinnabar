@@ -21,6 +21,30 @@ pub enum AccountEvent {
 /// A request ticket, acceptance flag, and result from the Realm membership worker.
 pub type RealmMembershipResponse = (u64, bool, Result<(String, MenuRealmCard), ()>);
 
+/// A featured card and its original selection are delivered together.
+/// Service display metadata alone does not authorize an allocated connection.
+pub struct FeaturedRow {
+    /// Existing menu card, including its presentation address.
+    pub card: MenuServerCard,
+    /// Existing information-panel data.
+    pub details: ServerDetails,
+    /// Original account-bound allocation selection, when this native catalog row needs one.
+    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+    pub gathering: Option<crate::native_account::NativeGatheringSelection>,
+}
+
+impl From<(MenuServerCard, ServerDetails)> for FeaturedRow {
+    /// Preserves ordinary Core cards without manufacturing native service authority.
+    fn from((card, details): (MenuServerCard, ServerDetails)) -> Self {
+        Self {
+            card,
+            details,
+            #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+            gathering: None,
+        }
+    }
+}
+
 /// What the play and sign-in screens need from the core.
 pub trait AccountControl {
     /// `account_status.v1`: the current sign-in state, when known.
@@ -38,7 +62,7 @@ pub trait AccountControl {
     /// The next pending account event, if any.
     fn poll_event(&mut self) -> Option<AccountEvent>;
     /// `featured_servers.v1`: cards plus their info-panel details, when fetched.
-    fn featured(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
+    fn featured(&mut self) -> Option<Vec<FeaturedRow>> {
         None
     }
     /// Requests live experience counts only while selected experience details are visible.

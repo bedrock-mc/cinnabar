@@ -138,7 +138,7 @@ pub(super) fn read_json<T: DeserializeOwned>(path: &Path) -> Result<T, AssetErro
         });
     }
 
-    pack_json::parse_jsonc(&bytes).map_err(|source| AssetError::Json {
+    bedrock_packs::jsonc::parse_jsonc(&bytes).map_err(|source| AssetError::Json {
         path: path.to_path_buf(),
         source,
     })

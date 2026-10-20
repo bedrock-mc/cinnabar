@@ -4,7 +4,7 @@
 use serde_json::Value;
 use uuid::Uuid;
 
-use pack_json::parse_jsonc;
+use bedrock_packs::jsonc::parse_jsonc_lenient;
 
 use crate::{AdmissionError, Subpack};
 
@@ -44,8 +44,17 @@ impl Version {
     }
 }
 
+/// Acquisition verifies opaque identity; application still requires a renderable resources module.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(crate) enum Purpose {
+    Rendering,
+    Identity,
+}
+
 pub(crate) struct Manifest {
+    pub(crate) has_resources: bool,
     pub(crate) subpacks: Vec<Subpack>,
+    pub(crate) has_behaviors: bool,
 }
 
 /// Validates a manifest against the server-selected identity.
@@ -53,8 +62,9 @@ pub(crate) fn read_manifest(
     bytes: &[u8],
     pack_id: Uuid,
     version: &str,
+    purpose: Purpose,
 ) -> Result<Manifest, AdmissionError> {
-    let root: Value = parse_jsonc(bytes).map_err(|_| AdmissionError::MalformedManifest)?;
+    let root: Value = parse_jsonc_lenient(bytes).map_err(|_| AdmissionError::MalformedManifest)?;
     let format = match &root["format_version"] {
         Value::Number(number) => number.as_f64(),
         Value::String(text) => text.trim().parse::<u64>().ok().map(|number| number as f64),
@@ -74,12 +84,15 @@ pub(crate) fn read_manifest(
     if uuid != pack_id || manifest_version != selected_version {
         return Err(AdmissionError::ManifestIdentityMismatch);
     }
+    if purpose == Purpose::Identity {
+        validate_identity_modules(&root["modules"])?;
+    }
     let has_resources = root["modules"].as_array().is_some_and(|modules| {
         modules
             .iter()
             .any(|module| module["type"].as_str() == Some("resources"))
     });
-    if !has_resources {
+    if purpose == Purpose::Rendering && !has_resources {
         return Err(AdmissionError::InvalidModules);
     }
     let subpacks = root["subpacks"].as_array().map_or(&[][..], Vec::as_slice);
@@ -95,7 +108,36 @@ pub(crate) fn read_manifest(
                 })
         })
         .collect();
-    Ok(Manifest { subpacks })
+    let has_behaviors = root["modules"].as_array().is_some_and(|modules| {
+        modules
+            .iter()
+            .any(|module| matches!(module["type"].as_str(), Some("data" | "client_data")))
+    });
+    Ok(Manifest {
+        has_resources,
+        subpacks,
+        has_behaviors,
+    })
+}
+
+/// Checks consumed module shapes while preserving null defaults and unknown type names.
+fn validate_identity_modules(modules: &Value) -> Result<(), AdmissionError> {
+    match modules {
+        Value::Null => Ok(()),
+        Value::Array(modules)
+            if modules.iter().all(|module| match module {
+                Value::Null => true,
+                Value::Object(module) => matches!(
+                    module.get("type"),
+                    None | Some(Value::Null | Value::String(_))
+                ),
+                _ => false,
+            }) =>
+        {
+            Ok(())
+        }
+        _ => Err(AdmissionError::InvalidModules),
+    }
 }
 
 #[cfg(test)]
@@ -118,13 +160,18 @@ mod tests {
         for (format, version) in [("1", "[1, 2, 3]"), ("2", "[1, 2, 3]"), ("3", "\"1.2.3\"")] {
             let text = manifest(format, version, resources);
             assert!(
-                read_manifest(text.as_bytes(), ID, "1.2.3").is_ok(),
+                read_manifest(text.as_bytes(), ID, "1.2.3", Purpose::Rendering).is_ok(),
                 "format {format}"
             );
         }
+        let text = format!(
+            "# manifest header\n{} trailing garbage /* unfinished",
+            manifest("2", "[1, 2, 3]", resources)
+        );
+        assert!(read_manifest(text.as_bytes(), ID, "1.2.3", Purpose::Rendering).is_ok());
         let text = manifest("4", "[1, 2, 3]", resources);
         assert_eq!(
-            read_manifest(text.as_bytes(), ID, "1.2.3").err(),
+            read_manifest(text.as_bytes(), ID, "1.2.3", Purpose::Rendering).err(),
             Some(AdmissionError::UnsupportedManifestFormat)
         );
     }
@@ -135,14 +182,14 @@ mod tests {
         for format in ["2.0", "1.0", "3.0", "2e0"] {
             let text = manifest(format, "[1, 2, 3]", resources);
             assert!(
-                read_manifest(text.as_bytes(), ID, "1.2.3").is_ok(),
+                read_manifest(text.as_bytes(), ID, "1.2.3", Purpose::Rendering).is_ok(),
                 "format {format}"
             );
         }
         for format in ["2.5", "-2.0", "0.0", "4.0", "1e100"] {
             let text = manifest(format, "[1, 2, 3]", resources);
             assert_eq!(
-                read_manifest(text.as_bytes(), ID, "1.2.3").err(),
+                read_manifest(text.as_bytes(), ID, "1.2.3", Purpose::Rendering).err(),
                 Some(AdmissionError::UnsupportedManifestFormat),
                 "format {format}"
             );
@@ -153,12 +200,12 @@ mod tests {
     fn rejects_identity_mismatch_and_behavior_only_packs() {
         let text = manifest("2", "[1, 2, 3]", r#"{"type": "resources"}"#);
         assert_eq!(
-            read_manifest(text.as_bytes(), ID, "1.2.4").err(),
+            read_manifest(text.as_bytes(), ID, "1.2.4", Purpose::Rendering).err(),
             Some(AdmissionError::ManifestIdentityMismatch)
         );
         let text = manifest("2", "[1, 2, 3]", r#"{"type": "data"}"#);
         assert_eq!(
-            read_manifest(text.as_bytes(), ID, "1.2.3").err(),
+            read_manifest(text.as_bytes(), ID, "1.2.3", Purpose::Rendering).err(),
             Some(AdmissionError::InvalidModules)
         );
     }

@@ -59,7 +59,7 @@ pub(super) fn prepare(
                             0
                         };
                         let total = archive_bytes - previous_bytes + pack.archive_bytes();
-                        if total > resource_pack::MAX_STACK_ARCHIVE_BYTES {
+                        if total > resource_pack::MAX_LOCAL_STACK_ARCHIVE_BYTES {
                             *skipped += 1;
                             continue;
                         }

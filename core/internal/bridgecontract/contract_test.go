@@ -3,6 +3,8 @@ package bridgecontract
 import (
 	"os/exec"
 	"testing"
+
+	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
 func TestSharedContractIsCurrent(t *testing.T) {
@@ -20,5 +22,16 @@ func TestSharedContractIsCurrent(t *testing.T) {
 	output, err = exec.Command(python, "../../../tools/bridgegen/test_generate.py").CombinedOutput()
 	if err != nil {
 		t.Fatalf("bridge generator regression: %v\n%s", err, output)
+	}
+}
+
+// TestResourcePackTypesMatchProtocol rejects drift from the selected protocol dependency.
+func TestResourcePackTypesMatchProtocol(t *testing.T) {
+	if ResourcePackTypeAddon != packet.ResourcePackTypeAddon ||
+		ResourcePackTypeBehaviour != packet.ResourcePackTypeBehaviour ||
+		ResourcePackTypeResources != packet.ResourcePackTypeResources ||
+		ResourcePackTypeSkins != packet.ResourcePackTypeSkins ||
+		ResourcePackTypeWorldTemplate != packet.ResourcePackTypeWorldTemplate {
+		t.Fatal("shared archive delivery types differ from the selected protocol")
 	}
 }

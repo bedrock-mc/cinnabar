@@ -9,7 +9,7 @@ use std::{
 use uuid::Uuid;
 use zip::{CompressionMethod, ZipArchive};
 
-use pack_json::parse_jsonc;
+use bedrock_packs::jsonc::parse_jsonc;
 
 use crate::{
     AdmissionError,
