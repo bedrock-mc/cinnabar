@@ -8,7 +8,7 @@ use ui::FONT_DESIGN_PIXEL_TEXELS;
 use super::{
     Art, Canvas, FormEngine, ScreenArt, dependencies, host_edit,
     screen::{PaintError, PaintFrame},
-    text_paint::{Measure, label_metrics, label_positioned},
+    text_paint::{Measure, label_font, label_metrics, label_positioned},
     tooltip,
 };
 use crate::{
@@ -181,11 +181,10 @@ fn edit_texts(
             let (target, _) = region.widget.edit.as_ref()?.text_target.as_ref()?;
             nodes.iter().find_map(|node| match &node.draw {
                 Draw::Text { scale, options, .. } if node.key == *target => {
-                    let label = label_metrics(
-                        metrics,
-                        font,
-                        font.font_named(options.font_type.as_deref().unwrap_or("default")),
-                        *scale,
+                    let label = label_metrics(metrics, font, label_font(font, options), *scale);
+                    let name = font.resolve_font_name(
+                        options.font_type.as_deref().unwrap_or("default"),
+                        options.backup_font_type.as_deref(),
                     );
                     Some(EditText {
                         key: region.key.clone(),
@@ -199,7 +198,7 @@ fn edit_texts(
                             )[0],
                         scale: label.factor(),
                         effect_scale_1024: label.effect_scale_1024(),
-                        font: options.font_type.clone(),
+                        font: (name != "default").then(|| name.to_owned()),
                     })
                 }
                 _ => None,

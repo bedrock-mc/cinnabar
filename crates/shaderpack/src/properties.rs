@@ -14,6 +14,8 @@ use std::collections::BTreeMap;
 
 use crate::expr::{Expr, macro_value};
 use crate::programs::ProgramGroup;
+use crate::reflection::{SamplerClass, TextureDimension};
+use crate::source::PackSource;
 
 /// Parsed shaders.properties after conditional preprocessing.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -213,6 +215,25 @@ impl CustomTexture {
     pub fn applies_to(&self, group: ProgramGroup) -> bool {
         self.stage == group.texture_stage() || self.stage == "noise"
     }
+
+    /// Its filtering, as Iris reads it: `blur` and `clamp` from `<path>.mcmeta`, defaulting
+    /// to nearest/repeat for images and linear/clamp for raw textures.
+    pub fn sampler_class(&self, source: &PackSource) -> SamplerClass {
+        let (path, default) = match &self.source {
+            TextureSource::File(path) => (Some(path), false),
+            TextureSource::Raw { path, .. } => (Some(path), true),
+            TextureSource::Resource(_) => (None, false),
+        };
+        let meta = path
+            .and_then(|path| source.text(&format!("{path}.mcmeta")))
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok());
+        let flag = |key: &str| {
+            meta.as_ref()
+                .and_then(|meta| meta.get("texture")?.get(key)?.as_bool())
+                .unwrap_or(default)
+        };
+        SamplerClass::from_filtering(flag("blur"), flag("clamp"))
+    }
 }
 
 /// Source of a custom texture.
@@ -225,6 +246,22 @@ pub enum TextureSource {
     /// Raw texture: `<path> <TYPE> <internalFormat> <dims...> <pixelFormat> <pixelType>`;
     /// `path` has its leading '/' stripped and `spec` keeps the remaining tokens unvalidated.
     Raw { path: String, spec: Vec<String> },
+}
+
+impl TextureSource {
+    /// The texture's shape: raw textures name it (`TEXTURE_1D`, `TEXTURE_3D` …), images are 2D.
+    /// OptiFine binds each shape on its own target of the sampler's unit, so a custom texture
+    /// only replaces a sampler declared with the same shape.
+    pub fn dimension(&self) -> TextureDimension {
+        match self {
+            TextureSource::Raw { spec, .. } => match spec.first().map(String::as_str) {
+                Some("TEXTURE_1D") => TextureDimension::D1,
+                Some("TEXTURE_3D") => TextureDimension::D3,
+                _ => TextureDimension::D2,
+            },
+            TextureSource::File(_) | TextureSource::Resource(_) => TextureDimension::D2,
+        }
+    }
 }
 
 /// `image.<name> = <sampler> <format> <internalFormat> <pixelType> <clear> <relative> <w> <h> [<d>]`.

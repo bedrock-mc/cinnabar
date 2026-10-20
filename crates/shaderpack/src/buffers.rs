@@ -47,6 +47,16 @@ impl BufferId {
     }
 }
 
+/// Uses one key for buffer aliases and for the compatibility texture uniform.
+pub(crate) fn canonical_sampler_name(name: &str) -> String {
+    match BufferId::parse(name) {
+        Some(BufferId::Color(index)) => format!("colortex{index}"),
+        Some(BufferId::ShadowColor(index)) => format!("shadowcolor{index}"),
+        None if name == "texture" => "gtexture".to_string(),
+        None => name.to_string(),
+    }
+}
+
 macro_rules! buffer_formats {
     ($($variant:ident => $name:literal),* $(,)?) => {
         /// A colour buffer internal format, named as in OptiFine/Iris directives.
@@ -192,6 +202,21 @@ mod tests {
             name: name.into(),
             value: value.into(),
         }
+    }
+
+    #[test]
+    fn sampler_compatibility_names_keep_buffer_identity() {
+        for (name, index) in LEGACY_COLOR_NAMES {
+            assert_eq!(
+                BufferId::parse(&canonical_sampler_name(name)),
+                Some(BufferId::Color(*index))
+            );
+        }
+        assert_eq!(
+            BufferId::parse(&canonical_sampler_name("shadowcolor")),
+            Some(BufferId::ShadowColor(0))
+        );
+        assert_eq!(canonical_sampler_name("texture"), "gtexture");
     }
 
     #[test]

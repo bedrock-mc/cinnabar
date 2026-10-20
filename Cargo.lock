@@ -8300,6 +8300,7 @@ dependencies = [
  "naga",
  "pp-rs",
  "rayon",
+ "serde_json",
  "zip",
  "zip-footer",
 ]
