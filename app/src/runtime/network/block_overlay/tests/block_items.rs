@@ -367,6 +367,7 @@ fn authored_inventory_visuals_use_their_own_geometry_and_materials() {
         None,
         assets::MAX_TEXTURE_LAYERS as u32,
         None,
+        None,
     )
     .unwrap();
     assert_eq!(items.overlay.visuals.len(), 1);
@@ -415,4 +416,56 @@ fn borrowed_base_page_textures_draw_custom_inventory_icons() {
     assert_eq!(icons.icons.len(), 1);
     assert_eq!(icons.block_sheets.len(), 1);
     assert!(icons.misses.is_empty());
+}
+
+#[test]
+fn shared_terrain_catalog_preserves_inventory_output_and_replays_reads() {
+    let stack = view().shared_stack();
+    let blocks = CustomBlocks {
+        blocks: vec![generator()].into(),
+        ..Default::default()
+    };
+    let shared = super::super::SharedTextures::default();
+    let world_view = resource_pack::LayeredPackView::tracked(stack.clone());
+    let _ = super::super::compile_block_overlay_with_textures(
+        &world_view,
+        &blocks,
+        false,
+        None,
+        assets::MAX_TEXTURE_LAYERS as u32,
+        None,
+        Some(&shared),
+    );
+    let inventory_view = resource_pack::LayeredPackView::tracked(stack.clone());
+    let compiled = super::super::compile_block_overlay_with_textures(
+        &inventory_view,
+        &blocks,
+        false,
+        None,
+        assets::MAX_TEXTURE_LAYERS as u32,
+        None,
+        Some(&shared),
+    )
+    .unwrap();
+    let fresh_view = resource_pack::LayeredPackView::tracked(stack);
+    let fresh = super::super::compile_block_overlay_with_textures(
+        &fresh_view,
+        &blocks,
+        false,
+        None,
+        assets::MAX_TEXTURE_LAYERS as u32,
+        None,
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        shared.catalog_builds.get(),
+        1,
+        "inventory reuses the parsed terrain tables"
+    );
+    assert_eq!(compiled, fresh);
+    assert_eq!(
+        inventory_view.dependencies().unwrap().snapshot(),
+        fresh_view.dependencies().unwrap().snapshot()
+    );
 }

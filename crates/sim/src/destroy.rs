@@ -1,9 +1,8 @@
 //! Survival block-destroy progress per simulation tick.
 //!
-//! Hardness is Bedrock-extracted; tool and harvest classes in the generated table
-//! are provisional (see its header). Rows without tool evidence take the slowest
-//! rate and unknown blocks yield none, so neither predicts early; rows with
-//! provisional tool classes can still predict early where Bedrock differs.
+//! Hardness, ordinary-tool tags and harvest requirements use the native catalog.
+//! Sword/shears speed targets and the complete mining calculation remain
+//! provisional. Unknown blocks retain the conservative fallback.
 
 use assets::compiled::block_destroy::{
     BlockDestroyFacts, HarvestRequirement, ProvisionalDestroy, ToolKind,

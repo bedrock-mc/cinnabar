@@ -311,12 +311,16 @@ pub(in crate::chunk) fn first_arena_growth(
     Ok(first)
 }
 
+/// Starts growing `stream` into a new buffer of `growth.new_capacity` items. Returns false,
+/// leaving the arena as it was, when the device is out of memory for the new buffer; uploads
+/// that need the room then wait for a later frame.
+#[must_use]
 pub(in crate::chunk) fn begin_arena_migration(
     arena: &mut ChunkGpuArena,
     render_device: &RenderDevice,
     stream: ArenaStream,
     growth: ArenaGrowthPlan,
-) {
+) -> bool {
     debug_assert!(arena.migration.is_none());
     #[cfg(feature = "tracy")]
     let _span = bevy::log::info_span!(
@@ -325,6 +329,13 @@ pub(in crate::chunk) fn begin_arena_migration(
         bytes = growth.new_capacity as u64 * stream.item_bytes(),
     )
     .entered();
+    let Some(buffer) = super::arena::try_create_storage_buffer(
+        render_device,
+        stream.label(),
+        growth.new_capacity as u64 * stream.item_bytes(),
+    ) else {
+        return false;
+    };
     if stream == ArenaStream::Origins {
         // Slots up to the new capacity may be drawn before the copy lands.
         arena.vertex_offset_buffer =
@@ -332,16 +343,13 @@ pub(in crate::chunk) fn begin_arena_migration(
     }
     arena.migration = Some(ArenaMigration {
         stream,
-        buffer: create_storage_buffer(
-            render_device,
-            stream.label(),
-            growth.new_capacity as u64 * stream.item_bytes(),
-        ),
+        buffer,
         new_capacity: growth.new_capacity,
         copy_bytes: growth.gpu_copy_bytes,
         copied_bytes: 0,
     });
     super::telemetry::log_arena_capacity(arena, "migration started");
+    true
 }
 
 /// Render device, queue and retained terrain staging, the path every arena write takes.
@@ -498,6 +506,9 @@ pub(in crate::chunk) struct ArenaGrowthPlan {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::chunk) struct ArenaGrowthError;
 
+/// Growth of a stream from `current_capacity` that holds `required_len` items: at least a
+/// quarter more than it had, so streaming growth stays amortised, then
+/// [`round_arena_capacity`].
 pub(in crate::chunk) fn plan_arena_growth(
     current_capacity: usize,
     required_len: usize,
@@ -510,12 +521,20 @@ pub(in crate::chunk) fn plan_arena_growth(
     if required_len <= current_capacity {
         return Ok(None);
     }
-    let new_capacity = required_len
-        .checked_next_power_of_two()
-        .unwrap_or(max_items)
-        .min(max_items);
+    let wanted = required_len.max(current_capacity.saturating_add(current_capacity / 4));
     Ok(Some(ArenaGrowthPlan {
-        new_capacity,
+        new_capacity: round_arena_capacity(wanted, max_items),
         gpu_copy_bytes: buffer_byte_len(current_capacity, item_bytes),
     }))
+}
+
+/// `items` rounded up to an eighth of the power of two that holds it, within `max_items`: a
+/// sized growth (the join backlog) reserves less than a quarter more than it needs, where
+/// rounding to the power of two reserved up to twice that.
+pub(in crate::chunk) fn round_arena_capacity(items: usize, max_items: usize) -> usize {
+    let granule = (items.checked_next_power_of_two().unwrap_or(max_items) / 8).max(1);
+    items
+        .div_ceil(granule)
+        .saturating_mul(granule)
+        .min(max_items)
 }

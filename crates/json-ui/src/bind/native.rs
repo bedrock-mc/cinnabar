@@ -169,10 +169,13 @@ pub(super) fn apply(
     match target {
         "#maximum_grid_items" if grid => set("maximum_grid_items", Value::from(int(value, 0))),
         "#collection_length"
-            if control.properties.contains_key("collection_name") || kind == "collection_panel" =>
+            if control.factory.is_some()
+                || control.properties.contains_key("collection_name")
+                || kind == "collection_panel" =>
         {
             let length = match value {
                 Value::Array(_) => Some(value.clone()),
+                Value::Bool(flag) => Some(Value::from(i32::from(*flag))),
                 other => {
                     Some(Value::from(int(other, -1))).filter(|length| length != &Value::from(-1))
                 }

@@ -160,6 +160,7 @@ mod tests {
     /// Creates a retained form whose ownership the pointer adapter must follow.
     fn form_runtime(settings: bool) -> UiRuntime {
         let mut runtime = UiRuntime::new(1);
+        runtime.server_forms_mut().select_settings_form(settings);
         runtime
             .apply(
                 &mut player_state::PlayerState::new(1),

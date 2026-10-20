@@ -32,6 +32,7 @@ pub struct HatRig {
     pub pixels: SkinRgba8,
     world_pixels: Option<SkinRgba8>,
     emitters: Box<[emitters::CosmeticEmitter]>,
+    cloth: Option<cloth::ClothRig>,
 }
 
 static RIGS: RwLock<Vec<(Item, &'static HatRig)>> = RwLock::new(Vec::new());
@@ -84,6 +85,10 @@ pub fn admit(
 }
 
 impl HatRig {
+    /// Whether the item declares a fabric surface needing per-actor simulation history.
+    pub fn has_cloth(&self) -> bool {
+        self.cloth.is_some()
+    }
     /// Whether an authored animation changes any attachment joints.
     pub fn bends_in_wind(&self) -> bool {
         self.wind.is_some() && self.flex.iter().any(|weight| *weight > 0.0)
@@ -274,6 +279,7 @@ pub use emitters::{
     COSMETIC_EFFECT_NAMESPACE, COSMETIC_PARTICLE_TEXTURE, COSMETIC_SPRITE_SIDE, CosmeticEmitter,
     CosmeticSprite, MAX_COSMETIC_EMITTERS,
 };
+pub mod cloth;
 #[cfg(any(test, feature = "test-support"))]
 pub mod fixture;
 #[cfg(test)]

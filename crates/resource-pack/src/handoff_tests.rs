@@ -5,8 +5,7 @@ use uuid::Uuid;
 use zip::{ZipWriter, write::SimpleFileOptions};
 
 use super::{
-    AdmissionError, LayeredPackView, MAX_PACKS, PackRejection, validate_handoff,
-    validate_handoff_for_device,
+    AdmissionError, LayeredPackView, PackRejection, validate_handoff, validate_handoff_for_device,
 };
 
 const PACK_ID: Uuid = Uuid::from_u128(0x11111111_2222_3333_4444_555555555555);
@@ -271,23 +270,18 @@ fn a_bad_pack_is_dropped_with_its_reason_and_the_rest_still_apply() {
     );
 }
 
+/// Every distinct selected archive survives a stack larger than the former admission count.
 #[test]
-fn stack_bounds_drop_only_the_packs_beyond_them() {
-    let archives = (0..=MAX_PACKS as u128)
+fn server_stack_retains_every_selected_archive() {
+    let archives = (1..=40)
         .map(|index| {
-            let id = Uuid::from_u128(index + 10);
+            let id = Uuid::from_u128(index);
             archive(id, pack_zip(id, &[]))
         })
         .collect();
     let stack = validate_handoff(handoff(archives));
-    assert_eq!(stack.packs().len(), MAX_PACKS);
-    assert_eq!(
-        stack.rejections(),
-        [PackRejection {
-            stack_index: MAX_PACKS,
-            reason: AdmissionError::TooManyPacks
-        }]
-    );
+    assert_eq!(stack.packs().len(), 40);
+    assert!(stack.rejections().is_empty());
 }
 
 // The first server entry wins an overlapping path; merges apply it last.

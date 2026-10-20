@@ -75,6 +75,7 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 objc2-metal = { version = "0.3", default-features = false, features = ["MTLDevice", "MTLBuffer", "MTLBlitCommandEncoder", "MTLCommandEncoder", "MTLResource"] }
 
 [dev-dependencies]
+criterion.workspace = true
 test-alloc = { path = "../test-alloc" }
 render-model = { path = "../render-model", features = ["test-support"] }
 render-scene = { path = "../render-scene", features = ["publication-test-support"] }
@@ -88,3 +89,8 @@ tempfile = "3"
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "actor_artwork"
+harness = false
+required-features = ["publication-test-support"]

@@ -22,7 +22,7 @@ pub(in crate::modding) fn refresh_presentation(world: &mut World) {
             .mod_ui_mut()
             .set_mod_panel_open(runtime.hosts.host(owner).panel_open());
         let hud = runtime.hosts.merged_hud();
-        let _ = presentation.set_mod_hud(hud.as_ref());
+        let _ = presentation.set_shared_mod_hud(hud);
         let crosshair = runtime
             .hosts
             .crosshair_owner()

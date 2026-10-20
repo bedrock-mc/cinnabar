@@ -33,6 +33,14 @@ pub(crate) fn source(raw: &str) -> String {
         &format!("{}u", render_model::UI_STYLE_COLOR_MASK),
     )
     .replace(
+        "UI_STYLE_ADDITIVE",
+        &format!("{}u", render_model::UI_STYLE_ADDITIVE),
+    )
+    .replace(
+        "UI_STYLE_PARTICLE",
+        &format!("{}u", render_model::UI_STYLE_PARTICLE),
+    )
+    .replace(
         "UI_STYLE_RADIAL_GRADIENT",
         &format!("{}u", render_model::UI_STYLE_RADIAL_GRADIENT),
     )
