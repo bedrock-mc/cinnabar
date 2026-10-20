@@ -45,6 +45,20 @@ pub(super) fn look_delta(
 }
 
 impl super::gameplay::GameplayContext<'_> {
+    /// Both native callback adapters finish camera rotation before resolving world-relative walking.
+    pub(super) fn apply_native_controls(
+        &mut self,
+        effects: Option<&Effects>,
+        delta: Option<mod_host::CameraDelta>,
+        ui: &client_ui::ui_runtime::UiRuntime,
+    ) {
+        self.apply_native_look(effects);
+        if let Some(delta) = delta {
+            self.apply(delta);
+        }
+        self.apply_native_input(effects, ui);
+    }
+
     /// Native walking never takes a mounted, detached, UI-owned or manually moving body.
     pub(super) fn apply_native_input(
         &mut self,

@@ -117,6 +117,7 @@ pub(super) struct NativeFrames {
     stopped: AtomicBool,
     invalidate: AtomicBool,
     suspend: AtomicBool,
+    observed_suspended: AtomicBool,
     authority: Arc<AtomicBool>,
 }
 
@@ -139,6 +140,7 @@ impl NativeFrames {
             stopped: AtomicBool::new(false),
             invalidate: AtomicBool::new(false),
             suspend: AtomicBool::new(false),
+            observed_suspended: AtomicBool::new(false),
             authority,
         }
     }
@@ -217,7 +219,8 @@ impl NativeFrames {
         if frame.is_none() {
             self.invalidate.store(true, Ordering::Release);
         }
-        if frame.as_ref().is_some_and(|frame| frame.suspended) {
+        let suspended = frame.as_ref().is_some_and(|frame| frame.suspended);
+        if !self.observed_suspended.swap(suspended, Ordering::AcqRel) && suspended {
             self.suspend.store(true, Ordering::Release);
         }
         let Ok(mut state) = self.state.try_lock() else {
@@ -702,5 +705,26 @@ mod tests {
             }),
         );
         assert!(mailbox.exchange(Some(frame())).unwrap().0.is_some());
+    }
+    #[test]
+    fn consecutive_suspended_frames_keep_the_drawing_publication_epoch() {
+        let mailbox = NativeFrames::new(Arc::new(AtomicBool::new(true)));
+        mailbox.activate(true);
+        let mut suspended = frame();
+        suspended.suspended = true;
+        suspended.attack_held = false;
+        suspended.players.clear();
+        mailbox.exchange(Some(suspended.clone()));
+        let input = mailbox.take_input().unwrap();
+        mailbox.exchange(Some(suspended));
+        let scene = mod_api::native_render::Scene {
+            version: 1,
+            session: frame().session,
+            dimension: frame().dimension,
+            ..Default::default()
+        };
+        mailbox.complete_drawing(&input, Some(scene));
+        assert!(mailbox.drawing.load_full().is_some());
+        assert_eq!(mailbox.take_input().unwrap().epoch, input.epoch);
     }
 }
