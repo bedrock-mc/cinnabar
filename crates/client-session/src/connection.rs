@@ -17,9 +17,8 @@ pub struct JoinAttempt<D> {
 /// Endpoint provisioning retains the directory guard until its owning core stops.
 #[derive(Debug)]
 pub enum JoinStage<D> {
-    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-    /// A direct Rust connection whose network worker owns establishment.
-    Native(protocol::NativeConnectionTarget),
+    /// An already-selected endpoint retained until the join admission fence opens.
+    Prepared(protocol::SessionEndpoint),
     /// The launcher core selecting the target on a worker.
     Launcher(crossbeam_channel::Receiver<Result<PathBuf, String>>),
     /// A per-session core that must publish its endpoint by the deadline.
@@ -59,9 +58,8 @@ impl<D> JoinAttempt<D> {
             return JoinPoll::Retired;
         }
         match self.stage {
-            #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-            JoinStage::Native(target) => JoinPoll::Ready {
-                endpoint: protocol::SessionEndpoint::Native(target),
+            JoinStage::Prepared(endpoint) => JoinPoll::Ready {
+                endpoint,
                 directory: None,
             },
             JoinStage::Launcher(ref receiver) => {

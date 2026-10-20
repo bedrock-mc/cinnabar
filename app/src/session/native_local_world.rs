@@ -54,6 +54,6 @@ pub(super) fn begin(
         address: name,
         auth_cache: None,
         local_world: true,
-        stage: JoinStage::Native(target),
+        stage: JoinStage::Prepared(protocol::SessionEndpoint::Native(target)),
     });
 }

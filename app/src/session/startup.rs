@@ -13,23 +13,12 @@ impl SessionController {
         >,
     ) -> Self {
         if let Some(endpoint) = endpoint {
-            let stage = match endpoint {
-                protocol::SessionEndpoint::Core(socket_dir) => {
-                    let (reply, ready) = crossbeam_channel::bounded(1);
-                    reply
-                        .send(Ok(socket_dir))
-                        .expect("new startup endpoint channel");
-                    JoinStage::Launcher(ready)
-                }
-                #[cfg(feature = "native-networking")]
-                protocol::SessionEndpoint::Native(target) => JoinStage::Native(target),
-            };
             self.join = Some(JoinAttempt {
                 generation: self.generation,
                 address: address.unwrap_or_default().to_owned(),
                 auth_cache: None,
                 local_world: false,
-                stage,
+                stage: JoinStage::Prepared(endpoint),
             });
             #[cfg(feature = "native-networking")]
             {

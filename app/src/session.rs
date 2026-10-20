@@ -329,7 +329,9 @@ impl SessionController {
                     target = selected;
                     self.trust = Some(Box::new(trust));
                 }
-                return Ok(JoinStage::Native(target));
+                return Ok(JoinStage::Prepared(protocol::SessionEndpoint::Native(
+                    target,
+                )));
             }
         }
         // Namespaced by process id like the `--address` path: a bare
@@ -765,7 +767,7 @@ mod tests {
             else {
                 panic!("direct fixture must use the ordinary endpoint owner");
             };
-            let JoinStage::Native(target) = controller
+            let JoinStage::Prepared(protocol::SessionEndpoint::Native(target)) = controller
                 .start_core(&menu, &cache, address, None, 1, None)
                 .expect("direct native provisioning must not start a Go process")
             else {
@@ -784,7 +786,7 @@ mod tests {
                 .start_core(&menu, &cache, &realm, None, 1, None)
                 .is_err()
         );
-        let JoinStage::Native(target) = controller
+        let JoinStage::Prepared(protocol::SessionEndpoint::Native(target)) = controller
             .start_core(
                 &menu,
                 &cache,

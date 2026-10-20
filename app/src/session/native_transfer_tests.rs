@@ -22,7 +22,7 @@ fn native_lan_transfer_selects_addressed_transport_after_tearing_down_the_origin
         .with_native_transport(Some(protocol::NativeTransport::NetherNetLan))
         .with_client_random_id(Some(protocol::ClientRandomId::new(1).unwrap()));
     let old_generation = controller.generation;
-    let JoinStage::Native(original) = controller
+    let JoinStage::Prepared(protocol::SessionEndpoint::Native(original)) = controller
         .start_core(&menu, &cache, "127.0.0.1:19132", None, old_generation, None)
         .unwrap()
     else {
@@ -60,7 +60,7 @@ fn native_lan_transfer_selects_addressed_transport_after_tearing_down_the_origin
         .join
         .as_ref()
         .expect("transfer retained the native join");
-    let JoinStage::Native(target) = &join.stage else {
+    let JoinStage::Prepared(protocol::SessionEndpoint::Native(target)) = &join.stage else {
         panic!("native transfer started a Core owner");
     };
     assert_eq!(target.address, "127.0.0.1:19133");
@@ -81,7 +81,7 @@ fn native_lan_transfer_selects_addressed_transport_after_tearing_down_the_origin
         .unwrap();
     controller.begin_fresh_transfer_chain();
     let generation = controller.generation;
-    let JoinStage::Native(next) = controller
+    let JoinStage::Prepared(protocol::SessionEndpoint::Native(next)) = controller
         .start_core(
             app.world().resource::<MenuRuntime>(),
             app.world().resource::<BlobCache>(),
