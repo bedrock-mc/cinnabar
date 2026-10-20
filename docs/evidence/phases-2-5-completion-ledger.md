@@ -519,6 +519,8 @@ resource-pack rebuilds. Renderer work is reduced through uploaded native lightma
 bounded sky lookup, retained actor pipeline IDs and UI composite bindings, and direct
 SMAA blending into the shared scene samples. Early depth rejection and shared passes across
 deferred nametag gaps reduce filtering and attachment work without changing draw order.
+Player label anchors use Java's standing height before crouching offsets; collision-height
+transitions and Scale have regression coverage. Wider name-tag qualification stays open.
 Native colour comparisons cover LDR/HDR filtering and partial-sample overlays. World UI
 also shares passes across depth modes, preserving pixels and pipeline-readiness fallbacks.
 Opt-in Metal visibility admission uses fresh current-frame masks.

@@ -51,7 +51,7 @@ fn pause_app(scale: f32) -> (App, Entity) {
 }
 
 /// Checks the cursor request submitted to the desktop backend after a screen closes.
-fn assert_centred_capture(app: &App, entity: Entity) {
+pub(super) fn assert_centred_capture(app: &App, entity: Entity) {
     let window = app.world().get::<Window>(entity).unwrap();
     let cursor = app.world().get::<CursorOptions>(entity).unwrap();
     assert!(window.focused);

@@ -485,6 +485,7 @@ dependencies = [
  "block-transform",
  "env-compat",
  "flate2",
+ "fontdue",
  "glam",
  "lewton",
  "png",
@@ -2540,6 +2541,7 @@ dependencies = [
  "mod-api",
  "mod-host",
  "mod-render",
+ "mod-ui",
  "player-state",
  "protocol",
  "render-api",
@@ -5879,6 +5881,8 @@ dependencies = [
 name = "mod-api"
 version = "0.1.22"
 dependencies = [
+ "serde",
+ "serde_json",
  "wit-bindgen",
 ]
 
@@ -7051,7 +7055,7 @@ checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
 [[package]]
 name = "pp-rs"
 version = "0.2.1"
-source = "git+https://github.com/cinnabar-mc/glslpp-rs?rev=e67c2d3796526e539cf9b1678a83fbdfcfae87c1#e67c2d3796526e539cf9b1678a83fbdfcfae87c1"
+source = "git+https://github.com/cinnabar-mc/glslpp-rs?rev=2032a88999c95c6ca0b397758dc97930089a6608#2032a88999c95c6ca0b397758dc97930089a6608"
 dependencies = [
  "unicode-xid",
 ]
@@ -9279,11 +9283,13 @@ dependencies = [
  "json-ui",
  "jsonui-editor",
  "launcher",
+ "mod-ui",
  "oreui",
  "player-state",
  "protocol",
  "render-api",
  "render-model",
+ "resource-pack",
  "serde_json",
  "tempfile",
  "tracing-subscriber",

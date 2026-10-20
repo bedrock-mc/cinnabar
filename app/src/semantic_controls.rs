@@ -16,6 +16,10 @@ pub(crate) use physical::{
 use client_shell::ui_resources::UiRuntimeResource;
 use {crate::runtime::world::ClientWorld, client_state::RuntimeSettings};
 
+/// Physical controls already consumed before gameplay reads this frame's ordered events.
+#[derive(Resource, Default)]
+pub(crate) struct ReservedControls(pub Vec<String>);
+
 #[derive(Resource, Default)]
 pub struct SemanticInputRuntime {
     router: SemanticInputRouter,

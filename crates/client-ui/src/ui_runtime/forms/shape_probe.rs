@@ -13,6 +13,9 @@ use serde::{
     de::{DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor},
 };
 
+/// Bounds only the diagnostic visitor's recursion; form admission does not use this limit.
+const MAX_PROBE_JSON_DEPTH: usize = 16;
+
 pub(super) fn observe(event: &FormRequestEvent) {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     static CLAIMED: AtomicBool = AtomicBool::new(false);
@@ -151,6 +154,7 @@ fn inspect(enabled: bool, claimed: &AtomicBool, event: &FormRequestEvent) -> Opt
     })
 }
 
+/// Checks whether the diagnostic visitor can inspect a document within its own budgets.
 fn bounded(json: &str) -> bool {
     if json.len() > protocol::MAX_FORM_JSON_BYTES {
         return false;
@@ -172,7 +176,7 @@ fn bounded(json: &str) -> bool {
                 b'"' => string = true,
                 b'{' | b'[' => {
                     depth += 1;
-                    if depth > protocol::MAX_FORM_JSON_DEPTH {
+                    if depth > MAX_PROBE_JSON_DEPTH {
                         return false;
                     }
                 }
