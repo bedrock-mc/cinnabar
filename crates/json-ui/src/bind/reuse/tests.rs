@@ -656,6 +656,6 @@ fn a_direct_item_collection_binding_publishes_its_hit_identity() {
     };
     let placed = crate::layout(&bound, [100.0, 100.0], &env);
     let hits = crate::hit_regions(&placed);
-    let preview = crate::hit_test(&hits, [10.0, 10.0]).expect("item preview hit");
+    let preview = crate::hit_test(&hits, [50.0, 50.0]).expect("item preview hit");
     assert_eq!(preview.collections, [("preview_items".to_owned(), 0)]);
 }
