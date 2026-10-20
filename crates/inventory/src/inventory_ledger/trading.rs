@@ -163,11 +163,13 @@ impl PlayerInventoryLedger {
             modern: event.modern,
         };
         let same = self.storage.as_ref().is_some_and(|window| {
-            !window.closing
-                && Some(window.window_id) == event.container.window_id
+            Some(window.window_id) == event.container.window_id
                 && window.kind == kind
                 && window.actor_unique_id == event.actor_unique_id
         });
+        if same && self.storage.as_ref().is_some_and(|window| window.closing) {
+            return;
+        }
         let previous = same
             .then(|| self.trading())
             .flatten()
@@ -224,6 +226,19 @@ impl PlayerInventoryLedger {
                     .iter()
                     .position(|trade| trade.offer.tier <= event.tier)
             });
+        let previous_selection = previous.as_ref().and_then(|offers| {
+            offers
+                .iter()
+                .find(|trade| Some(trade.offer.network_id) == selected_id)
+        });
+        let next_selection = selected.and_then(|index| offers.get(index));
+        let changed = previous_selection
+            .map(|trade| (&trade.offer.network_id, &trade.offer.output))
+            != next_selection.map(|trade| (&trade.offer.network_id, &trade.offer.output));
+        if changed {
+            self.confirmed.clear_result();
+            self.refold();
+        }
         let window = self.storage.as_mut().expect("admitted trader");
         window.kind = kind;
         window.trade = Some(TradeState {

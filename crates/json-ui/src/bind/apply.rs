@@ -101,6 +101,20 @@ impl Binder<'_> {
                 if index < 0 {
                     return;
                 }
+                if source
+                    .properties()
+                    .any(|name| name == crate::vanilla::Binding::ItemIdAux.as_str())
+                    && control.control_type.as_deref() == Some("custom")
+                {
+                    // Direct preview bindings have no enclosing grid to supply their hit identity.
+                    native
+                        .props
+                        .insert("collection_index".to_owned(), Value::from(index));
+                    native.props.insert(
+                        "collection_scope".to_owned(),
+                        Value::from(collection.clone()),
+                    );
+                }
                 let fallback = self.collection_key(collection, scope);
                 let key = scope
                     .cursor

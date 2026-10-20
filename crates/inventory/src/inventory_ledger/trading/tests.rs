@@ -488,3 +488,54 @@ fn stock_observations_do_not_credit_later_purchases() {
     assert_eq!(ledger.trading().unwrap().offers[0].offer.uses, 2);
     assert!(!ledger.trade_offer_available(0));
 }
+
+#[test]
+fn closing_trade_refresh_does_not_reopen_or_retire_its_purchase() {
+    let mut ledger = ledger(true);
+    let request = ledger.begin_trade().unwrap();
+    assert!(ledger.mark_transport_enqueued(0));
+    ledger.request_storage_close();
+    let generation = ledger.storage.as_ref().unwrap().generation;
+    refresh_stock(&mut ledger, 0);
+    assert!(!ledger.storage_inventory_desired_open());
+    assert_eq!(ledger.storage.as_ref().unwrap().generation, generation);
+    assert_eq!(ledger.pending_request_id(), Some(request));
+    answer(&mut ledger, request, StackResponseStatus::Accepted);
+    assert_ne!(ledger.pending_request_id(), Some(request));
+}
+
+#[test]
+fn refreshing_the_selected_recipe_clears_its_old_authoritative_preview() {
+    for replace_identity in [false, true] {
+        let mut ledger = ledger(true);
+        ledger.apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
+            identity: SlotIdentity {
+                container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+                slot: u16::from(protocol::CREATED_OUTPUT_SLOT),
+            },
+            stack: NetworkItemStack {
+                network_id: 6,
+                count: 1,
+                ..NetworkItemStack::empty()
+            },
+            storage_item: None,
+        }));
+        assert!(ledger.created_output_stack().is_some());
+        let trade = ledger.trading().unwrap();
+        let mut offer = trade.offers[0].offer.clone();
+        if replace_identity {
+            offer.network_id += 1;
+        } else {
+            offer.output.count += 1;
+        }
+        ledger.apply(&InventoryEvent::Trade(TradeEvent {
+            container: ContainerIdentity::window(7),
+            actor_unique_id: 90,
+            title: Arc::clone(&trade.title),
+            modern: true,
+            tier: 0,
+            offers: Arc::from([offer]),
+        }));
+        assert!(ledger.created_output_stack().is_none());
+    }
+}
