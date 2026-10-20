@@ -1,7 +1,7 @@
 // Expands packed greedy cube quads into one Iris face per covered block, as Java tessellates
 // block faces: the atlas cannot repeat a sprite across a greedy quad.
 import render::chunk::{cube_quad, cube_light_sample, quad_corner, face_normal, quad_axes, quad_position, greedy_uv};
-import render::material::{materials, material_uv_flags};
+import render::material::{materials, material_uv_flags, TWO_SIDED};
 import render::biome_tint::{uniform_biome_tint_gamma, blended_biome_tint_gamma};
 import render::lighting::{light_ao_factor, material_ambient_occlusion, material_face_shade};
 import render::shaderpack::geometry::expand_common::{FaceCorners, FaceSource, JobFace, expand_job, expand_job_count, expand_job_index, write_job_faces, EXPAND_WORKGROUP_SIZE};
@@ -78,7 +78,6 @@ fn cube_face(job: vec4<u32>) -> JobFace {
     source.chunk_origin = cube.chunk_origin.xyz;
     source.material_id = cube.selected_material_id;
     source.material = material;
-    // Cube faces are one-sided, as Java's: `plan_section` reserves them no back slot.
-    source.two_sided = false;
+    source.two_sided = (material.flags & TWO_SIDED) != 0u;
     return JobFace(corners, source, true);
 }
