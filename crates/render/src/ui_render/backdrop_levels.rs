@@ -1,6 +1,6 @@
 //! Blur work is bounded by the highest mip a published shader can sample.
 
-use render_model::{UI_BLEND_BACKDROP, UiRenderInput};
+use render_model::{UI_BLEND_BACKDROP, UiRenderBatch, UiRenderInput};
 
 /// Keeps a conservative fractional-level margin around CPU/GPU logarithm rounding boundaries.
 const LEVEL_MARGIN: f32 = 0.0001;
@@ -28,10 +28,15 @@ pub(super) fn maximum(input: &UiRenderInput) -> f32 {
         .batches
         .iter()
         .filter(|batch| batch.blend_mode == UI_BLEND_BACKDROP && batch.world_projection == 0)
-        .flat_map(|batch| {
-            let start = batch.first_index as usize;
-            input.indices[start..start + batch.index_count as usize].iter()
-        })
+        .map(|batch| batch_maximum(input, batch))
+        .fold(0., f32::max)
+}
+
+/// Returns the strongest blur among one validated batch's indexed vertices.
+pub(super) fn batch_maximum(input: &UiRenderInput, batch: &UiRenderBatch) -> f32 {
+    let start = batch.first_index as usize;
+    input.indices[start..start + batch.index_count as usize]
+        .iter()
         .map(|index| {
             render_api::UiBackdropPaint::from_overlay(input.vertices[*index as usize].overlay_color)
                 .blur
@@ -68,8 +73,7 @@ mod tests {
     #[test]
     fn backdrop_levels_use_every_indexed_paint_and_exclude_other_materials() {
         use render_model::{
-            UI_BLEND_ALPHA, UiRenderBatch, UiRenderVertex, UiScissor, UiTextureCatalog,
-            UiTexturePage,
+            UI_BLEND_ALPHA, UiRenderVertex, UiScissor, UiTextureCatalog, UiTexturePage,
         };
         use std::sync::Arc;
         let vertex = |sigma| UiRenderVertex {
@@ -108,6 +112,8 @@ mod tests {
         };
         input.validate().unwrap();
         assert_eq!(maximum(&input), 12.);
+        // The strongest triangle decides, not the first indexed vertex.
+        assert_eq!(batch_maximum(&input, &input.batches[0]), 12.);
         let mut empty = input;
         empty.batches = [].into();
         assert_eq!(maximum(&empty), 0.);
