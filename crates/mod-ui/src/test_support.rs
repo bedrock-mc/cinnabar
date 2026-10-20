@@ -25,6 +25,8 @@ pub struct HudEditorState<'a> {
     pub view: &'a ViewState,
     pub viewport: [f64; 2],
     pub snap: bool,
+    /// Bind and layout passes performed by the retained editor screen.
+    pub passes: usize,
     /// The captured drag's alignment guides per axis.
     pub drag: Option<[Option<f64>; 2]>,
 }

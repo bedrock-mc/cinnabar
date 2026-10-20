@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+mod anchor;
 mod bindings;
 mod geometry;
 pub use bindings::{HudBindings, MAX_HUD_BINDINGS};
@@ -67,7 +68,11 @@ pub enum Anchor {
     /// Keeps the card horizontally centered as its size or viewport changes.
     TopCenter,
     TopRight,
+    Left,
+    Center,
+    Right,
     BottomLeft,
+    BottomCenter,
     BottomRight,
 }
 
@@ -173,6 +178,25 @@ impl Default for WorldLabel {
     }
 }
 
+/// Selects host-owned typography for a draggable HUD card.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CardFont {
+    #[default]
+    Native,
+    Sans,
+}
+
+impl CardFont {
+    /// Returns the same font alias for painting and native text measurement.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Native => "default",
+            Self::Sans => crate::mod_panel::SANS_FONT_NAME,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Card {
@@ -183,6 +207,7 @@ pub struct Card {
     pub editor_label: String,
     #[serde(default)]
     pub anchor: Anchor,
+    /// GUI pixels inward from edge anchors, or right/down from centered axes.
     #[serde(default)]
     pub offset: [f32; 2],
     #[serde(default = "unit")]
@@ -206,6 +231,9 @@ pub struct Card {
     /// Row text multiplier, bounded to 0.5 through 2 independently of card geometry.
     #[serde(default = "text_scale")]
     pub text_scale: f32,
+    /// Omitted typography keeps the native pixel font.
+    #[serde(default)]
+    pub font: CardFont,
     /// Draws row labels and values with a shadow; legacy cards keep their shadow.
     #[serde(default = "enabled")]
     pub shadow: bool,
@@ -248,6 +276,7 @@ impl Default for Card {
             row_height: row_height(),
             icon_size: icon_size(),
             text_scale: text_scale(),
+            font: CardFont::default(),
             shadow: true,
             reset_anchor: None,
             reset_offset: None,
@@ -291,6 +320,8 @@ impl Default for Cell {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Placement {
     pub id: String,
+    pub anchor: Anchor,
+    pub offset: [f32; 2],
     pub scale: f32,
     pub position: Option<[f32; 2]>,
 }
@@ -565,10 +596,7 @@ impl Hud {
                 !scale.is_finite() || !(MIN_CARD_SCALE..=MAX_CARD_SCALE).contains(&scale)
             }) || !card.scale.is_finite()
                 || !(MIN_CARD_SCALE..=MAX_CARD_SCALE).contains(&card.scale)
-                || card
-                    .offset
-                    .into_iter()
-                    .any(|v| !v.is_finite() || v.abs() > 2048.)
+                || card.offset.into_iter().any(|v| !v.is_finite())
                 || card.rows.len() > MAX_CARD_ROWS
                 || card.cells.len() > MAX_CARD_CELLS
                 || !card.rows.is_empty() && !card.cells.is_empty()
@@ -591,7 +619,7 @@ impl Hud {
                 })
                 || card
                     .reset_offset
-                    .is_some_and(|p| p.into_iter().any(|v| !v.is_finite() || v.abs() > 2048.))
+                    .is_some_and(|p| p.into_iter().any(|v| !v.is_finite()))
             {
                 return Err("HUD card geometry exceeds its bounds".into());
             }
@@ -647,6 +675,8 @@ impl EditorResult {
                 .iter()
                 .map(|p| Card {
                     id: p.id.clone(),
+                    anchor: p.anchor,
+                    offset: p.offset,
                     position: p.position,
                     scale: p.scale,
                     ..Default::default()

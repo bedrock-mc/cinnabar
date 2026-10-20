@@ -56,10 +56,15 @@ impl ModUi {
             return Err("HUD editor requires an open panel".into());
         }
         self.cancel_mod_panel_edit();
+        let mut preview = preview.clone();
+        for card in &mut preview.cards {
+            card.reset_anchor.get_or_insert(card.anchor);
+            card.reset_offset.get_or_insert(card.offset);
+        }
         self.mod_hud_editor = Some(HudEditor {
-            draft: preview.clone(),
-            committed: preview.clone(),
             autosave: preview.autosave,
+            draft: preview.clone(),
+            committed: preview,
             close_requested: false,
             reset: false,
             snap: false,
@@ -247,6 +252,7 @@ impl ModUi {
             view: &editor.view,
             viewport: editor.viewport,
             snap: editor.snap,
+            passes: editor.screen.passes,
             drag: editor.drag.as_ref().map(|drag| drag.guides),
         })
     }
