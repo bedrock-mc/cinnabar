@@ -995,6 +995,7 @@ fn fixed_compute_dispatches_exceeding_device_limits_fail_loading() {
         None,
         &gpu,
         &Default::default(),
+        &Default::default(),
     )
     .err()
     .expect("over-limit fixed dispatch fails loading");
@@ -1019,6 +1020,7 @@ fn relative_compute_dispatches_are_checked_for_each_view_size() {
             JAVA_DIMENSIONS[0],
             None,
             &gpu,
+            &Default::default(),
             &Default::default(),
         )
         .unwrap(),
