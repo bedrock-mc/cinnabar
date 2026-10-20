@@ -321,31 +321,30 @@ fn record_composite(
     state.targets.swap_sides(&pack.frame.exchange);
     let targets = &state.targets;
     let source = io.scene_colour.texture();
-    if io.viewport != [0, 0, source.width(), source.height()] {
-        if let Some((_, pipeline)) = pack
+    if io.viewport != [0, 0, source.width(), source.height()]
+        && let Some((_, pipeline)) = pack
             .host
             .preserve
             .iter()
             .find(|(f, _)| *f == io.destination_format)
-        {
-            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("shader pack preserve viewport exterior"),
-                layout: &pipeline.get_bind_group_layout(0),
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(io.scene_colour),
-                }],
-            });
-            let mut render = pass(
-                encoder,
-                "shader pack preserve viewport exterior",
-                &[load_attachment(io.destination)],
-                None,
-            );
-            render.set_pipeline(pipeline);
-            render.set_bind_group(0, &group, &[]);
-            render.draw(0..3, 0..1);
-        }
+    {
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("shader pack preserve viewport exterior"),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(io.scene_colour),
+            }],
+        });
+        let mut render = pass(
+            encoder,
+            "shader pack preserve viewport exterior",
+            &[load_attachment(io.destination)],
+            None,
+        );
+        render.set_pipeline(pipeline);
+        render.set_bind_group(0, &group, &[]);
+        render.draw(0..3, 0..1);
     }
     let present = pack
         .host

@@ -70,18 +70,27 @@ mod tests {
             return;
         };
         let clears = ImageClears::new(&gpu.device);
+        let wide_format = wgpu::TextureFormat::Rgba32Uint;
+        let wide_texels = CLEAR_BYTES as u32 / wide_format.block_copy_size(None).unwrap() + 1;
         for (dimension, format, size, load) in [
             (
                 wgpu::TextureDimension::D1,
-                wgpu::TextureFormat::Rgba32Uint,
-                [gpu.device.limits().max_texture_dimension_1d.min(8192), 1, 1],
+                wide_format,
+                [
+                    gpu.device
+                        .limits()
+                        .max_texture_dimension_1d
+                        .min(wide_texels),
+                    1,
+                    1,
+                ],
                 "textureLoad(image, i32(id.x), 0)",
             ),
             (
                 wgpu::TextureDimension::D3,
                 wgpu::TextureFormat::Rgba8Uint,
                 [17, 257, 3],
-                "textureLoad(image, vec3<i32>(i32(id.x % 17u), i32((id.x / 17u) % 257u), i32(id.x / (17u * 257u))), 0)",
+                "textureLoad(image, vec3<i32>(i32(id.x % dims.x), i32((id.x / dims.x) % dims.y), i32(id.x / (dims.x * dims.y))), 0)",
             ),
         ] {
             let image = gpu.device.create_texture(&wgpu::TextureDescriptor {
@@ -121,7 +130,7 @@ mod tests {
             };
             let source = format!("@group(0) @binding(0) var image: texture_{shape}<u32>;
                 @group(0) @binding(1) var<storage, read_write> output: array<vec4<u32>>;
-                @compute @workgroup_size(1) fn witness(@builtin(global_invocation_id) id: vec3<u32>) {{ output[id.x] = {load}; }}");
+                @compute @workgroup_size(1) fn witness(@builtin(global_invocation_id) id: vec3<u32>) {{ let dims = textureDimensions(image); output[id.x] = {load}; }}");
             let pixels = gpu.compute_readback(
                 &source,
                 &[wgpu::BindGroupEntry {
