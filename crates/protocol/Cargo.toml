@@ -80,6 +80,7 @@ webpki-roots = { version = "1", optional = true }
 
 [dev-dependencies]
 rsa.workspace = true
+raknet.workspace = true
 resource-pack = { path = "../resource-pack", features = ["test-support"] }
 tokio = { workspace = true, features = ["test-util", "process"] }
 test-alloc = { path = "../test-alloc" }
