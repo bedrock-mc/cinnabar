@@ -147,7 +147,12 @@ fn unreadable_trade_items_never_become_partial_payments() {
             assert!(trade.offers.is_empty(), "malformed {ingredient}");
         }
     }
-    for secondary in [None, Some(item(0, false)), Some(item(1, false))] {
+    for secondary in [
+        None,
+        Some(vec![0]),
+        Some(item(0, false)),
+        Some(item(1, false)),
+    ] {
         let mut offer = field(10, "buyA", &item(1, false));
         if let Some(value) = &secondary {
             offer.extend(field(10, "buyB", value));

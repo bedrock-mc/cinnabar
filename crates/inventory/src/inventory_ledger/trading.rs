@@ -107,12 +107,19 @@ impl PlayerInventoryLedger {
             .as_ref()?
             .values()
             .find(|entry| entry.identifier == item.identifier)?;
+        let extra_data =
+            if item.identifier.as_ref() == assets::facts::VanillaItem::Shield.identifier() {
+                item.extra_data_with_blocking_tick(0)
+            } else {
+                Arc::clone(&item.extra_data)
+            };
+        let nbt_digest = Sha256::digest(&extra_data).into();
         Some(NetworkItemStack {
             network_id: entry.network_id,
             metadata: item.metadata,
             count: item.count,
-            extra_data: Arc::clone(&item.extra_data),
-            nbt_digest: Sha256::digest(&item.extra_data).into(),
+            extra_data,
+            nbt_digest,
             ..NetworkItemStack::empty()
         })
     }

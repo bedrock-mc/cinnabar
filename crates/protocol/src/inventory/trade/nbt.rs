@@ -11,6 +11,11 @@ pub(super) struct Value<'a> {
 pub(super) struct Compound<'a>(Vec<(&'a [u8], Value<'a>)>);
 
 impl<'a> Compound<'a> {
+    /// Whether this compound contains no fields at all.
+    pub(super) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     /// Borrows the fields of one validated network compound, excluding its name.
     fn read(reader: &mut Reader<'a>) -> Option<Self> {
         let mut fields = Vec::new();

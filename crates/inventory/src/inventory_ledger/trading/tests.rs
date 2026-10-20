@@ -231,6 +231,77 @@ fn trade_ingredients_accept_the_auxiliary_wildcard() {
 }
 
 #[test]
+fn shield_purchases_keep_their_tags_and_runtime_user_data() {
+    for tagged in [false, true] {
+        let mut ledger = ledger(true);
+        let shield = assets::facts::VanillaItem::Shield.identifier();
+        let mut registry =
+            protocol::test_support::items::component_item_registry("minecraft:apple", 6, 64, 0);
+        let shield_registry =
+            protocol::test_support::items::component_item_registry(shield, 7, 1, 0);
+        registry.entries = registry
+            .entries
+            .iter()
+            .chain(shield_registry.entries.iter())
+            .cloned()
+            .collect();
+        ledger.apply_registry(&registry);
+        let data: Arc<[u8]> = if tagged {
+            protocol::edit_item_extra(
+                &[0; 10],
+                &protocol::ItemNbtEdit {
+                    custom_name: Some(Some("Trade shield".into())),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+        } else {
+            Arc::from([0; 10])
+        };
+        let state = ledger.trading().unwrap();
+        let mut offers: Vec<_> = state
+            .offers
+            .iter()
+            .map(|offer| offer.offer.clone())
+            .collect();
+        offers[0].output.identifier = Arc::from(shield);
+        offers[0].output.extra_data = Arc::clone(&data);
+        ledger.apply(&InventoryEvent::Trade(TradeEvent {
+            container: ContainerIdentity::window(7),
+            actor_unique_id: 90,
+            title: Arc::from("Trader"),
+            modern: true,
+            tier: 0,
+            offers: offers.into(),
+        }));
+        ledger.begin_trade().unwrap();
+        let mut expected = data.to_vec();
+        expected.extend_from_slice(&0_i64.to_le_bytes());
+        assert_eq!(&*ledger.cursor_stack().unwrap().extra_data, expected);
+        assert_eq!(
+            ledger.cursor_stack().unwrap().nbt_digest,
+            <[u8; 32]>::from(Sha256::digest(&expected))
+        );
+        let results = ledger
+            .queue
+            .back()
+            .unwrap()
+            .actions
+            .iter()
+            .find_map(|action| {
+                if let StackRequestAction::CraftResultsDeprecated { results, .. } = action {
+                    Some(results)
+                } else {
+                    None
+                }
+            })
+            .expect("purchase declares its result");
+        assert_eq!(results[0].identifier.as_ref(), shield);
+        assert_eq!(&*results[0].user_data, expected);
+    }
+}
+
+#[test]
 fn registry_replacement_rebinds_every_trade_preview() {
     let mut ledger = ledger(true);
     ledger.apply_registry(&protocol::test_support::items::component_item_registry(

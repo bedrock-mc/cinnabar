@@ -17,8 +17,17 @@ pub struct TradeItem {
     pub count: u16,
     /// Saved block-state compound payload, retained until an authoritative result resolves it.
     pub block_descriptor: Option<Arc<[u8]>>,
-    /// Complete item user data, including arbitrary server-supplied tags.
+    /// Saved tags and restrictions in item user-data format, before runtime-only fields.
     pub extra_data: Arc<[u8]>,
+}
+
+impl TradeItem {
+    /// Adds a shield's runtime blocking tick after its saved tags and restrictions.
+    pub fn extra_data_with_blocking_tick(&self, tick: i64) -> Arc<[u8]> {
+        let mut data = self.extra_data.to_vec();
+        data.extend_from_slice(&tick.to_le_bytes());
+        data.into()
+    }
 }
 
 /// One server recipe, in the order it appears in the trader's offer list.
@@ -85,6 +94,9 @@ fn item(offer: &Compound<'_>, name: &str) -> Option<Option<TradeItem>> {
         return Some(None);
     };
     let value = value.compound()?;
+    if value.is_empty() {
+        return Some(None);
+    }
     let count = value.field("Count")?.count()?;
     if count == 0 {
         return Some(None);
