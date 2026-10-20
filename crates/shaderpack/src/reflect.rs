@@ -164,7 +164,6 @@ pub(crate) fn output_buffer(index: u32, shadow: bool) -> BufferId {
 }
 
 /// Creates a visibility mask for one compiled stage.
-
 fn mask(stage: StageKind) -> StageMask {
     let mut m = StageMask::default();
     m.add(stage);
@@ -172,7 +171,6 @@ fn mask(stage: StageKind) -> StageMask {
 }
 
 /// Reflects one bound global and its host-visible layout.
-
 fn resource(
     module: &naga::Module,
     var: &naga::GlobalVariable,
@@ -322,7 +320,6 @@ fn merge(existing: &mut Resource, new: Resource, rb: &naga::ResourceBinding) -> 
 }
 
 /// Adds every stage in the source mask to the destination mask.
-
 fn union(a: &mut StageMask, b: StageMask) {
     a.vertex |= b.vertex;
     a.fragment |= b.fragment;
@@ -330,7 +327,6 @@ fn union(a: &mut StageMask, b: StageMask) {
 }
 
 /// Converts a naga image shape to the host texture dimension.
-
 fn dimension(dim: ImageDimension, arrayed: bool) -> TextureDimension {
     match (dim, arrayed) {
         (ImageDimension::D1, false) => TextureDimension::D1,
@@ -344,7 +340,6 @@ fn dimension(dim: ImageDimension, arrayed: bool) -> TextureDimension {
 }
 
 /// Converts a naga scalar to its reflected component type.
-
 fn scalar(s: naga::Scalar) -> ScalarType {
     match (s.kind, s.width) {
         (ScalarKind::Bool, _) => ScalarType::Bool,
@@ -364,7 +359,6 @@ fn scalar(s: naga::Scalar) -> ScalarType {
 }
 
 /// Describes scalar, vector and matrix interface values.
-
 fn value_type(inner: &TypeInner) -> Option<ValueType> {
     Some(match inner {
         TypeInner::Scalar(s) => ValueType::Scalar(scalar(*s)),
@@ -471,7 +465,6 @@ fn locations(
 }
 
 /// Finds a builtin in direct or structured entry-point values.
-
 fn has_builtin(
     module: &naga::Module,
     ty: naga::Handle<naga::Type>,
@@ -506,7 +499,6 @@ impl ConstValue {
     }
 
     /// Reads a fixed-size numeric constant as floating-point components.
-
     fn as_f32s<const N: usize>(&self) -> Option<[f32; N]> {
         let v: Option<Vec<f32>> = self
             .0
@@ -533,7 +525,6 @@ fn constant(module: &naga::Module, name: &str) -> Option<ConstValue> {
 }
 
 /// Collects scalar components from a constant expression.
-
 fn literals(
     module: &naga::Module,
     expr: naga::Handle<naga::Expression>,
