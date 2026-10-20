@@ -780,6 +780,22 @@ fn declaration_aliases_respect_parameters_locals_and_members() {
 }
 
 #[test]
+fn declaration_aliases_preserve_local_struct_fields() {
+    success(
+        "#version 450\nvoid main() { struct S { float projectionMatrix; }; S value; value.projectionMatrix = 0.5; gl_Position = projectionMatrix * vec4(value.projectionMatrix); }",
+        FRAGMENT,
+    );
+}
+
+#[test]
+fn declaration_aliases_preserve_block_fields() {
+    success(
+        "#version 450\nout Data { float projectionMatrix; } data; void main() { data.projectionMatrix = 0.5; gl_Position = projectionMatrix * vec4(data.projectionMatrix); }",
+        "#version 450\nin Data { float projectionMatrix; } data; out vec4 color; void main() { color = vec4(data.projectionMatrix); }",
+    );
+}
+
+#[test]
 fn declaration_block_members_with_underscores_keep_distinct_bindings() {
     let translated = success(
         "#version 450\nout A_B { vec4 c; } first; out A { vec4 B_c; } second; void main() { first.c = vec4(0.25); second.B_c = vec4(0.75); gl_Position = vec4(0.0); }",
