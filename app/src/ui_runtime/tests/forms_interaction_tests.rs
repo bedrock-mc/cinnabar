@@ -689,8 +689,16 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
     send(&mut app, ButtonState::Pressed);
     let first = take(&mut app);
     assert!(first.is_empty(), "pointer selection waits for release");
-    // A different ID would be rejected as Busy while the first page remains open.
-    // Reissuing the same ID replaces its authority before the physical release.
+    // The first page closes before the server sends the next request.
+    // Its held pointer must not transfer to the next page, even with the same ID.
+    app.world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .respond_to_server_form(identity, LocalFormAction::Dismiss)
+        .unwrap();
+    assert_eq!(
+        take(&mut app),
+        vec![protocol::modal_form_cancel_response(identity.form_id)]
+    );
     app.world_mut()
         .resource_scope(|world, mut runtime: Mut<UiRuntimeResource>| {
             let mut player_runtime = world
