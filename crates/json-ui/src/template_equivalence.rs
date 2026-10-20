@@ -56,7 +56,7 @@ fn compare(
     if let Some(reference) = crate::bind::grid_template(current) {
         templates.push((reference, std::collections::BTreeMap::new()));
     }
-    if crate::bind::feed::is_collection_factory(current) {
+    if crate::bind::feed::has_collection_factory(current) {
         let factory = current.factory.as_ref().unwrap();
         if let Some(reference) = &factory.control_name {
             templates.push((reference.clone(), std::collections::BTreeMap::new()));

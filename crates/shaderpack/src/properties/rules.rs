@@ -165,7 +165,7 @@ fn size_value(text: &str) -> Result<SizeValue, String> {
     }
 }
 
-/// Parses a positive viewport scale and its optional offset.
+/// Reads a program or buffer blend override: `off` or four blend factors.
 fn blend_rule(target: &str, value: &str) -> Result<BlendRule, String> {
     let (program, buffer) = match target.split_once('.') {
         Some((program, buffer)) => (program, Some(name(buffer, "buffer")?)),
@@ -197,6 +197,7 @@ fn blend_rule(target: &str, value: &str) -> Result<BlendRule, String> {
     })
 }
 
+/// Reads one supported source or destination blend factor.
 fn blend_factor(text: &str) -> Result<BlendFactor, String> {
     Ok(match text {
         "ZERO" => BlendFactor::Zero,
@@ -214,6 +215,7 @@ fn blend_factor(text: &str) -> Result<BlendFactor, String> {
     })
 }
 
+/// Reads an alpha comparison and reference, or disables the test with `off`.
 fn alpha_test(value: &str) -> Result<Option<AlphaTest>, String> {
     if value.eq_ignore_ascii_case("off") {
         return Ok(None);
@@ -236,6 +238,7 @@ fn alpha_test(value: &str) -> Result<Option<AlphaTest>, String> {
     }))
 }
 
+/// Reads a positive program scale with optional X and Y offsets.
 fn scale_rule(program: &str, value: &str) -> Result<ScaleRule, String> {
     let numbers = value
         .split_whitespace()

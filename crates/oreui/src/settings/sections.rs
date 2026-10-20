@@ -32,6 +32,10 @@ pub(super) fn draw(
         SettingSection::General => general(content),
         SettingSection::Updates => super::updates::draw(content),
         SettingSection::Creator => creator(content),
+        SettingSection::Server => content.heading(
+            section.title(),
+            "Settings supplied by the connected server appear here when available.",
+        ),
         _ => Ok(()),
     }
 }

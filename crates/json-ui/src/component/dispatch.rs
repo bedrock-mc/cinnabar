@@ -451,7 +451,7 @@ impl Dispatcher {
         input: &ButtonInput<'_>,
         out: &mut Dispatch,
     ) {
-        if region.kind == HitKind::Button && region.enabled {
+        if (region.kind == HitKind::Button || region.widget.toggle.is_some()) && region.enabled {
             if input.down {
                 view.pressed = Some(region.key.clone());
             } else if view.is_pressed(&region.key) {
@@ -934,7 +934,13 @@ fn collection_index(region: &HitRegion, collection: Option<&str>) -> Option<usiz
         .find(|(found, _)| found == name)
     {
         Some((_, index)) => Some(*index),
-        None if region.collection.is_none() => region.collection_index,
+        None if region
+            .collection
+            .as_deref()
+            .is_none_or(|collection| collection == name) =>
+        {
+            region.collection_index
+        }
         None => None,
     }
 }

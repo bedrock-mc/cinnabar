@@ -1,6 +1,7 @@
 crates/world/fixtures/manifest.json text eol=lf
 crates/sim/fixtures/*.jsonl text eol=lf
 crates/protocol/data/retail_items_*.tsv text eol=lf
+crates/protocol/data/item_tags_native.tsv text eol=lf
 crates/protocol/data/item_capacity_*.tsv text eol=lf
 crates/protocol/data/item_capacity_*.provenance.json text eol=lf
 crates/protocol/data/retail_biomes_*.txt text eol=lf
@@ -52,3 +53,4 @@ assets/licenses/GeyserMC-Geyser-MIT.txt text eol=lf
 # Agents append independent entries; keep both sides instead of conflicting.
 plan.md merge=union
 docs/evidence/*-completion-ledger.md merge=union
+crates/render-model/src/hats/**/*.json text eol=lf

@@ -109,7 +109,7 @@ impl ShaderProperties {
 }
 
 /// Keeps the last item for each key, ordered by the key's first occurrence.
-fn last_by_key<T>(items: &[T], key: impl Fn(&T) -> &str) -> Vec<&T> {
+pub(crate) fn last_by_key<T>(items: &[T], key: impl Fn(&T) -> &str) -> Vec<&T> {
     let mut positions = BTreeMap::new();
     let mut kept: Vec<&T> = Vec::new();
     for item in items {
@@ -302,23 +302,15 @@ impl CustomTexture {
             TextureSource::Raw { path, .. } => (Some(path), true),
             TextureSource::Resource(_) => (None, false),
         };
-        let meta = path.and_then(|p| source.text(&format!("{p}.mcmeta")));
-        let flag = |key| meta.and_then(|m| mcmeta_flag(m, key)).unwrap_or(default);
+        let meta = path
+            .and_then(|path| source.text(&format!("{path}.mcmeta")))
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok());
+        let flag = |key: &str| {
+            meta.as_ref()
+                .and_then(|meta| meta.get("texture")?.get(key)?.as_bool())
+                .unwrap_or(default)
+        };
         SamplerClass::from_filtering(flag("blur"), flag("clamp"))
-    }
-}
-
-/// The boolean value of `"key"` in `.mcmeta` JSON (only `texture.blur`/`texture.clamp` exist).
-fn mcmeta_flag(json: &str, key: &str) -> Option<bool> {
-    let quoted = format!("\"{key}\"");
-    let rest = json[json.find(&quoted)? + quoted.len()..].trim_start();
-    let value = rest.strip_prefix(':')?.trim_start();
-    if value.starts_with("true") {
-        Some(true)
-    } else if value.starts_with("false") {
-        Some(false)
-    } else {
-        None
     }
 }
 

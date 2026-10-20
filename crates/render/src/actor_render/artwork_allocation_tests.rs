@@ -23,15 +23,41 @@ fn device() -> (RenderDevice, RenderQueue) {
 }
 
 #[test]
+fn artwork_arrays_allocate_exact_source_layers() {
+    let (device, queue) = device();
+    for layers in [3, 129, device.limits().max_texture_array_layers] {
+        let pages = publication(1, layers);
+        let expected_bytes = pages.pages[0].rgba8.len() as u64;
+        let _observe = gpu_allocation::inject(move |label, bytes| {
+            if label == "immutable actor page" {
+                assert_eq!(
+                    bytes, expected_bytes,
+                    "artwork must not reserve spare layers"
+                );
+            }
+            false
+        });
+        let mut gpu = GpuArtwork::default();
+        assert!(gpu.prepare(&pages, &device, &queue));
+        assert_eq!(
+            gpu.page(0).unwrap()._texture.depth_or_array_layers(),
+            layers
+        );
+        queue.submit([]);
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    }
+}
+
+#[test]
 fn page_allocation_failure_retains_previous_texture_without_uploading() {
     let (device, queue) = device();
     let mut gpu = GpuArtwork::default();
     assert!(gpu.prepare(&publication(1, 1), &device, &queue));
-    let previous = gpu.pages[0]._texture.id();
+    let previous = gpu.page(0).unwrap()._texture.id();
     let uploads = work_tests::upload_count();
     let _failure = gpu_allocation::inject(|label, _| label == "immutable actor page");
     assert!(gpu.prepare(&publication(2, 1), &device, &queue));
-    assert_eq!(gpu.pages[0]._texture.id(), previous);
+    assert_eq!(gpu.page(0).unwrap()._texture.id(), previous);
     assert_eq!(
         work_tests::upload_count(),
         uploads,
@@ -53,7 +79,7 @@ fn first_page_allocation_failure_retries_through_one_texel() {
     });
     let mut gpu = GpuArtwork::default();
     assert!(gpu.prepare(&publication(1, 1), &device, &queue));
-    assert_eq!(gpu.pages[0]._texture.width(), 1);
+    assert_eq!(gpu.page(0).unwrap()._texture.width(), 1);
     assert_eq!(attempts.get(), 5);
 }
 
@@ -228,13 +254,20 @@ fn incompatible_old_layer_count_uses_coarse_new_data_instead() {
     let (device, queue) = device();
     let mut gpu = GpuArtwork::default();
     assert!(gpu.prepare(&publication(1, 1), &device, &queue));
-    let previous = gpu.pages[0]._texture.id();
+    let previous = gpu.page(0).unwrap()._texture.id();
     let _failure =
         gpu_allocation::inject(|label, bytes| label == "immutable actor page" && bytes > 8);
     assert!(gpu.prepare(&publication(2, 2), &device, &queue));
-    assert_ne!(gpu.pages[0]._texture.id(), previous);
-    assert_eq!(gpu.pages[0]._texture.depth_or_array_layers(), 2);
-    assert_eq!(gpu.pages[0]._texture.width(), 1);
+    assert_ne!(gpu.page(0).unwrap()._texture.id(), previous);
+    assert_eq!(
+        gpu.pages[0]
+            .as_ref()
+            .unwrap()
+            ._texture
+            .depth_or_array_layers(),
+        2
+    );
+    assert_eq!(gpu.page(0).unwrap()._texture.width(), 1);
 }
 
 #[test]
@@ -273,7 +306,7 @@ struct Vertex { @builtin(position) position: vec4f, @location(0) uv: vec2f }
                 bindings: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&gpu.pages[0].view),
+                        resource: wgpu::BindingResource::TextureView(&gpu.page(0).unwrap().view),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,

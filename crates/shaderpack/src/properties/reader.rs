@@ -10,6 +10,7 @@ use pp_rs::pp::Preprocessor;
 use pp_rs::token::TokenValue;
 
 /// One key/value pair from an active logical line.
+#[derive(Clone)]
 pub(crate) struct RawEntry {
     /// 1-based line where the logical line starts.
     pub(crate) line: u32,

@@ -332,25 +332,25 @@ fn server_encoding_matches_the_core_stream_fixture() {
     assert!(decode_connect(b"\x01{\"client_data\":null}").is_err());
 }
 
-/// Receiver admission checks every declaration before reading cache files or archive bytes.
+/// Archive declarations must fit the platform's addressable byte buffers.
 #[test]
-fn pack_receiver_rejects_unadmitted_declarations() {
-    use bridge::contract::{MAX_PACK_ARCHIVE_BYTES, MAX_SELECTED_PACK_BYTES, MAX_SELECTED_PACKS};
-    for sizes in [
-        vec![0; MAX_SELECTED_PACKS + 1],
-        vec![MAX_PACK_ARCHIVE_BYTES as u64 + 1],
-        vec![
-            MAX_PACK_ARCHIVE_BYTES as u64,
-            MAX_PACK_ARCHIVE_BYTES as u64,
-            1,
-        ],
-        vec![u64::MAX],
-    ] {
-        assert!(HandoffPackReceiver::new(&handoff_with_sizes(&sizes), None).is_err());
-    }
-    let sizes = [MAX_PACK_ARCHIVE_BYTES as u64; 2];
-    assert_eq!(sizes.iter().sum::<u64>(), MAX_SELECTED_PACK_BYTES as u64);
-    assert!(HandoffPackReceiver::new(&handoff_with_sizes(&sizes), None).is_ok());
+fn pack_receiver_rejects_unrepresentable_declarations() {
+    assert!(HandoffPackReceiver::new(&handoff_with_sizes(&[u64::MAX]), None).is_err());
+}
+
+/// Large required experience packs reach archive delivery without allocating their payloads here.
+#[test]
+fn pack_receiver_admits_large_experience_declarations() {
+    let mib = 1024 * 1024;
+    let handoff = handoff_with_sizes(&[72 * mib, 3 * mib, 7 * mib]);
+    assert!(HandoffPackReceiver::new(&handoff, None).is_ok());
+}
+
+/// The bridge retains large selections without treating a scheduling budget as content admission.
+#[test]
+fn pack_receiver_admits_large_selections() {
+    let handoff = handoff_with_sizes(&[600 * 1024 * 1024; 40]);
+    assert!(HandoffPackReceiver::new(&handoff, None).is_ok());
 }
 
 /// Diagnostic IDs survive the local wire without entering Bedrock client data.

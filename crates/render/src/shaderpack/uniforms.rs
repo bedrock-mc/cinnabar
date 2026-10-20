@@ -8,12 +8,12 @@
 //! rotation and positions are relative to `cameraPosition`.
 
 use super::geometry::shadow_cull::ShadowCullSettings;
-use assets::facts::java_mapping::JavaBlockMapping;
+use assets::facts::java_mapping::{JavaBlockMapping, JavaDimension};
 use bevy::math::{Mat3, Mat4, Quat, Vec3, Vec4};
 use render_scene::shaderpack::ShaderPackFrameInputs;
 use shaderpack::{
-    BiomeColors, BiomeUniforms, FogMedium, SkyDimension, SkyFogColors, SkyFogInputs, UniformBlock,
-    UniformValue, ValueType,
+    BiomeColors, BiomeUniforms, FogMedium, SkyFogColors, SkyFogInputs, UniformBlock, UniformValue,
+    ValueType,
 };
 use std::collections::BTreeSet;
 
@@ -255,9 +255,9 @@ pub(crate) fn sky_fog(
 ) -> SkyFogColors {
     let mapping = JavaBlockMapping::pinned().ok();
     let dimension = match game.dimension {
-        1 => SkyDimension::Nether,
-        2 => SkyDimension::End,
-        _ => SkyDimension::Overworld,
+        1 => JavaDimension::Nether,
+        2 => JavaDimension::End,
+        _ => JavaDimension::Overworld,
     };
     let biome = mapping
         .and_then(|mapping| {

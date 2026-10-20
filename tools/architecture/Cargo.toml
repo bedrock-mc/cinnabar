@@ -9,7 +9,7 @@ publish = false
 reads = [
     "crates/assets/data/block-registry-v2193.bin",
     "crates/assets/data/vanilla-pack-vocabulary-1.26.50.tsv",
-    "crates/protocol/data/item_tags_dragonfly.tsv",
+    "crates/protocol/data/item_tags_native.tsv",
     "crates/protocol/data/retail_actors_1_26_50.txt",
     "crates/protocol/data/retail_biomes_1_26_50.txt",
     "crates/protocol/data/retail_items_1_26_50.tsv",

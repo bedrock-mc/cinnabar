@@ -47,7 +47,7 @@ impl ToolKind {
 const TOOL_MASK: u8 = ToolKind::Shears.bit() * 2 - 1;
 
 /// The tool requirement used by the existing destroy predictor.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum HarvestRequirement {
     Hand,
     Tool(u8),
@@ -55,7 +55,7 @@ pub enum HarvestRequirement {
 }
 
 /// A retained prediction whose complete native tool behavior remains incomplete.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ProvisionalDestroy {
     pub hardness_bits: u32,
     pub effective_tools: u8,
@@ -65,7 +65,7 @@ pub struct ProvisionalDestroy {
 }
 
 /// Missing evidence is separate from the existing indestructible prediction.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum BlockDestroyFacts {
     #[default]
     Unresolved,

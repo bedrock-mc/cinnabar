@@ -46,11 +46,11 @@ impl WorldAuthority {
                 self.dimension_range_skips = self.dimension_range_skips.saturating_add(1);
                 if self.dimension_range_skips <= 8 {
                     eprintln!(
-                        "DIMENSION_RANGE_SKIPPED name={} dimension={} minimum_y={} height_range={} skips={}",
+                        "DIMENSION_RANGE_SKIPPED name={} dimension={} minimum_y={} maximum_y={} skips={}",
                         height.name,
                         height.dimension,
                         height.minimum_y,
-                        height.height_range,
+                        height.maximum_y,
                         self.dimension_range_skips,
                     );
                 }
@@ -64,6 +64,7 @@ impl WorldAuthority {
     }
 }
 
+/// Resolves built-in names or an admitted custom dimension ID.
 fn definition_dimension(height: &DimensionHeightDiagnostic) -> Option<i32> {
     assets::facts::dimension_id(&height.name).or_else(|| {
         (!height.name.is_empty() && (1000..=i32::from(u16::MAX)).contains(&height.dimension))
@@ -71,12 +72,13 @@ fn definition_dimension(height: &DimensionHeightDiagnostic) -> Option<i32> {
     })
 }
 
+/// Converts exclusive block bounds into the complete sub-chunks kept in storage.
 fn definition_range(height: &DimensionHeightDiagnostic) -> Option<DimensionRange> {
-    if height.minimum_y % 16 != 0 || height.height_range <= 0 || height.height_range % 16 != 0 {
+    let block_height = height.maximum_y.checked_sub(height.minimum_y)?;
+    if height.minimum_y % 16 != 0 || block_height <= 0 {
         return None;
     }
-    height.minimum_y.checked_add(height.height_range)?;
-    let sub_chunk_count = usize::try_from(height.height_range / 16).ok()?;
+    let sub_chunk_count = usize::try_from(block_height / 16).ok()?;
     // Inline columns address their slots through an unsigned byte.
     if sub_chunk_count > usize::from(u8::MAX) + 1 {
         return None;
@@ -113,15 +115,48 @@ mod tests {
         name: &str,
         dimension: i32,
         minimum_y: i32,
-        height_range: i32,
+        maximum_y: i32,
     ) -> DimensionHeightDiagnostic {
         DimensionHeightDiagnostic {
             name: Arc::from(name),
             dimension,
             minimum_y,
-            height_range,
+            maximum_y,
             generator: 1,
         }
+    }
+
+    #[test]
+    fn custom_maximum_y_with_a_partial_subchunk_admits_whole_slots() {
+        let mut authority = authority();
+        authority.apply_dimension_heights(&[
+            definition("example:dim_a", 1000, -64, 383),
+            definition("example:dim_b", 1001, -64, 383),
+        ]);
+        authority.reset_dimension(0, 1001);
+        let range = authority.admit_dimension_range(1001).unwrap();
+        assert_eq!(range.base_sub_chunk_y, -4);
+        assert_eq!(range.sub_chunk_count, 27);
+        assert_eq!(
+            (range.base_sub_chunk_y + range.sub_chunk_count as i32) * 16,
+            368,
+        );
+        assert_eq!(authority.dimension_range(1000), Some(range));
+        assert_eq!(authority.dimension_range_skip_count(), 0);
+    }
+
+    #[test]
+    fn overworld_maximum_y_keeps_all_twenty_four_subchunks() {
+        let mut authority = authority();
+        authority.apply_dimension_heights(&[definition("minecraft:overworld", 3, -64, 320)]);
+        assert_eq!(
+            authority.admit_dimension_range(0),
+            Some(DimensionRange {
+                base_sub_chunk_y: -4,
+                sub_chunk_count: 24,
+            }),
+        );
+        assert_eq!(authority.dimension_range_skip_count(), 0);
     }
 
     #[test]
@@ -148,22 +183,22 @@ mod tests {
     #[test]
     fn odd_definitions_preserve_the_first_valid_range_and_keep_admitting() {
         let mut authority = authority();
-        let valid = definition("minecraft:overworld", 3, -128, 512);
+        let valid = definition("minecraft:overworld", 3, -128, 384);
         authority.apply_dimension_heights(std::slice::from_ref(&valid));
         let previous = authority.dimension_range(0);
-        for (minimum_y, height_range) in [
+        for (minimum_y, maximum_y) in [
             (0, 0),
             (0, -16),
             (1, 256),
-            (0, 255),
+            (256, 256),
             (0, (i32::from(u8::MAX) + 2) * 16),
-            (i32::MAX - 15, 32),
+            (i32::MIN, i32::MAX),
         ] {
             authority.apply_dimension_heights(&[definition(
                 "minecraft:overworld",
                 3,
                 minimum_y,
-                height_range,
+                maximum_y,
             )]);
             assert_eq!(authority.dimension_range(0), previous);
         }
@@ -184,7 +219,7 @@ mod tests {
         authority.apply_dimension_heights(&heights);
         assert_eq!(authority.dimension_ranges.len(), MAX_DIMENSION_DEFINITIONS);
         assert_eq!(authority.dimension_range_skip_count(), 1);
-        authority.apply_dimension_heights(&[definition("example:1000", 1000, -128, 512)]);
+        authority.apply_dimension_heights(&[definition("example:1000", 1000, -128, 384)]);
         assert_eq!(authority.dimension_range(1000).unwrap().base_sub_chunk_y, 0);
         assert_eq!(authority.dimension_range(1000).unwrap().sub_chunk_count, 16);
         assert_eq!(authority.dimension_range_skip_count(), 1);
@@ -193,7 +228,7 @@ mod tests {
     #[test]
     fn duplicate_custom_names_preserve_the_first_dimension_id() {
         let mut authority = authority();
-        authority.apply_dimension_heights(&[definition("example:realm", 1000, -128, 512)]);
+        authority.apply_dimension_heights(&[definition("example:realm", 1000, -128, 384)]);
         let original = authority.dimension_range(1000);
         authority.apply_dimension_heights(&[definition("example:realm", 1001, 0, 256)]);
         assert_eq!(authority.dimension_range(1000), original);
@@ -211,7 +246,7 @@ mod tests {
         assert_eq!(authority.admit_dimension_range(1000), None);
         authority.apply_dimension_heights(&[
             definition("minecraft:overworld", 3, 0, 256),
-            definition("example:unused", 1000, -128, 512),
+            definition("example:unused", 1000, -128, 384),
         ]);
         assert_eq!(authority.dimension_range(0), original);
         let custom = authority.admit_dimension_range(1000).unwrap();

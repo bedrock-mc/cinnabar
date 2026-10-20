@@ -16,11 +16,12 @@ use super::admission::SettingsSeed;
 use super::{ModRuntime, RELOAD_INTERVAL, VisualTimeOverride, interaction::ModInteraction};
 use assets::RuntimeFontCatalog;
 use bevy::prelude::*;
-use candidate::Candidate;
-use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
+use candidate::{Candidate, Runtime as CandidateRuntime};
+use client_shell::ui_resources::UiPresentationResource;
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded};
 use mod_host::{ModHost, SettingsSnapshot};
-use schema::{Entry, Registration, VERSION};
+pub(super) use schema::Entry;
+use schema::{Registration, VERSION};
 use std::{
     collections::BTreeMap,
     path::PathBuf,
@@ -59,7 +60,7 @@ impl HostMetadata {
 #[derive(Clone)]
 pub(super) struct RegisteredHost {
     pub(super) entry: Entry,
-    identity: [u8; 32],
+    pub(super) identity: [u8; 32],
 }
 
 struct SourceSnapshot {
@@ -73,12 +74,9 @@ struct SourceSnapshot {
 }
 
 impl SourceSnapshot {
-    /// Resolves this snapshot's digest against its captured drawing authority.
+    /// Retains the live-world fence captured for this snapshot.
     fn drawing_policy(&self) -> Option<mod_api::drawing::DrawingSession> {
-        use sha2::{Digest, Sha256};
-        self.drawing
-            .as_ref()
-            .map(|drawing| drawing.policy(Sha256::digest(&self.component).into()))
+        self.drawing.as_ref().map(|drawing| drawing.policy())
     }
 
     /// Selects source edits and recoverable fence changes without reviving a stopped identity.
@@ -178,6 +176,55 @@ struct Admitted {
     drawing: Option<mod_api::drawing::DrawingSession>,
 }
 
+/// Off-frame disposal owns both frame guests and compiled packet programs.
+pub(super) enum Retired {
+    Frame(Box<ModHost>),
+    Packet(Arc<mod_host::packet_mod::CompiledPacketMod>),
+}
+
+impl Retired {
+    /// Releases executable resources on the loader worker.
+    fn dispose(self) {
+        match self {
+            Self::Frame(host) => drop(host),
+            Self::Packet(program) => drop(program),
+        }
+    }
+}
+
+impl From<ModHost> for Retired {
+    fn from(host: ModHost) -> Self {
+        Self::Frame(Box::new(host))
+    }
+}
+
+impl Candidate {
+    /// Returns the settings-owning frame guest when this is a frame candidate.
+    fn frame_host(&self) -> Option<&ModHost> {
+        match &self.runtime {
+            CandidateRuntime::Frame(prepared) => Some(&prepared.host),
+            CandidateRuntime::Packet(_) => None,
+        }
+    }
+
+    /// Returns the mutable frame guest for frame-only admission fixtures.
+    #[cfg(test)]
+    fn frame_host_mut(&mut self) -> Option<&mut ModHost> {
+        match &mut self.runtime {
+            CandidateRuntime::Frame(prepared) => Some(&mut prepared.host),
+            CandidateRuntime::Packet(_) => None,
+        }
+    }
+
+    /// Moves executable resources into the registration worker's retirement lane.
+    fn retire(self, watcher: &Watcher) {
+        match self.runtime {
+            CandidateRuntime::Frame(prepared) => watcher.retire(prepared.host),
+            CandidateRuntime::Packet(program) => watcher.retire(Retired::Packet(program)),
+        }
+    }
+}
+
 enum Message {
     Acknowledge {
         generation: u64,
@@ -202,22 +249,31 @@ enum Message {
 }
 
 #[derive(Resource)]
-pub(super) struct Watcher {
+pub(crate) struct Watcher {
     updates: Receiver<Update>,
     messages: Sender<Message>,
-    retired: Sender<ModHost>,
+    retired: Sender<Retired>,
     latest: Arc<AtomicU64>,
+    applied: AtomicU64,
     desired: Arc<Mutex<Desired>>,
     alive: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
     pending: Mutex<Option<Update>>,
     acknowledgments: Mutex<Vec<Message>>,
-    fallback_retired: Mutex<Vec<ModHost>>,
+    fallback_retired: Mutex<Vec<Retired>>,
     settings: Arc<Mutex<BTreeMap<PathBuf, SettingsSnapshot>>>,
     companions: Arc<Mutex<Vec<PathBuf>>>,
     drawing: Arc<Mutex<BTreeMap<PathBuf, super::admission::DrawingContext>>>,
 }
 impl Watcher {
+    /// Keeps new sessions pending until the observed mod selection has finished admission.
+    pub(crate) fn preparing(&self) -> bool {
+        if !self.alive.load(Ordering::Acquire) {
+            return false;
+        }
+        let desired = self.desired.lock().expect("mod desired list");
+        desired.registration.is_none() || self.applied.load(Ordering::Acquire) != desired.generation
+    }
     /// Gives the library a fence that waits off-frame for final settings writes.
     pub(super) fn removal_client(&self) -> removal::Client {
         removal::Client::new(
@@ -264,6 +320,7 @@ impl Watcher {
             messages,
             retired,
             latest,
+            applied: AtomicU64::new(0),
             desired,
             alive,
             thread: Some(thread),
@@ -287,11 +344,7 @@ impl Watcher {
             .collect();
     }
     /// Captures each mod's latest in-memory preferences before preparing replacements.
-    pub(super) fn remember_settings(
-        &self,
-        runtime: Option<&ModRuntime>,
-        ui: Option<&client_ui::ui_runtime::UiRuntime>,
-    ) {
+    pub(super) fn remember_settings(&self, runtime: Option<&ModRuntime>) {
         self.remember_companions(runtime);
         let mut drawing = self.drawing.lock().expect("mod drawing fences");
         drawing.clear();
@@ -303,7 +356,7 @@ impl Watcher {
                 continue;
             };
             let host = runtime.hosts.host(index);
-            if let Some(context) = super::admission::DrawingContext::capture(host, ui) {
+            if let Some(context) = super::admission::DrawingContext::capture(host) {
                 drawing.insert(registered.entry.component.clone(), context);
             }
             if let Some(snapshot) = SettingsSnapshot::capture(host) {
@@ -329,7 +382,8 @@ impl Watcher {
         }
     }
     /// Moves disposal to the loader so dropping an instance never joins a writer on-frame.
-    fn retire(&self, host: ModHost) {
+    pub(super) fn retire(&self, host: impl Into<Retired>) {
+        let host = host.into();
         if let Err(error) = self.retired.try_send(host) {
             self.fallback_retired
                 .lock()

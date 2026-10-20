@@ -3,7 +3,7 @@
 
 use super::TransformError;
 use super::declare::integer_bool;
-use super::items::{arr_len, mat_cols, matching, sampler_info};
+use super::items::{arr_len, mat_cols, matching, parse_decl, sampler_info};
 use crate::reflection::{SHADOW_SAMPLER_NAME, SamplerClass};
 use crate::token::{Tok, TokKind, id, int, p};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -11,11 +11,28 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 /// Sampler name → (combined sampler type to construct, compares depth, filtering class).
 pub(super) type SamplerKinds = HashMap<String, (String, bool, SamplerClass)>;
 
+/// A boolean value stored as integers, including its array dimensions.
+#[derive(Clone, Debug)]
+pub(super) struct BoolStorage {
+    pub ty: String,
+    pub array_depth: usize,
+}
+
+impl BoolStorage {
+    /// Records the value type and dimensions of an integer-backed boolean declaration.
+    pub fn new<'a>(ty: &str, arrays: impl IntoIterator<Item = &'a Tok>) -> Self {
+        Self {
+            ty: ty.to_string(),
+            array_depth: arrays.into_iter().filter(|token| token.is("[")).count(),
+        }
+    }
+}
+
 /// What body rewriting needs to know about the stage's globals.
 pub(super) struct BodyContext<'a> {
     pub samplers: &'a SamplerKinds,
-    /// Bool uniform name → constructor (`bool` or `bvecN`) of its integer storage.
-    pub bools: &'a HashMap<String, String>,
+    /// Boolean global name to its value type and array dimensions.
+    pub bools: &'a HashMap<String, BoolStorage>,
     pub user_funcs: &'a HashSet<String>,
 }
 
@@ -76,6 +93,7 @@ pub(super) fn rewrite_params(header: &[Tok], samplers: &mut SamplerKinds) -> Vec
 /// their block from the end of their declarator on, as GLSL scopes them: SEUS's
 /// `vec4 tex = texture2D(tex, …)` still samples the global in the initializer.
 pub(super) fn rewrite_body(toks: &[Tok], cx: &BodyContext<'_>, used: &mut SamplerUse) -> Vec<Tok> {
+    let declarators = local_declarators(toks);
     let mut out = vec![];
     let mut calls: Vec<Option<String>> = vec![];
     // Names declared by each open block.
@@ -84,15 +102,28 @@ pub(super) fn rewrite_body(toks: &[Tok], cx: &BodyContext<'_>, used: &mut Sample
     let mut pending: Option<(&str, usize)> = None;
     // Paren depths of open writes to integer-backed bools, closed at their expression's end.
     let mut writes: Vec<usize> = vec![];
-    let mut skip = false;
+    let mut read_ends: Vec<(usize, bool)> = Vec::new();
+    let mut write_starts: HashMap<usize, String> = HashMap::new();
     for (i, t) in toks.iter().enumerate() {
-        if skip {
-            skip = false;
-            continue;
+        while read_ends.last().is_some_and(|(end, _)| *end == i) {
+            let (_, scalar) = read_ends.pop().unwrap();
+            if scalar {
+                out.extend([p("!=").at(t.line), int(0).at(t.line)]);
+            }
+            out.push(p(")").at(t.line));
         }
-        if writes.last() == Some(&calls.len()) && (t.is(";") || t.is(",") || t.is(")")) {
+        while writes.last() == Some(&calls.len()) && (t.is(";") || t.is(",") || t.is(")")) {
             writes.pop();
             out.push(p(")").at(t.line));
+        }
+        if let Some(ctor) = write_starts.remove(&i) {
+            out.extend([
+                t.clone(),
+                id(&integer_bool(&ctor)).at(t.line),
+                p("(").at(t.line),
+            ]);
+            writes.push(calls.len());
+            continue;
         }
         if t.is("(") {
             calls.push(
@@ -123,7 +154,7 @@ pub(super) fn rewrite_body(toks: &[Tok], cx: &BodyContext<'_>, used: &mut Sample
             out.push(t.clone());
             continue;
         }
-        if (cx.samplers.contains_key(n) || cx.bools.contains_key(n)) && declares_local(toks, i) {
+        if (cx.samplers.contains_key(n) || cx.bools.contains_key(n)) && declarators.contains(&i) {
             pending = Some((n, calls.len()));
             out.push(t.clone());
             continue;
@@ -161,38 +192,53 @@ pub(super) fn rewrite_body(toks: &[Tok], cx: &BodyContext<'_>, used: &mut Sample
             }
             continue;
         }
-        if let Some(ctor) = cx.bools.get(n) {
-            if toks.get(i + 1).is_some_and(|x| x.is("=")) {
-                // A block bool written (`noSimOngoing = true;`) stores its integer.
-                out.extend([
-                    t.clone(),
-                    p("=").at(line),
-                    id(&integer_bool(ctor)).at(line),
-                    p("(").at(line),
-                ]);
-                writes.push(calls.len());
-                skip = true;
-            } else if ctor == "bool" {
-                out.extend([
-                    p("(").at(line),
-                    t.clone(),
-                    p("!=").at(line),
-                    int(0).at(line),
-                    p(")").at(line),
-                ]);
+        if let Some(storage) = cx.bools.get(n) {
+            let (end, ctor) = boolean_access(toks, i, storage);
+            if toks.get(end).is_some_and(|token| token.is("=")) {
+                out.push(t.clone());
+                write_starts.insert(end, ctor);
             } else {
-                out.extend([
-                    id(ctor).at(line),
-                    p("(").at(line),
-                    t.clone(),
-                    p(")").at(line),
-                ]);
+                let scalar = ctor == "bool";
+                if !scalar {
+                    out.push(id(&ctor).at(line));
+                }
+                out.extend([p("(").at(line), t.clone()]);
+                read_ends.push((end, scalar));
             }
             continue;
         }
         out.push(t.clone());
     }
     out
+}
+
+/// Classifies the complete array/member access before choosing its boolean conversion.
+fn boolean_access(toks: &[Tok], start: usize, storage: &BoolStorage) -> (usize, String) {
+    let mut end = start + 1;
+    let mut arrays = storage.array_depth;
+    let mut ty = storage.ty.clone();
+    loop {
+        if toks.get(end).is_some_and(|token| token.is("[")) {
+            end = matching(toks, end, "[", "]") + 1;
+            if arrays > 0 {
+                arrays -= 1;
+            } else {
+                ty = "bool".to_string();
+            }
+        } else if toks.get(end).is_some_and(|token| token.is("."))
+            && let Some(member) = toks.get(end + 1).and_then(Tok::ident)
+        {
+            ty = if member.len() == 1 {
+                "bool".to_string()
+            } else {
+                format!("bvec{}", member.len())
+            };
+            end += 2;
+        } else {
+            break;
+        }
+    }
+    (end, ty)
 }
 
 /// The return type of a function header (`vec3 f(…)` → `vec3`), empty if there is none.
@@ -234,14 +280,45 @@ pub(super) fn convert_returns(body: Vec<Tok>, ty: &str) -> Vec<Tok> {
     out
 }
 
-/// Whether the identifier at `i` is the name in a local declaration (`float specular = …`,
-/// `vec3 specular;`, `int n[2]`): a type name before it and a declarator end after it.
-fn declares_local(toks: &[Tok], i: usize) -> bool {
-    let ty = i.checked_sub(1).and_then(|j| toks[j].ident());
-    let ends = toks
-        .get(i + 1)
-        .is_some_and(|x| x.is("=") || x.is(";") || x.is(",") || x.is("["));
-    ends && ty.is_some_and(|ty| !matches!(ty, "return" | "else" | "do" | "case"))
+/// Finds every local declarator with the shared declaration parser, excluding initializer uses.
+fn local_declarators(toks: &[Tok]) -> HashSet<usize> {
+    let mut declarations = HashSet::new();
+    for start in 0..toks.len() {
+        if start > 0
+            && !toks[start - 1].is("{")
+            && !toks[start - 1].is(";")
+            && !toks[start - 1].is("}")
+            && !(toks[start - 1].is("(") && start > 1 && toks[start - 2].is("for"))
+        {
+            continue;
+        }
+        let mut depth = 0;
+        let end = (start..toks.len()).find(|&index| {
+            let token = &toks[index];
+            if token.is("(") || token.is("[") {
+                depth += 1;
+            } else if token.is(")") || token.is("]") {
+                depth -= 1;
+            }
+            (token.is(";") || token.is("{") || token.is("}")) && depth == 0
+        });
+        let Some(end) = end.filter(|&end| toks[end].is(";")) else {
+            continue;
+        };
+        let Some(declaration) = parse_decl(&toks[start..=end]) else {
+            continue;
+        };
+        if matches!(declaration.ty.as_str(), "return" | "else" | "do" | "case") {
+            continue;
+        }
+        let mut cursor = end;
+        for (_, array, initializer) in declaration.decls.iter().rev() {
+            cursor -= initializer.len() + usize::from(!initializer.is_empty()) + array.len() + 1;
+            declarations.insert(cursor);
+            cursor = cursor.saturating_sub(1);
+        }
+    }
+    declarations
 }
 
 /// Struct name → members as (type, name, array tokens).
@@ -297,10 +374,12 @@ mod tests {
     use super::*;
     use crate::token::lex;
 
+    /// Joins fixture token spellings.
     fn text(toks: &[Tok]) -> String {
         toks.iter().map(Tok::text).collect::<Vec<_>>().join(" ")
     }
 
+    /// Creates the sampled-resource bindings used by the body fixtures.
     fn samplers() -> SamplerKinds {
         SamplerKinds::from([
             (
@@ -347,37 +426,23 @@ mod tests {
     }
 
     #[test]
-    fn textures_passed_to_user_functions_stay_separate_and_bool_uniforms_read_as_bools() {
-        let samplers = samplers();
-        let bools = HashMap::from([
-            ("isDay".to_owned(), "bool".to_owned()),
-            ("mask".to_owned(), "bvec2".to_owned()),
-        ]);
-        let user_funcs = HashSet::from(["blur".to_owned()]);
-        let cx = BodyContext {
-            samplers: &samplers,
-            bools: &bools,
-            user_funcs: &user_funcs,
-        };
-        let mut used = SamplerUse::default();
-        let body = rewrite_body(
-            &lex("blur(colortex0, uv); if (isDay && mask.x) {}"),
-            &cx,
-            &mut used,
+    fn resource_helpers_and_boolean_uniforms_compile_together() {
+        let pack = crate::ShaderPack::new(crate::PackSource::from_files([
+            ("composite.vsh", "#version 450\nvoid main() { gl_Position = vec4(0.0); }"),
+            ("composite.fsh", "#version 450
+                uniform sampler2D colortex0; uniform bool isDay; uniform bvec2 mask;
+                vec4 blur(in sampler2D tex, vec2 uv) { return texture(tex, uv); }
+                out vec4 color;
+                void main() { color = (isDay && mask.x) ? blur(colortex0, vec2(0.5)) : vec4(0.0); }"),
+        ]));
+        let translated = pack.translate(&crate::TranslateConfig::default());
+        let program = &translated.programs[0];
+        assert!(
+            program.is_ok(),
+            "{:?}",
+            program.all_diagnostics().collect::<Vec<_>>()
         );
-        assert_eq!(
-            text(&body),
-            "blur ( colortex0 , uv ) ; if ( ( isDay != 0 ) && bvec2 ( mask ) . x ) { }"
-        );
-        assert!(used.filtering.is_empty());
-
-        let mut params = SamplerKinds::new();
-        let header = rewrite_params(&lex("vec4 blur(in sampler2D tex, vec2 uv)"), &mut params);
-        assert_eq!(text(&header), "vec4 blur ( texture2D tex , vec2 uv )");
-        assert_eq!(
-            params["tex"],
-            ("sampler2D".to_owned(), false, SamplerClass::RepeatLinear)
-        );
+        assert_eq!(program.reflection.as_ref().unwrap().textures.len(), 1);
     }
 
     #[test]

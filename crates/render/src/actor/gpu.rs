@@ -58,7 +58,7 @@ pub(crate) struct ActorDrawSpan {
     pub page: ActorArtworkPageId,
     pub first: u32,
     pub count: u32,
-    /// Vertices of the geometry every instance of the span draws.
+    /// Exact vertex count drawn for every instance in the span.
     pub vertex_count: u32,
 }
 

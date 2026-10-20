@@ -79,3 +79,5 @@ server-experience capability interfaces. The current drawing helpers target the
 personal-mod Rust/WIT interface. A future TypeScript author package should generate
 records, operations, limits and feature detection from the same contract after
 component packaging is available. No TypeScript bridge is supplied here.
+
+Player HUD consumers can use `player-state.read-revisions` to observe equipment and effects independently. Import only changed families with `read-equipment` and `read-effects`; effect ticks do not invalidate equipment. The records retain session/dimension authority and the existing player-state read budget. The original `read-snapshot` and `read-revision` APIs retain their exact-content semantics.
