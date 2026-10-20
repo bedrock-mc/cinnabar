@@ -546,6 +546,11 @@ fn drive_mod(
         mut actor_style,
     } = observation;
     let (network, mut camera, cues, item_use) = outputs;
+    let user_freelook = gameplay
+        .input
+        .as_ref()
+        .and_then(|input| input.snapshot())
+        .is_some_and(|input| input.phases[semantic_input::Action::Freelook as usize].held);
     let focused = windows.single().is_ok_and(|(window, _)| window.focused);
     let absorbed = client_shell::screen_policy::absorbs_input(
         &player_runtime,
@@ -579,7 +584,12 @@ fn drive_mod(
         if let Some(camera) = camera.as_deref_mut() {
             camera.set_preserve_teleport_rotation(false);
             camera.set_hurt_camera_style(None);
-            native_camera::apply(camera, gameplay.view.as_deref_mut(), effects.as_ref());
+            native_camera::apply(
+                camera,
+                gameplay.view.as_deref_mut(),
+                user_freelook,
+                effects.as_ref(),
+            );
         }
         if let Some(delta) = effects.and_then(|effects| effects.rotation) {
             gameplay.apply(mod_host::CameraDelta {
@@ -596,7 +606,7 @@ fn drive_mod(
         if let Some(camera) = camera.as_deref_mut() {
             camera.set_preserve_teleport_rotation(false);
             camera.set_hurt_camera_style(None);
-            native_camera::apply(camera, gameplay.view.as_deref_mut(), None);
+            native_camera::apply(camera, gameplay.view.as_deref_mut(), user_freelook, None);
         }
         return;
     }
@@ -746,6 +756,7 @@ fn drive_mod(
         native_camera::apply(
             &mut camera,
             gameplay.view.as_deref_mut(),
+            user_freelook,
             native_effects.as_ref().filter(|_| !regular_camera),
         );
     }

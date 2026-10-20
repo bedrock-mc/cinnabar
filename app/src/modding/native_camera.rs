@@ -10,6 +10,7 @@ use mod_api::native_camera::{DetachedView as WireView, Effects};
 pub(super) fn apply(
     camera: &mut CameraSettingsAuthority,
     view: Option<&mut LocalViewPose>,
+    user_freelook: bool,
     effects: Option<&Effects>,
 ) {
     let detached = effects
@@ -24,13 +25,10 @@ pub(super) fn apply(
                 vertical_speed,
             },
         });
-    let previous = camera.detached_view();
-    camera.set_detached_view(detached);
     if let Some(view) = view {
-        if detached.is_some() || previous.is_some() {
-            view.set_freelook(detached.is_some());
-        }
-        view.set_detached_translation(matches!(detached, Some(DetachedView::Fly { .. })));
+        camera.apply_detached_view(view, detached, user_freelook);
+    } else {
+        camera.set_detached_view(detached);
     }
     if let Some(effects) = effects {
         if effects.preserve_teleport_rotation {
@@ -58,13 +56,13 @@ mod tests {
             }),
             ..Default::default()
         };
-        apply(&mut camera, Some(&mut view), Some(&effect));
+        apply(&mut camera, Some(&mut view), false, Some(&effect));
         let moved = body + bevy::prelude::Vec3::X * 10.0;
         view.move_detached_eye(moved);
-        apply(&mut camera, Some(&mut view), Some(&effect));
+        apply(&mut camera, Some(&mut view), false, Some(&effect));
         assert_eq!(view.detached_eye(), moved);
         assert_eq!(view.eye_translation(), body);
-        apply(&mut camera, Some(&mut view), None);
+        apply(&mut camera, Some(&mut view), false, None);
         assert_eq!(view.detached_eye(), body);
         assert!(camera.detached_view().is_none());
     }
@@ -76,7 +74,7 @@ mod tests {
         view.set_freelook(true);
         let rotation = bevy::prelude::Quat::from_rotation_y(0.5);
         view.set_look_rotation(rotation);
-        apply(&mut camera, Some(&mut view), None);
+        apply(&mut camera, Some(&mut view), false, None);
         assert_eq!(view.camera_rotation(), rotation);
     }
 }

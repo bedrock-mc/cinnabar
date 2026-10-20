@@ -93,6 +93,8 @@ pub(super) struct NativeFrames {
     ready: AtomicBool,
     stopped: AtomicBool,
     invalidate: AtomicBool,
+    suspend: AtomicBool,
+    observed_suspended: AtomicBool,
     authority: Arc<AtomicBool>,
 }
 
@@ -113,6 +115,8 @@ impl NativeFrames {
             ready: AtomicBool::new(false),
             stopped: AtomicBool::new(false),
             invalidate: AtomicBool::new(false),
+            suspend: AtomicBool::new(false),
+            observed_suspended: AtomicBool::new(false),
             authority,
         }
     }
@@ -156,10 +160,11 @@ impl NativeFrames {
             return None;
         }
         let mut effects = output.effects.clone();
-        if frame.suspended || output.scope.2 {
+        if self.suspend.load(Ordering::Acquire) || frame.suspended || output.scope.2 {
             effects.detached = None;
         }
-        if frame.suspended
+        if self.suspend.load(Ordering::Acquire)
+            || frame.suspended
             || output.scope.2
             || output.attack_held != frame.attack_held
             || sequence.wrapping_sub(output.sequence) > MAX_RESULT_AGE
@@ -180,6 +185,10 @@ impl NativeFrames {
         if frame.is_none() {
             self.invalidate.store(true, Ordering::Release);
         }
+        let suspended = frame.as_ref().is_some_and(|frame| frame.suspended);
+        if !self.observed_suspended.swap(suspended, Ordering::AcqRel) && suspended {
+            self.suspend.store(true, Ordering::Release);
+        }
         let Ok(mut state) = self.state.try_lock() else {
             return Some((self.read_output(frame.as_ref(), sequence), false));
         };
@@ -198,7 +207,7 @@ impl NativeFrames {
             self.output.store(None);
             return Some((None, false));
         }
-        if state.scope != scope || invalidated {
+        if state.scope != scope || invalidated || self.suspend.load(Ordering::Acquire) {
             let same_world = state
                 .scope
                 .zip(scope)
@@ -224,6 +233,7 @@ impl NativeFrames {
             self.output.store(passive);
         }
         self.invalidate.store(false, Ordering::Release);
+        self.suspend.store(false, Ordering::Release);
         let output = self.read_output(frame.as_ref(), sequence);
         state.pending = Some(Input {
             epoch: state.epoch,
@@ -248,6 +258,7 @@ impl NativeFrames {
         let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if self.available()
             && !self.invalidate.load(Ordering::Acquire)
+            && !self.suspend.load(Ordering::Acquire)
             && input.epoch == state.epoch
             && input.frame.as_ref().map(|frame| frame.attack_held) == state.attack_held
         {
@@ -516,5 +527,58 @@ mod tests {
         mailbox.deactivate();
         mailbox.activate(true);
         assert_eq!(mailbox.exchange(Some(frame())), None);
+    }
+    #[test]
+    fn contended_suspension_retires_cached_and_inflight_rotations() {
+        for cached in [false, true] {
+            let mailbox = NativeFrames::new(Arc::new(AtomicBool::new(true)));
+            mailbox.activate(true);
+            mailbox.exchange(Some(frame()));
+            let mut old = Some(mailbox.take_input().unwrap());
+            let effects = Effects {
+                rotation: Some(mod_api::native_frame::Delta {
+                    yaw: 0.1,
+                    pitch: 0.0,
+                }),
+                hurt_intensity: Some(0.0),
+                ..Default::default()
+            };
+            if cached {
+                mailbox.complete(old.take().unwrap(), Some(effects.clone()));
+            }
+            {
+                let _worker = mailbox.state.lock().unwrap();
+                let mut suspended = frame();
+                suspended.suspended = true;
+                suspended.attack_held = false;
+                suspended.players.clear();
+                let result = mailbox.exchange(Some(suspended)).unwrap().0;
+                assert!(result.is_none_or(|effect| effect.rotation.is_none()));
+                let result = mailbox.exchange(Some(frame())).unwrap().0;
+                assert!(
+                    result.is_none_or(|effect| effect.rotation.is_none()),
+                    "cached pre-suspension rotation escaped"
+                );
+            }
+            if let Some(old) = old {
+                mailbox.complete(old, Some(effects.clone()));
+            }
+            let result = mailbox.exchange(Some(frame())).unwrap().0;
+            assert!(
+                result.is_none_or(|effect| effect.rotation.is_none()),
+                "in-flight pre-suspension rotation escaped"
+            );
+            let fresh = mailbox.take_input().unwrap();
+            mailbox.complete(fresh, Some(effects));
+            assert!(
+                mailbox
+                    .exchange(Some(frame()))
+                    .unwrap()
+                    .0
+                    .unwrap()
+                    .rotation
+                    .is_some()
+            );
+        }
     }
 }
