@@ -130,13 +130,41 @@ fn hidden_missing_mapped_ambiguous_and_old_session_roots_are_not_reported() {
 }
 
 /// Builds real custom HUD controls with original white texture pixels.
-fn keep_out_presentation(controls: serde_json::Value) -> UiPresentationRuntime {
-    let mut p = crate::test_support::mini_engine_presentation();
+fn keep_out_presentation(
+    controls: serde_json::Value,
+    definitions: serde_json::Value,
+) -> UiPresentationRuntime {
+    let carrier = crate::test_support::mini_carrier();
+    let mut files = carrier.ui_files().to_vec();
+    files
+        .iter_mut()
+        .find(|file| file.path.as_ref() == "ui/_ui_defs.json")
+        .unwrap()
+        .bytes = br#"{"ui_defs":["ui/server_form.json","ui/hud_screen.json"]}"#
+        .as_slice()
+        .into();
+    files.push(assets::UiFile {
+        path: "ui/hud_screen.json".into(),
+        bytes: br#"{"namespace":"hud","hud_screen":{"type":"screen"}}"#
+            .as_slice()
+            .into(),
+    });
+    let bytes =
+        assets::encode_ui_catalog([1; 32], carrier.atlas_pages(), &[], &[], &files).unwrap();
+    let mut p = UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    p.enable_json_ui(Arc::new(assets::RuntimeUiAssets::decode(&bytes).unwrap()))
+        .unwrap();
     let mut png = std::io::Cursor::new(Vec::new());
     image::RgbaImage::from_pixel(9, 9, image::Rgba([255; 4]))
         .write_to(&mut png, image::ImageFormat::Png)
         .unwrap();
     let png = png.into_inner();
+    let mut hud = json!({"namespace":"hud","hud_screen":{"type":"screen","controls":controls},
+        "hotbar_hud_item_icon":{"type":"custom","renderer":"inventory_item_renderer","size":[16,16]},
+        "item_durability":{"type":"panel","size":[0,0]}});
+    hud.as_object_mut()
+        .unwrap()
+        .extend(definitions.as_object().unwrap().clone());
     p.set_server_ui_pack(&super::super::super::super::ServerUiPack {
         ui_layers: vec![vec![
             (
@@ -145,14 +173,13 @@ fn keep_out_presentation(controls: serde_json::Value) -> UiPresentationRuntime {
             ),
             (
                 "ui/hud_screen.json".into(),
-                serde_json::to_vec(
-                    &json!({"namespace":"hud","hud_screen":{"type":"screen","controls":controls},
-                        "hotbar_hud_item_icon":{"type":"custom","renderer":"inventory_item_renderer","size":[16,16]},
-                        "item_durability":{"type":"panel","size":[0,0]}}),
-                )
-                .unwrap(),
+                serde_json::to_vec(&hud).unwrap(),
             ),
-            ("ui/common.json".into(),br#"{"namespace":"common","stack_count_label":{"type":"label","text":""}}"#.to_vec()),
+            (
+                "ui/common.json".into(),
+                br#"{"namespace":"common","stack_count_label":{"type":"label","text":""}}"#
+                    .to_vec(),
+            ),
         ]],
         textures: vec![
             ("textures/ui/hotbar_0.png".into(), png.clone()),
@@ -166,9 +193,12 @@ fn keep_out_presentation(controls: serde_json::Value) -> UiPresentationRuntime {
 /// Keep-out input follows actual native painting across GUI scales, DPI and safe-area origins.
 #[test]
 fn editor_keep_out_uses_the_completed_native_layout_and_rejects_old_sessions() {
-    let mut p = keep_out_presentation(json!([{"bar":{"type":"custom","renderer":"hotbar_renderer",
+    let mut p = keep_out_presentation(
+        json!([{"bar":{"type":"custom","renderer":"hotbar_renderer",
         "size":[182,22],"offset":[30,200],"anchor_from":"top_left","anchor_to":"top_left",
-        "cinnabar_transform":{"scale":1.5,"origin":[0,0]}}}]));
+        "cinnabar_transform":{"scale":1.5,"origin":[0,0]}}}]),
+        json!({}),
+    );
     p.set_safe_area(SafeArea::new(20., 10., 30., 15.).unwrap());
     p.mod_ui_mut()
         .set_mod_panel(
@@ -270,10 +300,13 @@ fn editor_keep_out_captures_standalone_status_controls_without_input_hits() {
             }})
         })
         .collect();
-    let mut p = keep_out_presentation(json!([{"clip":{
-        "type":"panel","size":[100,30],"offset":[140,85],"clip_children":true,
-        "anchor_from":"top_left","anchor_to":"top_left","controls":controls
-    }}]));
+    let mut p = keep_out_presentation(
+        json!([{"clip":{
+            "type":"panel","size":[100,30],"offset":[140,85],"clip_children":true,
+            "anchor_from":"top_left","anchor_to":"top_left","controls":controls
+        }}]),
+        json!({}),
+    );
     let icon = Cell::icon([0., -10.], KEEP_OUT_TEXTURE);
     let paint = HudPaint {
         hearts: HeartPaint {
@@ -358,14 +391,18 @@ fn paint_keep_out(
 /// The shipped offhand frame is an ordinary image under the bottom HUD, outside the hotbar.
 #[test]
 fn editor_keep_out_includes_the_shipped_offhand_image_frame() {
-    let mut p = keep_out_presentation(json!([{"bottom_alias":{
-        "type":"panel","size":[200,22],"offset":[100,100],"anchor_from":"top_left","anchor_to":"top_left",
-        "controls":[
-            {"bar":{"type":"custom","renderer":"hotbar_renderer","size":[200,22],"anchor_from":"top_left","anchor_to":"top_left"}},
-            {"java_offhand@hud.java_offhand_slot":{"$offhand_texture":KEEP_OUT_TEXTURE}}
-        ]
-    }}]));
+    let mut p = keep_out_presentation(
+        json!([{"bottom_alias@hud.centered_gui_elements_at_bottom_middle":{
+            "type":"panel","size":[200,22],"offset":[100,100],"anchor_from":"top_left","anchor_to":"top_left",
+            "controls":[
+                {"bar":{"type":"custom","renderer":"hotbar_renderer","size":[200,22],"anchor_from":"top_left","anchor_to":"top_left"}},
+                {"java_offhand@hud.java_offhand_slot":{"$offhand_texture":KEEP_OUT_TEXTURE}}
+            ]
+        }}]),
+        json!({}),
+    );
     let mut data = json_ui::DataSource::new();
+    data.set_global("#hud_visible_centered", json_ui::Scalar::Bool(true));
     data.set_global("#offhand_visible", json_ui::Scalar::Bool(true));
     let (bounds, _, nodes) = paint_keep_out(&mut p, &Default::default(), data);
     let bounds = bounds.expect("native bottom HUD paints");
@@ -384,4 +421,34 @@ fn editor_keep_out_includes_the_shipped_offhand_image_frame() {
             .count()
             >= 2
     );
+}
+
+/// Aliases inherit the resolved bottom scope without capturing unrelated same-named children.
+#[test]
+fn editor_keep_out_resolves_and_qualifies_bottom_subtrees() {
+    for dynamic in [false, true] {
+        let children =
+            json!([{"panel":{"type":"image","texture":KEEP_OUT_TEXTURE,"size":["100%","100%"]}}]);
+        let mut p = keep_out_presentation(
+            json!([
+                {"bottom_alias@hud.centered_gui_elements_at_bottom_middle":{
+                    "size":[40,20],"offset":[100,100],"anchor_from":"top_left","anchor_to":"top_left"}},
+                {"outside":{"type":"panel","size":[60,20],"offset":[900,20],
+                    "anchor_from":"top_left","anchor_to":"top_left","controls":children}}
+            ]),
+            json!({
+                "alternative_base":{"type":"panel","$contents":children},
+                "centered_gui_elements_at_bottom_middle@hud.alternative_base":{
+                    "controls":if dynamic {json!("$contents")} else {children}
+                }
+            }),
+        );
+        let (bounds, _, _) =
+            paint_keep_out(&mut p, &Default::default(), json_ui::DataSource::new());
+        assert_eq!(
+            bounds,
+            Some([100., 100., 40., 20.]),
+            "dynamic controls: {dynamic}"
+        );
+    }
 }

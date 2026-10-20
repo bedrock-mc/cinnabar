@@ -5,10 +5,7 @@
 //! renderers against the live state.
 
 use json_ui::vanilla::Reference;
-use std::{
-    collections::{BTreeMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::BTreeMap, num::NonZeroU64, sync::Arc};
 
 use json_ui::{Catalog, Context, DataSource, HudBindings, HudChanges, HudModel, hud_clocks};
 use ui::{FONT_DESIGN_PIXEL_TEXELS, IconRef};
@@ -92,10 +89,23 @@ pub fn register(registry: &mut ScreenRegistry) {
         restore: titles::restore,
     });
     catalog.after_layers(chat::prefer_builtin);
+    catalog.after_layers(mark_bottom_region);
 }
 
+/// Installs the original HUD artwork and marks its resolved bottom subtree.
 fn install_java_hud(catalog: &mut Catalog) {
     catalog.apply_pack(JAVA_HUD_PACK.iter().map(|(path, _, bytes)| (*path, *bytes)));
+    mark_bottom_region(catalog);
+}
+
+/// Tags the native root after pack layering so aliases and inherited children retain its scope.
+fn mark_bottom_region(catalog: &mut Catalog) {
+    if let Some(root) = catalog.lookup_mut("hud", BOTTOM_HUD_ROOT) {
+        root.properties.insert(
+            json_ui::transform::PAINT_REGION_PROPERTY.into(),
+            serde_json::json!(BOTTOM_HUD_REGION.get()),
+        );
+    }
 }
 
 /// The HUD and crosshair screens, carried across frames.
@@ -104,9 +114,6 @@ pub struct HudScreens {
     pub hud: CachedScreen,
     /// The last native bottom-HUD paint bounds, `[x, y, width, height]` in shared GUI pixels.
     pub editor_keep_out: Option<[f64; 4]>,
-    /// Direct child names of the active native bottom subtree, independent of its instance alias.
-    bottom_controls: HashSet<String>,
-    bottom_catalog: Option<Arc<Catalog>>,
     /// The crosshair overlay screen.
     pub crosshair: CachedScreen,
     /// The toast screen, drawn above everything in game.
@@ -232,32 +239,11 @@ impl HudScreens {
         let text_color = |node: &json_ui::DrawNode| {
             crate::settings_chat::message_color(&node.key, history, color)
         };
-        if capture_keep_out
-            && !crosshair
-            && self
-                .bottom_catalog
-                .as_ref()
-                .is_none_or(|old| !Arc::ptr_eq(old, catalog))
-        {
-            self.bottom_controls = catalog
-                .lookup("hud", BOTTOM_HUD_ROOT)
-                .into_iter()
-                .flat_map(|root| root.children.iter().map(|child| child.name.clone()))
-                .collect();
-            self.bottom_catalog = Some(Arc::clone(catalog));
-        }
-        let controls = &self.bottom_controls;
-        let bottom_artwork = |node: &json_ui::DrawNode| {
-            node.key
-                .split('/')
-                .filter_map(|part| part.split(['[', '~']).next())
-                .any(|name| controls.contains(name))
-        };
         let bounds = PaintBounds::default();
         let art = ScreenArt {
             paint_bounds: (capture_keep_out && !crosshair).then_some(PaintObserver {
                 bounds: &bounds,
-                select: &bottom_artwork,
+                region: BOTTOM_HUD_REGION,
             }),
             text_color: Some(&text_color),
             nearest_sampling: true,
@@ -309,6 +295,7 @@ impl HudScreens {
 
 /// The built-in bottom HUD root owns image frames, item icons, labels and native controls.
 pub const BOTTOM_HUD_ROOT: &str = "centered_gui_elements_at_bottom_middle";
+const BOTTOM_HUD_REGION: NonZeroU64 = NonZeroU64::new(1).unwrap();
 
 #[cfg(test)]
 mod keep_out_contract_tests {
@@ -316,7 +303,15 @@ mod keep_out_contract_tests {
 
     #[test]
     fn bottom_keep_out_root_matches_the_built_in_layout() {
-        let mut catalog = Catalog::default();
+        let mut catalog = Catalog::from_files([
+            ("ui/_global_variables.json", b"{}".as_slice()),
+            (
+                "ui/_ui_defs.json",
+                br#"{"ui_defs":["ui/hud_screen.json"]}"#.as_slice(),
+            ),
+            ("ui/hud_screen.json", br#"{"namespace":"hud"}"#.as_slice()),
+        ])
+        .unwrap();
         install_java_hud(&mut catalog);
         assert!(catalog.lookup("hud", BOTTOM_HUD_ROOT).is_some());
     }

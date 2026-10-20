@@ -515,7 +515,15 @@ fn place_subtree<'a>(
         ctx.disabled += 1;
     }
     let own_anims = control_anims(control, &key, rect, parent_rect, inherited, packed, ctx.env);
-    let spaces = inherited.space.place(
+    let mut space = inherited.space;
+    if let Some(region) = control
+        .properties
+        .get(crate::transform::PAINT_REGION_PROPERTY)
+        .and_then(serde_json::Value::as_u64)
+    {
+        space.region = std::num::NonZeroU64::new(region);
+    }
+    let spaces = space.place(
         style.transform,
         crate::transform::ClipInputs {
             rect,

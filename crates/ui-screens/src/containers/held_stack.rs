@@ -34,6 +34,7 @@ pub(super) fn held_stack(
         layer: i32::MAX,
         alpha: 1.0,
         anim: None,
+        paint_region: None,
         draw,
         gates: Vec::new(),
     };

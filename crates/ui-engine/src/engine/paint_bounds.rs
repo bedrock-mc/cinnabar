@@ -31,7 +31,7 @@ impl PaintBounds {
 #[derive(Clone, Copy)]
 pub struct PaintObserver<'a> {
     pub bounds: &'a PaintBounds,
-    pub select: &'a dyn Fn(&json_ui::DrawNode) -> bool,
+    pub region: std::num::NonZeroU64,
 }
 
 impl Canvas<'_> {
