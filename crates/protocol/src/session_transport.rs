@@ -334,8 +334,24 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
         .await
     }
 
-    /// Inspects a retained Core terminal without consuming accepted play input or delay metadata.
+    /// Inspects the first retained terminal without consuming accepted input or delay metadata.
     pub(crate) fn buffered_startup_terminal(&self) -> Result<Option<Terminal>, SessionError> {
+        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+        if matches!(&self.reader, Reader::Native(_)) {
+            for packet in &self.received {
+                if let Some(terminal) = native_packet_terminal(packet)? {
+                    return Ok(Some(terminal));
+                }
+            }
+            for entry in &self.ahead {
+                if let Some(Ok(ReadItem::Native(body))) = &entry.item
+                    && let Some(terminal) = native_batch_terminal(body)?
+                {
+                    return Ok(Some(terminal));
+                }
+            }
+            return Ok(None);
+        }
         let Some(ReadAhead {
             item: Some(Ok(ReadItem::Core(frame))),
             ..
@@ -385,6 +401,12 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
     /// ends the session, so short preparation or world-admission pauses do not block the core.
     /// Cancelling the wait loses nothing.
     pub(crate) async fn read_ahead(&mut self, max_bytes: usize) {
+        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+        if matches!(&self.reader, Reader::Native(_))
+            && !matches!(self.buffered_startup_terminal(), Ok(None))
+        {
+            return;
+        }
         while poll_fn(|cx| self.poll_read_ahead_one(max_bytes, cx)).await {}
     }
 
@@ -641,6 +663,75 @@ fn poll_reader_ahead<R: bridge::FrameRead>(
 /// Whether a reader item ends the session: a terminal message, a failure or the close.
 fn ends_session(next: &Option<Result<ReadItem, SessionError>>) -> bool {
     !matches!(next, Some(Ok(frame)) if frame.is_batch())
+}
+
+/// Borrows only terminal metadata; unrelated bodies and unknown IDs remain undecoded.
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+fn native_batch_terminal(body: &Bytes) -> Result<Option<Terminal>, SessionError> {
+    use bedrock_protocol_1_26_51::{packets::PacketId, wire};
+
+    if body.len() > MAX_SESSION_BATCH_BYTES {
+        return Err(SessionFailure::BatchTooLarge {
+            actual: body.len(),
+            max: MAX_SESSION_BATCH_BYTES,
+        }
+        .into());
+    }
+    let mut terminal = None;
+    let mut offset = 0;
+    for frame in wire::Frames::new(body.clone(), MAX_RAW_BATCH_PACKETS) {
+        let frame =
+            frame.map_err(|error| crate::raw_packet::framing_failure(&body[offset..], error))?;
+        offset += frame.frame().len();
+        if terminal.is_none()
+            && matches!(
+                PacketId::from_raw(frame.header().id),
+                Some(PacketId::Disconnect | PacketId::Transfer)
+            )
+        {
+            let packet = crate::raw_packet::raw_packet(frame, body.len())?;
+            terminal = native_packet_terminal(&packet)?;
+        }
+    }
+    Ok(terminal)
+}
+
+/// Projects one usable server control using its ordinary decoder and target/text policies.
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+fn native_packet_terminal(packet: &RawPacket) -> Result<Option<Terminal>, SessionError> {
+    use bedrock_protocol_1_26_51::{packets, types::DisconnectMessages};
+
+    if !matches!(
+        packet.id,
+        packets::PacketId::Disconnect | packets::PacketId::Transfer
+    ) {
+        return Ok(None);
+    }
+    let (_, packet) = packet.clone().decode_parts()?;
+    Ok(match packet {
+        packets::Packet::Disconnect(packet) => {
+            let (message, filtered_message) = crate::disconnect::packet_texts(&packet);
+            Some(Terminal::Disconnect(SessionDisconnect {
+                reason: packet.reason.to_raw(),
+                message,
+                filtered_message,
+                hide_screen: matches!(packet.messages, DisconnectMessages::Empty),
+            }))
+        }
+        packets::Packet::Transfer(packet) => {
+            crate::ServerTransferEvent::from_packet_data(&packets::Packet::Transfer(packet))
+                .ok()
+                .flatten()
+                .map(|target| {
+                    Terminal::Transfer(SessionTransfer {
+                        address: target.host,
+                        port: target.port,
+                        reload_world: target.reload_world,
+                    })
+                })
+        }
+        _ => unreachable!("terminal ID selects its decoded packet"),
+    })
 }
 
 /// One Batch frame holding `packets`, each length-prefixed as a Bedrock batch carries it. A

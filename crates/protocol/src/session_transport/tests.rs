@@ -4,6 +4,9 @@ use bedrock_protocol_1_26_51::wire;
 use super::*;
 
 #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+mod native_terminal;
+
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
 impl<R: bridge::FrameRead> SessionTransport<R> {
     /// Observes actual native read-ahead commitment without consuming its accepted FIFO.
     pub(crate) fn has_retained_native_batch(&self) -> bool {

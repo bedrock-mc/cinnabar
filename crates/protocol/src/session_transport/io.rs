@@ -23,7 +23,9 @@ impl ReadItem {
         match self {
             Self::Core(frame) => crate::session_wire::batch_frame_body(frame).is_some(),
             #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-            Self::Native(_) => true,
+            Self::Native(body) => {
+                super::native_batch_terminal(body).is_ok_and(|terminal| terminal.is_none())
+            }
         }
     }
 }
