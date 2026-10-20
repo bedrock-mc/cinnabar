@@ -145,6 +145,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn host_shader_validates_with_viewport_preservation() {
+        let module = naga::front::wgsl::parse_str(include_str!("blit.wgsl"))
+            .expect("host passes must parse");
+        naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        )
+        .validate(&module)
+        .expect("host passes must validate");
+        assert!(module.entry_points.iter().any(|entry| {
+            entry.name == "preserve" && entry.stage == naga::ShaderStage::Fragment
+        }));
+    }
+
+    #[test]
     fn colour_only_packs_need_no_depth_copy_pipeline() {
         assert!(depth_copy_targets(TextureFormat::R32Float, [false; 3]).is_none());
         let targets = depth_copy_targets(TextureFormat::R32Float, [false, true, false]).unwrap();

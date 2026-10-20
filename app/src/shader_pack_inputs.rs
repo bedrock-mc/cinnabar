@@ -247,6 +247,9 @@ fn sky_biomes(
     position: [f32; 3],
     biome_at: impl Fn([i32; 3]) -> Option<u32>,
 ) -> [(u32, f32); SKY_BIOME_SLOTS] {
+    if !position.iter().all(|value| value.is_finite()) {
+        return [(0, 0.0); SKY_BIOME_SLOTS];
+    }
     // The kernel centres on the position shifted back half a quart, in quarts.
     let axes = position.map(|v| {
         let quart = (v - QUART_BLOCKS as f32 * 0.5) / QUART_BLOCKS as f32;
@@ -256,7 +259,7 @@ fn sky_biomes(
             BIOME_BLEND_KERNEL[i + 1]
                 + fraction * (BIOME_BLEND_KERNEL[i] - BIOME_BLEND_KERNEL[i + 1])
         });
-        (base as i32 - 2, weights)
+        (base as i64, weights)
     });
     let mut totals: Vec<(u32, f32)> = Vec::new();
     for x in 0..BIOME_BLEND_SPAN {
@@ -267,9 +270,18 @@ fn sky_biomes(
                 if weight <= 0.0 {
                     continue;
                 }
-                let block =
-                    std::array::from_fn(|axis| (axes[axis].0 + quart[axis] as i32) * QUART_BLOCKS);
-                let Some(biome) = biome_at(block) else {
+                let block: [Option<i32>; 3] = std::array::from_fn(|axis| {
+                    axes[axis]
+                        .0
+                        .checked_add(quart[axis] as i64 - 2)?
+                        .checked_mul(i64::from(QUART_BLOCKS))?
+                        .try_into()
+                        .ok()
+                });
+                let [Some(x), Some(y), Some(z)] = block else {
+                    continue;
+                };
+                let Some(biome) = biome_at([x, y, z]) else {
                     continue;
                 };
                 match totals.iter_mut().find(|(id, _)| *id == biome) {
@@ -564,6 +576,35 @@ mod tests {
         assert_eq!(fraction(0, 20), Some(0.0));
         assert_eq!(fraction(30, 20), Some(1.0));
         assert_eq!(fraction(1, 0), None);
+    }
+
+    #[test]
+    fn sky_biomes_skip_unrepresentable_cells() {
+        for axis in 0..3 {
+            for coordinate in [i32::MIN as f32, i32::MAX as f32] {
+                let mut position = [0.0; 3];
+                position[axis] = coordinate;
+                let samples = sky_biomes(position, |block| {
+                    assert_eq!(block[axis].is_negative(), coordinate.is_sign_negative());
+                    Some(7)
+                });
+                assert_eq!(samples[0], (7, 1.0));
+            }
+            for coordinate in [
+                f32::MIN,
+                f32::MAX,
+                f32::NAN,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+            ] {
+                let mut position = [0.0; 3];
+                position[axis] = coordinate;
+                assert_eq!(
+                    sky_biomes(position, |_| panic!("unavailable cell")),
+                    [(0, 0.0); SKY_BIOME_SLOTS]
+                );
+            }
+        }
     }
 
     #[test]
