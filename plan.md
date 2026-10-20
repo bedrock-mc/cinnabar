@@ -305,7 +305,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   effective item durability and live mining acceptance remain incomplete.
   Trading screens admit server offers and support purchases with manually placed inputs.
   Automatic ingredient filling, trader experience, restock and demand-price transitions,
-  and full item/container acceptance across trading layouts remain incomplete.
+  classic preview rich tooltips, and full item/container acceptance across trading layouts
+  remain incomplete.
   Block-item purchases await an authoritative result preview to retain its block identity.
 - [ ] `P5.6-FORMS` — Close modal/menu/custom form navigation, validation, cancellation
   and responses, including server-pack definitions, structured text, custom controls,

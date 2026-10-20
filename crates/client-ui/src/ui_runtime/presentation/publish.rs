@@ -227,10 +227,6 @@ pub fn hovered_stack(
                 let trade = ledger.trading()?;
                 (trade.preview(trade.row_index(tier, row)?, column), None)
             }
-            Hit::Widget(ui_screens::container_actions::Widget::TradePreview(column)) => {
-                let trade = ledger.trading()?;
-                (trade.preview(trade.selected?, column), None)
-            }
             Hit::RecipeBook(index) => {
                 return super::forms::recipe_book_hover(player_runtime, runtime, index);
             }

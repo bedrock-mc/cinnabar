@@ -640,7 +640,6 @@ impl UiRuntime {
                     .select_trade_row(tier, row)?;
                 Ok(0)
             }
-            Widget::TradePreview(_) => Ok(0),
             Widget::TradeCycle { next } => {
                 self.inventory_ledger_mut(player_runtime)
                     .cycle_trade(next)?;

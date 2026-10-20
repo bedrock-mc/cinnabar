@@ -3,7 +3,7 @@
 use crate::container_actions::Widget;
 use crate::container_kinds::{Cell, ContainerKind};
 use crate::container_source::{ContainerFrame, ContainerSource};
-use inventory::inventory_ledger::TradeState;
+use inventory::inventory_ledger::{InventoryTarget, TradeState};
 use json_ui::vanilla::{Binding as B, Button, Collection as C, Reference as R, TextKey};
 use json_ui::{CollectionItem, DataSource, HitRegion, Scalar};
 use ui::IconRef;
@@ -133,6 +133,11 @@ pub(crate) fn data(source: &dyn ContainerSource, data: &mut DataSource) {
         return;
     };
     let tiers = trade.tiers();
+    let slots = if ledger.window_kind() == Some(protocol::WindowKind::Trade { modern: true }) {
+        protocol::MODERN_TRADE_SLOTS
+    } else {
+        protocol::LEGACY_TRADE_SLOTS
+    };
     let can_trade = ledger.trade_output().is_some();
     for (key, value) in [
         (B::TradeSelectorTotal, Scalar::Int(tiers.len() as i64)),
@@ -153,7 +158,10 @@ pub(crate) fn data(source: &dyn ContainerSource, data: &mut DataSource) {
             Scalar::Bool(
                 trade
                     .selected
-                    .is_some_and(|index| trade.offers[index].offer.inputs[1].is_some()),
+                    .is_some_and(|index| trade.offers[index].offer.inputs[1].is_some())
+                    || ledger
+                        .target_stack(InventoryTarget::Craft(slots[1]))
+                        .is_some(),
             ),
         ),
         (
@@ -287,6 +295,6 @@ pub(crate) fn hit(screen: &str, region: &HitRegion) -> Option<Widget> {
         .map(|(_, index)| *index);
     match (tier, row) {
         (Some(tier), Some(row)) => Some(Widget::TradeOffer { tier, row, item }),
-        _ => item.map(Widget::TradePreview),
+        _ => None,
     }
 }

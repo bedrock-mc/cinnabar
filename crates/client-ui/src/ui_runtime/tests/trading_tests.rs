@@ -84,21 +84,16 @@ fn trade_previews_reach_the_rich_tooltip_with_complete_item_data() {
             max_uses: 16,
         }]),
     }));
-    for widget in [
-        Widget::TradeOffer {
-            tier: 0,
-            row: 0,
-            item: Some(2),
-        },
-        Widget::TradePreview(2),
-    ] {
-        let hit = InventoryCellHit::Widget(widget);
-        assert!(hit.is_item_cell());
-        runtime.screen_state_mut().hover = Some(hit);
-        let (stack, _) = presentation::publish::hovered_stack(&player, &runtime).unwrap();
-        assert_eq!(stack.extra_data, data);
-        let details = protocol::item_anvil_data(&stack.extra_data).unwrap();
-        assert_eq!(details.custom_name.as_deref(), Some("Named offer"));
-        assert_eq!(details.enchantments, [(0, 3)]);
-    }
+    let hit = InventoryCellHit::Widget(Widget::TradeOffer {
+        tier: 0,
+        row: 0,
+        item: Some(2),
+    });
+    assert!(hit.is_item_cell());
+    runtime.screen_state_mut().hover = Some(hit);
+    let (stack, _) = presentation::publish::hovered_stack(&player, &runtime).unwrap();
+    assert_eq!(stack.extra_data, data);
+    let details = protocol::item_anvil_data(&stack.extra_data).unwrap();
+    assert_eq!(details.custom_name.as_deref(), Some("Named offer"));
+    assert_eq!(details.enchantments, [(0, 3)]);
 }

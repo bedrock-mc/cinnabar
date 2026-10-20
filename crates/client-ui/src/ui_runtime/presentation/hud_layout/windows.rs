@@ -681,7 +681,6 @@ impl HudLayout<'_> {
                 | Widget::BookPage { .. }
                 | Widget::Reader(_)
                 | Widget::TradeOffer { .. }
-                | Widget::TradePreview(_)
                 | Widget::TradeCycle { .. }
                 | Widget::Trade
                 | Widget::Close => {}
