@@ -448,7 +448,7 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   and enable rules, and its programs translate to validated naga modules with a binding
   contract. Pack-specific translation fixes, render-host integration and in-game
   acceptance remain incomplete; parsed custom uniform expressions are not executed or
-  rendered.
+  rendered. Constant folding for half-float packing and bit casts remains incomplete.
   acceptance remain incomplete.
   and enable rules. Translation, render-host integration and in-game acceptance
   remain incomplete; parsed custom uniform expressions are not executed or rendered.
