@@ -276,7 +276,7 @@ impl SessionController {
         self.kept_packs.keep_for_rejoin();
     }
 
-    /// Provisions the selected native destination or starts its explicit Core owner.
+    /// Provisions one endpoint, applying any native override only to this attempt.
     fn start_core(
         &mut self,
         menu: &MenuRuntime,
@@ -284,12 +284,18 @@ impl SessionController {
         address: &str,
         auth_cache: Option<&std::path::Path>,
         generation: u64,
+        native_transport_override: Option<protocol::NativeTransport>,
     ) -> Result<JoinStage, String> {
+        #[cfg(not(feature = "native-networking"))]
+        let _ = native_transport_override;
         #[cfg(feature = "native-networking")]
-        match self
-            .native_transport
-            .map(|transport| destination::classify(address, transport, self.local_world))
-        {
+        match self.native_transport.map(|configured| {
+            destination::classify(
+                address,
+                native_transport_override.unwrap_or(configured),
+                self.local_world,
+            )
+        }) {
             Some(destination::Destination::FriendSelectionRequired) => {
                 return Err(crate::args::ArgsError::NativeFriendSelectionRequired.to_string());
             }
@@ -568,7 +574,7 @@ fn drive_intents(
     if let Some(intent) = menu.take_join_intent() {
         // A user-initiated join always starts a fresh transfer chain.
         session.controller.begin_fresh_transfer_chain();
-        attempt_connect(menu, session, cache, intent);
+        attempt_connect(menu, session, cache, intent, None);
     }
     #[cfg(feature = "native-networking")]
     if let Some(selection) = menu.take_native_friend_intent() {
@@ -666,11 +672,6 @@ fn follow_transfer(
         );
         return;
     }
-    #[cfg(feature = "native-networking")]
-    if session.controller.native_transport.is_some() {
-        // Transfer names an addressed server while retaining the selected native backend.
-        session.controller.native_transport = Some(protocol::NativeTransport::Addressed);
-    }
     // The shared replacement path tears down old transport and world/UI state
     // before provisioning, so every early failure leaves no stale session.
     let auth_cache = menu.launcher_auth_cache();
@@ -683,6 +684,7 @@ fn follow_transfer(
             auth_cache,
             local_world: false,
         },
+        Some(protocol::NativeTransport::Addressed),
     );
     if session.controller.connecting {
         menu.show_transfer(&address);
@@ -764,7 +766,7 @@ mod tests {
                 panic!("direct fixture must use the ordinary endpoint owner");
             };
             let JoinStage::Native(target) = controller
-                .start_core(&menu, &cache, address, None, 1)
+                .start_core(&menu, &cache, address, None, 1, None)
                 .expect("direct native provisioning must not start a Go process")
             else {
                 panic!("explicit native direct destination did not retain native I/O");
@@ -779,7 +781,7 @@ mod tests {
         let realm = format!("{}7", bridge::contract::REALM_TARGET_PREFIX);
         assert!(
             controller
-                .start_core(&menu, &cache, &realm, None, 1)
+                .start_core(&menu, &cache, &realm, None, 1, None)
                 .is_err()
         );
         let JoinStage::Native(target) = controller
@@ -789,6 +791,7 @@ mod tests {
                 &realm,
                 Some(std::path::Path::new("unread.json")),
                 1,
+                None,
             )
             .unwrap()
         else {
@@ -798,7 +801,7 @@ mod tests {
 
         let friend = format!("{}123", bridge::contract::FRIEND_TARGET_PREFIX);
         assert!(matches!(
-            controller.start_core(&menu, &cache, &friend, None, 1),
+            controller.start_core(&menu, &cache, &friend, None, 1, None),
             Err(message)
                 if message == crate::args::ArgsError::NativeFriendSelectionRequired.to_string()
         ));
