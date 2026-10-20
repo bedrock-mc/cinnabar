@@ -41,6 +41,8 @@ closes no gate and provides no new runtime or performance evidence.
   conformance findings, classify every decode error, and qualify frame and mutation
   latency against the current [live-testing requirements](docs/agents/live-testing.md).
   Use the current headless client workflow for scripted tests; keep captures local.
+  Dimension definitions use an exclusive maximum Y and retain complete sub-chunks;
+  live custom-dimension transfer acceptance remains open.
 
 ## Phase 1 — Core service
 
@@ -224,7 +226,10 @@ and rendered qualification, not initial implementation of those systems.
   and matched inventory/held-item presentation. Shared cube face sheets are bounded coverage.
 
 Continuous cosmetic cloth uses shared vertices, fixed-step constraints, world-space
-inertia and player-body contacts. Self-collision and world collision remain open.
+inertia and player-body contacts with standard-armor clearance. Vertical follow and
+damping restrain jump and landing motion, and local cloth keeps advancing while
+first-person visibility hides the body. View changes transfer the drape between
+body pose spaces. Self-collision and world collision remain open.
 Paid cosmetic selections use session ownership from the API database and withdraw
 on disconnect or revocation; production rollout qualification remains open.
 
@@ -268,7 +273,9 @@ across these existing features; they are not a list of missing screens or system
   effective item durability and live mining acceptance remain incomplete.
 - [ ] `P5.6-FORMS` — Close modal/menu/custom form navigation, validation, cancellation
   and responses, including server-pack definitions, structured text, custom controls,
-  scaling and image/layout behavior against matched native views.
+  scaling and image/layout behavior against matched native views. Server settings
+  replies are cached until their tab is selected; embedding their controls within
+  the settings panel instead of a separate form remains incomplete.
 - [ ] `P5.7-PARITY-PERF` — Qualify combined chat, scoreboard, boss bars, inventory and
   forms at supported scales/aspects and devices, with bounded memory and stable frame work.
 - [ ] `P5.8-SETTINGS` — Close menu, control, video and persistence acceptance. Desktop
