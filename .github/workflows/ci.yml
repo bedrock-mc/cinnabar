@@ -10,6 +10,11 @@ on:
   schedule:
     - cron: "41 */6 * * *"
   workflow_dispatch:
+    inputs:
+      native_macos_artifact:
+        description: Build the opt-in native macOS client and MCP for local acceptance
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -30,6 +35,35 @@ permissions:
   pull-requests: read
 
 jobs:
+  native-macos-artifact:
+    name: Native macOS acceptance artifact
+    if: github.event_name == 'workflow_dispatch' && inputs.native_macos_artifact
+    runs-on: macos-15
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      CARGO_BUILD_TARGET: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup toolchain install
+          rustup target add "$CARGO_BUILD_TARGET"
+      - name: Restore Rust build cache
+        uses: ./.github/actions/build-cache
+      - name: Build and record the native executables
+        id: build
+        run: python3 .github/scripts/native_macos_artifact.py
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.build.outputs.name }}
+          path: ${{ steps.build.outputs.archive }}
+          retention-days: 7
+          if-no-files-found: error
+
   changes:
     name: Plan
     runs-on: ubuntu-latest
@@ -580,6 +614,7 @@ jobs:
     name: ci-ok
     if: always()
     needs:
+      - native-macos-artifact
       - changes
       - preflight
       - verify
