@@ -170,7 +170,7 @@ fn expansion_model_jobs_do_not_depend_on_uploaded_draw_order() {
                 section
                     .geometry
                     .transparent_model_draw_refs
-                    .get(0)
+                    .first()
                     .unwrap()
                     .words(),
                 [0, 0]
