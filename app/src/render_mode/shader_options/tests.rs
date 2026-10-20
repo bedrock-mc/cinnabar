@@ -14,6 +14,39 @@ fn edited() -> Editor {
 }
 
 #[test]
+fn a_command_line_pack_can_open_its_options_without_a_saved_selection() {
+    let root = tempfile::tempdir().unwrap();
+    let pack = root.path().join("CommandLinePack");
+    std::fs::create_dir_all(pack.join("shaders")).unwrap();
+    let mut app = App::new();
+    let mut settings = RuntimeSettings::default();
+    super::super::set_render_mode(&mut settings, ui::RenderMode::ShaderPack);
+    app.insert_resource(RenderModeConfig {
+        cli: None,
+        attributable: false,
+        path: None,
+        cli_shader_pack: Some(pack),
+        shader_packs: None,
+        shader_pack_revision: 0,
+    })
+    .insert_resource(settings)
+    .insert_resource(MenuRuntime::new(true, 2, "Player".into()))
+    .init_resource::<ShaderOptionsHost>()
+    .add_systems(
+        Update,
+        (super::super::apply_menu_render_mode, drive_shader_options).chain(),
+    );
+    app.update();
+    let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+    assert_eq!(menu.view().renderer, None);
+    assert!(menu.view().shader_options_available);
+    menu.activate(MenuAction::ShaderOptions(Action::Open));
+    assert!(menu.view().shader_options.is_some());
+    app.update();
+    assert!(app.world().resource::<ShaderOptionsHost>().open.is_some());
+}
+
+#[test]
 fn apply_and_done_retain_edits_until_storage_accepts_them() {
     for action in [Action::Apply, Action::Done] {
         let directory = tempfile::tempdir().unwrap();

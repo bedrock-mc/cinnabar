@@ -22,9 +22,7 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         return Ok(());
     }
     renderer(content)?;
-    if render_model::SHADER_PACKS_ENABLED
-        && matches!(content.view.renderer, Some(RendererChoice::ShaderPack(_)))
-    {
+    if render_model::SHADER_PACKS_ENABLED && content.view.shader_options_available {
         super::services::action_row(
             content,
             "options.cinnabar.shaderOptions",

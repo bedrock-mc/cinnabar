@@ -310,7 +310,13 @@ fn apply_menu_render_mode(
     }
     let video = &settings.user_settings_update().1.video;
     menu.sync_render_mode(video.render_mode);
-    menu.sync_shader_pack(video.shader_pack.as_deref());
+    let requested = shader_pack::selected_pack(&config, video);
+    menu.sync_shader_pack(
+        requested
+            .as_ref()
+            .map(|pack| pack.name.as_str())
+            .or(video.shader_pack.as_deref()),
+    );
 }
 
 /// Original depth usage, restored once neither optional renderer samples the depth texture.

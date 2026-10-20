@@ -71,6 +71,7 @@ pub(super) fn settings_video(failed: bool) -> Fixture {
     view.render_mode = ui::RenderMode::ShaderPack;
     view.shader_packs = Arc::from([PACK.to_owned(), "Lumen".to_owned()]);
     view.renderer = Some(RendererChoice::ShaderPack(0));
+    view.shader_options_available = true;
     view.renderer_failure = failed.then(|| failure_description(REASON).into());
     Fixture::Menu(Box::new(view))
 }

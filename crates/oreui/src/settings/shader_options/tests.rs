@@ -59,6 +59,7 @@ fn paint(screen: &mut OreUiScreen, view: &MenuView, scrolls: &mut MenuScrolls<Me
             &mut frame,
         )
         .unwrap();
+    scrolls.set_areas(screen.paint.as_ref().unwrap().scrolls.clone());
 }
 
 /// How far the option grid is scrolled.
@@ -112,6 +113,65 @@ fn footer_buttons_leave_the_grid_scrolled_where_it_was() {
         paint(&mut screen, &view, &mut scrolls);
         assert_eq!(grid_offset(&scrolls), scrolled, "{action:?}");
     }
+    Arc::make_mut(view.shader_options.as_mut().unwrap()).status = Status::Saving;
+    paint(&mut screen, &view, &mut scrolls);
+    assert_eq!(
+        grid_offset(&scrolls),
+        scrolled,
+        "saving keeps the grid extent"
+    );
+    Arc::make_mut(view.shader_options.as_mut().unwrap()).status = Status::Ready;
+    paint(&mut screen, &view, &mut scrolls);
+    assert_eq!(
+        grid_offset(&scrolls),
+        scrolled,
+        "the saved screen stays scrolled"
+    );
+}
+
+#[test]
+fn hovered_option_help_remains_scrollable_after_the_pointer_leaves_the_option() {
+    let mut view = settings_view("video_forced_index");
+    let mut options = View::loading("Fixture");
+    options.status = Status::Ready;
+    options.elements.push(Element {
+        label: "Lighting".into(),
+        comment: Some("Long option help. ".repeat(100)),
+        control: Control::Link,
+        modified: false,
+    });
+    view.shader_options = Some(Arc::new(options));
+    view.navigation_focus_visible = false;
+    view.hovered = Some(MenuAction::ShaderOptions(Action::Element {
+        screen: 0,
+        index: 0,
+        input: Input::Next,
+    }));
+    let mut screen = OreUiScreen::default();
+    let mut scrolls = MenuScrolls::default();
+    paint(&mut screen, &view, &mut scrolls);
+    let area = screen
+        .take_paint()
+        .unwrap()
+        .scrolls
+        .into_iter()
+        .find(|area| area.key.starts_with("shader_option_comment/") && area.max > 0.0)
+        .expect("long help needs a scroll viewport");
+    let point = crate::test_support::centre(area.viewport);
+    scrolls.set_areas(vec![area.clone()]);
+    scrolls.wheel(point, -3.0, false);
+    let offset = scrolls.offsets()[&area.key];
+    assert!(offset > 0.0);
+    view.hovered = None;
+    paint(&mut screen, &view, &mut scrolls);
+    let retained = screen
+        .take_paint()
+        .unwrap()
+        .scrolls
+        .into_iter()
+        .find(|candidate| candidate.key == area.key)
+        .expect("help remains present while it is scrolled");
+    assert_eq!(retained.offset, offset);
 }
 
 #[test]

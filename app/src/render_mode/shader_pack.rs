@@ -83,10 +83,6 @@ fn option_file(_entry: &Path) -> Option<PathBuf> {
 
 /// The pack the settings select, by the name the player sees.
 pub(super) struct SelectedPack {
-    #[cfg_attr(
-        not(feature = "shaderpacks"),
-        expect(dead_code, reason = "only the options screen shows the name")
-    )]
     pub(super) name: String,
     /// What the render host opens.
     pub(super) path: PathBuf,

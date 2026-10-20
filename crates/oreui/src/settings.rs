@@ -41,12 +41,20 @@ pub(super) fn section_index(name: &str) -> u8 {
         .index
 }
 
+/// Retains the described option until another option or screen is selected.
+#[derive(Default)]
+pub(super) struct ShaderOptionDescription {
+    screen: Option<(String, u32)>,
+    index: Option<usize>,
+}
+
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
     translate: Translate<'_>,
     gamerpic: Option<IconRef>,
+    description: &mut ShaderOptionDescription,
 ) -> Result<(), PaintError> {
     widgets::screen_overlay(canvas, size)?;
     canvas.settings_scrollbars = true;
@@ -152,6 +160,20 @@ pub(super) fn draw(
         canvas.offsets.insert(key.clone(), max);
     }
     if let Some(options) = options {
+        if !description
+            .screen
+            .as_ref()
+            .is_some_and(|(pack, screen)| pack == &options.pack && *screen == options.screen)
+        {
+            description.screen = Some((options.pack.clone(), options.screen));
+            description.index = None;
+        }
+        if let Some((index, _)) = described {
+            description.index = Some(index);
+        }
+        let described = description
+            .index
+            .and_then(|index| options.elements.get(index).map(|element| (index, element)));
         shader_options::footer(
             canvas,
             view,
@@ -164,6 +186,8 @@ pub(super) fn draw(
             ],
             described,
         )?;
+    } else {
+        *description = ShaderOptionDescription::default();
     }
     canvas.end_focus_region(tab_focus);
     canvas.end_focus_region(detail_focus);

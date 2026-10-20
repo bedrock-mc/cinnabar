@@ -351,6 +351,7 @@ impl Screen for OreUiScreen {
                             size,
                             translate,
                             artwork.get(&view.feeds.profile.picture_path).copied(),
+                            &mut self.shader_option_description,
                         )?;
                         let adjusted = scroll_focus::reveal(&mut canvas, scrolls, view);
                         if !adjusted || attempt == 1 {

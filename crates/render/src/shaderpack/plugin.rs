@@ -65,11 +65,26 @@ pub(crate) struct LoadedShaderPack(pub Option<Arc<PackGpu>>);
 
 type LoadResult = Result<PackGpu, String>;
 
-/// The pack being loaded or shown, identified by path, dimension and request revision.
+/// Pack path, option-file path, dimension and revision of one load.
+type LoaderKey = (PathBuf, Option<PathBuf>, i32, u64);
+
+/// The pack being loaded or shown, including the option file it reads.
 #[derive(Resource, Default)]
 struct Loader {
-    key: Option<(PathBuf, i32, u64)>,
+    key: Option<LoaderKey>,
     job: Option<Mutex<mpsc::Receiver<LoadResult>>>,
+}
+
+/// Identifies the request whose load can be reused in the current dimension.
+fn loader_key(request: &ShaderPackRequest, dimension: i32) -> Option<LoaderKey> {
+    request.pack.clone().map(|path| {
+        (
+            path,
+            request.options.clone(),
+            dimension.clamp(0, 2),
+            request.revision,
+        )
+    })
 }
 
 /// The render device, queue and adapter Bevy also publishes in the main world.
@@ -98,12 +113,9 @@ fn drive_loader(
     gpu: MainWorldGpu,
     atmosphere: Option<Res<render_scene::AtmosphereTextureAssets>>,
 ) {
-    let wanted = request
-        .pack
-        .clone()
-        .map(|path| (path, inputs.dimension.clamp(0, 2), request.revision));
+    let wanted = loader_key(&request, inputs.dimension);
     if wanted != loader.key {
-        let Some((path, dimension, _)) = wanted.clone() else {
+        let Some((path, _, dimension, _)) = wanted.clone() else {
             loader.key = None;
             loader.job = None;
             progress.finish();
@@ -153,7 +165,7 @@ fn drive_loader(
             Ok(_) => loader.job = Some(Mutex::new(receive)),
             Err(error) => {
                 progress.finish();
-                if let Some((path, _, revision)) = &loader.key {
+                if let Some((path, _, _, revision)) = &loader.key {
                     *status = ShaderPackStatus::Failed {
                         pack: path.clone(),
                         reason: error.to_string(),
@@ -175,7 +187,7 @@ fn drive_loader(
     };
     loader.job = None;
     progress.finish();
-    let Some((path, _, revision)) = loader.key.clone() else {
+    let Some((path, _, _, revision)) = loader.key.clone() else {
         return;
     };
     settled.0 = revision;
@@ -859,6 +871,18 @@ pub(super) fn finish(app: &mut App) {
 mod camera_tests {
     use super::*;
     use bevy::render::view::Msaa;
+
+    #[test]
+    fn changing_the_option_file_starts_a_new_load() {
+        let mut request = ShaderPackRequest {
+            pack: Some(PathBuf::from("Outer/Inner")),
+            options: Some(PathBuf::from("Outer/Inner.txt")),
+            ..default()
+        };
+        let command_line = loader_key(&request, 0);
+        request.options = Some(PathBuf::from("Outer.txt"));
+        assert_ne!(loader_key(&request, 0), command_line);
+    }
 
     #[test]
     fn particle_streams_keep_independent_replacement_coverage() {

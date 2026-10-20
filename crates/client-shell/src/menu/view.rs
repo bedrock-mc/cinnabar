@@ -55,6 +55,7 @@ impl MenuRuntime {
             render_mode: self.render_mode,
             shader_packs: std::sync::Arc::clone(&self.shader_packs),
             renderer: self.renderer_choice(),
+            shader_options_available: self.shader_options_available(),
             renderer_failure: self.renderer_failure(),
             vsync_override: self.vsync_override,
             display_name: self.presented_display_name(),

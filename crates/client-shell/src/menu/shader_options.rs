@@ -3,7 +3,9 @@
 
 use std::sync::Arc;
 
-use launcher::menu::{MenuScreen, RendererChoice};
+use launcher::menu::MenuScreen;
+#[cfg(test)]
+use launcher::menu::RendererChoice;
 use launcher::shader_options::{Action, View};
 
 use super::MenuRuntime;
@@ -17,6 +19,13 @@ pub(super) struct ShaderOptions {
 }
 
 impl MenuRuntime {
+    /// Whether the requested renderer has a pack whose options can be opened.
+    pub(super) fn shader_options_available(&self) -> bool {
+        render_model::SHADER_PACKS_ENABLED
+            && self.render_mode == ui::RenderMode::ShaderPack
+            && self.shader_pack.is_some()
+    }
+
     /// Queues a press. [`Action::Open`] opens the screen for the selected pack, showing it as
     /// loading until the app publishes it; other presses need the screen open.
     pub(super) fn activate_shader_options(&mut self, action: Action) {
@@ -24,13 +33,10 @@ impl MenuRuntime {
             return;
         }
         if action == Action::Open {
-            let Some(pack) = self
-                .shader_pack
-                .as_deref()
-                .filter(|_| matches!(self.renderer_choice(), Some(RendererChoice::ShaderPack(_))))
-            else {
+            if !self.shader_options_available() {
                 return;
-            };
+            }
+            let pack = self.shader_pack.as_deref().expect("a requested pack");
             self.shader_options.view = Some(Arc::new(View::loading(pack)));
         } else if self.shader_options.view.is_none() {
             return;

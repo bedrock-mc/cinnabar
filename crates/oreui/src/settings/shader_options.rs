@@ -86,7 +86,7 @@ pub(super) fn body<'v>(
             .canvas
             .text(&status, [left, top], width, CAPTION, TEXT_DIMMER, false)?
             .max(content.canvas.r(CAPTION.line));
-        if !matches!(options.status, Status::SaveFailed(_)) {
+        if !matches!(options.status, Status::Saving | Status::SaveFailed(_)) {
             content.y = top + content.canvas.r(2.4);
             return Ok(None);
         }
