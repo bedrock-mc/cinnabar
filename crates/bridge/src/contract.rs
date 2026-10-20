@@ -29,15 +29,6 @@ pub const KIND_TRANSFER: u8 = 5;
 /// Terminal core disconnect message.
 pub const KIND_DISCONNECT: u8 = 6;
 
-/// Most selected server pack archives admitted for one join.
-pub const MAX_SELECTED_PACKS: usize = 32;
-
-/// Largest admitted server pack archive in bytes.
-pub const MAX_PACK_ARCHIVE_BYTES: usize = 67108864;
-
-/// Largest total selected server pack archives in bytes.
-pub const MAX_SELECTED_PACK_BYTES: usize = 134217728;
-
 /// Archive bytes in one resource-pack data frame.
 pub const PACK_CHUNK_BYTES: usize = 4194304;
 
@@ -660,4 +651,10 @@ pub struct CinnabarPlayerUpdates {
     pub emotes: Vec<CinnabarRemoteEmote>,
     /// Nearby authenticated loadouts.
     pub loadouts: Vec<CinnabarRemoteLoadout>,
+    /// Verified local account identity, empty while disconnected.
+    #[serde(default)]
+    pub ownership_xuid: String,
+    /// Paid grants supplied by the account API database.
+    #[serde(default)]
+    pub owned_cosmetics: Vec<String>,
 }

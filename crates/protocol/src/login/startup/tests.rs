@@ -160,7 +160,8 @@ mod session {
         pair
     }
 
-    async fn next_time(transport: &mut SessionTransport) -> i32 {
+    /// Reads the next deferred time update from a native or injected session transport.
+    async fn next_time<R: bridge::FrameRead>(transport: &mut SessionTransport<R>) -> i32 {
         let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
             panic!("a deferred packet arrives before any terminal message")
         };
@@ -169,6 +170,44 @@ mod session {
             panic!("expected SetTime, got {id:?}")
         };
         time.time.0
+    }
+
+    /// Malformed relay framing cannot consume either irreplaceable spawn prerequisite.
+    #[tokio::test]
+    async fn malformed_replacements_preserve_start_game_and_item_registry() {
+        use crate::packet_relay::tests::FakeRelay;
+        use std::sync::Arc;
+        for (name, replies) in [
+            ("invalid-start-game", vec![Some(vec![0xff])]),
+            ("invalid-item-registry", vec![None, Some(vec![0xff])]),
+        ] {
+            let relay = Arc::new(FakeRelay::default());
+            relay.state().inbound_replies = replies.into();
+            let mut pair = handed_off(
+                name,
+                &[vec![
+                    registry("minecraft:shield", 355),
+                    radius(16),
+                    player_spawn(),
+                    set_time(9),
+                ]],
+            )
+            .await;
+            pair.transport.set_relay(relay.clone());
+            await_spawn(&mut pair.transport, DEFAULT_CHUNK_RADIUS, |_, _| {})
+                .await
+                .expect("the original prerequisites still complete spawn");
+            let Inbound::Packet(radius) = pair.transport.recv().await.unwrap() else {
+                panic!("the deferred radius update arrives before SetTime")
+            };
+            assert_eq!(radius.id, PacketId::ChunkRadiusUpdated);
+            assert_eq!(next_time(&mut pair.transport).await, 9);
+            assert!(relay.state().stopped);
+            assert_eq!(
+                relay.state().inbound.len(),
+                if name == "invalid-start-game" { 1 } else { 2 }
+            );
+        }
     }
 
     /// Options received during spawn retain their position in the play ingress stream.
@@ -255,6 +294,58 @@ mod session {
         let first = first.expect("the startup facts were delivered");
         assert_eq!(first.item_data.len(), 1);
         assert_eq!(first.item_data[0].item_id.0, 355);
+    }
+
+    /// A missing radius reply does not hold terrain or delay spawn after the required packets.
+    #[tokio::test]
+    async fn spawn_without_radius_reply_preserves_terrain_and_request() {
+        use tokio::io::AsyncReadExt;
+
+        let chunk = Packet::new(LevelChunk::default());
+        let startup = [
+            start_game(RUNTIME_ID),
+            start_game(RUNTIME_ID),
+            registry("minecraft:shield", 355),
+            set_time(1),
+            chunk.clone(),
+            player_spawn(),
+            set_time(2),
+        ]
+        .iter()
+        .map(packet_bytes)
+        .collect::<Vec<_>>();
+        let (output, mut sent) = tokio::io::duplex(8192);
+        let (reader, frames, writer) =
+            bridge::tasks::prepare_connection(tokio::io::empty(), output, bridge::MAX_FRAME_LEN);
+        let writer = tokio::spawn(writer);
+        let mut transport = SessionTransport::new(reader, frames, &startup);
+        let view_distance = 23;
+        let mut delivered = 0;
+        let spawned = await_spawn(&mut transport, view_distance, |start, registry| {
+            delivered += 1;
+            assert_eq!(start.runtime_id.0, RUNTIME_ID);
+            assert_eq!(registry.item_data[0].item_id.0, 355);
+        })
+        .await
+        .expect("spawn must complete without reading past the required packets to EOF");
+        assert_eq!(spawned.runtime_id, RUNTIME_ID);
+        assert!(spawned.terrain_before_spawn);
+        assert_eq!(delivered, 1);
+        assert_eq!(next_time(&mut transport).await, 1);
+        let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
+            panic!("deferred terrain precedes unread packets");
+        };
+        assert_eq!(raw.decode().unwrap(), chunk);
+        assert_eq!(next_time(&mut transport).await, 2);
+
+        drop(transport);
+        writer.await.unwrap();
+        let mut actual = Vec::new();
+        sent.read_to_end(&mut actual).await.unwrap();
+        let frame = batch_frame(&loading_started(view_distance)).unwrap();
+        let mut expected = (frame.len() as u32).to_be_bytes().to_vec();
+        expected.extend_from_slice(&frame);
+        assert_eq!(actual, expected, "request and loading start are sent once");
     }
 
     /// The startup facts reach the owner while the spawn sequence still waits for PlayerSpawn.

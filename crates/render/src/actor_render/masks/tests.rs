@@ -180,7 +180,7 @@ fn mask_selection_suppresses_failed_actor_uploads_and_recovers() {
     let gpu = app.sub_app(RenderApp).world().resource::<ActorGpu>();
     assert_eq!(gpu.instance_count, 0);
     assert!(!gpu.spans.is_empty() && !gpu.manifest.is_empty());
-    assert!(gpu.artwork_current && gpu.artwork.pages[0].bind_group.is_some());
+    assert!(gpu.artwork_current && gpu.artwork.page(0).unwrap().bind_group.is_some());
     for depth in [MaskDepth::Test, MaskDepth::Always] {
         mask.depth = depth;
         assert!(selection(&mask, gpu).is_none(), "{depth:?}");

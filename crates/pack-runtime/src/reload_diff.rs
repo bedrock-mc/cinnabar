@@ -138,7 +138,7 @@ impl Changes {
         }
     }
 
-    /// Compares layer contents, including order, rather than pack names or timestamps.
+    /// Compares recorded layer reads; a subscriber without a prior compile must compile.
     pub fn between(
         stack: &ValidatedPackStack,
         previous: Option<(&PackAdmission, &Dependencies)>,
@@ -147,59 +147,54 @@ impl Changes {
             PackAdmission::Validated(stack) => Some(stack.as_ref()),
             PackAdmission::None => None,
         });
+        // The same archives in the same order replay every recorded read identically.
+        let identical = prior.is_some_and(|old| old.same_contents(stack));
         let changed = |subscriber| {
-            prior.is_none_or(|old| {
-                let recorded = previous.and_then(|(_, dependencies)| dependencies.get(&subscriber));
-                let fallback;
-                let inputs = if let Some(recorded) = recorded {
-                    recorded
-                } else {
-                    fallback = old
-                        .packs()
-                        .iter()
-                        .chain(stack.packs())
-                        .flat_map(|pack| pack.files_under("").into_vec())
-                        .filter(|path| *path != "manifest.json")
-                        .map(|path| PackDependency::File {
-                            path: path.to_owned(),
-                            limit: resource_pack::MAX_FILE_BYTES,
-                        })
-                        .collect();
-                    &fallback
-                };
-                let (before, after) = rayon::join(
-                    || dependency_fingerprint(old, inputs),
-                    || dependency_fingerprint(stack, inputs),
-                );
-                before != after
-            })
+            let Some((old, inputs)) =
+                prior.zip(previous.and_then(|(_, dependencies)| dependencies.get(&subscriber)))
+            else {
+                return true;
+            };
+            if identical {
+                return false;
+            }
+            let (before, after) = rayon::join(
+                || dependency_fingerprint(old, inputs),
+                || dependency_fingerprint(stack, inputs),
+            );
+            before != after
         };
-        // Subscribers fingerprint independently, so they compare on the rayon pool together.
-        let compared: BTreeMap<Subscriber, bool> = [
-            Subscriber::Blocks,
-            Subscriber::BlockEntityArt,
-            Subscriber::Atmosphere,
-            Subscriber::Particles,
-            Subscriber::Icons,
-            Subscriber::Glyphs,
-            Subscriber::Entities,
-            Subscriber::Ui,
-            Subscriber::Sounds,
-            Subscriber::Language,
-            Subscriber::AimAssist,
-        ]
-        .into_par_iter()
-        .map(|subscriber| (subscriber, changed(subscriber)))
-        .collect();
+        // Changed blocks already require icon compilation; the other comparisons stay parallel.
+        let ((blocks, icons), compared) = rayon::join(
+            || {
+                let blocks = changed(Subscriber::Blocks);
+                (blocks, blocks || changed(Subscriber::Icons))
+            },
+            || {
+                [
+                    Subscriber::BlockEntityArt,
+                    Subscriber::Atmosphere,
+                    Subscriber::Particles,
+                    Subscriber::Glyphs,
+                    Subscriber::Entities,
+                    Subscriber::Ui,
+                    Subscriber::Sounds,
+                    Subscriber::Language,
+                    Subscriber::AimAssist,
+                ]
+                .into_par_iter()
+                .map(|subscriber| (subscriber, changed(subscriber)))
+                .collect::<BTreeMap<_, _>>()
+            },
+        );
         let changed = |subscriber: Subscriber| compared[&subscriber];
-        let blocks = changed(Subscriber::Blocks);
         Self {
             contents: true,
             blocks,
             block_entity_art: changed(Subscriber::BlockEntityArt),
             atmosphere: changed(Subscriber::Atmosphere),
             particles: changed(Subscriber::Particles),
-            icons: blocks || changed(Subscriber::Icons),
+            icons,
             glyphs: changed(Subscriber::Glyphs),
             entities: changed(Subscriber::Entities),
             ui: changed(Subscriber::Ui),
@@ -228,7 +223,7 @@ pub fn dependency_fingerprint(
     hash.finalize().into()
 }
 
-/// One input as a layer replays it; reads hash their bytes separately so they inflate in parallel.
+/// One input as a layer replays it; uncached reads inflate in parallel.
 enum Part<'a> {
     File {
         path: &'a str,
@@ -291,17 +286,18 @@ fn layer_fingerprint(
             }
         }
     }
-    let digest = |bytes: &[u8]| Read::Bytes(Sha256::digest(bytes).into());
     let reads: Vec<_> = parts
         .par_iter()
         .map(|part| match part {
-            Part::File { path, limit } => Some(match pack.read_file_with_limit(path, *limit) {
-                Ok(Some(bytes)) => digest(&bytes),
-                Ok(None) => Read::Missing,
-                Err(_) => Read::Rejected,
-            }),
-            Part::Contents(path) => Some(match pack.read_file(path) {
-                Ok(Some(bytes)) => digest(&bytes),
+            Part::File { path, limit } => {
+                Some(match pack.file_fingerprint_with_limit(path, *limit) {
+                    Ok(Some(hash)) => Read::Bytes(hash),
+                    Ok(None) => Read::Missing,
+                    Err(_) => Read::Rejected,
+                })
+            }
+            Part::Contents(path) => Some(match pack.file_fingerprint_with_limit(path, u64::MAX) {
+                Ok(Some(hash)) => Read::Bytes(hash),
                 _ => Read::Missing,
             }),
             Part::Listed { .. } => None,

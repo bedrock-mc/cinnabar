@@ -61,6 +61,7 @@ mod tests {
     use super::*;
     use std::fs;
 
+    /// Returns discovered pack names in their discovery order.
     fn names(packs: &[DiscoveredPack]) -> Vec<&str> {
         packs.iter().map(|pack| pack.name.as_str()).collect()
     }

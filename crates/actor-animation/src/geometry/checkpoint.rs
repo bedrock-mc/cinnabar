@@ -8,6 +8,7 @@ pub(crate) struct GeometryCheckpoint {
     motion_sampling: Option<Arc<render_frame::motion_sampling::MotionSampling>>,
     binding: usize,
     bones: Vec<RuntimeBone>,
+    composition: Arc<pose::Composition>,
     names: Vec<Box<str>>,
     controllers: Vec<ControllerState>,
     ui_pose: Option<Vec<BoneTransform>>,
@@ -32,6 +33,7 @@ impl GeometryCheckpoint {
             motion_sampling: state.motion_sampling.take(),
             binding: state.geometry_binding,
             bones: std::mem::take(&mut state.bones),
+            composition: Arc::clone(&state.composition),
             names: std::mem::take(&mut state.bone_names),
             controllers: std::mem::take(&mut state.controllers),
             ui_pose: state.ui_pose.take(),
@@ -55,6 +57,7 @@ impl GeometryCheckpoint {
         state.motion_sampling = self.motion_sampling;
         state.geometry_binding = self.binding;
         state.bones = self.bones;
+        state.composition = self.composition;
         state.bone_names = self.names;
         state.controllers = self.controllers;
         state.ui_pose = self.ui_pose;

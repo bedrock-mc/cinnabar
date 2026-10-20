@@ -166,14 +166,15 @@ impl WorldStream {
         self.startup_terrain_announced = announced;
     }
 
-    /// Whether startup has all the terrain it waits for: the committed view's
-    /// columns once the server publishes one, else nothing when the server sent
-    /// no terrain before spawn (Dragonfly streams only after initialization).
+    /// Whether startup has its committed view's columns, or decoded terrain when
+    /// the server has not published a view. Servers that announce no terrain can
+    /// initialize with an empty view. Presentation also waits for stream and render
+    /// work, including mesh acknowledgements, to drain before releasing a sparse view.
     #[must_use]
     pub fn startup_view_complete(&self) -> bool {
         match self.publisher.cohort {
             Some(target) => self.cohort_progress(target).target_is_complete(),
-            None => !self.startup_terrain_announced,
+            None => !self.startup_terrain_announced || !self.loaded_columns.is_empty(),
         }
     }
 

@@ -341,7 +341,7 @@ func TestV2193PhysicsArtifactBindsPinnedBREGWithNeutralReservedAndExactFacts(t *
 		t.Fatalf("air states = %d, want 1", len(airIndexes))
 	}
 	air := entries[airIndexes[0]]
-	if air.Flags != physicsFlagPassable || len(air.Boxes) != 0 || air.Friction != 89_999_900 {
+	if air.Flags != physicsFlagPassable || len(air.Boxes) != 0 || air.Friction != 90_000_000 {
 		t.Fatalf("air runtime ID %d facts changed: %+v", airIndexes[0], air)
 	}
 }

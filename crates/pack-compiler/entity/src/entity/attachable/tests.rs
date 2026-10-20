@@ -81,8 +81,14 @@ fn trident_carries_literal_first_and_third_person_transforms() {
         ),
     ]);
     let sources = sources(&["animations/trident.animation.json"]);
-    let bindings =
-        compile_bindings(&payloads, &symbols, &sources, &BTreeMap::new(), false).unwrap();
+    let bindings = compile_bindings(
+        &SourceDocuments::new(&payloads),
+        &symbols,
+        &sources,
+        &BTreeMap::new(),
+        false,
+    )
+    .unwrap();
     assert_eq!(bindings.len(), 1);
     let trident = &bindings[0];
     assert_eq!(trident.category, EquipmentCategory::Held);
@@ -111,7 +117,14 @@ fn owner_armor_variants_are_retained_with_the_player_geometry_in_catalog() {
     ]);
     // Only the player geometry is collected; the mob geometry is external.
     let symbols = symbols(&[(EntityAssetKind::Geometry, "geometry.player.armor.helmet", 0)]);
-    let bindings = compile_bindings(&payloads, &symbols, &[], &BTreeMap::new(), false).unwrap();
+    let bindings = compile_bindings(
+        &SourceDocuments::new(&payloads),
+        &symbols,
+        &[],
+        &BTreeMap::new(),
+        false,
+    )
+    .unwrap();
     assert_eq!(bindings.len(), 2);
     let helmet = &bindings[1];
     assert_eq!(helmet.identifier.as_ref(), "minecraft:diamond_helmet");
@@ -158,8 +171,14 @@ fn molang_bone_keyframes_stay_needs_measurement() {
         ),
     ]);
     let sources = sources(&["animations/shield.animation.json"]);
-    let bindings =
-        compile_bindings(&payloads, &symbols, &sources, &BTreeMap::new(), false).unwrap();
+    let bindings = compile_bindings(
+        &SourceDocuments::new(&payloads),
+        &symbols,
+        &sources,
+        &BTreeMap::new(),
+        false,
+    )
+    .unwrap();
     assert_eq!(bindings[0].category, EquipmentCategory::Shield);
     assert!(bindings[0].third_person.literal().is_none());
 }
@@ -189,8 +208,14 @@ fn elytra_keeps_only_literal_poses_sorted_by_key() {
         (EntityAssetKind::Animation, "animation.elytra.gliding", 0),
     ]);
     let sources = sources(&["animations/elytra.animation.json"]);
-    let bindings =
-        compile_bindings(&payloads, &symbols, &sources, &BTreeMap::new(), false).unwrap();
+    let bindings = compile_bindings(
+        &SourceDocuments::new(&payloads),
+        &symbols,
+        &sources,
+        &BTreeMap::new(),
+        false,
+    )
+    .unwrap();
     assert_eq!(bindings[0].category, EquipmentCategory::Elytra);
     let keys = bindings[0]
         .poses
@@ -239,8 +264,14 @@ fn shield_third_person_resolves_the_hand_conditional_into_one_pose_per_hand() {
         ),
     ]);
     let sources = sources(&["animations/shield.animation.json"]);
-    let bindings =
-        compile_bindings(&payloads, &symbols, &sources, &BTreeMap::new(), false).unwrap();
+    let bindings = compile_bindings(
+        &SourceDocuments::new(&payloads),
+        &symbols,
+        &sources,
+        &BTreeMap::new(),
+        false,
+    )
+    .unwrap();
     let shield = &bindings[0];
     assert_eq!(shield.category, EquipmentCategory::Shield);
     assert_eq!(shield.poses.len(), 2);
@@ -375,7 +406,7 @@ fn equipment_dye_follows_authored_material_defines_instead_of_its_name() {
         );
     }
     let bindings = compile_bindings(
-        &payloads,
+        &SourceDocuments::new(&payloads),
         &[],
         &sources(&["materials/test.material"]),
         &BTreeMap::new(),
@@ -451,4 +482,73 @@ fn equipment_category_uses_the_admitted_slot_with_neutral_geometry() {
             EquipmentCategory::Armor { slot: expected }
         );
     }
+}
+
+#[test]
+fn merged_animation_document_is_parsed_once_for_many_attachables() {
+    let mut payloads = payloads(&[("animations/_pack.json", TRIDENT_ANIM)]);
+    for index in 0..65 {
+        payloads.insert(
+            format!("attachables/item_{index}.json").into(),
+            TRIDENT
+                .replace("minecraft:trident", &format!("fixture:item_{index}"))
+                .into_bytes()
+                .into(),
+        );
+    }
+    let symbols = symbols(&[
+        (
+            EntityAssetKind::Animation,
+            "animation.trident.wield_first_person",
+            0,
+        ),
+        (
+            EntityAssetKind::Animation,
+            "animation.trident.wield_third_person",
+            0,
+        ),
+    ]);
+    let sources = sources(&["animations/_pack.json"]);
+    ANIMATION_PARSES.set(0);
+    let bindings = compile_bindings(
+        &SourceDocuments::new(&payloads),
+        &symbols,
+        &sources,
+        &BTreeMap::new(),
+        false,
+    )
+    .unwrap();
+    assert_eq!(bindings.len(), 65);
+    assert!(
+        bindings
+            .iter()
+            .all(|binding| binding.first_person.literal().is_some()
+                && binding.third_person.literal().is_some())
+    );
+    assert_eq!(ANIMATION_PARSES.get(), 1);
+}
+
+#[test]
+fn unreferenced_animation_documents_are_not_parsed_for_bindings() {
+    let payloads = payloads(&[
+        ("attachables/helmet.json", HELMET_MOB),
+        ("animations/unused.json", TRIDENT_ANIM),
+    ]);
+    let symbols = symbols(&[(
+        EntityAssetKind::Animation,
+        "animation.trident.wield_first_person",
+        0,
+    )]);
+    let sources = sources(&["animations/unused.json"]);
+    ANIMATION_PARSES.set(0);
+    let bindings = compile_bindings(
+        &SourceDocuments::new(&payloads),
+        &symbols,
+        &sources,
+        &BTreeMap::new(),
+        false,
+    )
+    .unwrap();
+    assert_eq!(bindings.len(), 1);
+    assert_eq!(ANIMATION_PARSES.get(), 0);
 }
