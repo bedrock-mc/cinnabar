@@ -314,9 +314,21 @@ fn parse_definition(line: &str) -> Option<Definition<'_>> {
     };
     let rest = rest.strip_prefix("#define")?;
     let (name, rest) = split_ident(skip_required_space(rest)?)?;
-    // `rest` must start with whitespace or end the line; this also rejects `NAME(args)` macros.
-    if !rest.is_empty() && !rest.starts_with([' ', '\t']) {
+    // Function-like macros have no whitespace or comment between the name and `(`.
+    if !rest.is_empty()
+        && !rest.starts_with(char::is_whitespace)
+        && !rest.starts_with("//")
+        && !rest.starts_with("/*")
+    {
         return None;
+    }
+    if rest.trim_start().starts_with("/*") {
+        return only_block_comments(rest).then_some(Definition {
+            indent,
+            name,
+            form: Form::Switch { enabled },
+            comment: None,
+        });
     }
     let (code, comment) = split_comment(rest);
     let value = code.trim();
@@ -364,9 +376,9 @@ fn parse_const<'a>(indent: &'a str, rest: &'a str) -> Option<Definition<'a>> {
     })
 }
 
-/// `text` after at least one leading space or tab, or `None` when it does not start with one.
+/// `text` after required leading whitespace, or `None` when no whitespace starts it.
 fn skip_required_space(text: &str) -> Option<&str> {
-    if text.starts_with([' ', '\t']) {
+    if text.starts_with(char::is_whitespace) {
         Some(text.trim_start())
     } else {
         None
@@ -397,6 +409,62 @@ pub(crate) fn split_ident(text: &str) -> Option<(&str, &str)> {
     }
 }
 
+/// Reports whether only closed block comments, whitespace and an optional line comment remain.
+fn only_block_comments(mut text: &str) -> bool {
+    text = text.trim();
+    while let Some(comment) = text.strip_prefix("/*") {
+        let Some((_, rest)) = comment.split_once("*/") else {
+            return false;
+        };
+        text = rest.trim_start();
+    }
+    text.is_empty() || text.starts_with("//")
+}
+
+/// Returns the byte length of a leading quoted token, including its escapes.
+pub(crate) fn quoted_len(text: &str) -> Option<usize> {
+    let quote = text.chars().next()?;
+    if !matches!(quote, '\'' | '"') {
+        return None;
+    }
+    let mut escaped = false;
+    for (index, c) in text.char_indices().skip(1) {
+        if escaped {
+            escaped = false;
+        } else if c == '\\' {
+            escaped = true;
+        } else if c == quote {
+            return Some(index + c.len_utf8());
+        }
+    }
+    Some(text.len())
+}
+
+/// Finds the next preprocessing word outside quoted tokens and comments.
+pub(crate) fn next_code_word(text: &str) -> Option<(usize, usize)> {
+    let mut offset = 0;
+    while offset < text.len() {
+        let rest = &text[offset..];
+        if rest.starts_with("//") {
+            return None;
+        }
+        if let Some(comment) = rest.strip_prefix("/*") {
+            offset += comment.find("*/").map_or(rest.len(), |end| end + 4);
+            continue;
+        }
+        if let Some(len) = quoted_len(rest) {
+            offset += len;
+            continue;
+        }
+        let len = rest.bytes().take_while(|&b| is_ident_byte(b)).count();
+        if len != 0 {
+            return Some((offset, len));
+        }
+        offset += rest.chars().next()?.len_utf8();
+    }
+    None
+}
+
 /// Names tested by `#ifdef`, `#ifndef` or `defined` in `#if`/`#elif` lines of any file.
 fn tested_names<'a>(files: impl IntoIterator<Item = &'a str>) -> BTreeSet<&'a str> {
     let mut names = BTreeSet::new();
@@ -405,41 +473,40 @@ fn tested_names<'a>(files: impl IntoIterator<Item = &'a str>) -> BTreeSet<&'a st
             let Some(directive) = line.trim_start().strip_prefix('#') else {
                 continue;
             };
-            let directive = directive.trim_start();
-            if let Some(rest) = directive
-                .strip_prefix("ifdef")
-                .or_else(|| directive.strip_prefix("ifndef"))
-            {
-                if let Some((name, _)) = skip_required_space(rest).and_then(split_ident) {
-                    names.insert(name);
+            let Some((keyword, rest)) = split_ident(directive.trim_start()) else {
+                continue;
+            };
+            match keyword {
+                "ifdef" | "ifndef" => {
+                    if let Some((start, len)) = next_code_word(rest) {
+                        if let Some((name, _)) = split_ident(&rest[start..start + len]) {
+                            names.insert(name);
+                        }
+                    }
                 }
-            } else if directive.starts_with("if") || directive.starts_with("elif") {
-                collect_defined(directive, &mut names);
+                "if" | "elif" => collect_defined(rest, &mut names),
+                _ => {}
             }
         }
     }
     names
 }
 
-/// Adds the operands of every `defined NAME` / `defined(NAME)` in `text`.
-fn collect_defined<'a>(text: &'a str, names: &mut BTreeSet<&'a str>) {
-    const KEYWORD: &str = "defined";
-    let mut rest = text;
-    while let Some(index) = rest.find(KEYWORD) {
-        let starts_word = rest[..index]
-            .bytes()
-            .next_back()
-            .is_none_or(|b| !is_ident_byte(b));
-        let after = &rest[index + KEYWORD.len()..];
-        rest = after;
-        if !starts_word || after.bytes().next().is_some_and(is_ident_byte) {
+/// Adds the operands of every uncommented `defined NAME` / `defined(NAME)` in `text`.
+fn collect_defined<'a>(mut text: &'a str, names: &mut BTreeSet<&'a str>) {
+    while let Some((start, len)) = next_code_word(text) {
+        let word = &text[start..start + len];
+        text = &text[start + len..];
+        if word != "defined" {
             continue;
         }
-        let operand = after.trim_start();
-        let operand = operand.strip_prefix('(').map_or(operand, str::trim_start);
-        if let Some((name, _)) = split_ident(operand) {
+        let Some((start, len)) = next_code_word(text) else {
+            break;
+        };
+        if let Some((name, _)) = split_ident(&text[start..start + len]) {
             names.insert(name);
         }
+        text = &text[start + len..];
     }
 }
 
@@ -708,5 +775,50 @@ const vec3 tint = vec3(1.0); // [a b]
         // Not a definition at all.
         assert_eq!(rewrite("float q = QUALITY * 2.0;"), None);
         assert_eq!(rewrite("x = 1; #define QUALITY 2 // [1 2 3]"), None);
+    }
+
+    #[test]
+    fn boolean_options_accept_adjacent_comments() {
+        for declaration in [
+            "#define BLOOM// description",
+            "#define BLOOM/* description */",
+            "//#define BLOOM// description",
+        ] {
+            let source = format!("{declaration}\n#ifdef BLOOM\n#endif\n");
+            let options = discover([("a.glsl", source.as_str())]);
+            let bloom = find(&options, "BLOOM").expect("boolean option");
+            assert_eq!(
+                bloom.kind,
+                OptionKind::Bool {
+                    default: !declaration.starts_with("//")
+                }
+            );
+        }
+        let options = discover([("a.glsl", "#define BLOOM(x) x\n#ifdef BLOOM\n#endif\n")]);
+        assert!(options.is_empty());
+    }
+
+    #[test]
+    fn comments_do_not_count_as_boolean_option_references() {
+        let options = discover([(
+            "a.glsl",
+            "#define BLOOM\n#define GHOST\n#if defined BLOOM // defined GHOST\n#endif\n#ifnot_a_directive defined GHOST\n",
+        )]);
+        assert!(find(&options, "BLOOM").is_some());
+        assert!(find(&options, "GHOST").is_none());
+    }
+
+    #[test]
+    fn whitespace_and_reference_forms_discover_boolean_options() {
+        for whitespace in [" ", "\t", "\u{c}", "\u{b}"] {
+            for reference in ["#ifndef BLOOM", "#if defined BLOOM", "#elif defined(BLOOM)"] {
+                let source = format!("#define{whitespace}BLOOM\r\n{reference}\r\n");
+                let options = discover([("a.glsl", source.as_str())]);
+                assert_eq!(
+                    find(&options, "BLOOM").map(|option| &option.kind),
+                    Some(&OptionKind::Bool { default: true })
+                );
+            }
+        }
     }
 }
