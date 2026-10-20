@@ -2,6 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
+use super::packet_relay::PacketModSelection;
+
 use serde::Deserialize;
 use {
     mod_api::MAX_LOADED_MODS,
@@ -21,6 +23,7 @@ pub struct ModHosts {
     label: Option<String>,
     label_inputs: Vec<String>,
     label_rebuilds: u64,
+    hud_merge: ui::mod_hud::HudMergeCache,
 }
 
 /// Selects an ordered set of components and packages, each with its own grants.
@@ -102,9 +105,31 @@ pub fn read_set(path: &Path) -> Result<Vec<(ModSource, ModGrants)>, String> {
         .collect()
 }
 
+/// The set's packet mod: its first component entry with the packets grant. Later ones are
+/// ignored, since a session relays through at most one.
+pub fn packet_mod_entry(mods: &[(ModSource, ModGrants)]) -> Option<PacketModSelection> {
+    let mut entries = mods.iter().filter(|(_, grants)| grants.packets);
+    let selected = entries.find_map(|(source, grants)| match source {
+        ModSource::Component(path) => Some(PacketModSelection {
+            path: path.clone(),
+            grants: grants.clone(),
+        }),
+        ModSource::Package(_) => None,
+    });
+    for (source, _) in entries {
+        let path = source.path().display();
+        tracing::warn!(
+            "Cinnabar packet mod {path} ignored: a session relays through one packet mod"
+        );
+    }
+    selected
+}
+
 /// Loads valid entries in order and reports failures without discarding the other entries.
+/// Packet mods are left to the session's relay.
 pub fn load_entries(mods: Vec<(ModSource, ModGrants)>) -> Vec<ModHost> {
     mods.into_iter()
+        .filter(|(_, grants)| !grants.packets)
         .filter_map(|(source, grants)| {
             source
                 .load(grants)
@@ -128,6 +153,7 @@ impl ModHosts {
             label: None,
             label_inputs: Vec::new(),
             label_rebuilds: 0,
+            hud_merge: Default::default(),
         }
     }
 
@@ -209,35 +235,12 @@ impl ModHosts {
     }
 
     /// Combines distinct HUD slots in precedence order within all shared presentation limits.
-    pub fn merged_hud(&self) -> Option<ui::mod_hud::Hud> {
-        let owner = self.hud_owner()?;
-        let mut hud = self.host(owner).hud()?.clone();
-        let mut rows = hud.cards.iter().map(|card| card.rows.len()).sum::<usize>();
-        let mut cells = hud.cards.iter().map(|card| card.cells.len()).sum::<usize>();
-        let mut compasses = hud
-            .cards
-            .iter()
-            .filter(|card| card.compass.is_some())
-            .count();
-        for index in owner + 1..self.host_count() {
-            if let Some(other) = self.host(index).hud() {
-                for card in &other.cards {
-                    if !hud.cards.iter().any(|existing| existing.id == card.id)
-                        && hud.cards.len() < ui::mod_hud::MAX_HUD_CARDS
-                        && rows + card.rows.len() <= ui::mod_hud::MAX_HUD_ROWS
-                        && cells + card.cells.len() <= ui::mod_hud::MAX_HUD_CELLS
-                        && compasses + usize::from(card.compass.is_some())
-                            <= ui::mod_hud::MAX_HUD_COMPASSES
-                    {
-                        rows += card.rows.len();
-                        cells += card.cells.len();
-                        compasses += usize::from(card.compass.is_some());
-                        hud.cards.push(card.clone());
-                    }
-                }
-            }
-        }
-        Some(hud)
+    pub fn merged_hud(&mut self) -> Option<std::sync::Arc<ui::mod_hud::Hud>> {
+        self.hud_merge.update(
+            self.hosts
+                .iter()
+                .filter_map(|host| Some((host.hud_revision()?, host.hud()?))),
+        )
     }
 
     /// Counts every loaded component.

@@ -149,5 +149,5 @@ crates/assets/data/item-grips-v2193.tsv
 crates/assets/data/item-use-profiles.json
 crates/assets/data/vocabulary-exceptions.json
 crates/protocol/data/item_capacity_1_26_50.tsv
-crates/protocol/data/item_tags_dragonfly.tsv
+crates/protocol/data/item_tags_native.tsv
 crates/protocol/data/retail_items_1_26_50.tsv

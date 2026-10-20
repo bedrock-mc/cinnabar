@@ -242,14 +242,14 @@ impl State {
 }
 
 impl State {
-    /// Legacy post effects require their own session authority, including all mutations.
+    /// Legacy post effects require explicit consent under the current world fence.
     fn post_allowed(&mut self) -> Result<Result<(), String>> {
         self.render.budget()?;
         Ok(
             if (self.grants.render || self.grants.render_post)
-                && self.drawing_policy.is_none_or(|policy| {
-                    policy.permissions.render_post && (policy.local || self.grants.render_post)
-                })
+                && self
+                    .drawing_policy
+                    .is_none_or(|policy| policy.permissions.render_post)
             {
                 Ok(())
             } else {

@@ -91,6 +91,11 @@ pub enum RuntimeStage {
     GpuTonemapping,
     GpuFxaa,
     GpuBlit,
+    /// Owned GPU-cull passes, measured during per-pass profiling outside Metal.
+    GpuCullEarly,
+    GpuCullHiz,
+    GpuCullLate,
+    GpuTerrainLate,
     /// Draw categories timed inside passes; only with aggregate profiling on capable adapters.
     GpuTerrainOpaque,
     GpuTerrainTransparent,
@@ -135,7 +140,7 @@ pub enum RuntimeStage {
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 89] = [
+    pub const ALL: [Self; 93] = [
         Self::ActorSessionSetup,
         Self::PackReload,
         Self::WorldPoll,
@@ -196,6 +201,10 @@ impl RuntimeStage {
         Self::GpuTonemapping,
         Self::GpuFxaa,
         Self::GpuBlit,
+        Self::GpuCullEarly,
+        Self::GpuCullHiz,
+        Self::GpuCullLate,
+        Self::GpuTerrainLate,
         Self::GpuTerrainOpaque,
         Self::GpuTerrainTransparent,
         Self::GpuTerrainSolid,
@@ -228,7 +237,7 @@ impl RuntimeStage {
     ];
 
     /// GPU diagnostics, including labelled completion latency, in the tail of [`Self::ALL`].
-    pub const GPU: [Self; 44] = [
+    pub const GPU: [Self; 48] = [
         Self::GpuFrame,
         Self::GpuShadows,
         Self::GpuOpaque,
@@ -244,6 +253,10 @@ impl RuntimeStage {
         Self::GpuTonemapping,
         Self::GpuFxaa,
         Self::GpuBlit,
+        Self::GpuCullEarly,
+        Self::GpuCullHiz,
+        Self::GpuCullLate,
+        Self::GpuTerrainLate,
         Self::GpuTerrainOpaque,
         Self::GpuTerrainTransparent,
         Self::GpuTerrainSolid,
@@ -373,6 +386,10 @@ impl RuntimeStage {
             Self::GpuTonemapping => "gpu_tonemapping",
             Self::GpuFxaa => "gpu_fxaa",
             Self::GpuBlit => "gpu_blit",
+            Self::GpuCullEarly => "gpu_cull_early",
+            Self::GpuCullHiz => "gpu_cull_hiz",
+            Self::GpuCullLate => "gpu_cull_late",
+            Self::GpuTerrainLate => "gpu_terrain_late",
             Self::GpuTerrainOpaque => "gpu_terrain_opaque",
             Self::GpuTerrainTransparent => "gpu_terrain_transparent",
             Self::GpuTerrainSolid => "gpu_terrain_solid",
@@ -417,9 +434,29 @@ pub struct RuntimeStageProfileSnapshot {
     pub samples: [RuntimeStageSample; RuntimeStage::ALL.len()],
 }
 
-#[derive(Debug, Default)]
+/// Creates the native lock during setup so its first timed use cannot allocate.
+pub(super) fn initialized_mutex<T>(value: T) -> Mutex<T> {
+    let mutex = Mutex::new(value);
+    drop(
+        mutex
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    );
+    mutex
+}
+
+#[derive(Debug)]
 struct StageSampleAccumulator {
     sample: Mutex<RuntimeStageSample>,
+}
+
+impl Default for StageSampleAccumulator {
+    /// Prepares the sample and its lock before any timed stage runs.
+    fn default() -> Self {
+        Self {
+            sample: initialized_mutex(RuntimeStageSample::default()),
+        }
+    }
 }
 
 impl StageSampleAccumulator {
@@ -504,7 +541,7 @@ impl RuntimeStageProfiler {
                 started,
                 last_snapshot_nanos: AtomicU64::new(0),
                 stages: std::array::from_fn(|_| StageSampleAccumulator::default()),
-                latest_gpu: Mutex::new(None),
+                latest_gpu: initialized_mutex(None),
                 #[cfg(any(test, feature = "alloc-stats"))]
                 allocations: crate::runtime_profile_alloc::AllocationProfiler::default(),
             }),

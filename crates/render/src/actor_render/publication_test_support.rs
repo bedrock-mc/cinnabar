@@ -7,6 +7,23 @@ use bevy::{
 };
 use render_model::{ActorDrawManifestEntry, ActorTexturePage};
 
+/// Retains production artwork state across benchmark frames.
+#[derive(Default)]
+pub struct ActorArtworkBenchmark(super::artwork::GpuArtwork);
+
+impl ActorArtworkBenchmark {
+    /// Prepares the pages requested by a synthetic frame through the normal demand path.
+    pub fn prepare(
+        &mut self,
+        pages: &render_model::ActorArtworkPages,
+        demanded: &[render_model::ActorArtworkPageId],
+        device: &RenderDevice,
+        queue: &RenderQueue,
+    ) -> bool {
+        self.0.prepare_demanded(pages, demanded, device, queue)
+    }
+}
+
 /// Prepared draw spans and the immutable artwork they sample.
 #[derive(Debug, PartialEq, Eq)]
 pub struct PublicationActorPreparation {

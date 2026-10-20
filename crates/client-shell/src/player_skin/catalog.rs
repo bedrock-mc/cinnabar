@@ -515,13 +515,13 @@ pub fn select_cosmetic(
     Ok(())
 }
 
-/// Updates free cosmetic slots without making a storage durability claim.
+/// Updates owned cosmetic slots without making a storage durability claim.
 pub(crate) fn toggle_cosmetic(
     view: &mut DressingRoomView,
     hat: Option<cosmetics::Item>,
 ) -> Result<(), String> {
     if let Some(item) = hat {
-        if !item.descriptor().free {
+        if !item.descriptor().free && !cosmetics::owns(item.id()) {
             return Err("This item is not owned.".to_owned());
         }
         let slot = item.descriptor().slot.clone();

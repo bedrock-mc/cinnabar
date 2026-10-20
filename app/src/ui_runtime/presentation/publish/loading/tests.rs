@@ -7,6 +7,89 @@ use protocol::{
 };
 use render_model::VisibilityKeyDigest;
 
+#[test]
+fn sparse_startup_waits_for_mesh_acknowledgement_and_a_fresh_gpu_frame() {
+    let mut stream = chunk_pipeline::WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 42,
+        local_player_unique_id: 42,
+        player_position: [0.0, 64.0, 0.0],
+        world_spawn_position: [0, 64, 0],
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
+        block_network_ids_are_hashes: false,
+    });
+    let key = world::SubChunkKey::new(0, 0, 4, 0);
+    let identity = stream.stage_publication_fixture_completions(vec![(
+        key,
+        meshing::ChunkMesh::default(),
+        meshing::PackedBiomeRecord::fallback(),
+    )])[0];
+    stream.load_publication_fixture_column(key.chunk());
+    stream.service_publication_fixture_completions();
+    let changes = stream.take_mesh_changes();
+    assert_eq!(changes.len(), 1);
+    assert_eq!(stream.unacknowledged_mesh_count(), 1);
+    assert!(!stream.local_terrain_ready());
+    assert!(stream.committed_view_cohort().is_none());
+
+    let mut client_world = ClientWorld {
+        stream: Some(stream),
+        ..ClientWorld::default()
+    };
+    let runtime = UiRuntime::new(7);
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    let (network, _receiver) = NetworkHandle::<PackApplication>::with_command_capacity(1);
+    let mut diagnostics = VisibilityDiagnosticsInput::default();
+    let mut fatal_error = None;
+    let mut observe = |client_world: &mut ClientWorld, frame_generation, render_work_drained| {
+        prepare_loading(
+            client_world,
+            &mut fatal_error,
+            &mut presentation,
+            &runtime,
+            &mut diagnostics,
+            &network,
+            LoadingObservation {
+                restart: false,
+                menu_visible: false,
+                snapshot: VisibilityDiagnosticSnapshot {
+                    frame_generation,
+                    gpu_completed_opaque: Some(VisibilityKeyDigest { count: 0, hash: 0 }),
+                    ..Default::default()
+                },
+                visible_rendered: 0,
+                cohort: None,
+                render_work_drained,
+                pipelines_ready: true,
+                now: Duration::ZERO,
+            },
+        );
+        (
+            presentation.loading_stage(),
+            presentation.startup_mut().completion_queued,
+        )
+    };
+    let loading = (Some(LoadingStage::BuildingTerrain), false);
+    assert_eq!(observe(&mut client_world, 1, true), loading);
+
+    client_world
+        .stream
+        .as_mut()
+        .unwrap()
+        .acknowledge_mesh_upload(
+            key,
+            identity.generation,
+            identity.dirty_since,
+            identity.dirty_since,
+        );
+    assert_eq!(observe(&mut client_world, 2, false), loading);
+    assert_eq!(observe(&mut client_world, 3, true), loading);
+    assert_eq!(observe(&mut client_world, 4, true), (None, true));
+    assert_eq!(observe(&mut client_world, 5, true), (None, true));
+    assert!(fatal_error.is_none());
+}
+
 /// BDS may leave distant ticking columns unannounced. A decoded, presented
 /// destination still completes the matching loading-screen handshake promptly.
 #[test]

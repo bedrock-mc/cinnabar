@@ -3,7 +3,7 @@
 use super::{ModRuntime, RELOAD_INTERVAL, admission};
 use bevy::prelude::*;
 use client_extensions::modding::font;
-use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
+use client_shell::ui_resources::UiPresentationResource;
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded, select};
 use mod_host::{ModGrants, ModHost, SettingsSnapshot};
 use sha2::{Digest, Sha256};
@@ -237,10 +237,7 @@ fn apply(world: &mut World, update: Update) -> Option<ModHost> {
                     && metadata.registration.is_none()
                     && host.source() == &update.source.location
                     && host.source_digest() == update.previous
-                    && admission::DrawingContext::capture(
-                        host,
-                        world.get_resource::<UiRuntimeResource>().map(|ui| &ui.0),
-                    ) == update.drawing
+                    && admission::DrawingContext::capture(host) == update.drawing
                     && (!host.is_revoked() || host.needs_drawing_restart()))
                 .then_some(index)
             })
@@ -317,10 +314,7 @@ pub(super) fn poll(world: &mut World) {
                     (host.source() == &source.location
                         && (!host.is_revoked() || host.needs_drawing_restart()))
                     .then(|| Request {
-                        drawing: admission::DrawingContext::capture(
-                            host,
-                            world.get_resource::<UiRuntimeResource>().map(|ui| &ui.0),
-                        ),
+                        drawing: admission::DrawingContext::capture(host),
                         source: source.clone(),
                         previous: host.source_digest(),
                         settings: SettingsSnapshot::capture(host),

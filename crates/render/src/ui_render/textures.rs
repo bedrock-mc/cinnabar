@@ -80,7 +80,7 @@ impl TextureUploadState {
             });
         }
         // Residency is only meaningful against the plan it was recorded or rebound for.
-        let replanned = self.plan.as_ref() != Some(catalog.plan());
+        let replanned = self.plan.as_ref() != Some(catalog.resident_plan());
         Ok(catalog
             .pages()
             .iter()
@@ -132,12 +132,12 @@ impl TextureUploadState {
             write(
                 index,
                 &catalog.pages()[index],
-                catalog.plan().locations()[index],
+                catalog.resident_plan().locations()[index],
             )?;
         }
-        if self.plan.as_ref() != Some(catalog.plan()) {
+        if self.plan.as_ref() != Some(catalog.resident_plan()) {
             self.uploaded.clear();
-            self.plan = Some(catalog.plan().clone());
+            self.plan = Some(catalog.resident_plan().clone());
         }
         self.uploaded.resize(catalog.pages().len(), None);
         for &index in dirty {
@@ -198,10 +198,10 @@ impl UiGpuTextures {
     }
     pub(super) fn resident(&self, catalog: &UiTextureCatalog) -> bool {
         self.allocation_identity == Some(catalog.static_identity())
-            && self.allocation_plan.as_ref() == Some(catalog.plan())
-            && self.buckets.len() == catalog.plan().buckets().len()
+            && self.allocation_plan.as_ref() == Some(catalog.resident_plan())
+            && self.buckets.len() == catalog.resident_plan().buckets().len()
             && self.buckets.iter().all(Option::is_some)
-            && self.locations == catalog.plan().locations()
+            && self.locations == catalog.resident_plan().locations()
             && self.state.uploaded.len() == catalog.pages().len()
             && self
                 .state
@@ -231,11 +231,12 @@ impl UiGpuTextures {
                 identity: catalog.static_identity(),
             });
         }
-        let replanned = self.allocation_plan.as_ref() != Some(catalog.plan());
+        // Unused reserved pages share a layer: allocation follows the resident plan.
+        let replanned = self.allocation_plan.as_ref() != Some(catalog.resident_plan());
         if self.allocation_identity.is_some()
             && !replanned
-            && (self.buckets.len() != catalog.plan().buckets().len()
-                || self.locations != catalog.plan().locations())
+            && (self.buckets.len() != catalog.resident_plan().buckets().len()
+                || self.locations != catalog.resident_plan().locations())
         {
             return Err(UiRenderRejectReason::InvalidTextureExtent);
         }
@@ -322,7 +323,7 @@ impl UiGpuTextures {
     /// Keeps unchanged buckets and retries missing storage after freeing superseded
     /// buckets on the first failure. Returns the bytes still missing from the new plan.
     fn reallocate(&mut self, catalog: &UiTextureCatalog, device: &RenderDevice) -> u64 {
-        let plan = catalog.plan();
+        let plan = catalog.resident_plan();
         let old = self
             .allocation_plan
             .as_ref()

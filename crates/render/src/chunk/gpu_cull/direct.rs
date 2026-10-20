@@ -822,7 +822,7 @@ pub(crate) fn terrain_pass(
     let encoder = render_context.command_encoder();
     occlusion
         .kernels
-        .encode_pyramid(encoder, &prepared.pyramid, &prepared.bindings);
+        .encode_pyramid(encoder, &prepared.pyramid, &prepared.bindings, None);
     occlusion
         .kernels
         .encode_occlusion(encoder, group, plan.slots);

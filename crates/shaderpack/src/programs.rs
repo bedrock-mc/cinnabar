@@ -3,40 +3,35 @@
 use crate::source::PackSource;
 use std::collections::BTreeMap;
 
-/// A shader stage file kind, by extension.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum StageKind {
-    Vertex,
-    Geometry,
-    TessControl,
-    TessEval,
-    Fragment,
-    Compute,
+/// Declares stages and their discovery metadata together in pipeline order.
+macro_rules! stage_kinds {
+    ($($kind:ident => $extension:literal),+ $(,)?) => {
+        /// A shader stage file kind, by extension.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        pub enum StageKind { $($kind),+ }
+
+        impl StageKind {
+            /// Every stage, in pipeline order.
+            pub const ALL: [Self; { [$(stringify!($kind)),+].len() }] = [$(Self::$kind),+];
+
+            /// The file extension, e.g. `vsh`.
+            pub fn extension(self) -> &'static str {
+                match self { $(Self::$kind => $extension),+ }
+            }
+        }
+    };
+}
+
+stage_kinds! {
+    Vertex => "vsh",
+    TessControl => "tcs",
+    TessEval => "tes",
+    Geometry => "gsh",
+    Fragment => "fsh",
+    Compute => "csh",
 }
 
 impl StageKind {
-    /// Every stage, in pipeline order (vertex outputs are linked before fragment inputs).
-    pub const ALL: [StageKind; 6] = [
-        StageKind::Vertex,
-        StageKind::TessControl,
-        StageKind::TessEval,
-        StageKind::Geometry,
-        StageKind::Fragment,
-        StageKind::Compute,
-    ];
-
-    /// The file extension, e.g. `vsh`.
-    pub fn extension(self) -> &'static str {
-        match self {
-            StageKind::Vertex => "vsh",
-            StageKind::Geometry => "gsh",
-            StageKind::TessControl => "tcs",
-            StageKind::TessEval => "tes",
-            StageKind::Fragment => "fsh",
-            StageKind::Compute => "csh",
-        }
-    }
-
     /// Finds the stage kind associated with a shader file extension.
     fn from_extension(ext: &str) -> Option<StageKind> {
         StageKind::ALL.into_iter().find(|s| s.extension() == ext)

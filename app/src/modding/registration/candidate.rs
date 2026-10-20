@@ -2,12 +2,13 @@
 
 use super::*;
 
+pub(super) enum Runtime {
+    Frame(Box<crate::modding::admission::PreparedMod>),
+    Packet(Arc<mod_host::packet_mod::CompiledPacketMod>),
+}
+
 pub(super) struct Candidate {
-    pub(super) host: ModHost,
-    pub(super) font: Option<Arc<RuntimeFontCatalog>>,
-    pub(super) panel_ui: Option<Arc<mod_ui::PreparedPanelUi>>,
-    pub(super) branding:
-        Option<Arc<client_ui::ui_runtime::presentation::menu_branding::PreparedMenuBranding>>,
+    pub(super) runtime: Runtime,
     pub(super) identity: [u8; 32],
     pub(super) registration: Entry,
     pub(super) drawing: Option<super::super::admission::DrawingContext>,
@@ -34,6 +35,19 @@ pub(super) fn build_candidate_with_settings(
         ui,
         settings: _,
     } = snapshot;
+    if mod_host::SourceKind::of(&component) == mod_host::SourceKind::Packet
+        || registration.grants.packets
+    {
+        let compiled =
+            mod_host::packet_mod::CompiledPacketMod::compile(&component, &registration.grants)
+                .map_err(|error| format!("{error:#}"))?;
+        return Ok(Candidate {
+            runtime: Runtime::Packet(Arc::new(compiled)),
+            identity,
+            registration,
+            drawing: None,
+        });
+    }
     let prepared = crate::modding::admission::prepare(
         &registration.component,
         &component,
@@ -46,10 +60,7 @@ pub(super) fn build_candidate_with_settings(
         drawing.clone(),
     )?;
     Ok(Candidate {
-        host: prepared.host,
-        font: prepared.font,
-        panel_ui: prepared.panel_ui,
-        branding: prepared.branding,
+        runtime: Runtime::Frame(Box::new(prepared)),
         identity,
         registration,
         drawing,

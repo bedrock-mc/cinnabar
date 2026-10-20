@@ -11,6 +11,7 @@ mod text_plate;
 pub use text_plate::{MAX_TEXT_PLATE_HEIGHT, TextPlate, TextPlateLayout, TextPlateStyle};
 mod totems;
 pub use totems::{CounterAnnotation, TotemCounterStyle};
+mod merge;
 mod update;
 pub use compass::{
     COMPASS_DEFAULT_WIDTH, COMPASS_DIRECTIONS, COMPASS_HEIGHT, COMPASS_MAX_WIDTH,
@@ -19,6 +20,7 @@ pub use compass::{
 };
 pub use cosmetic::{ActorStyle, HungerOverlay, NametagStyle};
 pub use editor_style::{EditorStyle, MAX_EDITOR_HANDLE_RADIUS};
+pub use merge::HudMergeCache;
 pub use source::{ActorBounds, ActorHealth, NativeRows, RowSource};
 pub use update::HudUpdate;
 
