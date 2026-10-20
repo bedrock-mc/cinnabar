@@ -358,7 +358,9 @@ impl Canvas<'_> {
         let [left, top] = label_origin(dest, self.font, style.options, self.px);
         let parent = self.group(clip)?;
         let shadow = metrics.shadow(style.shadow);
-        if self.paint_bounds.is_some() {
+        if self.paint_bounds.is_some()
+            && let Some(ink) = glyph_ink(layout.glyphs())
+        {
             let padding = match shadow {
                 TextShadow::None => 0.,
                 TextShadow::Offset64(offset) => {
@@ -367,10 +369,10 @@ impl Canvas<'_> {
             };
             self.observe_paint_bounds(
                 [
-                    left,
-                    top,
-                    left + width.max(1.0) + padding,
-                    top + height + padding,
+                    left + ink[0],
+                    top + ink[1],
+                    left + ink[2] + padding,
+                    top + ink[3] + padding,
                 ],
                 clip,
             );
@@ -494,6 +496,22 @@ pub fn active_codes(text: &str) -> String {
         }
     }
     codes
+}
+
+/// The union of positioned glyph quads relative to the label origin, excluding alignment space;
+/// none when no glyph paints.
+fn glyph_ink(glyphs: &[ui::GlyphQuad]) -> Option<[f32; 4]> {
+    glyphs
+        .iter()
+        .map(|glyph| glyph.bounds_64.map(|edge| edge as f32 / 64.0))
+        .reduce(|a, b| {
+            [
+                a[0].min(b[0]),
+                a[1].min(b[1]),
+                a[2].max(b[2]),
+                a[3].max(b[3]),
+            ]
+        })
 }
 
 #[cfg(test)]
