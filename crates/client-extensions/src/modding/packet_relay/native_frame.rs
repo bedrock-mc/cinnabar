@@ -9,6 +9,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     mpsc::Sender,
 };
+use std::time::{Duration, Instant};
 
 /// Relative rotations older than two client frames cannot move a new camera pose.
 const MAX_RESULT_AGE: u64 = 2;
@@ -78,6 +79,7 @@ struct State {
 pub(super) struct Input {
     pub(super) epoch: u64,
     sequence: u64,
+    observed_at: Instant,
     pub(super) frame: Option<Frame>,
 }
 
@@ -97,6 +99,7 @@ impl Input {
 }
 
 struct Output {
+    observed_at: Instant,
     sequence: u64,
     scope: (u64, i32, bool),
     attack_held: bool,
@@ -178,6 +181,14 @@ impl NativeFrames {
             return None;
         }
         let mut effects = output.effects.clone();
+        if frame.suspended
+            || output.scope.2
+            || output.attack_held != frame.attack_held
+            || output.observed_at.elapsed() > Duration::from_millis(250)
+        {
+            effects.look = None;
+            effects.movement = None;
+        }
         if frame.suspended || output.scope.2 {
             effects.detached = None;
         }
@@ -235,7 +246,10 @@ impl NativeFrames {
                     let mut effects = output.effects.clone();
                     effects.rotation = None;
                     effects.detached = None;
+                    effects.look = None;
+                    effects.movement = None;
                     Arc::new(Output {
+                        observed_at: output.observed_at,
                         sequence,
                         scope: scope.unwrap(),
                         attack_held: attack_held.unwrap(),
@@ -251,6 +265,7 @@ impl NativeFrames {
         self.invalidate.store(false, Ordering::Release);
         let output = self.read_output(frame.as_ref(), sequence);
         state.pending = Some(Input {
+            observed_at: Instant::now(),
             epoch: state.epoch,
             sequence,
             frame,
@@ -298,6 +313,7 @@ impl NativeFrames {
             self.output.store(effects.and_then(|effects| {
                 let frame = input.frame.as_ref()?;
                 Some(Arc::new(Output {
+                    observed_at: input.observed_at,
                     sequence: input.sequence,
                     scope: (frame.session, frame.dimension, frame.suspended),
                     attack_held: frame.attack_held,
@@ -594,5 +610,45 @@ mod tests {
         mailbox.deactivate();
         mailbox.activate(true);
         assert_eq!(mailbox.exchange(Some(frame())), None);
+    }
+    #[test]
+    fn retained_input_survives_relative_step_consumption_and_expires() {
+        let mailbox = NativeFrames::new(Arc::new(AtomicBool::new(true)));
+        mailbox.activate(true);
+        mailbox.exchange(Some(frame()));
+        let input = mailbox.take_input().unwrap();
+        let effects = Effects {
+            look: Some(mod_api::native_camera::LookIntent {
+                yaw: 0.5,
+                pitch: 0.0,
+                speed: 3.0,
+            }),
+            movement: Some(mod_api::native_camera::MovementIntent {
+                yaw: 0.5,
+                axes: [0.0, 1.0],
+                jump: false,
+                sneak: false,
+                sprint: true,
+            }),
+            ..Default::default()
+        };
+        mailbox.complete(input, Some(effects.clone()));
+        for _ in 0..5 {
+            mailbox.fence_guest_state();
+            assert_eq!(
+                mailbox.exchange(Some(frame())).unwrap().0,
+                Some(effects.clone())
+            );
+        }
+        let mut suspended = frame();
+        suspended.suspended = true;
+        suspended.attack_held = false;
+        suspended.players.clear();
+        assert_eq!(mailbox.exchange(Some(suspended)).unwrap().0, None);
+        mailbox.exchange(Some(frame()));
+        let mut input = mailbox.take_input().unwrap();
+        input.observed_at -= Duration::from_secs(1);
+        mailbox.complete(input, Some(effects));
+        assert_eq!(mailbox.exchange(Some(frame())).unwrap().0, None);
     }
 }

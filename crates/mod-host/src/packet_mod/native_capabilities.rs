@@ -161,6 +161,9 @@ impl NativeExports {
                     .all(|grant| (grant.requested_allowed)(granted, &required))
             })
             .fold(0, |bits, (export, _)| bits | export.capability);
+        if bits & mod_api::native_camera::CAPABILITY != 0 {
+            bits |= mod_api::native_camera::INPUT_INTENTS;
+        }
         if bits & mod_api::native_render::CAPABILITY != 0 {
             if granted.entity_observe && granted.entity_highlight {
                 bits |= mod_api::native_render::ENTITY_HIGHLIGHTS;

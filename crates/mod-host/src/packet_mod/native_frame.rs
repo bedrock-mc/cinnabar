@@ -67,9 +67,12 @@ impl PacketMod {
             );
             ensure!(
                 frame.is_none_or(|frame| !frame.suspended)
-                    || effects.as_ref().is_none_or(
-                        |effects| effects.rotation.is_none() && effects.detached.is_none()
-                    ),
+                    || effects
+                        .as_ref()
+                        .is_none_or(|effects| effects.rotation.is_none()
+                            && effects.detached.is_none()
+                            && effects.look.is_none()
+                            && effects.movement.is_none()),
                 "active camera effects without gameplay input"
             );
             ensure!(
@@ -206,7 +209,7 @@ mod tests {
         // The legacy fixture checks the init bit before returning any effect.
         wat = wat.replace(
             "(i32.const 1)) (then unreachable)",
-            "(i32.const 4)) (then unreachable)",
+            "(i32.const 68)) (then unreachable)",
         );
         // A camera-only guest must receive an empty player list even when the host has nearby players.
         wat = wat.replace("(i32.store (i32.const 128)", "(if (i32.ne (i32.load8_u (i32.add (local.get $input) (i32.sub (local.get $length) (i32.const 3)))) (i32.const 91)) (then (if (i32.ne (i32.load8_u (local.get $input)) (i32.const 110)) (then unreachable)))) (i32.store (i32.const 128)");

@@ -36,6 +36,7 @@ mod environment_loader;
 mod hud_editor;
 mod library;
 mod native_camera;
+mod native_input;
 mod packet_highlights;
 mod packet_menu;
 mod packet_render;
@@ -399,6 +400,7 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
 }
 
 fn configure_systems(app: &mut App, watching: bool) {
+    app.init_resource::<native_input::NativeInput>();
     app.init_resource::<packet_render::Drawing>();
     app.init_resource::<ReservedControls>();
     app.init_resource::<client_presentation::actor_publication::ActorPresentationStyle>();
@@ -586,6 +588,8 @@ fn drive_mod(
             }
         }
         let effects = effects.and_then(|effects| effects.camera);
+        gameplay.apply_native_look(effects.as_ref());
+        gameplay.apply_native_input(effects.as_ref(), &ui);
         if let Some(camera) = camera.as_deref_mut() {
             camera.set_preserve_teleport_rotation(false);
             camera.set_hurt_camera_style(None);
@@ -600,6 +604,7 @@ fn drive_mod(
         return;
     };
     if extension.suspended {
+        gameplay.apply_native_input(None, &ui);
         if let Some(drawing) = drawing.as_deref_mut() {
             drawing.update(None, packet_render::session(&gameplay));
             if let Some(scene) = render_scene.as_deref_mut() {
@@ -748,6 +753,8 @@ fn drive_mod(
     }
     render::publish(render_scene, &mut extension, drawing.as_deref());
     let native_effects = native_effects.and_then(|effects| effects.camera);
+    gameplay.apply_native_look(native_effects.as_ref().filter(|_| !regular_camera));
+    gameplay.apply_native_input(native_effects.as_ref().filter(|_| !regular_camera), &ui);
     if let Some(delta) = merged.delta.or_else(|| {
         native_effects
             .as_ref()
