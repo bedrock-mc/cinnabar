@@ -59,13 +59,9 @@ impl CustomRenderer for KeepOutRenderer<'_> {
 /// Writes two nearest-edge measurements in GUI pixels, hidden when less than 12 px long.
 pub(super) fn measurements(
     data: &mut DataSource,
-    hud: &Hud,
     viewport: [f64; 2],
-    selected: Option<usize>,
+    rect: Option<([f64; 2], [f64; 2])>,
 ) {
-    let rect = selected
-        .and_then(|index| hud.cards.get(index))
-        .map(|card| (cards::origin(card, viewport), cards::dimensions(card)));
     for axis in 0..2 {
         let mut offset = [0.; 2];
         let mut size = [GUIDE_WIDTH; 2];

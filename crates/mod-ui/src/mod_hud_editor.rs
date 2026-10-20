@@ -89,9 +89,7 @@ impl ModUi {
         self.cancel_mod_panel_edit();
         let mut preview = preview.clone();
         for card in &mut preview.cards {
-            card.reset_anchor.get_or_insert(card.anchor);
-            card.reset_offset.get_or_insert(card.offset);
-            card.reset_scale.get_or_insert(card.scale);
+            publication::prepare_card(card);
         }
         self.mod_hud_editor = Some(HudEditor {
             autosave: preview.autosave,
@@ -320,13 +318,13 @@ impl ModUi {
             |env, root| {
                 if crate::mod_widgets::text_plate::measure(&mut editor.draft, env.text) {
                     editor.catalog = None;
-                    let data = Arc::make_mut(&mut editor.data);
+                    let mut data = Arc::clone(&editor.data);
+                    let values = Arc::make_mut(&mut data);
                     for (n, card) in editor.draft.cards.iter().enumerate() {
-                        crate::mod_widgets::text_plate::data(data, card, n, viewport);
+                        crate::mod_widgets::text_plate::data(values, card, n, viewport);
                     }
-                    data::write_bounds(data, &editor.draft, viewport, editor.selected);
-                    data::write_selection(data, &editor.draft, viewport, editor.selected);
-                    feedback::measurements(data, &editor.draft, viewport, editor.selected);
+                    editor.write_geometry(values);
+                    editor.data = data;
                 }
                 if editor.catalog.is_none() {
                     let catalog = match template::catalog(&editor.draft, viewport) {

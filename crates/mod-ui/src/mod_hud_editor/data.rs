@@ -3,11 +3,19 @@
 use super::*;
 
 impl HudEditor {
-    /// Binds changing positions and selection without regenerating the catalog.
+    /// Binds changing values without regenerating the catalog.
     pub(super) fn data(&self) -> DataSource {
         let mut data = cards::data(&self.draft, self.viewport);
+        if let Some(surface) = &self.draft.surface {
+            crate::mod_panel::surface::bind(surface, &mut data);
+            crate::mod_panel::surface::viewport(&mut data, self.viewport);
+        }
         data.set_global("#editor_label", Scalar::Text(self.editor_label().into()));
         data.set_global("#grid_visible", Scalar::Bool(self.snap));
+        data.set_global(
+            "#grid_label",
+            Scalar::Text(if self.snap { "Grid: ON" } else { "Grid: OFF" }.into()),
+        );
         for axis in 0..2 {
             let guide = self.drag.as_ref().and_then(|drag| drag.guides[axis]);
             data.set_global(
@@ -21,16 +29,6 @@ impl HudEditor {
                 Scalar::Json(serde_json::json!(at)),
             );
         }
-        if let Some(surface) = &self.draft.surface {
-            crate::mod_panel::surface::bind(surface, &mut data);
-            crate::mod_panel::surface::viewport(&mut data, self.viewport);
-        }
-        data.set_global(
-            "#grid_label",
-            Scalar::Text(if self.snap { "Grid: ON" } else { "Grid: OFF" }.into()),
-        );
-        write_bounds(&mut data, &self.draft, self.viewport, self.selected);
-        write_selection(&mut data, &self.draft, self.viewport, self.selected);
         for (name, value) in [
             ("#hud_can_undo", self.history.available()[0]),
             ("#hud_can_redo", self.history.available()[1]),
@@ -39,19 +37,19 @@ impl HudEditor {
             data.set_global(name, Scalar::Bool(value));
         }
         data.set_global("#hud_toast", Scalar::Text(self.toast.text.clone()));
+        self.write_geometry(&mut data);
+        data
+    }
+
+    /// Shares displayed geometry and hidden-card filtering between paint and text measurement.
+    pub(super) fn write_geometry(&self, data: &mut DataSource) {
+        let style = self.draft.editor_style.unwrap_or_default();
         for (index, card) in self.draft.cards.iter().enumerate() {
             let visible = !self.hidden.contains(&card.id);
             data.set_global(format!("#hud_card_{index}_visible"), Scalar::Bool(visible));
             data.set_global(
                 format!("#hud_card_{index}_name"),
-                Scalar::Text(
-                    if card.editor_label.is_empty() {
-                        &card.id
-                    } else {
-                        &card.editor_label
-                    }
-                    .clone(),
-                ),
+                Scalar::Text(card.editor_name().to_owned()),
             );
             let at = self.card_origin(index);
             data.set_global(
@@ -71,30 +69,75 @@ impl HudEditor {
                     y.clamp(0., (self.viewport[1] - 12.).max(0.))
                 ])),
             );
-        }
-        if let Some(index) = self.selected {
-            let at = self.card_origin(index);
-            data.set_global("#hud_selected_x", Scalar::Num(at[0]));
-            data.set_global("#hud_selected_y", Scalar::Num(at[1]));
+            data.set_global(
+                format!("#bounds_{index}_color"),
+                Scalar::Json(serde_json::json!(if self.selected == Some(index) {
+                    style.selected
+                } else {
+                    style.outline
+                })),
+            );
         }
         if let Some(drag) = &self.drag {
-            let color = self.draft.editor_style.unwrap_or_default().guide;
             for index in drag.targets.into_iter().flatten() {
                 data.set_global(
                     format!("#bounds_{index}_color"),
-                    Scalar::Json(serde_json::json!(color)),
+                    Scalar::Json(serde_json::json!(style.guide)),
                 );
             }
         }
-        feedback::measurements(
-            &mut data,
-            &self.draft,
-            self.viewport,
-            self.selected
-                .filter(|index| !self.hidden.contains(&self.draft.cards[*index].id)),
-        );
-        data
+        self.write_selection(data);
+        let rect = self
+            .selected
+            .filter(|index| !self.hidden.contains(&self.draft.cards[*index].id))
+            .map(|index| {
+                (
+                    self.card_origin(index),
+                    cards::dimensions(&self.draft.cards[index]),
+                )
+            });
+        feedback::measurements(data, self.viewport, rect);
     }
+
+    /// Publishes inspector values from the same displayed rectangle used by pointer bounds.
+    fn write_selection(&self, data: &mut DataSource) {
+        let selected = self
+            .selected
+            .filter(|index| *index < self.draft.cards.len());
+        let card = selected.map(|index| &self.draft.cards[index]);
+        data.set_global(
+            "#hud_selected",
+            Scalar::Num(selected.map_or(-1., |i| i as f64)),
+        );
+        let at = selected.map_or([0.; 2], |index| self.card_origin(index));
+        let size = card.map_or([0.; 2], cards::dimensions);
+        for (name, value) in [
+            ("#hud_selected_x", at[0]),
+            ("#hud_selected_y", at[1]),
+            ("#hud_selected_w", size[0]),
+            ("#hud_selected_h", size[1]),
+        ] {
+            data.set_global(name, Scalar::Num(value));
+        }
+        let anchor = card
+            .filter(|card| card.position.is_none())
+            .and_then(|card| {
+                ui::mod_hud::Anchor::ALL
+                    .iter()
+                    .position(|anchor| *anchor == card.anchor)
+            });
+        data.set_global(
+            "#hud_selected_anchor",
+            Scalar::Num(anchor.map_or(-1., |i| i as f64)),
+        );
+        data.set_global(
+            "#hud_selected_scale_text",
+            Scalar::Text(
+                card.map_or_else(String::new, |card| format!("{:.0}%", card.scale * 100.)),
+            ),
+        );
+    }
+
     /// Names the hovered widget or current selection without placing labels over nearby cards.
     fn editor_label(&self) -> &str {
         let hovered = self.frame.as_ref().and_then(|frame| {
@@ -120,89 +163,8 @@ impl HudEditor {
         hovered
             .or(self.selected)
             .and_then(|index| self.draft.cards.get(index))
-            .map(|card| {
-                if card.editor_label.is_empty() {
-                    card.id.as_str()
-                } else {
-                    card.editor_label.as_str()
-                }
-            })
+            .map(ui::mod_hud::Card::editor_name)
             .unwrap_or("Select a widget")
-    }
-}
-
-/// Publishes inspector geometry after layout or native text measurement changes.
-pub(super) fn write_selection(
-    data: &mut DataSource,
-    hud: &Hud,
-    viewport: [f64; 2],
-    selected: Option<usize>,
-) {
-    let card = selected.and_then(|index| hud.cards.get(index));
-    data.set_global(
-        "#hud_selected",
-        Scalar::Num(
-            selected
-                .filter(|_| card.is_some())
-                .map_or(-1., |i| i as f64),
-        ),
-    );
-    let at = card.map_or([0.; 2], |card| cards::origin(card, viewport));
-    let size = card.map_or([0.; 2], cards::dimensions);
-    for (name, value) in [
-        ("#hud_selected_x", at[0]),
-        ("#hud_selected_y", at[1]),
-        ("#hud_selected_w", size[0]),
-        ("#hud_selected_h", size[1]),
-    ] {
-        data.set_global(name, Scalar::Num(value));
-    }
-    let anchor = card
-        .filter(|card| card.position.is_none())
-        .and_then(|card| {
-            ui::mod_hud::Anchor::ALL
-                .iter()
-                .position(|anchor| *anchor == card.anchor)
-        });
-    data.set_global(
-        "#hud_selected_anchor",
-        Scalar::Num(anchor.map_or(-1., |i| i as f64)),
-    );
-    data.set_global(
-        "#hud_selected_scale_text",
-        Scalar::Text(card.map_or_else(String::new, |card| format!("{:.0}%", card.scale * 100.))),
-    );
-}
-
-/// Refreshes labels after native font measurement without replacing icon or transition bindings.
-pub(super) fn write_bounds(
-    data: &mut DataSource,
-    hud: &Hud,
-    viewport: [f64; 2],
-    selected: Option<usize>,
-) {
-    let style = hud.editor_style.unwrap_or_default();
-    for (index, card) in hud.cards.iter().enumerate() {
-        let at = cards::origin(card, viewport);
-        let size = cards::dimensions(card);
-        let label_y = if at[1] >= 12. {
-            at[1] - 12.
-        } else {
-            at[1] + size[1] + 2.
-        };
-        let label_y = label_y.clamp(0., (viewport[1] - 12.).max(0.));
-        data.set_global(
-            format!("#bounds_{index}_label_offset"),
-            Scalar::Json(serde_json::json!([at[0], label_y])),
-        );
-        data.set_global(
-            format!("#bounds_{index}_color"),
-            Scalar::Json(serde_json::json!(if selected == Some(index) {
-                style.selected
-            } else {
-                style.outline
-            })),
-        );
     }
 }
 

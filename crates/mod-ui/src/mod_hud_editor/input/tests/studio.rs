@@ -69,6 +69,7 @@ fn press(
 fn studio_history_covers_move_resize_nudge_anchor_scale_visibility_reset_and_redo() {
     for autosave in [false, true] {
         let mut editor = editor(autosave);
+        editor.draft.resizable = true;
         let mut states = vec![editor.snapshot(true)];
         // One complete pointer gesture is one step, regardless of intermediate samples.
         let point = frame(&mut editor, "hud.card:0");
@@ -97,6 +98,13 @@ fn studio_history_covers_move_resize_nudge_anchor_scale_visibility_reset_and_red
                 editor.action(action, &mut []).unwrap();
             }
             states.push(editor.snapshot(true));
+        }
+        for pair in states.windows(2) {
+            assert!(
+                pair[0].placements != pair[1].placements
+                    || pair[0].hidden_cards != pair[1].hidden_cards,
+                "every tested action must create an edit"
+            );
         }
         for expected in states.iter().rev().skip(1) {
             editor.step_history(false);
@@ -131,7 +139,7 @@ fn studio_history_truncates_old_steps_and_branches_only_on_a_real_edit() {
         editor.step_history(false);
         steps += 1;
     }
-    assert!((50..=100).contains(&steps));
+    assert!((50..100).contains(&steps));
     assert!(
         (end[0] - cards::origin(&editor.draft.cards[0], editor.viewport)[0] - f64::from(steps))
             .abs()
@@ -508,5 +516,56 @@ fn studio_republish_keeps_anchor_motion_running() {
     let at = editor.card_origin(0);
     for axis in 0..2 {
         assert!((at[axis] - (from[axis] + (target[axis] - from[axis]) * 0.875)).abs() < 0.001);
+    }
+}
+
+#[test]
+fn studio_native_empty_preview_keeps_its_placeholder_across_gameplay_publication() {
+    let mut editor = editor(false);
+    editor.draft.cards[0].title = "Armor".into();
+    editor.draft.cards[0].editor_label = "Armor".into();
+    editor.draft.cards[0].source = Some(ui::mod_hud::RowSource {
+        kind: ui::mod_hud::NativeRows::Armor {
+            held: false,
+            percent: true,
+            empty: false,
+        },
+        limit: 4,
+        color: [1.; 4],
+        brackets: false,
+    });
+    let mut published = editor.draft.cards.clone();
+    published[0].title.clear();
+    published[0].source = None;
+    editor.republish_cards(&published, false);
+    assert_eq!(editor.draft.cards[0].title, "Armor");
+    assert!(cards::dimensions(&editor.draft.cards[0])[1] > 4.);
+}
+
+#[test]
+fn studio_pressing_an_animated_card_captures_its_displayed_origin_for_move_and_resize() {
+    for action in ["hud.card:0", "hud.resize:0:3"] {
+        let mut editor = editor(true);
+        editor.draft.resizable = true;
+        editor.selected = Some(0);
+        editor.action("hud.anchor:8", &mut []);
+        editor.advance_feedback(10., true);
+        editor.advance_feedback(10.15, true);
+        let displayed = editor.card_origin(0);
+        let point = frame(&mut editor, action);
+        editor.pointer(point, true, true, &mut []);
+        let captured = cards::origin(&editor.draft.cards[0], editor.viewport);
+        for axis in 0..2 {
+            assert!((captured[axis] - displayed[axis]).abs() < 0.001);
+        }
+        editor.pointer([point[0] + 10., point[1] + 10.], false, false, &mut []);
+        let moved = cards::origin(&editor.draft.cards[0], editor.viewport);
+        for axis in 0..2 {
+            let expected = displayed[axis] + if action == "hud.card:0" { 10. } else { 0. };
+            assert!((moved[axis] - expected).abs() < 0.01);
+        }
+        let saved = editor.result.take().unwrap();
+        assert!(saved.saved);
+        saved.validate().unwrap();
     }
 }

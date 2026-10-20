@@ -4,9 +4,8 @@ use super::*;
 use ui::mod_hud::{Card, Placement};
 
 /// Matches stable identity and outer geometry for retained pointer and anchor animation state.
-pub(super) fn matching_geometry(old: &Card, next: &Hud) -> Option<usize> {
-    next.cards
-        .iter()
+pub(super) fn matching_geometry(old: &Card, next: &[Card]) -> Option<usize> {
+    next.iter()
         .position(|card| card.id == old.id && cards::dimensions(card) == cards::dimensions(old))
 }
 
@@ -48,73 +47,98 @@ impl ModUi {
     }
 }
 
+/// Captures factory defaults once and shares native placeholder policy with the HUD owner.
+pub(super) fn prepare_card(card: &mut Card) {
+    card.reset_anchor.get_or_insert(card.anchor);
+    card.reset_offset.get_or_insert(card.offset);
+    card.reset_scale.get_or_insert(card.scale);
+    card.ensure_editor_placeholder();
+}
+
+/// Applies editor-owned state to newly published artwork without retaining stale content.
+fn preview_card(published: &Card, old: Option<&Card>) -> Card {
+    let mut card = published.clone();
+    if let Some(old) = old {
+        Placement::capture(old).apply_to(&mut card);
+        card.reset_anchor = old.reset_anchor;
+        card.reset_offset = old.reset_offset;
+        card.reset_scale = old.reset_scale;
+        card.editor_native |= old.editor_native || old.source.is_some();
+        if let (Some(old), Some(new)) = (&old.text_plate, &mut card.text_plate)
+            && old == new
+        {
+            new.layout.clone_from(&old.layout);
+        }
+    }
+    prepare_card(&mut card);
+    card
+}
+
 impl HudEditor {
-    /// Applies an owner's republished content by ID; gameplay omissions keep disabled previews.
+    /// Applies live artwork by ID; gameplay omissions retain disabled editor previews.
     pub(in super::super) fn republish_cards(&mut self, published: &[Card], replace_all: bool) {
         let selected = self
             .selected
             .map(|index| self.draft.cards[index].id.clone());
-        let mut next = self.draft.clone();
-        if replace_all {
-            next.cards = published.to_vec();
+        let mut next: Vec<_> = if replace_all {
+            published
+                .iter()
+                .map(|card| {
+                    preview_card(card, self.draft.cards.iter().find(|old| old.id == card.id))
+                })
+                .collect()
         } else {
-            for card in &mut next.cards {
-                if let Some(new) = published.iter().find(|new| new.id == card.id) {
-                    *card = new.clone();
-                }
-            }
-        }
-        for card in &mut next.cards {
-            if let Some(old) = self.draft.cards.iter().find(|old| old.id == card.id) {
-                Placement::capture(old).apply_to(card);
-                card.reset_anchor = old.reset_anchor;
-                card.reset_offset = old.reset_offset;
-                card.reset_scale = old.reset_scale;
-                if let (Some(old), Some(new)) = (&old.text_plate, &mut card.text_plate)
-                    && old == new
-                {
-                    new.layout.clone_from(&old.layout);
-                }
-            } else {
-                card.reset_anchor.get_or_insert(card.anchor);
-                card.reset_offset.get_or_insert(card.offset);
-                card.reset_scale.get_or_insert(card.scale);
-            }
-        }
-        if next == self.draft {
+            self.draft
+                .cards
+                .iter()
+                .map(|old| {
+                    preview_card(
+                        published
+                            .iter()
+                            .find(|card| card.id == old.id)
+                            .unwrap_or(old),
+                        Some(old),
+                    )
+                })
+                .collect()
+        };
+        if next == self.draft.cards {
             return;
         }
-        self.reconcile_drag(&next);
+        if let Some(index) = self.reconcile_drag(&next) {
+            let old = &self.draft.cards[index];
+            if let Some(card) = next.iter_mut().find(|card| card.id == old.id) {
+                Placement::capture(old).apply_to(card);
+            }
+        }
         if self
             .anchor_motion
             .as_mut()
-            .is_some_and(|motion| !motion.rebase(&self.draft, &next))
+            .is_some_and(|motion| !motion.rebase(&self.draft.cards, &next))
         {
             self.anchor_motion = None;
         }
-        for card in &mut next.cards {
-            if let Some(old) = self.draft.cards.iter().find(|old| old.id == card.id) {
-                Placement::capture(old).apply_to(card);
-            }
-        }
-        let rebuild = !cards::same_shape(&self.draft, &next);
+        let rebuild = !cards::same_cards_shape(&self.draft.cards, &next);
         if rebuild {
             self.catalog = None;
+            self.snap_dirty = true;
         }
-        self.draft = next;
+        self.committed.cards = next
+            .iter()
+            .map(|card| {
+                let mut committed = card.clone();
+                if let Some(old) = self.committed.cards.iter().find(|old| old.id == card.id) {
+                    Placement::capture(old).apply_to(&mut committed);
+                }
+                committed
+            })
+            .collect();
+        self.draft.cards = next;
         self.hidden
             .retain(|id| self.draft.cards.iter().any(|card| &card.id == id));
         self.selected =
             selected.and_then(|id| self.draft.cards.iter().position(|card| card.id == id));
         self.history.refresh(&self.draft, &self.hidden);
-        // Update committed content too, so cancelling a later drag cannot restore stale artwork.
-        let mut committed = self.draft.clone();
-        for card in &mut committed.cards {
-            if let Some(old) = self.committed.cards.iter().find(|old| old.id == card.id) {
-                Placement::capture(old).apply_to(card);
-            }
-        }
-        self.committed = committed;
         self.data_dirty = true;
         if rebuild && self.drag.is_none() {
             self.frame = None;

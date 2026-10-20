@@ -63,12 +63,8 @@ impl HudEditor {
                         let card = &self.draft.cards[index];
                         if !self.hidden.remove(&card.id) {
                             self.hidden.insert(card.id.clone());
-                            let name = if card.editor_label.is_empty() {
-                                &card.id
-                            } else {
-                                &card.editor_label
-                            };
-                            self.toast = motion::Toast::new(format!("{name} hidden"));
+                            self.toast =
+                                motion::Toast::new(format!("{} hidden", card.editor_name()));
                         } else {
                             self.toast = Default::default();
                         }

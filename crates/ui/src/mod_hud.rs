@@ -217,6 +217,9 @@ pub struct Card {
     pub title: String,
     #[serde(default)]
     pub editor_label: String,
+    /// Retains native preview identity after its row policy is materialized. JSON cannot set it.
+    #[serde(skip)]
+    pub editor_native: bool,
     #[serde(default)]
     pub anchor: Anchor,
     /// GUI pixels inward from edge anchors, or right/down from centered axes.
@@ -279,6 +282,7 @@ impl Default for Card {
             preview_only: false,
             title: String::new(),
             editor_label: String::new(),
+            editor_native: false,
             anchor: Anchor::default(),
             offset: [0.; 2],
             scale: unit(),
@@ -299,6 +303,25 @@ impl Default for Card {
             compass: None,
             text_plate: None,
             cells: Vec::new(),
+        }
+    }
+}
+
+impl Card {
+    /// Names editor rows and feedback consistently, falling back to the stable card ID.
+    pub fn editor_name(&self) -> &str {
+        if self.editor_label.is_empty() {
+            &self.id
+        } else {
+            &self.editor_label
+        }
+    }
+
+    /// Keeps an empty native card named and selectable after its source policy is consumed.
+    pub fn ensure_editor_placeholder(&mut self) {
+        self.editor_native |= self.source.is_some();
+        if self.editor_native && self.rows.is_empty() && self.title.is_empty() {
+            self.title = self.editor_name().to_owned();
         }
     }
 }

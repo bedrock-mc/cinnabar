@@ -917,3 +917,5 @@ fn studio_preview_binding_updates_retain_the_catalog_and_stable_frames() {
     harness.paint(&mut ui, true);
     assert_eq!(ui.mod_hud_editor_state().unwrap().passes, passes);
 }
+
+mod studio;

@@ -42,7 +42,7 @@ pub(super) fn fixture(edited: bool) -> Fixture {
         }}).to_string(),"bindings":{}},
         "cards":[
             {"id":"fps","editor_label":"Frame rate","title":"Frame rate","width":130,"offset":[45,95],"rows":[{"label":"FPS","value":"144"}]},
-            {"id":"clock","editor_label":"Clock","title":"Clock","width":130,"offset":[45,155],"rows":[{"label":"Time","value":"12:30"}]}
+            {"id":"clock_card","editor_label":"Clock","title":"Clock","width":130,"offset":[45,155],"rows":[{"label":"Time","value":"12:30"}]}
         ]
     })).unwrap();
     Fixture::HudEditor {

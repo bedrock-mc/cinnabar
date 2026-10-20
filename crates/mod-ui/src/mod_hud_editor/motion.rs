@@ -30,8 +30,8 @@ pub(super) struct AnchorMotion {
 
 impl AnchorMotion {
     /// Rebinds motion to the same live card, settling it only when its geometry is replaced.
-    pub(super) fn rebase(&mut self, old: &Hud, next: &Hud) -> bool {
-        if let Some(index) = super::publication::matching_geometry(&old.cards[self.index], next) {
+    pub(super) fn rebase(&mut self, old: &[ui::mod_hud::Card], next: &[ui::mod_hud::Card]) -> bool {
+        if let Some(index) = super::publication::matching_geometry(&old[self.index], next) {
             self.index = index;
             true
         } else {
@@ -51,6 +51,27 @@ impl AnchorMotion {
 }
 
 impl HudEditor {
+    /// Freezes a pressed card at its displayed origin before move or resize geometry is captured.
+    pub(super) fn freeze_anchor_motion(&mut self, index: usize) -> bool {
+        if !self
+            .anchor_motion
+            .as_ref()
+            .is_some_and(|motion| motion.index == index)
+        {
+            return false;
+        }
+        let motion = self.anchor_motion.take().expect("matching animation");
+        let card = &mut self.draft.cards[index];
+        let changed = cards::origin(card, self.viewport) != motion.at;
+        if changed {
+            (card.anchor, card.offset) =
+                ui::mod_hud::Anchor::from_origin(motion.at, cards::dimensions(card), self.viewport);
+            card.position = None;
+            self.data_dirty = true;
+        }
+        changed
+    }
+
     /// Settles an interrupted anchor transition and refreshes its final bound position.
     pub(super) fn settle_anchor_motion(&mut self) {
         self.data_dirty |= self.anchor_motion.take().is_some();

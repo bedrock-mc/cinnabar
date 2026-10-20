@@ -26,15 +26,29 @@ struct Resize {
 
 impl HudEditor {
     /// Retains capture across content updates and card reordering when its geometry still matches.
-    pub(super) fn reconcile_drag(&mut self, next: &Hud) {
+    pub(super) fn reconcile_drag(&mut self, next: &[ui::mod_hud::Card]) -> Option<usize> {
+        let reordered = !self
+            .draft
+            .cards
+            .iter()
+            .map(|card| &card.id)
+            .eq(next.iter().map(|card| &card.id));
         let index = self.drag.as_ref().and_then(|drag| {
             super::publication::matching_geometry(&self.draft.cards[drag.index], next)
         });
         if self.drag.is_some() && index.is_none() {
+            let previous = self.drag.as_ref().expect("captured card").index;
             self.cancel_drag();
+            return Some(previous);
         } else if let Some(drag) = &mut self.drag {
             drag.index = index.expect("matched captured card");
+            if reordered {
+                drag.guides = [None; 2];
+                drag.targets = [None; 2];
+                self.snap_dirty = true;
+            }
         }
+        None
     }
 
     /// Ends capture once; later presentation failures stop painting without replacing the result.
@@ -348,7 +362,6 @@ impl HudEditor {
         }
         if pressed {
             self.cancel_drag();
-            self.anchor_motion = None;
             let capture = action.as_deref().and_then(|action| {
                 if let Some(index) = action.strip_prefix("hud.card:") {
                     return index.parse::<usize>().ok().map(|index| (index, None));
@@ -359,38 +372,38 @@ impl HudEditor {
                     .resizable
                     .then_some((index.parse::<usize>().ok()?, Some(corner)))
             });
-            self.drag = capture
-                .filter(|(index, _)| {
-                    *index < self.draft.cards.len()
-                        && !self.hidden.contains(&self.draft.cards[*index].id)
-                })
-                .map(|(index, corner)| {
-                    let card = &self.draft.cards[index];
-                    let at = cards::origin(card, self.viewport);
-                    let size = cards::dimensions(card);
-                    Drag {
-                        index,
-                        grab: std::array::from_fn(|axis| point[axis] - at[axis]),
-                        start: point,
-                        last: point,
-                        moved: false,
-                        guides: [None; 2],
-                        targets: [None; 2],
-                        resize: corner.map(|corner| Resize {
-                            corner,
-                            scale: f64::from(card.scale),
-                            size,
-                            fixed: std::array::from_fn(|axis| {
-                                at[axis]
-                                    + if corner & (1 << axis) == 0 {
-                                        size[axis]
-                                    } else {
-                                        0.
-                                    }
-                            }),
+            let capture = capture.filter(|(index, _)| {
+                *index < self.draft.cards.len()
+                    && !self.hidden.contains(&self.draft.cards[*index].id)
+            });
+            let frozen = capture.is_some_and(|(index, _)| self.freeze_anchor_motion(index));
+            self.drag = capture.map(|(index, corner)| {
+                let card = &self.draft.cards[index];
+                let at = cards::origin(card, self.viewport);
+                let size = cards::dimensions(card);
+                Drag {
+                    index,
+                    grab: std::array::from_fn(|axis| point[axis] - at[axis]),
+                    start: point,
+                    last: point,
+                    moved: frozen,
+                    guides: [None; 2],
+                    targets: [None; 2],
+                    resize: corner.map(|corner| Resize {
+                        corner,
+                        scale: f64::from(card.scale),
+                        size,
+                        fixed: std::array::from_fn(|axis| {
+                            at[axis]
+                                + if corner & (1 << axis) == 0 {
+                                    size[axis]
+                                } else {
+                                    0.
+                                }
                         }),
-                    }
-                });
+                    }),
+                }
+            });
             self.selected = self.drag.as_ref().map(|drag| drag.index);
         }
         if let Some(drag) = &mut self.drag {

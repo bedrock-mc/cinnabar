@@ -499,3 +499,33 @@ fn studio_hidden_results_require_unique_saved_placement_ids() {
     result.saved = false;
     assert!(result.validate().is_err());
 }
+
+#[test]
+fn studio_native_placeholder_identity_survives_materialization_and_stays_out_of_json() {
+    let mut card = super::Card {
+        id: "effects_preview".into(),
+        editor_label: "Effects".into(),
+        source: Some(super::RowSource {
+            kind: super::NativeRows::Effects { icons: true },
+            limit: 4,
+            color: [1.; 4],
+            brackets: false,
+        }),
+        ..Default::default()
+    };
+    card.ensure_editor_placeholder();
+    assert_eq!(card.title, "Effects");
+    card.source = None;
+    card.title.clear();
+    card.ensure_editor_placeholder();
+    assert_eq!(card.title, "Effects");
+    let mut json = serde_json::to_value(&card).unwrap();
+    assert!(json.get("editor_native").is_none());
+    json["editor_native"] = serde_json::json!(true);
+    assert!(serde_json::from_value::<super::Card>(json).is_err());
+    card.rows
+        .push(serde_json::from_value(serde_json::json!({"label":"","value":"1"})).unwrap());
+    card.title.clear();
+    card.ensure_editor_placeholder();
+    assert!(card.title.is_empty());
+}
