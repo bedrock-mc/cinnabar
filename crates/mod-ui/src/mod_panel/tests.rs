@@ -983,3 +983,70 @@ fn packet_prepared_updates_accept_route_schemas_and_reject_changed_documents() {
     assert!(ui.mod_panel_open());
     assert_eq!(ui.mod_panel.as_ref().unwrap().panel, accepted);
 }
+
+/// Samples the displayed surface values through the same transition state used by painting.
+fn transition_values(ui: &mut ModUi, now: f64) -> json_ui::DataSource {
+    let current = ui.mod_panel.as_mut().unwrap();
+    current
+        .motion
+        .transitions
+        .advance(current.panel.surface.as_ref().unwrap(), now, true);
+    let mut values = json_ui::DataSource::new();
+    current.motion.transitions.write(&mut values);
+    values
+}
+
+/// Navigation preserves shared opening progress, including the backdrop, while owner changes
+/// start their own entrance and a genuine close still plays the exit.
+#[test]
+fn open_route_changes_preserve_surface_transition_progress() {
+    use ui::mod_panel::SurfaceValue;
+
+    let mut content = exiting_panel(Some(0.0));
+    let surface = content.surface.as_mut().unwrap();
+    let fade = surface.transitions.get_mut("#fade").unwrap();
+    fade.from = Some(SurfaceValue::Number(0.0));
+    fade.duration = 1.0;
+    fade.easing = Default::default();
+    let mut options = content.clone();
+    options.surface.as_mut().unwrap().screen = "extension.options".into();
+    options.surface.as_mut().unwrap().document = serde_json::json!({
+        "namespace": "extension",
+        "options": {"type": "screen", "size": [80, 60], "controls": []}
+    })
+    .to_string();
+    let mut ui = ModUi::default();
+    ui.set_mod_panel(PanelUiOwner::Environment(0), Some(&content))
+        .unwrap();
+    ui.set_mod_panel_open(true);
+    let values = |fade| {
+        let mut data = json_ui::DataSource::new();
+        data.set_global("#fade", json_ui::Scalar::Num(fade));
+        data
+    };
+    assert_eq!(transition_values(&mut ui, 1.0), values(0.0));
+    assert_eq!(transition_values(&mut ui, 1.5), values(0.5));
+    ui.set_mod_panel(PanelUiOwner::Environment(0), Some(&options))
+        .unwrap();
+    assert!(ui.mod_panel_open());
+    assert_eq!(transition_values(&mut ui, 1.5), values(0.5));
+    assert_eq!(transition_values(&mut ui, 2.0), values(1.0));
+    ui.set_mod_panel(PanelUiOwner::Environment(0), Some(&content))
+        .unwrap();
+    assert_eq!(transition_values(&mut ui, 2.0), values(1.0));
+    ui.set_mod_panel_open(false);
+    transition_values(&mut ui, 2.0);
+    assert_eq!(transition_values(&mut ui, 2.5), values(0.5));
+    ui.set_mod_panel_open(true);
+    assert_eq!(transition_values(&mut ui, 2.5), values(0.5));
+    assert_eq!(transition_values(&mut ui, 3.5), values(1.0));
+    ui.set_mod_panel(PanelUiOwner::Environment(1), Some(&options))
+        .unwrap();
+    assert_eq!(transition_values(&mut ui, 3.5), values(0.0));
+    let mut builtin = content.clone();
+    builtin.surface = None;
+    ui.set_mod_panel(PanelUiOwner::Environment(1), Some(&builtin))
+        .unwrap();
+    assert!(ui.mod_panel_open());
+    assert!(!ui.mod_panel_motion_active());
+}

@@ -215,14 +215,7 @@ impl Blur<'_> {
         let stage = render_scene::RuntimeStage::GpuUiBackdrop;
         let profile = self.draw.world.get_resource::<profile::UiProfile>();
         let extent = self.targets.pyramid.scene;
-        let sigma = self
-            .input
-            .indices
-            .get(composite.1.first_index as usize)
-            .and_then(|&index| self.input.vertices.get(index as usize))
-            .map_or(0.0, |vertex| {
-                render_api::UiBackdropPaint::from_overlay(vertex.overlay_color).blur
-            });
+        let sigma = super::backdrop_levels::batch_maximum(self.input, composite.1);
         let Some(bounds) = group_bounds(self.input, run, sigma, extent) else {
             return false;
         };
@@ -230,7 +223,8 @@ impl Blur<'_> {
         let Some((_, source, shapes)) = pyramid.sources.first() else {
             return false;
         };
-        for (level, destination) in pyramid.levels.iter().enumerate() {
+        let levels = super::backdrop_levels::count(sigma, pyramid.levels.len());
+        for (level, destination) in pyramid.levels.iter().take(levels).enumerate() {
             let input = if level == 0 {
                 source
             } else {

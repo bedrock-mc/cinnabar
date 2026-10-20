@@ -149,6 +149,10 @@ pub(crate) fn natural(
             .get("font_type")
             .and_then(Value::as_str)
             .unwrap_or("default"),
+        control
+            .properties
+            .get("backup_font_type")
+            .and_then(Value::as_str),
         width,
         LabelShape::of(control),
     )

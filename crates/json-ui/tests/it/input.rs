@@ -693,6 +693,145 @@ fn path_caps_outside_the_node_survive_primitive_and_scroll_culling() {
     }
 }
 
+#[test]
+fn rounded_shadows_survive_primitive_and_scroll_culling_without_expanding_input() {
+    for scrolling in [false, true] {
+        let rounded = |name, x| {
+            ctrl(
+                name,
+                "custom",
+                json!({
+                    "size":[16,16], "offset":[x,0], "anchor_from":"top_left", "anchor_to":"top_left",
+                    "renderer":json_ui::rounded::RENDERER, "shadow_color":[0,0,0,1], "shadow_blur":4,
+                    "collection_index":0
+                }),
+                vec![],
+            )
+        };
+        let children = vec![rounded("near", -20), rounded("far", -40)];
+        let root = if scrolling {
+            let mut root = screen(vec![scroll_view(200.0)]);
+            root.children[0].children[0].children[0].children = children;
+            root
+        } else {
+            screen(children)
+        };
+        let state = ViewState::default();
+        let normal = json_ui::render_bound(root.clone(), [200.0, 100.0], &env(), &state);
+        let gated = json_ui::render_bound_gated(
+            root,
+            [200.0, 100.0],
+            &env(),
+            &state,
+            &mut json_ui::MeasureCache::default(),
+        );
+        for render in [normal, gated] {
+            let shadow = render
+                .nodes
+                .iter()
+                .find(|node| node.name == "near")
+                .unwrap();
+            assert_eq!(shadow.dest.x, -20.0);
+            assert!(render.nodes.iter().all(|node| node.name != "far"));
+            assert_eq!(shadow.clip.x, 0.0);
+            assert_eq!(shadow.clip.w, if scrolling { 90.0 } else { 200.0 });
+            let hit = render.hits.iter().find(|hit| hit.name == "near").unwrap();
+            assert!(!hit.contains([1.0, 8.0]));
+        }
+    }
+}
+
+#[test]
+fn rounded_shadows_keep_fractional_edges_at_the_scroll_boundary() {
+    struct Snapped;
+    impl TextMeasure for Snapped {
+        /// This geometry-only fixture measures no labels.
+        fn extent(&self, _: &str) -> [f64; 2] {
+            [0.0; 2]
+        }
+        /// Mirrors the painter's separate truncation of positions and ceiling of sizes.
+        fn paint_rect(&self, rect: json_ui::Rect) -> json_ui::Rect {
+            json_ui::Rect::new(rect.x.trunc(), rect.y.trunc(), rect.w.ceil(), rect.h.ceil())
+        }
+    }
+    let env = LayoutEnv {
+        text: &Snapped,
+        textures: &NoTextures,
+    };
+    let mut root = screen(vec![scroll_view(200.0)]);
+    root.children[0].children[0].children[0].children = vec![ctrl(
+        "edge",
+        "custom",
+        json!({
+            "size":[16,16.1],"offset":[0,-30.9],"anchor_from":"top_left","anchor_to":"top_left",
+            "renderer":json_ui::rounded::RENDERER,"shadow_color":[0,0,0,1],"shadow_offset":[0,13.2]
+        }),
+        vec![],
+    )];
+    let state = ViewState::default();
+    let normal = json_ui::render_bound(root.clone(), [200.0, 100.0], &env, &state);
+    let culled = json_ui::render_bound_gated(
+        root,
+        [200.0, 100.0],
+        &env,
+        &state,
+        &mut json_ui::MeasureCache::default(),
+    );
+    assert!(normal.nodes.iter().any(|node| node.name == "edge"));
+    assert!(culled.nodes.iter().any(|node| node.name == "edge"));
+}
+
+#[test]
+fn rounded_shadows_transform_bounds_survive_scroll_and_grid_culling() {
+    for mode in ["own", "parent", "grid"] {
+        let mut leaf = ctrl(
+            "shadow",
+            "custom",
+            json!({"size":[16,16],
+            "offset":[-32,0],"anchor_from":"top_left","anchor_to":"top_left",
+            "renderer":json_ui::rounded::RENDERER,"shadow_color":[0,0,0,1],"shadow_blur":4}),
+            vec![],
+        );
+        let transform = json!({"scale":[1,4],"origin":[0,0]});
+        if mode == "own" {
+            leaf.properties
+                .insert("cinnabar_transform".into(), transform.clone());
+        }
+        let mut root = screen(vec![scroll_view(200.0)]);
+        let content = &mut root.children[0].children[0].children[0];
+        if mode != "own" {
+            content
+                .properties
+                .insert("cinnabar_transform".into(), transform);
+        }
+        if mode == "grid" {
+            content.control_type = Some("grid".into());
+            content.properties.insert("size".into(), json!([16, 200]));
+            content.properties.insert("offset".into(), json!([-32, 0]));
+            content
+                .properties
+                .insert("grid_dimensions".into(), json!([1, 1]));
+            leaf.properties.insert("offset".into(), json!([0, 0]));
+        }
+        content.children = vec![leaf];
+        let state = ViewState::default();
+        let normal = json_ui::render_bound(root.clone(), [200.0, 100.0], &env(), &state);
+        let culled = json_ui::render_bound_gated(
+            root,
+            [200.0, 100.0],
+            &env(),
+            &state,
+            &mut json_ui::MeasureCache::default(),
+        );
+        for result in [normal, culled] {
+            assert!(
+                result.nodes.iter().any(|node| node.name == "shadow"),
+                "{mode}"
+            );
+        }
+    }
+}
+
 /// Builds a one-column scrolling grid with authored path cells.
 fn path_grid(paths: Value) -> ResolvedControl {
     let mut root = screen(vec![scroll_view(200.0)]);

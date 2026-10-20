@@ -676,9 +676,11 @@ impl Canvas<'_> {
             json_ui::vector_path::RENDERER => self
                 .vector_path(data, dest, &alpha)
                 .map(|visual| (visual, dest)),
-            "cinnabar_rounded_rectangle" => self
-                .rounded_rectangle(data, dest, &alpha)
-                .map(|visual| (visual, dest)),
+            json_ui::rounded::RENDERER => {
+                self.rounded_shadow(data, dest, &alpha)?;
+                self.rounded_rectangle(data, dest, &alpha)
+                    .map(|visual| (visual, dest))
+            }
             "progress_bar_renderer" => {
                 self.progress_bar(data, dest, &alpha);
                 None

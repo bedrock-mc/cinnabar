@@ -44,7 +44,8 @@ pub(super) fn guard(
     if owner.host >= runtime.hosts.host_count()
         || owner.host != runtime.hosts.panel_owner()
         || !runtime.hosts.host(owner.host).is_active()
-        || !runtime.hosts.host(owner.host).panel_open()
+        || (!runtime.hosts.host(owner.host).panel_open()
+            && presentation.mod_ui().mod_hud_editor_open())
         || session != Some(owner.session)
         || !focused
         || absorbed
@@ -66,13 +67,13 @@ pub(super) fn collect(runtime: &mut ModRuntime, presentation: &mut UiPresentatio
     if let Some(result) = presentation.mod_ui_mut().take_mod_hud_editor_result()
         && let Some(owner) = runtime.hud_editor_owner
     {
-        if !presentation.mod_ui().mod_hud_editor_open() {
-            runtime.hud_editor_owner = None;
-        }
         let _ = runtime
             .hosts
             .host_mut(owner.host)
             .deliver_hud_editor_result(result);
+    }
+    if !presentation.mod_ui().mod_hud_editor_painting() {
+        runtime.hud_editor_owner = None;
     }
 }
 
@@ -94,7 +95,11 @@ pub(super) fn publish(
             && focused
             && index == panel_owner
             && runtime.hosts.host(index).panel_open()
-            && runtime.hud_editor_owner.is_none()
+            && runtime.hud_editor_owner.is_none_or(|owner| {
+                owner.host == index
+                    && owner.session == session
+                    && !presentation.mod_ui().mod_hud_editor_open()
+            })
             && presentation
                 .mod_ui_mut()
                 .open_mod_hud_editor(&preview)

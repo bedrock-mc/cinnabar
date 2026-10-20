@@ -19,8 +19,10 @@ pub(super) fn engine_model(
     in_game: bool,
     translate: &dyn Fn(&str) -> Option<Arc<str>>,
     remote: &dyn Fn(&str) -> RemoteImage,
-    resolve: &dyn Fn(&protocol::FormText) -> String,
+    resolve_text: &dyn Fn(&protocol::FormText, &protocol::FormTextBudget) -> String,
 ) -> Option<FormModel> {
+    let budget = protocol::FormTextBudget::default();
+    let resolve = &|text: &protocol::FormText| resolve_text(text, &budget);
     Some(match model {
         ServerFormModel::TextMenu(menu) => FormModel::Action(ActionForm {
             title: resolve(&menu.title),
@@ -78,13 +80,20 @@ pub(super) fn engine_model(
                     .iter()
                     .enumerate()
                     .map(|(index, element)| {
-                        custom_element(index, element, state, in_game, resolve, &slider_format)
+                        custom_element(
+                            index,
+                            element,
+                            state,
+                            in_game,
+                            resolve,
+                            &slider_format,
+                            &budget,
+                        )
                     })
                     .collect(),
                 submit_text: match &form.submit {
                     Some(text) => resolve(text),
-                    None => translate("gui.submit")
-                        .map_or_else(|| "Submit".to_owned(), |text| text.to_string()),
+                    None => budget.copy(translate("gui.submit").as_deref().unwrap_or("Submit")),
                 },
                 submit_visible: true,
             })
@@ -117,6 +126,7 @@ fn custom_element(
     in_game: bool,
     resolve: &dyn Fn(&protocol::FormText) -> String,
     slider_format: &str,
+    budget: &protocol::FormTextBudget,
 ) -> CustomElement {
     let value = state.values.get(index);
     let tooltip =
@@ -159,9 +169,12 @@ fn custom_element(
             };
             CustomElement::Slider {
                 enabled: control_locked.is_enabled(in_game),
-                text: protocol::format_translation(
+                text: budget.format_translation(
                     slider_format,
-                    &[resolve(text), number_text(current, step.get())],
+                    &[
+                        resolve(text),
+                        budget.copy(&number_text(current, step.get())),
+                    ],
                 ),
                 fraction: slider_fraction(min.get(), max.get(), current),
                 tooltip: tooltip(tip),
@@ -181,7 +194,7 @@ fn custom_element(
             };
             CustomElement::StepSlider {
                 enabled: control_locked.is_enabled(in_game),
-                text: protocol::format_translation(
+                text: budget.format_translation(
                     slider_format,
                     &[
                         resolve(text),
@@ -230,6 +243,7 @@ fn custom_element(
             default,
             tooltip: tip,
         } => {
+            // Editable values have their own admission limit; clipping them here would rewrite the draft.
             let current = match value {
                 Some(FormValue::Text(current)) => current.clone(),
                 _ => default.to_string(),
@@ -261,6 +275,209 @@ mod control_locked_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn form_display_model_shares_expansion_budget_across_all_buttons() {
+        // The smaller case fails safely before attempting the full amplification case.
+        for count in [32, 4_096] {
+            let source = serde_json::json!({"type":"form", "title":"Title", "content":"Body",
+                "buttons":vec![serde_json::json!({"text":{"rawtext":[{"translate":"large"}]}}); count]
+            }).to_string();
+            assert!(source.len() < protocol::MAX_FORM_JSON_BYTES);
+            let packet = protocol::test_support::packets::modal_form_request_packet(1, &source);
+            let Some(protocol::WorldEvent::Ui(protocol::UiEvent::Form(event))) =
+                protocol::into_world_event(packet, 0).unwrap()
+            else {
+                panic!("server form");
+            };
+            let mut runtime = crate::ui_runtime::UiRuntime::new(1);
+            runtime.set_server_lang(assets::ServerLangOverlay::from_layers([format!(
+                "large={}\n",
+                "x".repeat(protocol::MAX_FORM_JSON_BYTES)
+            )]));
+            let state = FormEngineState::for_model(&event.model);
+            let Some(FormModel::Action(form)) = engine_model(
+                &event.model,
+                &state,
+                true,
+                &|key| runtime.translation(key),
+                &|_| RemoteImage::Failed,
+                &|text, budget| runtime.resolve_form_text(text, budget),
+            ) else {
+                panic!("action form");
+            };
+            let labels: Vec<_> = form
+                .elements
+                .iter()
+                .map(|element| match element {
+                    ActionElement::Button(button) => button.text.as_str(),
+                    _ => panic!("button"),
+                })
+                .collect();
+            let retained = form.title.len()
+                + form.body.len()
+                + labels.iter().map(|text| text.len()).sum::<usize>();
+            assert!(
+                retained <= protocol::MAX_FORM_TEXT_EXPANSION_BYTES,
+                "{count} buttons retained {retained} bytes"
+            );
+            assert_eq!(labels.len(), count);
+            assert_eq!(form.title, "Title");
+            assert_eq!(form.body, "Body");
+            assert!(labels[0].chars().all(|character| character == 'x'));
+            assert_eq!(labels.last(), Some(&""));
+        }
+    }
+
+    #[test]
+    fn form_display_model_shares_expansion_budget_with_slider_formats_and_submit() {
+        let source = serde_json::json!({"type":"custom_form", "content":vec![
+            serde_json::json!({"type":"slider", "text":"Label", "tooltip":"Tip", "min":0, "max":10}); 32
+        ]}).to_string();
+        let packet = protocol::test_support::packets::modal_form_request_packet(1, &source);
+        let Some(protocol::WorldEvent::Ui(protocol::UiEvent::Form(event))) =
+            protocol::into_world_event(packet, 0).unwrap()
+        else {
+            panic!("server form");
+        };
+        let state = FormEngineState::for_model(&event.model);
+        let template: Arc<str> = "x".repeat(protocol::MAX_FORM_JSON_BYTES).into();
+        let Some(FormModel::Custom(form)) = engine_model(
+            &event.model,
+            &state,
+            true,
+            &|_| Some(Arc::clone(&template)),
+            &|_| RemoteImage::Failed,
+            &|text, budget| budget.copy(text),
+        ) else {
+            panic!("custom form");
+        };
+        let retained = form.title.len()
+            + form.submit_text.len()
+            + form
+                .elements
+                .iter()
+                .map(|element| {
+                    let CustomElement::Slider { text, tooltip, .. } = element else {
+                        panic!("slider");
+                    };
+                    text.len() + tooltip.len()
+                })
+                .sum::<usize>();
+        assert!(retained <= protocol::MAX_FORM_TEXT_EXPANSION_BYTES);
+        assert!(form.submit_text.is_empty());
+        assert!(
+            matches!(form.elements.last(), Some(CustomElement::Slider { text, tooltip, .. })
+            if text.is_empty() && tooltip.is_empty())
+        );
+    }
+
+    /// An exhausted display budget must not clip an input's value, which seeds its edit draft.
+    #[test]
+    fn exhausted_display_budget_keeps_input_values_whole() {
+        let mut content =
+            vec![serde_json::json!({"type":"slider", "text":"Label", "min":0, "max":10}); 32];
+        content.push(serde_json::json!({"type":"input", "text":"Name", "default":"keep me"}));
+        let source = serde_json::json!({"type":"custom_form", "content":content}).to_string();
+        let packet = protocol::test_support::packets::modal_form_request_packet(1, &source);
+        let Some(protocol::WorldEvent::Ui(protocol::UiEvent::Form(event))) =
+            protocol::into_world_event(packet, 0).unwrap()
+        else {
+            panic!("server form");
+        };
+        let state = FormEngineState::for_model(&event.model);
+        let template: Arc<str> = "x".repeat(protocol::MAX_FORM_JSON_BYTES).into();
+        let Some(FormModel::Custom(form)) = engine_model(
+            &event.model,
+            &state,
+            true,
+            &|_| Some(Arc::clone(&template)),
+            &|_| RemoteImage::Failed,
+            &|text, budget| budget.copy(text),
+        ) else {
+            panic!("custom form");
+        };
+        assert!(
+            matches!(form.elements.last(), Some(CustomElement::Input { text, value, .. })
+            if text.is_empty() && value == "keep me")
+        );
+    }
+
+    #[test]
+    fn form_display_model_preserves_complete_long_slider_labels_and_steps() {
+        let long = "世界🙂".repeat(4_000);
+        let source = serde_json::json!({"type":"custom_form", "content":[
+            {"type":"slider", "text":long, "min":0, "max":10, "default":5},
+            {"type":"step_slider", "text":long, "steps":[long]}
+        ]})
+        .to_string();
+        let packet = protocol::test_support::packets::modal_form_request_packet(1, &source);
+        let Some(protocol::WorldEvent::Ui(protocol::UiEvent::Form(event))) =
+            protocol::into_world_event(packet, 0).unwrap()
+        else {
+            panic!("server form");
+        };
+        let state = FormEngineState::for_model(&event.model);
+        let Some(FormModel::Custom(form)) = engine_model(
+            &event.model,
+            &state,
+            true,
+            &|key| (key == "options.sliderLabelFormat").then(|| Arc::from("%s|%s")),
+            &|_| RemoteImage::Failed,
+            &|text, budget| budget.copy(text),
+        ) else {
+            panic!("custom form");
+        };
+        let [
+            CustomElement::Slider { text: slider, .. },
+            CustomElement::StepSlider { text: step, .. },
+        ] = form.elements.as_slice()
+        else {
+            panic!("sliders");
+        };
+        assert_eq!(slider.len(), long.len() + 2);
+        assert_eq!(slider, &format!("{long}|5"));
+        assert_eq!(step.len(), long.len() * 2 + 1);
+        assert_eq!(step, &format!("{long}|{long}"));
+    }
+
+    #[test]
+    fn form_display_model_preserves_complete_long_literal_and_translated_labels() {
+        let long = "世界🙂".repeat(4_000);
+        assert!(long.len() > protocol::MAX_UI_TEXT_BYTES);
+        let source = serde_json::json!({"type":"form",
+            "title":{"rawtext":[{"translate":"long"}]}, "content":long,
+            "buttons":[{"text":{"rawtext":[{"text":long}]}}]
+        })
+        .to_string();
+        let packet = protocol::test_support::packets::modal_form_request_packet(1, &source);
+        let Some(protocol::WorldEvent::Ui(protocol::UiEvent::Form(event))) =
+            protocol::into_world_event(packet, 0).unwrap()
+        else {
+            panic!("server form");
+        };
+        let mut runtime = crate::ui_runtime::UiRuntime::new(1);
+        runtime.set_server_lang(assets::ServerLangOverlay::from_layers([format!(
+            "long={long}\n"
+        )]));
+        let state = FormEngineState::for_model(&event.model);
+        let Some(FormModel::Action(form)) = engine_model(
+            &event.model,
+            &state,
+            true,
+            &|key| runtime.translation(key),
+            &|_| RemoteImage::Failed,
+            &|text, budget| runtime.resolve_form_text(text, budget),
+        ) else {
+            panic!("action form");
+        };
+        assert_eq!(form.title, long);
+        assert_eq!(form.body, long);
+        let ActionElement::Button(button) = &form.elements[0] else {
+            panic!("button");
+        };
+        assert_eq!(button.text, long);
+    }
 
     #[test]
     fn decorated_menu_button_images_use_the_shared_engine_route() {
@@ -297,7 +514,7 @@ mod tests {
                 true,
                 &|_| None,
                 &|_| remote.clone(),
-                &|text| text.to_string(),
+                &|text, budget| budget.copy(text),
             ) else {
                 panic!("action form");
             };
@@ -338,7 +555,7 @@ mod tests {
             true,
             &|key| (key == "options.sliderLabelFormat").then(|| Arc::from("%s : %s")),
             &|_| RemoteImage::Failed,
-            &|text| text.to_string(),
+            &|text, budget| budget.copy(text),
         ) else {
             panic!("custom form");
         };
