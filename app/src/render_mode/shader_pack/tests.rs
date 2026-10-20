@@ -126,6 +126,7 @@ fn reselecting_a_failed_pack_requests_another_load() {
     select(&mut app, RenderMode::ShaderPack, Some("Dusk.zip"));
     app.update();
     let path = requested(&app).unwrap();
+    let previous = app.world().resource::<ShaderPackRequest>().clone();
     app.insert_resource(ShaderPackStatus::Failed {
         pack: path.clone(),
         reason: "pack was missing".into(),
@@ -138,10 +139,11 @@ fn reselecting_a_failed_pack_requests_another_load() {
     }
     app.update();
     assert_eq!(requested(&app), Some(path));
-    assert!(app.world().resource_ref::<ShaderPackRequest>().is_changed());
+    let reselected = app.world().resource::<ShaderPackRequest>().clone();
+    assert_ne!(reselected, previous);
     app.world_mut().clear_trackers();
     app.update();
-    assert!(!app.world().resource_ref::<ShaderPackRequest>().is_changed());
+    assert_eq!(app.world().resource::<ShaderPackRequest>(), &reselected);
 }
 
 #[cfg(feature = "shaderpacks")]
