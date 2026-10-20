@@ -9,6 +9,66 @@ use super::upload::{COLOR_STORAGE_FORMAT, PBR_FORMAT, upload_atlas};
 use super::*;
 use assets::texture::{PBR_REF_LABPBR, PBR_REF_NORMAL};
 
+/// Builds the production blend shader and attachment layouts for GPU readback checks.
+fn pipelines(
+    device: &wgpu::Device,
+) -> (
+    wgpu::RenderPipeline,
+    wgpu::RenderPipeline,
+    wgpu::BindGroupLayout,
+) {
+    let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: None,
+        entries: &BLEND_SOURCE_ENTRIES,
+    });
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: None,
+        bind_group_layouts: &[Some(&layout)],
+        immediate_size: 0,
+    });
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("shader-pack frame blend"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("blend.wgsl").into()),
+    });
+    let pipeline = |entry_point: &str, formats: &[wgpu::TextureFormat]| {
+        let targets = formats
+            .iter()
+            .map(|&format| Some(format.into()))
+            .collect::<Vec<_>>();
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: None,
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &module,
+                entry_point: Some("vertex"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: size_of::<BlendInstance>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &BLEND_INSTANCE_ATTRIBUTES,
+                })],
+            },
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &module,
+                entry_point: Some(entry_point),
+                compilation_options: Default::default(),
+                targets: &targets,
+            }),
+            multiview_mask: None,
+            cache: None,
+        })
+    };
+    let colour = pipeline("fragment_colour", &[COLOR_STORAGE_FORMAT]);
+    let layers = pipeline(
+        "fragment_layers",
+        &[COLOR_STORAGE_FORMAT, PBR_FORMAT, PBR_FORMAT],
+    );
+    (colour, layers, layout)
+}
+
 /// Reads one level of a colour atlas back as encoded bytes.
 fn read_level(gpu: &crate::gpu_snapshot::Gpu, texture: &wgpu::Texture, level: u32) -> MipImages {
     let (width, height) = (texture.width() >> level, texture.height() >> level);
@@ -63,43 +123,6 @@ fn read_level(gpu: &crate::gpu_snapshot::Gpu, texture: &wgpu::Texture, level: u3
     }
 }
 
-fn decode(value: u8) -> f32 {
-    let value = f32::from(value) / 255.0;
-    if value <= 0.040_45 {
-        value / 12.92
-    } else {
-        ((value + 0.055) / 1.055).powf(2.4)
-    }
-}
-
-fn encode(value: f32) -> u8 {
-    let value = if value <= 0.003_130_8 {
-        value * 12.92
-    } else {
-        1.055 * value.powf(1.0 / 2.4) - 0.055
-    };
-    (value.clamp(0.0, 1.0) * 255.0).round() as u8
-}
-
-/// The chunk shaders' frame mix: sampled (decoded) colour and linear alpha.
-fn blended(current: &[u8], next: &[u8], weight: f32) -> Vec<u8> {
-    current
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .zip(next.as_chunks::<4>().0)
-        .flat_map(|(a, b)| {
-            let mut texel = [0; 4];
-            for channel in 0..3 {
-                let mixed = decode(a[channel]) * (1.0 - weight) + decode(b[channel]) * weight;
-                texel[channel] = encode(mixed);
-            }
-            texel[3] = (f32::from(a[3]) * (1.0 - weight) + f32::from(b[3]) * weight).round() as u8;
-            texel
-        })
-        .collect()
-}
-
 /// The LabPBR frame mix: linear channels.
 fn blended_linear(current: &[u8], next: &[u8], weight: f32) -> Vec<u8> {
     current
@@ -117,62 +140,7 @@ fn animated_display_sprites_show_the_clock_frame_after_an_update() {
     else {
         return;
     };
-    let layout = gpu
-        .device
-        .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: None,
-            entries: &BLEND_SOURCE_ENTRIES,
-        });
-    let pipeline_layout = gpu
-        .device
-        .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[Some(&layout)],
-            immediate_size: 0,
-        });
-    let module = gpu
-        .device
-        .create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("shader-pack frame blend"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("blend.wgsl").into()),
-        });
-    let pipeline = |entry_point: &str, formats: &[wgpu::TextureFormat]| {
-        let targets = formats
-            .iter()
-            .map(|&format| Some(format.into()))
-            .collect::<Vec<_>>();
-        gpu.device
-            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: None,
-                layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &module,
-                    entry_point: Some("vertex"),
-                    compilation_options: Default::default(),
-                    buffers: &[Some(wgpu::VertexBufferLayout {
-                        array_stride: size_of::<BlendInstance>() as u64,
-                        step_mode: wgpu::VertexStepMode::Instance,
-                        attributes: &BLEND_INSTANCE_ATTRIBUTES,
-                    })],
-                },
-                primitive: Default::default(),
-                depth_stencil: None,
-                multisample: Default::default(),
-                fragment: Some(wgpu::FragmentState {
-                    module: &module,
-                    entry_point: Some(entry_point),
-                    compilation_options: Default::default(),
-                    targets: &targets,
-                }),
-                multiview_mask: None,
-                cache: None,
-            })
-    };
-    let colour = pipeline("fragment_colour", &[COLOR_STORAGE_FORMAT]);
-    let layers = pipeline(
-        "fragment_layers",
-        &[COLOR_STORAGE_FORMAT, PBR_FORMAT, PBR_FORMAT],
-    );
+    let (colour, layers, layout) = pipelines(&gpu.device);
     let pipelines = BlendPipelines {
         colour: &colour,
         layers: &layers,
@@ -228,7 +196,7 @@ fn animated_display_sprites_show_the_clock_frame_after_an_update() {
                 expected(0, 4, level, side),
                 "authored {authored}, mip {level}"
             );
-            let wanted = blended(
+            let wanted = blended_linear(
                 &expected(0, 4, level, side),
                 &expected(0, 5, level, side),
                 0.75,
@@ -259,6 +227,97 @@ fn animated_display_sprites_show_the_clock_frame_after_an_update() {
                     "normal mip {level}: {got} vs {want}"
                 );
             }
+        }
+    }
+}
+
+#[test]
+fn blends_preserve_encoded_colour_and_decode_no_emission_codes() {
+    let Some(gpu) =
+        crate::gpu_snapshot::Gpu::for_fixture("shader-pack encoded colour and emission blending")
+    else {
+        return;
+    };
+    let (colour, layers, layout) = pipelines(&gpu.device);
+    let fixture = fixture();
+    let plan = fixture.with_inputs(None, |inputs| plan_atlas(inputs, 4096).unwrap());
+    let display = plan.animations[1].as_ref().unwrap();
+    for (a, b, wanted) in [(0, 255, 0), (255, 128, 64), (128, 255, 64), (64, 192, 128)] {
+        let mut images = fixture.with_inputs(None, |inputs| build_images(inputs, &plan));
+        let frames = images.frames.as_mut().unwrap();
+        frames.pbr = Some([
+            MipImages::filled(
+                frames.color.width,
+                frames.color.height,
+                plan.mip_levels,
+                [128, 128, 255, 255],
+            ),
+            MipImages::filled(
+                frames.color.width,
+                frames.color.height,
+                plan.mip_levels,
+                [0; 4],
+            ),
+        ]);
+        for level in 0..plan.mip_levels {
+            for (reference, colour, emission) in [
+                (tests::reference(0, 3), 0, a),
+                (tests::reference(0, 4), 255, b),
+            ] {
+                let rect = display.frame(reference).unwrap();
+                let count = (rect.side >> level).pow(2) as usize;
+                frames
+                    .color
+                    .blit(level, rect, &[colour, colour, colour, 255].repeat(count));
+                frames.pbr.as_mut().unwrap()[1].blit(
+                    level,
+                    rect,
+                    &[0, 0, 0, emission].repeat(count),
+                );
+            }
+        }
+        let uploaded = upload_atlas(&gpu.device, &gpu.queue, &plan, &images);
+        let mut animations = AtlasAnimations::new(
+            &uploaded,
+            &fixture.animations,
+            &fixture.frames,
+            plan.animations.clone(),
+            plan.mip_levels,
+            [plan.atlas.width, plan.atlas.height],
+        );
+        animations.bind_blend_sources(&gpu.device, &layout);
+        let mut encoder = gpu.device.create_command_encoder(&Default::default());
+        animations.encode(
+            &gpu.device,
+            &gpu.queue,
+            &mut encoder,
+            ChunkAnimationClock::from_parts(1, 0.0),
+            Some(BlendPipelines {
+                colour: &colour,
+                layers: &layers,
+            }),
+        );
+        gpu.queue.submit([encoder.finish()]);
+        for level in 0..plan.mip_levels {
+            let colour =
+                read_level(&gpu, &uploaded.atlas.color, level).read(level, display.display);
+            assert!(
+                colour
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|texel| texel[0].abs_diff(128) <= 1)
+            );
+            let specular = read_level(&gpu, &uploaded.atlas.pbr.as_ref().unwrap()[1], level)
+                .read(level, display.display);
+            assert!(
+                specular
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|texel| texel[3].abs_diff(wanted) <= 1),
+                "{a} to {b} at mip {level}"
+            );
         }
     }
 }

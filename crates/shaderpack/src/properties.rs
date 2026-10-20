@@ -212,12 +212,12 @@ pub enum BlendFactor {
     SrcAlphaSaturate,
 }
 
-/// `alphaTest.<program>=off` or `<FUNC> <ref>` (FUNC: NEVER LESS EQUAL LEQUAL GREATER NOTEQUAL GEQUAL ALWAYS).
+/// `alphaTest.<program>=off` / `false` or `<FUNC> <ref>` (FUNC: NEVER LESS EQUAL LEQUAL GREATER NOTEQUAL GEQUAL ALWAYS).
 #[derive(Debug, Clone, PartialEq)]
 pub struct AlphaTestRule {
     /// Program the override applies to.
     pub program: String,
-    /// The alpha test, or `None` when the key is `off`.
+    /// The alpha test, or `None` when the value is `off` or `false`.
     pub test: Option<AlphaTest>,
 }
 

@@ -1,6 +1,7 @@
 //! Top-level item splitting, the light declaration parser, and GLSL type helpers.
 
-use crate::token::{Tok, TokKind, int};
+use crate::token::{Tok, TokKind, int, p};
+use std::collections::HashSet;
 
 /// Storage, interpolation and precision qualifiers recognised before a declaration's type.
 pub(super) const QUALIFIERS: &[&str] = &[
@@ -107,22 +108,12 @@ pub(super) fn matching(toks: &[Tok], open_idx: usize, open: &str, close: &str) -
 
 /// Splits call arguments at top-level commas.
 pub(super) fn split_args(toks: &[Tok]) -> Vec<Vec<Tok>> {
-    let mut out: Vec<Vec<Tok>> = vec![];
-    let mut cur = vec![];
-    let mut depth = 0;
-    for t in toks {
-        if t.is("(") || t.is("[") || t.is("{") {
-            depth += 1;
-        } else if t.is(")") || t.is("]") || t.is("}") {
-            depth -= 1;
-        } else if t.is(",") && depth == 0 {
-            out.push(std::mem::take(&mut cur));
-            continue;
-        }
-        cur.push(t.clone());
-    }
-    if !cur.is_empty() {
-        out.push(cur);
+    let mut out = Vec::new();
+    let mut start = 0;
+    while start < toks.len() {
+        let end = assignment_end(toks, start);
+        out.push(toks[start..end].to_vec());
+        start = end + 1;
     }
     out
 }
@@ -145,12 +136,11 @@ pub(super) fn func_params(toks: &[Tok]) -> Option<(usize, Vec<Param>)> {
             continue;
         }
         let opaque = a.iter().any(|t| t.ident().is_some_and(is_opaque));
-        let name = a
-            .iter()
-            .rev()
-            .find_map(|t| t.ident())
-            .unwrap_or("")
-            .to_string();
+        let mut declaration = a.clone();
+        declaration.push(p(";"));
+        let name = parse_decl(&declaration)
+            .and_then(|d| d.decls.first().map(|d| d.0.clone()))
+            .unwrap_or_default();
         params.push(Param {
             toks: a,
             opaque,
@@ -264,19 +254,9 @@ pub(super) fn parse_decl(toks: &[Tok]) -> Option<Decl> {
         let mut init = vec![];
         if toks.get(i)?.is("=") {
             i += 1;
-            let mut depth = 0;
-            while i < last {
-                let t = &toks[i];
-                if t.is("(") || t.is("[") || t.is("{") {
-                    depth += 1;
-                } else if t.is(")") || t.is("]") || t.is("}") {
-                    depth -= 1;
-                } else if t.is(",") && depth == 0 {
-                    break;
-                }
-                init.push(t.clone());
-                i += 1;
-            }
+            let end = assignment_end(toks, i);
+            init.extend_from_slice(&toks[i..end]);
+            i = end;
         }
         decls.push((name, arr, init));
         if toks.get(i)?.is(",") {
@@ -432,6 +412,21 @@ mod tests {
     }
 
     #[test]
+    fn loop_binding_ends_at_the_statement_boundary() {
+        let tokens = lex(
+            "{ for (int enabled = 0; enabled < 2; enabled++) { float value = float(enabled); } bool result = enabled; }",
+        );
+        let bound = shadowed_bindings(&tokens, ["enabled"]);
+        let flags: Vec<_> = tokens
+            .iter()
+            .enumerate()
+            .filter(|(_, token)| token.ident() == Some("enabled"))
+            .map(|(i, _)| bound.contains(&i))
+            .collect();
+        assert_eq!(flags, [true, true, true, true, false]);
+    }
+
+    #[test]
     fn top_level_items_split_at_semicolons_and_function_bodies() {
         let toks =
             lex("uniform float a; struct S { float x; }; void f(int i) { a = 1.0; } out vec4 c;");
@@ -495,4 +490,231 @@ mod tests {
             ["std430"]
         );
     }
+}
+
+/// Finds every local declarator with the shared declaration parser, excluding initializer uses.
+pub(super) fn local_declarators(toks: &[Tok]) -> HashSet<usize> {
+    let mut names = HashSet::new();
+    for (_, end, declaration) in declarations(toks) {
+        let mut cursor = end;
+        for (_, array, initializer) in declaration.decls.iter().rev() {
+            cursor -= initializer.len() + usize::from(!initializer.is_empty()) + array.len() + 1;
+            names.insert(cursor);
+            cursor = cursor.saturating_sub(1);
+        }
+    }
+    names
+}
+
+/// Finds declaration statements and their inclusive token ranges with the shared parser.
+fn declarations(toks: &[Tok]) -> Vec<(usize, usize, Decl)> {
+    let mut declarations = Vec::new();
+    for start in 0..toks.len() {
+        if start > 0
+            && !toks[start - 1].is("{")
+            && !toks[start - 1].is(";")
+            && !toks[start - 1].is("}")
+            && !toks[start - 1].is(":")
+            && !(toks[start - 1].is("(") && start > 1 && toks[start - 2].ident() == Some("for"))
+        {
+            continue;
+        }
+        let mut depth = 0;
+        let end = (start..toks.len()).find(|&index| {
+            let token = &toks[index];
+            if token.is("(") || token.is("[") {
+                depth += 1;
+            } else if token.is(")") || token.is("]") {
+                depth -= 1;
+            }
+            depth < 0 || (token.is(";") || token.is("{") || token.is("}")) && depth == 0
+        });
+        let Some(end) = end.filter(|&end| toks[end].is(";")) else {
+            continue;
+        };
+        let Some(declaration) = parse_decl(&toks[start..=end]) else {
+            continue;
+        };
+        if matches!(declaration.ty.as_str(), "return" | "else" | "do" | "case") {
+            continue;
+        }
+        declarations.push((start, end, declaration));
+    }
+    declarations
+}
+
+/// Marks declaration array bounds, constant initializers, and switch case expressions.
+pub(super) fn constant_contexts(tokens: &[Tok]) -> HashSet<usize> {
+    let mut constant = HashSet::new();
+    for (start, end, declaration) in declarations(tokens) {
+        if declaration.has("const") {
+            constant.extend(start..end);
+            continue;
+        }
+        // Initializer indexing is runtime; only brackets preceding each initializer are bounds.
+        let mut cursor = end;
+        for (_, array, initializer) in declaration.decls.iter().rev() {
+            cursor -= initializer.len() + usize::from(!initializer.is_empty()) + array.len();
+            constant.extend(cursor..cursor + array.len());
+            cursor = cursor.saturating_sub(2);
+        }
+        if !declaration.ty_arr.is_empty()
+            && let Some(open) = tokens[start..=end].iter().position(|token| token.is("["))
+        {
+            constant.extend(start + open..start + open + declaration.ty_arr.len());
+        }
+    }
+    let mut offset = 0;
+    for item in split_items(tokens) {
+        if parse_decl(&item).is_some() {
+            constant.extend(offset..offset + item.len());
+        }
+        offset += item.len();
+    }
+    for (i, token) in tokens.iter().enumerate() {
+        if token.ident() == Some("case") {
+            constant.extend(i..assignment_end(tokens, i + 1));
+        }
+    }
+    constant
+}
+
+/// Finds the end of an assignment's right operand, including nested conditional expressions.
+pub(super) fn assignment_end(tokens: &[Tok], start: usize) -> usize {
+    let mut conditional = 0;
+    let mut i = start;
+    while i < tokens.len() {
+        let token = &tokens[i];
+        if token.is("(") || token.is("[") || token.is("{") {
+            let close = match token.text() {
+                "(" => ")",
+                "[" => "]",
+                _ => "}",
+            };
+            i = matching(tokens, i, token.text(), close);
+        } else if token.is("?") {
+            conditional += 1;
+        } else if token.is(":") {
+            if conditional == 0 {
+                return i;
+            }
+            conditional -= 1;
+        } else if token.is(";")
+            || token.is(")")
+            || token.is("]")
+            || token.is("}")
+            || token.is(",") && conditional == 0
+        {
+            return i;
+        }
+        i += 1;
+    }
+    i
+}
+
+/// Returns the token after one complete statement, including attached else and do/while parts.
+fn statement_end(tokens: &[Tok], start: usize) -> usize {
+    enum Part {
+        Statement,
+        Else,
+        While,
+    }
+    let mut parts = vec![Part::Statement];
+    let mut cursor = start;
+    while let Some(part) = parts.pop() {
+        match part {
+            Part::Else => {
+                if tokens.get(cursor).and_then(Tok::ident) == Some("else") {
+                    cursor += 1;
+                    parts.push(Part::Statement);
+                }
+            }
+            Part::While => {
+                cursor += 1;
+                if tokens.get(cursor).is_some_and(|token| token.is("(")) {
+                    cursor = matching(tokens, cursor, "(", ")") + 1;
+                }
+                cursor += usize::from(tokens.get(cursor).is_some_and(|token| token.is(";")));
+            }
+            Part::Statement => {
+                let Some(token) = tokens.get(cursor) else {
+                    return tokens.len();
+                };
+                if token.is("{") {
+                    cursor = matching(tokens, cursor, "{", "}") + 1;
+                } else if matches!(token.ident(), Some("if" | "for" | "while" | "switch")) {
+                    if token.ident() == Some("if") {
+                        parts.push(Part::Else);
+                    }
+                    cursor = matching(tokens, cursor + 1, "(", ")") + 1;
+                    parts.push(Part::Statement);
+                } else if token.ident() == Some("do") {
+                    cursor += 1;
+                    parts.extend([Part::While, Part::Statement]);
+                } else {
+                    while cursor < tokens.len() {
+                        if tokens[cursor].is(";") {
+                            cursor += 1;
+                            break;
+                        }
+                        if tokens[cursor].is("(") {
+                            cursor = matching(tokens, cursor, "(", ")");
+                        } else if tokens[cursor].is("[") {
+                            cursor = matching(tokens, cursor, "[", "]");
+                        }
+                        cursor += 1;
+                    }
+                }
+            }
+        }
+    }
+    cursor
+}
+
+/// Identifies declarations and uses that hide the supplied names in their lexical scope.
+pub(super) fn shadowed_bindings<'a>(
+    tokens: &[Tok],
+    names: impl IntoIterator<Item = &'a str>,
+) -> std::collections::HashSet<usize> {
+    let names: std::collections::HashSet<_> = names.into_iter().collect();
+    let declarators = local_declarators(tokens);
+    let mut scopes: Vec<(Vec<&str>, usize)> = vec![(vec![], tokens.len() + 1)];
+    let mut pending = None;
+    let mut depth = 0;
+    let mut shadowed = std::collections::HashSet::new();
+    for (i, token) in tokens.iter().enumerate() {
+        while scopes.last().is_some_and(|(_, end)| *end <= i) {
+            scopes.pop();
+        }
+        if token.ident() == Some("for") && tokens.get(i + 1).is_some_and(|token| token.is("(")) {
+            let header_end = matching(tokens, i + 1, "(", ")");
+            scopes.push((vec![], statement_end(tokens, header_end + 1)));
+        } else if token.is("{") {
+            scopes.push((vec![], matching(tokens, i, "{", "}") + 1));
+        }
+        if token.is("(") {
+            depth += 1;
+        } else if token.is(")") {
+            depth -= 1;
+        } else if (token.is(";") || token.is(","))
+            && let Some((name, declared_depth)) = pending
+            && declared_depth == depth
+        {
+            scopes.last_mut().unwrap().0.push(name);
+            pending = None;
+        }
+        let Some(name) = token.ident().filter(|name| names.contains(name)) else {
+            continue;
+        };
+        if i > 0 && tokens[i - 1].is(".") {
+            continue;
+        }
+        if declarators.contains(&i) {
+            pending = Some((name, depth));
+            shadowed.insert(i);
+        } else if scopes.iter().any(|(scope, _)| scope.contains(&name)) {
+            shadowed.insert(i);
+        }
+    }
+    shadowed
 }
