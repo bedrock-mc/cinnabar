@@ -1,7 +1,7 @@
 //! Ordered frame-budget reservations over disjoint actor samples.
-use rayon::prelude::*;
-
 use super::*;
+
+mod workers;
 
 /// Minimum costly samples before dispatching to the shared pool.
 const MIN_PARALLEL_SAMPLES: usize = 8;
@@ -16,6 +16,7 @@ impl<'a> ActorRenderFrame<'a> {
     /// Samples the requested actors in order, sharing results with later frame consumers.
     /// Workers receive full actor allowances only when their whole run fits the frame budget;
     /// the remaining tail uses the serial allowance, including its exact exhaustion point.
+    /// The caller runs unclaimed work and never waits for a helper that has not started.
     pub fn sample_ordered(&mut self, runtime_ids: &[u64]) {
         if runtime_ids.len() < MIN_PARALLEL_SAMPLES
             || self.remaining_ops / MAX_MOLANG_OPS_PER_ACTOR_FRAME < MIN_PARALLEL_SAMPLES
@@ -54,18 +55,7 @@ impl<'a> ActorRenderFrame<'a> {
                 .filter(|sample| self.needs_worker(sample.id))
                 .count();
             if costly >= MIN_PARALLEL_SAMPLES && rayon::current_num_threads() > 1 {
-                run.par_iter_mut().for_each(|sample| {
-                    let mut left = MAX_MOLANG_OPS_PER_ACTOR_FRAME;
-                    sample.layers = Self::sample(
-                        self.store,
-                        self.actors,
-                        (self.camera_rotation, self.camera_position, self.alpha),
-                        sample.id,
-                        &mut left,
-                        true,
-                    );
-                    sample.used = MAX_MOLANG_OPS_PER_ACTOR_FRAME - left;
-                });
+                workers::sample(run, self);
                 for sample in run {
                     self.remaining_ops -= sample.used;
                 }

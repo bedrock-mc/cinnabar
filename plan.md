@@ -213,8 +213,8 @@ with [client presentation](crates/client-presentation/src/lib.rs) and
 [rendering](crates/render/src/lib.rs). The open gates require complete behavioral
 and rendered qualification, not initial implementation of those systems.
 Frame sampling retains matching expression, layer and composition results and evaluates
-remote body batches on the shared pool with ordered budget reservations. Equipment
-placement reuses unchanged owner and attachment inputs. Hardware crowd captures and
+remote body batches on the caller and available shared workers with ordered budget
+reservations. Equipment placement reuses unchanged owner and attachment inputs. Hardware crowd captures and
 full temporal/visual qualification remain open.
 
 Pure numeric Molang expressions use bound f32 lane programs with load fusion;

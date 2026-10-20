@@ -1,8 +1,10 @@
 use super::*;
 use assets::*;
 
+mod pool;
+
 /// Independent players whose frame programs read walk, swing, variables and random draws.
-fn crowd(count: u64, padding: usize) -> (ActorAnimationStore, HashMap<u64, TestActor>) {
+pub(super) fn crowd(count: u64, padding: usize) -> (ActorAnimationStore, HashMap<u64, TestActor>) {
     let mut compiled = crate::test_support::counting_random_compiled(
         assets::facts::VanillaEntity::Player.identifier(),
     );
