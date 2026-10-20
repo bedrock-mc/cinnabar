@@ -690,3 +690,17 @@ fn vanilla_sessions_do_not_prepare_or_update_shaderpack_atlases() {
     assert!(!world.contains_resource::<ShaderpackAtlas>());
     assert!(!world.contains_resource::<AtlasAnimations>());
 }
+
+#[test]
+fn standalone_geometry_can_request_its_shaderpack_atlas() {
+    use bevy::ecs::system::RunSystemOnce;
+    use bevy::prelude::World;
+
+    let mut world = World::new();
+    world.insert_resource(ShaderpackGeometrySettings::default());
+    assert!(!world.run_system_once(atlas_requested).unwrap());
+    world.resource_mut::<ShaderpackGeometrySettings>().enabled = true;
+    assert!(world.run_system_once(atlas_requested).unwrap());
+    world.resource_mut::<ShaderpackGeometrySettings>().enabled = false;
+    assert!(!world.run_system_once(atlas_requested).unwrap());
+}

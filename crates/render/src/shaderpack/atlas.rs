@@ -44,7 +44,7 @@ mod plan;
 mod tests;
 mod upload;
 
-use super::plugin::LoadedShaderPack;
+use super::{geometry::ShaderpackGeometrySettings, plugin::LoadedShaderPack};
 use animate::AtlasAnimations;
 use bevy::{
     asset::load_internal_asset,
@@ -138,12 +138,14 @@ impl Plugin for ShaderpackAtlasPlugin {
     }
 }
 
-/// Atlas work is needed only while a loaded pack has an opted-in camera.
+/// Atlas work follows a loaded camera's pack or an explicitly enabled geometry adapter.
 fn atlas_requested(
     pack: Option<Res<LoadedShaderPack>>,
     cameras: Query<(), With<ShaderPackRendering>>,
+    geometry: Option<Res<ShaderpackGeometrySettings>>,
 ) -> bool {
-    pack.is_some_and(|pack| pack.0.is_some()) && !cameras.is_empty()
+    geometry.is_some_and(|settings| settings.enabled)
+        || (pack.is_some_and(|pack| pack.0.is_some()) && !cameras.is_empty())
 }
 
 /// Releases atlas textures, animation state and pending work when no camera uses a pack.
