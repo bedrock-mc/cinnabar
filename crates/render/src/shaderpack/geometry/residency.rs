@@ -56,8 +56,9 @@ pub(crate) fn section_distance(origin: [i32; 3], eye: DVec3) -> f64 {
 }
 
 /// A resident section's faces: their page, the range they occupy and each category's range.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ResidentFaces {
+    pub(crate) translucent: Vec<crate::chunk::transparent::mixed::plan::MixedFace>,
     pub(crate) page: usize,
     pub(crate) faces: Range<u32>,
     pub(crate) categories: [Range<u32>; 3],
@@ -67,6 +68,8 @@ pub(crate) struct ResidentFaces {
     pub(crate) origin: [i32; 3],
     /// Origin epoch the positions were written against; stale faces are not drawn.
     pub(crate) epoch: u64,
+    /// Expansion input generation used to bake atlas coordinates and material attributes.
+    pub(crate) generation: u64,
     /// Unique to this placement: a draw list built from it stays valid while the section
     /// keeps this stamp.
     pub(crate) stamp: u64,
@@ -118,6 +121,7 @@ pub(crate) struct Residency {
     face_bytes: u64,
     pub(crate) origin: Option<IVec3>,
     pub(crate) epoch: u64,
+    pub(crate) generation: u64,
     /// Stamp the next committed placement takes.
     next_stamp: u64,
     /// Draw-origin slots given back by sections that left, reused first.
@@ -160,6 +164,7 @@ impl Residency {
             face_bytes,
             origin: None,
             epoch: 0,
+            generation: 0,
             next_stamp: 0,
             free_slots: Vec::new(),
             slot_count: 0,
@@ -230,6 +235,12 @@ impl Residency {
         if self.queued.insert(entity) {
             self.queue.push_back(entity);
         }
+    }
+
+    /// Withdraws faces baked against previous inputs and queues every live section to rebuild.
+    pub(crate) fn invalidate_contents(&mut self, entities: impl IntoIterator<Item = Entity>) {
+        self.generation += 1;
+        self.enqueue_all(entities);
     }
 
     /// Queues every resident section, as after an origin, table or atlas change.
@@ -337,6 +348,9 @@ impl Residency {
                 resident.page != placed.page || resident.faces != placed.faces
             })
         });
+        let shrank = previous
+            .as_ref()
+            .is_some_and(|old| placement.is_some() && old.faces.end - old.faces.start > plan.faces);
         match previous {
             Some(previous) if placement.is_none() => {
                 // Keep drawing the old faces until a later frame finds room.
@@ -351,6 +365,9 @@ impl Residency {
         }
         if changed_space && !draining_move {
             self.failed_drain = None;
+        }
+        if shrank {
+            self.retry_waiting();
         }
         placement
     }
@@ -450,20 +467,17 @@ impl Residency {
         })
     }
 
-    /// Whether `entity` is resident on the draining page, queued to move off it.
-    pub(crate) fn moving(&self, entity: Entity) -> bool {
-        self.draining.is_some_and(|page| {
-            self.sections
-                .get(&entity)
-                .is_some_and(|resident| resident.page == page)
-        })
+    /// Whether a section has faces valid for the current origin and expansion inputs.
+    pub(crate) fn drawable(&self, entity: Entity) -> bool {
+        self.sections
+            .get(&entity)
+            .is_some_and(|faces| faces.epoch == self.epoch && faces.generation == self.generation)
     }
 
-    /// Sections queued or waiting for room, leaving out those moving off the draining page,
-    /// which still draw.
+    /// Pending sections without drawable faces; palette refreshes and page moves still draw.
     pub(crate) fn undrawn_len(&self) -> usize {
         self.pending()
-            .filter(|entity| !self.moving(*entity))
+            .filter(|entity| !self.drawable(*entity))
             .count()
     }
 
@@ -553,12 +567,14 @@ impl Residency {
         self.sections.insert(
             entity,
             ResidentFaces {
+                translucent: Vec::new(),
                 page: placement.page,
                 faces: placement.faces.clone(),
                 categories: plan.categories.clone(),
                 facing: plan.facing.clone(),
                 origin,
                 epoch: self.epoch,
+                generation: self.generation,
                 stamp: self.next_stamp,
                 slot,
             },

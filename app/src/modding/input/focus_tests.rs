@@ -4,6 +4,7 @@ use client_ui::test_support::mini_engine_presentation;
 use mod_ui::PanelUiOwner;
 
 mod closing_result;
+mod native_fields;
 
 fn fixture() -> String {
     fixture_with_capture(false)
@@ -186,9 +187,9 @@ fn hud_editor_app() -> (App, Entity) {
     personal_panel_app(true, false)
 }
 
-/// Text-only keyboard messages edit native fields without becoming held gameplay controls.
+/// Unidentified messages cannot insert text or become held controls; identified text still edits.
 #[test]
-fn text_without_a_physical_key_reaches_the_native_editor() {
+fn unidentified_text_is_discarded_while_identified_text_edits() {
     let (mut app, window) = personal_panel_app(false, false);
     let directory = tempfile::tempdir().unwrap();
     let other = mod_host::ModHost::load_snapshot_with_grants(
@@ -237,6 +238,13 @@ fn text_without_a_physical_key_reaches_the_native_editor() {
             .keys_pressed
             .is_empty()
     );
+    assert_eq!(
+        app.world()
+            .resource::<UiPresentationResource>()
+            .mod_ui()
+            .mod_panel_field_selection(),
+        Some("35")
+    );
     // The panel clears shared key state each frame; the physical modifier must survive that.
     for (key_code, text) in [
         (KeyCode::SuperLeft, None),
@@ -259,11 +267,7 @@ fn text_without_a_physical_key_reaches_the_native_editor() {
     for (key_code, state, text) in [
         (KeyCode::KeyA, ButtonState::Pressed, None),
         (KeyCode::SuperLeft, ButtonState::Released, None),
-        (
-            KeyCode::Unidentified(bevy::input::keyboard::NativeKeyCode::Unidentified),
-            ButtonState::Pressed,
-            Some("73"),
-        ),
+        (KeyCode::Digit7, ButtonState::Pressed, Some("73")),
     ] {
         app.world_mut().write_message(KeyboardInput {
             key_code,

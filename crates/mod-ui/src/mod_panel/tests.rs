@@ -632,13 +632,6 @@ fn keycaps_use_readable_ascii_names_for_modifiers_and_extended_keys() {
     }
 }
 
-#[test]
-fn long_numeric_draft_keeps_caret_visible_at_both_ends() {
-    let text = "123456789012345678901234";
-    assert_eq!(edit::visible_draft(text, false, 0, 42.), "|123456");
-    assert_eq!(edit::visible_draft(text, false, 24, 42.), "901234|");
-}
-
 /// A panel whose surface `#fade` binding eases from 1 to `exit` when the panel closes.
 fn exiting_panel(exit: Option<f64>) -> Panel {
     use ui::mod_panel::{Surface, SurfaceTransition, SurfaceValue};

@@ -135,9 +135,11 @@ impl Control {
                 Self::Text {
                     min_chars,
                     max_chars,
+                    live,
+                    navigation_keys,
                     ..
                 } => {
-                    matches!(other,Self::Text {min_chars:b_min,max_chars:b_max,..} if (min_chars,max_chars)==(b_min,b_max))
+                    matches!(other,Self::Text {min_chars:b_min,max_chars:b_max,live:b_live,navigation_keys:b_keys,..} if (min_chars,max_chars,live,navigation_keys)==(b_min,b_max,b_live,b_keys))
                 }
             }
     }

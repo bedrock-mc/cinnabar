@@ -8,7 +8,10 @@ pub use surface::hud_card;
 
 mod axis;
 mod control;
-pub use control::{Control, Event, MAX_PANEL_VALUE_CHARS, TextEvent, validate_text_value};
+pub use control::{
+    Control, Event, FIELD_NAVIGATION_KEYS, FieldEvent, FieldKey, FieldModifiers,
+    MAX_PANEL_VALUE_CHARS, TextEvent, is_field_navigation_key, validate_text_value,
+};
 pub(crate) mod surface;
 mod update;
 pub use axis::{AxisExtent, AxisRoute};

@@ -3,6 +3,8 @@
 mod compact;
 mod data;
 mod edit;
+mod field;
+mod field_paint;
 mod hud_cards;
 mod icons;
 mod input;
@@ -17,7 +19,7 @@ mod vector;
 mod widgets;
 
 #[cfg(any(test, feature = "test-support"))]
-pub(crate) use {template::same_shape, widgets::Palette};
+pub(crate) use template::same_shape;
 
 #[cfg(test)]
 use json_ui::Context;
@@ -40,6 +42,7 @@ use ui_engine::{
         screen::{CustomRenderer, PaintFrame},
     },
 };
+pub(crate) use widgets::Palette;
 
 const SCREEN: &str = "cinnabar_personal.panel";
 const ROW_HEIGHT: f64 = 26.0;
@@ -70,6 +73,7 @@ pub(super) struct ModPanel {
     motion: motion::PanelMotion,
     motion_data_dirty: bool,
     text_events: Vec<ui::mod_panel::TextEvent>,
+    field_events: Vec<ui::mod_panel::FieldEvent>,
     prepared: Option<Arc<prepared::PreparedRoute>>,
 }
 
@@ -109,6 +113,17 @@ impl ModUi {
             .filter(|panel| panel.owner == owner)
             .map_or_else(Vec::new, |panel| std::mem::take(&mut panel.text_events))
     }
+    /// Drains live edits, submissions and navigation once for the matching panel owner.
+    pub fn take_mod_panel_field_events(
+        &mut self,
+        owner: PanelUiOwner,
+    ) -> Vec<ui::mod_panel::FieldEvent> {
+        self.mod_panel
+            .as_mut()
+            .filter(|panel| panel.owner == owner)
+            .map_or_else(Vec::new, |panel| panel.drain_field_events())
+    }
+
     /// Drops the panel's laid-out text and pointer capture after its private font changed.
     pub fn invalidate_mod_panel_font(&mut self) {
         self.cancel_mod_hud_editor();
@@ -186,6 +201,7 @@ impl ModUi {
                     && panel.surface.is_some())
                 .then(|| std::mem::take(&mut current.motion.transitions));
                 current.text_events.clear();
+                current.field_events.clear();
                 current.owner = owner;
                 current.edit = None;
                 current.screen = CachedScreen::default();
@@ -212,6 +228,7 @@ impl ModUi {
             if panel.capture_key && !current.editing_text() {
                 current.cancel_edit();
             }
+            current.reconcile_editor_value(panel);
             current.panel = panel.clone();
             current.refresh_data();
         } else {
@@ -239,6 +256,7 @@ impl ModUi {
                 motion: motion::PanelMotion::default(),
                 motion_data_dirty: false,
                 text_events: Vec::new(),
+                field_events: Vec::new(),
                 prepared,
             });
         }
@@ -301,7 +319,9 @@ impl ModUi {
             || self.mod_panel.as_ref().is_some_and(|panel| {
                 panel.exiting()
                     || panel.open
-                        && (panel.motion.active() || panel.motion_data_dirty && panel.animated())
+                        && (panel.motion.active()
+                            || panel.motion_data_dirty && panel.animated()
+                            || matches!(panel.edit, Some(edit::Editor::Field { .. })))
             })
     }
 
@@ -506,10 +526,22 @@ impl ModUi {
             return;
         }
         let caller = std::mem::take(&mut paint_frame.renderers);
-        {
+        let result = {
             let mut glass = GlassRenderer::new(world);
-            let mut base = RendererChain {
+            let editing = panel.edit.is_some();
+            let mut field = field_paint::FieldRenderer::new(
+                panel.edit.as_mut(),
+                paint_frame.now,
+                Palette::for_panel(&panel.panel),
+                [paint_frame.safe_area.left(), paint_frame.safe_area.top()],
+            );
+            let mut field_slot: [&mut dyn CustomRenderer; 1] = [&mut field];
+            let mut host = RendererChain {
                 first: &mut glass,
+                rest: &mut field_slot,
+            };
+            let mut base = RendererChain {
+                first: &mut host,
                 rest: &mut *caller,
             };
             let language = paint_frame.language;
@@ -521,7 +553,7 @@ impl ModUi {
             let screen = panel
                 .prepared
                 .as_ref()
-                .filter(|_| panel.edit.is_none())
+                .filter(|_| !editing)
                 .and_then(|route| {
                     self.prepared_panel_ui
                         .get_mut(&panel.owner)
@@ -570,55 +602,53 @@ impl ModUi {
                 );
                 paint_frame.metrics = panel_metrics;
             }
-            let result = {
-                let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut base];
-                let mut previews = panel
-                    .hud_previews
-                    .renderer(panel.owner, &mut self.hud_sources);
-                let mut combined = RendererChain {
-                    first: &mut previews,
-                    rest: &mut renderers,
-                };
-                let mut preview_renderers: [&mut dyn CustomRenderer; 1] = [&mut combined];
-                renderer.draw(
-                    art,
-                    &mut paint_frame.with_renderers(&mut preview_renderers),
-                    |env, root| {
-                        screen.render_shared_with(
-                            SCREEN,
-                            catalog,
-                            crate::personal_context(),
-                            data,
-                            (root, px, language),
-                            env,
-                            &panel.view,
-                        )
-                    },
-                )
+            let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut base];
+            let mut previews = panel
+                .hud_previews
+                .renderer(panel.owner, &mut self.hud_sources);
+            let mut combined = RendererChain {
+                first: &mut previews,
+                rest: &mut renderers,
             };
-            match result {
-                Ok(Some(mut frame)) => {
-                    if let Some(surface) = &panel.panel.surface
-                        && !surface.collections.is_empty()
-                    {
-                        surface::resolve_collection_hits(surface, Arc::make_mut(&mut frame.hits));
-                    }
-                    for (key, metrics) in &frame.report.scrolls {
-                        if let Some(offset) = panel.view.scroll.get_mut(key) {
-                            *offset = metrics.offset;
-                        }
-                    }
-                    panel.frame = Some(frame);
+            let mut preview_renderers: [&mut dyn CustomRenderer; 1] = [&mut combined];
+            renderer.draw(
+                art,
+                &mut paint_frame.with_renderers(&mut preview_renderers),
+                |env, root| {
+                    screen.render_shared_with(
+                        SCREEN,
+                        catalog,
+                        crate::personal_context(),
+                        data,
+                        (root, px, language),
+                        env,
+                        &panel.view,
+                    )
+                },
+            )
+        };
+        paint_frame.renderers = caller;
+        match result {
+            Ok(Some(mut frame)) => {
+                if let Some(surface) = &panel.panel.surface
+                    && !surface.collections.is_empty()
+                {
+                    surface::resolve_collection_hits(surface, Arc::make_mut(&mut frame.hits));
                 }
-                result => {
-                    out_of_render(panel, paint_frame, rollback);
-                    if let Err(error) = result {
-                        tracing::warn!(%error, "personal extension panel disabled after rendering failure");
+                for (key, metrics) in &frame.report.scrolls {
+                    if let Some(offset) = panel.view.scroll.get_mut(key) {
+                        *offset = metrics.offset;
                     }
+                }
+                panel.frame = Some(frame);
+            }
+            result => {
+                out_of_render(panel, paint_frame, rollback);
+                if let Err(error) = result {
+                    tracing::warn!(%error, "personal extension panel disabled after rendering failure");
                 }
             }
         }
-        paint_frame.renderers = caller;
     }
 }
 
@@ -703,7 +733,6 @@ impl ModPanel {
         if self.panel.surface.is_some() {
             surface::viewport(&mut data, self.viewport);
         }
-        self.write_editor_data(&mut data);
         self.data = Arc::new(data);
         self.motion_data_dirty = true;
     }
