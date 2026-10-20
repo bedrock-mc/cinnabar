@@ -2,6 +2,28 @@ use super::*;
 use crate::test_support::{SKIN_MODEL, skin_source};
 
 #[test]
+fn equal_skins_share_prepared_attachment_bindings() {
+    let mut store = ActorAnimationStore::with_assets(crate::test_support::counting_random_assets());
+    let source = skin_source(SKIN_MODEL);
+    warm_source(&mut store, &source);
+    for runtime_id in [1, 2] {
+        store.insert(
+            1,
+            0,
+            &TestActor {
+                runtime_id,
+                ..Default::default()
+            },
+        );
+        store.sync_skin_model(runtime_id, Some(&source));
+    }
+    assert!(Arc::ptr_eq(
+        store.get(1).unwrap().attachments.unwrap(),
+        store.get(2).unwrap().attachments.unwrap(),
+    ));
+}
+
+#[test]
 fn equal_actor_skin_sources_share_prepared_geometry() {
     let mut store = ActorAnimationStore::with_assets(crate::test_support::counting_random_assets());
     let mut actors = HashMap::new();
@@ -215,7 +237,8 @@ fn legacy_attack_targets_preserve_custom_skin_and_persona_geometry() {
     assert!(!sync_skin(state, Some(&source), &store.skin_preparation));
     let mut local = vec![LocalDelta::default(); state.bones.len()];
     crate::legacy_swing::apply(&state.bone_names, &mut local, 0.5, 0.0, 1.0).unwrap();
-    let body = state.compose(&local).unwrap();
+    let mut body = vec![BoneTransform::default(); state.posed_bones().len()];
+    state.compose_into(&local, &mut body).unwrap();
     let prepared = &state.skin_skeleton().unwrap().prepared;
     let baseline = compose_pose(&prepared.bones, &[]).unwrap();
     assert_custom_attack(&body, &baseline, &prepared.names);
@@ -283,4 +306,37 @@ fn assert_custom_attack(pose: &[BoneTransform], baseline: &[BoneTransform], name
             0.0
         ])
     );
+}
+
+#[test]
+fn appearance_binding_indices_follow_skin_install_replacement_and_removal() {
+    let mut compiled = crate::test_support::counting_random_compiled("minecraft:test");
+    compiled.geometries[0].identifier = assets::CAPE_GEOMETRY_IDENTIFIER.into();
+    let geometry = compiled
+        .symbols
+        .iter_mut()
+        .find(|symbol| symbol.kind == assets::EntityAssetKind::Geometry)
+        .unwrap();
+    geometry.identifier = assets::CAPE_GEOMETRY_IDENTIFIER.into();
+    let assets = Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
+    );
+    let mut store = ActorAnimationStore::with_assets(Arc::clone(&assets));
+    let actor = super::super::tests::actor_with_metadata(HashMap::new());
+    store.insert(1, 0, &actor);
+    let initial = Arc::clone(store.get(actor.runtime_id).unwrap().attachments.unwrap());
+    let changed = SKIN_MODEL.replace("\"body\"", "\"rightitem\"");
+    for model in [Some(SKIN_MODEL), Some(changed.as_str()), None] {
+        let source = model.map(skin_source);
+        if let Some(source) = &source {
+            warm_source(&mut store, source);
+        }
+        store.sync_skin_model(actor.runtime_id, source.as_ref());
+        let rig = store.get(actor.runtime_id).unwrap();
+        let expected = render_model::ActorAttachmentBindings::new(&assets, rig.bone_names);
+        assert_eq!(rig.attachments.unwrap().cape(), expected.cape());
+        if model.is_none() {
+            assert!(Arc::ptr_eq(rig.attachments.unwrap(), &initial));
+        }
+    }
 }

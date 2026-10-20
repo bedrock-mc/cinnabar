@@ -286,6 +286,60 @@ fn actor_render_first_frame_queues_before_bind_groups_are_prepared() {
 }
 
 #[test]
+fn distinct_equal_count_rigs_keep_layer_boundaries_and_receipts() {
+    let mut app = render_app();
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let mut frame = frame(&[false; 4]);
+    frame.rig.geometry_spans = (0..4)
+        .map(|index| ActorRigGeometrySpan {
+            first_vertex: index * 3,
+            vertex_count: 3,
+        })
+        .collect::<Vec<_>>()
+        .into();
+    frame.rig.geometry_vertices =
+        render_model::ActorRigVertexSegments::from_vertices([ActorRigVertex::default(); 12]);
+    for (index, (instance, entry)) in Arc::make_mut(&mut frame.rig.instances)
+        .iter_mut()
+        .zip(Arc::make_mut(&mut frame.rig.manifest))
+        .enumerate()
+    {
+        instance.geometry_id = 3 - index as u32;
+        entry.rig = EntityRigId(instance.geometry_id);
+        entry.identity.layer = (index / 2) as u8;
+    }
+    world.insert_resource(frame.clone());
+    world.run_schedule(Render);
+    assert_eq!(
+        world.resource::<ExecutedFrames>().0,
+        [(1, vec![0, 1, 2, 3])]
+    );
+    let gpu = world.resource::<ActorGpu>();
+    assert_eq!(gpu.spans.len(), 2);
+    assert_eq!((gpu.spans[0].first, gpu.spans[0].count), (0, 2));
+    assert_eq!((gpu.spans[1].first, gpu.spans[1].count), (2, 2));
+    assert_eq!(
+        gpu.manifest
+            .iter()
+            .map(|entry| entry.identity)
+            .collect::<Vec<_>>(),
+        frame
+            .rig
+            .manifest
+            .iter()
+            .map(|entry| entry.identity)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        gpu.instances
+            .iter()
+            .map(|instance| instance.geometry_id)
+            .collect::<Vec<_>>(),
+        [3, 2, 1, 0]
+    );
+}
+
+#[test]
 fn actor_render_changed_spans_queue_and_present_the_current_frame() {
     let mut app = render_app();
     let world = app.sub_app_mut(RenderApp).world_mut();

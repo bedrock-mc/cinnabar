@@ -49,13 +49,16 @@ impl ObservedInputs {
             let Some(Place::Variable(slot)) = evaluator.layout.place(symbol) else {
                 return Some(false);
             };
-            if variables.variable(slot).as_ref() != expected.as_ref() {
+            if !same_value(variables.variable(slot).as_ref(), expected.as_ref()) {
                 return Some(false);
             }
         }
         for read in &self.queries {
             charge(operations_left, 1 + read.arguments.len())?;
-            if evaluator.query(read.symbol, &read.arguments) != read.value {
+            if !same_value(
+                Some(&evaluator.query(read.symbol, &read.arguments)),
+                Some(&read.value),
+            ) {
                 return Some(false);
             }
         }
@@ -114,4 +117,14 @@ fn charge(operations_left: &mut usize, work: usize) -> Option<()> {
     let remaining = operations_left.checked_sub(work);
     *operations_left = remaining.unwrap_or(0);
     remaining.map(|_| ())
+}
+
+/// Exact input identity distinguishes signed zero and retains stable NaN payloads.
+fn same_value(left: Option<&MolangValue>, right: Option<&MolangValue>) -> bool {
+    match (left, right) {
+        (Some(MolangValue::Number(left)), Some(MolangValue::Number(right))) => {
+            left.to_bits() == right.to_bits()
+        }
+        _ => left == right,
+    }
 }

@@ -190,8 +190,8 @@ performance qualification remain incomplete. No phase or performance gate closes
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Bounded sub-chunk request origin, FIFO grouping and transport membership are implemented; broader publication acceptance remains open. See the sub-chunk request batching continuation in `plan.md`. |
-| Deterministic tests | Protocol, stream, transport and app regressions are authored. Full verification of the final implementation is pending. |
+| Owning plan/task | Bounded sub-chunk request origin, FIFO grouping, transport membership and deferred-mesh promotion are implemented; broader publication acceptance remains open. See the sub-chunk request batching continuation in `plan.md`. |
+| Deterministic tests | Protocol, stream, transport and app regressions are authored. Deferred-mesh regressions cover settled dependencies, stale light, priority and bounded work. Full publication qualification is pending. |
 | Review commit | Independent review is pending. |
 | Live/native witness | Full camera writer phase, global request discovery, native retry policy and later client versions remain open. |
 | Performance/resource witness | Live join, streaming and hardware budgets remain open. |
@@ -519,6 +519,8 @@ resource-pack rebuilds. Renderer work is reduced through uploaded native lightma
 bounded sky lookup, retained actor pipeline IDs and UI composite bindings, and direct
 SMAA blending into the shared scene samples. Early depth rejection and shared passes across
 deferred nametag gaps reduce filtering and attachment work without changing draw order.
+Player label anchors use Java's standing height before crouching offsets; collision-height
+transitions and Scale have regression coverage. Wider name-tag qualification stays open.
 Native colour comparisons cover LDR/HDR filtering and partial-sample overlays. World UI
 also shares passes across depth modes, preserving pixels and pipeline-readiness fallbacks.
 Opt-in Metal visibility admission uses fresh current-frame masks.

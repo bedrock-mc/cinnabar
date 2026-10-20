@@ -666,6 +666,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         }
         ui_runtime.set_lang_catalog(lang_assets.into_runtime());
         ui_runtime.set_active_language(active_lang);
+        ui_runtime.set_hide_toasts(args.hide_toasts);
         ui_runtime
     }))
     .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
@@ -805,6 +806,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         args.render_mode,
         diagnostics_enabled,
     ));
+    app.insert_resource(crate::environment::FixedTime(args.fixed_time));
     app.add_plugins(render::PanoramaRenderPlugin);
     if let Some(particle_assets) = &particle_assets {
         app.insert_resource(render_scene::ParticleSimulation(

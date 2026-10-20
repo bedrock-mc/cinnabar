@@ -40,7 +40,7 @@ pub(super) fn lookup_icon(
 }
 
 /// One server item icon in straight-alpha RGBA8.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SessionIcon {
     pub identifier: Arc<str>,
     pub metadata: u32,
@@ -50,7 +50,7 @@ pub struct SessionIcon {
 }
 
 /// The session's server item icons; later entries for an identifier are ignored.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SessionIcons {
     pub icons: Vec<SessionIcon>,
     /// Material sheets (`assets::BLOCK_ITEM_SHEET_SIZE`) for custom block items.

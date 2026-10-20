@@ -4,7 +4,6 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
-use std::sync::Arc;
 
 /// Why a pack could not be opened.
 #[derive(Debug)]
@@ -61,6 +60,35 @@ const BINARY_EXTENSIONS: &[&str] = &[
     "ogg", "wav", "mp3", "ttf", "otf", "zip", "jar", "class", "psd", "webp",
 ];
 
+/// Maximum bytes read from one shader-pack text file.
+pub(crate) const MAX_TEXT_FILE_BYTES: usize = 8 * 1024 * 1024;
+
+/// Maximum expanded properties text retained from one input file.
+pub(crate) const MAX_EXPANDED_PROPERTIES_BYTES: usize = 4 * MAX_TEXT_FILE_BYTES;
+/// Preprocessor output, kept or rejected, after which property expansion stops altogether.
+pub(crate) const MAX_PROPERTIES_PREPROCESSING_BYTES: usize = 2 * MAX_EXPANDED_PROPERTIES_BYTES;
+/// Macro-processed tokens, including those only evaluated in conditions, for one properties file;
+/// above the token count of any file within the size limit.
+pub(crate) const MAX_PROPERTIES_PREPROCESSING_TOKENS: u64 = 4 * MAX_TEXT_FILE_BYTES as u64;
+
+/// Converts CRLF, LFCR and lone carriage returns to one newline per logical break.
+pub(crate) fn normalize_newlines(text: &str) -> std::borrow::Cow<'_, str> {
+    if !text.contains('\r') {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    let mut normalized = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if matches!(ch, '\r' | '\n') {
+            chars.next_if(|next| matches!((ch, *next), ('\r', '\n') | ('\n', '\r')));
+            normalized.push('\n');
+        } else {
+            normalized.push(ch);
+        }
+    }
+    std::borrow::Cow::Owned(normalized)
+}
+
 /// Bounds eager pack ingestion.
 #[derive(Clone, Copy)]
 struct LoadLimits {
@@ -72,7 +100,7 @@ struct LoadLimits {
 
 impl LoadLimits {
     const DEFAULT: Self = Self {
-        file_bytes: 8 * 1024 * 1024,
+        file_bytes: MAX_TEXT_FILE_BYTES,
         total_bytes: 64 * 1024 * 1024,
         entries: 16384,
         archive_bytes: 256 * 1024 * 1024,
@@ -84,7 +112,7 @@ impl LoadLimits {
 #[derive(Clone, Debug)]
 pub struct PackSource {
     origin: PackOrigin,
-    files: BTreeMap<Arc<str>, String>,
+    files: BTreeMap<String, String>,
 }
 
 impl PackSource {
@@ -110,7 +138,7 @@ impl PackSource {
             origin: PackOrigin::Memory,
             files: files
                 .into_iter()
-                .map(|(k, v)| (Arc::from(k.into()), v.into()))
+                .map(|(k, v)| (k.into(), v.into()))
                 .collect(),
         }
     }
@@ -155,7 +183,7 @@ impl PackSource {
                 }
                 let file = std::fs::File::open(&p).map_err(io_err(&p))?;
                 if let Some(text) = budget.text(file, &p)? {
-                    files.insert(Arc::from(rel), text);
+                    files.insert(rel, text);
                 }
             }
         }
@@ -199,7 +227,7 @@ impl PackSource {
                 continue;
             }
             if let Some(text) = budget.text(&mut entry, &path.join(&rel))? {
-                files.insert(Arc::from(rel), text);
+                files.insert(rel, text);
             }
         }
         Ok(PackSource {

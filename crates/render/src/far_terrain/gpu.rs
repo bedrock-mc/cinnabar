@@ -433,6 +433,21 @@ impl FarTerrainGpu {
         self.empty_far.clear();
     }
 
+    /// Returns grown storage to its initial size once nothing is resident, as when far
+    /// terrain is turned off or a shader pack draws the world without it.
+    fn release_storage(&mut self, device: &RenderDevice) {
+        if !self.resident.is_empty() || (self.quad_capacity == 1 && self.slots == 1) {
+            return;
+        }
+        self.quads = storage_buffer(device, "far terrain quads", QUAD_BYTES);
+        self.quad_capacity = 1;
+        self.ranges = Default::default();
+        self.records = storage_buffer(device, "far terrain tiles", TILE_RECORD_BYTES);
+        (self.colours, self.colours_view) = colour_texture(device, 1);
+        self.slots = 1;
+        self.free_slots = vec![0];
+    }
+
     /// Writes only one admitted tile's geometry, record and colour layer.
     fn upload(&mut self, queue: &RenderQueue, mesh: &TileMesh, slot: u32, quads: &Range<u32>) {
         if !mesh.quads.is_empty() {
@@ -726,6 +741,9 @@ pub(super) fn prepare_far_terrain(
                 .filter(|resident| resident.visible && !resident.mesh.quads.is_empty())
                 .map(|resident| (resident.mesh.key, resident.mesh.revision)),
         );
+        if scene.tiles.is_empty() {
+            gpu.release_storage(&device);
+        }
     }
     if scene.target.is_none()
         && !gpu
@@ -744,6 +762,14 @@ pub(crate) struct FarTerrainView {
     pub(super) pipeline: CachedRenderPipelineId,
     pub(super) visible: Vec<FarDraw>,
     pub(super) bind_group: Option<(BindGroupKey, BindGroup)>,
+}
+
+impl FarTerrainView {
+    /// Drops the draws and the bind group, which would otherwise keep released storage alive.
+    pub(super) fn release(&mut self) {
+        self.visible.clear();
+        self.bind_group = None;
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -781,7 +807,7 @@ pub(super) fn prepare_far_terrain_views(
     if gpu.draws.is_empty() {
         for (.., state) in &mut views {
             if let Some(mut state) = state {
-                state.visible.clear();
+                state.release();
             }
         }
         return;

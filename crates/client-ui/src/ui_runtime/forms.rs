@@ -2,6 +2,8 @@
 pub mod engine_focus;
 pub mod engine_input;
 pub mod engine_scroll;
+#[cfg(test)]
+mod settings_tests;
 pub mod shape_probe;
 #[cfg(test)]
 pub mod store_tests;
@@ -118,6 +120,9 @@ pub struct ServerFormStore {
     engine: FormEngineState,
     /// The settings screen already asked the server for its settings form.
     settings_requested: bool,
+    /// Latest settings reply, retained without taking input from another tab.
+    settings_form: Option<(FormRequestEvent, u64, u64)>,
+    settings_selected: bool,
 }
 impl ServerFormStore {
     pub fn admit(
@@ -134,22 +139,35 @@ impl ServerFormStore {
             form_id: event.form_id,
             revision: self.next_revision,
         };
-        // Same-ID reissue is new authority, even while an old answer is Full.
-        // Never send an unsent old cancellation against the new revision.
-        let replaces = self
-            .active
-            .as_ref()
-            .is_some_and(|entry| entry.form_id == event.form_id)
-            || self
-                .pending
+        // Settings updates and NPC dialogue changes update their existing controller.
+        // Ordinary requests must pass the busy check even when their IDs match.
+        let replaces = matches!(event.kind, FormKind::ServerSettings | FormKind::NpcDialogue)
+            && (self
+                .active
                 .as_ref()
-                .is_some_and(|response| response.identity.form_id == event.form_id);
+                .is_some_and(|entry| entry.form_id == event.form_id)
+                || self
+                    .pending
+                    .as_ref()
+                    .is_some_and(|response| response.identity.form_id == event.form_id));
         self.busy
             .retain(|response| response.identity.form_id != event.form_id);
         if replaces {
             self.active = None;
             self.pending = None;
             self.replaced_by_reissue = self.replaced_by_reissue.saturating_add(1);
+        }
+        if event.kind == FormKind::ServerSettings {
+            self.settings_form = Some((event.clone(), fifo_sequence, session));
+            if !self.settings_selected {
+                return;
+            }
+        } else if self
+            .settings_form
+            .as_ref()
+            .is_some_and(|(cached, _, _)| cached.form_id == event.form_id)
+        {
+            self.settings_form = None;
         }
         // The server closing an NPC dialogue only takes it down.
         if matches!(&event.model, ServerFormModel::NpcDialogue(npc) if !npc.open) {
@@ -337,6 +355,9 @@ impl ServerFormStore {
         self.focus = 0;
         self.scroll = 0;
         self.engine = FormEngineState::default();
+        self.settings_form = None;
+        self.settings_selected = false;
+        self.settings_requested = false;
     }
     pub const fn replaced_by_reissue(&self) -> u64 {
         self.replaced_by_reissue
@@ -419,6 +440,26 @@ pub fn flush_form_response(
 }
 
 impl ServerFormStore {
+    /// Shows cached server settings only after the player selects their tab.
+    /// Leaving the tab retires its local view without answering the cached form.
+    pub fn select_settings_form(&mut self, selected: bool) {
+        if self.settings_selected == selected {
+            return;
+        }
+        self.settings_selected = selected;
+        if !selected {
+            if self.settings_form_active() {
+                self.active = None;
+                self.engine = FormEngineState::default();
+            }
+        } else if self.active.is_none()
+            && self.pending.is_none()
+            && let Some((event, sequence, session)) = self.settings_form.clone()
+        {
+            self.admit(event, sequence, session, false);
+        }
+    }
+
     /// Requests server settings once per visit, retrying until the transport accepts it.
     pub fn flush_settings_request(&mut self, in_settings: bool, send: impl FnOnce() -> bool) {
         if !in_settings {

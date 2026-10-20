@@ -182,7 +182,7 @@ impl Tree {
             use std::os::unix::process::CommandExt;
             command.process_group(0);
         }
-        let child = crate::privilege::normal_user(|| command.spawn())?;
+        let child = command.spawn()?;
         // The client starts setup only after it initializes, well after this assignment.
         #[cfg(windows)]
         let job = job::Job::assign(&child).ok();

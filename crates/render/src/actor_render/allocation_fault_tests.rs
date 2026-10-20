@@ -307,6 +307,7 @@ fn gpu_fault_matrix_pages_retain_compatible_artwork_and_recover_draws() {
                 .artwork
                 .pages
                 .iter()
+                .flatten()
                 .map(|page| page.view.id())
                 .collect::<Vec<_>>();
             if first {
@@ -355,6 +356,7 @@ fn gpu_fault_matrix_pages_retain_compatible_artwork_and_recover_draws() {
                     gpu.artwork
                         .pages
                         .iter()
+                        .flatten()
                         .map(|page| page.view.id())
                         .collect::<Vec<_>>(),
                     previous
@@ -376,11 +378,18 @@ fn gpu_fault_matrix_pages_retain_compatible_artwork_and_recover_draws() {
             }
             let attempts = calls.borrow().len();
             let _ = draw_frame(&mut app, &next);
-            assert_eq!(
-                calls.borrow().len(),
-                attempts,
-                "exhausted publication must not spin"
-            );
+            if !first && layers == 1 {
+                assert!(
+                    calls.borrow().len() > attempts,
+                    "compatible fallbacks remain retryable while demanded"
+                );
+            } else {
+                assert_eq!(
+                    calls.borrow().len(),
+                    attempts,
+                    "exhausted publication must not spin"
+                );
+            }
             drop(fault);
             let recovered = publication(3, &[100, 120], layers);
             let drawn = draw_frame(&mut app, &recovered);
@@ -393,13 +402,66 @@ fn gpu_fault_matrix_pages_retain_compatible_artwork_and_recover_draws() {
             );
             let gpu = app.sub_app(RenderApp).world().resource::<ActorGpu>();
             assert_eq!(
-                gpu.artwork.pages[0].view.texture().depth_or_array_layers(),
+                gpu.artwork.pages[0]
+                    .as_ref()
+                    .unwrap()
+                    .view
+                    .texture()
+                    .depth_or_array_layers(),
                 layers
             );
-            assert_ne!(gpu.artwork.pages[0].view.id(), previous[0]);
+            assert_ne!(gpu.artwork.page(0).unwrap().view.id(), previous[0]);
             assert_eq!(app.sub_app(RenderApp).world().resource::<Frames>().0, 4);
         }
     }
+}
+
+#[test]
+fn demanded_artwork_burst_draws_complete_appearances_in_its_first_frame() {
+    let mut app = fixture();
+    let mut frame = publication(1, &[20, 40, 60, 80, 100], 1);
+    let entries = Arc::make_mut(&mut frame.rig.manifest);
+    entries[4].identity = entries[0].identity;
+    entries[4].identity.layer = render_model::ACTOR_LAYER_BODY + 1;
+    let first = draw_frame(&mut app, &frame);
+    assert_eq!(
+        first.iter().map(|span| span.page).collect::<Vec<_>>(),
+        [1, 2, 3, 4, 5]
+    );
+}
+
+#[test]
+fn one_cold_artwork_page_retains_existing_page_bindings() {
+    let mut app = fixture();
+    let control = publication(1, &[20], 1);
+    assert_eq!(draw_frame(&mut app, &control).len(), 1);
+    let previous = app
+        .sub_app(RenderApp)
+        .world()
+        .resource::<ActorGpu>()
+        .artwork
+        .page(0)
+        .unwrap()
+        .bind_group
+        .as_ref()
+        .unwrap()
+        .id();
+    let mut next = publication(2, &[20, 40], 1);
+    next.rig.geometry_revision = control.rig.geometry_revision;
+    Arc::make_mut(&mut Arc::make_mut(&mut next.artwork).pages)[0] =
+        control.artwork.pages[0].clone();
+    assert_eq!(draw_frame(&mut app, &next).len(), 2);
+    let gpu = app.sub_app(RenderApp).world().resource::<ActorGpu>();
+    assert_eq!(
+        gpu.artwork
+            .page(0)
+            .unwrap()
+            .bind_group
+            .as_ref()
+            .unwrap()
+            .id(),
+        previous
+    );
 }
 
 #[test]

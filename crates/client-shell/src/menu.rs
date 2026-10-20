@@ -275,6 +275,11 @@ impl MenuRuntime {
         self.screen
     }
 
+    /// Returns the selected settings section without building a presentation snapshot.
+    pub fn settings_section(&self) -> Option<launcher::menu::settings_sections::SettingSection> {
+        launcher::menu::settings_sections::SettingSection::from_index(self.settings.section)
+    }
+
     pub fn player_skin(&self) -> &crate::player_skin::LocalPlayerSkin {
         &self.player_skin
     }

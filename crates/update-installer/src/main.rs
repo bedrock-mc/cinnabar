@@ -20,7 +20,6 @@ fn main() {
 
 /// Waits for the exact parent process before verifying, applying, and launching the release.
 fn run() -> Result<()> {
-    update_installer::privilege::normal_user(|| Ok(()))?;
     let _copy = update_installer::helper::hold(&std::env::current_exe()?)?;
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
     if args

@@ -336,7 +336,6 @@ fn compile_selected(
     // With no budget skips, omission only removes the file's own entries. Otherwise
     // it can admit a larger file that displaces several later sources.
     let excess_symbols = symbols.len().saturating_sub(MAX_ENTITY_ASSET_SYMBOLS);
-    let excess_geometries = geometries.len().saturating_sub(MAX_ENTITY_GEOMETRIES);
     *can_isolate = skipped.over_budget > 0
         || selected
             .iter()
@@ -346,10 +345,7 @@ fn compile_selected(
                     .products
                     .as_ref()
                     .and_then(Option::as_ref)
-                    .is_some_and(|parsed| {
-                        parsed.symbols.len() >= excess_symbols
-                            && parsed.geometries.len() >= excess_geometries
-                    })
+                    .is_some_and(|parsed| parsed.symbols.len() >= excess_symbols)
             });
     let remaining_budget = (budget.count - sources.len(), budget.bytes - total);
     if let Err(error) = super::painting::complete_bindings(

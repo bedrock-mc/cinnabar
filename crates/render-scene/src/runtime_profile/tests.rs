@@ -58,6 +58,47 @@ fn stage_table_indices_match_and_gpu_stages_form_the_tail() {
     assert_eq!(RuntimeStage::RenderFrame.gpu_index(), None);
 }
 
+/// Owned cull passes retain their names and durations through decoding and profiling.
+#[test]
+fn gpu_cull_passes_feed_stage_profiles() {
+    let stages = [
+        "gpu_cull_early",
+        "gpu_cull_hiz",
+        "gpu_cull_late",
+        "gpu_terrain_late",
+    ]
+    .map(|name| {
+        RuntimeStage::GPU
+            .into_iter()
+            .find(|stage| stage.name() == name)
+            .unwrap_or_else(|| panic!("missing GPU stage: {name}"))
+    });
+    let frame = crate::gpu_times::decode_spans(
+        stages.into_iter().enumerate().map(|(index, stage)| {
+            let begin = 100 * (index as u64 + 1);
+            (stage, begin, begin + 10 * (index as u64 + 1))
+        }),
+        2.0,
+        true,
+    );
+    let profiler = RuntimeStageProfiler::for_gameplay(true, None);
+    profiler.record_gpu_frame(&frame);
+    assert_eq!(profiler.latest_pass_frame(), Some(frame));
+    let snapshot = profiler.take_snapshot_if_due(Duration::ZERO).unwrap();
+    for (index, stage) in stages.into_iter().enumerate() {
+        let duration = Duration::from_nanos(20 * (index as u64 + 1));
+        assert_eq!(frame.get(stage), Some(duration));
+        assert!(frame.iter().any(|sample| sample == (stage, duration)));
+        let sample = snapshot.samples[stage as usize];
+        assert_eq!(sample.count, 1);
+        assert_eq!(sample.total, duration);
+    }
+    assert_eq!(
+        frame.get(RuntimeStage::GpuFrame),
+        Some(Duration::from_nanos(680))
+    );
+}
+
 #[test]
 fn gpu_frames_feed_aggregates_and_the_latest_snapshot() {
     let profiler = RuntimeStageProfiler::for_gameplay(true, None);

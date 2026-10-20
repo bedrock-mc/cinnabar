@@ -419,3 +419,25 @@ fn different_loaded_texture_paths_under_one_pin_do_not_share_disk_entries() {
         "each path compiles once, then reuses its disk entry"
     );
 }
+
+#[test]
+fn compressed_entity_entry_roundtrip_preserves_every_encoded_byte() {
+    let dir = tempfile::tempdir().unwrap();
+    let disk = crate::compile_cache::CompileCache::new(dir.path().into(), 1 << 20);
+    let view = resource_pack::LayeredPackView::tracked(entity_stack());
+    let (pack, blob) =
+        super::super::compile_encoded(&view, None, None, None, true, &|| false).unwrap();
+    let pack = pack.unwrap();
+    let files = view.dependencies().unwrap().snapshot();
+    let original = super::encode_entry(&files, Some(&pack), blob.as_deref()).unwrap();
+    disk.store(&[8; 32], &original);
+    let fresh = crate::compile_cache::CompileCache::new(dir.path().into(), 1 << 20);
+    let loaded = fresh.load(&[8; 32]).unwrap();
+    assert_eq!(loaded, original);
+    let (decoded, restored) = super::decode_entry(&loaded).unwrap();
+    assert_eq!(restored, files);
+    assert_eq!(
+        decoded.unwrap().encode(blob.as_deref().unwrap()).unwrap(),
+        pack.encode(blob.as_deref().unwrap()).unwrap()
+    );
+}

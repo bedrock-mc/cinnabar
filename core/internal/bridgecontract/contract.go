@@ -421,6 +421,10 @@ type CinnabarPlayerUpdates struct {
 	Emotes []CinnabarRemoteEmote `json:"emotes"`
 	// Loadouts: Nearby authenticated loadouts.
 	Loadouts []CinnabarRemoteLoadout `json:"loadouts"`
+	// OwnershipXUID: Verified local account identity, empty while disconnected.
+	OwnershipXUID string `json:"ownership_xuid"`
+	// OwnedCosmetics: Paid grants supplied by the account API database.
+	OwnedCosmetics []string `json:"owned_cosmetics"`
 }
 
 // InboxCategories: Inbox category names in display order.

@@ -251,6 +251,25 @@ mod tests {
     }
 
     #[test]
+    fn celestial_angle_is_the_eased_curve_at_the_reference_capture_ticks() {
+        // f = frac(t/24000 - 0.25); angle = (2f + 0.5 - cos(f*pi)/2) / 3. Expected values
+        // computed in f64 from that formula; tick 1590 puts the sun 36.2 degrees above the
+        // east horizon, as in the reference captures pinned with `--fixed-time`.
+        for (ticks, angle, elevation) in [
+            (1_590.0, 0.850_493, 36.177),
+            (6_000.0, 0.0, 90.0),
+            (12_541.0, 0.239_144, 3.908),
+            (13_013.0, 0.260_237, -3.685),
+            (18_000.0, 0.5, -90.0),
+        ] {
+            let actual = celestial_angle(ticks);
+            assert!((actual - angle).abs() < 2e-6, "tick {ticks}: {actual}");
+            let up = sun_direction(actual)[1].asin().to_degrees();
+            assert!((up - elevation).abs() < 0.01, "tick {ticks}: {up} degrees");
+        }
+    }
+
+    #[test]
     fn current_lightmap_sky_darken_has_its_own_floor_twilight_and_weather_curve() {
         // Dimension: cosf; clamp(2*cos+.2); weather; .8*C+.2.
         for (angle, rain, thunder, expected) in [

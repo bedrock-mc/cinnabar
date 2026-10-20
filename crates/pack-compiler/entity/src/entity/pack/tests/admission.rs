@@ -61,53 +61,59 @@ fn byte_budget_rejects_sources_before_preparation() {
 fn isolation_preserves_recovery_through_byte_budget_displacement() {
     let mut files = budgeted_definitions();
     files.remove(1);
-    let per_source = assets::MAX_ENTITY_GEOMETRIES / 2 + 1;
-    let geometry_files = (0..3)
+    let per_source = assets::MAX_ENTITY_ASSET_SYMBOLS / 2 + 1;
+    let controller_files = (0..3)
         .map(|source| {
             let entries = (0..per_source)
                 .map(|index| {
-                    json!({
-                        "description":{"identifier":format!("geometry.fixture_{source}_{index}")},
-                        "bones":[]
-                    })
+                    (
+                        format!("controller.render.fixture_{source}_{index}"),
+                        json!({}),
+                    )
                 })
-                .collect::<Vec<_>>();
+                .collect::<serde_json::Map<_, _>>();
             file(
-                &format!("models/entity/{source}.json"),
+                &format!("render_controllers/{source}.json"),
                 &json!({
-                    "format_version":"1.12.0", "minecraft:geometry":entries
+                    "format_version":"1.8.0", "render_controllers":entries
                 })
                 .to_string(),
             )
         })
         .collect::<Vec<_>>();
-    let geometry_bytes: usize = geometry_files.iter().map(|(_, bytes)| bytes.len()).sum();
-    let small_file_bytes = geometry_files
+    let controller_bytes: usize = controller_files.iter().map(|(_, bytes)| bytes.len()).sum();
+    let small_file_bytes = controller_files
         .iter()
         .map(|(_, bytes)| bytes.len())
         .min()
         .unwrap();
     files[0].1.resize(small_file_bytes, b' ');
     let budget = SourceBudget {
-        bytes: files.iter().map(|(_, bytes)| bytes.len()).sum::<usize>() + geometry_bytes,
+        bytes: files.iter().map(|(_, bytes)| bytes.len()).sum::<usize>() + controller_bytes,
         ..SourceBudget::default()
     };
     let mut material = file("materials/displacing.material", r#"{"materials":{}}"#);
     material
         .1
-        .resize(geometry_bytes + small_file_bytes / 2, b' ');
+        .resize(controller_bytes + small_file_bytes / 2, b' ');
     files.push(material);
-    files.extend(geometry_files);
+    files.extend(controller_files);
     ASSEMBLY_ATTEMPTS.set(0);
     SOURCE_PARSES.set(0);
     let selected_count = files.len();
     let compiled = compile_with_budget(files, &|| false, budget)
         .unwrap()
-        .expect("omitting the first entity must admit the material and displace the geometries")
+        .expect("omitting the first entity must admit the material and displace the controllers")
         .unwrap();
     assert_eq!(compiled.skipped.isolated, 1);
     assert_eq!(compiled.skipped.over_budget, 3);
-    assert!(compiled.assets.geometries.is_empty());
+    assert!(
+        !compiled
+            .assets
+            .symbols
+            .iter()
+            .any(|symbol| symbol.kind == EntityAssetKind::RenderController)
+    );
     assert!(
         compiled
             .payloads

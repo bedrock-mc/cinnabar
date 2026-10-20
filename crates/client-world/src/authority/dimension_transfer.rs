@@ -141,7 +141,7 @@ mod tests {
             name: Arc::from("test:raised"),
             dimension,
             minimum_y: 256,
-            height_range: 256,
+            maximum_y: 512,
             generator: 1,
         }]);
         authority.reset_dimension(1, dimension);

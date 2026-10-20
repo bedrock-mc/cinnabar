@@ -76,7 +76,7 @@ pub fn equipment_pixels(frame: &ActorRenderFrame) -> Option<Vec<(ActorRenderIden
             .iter()
             .filter(|draw| draw.page != 0)
             .map(|draw| {
-                let page = &prepared.artwork.pages[usize::from(draw.page - 1)];
+                let page = prepared.artwork.page(usize::from(draw.page - 1)).unwrap();
                 let layer = gpu.words(
                     &[draw.instance.texture_layer, 0, 0, 0],
                     wgpu::BufferUsages::UNIFORM,
