@@ -160,7 +160,8 @@ impl UiPresentationRuntime {
         else {
             return;
         };
-        let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &|_| None);
+        let translate = |key: &str| runtime.translation(key);
+        let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &translate);
         self.screens
             .mod_ui
             .paint_mod_widgets(self.engine.as_deref(), &mut paint, &resolved);
@@ -176,6 +177,7 @@ impl UiPresentationRuntime {
         metrics: TextMetrics,
         content: [f32; 2],
     ) {
+        let translate = |key: &str| runtime.translation(key);
         if self.screens.mod_ui.mod_hud_editor_open() {
             let Some(resolved) = self
                 .screens
@@ -184,7 +186,7 @@ impl UiPresentationRuntime {
             else {
                 return;
             };
-            let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &|_| None);
+            let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &translate);
             self.screens
                 .mod_ui
                 .paint_mod_hud_editor(self.engine.as_deref(), &mut paint, &resolved);
@@ -212,7 +214,7 @@ impl UiPresentationRuntime {
             &self.font,
         );
         if self.control_previews.is_empty() {
-            let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &|_| None);
+            let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &translate);
             self.screens.mod_ui.paint_mod_panel_with_icons(
                 self.engine.as_deref(),
                 &mut paint,
@@ -241,7 +243,6 @@ impl UiPresentationRuntime {
             view: Some(&preview_view),
             ..Default::default()
         };
-        let translate = |key: &str| runtime.translation(key);
         let mut renderers: [&mut dyn ui_engine::engine::screen::CustomRenderer; 3] =
             [&mut hud_renderer, &mut item_renderer, &mut player_renderer];
         let mut preview_frame = PaintFrame {
