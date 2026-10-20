@@ -59,9 +59,9 @@ pub(super) fn parse(name: &str) -> Directives {
     out
 }
 
-/// `#name` from `#name` or `name`; `None` when nothing identifier-like remains.
+/// `#name` from `#name` or `name`, exactly as written: JSON-UI names are case-sensitive.
 fn binding_name(value: &str) -> Option<String> {
-    let name = identifier(value.trim_start_matches('#'), "");
+    let name = value.trim_start_matches('#');
     (!name.is_empty()).then(|| format!("#{name}"))
 }
 

@@ -48,10 +48,10 @@ Add tokens to a layer's name; the other words name the control.
 
 | Token | Effect |
 | --- | --- |
-| `@button` or `@button=<id>` | A button pressed as `button.<id>` (default: the layer name). Children named `default`, `hover`, `pressed` or `locked` become those states, even when auto-layout nests them, and a missing hover or pressed state looks like the default; without a `default` child the content shows in every state. |
+| `@button` or `@button=<id>` | A button pressed as `button.<id>` (default: the layer name). Children named `default`, `hover`, `pressed` or `locked` become those states, drawn over each other in the default child's place and size; a missing hover or pressed state looks like the default. Without a `default` child the content shows in every state. |
 | `@image` | Exports the layer, with everything inside it, as one texture. Use it for vectors and effects. |
 | `@factory=<collection>` | On an auto-layout frame: repeats its first child for each item of `<collection>`. The other children only supply preview values. |
-| `$binding=#name` | Binds a text layer's text, or an image's texture, to `#name`. |
+| `$binding=#name` | Binds a text layer's text, or an image's texture, to `#name` (case kept as written). |
 | `$visible=#name` | Binds the layer's visibility to `#name`. |
 
 A `@button` layer can also take its states from Figma's own variants: when it

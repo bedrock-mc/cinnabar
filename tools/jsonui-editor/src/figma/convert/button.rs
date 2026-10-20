@@ -1,11 +1,13 @@
 //! `@button`: the button wrapper, and its states from named children or a
-//! component set's `State` variants.
+//! component set's `State` variants, overlaid in one panel.
 
 use std::collections::BTreeMap;
 
-use serde_json::{Value, json};
+use serde_json::json;
 
-use super::{Body, Ctx, Node, Place, Scope, entry, panel, type_of};
+use super::names::{identifier, parse};
+use super::{Body, Ctx, Place, Scope, entry, panel, type_of};
+use crate::figma::{Constraint, Constraints, Node, Positioning};
 
 /// The variant property a component set's button states vary.
 const STATE_PROPERTY: &str = "state";
@@ -29,63 +31,106 @@ fn button_state(value: &str) -> Option<&'static str> {
         .find(|state| *state == value)
 }
 
-/// The button states `node`'s own Figma children are named for, before any
-/// layout wrapping nests them.
-pub(super) fn named_states(node: &Node) -> Vec<&'static str> {
-    let names: Vec<String> = node
-        .children
-        .iter()
-        .map(|child| super::names::identifier(&super::names::parse(&child.name).words, ""))
-        .collect();
-    BUTTON_STATES
-        .iter()
-        .map(|(state, _)| *state)
-        .filter(|state| names.iter().any(|name| name == state))
-        .collect()
-}
+/// States a button without them shows its default's look in.
+const FALLBACKS: [&str; 2] = ["hover", "pressed"];
 
-/// The button states among a variant panel's direct children.
-pub(super) fn direct_states(body: &Body) -> Vec<&'static str> {
-    let Some(Value::Array(controls)) = body.get("controls") else {
-        return Vec::new();
+/// `node` with its state-named children moved into one `states` frame in the
+/// default child's place, each overlaying it at the default's size, plus a copy
+/// of the default for a missing hover or pressed state; and those states in
+/// [`BUTTON_STATES`] order. Only the frame takes part in the button's layout.
+/// `None` without a `default` child.
+pub(super) fn state_frame(node: &Node) -> Option<(Node, Vec<&'static str>)> {
+    let mut found: Vec<(&'static str, usize)> = Vec::new();
+    for (index, child) in node.children.iter().enumerate() {
+        let name = identifier(&parse(&child.name).words, "");
+        let state = BUTTON_STATES
+            .iter()
+            .map(|(state, _)| *state)
+            .find(|state| *state == name);
+        if let Some(state) = state
+            && !found.iter().any(|(known, _)| *known == state)
+        {
+            found.push((state, index));
+        }
+    }
+    let at = |state: &str| {
+        found
+            .iter()
+            .find(|(known, _)| *known == state)
+            .map(|(_, at)| *at)
     };
-    BUTTON_STATES
-        .iter()
-        .map(|(state, _)| *state)
-        .filter(|state| controls.iter().any(|control| control.get(*state).is_some()))
-        .collect()
+    let default_at = at("default")?;
+    let default = &node.children[default_at];
+    let overlay = |mut child: Node, name: Option<&str>| {
+        (child.x, child.y) = (0.0, 0.0);
+        (child.width, child.height) = (default.width, default.height);
+        child.constraints = Constraints {
+            horizontal: Constraint::Stretch,
+            vertical: Constraint::Stretch,
+        };
+        child.positioning = Positioning::Auto;
+        if let Some(name) = name {
+            child.name = name.to_owned();
+        }
+        child
+    };
+    let mut children = Vec::new();
+    let mut states = Vec::new();
+    for (state, _) in BUTTON_STATES {
+        match at(state) {
+            Some(index) => children.push(overlay(node.children[index].clone(), None)),
+            None if FALLBACKS.contains(&state) => {
+                children.push(overlay(default.clone(), Some(state)))
+            }
+            None => continue,
+        }
+        states.push(state);
+    }
+    let frame = Node {
+        id: default.id.clone(),
+        name: "states".into(),
+        kind: "FRAME".into(),
+        x: default.x,
+        y: default.y,
+        width: default.width,
+        height: default.height,
+        constraints: default.constraints,
+        positioning: default.positioning,
+        sizing: default.sizing,
+        children,
+        ..Node::default()
+    };
+    let mut framed = node.clone();
+    framed.children = Vec::new();
+    for (index, child) in node.children.iter().enumerate() {
+        if index == default_at {
+            framed.children.push(frame.clone());
+        } else if !found.iter().any(|(_, at)| *at == index) {
+            framed.children.push(child.clone());
+        }
+    }
+    Some((framed, states))
 }
 
 /// Wraps `content` as a button pressed as `button.<id>`. With a `default`
-/// among `states` (descendants of `content` named for them), each state gets
-/// its own control, a missing hover or pressed one copying the default's;
-/// otherwise the content sits outside the state-switched controls and shows
-/// in every state.
+/// among `states`, each names a descendant control the button switches;
+/// otherwise the content sits outside any state control and always shows.
 pub(super) fn button(content: Body, id: &str, states: &[&'static str]) -> Body {
-    let wrap = |mut inner: Body| {
+    let states = if states.contains(&"default") {
+        states
+    } else {
+        &[]
+    };
+    let mut body = if !states.is_empty() && type_of(&content) == "panel" {
+        content
+    } else {
+        let mut inner = content;
         inner.insert("size".into(), json!(["100%", "100%"]));
         panel(vec![entry("content", inner)])
     };
-    let mut body = if !states.contains(&"default") {
-        wrap(content)
-    } else if type_of(&content) == "panel" {
-        content
-    } else {
-        wrap(content)
-    };
-    let mut present = states.to_vec();
-    if present.contains(&"default") {
-        let missing: Vec<&str> = ["hover", "pressed"]
-            .into_iter()
-            .filter(|state| !present.contains(state))
-            .collect();
-        if copy_state(&mut body, "default", &missing) {
-            present.extend(missing);
-        }
-    }
     body.insert("type".into(), "button".into());
     for (state, property) in BUTTON_STATES {
-        let target = if present.contains(&state) { state } else { "" };
+        let target = if states.contains(&state) { state } else { "" };
         body.insert(property.into(), target.into());
     }
     let target = format!("button.{id}");
@@ -100,39 +145,6 @@ pub(super) fn button(content: Body, id: &str, states: &[&'static str]) -> Body {
     body
 }
 
-/// Inserts copies of the first control named `from` (breadth first, as state
-/// targets resolve) right after it under each of `names`; `false` if absent.
-fn copy_state(body: &mut Body, from: &str, names: &[&str]) -> bool {
-    let mut queue: std::collections::VecDeque<&mut Body> = std::collections::VecDeque::from([body]);
-    while let Some(next) = queue.pop_front() {
-        let Some(Value::Array(controls)) = next.get_mut("controls") else {
-            continue;
-        };
-        let found = controls.iter().position(|control| {
-            control
-                .as_object()
-                .is_some_and(|entry| entry.keys().next().is_some_and(|key| key == from))
-        });
-        if let Some(at) = found {
-            let original = controls[at][from].clone();
-            for (offset, name) in names.iter().enumerate() {
-                controls.insert(at + 1 + offset, json!({ *name: original.clone() }));
-            }
-            return true;
-        }
-        for control in controls.iter_mut() {
-            if let Some(child) = control
-                .as_object_mut()
-                .and_then(|entry| entry.values_mut().next())
-                .and_then(Value::as_object_mut)
-            {
-                queue.push_back(child);
-            }
-        }
-    }
-    false
-}
-
 impl Ctx<'_> {
     /// A panel of a `@button` component set's or instance's variants, each
     /// named for the button state its `State` property selects, and the
@@ -143,7 +155,7 @@ impl Ctx<'_> {
         &mut self,
         node: &Node,
         scope: &Scope,
-    ) -> Option<(Body, [f64; 2])> {
+    ) -> Option<(Body, Vec<&'static str>, [f64; 2])> {
         let candidates = match node.kind.as_str() {
             "COMPONENT_SET" => &node.children,
             _ => &node.variants,
@@ -171,8 +183,7 @@ impl Ctx<'_> {
                     .is_none_or(|wanted| *wanted == others(&variant.variant_properties))
         })?;
         let reference = others(&default.variant_properties);
-        let mut taken = Vec::new();
-        let mut controls = Vec::new();
+        let mut bodies: BTreeMap<&str, Body> = BTreeMap::new();
         for variant in candidates {
             let Some(value) = state(variant) else {
                 continue;
@@ -186,16 +197,31 @@ impl Ctx<'_> {
                 self.warn(variant, &path, message);
                 continue;
             };
-            if taken.contains(&button_state) {
+            if bodies.contains_key(button_state) {
                 let message = format!("another variant is already the {button_state} state");
                 self.warn(variant, &path, message);
                 continue;
             }
             if let Some((_, body)) = self.control(variant, Place::Fill, scope) {
-                taken.push(button_state);
-                controls.push(entry(button_state, body));
+                bodies.insert(button_state, body);
             }
         }
-        Some((panel(controls), [default.width, default.height]))
+        // Every state overlays the others in one panel; a missing hover or
+        // pressed state copies the default.
+        let mut states = Vec::new();
+        let mut controls = Vec::new();
+        for (state, _) in BUTTON_STATES {
+            let body = bodies.get(state).or_else(|| {
+                FALLBACKS
+                    .contains(&state)
+                    .then(|| bodies.get("default"))
+                    .flatten()
+            });
+            if let Some(body) = body {
+                controls.push(entry(state, body.clone()));
+                states.push(state);
+            }
+        }
+        Some((panel(controls), states, [default.width, default.height]))
     }
 }

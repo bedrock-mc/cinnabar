@@ -521,7 +521,7 @@ fn state_variants_become_button_states() {
         .collect();
     assert_eq!(
         states,
-        ["default", "pressed", "hover", "locked"],
+        ["default", "hover", "pressed", "locked"],
         "pressed copies default"
     );
     assert_eq!(control(menu, "default")["size"], json!(["100%", "100%"]));
@@ -742,4 +742,74 @@ fn auto_layout_button_states_are_found_in_figma_children() {
     let (_, _, frame) = laid_out(&conversion, 1);
     assert_eq!(tints(&frame, "auto", rest), [[0, 102, 0, 255]]);
     assert_eq!(tints(&frame, "auto", hover), [[0, 204, 0, 255]]);
+}
+
+/// Sprite tints and rects drawn within the box named `name` under `state`.
+fn sprites(
+    frame: &Frame,
+    name: &str,
+    state: impl Fn(String) -> json_ui::ViewState,
+) -> Vec<([u8; 4], [f64; 4])> {
+    let laid = frame.boxes.iter().find(|laid| laid.name == name).unwrap();
+    let env = json_ui::LayoutEnv {
+        text: &Plain,
+        textures: &Plain,
+    };
+    let (out, _) = json_ui::layout_with(&frame.bound, frame.root, &env, &state(laid.key.clone()));
+    json_ui::emit(&out, &env)
+        .into_iter()
+        .filter_map(|node| match node.draw {
+            Draw::Sprite { color, .. } => {
+                Some((color, [node.dest.x, node.dest.y, node.dest.w, node.dest.h]))
+            }
+            _ => None,
+        })
+        .filter(|(_, [x, ..])| *x >= laid.rect[0] && *x < laid.rect[0] + laid.rect[2])
+        .collect()
+}
+
+// Every state of an auto-layout button overlays its flowing default's slot,
+// including the pressed state copied from the default.
+#[test]
+fn button_states_overlay_the_default_slot() {
+    let conversion = figma::convert(&fixture("button_states"), &BTreeMap::new());
+    let (_, _, frame) = laid_out(&conversion, 1);
+    let slot = [140.0, 0.0, 60.0, 20.0];
+    let (dark, light) = ([0, 102, 0, 255], [0, 204, 0, 255]);
+    assert_eq!(sprites(&frame, "auto", rest), [(dark, slot)]);
+    assert_eq!(sprites(&frame, "auto", hover), [(light, slot)]);
+    assert_eq!(sprites(&frame, "auto", press), [(dark, slot)]);
+}
+
+// Bound names keep the case the author wrote; JSON-UI lookups are case-sensitive.
+#[test]
+fn binding_names_keep_their_case() {
+    let node: Node = serde_json::from_value(json!({
+        "id": "16:1", "name": "Case Test", "type": "FRAME", "width": 100, "height": 20,
+        "children": [{
+            "id": "16:2", "name": "Name $binding=#ButtonName $visible=#ShowName", "type": "TEXT",
+            "width": 100, "height": 10, "fills": [{ "type": "SOLID", "color": [1, 1, 1] }],
+            "text": { "characters": "Hi", "font_family": "Minecraft" }
+        }]
+    }))
+    .unwrap();
+    let conversion = figma::convert(&node, &BTreeMap::new());
+    let ui = ui(&conversion);
+    let label = control(&ui, "name");
+    assert_eq!(label["text"], "#ButtonName");
+    assert_eq!(label["bindings"][0]["binding_name"], "#ButtonName");
+    assert_eq!(label["bindings"][1]["binding_name"], "#ShowName");
+    assert_eq!(conversion.mock.globals["#ButtonName"], "Hi");
+    laid_out(&conversion, 1);
+}
+
+// A hidden fill child bound to `$visible` keeps its share once shown.
+#[test]
+fn visibility_bound_fill_children_keep_their_share_when_shown() {
+    let conversion = figma::convert(&fixture("fill_center"), &BTreeMap::new());
+    let (mut session, mut view, _) = laid_out(&conversion, 1);
+    view.mock.globals.insert("#show_h3".into(), true.into());
+    let frame = session.frame(&view);
+    assert_eq!(rect(&frame, "g3"), [0.0, 40.0, 20.0, 20.0]);
+    assert_eq!(rect(&frame, "h3"), [20.0, 40.0, 80.0, 20.0]);
 }

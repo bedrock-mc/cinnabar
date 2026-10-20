@@ -13,7 +13,7 @@ use crate::mock::MockData;
 
 mod button;
 
-use button::{button, direct_states};
+use button::button;
 
 pub(super) type Body = Map<String, Value>;
 
@@ -66,6 +66,10 @@ pub fn convert(root: &Node, images: &BTreeMap<String, Vec<u8>>) -> Conversion {
         json_ui::UI_DEFS_PATH.to_owned(),
         pretty(&json!({ "ui_defs": [ui_path] })),
     );
+    // A state copied from the default repeats the default's warnings.
+    let mut seen = std::collections::BTreeSet::new();
+    ctx.warnings
+        .retain(|warning| seen.insert((warning.node_id.clone(), warning.message.clone())));
     Conversion {
         screen: format!("{namespace}.{screen_name}"),
         namespace,
@@ -135,22 +139,34 @@ impl Ctx<'_> {
         };
         // An instance's variants are snapshots of it that already carry its opacity.
         let mut opacity = node.opacity;
-        let mut variants_states = None;
+        let mut states: Vec<&'static str> = Vec::new();
         // An `@image` export already has the layer's opacity baked in.
         if node.raster.is_some() {
             opacity = 1.0;
         }
         let (mut body, auto, extent) = match variants {
-            Some((states, extent)) => {
-                variants_states = Some(direct_states(&states));
+            Some((panel, found, extent)) => {
+                states = found;
                 if node.kind == "INSTANCE" {
                     opacity = 1.0;
                 }
-                (states, [false; 2], extent)
+                (panel, [false; 2], extent)
             }
             None => {
                 self.check_common(node, &path);
-                let (body, auto) = self.content(node, &path, &directives, scope, &inner)?;
+                // A button's state children convert as one overlay frame.
+                let framed = match (&directives.button, &node.raster) {
+                    (Some(_), None) => button::state_frame(node),
+                    _ => None,
+                };
+                let source = match &framed {
+                    Some((framed, found)) => {
+                        states.clone_from(found);
+                        framed
+                    }
+                    None => node,
+                };
+                let (body, auto) = self.content(source, &path, &directives, scope, &inner)?;
                 (body, auto, [node.width, node.height])
             }
         };
@@ -163,11 +179,6 @@ impl Ctx<'_> {
         }
         let name = names::identifier(&directives.words, &node.kind.to_ascii_lowercase());
         if let Some(id) = &directives.button {
-            // A variant panel's children are its states; otherwise the Figma children name them.
-            let states = match &variants_states {
-                Some(states) => states.clone(),
-                None => button::named_states(node),
-            };
             body = button(body, id.as_deref().unwrap_or(&name), &states);
         }
         if !node.visible {
@@ -545,10 +556,10 @@ impl Ctx<'_> {
             .children
             .iter()
             .partition(|child| child.positioning == Positioning::Auto);
-        // Shown fill children take the stack's leftover extent, so it cannot size to its content.
+        // Fill children that can show take the stack's leftover extent, so it cannot size to its content.
         let primary = if flow
             .iter()
-            .any(|child| child.visible && child.sizing[main] == Sizing::Fill)
+            .any(|child| child.sizing[main] == Sizing::Fill && can_show(child))
         {
             Align::Min
         } else {
@@ -881,6 +892,11 @@ fn to_png(bytes: &[u8]) -> Result<Vec<u8>, String> {
             Ok(png.into_inner())
         }
     }
+}
+
+/// Whether `node` is shown or a `$visible` binding can show it.
+fn can_show(node: &Node) -> bool {
+    node.visible || names::parse(&node.name).visible.is_some()
 }
 
 fn visible_fills(node: &Node) -> impl Iterator<Item = &Paint> {
