@@ -72,6 +72,9 @@ Optional `entities` groups select actual animated actor meshes with a validated
 `MaskStyle`; native-init bit `16` additionally requires `entity_observe` and
 `entity_highlight`. Up to eight styles share the existing actor-mask compositor,
 with at most 32 actors per group and the existing vertex/attachment budgets.
+When attachments exceed the GPU budget, fitting groups remain visible. Admission
+offers each owner one coverage group before its next, then follows stable owner
+and handle order. This also applies to component masks sharing the compositor.
 Optional `blocks` contains at most 1024 integer positions and per-block colours;
 bit `32` requires `block_highlights`. These use the same full-block overlay as
 host-discovered loaded-block selections. The independent consent bits do not

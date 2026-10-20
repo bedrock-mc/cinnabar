@@ -46,6 +46,9 @@ pub fn environment_packet_mod() -> Option<PacketModSelection> {
 pub fn environment_grants() -> ModGrants {
     ModGrants {
         environment: true,
+        world_draw: std::env::var("CINNABAR_MOD_WORLD_DRAW").is_ok_and(|value| value == "1"),
+        render_through_walls: std::env::var("CINNABAR_MOD_RENDER_THROUGH_WALLS")
+            .is_ok_and(|value| value == "1"),
         entity_observe: std::env::var("CINNABAR_MOD_ENTITY_OBSERVE")
             .is_ok_and(|value| value == "1"),
         entity_highlight: std::env::var("CINNABAR_MOD_ENTITY_HIGHLIGHT")
