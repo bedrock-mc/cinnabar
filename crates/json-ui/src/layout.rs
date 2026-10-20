@@ -852,17 +852,25 @@ fn disjoint(rect: Rect, clip: Rect) -> bool {
         || rect.y + rect.h <= clip.y
 }
 
-/// Keeps authored input and child bounds along with conservative path coverage overflow.
+/// Keeps authored input and child bounds along with path and shadow paint overflow.
 pub(crate) fn subtree_bounds(control: &ResolvedControl, rect: Rect, env: &LayoutEnv) -> Rect {
     if control.control_type.as_deref() != Some("custom")
-        || control.properties.get("renderer").and_then(Value::as_str)
-            != Some(crate::vector_path::RENDERER)
+        || !matches!(
+            control.properties.get("renderer").and_then(Value::as_str),
+            Some(crate::rounded::RENDERER | crate::vector_path::RENDERER)
+        )
     {
         return rect;
     }
-    let Some(crate::Draw::Custom { data, .. }) = crate::emit::custom_draw(control) else {
+    let Some(crate::Draw::Custom { renderer, data }) = crate::emit::custom_draw(control) else {
         return rect;
     };
+    if renderer == crate::rounded::RENDERER {
+        let pixel = env.text.physical_pixel_size();
+        return crate::rounded::Shadow::read(&data).map_or(rect, |shadow| {
+            rect.union(shadow.bounds(rect, pixel)).expanded(pixel)
+        });
+    }
     crate::vector_path::bounds(&data).map_or(rect, |bounds| {
         bounds.subtree_at(rect, env.text.physical_pixel_size())
     })

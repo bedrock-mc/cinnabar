@@ -8,6 +8,7 @@ use super::Canvas;
 
 const MAX_CACHED_SHAPES: usize = 512;
 mod geometry;
+mod shadow;
 use geometry::mesh;
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
@@ -122,7 +123,8 @@ impl Canvas<'_> {
                 .or_else(|| data.get(name))
                 .and_then(json_ui::color_value)
         };
-        let radius = length("radius", 6.0).clamp(0.0, width.min(height) * 0.5);
+        let radius = length("radius", f64::from(json_ui::rounded::DEFAULT_RADIUS))
+            .clamp(0.0, width.min(height) * 0.5);
         let fill = color("#color", "color").unwrap_or([255; 4]);
         let border_color = color("#border_color", "border_color");
         let border = if border_color.is_some() {

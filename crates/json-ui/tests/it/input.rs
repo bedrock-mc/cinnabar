@@ -693,6 +693,58 @@ fn path_caps_outside_the_node_survive_primitive_and_scroll_culling() {
     }
 }
 
+#[test]
+fn rounded_shadows_survive_primitive_and_scroll_culling_without_expanding_input() {
+    for scrolling in [false, true] {
+        let rounded = |name, x| {
+            ctrl(
+                name,
+                "custom",
+                json!({
+                    "size":[16,16], "offset":[x,0], "anchor_from":"top_left", "anchor_to":"top_left",
+                    "renderer":json_ui::rounded::RENDERER, "shadow_color":[0,0,0,1], "shadow_blur":4
+                }),
+                vec![],
+            )
+        };
+        let children = vec![rounded("near", -20), rounded("far", -40)];
+        let root = if scrolling {
+            let mut root = screen(vec![scroll_view(200.0)]);
+            root.children[0].children[0].children[0].children = children;
+            root
+        } else {
+            screen(children)
+        };
+        let state = ViewState::default();
+        let normal = json_ui::render_bound(root.clone(), [200.0, 100.0], &env(), &state);
+        let gated = json_ui::render_bound_gated(
+            root,
+            [200.0, 100.0],
+            &env(),
+            &state,
+            &mut json_ui::MeasureCache::default(),
+        );
+        for render in [normal, gated] {
+            let shadow = render
+                .nodes
+                .iter()
+                .find(|node| node.name == "near")
+                .unwrap();
+            assert_eq!(shadow.dest.x, -20.0);
+            assert!(render.nodes.iter().all(|node| node.name != "far"));
+            assert_eq!(shadow.clip.x, 0.0);
+            assert_eq!(shadow.clip.w, if scrolling { 90.0 } else { 200.0 });
+            assert!(
+                render
+                    .hits
+                    .iter()
+                    .filter(|hit| hit.name == "near")
+                    .all(|hit| !hit.contains([1.0, 8.0]))
+            );
+        }
+    }
+}
+
 /// Builds a one-column scrolling grid with authored path cells.
 fn path_grid(paths: Value) -> ResolvedControl {
     let mut root = screen(vec![scroll_view(200.0)]);
