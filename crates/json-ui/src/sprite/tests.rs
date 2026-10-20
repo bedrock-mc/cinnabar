@@ -36,7 +36,7 @@ fn frame() -> TextureMeta {
     }
 }
 
-fn draw(properties: Value, size: [f64; 2], meta: TextureMeta) -> Vec<(Rect, UvRect)> {
+fn draw(properties: Value, size: [f64; 2], meta: TextureMeta) -> Vec<Quad> {
     quads(
         &image(properties),
         Rect::new(0.0, 0.0, size[0], size[1]),
@@ -55,7 +55,7 @@ fn default_keep_ratio_contains_the_texture() {
     let quads = draw(json!({}), [16.0, 16.0], wide());
     assert_eq!(
         quads,
-        vec![(Rect::new(0.0, 4.0, 16.0, 8.0), UvRect::full())]
+        vec![(Rect::new(0.0, 4.0, 16.0, 8.0), UvRect::full(), None)]
     );
     let stretched = draw(json!({ "keep_ratio": false }), [16.0, 16.0], wide());
     assert_eq!(stretched[0].0, Rect::new(0.0, 0.0, 16.0, 16.0));
@@ -94,7 +94,11 @@ fn fill_crops_the_source_to_cover() {
     let quads = draw(json!({ "fill": true }), [16.0, 16.0], wide());
     assert_eq!(
         quads,
-        vec![(Rect::new(0.0, 0.0, 16.0, 16.0), uv(0.25, 0.0, 0.75, 1.0))]
+        vec![(
+            Rect::new(0.0, 0.0, 16.0, 16.0),
+            uv(0.25, 0.0, 0.75, 1.0),
+            None
+        )]
     );
 }
 
@@ -137,7 +141,7 @@ fn control_nineslice_overrides_the_sidecar() {
 #[test]
 fn tiled_yx_repeats_both_axes() {
     let tile = TextureMeta::plain([8.0, 8.0]);
-    assert_eq!(draw(json!({ "tiled": "yx" }), [32.0, 32.0], tile).len(), 16);
+    assert_eq!(draw(json!({ "tiled": "yx" }), [32.0, 32.0], tile).len(), 1);
     assert_eq!(
         draw(json!({ "tiled": "true" }), [32.0, 32.0], tile).len(),
         1
@@ -152,8 +156,8 @@ fn tiled_scale_scales_each_tile() {
         [32.0, 32.0],
         TextureMeta::plain([8.0, 8.0]),
     );
-    assert_eq!(quads.len(), 4);
-    assert_eq!(quads[1].0, Rect::new(16.0, 0.0, 16.0, 16.0));
+    assert_eq!(quads.len(), 1);
+    assert_eq!(quads[0].2.unwrap().uv, uv(0.0, 0.0, 2.0, 2.0));
 }
 
 // Tiling repeats the `uv` region, not the whole texture.
@@ -164,8 +168,8 @@ fn tiling_repeats_the_uv_region() {
         [32.0, 32.0],
         TextureMeta::plain([16.0, 16.0]),
     );
-    assert_eq!(quads.len(), 16);
-    assert!(quads.iter().all(|(_, uv)| uv.u1 == 0.5 && uv.v1 == 0.5));
+    assert_eq!(quads.len(), 1);
+    assert!(quads.iter().all(|(_, uv, _)| uv.u1 == 0.5 && uv.v1 == 0.5));
 }
 
 // A tiled 1x1 fill (vanilla `dropDownSelectBG`) covers a wide row whole, not up to the tile cap.
@@ -179,15 +183,20 @@ fn tiled_single_texel_stretches_across_the_rect() {
     );
     assert_eq!(
         quads,
-        vec![(Rect::new(0.0, 0.0, 400.0, 19.0), uv(0.0, 0.0, 1.0, 1.0))]
+        vec![(
+            Rect::new(0.0, 0.0, 400.0, 19.0),
+            uv(0.0, 0.0, 1.0, 1.0),
+            None
+        )]
     );
     let strip = draw(
         json!({ "tiled": true }),
         [32.0, 32.0],
         TextureMeta::plain([8.0, 1.0]),
     );
-    assert_eq!(strip.len(), 4);
-    assert!(strip.iter().all(|(dest, _)| dest.h == 32.0));
+    assert_eq!(strip.len(), 1);
+    assert_eq!(strip[0].2.unwrap().axes, [true, false]);
+    assert!(strip.iter().all(|(dest, _, _)| dest.h == 32.0));
 }
 
 // Tiling a nine-slice texture keeps its corners.
@@ -196,9 +205,159 @@ fn tiled_nine_slice_keeps_the_border() {
     let quads = draw(json!({ "tiled": true }), [40.0, 40.0], frame());
     assert_eq!(
         quads[0],
-        (Rect::new(0.0, 0.0, 4.0, 4.0), uv(0.0, 0.0, 0.25, 0.25))
+        (
+            Rect::new(0.0, 0.0, 4.0, 4.0),
+            uv(0.0, 0.0, 0.25, 0.25),
+            None
+        )
     );
-    assert!(quads.len() > 9);
+    assert_eq!(quads.len(), 9);
+}
+
+/// Checks pixel coverage and samples a two-color source without relying on quad counts.
+fn checker_pixels(quads: &[Quad], size: [usize; 2], texture: [f64; 2]) -> Vec<u8> {
+    let mut pixels = vec![0; size[0] * size[1]];
+    for (dest, uv, repeat) in quads {
+        for y in dest.y.floor().max(0.0) as usize..((dest.y + dest.h).ceil() as usize).min(size[1])
+        {
+            for x in
+                dest.x.floor().max(0.0) as usize..((dest.x + dest.w).ceil() as usize).min(size[0])
+            {
+                let at = [x as f64 + 0.5, y as f64 + 0.5];
+                if at[0] < dest.x
+                    || at[0] >= dest.x + dest.w
+                    || at[1] < dest.y
+                    || at[1] >= dest.y + dest.h
+                {
+                    continue;
+                }
+                let coords = repeat.map_or(*uv, |r| r.uv);
+                let mut u = f64::from(coords.u0)
+                    + f64::from(coords.u1 - coords.u0) * (at[0] - dest.x) / dest.w;
+                let mut v = f64::from(coords.v0)
+                    + f64::from(coords.v1 - coords.v0) * (at[1] - dest.y) / dest.h;
+                if let Some(repeat) = repeat {
+                    if repeat.axes[0] {
+                        u = u.rem_euclid(1.0);
+                    }
+                    if repeat.axes[1] {
+                        v = v.rem_euclid(1.0);
+                    }
+                    u = f64::from(uv.u0) + u * f64::from(uv.u1 - uv.u0);
+                    v = f64::from(uv.v0) + v * f64::from(uv.v1 - uv.v0);
+                }
+                let pixel = &mut pixels[y * size[0] + x];
+                assert_eq!(*pixel, 0, "overlapping tiles at {x},{y}");
+                *pixel = 1
+                    + (((u * texture[0]).floor() as usize + (v * texture[1]).floor() as usize) % 2)
+                        as u8;
+            }
+        }
+    }
+    pixels
+}
+
+#[test]
+fn large_tiled_images_cover_every_pixel_and_crop_edge_uvs() {
+    for (axes, size) in [("xy", [257, 131]), ("x", [16_387, 3]), ("y", [3, 16_387])] {
+        let quads = draw(
+            json!({"tiled": axes, "uv": [2, 2], "uv_size": [2, 2], "tiled_scale": [2, 1]}),
+            size.map(|value| value as f64),
+            TextureMeta::plain([8.0, 8.0]),
+        );
+        let pixels = checker_pixels(&quads, size, [8.0, 8.0]);
+        for y in 0..size[1] {
+            for x in 0..size[0] {
+                let u = if axes == "y" {
+                    (2 * x + 1) / size[0]
+                } else {
+                    (x % 4) / 2
+                };
+                let v = if axes == "x" {
+                    (2 * y + 1) / size[1]
+                } else {
+                    y % 2
+                };
+                assert_eq!(
+                    pixels[y * size[0] + x],
+                    1 + ((u + v) % 2) as u8,
+                    "{axes} at {x},{y}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn tiled_geometry_is_bounded_even_at_extreme_scales() {
+    // The ordinary case fails before the extreme case can allocate tile geometry.
+    for scale in [1.0, 0.001] {
+        let quads = draw(
+            json!({"tiled": true, "tiled_scale": [scale, scale]}),
+            [256.0, 128.0],
+            TextureMeta::plain([2.0, 2.0]),
+        );
+        assert_eq!(quads.len(), 1, "repeat scale {scale} must use one quad");
+        let span = quads[0].2.unwrap().uv;
+        assert!((f64::from(span.u1) - 128.0 / scale).abs() < 0.01);
+        assert!((f64::from(span.v1) - 64.0 / scale).abs() < 0.01);
+        let pixels = checker_pixels(&quads, [256, 128], [2.0, 2.0]);
+        assert!(pixels.iter().all(|pixel| *pixel != 0));
+    }
+    let slices = draw(
+        json!({"tiled": true, "tiled_scale": [0.001, 0.001], "nineslice_size": 1}),
+        [256.0, 128.0],
+        TextureMeta::plain([4.0, 4.0]),
+    );
+    assert_eq!(slices.len(), 9);
+    assert!(
+        checker_pixels(&slices, [256, 128], [4.0, 4.0])
+            .iter()
+            .all(|pixel| *pixel != 0)
+    );
+}
+
+#[test]
+fn large_tiled_slices_keep_full_coverage_and_clipped_borders() {
+    let size = [267, 139];
+    let control = image(json!({"tiled": true, "nineslice_size": 1, "clip_direction": "down"}));
+    let meta = TextureMeta::plain([4.0, 4.0]);
+    for clip in [None, Some(0.5)] {
+        let quads = quads(
+            &control,
+            Rect::new(0.0, 0.0, size[0] as f64, size[1] as f64),
+            Some(&meta),
+            clip,
+        );
+        let pixels = checker_pixels(&quads, size, meta.pixels);
+        for y in 0..size[1] {
+            for x in 0..size[0] {
+                if clip.is_some() && y < size[1] / 2 {
+                    assert_eq!(pixels[y * size[0] + x], 0);
+                    continue;
+                }
+                let u = if x == 0 {
+                    0
+                } else if x + 1 == size[0] {
+                    3
+                } else {
+                    1 + (x - 1) % 2
+                };
+                let v = if y == 0 {
+                    0
+                } else if y + 1 == size[1] {
+                    3
+                } else {
+                    1 + (y - 1) % 2
+                };
+                assert_eq!(
+                    pixels[y * size[0] + x],
+                    1 + ((u + v) % 2) as u8,
+                    "clip={clip:?} at {x},{y}"
+                );
+            }
+        }
+    }
 }
 
 // Without `clip_direction` a `clip_ratio` cuts nothing; `none` is the same.
@@ -233,10 +392,10 @@ fn pixel_perfect_clip_snaps_to_source_pixels() {
             Some(0.3),
         )[0]
     };
-    let (rect, uv) = clip(json!({}));
+    let (rect, uv, _) = clip(json!({}));
     assert_eq!(rect.w, 50.0);
     assert!((uv.u1 - 5.0 / 7.0).abs() < 1e-6);
-    let (rect, _) = clip(json!({ "clip_pixelperfect": false }));
+    let (rect, _, _) = clip(json!({ "clip_pixelperfect": false }));
     assert!((rect.w - 49.0).abs() < 1e-4);
 }
 
@@ -400,16 +559,16 @@ fn empty_tiled_destinations_emit_nothing() {
             tiled_scale: [1.0, 1.0],
         };
         for [w, h] in [[0.0, 1.0], [-1.0, 1.0], [1.0, 0.0]] {
-            assert!(
-                tile_region(
-                    Rect::new(0.0, 0.0, w, h),
-                    &source,
-                    source.region(),
-                    [1.0, 1e-12],
-                    Tiled::Both
-                )
-                .is_empty()
+            let mut quads = Vec::new();
+            tile_region(
+                Rect::new(0.0, 0.0, w, h),
+                &source,
+                source.region(),
+                [1.0, 1e-12],
+                Tiled::Both,
+                &mut quads,
             );
+            assert!(quads.is_empty());
         }
         send.send(()).unwrap();
     });
