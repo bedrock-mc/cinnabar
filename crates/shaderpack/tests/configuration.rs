@@ -127,8 +127,8 @@ fn discovery_selects_complete_sets_and_keeps_disabled_programs_inspectable() {
             .map(|program| (program.name.as_str(), program.kind))
             .collect::<Vec<_>>(),
         [
-            ("composite", ProgramKind::Render),
             ("composite", ProgramKind::Compute),
+            ("composite", ProgramKind::Render),
             ("composite2", ProgramKind::Render),
             ("composite10", ProgramKind::Render),
         ]
@@ -136,14 +136,14 @@ fn discovery_selects_complete_sets_and_keeps_disabled_programs_inspectable() {
     assert!(programs.iter().all(|program| program.folder == "world0"));
     assert_eq!(programs[0].group, ProgramGroup::Composite);
     assert_eq!(
-        programs[0].stages,
+        programs[1].stages,
         [
             (StageKind::Vertex, "world0/composite.vsh".into()),
             (StageKind::Fragment, "world0/composite.fsh".into()),
         ]
     );
     assert_eq!(
-        programs[1].stages,
+        programs[0].stages,
         [(StageKind::Compute, "world0/composite.csh".into())]
     );
     assert_eq!(pack.programs("absent", &environment), programs);
