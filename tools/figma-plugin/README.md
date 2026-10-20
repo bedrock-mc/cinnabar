@@ -54,6 +54,14 @@ Add tokens to a layer's name; the other words name the control.
 | `$binding=#name` | Binds a text layer's text, or an image's texture, to `#name`. |
 | `$visible=#name` | Binds the layer's visibility to `#name`. |
 
+A `@button` layer can also take its states from Figma's own variants: when it
+is a component set, or an instance of one, whose variant property `State`
+(any case) has the values `Default`, `Hover`, `Pressed` and `Locked`
+(`Disabled` also means locked), each variant becomes that state. An instance
+uses the variants that share its other properties (such as `Size`) and keeps
+its overrides; the button takes the default variant's size. Without such
+variants, the child-name convention above applies.
+
 The preview fills bindings with the values the design shows.
 
 ## Not converted

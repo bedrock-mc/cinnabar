@@ -17,9 +17,10 @@ use crate::scene::{Session, View};
 
 pub use convert::convert;
 
-/// The layer-name token for which the plugin sends a PNG export as [`Node::raster`].
-pub fn raster_directive() -> &'static str {
-    names::IMAGE
+/// The layer-name tokens the plugin acts on: `raster` layers arrive as a PNG
+/// export ([`Node::raster`]), `button` instances with their [`Node::variants`].
+pub fn plugin_directives() -> serde_json::Value {
+    serde_json::json!({ "raster": names::IMAGE, "button": names::BUTTON })
 }
 
 /// One serialized layer. Positions are relative to the parent layer's top left.
@@ -58,6 +59,10 @@ pub struct Node {
     /// Image key of the plugin's PNG export of this layer (`@image`).
     pub raster: Option<String>,
     pub children: Vec<Node>,
+    /// A variant component's or instance's variant property values.
+    pub variant_properties: BTreeMap<String, String>,
+    /// A `@button` instance swapped to each variant of its component set.
+    pub variants: Vec<Node>,
 }
 
 impl Default for Node {
@@ -87,6 +92,8 @@ impl Default for Node {
             text: None,
             raster: None,
             children: Vec::new(),
+            variant_properties: BTreeMap::new(),
+            variants: Vec::new(),
         }
     }
 }

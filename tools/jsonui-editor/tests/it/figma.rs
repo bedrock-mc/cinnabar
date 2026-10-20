@@ -485,3 +485,56 @@ fn conversion_is_deterministic() {
     assert_eq!(first.files, second.files);
     assert_eq!(first.warnings, second.warnings);
 }
+
+// A `@button` component set, or an instance of one, takes its states from the
+// `State` variants (Disabled meaning locked); an instance keeps its other
+// variant properties, and the button takes the default variant's size.
+#[test]
+fn state_variants_become_button_states() {
+    let conversion = figma::convert(&fixture("variants"), &BTreeMap::new());
+    assert_eq!(
+        messages(&conversion),
+        [(
+            "Variant Test / Menu Button @button=play / State=Focused".to_owned(),
+            "variant state `Focused` is not a button state".to_owned(),
+        )],
+        "the set's own stroke is canvas chrome"
+    );
+    let ui = ui(&conversion);
+    let menu = control(&ui, "menu_button");
+    assert_eq!(menu["type"], "button");
+    assert_eq!(menu["button_mappings"][0]["to_button_id"], "button.play");
+    for (property, state) in [
+        ("default_control", "default"),
+        ("hover_control", "hover"),
+        ("pressed_control", "default"),
+        ("locked_control", "locked"),
+    ] {
+        assert_eq!(menu[property], state, "{property}");
+    }
+    assert_eq!(menu["size"], json!([80, 20]));
+    let states: Vec<&String> = menu["controls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|control| control.as_object()?.keys().next())
+        .collect();
+    assert_eq!(states, ["default", "hover", "locked"]);
+    assert_eq!(control(menu, "default")["size"], json!(["100%", "100%"]));
+    assert_eq!(control(control(menu, "default"), "label")["text"], "Play");
+    let quit = control(&ui, "quit");
+    assert_eq!(
+        (&quit["default_control"], &quit["hover_control"]),
+        (&json!("default"), &json!("hover"))
+    );
+    let background = |state: &str| &control(control(quit, state), "background")["color"];
+    assert_eq!(background("default"), &json!([0.5, 0, 0]));
+    assert_eq!(
+        background("hover"),
+        &json!([0.8, 0, 0]),
+        "the Large hover variant"
+    );
+    let (_, _, frame) = laid_out(&conversion, 1);
+    assert_eq!(rect(&frame, "menu_button"), [0.0, 0.0, 80.0, 20.0]);
+    assert_eq!(rect(&frame, "quit"), [100.0, 70.0, 80.0, 24.0]);
+}

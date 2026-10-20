@@ -5,6 +5,9 @@ use std::collections::BTreeSet;
 
 /// The directive asking the plugin to export a layer as one texture.
 pub(super) const IMAGE: &str = "@image";
+/// The directive making a layer a button; the plugin sends a button
+/// instance's variants with it.
+pub(super) const BUTTON: &str = "@button";
 
 /// A layer name split into its words and directives.
 #[derive(Debug, Default, PartialEq)]
@@ -39,8 +42,8 @@ pub(super) fn parse(name: &str) -> Directives {
         };
         let binding = || value.and_then(binding_name);
         match (key, value) {
-            ("@button", None) => out.button = Some(None),
-            ("@button", Some(id)) if !identifier(id, "").is_empty() => {
+            (BUTTON, None) => out.button = Some(None),
+            (BUTTON, Some(id)) if !identifier(id, "").is_empty() => {
                 out.button = Some(Some(identifier(id, "")));
             }
             (IMAGE, None) => out.image = true,

@@ -16,8 +16,8 @@ const ANCHORS: [[&str; 3]; 3] = [
 /// Where a control sits in its parent.
 #[derive(Clone, Copy)]
 pub(super) enum Place {
-    /// The converted frame: it fills the screen.
-    Root,
+    /// Fills its parent: the converted frame, and a button's state variants.
+    Fill,
     /// Positioned by its constraints in a parent of this size.
     Free { parent: [f64; 2] },
     /// Packed by a stack panel along `main`; `anchored` aligns it on the
@@ -29,11 +29,17 @@ pub(super) enum Place {
     },
 }
 
-/// Sets `size`, `offset` and anchors for `place`. `auto` axes size to content.
-pub(super) fn place_control(body: &mut Body, node: &Node, auto: [bool; 2], place: Place) {
-    let extent = [node.width, node.height];
+/// Sets `size`, `offset` and anchors for `place` of a control `extent` in
+/// size. `auto` axes size to content.
+pub(super) fn place_control(
+    body: &mut Body,
+    node: &Node,
+    extent: [f64; 2],
+    auto: [bool; 2],
+    place: Place,
+) {
     match place {
-        Place::Root => {
+        Place::Fill => {
             body.insert("size".into(), json!(["100%", "100%"]));
         }
         Place::Free { parent } => {

@@ -56,7 +56,7 @@ async function main(): Promise<void> {
   scale.onchange = () => post({ type: 'convert' });
   element<HTMLButtonElement>('refresh').onclick = () => post({ type: 'convert' });
   exportButton.onclick = () => exportPack(editor);
-  post({ type: 'ready', raster: editor.figma_raster_directive() });
+  post({ type: 'ready', directives: JSON.parse(editor.figma_directives()) });
 }
 
 function show(editor: Editor, message: Document): void {

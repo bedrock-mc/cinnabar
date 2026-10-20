@@ -280,9 +280,9 @@ impl Editor {
         export::package(&plan, &request.pack, icon.as_deref(), request.format).map_err(js_error)
     }
 
-    /// The layer-name token the plugin exports as one texture.
-    pub fn figma_raster_directive(&self) -> String {
-        figma::raster_directive().to_owned()
+    /// `{raster, button}`: the layer-name tokens the plugin's serializer acts on.
+    pub fn figma_directives(&self) -> String {
+        figma::plugin_directives().to_string()
     }
 
     /// Queue the bytes behind an image key the next [`Self::convert_figma`] document names.

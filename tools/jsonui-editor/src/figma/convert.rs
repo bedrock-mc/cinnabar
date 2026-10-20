@@ -11,6 +11,10 @@ use super::place::{Place, anchor, number, place_control, stretch};
 use super::{Align, AutoLayout, Conversion, LayoutMode, Node, Paint, Positioning, Warning};
 use crate::mock::MockData;
 
+mod button;
+
+use button::button;
+
 pub(super) type Body = Map<String, Value>;
 
 /// The Figma font size drawn at `font_scale_factor` 1: the default font's 8 px glyph cell.
@@ -24,13 +28,6 @@ const CONTAINERS: [&str; 6] = [
     "COMPONENT_SET",
     "INSTANCE",
     "SECTION",
-];
-/// Button state children by name, and the property naming each.
-const BUTTON_STATES: [(&str, &str); 4] = [
-    ("default", "default_control"),
-    ("hover", "hover_control"),
-    ("pressed", "pressed_control"),
-    ("locked", "locked_control"),
 ];
 
 /// Converts `root` into a pack. `images` holds the bytes behind every image
@@ -51,7 +48,7 @@ pub fn convert(root: &Node, images: &BTreeMap<String, Vec<u8>>) -> Conversion {
     let root_name = ctx.top.unique(&namespace);
     let screen_name = ctx.top.unique(&format!("{root_name}_screen"));
     let body = ctx
-        .control(root, Place::Root, &Scope::default())
+        .control(root, Place::Fill, &Scope::default())
         .map_or_else(|| panel(Vec::new()), |(_, body)| body);
     ctx.definitions
         .insert(root_name.clone(), Value::Object(body));
@@ -128,32 +125,20 @@ impl Ctx<'_> {
         for token in &directives.unknown {
             self.warn(node, &path, format!("`{token}` is not a known directive"));
         }
-        self.check_common(node, &path);
         let inner = Scope {
             path: path.clone(),
             item: scope.item.clone(),
         };
-        let (mut body, auto) = match (node.raster.as_deref(), node.kind.as_str()) {
-            (Some(key), _) => (
-                self.raster(node, key, &path, &directives, scope)?,
-                [false; 2],
-            ),
-            (None, "TEXT") => self.text(node, &path, &directives, scope)?,
-            (None, "RECTANGLE") => (self.rectangle(node, &path, &directives, scope), [false; 2]),
-            (None, kind) if CONTAINERS.contains(&kind) => {
-                (self.container(node, &path, &directives, &inner), [false; 2])
-            }
-            (None, kind) => {
-                self.warn(
-                    node,
-                    &path,
-                    format!(
-                        "{} layers are not supported; name it `{}` to export it as a texture",
-                        label(kind),
-                        names::IMAGE
-                    ),
-                );
-                return None;
+        let variants = match (&directives.button, &node.raster) {
+            (Some(_), None) => self.state_variants(node, &inner),
+            _ => None,
+        };
+        let (mut body, auto, extent) = match variants {
+            Some((states, extent)) => (states, [false; 2], extent),
+            None => {
+                self.check_common(node, &path);
+                let (body, auto) = self.content(node, &path, &directives, scope, &inner)?;
+                (body, auto, [node.width, node.height])
             }
         };
         if directives.image && node.raster.is_none() {
@@ -182,8 +167,36 @@ impl Ctx<'_> {
                 body.insert("propagate_alpha".into(), true.into());
             }
         }
-        place_control(&mut body, node, auto, place);
+        place_control(&mut body, node, extent, auto, place);
         Some((name, body))
+    }
+
+    /// `node`'s own control before placement, and which axes size to content.
+    fn content(
+        &mut self,
+        node: &Node,
+        path: &str,
+        directives: &Directives,
+        scope: &Scope,
+        inner: &Scope,
+    ) -> Option<(Body, [bool; 2])> {
+        Some(match (node.raster.as_deref(), node.kind.as_str()) {
+            (Some(key), _) => (self.raster(node, key, path, directives, scope)?, [false; 2]),
+            (None, "TEXT") => self.text(node, path, directives, scope)?,
+            (None, "RECTANGLE") => (self.rectangle(node, path, directives, scope), [false; 2]),
+            (None, kind) if CONTAINERS.contains(&kind) => {
+                (self.container(node, path, directives, inner), [false; 2])
+            }
+            (None, kind) => {
+                let message = format!(
+                    "{} layers are not supported; name it `{}` to export it as a texture",
+                    label(kind),
+                    names::IMAGE
+                );
+                self.warn(node, path, message);
+                return None;
+            }
+        })
     }
 
     /// Warnings for properties no control expresses.
@@ -198,8 +211,9 @@ impl Ctx<'_> {
         if node.is_mask {
             self.warn(node, path, "masks are not supported");
         }
-        // An `@image` export already contains its effects, strokes and corners.
-        if node.raster.is_some() {
+        // An `@image` export already contains its effects, strokes and corners;
+        // a component set's own fill and stroke are canvas chrome.
+        if node.raster.is_some() || node.kind == "COMPONENT_SET" {
             return;
         }
         for effect in node.effects.iter().filter(|effect| effect.visible) {
@@ -417,8 +431,11 @@ impl Ctx<'_> {
             self.warn(node, path, "`$binding` binds a text or image layer");
         }
         let mut names = NameSet::default();
-        let mut controls: Vec<Value> = self
-            .fills(node, path)
+        let fills = match node.kind.as_str() {
+            "COMPONENT_SET" => Vec::new(),
+            _ => self.fills(node, path),
+        };
+        let mut controls: Vec<Value> = fills
             .into_iter()
             .map(|(_, mut fill)| {
                 fill.insert("size".into(), json!(["100%", "100%"]));
@@ -796,49 +813,6 @@ fn to_png(bytes: &[u8]) -> Result<Vec<u8>, String> {
             Ok(png.into_inner())
         }
     }
-}
-
-/// Wraps `content` as a button pressed as `button.<id>`. Children named for
-/// button states become them; otherwise the content shows in every state.
-fn button(content: Body, id: &str) -> Body {
-    let children: Vec<String> = match (type_of(&content), content.get("controls")) {
-        ("panel", Some(Value::Array(controls))) => controls
-            .iter()
-            .filter_map(|control| control.as_object()?.keys().next().cloned())
-            .collect(),
-        _ => Vec::new(),
-    };
-    let has = |state: &str| children.iter().any(|name| name == state);
-    let (mut body, states): (Body, Vec<&str>) = if has("default") {
-        let states = BUTTON_STATES
-            .iter()
-            .map(|(state, _)| *state)
-            .filter(|state| has(state))
-            .collect();
-        (content, states)
-    } else {
-        let mut inner = content;
-        inner.insert("size".into(), json!(["100%", "100%"]));
-        (panel(vec![entry("default", inner)]), vec!["default"])
-    };
-    body.insert("type".into(), "button".into());
-    for (state, property) in BUTTON_STATES {
-        if states.contains(&state) {
-            body.insert(property.into(), state.into());
-        } else if state != "locked" {
-            body.insert(property.into(), "default".into());
-        }
-    }
-    let target = format!("button.{id}");
-    body.insert(
-        "button_mappings".into(),
-        json!([
-            { "from_button_id": "button.menu_select", "to_button_id": target, "mapping_type": "pressed" },
-            { "from_button_id": "button.menu_ok", "to_button_id": target, "mapping_type": "focused" },
-        ]),
-    );
-    body.insert("sound_name".into(), "random.click".into());
-    body
 }
 
 fn visible_fills(node: &Node) -> impl Iterator<Item = &Paint> {

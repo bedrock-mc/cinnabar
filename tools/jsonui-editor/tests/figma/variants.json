@@ -1,0 +1,43 @@
+{
+  "id": "9:1", "name": "Variant Test", "type": "FRAME", "width": 200, "height": 100,
+  "children": [
+    { "id": "9:2", "name": "Menu Button @button=play", "type": "COMPONENT_SET", "x": 0, "y": 0, "width": 200, "height": 60,
+      "strokes": [{ "type": "SOLID", "color": [0.6, 0.3, 1] }],
+      "children": [
+        { "id": "9:3", "name": "State=Default", "type": "COMPONENT", "x": 0, "y": 0, "width": 80, "height": 20,
+          "variant_properties": { "State": "Default" },
+          "fills": [{ "type": "SOLID", "color": [0.25, 0.25, 0.25] }],
+          "children": [
+            { "id": "9:4", "name": "Label", "type": "TEXT", "x": 0, "y": 6, "width": 80, "height": 8,
+              "fills": [{ "type": "SOLID", "color": [1, 1, 1] }],
+              "text": { "characters": "Play", "font_family": "Minecraft", "align_h": "CENTER", "auto_resize": "HEIGHT" } }
+          ] },
+        { "id": "9:5", "name": "State=Hover", "type": "COMPONENT", "x": 100, "y": 0, "width": 80, "height": 20,
+          "variant_properties": { "State": "Hover" },
+          "fills": [{ "type": "SOLID", "color": [0.4, 0.4, 0.4] }] },
+        { "id": "9:6", "name": "State=Disabled", "type": "COMPONENT", "x": 0, "y": 30, "width": 80, "height": 20,
+          "variant_properties": { "state": "disabled" },
+          "fills": [{ "type": "SOLID", "color": [0.1, 0.1, 0.1] }] },
+        { "id": "9:7", "name": "State=Focused", "type": "COMPONENT", "x": 100, "y": 30, "width": 80, "height": 20,
+          "variant_properties": { "State": "Focused" },
+          "fills": [{ "type": "SOLID", "color": [0, 0, 1] }] }
+      ] },
+    { "id": "9:8", "name": "Quit @button", "type": "INSTANCE", "x": 100, "y": 70, "width": 80, "height": 24,
+      "variant_properties": { "Size": "Large", "State": "Default" },
+      "fills": [{ "type": "SOLID", "color": [0.5, 0, 0] }],
+      "variants": [
+        { "id": "9:9", "name": "Size=Small, State=Default", "type": "INSTANCE", "width": 60, "height": 16,
+          "variant_properties": { "Size": "Small", "State": "Default" },
+          "fills": [{ "type": "SOLID", "color": [0, 0, 1] }] },
+        { "id": "9:10", "name": "Size=Large, State=Default", "type": "INSTANCE", "width": 80, "height": 24,
+          "variant_properties": { "Size": "Large", "State": "Default" },
+          "fills": [{ "type": "SOLID", "color": [0.5, 0, 0] }] },
+        { "id": "9:11", "name": "Size=Small, State=Hover", "type": "INSTANCE", "width": 60, "height": 16,
+          "variant_properties": { "Size": "Small", "State": "Hover" },
+          "fills": [{ "type": "SOLID", "color": [0, 1, 0] }] },
+        { "id": "9:12", "name": "Size=Large, State=Hover", "type": "INSTANCE", "width": 80, "height": 24,
+          "variant_properties": { "Size": "Large", "State": "Hover" },
+          "fills": [{ "type": "SOLID", "color": [0.8, 0, 0] }] }
+      ] }
+  ]
+}

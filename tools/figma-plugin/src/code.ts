@@ -3,9 +3,10 @@
 
 type Json = { [key: string]: unknown };
 type Images = { [key: string]: Uint8Array };
+type Directives = { raster: string; button: string };
 
 type Message =
-  | { type: 'ready'; raster: string }
+  | { type: 'ready'; directives: Directives }
   | { type: 'convert' }
   | { type: 'select'; id: string }
   | { type: 'save-pack'; id: string; pack: unknown };
@@ -13,8 +14,8 @@ type Message =
 // Plugin data key holding a frame's last exported pack manifest fields.
 const PACK_KEY = 'jsonui-pack';
 
-// The converter's `@image` token, sent by the UI once it has loaded.
-let rasterDirective: string | null = null;
+// The converter's layer-name tokens, sent by the UI once it has loaded.
+let directives: Directives | null = null;
 // Bumped per serialization so a stale result never replaces a newer one.
 let generation = 0;
 
@@ -23,7 +24,7 @@ figma.showUI(__html__, { width: 980, height: 660, themeColors: true });
 figma.ui.onmessage = async (message: Message) => {
   switch (message.type) {
     case 'ready':
-      rasterDirective = message.raster;
+      directives = message.directives;
       await send();
       break;
     case 'convert':
@@ -48,7 +49,7 @@ figma.ui.onmessage = async (message: Message) => {
 figma.on('selectionchange', () => void send());
 
 async function send(): Promise<void> {
-  if (rasterDirective === null) return;
+  if (directives === null) return;
   const run = ++generation;
   const selection = figma.currentPage.selection;
   if (selection.length !== 1) {
@@ -95,7 +96,7 @@ async function serialize(node: SceneNode, parent: Transform, images: Images): Pr
   if ('layoutPositioning' in node) out.positioning = node.layoutPositioning;
   const sizing = layoutSizing(node);
   if (sizing) out.sizing = sizing;
-  if (rasterDirective !== null && node.name.split(/\s+/).includes(rasterDirective)) {
+  if (hasToken(node, 'raster')) {
     const key = `node:${node.id}`;
     images[key] = await node.exportAsync({ format: 'PNG' });
     out.raster = key;
@@ -124,10 +125,42 @@ async function serialize(node: SceneNode, parent: Transform, images: Images): Pr
   } else if ('fills' in node && node.fills !== figma.mixed) {
     out.fills = await paints(node.fills, images);
   }
+  if ('variantProperties' in node && node.variantProperties) out.variant_properties = node.variantProperties;
+  if (node.type === 'INSTANCE' && hasToken(node, 'button')) out.variants = await variants(node, images);
   if ('children' in node) {
     const children: Json[] = [];
     for (const child of node.children) children.push(await serialize(child, own, images));
     out.children = children;
+  }
+  return out;
+}
+
+// Whether the layer name holds the converter's `kind` token, alone or as `token=value`.
+function hasToken(node: SceneNode, kind: keyof Directives): boolean {
+  if (directives === null) return false;
+  const token = directives[kind];
+  return node.name.split(/\s+/).some((word) => word === token || word.startsWith(`${token}=`));
+}
+
+// A button instance swapped to each variant of its component set. Swapping a
+// temporary clone keeps the instance's overrides the way Figma carries them.
+async function variants(node: InstanceNode, images: Images): Promise<Json[]> {
+  const main = await node.getMainComponentAsync();
+  const set = main?.parent;
+  if (!set || set.type !== 'COMPONENT_SET') return [];
+  const out: Json[] = [];
+  for (const variant of set.children) {
+    if (variant.type !== 'COMPONENT') continue;
+    const clone = node.clone();
+    try {
+      figma.currentPage.appendChild(clone);
+      clone.swapComponent(variant);
+      // Named for its variant, the clone no longer carries the button token.
+      clone.name = variant.name;
+      out.push(await serialize(clone, clone.absoluteTransform, images));
+    } finally {
+      clone.remove();
+    }
   }
   return out;
 }
