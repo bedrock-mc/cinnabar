@@ -285,6 +285,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
 
 - [ ] `P5.1-UI` — Close pack-driven UI, bounded text/draw work, formatting, scaling,
   safe areas, focus/navigation and keyboard/mouse/controller/touch acceptance. Prove
+  stable retained resources and correct supported DPI/aspect behavior. Labels share primary/backup
+  face selection across measurement and painting; broader text acceptance remains open.
   stable retained resources and correct supported DPI/aspect behavior. Tiled images
   retain full coverage with bounded repeat geometry across cropped regions and sliced
   borders; large collection admission and hardware frame-work acceptance remain incomplete.
@@ -313,8 +315,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Busy cancellations retain every request through transport backpressure.
   Custom forms retain control locks and publish enabled bindings for the current
   game phase without removing locked response values; device acceptance remains open.
-  Server settings replies are cached until their tab is selected; embedding their
-  controls within the settings panel instead of a separate form remains incomplete.
+  Server settings retain drafts across tabs and submit their final values when
+  settings close. Embedding their controls within the settings panel instead of a
+  separate form remains incomplete.
   URL images use the UI texture-file allowance; aggregate encoded-image cache bounds
   and remaining image admission and download-deadline parity remain incomplete.
 - [ ] `P5.7-PARITY-PERF` — Qualify combined chat, scoreboard, boss bars, inventory and
@@ -416,6 +419,12 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 - Native extension UI and HUD APIs (retained modules, profile fields, text plates,
   compass markers, totem annotations and bounded camera overrides) still need
   displayed-frame pacing and complete rendering acceptance.
+  Backdrop and element blur now limit downsampling to referenced mip levels and
+  cache the admitted maximum blur. Pixel-equivalence regressions are included;
+  executed GPU checks and measured frame-budget acceptance remain pending.
+  Server-day HUD rows now consume scoped native clock observations and leave missing
+  or stale clocks unknown. Clock/host regressions are included; executed checks and
+  populated-world acceptance remain pending.
 - Enhanced rendering remains restricted until its GPU faults and freezes are resolved.
   Diagnostics or bounded fixtures do not establish safe general gameplay use. Java
   shader-pack source loading and configuration metadata are implemented in

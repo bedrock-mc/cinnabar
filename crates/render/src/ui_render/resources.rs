@@ -64,6 +64,7 @@ pub(super) fn init_ui_gpu(
         batches: Arc::from([]),
         accepted_revision: None,
         animated: false,
+        backdrop_blur: 0.,
         animation_damage: Arc::from([]),
         last_admitted_revision: None,
         last_admitted_publication: Weak::new(),
@@ -251,6 +252,7 @@ pub(crate) fn prepare_ui_resources(
     gpu.index_count = input.indices.len();
     gpu.accepted_revision = Some(input.revision);
     gpu.last_admitted_revision = Some(input.revision);
+    gpu.backdrop_blur = super::backdrop_levels::maximum(input);
     gpu.last_admitted_publication = Arc::downgrade(input);
     stats.update(|stats| {
         stats.accepted_revision = Some(input.revision);
