@@ -272,3 +272,23 @@ fn native_devices_compile_opaque_and_transparent_terrain_variants() {
         );
     }
 }
+
+#[test]
+fn latency_cadence_terrain_preparation_can_qualify_for_one() {
+    let (mut app, _) = chunk_app(
+        noop_render_plugin(WgpuFeatures::INDIRECT_FIRST_INSTANCE),
+        Msaa::Off,
+        camera_transform(),
+    );
+    insert_meshes(&mut app, &KEYS);
+    for _ in 0..4 {
+        frame(&mut app);
+    }
+    crate::present_mode::frame_latency::adaptive::tests::assert_preparation_qualifies(|| {
+        frame(&mut app);
+        let world = app.sub_app(RenderApp).world();
+        assert!(world.resource::<GpuCullSupport>().0);
+        assert!(world.resource::<GpuCull>().slot_count() > 0);
+        assert!(world.resource::<GpuCull>().bind_groups.is_some());
+    });
+}
