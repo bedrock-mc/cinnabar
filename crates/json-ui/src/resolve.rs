@@ -600,6 +600,7 @@ fn build_properties(
     }
     if !catalog.paint_transforms() {
         properties.remove(crate::transform::TRANSFORM_PROPERTY);
+        properties.remove(crate::position::PROPERTY);
         properties.remove(crate::filter::FILTER_PROPERTY);
     }
     properties

@@ -139,16 +139,17 @@ impl ServerFormStore {
             form_id: event.form_id,
             revision: self.next_revision,
         };
-        // Same-ID reissue is new authority, even while an old answer is Full.
-        // Never send an unsent old cancellation against the new revision.
-        let replaces = self
-            .active
-            .as_ref()
-            .is_some_and(|entry| entry.form_id == event.form_id)
-            || self
-                .pending
+        // Settings updates and NPC dialogue changes update their existing controller.
+        // Ordinary requests must pass the busy check even when their IDs match.
+        let replaces = matches!(event.kind, FormKind::ServerSettings | FormKind::NpcDialogue)
+            && (self
+                .active
                 .as_ref()
-                .is_some_and(|response| response.identity.form_id == event.form_id);
+                .is_some_and(|entry| entry.form_id == event.form_id)
+                || self
+                    .pending
+                    .as_ref()
+                    .is_some_and(|response| response.identity.form_id == event.form_id));
         self.busy
             .retain(|response| response.identity.form_id != event.form_id);
         if replaces {

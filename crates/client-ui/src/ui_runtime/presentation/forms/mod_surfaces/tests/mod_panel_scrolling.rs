@@ -32,7 +32,7 @@ fn scroll_panel() -> Panel {
         "scroll_view_port":"viewport","scroll_content":"content","scrollbar_track":"track","scrollbar_box":"box",
         "scroll_box_and_track_panel":"bar","scrollbar_track_button":"mod.scroll_track","scroll_speed":25,"always_handle_pointer":true,
         "controls":[{"viewport":viewport},{"bar":bar}]});
-    panel.surface = Some(Surface { collections: Default::default(),
+    panel.surface = Some(Surface { collections: Default::default(), previews: Default::default(),
         transitions: Default::default(),
         screen: "extension.screen".into(),
         document: json!({"namespace":"extension","screen":{"type":"screen","size":["100%","100%"],"controls":[{"list":list}]}}).to_string(),
@@ -220,4 +220,78 @@ fn pixel_wheels_and_track_presses_use_the_drawn_panel_geometry() {
     );
     frame(&mut presentation, [1280, 720]);
     assert_eq!(offset(&presentation), 150.);
+}
+
+/// Wheel easing belongs to the mod; pixel input and a mod's opt-out remain immediate.
+#[test]
+fn mod_wheel_eases_with_screen_animations_off() {
+    use crate::ui_runtime::UiRuntime;
+    use launcher::menu::settings_options::{SettingId, SettingsOptions};
+    use ui::DpiScale;
+    let mut target = 0.;
+    for motion in [false, true] {
+        let mut presentation = mini_engine_presentation();
+        let mut options = SettingsOptions::default();
+        options.set(SettingId::ScreenAnimations.index(), 0);
+        presentation.set_chat_settings_snapshot((std::sync::Arc::new(options), None));
+        let mut content = scroll_panel();
+        content.motion = motion;
+        presentation
+            .mod_ui_mut()
+            .set_mod_panel(PanelUiOwner::Environment(0), Some(&content))
+            .unwrap();
+        presentation.mod_ui_mut().set_mod_panel_open(true);
+        let build = |p: &mut UiPresentationRuntime, millis| {
+            p.build(
+                &player_state::PlayerState::new(1),
+                &UiRuntime::new(1),
+                millis,
+                [1280, 720],
+                DpiScale::new(1.).unwrap(),
+            )
+            .unwrap()
+        };
+        build(&mut presentation, 1_000);
+        let inside = at(&presentation, [65., 45.]);
+        assert!(
+            presentation
+                .mod_ui_mut()
+                .scroll_mod_panel(inside, -2., false)
+        );
+        build(&mut presentation, 1_000);
+        if motion {
+            assert_eq!(offset(&presentation), 0.);
+        } else {
+            target = offset(&presentation);
+            assert!(target > 0., "the immediate gesture must move the content");
+        }
+        build(&mut presentation, 1_070);
+        let middle = offset(&presentation);
+        if motion {
+            assert!(middle > 0. && middle < target);
+        } else {
+            assert_eq!(middle, target);
+        }
+        build(&mut presentation, 1_200);
+        assert_eq!(offset(&presentation), target);
+        assert!(!presentation.mod_ui().mod_panel_motion_active());
+        let scale = presentation
+            .mod_ui()
+            .mod_panel_state()
+            .unwrap()
+            .frame
+            .unwrap()
+            .scale;
+        assert!(
+            presentation
+                .mod_ui_mut()
+                .scroll_mod_panel(inside, -10. * f64::from(scale), true)
+        );
+        build(&mut presentation, 1_200);
+        assert_eq!(
+            offset(&presentation),
+            target + 10.,
+            "pixel scrolling stays immediate"
+        );
+    }
 }
