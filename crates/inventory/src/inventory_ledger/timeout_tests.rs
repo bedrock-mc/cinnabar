@@ -15,6 +15,34 @@ fn an_unanswered_personal_open_keeps_the_requested_screen_usable() {
 }
 
 #[test]
+fn closing_after_an_open_timeout_settles_the_accepted_cursor_return() {
+    let mut ledger = ledger_with_slot_zero();
+    assert!(ledger.request_personal_open(42));
+    assert!(ledger.mark_transport_enqueued(10));
+    let now = 10 + INVENTORY_REQUEST_TIMEOUT_MILLIS;
+    assert!(ledger.poll_timeout(now));
+
+    let take = ledger.begin_click(0).unwrap();
+    assert!(ledger.mark_transport_enqueued(now + 1));
+    accept_cursor_move(&mut ledger, take, false);
+    assert_eq!(ledger.cursor_stack().map(|stack| stack.count), Some(32));
+
+    ledger.request_personal_close();
+    let returning = ledger
+        .pending_request_id()
+        .expect("close returns the cursor");
+    assert_ne!(returning, take);
+    assert!(!ledger.personal_inventory_desired_open());
+    assert!(ledger.mark_transport_enqueued(now + 2));
+    accept_cursor_move(&mut ledger, returning, true);
+
+    assert!(ledger.cursor_stack().is_none());
+    assert_eq!(ledger.displayed_stack(0).map(|stack| stack.count), Some(32));
+    assert_eq!(ledger.pending_request_count(), 0);
+    assert!(!ledger.resync_required());
+}
+
+#[test]
 fn a_late_personal_reply_preserves_gestures_from_the_requested_screen() {
     for answered in [false, true] {
         let mut ledger = ledger_with_slot_zero();
