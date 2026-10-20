@@ -8187,6 +8187,7 @@ dependencies = [
  "nethernet-tokio",
  "p384",
  "protocol-ids",
+ "raknet",
  "rand 0.10.3",
  "render-api",
  "reqwest 0.12.28",
