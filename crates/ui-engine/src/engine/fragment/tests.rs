@@ -479,34 +479,27 @@ fn rejects_filter_fragments_as_a_whole_and_bounds_replay() {
     ));
 }
 
-/// Fragment transitions fade outline coverage while preserving crop bounds and inverse blending.
+/// Fragment transitions fade prepared mask sprites without changing their sampling or blend.
 #[test]
-fn fades_sprite_outline_fragments_without_changing_the_mask() {
-    let visual = UiVisual::SpriteOutline {
-        texture_page: 7,
-        uv: [4.5, 0., 9., 9.],
-        source: [0., 0., 9., 9.],
-        overlap_offset: [8. / 9., -1. / 9.],
-        color: [255, 198, 0, 128],
-        blend: UiBlendMode::Invert,
-    };
-    let faded = faded(&visual, 0.5, &mut BTreeMap::new());
-    assert_eq!(
-        faded,
-        UiVisual::SpriteOutline {
-            texture_page: 7,
-            uv: [4.5, 0., 9., 9.],
-            source: [0., 0., 9., 9.],
-            overlap_offset: [8. / 9., -1. / 9.],
-            color: [255, 198, 0, 64],
-            blend: UiBlendMode::Invert
-        }
-    );
-    assert!(matches!(
-        visual,
-        UiVisual::SpriteOutline {
-            color: [255, 198, 0, 128],
-            ..
-        }
+fn fades_prepared_mask_fragments_without_changing_the_mask() {
+    let visual = UiVisual::Mesh(std::sync::Arc::new(
+        ui::UiMesh::sprite(
+            7,
+            [4.5, 0., 9., 9.],
+            [255, 198, 0, 128],
+            UiBlendMode::Invert,
+        )
+        .unwrap(),
     ));
+    let faded = faded(&visual, 0.5, &mut BTreeMap::new());
+    let UiVisual::Mesh(mesh) = faded else {
+        panic!("prepared sprite");
+    };
+    assert!(
+        mesh.vertices()
+            .iter()
+            .all(|vertex| vertex.color == [255, 198, 0, 64])
+    );
+    assert_eq!(mesh.batches()[0].blend, UiBlendMode::Invert);
+    assert_eq!(mesh.vertices()[0].uv, [4.5, 0.]);
 }

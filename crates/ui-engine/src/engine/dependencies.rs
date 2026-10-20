@@ -230,6 +230,7 @@ pub(super) fn paths<'a>(
     base: &'a Dependencies<'_>,
     art: ScreenArt<'a>,
     renderers: &'a [&mut dyn CustomRenderer],
+    mask_source: &mut dyn FnMut(&'a str),
 ) -> HashSet<&'a str> {
     let overlay = Collected::new(art.overlay, art);
     let mut paths = HashSet::new();
@@ -237,6 +238,7 @@ pub(super) fn paths<'a>(
     paths.extend(overlay.paths.iter().copied());
     let drawn = |name: &str| base.has_renderer(name) || overlay.renderers.contains(name);
     for renderer in renderers {
+        renderer.mask_sources(&drawn, mask_source);
         renderer.textures(&drawn, &mut |path| {
             paths.insert(path);
         });

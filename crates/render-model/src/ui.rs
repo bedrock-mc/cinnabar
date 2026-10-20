@@ -28,9 +28,9 @@ pub struct UiRenderVertex {
     pub uv: [f32; 2],
     pub color: [u8; 4],
     pub style_flags: u32,
-    /// Negative disables model-material alpha testing; sprite outlines use this for overlap Y.
+    /// Negative disables model-material alpha testing.
     pub alpha_cutoff: f32,
-    /// Linear lighting, coverage border area, or sprite-outline overlap X, without quantization.
+    /// Linear lighting or coverage border area, without quantization.
     pub model_light: f32,
     /// Entity overlay RGB and mix amount, coverage paint colors, or particle source bounds
     /// (x, y, width, height) in texture-page texels.
@@ -81,10 +81,6 @@ pub const UI_STYLE_COLOR_MASK: u32 = 1 << 7;
 pub const UI_STYLE_ADDITIVE: u32 = 1 << 9;
 /// Particle materials threshold cutout texels before applying the emitter's independent alpha.
 pub const UI_STYLE_PARTICLE: u32 = 1 << 10;
-
-const _: () = assert!(
-    (render_api::UI_STYLE_SPRITE_OUTLINE as u32) & (UI_STYLE_ADDITIVE | UI_STYLE_PARTICLE) == 0
-);
 
 /// Clamps interpolated particle UVs to source texel centres without shrinking sprite geometry.
 /// Bounds are (x, y, width, height) in texels; nonpositive extents disable clamping.

@@ -17,16 +17,17 @@ fn cropped_sprite_outlines_share_one_invert_batch_and_keep_the_full_mask() {
     let mut tree = UiTree::new(
         (0..10)
             .map(|index| {
-                UiNode::new(UiNodeId::new(index), None, rect()).with_visual(
-                    UiVisual::SpriteOutline {
-                        texture_page: 3,
-                        uv: [14.5, 20., 19., 29.],
-                        overlap_offset: [0.; 2],
-                        source: [10., 20., 19., 29.],
-                        color: [255, 255, 255, 110],
-                        blend: UiBlendMode::Invert,
-                    },
-                )
+                UiNode::new(UiNodeId::new(index), None, rect()).with_visual(UiVisual::Mesh(
+                    std::sync::Arc::new(
+                        ui::UiMesh::sprite(
+                            3,
+                            [14.5, 20., 19., 29.],
+                            [255, 255, 255, 110],
+                            UiBlendMode::Invert,
+                        )
+                        .unwrap(),
+                    ),
+                ))
             })
             .collect(),
     )
@@ -40,8 +41,7 @@ fn cropped_sprite_outlines_share_one_invert_batch_and_keep_the_full_mask() {
     assert_eq!(draw.vertices.len(), 40);
     assert_eq!(draw.indices.len(), 60);
     for vertex in &draw.vertices {
-        assert_eq!(vertex.style_flags, render_api::UI_STYLE_SPRITE_OUTLINE);
-        assert_eq!(vertex.overlay_color, [10., 20., 19., 29.]);
+        assert_eq!(vertex.style_flags, 0);
         assert_eq!(vertex.color, [255, 255, 255, 110]);
         assert!(vertex.uv[0] >= 14.5 && vertex.uv[0] <= 19.);
     }

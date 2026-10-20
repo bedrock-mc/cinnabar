@@ -44,7 +44,7 @@ pub const VANILLA_IN_PACKAGE: &str = "resource_packs/vanilla/";
 pub type BuiltinImages = &'static [(&'static str, &'static [u8])];
 
 /// Side of a dynamic UI page, which also bounds one server texture.
-const PAGE_SIDE: u32 = 256;
+pub(crate) const PAGE_SIDE: u32 = 256;
 const GUTTER: u32 = 1;
 
 /// Largest texture file read from the pack stack.
@@ -501,6 +501,25 @@ impl ServerAtlas {
             }
     }
 
+    /// Requests original pixels for a derived mask instead of using a fitted atlas preview.
+    pub(crate) fn prepare_outline(&mut self, key: &str) {
+        if let Some(source) = self.native_source(key)
+            && source.size != source.packed
+        {
+            self.native.request(key, &source, self.work.workers);
+        }
+    }
+
+    /// Returns a mask for fitted artwork; an inner `None` means original pixels are not ready.
+    pub(crate) fn original_outline(
+        &self,
+        key: &str,
+    ) -> Option<Option<Arc<render_api::sprite_mask::SpriteMask>>> {
+        let source = self.native_source(key)?;
+        (source.size != source.packed)
+            .then(|| self.native.get(key).map(|(sheet, _)| sheet.outline()))
+    }
+
     /// Whether an original virtual image has finished its one-time decode.
     pub fn native_sheet_ready(&self, key: &str) -> bool {
         self.native.get(key).is_some()
@@ -687,6 +706,11 @@ impl ServerAtlas {
     /// that fits nowhere without evicting one drawn this frame is left out.
     pub fn require<'a>(&mut self, keys: impl IntoIterator<Item = &'a str>) {
         self.clock += 1;
+        self.require_current(keys);
+    }
+
+    /// Adds prepared artwork without making earlier draws in this paint eligible for eviction.
+    pub(crate) fn require_current<'a>(&mut self, keys: impl IntoIterator<Item = &'a str>) {
         self.decodes.collect();
         self.poll_native_images();
         // Mark what is already resident first, so a miss never evicts a page

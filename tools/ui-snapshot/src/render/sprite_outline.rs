@@ -3,6 +3,7 @@
 use crate::carriers::Error;
 use image::ImageEncoder;
 use jsonui_editor::raster::{Canvas, Page};
+use render_api::sprite_mask::{MaskLayout, MaskPatch, SpriteMask};
 use std::sync::Arc;
 use ui::{SafeArea, UiBlendMode, UiNode, UiNodeId, UiPoint, UiRect, UiScale, UiTree, UiVisual};
 
@@ -26,7 +27,7 @@ pub(super) fn png(size: [u32; 2], outline: bool) -> Result<Vec<u8>, Error> {
             };
         }
     }
-    let pages = [
+    let mut pages = vec![
         Page::white(),
         Page {
             width: 13,
@@ -35,6 +36,9 @@ pub(super) fn png(size: [u32; 2], outline: bool) -> Result<Vec<u8>, Error> {
             repeat_content: None,
         },
     ];
+    let mask = Arc::new(SpriteMask::outline([9, 9], |x, y| {
+        pages[1].rgba[(((y + 2) * 13 + x + 2) * 4 + 3) as usize]
+    }));
     let mut nodes = vec![
         UiNode::new(
             UiNodeId::new(0),
@@ -58,18 +62,37 @@ pub(super) fn png(size: [u32; 2], outline: bool) -> Result<Vec<u8>, Error> {
         };
         let uv = [if cropped { 6.5 } else { 2. }, 2., 11., 11.];
         let visual = if outline {
-            UiVisual::SpriteOutline {
-                texture_page: 1,
-                uv,
-                overlap_offset: [0.; 2],
-                source: [2., 2., 11., 11.],
-                color,
-                blend: if inverse {
-                    UiBlendMode::Invert
-                } else {
-                    UiBlendMode::Alpha
-                },
-            }
+            let width = if cropped { 72 } else { 144 };
+            let layout = MaskLayout {
+                source: mask.clone(),
+                extent: [width as f32, 144.],
+                size: [width, 144],
+                patches: vec![MaskPatch {
+                    bounds: [0., 0., width as f32, 144.],
+                    uv: [if cropped { 0.5 } else { 0. }, 0., 1., 1.],
+                    opacity: 255,
+                }],
+            };
+            let page = pages.len() as u16;
+            pages.push(Page {
+                width,
+                height: 144,
+                rgba: layout.rasterize().unwrap().into(),
+                repeat_content: None,
+            });
+            UiVisual::Mesh(Arc::new(
+                ui::UiMesh::sprite(
+                    page,
+                    [0., 0., width as f32, 144.],
+                    color,
+                    if inverse {
+                        UiBlendMode::Invert
+                    } else {
+                        UiBlendMode::Alpha
+                    },
+                )
+                .unwrap(),
+            ))
         } else if inverse {
             UiVisual::InvertedSprite {
                 texture_page: 1,

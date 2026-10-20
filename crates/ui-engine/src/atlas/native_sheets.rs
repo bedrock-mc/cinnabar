@@ -92,6 +92,7 @@ pub(super) struct Sheet {
     size: [u32; 2],
     tiles: Vec<Tile>,
     bytes: usize,
+    outline: OnceLock<Arc<render_api::sprite_mask::SpriteMask>>,
 }
 
 /// A UV region expressed against one tile and its matching destination fragment.
@@ -240,6 +241,24 @@ impl Iterator for Quads<'_> {
 }
 
 impl Sheet {
+    /// Derives the complete source mask once, sampling across tile boundaries without adding edges.
+    pub(super) fn outline(&self) -> Arc<render_api::sprite_mask::SpriteMask> {
+        self.outline
+            .get_or_init(|| {
+                let columns = self.size[0].div_ceil(INTERIOR);
+                Arc::new(render_api::sprite_mask::SpriteMask::outline(
+                    self.size,
+                    |x, y| {
+                        let tile = &self.tiles[(y / INTERIOR * columns + x / INTERIOR) as usize];
+                        let px = x - tile.spec.origin[0];
+                        let py = y - tile.spec.origin[1];
+                        tile.page.pixels()[((py * tile.spec.size[0] + px) * 4 + 3) as usize]
+                    },
+                ))
+            })
+            .clone()
+    }
+
     /// Maps the authored source rectangle without resampling or changing its animation time.
     pub(super) fn quads(&self, uv: UvRect, dest: [f32; 4], first: usize) -> Quads<'_> {
         let [width, height] = self.size.map(|side| side as f32);
@@ -335,6 +354,7 @@ fn decode(bytes: &[u8], plan: &Plan, cancelled: &AtomicBool) -> Option<Sheet> {
         size: plan.size,
         tiles,
         bytes: plan.bytes,
+        outline: OnceLock::new(),
     })
 }
 

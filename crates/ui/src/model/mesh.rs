@@ -84,6 +84,41 @@ impl fmt::Display for UiMeshError {
 impl std::error::Error for UiMeshError {}
 
 impl UiMesh {
+    /// Builds a normal textured quad with explicit tint and blend mode.
+    pub fn sprite(
+        texture_page: u16,
+        uv: [f32; 4],
+        color: [u8; 4],
+        blend: UiBlendMode,
+    ) -> Result<Self, UiMeshError> {
+        let vertices = [[0., 0.], [1., 0.], [1., 1.], [0., 1.]].map(|position| UiMeshVertex {
+            position,
+            clip_z: 0.,
+            clip_w: 1.,
+            uv: [
+                uv[0] + position[0] * (uv[2] - uv[0]),
+                uv[1] + position[1] * (uv[3] - uv[1]),
+            ],
+            color,
+            model_light: 1.,
+            overlay_color: [0.; 4],
+            style_flags: 0,
+            alpha_test: false,
+        });
+        Self::new(
+            vertices.into(),
+            Arc::from([0, 1, 2, 0, 2, 3]),
+            Arc::from([UiMeshBatch {
+                texture_page,
+                index_range: 0..6,
+                blend,
+                depth_test: false,
+                depth_write: false,
+                alpha_cutoff: None,
+            }]),
+        )
+    }
+
     /// Fades vertex tint while retaining topology and texture bindings.
     pub fn with_opacity(mut self, opacity: f32) -> Self {
         let opacity = if opacity.is_finite() {

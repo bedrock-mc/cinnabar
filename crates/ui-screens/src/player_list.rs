@@ -217,10 +217,13 @@ fn row_widths(row: &RosterRow, text: &dyn json_ui::TextMeasure) -> [f64; 4] {
     })
 }
 
+/// Atlas namespace owned by the roster's prepared portrait textures.
+pub const PORTRAIT_RASTER_NAMESPACE: &str = "client-raster:tab-head/";
+
 /// Equal portraits share one atlas allocation, including every Steve fallback row.
 fn portrait_key(image: &render_model::UiTexturePage) -> String {
     let [width, height] = image.dimensions();
-    let mut key = format!("client-raster:tab-head/{width}x{height}/");
+    let mut key = format!("{PORTRAIT_RASTER_NAMESPACE}{width}x{height}/");
     for byte in image.identity() {
         write!(key, "{byte:02x}").expect("writing into a String");
     }
@@ -247,7 +250,10 @@ impl PlayerList {
             .floor()
             .clamp(1.0, MAX_ROWS as f64) as usize;
         let [columns, rows] = self.refresh(players, max_rows);
-        engine.textures.lock().set_client_rasters(&self.portraits);
+        engine
+            .textures
+            .lock()
+            .set_client_rasters(PORTRAIT_RASTER_NAMESPACE, &self.portraits);
         engine.draw(ScreenArt::default(), frame, |env, root| {
             let badge = self.rows.iter().any(|row| row.badged);
             let geometry = (root, px, language, badge);

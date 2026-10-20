@@ -163,7 +163,7 @@ fn repeated_draw_lists_reuse_shared_gpu_resources_and_preserve_batch_order() {
 }
 
 #[test]
-fn shader_validates_all_entry_points_with_sprite_outline_sampling() {
+fn shader_validates_all_entry_points() {
     let source = ui_render::shader::source(include_str!("../src/ui.wgsl"));
     let module = naga::front::wgsl::parse_str(&source)
         .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&source)));

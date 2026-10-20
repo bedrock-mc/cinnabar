@@ -26,6 +26,8 @@ pub struct State {
 
 /// Inputs borrowed by the same screen painters the client uses.
 pub enum Fixture {
+    /// Unequal mask edges and high-resolution sprite minification.
+    MaskRegression,
     /// Original sprite samples before and after alpha-only outline shading.
     SpriteOutline {
         outline: bool,
@@ -117,6 +119,12 @@ pub const STATES: &[State] = &[
             crop: false,
             source_alpha: 255,
         },
+    },
+    State {
+        name: "saturation-mask-regressions",
+        size: [640, 240],
+        gui_scale: 1,
+        fixture: || Fixture::MaskRegression,
     },
     State {
         name: "saturation-translucent-overlap",

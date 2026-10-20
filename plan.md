@@ -417,9 +417,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 - Native extension UI and HUD APIs (retained modules, profile fields, text plates,
   compass markers, totem annotations and bounded camera overrides) still need
   displayed-frame pacing and complete rendering acceptance.
-  Saturation overlays now use alpha-only sprite outlines with separate current and
-  held-food coverage. CPU/GPU regressions cover tint, atlas edges, cropped masks and
-  inversion, including sparse edge art and overlapping shaking icons; complete in-game
+  Saturation overlays derive source outlines once on the CPU, union whole-row coverage
+  before area filtering, and draw ordinary prepared sprites. Current and held-food
+  coverage share one mask. CPU/GPU regressions cover tint, cropping, unequal translucent
+  edges, independent shake, inversion and high-resolution minification; complete in-game
   and platform acceptance remain pending.
 - Enhanced rendering remains restricted until its GPU faults and freezes are resolved.
   Diagnostics or bounded fixtures do not establish safe general gameplay use. Java

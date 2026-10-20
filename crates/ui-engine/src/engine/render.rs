@@ -71,7 +71,8 @@ fn prepare_with<R: Borrow<FormRender>>(
         .unwrap_or_else(|poison| poison.into_inner())
         .get(&laid_render.nodes, art);
     let mut atlas = textures.set.lock();
-    let paths = dependencies::paths(&base, art, frame.renderers);
+    let mut masks = Vec::new();
+    let paths = dependencies::paths(&base, art, frame.renderers, &mut |path| masks.push(path));
     let drawn = Textures {
         assets: textures.assets,
         set: textures.set,
@@ -80,6 +81,18 @@ fn prepare_with<R: Borrow<FormRender>>(
     }
     .atlas_keys(paths.into_iter());
     atlas.require(drawn.iter().map(std::ops::Deref::deref));
+    for path in masks {
+        let view = Textures {
+            assets: textures.assets,
+            set: textures.set,
+            atlas: &atlas,
+            images: art.images,
+        };
+        if view.admits(path) {
+            let key = view.canonical(path).into_owned();
+            atlas.prepare_outline(&key);
+        }
+    }
     drop(base);
     Some(render)
 }
@@ -96,9 +109,10 @@ pub(super) fn render_with<R: Borrow<FormRender>>(
     };
     let render = render.borrow();
     let px = frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
-    let atlas = textures.set.lock();
+    let mut atlas = textures.set.lock();
     let layouts = &mut *frame.layouts;
     let mut canvas = Canvas {
+        prepared: Default::default(),
         textures: Textures {
             assets: textures.assets,
             set: textures.set,
@@ -146,6 +160,14 @@ pub(super) fn render_with<R: Borrow<FormRender>>(
         }
     }
     canvas.close_filter()?;
+    let prepared = std::mem::take(&mut canvas.prepared);
+    drop(canvas);
+    prepared.publish(
+        &mut atlas,
+        textures.set.server_page,
+        frame.nodes,
+        textures.set,
+    )?;
     let origin = [frame.safe_area.left(), frame.safe_area.top()];
     Ok(Some(EngineFrame {
         hits: render.hits.clone(),

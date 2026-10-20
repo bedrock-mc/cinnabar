@@ -6,6 +6,8 @@
 mod scene_policy;
 pub mod tooltip;
 
+pub(crate) mod masks;
+
 use std::{
     borrow::{Borrow, Cow},
     sync::Arc,
@@ -535,6 +537,7 @@ impl ScreenArt<'_> {
 /// Turns draw nodes into retained UI nodes, opening a clip group per clip change to keep
 /// order; custom renderers draw through it.
 pub struct Canvas<'a> {
+    prepared: masks::PreparedRasters,
     edit: Option<host_edit::Target<'a>>,
     textures: Textures<'a>,
     solid_page: u16,

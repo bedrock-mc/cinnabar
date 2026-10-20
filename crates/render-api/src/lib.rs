@@ -13,16 +13,15 @@ pub mod primitive_shapes;
 mod publication;
 pub use pose_generation::PoseGeneration;
 mod skin;
+pub mod sprite_mask;
 pub mod sub_chunk_requests;
 mod ui_backdrop;
 mod ui_coverage_paint;
 pub mod ui_repeat;
-mod ui_sprite_outline;
 mod vrr;
 
 pub use ui_backdrop::{UI_BACKDROP_MAX_BLUR_PIXELS, UI_BACKDROP_MAX_FACTOR, UiBackdropPaint};
 pub use ui_coverage_paint::{UI_STYLE_COVERAGE_PAINT, UiCoveragePaint};
-pub use ui_sprite_outline::UI_STYLE_SPRITE_OUTLINE;
 
 pub use actor_lighting::{
     ACTOR_LIGHT_DIRECTIONAL, ACTOR_LIGHT_WORLD, ACTOR_SHADE_COEFFICIENTS, fancy_actor_shade,

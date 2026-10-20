@@ -3,11 +3,17 @@
 use super::*;
 
 impl ServerAtlas {
-    /// Replaces the client raster set. Keys use the reserved `client-raster:` prefix;
+    /// Replaces one namespace of client rasters while preserving other painters' artwork. Keys use the reserved `client-raster:` prefix;
     /// images must fit an atlas page and the shared decoded-image budget. Unchanged
     /// content does no work; changed residents keep their slot when dimensions match.
-    pub fn set_client_rasters(&mut self, images: &BTreeMap<String, UiTexturePage>) {
-        if images.len() > MAX_EXTRA
+    pub fn set_client_rasters(
+        &mut self,
+        namespace: &str,
+        images: &BTreeMap<String, UiTexturePage>,
+    ) {
+        if !namespace.starts_with("client-raster:")
+            || images.keys().any(|key| !key.starts_with(namespace))
+            || images.len() > MAX_EXTRA
             || images.values().map(|p| p.pixels().len()).sum::<usize>() > MAX_DECODED_BYTES
             || images.iter().any(|(key, image)| {
                 !key.starts_with("client-raster:")
@@ -29,7 +35,12 @@ impl ServerAtlas {
         let same = |a: &UiTexturePage, b: &UiTexturePage| {
             a.identity() == b.identity() && a.dimensions() == b.dimensions()
         };
-        if self.client_rasters.len() == images.len()
+        if self
+            .client_rasters
+            .keys()
+            .filter(|key| key.starts_with(namespace))
+            .count()
+            == images.len()
             && images.iter().all(|(key, image)| {
                 self.client_rasters
                     .get(key)
@@ -38,8 +49,23 @@ impl ServerAtlas {
         {
             return;
         }
+        let metadata_changed = self
+            .client_rasters
+            .iter()
+            .filter(|(key, _)| key.starts_with(namespace))
+            .count()
+            != images.len()
+            || images.iter().any(|(key, image)| {
+                self.client_rasters
+                    .get(key)
+                    .is_none_or(|old| old.dimensions() != image.dimensions())
+            });
         let mut changed = Vec::new();
-        for (key, old) in &self.client_rasters {
+        for (key, old) in self
+            .client_rasters
+            .iter()
+            .filter(|(key, _)| key.starts_with(namespace))
+        {
             if images.get(key).is_some_and(|image| same(old, image)) {
                 continue;
             }
@@ -71,9 +97,17 @@ impl ServerAtlas {
             self.images[index] = page.image.clone();
             self.dirty = true;
         }
-        self.client_rasters.clone_from(images);
-        self.metadata_revision = self.metadata_revision.wrapping_add(1);
-        self.metadata_dirty = true;
+        self.client_rasters
+            .retain(|key, _| !key.starts_with(namespace));
+        self.client_rasters.extend(
+            images
+                .iter()
+                .map(|(key, image)| (key.clone(), image.clone())),
+        );
+        if metadata_changed {
+            self.metadata_revision = self.metadata_revision.wrapping_add(1);
+            self.metadata_dirty = true;
+        }
     }
 }
 
@@ -93,20 +127,20 @@ mod tests {
     fn replacement_updates_pixels_in_place_and_unchanged_content_does_no_upload() {
         let key = "client-raster:test";
         let mut atlas = ServerAtlas::new(&[], None, 1);
-        atlas.set_client_rasters(&images(20));
+        atlas.set_client_rasters("client-raster:", &images(20));
         atlas.require([key]);
         let slot = atlas.placement(key).unwrap();
         atlas.take_dirty();
         let before = atlas.images()[0].identity();
-        atlas.set_client_rasters(&images(20));
+        atlas.set_client_rasters("client-raster:", &images(20));
         assert!(!atlas.take_dirty());
-        atlas.set_client_rasters(&images(90));
+        atlas.set_client_rasters("client-raster:", &images(90));
         assert!(atlas.take_dirty());
         assert_eq!(atlas.placement(key).unwrap().rect, slot.rect);
         assert_ne!(before, atlas.images()[0].identity());
         let offset = (slot.rect[1] as usize * PAGE_SIDE as usize + slot.rect[0] as usize) * 4;
         assert_eq!(&atlas.images()[0].pixels()[offset..offset + 4], &[90; 4]);
-        atlas.set_client_rasters(&BTreeMap::new());
+        atlas.set_client_rasters("client-raster:", &BTreeMap::new());
         assert!(atlas.placement(key).is_none());
     }
 
@@ -118,17 +152,39 @@ mod tests {
             UiTexturePage::owned([side; 2], vec![255; (side * side * 4) as usize].into()).unwrap()
         };
         let mut atlas = ServerAtlas::new(&[], None, 2);
-        atlas.set_client_rasters(&BTreeMap::from([(a.into(), raster(128))]));
+        atlas.set_client_rasters("client-raster:", &BTreeMap::from([(a.into(), raster(128))]));
         atlas.require([a]);
-        atlas.set_client_rasters(&BTreeMap::from([(a.into(), raster(200))]));
+        atlas.set_client_rasters("client-raster:", &BTreeMap::from([(a.into(), raster(200))]));
         atlas.require([a]);
         let moved = atlas.placement(a).unwrap();
-        atlas.set_client_rasters(&BTreeMap::from([
-            (a.into(), raster(200)),
-            (b.into(), raster(200)),
-        ]));
+        atlas.set_client_rasters(
+            "client-raster:",
+            &BTreeMap::from([(a.into(), raster(200)), (b.into(), raster(200))]),
+        );
         atlas.require([a, b]);
         assert_eq!(atlas.placement(a).unwrap().page, moved.page);
         assert_ne!(atlas.placement(b).unwrap().page, moved.page);
+    }
+    #[test]
+    fn replacing_one_namespace_preserves_other_painters_and_content_updates_keep_metadata() {
+        let mut atlas = ServerAtlas::new(&[], None, 1);
+        let raster = |key: &str, color| {
+            BTreeMap::from([(
+                key.to_owned(),
+                UiTexturePage::owned([8; 2], vec![color; 8 * 8 * 4].into()).unwrap(),
+            )])
+        };
+        let portrait = "client-raster:portraits/head";
+        let mask = "client-raster:masks/row";
+        atlas.set_client_rasters("client-raster:portraits/", &raster(portrait, 20));
+        atlas.set_client_rasters("client-raster:masks/", &raster(mask, 90));
+        atlas.require([portrait, mask]);
+        let revision = atlas.metadata_revision();
+        atlas.set_client_rasters("client-raster:masks/", &raster(mask, 120));
+        assert_eq!(atlas.metadata_revision(), revision);
+        assert!(atlas.placement(portrait).is_some());
+        atlas.set_client_rasters("client-raster:masks/", &BTreeMap::new());
+        assert!(atlas.placement(mask).is_none());
+        assert!(atlas.placement(portrait).is_some());
     }
 }

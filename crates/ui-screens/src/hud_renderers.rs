@@ -18,6 +18,7 @@ use ui_engine::engine::{
 
 mod hunger_animation;
 mod hunger_overlay;
+pub use hunger_overlay::saturation_mask;
 mod mob_effects;
 mod status;
 mod status_motion;
@@ -146,6 +147,17 @@ impl CustomRenderer for HudRenderer<'_> {
         Ok(paint(canvas, self.hud, self.hunger_update, node))
     }
 
+    /// Requests original hunger artwork only while a saturation overlay can be painted.
+    fn mask_sources<'s>(&'s self, drawn: &dyn Fn(&str) -> bool, source: &mut dyn FnMut(&'s str)) {
+        if drawn(HUNGER_RENDERER)
+            && (self.hud.hunger.saturation_overlay.unwrap_or(0) > 0
+                || self.hud.hunger.food_saturation_preview.unwrap_or(0) > 0)
+            && let Some([_, full, _]) = self.hud.hunger.sprites
+        {
+            source(full);
+        }
+    }
+
     fn textures<'s>(&'s self, _drawn: &dyn Fn(&str) -> bool, texture: &mut dyn FnMut(&'s str)) {
         for path in self.hud.textures() {
             texture(path);
@@ -186,7 +198,7 @@ fn paint(
             for cell in hud.hunger.cells(updates) {
                 paint_cell(canvas, &cell, top_left, visible, alpha);
             }
-            hunger_overlay::paint(canvas, &hud.hunger, updates, top_left, visible, alpha);
+            hunger_overlay::paint(canvas, &hud.hunger, updates, node, visible);
             return true;
         }
         "bubbles_renderer" => (&hud.bubbles, top_left),

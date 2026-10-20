@@ -109,17 +109,6 @@ pub enum UiVisual {
         colors: [[u8; 4]; 2],
         horizontal: bool,
     },
-    /// An inner one-source-texel outline, using texture alpha and the authored tint only.
-    /// `uv` can crop the draw; `source` keeps the complete sprite's mask boundaries intact.
-    SpriteOutline {
-        texture_page: u16,
-        uv: [f32; 4],
-        source: [f32; 4],
-        /// Position of a previously drawn copy in source-size units; positive X enables masking.
-        overlap_offset: [f32; 2],
-        color: [u8; 4],
-        blend: UiBlendMode,
-    },
     /// A sprite drawn with the invert blend instead of alpha compositing.
     InvertedSprite {
         texture_page: u16,
@@ -398,13 +387,13 @@ pub struct UiVertex {
     pub clip_w: f32,
     pub uv: [f32; 2],
     pub color: [u8; 4],
-    /// Linear lighting, coverage border area, or sprite-outline overlap X.
+    /// Linear lighting or coverage border area.
     pub model_light: f32,
     /// Entity overlay RGB and mix amount, or the coverage paint's packed constant colors.
     pub overlay_color: [f32; 4],
     pub style_flags: u16,
     pub alpha_test: bool,
-    /// Sampled-texture cutoff (negative disables it), or sprite-outline overlap Y.
+    /// Sampled-texture cutoff (negative disables it).
     pub alpha_cutoff: f32,
 }
 

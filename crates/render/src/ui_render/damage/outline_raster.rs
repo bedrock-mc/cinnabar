@@ -1,252 +1,115 @@
-//! Sprite outlines use the production shader and synthetic, deliberately unrelated pack colors.
+//! CPU-prepared masks exercise the ordinary sprite shader and both production blend modes.
 
 use super::*;
+use render_api::sprite_mask::{MaskLayout, MaskPatch, SpriteMask};
 
-/// A four-texel mask surrounded by opaque unrelated atlas art, with one transparent cutout.
-fn outline_scene(cropped: bool) -> UiRenderInput {
+/// Draws a single prepared white mask over an unrelated colored background.
+fn mask_scene(size: [u32; 2], rgba: Vec<u8>, inverse: bool, opacity: u8) -> UiRenderInput {
     let mut input = scene();
     input.vertices = Arc::from([]);
     input.indices = Arc::from([]);
     input.batches = Arc::from([]);
-    let mut texels = vec![0u8; 8 * 8 * 4];
-    for pixel in texels.as_chunks_mut::<4>().0 {
-        pixel.copy_from_slice(&[17, 99, 180, 255]);
-    }
-    texels[(2 * 8 + 2) * 4 + 3] = 0;
-    input.textures = Arc::new(
-        UiTextureCatalog::new(
-            vec![UiTexturePage::owned([8, 8], texels.into()).unwrap()],
-            1,
-        )
-        .unwrap(),
-    );
+    let pixels = (size[0] * size[1]) as usize;
+    let pages = vec![
+        UiTexturePage::owned(size, [17, 99, 180, 255].repeat(pixels).into()).unwrap(),
+        UiTexturePage::owned(size, rgba.into()).unwrap(),
+    ];
+    let dynamic_start = pages.len();
+    input.textures = Arc::new(UiTextureCatalog::new(pages, dynamic_start).unwrap());
     quad(
         &mut input,
         [0., 0., SIDE as f32, SIDE as f32],
-        [240, 80, 20, 128],
+        [255; 4],
         0,
         None,
     );
-    for vertex in Arc::make_mut(&mut input.vertices) {
-        vertex.style_flags = u32::from(render_api::UI_STYLE_SPRITE_OUTLINE);
-        vertex.model_light = 0.;
-        vertex.alpha_cutoff = 0.;
-        vertex.overlay_color = [2., 2., 6., 6.];
-        vertex.uv = [
-            2. + vertex.position[0] / SIDE as f32 * 4.,
-            2. + vertex.position[1] / SIDE as f32 * 4.,
-        ];
-        if cropped {
-            vertex.uv[0] = 4. + vertex.position[0] / SIDE as f32 * 2.;
-        }
+    let start = input.vertices.len();
+    quad(
+        &mut input,
+        [0., 0., size[0] as f32, size[1] as f32],
+        if inverse {
+            [255, 255, 255, opacity]
+        } else {
+            [240, 80, 20, opacity]
+        },
+        1,
+        None,
+    );
+    for vertex in &mut Arc::make_mut(&mut input.vertices)[start..] {
+        vertex.uv = vertex.position[..2].try_into().unwrap();
+    }
+    if inverse {
+        Arc::make_mut(&mut input.batches)[1].blend_mode = render_model::UI_BLEND_INVERT;
     }
     input
 }
 
-/// Real pixels preserve tint, transparency, sprite boundaries and a cropped preview's seam.
-#[test]
-fn sprite_outline_raster_ignores_texture_rgb_and_neighboring_atlas_art() {
-    for cropped in [false, true] {
-        let input = outline_scene(cropped);
-        let Some(raster) = Raster::new(&input) else {
-            return;
-        };
-        let output = target(&raster.gpu, false);
-        raster.draw(&input, &output, None);
-        let pixels = raster.pixels(&output);
-        for y in 0..SIDE {
-            for x in 0..SIDE {
-                let source_x = if cropped { 4 + x / 32 } else { 2 + x / 16 };
-                let source_y = 2 + y / 16;
-                let opaque = |x: i32, y: i32| {
-                    (2..6).contains(&x) && (2..6).contains(&y) && (x != 2 || y != 2)
-                };
-                let center = opaque(source_x as i32, source_y as i32);
-                let interior = (-1..=1).all(|dy| {
-                    (-1..=1).all(|dx| opaque(source_x as i32 + dx, source_y as i32 + dy))
-                });
-                let expected: [u8; 4] = if center && !interior {
-                    [120, 40, 10, 128]
-                } else {
-                    [0; 4]
-                };
-                let at = ((y * SIDE + x) * 4) as usize;
-                for channel in 0..4 {
-                    assert!(
-                        (i16::from(pixels[at + channel]) - i16::from(expected[channel])).abs() <= 1,
-                        "pixel ({x}, {y}), cropped={cropped}, expected={expected:?}, actual={:?}",
-                        &pixels[at..at + 4]
-                    );
-                }
+/// Uses two repeated source masks at their real eight-pixel pitch, combining before compositing.
+fn adjacent_mask(left: u8, right: u8, dy: u32) -> Vec<u8> {
+    MaskLayout {
+        source: Arc::new(SpriteMask::outline([9, 9], |x, _| {
+            if x == 0 {
+                left
+            } else if x == 8 {
+                right
+            } else {
+                0
             }
-        }
+        })),
+        extent: [17., 10.],
+        size: [17, 10],
+        patches: [[8., dy as f32, 17., dy as f32 + 9.], [0., 0., 9., 9.]]
+            .map(|bounds| MaskPatch {
+                bounds,
+                uv: [0., 0., 1., 1.],
+                opacity: 255,
+            })
+            .into(),
     }
+    .rasterize()
+    .unwrap()
 }
 
-/// The actual invert pipeline changes the background only at the alpha outline, with faded preview support.
 #[test]
-fn inverse_sprite_outline_changes_the_background_without_changing_the_mask() {
-    for opacity in [255u8, 110] {
-        let mut input = outline_scene(false);
-        let mut outline_vertices = input.vertices.to_vec();
-        for vertex in &mut outline_vertices {
-            vertex.color = [255, 255, 255, opacity];
-        }
-        input.vertices = Arc::from([]);
-        input.indices = Arc::from([]);
-        input.batches = Arc::from([]);
-        quad(
-            &mut input,
-            [0., 0., SIDE as f32, SIDE as f32],
-            [255; 4],
-            0,
-            None,
-        );
-        for vertex in Arc::make_mut(&mut input.vertices) {
-            vertex.uv = [0.5, 0.5];
-        }
-        let mut vertices = input.vertices.to_vec();
-        vertices.extend(outline_vertices);
-        input.vertices = vertices.into();
-        let mut indices = input.indices.to_vec();
-        indices.extend([4, 5, 6, 4, 6, 7]);
-        input.indices = indices.into();
-        let mut batches = input.batches.to_vec();
-        batches.push(UiRenderBatch::new(
-            0,
-            UiScissor::new(0, 0, SIDE, SIDE),
-            6,
-            6,
-            render_model::UI_BLEND_INVERT,
-        ));
-        input.batches = batches.into();
-        let Some(raster) = Raster::new(&input) else {
-            return;
-        };
-        let output = target(&raster.gpu, false);
-        raster.draw(&input, &output, None);
-        let pixels = raster.pixels(&output);
-        for (x, y, inverted) in [
-            (8, 8, false),
-            (24, 24, true),
-            (40, 40, false),
-            (56, 56, true),
-        ] {
-            let offset = ((y * SIDE + x) * 4) as usize;
-            for (channel, background) in [17., 99., 180.].into_iter().enumerate() {
-                let alpha = if inverted {
-                    f32::from(opacity) / 255.
-                } else {
-                    0.
-                };
-                let expected = background + alpha * (255. - 2. * background);
-                assert!(
-                    (f32::from(pixels[offset + channel]) - expected).abs() <= 1.5,
-                    "inverse pixel ({x}, {y}) opacity={opacity}, RGB={:?}",
-                    &pixels[offset..offset + 3]
-                );
-            }
-        }
-    }
-}
-
-/// Sparse nine-pixel art retains its last column; opaque and translucent shared edges paint once.
-#[test]
-fn adjacent_sprite_outlines_preserve_sparse_edges_in_alpha_and_inverse_modes() {
+fn adjacent_sprite_outlines_preserve_sparse_and_unequal_edges_in_both_blend_modes() {
     for inverse in [false, true] {
-        for both_edges in [false, true] {
-            for (dy, source_alpha) in [0, 1]
-                .into_iter()
-                .flat_map(|dy| [64, 128, 255].map(|source_alpha| (dy, source_alpha)))
-            {
-                let mut input = scene();
-                input.vertices = Arc::from([]);
-                input.indices = Arc::from([]);
-                input.batches = Arc::from([]);
-                let mask: Vec<u8> = (0..81)
-                    .flat_map(|at| {
-                        [
-                            30,
-                            50,
-                            70,
-                            if at % 9 == 8 || both_edges && at % 9 == 0 {
-                                source_alpha
+        for (left, right) in [(0, 255), (64, 64), (128, 128), (255, 255), (128, 255)] {
+            for dy in [0, 1] {
+                for opacity in [110, 255] {
+                    let input =
+                        mask_scene([17, 10], adjacent_mask(left, right, dy), inverse, opacity);
+                    let Some(raster) = Raster::new(&input) else {
+                        return;
+                    };
+                    let output = target(&raster.gpu, false);
+                    raster.draw(&input, &output, None);
+                    let pixels = raster.pixels(&output);
+                    for y in 0..10 {
+                        for x in 0..17 {
+                            let edge = |x, y| {
+                                if y < 9 {
+                                    if x == 0 {
+                                        left
+                                    } else if x == 8 {
+                                        right
+                                    } else {
+                                        0
+                                    }
+                                } else {
+                                    0
+                                }
+                            };
+                            let coverage = edge(x, y).max(if x >= 8 && y >= dy {
+                                edge(x - 8, y - dy)
                             } else {
                                 0
-                            },
-                        ]
-                    })
-                    .collect();
-                let pages = vec![
-                    UiTexturePage::owned([9, 9], [17, 99, 180, 255].repeat(81).into()).unwrap(),
-                    UiTexturePage::owned([9, 9], mask.into()).unwrap(),
-                ];
-                // Both pages are fixed fixture art, outside the reserved dynamic slots.
-                let dynamic_start = pages.len();
-                input.textures = Arc::new(UiTextureCatalog::new(pages, dynamic_start).unwrap());
-                quad(
-                    &mut input,
-                    [0., 0., SIDE as f32, SIDE as f32],
-                    [255; 4],
-                    0,
-                    None,
-                );
-                let opacity = 110;
-                for (x, y, overlap) in [
-                    (8., dy as f32, [0.; 2]),
-                    (0., 0., [8. / 9., dy as f32 / 9.]),
-                ] {
-                    let start = input.vertices.len();
-                    quad(
-                        &mut input,
-                        [x, y, x + 9., y + 9.],
-                        if inverse {
-                            [255, 255, 255, opacity]
-                        } else {
-                            [240, 80, 20, opacity]
-                        },
-                        1,
-                        None,
-                    );
-                    for vertex in &mut Arc::make_mut(&mut input.vertices)[start..] {
-                        vertex.style_flags = u32::from(render_api::UI_STYLE_SPRITE_OUTLINE);
-                        vertex.overlay_color = [0., 0., 9., 9.];
-                        vertex.model_light = overlap[0];
-                        vertex.alpha_cutoff = overlap[1];
-                        vertex.uv = [vertex.position[0] - x, vertex.position[1] - y];
-                    }
-                }
-                if inverse {
-                    for batch in &mut Arc::make_mut(&mut input.batches)[1..] {
-                        batch.blend_mode = render_model::UI_BLEND_INVERT;
-                    }
-                }
-                let Some(raster) = Raster::new(&input) else {
-                    return;
-                };
-                let output = target(&raster.gpu, false);
-                raster.draw(&input, &output, None);
-                let pixels = raster.pixels(&output);
-                for y in 0..10 {
-                    for x in 0..17 {
-                        let covered = (y < 9 && (x == 8 || both_edges && x == 0))
-                            || ((dy..dy + 9).contains(&y) && (x == 16 || both_edges && x == 8));
-                        for (channel, background) in [17., 99., 180.].into_iter().enumerate() {
-                            let alpha = if covered {
-                                f32::from(opacity) * f32::from(source_alpha) / (255. * 255.)
-                            } else {
-                                0.
-                            };
-                            let target = if inverse {
-                                255. - background
-                            } else {
-                                [240., 80., 20.][channel]
-                            };
-                            let expected = background + alpha * (target - background);
-                            let actual = f32::from(pixels[((y * SIDE + x) * 4) as usize + channel]);
-                            assert!(
-                                (actual - expected).abs() <= 1.5,
-                                "({x}, {y}) inverse={inverse} both_edges={both_edges} dy={dy} source_alpha={source_alpha}: {actual} != {expected}"
+                            });
+                            assert_color(
+                                &pixels,
+                                (y * SIDE + x) as usize * 4,
+                                coverage,
+                                opacity,
+                                inverse,
                             );
                         }
                     }
@@ -254,4 +117,75 @@ fn adjacent_sprite_outlines_preserve_sparse_edges_in_alpha_and_inverse_modes() {
             }
         }
     }
+}
+
+/// Compares the rendered single paint against alpha-over or one inversion of the background.
+fn assert_color(pixels: &[u8], at: usize, coverage: u8, opacity: u8, inverse: bool) {
+    let alpha = f32::from(coverage) * f32::from(opacity) / (255. * 255.);
+    for (channel, background) in [17., 99., 180.].into_iter().enumerate() {
+        let target = if inverse {
+            255. - background
+        } else {
+            [240., 80., 20.][channel]
+        };
+        let expected = background + alpha * (target - background);
+        assert!(
+            (f32::from(pixels[at + channel]) - expected).abs() <= 1.5,
+            "inverse={inverse} source={coverage} opacity={opacity} channel={channel}: {} != {expected}",
+            pixels[at + channel]
+        );
+    }
+}
+
+#[test]
+fn high_resolution_outline_keeps_coverage_when_minified_to_eighteen_pixels() {
+    let layout = MaskLayout {
+        source: Arc::new(SpriteMask::outline([72, 72], |_, _| 255)),
+        extent: [72., 72.],
+        size: [18, 18],
+        patches: vec![MaskPatch {
+            bounds: [0., 0., 72., 72.],
+            uv: [0., 0., 1., 1.],
+            opacity: 255,
+        }],
+    };
+    for inverse in [false, true] {
+        let input = mask_scene(layout.size, layout.rasterize().unwrap(), inverse, 255);
+        let Some(raster) = Raster::new(&input) else {
+            return;
+        };
+        let output = target(&raster.gpu, false);
+        raster.draw(&input, &output, None);
+        let pixels = raster.pixels(&output);
+        for (x, y) in [(0, 8), (17, 8), (8, 0), (8, 17)] {
+            assert_color(&pixels, ((y * SIDE + x) * 4) as usize, 64, 255, inverse);
+        }
+        assert_color(&pixels, ((8 * SIDE + 8) * 4) as usize, 0, 255, inverse);
+    }
+}
+
+#[test]
+fn source_cutouts_and_cropped_bands_do_not_create_filled_icons_or_new_edges() {
+    let source = Arc::new(SpriteMask::outline([4, 4], |x, y| {
+        if x == 0 && y == 0 { 0 } else { 255 }
+    }));
+    let layout = MaskLayout {
+        source,
+        extent: [2., 4.],
+        size: [2, 4],
+        patches: vec![MaskPatch {
+            bounds: [0., 0., 2., 4.],
+            uv: [0.5, 0., 1., 1.],
+            opacity: 255,
+        }],
+    };
+    let input = mask_scene(layout.size, layout.rasterize().unwrap(), false, 128);
+    let Some(raster) = Raster::new(&input) else {
+        return;
+    };
+    let output = target(&raster.gpu, false);
+    raster.draw(&input, &output, None);
+    let pixels = raster.pixels(&output);
+    assert_color(&pixels, (2 * SIDE * 4) as usize, 0, 128, false);
+    assert_color(&pixels, ((3 * SIDE + 1) * 4) as usize, 255, 128, false);
 }

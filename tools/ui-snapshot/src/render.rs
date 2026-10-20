@@ -114,6 +114,9 @@ fn png_fixture(
     seconds: f64,
     resource_pack: Option<&Path>,
 ) -> Result<Vec<u8>, Error> {
+    if let Fixture::MaskRegression = &fixture {
+        return saturation_overlap::regression_png(state.size);
+    }
     if let Fixture::SpriteOutline { outline } = &fixture {
         return sprite_outline::png(state.size, *outline);
     }
@@ -146,6 +149,7 @@ fn png_fixture(
         Fixture::Chat { .. }
         | Fixture::TabList(_)
         | Fixture::EditSelection
+        | Fixture::MaskRegression
         | Fixture::SaturationOverlap { .. }
         | Fixture::SpriteOutline { .. }
         | Fixture::TiledImage { .. }
@@ -192,6 +196,7 @@ fn png_fixture(
     };
     match fixture {
         Fixture::SpriteOutline { .. }
+        | Fixture::MaskRegression
         | Fixture::SaturationOverlap { .. }
         | Fixture::TiledImage { .. } => {
             unreachable!("asset-free capture returned above")
