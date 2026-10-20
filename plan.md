@@ -292,6 +292,7 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   extreme structured-text and live rendered-form acceptance remain open.
   The per-form expansion budget (`MAX_FORM_TEXT_EXPANSION_BYTES`), shared by all display strings
   and their nested arguments, is an unverified parity bound.
+  Rendering text beyond `MAX_TEXT_BYTES` remains an unverified parity gap.
   Tiled images retain full coverage with bounded repeat geometry across cropped
   regions and sliced borders; large collection admission and hardware frame-work
   acceptance remain incomplete.
