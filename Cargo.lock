@@ -7667,6 +7667,7 @@ dependencies = [
  "bevy",
  "block-transform",
  "bytemuck",
+ "criterion",
  "env-compat",
  "far-terrain",
  "glam",

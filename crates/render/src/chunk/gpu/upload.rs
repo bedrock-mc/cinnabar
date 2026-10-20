@@ -174,6 +174,9 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     let mut candidates_examined = 0;
     let mut model_streams_validated = 0;
     let mut range_plans = 0;
+    // Set when the device ran out of memory for a growth buffer; uploads needing growth then
+    // wait for the next frame's attempt instead of retrying it per upload.
+    let mut growth_failed = false;
     let frame_items = budget
         .max_per_frame
         .max(PublicationServiceConfig::DEFAULT.maximum_frame_items);
@@ -200,7 +203,10 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             first_arena_growth(arena_capacities(&arena), initial_target, arena.limits)
         {
             let growth = super::capacity::backlog_growth(&arena, stream, growth, initial_target);
-            begin_arena_migration(&mut arena, uploads.device, stream, growth);
+            if !begin_arena_migration(&mut arena, uploads.device, stream, growth) {
+                growth_failed = true;
+                break;
+            }
             migrations_started += 1;
             upload_reservation.growth_copy_bytes += advance_arena_migration(
                 &mut arena,
@@ -384,6 +390,9 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
                 Ok(None) => break true,
                 Ok(Some((stream, growth))) => {
                     if arena.migration.is_none() {
+                        if growth_failed {
+                            break false;
+                        }
                         // Earlier uploads reserved one write. Issue them before a migration
                         // can make the write path mirror them into an uncharged destination.
                         if !writes.is_empty() {
@@ -395,7 +404,10 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
                             growth,
                             capacity_target,
                         );
-                        begin_arena_migration(&mut arena, uploads.device, stream, growth);
+                        if !begin_arena_migration(&mut arena, uploads.device, stream, growth) {
+                            growth_failed = true;
+                            break false;
+                        }
                         migrations_started += 1;
                     }
                     // A slice copy is submitted at once; stage this frame's earlier
