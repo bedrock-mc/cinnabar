@@ -334,3 +334,37 @@ async fn native_relay_preserves_the_delayed_front_and_original_body_writes() {
     drop(transport);
     assert!(relay.state().stopped);
 }
+
+/// A filtered body keeps its original finite admission and frame position until ordinary delivery.
+#[cfg(unix)]
+#[tokio::test]
+async fn native_relay_drop_keeps_read_ahead_bounded_and_preserves_the_next_trace_position() {
+    use crate::packet_relay::tests::FakeRelay;
+    let (mut transport, incoming, _outgoing) = pair();
+    let relay = Arc::new(FakeRelay::default());
+    relay.state().inbound_replies.push_back(Some(Vec::new()));
+    transport.set_relay(relay.clone());
+    transport.finish_startup();
+    let original = body(1);
+    incoming.send(original.clone()).await.unwrap();
+    let more = std::future::poll_fn(|cx| transport.poll_read_ahead_one(original.len(), cx)).await;
+    let retained_bytes = transport.ahead_bytes;
+    let retained_entries = transport.ahead.len();
+    let callbacks_before_delivery = relay.state().inbound.len();
+    incoming.send(body(2)).await.unwrap();
+    let delivered = time(transport.recv().await.unwrap());
+    let trace = transport.trace_position();
+    let drained_bytes = transport.ahead_bytes;
+    let callbacks = relay.state().inbound.clone();
+    transport.close().await.unwrap();
+    drop(transport);
+    assert!(!more, "filtering removed the original admission bound");
+    assert_eq!(retained_bytes, original.len());
+    assert_eq!(retained_entries, 1);
+    assert_eq!(callbacks_before_delivery, 1);
+    assert_eq!(delivered, 2);
+    assert_eq!(trace, (0, 2, 0));
+    assert_eq!(drained_bytes, 0);
+    assert_eq!(callbacks, [original.to_vec(), body(2).to_vec()]);
+    assert!(relay.state().stopped);
+}
