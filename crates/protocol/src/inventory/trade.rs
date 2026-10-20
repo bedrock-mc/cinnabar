@@ -15,6 +15,8 @@ pub struct TradeItem {
     pub identifier: Arc<str>,
     pub metadata: u32,
     pub count: u16,
+    /// Saved block-state compound payload, retained until an authoritative result resolves it.
+    pub block_descriptor: Option<Arc<[u8]>>,
     /// Complete item user data, including arbitrary server-supplied tags.
     pub extra_data: Arc<[u8]>,
 }
@@ -88,6 +90,10 @@ fn item(offer: &Compound<'_>, name: &str) -> Option<TradeItem> {
         identifier: Arc::from(value.field("Name")?.string()?),
         metadata: u32::from(value.number("Damage", 0.0) as i16 as u16),
         count,
+        block_descriptor: match value.field("Block") {
+            Some(block) => Some(block.compound_bytes()?.into()),
+            None => None,
+        },
         extra_data: value.item_data()?.into(),
     })
 }

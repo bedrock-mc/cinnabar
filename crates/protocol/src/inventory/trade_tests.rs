@@ -40,6 +40,7 @@ fn item(count: u8, tagged: bool) -> Vec<u8> {
         tag.extend(field(9, "empty", &[4, 0]));
         tag.push(0);
         bytes.extend(field(10, "tag", &tag));
+        bytes.extend(field(10, "Block", &[0]));
     }
     bytes.push(0);
     bytes
@@ -90,4 +91,5 @@ fn trading_keeps_adjusted_counts_recipe_identity_and_every_item_tag() {
     expected.extend_from_slice(&[0; 9]);
     assert_eq!(&*offer.output.extra_data, expected);
     assert_eq!(offer.output.metadata, 3);
+    assert_eq!(offer.output.block_descriptor.as_deref(), Some(&[0][..]));
 }

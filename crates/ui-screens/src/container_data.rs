@@ -621,6 +621,13 @@ pub(crate) fn decorate(
     empty: bool,
     item: CollectionItem,
 ) -> CollectionItem {
+    if let Some(valid) = crate::trading::slot_valid(source.player().inventory.ledger(), collection)
+    {
+        return item.with(
+            json_ui::vanilla::Binding::ItemValid.as_str(),
+            Scalar::Bool(valid),
+        );
+    }
     let crafter = source.player().inventory.ledger().window_kind() == Some(WindowKind::Crafter);
     match collection {
         // An empty crafter slot offers to disable itself.

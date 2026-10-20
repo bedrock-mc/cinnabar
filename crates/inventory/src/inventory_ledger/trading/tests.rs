@@ -19,6 +19,7 @@ fn ledger(modern: bool) -> PlayerInventoryLedger {
         identifier: Arc::from("minecraft:apple"),
         metadata: 0,
         count,
+        block_descriptor: None,
         extra_data: Arc::from([0; 10]),
     };
     ledger.apply(&InventoryEvent::Trade(TradeEvent {
@@ -241,4 +242,34 @@ fn one_ingredient_can_be_paid_from_either_or_both_inputs() {
         assert!(ledger.begin_trade().is_ok());
         assert_eq!(ledger.cursor_stack().unwrap().count, 1);
     }
+}
+
+#[test]
+fn block_item_purchases_preserve_the_authoritative_result_identity() {
+    let mut ledger = ledger(true);
+    let window = ledger.storage.as_mut().unwrap();
+    let offer = &mut Arc::make_mut(&mut window.trade.as_mut().unwrap().offers)[0];
+    offer.offer.output.block_descriptor = Some(Arc::from([0]));
+    assert!(ledger.trade_output().is_none());
+    let result = NetworkItemStack {
+        network_id: 6,
+        count: 1,
+        block_runtime_id: 123,
+        extra_data: Arc::from([0; 10]),
+        ..NetworkItemStack::empty()
+    };
+    ledger.apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
+        identity: SlotIdentity {
+            container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+            slot: u16::from(protocol::CREATED_OUTPUT_SLOT),
+        },
+        stack: result.clone(),
+        storage_item: None,
+    }));
+    assert_eq!(ledger.trade_output().unwrap().block_runtime_id, 123);
+    ledger.begin_trade().unwrap();
+    assert!(PlayerInventoryLedger::same_item(
+        ledger.cursor_stack().unwrap(),
+        &result
+    ));
 }

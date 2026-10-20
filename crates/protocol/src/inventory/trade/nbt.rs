@@ -74,6 +74,11 @@ impl<'a> Compound<'a> {
 }
 
 impl<'a> Value<'a> {
+    /// Retains a validated compound's complete network payload without rewriting its fields.
+    pub(super) fn compound_bytes(self) -> Option<&'a [u8]> {
+        (self.tag == 10).then_some(self.payload)
+    }
+
     /// Borrows a compound payload while retaining all of its unknown fields.
     pub(super) fn compound(self) -> Option<Compound<'a>> {
         (self.tag == 10).then_some(())?;

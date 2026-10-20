@@ -542,3 +542,45 @@ fn an_unread_change_leaves_a_subtree_reading_many_keys_standing() {
         "{rebuilt:?}"
     );
 }
+
+#[test]
+fn a_static_grid_enters_its_own_collection_without_an_authored_cell_index() {
+    let root = Arc::new(control(
+        "outer",
+        "grid",
+        json!({"collection_name":"outer", "grid_dimensions":[1,1]}),
+        vec![control(
+            "outer_cell",
+            "panel",
+            json!({}),
+            vec![control(
+                "inner",
+                "grid",
+                json!({"collection_name":"inner", "grid_dimensions":[1,1]}),
+                vec![reader("caption", "#caption")],
+            )],
+        )],
+    ));
+    let mut state = BindState::new();
+    for text in ["nested", "updated"] {
+        let mut data = DataSource::new();
+        data.set_collection(
+            "outer",
+            vec![
+                crate::CollectionItem::default()
+                    .with_controller_value("#caption", Scalar::Text("wrong outer value".into())),
+            ],
+        );
+        data.set_scoped_collection(
+            "outer",
+            0,
+            "inner",
+            vec![
+                crate::CollectionItem::default()
+                    .with_controller_value("#caption", Scalar::Text(text.into())),
+            ],
+        );
+        let bound = crate::bind_incremental(&root, &Arc::new(data), &EmptyLibrary, &mut state);
+        assert_eq!(captions(&bound), [text]);
+    }
+}

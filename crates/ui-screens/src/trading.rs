@@ -8,6 +8,35 @@ use json_ui::vanilla::{Binding as B, Button, Collection as C, Reference as R, Te
 use json_ui::{CollectionItem, DataSource, HitRegion, Scalar};
 use ui::IconRef;
 
+/// Supplies validity for the actual input and output slot collections of either layout.
+pub(crate) fn slot_valid(
+    ledger: &inventory::PlayerInventoryLedger,
+    collection: &str,
+) -> Option<bool> {
+    if ledger.trading().is_none() {
+        return None;
+    }
+    if [
+        C::Trade2Ingredient1Item.as_str(),
+        C::TradeIngredient1Items.as_str(),
+    ]
+    .contains(&collection)
+    {
+        Some(ledger.trade_input_valid(0))
+    } else if [
+        C::Trade2Ingredient2Item.as_str(),
+        C::TradeIngredient2Items.as_str(),
+    ]
+    .contains(&collection)
+    {
+        Some(ledger.trade_input_valid(1))
+    } else if [C::Trade2ResultItem.as_str(), C::TradeResultItem.as_str()].contains(&collection) {
+        Some(ledger.trade_output().is_some())
+    } else {
+        None
+    }
+}
+
 /// Chooses the screen and its exact UI-inventory inputs from the server's screen flag.
 pub fn kind(modern: bool) -> &'static ContainerKind {
     const MODERN: ContainerKind = ContainerKind {

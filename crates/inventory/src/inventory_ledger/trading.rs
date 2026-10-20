@@ -183,7 +183,12 @@ impl PlayerInventoryLedger {
         if offer.offer.tier > trade.tier {
             return Err(InventoryGestureError::InvalidRequest);
         }
+        let changed = trade.selected != Some(index);
         trade.selected = Some(index);
+        if changed {
+            self.confirmed.clear_result();
+            self.refold();
+        }
         Ok(())
     }
 
@@ -195,7 +200,56 @@ impl PlayerInventoryLedger {
             return None;
         }
         self.trade_consumption(trade)?;
-        trade.output.as_ref()
+        let expected = trade.output.as_ref()?;
+        if trade.offer.output.block_descriptor.is_some() {
+            let result = self.created_output_stack()?;
+            return (result.network_id == expected.network_id
+                && result.metadata == expected.metadata
+                && result.count == expected.count
+                && protocol::item_user_data_equal(&result.extra_data, &expected.extra_data)
+                    == Some(true))
+            .then_some(result);
+        }
+        Some(expected)
+    }
+
+    /// Whether one input has the selected offer's matching item and required count.
+    pub fn trade_input_valid(&self, index: usize) -> bool {
+        let Some(state) = self.trading() else {
+            return false;
+        };
+        let Some(trade) = state
+            .selected
+            .and_then(|selected| state.offers.get(selected))
+        else {
+            return false;
+        };
+        let Some(WindowKind::Trade { modern }) = self.window_kind() else {
+            return false;
+        };
+        let slots = if modern {
+            protocol::MODERN_TRADE_SLOTS
+        } else {
+            protocol::LEGACY_TRADE_SLOTS
+        };
+        let Some(stack) = slots
+            .get(index)
+            .and_then(|slot| self.view_stack(Cell::Craft(*slot)))
+        else {
+            return false;
+        };
+        trade
+            .inputs
+            .get(index)
+            .and_then(Option::as_ref)
+            .or_else(|| {
+                trade.inputs[0]
+                    .as_ref()
+                    .filter(|_| trade.offer.inputs[1].is_none())
+            })
+            .is_some_and(|required| {
+                trade_item_matches(stack, required) && stack.count >= required.count
+            })
     }
 
     /// Allocates one recipe's payment, allowing a single ingredient in either input cell.
@@ -210,16 +264,11 @@ impl PlayerInventoryLedger {
         };
         let held = slots.map(|slot| self.view_stack(Cell::Craft(slot)));
         let first = trade.inputs[0].as_ref()?;
-        let matches = |stack: &NetworkItemStack, required: &NetworkItemStack| {
-            stack.network_id == required.network_id
-                && (required.metadata == u32::from(protocol::RECIPE_ANY_AUX)
-                    || stack.metadata == required.metadata)
-        };
         if trade.offer.inputs[1].is_some() {
             let second = trade.inputs[1].as_ref()?;
-            return (matches(held[0]?, first)
+            return (trade_item_matches(held[0]?, first)
                 && held[0]?.count >= first.count
-                && matches(held[1]?, second)
+                && trade_item_matches(held[1]?, second)
                 && held[1]?.count >= second.count)
                 .then_some([first.count, second.count]);
         }
@@ -232,7 +281,7 @@ impl PlayerInventoryLedger {
         let mut consumed = [0; 2];
         for (index, stack) in held.iter().enumerate() {
             if let Some(stack) = stack {
-                if !matches(stack, first) {
+                if !trade_item_matches(stack, first) {
                     return None;
                 }
                 consumed[index] = needed.min(stack.count);
@@ -259,6 +308,13 @@ impl PlayerInventoryLedger {
         };
         self.begin_screen_output(&craft)
     }
+}
+
+/// Compares the item identity and auxiliary value, including a recipe's wildcard.
+fn trade_item_matches(stack: &NetworkItemStack, required: &NetworkItemStack) -> bool {
+    stack.network_id == required.network_id
+        && (required.metadata == u32::from(protocol::RECIPE_ANY_AUX)
+            || stack.metadata == required.metadata)
 }
 
 impl TradeState {
