@@ -121,3 +121,6 @@ impl NativeAccount {
 fn timed_out() -> io::Error {
     io::Error::new(io::ErrorKind::TimedOut, "native account catalog timed out")
 }
+
+#[cfg(test)]
+mod tests;

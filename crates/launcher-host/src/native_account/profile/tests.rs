@@ -158,6 +158,51 @@ fn completed_profile_rejects_another_verified_xuid() {
     );
 }
 
+/// Completed profile fields survive the original account's real checkout after artwork.
+#[tokio::test(start_paused = true)]
+async fn completed_native_read_survives_same_account_checkout() {
+    let (_directory, account) = account();
+    let loaded = {
+        let state = account.state.lock().unwrap();
+        let cached = state.cached.as_ref().unwrap();
+        NativeProfile {
+            account: Arc::clone(&account),
+            generation: cached.generation.clone(),
+            partial: false,
+            avatar: None,
+            profile: bridge::Profile {
+                xuid: cached.identity.as_ref().unwrap().xuid.clone(),
+                gamertag: "Completed profile".into(),
+                friends: Some(7),
+                ..Default::default()
+            },
+        }
+    };
+    let contender = account.begin().unwrap();
+    let checked_out = {
+        let state = account.state.lock().unwrap();
+        state.busy && state.cached.is_none()
+    };
+    let mut publishing = Box::pin(async { loaded.into_current() });
+    let first = publishing
+        .as_mut()
+        .poll(&mut Context::from_waker(Waker::noop()));
+    let retained = first.is_pending();
+    drop(contender);
+    let profile = match first {
+        Poll::Pending => publishing.await,
+        Poll::Ready(profile) => profile,
+    };
+    assert!(checked_out, "the actual account owner was not checked out");
+    assert!(
+        retained,
+        "ordinary account checkout discarded the completed profile"
+    );
+    let profile = profile.expect("the completed original profile remains current");
+    assert_eq!(profile.gamertag, "Completed profile");
+    assert_eq!(profile.friends, Some(7));
+}
+
 /// Canceling a profile waiting for a live session's Operation never steals or retires that owner.
 #[tokio::test]
 async fn cancelled_profile_waiter_preserves_unrelated_account_operation() {

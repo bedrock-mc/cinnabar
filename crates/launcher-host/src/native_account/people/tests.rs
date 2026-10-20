@@ -2,8 +2,52 @@ use super::*;
 use serde::Deserialize;
 use std::{
     future::Future,
-    task::{Context, Waker},
+    task::{Context, Poll, Waker},
 };
+
+/// The completed invite list remains owned while its original verified account is checked out.
+#[tokio::test(start_paused = true)]
+async fn completed_native_read_survives_same_account_checkout() {
+    let (_directory, account) = super::super::profile::tests::account();
+    let loaded = {
+        let state = account.state.lock().unwrap();
+        let cached = state.cached.as_ref().unwrap();
+        NativePeople {
+            people: vec![bridge::Person {
+                xuid: "456".into(),
+                gamertag: "Completed friend".into(),
+                ..Default::default()
+            }],
+            identity: ReadIdentity {
+                account: Arc::clone(&account),
+                generation: cached.generation.clone(),
+                xuid: cached.identity.as_ref().unwrap().xuid.clone(),
+            },
+        }
+    };
+    let contender = account.begin().unwrap();
+    let checked_out = {
+        let state = account.state.lock().unwrap();
+        state.busy && state.cached.is_none()
+    };
+    let mut publishing = Box::pin(async { loaded.into_current() });
+    let first = publishing
+        .as_mut()
+        .poll(&mut Context::from_waker(Waker::noop()));
+    let retained = first.is_pending();
+    drop(contender);
+    let people = match first {
+        Poll::Pending => publishing.await,
+        Poll::Ready(people) => people,
+    };
+    assert!(checked_out, "the actual account owner was not checked out");
+    assert!(
+        retained,
+        "ordinary account checkout discarded the completed invite people"
+    );
+    let people = people.expect("the completed original people remain current");
+    assert_eq!(people[0].gamertag, "Completed friend");
+}
 
 /// Both actual Go and SDK-decoded native projections use the same response/expectation corpus.
 #[test]
