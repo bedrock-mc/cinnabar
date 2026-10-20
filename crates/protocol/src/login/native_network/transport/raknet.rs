@@ -131,3 +131,6 @@ impl RakNetTransport {
         connection.finish_close().await.map_err(io::Error::other)
     }
 }
+
+#[cfg(test)]
+mod tests;
