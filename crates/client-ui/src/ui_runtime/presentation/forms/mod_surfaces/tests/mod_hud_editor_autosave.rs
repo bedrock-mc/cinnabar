@@ -545,13 +545,11 @@ fn snapping_drag_feedback_retains_catalog_and_shift_bypasses_all_snaps() {
     let e = p.mod_ui().mod_hud_editor_state().unwrap();
     for (axis, distance) in original.into_iter().enumerate() {
         let line = e
-            .frame
-            .unwrap()
-            .hits
+            .nodes
             .iter()
             .find(|hit| hit.name == format!("measurement_{axis}"))
             .expect("visible distance line");
-        let length = if axis == 0 { line.rect.w } else { line.rect.h };
+        let length = if axis == 0 { line.dest.w } else { line.dest.h };
         assert!(
             (length - distance).abs() < 0.001,
             "measurement {axis} must span the actual gap"

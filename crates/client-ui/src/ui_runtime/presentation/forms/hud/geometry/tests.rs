@@ -1,9 +1,12 @@
 use super::*;
+use std::sync::Arc;
 
 use crate::{test_support::mini_engine_presentation, ui_runtime::UiRuntime};
 use mod_ui::PanelUiOwner;
 use serde_json::json;
 use ui::{DpiScale, SafeArea, mod_hud::HudBindings, mod_panel::SurfaceValue};
+
+const KEEP_OUT_TEXTURE: &str = "textures/ui/editor_fixture";
 
 /// Builds real inert HUD roots, including nested transforms, hidden and ambiguous names.
 fn presentation() -> UiPresentationRuntime {
@@ -138,19 +141,22 @@ fn keep_out_presentation(controls: serde_json::Value) -> UiPresentationRuntime {
         ui_layers: vec![vec![
             (
                 "ui/_ui_defs.json".into(),
-                br#"{"ui_defs":["ui/hud_screen.json"]}"#.to_vec(),
+                br#"{"ui_defs":["ui/hud_screen.json","ui/common.json"]}"#.to_vec(),
             ),
             (
                 "ui/hud_screen.json".into(),
                 serde_json::to_vec(
-                    &json!({"namespace":"hud","hud_screen":{"type":"screen","controls":controls}}),
+                    &json!({"namespace":"hud","hud_screen":{"type":"screen","controls":controls},
+                        "hotbar_hud_item_icon":{"type":"custom","renderer":"inventory_item_renderer","size":[16,16]},
+                        "item_durability":{"type":"panel","size":[0,0]}}),
                 )
                 .unwrap(),
             ),
+            ("ui/common.json".into(),br#"{"namespace":"common","stack_count_label":{"type":"label","text":""}}"#.to_vec()),
         ]],
         textures: vec![
             ("textures/ui/hotbar_0.png".into(), png.clone()),
-            ("textures/ui/editor_fixture.png".into(), png),
+            (format!("{KEEP_OUT_TEXTURE}.png"), png),
         ],
         ..Default::default()
     });
@@ -175,22 +181,28 @@ fn editor_keep_out_uses_the_completed_native_layout_and_rejects_old_sessions() {
     for (gui, dpi) in [(1, 1.), (2, 1.), (4, 1.), (4, 2.), (2, 1.5)] {
         p.set_gui_scale_preference(Some(gui));
         p.mod_ui_mut().set_mod_panel_open(false);
-        p.build(
-            &player,
-            &runtime,
-            0,
-            [2560, 1600],
-            DpiScale::new(dpi).unwrap(),
-        )
-        .unwrap();
-        let painted = p
-            .last_frame
-            .as_ref()
-            .unwrap()
-            .draw
-            .draw_list()
-            .painted_bounds()
-            .expect("original native sprite paints");
+        let native_output = p
+            .build(
+                &player,
+                &runtime,
+                0,
+                [2560, 1600],
+                DpiScale::new(dpi).unwrap(),
+            )
+            .unwrap();
+        assert!(
+            !native_output.vertices.is_empty(),
+            "original native sprite paints"
+        );
+        let painted: [[f32; 2]; 2] = std::array::from_fn(|axis| {
+            native_output.vertices.iter().fold(
+                [f32::INFINITY, f32::NEG_INFINITY],
+                |[low, high], vertex| {
+                    let at = vertex.position[axis] / vertex.clip_w / dpi;
+                    [low.min(at), high.max(at)]
+                },
+            )
+        });
         p.mod_ui_mut().set_mod_panel_open(true);
         p.mod_ui_mut()
             .open_mod_hud_editor(&ui::mod_hud::Hud::default())
@@ -211,11 +223,8 @@ fn editor_keep_out_uses_the_completed_native_layout_and_rejects_old_sessions() {
         let editor = p.mod_ui().mod_hud_editor_state().unwrap().frame.unwrap();
         let reported = p.mod_hud_editor_native_keep_out(7).unwrap();
         for axis in 0..2 {
-            let actual_start = [painted.min().x(), painted.min().y()][axis];
-            let actual_size = [
-                painted.max().x() - painted.min().x(),
-                painted.max().y() - painted.min().y(),
-            ][axis];
+            let actual_start = painted[axis][0];
+            let actual_size = painted[axis][1] - painted[axis][0];
             let editor_start = editor.origin[axis] + reported[axis] as f32 * editor.scale;
             let editor_size = reported[axis + 2] as f32 * editor.scale;
             assert!(
@@ -239,11 +248,7 @@ fn editor_keep_out_uses_the_completed_native_layout_and_rejects_old_sessions() {
 /// Status artwork is observed from actual native paints, including control overflow and clipping.
 #[test]
 fn editor_keep_out_captures_standalone_status_controls_without_input_hits() {
-    use ui_engine::{engine::screen::PaintFrame, text_metrics::TextMetrics};
-    use ui_screens::{
-        hud::{HudInput, HudScreens},
-        hud_renderers::{Cell, HeartPaint, HudPaint, HungerPaint},
-    };
+    use ui_screens::hud_renderers::{Cell, HeartPaint, HudPaint, HungerPaint};
     let renderers = [
         "heart_renderer",
         "hunger_renderer",
@@ -264,7 +269,7 @@ fn editor_keep_out_captures_standalone_status_controls_without_input_hits() {
         "type":"panel","size":[100,30],"offset":[140,85],"clip_children":true,
         "anchor_from":"top_left","anchor_to":"top_left","controls":controls
     }}]));
-    let icon = Cell::icon([0., -10.], "textures/ui/editor_fixture");
+    let icon = Cell::icon([0., -10.], KEEP_OUT_TEXTURE);
     let paint = HudPaint {
         hearts: HeartPaint {
             current: 40,
@@ -275,7 +280,7 @@ fn editor_keep_out_captures_standalone_status_controls_without_input_hits() {
         },
         hunger: HungerPaint {
             current: 20,
-            sprites: Some(["textures/ui/editor_fixture"; 3]),
+            sprites: Some([KEEP_OUT_TEXTURE; 3]),
             ..Default::default()
         },
         armor: vec![icon.clone()],
@@ -283,6 +288,29 @@ fn editor_keep_out_captures_standalone_status_controls_without_input_hits() {
         mount_hearts: vec![icon],
         ..Default::default()
     };
+    let (bounds, drawn, nodes) = paint_keep_out(&mut p, &paint, json_ui::DataSource::new());
+    assert!(drawn.hits.iter().all(|hit| hit.renderer.is_none()));
+    assert_eq!(bounds, Some([140., 85., 100., 24.]));
+    assert!(
+        nodes
+            .iter()
+            .any(|node| matches!(node.visual(), ui::UiVisual::Sprite { .. })),
+        "real native sprites paint"
+    );
+}
+
+/// Paints actual native controls and returns their observed region, input frame and primitives.
+fn paint_keep_out(
+    p: &mut UiPresentationRuntime,
+    paint: &ui_screens::hud_renderers::HudPaint,
+    data: json_ui::DataSource,
+) -> (
+    Option<[f64; 4]>,
+    ui_engine::frame::EngineFrame,
+    Vec<ui::UiNode>,
+) {
+    use ui_engine::{engine::screen::PaintFrame, text_metrics::TextMetrics};
+    use ui_screens::hud::{HudInput, HudScreens};
     let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(1.).unwrap(), Some(1));
     let mut screens = HudScreens::default();
     let mut nodes = Vec::new();
@@ -311,20 +339,44 @@ fn editor_keep_out_captures_standalone_status_controls_without_input_hits() {
                 capture_keep_out: true,
                 catalog: engine.catalog(),
                 context: &json_ui::Context::desktop(),
-                data: Arc::new(json_ui::DataSource::new()),
-                paint: &paint,
+                data: Arc::new(data),
+                paint,
                 icons: &[],
             },
             &mut frame,
         )
         .unwrap()
         .unwrap();
-    assert!(drawn.hits.iter().all(|hit| hit.renderer.is_none()));
-    assert_eq!(screens.editor_keep_out, Some([140., 85., 100., 24.]));
+    (screens.editor_keep_out, drawn, nodes)
+}
+
+/// The shipped offhand frame is an ordinary image under the bottom HUD, outside the hotbar.
+#[test]
+fn editor_keep_out_includes_the_shipped_offhand_image_frame() {
+    let mut p = keep_out_presentation(json!([{"bottom_alias":{
+        "type":"panel","size":[200,22],"offset":[100,100],"anchor_from":"top_left","anchor_to":"top_left",
+        "controls":[
+            {"bar":{"type":"custom","renderer":"hotbar_renderer","size":[200,22],"anchor_from":"top_left","anchor_to":"top_left"}},
+            {"java_offhand@hud.java_offhand_slot":{"$offhand_texture":KEEP_OUT_TEXTURE}}
+        ]
+    }}]));
+    let mut data = json_ui::DataSource::new();
+    data.set_global("#offhand_visible", json_ui::Scalar::Bool(true));
+    let (bounds, _, nodes) = paint_keep_out(&mut p, &Default::default(), data);
+    let bounds = bounds.expect("native bottom HUD paints");
+    assert!(
+        bounds[0] < 100.,
+        "offhand image extends left of the main hotbar"
+    );
+    assert!(
+        bounds[2] > 200.,
+        "region includes both the offhand frame and main hotbar"
+    );
     assert!(
         nodes
             .iter()
-            .any(|node| matches!(node.visual(), ui::UiVisual::Sprite { .. })),
-        "real native sprites paint"
+            .filter(|node| matches!(node.visual(), ui::UiVisual::Sprite { .. }))
+            .count()
+            >= 2
     );
 }

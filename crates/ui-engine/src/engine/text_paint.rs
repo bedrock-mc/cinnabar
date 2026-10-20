@@ -357,6 +357,24 @@ impl Canvas<'_> {
         let [width, height] = layout.size_64().map(|size| size as f32 / 64.0);
         let [left, top] = label_origin(dest, self.font, style.options, self.px);
         let parent = self.group(clip)?;
+        let shadow = metrics.shadow(style.shadow);
+        if self.paint_bounds.is_some() {
+            let padding = match shadow {
+                TextShadow::None => 0.,
+                TextShadow::Offset64(offset) => {
+                    layout.key().scale_1024 as f32 / 1024. * offset as f32 / 64.
+                }
+            };
+            self.observe_paint_bounds(
+                [
+                    left,
+                    top,
+                    left + width.max(1.0) + padding,
+                    top + height + padding,
+                ],
+                clip,
+            );
+        }
         let id = self.id();
         self.nodes.push(
             UiNode::new(
@@ -372,7 +390,7 @@ impl Canvas<'_> {
             .with_visual(UiVisual::Text {
                 layout,
                 color: style.color,
-                shadow: metrics.shadow(style.shadow),
+                shadow,
             }),
         );
         if let Some(selection) = style.edit.and_then(|edit| edit.selection) {

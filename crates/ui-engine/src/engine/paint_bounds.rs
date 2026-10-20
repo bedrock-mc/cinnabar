@@ -1,6 +1,38 @@
 //! Optional bounds observation of actual painting, including custom renderer overflow.
 
 use super::Canvas;
+use std::cell::Cell;
+
+/// A bounded union of logical painting rectangles, shared by native and subtree observers.
+/// Rectangles use `[left, top, right, bottom]` in logical pixels.
+#[derive(Default)]
+pub struct PaintBounds(Cell<Option<[f32; 4]>>);
+
+impl PaintBounds {
+    /// Adds one painted rectangle without retaining its geometry.
+    pub fn include(&self, bounds: [f32; 4]) {
+        self.0.set(Some(self.0.get().map_or(bounds, |old| {
+            [
+                old[0].min(bounds[0]),
+                old[1].min(bounds[1]),
+                old[2].max(bounds[2]),
+                old[3].max(bounds[3]),
+            ]
+        })));
+    }
+
+    /// Returns the current union, or none when no artwork was painted.
+    pub fn get(&self) -> Option<[f32; 4]> {
+        self.0.get()
+    }
+}
+
+/// Selects screen artwork whose actual painting contributes to one shared bounds collector.
+#[derive(Clone, Copy)]
+pub struct PaintObserver<'a> {
+    pub bounds: &'a PaintBounds,
+    pub select: &'a dyn Fn(&json_ui::DrawNode) -> bool,
+}
 
 impl Canvas<'_> {
     /// Captures primitive bounds passed to `push`, after the canvas transform and clip.

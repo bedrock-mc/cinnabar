@@ -99,7 +99,7 @@ impl ModUi {
     }
 
     /// Supplies safe-content GUI-pixel rectangles from the host's native HUD layout.
-    /// Rectangles guide placement but never prohibit overlap.
+    /// Each rectangle is `[x, y, width, height]`; it guides placement without prohibiting overlap.
     pub fn set_mod_hud_editor_keep_out(&mut self, rects: &[[f64; 4]]) {
         let Some(editor) = self.mod_hud_editor.as_mut().filter(|e| e.open) else {
             return;
@@ -308,6 +308,7 @@ impl ModUi {
         let editor = self.mod_hud_editor.as_ref()?;
         Some(crate::test_support::HudEditorState {
             draft: &editor.draft,
+            nodes: editor.screen.nodes(),
             catalog: editor.catalog.as_ref(),
             frame: editor.frame.as_ref(),
             view: &editor.view,

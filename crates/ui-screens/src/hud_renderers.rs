@@ -135,7 +135,7 @@ pub struct HudRenderer<'a> {
     /// Per-control updates advance only when a hunger renderer reaches painting.
     pub hunger_update: Option<HungerUpdate<'a>>,
     /// Optional union of the bottom HUD's actually painted logical bounds.
-    pub bounds: Option<&'a mut Option<[f32; 4]>>,
+    pub bounds: Option<&'a ui_engine::engine::PaintBounds>,
 }
 
 impl CustomRenderer for HudRenderer<'_> {
@@ -150,16 +150,9 @@ impl CustomRenderer for HudRenderer<'_> {
             (paint(canvas, self.hud, self.hunger_update, node), None)
         };
         if kind == PaintKind::Bottom
-            && let (Some(bounds), Some(painted)) = (&mut self.bounds, painted)
+            && let (Some(bounds), Some(painted)) = (self.bounds, painted)
         {
-            **bounds = Some(bounds.map_or(painted, |old| {
-                [
-                    old[0].min(painted[0]),
-                    old[1].min(painted[1]),
-                    old[2].max(painted[2]),
-                    old[3].max(painted[3]),
-                ]
-            }));
+            bounds.include(painted);
         }
         Ok(kind != PaintKind::Unknown)
     }

@@ -20,6 +20,8 @@ pub struct ModWidgetsState<'a> {
 /// The HUD editor's draft, pointer state and last drawn frame.
 pub struct HudEditorState<'a> {
     pub draft: &'a Hud,
+    /// Bound and laid-out editor primitives, including non-interactive measurement lines.
+    pub nodes: &'a [json_ui::DrawNode],
     pub catalog: Option<&'a Arc<Catalog>>,
     pub frame: Option<&'a EngineFrame>,
     pub view: &'a ViewState,

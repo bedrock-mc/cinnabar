@@ -34,6 +34,7 @@ pub mod item_renderer;
 mod ownership_tests;
 pub mod pack_catalog;
 mod paint_bounds;
+pub use paint_bounds::{PaintBounds, PaintObserver};
 mod paint_transform;
 pub mod pixel_snap;
 mod render;
@@ -506,6 +507,8 @@ pub type TextColor<'a> = &'a dyn Fn(&DrawNode) -> Option<char>;
 pub struct ScreenArt<'a> {
     /// Keeps this screen's sprites on the shared nearest sampler, including pack overrides.
     pub nearest_sampling: bool,
+    /// Optional bounds observation of selected screen artwork, across renderer types.
+    pub paint_bounds: Option<PaintObserver<'a>>,
     /// Native replacements retain the pack's backdrop while omitting the replaced controls.
     pub omit_controls: &'a [&'a str],
     /// The interaction state gated nodes ([`json_ui::render_bound_gated`]) paint under.
