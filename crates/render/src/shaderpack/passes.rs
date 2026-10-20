@@ -32,6 +32,22 @@ pub(crate) struct DrawContext {
     pub atlas_size: [i32; 2],
     /// The particle atlas's texel size (particle draws' `atlasSize`).
     pub particle_atlas_size: [i32; 2],
+    /// The destroy-stage atlas size for damaged-block draws.
+    pub crack_atlas_size: [i32; 2],
+}
+
+impl DrawContext {
+    /// Returns the texel dimensions of the atlas bound to this draw.
+    pub(super) fn atlas_size(&self, kind: DrawKind) -> [i32; 2] {
+        match kind {
+            _ if kind.category().is_some() => self.atlas_size,
+            DrawKind::Effect(
+                Effect::Particles | Effect::ParticlesTranslucent | Effect::ParticlesAdditive,
+            ) => self.particle_atlas_size,
+            DrawKind::Effect(Effect::DamagedBlock) => self.crack_atlas_size,
+            _ => [0; 2],
+        }
+    }
 }
 
 /// One view's resources and per-frame state for a loaded pack.
@@ -212,15 +228,7 @@ impl ViewState {
                 },
                 render_stage: draw.kind.render_stage(),
                 lightmap_matrix: draw.kind.lightmap_matrix(),
-                atlas_size: match effect {
-                    _ if terrain => context.atlas_size,
-                    Some(
-                        Effect::Particles
-                        | Effect::ParticlesTranslucent
-                        | Effect::ParticlesAdditive,
-                    ) => context.particle_atlas_size,
-                    _ => [0; 2],
-                },
+                atlas_size: context.atlas_size(draw.kind),
                 entity_id: effect.map_or(-1, |effect| self.pack.effects.entity_id(effect)),
             };
             let lookup = |name: &str| values.value(name).or_else(|| lookup(name));
@@ -801,5 +809,28 @@ fn run_step(
             render.set_vertex_buffer(0, pack.quad.slice(..));
             render.draw(0..4, 0..1);
         }
+    }
+}
+
+#[cfg(test)]
+mod atlas_tests {
+    use super::*;
+    #[test]
+    fn damaged_blocks_use_the_atlas_bound_to_their_draw() {
+        let context = DrawContext {
+            chunk_offset: Vec3::ZERO,
+            atlas_size: [1024; 2],
+            particle_atlas_size: [512; 2],
+            crack_atlas_size: [256, 128],
+        };
+        assert_eq!(
+            context.atlas_size(DrawKind::Effect(Effect::DamagedBlock)),
+            [256, 128]
+        );
+        assert_eq!(context.atlas_size(DrawKind::TerrainSolid), [1024; 2]);
+        assert_eq!(
+            context.atlas_size(DrawKind::Effect(Effect::Particles)),
+            [512; 2]
+        );
     }
 }

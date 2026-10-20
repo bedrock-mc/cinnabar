@@ -335,7 +335,12 @@ fn particles_expand_like_the_vanilla_shader() {
     assert_eq!(instance_light(&instance(true)), [7.0 * 16.0, 12.0 * 16.0]);
     assert_eq!(instance_light(&instance(false)), FULL_BRIGHT);
     let mut mesh = Mesh::default();
-    particle_quads(&mut mesh, &[instance(true)], Vec3::new(10.0, 70.0, -3.0));
+    particle_quads(
+        &mut mesh,
+        &[instance(true)],
+        Vec3::new(10.0, 70.0, -3.0),
+        256,
+    );
     assert_eq!(mesh.indices, [0, 1, 2, 0, 2, 3]);
     let corners = positions(&mesh);
     assert!(corners[0].abs_diff_eq(Vec3::new(0.25, -0.5, 0.0), 1e-6));
@@ -574,4 +579,53 @@ fn clouds_draw_cuboids_when_fancy_and_a_flat_layer_when_fast() {
     );
     let colour = fast.words[3].to_le_bytes();
     assert_eq!(colour[3], 204, "texel alpha times the cloud colour's");
+}
+
+#[test]
+fn particles_extend_source_edges_without_changing_the_interior_uv_slope() {
+    let mut particle = instance(false);
+    particle.uv = [0.2, 0.1, 0.6, 0.8];
+    particle.texture_bounds = [0.4, 0.3, 0.2, 0.4];
+    for mirror in [false, true] {
+        if mirror {
+            particle.uv[0] += particle.uv[2];
+            particle.uv[2] = -particle.uv[2];
+        }
+        let mut mesh = Mesh::default();
+        particle_quads(&mut mesh, &[particle], Vec3::ZERO, 256);
+        assert_eq!(mesh.indices.len(), 9 * 6);
+        for (position, uv) in positions(&mesh).iter().zip(uvs(&mesh)) {
+            let tx = (position.x - particle.center_light[0]) / particle.axis_x[0] * 0.5 + 0.5;
+            let ty = 0.5 - (position.y - particle.center_light[1]) / particle.axis_y[1] * 0.5;
+            let expected = [
+                (particle.uv[0] + tx * particle.uv[2]).clamp(0.4 + 0.5 / 256., 0.6 - 0.5 / 256.),
+                (particle.uv[1] + ty * particle.uv[3]).clamp(0.3 + 0.5 / 256., 0.7 - 0.5 / 256.),
+            ];
+            for axis in 0..2 {
+                assert!((uv[axis] - expected[axis]).abs() < 0.0001);
+            }
+        }
+    }
+}
+
+#[test]
+fn crack_triangles_share_the_original_quad_uv_midpoint() {
+    let mut vertices = [BlockEntityVertex::default(); 6];
+    for (vertex, uv) in
+        vertices
+            .iter_mut()
+            .zip([[0., 0.], [1., 0.], [1., 1.], [0., 0.], [1., 1.], [0., 1.]])
+    {
+        vertex.uv = uv;
+    }
+    let mut mesh = Mesh::default();
+    super::lines::cracks(&mut mesh, &vertices, Vec3::ZERO);
+    let midpoint: Vec<_> = mesh
+        .words
+        .as_chunks::<WORDS>()
+        .0
+        .iter()
+        .map(|v| v[5])
+        .collect();
+    assert!(midpoint.iter().all(|&v| v == 0x8000_8000));
 }

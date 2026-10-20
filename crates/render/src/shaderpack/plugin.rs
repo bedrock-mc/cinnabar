@@ -221,22 +221,30 @@ fn configure_geometry(
 /// The Vanilla effects `pack` replaces: those it draws, and clouds and weather its
 /// directives turn off.
 fn replaced_effects(pack: &PackGpu) -> ShaderPackEffects {
-    let draws = |effects: &[Effect]| {
-        pack.draws
-            .iter()
-            .any(|d| matches!(d.kind, DrawKind::Effect(e) if effects.contains(&e)))
-    };
+    effect_coverage(
+        |effect| {
+            pack.draws
+                .iter()
+                .any(|d| d.kind == DrawKind::Effect(effect))
+        },
+        |effect| !pack.effects.draws(effect),
+    )
+}
+
+/// Keeps each native effect until that effect has a replacement or is explicitly disabled.
+fn effect_coverage(
+    draws: impl Fn(Effect) -> bool,
+    disabled: impl Fn(Effect) -> bool,
+) -> ShaderPackEffects {
     ShaderPackEffects {
-        particles: draws(&[
-            Effect::Particles,
-            Effect::ParticlesTranslucent,
-            Effect::ParticlesAdditive,
-        ]),
-        weather: draws(&[Effect::Weather]) || !pack.effects.draws(Effect::Weather),
-        lightning: draws(&[Effect::Lightning]),
-        clouds: draws(&[Effect::Clouds]) || !pack.effects.draws(Effect::Clouds),
-        selection: draws(&[Effect::Outline]),
-        cracks: draws(&[Effect::DamagedBlock]),
+        particles_opaque: draws(Effect::Particles),
+        particles_translucent: draws(Effect::ParticlesTranslucent),
+        particles_additive: draws(Effect::ParticlesAdditive),
+        weather: draws(Effect::Weather) || disabled(Effect::Weather),
+        lightning: draws(Effect::Lightning),
+        clouds: draws(Effect::Clouds) || disabled(Effect::Clouds),
+        selection: draws(Effect::Outline),
+        cracks: draws(Effect::DamagedBlock),
     }
 }
 
@@ -245,10 +253,18 @@ fn needs_native_scene(
     atmosphere: Option<&render_scene::AtmosphereFrame>,
     particles: Option<&render_scene::ParticleGpuFrame>,
     weather: Option<&render_scene::PrecipitationScene>,
+    covered: impl Fn(Effect) -> bool,
 ) -> bool {
-    atmosphere.is_some_and(|frame| frame.sky_kind() == render_scene::SkyKind::Overworld)
-        || particles.is_some_and(|frame| !frame.blend.is_empty() || !frame.add.is_empty())
-        || weather.is_some_and(|scene| !scene.layers.is_empty())
+    atmosphere.is_some_and(|frame| {
+        frame.sky_kind() == render_scene::SkyKind::Overworld
+            && [Effect::Sun, Effect::Moon, Effect::Stars, Effect::Clouds]
+                .into_iter()
+                .any(|effect| !covered(effect))
+    }) || particles.is_some_and(|frame| {
+        (!frame.opaque.is_empty() && !covered(Effect::Particles))
+            || (!frame.blend.is_empty() && !covered(Effect::ParticlesTranslucent))
+            || (!frame.add.is_empty() && !covered(Effect::ParticlesAdditive))
+    }) || weather.is_some_and(|scene| !scene.layers.is_empty() && !covered(Effect::Weather))
 }
 
 /// Hands out the revisions [`ShaderpackBlockIds`] are published under, each one no earlier
@@ -284,6 +300,7 @@ fn configure_replacement(
     views: Res<ShaderPackViews>,
     mut drawn: ResMut<ShaderPackDrawnCategories>,
     mut replaced: ResMut<ShaderPackEffects>,
+    textures: Option<Res<ShaderpackEffectTextures>>,
     atmosphere: Option<Res<render_scene::AtmosphereFrame>>,
     particles: Option<Res<render_scene::ParticleGpuFrame>>,
     weather: Option<Res<render_scene::PrecipitationScene>>,
@@ -300,7 +317,6 @@ fn configure_replacement(
                         .is_some_and(|state| Arc::ptr_eq(&state.pack, pack))
                 })
         });
-    replaced.set_if_neq(ready.map_or_else(Default::default, |pack| replaced_effects(pack)));
     let draws = |kind| ready.is_some_and(|pack| pack.draws.iter().any(|draw| draw.kind == kind));
     drawn.set_if_neq(ShaderPackDrawnCategories {
         terrain: geometry.is_some_and(|geometry| {
@@ -310,8 +326,22 @@ fn configure_replacement(
                 atmosphere.as_deref(),
                 particles.as_deref(),
                 weather.as_deref(),
+                |effect| {
+                    ready.is_some_and(|pack| {
+                        !pack.effects.draws(effect)
+                            || (draws(DrawKind::Effect(effect))
+                                && textures
+                                    .as_ref()
+                                    .is_some_and(|textures| textures.views(effect).is_some()))
+                    })
+                },
             ),
     });
+    replaced.set_if_neq(
+        ready
+            .filter(|_| drawn.terrain)
+            .map_or_else(Default::default, replaced_effects),
+    );
 }
 
 /// Allocates or resizes view targets, writes this frame's uniforms and builds each view's
@@ -401,6 +431,9 @@ fn prepare_views(
         let context = DrawContext {
             chunk_offset,
             atlas_size,
+            crack_atlas_size: effect_textures
+                .as_ref()
+                .map_or([0; 2], |t| t.crack_atlas_size()),
             particle_atlas_size: effect_textures
                 .as_ref()
                 .map_or([0; 2], |t| t.particle_atlas_size()),
@@ -729,12 +762,25 @@ mod camera_tests {
     use bevy::render::view::Msaa;
 
     #[test]
+    fn particle_streams_keep_independent_replacement_coverage() {
+        let coverage = effect_coverage(
+            |effect| effect == Effect::ParticlesTranslucent || effect == Effect::ParticlesAdditive,
+            |_| false,
+        );
+        assert!(!coverage.particles_opaque);
+        assert!(coverage.particles_translucent && coverage.particles_additive);
+        let native = render_scene::AtmosphereFrame::default();
+        assert!(!needs_native_scene(Some(&native), None, None, |_| true));
+    }
+
+    #[test]
     fn unresolved_native_layers_keep_the_scene_copy_path() {
-        assert!(!needs_native_scene(None, None, None));
+        assert!(!needs_native_scene(None, None, None, |_| false));
         assert!(needs_native_scene(
             Some(&render_scene::AtmosphereFrame::default()),
             None,
-            None
+            None,
+            |_| false
         ));
         for additive in [false, true] {
             let mut particles = render_scene::ParticleGpuFrame::default();
@@ -744,7 +790,7 @@ mod camera_tests {
             } else {
                 particles.blend = instances;
             }
-            assert!(needs_native_scene(None, Some(&particles), None));
+            assert!(needs_native_scene(None, Some(&particles), None, |_| false));
         }
     }
 

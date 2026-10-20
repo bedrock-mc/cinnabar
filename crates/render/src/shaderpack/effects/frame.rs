@@ -96,17 +96,17 @@ fn build(
         Effect::Stars if overworld => celestial.stars(mesh),
         Effect::Particles => {
             if let Some(frame) = inputs.particles {
-                particle_quads(mesh, &frame.opaque, camera);
+                particle_quads(mesh, &frame.opaque, camera, frame.atlas_side);
             }
         }
         Effect::ParticlesTranslucent => {
             if let Some(frame) = inputs.particles {
-                particle_quads(mesh, &frame.blend, camera);
+                particle_quads(mesh, &frame.blend, camera, frame.atlas_side);
             }
         }
         Effect::ParticlesAdditive => {
             if let Some(frame) = inputs.particles {
-                particle_quads(mesh, &frame.add, camera);
+                particle_quads(mesh, &frame.add, camera, frame.atlas_side);
             }
         }
         Effect::Weather => {

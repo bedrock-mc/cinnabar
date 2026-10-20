@@ -122,7 +122,7 @@ fn the_next_packs_block_ids_never_reuse_a_revision() {
     );
 }
 
-fn gpu() -> Option<GpuContext> {
+pub(super) fn gpu() -> Option<GpuContext> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = bevy::tasks::block_on(instance.request_adapter(&Default::default())).ok()?;
     let (device, queue) = bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
@@ -251,6 +251,7 @@ fn render_frame_options(
         chunk_offset: Vec3::ZERO,
         atlas_size: [0; 2],
         particle_atlas_size: [0; 2],
+        crack_atlas_size: [0; 2],
     };
     state.write_uniforms(&gpu.queue, &frame, 0.016, &context);
     let scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);

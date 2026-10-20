@@ -7,9 +7,6 @@ use super::vertices::{FULL_BRIGHT, Mesh, Vertex};
 use bevy::math::{Vec3, Vec4Swizzles};
 use particles::ParticleInstance;
 
-/// The corners of one quad in winding order.
-const CORNERS: [[f32; 2]; 4] = [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]];
-
 /// Java's raw lightmap coordinates of an instance: `center_light.w` packs block light in its
 /// low nibble and sky light in the next, read when `axis_y.w` marks the particle lit.
 pub(super) fn instance_light(instance: &ParticleInstance) -> [f32; 2] {
@@ -23,8 +20,32 @@ pub(super) fn instance_light(instance: &ParticleInstance) -> [f32; 2] {
     ]
 }
 
-/// Appends `instances` as quads relative to `camera`.
-pub(super) fn particle_quads(mesh: &mut Mesh, instances: &[ParticleInstance], camera: Vec3) {
+/// Splits a quad axis where sampling reaches a source-image edge, preserving interior UV slopes.
+fn clamped_axis(start: f32, delta: f32, bounds: [f32; 2]) -> Vec<(f32, f32)> {
+    let mut points = vec![0.0, 1.0];
+    if delta != 0.0 {
+        for edge in bounds {
+            let t = (edge - start) / delta;
+            if t > 0.0 && t < 1.0 {
+                points.push(t);
+            }
+        }
+    }
+    points.sort_by(f32::total_cmp);
+    points.dedup();
+    points
+        .into_iter()
+        .map(|t| (t, (start + t * delta).clamp(bounds[0], bounds[1])))
+        .collect()
+}
+
+/// Appends camera-relative quads, extending each source image's edge texels outside its UV bounds.
+pub(super) fn particle_quads(
+    mesh: &mut Mesh,
+    instances: &[ParticleInstance],
+    camera: Vec3,
+    atlas_side: u32,
+) {
     for instance in instances {
         let centre = bevy::math::Vec4::from_array(instance.center_light).xyz() - camera;
         let x = Vec3::from_slice(&instance.axis_x[..3]);
@@ -32,14 +53,51 @@ pub(super) fn particle_quads(mesh: &mut Mesh, instances: &[ParticleInstance], ca
         let [u0, v0, du, dv] = instance.uv;
         let light = instance_light(instance);
         let normal = x.cross(y);
-        let mid_uv = [u0 + du * 0.5, v0 + dv * 0.5];
-        mesh.quad(CORNERS.map(|[cx, cy]| Vertex {
-            position: centre + x * cx + y * cy,
-            colour: instance.color,
-            normal,
-            uv: [u0 + (cx * 0.5 + 0.5) * du, v0 + (0.5 - cy * 0.5) * dv],
-            mid_uv,
-            light,
-        }));
+        let half = 0.5 / atlas_side.max(1) as f32;
+        let bounds = instance.texture_bounds;
+        let bounded = bounds[2] > 0.0 && bounds[3] > 0.0;
+        let axis = |start, delta, index: usize| {
+            if bounded {
+                let inset = half.min(bounds[index + 2] * 0.5);
+                clamped_axis(
+                    start,
+                    delta,
+                    [
+                        bounds[index] + inset,
+                        bounds[index] + bounds[index + 2] - inset,
+                    ],
+                )
+            } else {
+                vec![(0.0, start), (1.0, start + delta)]
+            }
+        };
+        let us = axis(u0, du, 0);
+        let vs = axis(v0, dv, 1);
+        let mid_uv = [
+            (u0 + du * 0.5).clamp(
+                us.first().unwrap().1.min(us.last().unwrap().1),
+                us.first().unwrap().1.max(us.last().unwrap().1),
+            ),
+            (v0 + dv * 0.5).clamp(
+                vs.first().unwrap().1.min(vs.last().unwrap().1),
+                vs.first().unwrap().1.max(vs.last().unwrap().1),
+            ),
+        ];
+        for u in us.windows(2) {
+            for v in vs.windows(2) {
+                mesh.quad(
+                    [(u[0], v[1]), (u[1], v[1]), (u[1], v[0]), (u[0], v[0])].map(
+                        |((tx, u), (ty, v))| Vertex {
+                            position: centre + x * (tx * 2.0 - 1.0) + y * (1.0 - ty * 2.0),
+                            colour: instance.color,
+                            normal,
+                            uv: [u, v],
+                            mid_uv,
+                            light,
+                        },
+                    ),
+                );
+            }
+        }
     }
 }

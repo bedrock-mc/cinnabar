@@ -6,7 +6,7 @@
 //! |---|---|---|
 //! | sun | `textures/environment/sun.png` | `AtmosphereTextureAssets` |
 //! | moon | `textures/environment/moon_phases.png` | `AtmosphereTextureAssets` |
-//! | clouds | `textures/environment/clouds.png` | `AtmosphereTextureAssets` |
+//! | clouds | 1×1 white (source RGBA is baked into vertices) | |
 //! | weather | `textures/environment/weather.png` | `WeatherTextureAssets` |
 //! | particles | the particle atlas and its dynamic tiles | `ParticleGpu` (a view) |
 //! | cracks | the block-entity atlas (destroy stages) | `BlockEntityGpu` (a view) |
@@ -49,7 +49,6 @@ pub(crate) struct ShaderpackEffectTextures {
     constants: Option<[(wgpu::Texture, TextureView); 3]>,
     sun: Option<Uploaded<[u8; 32]>>,
     moon: Option<Uploaded<[u8; 32]>>,
-    clouds: Option<Uploaded<[u8; 32]>>,
     /// Keyed by the sheet's allocation.
     weather: Option<Uploaded<usize>>,
     particles: Option<Shared>,
@@ -177,8 +176,8 @@ impl ShaderpackEffectTextures {
         let color = match effect {
             Effect::Sun => self.view(self.sun.as_ref().map(|s| &s.view)),
             Effect::Moon => self.view(self.moon.as_ref().map(|s| &s.view)),
-            Effect::Clouds => self.view(self.clouds.as_ref().map(|s| &s.view)),
-            Effect::Weather => self.view(self.weather.as_ref().map(|s| &s.view)),
+            Effect::Clouds => Some(&constants[WHITE].1),
+            Effect::Weather => self.weather.as_ref().map(|s| &s.view),
             Effect::Particles | Effect::ParticlesTranslucent | Effect::ParticlesAdditive => {
                 self.view(self.particles.as_ref().map(|s| &s.view))
             }
@@ -189,6 +188,14 @@ impl ShaderpackEffectTextures {
             color,
             normals: &constants[FLAT_NORMAL].1,
             specular: &constants[NO_SPECULAR].1,
+        })
+    }
+
+    /// The source atlas size for damaged-block draws, in texels.
+    pub(crate) fn crack_atlas_size(&self) -> [i32; 2] {
+        self.cracks.as_ref().map_or([0; 2], |source| {
+            let texture = source.view.texture();
+            [texture.width() as i32, texture.height() as i32]
         })
     }
 
@@ -263,7 +270,6 @@ pub(crate) fn prepare_effect_textures(
         for (role, label) in [
             (AtmosphereRole::Sun, "shader pack sun"),
             (AtmosphereRole::MoonPhases, "shader pack moon phases"),
-            (AtmosphereRole::Clouds, "shader pack clouds"),
         ] {
             let Some(image) = runtime.texture(role) else {
                 continue;
@@ -271,7 +277,7 @@ pub(crate) fn prepare_effect_textures(
             let slot = match role {
                 AtmosphereRole::Sun => &mut textures.sun,
                 AtmosphereRole::MoonPhases => &mut textures.moon,
-                AtmosphereRole::Clouds => &mut textures.clouds,
+                AtmosphereRole::Clouds => continue,
             };
             changed |= upload(
                 device,
@@ -297,6 +303,8 @@ pub(crate) fn prepare_effect_textures(
             image.height,
             &image.rgba8,
         );
+    } else if textures.weather.take().is_some() {
+        changed = true;
     }
     let particle_atlas = particles.as_ref().and_then(|gpu| gpu.atlas_texture());
     if share(
@@ -314,5 +322,37 @@ pub(crate) fn prepare_effect_textures(
     );
     if changed {
         textures.generation += 1;
+    }
+}
+
+#[cfg(test)]
+mod gpu_tests {
+    use super::*;
+
+    #[test]
+    fn cloud_colour_is_baked_once_and_missing_weather_keeps_its_native_fallback() {
+        let Some(gpu) = crate::shaderpack::tests::gpu() else {
+            eprintln!("missing fixture: native GPU adapter for the effect texture views");
+            return;
+        };
+        let constants = [
+            [255; 4],
+            crate::shaderpack::atlas::NEUTRAL_NORMAL,
+            crate::shaderpack::atlas::NEUTRAL_SPECULAR,
+        ]
+        .map(|texel| {
+            let (texture, view) = texture(&gpu.device, "effect fixture", [1, 1]);
+            write(&gpu.queue, &texture, [0, 0], [1, 1], &texel);
+            (texture, view)
+        });
+        let textures = ShaderpackEffectTextures {
+            constants: Some(constants),
+            ..Default::default()
+        };
+        assert!(std::ptr::eq(
+            textures.views(Effect::Clouds).unwrap().color,
+            &textures.constants.as_ref().unwrap()[WHITE].1
+        ));
+        assert!(textures.views(Effect::Weather).is_none());
     }
 }
