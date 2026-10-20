@@ -351,6 +351,7 @@ impl ModUi {
         paint_frame: &mut PaintFrame<'_>,
         icon: &dyn Fn(&str, u32) -> Option<ui::IconRef>,
     ) {
+        let hud_metrics = paint_frame.metrics;
         let animate = !self.reduced_motion;
         let Some(panel) = self
             .mod_panel
@@ -545,6 +546,8 @@ impl ModUi {
                     .map(|render| Arc::clone(&render.nodes))
             };
             if let Some(laid) = laid {
+                let panel_metrics = paint_frame.metrics;
+                paint_frame.metrics = hud_metrics;
                 panel.hud_previews.prepare(
                     &laid,
                     &panel.view,
@@ -554,6 +557,7 @@ impl ModUi {
                     paint_frame,
                     icon,
                 );
+                paint_frame.metrics = panel_metrics;
             }
             let result = {
                 let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut base];

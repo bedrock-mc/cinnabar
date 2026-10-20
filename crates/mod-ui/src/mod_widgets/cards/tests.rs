@@ -29,6 +29,7 @@ struct Harness {
     font: Arc<assets::RuntimeFontCatalog>,
     layouts: ui::TextLayoutCache,
     nodes: Vec<UiNode>,
+    gui_scale: u8,
 }
 
 impl Harness {
@@ -48,6 +49,7 @@ impl Harness {
             font: ui_engine::test_support::fixture_font(),
             layouts: ui::TextLayoutCache::new(1, 1024 * 1024),
             nodes: Vec::new(),
+            gui_scale: 2,
         }
     }
 
@@ -61,7 +63,7 @@ impl Harness {
             metrics: TextMetrics::for_viewport(
                 [1280, 720],
                 ui::DpiScale::new(1.).unwrap(),
-                Some(2),
+                Some(self.gui_scale),
             ),
             solid_page: 0,
             safe_area: ui::SafeArea::ZERO,
@@ -504,4 +506,19 @@ fn hud_card_preview_gameplay_origin_stays_on_the_physical_pixel_grid() {
         let bounds = harness.drawn().painted_bounds().unwrap();
         assert_eq!([bounds.min().x(), bounds.min().y()], expected);
     }
+}
+
+#[test]
+fn hud_card_preview_reuses_gameplay_artwork_when_the_panel_uses_a_different_scale() {
+    let mut ui = installed(&hud(1), &panel(false));
+    let mut harness = Harness::new();
+    harness.gui_scale = 4;
+    harness.paint(&mut ui, false);
+    let nodes = Arc::clone(&ui.hud_sources.get_mut(OWNER).unwrap().cards[0].nodes);
+    harness.paint(&mut ui, true);
+    let source = ui.hud_sources.get_mut(OWNER).unwrap();
+    assert!(Arc::ptr_eq(&nodes, &source.cards[0].nodes));
+    assert_eq!(source.cards[0].paints, 1);
+    let bounds = harness.drawn().painted_bounds().unwrap();
+    assert_eq!([bounds.width(), bounds.height()], [80., 40.]);
 }
