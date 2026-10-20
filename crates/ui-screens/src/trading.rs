@@ -13,9 +13,7 @@ pub(crate) fn slot_valid(
     ledger: &inventory::PlayerInventoryLedger,
     collection: &str,
 ) -> Option<bool> {
-    if ledger.trading().is_none() {
-        return None;
-    }
+    ledger.trading()?;
     if [
         C::Trade2Ingredient1Item.as_str(),
         C::TradeIngredient1Items.as_str(),
