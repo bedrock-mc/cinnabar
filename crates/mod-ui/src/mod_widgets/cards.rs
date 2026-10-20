@@ -9,7 +9,7 @@ use ui_engine::{
     cached_screen::CachedScreen,
     engine::{
         CachedFragment, CachedFragmentTextures, FormEngine, ScreenArt, item_renderer::ItemRenderer,
-        screen::PaintFrame,
+        pixel_snap, screen::PaintFrame,
     },
 };
 
@@ -28,6 +28,8 @@ pub(crate) struct CardPaint {
     pub(crate) textures: CachedFragmentTextures,
     pub(crate) bounds: Option<ui::UiRect>,
     pub(crate) px: f32,
+    /// Moves gameplay-snapped artwork back to the preview's local card origin.
+    pub(crate) preview_offset: [f32; 2],
     metrics: Option<[u64; 9]>,
     language: [usize; 3],
     prepared_revision: Option<u64>,
@@ -76,6 +78,7 @@ pub(super) fn entries(hud: &Hud) -> Vec<CardPaint> {
                 textures: CachedFragmentTextures::default(),
                 bounds: None,
                 px: 1.,
+                preview_offset: [0.; 2],
                 metrics: None,
                 language: [0; 3],
                 prepared_revision: None,
@@ -231,6 +234,8 @@ impl ModWidgets {
                 &ViewState::default(),
             )
         })?;
+        let snapped_origin =
+            pixel_snap::positioned([origin[0], origin[1], 0., 0.], output.metrics.gui_scale, px);
         let content = canvas_size(card).map(|axis| axis as f32 * px);
         entry.bounds =
             ui_engine::engine::normalize_fragment(&mut nodes, [0., 0., content[0], content[1]])?
@@ -239,6 +244,8 @@ impl ModWidgets {
                 .map_err(ui_engine::engine::screen::PaintError::Geometry)?;
         entry.nodes = nodes.into();
         entry.px = px;
+        entry.preview_offset =
+            std::array::from_fn(|axis| origin[axis] as f32 * px - snapped_origin[axis]);
         entry.laid = Some(laid);
         entry.metrics = Some(key);
         entry.origin = Some(origin);

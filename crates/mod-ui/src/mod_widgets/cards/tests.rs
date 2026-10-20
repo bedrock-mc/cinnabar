@@ -514,27 +514,34 @@ fn hud_card_preview_centers_every_anchored_card_without_its_screen_offset() {
             ];
             let (anchor, _) = ui::mod_hud::Anchor::from_origin(at, size, viewport);
             anchors.insert(serde_json::to_string(&anchor).unwrap());
-            let mut hud = hud(1);
-            hud.cards[0].anchor = anchor;
-            hud.cards[0].offset = [13., 17.];
-            let mut ui = installed(&hud, &panel(false));
-            let mut harness = Harness::new();
-            harness.paint(&mut ui, false);
-            let shared = Arc::clone(&ui.hud_sources.get(OWNER).unwrap().cards[0].nodes);
-            harness.paint(&mut ui, true);
-            let bounds = harness.drawn().painted_bounds().unwrap();
-            assert_eq!(
-                [
-                    bounds.min().x() + bounds.width() / 2.,
-                    bounds.min().y() + bounds.height() / 2.,
-                ],
-                [120., 120.],
-                "{anchor:?} centers inside the preview node",
-            );
-            assert!(Arc::ptr_eq(
-                &shared,
-                &ui.hud_sources.get(OWNER).unwrap().cards[0].nodes,
-            ));
+            for (gui_scale, offset) in [2, 4].into_iter().flat_map(|scale| {
+                [[13., 17.], [13.25, 17.75], [13.125, 17.375], [-0.25, -0.75]]
+                    .into_iter()
+                    .map(move |offset| (scale, offset))
+            }) {
+                let mut hud = hud(1);
+                hud.cards[0].anchor = anchor;
+                hud.cards[0].offset = offset;
+                let mut ui = installed(&hud, &panel(false));
+                let mut harness = Harness::new();
+                harness.gui_scale = gui_scale;
+                harness.paint(&mut ui, false);
+                let shared = Arc::clone(&ui.hud_sources.get(OWNER).unwrap().cards[0].nodes);
+                harness.paint(&mut ui, true);
+                let bounds = harness.drawn().painted_bounds().unwrap();
+                assert_eq!(
+                    [
+                        bounds.min().x() + bounds.width() / 2.,
+                        bounds.min().y() + bounds.height() / 2.,
+                    ],
+                    [120., 120.],
+                    "{anchor:?} with {offset:?} at GUI scale {gui_scale} centers inside the preview node",
+                );
+                assert!(Arc::ptr_eq(
+                    &shared,
+                    &ui.hud_sources.get(OWNER).unwrap().cards[0].nodes,
+                ));
+            }
         }
     }
     assert_eq!(

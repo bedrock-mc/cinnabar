@@ -192,10 +192,10 @@ impl CustomRenderer for Renderer<'_> {
         let origin = [
             node.dest[0]
                 + (node.dest[2] - node.dest[0] - geometry[0]) * alignment[0]
-                + bounds.min().x() * ratio,
+                + (bounds.min().x() + entry.preview_offset[0]) * ratio,
             node.dest[1]
                 + (node.dest[3] - node.dest[1] - geometry[1]) * alignment[1]
-                + bounds.min().y() * ratio,
+                + (bounds.min().y() + entry.preview_offset[1]) * ratio,
         ];
         let dest = [
             origin[0],
