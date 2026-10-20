@@ -31,6 +31,8 @@ pub struct Page {
     pub width: u32,
     pub height: u32,
     pub rgba: Arc<[u8]>,
+    /// Non-overlapping ownership inside an original-image page's filtering halo.
+    pub repeat_content: Option<[u32; 4]>,
 }
 
 impl Page {
@@ -40,6 +42,7 @@ impl Page {
             width: 1,
             height: 1,
             rgba: Arc::from(vec![255u8; 4]),
+            repeat_content: None,
         }
     }
 
@@ -201,6 +204,7 @@ impl Canvas {
                     color,
                     flags,
                     derivatives,
+                    Some(v[0].overlay_color),
                 );
                 blend_styled(
                     &mut self.pixels[row + x as usize],
@@ -287,6 +291,7 @@ impl Canvas {
                             color,
                             flags,
                             derivatives,
+                            Some(v[0].overlay_color),
                         ),
                         color,
                     )
@@ -351,11 +356,15 @@ fn shaded_sample(
     color: [u8; 4],
     flags: u16,
     derivatives: [[f32; 2]; 2],
+    bounds: Option<[f32; 4]>,
 ) -> [u8; 4] {
     let native = flags & u16::from(assets::FONT_STYLE_COVERAGE_GAMMA) != 0;
     let sdf = flags & u16::from(assets::FONT_STYLE_SDF) != 0;
     let linear = sdf || (!native && flags & u16::from(ui::UI_STYLE_BILINEAR) != 0);
-    let mut sample = if flags & assets::FONT_STYLE_OUTLINE_COVERAGE != 0 {
+    // Repeat coordinates must be wrapped before sampling, including on mixed-style vertices.
+    let mut sample = if flags & render_api::ui_repeat::UI_STYLE_REPEAT != 0 {
+        repeated_sample(texture, uv, bounds.unwrap_or_default(), flags, linear)
+    } else if flags & assets::FONT_STYLE_OUTLINE_COVERAGE != 0 {
         texture.sample_outline(uv, derivatives)
     } else if linear {
         texture.sample_linear(uv[0], uv[1])
@@ -383,7 +392,35 @@ fn shaded_sample(
             render_model::font_shading::coverage_gamma(sample[3], rgb),
         ];
     }
+    if flags & u16::from(ui::UI_STYLE_GRAYSCALE) != 0 {
+        let luma = sample[0] * 0.299 + sample[1] * 0.587 + sample[2] * 0.114;
+        sample = [luma, luma, luma, sample[3]];
+    }
     sample.map(|channel| (channel * 255.0).round() as u8)
+}
+
+/// Wraps tile coordinates and keeps filtering inside the source region or page halo.
+fn repeated_sample(
+    texture: &Page,
+    uv: [f32; 2],
+    bounds: [f32; 4],
+    flags: u16,
+    linear: bool,
+) -> [f32; 4] {
+    let Some(uv) = render_api::ui_repeat::decode_uv(
+        uv,
+        bounds,
+        flags,
+        [texture.width, texture.height],
+        texture.repeat_content,
+    ) else {
+        return [0.0; 4];
+    };
+    let sample = |uv: [f32; 2]| texture.sample(uv[0], uv[1]).map(|c| f32::from(c) / 255.0);
+    if !linear {
+        return sample(uv);
+    }
+    texture.sample_linear(uv[0], uv[1])
 }
 
 /// Converts a premultiplied coverage mixture to the rasterizer's straight-alpha input.
@@ -556,6 +593,7 @@ mod tests {
         }
         for alpha in [127, 128, 192] {
             let texture = Page {
+                repeat_content: None,
                 width: 1,
                 height: 1,
                 rgba: [200, 80, 20, alpha].into(),
@@ -573,6 +611,7 @@ mod tests {
             vertex.alpha_test = false;
         }
         let texture = Page {
+            repeat_content: None,
             width: 1,
             height: 1,
             rgba: [200, 80, 20, 192].into(),
@@ -583,6 +622,7 @@ mod tests {
     #[test]
     fn particle_sprite_columns_keep_equal_width_and_stay_inside_source_bounds() {
         let texture = Page {
+            repeat_content: None,
             width: 18,
             height: 1,
             rgba: (0..18).flat_map(|i| [i * 10, 0, 0, 255]).collect(),
@@ -689,6 +729,7 @@ mod tests {
     #[test]
     fn bilinear_sampling_uses_texel_centres_and_clamps_page_edges() {
         let texture = Page {
+            repeat_content: None,
             width: 2,
             height: 2,
             rgba: [[0, 0, 0, 255], [255; 4], [255; 4], [0, 0, 0, 255]]
@@ -713,8 +754,50 @@ mod tests {
     }
 
     #[test]
+    fn repeated_texture_filters_inside_its_atlas_region_on_both_raster_paths() {
+        let mut pixels = [255, 0, 0, 255].repeat(16);
+        for (at, value) in [
+            (5, [0, 0, 0, 255]),
+            (6, [255; 4]),
+            (9, [255; 4]),
+            (10, [0, 0, 0, 255]),
+        ] {
+            pixels[at * 4..at * 4 + 4].copy_from_slice(&value);
+        }
+        let texture = Page {
+            repeat_content: None,
+            width: 4,
+            height: 4,
+            rgba: pixels.into(),
+        };
+        for (uv, linear, outline) in [
+            ([1.25, 1.25], false, 0),
+            ([1.0, 1.0], true, 0),
+            ([1.25, 1.25], false, assets::FONT_STYLE_OUTLINE_COVERAGE),
+            ([1.0, 1.0], true, assets::FONT_STYLE_OUTLINE_COVERAGE),
+        ] {
+            let expected = [0, 0, 0, 255];
+            let mut list = quad();
+            for vertex in &mut list.vertices {
+                vertex.uv = uv;
+                vertex.overlay_color = [1.0, 1.0, 2.0, 2.0];
+                vertex.style_flags = render_api::ui_repeat::UI_STYLE_REPEAT
+                    | outline
+                    | if linear {
+                        u16::from(ui::UI_STYLE_BILINEAR)
+                    } else {
+                        0
+                    };
+            }
+            assert_eq!(first_pixel(&list, &texture), expected);
+            assert_eq!(first_pixel(&triangle(list), &texture), expected);
+        }
+    }
+
+    #[test]
     fn minified_outline_strokes_keep_their_area_across_fractional_phases() {
         let texture = Page {
+            repeat_content: None,
             width: 32,
             height: 32,
             rgba: (0..1024)
@@ -740,8 +823,47 @@ mod tests {
     }
 
     #[test]
+    fn repeated_original_image_pages_preserve_translucent_coverage() {
+        let first = Page {
+            width: 2,
+            height: 2,
+            rgba: [80, 160, 240, 128].repeat(4).into(),
+            repeat_content: Some([0, 0, 1, 2]),
+        };
+        let second = Page {
+            repeat_content: Some([1, 0, 2, 2]),
+            ..first.clone()
+        };
+        for outline in [0, assets::FONT_STYLE_OUTLINE_COVERAGE] {
+            let mut list = quad();
+            for vertex in &mut list.vertices {
+                vertex.uv = vertex.uv.map(|v| v * 13.25);
+                vertex.overlay_color = [0.0, 0.0, 2.0, 2.0];
+                vertex.style_flags = render_api::ui_repeat::UI_STYLE_REPEAT
+                    | render_api::ui_repeat::UI_STYLE_REPEAT_PAGE
+                    | u16::from(ui::UI_STYLE_BILINEAR)
+                    | outline;
+            }
+            let mut other = list.batches[0].clone();
+            other.texture_page = 1;
+            list.batches.push(other);
+            let mut canvas = Canvas::new(4, 4);
+            canvas.draw(&list, |page| Some(if page == 0 { &first } else { &second }));
+            assert!(
+                canvas
+                    .into_rgba()
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|pixel| pixel[3] == 128)
+            );
+        }
+    }
+
+    #[test]
     fn native_coverage_keeps_nearest_sampling_and_uses_text_colour_gamma() {
         let texture = Page {
+            repeat_content: None,
             width: 2,
             height: 1,
             rgba: [0, 0, 0, 128, 0, 0, 0, 0].into(),
@@ -765,6 +887,7 @@ mod tests {
     #[test]
     fn sdf_samples_are_filtered_before_coverage_and_gamma_conversion() {
         let texture = Page {
+            repeat_content: None,
             width: 2,
             height: 1,
             rgba: [0, 0, 0, 0, 0, 0, 0, 255].into(),
@@ -786,6 +909,7 @@ mod tests {
     #[test]
     fn sdf_smoothing_tracks_the_uv_derivative_area_on_both_paths() {
         let texture = Page {
+            repeat_content: None,
             width: 1,
             height: 1,
             rgba: [0, 0, 0, 132].into(),

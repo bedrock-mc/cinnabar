@@ -12,6 +12,7 @@ pub(super) fn texture(dir: &Path, pages: &mut Vec<Page>) -> Result<u16, Error> {
     let side = render_model::STANDARD_SKIN_SIDE as u32;
     let page = u16::try_from(pages.len()).map_err(|error| error.to_string())?;
     pages.push(Page {
+        repeat_content: None,
         width: side,
         height: side,
         rgba: render_model::default_actor_skin_rgba8().pixels().clone(),

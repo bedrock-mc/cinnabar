@@ -3,7 +3,7 @@
 use super::TransformError;
 use super::items::{
     func_params, matching, parse_decl, shadowed_bindings, size_unsized_arrays, split_args,
-    split_items,
+    split_items, struct_body_end,
 };
 use crate::programs::StageKind;
 use crate::token::{Tok, TokKind, id, int, lex, p};
@@ -118,7 +118,9 @@ fn undeclared_core_names(src: &[Tok], stage: StageKind) -> Option<Vec<Tok>> {
     for item in split_items(src) {
         if let Some(declaration) = parse_decl(&item) {
             declared.extend(declaration.decls.into_iter().map(|(name, _, _)| name));
-            if let Some((name, _, instance)) = declaration.block {
+            if let Some((name, members, instance)) = declaration.block {
+                let open = item.iter().position(|token| token.is("{")).unwrap();
+                shadowed.extend(offset + open + 1..offset + open + 1 + members.len());
                 declared.insert(name.clone());
                 let mut tokens = vec![id(&name)];
                 tokens.extend(instance);
@@ -154,8 +156,12 @@ fn undeclared_core_names(src: &[Tok], stage: StageKind) -> Option<Vec<Tok>> {
         return None;
     }
     let mut out = Vec::with_capacity(src.len());
+    let mut type_end = 0;
     for (i, t) in src.iter().enumerate() {
-        let member = i > 0 && src[i - 1].is(".");
+        if let Some(end) = struct_body_end(src, i) {
+            type_end = type_end.max(end);
+        }
+        let member = i < type_end || i > 0 && src[i - 1].is(".");
         match replace
             .iter()
             .find(|(n, _)| !member && !shadowed.contains(&i) && t.ident() == Some(n))
