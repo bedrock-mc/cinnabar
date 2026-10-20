@@ -9,7 +9,9 @@ use crate::properties::ProgramRule;
 use crate::reflect::{StageNames, reflect};
 use crate::reflection::ProgramReflection;
 use crate::source::PackSource;
-use crate::transform::{ProgramInterface, StageDraft, assemble, merge_uniforms, transform};
+use crate::transform::{
+    ProgramInterface, ResourceNames, StageDraft, assemble, merge_uniforms, transform,
+};
 use std::collections::{BTreeMap, HashMap};
 
 /// The outcome for one stage file.
@@ -68,6 +70,8 @@ pub(crate) struct Context<'a> {
     pub defines: &'a [(String, String)],
     /// Image name → GLSL format qualifier.
     pub image_formats: &'a HashMap<String, String>,
+    /// Sampler classes overriding [`crate::SamplerClass::for_name`] for this program.
+    pub sampler_classes: &'a crate::transform::SamplerClasses,
 }
 
 /// Most rule identifiers force mode considers; the search tries every subset of them.
@@ -194,7 +198,11 @@ pub(crate) fn translate_program(
             _ => {}
         }
         out.consts.extend(pp.consts.iter().cloned());
-        match transform(&pp, *stage, &mut iface, cx.image_formats) {
+        let names = ResourceNames {
+            image_formats: cx.image_formats,
+            sampler_classes: cx.sampler_classes,
+        };
+        match transform(&pp, *stage, &mut iface, &names) {
             Ok(draft) => drafts.push((i, draft, pp.map)),
             Err(e) => {
                 let d = Diagnostic::new(Phase::Transform, e.message).at(pp.map.locate(e.line));

@@ -11,6 +11,8 @@ mod edit_selection;
 #[cfg(feature = "test-support")]
 mod form_overlap;
 mod panorama;
+#[cfg(feature = "test-support")]
+mod settings_draft;
 mod sprite_outline;
 mod tiled_image;
 
@@ -129,6 +131,10 @@ fn png_fixture(
     if matches!(&fixture, Fixture::FormOverlap) {
         return form_overlap::png(state, dir);
     }
+    #[cfg(feature = "test-support")]
+    if matches!(&fixture, Fixture::SettingsDraft) {
+        return settings_draft::png(state, dir);
+    }
     let menu = matches!(&fixture, Fixture::Menu(_) | Fixture::Loading(_));
     let show_panorama = match &fixture {
         Fixture::Menu(view) => view.out_of_game(),
@@ -143,6 +149,7 @@ fn png_fixture(
         Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
         | Fixture::FormOverlap
+        | Fixture::SettingsDraft
         | Fixture::ControlLocked
         | Fixture::CosmeticParticles { .. } => false,
     };
@@ -183,7 +190,10 @@ fn png_fixture(
             unreachable!("asset-free capture returned above")
         }
         #[cfg(feature = "test-support")]
-        Fixture::CosmeticParticles { .. } | Fixture::FormOverlap | Fixture::ControlLocked => {
+        Fixture::CosmeticParticles { .. }
+        | Fixture::FormOverlap
+        | Fixture::SettingsDraft
+        | Fixture::ControlLocked => {
             unreachable!("specialized capture returned above")
         }
         #[cfg(feature = "test-support")]

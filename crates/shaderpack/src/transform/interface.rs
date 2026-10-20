@@ -99,7 +99,7 @@ impl ProgramInterface {
         Ok(definitions)
     }
 
-    /// Binding of sampled texture `name`, after the two shared samplers.
+    /// Binding of sampled texture `name`, after the shared samplers.
     pub(super) fn texture_binding(&mut self, name: &str) -> u32 {
         let next = FIRST_TEXTURE_BINDING + self.textures.len() as u32;
         *self.textures.entry(name.to_string()).or_insert(next)

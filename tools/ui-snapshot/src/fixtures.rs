@@ -60,6 +60,9 @@ pub enum Fixture {
     /// Two same-ID requests arriving while the first menu is still open.
     #[cfg(feature = "test-support")]
     FormOverlap,
+    /// An edited settings draft after switching away from and back to its tab.
+    #[cfg(feature = "test-support")]
+    SettingsDraft,
     /// A damaged stack picked up from the survival inventory.
     #[cfg(feature = "test-support")]
     CursorDurability,
@@ -102,6 +105,13 @@ pub const STATES: &[State] = &[
         size: [256, 128],
         gui_scale: 1,
         fixture: || Fixture::TiledImage { scale: 0.001 },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "settings-draft-return",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::SettingsDraft,
     },
     #[cfg(feature = "test-support")]
     State {
