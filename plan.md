@@ -259,6 +259,9 @@ Equipped cosmetic emitters also run in visible menu and HUD paper dolls using th
 shared particle engine and attachment poses. Catalog-wide, in-world interaction
 and performance qualification for these previews remains open.
 
+Player name tags use Java's standing player height before pose offsets, independent of
+server collision-box changes. Other actors retain their published label height.
+
 Remaining qualification includes attachables and custom item models, action/use timing,
 projectile interpolation and shake, sleep/mount poses, name tags (including over
 oversized server cosmetics), capes, shadows,
@@ -276,10 +279,17 @@ Implemented: [chat, HUD and scoreboard state](crates/ui/src/lib.rs),
 [inventory prediction and crafting](crates/inventory/src/lib.rs), and
 [menus and settings](crates/client-shell/src/menu.rs). The boxes track full acceptance
 across these existing features; they are not a list of missing screens or systems.
+Gameplay mouse capture resumes after focus or occlusion returns when it was active
+before switching away. Screen ownership and focus-loss input clearing remain in effect;
+OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
 
 - [ ] `P5.1-UI` — Close pack-driven UI, bounded text/draw work, formatting, scaling,
   safe areas, focus/navigation and keyboard/mouse/controller/touch acceptance. Prove
-  stable retained resources and correct supported DPI/aspect behavior.
+  stable retained resources and correct supported DPI/aspect behavior. Form JSON
+  container parsing and cleanup use heap stacks and accept line/block comments.
+  Structured text keeps its separate
+  container parsing and cleanup use heap stacks; structured text keeps its separate
+  validation limits. Extreme structured-text and rendered-form acceptance remain open.
 - [ ] `P5.2-HUD` — Close received text, titles, actionbar, toasts, survival/status HUD
   and lifecycle behavior without leaking UI-owned input into movement.
 - [ ] `P5.3-CHAT` — Close history/autocomplete, formatting, bounded UTF-8 editing,
@@ -295,9 +305,15 @@ across these existing features; they are not a list of missing screens or system
   effective item durability and live mining acceptance remain incomplete.
 - [ ] `P5.6-FORMS` — Close modal/menu/custom form navigation, validation, cancellation
   and responses, including server-pack definitions, structured text, custom controls,
-  scaling and image/layout behavior against matched native views. Server settings
-  replies are cached until their tab is selected; embedding their controls within
-  the settings panel instead of a separate form remains incomplete.
+  scaling and image/layout behavior against matched native views. Overlapping requests
+  keep the active form and answer busy, including reused IDs.
+  Busy cancellations retain every request through transport backpressure.
+  Custom forms retain control locks and publish enabled bindings for the current
+  game phase without removing locked response values; device acceptance remains open.
+  Server settings replies are cached until their tab is selected; embedding their
+  controls within the settings panel instead of a separate form remains incomplete.
+  URL images use the UI texture-file allowance; aggregate encoded-image cache bounds
+  and remaining image admission and download-deadline parity remain incomplete.
 - [ ] `P5.7-PARITY-PERF` — Qualify combined chat, scoreboard, boss bars, inventory and
   forms at supported scales/aspects and devices, with bounded memory and stable frame work.
 - [ ] `P5.8-SETTINGS` — Close menu, control, video and persistence acceptance. Desktop
@@ -421,6 +437,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   remain incomplete.
   shader-pack source loading is implemented in `shaderpack`; configuration parsing,
   translation, render-host integration and in-game acceptance remain incomplete.
+  remain incomplete; parsed custom uniform expressions are not executed or rendered.
+  Pack block, item and entity ids, Java biome values and Java sky and fog colours are
+  computed from the pinned Bedrock→Java mappings but not yet uploaded to shaders.
   Sky/fog time curves and sunrise colours remain provisional; lightning, status effects,
   underwater colour easing and the water-vision ramp are not implemented.
   and enable rules. Custom uniform expressions evaluate per frame, including numeric

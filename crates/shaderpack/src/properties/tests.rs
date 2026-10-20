@@ -334,6 +334,54 @@ fn custom_textures_bind_their_unit_uniform_in_their_stage_programs() {
 }
 
 #[test]
+fn program_rules_match_nested_dimension_folders() {
+    let properties = parse("program.regions/world0/final.enabled=false\n");
+    let rule = properties
+        .program_rule("regions/world0", "final")
+        .expect("nested dimension rule");
+    assert_eq!(rule.dimension.as_deref(), Some("regions/world0"));
+}
+
+#[test]
+fn carriage_return_line_endings_split_entries() {
+    let properties = parse("alpha=1\rbeta=2\r\ngamma=3\r");
+    assert_eq!(properties.get("alpha"), Some("1"));
+    assert_eq!(properties.get("beta"), Some("2"));
+    assert_eq!(properties.get("gamma"), Some("3"));
+}
+
+#[test]
+fn blank_lines_end_continued_entries() {
+    let properties = parse(
+        "#define QUALITY 2\nscreen=A \\\n  B \\\n\nsliders=QUALITY\nvalue=1 \\\n\nafter=QUALITY\n",
+    );
+    assert_eq!(properties.get("sliders"), Some("QUALITY"));
+    assert_eq!(properties.get("after"), Some("2"));
+    assert_eq!(properties.get("value"), Some("1"));
+}
+
+#[test]
+fn a_prefix_cut_off_by_the_work_limit_is_discarded() {
+    use crate::source::MAX_PROPERTIES_PREPROCESSING_BYTES;
+
+    let chunk = "m".repeat(64 * 1024);
+    // Leaves less than one chunk of budget, so the last entry runs out after its prefix.
+    let references = MAX_PROPERTIES_PREPROCESSING_BYTES / (chunk.len() + 1);
+    let text = format!(
+        "#define BIG {chunk}\nfiller={}\nprogram.final.enabled=false BIG\n",
+        vec!["BIG"; references].join(" ")
+    );
+    let properties = parse(&text);
+    assert!(properties.program_rule("world0", "final").is_none());
+    assert!(
+        properties
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("work limit"))
+    );
+}
+
+#[test]
 fn custom_images_relative_absolute_and_malformed() {
     let properties = parse(
         "image.halfImg = halfSampler rgba rgba16f half_float true true 0.5 0.5\n\
@@ -744,6 +792,70 @@ fn content_block_comments_hide_conditional_directives() {
     let properties = parse("/*\n#if 0\n*/\nprogram.final.enabled=false\n");
     assert_eq!(properties.get("program.final.enabled"), Some("false"));
     assert!(properties.diagnostics.is_empty());
+}
+
+#[test]
+fn flip_numeric_booleans_include_macro_expansions() {
+    let properties = parse_with(
+        "flip.composite.colortex0=0\nflip.composite.colortex1=1\nflip.composite.colortex2=OFF\nflip.composite.colortex3=ON\n",
+        &[("OFF", "0"), ("ON", "1")],
+    );
+    assert!(
+        properties.diagnostics.is_empty(),
+        "{:?}",
+        properties.diagnostics
+    );
+    assert_eq!(
+        properties
+            .flips
+            .iter()
+            .map(|rule| rule.flip)
+            .collect::<Vec<_>>(),
+        [false, true, false, true]
+    );
+}
+
+#[test]
+fn custom_expression_operator_groups_follow_iris() {
+    for (expression, expected) in [
+        ("true || false && false", 0.0),
+        ("true || (false && false)", 1.0),
+        ("1 == 2 < 3", 1.0),
+        ("8 - 2 * 3", 2.0),
+        ("if(true || false && false, 1, 2)", 2.0),
+    ] {
+        let properties = parse(&format!(
+            "uniform.float.result={expression}\nvariable.float.result2={expression}\n"
+        ));
+        assert!(
+            properties.diagnostics.is_empty(),
+            "{:?}",
+            properties.diagnostics
+        );
+        for uniform in &properties.custom_uniforms {
+            assert_eq!(
+                uniform.expr.eval(&|_| None).unwrap(),
+                expected,
+                "{expression}"
+            );
+        }
+    }
+}
+
+#[test]
+fn custom_comparison_aliases_match_ascii_operators() {
+    for expression in ["1 ≠ 2", "1 ≤ 2", "2 ≥ 1"] {
+        let properties = parse(&format!("uniform.bool.result={expression}\n"));
+        assert!(
+            properties.diagnostics.is_empty(),
+            "{:?}",
+            properties.diagnostics
+        );
+        assert_eq!(
+            properties.custom_uniforms[0].expr.eval(&|_| None).unwrap(),
+            1.0
+        );
+    }
 }
 
 #[test]

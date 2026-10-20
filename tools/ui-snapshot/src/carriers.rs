@@ -97,6 +97,7 @@ pub fn load(dir: &Path, menu: bool) -> Result<Carriers, Error> {
     } else {
         Arc::new(font)
     };
+    let font = mod_ui::fonts::install(font)?;
     let ui = RuntimeUiAssets::decode(&read(
         &dir.join(carriers::UI.output),
         assets::MAX_UI_CARRIER_BYTES,

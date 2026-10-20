@@ -409,7 +409,7 @@ fn java_selected_item_name_keeps_spawned_root_offset_above_the_hotbar() {
     );
 }
 
-/// The built-in level label shares the survival status row and clears the XP bar.
+/// The built-in level label leaves room for the paint inset and clears the XP bar.
 #[test]
 fn built_in_level_aligns_with_health_and_hunger() {
     for level in [2, 27, 123] {
@@ -428,8 +428,10 @@ fn built_in_level_aligns_with_health_and_hunger() {
             .expect("visible level label");
         let hearts = custom(&nodes, "heart_renderer")[0];
         let hunger = custom(&nodes, "hunger_renderer")[0];
-        assert_eq!(label.dest.y, hearts.dest.y, "level is below the health row");
-        assert_eq!(label.dest.y, hunger.dest.y, "level is below the hunger row");
+        // The painter starts text one GUI pixel below the label's layout top.
+        let text_y = label.dest.y + 1.0;
+        assert_eq!(text_y, hearts.dest.y, "level is not aligned with health");
+        assert_eq!(text_y, hunger.dest.y, "level is not aligned with hunger");
         assert_eq!(label.dest.x + label.dest.w / 2.0, 240.0);
         let bar = named(&nodes, "empty_progress_bar")
             .into_iter()
@@ -472,7 +474,11 @@ fn java_pack_places_the_hud() {
         .collect();
     assert_eq!(level.len(), 5);
     assert_eq!(level[4].dest.x + level[4].dest.w / 2.0, 240.0);
-    assert_eq!(level[4].dest.y, custom(&nodes, "heart_renderer")[0].dest.y);
+    // The layout box sits above the status row to leave room for the paint inset.
+    assert_eq!(
+        level[4].dest.y + 1.0,
+        custom(&nodes, "heart_renderer")[0].dest.y
+    );
     // Count text right-aligned in the cell: right edge at cell + 19, top at +12.
     let count = text_node(&nodes, "12");
     assert_eq!(count.dest.x + count.dest.w, 169.0);

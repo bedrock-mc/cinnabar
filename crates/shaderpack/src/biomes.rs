@@ -174,7 +174,7 @@ fn precipitation(entry: &JavaBiomeEntry<'_>, block_y: i32) -> i32 {
         return 0;
     }
     let lapse_start = SEA_LEVEL + LAPSE_START_ABOVE_SEA;
-    let above = (block_y - lapse_start).max(0) as f32;
+    let above = block_y.saturating_sub(lapse_start).max(0) as f32;
     if entry.temperature - above * LAPSE_PER_BLOCK < SNOW_BELOW {
         2
     } else {
@@ -232,6 +232,21 @@ mod tests {
             .1
             .parse()
             .unwrap()
+    }
+
+    /// The lapse height saturates, so extreme heights neither overflow nor turn rain to snow.
+    #[test]
+    fn extreme_heights_keep_their_precipitation() {
+        let Some(mapping) = mapping() else { return };
+        let plains = bedrock_id(mapping, "minecraft:plains");
+        for y in [i32::MIN, i32::MAX] {
+            let uniforms = BiomeUniforms::at(mapping, plains, y).unwrap();
+            assert_eq!(
+                uniforms.precipitation,
+                if y == i32::MIN { 1 } else { 2 },
+                "{y}"
+            );
+        }
     }
 
     #[test]
