@@ -76,8 +76,8 @@ pub struct MeshOptions<'a> {
     /// Keeps every biome-tinted cube face one block wide. Set when the sub-chunk's biome
     /// record is mixed, so the renderer can blend its tint once per face instead of per pixel.
     pub split_tinted_faces: bool,
-    /// Draws every leaf with its cutout, two-sided material, as Java's fancy leaves do,
-    /// instead of Bedrock's opaque deep leaves. Set while a shader pack renders the world.
+    /// Draws every leaf with its cutout, two-sided material, keeping one quad per shared
+    /// plane instead of opaque deep leaves. Set while a shader pack renders the world.
     pub cutout_leaves: bool,
     /// Network values, sorted, of the blocks Java fills with water (seagrass, kelp, bubble
     /// columns), toward which water then draws no face, as Java's. Set while a shader pack

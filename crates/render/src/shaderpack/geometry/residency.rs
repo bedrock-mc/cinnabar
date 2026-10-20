@@ -481,20 +481,17 @@ impl Residency {
         })
     }
 
-    /// Whether `entity` is resident on the draining page, queued to move off it.
-    pub(crate) fn moving(&self, entity: Entity) -> bool {
-        self.draining.is_some_and(|page| {
-            self.sections
-                .get(&entity)
-                .is_some_and(|resident| resident.page == page)
-        })
+    /// Whether a section has faces valid for the current origin and expansion inputs.
+    pub(crate) fn drawable(&self, entity: Entity) -> bool {
+        self.sections
+            .get(&entity)
+            .is_some_and(|faces| faces.epoch == self.epoch && faces.generation == self.generation)
     }
 
-    /// Sections queued or waiting for room, leaving out those moving off the draining page,
-    /// which still draw.
+    /// Pending sections without drawable faces; palette refreshes and page moves still draw.
     pub(crate) fn undrawn_len(&self) -> usize {
         self.pending()
-            .filter(|entity| !self.moving(*entity))
+            .filter(|entity| !self.drawable(*entity))
             .count()
     }
 

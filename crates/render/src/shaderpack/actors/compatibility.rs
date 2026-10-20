@@ -4,7 +4,7 @@ use assets::{EntityRenderMaterial, EntityRenderMaterialState};
 use render_model::{ActorGpuInstance, BlockEntityFrame};
 use render_scene::{ActorRenderFrame, HandRigScene};
 
-/// Keeps native mask, multitexture and paired dissolve materials on their complete native path.
+/// Keeps native mask, emissive-alpha, multitexture and dissolve materials on their native path.
 pub(crate) fn instance_supported(
     instance: &ActorGpuInstance,
     color_mask: bool,
@@ -17,7 +17,7 @@ pub(crate) fn instance_supported(
         && kind != EntityRenderMaterial::DissolveDepth as u32
         && kind != EntityRenderMaterial::DissolveColor as u32
         && !crate::actor::material::state(instance.material)
-            .is_some_and(|state| state.depth_always || state.additive_alpha)
+            .is_some_and(|state| state.emissive || state.depth_always || state.additive_alpha)
 }
 
 /// Checks the current frame before native queues can be suppressed.
@@ -68,6 +68,22 @@ pub(crate) fn frame_supported(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn emissive_alpha_materials_keep_native_coverage_and_lighting() {
+        let instance = ActorGpuInstance {
+            material: EntityRenderMaterial::Default.word(Some(EntityRenderMaterialState {
+                emissive: true,
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        assert!(!instance_supported(&instance, false, false));
+        let mut frame = ActorRenderFrame::default();
+        frame.rig.instances = std::sync::Arc::from([instance]);
+        assert!(!frame_supported(Some(&frame), None, None));
+    }
+
     #[test]
     fn native_texture_masks_and_paired_depth_materials_keep_native_composition() {
         let mut instance = ActorGpuInstance::default();

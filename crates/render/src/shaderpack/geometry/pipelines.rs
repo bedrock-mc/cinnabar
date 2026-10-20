@@ -18,7 +18,7 @@ const EXPAND_CUBES_SHADER: Handle<Shader> = uuid_handle!("6a0f5d0e-4c3b-4f43-9b7
 const EXPAND_MODELS_SHADER: Handle<Shader> = uuid_handle!("6a0f5d0e-4c3b-4f43-9b7e-2f0f7c7d1a03");
 const EXPAND_LIQUIDS_SHADER: Handle<Shader> = uuid_handle!("6a0f5d0e-4c3b-4f43-9b7e-2f0f7c7d1a04");
 
-/// Invocations per expansion workgroup; matches `EXPAND_WORKGROUP_SIZE` in the kernels.
+/// Invocations per expansion workgroup, substituted into the kernels.
 pub(crate) const EXPAND_WORKGROUP_SIZE: u32 = 64;
 /// Bytes of the kernels' `ExpandParams` uniform.
 pub(crate) const EXPAND_PARAMS_BYTES: u64 = 64;
@@ -46,6 +46,10 @@ pub(crate) fn expansion_shader_source(source: &str) -> String {
             &format!("{}u", atlas::animation_sprite_slot(0)),
         )
         .replace("ATLAS_PAGE_SLOTS", &format!("{page_slots}u"))
+        .replace(
+            "GENERATED_EXPAND_WORKGROUP_SIZE",
+            &format!("{EXPAND_WORKGROUP_SIZE}u"),
+        )
         .replace("JOB_OVERLAY_FACE", &format!("{JOB_OVERLAY_FACE}u"))
         .replace("JOB_REVERSE_FACE", &format!("{JOB_REVERSE_FACE}u"))
         .replace("JOB_BACK_ONLY", &format!("{JOB_BACK_ONLY}u"))

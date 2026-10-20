@@ -50,7 +50,9 @@ mod transform;
 mod translate;
 
 pub use biomes::{BiomeCategory, BiomeUniforms};
-pub use buffers::{BufferDirectives, BufferFormat, BufferId, BufferSettings};
+pub use buffers::{
+    BufferDirectives, BufferFormat, BufferId, BufferSettings, canonical_sampler_name,
+};
 pub use compile::CompiledStage;
 pub use custom_uniforms::{CustomUniformError, CustomUniforms, UniformValue};
 pub use diagnostics::{Diagnostic, Phase, SourceLocation};

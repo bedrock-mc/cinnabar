@@ -264,3 +264,113 @@ fn safe_module_defaults_keep_every_runtime_check() {
     assert!(pack.mesh_shader_primitive_indices_clamp);
     assert!(pack.int_div_checks);
 }
+
+#[test]
+fn transparent_colour_targets_preserve_the_draw_blend_without_overrides() {
+    let reflection = ProgramReflection {
+        kind: shaderpack::ProgramKind::Render,
+        entry_points: vec![],
+        vertex_inputs: vec![],
+        uniforms: None,
+        uniform_buffers: vec![],
+        storage_buffers: vec![],
+        textures: vec![],
+        samplers: vec![],
+        storage_images: vec![],
+        color_outputs: vec![shaderpack::ColorOutput {
+            location: 0,
+            name: "color".into(),
+            format: BufferFormat::Rgba8,
+            buffer: Some(0),
+            ty: ValueType::Vector {
+                size: 4,
+                scalar: ScalarType::Float,
+            },
+        }],
+        writes_depth: false,
+        compute: None,
+    };
+    let mut formats = [None; MAX_COLOR_BUFFERS as usize];
+    formats[0] = Some(TextureFormat::Rgba8Unorm);
+    let targets = color_targets(
+        ProgramGroup::Gbuffers,
+        "gbuffers_water",
+        &reflection,
+        &formats,
+        &[],
+        Some(BlendState::ALPHA_BLENDING),
+    );
+    assert_eq!(
+        targets[0].as_ref().unwrap().blend,
+        Some(BlendState::ALPHA_BLENDING)
+    );
+}
+
+#[test]
+fn colour_target_overrides_replace_the_draw_blend_in_precedence_order() {
+    let reflection = ProgramReflection {
+        kind: shaderpack::ProgramKind::Render,
+        entry_points: vec![],
+        vertex_inputs: vec![],
+        uniforms: None,
+        uniform_buffers: vec![],
+        storage_buffers: vec![],
+        textures: vec![],
+        samplers: vec![],
+        storage_images: vec![],
+        writes_depth: false,
+        compute: None,
+        color_outputs: (0..2)
+            .map(|index| shaderpack::ColorOutput {
+                location: index,
+                name: format!("color{index}"),
+                buffer: Some(index),
+                format: BufferFormat::Rgba8,
+                ty: ValueType::Vector {
+                    size: 4,
+                    scalar: ScalarType::Float,
+                },
+            })
+            .collect(),
+    };
+    let formats = [Some(TextureFormat::Rgba8Unorm); MAX_COLOR_BUFFERS as usize];
+    let rules = [
+        BlendRule {
+            program: "gbuffers_water".into(),
+            buffer: None,
+            mode: BlendMode::Off,
+        },
+        BlendRule {
+            program: "gbuffers_water".into(),
+            buffer: Some("gdepth".into()),
+            mode: BlendMode::Factors {
+                src_color: PackFactor::One,
+                dst_color: PackFactor::One,
+                src_alpha: PackFactor::One,
+                dst_alpha: PackFactor::Zero,
+            },
+        },
+    ];
+    let targets = color_targets(
+        ProgramGroup::Gbuffers,
+        "gbuffers_water",
+        &reflection,
+        &formats,
+        &rules,
+        Some(BlendState::ALPHA_BLENDING),
+    );
+    assert_eq!(targets[0].as_ref().unwrap().blend, None);
+    assert_eq!(
+        targets[1].as_ref().unwrap().blend,
+        blend_state(rules[1].mode)
+    );
+    let opaque = color_targets(
+        ProgramGroup::Gbuffers,
+        "gbuffers_terrain",
+        &reflection,
+        &formats,
+        &[],
+        None,
+    );
+    assert!(opaque.iter().flatten().all(|target| target.blend.is_none()));
+}

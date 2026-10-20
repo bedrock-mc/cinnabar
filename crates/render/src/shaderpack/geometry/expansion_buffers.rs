@@ -141,9 +141,11 @@ mod tests {
 
     #[test]
     fn frame_jobs_leave_room_for_attributes_and_aligned_parameters() {
-        let mut limits = wgpu::Limits::default();
-        limits.max_storage_buffer_binding_size = 100;
-        limits.max_buffer_size = 2048;
+        let mut limits = wgpu::Limits {
+            max_storage_buffer_binding_size: 100,
+            max_buffer_size: 2048,
+            ..Default::default()
+        };
         assert_eq!(frame_job_capacity(&limits, 5), 5);
         limits.max_buffer_size = 512;
         assert_eq!(frame_job_capacity(&limits, 5), 2);

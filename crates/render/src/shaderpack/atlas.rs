@@ -45,11 +45,12 @@ mod plan;
 mod tests;
 mod upload;
 
+use super::{geometry::ShaderpackGeometrySettings, plugin::LoadedShaderPack};
 use animate::AtlasAnimations;
 use bevy::{
     asset::load_internal_asset,
     math::UVec2,
-    prelude::{App, Commands, IntoScheduleConfigs, Plugin, Res, ResMut, Resource},
+    prelude::{App, Commands, IntoScheduleConfigs, Plugin, Query, Res, ResMut, Resource, With},
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         render_resource::{Buffer, PipelineCache, Sampler, TextureView},
@@ -59,7 +60,7 @@ use bevy::{
 };
 pub(crate) use labpbr::{NEUTRAL_NORMAL, NEUTRAL_SPECULAR};
 use plan::{AtlasInputs, AtlasPlan, LayerLayout};
-use render_scene::{ChunkAnimationClock, ChunkTextureAssets};
+use render_scene::{ChunkAnimationClock, ChunkTextureAssets, shaderpack::ShaderPackRendering};
 use std::sync::Arc;
 use upload::UploadedAtlas;
 
@@ -127,9 +128,34 @@ impl Plugin for ShaderpackAtlasPlugin {
                 Render,
                 (prepare_shaderpack_atlas, update_shaderpack_animations)
                     .chain()
+                    .run_if(atlas_requested)
+                    .in_set(RenderSystems::PrepareResources),
+            )
+            .add_systems(
+                Render,
+                release_shaderpack_atlas
+                    .run_if(bevy::ecs::schedule::common_conditions::not(atlas_requested))
                     .in_set(RenderSystems::PrepareResources),
             );
     }
+}
+
+/// Atlas work follows a loaded camera's pack or an explicitly enabled geometry adapter.
+fn atlas_requested(
+    pack: Option<Res<LoadedShaderPack>>,
+    cameras: Query<(), With<ShaderPackRendering>>,
+    geometry: Option<Res<ShaderpackGeometrySettings>>,
+) -> bool {
+    geometry.is_some_and(|settings| settings.enabled)
+        || (pack.is_some_and(|pack| pack.0.is_some()) && !cameras.is_empty())
+}
+
+/// Releases atlas textures, animation state and pending work when no camera uses a pack.
+fn release_shaderpack_atlas(mut commands: Commands, mut build: ResMut<AtlasBuild>) {
+    build.requested = None;
+    build.task = None;
+    commands.remove_resource::<ShaderpackAtlas>();
+    commands.remove_resource::<AtlasAnimations>();
 }
 
 /// A finished background build.

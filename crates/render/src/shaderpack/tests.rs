@@ -1,5 +1,10 @@
 //! Original fixture packs through planning and, with a GPU, through a whole frame.
 
+#![allow(
+    clippy::print_stderr,
+    reason = "names missing GPU fixtures when tests skip"
+)]
+
 use super::loader::{build, runnable_programs, translate_config};
 use super::passes::{FrameIo, ViewState, record_frame};
 use super::pipelines::GpuContext;
@@ -123,16 +128,24 @@ fn the_next_packs_block_ids_never_reuse_a_revision() {
     );
 }
 
+/// Requests only fixture features and fails if an available device cannot be created.
 pub(super) fn gpu() -> Option<GpuContext> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    let adapter = bevy::tasks::block_on(instance.request_adapter(&Default::default())).ok()?;
+    let adapter = match bevy::tasks::block_on(instance.request_adapter(&Default::default())) {
+        Ok(adapter) => adapter,
+        Err(wgpu::RequestAdapterError::NotFound { .. }) => return None,
+        Err(error) => panic!("shader pack frame fixture adapter: {error}"),
+    };
     let (device, queue) = bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("shader pack frame fixture"),
-        required_features: adapter.features(),
+        required_features: adapter.features()
+            & (wgpu::Features::TEXTURE_ATOMIC
+                | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
+                | wgpu::Features::FLOAT32_FILTERABLE),
         required_limits: adapter.limits(),
         ..Default::default()
     }))
-    .ok()?;
+    .expect("shader pack frame fixture device");
     Some(GpuContext {
         device,
         queue,
@@ -682,7 +695,7 @@ fn image_atomics_count_into_a_custom_image() {
         eprintln!("missing fixture: a GPU with TEXTURE_ATOMIC for image atomics");
         return;
     }
-    let bytes = render(
+    let (_, bytes) = render_frames(
         &gpu,
         &[
             (
@@ -695,6 +708,7 @@ fn image_atomics_count_into_a_custom_image() {
             ("final.vsh", PASS_VERTEX),
             ("final.fsh", FINAL),
         ],
+        2,
     );
     assert_pixels(&bytes, |_| [16, 0, 0]);
 }
@@ -1132,4 +1146,118 @@ fn geometry_overlay_crops_the_native_camera_viewport() {
         true,
     );
     assert_pixels(&bytes, |row| if row < 2 { [255, 0, 0] } else { [128; 3] });
+}
+
+#[test]
+fn fixed_compute_dispatches_exceeding_device_limits_fail_loading() {
+    let Some(gpu) = gpu() else { return };
+    let count = gpu.device.limits().max_compute_workgroups_per_dimension + 1;
+    let compute = format!(
+        "#version 430\nlayout(local_size_x=1) in;\nconst ivec3 workGroups = ivec3({count}, 1, 1);\nvoid main() {{}}\n"
+    );
+    let pack = pack(&[("composite.csh", &compute)]);
+    let error = build(
+        &pack,
+        "dispatch fixture",
+        JAVA_DIMENSIONS[0],
+        None,
+        &gpu,
+        &Default::default(),
+    )
+    .err()
+    .expect("over-limit fixed dispatch fails loading");
+    assert!(
+        error.contains("composite") && error.contains("dispatch"),
+        "{error}"
+    );
+}
+
+#[test]
+fn relative_compute_dispatches_are_checked_for_each_view_size() {
+    let Some(gpu) = gpu() else { return };
+    let count = gpu.device.limits().max_compute_workgroups_per_dimension;
+    let compute = format!(
+        "#version 430\nlayout(local_size_x=1) in;\nconst vec2 workGroupsRender = vec2({count}.0, 1.0);\nvoid main() {{}}\n"
+    );
+    let pack = pack(&[("composite.csh", &compute)]);
+    let pack = Arc::new(
+        build(
+            &pack,
+            "dispatch fixture",
+            JAVA_DIMENSIONS[0],
+            None,
+            &gpu,
+            &Default::default(),
+        )
+        .unwrap(),
+    );
+    assert!(ViewState::new(&gpu.device, Arc::clone(&pack), [1, 1]).is_ok());
+    let error = ViewState::new(&gpu.device, pack, [2, 1])
+        .err()
+        .expect("resizing past the dispatch limit fails view admission");
+    assert!(
+        error.contains("composite") && error.contains("dispatch"),
+        "{error}"
+    );
+}
+
+#[test]
+fn custom_images_clear_between_frames_and_preserve_contents_when_disabled() {
+    let Some(gpu) = gpu() else { return };
+    let increment = "#version 430
+layout(local_size_x=1) in;
+const ivec3 workGroups = ivec3(1, 1, 1);
+layout(rgba8) uniform image2D counter;
+void main() { imageStore(counter, ivec2(0), imageLoad(counter, ivec2(0)) + vec4(0.25, 0.0, 0.0, 0.0)); }
+";
+    let show = "#version 430
+uniform sampler2D counterSampler;
+void main() { gl_FragData[0] = vec4(texelFetch(counterSampler, ivec2(0), 0).rgb, 1.0); }
+";
+    for (clear, red) in [(true, 64), (false, 128)] {
+        let properties =
+            format!("image.counter = counterSampler RGBA RGBA8 UNSIGNED_BYTE {clear} false 1 1\n");
+        let (_, bytes) = render_frames(
+            &gpu,
+            &[
+                ("shaders.properties", &properties),
+                ("composite.csh", increment),
+                ("composite.vsh", PASS_VERTEX),
+                ("composite.fsh", show),
+                ("final.vsh", PASS_VERTEX),
+                ("final.fsh", FINAL),
+            ],
+            2,
+        );
+        assert_pixels(&bytes, |_| [red, 0, 0]);
+    }
+}
+
+#[test]
+fn java_dimension_identifiers_follow_bedrock_dimension_order() {
+    use assets::facts::java_mapping::JavaDimension;
+    assert_eq!(
+        *JAVA_DIMENSIONS,
+        [
+            JavaDimension::Overworld,
+            JavaDimension::Nether,
+            JavaDimension::End
+        ]
+        .map(JavaDimension::identifier)
+    );
+}
+
+#[test]
+fn an_available_adapter_cannot_silently_skip_frame_fixtures() {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    match bevy::tasks::block_on(instance.request_adapter(&Default::default())) {
+        Ok(_) => assert!(
+            gpu().is_some(),
+            "an available adapter must create the frame fixture"
+        ),
+        Err(wgpu::RequestAdapterError::NotFound { .. }) => {
+            eprintln!("missing fixture: native GPU adapter for fixture-device admission");
+        }
+        Err(error) => panic!("fixture-device admission adapter: {error}"),
+    }
 }

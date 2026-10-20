@@ -7,11 +7,13 @@ use bevy::ecs::system::{ScheduleSystem, SystemParam};
 use crate::chunk::gpu_cull::ChunkHiddenEntities;
 use crate::chunk::*;
 use crate::shaderpack::geometry::jobs::SectionGeometry;
+use meshing::ChunkBiomeTintIdentity;
 use render_scene::ChunkRenderInstance;
 
 /// The packed-chunk buffers the expansion kernels read, by their chunk-layout binding.
 pub(crate) struct PackedChunkBuffers<'a> {
     pub(crate) carrier: render_scene::ChunkTextureAssetIdentity,
+    pub(crate) tint_identity: ChunkBiomeTintIdentity,
     /// Binding 1: packed cube quads.
     pub(crate) quads: &'a Buffer,
     /// Binding 2: section origins and stream bases.
@@ -50,6 +52,7 @@ impl PackedChunkSources<'_> {
         let tints = self.tints.as_deref()?.prepared.as_ref()?;
         Some(PackedChunkBuffers {
             carrier: textures.identity.carrier,
+            tint_identity: tints.identity.table,
             quads: &arena.quad_buffer,
             origins: &arena.origin_buffer,
             materials: &textures.material_buffer,
@@ -117,10 +120,18 @@ impl ResidentSections<'_, '_> {
     }
 
     /// The packed geometry `entity`'s current allocation was uploaded from, or `None` when the
-    /// section is gone or its extracted streams are newer than its allocation.
-    pub(crate) fn get(&self, entity: Entity) -> Option<ResidentSection<'_>> {
+    /// section is gone, its streams are newer, or its biome indices use another tint table.
+    pub(crate) fn get(
+        &self,
+        entity: Entity,
+        active_tint_identity: ChunkBiomeTintIdentity,
+    ) -> Option<ResidentSection<'_>> {
         let (_, allocation, instance) = self.sections.get(entity).ok()?;
-        if instance.key != allocation.key || instance.generation != allocation.generation {
+        if instance.key != allocation.key
+            || instance.generation != allocation.generation
+            || instance.tint_identity != allocation.tint_identity
+            || allocation.tint_identity != active_tint_identity
+        {
             return None;
         }
         let record = |range: &Option<Range<u32>>, words: u32| {
@@ -242,3 +253,7 @@ impl ResidentSection<'_> {
         faces
     }
 }
+
+#[cfg(test)]
+#[path = "shaderpack_sources_tests.rs"]
+mod tests;

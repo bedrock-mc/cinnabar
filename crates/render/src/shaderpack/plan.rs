@@ -28,7 +28,7 @@ impl Extent {
     pub(crate) fn resolve(self, screen: [u32; 2]) -> [u32; 2] {
         match self {
             Extent::Relative(scale) => {
-                std::array::from_fn(|i| ((screen[i] as f32 * scale[i]).round() as u32).max(1))
+                std::array::from_fn(|i| ((screen[i] as f32 * scale[i]) as u32).max(1))
             }
             Extent::Absolute(size) => size.map(|s| s.max(1)),
         }
@@ -487,6 +487,12 @@ mod tests {
             buffer: buffer.to_string(),
             flip,
         }
+    }
+
+    #[test]
+    fn relative_extents_truncate_odd_screen_dimensions() {
+        assert_eq!(Extent::Relative([0.5; 2]).resolve([1921, 1081]), [960, 540]);
+        assert_eq!(Extent::Relative([0.25; 2]).resolve([7, 3]), [1, 1]);
     }
 
     #[test]

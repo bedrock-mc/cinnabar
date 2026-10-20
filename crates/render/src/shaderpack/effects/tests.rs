@@ -585,7 +585,7 @@ fn clouds_draw_cuboids_when_fancy_and_a_flat_layer_when_fast() {
 fn interpolated_uv(mesh: &Mesh, point: Vec3) -> [f32; 2] {
     let positions = positions(mesh);
     let uv = uvs(mesh);
-    for triangle in mesh.indices.chunks_exact(3) {
+    for triangle in mesh.indices.as_chunks::<3>().0 {
         let [a, b, c] = [
             triangle[0] as usize,
             triangle[1] as usize,
