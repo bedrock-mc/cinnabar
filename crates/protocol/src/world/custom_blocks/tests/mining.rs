@@ -23,8 +23,9 @@ fn custom_mining_unprepared_permutations_do_not_use_the_base_value() {
 
 #[test]
 fn custom_mining_discarded_permutations_cannot_use_an_instant_base() {
-    let mut permutations =
-        vec![compound(vec![("condition", text("1"))]); super::super::MAX_PERMUTATIONS];
+    let mut permutations = std::iter::repeat_with(|| compound(vec![("condition", text("1"))]))
+        .take(super::super::MAX_PERMUTATIONS)
+        .collect::<Vec<_>>();
     permutations.push(compound(vec![
         ("condition", text("1")),
         ("components", mining_components()),
@@ -43,8 +44,9 @@ fn custom_mining_discarded_permutations_cannot_use_an_instant_base() {
 
 #[test]
 fn custom_mining_unrelated_discarded_permutations_keep_the_base_value() {
-    let permutations =
-        vec![compound(vec![("condition", text("1"))]); super::super::MAX_PERMUTATIONS + 1];
+    let permutations = std::iter::repeat_with(|| compound(vec![("condition", text("1"))]))
+        .take(super::super::MAX_PERMUTATIONS + 1)
+        .collect();
     let block = custom_block(
         "test:truncated_visuals",
         &compound(vec![("permutations", Nbt::List(permutations))]),
