@@ -293,6 +293,7 @@ impl BlockIdRevisions {
 }
 
 /// Replaces native queues only after every pack view and terrain category is ready.
+#[allow(clippy::too_many_arguments, reason = "native queue replacement inputs")]
 fn configure_replacement(
     pack: Option<Res<LoadedShaderPack>>,
     cameras: Query<Entity, With<ShaderPackRendering>>,
@@ -753,8 +754,7 @@ pub(super) fn finish(app: &mut App) {
                 prepare_effect_textures
                     .in_set(RenderSystems::PrepareResources)
                     .after(crate::particle_render::prepare_particle_resources)
-                    .after(crate::block_entity::prepare_block_entity_resources)
-                    .before(prepare_views),
+                    .after(crate::block_entity::prepare_block_entity_resources),
                 prepare_views
                     .after(RenderSystems::PrepareViews)
                     .before(RenderSystems::Queue)
@@ -773,6 +773,22 @@ pub(super) fn finish(app: &mut App) {
 mod camera_tests {
     use super::*;
     use bevy::render::view::Msaa;
+
+    #[test]
+    fn shaderpack_render_schedule_initializes_without_a_selected_pack() {
+        let mut render_app = bevy::app::SubApp::new();
+        render_app.add_schedule(Render::base_schedule());
+        let mut app = App::new();
+        app.insert_sub_app(RenderApp, render_app);
+        finish(&mut app);
+        app.sub_app_mut(RenderApp)
+            .world_mut()
+            .schedule_scope(Render, |world, schedule| {
+                schedule
+                    .initialize(world)
+                    .expect("shader-pack render schedule must initialize");
+            });
+    }
 
     #[test]
     fn particle_streams_keep_independent_replacement_coverage() {
