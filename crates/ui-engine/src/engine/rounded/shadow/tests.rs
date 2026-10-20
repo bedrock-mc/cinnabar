@@ -18,12 +18,12 @@ fn rounded_shadows_expand_paint_with_one_analytic_quad_and_clamped_radius() {
     let (UiVisual::TintedMesh { mesh, color }, bounds) = paint(&data()).unwrap() else {
         panic!()
     };
-    assert_eq!(bounds, [18.0, 20.0, 150.0, 112.0]);
+    assert_eq!(bounds, [17.5, 19.5, 150.5, 112.5]);
     assert_eq!(color, [0, 0, 0, 128]);
     assert_eq!(mesh.vertices().len(), 4);
     assert_eq!(mesh.indices(), [0, 1, 2, 0, 2, 3]);
     assert_eq!(mesh.vertices()[0].overlay_color, [42.0, 22.0, 12.0, 8.0]);
-    assert_eq!(mesh.vertices()[0].uv, [-66.0, -46.0]);
+    assert_eq!(mesh.vertices()[0].uv, [-66.5, -46.5]);
     let mut shrunk = data();
     shrunk.insert("shadow_spread".into(), json!(-21));
     assert!(paint(&shrunk).is_none());
@@ -46,7 +46,7 @@ fn rounded_shadows_reuse_geometry_during_steady_frames_and_color_offset_transiti
     };
     assert!(Arc::ptr_eq(&first, &moved));
     assert_eq!(color, [255, 0, 0, 255]);
-    assert_eq!(bounds, [4.0, 26.0, 136.0, 118.0]);
+    assert_eq!(bounds, [3.5, 25.5, 136.5, 118.5]);
     let (_, allocations) = test_alloc::measure(|| {
         for _ in 0..20 {
             assert!(paint(&data).is_some());

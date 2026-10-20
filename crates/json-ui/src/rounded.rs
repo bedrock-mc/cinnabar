@@ -20,6 +20,11 @@ pub const MAX_SHADOW_OFFSET: f64 = 4096.0;
 /// Truncate the Gaussian tail at three standard deviations.
 pub const SHADOW_SUPPORT: f32 = 3.0;
 
+/// Gaussian tail support plus the physical pixel footprint used by analytic coverage.
+pub fn shadow_padding(blur: f32, pixel: f32) -> f32 {
+    blur * SHADOW_SUPPORT + pixel * 0.5
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Shadow {
     pub color: [u8; 4],
@@ -67,16 +72,23 @@ impl Shadow {
     }
 
     /// Keeps authored bounds and allows both size ceiling and position truncation at paint time.
-    pub(crate) fn subtree_bounds(self, dest: Rect, pixel: f64) -> Rect {
+    pub(crate) fn subtree_bounds(
+        self,
+        dest: Rect,
+        pixel: f64,
+        transform: Option<crate::transform::Affine>,
+    ) -> Rect {
         let enlarged = Rect::new(dest.x, dest.y, dest.w + pixel, dest.h + pixel);
-        dest.union(self.bounds(enlarged, pixel)).expanded(pixel)
+        let axes = axes(transform);
+        dest.union(self.bounds_at(enlarged, pixel, axes))
+            .expanded(pixel)
     }
 
     /// Unbakes the renderer's geometric-mean length scaling for conservative culling.
     fn bounds_at(self, dest: Rect, pixel: f64, axes: [f64; 2]) -> Rect {
         let scale = (axes[0] * axes[1]).sqrt();
         let padding = f64::from(self.spread) * scale
-            + (f64::from(self.blur * SHADOW_SUPPORT) * scale).max(pixel * 0.5);
+            + f64::from(shadow_padding(self.blur * scale as f32, pixel as f32));
         Rect::new(
             dest.x + (f64::from(self.offset[0]) * scale - padding) / axes[0],
             dest.y + (f64::from(self.offset[1]) * scale - padding) / axes[1],
@@ -106,15 +118,16 @@ pub(crate) fn paint_bounds(
     pixel: f64,
     transform: Option<crate::transform::Affine>,
 ) -> Rect {
-    let axes = transform.map_or([1.0; 2], |transform| {
-        let [a, b, c, d] = transform.linear;
-        [a.hypot(b), c.hypot(d)]
-    });
-    if axes.iter().any(|axis| *axis < 1e-6) {
-        return dest;
-    }
     Shadow::read(data).map_or(dest, |shadow| {
-        dest.union(shadow.bounds_at(dest, pixel, axes))
+        dest.union(shadow.bounds_at(dest, pixel, axes(transform)))
+    })
+}
+
+/// Matches the rounded painter's axis lengths, keeping collapsed transforms finite for culling.
+fn axes(transform: Option<crate::transform::Affine>) -> [f64; 2] {
+    transform.map_or([1.0; 2], |transform| {
+        let [a, b, c, d] = transform.linear;
+        [a.hypot(b).max(1e-6), c.hypot(d).max(1e-6)]
     })
 }
 

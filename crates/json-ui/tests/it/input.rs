@@ -781,6 +781,57 @@ fn rounded_shadows_keep_fractional_edges_at_the_scroll_boundary() {
     assert!(culled.nodes.iter().any(|node| node.name == "edge"));
 }
 
+#[test]
+fn rounded_shadows_transform_bounds_survive_scroll_and_grid_culling() {
+    for mode in ["own", "parent", "grid"] {
+        let mut leaf = ctrl(
+            "shadow",
+            "custom",
+            json!({"size":[16,16],
+            "offset":[-32,0],"anchor_from":"top_left","anchor_to":"top_left",
+            "renderer":json_ui::rounded::RENDERER,"shadow_color":[0,0,0,1],"shadow_blur":4}),
+            vec![],
+        );
+        let transform = json!({"scale":[1,4],"origin":[0,0]});
+        if mode == "own" {
+            leaf.properties
+                .insert("cinnabar_transform".into(), transform.clone());
+        }
+        let mut root = screen(vec![scroll_view(200.0)]);
+        let content = &mut root.children[0].children[0].children[0];
+        if mode != "own" {
+            content
+                .properties
+                .insert("cinnabar_transform".into(), transform);
+        }
+        if mode == "grid" {
+            content.control_type = Some("grid".into());
+            content.properties.insert("size".into(), json!([16, 200]));
+            content.properties.insert("offset".into(), json!([-32, 0]));
+            content
+                .properties
+                .insert("grid_dimensions".into(), json!([1, 1]));
+            leaf.properties.insert("offset".into(), json!([0, 0]));
+        }
+        content.children = vec![leaf];
+        let state = ViewState::default();
+        let normal = json_ui::render_bound(root.clone(), [200.0, 100.0], &env(), &state);
+        let culled = json_ui::render_bound_gated(
+            root,
+            [200.0, 100.0],
+            &env(),
+            &state,
+            &mut json_ui::MeasureCache::default(),
+        );
+        for result in [normal, culled] {
+            assert!(
+                result.nodes.iter().any(|node| node.name == "shadow"),
+                "{mode}"
+            );
+        }
+    }
+}
+
 /// Builds a one-column scrolling grid with authored path cells.
 fn path_grid(paths: Value) -> ResolvedControl {
     let mut root = screen(vec![scroll_view(200.0)]);

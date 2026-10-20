@@ -14,13 +14,22 @@ pub fn coverage(point: [f32; 2], [half_x, half_y, radius, sigma]: [f32; 4], pixe
     if sigma <= 0.0 {
         return (0.5 - distance / pixel.max(f32::EPSILON)).clamp(0.0, 1.0);
     }
-    let x = distance / sigma;
+    let pixel = pixel.max(f32::EPSILON);
+    let upper = integral(-distance + pixel * 0.5, sigma);
+    let lower = integral(-distance - pixel * 0.5, sigma);
+    ((upper - lower) / pixel).clamp(0.0, 1.0)
+}
+
+/// Integral of the Gaussian CDF, for analytic averaging over one pixel's footprint.
+fn integral(position: f32, sigma: f32) -> f32 {
+    let x = position / sigma;
     let t = 1.0 / (1.0 + 0.2316419 * x.abs());
     let tail = 0.3989423
         * (-0.5 * x * x).exp()
         * t
         * (0.31938153 + t * (-0.35656378 + t * (1.7814779 + t * (-1.8212559 + t * 1.3302745))));
-    if x >= 0.0 { tail } else { 1.0 - tail }
+    let cdf = if x >= 0.0 { 1.0 - tail } else { tail };
+    position * cdf + sigma * 0.3989423 * (-0.5 * x * x).exp()
 }
 
 #[cfg(test)]
@@ -36,5 +45,22 @@ mod tests {
         assert!(coverage([40.0, 20.0], shape, 1.0) < coverage([30.0, 20.0], shape, 1.0));
         assert!(coverage([0.0, 0.0], shape, 1.0) > 0.99);
         assert_eq!(coverage([0.0, 20.5], [40.0, 20.0, 10.0, 0.0], 1.0), 0.0);
+    }
+
+    #[test]
+    fn rounded_shadows_subpixel_blur_keeps_the_pixel_footprint() {
+        for pixel in [0.5, 1.0, 2.0] {
+            for sigma in [0.0, 0.001, 0.01, 0.1] {
+                let area = coverage(
+                    [0.0, 20.0 + pixel * 0.25],
+                    [40.0, 20.0, 10.0, sigma * pixel],
+                    pixel,
+                );
+                assert!(
+                    (area - 0.25).abs() < 0.001,
+                    "sigma {sigma}, pixel {pixel}: {area}"
+                );
+            }
+        }
     }
 }

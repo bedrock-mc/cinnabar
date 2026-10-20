@@ -2,7 +2,7 @@
 
 use super::{Canvas, MeshCache, geometry::coverage_width};
 use crate::engine::screen::PaintError;
-use json_ui::rounded::{DEFAULT_RADIUS, SHADOW_SUPPORT, Shadow};
+use json_ui::rounded::{DEFAULT_RADIUS, Shadow, shadow_padding};
 use serde_json::Value;
 use std::{cell::RefCell, collections::BTreeMap, sync::Arc};
 use ui::{UiBlendMode, UiMesh, UiMeshBatch, UiMeshVertex, UiVisual};
@@ -69,7 +69,7 @@ fn visual(
     let radius = (radius.clamp(0.0, original[0].min(original[1]) * 0.5) + spread)
         .clamp(0.0, size[0].min(size[1]) * 0.5);
     let blur = shadow.blur * scale;
-    let padding = (blur * SHADOW_SUPPORT).max(fringe * 0.5);
+    let padding = shadow_padding(blur, fringe);
     let bounds = [
         dest[0] + shadow.offset[0] * scale - spread - padding,
         dest[1] + shadow.offset[1] * scale - spread - padding,
@@ -91,7 +91,7 @@ fn visual(
 fn mesh(key: Key) -> Option<UiMesh> {
     let half = key.size.map(|axis| f32::from_bits(axis) * 0.5);
     let blur = f32::from_bits(key.blur);
-    let padding = (blur * SHADOW_SUPPORT).max(f32::from_bits(key.fringe) * 0.5);
+    let padding = shadow_padding(blur, f32::from_bits(key.fringe));
     let vertices = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]].map(|position| UiMeshVertex {
         position,
         clip_z: 0.0,

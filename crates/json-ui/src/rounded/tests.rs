@@ -41,7 +41,7 @@ fn rounded_shadows_expand_culling_bounds_without_changing_the_rect() {
     let dest = Rect::new(40.0, 40.0, 80.0, 40.0);
     assert_eq!(
         paint_bounds(&data, dest, 1.0, None),
-        Rect::new(18.0, 20.0, 132.0, 92.0)
+        Rect::new(17.5, 19.5, 133.0, 93.0)
     );
     assert_eq!(paint_bounds(&BTreeMap::new(), dest, 1.0, None), dest);
     let transform = crate::transform::Affine {
@@ -51,6 +51,6 @@ fn rounded_shadows_expand_culling_bounds_without_changing_the_rect() {
     let bounds = paint_bounds(&data, dest, 1.0, Some(transform));
     assert_eq!(
         transform.bounds(bounds),
-        Rect::new(-12.0, 140.0, 72.0, 212.0)
+        Rect::new(-12.5, 139.5, 73.0, 213.0)
     );
 }
