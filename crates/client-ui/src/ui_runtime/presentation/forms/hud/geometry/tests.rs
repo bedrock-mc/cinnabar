@@ -149,6 +149,7 @@ fn keep_out_presentation(
             .as_slice()
             .into(),
     });
+    files.sort_unstable_by(|left, right| left.path.cmp(&right.path));
     let bytes =
         assets::encode_ui_catalog([1; 32], carrier.atlas_pages(), &[], &[], &files).unwrap();
     let mut p = UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
@@ -427,8 +428,7 @@ fn editor_keep_out_includes_the_shipped_offhand_image_frame() {
 #[test]
 fn editor_keep_out_resolves_and_qualifies_bottom_subtrees() {
     for dynamic in [false, true] {
-        let children =
-            json!([{"panel":{"type":"image","texture":KEEP_OUT_TEXTURE,"size":["100%","100%"]}}]);
+        let children = json!([{"panel":{"type":"image","texture":KEEP_OUT_TEXTURE,"keep_ratio":false,"size":["100%","100%"]}}]);
         let mut p = keep_out_presentation(
             json!([
                 {"bottom_alias@hud.centered_gui_elements_at_bottom_middle":{
