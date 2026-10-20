@@ -48,7 +48,7 @@ impl BufferId {
 }
 
 /// Uses one key for buffer aliases and for the compatibility texture uniform.
-pub(crate) fn canonical_sampler_name(name: &str) -> String {
+pub fn canonical_sampler_name(name: &str) -> String {
     match BufferId::parse(name) {
         Some(BufferId::Color(index)) => format!("colortex{index}"),
         Some(BufferId::ShadowColor(index)) => format!("shadowcolor{index}"),

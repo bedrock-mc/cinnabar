@@ -65,71 +65,99 @@ fn wide_builtin(name: &str) -> Option<&'static str> {
     })
 }
 
-/// 16-bit built-in functions replaced by generated `iris_` helpers.
-const HELPER_BUILTINS: &[&str] = &[
-    "packUint2x16",
-    "unpackUint2x16",
-    "packInt2x16",
-    "unpackInt2x16",
-    "float16BitsToUint16",
-    "float16BitsToInt16",
-    "uint16BitsToFloat16",
-    "int16BitsToFloat16",
-];
-
-/// Supplies the integer packing signature and an expression usable by helpers and constants.
-fn integer_packing(builtin: &str) -> Option<(&'static str, &'static str, &'static str)> {
-    Some(match builtin {
-        "packUint2x16" => (
-            "uvec2",
-            "uint",
-            "((uint(v.x) & 65535u) | ((uint(v.y) & 65535u) << 16u))",
-        ),
-        "packInt2x16" => (
-            "ivec2",
-            "int",
-            "int((uint(v.x) & 65535u) | ((uint(v.y) & 65535u) << 16u))",
-        ),
-        "unpackUint2x16" => ("uint", "uvec2", "uvec2(uint(v) & 65535u, uint(v) >> 16u)"),
-        "unpackInt2x16" => (
-            "int",
-            "ivec2",
-            "ivec2(int(uint(v) & 65535u) - int((uint(v) & 32768u) * 2u), int(uint(v) >> 16u) - int((uint(v) >> 31u) * 65536u))",
-        ),
-        _ => return None,
-    })
+/// A lowered built-in's signature and expression, shared by recognition and emission.
+struct HelperBuiltin {
+    name: &'static str,
+    arg: &'static str,
+    ret: &'static str,
+    body: &'static str,
+    vector_overloads: bool,
 }
 
-/// GLSL for the helper standing in for `builtin` on lowered values. The bit-cast helpers
-/// have overloads for one to four components, as the built-ins do.
-fn helper_source(builtin: &str) -> String {
-    if let Some((arg, ret, body)) = integer_packing(builtin) {
-        return format!("{ret} iris_{builtin}({arg} v) {{ return {body}; }}\n");
+/// Built-ins replaced by generated helpers, or inlined in integer constant expressions.
+const HELPER_BUILTINS: &[HelperBuiltin] = &[
+    HelperBuiltin {
+        name: "packUint2x16",
+        arg: "uvec2",
+        ret: "uint",
+        body: "((uint(v.x) & 65535u) | ((uint(v.y) & 65535u) << 16u))",
+        vector_overloads: false,
+    },
+    HelperBuiltin {
+        name: "unpackUint2x16",
+        arg: "uint",
+        ret: "uvec2",
+        body: "uvec2(uint(v) & 65535u, uint(v) >> 16u)",
+        vector_overloads: false,
+    },
+    HelperBuiltin {
+        name: "packInt2x16",
+        arg: "ivec2",
+        ret: "int",
+        body: "int((uint(v.x) & 65535u) | ((uint(v.y) & 65535u) << 16u))",
+        vector_overloads: false,
+    },
+    HelperBuiltin {
+        name: "unpackInt2x16",
+        arg: "int",
+        ret: "ivec2",
+        body: "ivec2(int(uint(v) & 65535u) - int((uint(v) & 32768u) * 2u), int(uint(v) >> 16u) - int((uint(v) >> 31u) * 65536u))",
+        vector_overloads: false,
+    },
+    HelperBuiltin {
+        name: "float16BitsToUint16",
+        arg: "float",
+        ret: "uint",
+        body: "bitfieldExtract(packHalf2x16(vec2(v, 0.0)), 0, 16)",
+        vector_overloads: true,
+    },
+    HelperBuiltin {
+        name: "float16BitsToInt16",
+        arg: "float",
+        ret: "int",
+        body: "bitfieldExtract(int(packHalf2x16(vec2(v, 0.0))), 0, 16)",
+        vector_overloads: true,
+    },
+    HelperBuiltin {
+        name: "uint16BitsToFloat16",
+        arg: "uint",
+        ret: "float",
+        body: "unpackHalf2x16(bitfieldExtract(v, 0, 16)).x",
+        vector_overloads: true,
+    },
+    HelperBuiltin {
+        name: "int16BitsToFloat16",
+        arg: "int",
+        ret: "float",
+        body: "unpackHalf2x16(uint(v)).x",
+        vector_overloads: true,
+    },
+];
+
+/// Returns the vector type prefix for a helper's scalar type.
+fn vector_type(scalar: &str) -> &'static str {
+    match scalar {
+        "float" => "vec",
+        "uint" => "uvec",
+        "int" => "ivec",
+        _ => unreachable!("vector helpers take scalar types"),
     }
-    let (arg, ret, body) = match builtin {
-        "float16BitsToUint16" => (
-            ("float", "vec"),
-            ("uint", "uvec"),
-            "bitfieldExtract(packHalf2x16(vec2(v, 0.0)), 0, 16)",
-        ),
-        "float16BitsToInt16" => (
-            ("float", "vec"),
-            ("int", "ivec"),
-            "bitfieldExtract(int(packHalf2x16(vec2(v, 0.0))), 0, 16)",
-        ),
-        "uint16BitsToFloat16" => (
-            ("uint", "uvec"),
-            ("float", "vec"),
-            "unpackHalf2x16(bitfieldExtract(v, 0, 16)).x",
-        ),
-        _ => (
-            ("int", "ivec"),
-            ("float", "vec"),
-            "unpackHalf2x16(uint(v)).x",
-        ),
-    };
+}
+
+/// Emits a helper and, for bit casts, its two- to four-component overloads.
+fn helper_source(helper: &HelperBuiltin) -> String {
+    let HelperBuiltin {
+        name: builtin,
+        arg,
+        ret,
+        body,
+        vector_overloads,
+    } = helper;
     let name = format!("iris_{builtin}");
-    let mut src = format!("{} {name}({} v) {{ return {body}; }}\n", ret.0, arg.0);
+    let mut src = format!("{ret} {name}({arg} v) {{ return {body}; }}\n");
+    if !vector_overloads {
+        return src;
+    }
     for n in 2..=4 {
         let parts: Vec<String> = ["v.x", "v.y", "v.z", "v.w"][..n]
             .iter()
@@ -137,9 +165,9 @@ fn helper_source(builtin: &str) -> String {
             .collect();
         src.push_str(&format!(
             "{}{n} {name}({}{n} v) {{ return {}{n}({}); }}\n",
-            ret.1,
-            arg.1,
-            ret.1,
+            vector_type(ret),
+            vector_type(arg),
+            vector_type(ret),
             parts.join(", ")
         ));
     }
@@ -150,7 +178,9 @@ fn helper_source(builtin: &str) -> String {
 pub(super) fn lower(src: &[Tok]) -> Option<Vec<Tok>> {
     let narrow = |t: &Tok| {
         t.ident().is_some_and(|n| {
-            wide_type(n).is_some() || wide_builtin(n).is_some() || HELPER_BUILTINS.contains(&n)
+            wide_type(n).is_some()
+                || wide_builtin(n).is_some()
+                || HELPER_BUILTINS.iter().any(|helper| helper.name == n)
         })
     };
     if !src.iter().any(narrow) {
@@ -173,7 +203,10 @@ pub(super) fn lower(src: &[Tok]) -> Option<Vec<Tok>> {
     if !helpers.is_empty() {
         let src: String = helpers
             .iter()
-            .map(|(builtin, name)| helper_source(builtin).replace(&format!("iris_{builtin}"), name))
+            .map(|(&index, name)| {
+                let helper = &HELPER_BUILTINS[index];
+                helper_source(helper).replace(&format!("iris_{}", helper.name), name)
+            })
             .collect();
         out.splice(0..0, lex(&src));
     }
@@ -186,7 +219,7 @@ fn lower_tokens(
     constant: bool,
     identifiers: &HashSet<&str>,
     user_functions: &HashSet<String>,
-    helpers: &mut BTreeMap<&'static str, String>,
+    helpers: &mut BTreeMap<usize, String>,
 ) -> Vec<Tok> {
     let constants = super::items::constant_contexts(src);
     let mut out = Vec::with_capacity(src.len());
@@ -211,9 +244,12 @@ fn lower_tokens(
         } else if !member
             && called
             && !user_functions.contains(name)
-            && let Some(&h) = HELPER_BUILTINS.iter().find(|h| **h == name.as_str())
+            && let Some((index, helper)) = HELPER_BUILTINS
+                .iter()
+                .enumerate()
+                .find(|(_, helper)| helper.name == name.as_str())
         {
-            let inline = integer_packing(h).map(|(_, _, body)| body);
+            let inline = (!helper.vector_overloads).then_some(helper.body);
             if let Some(inline) = inline.filter(|_| constant || constants.contains(&i)) {
                 let end = super::items::matching(src, i + 1, "(", ")");
                 let argument =
@@ -229,8 +265,8 @@ fn lower_tokens(
                 }
                 i = end;
             } else {
-                let name = helpers.entry(h).or_insert_with(|| {
-                    let mut name = format!("iris_{h}");
+                let name = helpers.entry(index).or_insert_with(|| {
+                    let mut name = format!("iris_{}", helper.name);
                     while identifiers.contains(name.as_str()) {
                         name.push('_');
                     }
