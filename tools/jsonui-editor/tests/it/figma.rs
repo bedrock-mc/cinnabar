@@ -1091,3 +1091,51 @@ fn hugging_frames_grow_with_their_content() {
     assert_eq!(rect(&frame, "padded"), [0.0, 28.0, 100.0, 24.0]);
     assert_eq!(rect(&frame, "last")[1], 52.0);
 }
+
+// A hugging frame sizes to its stacked items only; absolute layers overlay it.
+#[test]
+fn absolute_layers_do_not_grow_hugging_frames() {
+    let node: Node = serde_json::from_value(json!({
+        "id": "26:1", "name": "Overlay Test", "type": "FRAME", "width": 200, "height": 100,
+        "layout": { "mode": "VERTICAL" },
+        "children": [
+            { "id": "26:2", "name": "Card", "type": "FRAME", "width": 100, "height": 20, "sizing": ["FIXED", "HUG"],
+              "layout": { "mode": "VERTICAL" },
+              "children": [
+                  { "id": "26:3", "name": "Row", "type": "FRAME", "width": 100, "height": 20 },
+                  { "id": "26:4", "name": "Tall", "type": "FRAME", "width": 10, "height": 200, "positioning": "ABSOLUTE" }
+              ] },
+            { "id": "26:5", "name": "After", "type": "FRAME", "y": 20, "width": 100, "height": 10 }
+        ]
+    }))
+    .unwrap();
+    let conversion = figma::convert(&node, &BTreeMap::new());
+    assert!(conversion.warnings.is_empty(), "{:?}", conversion.warnings);
+    let (_, _, frame) = laid_out(&conversion, 1);
+    assert_eq!(rect(&frame, "card"), [0.0, 0.0, 100.0, 20.0]);
+    assert_eq!(rect(&frame, "tall"), [0.0, 0.0, 10.0, 200.0]);
+    assert_eq!(rect(&frame, "after")[1], 20.0);
+}
+
+// A `§` inside design text starts a formatting code that eats the next
+// character; Bedrock text has no escape for it, so it warns.
+#[test]
+fn section_signs_in_design_text_warn() {
+    let node: Node = serde_json::from_value(json!({
+        "id": "27:1", "name": "Section Test", "type": "FRAME", "width": 100, "height": 20,
+        "children": [{
+            "id": "27:2", "name": "Terms", "type": "TEXT", "width": 100, "height": 9,
+            "fills": [{ "type": "SOLID", "color": [1, 1, 1] }],
+            "text": { "characters": "\u{a7}4 Terms", "font_family": "Minecraft" }
+        }]
+    }))
+    .unwrap();
+    let conversion = figma::convert(&node, &BTreeMap::new());
+    assert_eq!(
+        messages(&conversion),
+        [(
+            "Section Test / Terms".to_owned(),
+            "`\u{a7}` starts a Bedrock formatting code, so it and the character after it do not draw".to_owned(),
+        )]
+    );
+}

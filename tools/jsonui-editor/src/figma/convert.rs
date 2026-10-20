@@ -333,6 +333,14 @@ impl Ctx<'_> {
         };
         body.insert("text".into(), literal.into());
         body.insert("localize".into(), false.into());
+        // `§` and the character after it are a formatting code; Bedrock text has no escape.
+        let code = text.characters.char_indices().any(|(at, character)| {
+            character == '\u{a7}' && at + character.len_utf8() < text.characters.len()
+        });
+        if code && directives.binding.is_none() {
+            let message = "`\u{a7}` starts a Bedrock formatting code, so it and the character after it do not draw";
+            self.warn(node, path, message);
+        }
         for property in &text.mixed {
             let message = format!(
                 "mixed {property} within one text is not supported; the first run's is used"
@@ -703,7 +711,7 @@ impl Ctx<'_> {
         let first_flow = drawn.iter().position(is_flow).unwrap_or(drawn.len());
         let last_flow = drawn.iter().rposition(is_flow).unwrap_or(0);
         let parent = [node.width, node.height];
-        let mut after = Vec::new();
+        let (mut below, mut above) = (Vec::new(), Vec::new());
         for (at, child) in drawn.into_iter().enumerate() {
             if is_flow(&child) {
                 continue;
@@ -717,13 +725,25 @@ impl Ctx<'_> {
             };
             let control = entry(&names.unique(&name), body);
             if at < first_flow {
-                outer.push(control);
+                below.push(control);
             } else {
-                after.push(control);
+                above.push(control);
             }
         }
+        // Absolute layers sit in parent-sized overlays, which measure as nothing,
+        // so a hugging wrapper follows only its stack.
+        let mut overlay = |controls: Vec<Value>| {
+            (!controls.is_empty()).then(|| {
+                let mut body = panel(controls);
+                body.insert("size".into(), json!(["100%", "100%"]));
+                entry(&names.unique("overlay"), body)
+            })
+        };
+        let below = overlay(below);
+        let above = overlay(above);
+        outer.extend(below);
         outer.push(entry(&names.unique("content"), stack));
-        outer.extend(after);
+        outer.extend(above);
         (panel(outer), natural)
     }
 
