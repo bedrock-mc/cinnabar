@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
+use bevy::math::Vec3;
 use bevy::render::render_resource::{Texture, TextureId};
 use wgpu::{Device, Queue, TextureView};
 

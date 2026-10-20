@@ -680,7 +680,7 @@ fn queue_crack(
             &mut pipeline,
             &mut phases,
             &views,
-            |view| {
+            |view, _| {
                 pack.replaces(view, |drawn| {
                     if highlight {
                         drawn.selection

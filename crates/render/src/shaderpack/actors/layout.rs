@@ -1,13 +1,13 @@
 //! Actor vertices retain floating-point UVs alongside the shared Iris fields.
 
 use crate::shaderpack::geometry::{
-    IRIS_VERTEX_WORDS, TerrainLayout, VertexLayoutError, vertex_buffer_layouts,
+    IRIS_VERTEX_STRIDE, TerrainLayout, VertexLayoutError, vertex_buffer_layouts,
 };
 use bevy::mesh::VertexBufferLayout;
 use bevy::render::render_resource::VertexFormat;
 use shaderpack::{VertexAttribute, VertexInput};
 
-pub(crate) const ACTOR_UV_WORD: u32 = IRIS_VERTEX_WORDS;
+pub(crate) const ACTOR_UV_WORD: u32 = (IRIS_VERTEX_STRIDE / 4) as u32;
 pub(crate) const ACTOR_MID_UV_WORD: u32 = ACTOR_UV_WORD + 2;
 pub(crate) const ACTOR_VERTEX_WORDS: u32 = ACTOR_MID_UV_WORD + 2;
 pub(crate) const ACTOR_VERTEX_STRIDE: u64 = ACTOR_VERTEX_WORDS as u64 * 4;
