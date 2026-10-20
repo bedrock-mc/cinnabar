@@ -135,6 +135,8 @@ pub struct Paint {
     pub scale_mode: String,
     /// Exposure, contrast or other image adjustments are set.
     pub has_filters: bool,
+    /// The paint's own blend mode.
+    pub blend_mode: String,
 }
 
 impl Default for Paint {
@@ -147,6 +149,7 @@ impl Default for Paint {
             image: None,
             scale_mode: String::new(),
             has_filters: false,
+            blend_mode: String::new(),
         }
     }
 }

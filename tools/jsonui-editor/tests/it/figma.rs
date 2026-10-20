@@ -331,8 +331,8 @@ fn naming_convention_adds_buttons_bindings_and_factories() {
     let servers = control(&ui, "servers");
     assert_eq!(servers["collection_name"], "servers");
     assert_eq!(
-        servers["factory"]["control_ids"],
-        json!({ "server_row": "@convention_test.server_row" })
+        servers["factory"]["control_name"],
+        "convention_test.server_row"
     );
     let row_label = control(&ui["server_row"], "name");
     assert_eq!(row_label["bindings"][0]["binding_type"], "collection");
@@ -812,4 +812,113 @@ fn visibility_bound_fill_children_keep_their_share_when_shown() {
     let frame = session.frame(&view);
     assert_eq!(rect(&frame, "g3"), [0.0, 40.0, 20.0, 20.0]);
     assert_eq!(rect(&frame, "h3"), [20.0, 40.0, 80.0, 20.0]);
+}
+
+fn drawn_texts(frame: &Frame) -> Vec<(String, bool)> {
+    frame
+        .nodes
+        .iter()
+        .filter_map(|node| match &node.draw {
+            Draw::Text { text, localize, .. } => Some((text.clone(), *localize)),
+            _ => None,
+        })
+        .collect()
+}
+
+// Design text draws as written: never localized, and never read as a `#`
+// reference; only `$binding` labels read data.
+#[test]
+fn design_text_is_literal() {
+    let text = |id: &str, name: &str, characters: &str, y: f64| {
+        json!({
+            "id": id, "name": name, "type": "TEXT", "y": y, "width": 100, "height": 10,
+            "fills": [{ "type": "SOLID", "color": [1, 1, 1] }],
+            "text": { "characters": characters, "font_family": "Minecraft" }
+        })
+    };
+    let node: Node = serde_json::from_value(json!({
+        "id": "17:1", "name": "Literal Test", "type": "FRAME", "width": 100, "height": 40,
+        "children": [
+            text("17:2", "Percent", "100% sure", 0.0),
+            text("17:3", "Hash", "#1", 10.0),
+            text("17:4", "Bound $binding=#Title", "Hello", 20.0),
+        ]
+    }))
+    .unwrap();
+    let conversion = figma::convert(&node, &BTreeMap::new());
+    let ui = ui(&conversion);
+    assert_eq!(control(&ui, "percent")["localize"], false);
+    assert!(
+        control(&ui, "bound").get("localize").is_none(),
+        "bound text keeps the default"
+    );
+    let (_, _, frame) = laid_out(&conversion, 1);
+    let texts = drawn_texts(&frame);
+    assert!(
+        texts.contains(&("100% sure".to_owned(), false)),
+        "{texts:?}"
+    );
+    assert!(
+        texts.iter().any(|(text, _)| text.ends_with("#1")),
+        "#1 is drawn: {texts:?}"
+    );
+    assert!(texts.iter().any(|(text, _)| text == "Hello"), "{texts:?}");
+}
+
+// Two views of one collection each repeat their own template.
+#[test]
+fn factories_sharing_a_collection_coexist() {
+    let list = |id: &str, x: f64, row: &str| {
+        let item = |n: u32| json!({ "id": format!("{id}:{n}"), "name": row, "type": "FRAME", "y": f64::from(n) * 10.0, "width": 40, "height": 10 });
+        json!({
+            "id": id, "name": "List @factory=servers", "type": "FRAME", "x": x, "width": 40, "height": 20,
+            "layout": { "mode": "VERTICAL" }, "children": [item(0), item(1)]
+        })
+    };
+    let node: Node = serde_json::from_value(json!({
+        "id": "18:1", "name": "Shared Test", "type": "FRAME", "width": 100, "height": 20,
+        "children": [list("18:2", 0.0, "Row A"), list("18:3", 50.0, "Row B")]
+    }))
+    .unwrap();
+    let conversion = figma::convert(&node, &BTreeMap::new());
+    assert!(conversion.warnings.is_empty(), "{:?}", conversion.warnings);
+    let (_, _, frame) = laid_out(&conversion, 1);
+    for row in ["row_a", "row_b"] {
+        assert_eq!(
+            frame.boxes.iter().filter(|laid| laid.name == row).count(),
+            2,
+            "{row}"
+        );
+    }
+}
+
+// First-on-top stacking of flowing items and per-fill blend modes are not
+// expressible, and say so.
+#[test]
+fn reverse_stacking_and_fill_blend_modes_warn() {
+    let node: Node = serde_json::from_value(json!({
+        "id": "19:1", "name": "Warn Test", "type": "FRAME", "width": 100, "height": 40,
+        "children": [
+            { "id": "19:2", "name": "Stack", "type": "FRAME", "width": 50, "height": 40,
+              "layout": { "mode": "VERTICAL", "reverse_z_index": true },
+              "children": [
+                  { "id": "19:3", "name": "A", "type": "FRAME", "width": 50, "height": 20 },
+                  { "id": "19:4", "name": "B", "type": "FRAME", "y": 20, "width": 50, "height": 20 }
+              ] },
+            { "id": "19:5", "name": "Tint", "type": "RECTANGLE", "x": 50, "width": 50, "height": 40,
+              "fills": [{ "type": "SOLID", "color": [1, 0, 0], "blend_mode": "MULTIPLY" }] }
+        ]
+    }))
+    .unwrap();
+    let conversion = figma::convert(&node, &BTreeMap::new());
+    assert_eq!(
+        messages(&conversion),
+        [
+            (
+                "Warn Test / Stack".to_owned(),
+                "first-on-top stacking applies only to absolute layers; stacked items draw last on top".to_owned(),
+            ),
+            ("Warn Test / Tint".to_owned(), "multiply fill blend mode is not supported".to_owned()),
+        ]
+    );
 }

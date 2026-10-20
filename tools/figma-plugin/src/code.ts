@@ -195,7 +195,12 @@ function layoutSizing(node: SceneNode): [string, string] | null {
 async function paints(list: ReadonlyArray<Paint>, images: Images): Promise<Json[]> {
   const out: Json[] = [];
   for (const paint of list) {
-    const entry: Json = { type: paint.type, visible: paint.visible ?? true, opacity: paint.opacity ?? 1 };
+    const entry: Json = {
+      type: paint.type,
+      visible: paint.visible ?? true,
+      opacity: paint.opacity ?? 1,
+      blend_mode: paint.blendMode ?? 'NORMAL',
+    };
     if (paint.type === 'SOLID') entry.color = [paint.color.r, paint.color.g, paint.color.b];
     if (paint.type === 'IMAGE' && paint.imageHash) {
       entry.image = paint.imageHash;

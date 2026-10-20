@@ -37,7 +37,7 @@ Design at 1 Figma pixel per Bedrock GUI pixel. The selected frame becomes
 | --- | --- |
 | Frame, group, component, instance | `panel` (fills become `background` images) |
 | Auto-layout frame | `stack_panel` with spacer panels; padding, alignment and absolute children add a wrapping `panel` |
-| Text | `label`: font (`Minecraft Ten` → `MinecraftTen`, `Minecraft` → default, others → `smooth`), size (8 px = scale 1), colour, alignment |
+| Text | `label` drawn exactly as written (not localized): font (`Minecraft Ten` → `MinecraftTen`, `Minecraft` → default, others → `smooth`), size (8 px = scale 1), colour, alignment |
 | Rectangle with one fill | `image`: solid fills tint a generated white texture; image fills export their PNG |
 | Rectangle with no or several fills | `panel`, one image per fill |
 | Constraints | `anchor_from`/`anchor_to`, `offset` and `size`, so the screen resizes as the frame does |

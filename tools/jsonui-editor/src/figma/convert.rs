@@ -12,6 +12,7 @@ use super::{Align, AutoLayout, Conversion, LayoutMode, Node, Paint, Positioning,
 use crate::mock::MockData;
 
 mod button;
+mod factory;
 
 use button::button;
 
@@ -19,6 +20,9 @@ pub(super) type Body = Map<String, Value>;
 
 /// The Figma font size drawn at `font_scale_factor` 1: the default font's 8 px glyph cell.
 const BASE_FONT_SIZE: f64 = 8.0;
+/// A reset formatting code: it draws nothing, and keeps literal text that
+/// starts with `#` from reading as a binding reference.
+const LITERAL_PREFIX: &str = "\u{a7}r";
 /// Image key of the generated white texture that solid fills tint.
 const SOLID_KEY: &str = "\0solid";
 const CONTAINERS: [&str; 6] = [
@@ -245,6 +249,16 @@ impl Ctx<'_> {
         if node.raster.is_some() || node.kind == "COMPONENT_SET" {
             return;
         }
+        for paint in visible_fills(node) {
+            if !matches!(paint.blend_mode.as_str(), "" | "NORMAL" | "PASS_THROUGH") {
+                let mode = label(&paint.blend_mode);
+                self.warn(
+                    node,
+                    path,
+                    format!("{mode} fill blend mode is not supported"),
+                );
+            }
+        }
         for effect in node.effects.iter().filter(|effect| effect.visible) {
             let kind = label(&effect.kind);
             self.warn(node, path, format!("{kind} effect is not supported"));
@@ -288,7 +302,14 @@ impl Ctx<'_> {
         };
         let mut body = Body::new();
         body.insert("type".into(), "label".into());
-        body.insert("text".into(), text.characters.clone().into());
+        // Design text draws as written: unlocalized, and never read as a `#` reference.
+        let literal = if text.characters.starts_with('#') {
+            format!("{LITERAL_PREFIX}{}", text.characters)
+        } else {
+            text.characters.clone()
+        };
+        body.insert("text".into(), literal.into());
+        body.insert("localize".into(), false.into());
         for property in &text.mixed {
             let message = format!(
                 "mixed {property} within one text is not supported; the first run's is used"
@@ -391,6 +412,7 @@ impl Ctx<'_> {
                 text.characters.clone().into(),
                 scope,
             );
+            body.remove("localize");
         }
         let auto = match text.auto_resize.as_str() {
             "WIDTH_AND_HEIGHT" => [true, true],
@@ -568,6 +590,10 @@ impl Ctx<'_> {
         if layout.item_spacing < 0.0 {
             self.warn(node, path, "negative spacing is not supported");
         }
+        if layout.reverse_z_index && flow.len() > 1 {
+            let message = "first-on-top stacking applies only to absolute layers; stacked items draw last on top";
+            self.warn(node, path, message);
+        }
         if let Some(collection) = factory {
             if layout.item_spacing > 0.0 {
                 self.warn(node, path, "spacing between factory items is not supported");
@@ -661,93 +687,6 @@ impl Ctx<'_> {
         outer.push(entry(&names.unique("content"), stack));
         outer.extend(after);
         panel(outer)
-    }
-
-    /// Makes `stack` a collection factory of its first child; every child
-    /// supplies one preview item's bound values.
-    fn factory(
-        &mut self,
-        node: &Node,
-        flow: &[&Node],
-        collection: &str,
-        place: Place,
-        stack: &mut Body,
-        path: &str,
-    ) {
-        let Some((template, samples)) = flow.split_first() else {
-            self.warn(node, path, "`@factory` needs a child to repeat");
-            return;
-        };
-        let scope = Scope {
-            path: path.to_owned(),
-            item: Some((collection.to_owned(), 0)),
-        };
-        let Some((name, body)) = self.control(template, place, &scope) else {
-            return;
-        };
-        let name = self.top.unique(&name);
-        self.definitions.insert(name.clone(), Value::Object(body));
-        for (index, sample) in samples.iter().enumerate() {
-            self.samples(sample, &scope.path_to(sample), collection, index + 1);
-        }
-        for index in 0..flow.len() {
-            self.item(collection, index)
-                .insert("role".into(), name.clone().into());
-        }
-        let reference = format!("@{}.{name}", self.namespace);
-        stack.insert("collection_name".into(), collection.into());
-        stack.insert(
-            "factory".into(),
-            json!({ "name": format!("{collection}_factory"), "control_ids": { name: reference } }),
-        );
-    }
-
-    /// Records a factory sample's bound values without converting it.
-    fn samples(&mut self, node: &Node, path: &str, collection: &str, index: usize) {
-        let directives = names::parse(&node.name);
-        if let Some(binding) = &directives.binding {
-            let image = node.raster.as_deref().or_else(|| {
-                let fills: Vec<&Paint> = visible_fills(node).collect();
-                match fills.as_slice() {
-                    [paint] if paint.kind == "IMAGE" => paint.image.as_deref(),
-                    _ => None,
-                }
-            });
-            let value = match (&node.text, image) {
-                (Some(text), _) => Some(text.characters.clone().into()),
-                (None, Some(key)) => self.texture(node, key, path).map(Value::from),
-                (None, None) => None,
-            };
-            if let Some(value) = value {
-                self.item(collection, index).insert(binding.clone(), value);
-            }
-        }
-        if let Some(binding) = &directives.visible {
-            self.item(collection, index)
-                .insert(binding.clone(), node.visible.into());
-        }
-        if node.raster.is_none() {
-            for child in &node.children {
-                self.samples(
-                    child,
-                    &format!("{path} / {}", child.name),
-                    collection,
-                    index,
-                );
-            }
-        }
-    }
-
-    fn item(&mut self, collection: &str, index: usize) -> &mut BTreeMap<String, Value> {
-        let items = self
-            .mock
-            .collections
-            .entry(collection.to_owned())
-            .or_default();
-        if items.len() <= index {
-            items.resize_with(index + 1, BTreeMap::new);
-        }
-        &mut items[index]
     }
 
     /// Binds `property` (`text`, `texture` or `visible`) to `binding`, sampling
