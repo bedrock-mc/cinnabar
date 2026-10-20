@@ -127,6 +127,9 @@ pub struct DrawNode {
     pub clip: RectOut,
     pub layer: i32,
     pub alpha: f32,
+    /// The inherited application-owned paint region, if one was declared.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paint_region: Option<std::num::NonZeroU64>,
     /// Animations reaching this draw; see [`DrawNode::animate`].
     #[serde(skip)]
     pub anim: Option<std::sync::Arc<crate::anim::NodeAnim>>,
@@ -309,6 +312,7 @@ pub(crate) fn emit_own(
                 clip: clip.into(),
                 layer: node.layer,
                 alpha: node.alpha,
+                paint_region: node.paint.region,
                 anim: node.anim.clone(),
                 draw,
                 gates: Vec::new(),

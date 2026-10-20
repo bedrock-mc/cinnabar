@@ -302,6 +302,16 @@ pub(super) fn prepare_mod_input(
             packets.menu.pending.shift_held = physical.shift_held(focused);
         }
     }
+    // Native HUD geometry stays host-owned; guests cannot manufacture keep-out regions.
+    if presentation.mod_ui().mod_hud_editor_open() {
+        let region = presentation.mod_hud_editor_native_keep_out(ui.session_id());
+        presentation
+            .mod_ui_mut()
+            .set_mod_hud_editor_keep_out(region.as_slice());
+        presentation
+            .mod_ui_mut()
+            .set_mod_hud_editor_shift(physical.shift_held(focused));
+    }
     if extension.is_none() && !packet_owned && !physical.panel_owned && !physical.ime_owned {
         return;
     }

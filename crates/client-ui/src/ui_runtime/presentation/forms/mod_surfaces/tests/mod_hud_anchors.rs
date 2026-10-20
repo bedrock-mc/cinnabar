@@ -13,7 +13,7 @@ use std::sync::Arc;
 use ui::mod_hud::{Anchor, Hud};
 
 /// Uses the shipped open font for every label without requiring game carriers.
-fn presentation() -> UiPresentationRuntime {
+pub(super) fn presentation() -> UiPresentationRuntime {
     let fonts = mod_ui::fonts::install(ui_engine::test_support::fixture_font()).unwrap();
     let font = Arc::new(fonts.font_named(ui::mod_panel::SANS_FONT_NAME).clone());
     let mut p = UiPresentationRuntime::new(font).unwrap();

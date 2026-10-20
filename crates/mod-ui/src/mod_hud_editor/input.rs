@@ -8,8 +8,10 @@ pub(in super::super) struct Drag {
     index: usize,
     grab: [f64; 2],
     start: [f64; 2],
+    last: [f64; 2],
     moved: bool,
     resize: Option<Resize>,
+    pub(super) targets: [Option<usize>; 2],
     pub(super) guides: [Option<f64>; 2],
 }
 
@@ -22,21 +24,6 @@ struct Resize {
     fixed: [f64; 2],
 }
 
-/// Aligns any card edge or its center with a viewport edge or center guide.
-fn axis_target(at: f64, size: f64, viewport: f64) -> Option<(f64, f64)> {
-    let available = (viewport - size).max(0.);
-    [0., viewport * 0.5, viewport]
-        .into_iter()
-        .flat_map(|guide| {
-            [0., 0.5, 1.]
-                .into_iter()
-                .map(move |fraction| (guide - size * fraction, guide))
-        })
-        .filter(|(target, _)| *target >= 0. && *target <= available)
-        .min_by(|(a, _), (b, _)| (at - a).abs().total_cmp(&(at - b).abs()))
-        .filter(|(target, _)| (at - target).abs() <= AXIS_SNAP_DISTANCE)
-}
-
 impl HudEditor {
     /// Ends capture once; later presentation failures stop painting without replacing the result.
     pub(super) fn finish(&mut self, saved: bool) {
@@ -44,6 +31,7 @@ impl HudEditor {
             self.stop_exit();
             return;
         }
+        self.data_dirty = true;
         if self.autosave {
             self.cancel_drag();
         }
@@ -130,6 +118,7 @@ impl HudEditor {
     }
     /// Releases an unfinished drag without promoting it to a saved placement.
     pub(in super::super) fn cancel_drag(&mut self) {
+        self.data_dirty |= self.drag.is_some();
         if let Some(drag) = self.drag.take()
             && self.autosave
         {
@@ -141,6 +130,7 @@ impl HudEditor {
     }
     /// Releases pointer feedback and rolls back an unfinished captured gesture.
     pub(in super::super) fn cancel_pointer_input(&mut self) {
+        self.data_dirty |= self.view.hovered.is_some();
         self.cancel_drag();
         self.view.hovered = None;
         self.view.pressed = None;
@@ -148,17 +138,19 @@ impl HudEditor {
     }
     /// Converts a clamped GUI-pixel top-left into normalized available travel.
     fn move_card(&mut self, index: usize, at: [f64; 2]) {
+        self.data_dirty = true;
         let card = &mut self.draft.cards[index];
         let size = cards::dimensions(card);
         card.position = Some(std::array::from_fn(|axis| {
             let available = (self.viewport[axis] - size[axis]).max(0.);
             let at = if self.snap
+                && !self.bypass_snap
                 && self
                     .drag
                     .as_ref()
                     .is_none_or(|drag| drag.guides[axis].is_none())
             {
-                (at[axis] / 8.).round() * 8.
+                (at[axis] / snapping::GRID).round() * snapping::GRID
             } else {
                 at[axis]
             };
@@ -179,6 +171,7 @@ impl HudEditor {
     }
     /// Restores explicit factory values or the authored anchor and offset captured on open.
     fn reset_layout(&mut self) {
+        self.data_dirty = true;
         for card in &mut self.draft.cards {
             card.anchor = card.reset_anchor.unwrap_or(card.anchor);
             card.offset = card.reset_offset.unwrap_or(card.offset);
@@ -192,6 +185,7 @@ impl HudEditor {
     }
     /// Scales within the space from the opposite corner, clamping placement if the minimum cannot fit.
     fn resize_card(&mut self, index: usize, resize: Resize, delta: [f64; 2]) {
+        self.data_dirty = true;
         let base: [f64; 2] = resize.size.map(|size| size / resize.scale);
         let signed: [f64; 2] = std::array::from_fn(|axis| {
             if resize.corner & (1 << axis) == 0 {
@@ -264,9 +258,11 @@ impl HudEditor {
             .find(|hit| hit.enabled && hit.pressed.is_some() && hit.contains(point));
         let hovered = hit.map(|hit| hit.key.as_str());
         if self.view.hovered.as_deref() != hovered {
+            self.data_dirty = true;
             self.view.hovered = hovered.map(str::to_owned);
         }
         if pressed {
+            self.data_dirty = true;
             self.view.pressed = hovered.map(str::to_owned);
         } else if !held {
             self.view.pressed = None;
@@ -305,6 +301,7 @@ impl HudEditor {
                 return Vec::new();
             }
             Some("hud.grid") => {
+                self.data_dirty = true;
                 self.snap = !self.snap;
                 self.cancel_drag();
                 return Vec::new();
@@ -333,8 +330,10 @@ impl HudEditor {
                         index,
                         grab: std::array::from_fn(|axis| point[axis] - at[axis]),
                         start: point,
+                        last: point,
                         moved: false,
                         guides: [None; 2],
+                        targets: [None; 2],
                         resize: corner.map(|corner| Resize {
                             corner,
                             scale: f64::from(card.scale),
@@ -356,21 +355,31 @@ impl HudEditor {
             drag.moved |= (0..2).any(|axis| (point[axis] - drag.start[axis]).abs() > 0.001);
             let index = drag.index;
             let at = std::array::from_fn(|axis| point[axis] - drag.grab[axis]);
+            let changed = drag.last != point || self.snap_dirty;
+            drag.last = point;
+            self.snap_dirty = false;
             let moved = drag.moved;
-            if !pressed && moved {
+            if !pressed && moved && changed {
                 if let Some(resize) = drag.resize {
                     let delta: [f64; 2] =
                         std::array::from_fn(|axis| point[axis] - drag.start[axis]);
                     self.resize_card(index, resize, delta);
                 } else {
-                    let size = cards::dimensions(&self.draft.cards[index]);
+                    let targets = snapping::targets(
+                        &self.draft,
+                        index,
+                        at,
+                        self.viewport,
+                        &self.keep_out,
+                        self.bypass_snap,
+                    );
                     let mut aligned = at;
                     for axis in 0..2 {
-                        let target = axis_target(at[axis], size[axis], self.viewport[axis]);
-                        drag.guides[axis] =
-                            target.map(|(_, guide)| guide.min(self.viewport[axis] - GUIDE_WIDTH));
-                        if let Some((target, _)) = target {
-                            aligned[axis] = target;
+                        drag.guides[axis] = targets[axis]
+                            .map(|target| target.guide.min(self.viewport[axis] - GUIDE_WIDTH));
+                        drag.targets[axis] = targets[axis].and_then(|target| target.card);
+                        if let Some(target) = targets[axis] {
+                            aligned[axis] = target.at;
                         }
                     }
                     self.move_card(index, aligned);
@@ -378,6 +387,7 @@ impl HudEditor {
             }
         }
         if !held && let Some(drag) = self.drag.take().filter(|drag| drag.moved) {
+            self.data_dirty = true;
             self.anchor_card(drag.index);
             self.checkpoint();
         }
@@ -402,7 +412,11 @@ impl HudEditor {
                         -1.
                     } else {
                         1.
-                    } * if self.snap { 8. } else { 1. };
+                    } * if self.snap && !self.bypass_snap {
+                        snapping::GRID
+                    } else {
+                        1.
+                    };
                     self.move_card(index, at);
                     self.anchor_card(index);
                     self.checkpoint();

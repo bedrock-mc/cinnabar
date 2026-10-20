@@ -904,3 +904,28 @@ fn backup_selection_preserves_available_primary_and_open_default() {
         assert_eq!(font.resolve_font_name(primary, backup), expected);
     }
 }
+
+/// Keep-out bounds of an aligned label cover its glyphs, not the alignment space before them.
+#[test]
+fn right_aligned_label_ink_excludes_leading_alignment_space() {
+    let json = serde_json::json!({"namespace":"fixture", "screen":{
+        "type":"screen", "controls":[{"aligned":{
+            "type":"label", "text":"ab", "localize":false, "size":[300,20],
+            "text_alignment":"right", "anchor_from":"top_left", "anchor_to":"top_left"
+        }}]
+    }})
+    .to_string();
+    let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(1.0).unwrap(), Some(2));
+    let (_, nodes) = paint_fixture(&fixture_font(), metrics, &json);
+    let layout = nodes
+        .iter()
+        .find_map(|node| match node.visual() {
+            UiVisual::Text { layout, .. } => Some(layout),
+            _ => None,
+        })
+        .expect("the label paints");
+    let full = layout.size_64()[0] as f32 / 64.0;
+    let ink = glyph_ink(layout.glyphs()).expect("two glyphs paint");
+    assert!(ink[0] > full / 2.0, "ink starts at {} of {full}", ink[0]);
+    assert!(ink[2] <= full + 1.0 / 64.0);
+}
