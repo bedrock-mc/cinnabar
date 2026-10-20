@@ -23,6 +23,11 @@ evidence; the [workspace map](docs/architecture/workspace.md) explains code owne
 
 1. Identify and resolve confirmed terrain, actor, movement and UI behavior gaps with version-matched evidence.
 2. Qualify frame pacing, streaming, joining and retained memory on the reference hardware.
+   Windows VSync queue depth uses coarse work estimates to try one queued frame and
+   observed acquisition cadence to restore two. Failed probes back off exponentially;
+   missing GPU samples leave the cadence policy running.
+   Displayed cadence, input latency and surface-reconfiguration
+   stalls still need hardware qualification; this closes no acceptance gate.
 3. Verify complete session and input paths across supported platforms.
 4. Simplify existing subsystem ownership without adding unnecessary crates or adapter layers.
 
@@ -144,6 +149,9 @@ and resource qualification; they do not imply these systems need to be written.
 - [ ] `P2-CHUNK-PUBLICATION` — Qualify initial publication, steady streaming and full-view
   remesh against current frame/join/streaming budgets. Attribute decode, light readiness,
   queue wait, worker time, upload, submission and present latency independently.
+  Ordinary meshing now rechecks higher-priority deferred revisions within a bounded
+  poll budget, with backoff while neighbours or light remain unavailable. Hardware
+  dirty-to-visible latency qualification remains open.
   Sparse startup can complete without a publisher update after terrain decodes, stream
   and render work drain, and a later GPU frame completes. Empty-world initialization is
   verified; complete server-form and gameplay acceptance remains open.
