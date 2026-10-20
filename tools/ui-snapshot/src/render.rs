@@ -1,5 +1,6 @@
 //! Production screen painting into the JSON-UI editor's existing CPU target.
 
+mod backup_font;
 mod character;
 #[cfg(feature = "test-support")]
 mod control_locked;
@@ -11,6 +12,8 @@ mod edit_selection;
 #[cfg(feature = "test-support")]
 mod form_overlap;
 mod panorama;
+#[cfg(feature = "test-support")]
+mod settings_draft;
 mod tiled_image;
 
 use std::{
@@ -95,7 +98,7 @@ pub fn panel_png(
     };
     png_fixture(
         &state,
-        Fixture::ModPanel(Box::new(panel)),
+        Fixture::ModPanel(Box::new(panel), None),
         dir,
         seconds,
         resource_pack,
@@ -125,6 +128,10 @@ fn png_fixture(
     if matches!(&fixture, Fixture::FormOverlap) {
         return form_overlap::png(state, dir);
     }
+    #[cfg(feature = "test-support")]
+    if matches!(&fixture, Fixture::SettingsDraft) {
+        return settings_draft::png(state, dir);
+    }
     let menu = matches!(&fixture, Fixture::Menu(_) | Fixture::Loading(_));
     let show_panorama = match &fixture {
         Fixture::Menu(view) => view.out_of_game(),
@@ -132,16 +139,18 @@ fn png_fixture(
         Fixture::Chat { .. }
         | Fixture::TabList(_)
         | Fixture::EditSelection
+        | Fixture::BackupFont
         | Fixture::TiledImage { .. }
-        | Fixture::ModPanel(_) => false,
+        | Fixture::ModPanel(..) => false,
         #[cfg(feature = "test-support")]
         Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
         | Fixture::FormOverlap
+        | Fixture::SettingsDraft
         | Fixture::ControlLocked
         | Fixture::CosmeticParticles { .. } => false,
     };
-    let mut carriers = carriers::load(dir, menu)?;
+    let mut carriers = carriers::load(dir, menu || matches!(&fixture, Fixture::BackupFont))?;
     #[cfg(feature = "test-support")]
     let craft_icons = matches!(
         &fixture,
@@ -174,9 +183,16 @@ fn png_fixture(
         renderers: &mut [],
     };
     match fixture {
+        Fixture::BackupFont => {
+            let engine = json_engine(&carriers)?;
+            backup_font::paint(&engine, &mut frame)?;
+        }
         Fixture::TiledImage { .. } => unreachable!("tiled image capture returned above"),
         #[cfg(feature = "test-support")]
-        Fixture::CosmeticParticles { .. } | Fixture::FormOverlap | Fixture::ControlLocked => {
+        Fixture::CosmeticParticles { .. }
+        | Fixture::FormOverlap
+        | Fixture::SettingsDraft
+        | Fixture::ControlLocked => {
             unreachable!("specialized capture returned above")
         }
         #[cfg(feature = "test-support")]
@@ -197,7 +213,7 @@ fn png_fixture(
             )?;
             add_server_pages(&mut engine, &mut carriers.pages);
         }
-        Fixture::ModPanel(panel) => {
+        Fixture::ModPanel(panel, hud) => {
             let mut engine = json_engine(&carriers)?;
             if let Some(root) = resource_pack {
                 let files = panel_textures(&panel, root)?;
@@ -212,6 +228,11 @@ fn png_fixture(
                 );
             }
             let mut ui = mod_ui::ModUi::default();
+            if let Some(hud) = &hud {
+                ui.set_mod_hud_sources(
+                    [(mod_ui::PanelUiOwner::Environment(0), 1, hud.as_ref())].into_iter(),
+                )?;
+            }
             ui.set_mod_panel(mod_ui::PanelUiOwner::Environment(0), Some(&panel))?;
             ui.set_mod_panel_open(true);
             for now in [0.0, seconds] {

@@ -102,6 +102,14 @@ fn emit_untransformed(
     match visual {
         UiVisual::None => Ok(()),
         UiVisual::Mesh(mesh) => mesh::emit_mesh(mesh, bounds, clip, vertices, indices, batches),
+        UiVisual::TintedMesh { mesh, color } => {
+            let start = vertices.len();
+            mesh::emit_mesh(mesh, bounds, clip, vertices, indices, batches)?;
+            for vertex in &mut vertices[start..] {
+                vertex.color = *color;
+            }
+            Ok(())
+        }
         UiVisual::Solid {
             texture_page,
             color,

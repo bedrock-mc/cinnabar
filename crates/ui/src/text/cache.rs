@@ -62,7 +62,13 @@ impl TextLayoutCache {
         }
     }
 
-    pub fn layout(&mut self, request: TextLayoutRequest<'_>) -> Result<Arc<TextLayout>, TextError> {
+    /// Lays out the longest UTF-8 prefix within the text byte limit.
+    /// Cache identity and retention use that same prefix.
+    pub fn layout(
+        &mut self,
+        mut request: TextLayoutRequest<'_>,
+    ) -> Result<Arc<TextLayout>, TextError> {
+        request.text = text_prefix(request.text, crate::UiLimits::MAX_TEXT_BYTES);
         validate_request(request)?;
         let key = self.cache_key(request, None);
         self.advance_clock()?;

@@ -184,3 +184,26 @@ carriers. A headless client capture verifies the GPU glass/backdrop appearance.
 Pack-control previews require the full presentation runtime, including composed
 pack fonts and player-renderer resources; the optional reactor painter scenario
 installs these through their normal owners.
+
+### Live HUD card previews
+
+A panel can draw one of its guest's currently published HUD cards with a host-owned
+custom node:
+
+```json
+{"type":"custom","renderer":"cinnabar_hud_card","card_id":"fps",
+ "size":[160,80],"scale":1,"alignment":[0.5,0.5]}
+```
+
+`card_id` is a local card identifier. It can bind through `#card_id`, including a
+collection item's field. `scale` multiplies the card's own scale and accepts
+0.25–5; `alignment` contains horizontal and vertical fractions from 0 to 1.
+Both can bind through their `#` properties. Defaults are scale 1 and centered
+alignment. Artwork clips to the node. Missing or foreign cards draw nothing.
+Unknown identifiers receive one warning each, up to the panel's diagnostic budget.
+
+Set `preview_only:true` on a published HUD card to reserve it for panel previews.
+Such cards remain live, including native row sources, and never appear on the
+gameplay HUD. A panel preview can show a card even when gameplay HUD visibility
+is off. Guests still own their toggled-off presentation and must keep a card
+published when they want its preview to remain available.

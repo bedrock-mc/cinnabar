@@ -704,6 +704,120 @@ fn bounded_translation_still_resolves_unused_nested_arguments_and_counters() {
 }
 
 #[test]
+fn bounded_translation_keeps_parent_text_after_an_unused_argument_is_truncated() {
+    let document =
+        parse_raw_text(r#"{"rawtext":[{"translate":"outer","with":["%large"]},{"text":"tail"}]}"#)
+            .unwrap();
+    let large: Arc<str> = "x".repeat(MAX_RAW_TEXT_OUTPUT_BYTES + 1).into();
+    let translate = |key: &str| match key {
+        "outer" => Some(Arc::from("OK")),
+        "large" => Some(Arc::clone(&large)),
+        _ => None,
+    };
+    let resolved = document.resolve(&protocol::RawTextResolver {
+        reader_name: "Reader",
+        translate: &translate,
+        score: &|_, _| None,
+        selector: &|_| None,
+    });
+    assert_eq!(resolved.text, "OKtail");
+    assert!(resolved.truncated);
+}
+
+#[test]
+fn clipped_numeric_translation_arguments_keep_the_template_and_following_suffixes() {
+    let number: Arc<str> = format!("0.{}", "0".repeat(MAX_RAW_TEXT_OUTPUT_BYTES)).into();
+    for template in ["%.2f coins", "%.2f coins %1"] {
+        let document = parse_raw_text(
+            r#"{"rawtext":[{"translate":"coins","with":["%number"]},{"text":" afterwards"}]}"#,
+        )
+        .unwrap();
+        let result = document.resolve(&protocol::RawTextResolver {
+            reader_name: "Player",
+            translate: &|key| match key {
+                "coins" => Some(Arc::from(template)),
+                "number" => Some(Arc::clone(&number)),
+                _ => None,
+            },
+            score: &|_, _| None,
+            selector: &|_| None,
+        });
+        if template.ends_with("%1") {
+            assert!(result.text.starts_with("0.00 coins 0."));
+            assert!(!result.text.ends_with(" afterwards"));
+        } else {
+            assert_eq!(result.text, "0.00 coins afterwards");
+        }
+        assert!(result.truncated);
+    }
+}
+
+#[test]
+fn form_text_budget_charges_nested_arguments_and_later_literals_and_formats() {
+    let budget = protocol::FormTextBudget::default();
+    let padding = "p".repeat(protocol::MAX_FORM_TEXT_EXPANSION_BYTES - 64);
+    assert_eq!(budget.copy(&padding), padding);
+    let document = protocol::parse_raw_text(
+        r#"{"rawtext":[{"translate":"outer","with":[{"translate":"inner"}]}]}"#,
+    )
+    .unwrap();
+    let calls = std::cell::Cell::new(0);
+    let translate = |key: &str| {
+        calls.set(calls.get() + 1);
+        Some(Arc::from(if key == "outer" {
+            "%1"
+        } else {
+            "yyyyyyyyyyyyyyyyyyyy"
+        }))
+    };
+    let resolver = protocol::RawTextResolver {
+        reader_name: "",
+        translate: &translate,
+        score: &|_, _| None,
+        selector: &|_| None,
+    };
+    let text = protocol::FormText::Raw(document);
+    assert_eq!(budget.resolve(&text, &resolver), "y".repeat(20));
+    // Both the nested argument and its parent output consumed twenty bytes.
+    assert_eq!(
+        budget.format_translation("%1", &["z".repeat(100)]),
+        "z".repeat(24)
+    );
+    assert!(budget.copy("later literal").is_empty());
+    assert!(budget.format_translation("later format", &[]).is_empty());
+    assert!(budget.resolve(&text, &resolver).is_empty());
+    assert_eq!(calls.get(), 2);
+}
+
+#[test]
+fn form_translation_does_not_reserve_unused_template_bytes() {
+    let template = "%s".repeat(protocol::MAX_FORM_JSON_BYTES / 2);
+    let formatted = protocol::FormTextBudget::default().format_translation(&template, &[]);
+    assert!(formatted.is_empty());
+    assert_eq!(formatted.capacity(), 0);
+}
+
+#[test]
+fn form_translation_formatting_keeps_long_labels_and_bounds_substitution_growth() {
+    let long = "界".repeat(10_000);
+    let arguments = [long.clone(), "5".into()];
+    assert_eq!(
+        protocol::FormTextBudget::default().format_translation("%1: %2", &arguments),
+        format!("{long}: 5")
+    );
+    assert!(protocol::format_translation("%1: %2", &arguments).len() < long.len());
+    let template = "%1".repeat(1_000);
+    let (formatted, allocations) = test_alloc::measure(|| {
+        protocol::FormTextBudget::default().format_translation(&template, &arguments)
+    });
+    let budget = protocol::MAX_FORM_TEXT_EXPANSION_BYTES;
+    assert_eq!(formatted.len(), budget - budget % "界".len());
+    assert!(formatted.chars().all(|character| character == '界'));
+    assert!(formatted.capacity() <= budget);
+    assert!(allocations.bytes <= budget * 4, "{allocations:?}");
+}
+
+#[test]
 fn death_translation_resolves_marked_entity_parameters_once() {
     let translate = |key: &str| match key {
         "death.attack.mob" => Some(Arc::from("%1$s was slain by %2$s")),

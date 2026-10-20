@@ -222,7 +222,8 @@ pub use permissions::{
     decode_abilities_update,
 };
 pub use raw_text::{
-    MAX_RAW_TEXT_COMPONENTS, MAX_RAW_TEXT_DEPTH, MAX_RAW_TEXT_INPUT_BYTES, MAX_RAW_TEXT_NODES,
+    FormTextBudget, MAX_FORM_TEXT_EXPANSION_BYTES, MAX_RAW_TEXT_COMPONENTS, MAX_RAW_TEXT_DEPTH,
+    MAX_RAW_TEXT_EXPANSION_BYTES, MAX_RAW_TEXT_INPUT_BYTES, MAX_RAW_TEXT_NODES,
     MAX_RAW_TEXT_OUTPUT_BYTES, RawTextComponent, RawTextDocument, RawTextResolution,
     RawTextResolver, ResolvedRawText, format_translation, format_translation_chars, parse_raw_text,
 };
@@ -257,10 +258,11 @@ pub use ui::{
 pub use world::{
     ActorBlockSyncMessage, ActorMotionEvent, ActorPropertySyncEvent, BiomeDefinitionEvent,
     BiomeDefinitionsEvent, BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent,
-    ChangeDimensionEvent, ChunkResyncEvent, CustomBlock, CustomBlockPhysics, CustomBlockVisuals,
-    CustomBlocks, CustomBox, CustomCollision, CustomHashedState, CustomMaterialInstance,
-    CustomPermutation, CustomPhysicalComponents, CustomPlacement, CustomSelection, CustomStateAxis,
-    CustomStateValue, CustomTransformation, CustomVisualComponents, DaylightCycleUpdateEvent,
+    ChangeDimensionEvent, ChunkResyncEvent, CustomBlock, CustomBlockMining, CustomBlockPhysics,
+    CustomBlockVisuals, CustomBlocks, CustomBox, CustomCollision, CustomHashedState,
+    CustomMaterialInstance, CustomMiningItem, CustomMiningSpeed, CustomPermutation,
+    CustomPhysicalComponents, CustomPlacement, CustomSelection, CustomStateAxis, CustomStateValue,
+    CustomTransformation, CustomVisualComponents, DaylightCycleUpdateEvent,
     DimensionHeightDiagnostic, DimensionRange, GameRulesEvent, HeightmapDiagnostic,
     LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,
     MAX_DIMENSION_DEFINITIONS, MapDataEvent, MovePlayerEvent, MovePlayerMode,

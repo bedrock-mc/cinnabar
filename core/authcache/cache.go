@@ -38,6 +38,7 @@ type Config struct {
 
 // Source loads or acquires a Microsoft token. Every refresh reloads the latest
 // token under a process-wide file lock and persists any rotation before returning.
+// Invalid token contents request a fresh sign-in; filesystem failures remain errors.
 // ctx governs the returned source's lifetime, including waits for another process.
 func Source(ctx context.Context, config Config) (oauth2.TokenSource, error) {
 	if config.Path == "" {
@@ -60,14 +61,14 @@ func Source(ctx context.Context, config Config) (oauth2.TokenSource, error) {
 	}
 	lease, err := lockfile.AcquireContext(ctx, path+cacheLockSuffix)
 	if err != nil {
-		return nil, fmt.Errorf("lock Microsoft auth cache: %w", err)
+		return nil, &cacheFailure{operation: "lock", err: fmt.Errorf("lock Microsoft auth cache: %w", err)}
 	}
 	defer lease.Close()
 
 	s := &persistingSource{gate: make(chan struct{}, 1), ctx: ctx, path: path, writer: config.Writer, refresh: config.Refresh}
 	cached, err := load(path)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, fmt.Errorf("load Microsoft auth cache: %w", err)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, errInvalidCache) {
+		return nil, &cacheFailure{operation: "load", err: fmt.Errorf("load Microsoft auth cache: %w", err)}
 	}
 	if err == nil {
 		s.generation, s.lastGeneration = cached.Generation, cached.Generation
@@ -92,6 +93,9 @@ func Source(ctx context.Context, config Config) (oauth2.TokenSource, error) {
 	current, err := config.Request(ctx, s.writer)
 	if err != nil {
 		return nil, fmt.Errorf("request Microsoft token: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	s.generation = uuid.NewString()
 	if err := s.persist(current); err != nil {
@@ -181,7 +185,7 @@ func (s *persistingSource) persist(token *oauth2.Token) error {
 		return nil
 	}
 	if err := save(s.path, token, s.generation); err != nil {
-		return fmt.Errorf("persist Microsoft token: %w", err)
+		return &cacheFailure{operation: "persist", err: fmt.Errorf("persist Microsoft token: %w", err)}
 	}
 	s.last = cloneToken(token)
 	s.lastGeneration = s.generation
@@ -209,7 +213,15 @@ func load(path string) (*cachedToken, error) {
 	if err != nil {
 		return nil, err
 	}
+	tok, err := decodeCachedToken(contents)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidCache, err)
+	}
+	return tok, nil
+}
 
+// decodeCachedToken requires exactly one token with the refresh credential needed for sign-in.
+func decodeCachedToken(contents []byte) (*cachedToken, error) {
 	decoder := json.NewDecoder(bytes.NewReader(contents))
 	var tok cachedToken
 	if err := decoder.Decode(&tok); err != nil {
