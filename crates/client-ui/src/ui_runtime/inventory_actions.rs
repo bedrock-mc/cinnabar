@@ -635,11 +635,12 @@ impl UiRuntime {
         widget: Widget,
     ) -> Outcome {
         match widget {
-            Widget::TradeOffer { tier, row } => {
+            Widget::TradeOffer { tier, row, .. } => {
                 self.inventory_ledger_mut(player_runtime)
                     .select_trade_row(tier, row)?;
                 Ok(0)
             }
+            Widget::TradePreview(_) => Ok(0),
             Widget::TradeCycle { next } => {
                 self.inventory_ledger_mut(player_runtime)
                     .cycle_trade(next)?;

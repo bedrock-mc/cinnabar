@@ -202,7 +202,7 @@ pub(crate) fn data(source: &dyn ContainerSource, data: &mut DataSource) {
             .map(|index| {
                 let offer = &trade.offers[*index];
                 let unlocked = offer.offer.tier <= trade.tier;
-                let exhausted = offer.offer.uses >= offer.offer.max_uses;
+                let exhausted = unlocked && !ledger.trade_offer_available(*index);
                 [
                     (B::TradeToggleState, trade.selected == Some(*index)),
                     (B::TradeToggleEnabled, unlocked),
@@ -264,15 +264,29 @@ pub(crate) fn hit(screen: &str, region: &HitRegion) -> Option<Widget> {
         Some(button) if button == Button::Trade.as_str() => return Some(Widget::Trade),
         _ => {}
     }
+    let item = region.collections.iter().rev().find_map(|(name, _)| {
+        if [C::TradeItem1.as_str(), C::TradeItemA.as_str()].contains(&name.as_str()) {
+            Some(0)
+        } else if [C::TradeItem2.as_str(), C::TradeItemB.as_str()].contains(&name.as_str()) {
+            Some(1)
+        } else if name == C::SellItem.as_str() {
+            Some(2)
+        } else {
+            None
+        }
+    });
     let tier = region
         .collections
         .iter()
-        .find(|(name, _)| name == C::TradeTiers.as_str())?
-        .1;
+        .find(|(name, _)| name == C::TradeTiers.as_str())
+        .map(|(_, index)| *index);
     let row = region
         .collections
         .iter()
-        .find(|(name, _)| name == C::Trades.as_str())?
-        .1;
-    Some(Widget::TradeOffer { tier, row })
+        .find(|(name, _)| name == C::Trades.as_str())
+        .map(|(_, index)| *index);
+    match (tier, row) {
+        (Some(tier), Some(row)) => Some(Widget::TradeOffer { tier, row, item }),
+        _ => item.map(Widget::TradePreview),
+    }
 }

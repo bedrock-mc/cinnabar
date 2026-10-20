@@ -35,17 +35,8 @@ impl PlayerInventoryLedger {
         let trade = self
             .trading()
             .ok_or(InventoryGestureError::InvalidRequest)?;
-        let tier = *trade
-            .tiers()
-            .get(tier_index)
-            .ok_or(InventoryGestureError::InvalidRequest)?;
         let index = trade
-            .offers
-            .iter()
-            .enumerate()
-            .filter(|(_, offer)| offer.offer.tier == tier)
-            .nth(row)
-            .map(|(index, _)| index)
+            .row_index(tier_index, row)
             .ok_or(InventoryGestureError::InvalidRequest)?;
         self.select_trade(index)
     }
@@ -196,7 +187,7 @@ impl PlayerInventoryLedger {
     pub fn trade_output(&self) -> Option<&NetworkItemStack> {
         let state = self.trading()?;
         let trade = state.offers.get(state.selected?)?;
-        if trade.offer.tier > state.tier || trade.offer.uses >= trade.offer.max_uses {
+        if !self.trade_offer_available(state.selected?) {
             return None;
         }
         self.trade_consumption(trade)?;
@@ -211,6 +202,48 @@ impl PlayerInventoryLedger {
             .then_some(result);
         }
         Some(expected)
+    }
+
+    /// Whether an unlocked offer has a use left after all of this window's pending purchases.
+    pub fn trade_offer_available(&self, index: usize) -> bool {
+        let Some(window) = self.storage.as_ref() else {
+            return false;
+        };
+        let Some(state) = window.trade.as_ref() else {
+            return false;
+        };
+        let Some(trade) = state.offers.get(index) else {
+            return false;
+        };
+        let reserved = self
+            .pending_requests()
+            .filter(|request| {
+                request.storage_generation == Some(window.generation)
+                    && request.trade_purchase == Some(trade.offer.network_id)
+            })
+            .count() as i64;
+        trade.offer.tier <= state.tier
+            && i64::from(trade.offer.uses) + reserved < i64::from(trade.offer.max_uses)
+    }
+
+    /// Commits one accepted purchase to its current offer; rejected or discarded reservations vanish.
+    pub(super) fn accept_trade_purchase(&mut self, request: &super::queue::PendingRequest) {
+        if !self.request_is_current(request) {
+            return;
+        }
+        let Some(id) = request.trade_purchase else {
+            return;
+        };
+        if let Some(trade) = self
+            .storage
+            .as_mut()
+            .and_then(|window| window.trade.as_mut())
+            && let Some(offer) = Arc::make_mut(&mut trade.offers)
+                .iter_mut()
+                .find(|offer| offer.offer.network_id == id)
+        {
+            offer.offer.uses = offer.offer.uses.saturating_add(1);
+        }
     }
 
     /// Whether one input has the selected offer's matching item and required count.
@@ -299,14 +332,21 @@ impl PlayerInventoryLedger {
             .ok_or(InventoryGestureError::InvalidRequest)?;
         let state = self.trading().expect("validated trader");
         let trade = &state.offers[state.selected.expect("validated selection")];
+        let recipe_network_id = trade.offer.network_id;
         let craft = ScreenCraft::Trade {
-            recipe_network_id: trade.offer.network_id,
+            recipe_network_id,
             output,
             consumed: self
                 .trade_consumption(trade)
                 .ok_or(InventoryGestureError::InvalidRequest)?,
         };
-        self.begin_screen_output(&craft)
+        let id = self.begin_screen_output(&craft)?;
+        self.queue
+            .iter_mut()
+            .find(|request| request.request_id == id)
+            .expect("submitted purchase")
+            .trade_purchase = Some(recipe_network_id);
+        Ok(id)
     }
 }
 
@@ -318,6 +358,26 @@ fn trade_item_matches(stack: &NetworkItemStack, required: &NetworkItemStack) -> 
 }
 
 impl TradeState {
+    /// Locates a row in the sorted tier groups used by selection and item previews.
+    pub fn row_index(&self, tier_index: usize, row: usize) -> Option<usize> {
+        let tier = *self.tiers().get(tier_index)?;
+        self.offers
+            .iter()
+            .enumerate()
+            .filter(|(_, offer)| offer.offer.tier == tier)
+            .nth(row)
+            .map(|(index, _)| index)
+    }
+
+    /// Borrows one complete offer preview, retaining all of its item tags.
+    pub fn preview(&self, index: usize, column: u8) -> Option<&NetworkItemStack> {
+        let offer = self.offers.get(index)?;
+        match column {
+            0 | 1 => offer.inputs[usize::from(column)].as_ref(),
+            2 => offer.output.as_ref(),
+            _ => None,
+        }
+    }
     /// Derives tier groups from the offers, without a separate fixed tier limit.
     pub fn tiers(&self) -> Vec<i32> {
         self.offers

@@ -273,3 +273,36 @@ fn block_item_purchases_preserve_the_authoritative_result_identity() {
         &result
     ));
 }
+
+#[test]
+fn purchases_reserve_stock_until_rejected_and_commit_it_when_accepted() {
+    let mut ledger = ledger(true);
+    let state = ledger.storage.as_mut().unwrap().trade.as_mut().unwrap();
+    Arc::make_mut(&mut state.offers)[0].offer.uses = 1;
+    let rejected = ledger.begin_trade().unwrap();
+    assert!(ledger.trade_output().is_none());
+    assert!(ledger.mark_transport_enqueued(10));
+    ledger.apply(&InventoryEvent::Response(
+        protocol::ItemStackResponseEvent {
+            responses: Arc::from([StackResponse {
+                request_id: rejected,
+                status: StackResponseStatus::Rejected,
+                containers: Arc::from([]),
+            }]),
+        },
+    ));
+    assert!(ledger.trade_output().is_some());
+    let accepted = ledger.begin_trade().unwrap();
+    assert!(ledger.mark_transport_enqueued(20));
+    let response = InventoryEvent::Response(protocol::ItemStackResponseEvent {
+        responses: Arc::from([StackResponse {
+            request_id: accepted,
+            status: StackResponseStatus::Accepted,
+            containers: Arc::from([]),
+        }]),
+    });
+    ledger.apply(&response);
+    ledger.apply(&response);
+    assert_eq!(ledger.trading().unwrap().offers[0].offer.uses, 2);
+    assert!(ledger.trade_output().is_none());
+}
