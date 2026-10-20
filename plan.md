@@ -416,6 +416,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 - Native extension UI and HUD APIs (retained modules, profile fields, text plates,
   compass markers, totem annotations and bounded camera overrides) still need
   displayed-frame pacing and complete rendering acceptance.
+  Backdrop and element blur now limit downsampling to referenced mip levels and
+  cache the admitted maximum blur. Pixel-equivalence regressions are included;
+  executed GPU checks and measured frame-budget acceptance remain pending.
 - Enhanced rendering remains restricted until its GPU faults and freezes are resolved.
   Diagnostics or bounded fixtures do not establish safe general gameplay use. Java
   shader-pack source loading and configuration metadata are implemented in

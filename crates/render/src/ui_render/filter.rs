@@ -230,7 +230,8 @@ impl Blur<'_> {
         let Some((_, source, shapes)) = pyramid.sources.first() else {
             return false;
         };
-        for (level, destination) in pyramid.levels.iter().enumerate() {
+        let levels = super::backdrop_levels::count(sigma, pyramid.levels.len());
+        for (level, destination) in pyramid.levels.iter().take(levels).enumerate() {
             let input = if level == 0 {
                 source
             } else {
