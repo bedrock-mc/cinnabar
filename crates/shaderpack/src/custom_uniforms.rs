@@ -378,7 +378,7 @@ impl DeclaredType {
         match self {
             Self::Bool => value.truth().map(UniformValue::Bool),
             Self::Int => value.integer().map(UniformValue::Int),
-            Self::Float => value.number().map(|n| UniformValue::Float(n)),
+            Self::Float => value.number().map(UniformValue::Float),
             Self::Vector(len) => {
                 let Value::Vector { len: found, items } = value else {
                     return None;

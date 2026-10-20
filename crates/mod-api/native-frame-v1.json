@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "capabilities": 1,
+  "max_bytes": 65536,
+  "max_players": 128,
+  "max_delta_radians": 0.25,
+  "frame": {
+    "version": 1,
+    "session": 18446744073709551614,
+    "dimension": -1,
+    "eye": [1.25, 65.5, -2.0],
+    "yaw": 0.5,
+    "pitch": -0.25,
+    "attack_held": true,
+    "seconds": 0.015625,
+    "players": [{"runtime_id": 18446744073709551613, "feet": [2.5, 64.0, -5.0]}]
+  },
+  "delta": {"yaw": 0.03125, "pitch": -0.015625}
+}

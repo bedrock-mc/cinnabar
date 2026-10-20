@@ -78,7 +78,7 @@ fn programmatic_screen_return_cannot_authorize_delayed_capture() {
     assert!(!focus.allow_capture(false, false));
 }
 
-/// Grab-free capture ends with focus and needs fresh authorization before it counts again.
+/// Grab-free input resumes only after focus returns and gameplay requests capture again.
 #[test]
 fn focus_loss_ends_grab_free_capture() {
     let mut focus = CursorFocus::default();
@@ -87,8 +87,48 @@ fn focus_loss_ends_grab_free_capture() {
     focus.begin_frame(false);
     assert!(!focus.grab_free_capture());
     focus.begin_frame(true);
+    assert!(!focus.grab_free_capture());
     focus.set_grab_free_capture(true);
-    assert!(!focus.grab_free_capture(), "waits for an explicit return");
-    assert!(focus.allow_capture(false, true));
     assert!(focus.grab_free_capture());
+}
+
+#[test]
+fn captured_gameplay_resumes_after_focus_and_occlusion_return() {
+    for occluded in [false, true] {
+        let mut focus = CursorFocus::default();
+        focus.record_capture(true);
+        focus.begin_frame(false);
+        focus.occlusion_changed(occluded);
+        assert!(!focus.capture_allowed());
+        // Repeated background frames must retain the original capture state.
+        focus.record_capture(false);
+        focus.begin_frame(false);
+        focus.begin_frame(true);
+        assert_eq!(focus.capture_allowed(), !occluded);
+        focus.occlusion_changed(false);
+        assert!(focus.capture_allowed());
+    }
+}
+
+#[test]
+fn same_batch_focus_loss_discards_input_before_capture_resumes() {
+    let mut focus = CursorFocus::default();
+    focus.record_capture(true);
+    focus.focus_changed(false);
+    focus.focus_changed(true);
+    assert!(!focus.capture_allowed());
+    focus.record_capture(false);
+    focus.begin_frame(true);
+    assert!(focus.capture_allowed());
+}
+
+#[test]
+fn released_pointer_is_not_restored_after_focus_return() {
+    let mut focus = CursorFocus::default();
+    focus.record_capture(true);
+    focus.record_capture(false);
+    focus.begin_frame(false);
+    focus.begin_frame(true);
+    assert!(!focus.capture_allowed());
+    assert!(focus.allow_capture(false, true));
 }

@@ -3,6 +3,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+mod bindings;
+mod geometry;
+pub use bindings::{HudBindings, MAX_HUD_BINDINGS};
+pub use geometry::{HudGeometry, HudGeometryRequests, MAX_HUD_GEOMETRY_REQUESTS};
 mod compass;
 mod cosmetic;
 mod editor_style;
