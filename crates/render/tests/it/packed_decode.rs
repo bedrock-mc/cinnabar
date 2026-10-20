@@ -125,7 +125,7 @@ fn packed_model_rejects_masked_padded_and_invalid_references_before_vertex_use()
     let flags = assets::MODEL_QUAD_FLAG_TWO_SIDED | 2;
     let mut template = vec![1, 0, 1, 0];
     template.extend([0; 10]);
-    template.extend([1, u32::from(flags)]);
+    template.extend([1, flags]);
     let packed_position = 3 | (4 << 4) | (5 << 8);
     let mut geometry = vec![1, 0, 0, 0];
     geometry.extend(PackedModelRef::new(packed_position, 0, 4, 1).words());
@@ -182,11 +182,7 @@ fn packed_model_rejects_masked_padded_and_invalid_references_before_vertex_use()
         let values = gpu.compute_readback(&source, &bindings, OUTPUT_BINDING, 7, 1);
         assert_eq!(values[0][0], u32::from(valid), "{name}");
         if valid {
-            assert_eq!(
-                values[0],
-                [1, 1, 2, u32::from(flags)],
-                "material and authored flags"
-            );
+            assert_eq!(values[0], [1, 1, 2, flags], "material and authored flags");
             assert_eq!(values[1], [3, 4, 5, 37]);
             assert_eq!(values[2], [0x0123, 0x0234, 0x0345, 0x0846]);
             for vertex in &values[3..] {
