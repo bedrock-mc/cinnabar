@@ -307,38 +307,6 @@ fn saved_options(pack: &ShaderPack, file: &Path) -> OptionValues {
     shaderpack::normalize_values(pack.options(), &saved)
 }
 
-#[cfg(test)]
-mod option_tests {
-    use super::*;
-
-    #[test]
-    fn loading_normalizes_options_without_writing_over_editor_saves() {
-        let pack = ShaderPack::new(shaderpack::PackSource::from_files([(
-            "final.fsh",
-            "#define QUALITY 2 // [1 2 3]\nvoid main() {}\n",
-        )]));
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("options.txt");
-        let saved = b"QUALITY=3\nREMOVED=true\n";
-        std::fs::write(&file, saved).unwrap();
-        assert_eq!(
-            saved_options(&pack, &file),
-            OptionValues::from([("QUALITY".into(), "3".into())])
-        );
-        assert_eq!(std::fs::read(&file).unwrap(), saved);
-        shaderpack::write_option_file(
-            &file,
-            pack.options(),
-            &OptionValues::from([("QUALITY".into(), "1".into())]),
-        )
-        .unwrap();
-        assert_eq!(
-            saved_options(&pack, &file),
-            OptionValues::from([("QUALITY".into(), "1".into())])
-        );
-    }
-}
-
 /// The enabled programs this host runs, in frame order, with their plans; an error has one
 /// line per such program that failed to translate, naming it with its first diagnostic.
 pub(crate) fn runnable_programs(
@@ -882,4 +850,36 @@ pub(crate) fn build(
         lightmap,
         effects,
     })
+}
+
+#[cfg(test)]
+mod option_tests {
+    use super::*;
+
+    #[test]
+    fn loading_normalizes_options_without_writing_over_editor_saves() {
+        let pack = ShaderPack::new(shaderpack::PackSource::from_files([(
+            "final.fsh",
+            "#define QUALITY 2 // [1 2 3]\nvoid main() {}\n",
+        )]));
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("options.txt");
+        let saved = b"QUALITY=3\nREMOVED=true\n";
+        std::fs::write(&file, saved).unwrap();
+        assert_eq!(
+            saved_options(&pack, &file),
+            OptionValues::from([("QUALITY".into(), "3".into())])
+        );
+        assert_eq!(std::fs::read(&file).unwrap(), saved);
+        shaderpack::write_option_file(
+            &file,
+            pack.options(),
+            &OptionValues::from([("QUALITY".into(), "1".into())]),
+        )
+        .unwrap();
+        assert_eq!(
+            saved_options(&pack, &file),
+            OptionValues::from([("QUALITY".into(), "1".into())])
+        );
+    }
 }
