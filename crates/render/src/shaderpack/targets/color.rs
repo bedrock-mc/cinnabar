@@ -5,7 +5,7 @@ use wgpu::{Device, TextureFormat, TextureUsages, TextureView};
 /// One colour buffer's textures.
 pub(crate) struct ColorBuffer {
     pub size: [u32; 2],
-    textures: Vec<wgpu::Texture>,
+    pub(super) textures: Vec<wgpu::Texture>,
     /// Every mip, for sampling; per side.
     pub sampled: Vec<TextureView>,
     /// Mip 0 only, for attachments and storage; per side.
