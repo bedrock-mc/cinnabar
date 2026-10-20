@@ -399,9 +399,9 @@ and death-screen suppression still apply, and the crosshair stays hidden while a
 panel owns input. This does not enable other extensions' overlay cards. The value
 can change with a full panel update without replacing the retained document.
 
-Optional `motion: true` enables short native hover and toggle transitions and
-smooth discrete wheel scrolling. Pixel scrolling and scrollbar dragging remain
-immediate. Authored surfaces can bind `#row_N_hover` and
+Optional `motion: true` enables authored surface transitions, short native hover
+and toggle easing, and smooth discrete wheel scrolling. Pixel scrolling and
+scrollbar dragging remain immediate. Authored surfaces can bind `#row_N_hover` and
 `#row_N_toggle_progress` and `#row_N_toggle_inverse_progress` (complementary numbers
 from 0 to 1), `#row_N_toggle_color` and
 `#row_N_knob_color` (RGBA arrays), and `#row_N_knob_offset` (logical coordinates
@@ -492,10 +492,12 @@ route change while open swaps surfaces at once, easing the new route in from its
 still in progress, and `ModUi::mod_panel_painting` reports a closed panel that is
 still drawing.
 
-Surface transitions and exits are independent of the built-in Screen animations
-setting. Mods control their own motion through `motion` and their declared
-transitions. Omitting transitions and using `motion: false` makes panel updates
-immediate.
+Surface transitions and exits require `motion: true` and remain independent of
+the built-in Screen animations setting. Setting `motion: false` settles active
+feedback, wheel scrolling and surface transitions immediately and removes a
+pending exit. Re-enabling motion affects future changes without replaying the
+entrance. The host can also disable all panel motion with
+`ModUi::configure_motion(false)`; a panel cannot override that preference.
 
 A control may declare `cinnabar_transform` to scale and rotate how it and all its
 descendants are drawn, like CSS `transform`, without changing layout:
@@ -614,7 +616,8 @@ transitions of their own. Collections are currently supported on personal panels
   "controls": [{ "id": "enabled", "value": true }],
   "surface": "main",
   "bindings": { "#filter": "" },
-  "capture_key": false
+  "capture_key": false,
+  "motion": true
 }
 ```
 
@@ -624,7 +627,10 @@ take a Boolean `value`, sliders a finite in-range `value`, keybinds `key` and/or
 `control_values` provides compact `[control_index, value]` pairs: Boolean toggles,
 numeric sliders, unsigned choice indexes and string text values. Indexes refer to the selected route's
 validated control order. A control cannot appear twice across either edit list.
-Omitted controls retain their values. `surface` selects a prepared route;
+Omitted controls retain their values. `motion` changes the retained animation
+preference without replacing the prepared route or resetting scroll and input.
+Omitting it, or supplying `null`, preserves the preference across route changes.
+`surface` selects a prepared route;
 `bindings`, when supplied, fully replaces custom scalars and starts any declared
 transitions toward the new values, while the host continues
 to generate `#row_N` facts from the controls. Invalid batches change nothing, and

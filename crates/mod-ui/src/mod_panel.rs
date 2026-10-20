@@ -260,6 +260,11 @@ impl ModUi {
                 prepared,
             });
         }
+        if (self.reduced_motion || !panel.motion)
+            && let Some(current) = self.mod_panel.as_mut()
+        {
+            current.snap_motion();
+        }
         Ok(())
     }
 
@@ -277,6 +282,9 @@ impl ModUi {
             if open {
                 panel.open = true;
                 panel.motion.transitions.cancel_exit();
+                if self.reduced_motion || !panel.panel.motion {
+                    panel.snap_motion();
+                }
             } else {
                 panel.close(exit);
             }
@@ -328,7 +336,14 @@ impl ModUi {
     /// Explicitly overrides mod surface motion, independently of built-in screen preferences.
     /// Disabling settles transitions, exits and opted-in feedback, including values already moving.
     pub fn configure_motion(&mut self, enabled: bool) {
-        self.reduced_motion = !enabled;
+        let reduced_motion = !enabled;
+        if self.reduced_motion == reduced_motion {
+            return;
+        }
+        self.reduced_motion = reduced_motion;
+        if !enabled && let Some(panel) = self.mod_panel.as_mut() {
+            panel.snap_motion();
+        }
         if !enabled && let Some(editor) = self.mod_hud_editor.as_mut().filter(|editor| !editor.open)
         {
             editor.stop_exit();
@@ -464,43 +479,7 @@ impl ModUi {
                 }
             }
         }
-        let mut changed = false;
-        if panel.panel.motion {
-            if let Some(frame) = &panel.frame {
-                for (key, metrics) in &frame.report.scrolls {
-                    panel.motion.scroll_extent(key, metrics.max_offset());
-                }
-            }
-            let hovered = panel
-                .frame
-                .as_ref()
-                .and_then(|frame| {
-                    frame
-                        .hits
-                        .iter()
-                        .find(|hit| panel.view.hovered.as_deref() == Some(hit.key.as_str()))
-                })
-                .and_then(|hit| hit.pressed.as_deref())
-                .and_then(|action| {
-                    action
-                        .strip_prefix("mod.control:")
-                        .or_else(|| action.strip_prefix("mod.edit:"))
-                })
-                .and_then(|index| index.parse().ok());
-            changed = panel.motion.advance(
-                &panel.panel,
-                &mut panel.view,
-                hovered,
-                paint_frame.now,
-                animate,
-            );
-        }
-        if let Some(surface) = &panel.panel.surface {
-            changed |= panel
-                .motion
-                .transitions
-                .advance(surface, paint_frame.now, animate);
-        }
+        let changed = panel.advance_motion(paint_frame.now, animate);
         if !panel.open && !panel.motion.transitions.active() {
             // The exit has settled: remove the surface without drawing its final values.
             panel.close(false);
@@ -692,11 +671,71 @@ fn out_of_render(panel: &mut ModPanel, paint_frame: &mut PaintFrame<'_>, rollbac
 }
 
 impl ModPanel {
+    /// Samples native feedback and surface transitions under both animation preferences.
+    fn advance_motion(&mut self, now: f64, animate: bool) -> bool {
+        let animate = animate && self.panel.motion;
+        let mut changed = false;
+        if self.panel.motion {
+            if let Some(frame) = &self.frame {
+                for (key, metrics) in &frame.report.scrolls {
+                    self.motion.scroll_extent(key, metrics.max_offset());
+                }
+            }
+            let hovered = self
+                .frame
+                .as_ref()
+                .and_then(|frame| {
+                    frame
+                        .hits
+                        .iter()
+                        .find(|hit| self.view.hovered.as_deref() == Some(hit.key.as_str()))
+                })
+                .and_then(|hit| hit.pressed.as_deref())
+                .and_then(|action| {
+                    action
+                        .strip_prefix("mod.control:")
+                        .or_else(|| action.strip_prefix("mod.edit:"))
+                })
+                .and_then(|index| index.parse().ok());
+            changed = self
+                .motion
+                .advance(&self.panel, &mut self.view, hovered, now, animate);
+        }
+        if let Some(surface) = &self.panel.surface {
+            changed |= self.motion.transitions.advance(surface, now, animate);
+        }
+        changed
+    }
+
+    /// Completes pending feedback and surface motion without restarting the current entrance.
+    /// A closed panel's pending exit is removed immediately instead of being retained for paint.
+    fn snap_motion(&mut self) {
+        if !self.open {
+            self.close(false);
+            return;
+        }
+        let mut changed =
+            self.motion
+                .advance(&self.panel, &mut self.view, None, self.motion.now, false);
+        if let Some(surface) = &self.panel.surface {
+            changed |= self
+                .motion
+                .transitions
+                .advance(surface, self.motion.now, false);
+        }
+        if changed || self.motion_data_dirty {
+            self.motion
+                .write(&self.panel, Arc::make_mut(&mut self.data));
+        }
+        self.motion_data_dirty = false;
+    }
+
     /// Closes an open panel once, releasing input at once. With `exit`, a painted surface whose
     /// transitions declare exit values keeps its frame and scroll while they ease there; the
     /// panel is otherwise removed at once, clearing scroll state and animated feedback. Without
     /// `exit`, this also ends an exit in progress, which a repeated animated close continues.
     fn close(&mut self, exit: bool) {
+        let exit = exit && self.panel.motion;
         if !self.open && (exit || !self.exiting()) {
             return;
         }
@@ -782,6 +821,8 @@ impl ModUi {
 
 #[cfg(test)]
 mod collection_tests;
+#[cfg(test)]
+mod motion_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
