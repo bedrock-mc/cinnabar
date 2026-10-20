@@ -1,4 +1,3 @@
-use pack_compile_input::json::parse_unique_json;
 use std::{collections::BTreeMap, path::Path};
 
 use assets::{
@@ -8,7 +7,7 @@ use assets::{
 };
 use serde_json::{Map, Value};
 
-use super::super::{SourcePayloads, invalid, molang::MolangCompiler};
+use super::super::{SourceDocuments, invalid, molang::MolangCompiler};
 
 pub(super) enum ClipCompileError {
     Invalid(AssetError),
@@ -273,16 +272,13 @@ pub(super) fn looks_like_expression(value: &str) -> bool {
             .any(|byte| matches!(byte, b'+' | b'*' | b'/' | b'?' | b'('))
 }
 
-pub(super) fn read_json(
+/// Borrows one document from this assembly attempt's shared cache.
+pub(super) fn read_json<'a>(
     root: &Path,
-    payloads: &SourcePayloads,
+    payloads: &'a SourceDocuments<'_>,
     source: &EntityAssetSource,
-) -> Result<Value, AssetError> {
-    let path = root.join(source.path.as_ref());
-    let bytes = payloads
-        .get(source.path.as_ref())
-        .ok_or_else(|| invalid("retained entity source payload is absent"))?;
-    parse_unique_json(&path, bytes)
+) -> Result<&'a Value, AssetError> {
+    payloads.read(root, &source.path)
 }
 
 pub(super) fn required_object<'a>(

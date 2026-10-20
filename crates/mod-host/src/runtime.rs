@@ -715,6 +715,11 @@ impl Instance {
         self.store.data().label.as_deref()
     }
 
+    /// Identifies the committed authored or natively resolved HUD without copying it.
+    pub(super) fn hud_revision(&self) -> u64 {
+        self.store.data().hud.revision
+    }
+
     pub(super) fn hud(&self) -> Option<&ui::mod_hud::Hud> {
         let hud = &self.store.data().hud;
         hud.resolved.as_ref().or(hud.content.as_ref())

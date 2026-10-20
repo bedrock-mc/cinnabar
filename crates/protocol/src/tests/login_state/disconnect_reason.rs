@@ -242,9 +242,7 @@ async fn truncated_disconnect_wire_stays_fatal_without_a_resolver() {
     ))
     .await;
 
-    for _ in 0..5 {
-        session.recv_world_event(0).await.expect("login prelude");
-    }
+    recv_prelude(&mut session, 5).await;
     let error = session
         .recv_world_event(0)
         .await
@@ -313,9 +311,7 @@ async fn truncated_transfer_wire_stays_fatal() {
     ))
     .await;
 
-    for _ in 0..5 {
-        session.recv_world_event(0).await.expect("login prelude");
-    }
+    recv_prelude(&mut session, 5).await;
     let error = session
         .recv_world_event(0)
         .await

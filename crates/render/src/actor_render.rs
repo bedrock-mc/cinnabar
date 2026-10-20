@@ -491,13 +491,14 @@ fn prepare_actor_resources(
             drop(_span);
             gpu.instance_count = rig.instances.len() as u32;
             gpu.maximum_vertex_count = rig.maximum_vertex_count;
-            gpu.manifest = prepared.manifest;
             draw_spans(
                 &mut gpu.spans,
                 &frame.instance_pages,
                 &prepared.instances,
                 &rig.geometry_spans,
+                prepared.manifest.iter().map(|entry| entry.identity.layer),
             );
+            gpu.manifest = prepared.manifest;
             gpu.instances = prepared.instances;
             let ActorGpu {
                 sorted,

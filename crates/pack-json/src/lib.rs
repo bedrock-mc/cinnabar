@@ -34,6 +34,12 @@ pub fn decode_text(bytes: &[u8]) -> Cow<'_, str> {
 /// Parses one complete pack document, accepting comments, a BOM and trailing
 /// commas. The requested type keeps its own shape and duplicate-key validation.
 pub fn parse_jsonc<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, serde_json::Error> {
+    // Byte-oriented deserializers can accept invalid UTF-8 without decode_text's conversion.
+    if let Ok(text) = std::str::from_utf8(bytes)
+        && let Ok(value) = serde_json::from_str(text)
+    {
+        return Ok(value);
+    }
     serde_json::from_slice(&prepare_jsonc(bytes)?)
 }
 
@@ -47,6 +53,8 @@ pub fn normalize_jsonc(bytes: &[u8]) -> Option<Vec<u8>> {
 
 /// Converts pack text and replaces comments and trailing commas with whitespace.
 fn prepare_jsonc(bytes: &[u8]) -> Result<Vec<u8>, serde_json::Error> {
+    #[cfg(test)]
+    tests::PREPARE_CALLS.with(|calls| calls.set(calls.get() + 1));
     let text = decode_text(bytes);
     let stripped = strip_comments(text.as_bytes()).ok_or_else(|| {
         <serde_json::Error as serde::de::Error>::custom("unterminated string or block comment")

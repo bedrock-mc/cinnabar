@@ -6,6 +6,22 @@ use std::{
 
 /// Builds original test data into the same archive admission path used at runtime.
 pub(crate) fn stack(files: &[(&str, &[u8])]) -> Arc<ValidatedPackStack> {
+    stack_with_options(files, zip::write::SimpleFileOptions::default())
+}
+
+/// Admits complete Stored members without external fixtures or compression artifacts.
+pub(crate) fn stored_stack(files: &[(&str, &[u8])]) -> Arc<ValidatedPackStack> {
+    stack_with_options(
+        files,
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored),
+    )
+}
+
+/// Admits original fixture data using the requested ZIP storage method.
+fn stack_with_options(
+    files: &[(&str, &[u8])],
+    options: zip::write::SimpleFileOptions,
+) -> Arc<ValidatedPackStack> {
     let id = "00000000-0000-0000-0000-00000000000a";
     let manifest = format!(
         r#"{{"format_version":2,"header":{{"uuid":"{id}","version":[1,0,0]}},"modules":[{{"type":"resources"}}]}}"#
@@ -14,8 +30,7 @@ pub(crate) fn stack(files: &[(&str, &[u8])]) -> Arc<ValidatedPackStack> {
     for (name, bytes) in
         std::iter::once(("manifest.json", manifest.as_bytes())).chain(files.iter().copied())
     {
-        zip.start_file(name, zip::write::SimpleFileOptions::default())
-            .unwrap();
+        zip.start_file(name, options).unwrap();
         zip.write_all(bytes).unwrap();
     }
     resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(vec![
