@@ -171,3 +171,8 @@ fn resolve_in(catalog: &Catalog, reference: &str, root: &env::Env) -> Resolution
         diagnostics: resolver.into_diagnostics(),
     }
 }
+
+/// Returns the property names read by a binding expression, excluding quoted text.
+pub fn expression_properties(expression: &str) -> Vec<String> {
+    predicate::property_tokens(expression)
+}

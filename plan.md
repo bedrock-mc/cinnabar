@@ -292,6 +292,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   face selection across measurement and painting; broader text acceptance remains open.
   Rounded JSON-UI chrome supports bounded analytic box shadows with cached geometry;
   full menu visual and hardware frame-work acceptance remains open.
+  Client-owned panel collections support bounded four-column card grids with
+  item-scoped expressions and vector artwork; hardware frame-work acceptance remains open.
   stable retained resources and correct supported DPI/aspect behavior. Tiled images
   retain full coverage with bounded repeat geometry across cropped regions and sliced
   borders; large collection admission and hardware frame-work acceptance remain incomplete.
