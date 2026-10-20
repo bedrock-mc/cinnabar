@@ -196,6 +196,16 @@ fn normalizes_actual_clipped_artwork_with_negative_child_offsets_and_root_overfl
 
 #[test]
 fn an_authored_outer_transform_moves_fragment_artwork_and_its_clip_together() {
+    transformed_fragment(false);
+}
+
+#[test]
+fn hud_card_preview_cached_fragment_reuses_placement_and_preserves_outer_transforms() {
+    transformed_fragment(true);
+}
+
+/// Exercises both replay paths against the same transformed production canvas.
+fn transformed_fragment(cached: bool) {
     use crate::{
         engine::{
             FormEngine, ScreenArt,
@@ -212,7 +222,10 @@ fn an_authored_outer_transform_moves_fragment_artwork_and_its_clip_together() {
             RemoteImage::Failed
         }
     }
-    struct Fragment(Vec<UiNode>);
+    struct Fragment {
+        nodes: Arc<[UiNode]>,
+        cache: Option<CachedFragment>,
+    }
     impl CustomRenderer for Fragment {
         /// Replays the same fragment path used by native pack-control previews.
         fn paint(
@@ -220,7 +233,18 @@ fn an_authored_outer_transform_moves_fragment_artwork_and_its_clip_together() {
             node: &CustomDraw<'_>,
             canvas: &mut Canvas<'_>,
         ) -> Result<bool, PaintError> {
-            canvas.paint_fragment(&self.0, [10.0; 2], node.dest, 1.0)?;
+            if let Some(cache) = &mut self.cache {
+                canvas.paint_cached_fragment(
+                    cache,
+                    &self.nodes,
+                    [10.; 2],
+                    node.dest,
+                    node.dest,
+                    1.,
+                )?;
+            } else {
+                canvas.paint_fragment(&self.nodes, [10.0; 2], node.dest, 1.0)?;
+            }
             Ok(true)
         }
     }
@@ -253,36 +277,46 @@ fn an_authored_outer_transform_moves_fragment_artwork_and_its_clip_together() {
     let mut layouts = ui::TextLayoutCache::new(1, 16 * 1024);
     let mut nodes = Vec::new();
     let mut next = 1;
-    let mut fragment = Fragment(vec![solid(1, None, [0.0, 0.0, 10.0, 10.0])]);
-    let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut fragment];
-    engine
-        .draw(
-            ScreenArt::default(),
-            &mut PaintFrame {
-                layouts: &mut layouts,
-                font: &font,
-                metrics,
-                solid_page: 0,
-                safe_area: SafeArea::ZERO,
-                content: [500.0; 2],
-                translate: &|_| None,
-                language: [0; 3],
-                now: 0.0,
-                nodes: &mut nodes,
-                next: &mut next,
-                renderers: &mut renderers,
-            },
-            |env, root| {
-                Some(json_ui::render_bound(
-                    tree,
-                    root,
-                    env,
-                    &json_ui::ViewState::default(),
-                ))
-            },
-        )
-        .unwrap()
-        .unwrap();
+    let mut fragment = Fragment {
+        nodes: Arc::from([solid(1, None, [0.0, 0.0, 10.0, 10.0])]),
+        cache: cached.then(CachedFragment::default),
+    };
+    for frame in 0..2 {
+        nodes.clear();
+        next = 1 + frame * 1000;
+        let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut fragment];
+        engine
+            .draw(
+                ScreenArt::default(),
+                &mut PaintFrame {
+                    layouts: &mut layouts,
+                    font: &font,
+                    metrics,
+                    solid_page: 0,
+                    safe_area: SafeArea::ZERO,
+                    content: [500.0; 2],
+                    translate: &|_| None,
+                    language: [0; 3],
+                    now: 0.0,
+                    nodes: &mut nodes,
+                    next: &mut next,
+                    renderers: &mut renderers,
+                },
+                |env, root| {
+                    Some(json_ui::render_bound(
+                        tree.clone(),
+                        root,
+                        env,
+                        &json_ui::ViewState::default(),
+                    ))
+                },
+            )
+            .unwrap()
+            .unwrap();
+    }
+    if let Some(cache) = &fragment.cache {
+        assert_eq!(cache.builds, 1);
+    }
     let drawn = draw(&nodes);
     let expected = [75.0, 75.0, 175.0, 175.0].map(|value| value * px);
     assert_eq!(edges(drawn.batches[0].clip), expected);

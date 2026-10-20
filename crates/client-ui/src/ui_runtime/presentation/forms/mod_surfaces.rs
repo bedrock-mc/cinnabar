@@ -190,6 +190,18 @@ impl UiPresentationRuntime {
                 .paint_mod_hud_editor(self.engine.as_deref(), &mut paint, &resolved);
             return;
         }
+        let session_icons = &self.session_icons;
+        let icon_catalog = self.icon_catalog.as_deref();
+        let icon_refs = self.icon_refs.as_deref();
+        let icon = |id: &str, metadata| {
+            super::super::session_icons::lookup_icon(
+                session_icons,
+                icon_catalog,
+                icon_refs,
+                id,
+                metadata,
+            )
+        };
         let Some(engine) = self.engine.as_deref() else {
             return;
         };
@@ -201,9 +213,11 @@ impl UiPresentationRuntime {
         );
         if self.control_previews.is_empty() {
             let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &|_| None);
-            self.screens
-                .mod_ui
-                .paint_mod_panel(self.engine.as_deref(), &mut paint);
+            self.screens.mod_ui.paint_mod_panel_with_icons(
+                self.engine.as_deref(),
+                &mut paint,
+                &icon,
+            );
             return;
         }
         let native_paint = super::super::hud_layout::capture_hud_paint(
@@ -258,7 +272,7 @@ impl UiPresentationRuntime {
         let mut paint = preview_frame.with_renderers(&mut panel_renderers);
         self.screens
             .mod_ui
-            .paint_mod_panel(self.engine.as_deref(), &mut paint);
+            .paint_mod_panel_with_icons(self.engine.as_deref(), &mut paint, &icon);
     }
 
     /// Draws the client part's modal over the gameplay scenes; trusted chrome draws after it.

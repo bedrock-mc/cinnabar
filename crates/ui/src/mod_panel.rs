@@ -4,6 +4,8 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
+pub use surface::hud_card;
+
 mod axis;
 mod control;
 pub use control::{Control, Event, MAX_PANEL_VALUE_CHARS, TextEvent, validate_text_value};

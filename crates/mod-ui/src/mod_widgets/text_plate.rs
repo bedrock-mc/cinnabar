@@ -11,74 +11,78 @@ fn value(card: &Card) -> &str {
 
 /// Measures actual glyph runs at their paint scale; stable runs reuse the engine's text cache.
 pub(in super::super) fn measure(hud: &mut Hud, text: &dyn TextMeasure) -> bool {
-    let mut changed = false;
-    for card in &mut hud.cards {
-        let Some(plate) = &card.text_plate else {
-            continue;
-        };
-        let k = f64::from(card.scale);
-        let shape = LabelShape {
-            scale: 0.8 * k * f64::from(card.text_scale),
-            line_padding: 0.,
-            hide_hyphen: true,
-        };
-        let words = [
-            if plate.style.brackets { "[" } else { "" },
-            value(card),
-            if plate.style.brackets { "]" } else { "" },
-        ];
-        let mut extents = words.map(|word| {
-            text.named_label(word, card.font.name(), None, None, shape)
-                .map(|v| if v.is_finite() { v.max(0.) } else { 0. })
-        });
-        let mut remaining = f64::from(ui::mod_hud::MAX_CARD_WIDTH) * k;
-        // Reserve both brackets before fitting the value into the shared width limit.
-        for index in [0, 2, 1] {
-            extents[index][0] = extents[index][0].min(remaining);
-            remaining -= extents[index][0];
-        }
-        let width = extents.iter().map(|v| v[0]).sum::<f64>();
-        let height = extents
-            .iter()
-            .map(|v| v[1])
-            .fold(0_f64, f64::max)
-            .min(f64::from(ui::mod_hud::MAX_TEXT_PLATE_HEIGHT) * k);
-        let background = [
-            plate
-                .style
-                .width
-                .map_or(width + 8. * k, |v| f64::from(v) * k),
-            plate
-                .style
-                .height
-                .map_or(height + 4. * k, |v| f64::from(v) * k),
-        ];
-        let size = [background[0].max(width), background[1].max(height)];
-        let mut x = (size[0] - width) * 0.5;
-        let spans = std::array::from_fn(|index| {
-            let w = extents[index][0];
-            let rect = [x, (size[1] - height) * 0.5, w, height];
-            x += w;
-            rect
-        });
-        let layout = TextPlateLayout {
-            scale: card.scale,
-            size,
-            background: [
-                (size[0] - background[0]) * 0.5,
-                (size[1] - background[1]) * 0.5,
-                background[0],
-                background[1],
-            ],
-            spans,
-        };
-        let plate = card.text_plate.as_mut().expect("measured plate");
-        if plate.layout.as_ref() != Some(&layout) {
-            plate.layout = Some(layout);
-            changed = true;
-        }
+    hud.cards
+        .iter_mut()
+        .fold(false, |changed, card| measure_card(card, text) || changed)
+}
+
+/// Measures a single requested card so hidden preview cards do no layout work.
+pub(super) fn measure_card(card: &mut Card, text: &dyn TextMeasure) -> bool {
+    let Some(plate) = &card.text_plate else {
+        return false;
+    };
+    let k = f64::from(card.scale);
+    let shape = LabelShape {
+        scale: 0.8 * k * f64::from(card.text_scale),
+        line_padding: 0.,
+        hide_hyphen: true,
+    };
+    let words = [
+        if plate.style.brackets { "[" } else { "" },
+        value(card),
+        if plate.style.brackets { "]" } else { "" },
+    ];
+    let mut extents = words.map(|word| {
+        text.named_label(word, card.font.name(), None, None, shape)
+            .map(|v| if v.is_finite() { v.max(0.) } else { 0. })
+    });
+    let mut remaining = f64::from(ui::mod_hud::MAX_CARD_WIDTH) * k;
+    // Reserve both brackets before fitting the value into the shared width limit.
+    for index in [0, 2, 1] {
+        extents[index][0] = extents[index][0].min(remaining);
+        remaining -= extents[index][0];
     }
-    changed
+    let width = extents.iter().map(|v| v[0]).sum::<f64>();
+    let height = extents
+        .iter()
+        .map(|v| v[1])
+        .fold(0_f64, f64::max)
+        .min(f64::from(ui::mod_hud::MAX_TEXT_PLATE_HEIGHT) * k);
+    let background = [
+        plate
+            .style
+            .width
+            .map_or(width + 8. * k, |v| f64::from(v) * k),
+        plate
+            .style
+            .height
+            .map_or(height + 4. * k, |v| f64::from(v) * k),
+    ];
+    let size = [background[0].max(width), background[1].max(height)];
+    let mut x = (size[0] - width) * 0.5;
+    let spans = std::array::from_fn(|index| {
+        let w = extents[index][0];
+        let rect = [x, (size[1] - height) * 0.5, w, height];
+        x += w;
+        rect
+    });
+    let layout = TextPlateLayout {
+        scale: card.scale,
+        size,
+        background: [
+            (size[0] - background[0]) * 0.5,
+            (size[1] - background[1]) * 0.5,
+            background[0],
+            background[1],
+        ],
+        spans,
+    };
+    let plate = card.text_plate.as_mut().expect("measured plate");
+    if plate.layout.as_ref() != Some(&layout) {
+        plate.layout = Some(layout);
+        return true;
+    }
+    false
 }
 
 /// Keeps native corner resizing coherent before the next font measurement is painted.

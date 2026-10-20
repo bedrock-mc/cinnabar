@@ -2,6 +2,7 @@
 
 #[cfg(feature = "test-support")]
 mod cosmetics;
+mod hud_cards;
 mod minecraft_import;
 mod mods;
 mod out_of_game;
@@ -54,7 +55,7 @@ pub enum Fixture {
     /// Two original custom-form inputs after selection moves from the first to the second.
     EditSelection,
     /// An externally supplied bounded native mod panel.
-    ModPanel(Box<ui::mod_panel::Panel>),
+    ModPanel(Box<ui::mod_panel::Panel>, Option<ui::mod_hud::Hud>),
     /// Two same-ID requests arriving while the first menu is still open.
     #[cfg(feature = "test-support")]
     FormOverlap,
@@ -80,6 +81,18 @@ const TALL_SIZE: [u32; 2] = [1280, 900];
 const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 
 pub const STATES: &[State] = &[
+    State {
+        name: "mod-hud-card-previews",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || hud_cards::fixture(true),
+    },
+    State {
+        name: "mod-hud-card-previews-empty",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || hud_cards::fixture(false),
+    },
     State {
         name: "sign-in-cache-error",
         size: SIZE,

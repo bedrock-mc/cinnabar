@@ -98,7 +98,7 @@ pub fn panel_png(
     };
     png_fixture(
         &state,
-        Fixture::ModPanel(Box::new(panel)),
+        Fixture::ModPanel(Box::new(panel), None),
         dir,
         seconds,
         resource_pack,
@@ -141,7 +141,7 @@ fn png_fixture(
         | Fixture::EditSelection
         | Fixture::BackupFont
         | Fixture::TiledImage { .. }
-        | Fixture::ModPanel(_) => false,
+        | Fixture::ModPanel(..) => false,
         #[cfg(feature = "test-support")]
         Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
@@ -213,7 +213,7 @@ fn png_fixture(
             )?;
             add_server_pages(&mut engine, &mut carriers.pages);
         }
-        Fixture::ModPanel(panel) => {
+        Fixture::ModPanel(panel, hud) => {
             let mut engine = json_engine(&carriers)?;
             if let Some(root) = resource_pack {
                 let files = panel_textures(&panel, root)?;
@@ -228,6 +228,11 @@ fn png_fixture(
                 );
             }
             let mut ui = mod_ui::ModUi::default();
+            if let Some(hud) = &hud {
+                ui.set_mod_hud_sources(
+                    [(mod_ui::PanelUiOwner::Environment(0), 1, hud)].into_iter(),
+                )?;
+            }
             ui.set_mod_panel(mod_ui::PanelUiOwner::Environment(0), Some(&panel))?;
             ui.set_mod_panel_open(true);
             for now in [0.0, seconds] {

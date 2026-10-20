@@ -3,6 +3,7 @@
 mod compact;
 mod data;
 mod edit;
+mod hud_cards;
 mod icons;
 mod input;
 mod layout;
@@ -44,6 +45,7 @@ const CHROME_HEIGHT: f64 = 88.0;
 
 pub(super) struct ModPanel {
     owner: PanelUiOwner,
+    hud_previews: hud_cards::Previews,
     panel: Panel,
     open: bool,
     catalog: Option<Arc<Catalog>>,
@@ -70,6 +72,14 @@ pub(super) struct ModPanel {
 }
 
 impl ModUi {
+    /// Reports distinct unknown HUD selectors for rendering regressions.
+    #[cfg(test)]
+    pub(crate) fn hud_preview_unknowns(&self) -> usize {
+        self.mod_panel
+            .as_ref()
+            .map_or(0, |panel| panel.hud_previews.unknown_ids)
+    }
+
     /// Preview declarations of the active or exiting panel; other owners remain inaccessible.
     pub fn control_previews(
         &self,
@@ -161,6 +171,9 @@ impl ModUi {
             panel.validate()?;
         }
         if let Some(current) = self.mod_panel.as_mut() {
+            if current.owner != owner {
+                current.hud_previews = hud_cards::Previews::default();
+            }
             if !same_shape {
                 let transitions = (current.owner == owner
                     && current.open
@@ -199,6 +212,7 @@ impl ModUi {
         } else {
             self.mod_panel = Some(ModPanel {
                 owner,
+                hud_previews: hud_cards::Previews::default(),
                 panel: panel.clone(),
                 open: false,
                 catalog: prepared.as_ref().map(|route| Arc::clone(&route.catalog)),
@@ -324,6 +338,16 @@ impl ModUi {
         &mut self,
         engine: Option<&FormEngine>,
         paint_frame: &mut PaintFrame<'_>,
+    ) {
+        self.paint_mod_panel_with_icons(engine, paint_frame, &|_, _| None);
+    }
+
+    /// Paints live previews using the caller's current item atlas, resolving only requested rows.
+    pub fn paint_mod_panel_with_icons(
+        &mut self,
+        engine: Option<&FormEngine>,
+        paint_frame: &mut PaintFrame<'_>,
+        icon: &dyn Fn(&str, u32) -> Option<ui::IconRef>,
     ) {
         let animate = !self.reduced_motion;
         let Some(panel) = self
@@ -470,13 +494,10 @@ impl ModUi {
         let caller = std::mem::take(&mut paint_frame.renderers);
         {
             let mut glass = GlassRenderer::new(world);
-            let mut renderers: Vec<&mut dyn CustomRenderer> = caller
-                .iter_mut()
-                .map(|renderer| &mut **renderer as &mut dyn CustomRenderer)
-                .collect();
-            renderers.push(&mut glass);
-            let mut nested_frame = paint_frame.with_renderers(&mut renderers);
-            let paint_frame = &mut nested_frame;
+            let mut base = RendererChain {
+                first: &mut glass,
+                rest: &mut *caller,
+            };
             let language = paint_frame.language;
             let art = ScreenArt {
                 view: Some(&panel.view),
@@ -501,17 +522,64 @@ impl ModUi {
                     );
                 }
             }
-            match renderer.draw(art, paint_frame, |env, root| {
-                screen.render_shared_with(
-                    SCREEN,
-                    catalog,
-                    &Context::default(),
-                    data,
-                    (root, px, language),
-                    env,
+            let laid = {
+                let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut base];
+                renderer
+                    .prepare(
+                        art,
+                        &mut paint_frame.with_renderers(&mut renderers),
+                        |env, root| {
+                            screen.render_shared_with(
+                                SCREEN,
+                                catalog,
+                                &Context::default(),
+                                Arc::clone(&data),
+                                (root, px, language),
+                                env,
+                                &panel.view,
+                            )
+                        },
+                    )
+                    .map(|render| Arc::clone(&render.nodes))
+            };
+            if let Some(laid) = laid {
+                panel.hud_previews.prepare(
+                    &laid,
                     &panel.view,
+                    panel.owner,
+                    &mut self.hud_sources,
+                    renderer,
+                    paint_frame,
+                    icon,
+                );
+            }
+            let result = {
+                let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut base];
+                let mut previews = panel
+                    .hud_previews
+                    .renderer(panel.owner, &mut self.hud_sources);
+                let mut combined = RendererChain {
+                    first: &mut previews,
+                    rest: &mut renderers,
+                };
+                let mut preview_renderers: [&mut dyn CustomRenderer; 1] = [&mut combined];
+                renderer.draw(
+                    art,
+                    &mut paint_frame.with_renderers(&mut preview_renderers),
+                    |env, root| {
+                        screen.render_shared_with(
+                            SCREEN,
+                            catalog,
+                            &Context::default(),
+                            data,
+                            (root, px, language),
+                            env,
+                            &panel.view,
+                        )
+                    },
                 )
-            }) {
+            };
+            match result {
                 Ok(Some(mut frame)) => {
                     if let Some(surface) = &panel.panel.surface
                         && !surface.collections.is_empty()
@@ -534,6 +602,39 @@ impl ModUi {
             }
         }
         paint_frame.renderers = caller;
+    }
+}
+
+/// Borrows a host renderer and the caller's renderers without allocating a dispatch list.
+struct RendererChain<'a, 'b> {
+    first: &'a mut dyn CustomRenderer,
+    rest: &'a mut [&'b mut dyn CustomRenderer],
+}
+
+impl CustomRenderer for RendererChain<'_, '_> {
+    /// Tries the host renderer first, then the caller's borrowed renderers.
+    fn paint(
+        &mut self,
+        node: &ui_engine::engine::screen::CustomDraw<'_>,
+        canvas: &mut ui_engine::engine::Canvas<'_>,
+    ) -> Result<bool, ui_engine::engine::screen::PaintError> {
+        if self.first.paint(node, canvas)? {
+            return Ok(true);
+        }
+        for renderer in self.rest.iter_mut() {
+            if renderer.paint(node, canvas)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Preserves every renderer's texture residency declarations.
+    fn textures<'s>(&'s self, drawn: &dyn Fn(&str) -> bool, texture: &mut dyn FnMut(&'s str)) {
+        self.first.textures(drawn, texture);
+        for renderer in self.rest.iter() {
+            renderer.textures(drawn, texture);
+        }
     }
 }
 

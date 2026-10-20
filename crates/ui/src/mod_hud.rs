@@ -59,6 +59,15 @@ pub const DEFAULT_ROW_HEIGHT: f32 = 20.;
 pub const DEFAULT_ICON_SIZE: f32 = 16.;
 pub const DEFAULT_TEXT_SCALE: f32 = 1.;
 
+/// Accepts a local card name; qualified and foreign-owner names cannot be selected.
+pub fn valid_card_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 48
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte))
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Anchor {
@@ -196,6 +205,9 @@ impl CardFont {
 #[serde(deny_unknown_fields)]
 pub struct Card {
     pub id: String,
+    /// Reserves a card for panel previews without showing it during gameplay.
+    #[serde(default)]
+    pub preview_only: bool,
     #[serde(default)]
     pub title: String,
     #[serde(default)]
@@ -258,6 +270,7 @@ impl Default for Card {
     fn default() -> Self {
         Self {
             id: String::new(),
+            preview_only: false,
             title: String::new(),
             editor_label: String::new(),
             anchor: Anchor::default(),
@@ -572,14 +585,7 @@ impl Hud {
                     return Err("native HUD source exceeds its reserved rows or has cells".into());
                 }
             }
-            if card.id.is_empty()
-                || card.id.len() > 48
-                || !card
-                    .id
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
-                || !ids.insert(&card.id)
-            {
+            if !valid_card_id(&card.id) || !ids.insert(&card.id) {
                 return Err("HUD cards require bounded unique identifiers".into());
             }
             text(&card.title)?;

@@ -65,6 +65,11 @@ fn center_on_row(label: &mut Value, center_y: f64) {
 /// Shares card controls between gameplay publication and native previews.
 pub(in super::super) fn card(card: &Card, card_index: usize, row_index: &mut usize) -> Value {
     let mut node = card_content(card, card_index, row_index);
+    node["bindings"]
+        .as_array_mut()
+        .expect("card bindings")
+        .push(json!({
+        "binding_name":format!("#card_{card_index}_visible"),"binding_name_override":"#visible"}));
     if card.font != ui::mod_hud::CardFont::Native {
         apply_font(&mut node, card.font.name());
     }
@@ -336,20 +341,41 @@ fn grid_columns(card: &Card) -> usize {
     ((card.width / card.row_height).floor() as usize).max(1)
 }
 pub(super) fn catalog(hud: &Hud) -> Result<Catalog, String> {
-    let mut index = 0;
-    let mut controls: Vec<_> = hud
-        .cards
-        .iter()
-        .enumerate()
-        .map(|(n, c)| named(&c.id, card(c, n, &mut index)))
-        .collect();
-    controls.extend(
-        hud.world_labels
-            .iter()
-            .enumerate()
-            .map(|(n, label)| super::world_labels::control(n, label)),
-    );
-    let definition = json!({"namespace":"cinnabar_personal_hud","cards":{"type":"panel","size":["100%","100%"],"controls":controls}}).to_string();
+    let mut document = json!({"namespace":"cinnabar_personal_hud"});
+    let mut row = 0;
+    let mut controls = Vec::new();
+    let mut gameplay = Vec::new();
+    for (index, source) in hud.cards.iter().enumerate() {
+        let mut body = card(source, index, &mut row);
+        let placement = body["bindings"].clone();
+        body["bindings"]
+            .as_array_mut()
+            .expect("card bindings")
+            .retain(|binding| {
+                !matches!(
+                    binding["binding_name_override"].as_str(),
+                    Some("#offset" | "#visible")
+                )
+            });
+        document[format!("card_{index}")] = body;
+        controls.push(named(
+            &format!("{}@cinnabar_personal_hud.card_{index}", source.id),
+            json!({"bindings":placement}),
+        ));
+        gameplay.push(named(
+            &format!("card_{index}"),
+            json!({"type":"custom","renderer":"cinnabar_gameplay_card",
+            "card_index":index,"size":["100%","100%"]}),
+        ));
+    }
+    for (index, label) in hud.world_labels.iter().enumerate() {
+        let control = super::world_labels::control(index, label);
+        controls.push(control.clone());
+        gameplay.push(control);
+    }
+    document["cards"] = json!({"type":"panel","size":["100%","100%"],"controls":controls});
+    document["gameplay"] = json!({"type":"panel","size":["100%","100%"],"controls":gameplay});
+    let definition = document.to_string();
     Catalog::from_files([
         ("ui/_global_variables.json", &b"{}"[..]),
         (
@@ -364,6 +390,10 @@ pub(in super::super) fn data(hud: &Hud, viewport: [f64; 2]) -> DataSource {
     let mut data = DataSource::new();
     let mut index = 0;
     for (n, card) in hud.cards.iter().enumerate() {
+        data.set_global(
+            format!("#card_{n}_visible"),
+            Scalar::Bool(!card.preview_only),
+        );
         data.set_global(format!("#card_{n}_title"), Scalar::Text(card.title.clone()));
         data.set_global(
             format!("#card_{n}_offset"),

@@ -28,6 +28,7 @@ pub struct ModUi {
     mod_hud: Option<mod_hud::ModHud>,
     mod_hud_editor: Option<mod_hud_editor::HudEditor>,
     mod_widgets: Option<mod_widgets::ModWidgets>,
+    hud_sources: mod_widgets::sources::HudSources,
     mod_crosshair: Option<ui::mod_hud::Crosshair>,
     mod_panel: Option<mod_panel::ModPanel>,
     prepared_panel_ui: std::collections::BTreeMap<PanelUiOwner, mod_panel::prepared::PreparedOwner>,
