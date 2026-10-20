@@ -269,3 +269,20 @@ fn a_destination_inside_a_linked_shader_root_is_rejected_before_creating_it() {
     ));
     assert!(!destination.exists());
 }
+
+#[cfg(unix)]
+#[test]
+fn a_destination_inside_a_linked_pack_wrapper_is_rejected_before_creating_it() {
+    let scratch = Scratch::new();
+    let source = scratch.file("Dusk");
+    let wrapper = scratch.file("wrapper");
+    fs::create_dir(&source).unwrap();
+    fs::create_dir_all(wrapper.join("shaders")).unwrap();
+    std::os::unix::fs::symlink(&wrapper, source.join("Dusk")).unwrap();
+    let destination = wrapper.join("shaderpacks");
+    assert!(matches!(
+        reject_overlap(&source, &destination.join("Dusk")),
+        Err(error) if error.kind() == io::ErrorKind::InvalidInput
+    ));
+    assert!(!destination.exists());
+}

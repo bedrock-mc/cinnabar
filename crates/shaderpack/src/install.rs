@@ -116,8 +116,12 @@ fn resolve_destination(path: &Path) -> io::Result<PathBuf> {
 fn reject_overlap(source: &Path, target: &Path) -> io::Result<()> {
     if source.is_dir() {
         let target = resolve_destination(target)?;
-        let shaders = pack_folder(source.to_path_buf()).map(|folder| folder.join("shaders"));
-        for root in std::iter::once(source).chain(shaders.as_deref()) {
+        let folder = pack_folder(source.to_path_buf());
+        let shaders = folder.as_ref().map(|folder| folder.join("shaders"));
+        for root in std::iter::once(source)
+            .chain(folder.as_deref())
+            .chain(shaders.as_deref())
+        {
             let root = root.canonicalize()?;
             if target.starts_with(&root) || root.starts_with(&target) {
                 return Err(io::Error::new(
