@@ -935,3 +935,18 @@ fn java_dimension_identifiers_follow_bedrock_dimension_order() {
         .map(JavaDimension::identifier)
     );
 }
+
+#[test]
+fn an_available_adapter_cannot_silently_skip_frame_fixtures() {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    match bevy::tasks::block_on(instance.request_adapter(&Default::default())) {
+        Ok(_) => assert!(
+            gpu().is_some(),
+            "an available adapter must create the frame fixture"
+        ),
+        Err(wgpu::RequestAdapterError::NotFound { .. }) => {
+            eprintln!("missing fixture: native GPU adapter for fixture-device admission");
+        }
+        Err(error) => panic!("fixture-device admission adapter: {error}"),
+    }
+}
