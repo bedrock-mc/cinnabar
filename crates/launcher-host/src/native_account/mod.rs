@@ -23,7 +23,7 @@ mod realms;
 mod restore;
 mod service_route;
 #[cfg(feature = "test-support")]
-pub(crate) mod test_support;
+pub mod test_support;
 mod world_metadata;
 pub use catalog::{CatalogCards, CatalogListing};
 pub use catalog_worker::CatalogWorker;

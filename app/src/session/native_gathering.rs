@@ -27,3 +27,6 @@ pub(super) fn begin(
         stage: JoinStage::Prepared(protocol::SessionEndpoint::Native(target)),
     });
 }
+
+#[cfg(test)]
+mod tests;
