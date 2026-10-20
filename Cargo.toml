@@ -175,7 +175,7 @@ wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1
 wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1c86cda04099890ab157b1ae5035" }
 
 # Iris conditions allow float option values and conditional expressions.
-pp-rs = { git = "https://github.com/cinnabar-mc/glslpp-rs", rev = "e67c2d3796526e539cf9b1678a83fbdfcfae87c1" }
+pp-rs = { git = "https://github.com/cinnabar-mc/glslpp-rs", rev = "2032a88999c95c6ca0b397758dc97930089a6608" }
 
 [profile.dev]
 opt-level = 1

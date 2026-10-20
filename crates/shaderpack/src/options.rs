@@ -62,11 +62,14 @@ pub type OptionValues = BTreeMap<String, String>;
 pub fn discover_options<'a>(
     files: impl IntoIterator<Item = (&'a str, &'a str)>,
 ) -> Vec<PackOption> {
-    let mut files: Vec<_> = files.into_iter().collect();
+    let mut files: Vec<_> = files
+        .into_iter()
+        .map(|(path, text)| (path, crate::source::normalize_newlines(text)))
+        .collect();
     files.sort_by(|a, b| a.0.cmp(b.0));
-    let tested = tested_names(files.iter().map(|(_, text)| *text));
-    let mut options: BTreeMap<&'a str, PackOption> = BTreeMap::new();
-    for (path, text) in files {
+    let tested = tested_names(files.iter().map(|(_, text)| text.as_ref()));
+    let mut options: BTreeMap<&str, PackOption> = BTreeMap::new();
+    for (path, text) in &files {
         for (index, line) in text.lines().enumerate() {
             let Some(definition) = parse_definition(line) else {
                 continue;
@@ -82,7 +85,7 @@ pub fn discover_options<'a>(
                 PackOption {
                     name: definition.name.to_owned(),
                     kind,
-                    file: path.to_owned(),
+                    file: (*path).to_owned(),
                     line: u32::try_from(index + 1).unwrap_or(u32::MAX),
                 },
             );
@@ -247,7 +250,7 @@ struct Definition<'a> {
     indent: &'a str,
     name: &'a str,
     form: Form<'a>,
-    /// Trailing comment starting at its `//`.
+    /// Trailing comments, starting at `//` or `/*`.
     comment: Option<&'a str>,
 }
 
@@ -335,7 +338,7 @@ fn parse_definition(line: &str) -> Option<Definition<'_>> {
             indent,
             name,
             form: Form::Switch { enabled },
-            comment: None,
+            comment: Some(rest.trim()),
         });
     }
     let (code, comment) = split_comment(rest);
@@ -486,10 +489,10 @@ fn tested_names<'a>(files: impl IntoIterator<Item = &'a str>) -> BTreeSet<&'a st
             };
             match keyword {
                 "ifdef" | "ifndef" => {
-                    if let Some((start, len)) = next_code_word(rest) {
-                        if let Some((name, _)) = split_ident(&rest[start..start + len]) {
-                            names.insert(name);
-                        }
+                    if let Some((start, len)) = next_code_word(rest)
+                        && let Some((name, _)) = split_ident(&rest[start..start + len])
+                    {
+                        names.insert(name);
                     }
                 }
                 "if" | "elif" => collect_defined(rest, &mut names),
@@ -577,6 +580,22 @@ const vec3 tint = vec3(1.0); // [a b]
 #endif
 // #ifdef UNTESTED_SWITCH appears only in a comment
 ";
+
+    #[test]
+    fn frontend_option_discovery_uses_all_glsl_newlines() {
+        for newline in ["\r", "\r\n", "\n"] {
+            let text = [
+                "#version 450",
+                "#define FEATURE /* note */",
+                "#ifdef FEATURE",
+                "#endif",
+            ]
+            .join(newline);
+            let options = discover_options([("a.fsh", text.as_str())]);
+            assert_eq!(options.len(), 1);
+            assert_eq!(options[0].line, 2);
+        }
+    }
 
     #[test]
     fn discovery_rules_for_every_kind() {
