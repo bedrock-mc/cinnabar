@@ -16,7 +16,7 @@ use crate::reflection::SamplerClass;
 use crate::source::{PackError, PackSource};
 use crate::transform::SamplerClasses;
 use crate::translate::{Context, ProgramTranslation, forcing, translate_program};
-use rayon::prelude::*;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 

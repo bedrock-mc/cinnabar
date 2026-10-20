@@ -20,13 +20,14 @@
 //! reads a pack's block, item and entity ids and [`IdMaps`] resolves them for Bedrock
 //! blocks, entities and items; [`BiomeUniforms`] and the `BIOME_*`/`CAT_*`/`PPT_*` macros
 //! describe Java biomes; [`sky_fog`] gives Java's sky and fog colours.
-//! [`CustomUniforms`] evaluates a pack's custom uniform and variable expressions each frame.
 //!
 //! The player's settings follow Iris: [`OptionSession`] edits values through the pack's
 //! [`OptionMenu`] with [`PackLang`] text, and [`write_option_file`] / [`read_option_file`]
 //! keep them in `<pack>.txt` beside the pack ([`option_file`]).
 //!
 //! Render-host integration and in-game acceptance remain incomplete.
+//! [`CustomUniforms`] evaluates a pack's custom uniform and variable expressions each frame;
+//! nothing uploads or renders them yet.
 mod biomes;
 mod buffers;
 mod compile;

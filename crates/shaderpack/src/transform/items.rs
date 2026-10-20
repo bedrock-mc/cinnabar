@@ -1,6 +1,6 @@
 //! Top-level item splitting, the light declaration parser, and GLSL type helpers.
 
-use crate::token::{Tok, TokKind, int, p};
+use crate::token::{Tok, TokKind, id, int, p};
 use std::collections::HashSet;
 
 /// Storage, interpolation and precision qualifiers recognised before a declaration's type.
@@ -259,8 +259,10 @@ pub(super) fn parse_decl(toks: &[Tok]) -> Option<Decl> {
             i = end;
         }
         decls.push((name, arr, init));
-        if toks.get(i)?.is(",") {
-            i += 1;
+        match toks.get(i)? {
+            token if token.is(",") && i + 1 < last => i += 1,
+            token if token.is(";") && i == last => {}
+            _ => return None,
         }
     }
     Some(Decl {
@@ -333,13 +335,12 @@ pub(super) fn is_integer(ty: &str) -> bool {
         || ty.starts_with("bvec")
 }
 
-/// Interface locations a value of `ty` occupies (`arr` elements).
-pub(super) fn loc_size(ty: &str, arr: u32) -> u32 {
-    let base = match ty {
+/// Interface locations occupied by one value of `ty`.
+pub(super) fn loc_size(ty: &str) -> u32 {
+    match ty {
         "dvec3" | "dvec4" => 2,
         t => mat_cols(t).map(|(c, _)| c).unwrap_or(1),
-    };
-    base * arr.max(1)
+    }
 }
 
 /// (columns, column type) of a `matC[xR]` type.
@@ -401,98 +402,8 @@ pub(super) fn strip_layout_keys(layout: &[Tok], keys: &[&str]) -> Vec<Tok> {
     out
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::token::lex;
-
-    /// Returns the spellings of a fixture token sequence.
-    fn texts(toks: &[Tok]) -> Vec<&str> {
-        toks.iter().map(Tok::text).collect()
-    }
-
-    #[test]
-    fn loop_binding_ends_at_the_statement_boundary() {
-        let tokens = lex(
-            "{ for (int enabled = 0; enabled < 2; enabled++) { float value = float(enabled); } bool result = enabled; }",
-        );
-        let bound = shadowed_bindings(&tokens, ["enabled"]);
-        let flags: Vec<_> = tokens
-            .iter()
-            .enumerate()
-            .filter(|(_, token)| token.ident() == Some("enabled"))
-            .map(|(i, _)| bound.contains(&i))
-            .collect();
-        assert_eq!(flags, [true, true, true, true, false]);
-    }
-
-    #[test]
-    fn top_level_items_split_at_semicolons_and_function_bodies() {
-        let toks =
-            lex("uniform float a; struct S { float x; }; void f(int i) { a = 1.0; } out vec4 c;");
-        let items: Vec<String> = split_items(&toks)
-            .iter()
-            .map(|item| texts(item).join(" "))
-            .collect();
-        assert_eq!(
-            items,
-            [
-                "uniform float a ;",
-                "struct S { float x ; } ;",
-                "void f ( int i ) { a = 1.0 ; }",
-                "out vec4 c ;",
-            ]
-        );
-    }
-
-    #[test]
-    fn declarations_keep_layout_qualifiers_arrays_and_initializers() {
-        let decl = parse_decl(&lex(
-            "layout(location = 2) flat out ivec2 a[4], b = ivec2(1, 2);",
-        ))
-        .unwrap();
-        assert_eq!(layout_key(&decl.layout, "location"), Some(2));
-        assert!(decl.has("flat") && decl.has("out"));
-        assert_eq!(decl.ty, "ivec2");
-        let decls: Vec<_> = decl
-            .decls
-            .iter()
-            .map(|(name, arr, init)| (name.as_str(), arr_len(arr), texts(init).join(" ")))
-            .collect();
-        assert_eq!(
-            decls,
-            [
-                ("a", Some(4), String::new()),
-                ("b", Some(1), "ivec2 ( 1 , 2 )".to_owned()),
-            ]
-        );
-
-        let block = parse_decl(&lex("uniform Light { vec3 dir; } light;")).unwrap();
-        assert_eq!(block.ty, "block");
-        let (name, members, inst) = block.block.unwrap();
-        assert_eq!((name.as_str(), texts(&inst)), ("Light", vec!["light"]));
-        assert_eq!(texts(&members), ["vec3", "dir", ";"]);
-
-        assert!(parse_decl(&lex("vec4 shade(vec3 n);")).is_none());
-    }
-
-    #[test]
-    fn type_helpers_describe_samplers_and_interface_sizes() {
-        assert_eq!(sampler_info("sampler2DShadow"), Some(("texture2D", true)));
-        assert_eq!(sampler_info("usampler2D"), Some(("utexture2D", false)));
-        assert!(is_opaque("image2D") && is_opaque("sampler2D") && !is_opaque("vec4"));
-        assert_eq!(mat_cols("mat3x2"), Some((3, "vec2")));
-        assert_eq!(loc_size("mat4", 2), 8);
-        assert_eq!(loc_size("dvec4", 1), 2);
-        let layout = lex("std430, binding = 3, set = 1");
-        assert_eq!(
-            texts(&strip_layout_keys(&layout, &["binding", "set"])),
-            ["std430"]
-        );
-    }
-}
-
-/// Finds every local declarator with the shared declaration parser, excluding initializer uses.
+/// Finds local variable declarators with the shared parser, excluding initializer uses
+/// and struct fields. Inline struct instances are variables in the enclosing scope.
 pub(super) fn local_declarators(toks: &[Tok]) -> HashSet<usize> {
     let mut names = HashSet::new();
     for (_, end, declaration) in declarations(toks) {
@@ -509,7 +420,15 @@ pub(super) fn local_declarators(toks: &[Tok]) -> HashSet<usize> {
 /// Finds declaration statements and their inclusive token ranges with the shared parser.
 fn declarations(toks: &[Tok]) -> Vec<(usize, usize, Decl)> {
     let mut declarations = Vec::new();
+    let mut fields_end = 0;
     for start in 0..toks.len() {
+        if start < fields_end {
+            continue;
+        }
+        let struct_end = struct_body_end(toks, start);
+        if let Some(end) = struct_end {
+            fields_end = end;
+        }
         if start > 0
             && !toks[start - 1].is("{")
             && !toks[start - 1].is(";")
@@ -520,7 +439,7 @@ fn declarations(toks: &[Tok]) -> Vec<(usize, usize, Decl)> {
             continue;
         }
         let mut depth = 0;
-        let end = (start..toks.len()).find(|&index| {
+        let end = (struct_end.unwrap_or(start)..toks.len()).find(|&index| {
             let token = &toks[index];
             if token.is("(") || token.is("[") {
                 depth += 1;
@@ -532,7 +451,16 @@ fn declarations(toks: &[Tok]) -> Vec<(usize, usize, Decl)> {
         let Some(end) = end.filter(|&end| toks[end].is(";")) else {
             continue;
         };
-        let Some(declaration) = parse_decl(&toks[start..=end]) else {
+        let inline;
+        let tokens = if let Some(end_struct) = struct_end {
+            inline = std::iter::once(id("_struct"))
+                .chain(toks[end_struct..=end].iter().cloned())
+                .collect::<Vec<_>>();
+            &inline
+        } else {
+            &toks[start..=end]
+        };
+        let Some(declaration) = parse_decl(tokens) else {
             continue;
         };
         if matches!(declaration.ty.as_str(), "return" | "else" | "do" | "case") {
@@ -610,6 +538,18 @@ pub(super) fn assignment_end(tokens: &[Tok], start: usize) -> usize {
         i += 1;
     }
     i
+}
+
+/// Returns the token after a struct body beginning at `start`, excluding its instances.
+pub(super) fn struct_body_end(tokens: &[Tok], start: usize) -> Option<usize> {
+    if tokens.get(start)?.ident() != Some("struct") {
+        return None;
+    }
+    let open = start + 1 + usize::from(tokens.get(start + 1).and_then(Tok::ident).is_some());
+    tokens
+        .get(open)
+        .filter(|token| token.is("{"))
+        .map(|_| matching(tokens, open, "{", "}") + 1)
 }
 
 /// Returns the token after one complete statement, including attached else and do/while parts.
@@ -717,4 +657,95 @@ pub(super) fn shadowed_bindings<'a>(
         }
     }
     shadowed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::token::lex;
+
+    /// Returns the spellings of a fixture token sequence.
+    fn texts(toks: &[Tok]) -> Vec<&str> {
+        toks.iter().map(Tok::text).collect()
+    }
+
+    #[test]
+    fn loop_binding_ends_at_the_statement_boundary() {
+        let tokens = lex(
+            "{ for (int enabled = 0; enabled < 2; enabled++) { float value = float(enabled); } bool result = enabled; }",
+        );
+        let bound = shadowed_bindings(&tokens, ["enabled"]);
+        let flags: Vec<_> = tokens
+            .iter()
+            .enumerate()
+            .filter(|(_, token)| token.ident() == Some("enabled"))
+            .map(|(i, _)| bound.contains(&i))
+            .collect();
+        assert_eq!(flags, [true, true, true, true, false]);
+    }
+
+    #[test]
+    fn top_level_items_split_at_semicolons_and_function_bodies() {
+        let toks =
+            lex("uniform float a; struct S { float x; }; void f(int i) { a = 1.0; } out vec4 c;");
+        let items: Vec<String> = split_items(&toks)
+            .iter()
+            .map(|item| texts(item).join(" "))
+            .collect();
+        assert_eq!(
+            items,
+            [
+                "uniform float a ;",
+                "struct S { float x ; } ;",
+                "void f ( int i ) { a = 1.0 ; }",
+                "out vec4 c ;",
+            ]
+        );
+    }
+
+    #[test]
+    fn declarations_keep_layout_qualifiers_arrays_and_initializers() {
+        let decl = parse_decl(&lex(
+            "layout(location = 2) flat out ivec2 a[4], b = ivec2(1, 2);",
+        ))
+        .unwrap();
+        assert_eq!(layout_key(&decl.layout, "location"), Some(2));
+        assert!(decl.has("flat") && decl.has("out"));
+        assert_eq!(decl.ty, "ivec2");
+        let decls: Vec<_> = decl
+            .decls
+            .iter()
+            .map(|(name, arr, init)| (name.as_str(), arr_len(arr), texts(init).join(" ")))
+            .collect();
+        assert_eq!(
+            decls,
+            [
+                ("a", Some(4), String::new()),
+                ("b", Some(1), "ivec2 ( 1 , 2 )".to_owned()),
+            ]
+        );
+
+        let block = parse_decl(&lex("uniform Light { vec3 dir; } light;")).unwrap();
+        assert_eq!(block.ty, "block");
+        let (name, members, inst) = block.block.unwrap();
+        assert_eq!((name.as_str(), texts(&inst)), ("Light", vec!["light"]));
+        assert_eq!(texts(&members), ["vec3", "dir", ";"]);
+
+        assert!(parse_decl(&lex("vec4 shade(vec3 n);")).is_none());
+    }
+
+    #[test]
+    fn type_helpers_describe_samplers_and_interface_sizes() {
+        assert_eq!(sampler_info("sampler2DShadow"), Some(("texture2D", true)));
+        assert_eq!(sampler_info("usampler2D"), Some(("utexture2D", false)));
+        assert!(is_opaque("image2D") && is_opaque("sampler2D") && !is_opaque("vec4"));
+        assert_eq!(mat_cols("mat3x2"), Some((3, "vec2")));
+        assert_eq!(loc_size("mat4"), 4);
+        assert_eq!(loc_size("dvec4"), 2);
+        let layout = lex("std430, binding = 3, set = 1");
+        assert_eq!(
+            texts(&strip_layout_keys(&layout, &["binding", "set"])),
+            ["std430"]
+        );
+    }
 }

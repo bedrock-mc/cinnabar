@@ -20,6 +20,7 @@ fn panel() -> Panel {
         }],
         sections: Vec::new(),
         capture_key: false,
+        show_gameplay_hud: false,
         motion: false,
     }
 }
@@ -27,6 +28,51 @@ fn panel() -> Panel {
 #[test]
 fn finite_slider_and_physical_key_are_accepted() {
     assert!(panel().validate().is_ok());
+}
+
+#[test]
+fn relative_axis_extent_bindings_require_a_declared_positive_numeric_value() {
+    let mut panel = panel();
+    panel.surface = Some(Surface { collections: Default::default(),
+        previews: Default::default(),
+screen:"extent.root".into(),
+        document:serde_json::json!({"namespace":"extent","root":{
+            "type":"button","size":[10,10],"button_mappings":[{
+                "from_button_id":"button.menu_select","to_button_id":"mod.drag_axis:0:x:#resize_extent","mapping_type":"pressed"
+            }]
+        }}).to_string(),
+        bindings:Default::default(),transitions:Default::default()
+    });
+    assert!(
+        panel.validate().is_err(),
+        "missing extent is not an implicit zero"
+    );
+    for value in [
+        SurfaceValue::Bool(true),
+        SurfaceValue::Text("112".into()),
+        SurfaceValue::Vector(vec![112.0, 112.0]),
+        SurfaceValue::Number(0.0),
+        SurfaceValue::Number(-1.0),
+        SurfaceValue::Number(f64::NAN),
+        SurfaceValue::Number(1_000_001.0),
+    ] {
+        panel
+            .surface
+            .as_mut()
+            .unwrap()
+            .bindings
+            .insert("#resize_extent".into(), value);
+        assert!(panel.validate().is_err());
+    }
+    for value in [0.5, 112.0, 224.0, 1_000_000.0] {
+        panel
+            .surface
+            .as_mut()
+            .unwrap()
+            .bindings
+            .insert("#resize_extent".into(), SurfaceValue::Number(value));
+        assert!(panel.validate().is_ok(), "extent={value}");
+    }
 }
 
 /// Each route admits its own bounded controls before any sparse changes are applied.
@@ -423,7 +469,7 @@ fn expanded_panels_still_reject_controls_above_the_capacity() {
 
 /// Supplies a small extension-authored screen with one declared button route.
 fn surface(action: &str) -> Surface {
-    Surface { collections: Default::default(),
+    Surface { collections: Default::default(), previews: Default::default(),
         transitions: Default::default(),
         screen: "extension.screen".into(),
         document: serde_json::json!({"namespace":"extension","screen":{
@@ -619,7 +665,7 @@ fn bounded_large_external_catalog_rejects_one_excess_control() {
 #[test]
 fn resolved_template_routes_still_require_declared_panel_controls() {
     let mut spec = panel();
-    spec.surface=Some(Surface { collections: Default::default(),transitions:Default::default(),screen:"extension.screen".into(),bindings:Default::default(),document:serde_json::json!({"namespace":"extension","button":{"type":"button","$action|default":"mod.control:0","button_mappings":[{"from_button_id":"button.menu_select","mapping_type":"pressed","to_button_id":"$action"}]},"screen":{"type":"panel","controls":[{"chosen@extension.button":{"$action":"mod.control:7"}}]}}).to_string()});
+    spec.surface=Some(Surface { collections: Default::default(), previews: Default::default(),transitions:Default::default(),screen:"extension.screen".into(),bindings:Default::default(),document:serde_json::json!({"namespace":"extension","button":{"type":"button","$action|default":"mod.control:0","button_mappings":[{"from_button_id":"button.menu_select","mapping_type":"pressed","to_button_id":"$action"}]},"screen":{"type":"panel","controls":[{"chosen@extension.button":{"$action":"mod.control:7"}}]}}).to_string()});
     assert!(spec.validate().is_err());
     let surface = spec.surface.as_mut().unwrap();
     surface.document = surface.document.replace("mod.control:7", "mod.control:0");
@@ -630,6 +676,7 @@ fn resolved_template_routes_still_require_declared_panel_controls() {
 fn transformed(transform: serde_json::Value, child: &str) -> Surface {
     Surface {
         collections: Default::default(),
+        previews: Default::default(),
         transitions: Default::default(),
         screen: "extension.screen".into(),
         document: serde_json::json!({"namespace":"extension","screen":{
@@ -676,6 +723,7 @@ fn surfaces_reject_rotated_collection_viewports() {
     use super::{CollectionDefinition, SurfaceCollection};
 
     let template = Surface {
+        previews: Default::default(),
         screen: "extension.tile".into(),
         document: serde_json::json!({"namespace":"extension", "tile":{
             "type":"panel", "size":[20,20]
@@ -734,4 +782,24 @@ fn surfaces_reject_rotated_collection_viewports() {
         surface.resolved_document().is_err(),
         "rotated placeholder document admitted"
     );
+}
+
+/// Preview declarations belong to the immutable route definition, alongside collection data.
+#[test]
+fn surface_definition_tracks_previews_but_not_scalar_bindings() {
+    let mut original = surface("mod.control:0");
+    original.previews.insert(
+        "sample".into(),
+        preview::ControlPreview {
+            reference: "fixture.first".into(),
+            ..Default::default()
+        },
+    );
+    let mut changed = original.clone();
+    changed
+        .bindings
+        .insert("#value".into(), SurfaceValue::Number(2.));
+    assert!(original.same_definition(&changed));
+    changed.previews.get_mut("sample").unwrap().reference = "fixture.second".into();
+    assert!(!original.same_definition(&changed));
 }
