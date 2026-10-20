@@ -3,12 +3,17 @@ use crate::{Action, ActionPhase, ActionSnapshot};
 
 /// The last action frame accepted by the semantic router.
 #[derive(Debug, Default, Clone)]
-pub struct FinalizedInput(Option<ActionSnapshot>);
+pub struct FinalizedInput(Option<ActionSnapshot>, bool);
 
 impl FinalizedInput {
     /// Retains a finalized router result for consumers.
     pub fn from_finalized(snapshot: ActionSnapshot) -> Self {
-        Self(Some(snapshot))
+        Self(Some(snapshot), false)
+    }
+
+    /// Whether the current movement buttons come from resolved mod controls.
+    pub fn movement_is_resolved(&self) -> bool {
+        self.1
     }
 
     /// Borrows the finalized action frame when one is available.
@@ -80,11 +85,13 @@ impl FinalizedInput {
     /// Publishes the router result for this frame.
     pub fn replace(&mut self, snapshot: ActionSnapshot) {
         self.0 = Some(snapshot);
+        self.1 = false;
     }
 
     /// Retires a frame that could not be finalized.
     pub fn clear(&mut self) {
         self.0 = None;
+        self.1 = false;
     }
 }
 
@@ -98,6 +105,7 @@ impl MovementOverlay {
     /// Overlays ordinary walking while retaining unrelated actions and physical releases.
     /// The caller arbitrates focus, world identity and manual movement first.
     pub fn apply(&mut self, input: &mut FinalizedInput, intent: Option<([f32; 2], [bool; 3])>) {
+        input.1 = intent.is_some();
         let Some(snapshot) = input.0.as_mut() else {
             self.held = [false; 3];
             return;
@@ -138,20 +146,23 @@ mod tests {
         raw_movement: [f32; 2],
         analogue_movement: [f32; 2],
     ) -> FinalizedInput {
-        FinalizedInput(Some(ActionSnapshot {
-            ordered: None,
-            frame_sequence: crate::identity::InputSequence::new(1),
-            authority_generation: crate::identity::InputAuthorityGeneration::INITIAL,
-            movement,
-            raw_movement,
-            analogue_movement,
-            movement_buttons: Default::default(),
-            look_delta: [0.0; 2],
-            input_mode: InputMode::GamePad,
-            phases: [ActionPhase::default(); Action::COUNT],
-            release_reasons: [None; Action::COUNT],
-            authority_released: false,
-        }))
+        FinalizedInput(
+            Some(ActionSnapshot {
+                ordered: None,
+                frame_sequence: crate::identity::InputSequence::new(1),
+                authority_generation: crate::identity::InputAuthorityGeneration::INITIAL,
+                movement,
+                raw_movement,
+                analogue_movement,
+                movement_buttons: Default::default(),
+                look_delta: [0.0; 2],
+                input_mode: InputMode::GamePad,
+                phases: [ActionPhase::default(); Action::COUNT],
+                release_reasons: [None; Action::COUNT],
+                authority_released: false,
+            }),
+            false,
+        )
     }
 
     #[test]

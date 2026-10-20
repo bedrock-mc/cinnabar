@@ -9,6 +9,22 @@ pub(super) struct NativeInput {
     pub(super) movement: semantic_input::finalized::MovementOverlay,
 }
 
+impl NativeInput {
+    /// Retires controls through the current world's finalized frame before releasing their owner.
+    fn apply(
+        &mut self,
+        input: &mut semantic_input::finalized::FinalizedInput,
+        scope: Option<(u64, i32)>,
+        intent: Option<([f32; 2], [bool; 3])>,
+    ) {
+        if self.scope.zip(scope).is_some_and(|(old, new)| old != new) {
+            self.movement = Default::default();
+        }
+        self.scope = scope;
+        self.movement.apply(input, intent);
+    }
+}
+
 /// Computes an absolute target's bounded step from the current host pose and frame duration.
 pub(super) fn look_delta(
     look: LookIntent,
@@ -39,10 +55,6 @@ impl super::gameplay::GameplayContext<'_> {
         let Some(state) = self.native_input.as_mut() else {
             return;
         };
-        if state.scope != scope {
-            state.movement = Default::default();
-            state.scope = scope;
-        }
         let Some(input) = self.input.as_mut() else {
             return;
         };
@@ -65,7 +77,7 @@ impl super::gameplay::GameplayContext<'_> {
                 [movement.jump, movement.sneak, movement.sprint],
             )
         });
-        state.movement.apply(input, intent);
+        state.apply(input, scope, intent);
     }
 
     /// Applies absolute look at render cadence, rather than consuming asynchronous relative steps.
@@ -117,5 +129,28 @@ mod tests {
             1.0 / 60.0,
         );
         assert!(delta.yaw > 0.0 && delta.yaw < 0.03);
+    }
+    #[test]
+    fn losing_walking_eligibility_publishes_the_retiring_buttons() {
+        let fresh = || {
+            let mut router = semantic_input::SemanticInputRouter::default();
+            router
+                .route(semantic_input::DeviceFrame::default())
+                .unwrap();
+            semantic_input::finalized::FinalizedInput::from_finalized(router.finalize().unwrap())
+        };
+        let mut state = NativeInput::default();
+        state.apply(
+            &mut fresh(),
+            Some((1, 0)),
+            Some(([0.0, 1.0], [true, true, false])),
+        );
+        let mut released = fresh();
+        state.apply(&mut released, None, None);
+        assert!(released.phase(semantic_input::Action::Jump).released);
+        assert!(released.phase(semantic_input::Action::Sneak).released);
+        let mut next_world = fresh();
+        state.apply(&mut next_world, Some((2, 0)), None);
+        assert!(!next_world.phase(semantic_input::Action::Jump).released);
     }
 }

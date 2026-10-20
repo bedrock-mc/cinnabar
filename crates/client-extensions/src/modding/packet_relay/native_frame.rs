@@ -116,6 +116,7 @@ pub(super) struct NativeFrames {
     ready: AtomicBool,
     stopped: AtomicBool,
     invalidate: AtomicBool,
+    suspend: AtomicBool,
     authority: Arc<AtomicBool>,
 }
 
@@ -137,6 +138,7 @@ impl NativeFrames {
             ready: AtomicBool::new(false),
             stopped: AtomicBool::new(false),
             invalidate: AtomicBool::new(false),
+            suspend: AtomicBool::new(false),
             authority,
         }
     }
@@ -181,7 +183,8 @@ impl NativeFrames {
             return None;
         }
         let mut effects = output.effects.clone();
-        if frame.suspended
+        if self.suspend.load(Ordering::Acquire)
+            || frame.suspended
             || output.scope.2
             || output.attack_held != frame.attack_held
             || output.observed_at.elapsed() > Duration::from_millis(250)
@@ -189,10 +192,11 @@ impl NativeFrames {
             effects.look = None;
             effects.movement = None;
         }
-        if frame.suspended || output.scope.2 {
+        if self.suspend.load(Ordering::Acquire) || frame.suspended || output.scope.2 {
             effects.detached = None;
         }
-        if frame.suspended
+        if self.suspend.load(Ordering::Acquire)
+            || frame.suspended
             || output.scope.2
             || output.attack_held != frame.attack_held
             || sequence.wrapping_sub(output.sequence) > MAX_RESULT_AGE
@@ -213,6 +217,9 @@ impl NativeFrames {
         if frame.is_none() {
             self.invalidate.store(true, Ordering::Release);
         }
+        if frame.as_ref().is_some_and(|frame| frame.suspended) {
+            self.suspend.store(true, Ordering::Release);
+        }
         let Ok(mut state) = self.state.try_lock() else {
             return Some((self.read_output(frame.as_ref(), sequence), false));
         };
@@ -231,7 +238,7 @@ impl NativeFrames {
             self.output.store(None);
             return Some((None, false));
         }
-        if state.scope != scope || invalidated {
+        if state.scope != scope || invalidated || self.suspend.load(Ordering::Acquire) {
             let same_world = state
                 .scope
                 .zip(scope)
@@ -263,6 +270,7 @@ impl NativeFrames {
             self.output.store(passive);
         }
         self.invalidate.store(false, Ordering::Release);
+        self.suspend.store(false, Ordering::Release);
         let output = self.read_output(frame.as_ref(), sequence);
         state.pending = Some(Input {
             observed_at: Instant::now(),
@@ -650,5 +658,49 @@ mod tests {
         input.observed_at -= Duration::from_secs(1);
         mailbox.complete(input, Some(effects));
         assert_eq!(mailbox.exchange(Some(frame())).unwrap().0, None);
+    }
+    #[test]
+    fn contended_suspension_retires_cached_and_inflight_controls() {
+        let mailbox = NativeFrames::new(Arc::new(AtomicBool::new(true)));
+        mailbox.activate(true);
+        mailbox.exchange(Some(frame()));
+        let old = mailbox.take_input().unwrap();
+        let effects = Effects {
+            movement: Some(mod_api::native_camera::MovementIntent {
+                yaw: 0.0,
+                axes: [0.0, 1.0],
+                jump: true,
+                sneak: false,
+                sprint: false,
+            }),
+            ..Default::default()
+        };
+        mailbox.complete(old, Some(effects.clone()));
+        mailbox.exchange(Some(frame()));
+        let inflight = mailbox.take_input().unwrap();
+        {
+            let _worker = mailbox.state.lock().unwrap();
+            let mut suspended = frame();
+            suspended.suspended = true;
+            suspended.attack_held = false;
+            suspended.players.clear();
+            assert_eq!(mailbox.exchange(Some(suspended)).unwrap().0, None);
+            assert_eq!(mailbox.exchange(Some(frame())).unwrap().0, None);
+        }
+        mailbox.complete(inflight, Some(effects));
+        assert_eq!(mailbox.exchange(Some(frame())).unwrap().0, None);
+        let fresh = mailbox.take_input().unwrap();
+        mailbox.complete(
+            fresh,
+            Some(Effects {
+                look: Some(mod_api::native_camera::LookIntent {
+                    yaw: 0.1,
+                    pitch: 0.0,
+                    speed: 2.0,
+                }),
+                ..Default::default()
+            }),
+        );
+        assert!(mailbox.exchange(Some(frame())).unwrap().0.is_some());
     }
 }
