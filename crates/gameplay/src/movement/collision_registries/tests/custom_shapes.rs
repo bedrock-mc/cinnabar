@@ -35,6 +35,41 @@ fn definitions(shapes: &[[f32; 6]]) -> protocol::CustomBlocks {
 }
 
 #[test]
+fn custom_mining_components_resolve_in_both_runtime_identity_spaces() {
+    let version = active_content_registry_protocol();
+    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let mut registries = bind(
+        BREG_V2193,
+        &synthetic_preg(version, BREG_V2193, &records),
+        version,
+    )
+    .unwrap();
+    let mut custom = definitions(&[[0.0, 0.0, 0.0, 16.0, 16.0, 16.0]]);
+    let block = &mut Arc::make_mut(&mut custom.blocks)[0];
+    block.mining = Arc::new(protocol::CustomBlockMining {
+        seconds_to_destroy: 2.0,
+        ..Default::default()
+    });
+    let (range, _) = registries.begin_session_custom_blocks(&custom).unwrap();
+    registries.begin_session_hashed_custom_blocks(&custom);
+    for (mode, id) in [
+        (assets::NetworkIdMode::Sequential, range.start),
+        (
+            assets::NetworkIdMode::Hashed,
+            custom.blocks[0].hashed_states()[0].hash,
+        ),
+    ] {
+        assert_eq!(
+            registries
+                .custom_block_mining(mode, id)
+                .unwrap()
+                .seconds_to_destroy,
+            2.0
+        );
+    }
+}
+
+#[test]
 fn native_collision_boxes_register_separate_primitives_in_both_identity_spaces() {
     let version = active_content_registry_protocol();
     let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
@@ -310,6 +345,7 @@ fn resolved_state_collision_and_selection_reach_both_identity_spaces() {
     };
     block.state_physics = [
         protocol::CustomBlockPhysics {
+            mining: Default::default(),
             random_offset: None,
             transformation: None,
             collides: true,
@@ -318,6 +354,7 @@ fn resolved_state_collision_and_selection_reach_both_identity_spaces() {
             friction: None,
         },
         protocol::CustomBlockPhysics {
+            mining: Default::default(),
             random_offset: None,
             transformation: None,
             collides: true,
@@ -326,6 +363,7 @@ fn resolved_state_collision_and_selection_reach_both_identity_spaces() {
             friction: None,
         },
         protocol::CustomBlockPhysics {
+            mining: Default::default(),
             random_offset: None,
             transformation: None,
             collides: false,
@@ -526,6 +564,7 @@ fn face_facing() -> protocol::CustomBlocks {
         ([0, 1, 3], "east"),
     ];
     let physics = turns.map(|(rotation, _)| protocol::CustomBlockPhysics {
+        mining: Default::default(),
         random_offset: None,
         // `up` is the default face and carries no authored turn.
         transformation: if rotation == [0; 3] {
@@ -567,6 +606,7 @@ fn face_facing() -> protocol::CustomBlocks {
                 state_identity_incomplete: false,
                 materialization_disabled: false,
             }),
+            mining: Default::default(),
             state_physics_complete: false,
             state_physics: physics.into(),
         }]),

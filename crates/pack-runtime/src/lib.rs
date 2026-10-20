@@ -1,6 +1,8 @@
 //! Runtime pack admission, compilation, and reload dependency tracking without Bevy.
 
+mod block_mining;
 mod block_physics;
+pub use block_mining::custom_mining_seconds;
 pub mod compile_cache;
 pub mod entity_pack;
 pub mod pack_flipbooks;

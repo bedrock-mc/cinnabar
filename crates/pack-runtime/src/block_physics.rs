@@ -23,6 +23,7 @@ fn conditions(block: &CustomBlock) -> (Vec<Condition<'_>>, usize) {
                 && physical.random_offset.is_none()
                 && physical.transformation.is_none()
                 && physical.friction.is_none()
+                && physical.mining.is_none()
             {
                 return None;
             }
@@ -81,6 +82,9 @@ fn evaluate(
         }
         if let Some(friction) = physical.friction {
             physics.friction = Some(friction);
+        }
+        if let Some(mining) = &physical.mining {
+            physics.mining = Arc::clone(mining);
         }
     }
     Some(physics)

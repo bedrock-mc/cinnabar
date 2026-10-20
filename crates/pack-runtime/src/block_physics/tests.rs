@@ -1,6 +1,42 @@
 use super::*;
 use protocol::{CustomBox, CustomSelection};
 
+#[test]
+fn custom_mining_permutations_replace_the_whole_component() {
+    let mut block = slab();
+    block.mining = Arc::new(protocol::CustomBlockMining {
+        seconds_to_destroy: 4.0,
+        ..Default::default()
+    });
+    let visuals = Arc::make_mut(&mut block.visual);
+    visuals.permutations = [protocol::CustomPermutation {
+        condition: "1".into(),
+        components: Default::default(),
+        physical: protocol::CustomPhysicalComponents {
+            mining: Some(Arc::new(protocol::CustomBlockMining {
+                seconds_to_destroy: 0.5,
+                ..Default::default()
+            })),
+            ..Default::default()
+        },
+    }]
+    .into();
+    let mut blocks = CustomBlocks {
+        blocks: [block].into(),
+        ..Default::default()
+    };
+    resolve(&mut blocks);
+    for state in 0..blocks.blocks[0].state_count {
+        assert_eq!(
+            blocks.blocks[0]
+                .physics_for_state(state)
+                .mining
+                .seconds_to_destroy,
+            0.5
+        );
+    }
+}
+
 fn text(value: &str) -> Vec<u8> {
     let mut encoded = vec![u8::try_from(value.len()).unwrap()];
     encoded.extend(value.as_bytes());
@@ -131,6 +167,7 @@ fn preparation_materializes_state_physics_for_registry_consumers() {
         assert_eq!(
             block.physics_for_state(state),
             CustomBlockPhysics {
+                mining: Default::default(),
                 random_offset: None,
                 transformation,
                 collides,
@@ -509,6 +546,7 @@ fn connection_states_select_per_state_collision() {
         components: CustomVisualComponents::default(),
     };
     let block = CustomBlock {
+        mining: Default::default(),
         state_physics_complete: false,
         state_physics: Default::default(),
         player_interact: false,

@@ -34,12 +34,15 @@ pub(super) fn selection_component(component: Option<&Nbt>) -> CustomSelection {
 }
 
 pub(super) fn physical_components(components: Option<&Nbt>) -> (CustomPhysicalComponents, usize) {
+    let (mining, mining_skips) =
+        mining::component(components.and_then(|set| set.field("minecraft:destructible_by_mining")));
     let collision = components.and_then(|set| set.field("minecraft:collision_box"));
     let (boxes, collision_skips) = collision_components(collision);
     let (friction, friction_skips) =
         friction_component(components.and_then(|set| set.field("minecraft:friction")));
     (
         CustomPhysicalComponents {
+            mining,
             random_offset: components
                 .and_then(|set| set.field("minecraft:random_offset"))
                 .and_then(random_offset_component),
@@ -53,7 +56,8 @@ pub(super) fn physical_components(components: Option<&Nbt>) -> (CustomPhysicalCo
             transformation: transformation_component(components),
             friction,
         },
-        collision_skips
+        mining_skips
+            + collision_skips
             + friction_skips
             + usize::from(
                 components

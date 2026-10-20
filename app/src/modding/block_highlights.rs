@@ -235,6 +235,7 @@ mod tests {
                 collision_boxes: None,
                 selection: protocol::CustomSelection::Default,
                 friction: None,
+                mining: Default::default(),
                 state_physics_complete: false,
                 state_physics: Default::default(),
                 player_interact: false,

@@ -135,6 +135,7 @@ fn bind(
 
 fn custom_block(name: &str, state_count: u32) -> protocol::CustomBlock {
     protocol::CustomBlock {
+        mining: Default::default(),
         state_physics_complete: false,
         state_physics: Default::default(),
         player_interact: false,

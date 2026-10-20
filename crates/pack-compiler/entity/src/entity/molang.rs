@@ -52,7 +52,11 @@ impl BlockMolang {
         &self,
         block_state: &dyn Fn(&str) -> Option<BlockStateValue<'a>>,
     ) -> Option<f32> {
-        block_value(&self.0, block_state)?.number()
+        block_value(&self.0, &|_, arguments| match arguments {
+            [Expr::String(name)] => block_state(name),
+            _ => None,
+        })?
+        .number()
     }
 }
 
@@ -65,28 +69,64 @@ impl BlockStateValue<'_> {
     }
 }
 
+/// A mining item filter that reads membership in the held item's tags.
+#[derive(Debug)]
+pub struct ItemTagMolang(Expr);
+
+impl ItemTagMolang {
+    /// Parses the tag queries supported by an item descriptor context.
+    pub fn parse(source: &str) -> Option<Self> {
+        match parse_with(source, &["query.all_tags", "query.any_tag"]).ok()? {
+            Program::Simple(expression) => Some(Self(expression)),
+            Program::Complex(_) => None,
+        }
+    }
+
+    /// Evaluates the filter against the caller's admitted item tag membership.
+    pub fn evaluate(&self, has_tag: &dyn Fn(&str) -> bool) -> Option<bool> {
+        let value = block_value(&self.0, &|name, arguments| {
+            if arguments.is_empty() {
+                return Some(BlockStateValue::Number(0.0));
+            }
+            let all = match name {
+                "query.any_tag" => false,
+                "query.all_tags" => true,
+                _ => return None,
+            };
+            let matches = arguments.iter().try_fold(all, |result, argument| {
+                let Expr::String(tag) = argument else {
+                    return None;
+                };
+                Some(if all {
+                    result && has_tag(tag)
+                } else {
+                    result || has_tag(tag)
+                })
+            })?;
+            Some(BlockStateValue::Number(f32::from(u8::from(matches))))
+        })?
+        .number()?;
+        Some(value != 0.0)
+    }
+}
+
+/// Evaluates scalar expressions with the query context supplied by their owner.
 fn block_value<'e, 'a: 'e>(
     expression: &'e Expr,
-    block_state: &dyn Fn(&str) -> Option<BlockStateValue<'a>>,
+    query: &dyn Fn(&str, &[Expr]) -> Option<BlockStateValue<'a>>,
 ) -> Option<BlockStateValue<'e>> {
-    let number = |expression: &'e Expr| block_value(expression, block_state)?.number();
+    let number = |expression: &'e Expr| block_value(expression, query)?.number();
     let truth = |value: bool| BlockStateValue::Number(if value { 1.0 } else { 0.0 });
     Some(match expression {
         Expr::Number(value) => BlockStateValue::Number(*value),
         Expr::String(text) => BlockStateValue::String(text),
         // A block context has no variable storage, so every variable reads as unset.
         Expr::Variable(..) => BlockStateValue::Number(0.0),
-        Expr::Query(_, Some(arguments)) => match arguments.as_slice() {
-            [Expr::String(name)] => block_state(name)?,
-            _ => return None,
-        },
+        Expr::Query(name, Some(arguments)) => query(name, arguments)?,
         Expr::Unary(Unary::Negate, value) => BlockStateValue::Number(-number(value)?),
         Expr::Unary(Unary::Not, value) => truth(number(value)? == 0.0),
         Expr::Binary(operator @ (Binary::Equal | Binary::NotEqual), left, right) => {
-            let equal = match (
-                block_value(left, block_state)?,
-                block_value(right, block_state)?,
-            ) {
+            let equal = match (block_value(left, query)?, block_value(right, query)?) {
                 (BlockStateValue::Number(left), BlockStateValue::Number(right)) => left == right,
                 (BlockStateValue::String(left), BlockStateValue::String(right)) => left == right,
                 _ => return None,
@@ -100,10 +140,10 @@ fn block_value<'e, 'a: 'e>(
         Expr::Or(left, right) => truth(number(left)? != 0.0 || number(right)? != 0.0),
         Expr::Conditional(condition, yes, no) => {
             if number(condition)? != 0.0 {
-                block_value(yes, block_state)?
+                block_value(yes, query)?
             } else {
                 match no {
-                    Some(no) => block_value(no, block_state)?,
+                    Some(no) => block_value(no, query)?,
                     None => BlockStateValue::Number(0.0),
                 }
             }

@@ -11,6 +11,7 @@ fn block() -> CustomBlock {
         collision_boxes: None,
         selection: CustomSelection::Default,
         friction: None,
+        mining: Default::default(),
         state_physics_complete: false,
         state_physics: Arc::default(),
         player_interact: false,

@@ -190,6 +190,7 @@ mod tests {
         stream.set_sequential_id_remap(assets::SequentialIdRemap::new([(3, 2, 10)]));
         stream.set_light_diagnostic_custom_blocks(CustomBlocks {
             blocks: Arc::from([CustomBlock {
+                mining: Default::default(),
                 state_physics_complete: false,
                 state_physics: Default::default(),
                 player_interact: false,

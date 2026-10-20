@@ -1,4 +1,6 @@
+mod mining;
 mod physical;
+pub use mining::{CustomBlockMining, CustomMiningItem, CustomMiningSpeed};
 mod placement;
 mod shared_states;
 use std::sync::Arc;
@@ -30,6 +32,8 @@ const VANILLA_NAMESPACE: &str = "minecraft";
 /// One server-defined block from StartGame.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CustomBlock {
+    /// Mining values shared by every state unless a permutation replaces them.
+    pub mining: Arc<CustomBlockMining>,
     pub name: Arc<str>,
     /// Server-declared block tags used by target priorities and exclusions.
     pub tags: Arc<[Arc<str>]>,
@@ -194,6 +198,7 @@ pub struct CustomPermutation {
 /// Collision and targeting components present in a permutation; absent fields inherit.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CustomPhysicalComponents {
+    pub mining: Option<Arc<CustomBlockMining>>,
     pub random_offset: Option<block_transform::random_offset::RandomOffsetComponent>,
     pub collision: Option<CustomCollision>,
     pub selection: Option<CustomSelection>,
@@ -211,6 +216,7 @@ pub struct CustomCollision {
 /// Effective physical components for one palette state.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CustomBlockPhysics {
+    pub mining: Arc<CustomBlockMining>,
     pub random_offset: Option<block_transform::random_offset::RandomOffsetComponent>,
     /// Transform this state's boxes inherit, about the block centre.
     pub transformation: Option<CustomTransformation>,
@@ -255,6 +261,7 @@ impl CustomBlock {
     #[must_use]
     pub fn base_physics(&self) -> CustomBlockPhysics {
         CustomBlockPhysics {
+            mining: Arc::clone(&self.mining),
             random_offset: self.visual.base.random_offset,
             transformation: self.visual.base.transformation,
             collides: self.collides,
@@ -449,6 +456,7 @@ impl CustomBlocks {
                 Some(definition) => {
                     skipped += definition.skipped;
                     blocks.push(CustomBlock {
+                        mining: definition.mining,
                         name: Arc::from(name),
                         tags: definition.tags,
                         state_count: definition.state_count,
@@ -504,6 +512,7 @@ impl CustomBlocks {
 }
 
 struct Definition {
+    mining: Arc<CustomBlockMining>,
     tags: Arc<[Arc<str>]>,
     skipped: usize,
     state_count: u32,
@@ -616,6 +625,8 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
         return None;
     }
     let components = root.field("components");
+    let (mining, mining_skips) =
+        mining::component(components.and_then(|set| set.field("minecraft:destructible_by_mining")));
     placement::components(&mut placement, components);
     let collision_component = components.and_then(|set| set.field("minecraft:collision_box"));
     let collides = collision_enabled(collision_component);
@@ -661,8 +672,9 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
                 .is_some_and(|_| transformation_component(components).is_none()),
         );
     Some(Definition {
+        mining: mining.unwrap_or_default(),
         tags,
-        skipped: tag_skips + physical_skips + permutation_skips,
+        skipped: tag_skips + mining_skips + physical_skips + permutation_skips,
         state_count: u32::try_from(states).ok()?,
         collides,
         collision_boxes,
