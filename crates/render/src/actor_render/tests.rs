@@ -30,6 +30,9 @@ mod pipeline_material_gpu_tests;
 #[path = "frame_order_tests.rs"]
 mod frame_order_tests;
 
+#[path = "draw_span_tests.rs"]
+mod draw_span_tests;
+
 #[path = "allocation_fault_tests.rs"]
 pub(crate) mod allocation_fault_tests;
 

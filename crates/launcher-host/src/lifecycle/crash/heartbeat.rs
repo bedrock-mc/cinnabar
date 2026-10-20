@@ -39,6 +39,8 @@ pub struct Region {
     thread: AtomicU64,
     /// Samples the monitor took; written by the monitor only.
     checks: AtomicU64,
+    /// The last authenticated dump announcement received; written by the monitor only.
+    dump_receipt: AtomicU64,
 }
 
 /// Bytes of the heartbeat file.
@@ -69,6 +71,16 @@ impl Region {
     /// Counts one monitor sample; only the monitor calls this.
     pub fn record_check(&self) {
         self.checks.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Acknowledges the exact dump announcement after its preceding socket messages were read.
+    pub fn acknowledge_dump(&self, request: u64) {
+        self.dump_receipt.store(request, Ordering::Release);
+    }
+
+    /// Whether the monitor received this announcement, rather than an earlier request.
+    pub fn dump_acknowledged(&self, request: u64) -> bool {
+        self.dump_receipt.load(Ordering::Acquire) == request
     }
 }
 
@@ -152,7 +164,8 @@ pub(super) fn watch(crash_dir: &Path, pid: u32, nonce: u64) -> io::Result<PathBu
     Ok(path)
 }
 
-fn watched() -> Option<&'static Region> {
+/// The process-lifetime shared region, also safe to read from native crash handlers.
+pub(super) fn watched() -> Option<&'static Region> {
     WATCHED.get().map(Heartbeat::region)
 }
 

@@ -17,6 +17,23 @@ pub(crate) fn render_pass_timestamps(
     world.get_resource::<GpuTimestamps>()?.render_pass(stage)
 }
 
+/// Times an existing compute pass only in detailed non-Metal frames.
+pub(crate) fn compute_pass_timestamps(
+    world: &World,
+    stage: RuntimeStage,
+) -> Option<wgpu::ComputePassTimestampWrites<'_>> {
+    let timestamps = world.get_resource::<GpuTimestamps>()?;
+    if cfg!(target_os = "macos") || !timestamps.pass_detail {
+        return None;
+    }
+    let span = timestamps.open_pass(stage)?;
+    Some(wgpu::ComputePassTimestampWrites {
+        query_set: span.queries,
+        beginning_of_pass_write_index: Some(span.begin),
+        end_of_pass_write_index: Some(span.begin + 1),
+    })
+}
+
 /// Separates owned UI passes only when requested, retaining the legacy category otherwise.
 pub(crate) fn ui_pass_timestamps(
     world: &World,
@@ -40,14 +57,18 @@ impl GpuTimestamps {
                 && (stage == RuntimeStage::GpuUi || RuntimeStage::GPU_UI.contains(&stage)))
     }
 
-    /// Uses owned pass queries on Metal and for explicitly requested UI categories.
+    /// Uses owned queries on Metal, for UI diagnostics, and for detailed late terrain.
     pub(super) fn render_pass(
         &self,
         stage: RuntimeStage,
     ) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
         let ui_pass = self.ui_categories
             && (stage == RuntimeStage::GpuUi || RuntimeStage::GPU_UI.contains(&stage));
-        if !cfg!(target_os = "macos") && !ui_pass {
+        if stage == RuntimeStage::GpuTerrainLate {
+            if cfg!(target_os = "macos") || !self.pass_detail {
+                return None;
+            }
+        } else if !cfg!(target_os = "macos") && !ui_pass {
             return None;
         }
         let span = self.open_pass(stage)?;

@@ -1,4 +1,3 @@
-use pack_compile_input::json::parse_unique_json;
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::Path,
@@ -7,7 +6,7 @@ use std::{
 use assets::{AssetError, EntityAssetSource, EntityRenderMaterialState};
 use serde_json::{Map, Value};
 
-use super::SourcePayloads;
+use super::SourceDocuments;
 
 struct Definition {
     parent: Option<Box<str>>,
@@ -23,18 +22,15 @@ impl MaterialStates {
     /// Reads retained material declarations once for this compilation.
     pub(super) fn load(
         root: &Path,
-        payloads: &SourcePayloads,
+        payloads: &SourceDocuments<'_>,
         sources: &[EntityAssetSource],
     ) -> Result<Self, AssetError> {
         let mut states = Self::default();
         for source in sources.iter().filter(|source| {
             source.path.starts_with("materials/") && source.path.ends_with(".material")
         }) {
-            let bytes = payloads
-                .get(source.path.as_ref())
-                .ok_or_else(|| super::invalid("retained material source payload is absent"))?;
-            let value = parse_unique_json(&root.join(source.path.as_ref()), bytes)?;
-            states.read(&value);
+            let value = payloads.read(root, &source.path)?;
+            states.read(value);
         }
         Ok(states)
     }

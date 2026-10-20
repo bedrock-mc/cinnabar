@@ -18,6 +18,7 @@ use {
 
 mod atlas;
 mod block_models;
+mod cosmetic_particles;
 mod cosmetic_previews;
 mod fire;
 mod held;
@@ -97,6 +98,7 @@ pub(super) struct GuiModels {
     pub(super) pack_equipment: pack_equipment::PackEquipment,
     live_player: live_player::LivePlayer,
     cosmetics: cosmetic_previews::Previews,
+    pub(super) particles: cosmetic_particles::PreviewParticles,
     cape: Option<render_model::cape::CapeRig>,
     pub(super) wearing_elytra: bool,
     models: BTreeMap<IconKey, Arc<UiMesh>>,
@@ -708,6 +710,7 @@ impl UiPresentationRuntime {
             };
             sources = sources.with_attachment(vertices, icon);
         }
+        sources = sources.with_particles(self.gui_models.particles.mesh.as_deref());
         Some(sources)
     }
 

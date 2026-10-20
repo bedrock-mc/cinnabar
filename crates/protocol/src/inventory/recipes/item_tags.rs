@@ -1,8 +1,8 @@
-//! Vanilla item tag membership from the pinned Dragonfly-derived table.
+//! Vanilla item tag membership from the shared native runtime catalog.
 
 use std::sync::OnceLock;
 
-const TABLE: &str = include_str!("../../../data/item_tags_dragonfly.tsv");
+const TABLE: &str = include_str!("../../../data/item_tags_native.tsv");
 
 type Tags = Vec<(&'static str, Vec<&'static str>)>;
 
@@ -39,27 +39,32 @@ mod tests {
 
     use super::*;
 
-    /// The embedded table's LF contents are exactly the pinned artifact, and its header's
-    /// source digest is recorded in the data-sources manifest.
+    /// Memberships stay pinned while the header identifies the shared catalog's source lock.
     #[test]
-    fn table_is_pinned_and_its_source_is_in_the_manifest() {
+    fn memberships_are_pinned_and_share_the_registry_source_lock() {
         // Git's Windows checkout can convert the text table to CRLF.
         let canonical = TABLE.replace("\r\n", "\n");
-        let digest: [u8; 32] = Sha256::digest(canonical.as_bytes()).into();
+        let (header, memberships) = canonical.split_once('\n').unwrap();
+        let digest: [u8; 32] = Sha256::digest(memberships.as_bytes()).into();
         assert_eq!(
             hex(&digest),
-            "f291e91d363203b16f92c6625361e09ed367d65ed67d9fb056b527019867c3ac"
+            "6d29cac293368b245adeab4c82820d8874251b7d3464131391fb58ad1f9f62b4"
         );
-        let header = TABLE.lines().next().unwrap();
         let source = header
-            .split_once("sha256=")
+            .split_once("source_lock_sha256=")
             .unwrap()
             .1
-            .split(';')
+            .split_ascii_whitespace()
             .next()
             .unwrap();
-        let manifest = include_str!("../../../../../assets/block-data-sources.json");
-        assert!(manifest.contains(&format!("\"sha256\": \"{source}\"")));
+        let manifest: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../assets/block-projection-v2193.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            source,
+            manifest["source"]["source_lock_sha256"].as_str().unwrap()
+        );
         for row in TABLE.lines().filter(|line| !line.starts_with('#')) {
             let (tag, members) = row.split_once('\t').expect("item tag row");
             for identifier in members.split_whitespace() {
@@ -88,6 +93,7 @@ mod tests {
         );
     }
 
+    /// Encodes the independently pinned membership digest for its fixture assertion.
     fn hex(bytes: &[u8]) -> String {
         bytes.iter().map(|byte| format!("{byte:02x}")).collect()
     }

@@ -310,6 +310,11 @@ pub(super) fn snapshot(world: &World) -> Value {
             json!({ "yaw": yaw, "pitch": pitch })
         }),
         "health": health,
+        "form": form_snapshot(world),
+        "hud": world.get_resource::<UiRuntimeResource>().map(|ui| json!({
+            "title": ui.hud().title_text(),
+            "subtitle": ui.hud().subtitle_text(),
+        })),
         "java_animations": world.get_resource::<client_presentation::camera::CameraSettingsAuthority>()
             .map(|settings| settings.feel().java_animations),
         "perspective": world.get_resource::<client_presentation::camera::CameraSettingsAuthority>()
@@ -384,6 +389,39 @@ pub(super) fn snapshot(world: &World) -> Value {
             "upload_acknowledged": runtime.prediction_frames.upload_acknowledged_frame,
         })),
     })
+}
+
+/// Exposes the active form's rendered input targets in window coordinates for headless checks.
+fn form_snapshot(world: &World) -> Option<Value> {
+    let entry = world
+        .get_resource::<UiRuntimeResource>()?
+        .server_forms()
+        .active()?;
+    let presentation =
+        world.get_resource::<client_shell::ui_resources::UiPresentationResource>()?;
+    let frame = presentation.form_engine_frame(entry.identity)?;
+    let rect = |r: json_ui::RectOut| {
+        [
+            f64::from(frame.origin[0]) + r.x * f64::from(frame.scale),
+            f64::from(frame.origin[1]) + r.y * f64::from(frame.scale),
+            r.w * f64::from(frame.scale),
+            r.h * f64::from(frame.scale),
+        ]
+    };
+    Some(json!({
+        "id": entry.form_id, "kind": format!("{:?}", entry.kind), "title": entry.title,
+        "content": match &entry.model {
+            protocol::ServerFormModel::TextMenu(form) => Some(form.content.to_string()),
+            protocol::ServerFormModel::Modal(form) => Some(form.content.to_string()),
+            _ => None,
+        },
+        "cancel_target": frame.cancel_target,
+        "hits": frame.hits.iter().take(1024).map(|hit| json!({
+            "key": hit.key, "name": hit.name, "kind": format!("{:?}", hit.kind),
+            "index": hit.collection_index, "pressed": hit.pressed, "enabled": hit.enabled,
+            "checked": hit.checked, "rect": rect(hit.rect), "clip": rect(hit.clip),
+        })).collect::<Vec<_>>()
+    }))
 }
 
 /// Publishes camera diagnostics only when the developer explicitly requests a state snapshot.

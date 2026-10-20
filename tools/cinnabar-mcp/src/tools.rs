@@ -199,6 +199,10 @@ impl Server {
         let mut reply = self.send(
             &Command::Connect {
                 address: address.clone(),
+                auth_cache: arguments
+                    .get("auth_cache")
+                    .and_then(Value::as_str)
+                    .map(|path| resolve(&self.repo, path)),
             },
             CALL_TIMEOUT,
         )?;

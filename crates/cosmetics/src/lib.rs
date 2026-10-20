@@ -11,6 +11,8 @@ use std::{
 };
 
 pub mod emotes;
+mod ownership;
+pub use ownership::{owns, set_ownership};
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 

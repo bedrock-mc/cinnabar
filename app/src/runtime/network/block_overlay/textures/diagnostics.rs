@@ -48,7 +48,7 @@ impl FailureReason {
 }
 
 /// Total rejections plus the bounded routes exemplifying them.
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct ReasonFailures {
     count: usize,
     routes: Vec<(String, String)>,
@@ -56,7 +56,7 @@ struct ReasonFailures {
 
 /// Counts every rejected terrain route and names a bounded sample of each, so a
 /// stack with thousands of failures still says which stage rejected them.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct TextureDiagnostics {
     reasons: RefCell<BTreeMap<FailureReason, ReasonFailures>>,
 }
