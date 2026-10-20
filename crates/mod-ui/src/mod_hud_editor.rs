@@ -296,13 +296,15 @@ impl ModUi {
             self.set_mod_panel_open(false);
             return;
         }
+        let icons = std::mem::take(&mut editor.icons);
+        let keep_out = std::mem::take(&mut editor.keep_out);
         let mut items = ItemRenderer {
-            icons: &editor.icons,
+            icons: &icons,
             id_aux: &[],
         };
         let mut glass = GlassRenderer::new(world);
         let mut zones = feedback::KeepOutRenderer {
-            rects: &editor.keep_out,
+            rects: &keep_out,
             dragging: editor.drag.is_some(),
         };
         let mut renderers: [&mut dyn CustomRenderer; 3] = [&mut items, &mut glass, &mut zones];
@@ -349,6 +351,8 @@ impl ModUi {
             },
         );
         editor.view = view;
+        editor.icons = icons;
+        editor.keep_out = keep_out;
         match result {
             Ok(Some(frame)) => editor.frame = Some(frame),
             result => {

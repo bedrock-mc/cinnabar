@@ -6,6 +6,7 @@ mod tests;
 
 pub(in super::super) struct Drag {
     index: usize,
+    before: Placement,
     grab: [f64; 2],
     start: [f64; 2],
     last: [f64; 2],
@@ -161,11 +162,10 @@ impl HudEditor {
     /// Releases an unfinished drag without promoting it to a saved placement.
     pub(in super::super) fn cancel_drag(&mut self) {
         self.data_dirty |= self.drag.is_some();
-        if let Some(drag) = self.drag.take()
-            && self.autosave
-        {
-            self.draft.cards[drag.index] = self.committed.cards[drag.index].clone();
-            if drag.resize.is_some() {
+        if let Some(drag) = self.drag.take() {
+            let resized = self.draft.cards[drag.index].scale != drag.before.scale;
+            drag.before.apply_to(&mut self.draft.cards[drag.index]);
+            if resized {
                 self.catalog = None;
             }
         }
@@ -376,6 +376,7 @@ impl HudEditor {
                 *index < self.draft.cards.len()
                     && !self.hidden.contains(&self.draft.cards[*index].id)
             });
+            let before = capture.map(|(index, _)| Placement::capture(&self.draft.cards[index]));
             let frozen = capture.is_some_and(|(index, _)| self.freeze_anchor_motion(index));
             self.drag = capture.map(|(index, corner)| {
                 let card = &self.draft.cards[index];
@@ -383,6 +384,7 @@ impl HudEditor {
                 let size = cards::dimensions(card);
                 Drag {
                     index,
+                    before: before.expect("captured placement"),
                     grab: std::array::from_fn(|axis| point[axis] - at[axis]),
                     start: point,
                     last: point,
@@ -463,7 +465,7 @@ impl HudEditor {
                 if self.drag.is_some() {
                     return;
                 }
-                self.anchor_motion = None;
+                self.settle_anchor_motion();
                 if let Some(index) = self.selected {
                     let mut at = cards::origin(&self.draft.cards[index], self.viewport);
                     let axis = usize::from(matches!(key, "ArrowUp" | "ArrowDown"));

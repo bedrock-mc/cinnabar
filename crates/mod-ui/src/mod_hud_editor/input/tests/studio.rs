@@ -569,3 +569,19 @@ fn studio_pressing_an_animated_card_captures_its_displayed_origin_for_move_and_r
         saved.validate().unwrap();
     }
 }
+
+#[test]
+fn studio_pointer_cancellation_rolls_back_unfinished_gestures_in_both_save_modes() {
+    for autosave in [false, true] {
+        let mut editor = editor(autosave);
+        let original = editor.draft.cards[0].clone();
+        let point = frame(&mut editor, "hud.card:0");
+        editor.pointer(point, true, true, &mut []);
+        editor.pointer([point[0] + 20., point[1] + 20.], false, true, &mut []);
+        editor.cancel_pointer_input();
+        assert_eq!(editor.draft.cards[0], original);
+        assert_eq!(editor.history.available(), [false, false]);
+        editor.step_history(false);
+        assert_eq!(editor.draft.cards[0], original);
+    }
+}
