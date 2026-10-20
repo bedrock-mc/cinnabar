@@ -592,3 +592,50 @@ fn spacers_follow_their_items_visibility_bindings() {
         "D's gap shows with D"
     );
 }
+
+// An `@image` export already has the layer's opacity baked in; it is not applied again.
+#[test]
+fn raster_opacity_applies_once() {
+    // The plugin's export of a white layer at 50% opacity.
+    let images = BTreeMap::from([(
+        "node:14:2".to_owned(),
+        solid_png(20, 20, [255, 255, 255, 128]),
+    )]);
+    let conversion = figma::convert(&fixture("raster_opacity"), &images);
+    assert!(conversion.warnings.is_empty(), "{:?}", conversion.warnings);
+    let (mut session, _, frame) = laid_out(&conversion, 1);
+    let rgba = session.paint(&frame, 0.0).unwrap();
+    let [r, g, b, _] = pixel(&rgba, 40, 10, 10);
+    assert!(
+        (120..=136).contains(&r) && r == g && g == b,
+        "50% white over black: {r} {g} {b}"
+    );
+}
+
+// Absolute children of an auto-layout frame keep Figma's drawing order around
+// the stacked items, reversed by `itemReverseZIndex`; one between items warns.
+#[test]
+fn absolute_children_keep_their_drawing_order() {
+    let conversion = figma::convert(&fixture("absolute_order"), &BTreeMap::new());
+    assert_eq!(
+        messages(&conversion),
+        [(
+            "Order Test / Stack / Pin".to_owned(),
+            "an absolute layer between auto-layout items draws above all of them".to_owned(),
+        )]
+    );
+    let (mut session, _, frame) = laid_out(&conversion, 1);
+    let rgba = session.paint(&frame, 0.0).unwrap();
+    assert!(
+        near(pixel(&rgba, 120, 30, 5), [0, 255, 0, 255]),
+        "A above the backdrop"
+    );
+    assert!(
+        near(pixel(&rgba, 120, 5, 35), [255, 255, 255, 255]),
+        "the badge above B"
+    );
+    assert!(
+        near(pixel(&rgba, 120, 90, 5), [255, 0, 255, 255]),
+        "reversed: the cover above C"
+    );
+}

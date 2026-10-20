@@ -117,6 +117,7 @@ async function serialize(node: SceneNode, parent: Transform, images: Images): Pr
       primary_align: node.primaryAxisAlignItems,
       counter_align: node.counterAxisAlignItems,
       wrap: node.layoutWrap === 'WRAP',
+      reverse_z_index: node.itemReverseZIndex,
     };
   }
   if (node.type === 'TEXT') {
@@ -159,12 +160,26 @@ async function variants(node: InstanceNode, images: Images): Promise<Json[]> {
       clone.swapComponent(variant);
       // Named for its variant, the clone no longer carries the button token.
       clone.name = variant.name;
-      out.push(await serialize(clone, clone.absoluteTransform, images));
+      const serialized = await serialize(clone, clone.absoluteTransform, images);
+      liveIds(serialized, node);
+      out.push(serialized);
     } finally {
       clone.remove();
     }
   }
   return out;
+}
+
+// Points a variant snapshot's IDs at the live instance's layers, matched by
+// name down the tree (else the nearest matched ancestor), since the clone is deleted.
+function liveIds(serialized: Json, live: SceneNode): void {
+  serialized.id = live.id;
+  const liveChildren = 'children' in live ? live.children : [];
+  for (const child of (serialized.children as Json[] | undefined) ?? []) {
+    liveIds(child, liveChildren.find((candidate) => candidate.name === child.name) ?? live);
+  }
+  // A nested button's own variant snapshots map onto its live counterpart.
+  for (const variant of (serialized.variants as Json[] | undefined) ?? []) liveIds(variant, live);
 }
 
 // `[horizontal, vertical]` auto-layout sizing, where Figma defines it.

@@ -135,6 +135,10 @@ impl Ctx<'_> {
         };
         // An instance's variants are snapshots of it that already carry its opacity.
         let mut opacity = node.opacity;
+        // An `@image` export already has the layer's opacity baked in.
+        if node.raster.is_some() {
+            opacity = 1.0;
+        }
         let (mut body, auto, extent) = match variants {
             Some((states, extent)) => {
                 if node.kind == "INSTANCE" {
@@ -605,13 +609,36 @@ impl Ctx<'_> {
         stack.insert("size".into(), json!(size));
         stack.insert("offset".into(), json!(offset));
         anchor(&mut stack, parts);
-        outer.push(entry(&names.unique("content"), stack));
+        // Absolute layers keep Figma's drawing order around the stacked items.
+        let mut drawn: Vec<&Node> = node.children.iter().collect();
+        if layout.reverse_z_index {
+            drawn.reverse();
+        }
+        let is_flow = |child: &&Node| child.positioning == Positioning::Auto;
+        let first_flow = drawn.iter().position(is_flow).unwrap_or(drawn.len());
+        let last_flow = drawn.iter().rposition(is_flow).unwrap_or(0);
         let parent = [node.width, node.height];
-        for child in absolute {
-            if let Some((name, body)) = self.control(child, Place::Free { parent }, scope) {
-                outer.push(entry(&names.unique(&name), body));
+        let mut after = Vec::new();
+        for (at, child) in drawn.into_iter().enumerate() {
+            if is_flow(&child) {
+                continue;
+            }
+            if at > first_flow && at < last_flow {
+                let message = "an absolute layer between auto-layout items draws above all of them";
+                self.warn(child, &scope.path_to(child), message);
+            }
+            let Some((name, body)) = self.control(child, Place::Free { parent }, scope) else {
+                continue;
+            };
+            let control = entry(&names.unique(&name), body);
+            if at < first_flow {
+                outer.push(control);
+            } else {
+                after.push(control);
             }
         }
+        outer.push(entry(&names.unique("content"), stack));
+        outer.extend(after);
         panel(outer)
     }
 

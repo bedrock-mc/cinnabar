@@ -178,6 +178,8 @@ pub struct AutoLayout {
     pub primary_align: Align,
     pub counter_align: Align,
     pub wrap: bool,
+    /// Figma's `itemReverseZIndex`: the first layer draws on top.
+    pub reverse_z_index: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
