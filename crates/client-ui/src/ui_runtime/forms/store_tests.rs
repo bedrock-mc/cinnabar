@@ -104,6 +104,44 @@ fn element_menu_indexes_count_buttons_only() {
 }
 
 #[test]
+fn control_locked_submission_keeps_every_original_value_slot() {
+    let Some(protocol::WorldEvent::Ui(protocol::UiEvent::Form(event))) =
+        protocol::into_world_event(
+            protocol::test_support::packets::modal_form_request_packet(
+                4,
+                r#"{
+            "type":"custom_form","content":[
+                {"type":"label","text":"Values"},
+                {"type":"toggle","default":true,"control_locked":"ingame"},
+                {"type":"slider","min":0,"max":10,"default":4,"control_locked":"ingame"},
+                {"type":"step_slider","steps":["A","B"],"default":1,"control_locked":"ingame"},
+                {"type":"input","default":"Draft","control_locked":"ingame"}
+            ]}"#,
+            ),
+            0,
+        )
+        .unwrap()
+    else {
+        panic!("custom form packet");
+    };
+    let mut runtime = admit(event.model, FormKind::Custom);
+    answer(&mut runtime, LocalFormAction::CustomElements);
+    assert_eq!(
+        sent(&mut runtime),
+        vec![custom_form_submit_response(
+            4,
+            &[
+                CustomFormValue::Null,
+                CustomFormValue::Toggle(true),
+                CustomFormValue::Slider(4.0),
+                CustomFormValue::Step(1),
+                CustomFormValue::Input("Draft".into()),
+            ]
+        )]
+    );
+}
+
+#[test]
 fn custom_form_submits_the_edited_values_in_order() {
     let mut runtime = admit(
         ServerFormModel::Custom(CustomForm {
@@ -114,11 +152,13 @@ fn custom_form_submits_the_edited_values_in_order() {
                     text: protocol::FormText::from("L"),
                 },
                 CustomFormElement::Toggle {
+                    control_locked: Default::default(),
                     text: protocol::FormText::from("On"),
                     default: false,
                     tooltip: None,
                 },
                 CustomFormElement::Input {
+                    control_locked: Default::default(),
                     text: protocol::FormText::from("Name"),
                     placeholder: protocol::FormText::from(""),
                     default: Arc::from("Ste"),
