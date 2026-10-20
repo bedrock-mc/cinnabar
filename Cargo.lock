@@ -130,6 +130,7 @@ dependencies = [
  "render-model",
  "sha2",
  "simulation-clock",
+ "test-alloc",
  "tracing",
  "world",
 ]
@@ -2362,7 +2363,6 @@ dependencies = [
  "ui",
  "ui-engine",
  "ui-screens",
- "update-installer",
  "update-manifest",
  "url",
  "uuid",
@@ -3292,7 +3292,6 @@ dependencies = [
  "tiny-skia",
  "tracing",
  "ui",
- "update-installer",
  "wgpu",
  "windows-sys 0.61.2",
  "winit",
