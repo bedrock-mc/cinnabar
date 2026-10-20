@@ -66,29 +66,39 @@ impl ShaderPackStatus {
 /// How far the load in progress has translated the pack's programs, shared with its worker.
 /// Each load starts a fresh counter, so a superseded worker never reports into the next one.
 #[derive(Resource, Clone, Debug, Default)]
-pub struct ShaderPackLoadProgress(Option<Arc<LoadProgress>>);
+pub struct ShaderPackLoadProgress {
+    counter: Option<Arc<LoadProgress>>,
+    revision: u64,
+}
 
 impl ShaderPackLoadProgress {
     /// Replaces the counter with a fresh one for a load that starts now.
     pub fn start(&mut self) -> Arc<LoadProgress> {
-        Arc::clone(self.0.insert(Arc::default()))
+        self.revision = self.revision.wrapping_add(1);
+        Arc::clone(self.counter.insert(Arc::default()))
+    }
+
+    /// Identifies the latest started load, even when no loading frame was observed.
+    #[must_use]
+    pub fn revision(&self) -> u64 {
+        self.revision
     }
 
     /// Stops publishing a completed or cancelled load, leaving late worker updates detached.
     pub fn finish(&mut self) {
-        self.0 = None;
+        self.counter = None;
     }
 
     /// Whether a load is running, including reloads that keep the previous pack drawing.
     #[must_use]
     pub fn is_loading(&self) -> bool {
-        self.0.is_some()
+        self.counter.is_some()
     }
 
-    /// `(translated, programs)` of the latest load once it knows its program count.
+    /// `(translated, programs)` of the active load once it knows its program count.
     #[must_use]
     pub fn programs(&self) -> Option<(u32, u32)> {
-        self.0.as_deref().and_then(LoadProgress::programs)
+        self.counter.as_deref().and_then(LoadProgress::programs)
     }
 }
 
@@ -411,7 +421,10 @@ mod tests {
         first.record(0, 40);
         first.record(12, 40);
         assert_eq!(progress.programs(), Some((12, 40)));
+        let first_revision = progress.revision();
         let second = progress.start();
+        assert_ne!(progress.revision(), first_revision);
+        let second_revision = progress.revision();
         first.record(40, 40);
         assert_eq!(
             progress.programs(),
@@ -421,6 +434,7 @@ mod tests {
         second.record(3, 7);
         assert_eq!(progress.programs(), Some((3, 7)));
         progress.finish();
+        assert_eq!(progress.revision(), second_revision);
         second.record(7, 7);
         assert!(!progress.is_loading());
         assert_eq!(progress.programs(), None);

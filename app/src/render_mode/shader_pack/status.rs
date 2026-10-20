@@ -59,11 +59,29 @@ pub(in super::super) fn sync_shader_pack_status(
     menu: Option<ResMut<MenuRuntime>>,
     runtime: Option<ResMut<UiRuntimeResource>>,
     time: Res<Time<Real>>,
+    mut seen: Local<Option<u64>>,
 ) {
     let (Some(status), Some(mut menu), Some(mut runtime)) = (status, menu, runtime) else {
         return;
     };
     let load = pack_load(&config, &status, progress.as_deref());
+    let revision = progress
+        .as_deref()
+        .map_or(0, ShaderPackLoadProgress::revision);
+    if seen
+        .replace(revision)
+        .is_some_and(|previous| previous != revision)
+        && let PackLoad::Ready { pack } | PackLoad::Failed { pack, .. } = load
+    {
+        menu.sync_shader_pack_status(
+            PackLoad::Loading {
+                pack,
+                programs: None,
+            },
+            &mut runtime,
+            time.elapsed(),
+        );
+    }
     menu.sync_shader_pack_status(load, &mut runtime, time.elapsed());
 }
 
@@ -71,16 +89,21 @@ pub(in super::super) fn sync_shader_pack_status(
 mod tests {
     use super::*;
 
-    #[test]
-    fn ready_pack_reload_reports_loading_until_the_worker_finishes() {
-        let config = RenderModeConfig {
+    /// A renderer configuration without install paths or launch overrides.
+    fn config() -> RenderModeConfig {
+        RenderModeConfig {
             cli: None,
             attributable: false,
             path: None,
             cli_shader_pack: None,
             shader_packs: None,
             shader_pack_revision: 0,
-        };
+        }
+    }
+
+    #[test]
+    fn ready_pack_reload_reports_loading_until_the_worker_finishes() {
+        let config = config();
         let status = ShaderPackStatus::Ready("Dusk.zip".into());
         let mut progress = ShaderPackLoadProgress::default();
         assert_eq!(
@@ -100,6 +123,47 @@ mod tests {
         assert_eq!(
             pack_load(&config, &status, Some(&progress)),
             PackLoad::Ready { pack: "Dusk.zip" }
+        );
+    }
+    #[test]
+    fn completed_reload_reports_its_outcome_without_a_loading_frame() {
+        let mut app = App::new();
+        app.insert_resource(config())
+            .insert_resource(ShaderPackStatus::Ready("Dusk.zip".into()))
+            .init_resource::<ShaderPackLoadProgress>()
+            .insert_resource(MenuRuntime::new(true, 2, "Test".into()))
+            .insert_resource(UiRuntimeResource(client_ui::ui_runtime::UiRuntime::new(1)))
+            .init_resource::<Time<Real>>()
+            .add_systems(Update, sync_shader_pack_status);
+        app.update();
+        let before = app
+            .world()
+            .resource::<UiRuntimeResource>()
+            .hud()
+            .toasts()
+            .len();
+        {
+            let mut progress = app.world_mut().resource_mut::<ShaderPackLoadProgress>();
+            progress.start();
+            progress.finish();
+        }
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<UiRuntimeResource>()
+                .hud()
+                .toasts()
+                .len(),
+            before + 1
+        );
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<UiRuntimeResource>()
+                .hud()
+                .toasts()
+                .len(),
+            before + 1
         );
     }
 }
