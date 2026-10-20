@@ -160,23 +160,23 @@ pub fn spawn_network(
         ui_catalog: config.ui_catalog,
         physical_memory_bytes: launcher_host::memory::physical_bytes(),
     };
-    let domain = client_session::NetworkConfig {
-        session_generation: config.session_generation,
-        endpoint: config.endpoint,
-        #[cfg(feature = "native-networking")]
-        native_preparation,
-        display_name: config.display_name,
-        client_random_id: config.client_random_id,
-        client_blob_cache: config.client_blob_cache,
+    let mut domain = client_session::NetworkConfig::new(
+        config.session_generation,
+        config.endpoint,
+        config.display_name,
+        config.client_random_id,
+        config.client_blob_cache,
         player_skin,
-        login_settings: config.login_settings,
-        packet_capture: packet_capture_request(
-            std::env::var_os(client_session::markers::PACKET_CAPTURE).as_deref(),
-            config.record_session,
-            &config.log_dir,
-            unix_time_ms(),
-        ),
-    };
+        config.login_settings,
+    );
+    domain.packet_capture = packet_capture_request(
+        std::env::var_os(client_session::markers::PACKET_CAPTURE).as_deref(),
+        config.record_session,
+        &config.log_dir,
+        unix_time_ms(),
+    );
+    #[cfg(feature = "native-networking")]
+    let domain = domain.with_native_preparation(native_preparation);
     let prepare =
         move |handoff, game_data: &protocol::GameData, cancelled: &(dyn Fn() -> bool + Sync)| {
             preparation.run(handoff, game_data, cancelled)

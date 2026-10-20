@@ -36,7 +36,7 @@ pub struct NetworkConfig {
     pub endpoint: protocol::SessionEndpoint,
     /// One application-owned acquisition future, polled on this session's runtime and cancelled with it.
     #[cfg(feature = "native-networking")]
-    pub native_preparation: Option<NativeConnectionPreparation>,
+    native_preparation: Option<NativeConnectionPreparation>,
     pub display_name: String,
     /// The user storage owner's opaque persisted login identifier.
     pub client_random_id: protocol::ClientRandomId,
@@ -48,6 +48,43 @@ pub struct NetworkConfig {
     pub login_settings: protocol::LoginSettings,
     /// Records this session's full packet capture when set.
     pub packet_capture: Option<packet_log::PacketCaptureRequest>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl NetworkConfig {
+    /// Retains the caller's real login facts, with optional capture and account preparation unset.
+    pub fn new(
+        session_generation: SessionGeneration,
+        endpoint: protocol::SessionEndpoint,
+        display_name: String,
+        client_random_id: protocol::ClientRandomId,
+        client_blob_cache: protocol::ClientBlobCache,
+        player_skin: protocol::ClientSkin,
+        login_settings: protocol::LoginSettings,
+    ) -> Self {
+        Self {
+            session_generation,
+            endpoint,
+            #[cfg(feature = "native-networking")]
+            native_preparation: None,
+            display_name,
+            client_random_id,
+            client_blob_cache,
+            player_skin,
+            login_settings,
+            packet_capture: None,
+        }
+    }
+
+    /// Moves the original account acquisition into the same session worker's cancellation lifetime.
+    #[cfg(feature = "native-networking")]
+    pub fn with_native_preparation(
+        mut self,
+        preparation: Option<NativeConnectionPreparation>,
+    ) -> Self {
+        self.native_preparation = preparation;
+        self
+    }
 }
 
 /// One application-owned preparation that resolves its endpoint and moves the connection proof into Login.
