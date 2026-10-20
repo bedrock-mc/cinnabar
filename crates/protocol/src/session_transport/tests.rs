@@ -11,6 +11,13 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
             .iter()
             .any(|entry| matches!(entry.item.as_ref(), Some(Ok(ReadItem::Native(_)))))
     }
+
+    /// Observes a terminal already split by the original startup reader, without removing it.
+    pub(crate) fn has_retained_native_terminal(&self) -> bool {
+        self.received
+            .iter()
+            .any(|packet| matches!(packet.id, PacketId::Disconnect | PacketId::Transfer))
+    }
 }
 
 #[cfg(unix)]

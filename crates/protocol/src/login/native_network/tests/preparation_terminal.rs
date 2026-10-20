@@ -29,7 +29,7 @@ async fn native_disconnect_during_held_preparation_keeps_reason_and_accepted_fif
         },
         ..Default::default()
     });
-    let result = held_preparation(terminal).await;
+    let result = held_preparation(terminal, false).await;
     let error = result
         .expect("native Disconnect must finish startup while presentation remains held")
         .expect_err("a disconnected startup must not succeed");
@@ -55,7 +55,7 @@ async fn native_transfer_during_held_preparation_keeps_target_and_accepted_fifo(
         reload_world: true,
         ..Default::default()
     });
-    let result = held_preparation(terminal).await;
+    let result = held_preparation(terminal, false).await;
     let error = result
         .expect("native Transfer must finish startup while presentation remains held")
         .expect_err("a transferred startup must not succeed");
@@ -67,8 +67,51 @@ async fn native_transfer_during_held_preparation_keeps_target_and_accepted_fifo(
     assert!(transfer.reload_world);
 }
 
+#[tokio::test]
+async fn received_native_disconnect_supersedes_held_preparation_without_consuming_its_fifo() {
+    let terminal = Packet::new(packets::Disconnect {
+        reason: ConnectionDisconnectFailReason::Serverfull,
+        messages: DisconnectMessages::DisconnectPacketMessages {
+            message: "buffered presentation interrupted".into(),
+            filtered_message: "".into(),
+        },
+        ..Default::default()
+    });
+    let result = held_preparation(terminal, true).await;
+    let error = result
+        .expect("already received native Disconnect must supersede held preparation")
+        .expect_err("a disconnected startup must not succeed");
+    let disconnect = error.server_disconnect().expect("original Disconnect");
+    assert_eq!(disconnect.reason, "Serverfull");
+    assert_eq!(
+        disconnect.message.as_deref(),
+        Some("buffered presentation interrupted")
+    );
+}
+
+#[tokio::test]
+async fn received_native_transfer_supersedes_held_preparation_without_consuming_its_fifo() {
+    let terminal = Packet::new(packets::Transfer {
+        server_address: "buffered.example.test".into(),
+        server_port: wire::U16LE(19134),
+        reload_world: true,
+        ..Default::default()
+    });
+    let result = held_preparation(terminal, true).await;
+    let error = result
+        .expect("already received native Transfer must supersede held preparation")
+        .expect_err("a transferred startup must not succeed");
+    let transfer = error.server_transfer().expect("original Transfer");
+    assert_eq!(transfer.host, "buffered.example.test");
+    assert_eq!(transfer.port, 19134);
+    assert!(transfer.reload_world);
+}
+
 /// Runs the original real association, Login, packs and spawn before holding one preparation job.
-async fn held_preparation(terminal: Packet) -> Option<Result<usize, ProtocolError>> {
+async fn held_preparation(
+    terminal: Packet,
+    received_prefix: bool,
+) -> Option<Result<usize, ProtocolError>> {
     tokio::time::timeout(Duration::from_secs(20), async {
         let FixtureRoute {
             mut listener,
@@ -125,23 +168,22 @@ async fn held_preparation(terminal: Packet) -> Option<Result<usize, ProtocolErro
                 &*receive(&mut peer, &codec).await[0].data,
                 packets::Packet::ResourcePackClientResponse(_)
             ));
-            send(
-                &peer,
-                &codec,
-                &[
-                    Packet::new(packets::ResourcePackStack::default()),
-                    deferred.clone(),
-                    Packet::new(packets::PlayStatus {
-                        status: PlayStatusType::Playerspawn,
-                    }),
-                    Packet::new(packets::StartGame {
-                        runtime_id: ActorRuntimeID(42),
-                        ..Default::default()
-                    }),
-                    Packet::new(packets::ItemRegistry::default()),
-                ],
-            )
-            .await;
+            let mut spawning = vec![
+                Packet::new(packets::ResourcePackStack::default()),
+                deferred.clone(),
+                Packet::new(packets::PlayStatus {
+                    status: PlayStatusType::Playerspawn,
+                }),
+                Packet::new(packets::StartGame {
+                    runtime_id: ActorRuntimeID(42),
+                    ..Default::default()
+                }),
+                Packet::new(packets::ItemRegistry::default()),
+            ];
+            if received_prefix {
+                spawning.extend([prefix.clone(), terminal.clone(), suffix.clone()]);
+            }
+            send(&peer, &codec, &spawning).await;
             assert!(matches!(
                 &*receive(&mut peer, &codec).await[0].data,
                 packets::Packet::ResourcePackClientResponse(_)
@@ -151,12 +193,14 @@ async fn held_preparation(terminal: Packet) -> Option<Result<usize, ProtocolErro
                 packets::Packet::RequestChunkRadius(_)
             ));
             ready.await.unwrap();
-            send(
-                &peer,
-                &codec,
-                &[prefix.clone(), terminal.clone(), suffix.clone()],
-            )
-            .await;
+            if !received_prefix {
+                send(
+                    &peer,
+                    &codec,
+                    &[prefix.clone(), terminal.clone(), suffix.clone()],
+                )
+                .await;
+            }
             peer.session.closed().await;
         };
         let client = async {
@@ -205,7 +249,12 @@ async fn held_preparation(terminal: Packet) -> Option<Result<usize, ProtocolErro
                 };
                 match outcome {
                     Poll::Ready(result) => Poll::Ready(Some(result)),
-                    Poll::Pending if transport.has_retained_native_batch() => Poll::Ready(None),
+                    Poll::Pending
+                        if transport.has_retained_native_batch()
+                            || transport.has_retained_native_terminal() =>
+                    {
+                        Poll::Ready(None)
+                    }
                     Poll::Pending => Poll::Pending,
                 }
             })
