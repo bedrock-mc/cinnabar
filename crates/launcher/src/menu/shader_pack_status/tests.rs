@@ -25,47 +25,54 @@ fn titles(toast: Option<PackToast>) -> Option<(String, String)> {
 fn starting_on_vanilla_raises_nothing() {
     let mut notices = PackNotices::default();
     for millis in [0, 1_000, 60_000] {
-        assert_eq!(notices.observe(PackLoad::Idle, at(millis)), None);
+        assert_eq!(notices.observe(PackLoad::Idle, at(millis), true), None);
     }
 }
 
 #[test]
 fn a_slow_load_stands_a_progress_toast_that_its_outcome_replaces() {
     let mut notices = PackNotices::default();
-    assert_eq!(notices.observe(loading("Dusk.zip", None), at(0)), None);
     assert_eq!(
-        notices.observe(loading("Dusk.zip", Some((0, 40))), SLOW - at(1)),
+        notices.observe(loading("Dusk.zip", None), at(0), true),
+        None
+    );
+    assert_eq!(
+        notices.observe(loading("Dusk.zip", Some((0, 40))), SLOW - at(1), true),
         None,
         "a load that may still settle at once stays quiet"
     );
     assert_eq!(
-        titles(notices.observe(loading("Dusk.zip", Some((12, 40))), SLOW)),
+        titles(notices.observe(loading("Dusk.zip", Some((12, 40))), SLOW, true)),
         Some((
             "Loading shader pack Dusk…".to_owned(),
             "Translated 12 of 40 programs".to_owned()
         ))
     );
     assert_eq!(
-        notices.observe(loading("Dusk.zip", Some((12, 40))), SLOW + at(16)),
+        notices.observe(loading("Dusk.zip", Some((12, 40))), SLOW + at(16), true),
         None,
         "unchanged progress leaves the toast alone"
     );
     assert_eq!(
-        notices.observe(loading("Dusk.zip", Some((40, 40))), SLOW + at(32)),
+        notices.observe(loading("Dusk.zip", Some((40, 40))), SLOW + at(32), true),
         Some(PackToast::Loading {
             title: "Loading shader pack Dusk…".to_owned(),
             message: "Building pipelines".to_owned(),
         })
     );
     assert_eq!(
-        notices.observe(PackLoad::Ready { pack: "Dusk.zip" }, SLOW + at(900)),
+        notices.observe(PackLoad::Ready { pack: "Dusk.zip" }, SLOW + at(900), true),
         Some(PackToast::Outcome {
             title: "Shader pack Dusk loaded".to_owned(),
             message: String::new(),
         })
     );
     for millis in [1_000, 5_000] {
-        let quiet = notices.observe(PackLoad::Ready { pack: "Dusk.zip" }, SLOW + at(millis));
+        let quiet = notices.observe(
+            PackLoad::Ready { pack: "Dusk.zip" },
+            SLOW + at(millis),
+            true,
+        );
         assert_eq!(quiet, None, "one toast per transition");
     }
 }
@@ -73,9 +80,12 @@ fn a_slow_load_stands_a_progress_toast_that_its_outcome_replaces() {
 #[test]
 fn a_quick_load_reports_only_its_outcome() {
     let mut notices = PackNotices::default();
-    assert_eq!(notices.observe(loading("Lumen", Some((3, 9))), at(0)), None);
     assert_eq!(
-        titles(notices.observe(PackLoad::Ready { pack: "Lumen" }, at(120))),
+        notices.observe(loading("Lumen", Some((3, 9))), at(0), true),
+        None
+    );
+    assert_eq!(
+        titles(notices.observe(PackLoad::Ready { pack: "Lumen" }, at(120), true)),
         Some(("Shader pack Lumen loaded".to_owned(), String::new()))
     );
 }
@@ -83,24 +93,24 @@ fn a_quick_load_reports_only_its_outcome() {
 #[test]
 fn a_failure_names_the_pack_and_summarises_its_first_problem_once() {
     let mut notices = PackNotices::default();
-    notices.observe(loading("Dusk.zip", None), at(0));
+    notices.observe(loading("Dusk.zip", None), at(0), true);
     let failed = PackLoad::Failed {
         pack: "Dusk.zip",
         reason: REASON,
     };
     assert_eq!(
-        titles(notices.observe(failed, at(2_000))),
+        titles(notices.observe(failed, at(2_000), true)),
         Some((
             "Shader pack Dusk failed to load".to_owned(),
             "composite: composite.fsh:2: parse: Unknown variable: undefined_name (+1 more)"
                 .to_owned()
         ))
     );
-    assert_eq!(notices.observe(failed, at(2_016)), None);
+    assert_eq!(notices.observe(failed, at(2_016), true), None);
     // Loading it again reports again.
-    notices.observe(loading("Dusk.zip", None), at(3_000));
+    notices.observe(loading("Dusk.zip", None), at(3_000), true);
     assert!(matches!(
-        notices.observe(failed, at(3_100)),
+        notices.observe(failed, at(3_100), true),
         Some(PackToast::Outcome { .. })
     ));
 }
@@ -108,32 +118,32 @@ fn a_failure_names_the_pack_and_summarises_its_first_problem_once() {
 #[test]
 fn turning_the_pack_off_mid_load_withdraws_a_standing_toast_only() {
     let mut notices = PackNotices::default();
-    notices.observe(loading("Dusk", None), at(0));
+    notices.observe(loading("Dusk", None), at(0), true);
     assert_eq!(
-        notices.observe(PackLoad::Idle, at(100)),
+        notices.observe(PackLoad::Idle, at(100), true),
         None,
         "never stood"
     );
-    notices.observe(loading("Dusk", None), at(1_000));
+    notices.observe(loading("Dusk", None), at(1_000), true);
     assert!(
         notices
-            .observe(loading("Dusk", None), at(1_000) + SLOW)
+            .observe(loading("Dusk", None), at(1_000) + SLOW, true)
             .is_some()
     );
     assert_eq!(
-        notices.observe(PackLoad::Idle, at(2_000)),
+        notices.observe(PackLoad::Idle, at(2_000), true),
         Some(PackToast::Withdraw)
     );
-    assert_eq!(notices.observe(PackLoad::Idle, at(3_000)), None);
+    assert_eq!(notices.observe(PackLoad::Idle, at(3_000), true), None);
 }
 
 #[test]
 fn picking_another_pack_mid_load_retitles_the_standing_toast_at_once() {
     let mut notices = PackNotices::default();
-    notices.observe(loading("Dusk", None), at(0));
-    assert!(notices.observe(loading("Dusk", None), SLOW).is_some());
+    notices.observe(loading("Dusk", None), at(0), true);
+    assert!(notices.observe(loading("Dusk", None), SLOW, true).is_some());
     assert_eq!(
-        titles(notices.observe(loading("Lumen", None), SLOW + at(10))),
+        titles(notices.observe(loading("Lumen", None), SLOW + at(10), true)),
         Some(("Loading shader pack Lumen…".to_owned(), String::new()))
     );
 }
