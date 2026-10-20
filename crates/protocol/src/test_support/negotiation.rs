@@ -70,6 +70,53 @@ pub fn disconnect() -> Packet {
     Packet::new(packets::Disconnect::default())
 }
 
+/// Builds an actual Transfer control without resolving or connecting its destination.
+pub fn transfer(address: &str, port: u16) -> Packet {
+    Packet::new(packets::Transfer {
+        server_address: address.into(),
+        server_port: wire::U16LE(port),
+        reload_world: true,
+        ..Default::default()
+    })
+}
+
+/// Encodes one generated server packet with both actual subclient header fields.
+pub fn server_entry(packet: &Packet, sender: u8, target: u8) -> Bytes {
+    let mut body = Vec::new();
+    packet
+        .data
+        .encode_frame(wire::Peer::Server, sender, target, &mut body)
+        .unwrap();
+    let mut reader = wire::Reader::new(&body);
+    reader.read_var_u32().unwrap();
+    Bytes::copy_from_slice(&body[reader.position()..])
+}
+
+/// Encodes a well-formed unused ID with an opaque body, without a replacement packet decoder.
+pub fn unknown_server_entry() -> Bytes {
+    let id = (0..=wire::PacketHeader::ID_MASK)
+        .rev()
+        .find(|id| packets::PacketId::from_raw(*id).is_none())
+        .expect("the selected protocol has an unused packet ID");
+    let mut entry = header_entry(id);
+    entry.extend_from_slice(b"unused extension body");
+    entry.into()
+}
+
+/// Deliberately omits a known generated packet's required body for rejection controls.
+pub fn header_only_server_entry(packet: &Packet) -> Bytes {
+    header_entry(packet.kind().id()).into()
+}
+
+/// Uses the generated header writer for each deliberately raw fixture entry.
+fn header_entry(id: u32) -> Vec<u8> {
+    let mut entry = Vec::new();
+    wire::Writer::new(&mut entry)
+        .write_var_u32(wire::PacketHeader::new(id).to_raw())
+        .unwrap();
+    entry
+}
+
 /// Builds a raw text packet with the fixture's original message bytes.
 pub fn raw_text(message: String) -> Packet {
     Packet::new(packets::Text {

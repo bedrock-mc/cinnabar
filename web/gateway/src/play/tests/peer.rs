@@ -16,6 +16,8 @@ use raknet::prelude::{
 use std::net::Ipv4Addr;
 use tokio::net::UdpSocket;
 
+mod ingress;
+
 pub(super) struct Peer {
     pub(super) socket: UdpSocket,
     server: RakServer,
