@@ -535,7 +535,8 @@ fn hud_card_preview_reuses_gameplay_artwork_when_the_panel_uses_a_different_scal
     assert!(Arc::ptr_eq(&nodes, &source.cards[0].nodes));
     assert_eq!(source.cards[0].paints, 1);
     let bounds = harness.drawn().painted_bounds().unwrap();
-    assert_eq!([bounds.width(), bounds.height()], [80.5, 40.5]);
+    // The antialias fringe stays one display pixel wide after the card is scaled.
+    assert_eq!([bounds.width(), bounds.height()], [81., 41.]);
 }
 
 #[test]
