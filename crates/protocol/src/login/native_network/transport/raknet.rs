@@ -8,6 +8,7 @@ use std::{io, time::Instant};
 pub(in crate::login::native_network) struct RakNetTransport {
     connection: Option<Connection>,
     inbox: Inbox,
+    pending_message: Option<Bytes>,
 }
 
 enum Connection {
@@ -32,6 +33,7 @@ impl RakNetTransport {
         Self {
             connection: Some(Connection::Established(connection)),
             inbox: Inbox::default(),
+            pending_message: None,
         }
     }
 
@@ -68,6 +70,9 @@ impl RakNetTransport {
         if let Some(message) = self.inbox.pop() {
             return Ok(message);
         }
+        if let Some(message) = self.pending_message.take() {
+            return Ok(message);
+        }
         match self
             .connection
             .as_mut()
@@ -85,6 +90,18 @@ impl RakNetTransport {
 
     /// Services the same socket while retaining raw input before its first terminal.
     pub(super) async fn maintain(&mut self) {
+        if self.pending_message.is_some() || self.inbox.is_full() {
+            match self
+                .connection
+                .as_mut()
+                .expect("synchronous transport transition")
+            {
+                Connection::Established(connection) => connection.maintain().await,
+                Connection::Closing(connection) => connection.maintain().await,
+                Connection::Failed(_) => std::future::pending().await,
+            }
+            return;
+        }
         let received = match self
             .connection
             .as_mut()
@@ -95,9 +112,12 @@ impl RakNetTransport {
             Connection::Failed(_) => std::future::pending().await,
         }
         .map_err(io::Error::other);
-        if let Err(error) = received.and_then(|message| self.inbox.push(message)) {
-            // A rejected front seals the remainder; ordinary reads still drain its accepted prefix.
-            self.connection = Some(Connection::Failed(Some(error)));
+        match received.and_then(|message| self.inbox.try_push(message)) {
+            Ok(head) => self.pending_message = head,
+            Err(error) => {
+                // An invalid front seals the remainder after its accepted prefix.
+                self.connection = Some(Connection::Failed(Some(error)));
+            }
         }
     }
 
@@ -131,3 +151,6 @@ impl RakNetTransport {
         connection.finish_close().await.map_err(io::Error::other)
     }
 }
+
+#[cfg(test)]
+mod tests;
