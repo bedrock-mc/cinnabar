@@ -161,7 +161,7 @@ fn converted_input(
             ),
             Some(_) => (
                 "vec4".to_string(),
-                format!("({stored} + vec4({PACKED_LIGHTMAP}, 0.0, 0.0))"),
+                format!("vec4({stored}.xy + {PACKED_LIGHTMAP}, {stored}.z, 1.0)"),
             ),
         };
         let convert = if is_integer(ty) {
@@ -923,5 +923,42 @@ void main() {}";
                 "layout ( rgba16f , set = {IMAGE_GROUP} , binding = 0 ) uniform writeonly image2D colorimg0 ;"
             )
         );
+    }
+
+    #[test]
+    fn matrix_transformed_lightmap_keeps_homogeneous_coordinate_for_both_streams() {
+        for attribute in [VertexAttribute::Lightmap, VertexAttribute::MultiTexCoord2] {
+            for (float, packed) in [("vec4(32.0, 160.0, 0.0, 1.0)", 0), ("vec4(0.0)", 40992)] {
+                let (stored, read, convert) =
+                    converted_input(&mut Collected::default(), &attribute, "light", "vec4", &[])
+                        .unwrap();
+                let source = format!(
+                    "#version 450\nconst {read} {stored} = {float};\n\
+                     const uvec4 {PACKED_POSITION_INPUT} = uvec4(0u, 0u, 0u, {packed}u);\n\
+                     const mat4 textureMatrix = mat4(0.0625, 0, 0, 0, 0, 0.03125, 0, 0, 0, 0, 1, 0, 0.25, 0.5, 0, 1);\n\
+                     const float resultX = (textureMatrix * {convert}).x;\n\
+                     const float resultY = (textureMatrix * {convert}).y;\n\
+                     void main() {{ gl_Position = vec4(resultX, resultY, 0.0, 1.0); }}"
+                );
+                let module = naga::front::glsl::Frontend::default()
+                    .parse(
+                        &naga::front::glsl::Options::from(naga::ShaderStage::Vertex),
+                        &source,
+                    )
+                    .expect("the converted lightmap is valid GLSL");
+                for (name, expected) in [("resultX", 2.25), ("resultY", 5.5)] {
+                    let (_, constant) = module
+                        .constants
+                        .iter()
+                        .find(|(_, constant)| constant.name.as_deref() == Some(name))
+                        .unwrap();
+                    assert!(
+                        matches!(module.global_expressions[constant.init], naga::Expression::Literal(naga::Literal::F32(value)) if value == expected),
+                        "{attribute:?}, {float}, {packed}: {name} = {:?}",
+                        module.global_expressions[constant.init]
+                    );
+                }
+            }
+        }
     }
 }
