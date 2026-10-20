@@ -39,6 +39,13 @@ pub struct SpriteQuad {
     pub uv: UvRect,
 }
 
+/// Tile coordinates across one sprite region. Untiled axes keep their 0..1 span.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SpriteRepeat {
+    pub uv: UvRect,
+    pub axes: [bool; 2],
+}
+
 /// A serialisable rect; layout's [`Rect`] is copied into it for emit output.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RectOut {
@@ -83,6 +90,8 @@ pub enum Draw {
     Sprite {
         texture: String,
         uv: UvRect,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        repeat: Option<SpriteRepeat>,
         color: [u8; 4],
         #[serde(default)]
         filter: SpriteFilter,
@@ -357,12 +366,13 @@ fn sprite_draws(
     }
     crate::sprite::quads(control, rect, meta.as_ref(), clip_ratio)
         .into_iter()
-        .map(|(dest, uv)| {
+        .map(|(dest, uv, repeat)| {
             (
                 dest,
                 Draw::Sprite {
                     texture: path.to_owned(),
                     uv,
+                    repeat,
                     color,
                     filter,
                 },
