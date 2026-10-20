@@ -8,6 +8,8 @@ use crate::presentation::{actors::PoseConversions, skin_rig::SkinRigCache};
 use bevy::math::Vec3;
 use render_model::ActorCullView;
 
+mod parallel;
+
 /// Captured view facts shared by body and hand sampling.
 #[derive(Clone, Copy)]
 pub(super) struct PoseView {
@@ -128,6 +130,7 @@ pub(super) fn sample<'a>(
                 let mut remotes = Vec::with_capacity(stream.authority().actor_count());
                 let mut canonical_local = None;
                 let mut rigged = 0;
+                let mut pending = Vec::new();
                 for rig in stream.authority().actor_rigs() {
                     rigged += 1;
                     let Some(actor) = stream.authority().actor(rig.actor.runtime_id) else {
@@ -135,6 +138,29 @@ pub(super) fn sample<'a>(
                     };
                     if actor.painting.is_some() {
                         continue;
+                    }
+                    let batch_body = rig.actor.runtime_id != local_runtime_id
+                        && !java_mode
+                        && matches!(actor.kind, protocol::ActorKind::Player { .. })
+                        && !input.remote_emotes.iter().any(|emote| {
+                            emote.runtime_id == rig.actor.runtime_id
+                                && emote.spawn_revision == actor.spawn_revision
+                        })
+                        && render_frame.as_ref().is_some_and(|frame| {
+                            !frame.samples_during_admission(rig.actor.runtime_id)
+                        });
+                    if !batch_body {
+                        parallel::publish(
+                            &mut pending,
+                            render_frame.as_mut(),
+                            cull_view,
+                            combat_visuals,
+                            skin_rigs,
+                            equipment.as_deref_mut(),
+                            new_geometries,
+                            &mut remote_skin_layers,
+                            &mut remotes,
+                        );
                     }
                     let mut sample_scale = |rig| {
                         render_frame
@@ -253,7 +279,8 @@ pub(super) fn sample<'a>(
                                 );
                                 native_body_sampled = true;
                             }
-                            if !local
+                            if !batch_body
+                                && !local
                                 && remote_emote_pose.is_none()
                                 && !java_applied
                                 && let Some(frame) = render_frame.as_mut()
@@ -278,6 +305,14 @@ pub(super) fn sample<'a>(
                     let Some(mut presentation) = presentation else {
                         continue;
                     };
+                    if batch_body {
+                        pending.push(parallel::RemoteBody {
+                            rig,
+                            actor,
+                            presentation,
+                        });
+                        continue;
+                    }
                     if rig.actor.runtime_id != local_runtime_id {
                         let admission_rig = emote_geometry::skin_layer_snapshot(
                             rig,
@@ -315,6 +350,17 @@ pub(super) fn sample<'a>(
                         remotes.push(presentation);
                     }
                 }
+                parallel::publish(
+                    &mut pending,
+                    render_frame.as_mut(),
+                    cull_view,
+                    combat_visuals,
+                    skin_rigs,
+                    equipment,
+                    new_geometries,
+                    &mut remote_skin_layers,
+                    &mut remotes,
+                );
                 (
                     local_runtime_id,
                     stream.authority().actor_session_id(),
