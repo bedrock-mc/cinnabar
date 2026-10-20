@@ -50,7 +50,7 @@ fn a_helper_taking_a_sampler_gets_a_copy_per_global_texture() {
 
 #[test]
 fn each_texture_reads_through_the_class_iris_gives_it() {
-    let fragment = "#version 120\n\
+    let fragment = "#version 400 compatibility\n\
         uniform sampler2D colortex0;\n\
         uniform sampler2D depthtex0;\n\
         uniform sampler2D noisetex;\n\
@@ -59,13 +59,15 @@ fn each_texture_reads_through_the_class_iris_gives_it() {
         uniform sampler2D grain;\n\
         uniform sampler2D lut;\n\
         uniform sampler2D unknownTex;\n\
+        uniform usampler2D integerTex;\n\
         uniform sampler2DShadow shadowtex0;\n\
         varying vec2 uv;\n\
         vec4 tap(sampler2D s) { return texture2D(s, uv); }\n\
         void main() {\n\
             gl_FragData[0] = texture2D(colortex0, uv) + texture2D(depthtex0, uv) + texture2D(noisetex, uv)\n\
                 + tap(gaux1) + texture2D(dust, uv) + texture2D(grain, uv) + texture2D(lut, uv)\n\
-                + texture2D(unknownTex, uv) + vec4(shadow2D(shadowtex0, vec3(uv, 0.5)).r);\n\
+                + texture2D(unknownTex, uv) + vec4(shadow2D(shadowtex0, vec3(uv, 0.5)).r)\n\
+                + vec4(textureGather(integerTex, uv));\n\
         }\n";
     let properties = "texture.composite.dust = tex/dust.png\n\
         texture.composite.grain = tex/grain.png\n\
