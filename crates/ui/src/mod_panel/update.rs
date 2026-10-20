@@ -166,6 +166,9 @@ pub struct PanelPatch {
     collection_order: BTreeMap<String, Vec<usize>>,
     #[serde(default)]
     capture_key: Option<bool>,
+    /// Changes the retained animation preference without replacing the panel schema.
+    #[serde(default)]
+    motion: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -293,6 +296,9 @@ impl PanelPatch {
         }
         if let Some(capture) = self.capture_key {
             panel.capture_key = capture;
+        }
+        if let Some(motion) = self.motion {
+            panel.motion = motion;
         }
         for (name, order) in self.collection_order {
             let collection = panel

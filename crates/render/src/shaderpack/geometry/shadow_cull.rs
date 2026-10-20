@@ -227,13 +227,7 @@ mod tests {
 
     fn camera() -> Mat4 {
         // Looking along -Z (no rotation), 90° vertical FOV.
-        let (near, far) = (0.05, 512.0);
-        Mat4::from_cols(
-            bevy::math::Vec4::new(1.0, 0.0, 0.0, 0.0),
-            bevy::math::Vec4::new(0.0, 1.0, 0.0, 0.0),
-            bevy::math::Vec4::new(0.0, 0.0, -(far + near) / (far - near), -1.0),
-            bevy::math::Vec4::new(0.0, 0.0, -2.0 * far * near / (far - near), 0.0),
-        )
+        crate::shaderpack::uniforms::gl_perspective([1.0, 1.0], 0.05, 512.0)
     }
 
     fn settings(culling: ShadowCulling) -> ShadowCullSettings {
