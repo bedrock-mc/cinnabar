@@ -324,6 +324,7 @@ enum Class {
     Uint,
 }
 
+/// Accepts the 32-bit component formats supplied by the terrain vertex streams.
 fn class_and_size(ty: ValueType) -> Option<(Class, u8)> {
     let (scalar, size) = match ty {
         ValueType::Scalar(scalar) => (scalar, 1),
@@ -334,7 +335,7 @@ fn class_and_size(ty: ValueType) -> Option<(Class, u8)> {
         ScalarType::Float => Class::Float,
         ScalarType::Int => Class::Sint,
         ScalarType::Uint => Class::Uint,
-        ScalarType::Bool | ScalarType::Double => return None,
+        _ => return None,
     };
     Some((class, size))
 }

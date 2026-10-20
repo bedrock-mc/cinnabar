@@ -242,9 +242,12 @@ pub fn prepare_actor_render_frame(
         && let (Some(body), Some(stream)) = (local.as_ref(), stream)
         && let Some(rig) = stream.authority().actor_rig(bodies.local_runtime_id)
     {
-        state
-            .hat_state
-            .advance_hidden_local(&body.submission, rig.bone_names, step.partial_tick);
+        state.hat_state.advance_hidden_local(
+            &body.submission,
+            rig.bone_names,
+            rig.attachments,
+            step.partial_tick,
+        );
     }
     let camera_position = cull_view.map(|view| view.camera_position.to_array());
     // Remote bodies passed frame-model admission before bounded skin registration.

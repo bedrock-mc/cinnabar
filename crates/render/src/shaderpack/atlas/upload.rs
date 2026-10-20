@@ -7,9 +7,9 @@ use crate::queue_writes::ProfiledQueue as _;
 use wgpu::util::DeviceExt as _;
 
 /// Encoded colour as stored; packs read the plain RGBA8 view and decode sRGB themselves.
-pub(crate) const COLOR_STORAGE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+pub(crate) const COLOR_STORAGE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 /// The view shader packs sample as `gtexture`.
-pub(crate) const COLOR_VIEW_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+pub(crate) const COLOR_VIEW_FORMAT: wgpu::TextureFormat = COLOR_STORAGE_FORMAT;
 /// LabPBR data atlases are linear.
 pub(crate) const PBR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
@@ -37,11 +37,6 @@ fn upload_images(
     format: wgpu::TextureFormat,
     usage: wgpu::TextureUsages,
 ) -> wgpu::Texture {
-    let view_formats: &[wgpu::TextureFormat] = if format == COLOR_STORAGE_FORMAT {
-        &[COLOR_VIEW_FORMAT]
-    } else {
-        &[]
-    };
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some(label),
         size: wgpu::Extent3d {
@@ -54,7 +49,7 @@ fn upload_images(
         dimension: wgpu::TextureDimension::D2,
         format,
         usage,
-        view_formats,
+        view_formats: &[],
     });
     for (level, bytes) in images.levels.iter().enumerate() {
         let (width, height) = (images.width >> level, images.height >> level);
