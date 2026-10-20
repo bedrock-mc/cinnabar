@@ -424,6 +424,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   contract. Behind the render crate's `shaderpacks` feature, the host builds the Java-style
   block atlas packs sample. Pack-specific translation fixes, the rest of the render-host
   integration and in-game acceptance remain incomplete.
+  Autofocus intersects terrain model surfaces; sampling the rendered depth for cutout
+  pixels, liquid heights and entities remains incomplete.
   contract. Pack-specific translation fixes, render-host integration and in-game
   acceptance remain incomplete; parsed custom uniform expressions are not executed or
   rendered.
