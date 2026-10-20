@@ -143,11 +143,7 @@ pub(super) fn backlog_growth(
         ),
     };
     ArenaGrowthPlan {
-        new_capacity: wanted
-            .max(minimum.new_capacity)
-            .checked_next_power_of_two()
-            .unwrap_or(limit)
-            .min(limit),
+        new_capacity: round_arena_capacity(wanted.max(minimum.new_capacity), limit),
         gpu_copy_bytes: buffer_byte_len(used, item_bytes).min(minimum.gpu_copy_bytes),
     }
 }
