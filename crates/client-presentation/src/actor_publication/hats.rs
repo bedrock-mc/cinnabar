@@ -77,12 +77,13 @@ impl Attachment {
         &mut self,
         item: Item,
         body: &render_model::ActorRigSubmission,
-        names: &[Box<str>],
+        (names, bindings): (
+            &[Box<str>],
+            Option<&Arc<render_model::ActorAttachmentBindings>>,
+        ),
         timing: (f32, f32),
     ) -> Option<hats::cloth::ClothPose> {
-        let bone = names
-            .iter()
-            .position(|name| name.eq_ignore_ascii_case(&item.descriptor().attachment_bone))?;
+        let bone = self.poses[1].anchor(item, bindings, names)?;
         let previous = *body.input.previous_bones.get(bone)?;
         let current = *body.input.current_bones.get(bone)?;
         let current_pose = self.poses[1].pose(item, current, self.motion);
@@ -173,13 +174,15 @@ impl HatState {
         &mut self,
         body: &render_model::ActorRigSubmission,
         names: &[Box<str>],
+        bindings: Option<&Arc<render_model::ActorAttachmentBindings>>,
         partial_tick: f32,
     ) {
         for item in &self.local {
             if hats::rig(*item).has_cloth() {
                 let attachment = self.local_attachments.entry(*item).or_default();
                 attachment.set_visible(false);
-                let _ = attachment.pose(*item, body, names, (self.seconds, partial_tick));
+                let _ =
+                    attachment.pose(*item, body, (names, bindings), (self.seconds, partial_tick));
             }
         }
     }
@@ -246,9 +249,12 @@ impl HatState {
                     attachment.seen = self.frame;
                     attachment
                 };
-                let Some((previous, current)) =
-                    attachment.pose(item, &body, rig.bone_names, (self.seconds, partial_tick))
-                else {
+                let Some((previous, current)) = attachment.pose(
+                    item,
+                    &body,
+                    (rig.bone_names, rig.attachments),
+                    (self.seconds, partial_tick),
+                ) else {
                     continue;
                 };
                 let model = hats::rig(item);
@@ -420,26 +426,26 @@ mod tests {
             body.world_from_actor[2][3] = seconds * 2.0;
             hidden.advance(&[item], 0.0, 1.0 / 120.0);
             let expected = visible
-                .pose(item, &body, &names, (1.0 / 120.0, 0.5))
+                .pose(item, &body, (&names, None), (1.0 / 120.0, 0.5))
                 .unwrap();
             if frame == 0 {
-                let _ = frozen.pose(item, &body, &names, (1.0 / 120.0, 0.5));
+                let _ = frozen.pose(item, &body, (&names, None), (1.0 / 120.0, 0.5));
             }
             if frame < 239 {
-                hidden.advance_hidden_local(&body, &names, 0.5);
+                hidden.advance_hidden_local(&body, &names, None, 0.5);
             } else {
                 let revealed = hidden
                     .local_attachments
                     .get_mut(&item)
                     .unwrap()
-                    .pose(item, &body, &names, (1.0 / 120.0, 0.5))
+                    .pose(item, &body, (&names, None), (1.0 / 120.0, 0.5))
                     .unwrap();
                 assert_eq!(
                     revealed, expected,
                     "perspective reveal must retain the moving cloth history"
                 );
                 let stale = frozen
-                    .pose(item, &body, &names, (1.0 / 120.0, 0.5))
+                    .pose(item, &body, (&names, None), (1.0 / 120.0, 0.5))
                     .unwrap();
                 assert_ne!(
                     stale, expected,
@@ -483,7 +489,7 @@ mod tests {
         for _ in 0..120 {
             before = Some(
                 attachment
-                    .pose(item, &body, &names, (1.0 / 120.0, 1.0))
+                    .pose(item, &body, (&names, None), (1.0 / 120.0, 1.0))
                     .unwrap()
                     .1,
             );
@@ -507,7 +513,9 @@ mod tests {
         for (visible, delayed_context) in [(true, false), (false, true), (true, true)] {
             attachment.set_visible(visible);
             if delayed_context {
-                let _ = attachment.pose(item, &body, &names, (0.0, 1.0)).unwrap();
+                let _ = attachment
+                    .pose(item, &body, (&names, None), (0.0, 1.0))
+                    .unwrap();
             }
             let rotation = if visible {
                 Quat::from_rotation_y(0.8) * Quat::from_rotation_x(0.45)
@@ -527,7 +535,10 @@ mod tests {
             body.input.previous_bones = vec![target].into();
             body.input.current_bones = vec![target].into();
             body.input.reset_generation += 1;
-            let pose = attachment.pose(item, &body, &names, (0.0, 1.0)).unwrap().1;
+            let pose = attachment
+                .pose(item, &body, (&names, None), (0.0, 1.0))
+                .unwrap()
+                .1;
             let inverse = Mat4::from_rotation_translation(rotation, position).inverse();
             for (bone, expected) in pose[first..].iter().zip(&local) {
                 let point =

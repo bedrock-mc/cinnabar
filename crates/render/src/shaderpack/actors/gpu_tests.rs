@@ -1,10 +1,11 @@
 //! The skinning kernel against an original one-triangle rig on a real device.
 
+use super::layout::ACTOR_VERTEX_WORDS;
 use super::skin::{
     SKIN_PARAMS_BYTES, SkinJob, SkinParams, output_layout, rig_layout, skin_shader_source,
 };
 use crate::gpu_snapshot::Gpu;
-use crate::shaderpack::geometry::{BLOCK_ID, IRIS_VERTEX_WORDS, LIGHTMAP, NORMAL, POSITION, UV0};
+use crate::shaderpack::geometry::{BLOCK_ID, LIGHTMAP, NORMAL, POSITION, UV0};
 use bevy::math::Vec3;
 use render_model::{ACTOR_GPU_INSTANCE_WORDS, ACTOR_RIG_VERTEX_WORDS};
 use wgpu::util::DeviceExt;
@@ -35,6 +36,11 @@ fn layout(
 
 /// Skins the fixture rig at `ACTOR` and returns the kernel's Iris vertex words.
 fn skin(name: &str) -> Option<Vec<u32>> {
+    skin_with_uv(name, [0., 0., 1., 1.])
+}
+
+/// Skins the fixture after applying an animated UV transform.
+fn skin_with_uv(name: &str, uv: [f32; 4]) -> Option<Vec<u32>> {
     let gpu = Gpu::for_fixture(name)?;
     let mut instance = vec![0_u32; ACTOR_GPU_INSTANCE_WORDS];
     // `world_from_actor` rows: a translation to ACTOR.
@@ -44,8 +50,9 @@ fn skin(name: &str) -> Option<Vec<u32>> {
     }
     // Bone bases 0, span 0, partial tick 1, no uv offset and unit uv scale.
     instance[16] = 1.0_f32.to_bits();
-    instance[22] = 1.0_f32.to_bits();
-    instance[23] = 1.0_f32.to_bits();
+    for (index, value) in uv.into_iter().enumerate() {
+        instance[20 + index] = value.to_bits();
+    }
     let mut vertices = vec![0_u32; CORNERS.len() * ACTOR_RIG_VERTEX_WORDS];
     for (index, (position, uv, back_uv)) in CORNERS.into_iter().enumerate() {
         let base = index * ACTOR_RIG_VERTEX_WORDS;
@@ -83,11 +90,11 @@ fn skin(name: &str) -> Option<Vec<u32>> {
         light: BLOCK_LIGHT | (SKY_LIGHT << 4),
         colour: u32::MAX,
         block_id: ENTITY_ID,
-        pad: 0,
+        first_output_high: 0,
     };
     let params = SkinParams {
         camera: [CAMERA.x, CAMERA.y, CAMERA.z, 0.0],
-        counts: [1, 0, 0, 0],
+        counts: [1, 0, 3, 0],
     };
     let storage = |words: &[u32]| {
         gpu.device
@@ -111,7 +118,7 @@ fn skin(name: &str) -> Option<Vec<u32>> {
             contents: bytemuck::bytes_of(&job),
             usage: wgpu::BufferUsages::STORAGE,
         });
-    let output_bytes = u64::from(job.output_vertices() * IRIS_VERTEX_WORDS * 4);
+    let output_bytes = u64::from(job.output_vertices() * ACTOR_VERTEX_WORDS * 4);
     let output = gpu.device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
         size: output_bytes,
@@ -247,7 +254,7 @@ fn a_skinned_actor_triangle_writes_iris_entity_vertices_and_its_back_face() {
     let Some(words) = skin("shader-pack actor skinning") else {
         return;
     };
-    let vertex = |index: usize| &words[index * IRIS_VERTEX_WORDS as usize..];
+    let vertex = |index: usize| &words[index * ACTOR_VERTEX_WORDS as usize..];
     let position = |index: usize| {
         let v = vertex(index);
         let at = POSITION.word as usize;
@@ -258,10 +265,10 @@ fn a_skinned_actor_triangle_writes_iris_entity_vertices_and_its_back_face() {
         )
     };
     let uv = |index: usize| {
-        let word = vertex(index)[UV0.word as usize];
+        let at = UV0.word as usize;
         [
-            (word & 0xffff) as f32 / 65535.0,
-            (word >> 16) as f32 / 65535.0,
+            f32::from_bits(vertex(index)[at]),
+            f32::from_bits(vertex(index)[at + 1]),
         ]
     };
     let normal = |index: usize| {
@@ -304,5 +311,17 @@ fn a_skinned_actor_triangle_writes_iris_entity_vertices_and_its_back_face() {
         );
         assert!(close(uv(back), back_uv), "back uv {slot}");
         assert_eq!(normal(back), [0, 0, -127, 0]);
+    }
+}
+
+#[test]
+fn animated_uvs_keep_their_fractional_and_repeating_coordinates() {
+    let Some(words) = skin_with_uv("shader-pack repeating actor UVs", [-2.5, 3.25, 2., 4.]) else {
+        return;
+    };
+    for (index, (_, uv, _)) in CORNERS.iter().enumerate() {
+        let base = index * ACTOR_VERTEX_WORDS as usize + UV0.word as usize;
+        assert_eq!(f32::from_bits(words[base]), -2.5 + uv[0] * 2.);
+        assert_eq!(f32::from_bits(words[base + 1]), 3.25 + uv[1] * 4.);
     }
 }

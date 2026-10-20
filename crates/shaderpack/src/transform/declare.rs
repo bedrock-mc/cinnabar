@@ -8,6 +8,7 @@ use super::items::{
     parse_decl, sampler_info, split_items, strip_layout_keys,
 };
 use super::{ProgramInterface, ResourceNames, TransformError, UboMember};
+use crate::buffers::canonical_sampler_name;
 use crate::programs::StageKind;
 use crate::reflection::{
     FIRST_OTHER_ATTRIBUTE_LOCATION, IMAGE_GROUP, STORAGE_BUFFER_GROUP, SamplerClass, StoredNumbers,
@@ -48,6 +49,24 @@ pub(super) struct Collected {
     pub next_attribute: u32,
     /// A position or lightmap input was declared, so the raw position parts must be too.
     pub reads_packed_parts: bool,
+    identifiers: HashSet<String>,
+    next_name: usize,
+}
+
+impl Collected {
+    /// Allocates a private identifier without hiding a source or generated declaration.
+    fn fresh_name(&mut self, base: String) -> String {
+        if self.identifiers.insert(base.clone()) {
+            return base;
+        }
+        loop {
+            let name = format!("{base}_{}", self.next_name);
+            self.next_name += 1;
+            if self.identifiers.insert(name.clone()) {
+                return name;
+            }
+        }
+    }
 }
 
 /// Finds the first non-generated source line in a declaration.
@@ -95,6 +114,7 @@ fn reads_packed_parts(attribute: &VertexAttribute) -> bool {
 /// type of the input the stage reads instead, and the expression converting that into the
 /// declared type `ty`.
 fn converted_input(
+    c: &mut Collected,
     attribute: &VertexAttribute,
     name: &str,
     ty: &str,
@@ -107,7 +127,7 @@ fn converted_input(
         if ty != "float" && !ty.starts_with("vec") {
             return None;
         }
-        let stored = format!("iris_float_{name}");
+        let stored = c.fresh_name(format!("iris_float_{name}"));
         let convert = position_unpack(&stored, ty);
         return Some((stored, "vec3".to_string(), convert));
     }
@@ -125,7 +145,7 @@ fn converted_input(
         }
         // A vertex stream supplies either float coordinates or packed ones and zero for the
         // other, so the sum is exact; integers round it back.
-        let stored = format!("iris_float_{name}");
+        let stored = c.fresh_name(format!("iris_float_{name}"));
         let (read, sum) = match size {
             None => (
                 "float".to_string(),
@@ -154,7 +174,7 @@ fn converted_input(
     match attribute.stored_numbers()? {
         StoredNumbers::Int if ty == "float" || ty.starts_with("vec") => {
             let read = size.map_or("int".to_string(), |size| format!("ivec{size}"));
-            let stored = format!("iris_int_{name}");
+            let stored = c.fresh_name(format!("iris_int_{name}"));
             let convert = format!("{ty}({stored})");
             Some((stored, read, convert))
         }
@@ -192,7 +212,18 @@ pub(super) fn collect(
     iface: &mut ProgramInterface,
     names: &ResourceNames<'_>,
 ) -> Result<Collected, TransformError> {
-    let mut c = Collected::default();
+    let identifiers = items
+        .iter()
+        .flat_map(|item| match item {
+            Item::Func { toks, .. } | Item::Decl(_, toks) | Item::Other(toks) => toks.iter(),
+        })
+        .filter_map(Tok::ident)
+        .map(str::to_string)
+        .collect();
+    let mut c = Collected {
+        identifiers,
+        ..Collected::default()
+    };
     let mut structs: Structs = HashMap::new();
     let mut next_attr = FIRST_OTHER_ATTRIBUTE_LOCATION;
     let mut frag_out_next = 0u32;
@@ -276,7 +307,8 @@ pub(super) fn collect(
                     l
                 });
                 c.vertex_inputs.push((loc, name.clone()));
-                if let Some((stored, read, convert)) = converted_input(&attribute, name, &d.ty, arr)
+                if let Some((stored, read, convert)) =
+                    converted_input(&mut c, &attribute, name, &d.ty, arr)
                 {
                     c.io.extend(
                         lex(&format!("layout(location = {loc}) in {read} {stored};"))
@@ -475,7 +507,7 @@ pub(super) fn vertex_input(io: &mut String, c: &mut Collected, name: &str, ty: &
         return;
     };
     c.vertex_inputs.push((loc, name.to_string()));
-    match converted_input(&attribute, name, ty, &[]) {
+    match converted_input(c, &attribute, name, ty, &[]) {
         Some((stored, read, convert)) => {
             io.push_str(&format!(
                 "layout(location = {loc}) in {read} {stored};\n{ty} {name};\n"
@@ -501,10 +533,11 @@ fn uniforms(
                 let b = iface.texture_binding(name);
                 c.resource_names.push((TEXTURE_GROUP, b, name.clone()));
                 let classes = names.sampler_classes;
-                let shaped = (name.clone(), Some(texture_dimension(tex_ty)));
+                let key = canonical_sampler_name(name);
+                let shaped = (key.clone(), Some(texture_dimension(tex_ty)));
                 let class = classes
                     .get(&shaped)
-                    .or_else(|| classes.get(&(name.clone(), None)))
+                    .or_else(|| classes.get(&(key, None)))
                     .copied()
                     .unwrap_or_else(|| SamplerClass::for_name(name));
                 c.samplers
@@ -575,7 +608,8 @@ fn texture_dimension(tex_ty: &str) -> TextureDimension {
         .trim_start_matches(['i', 'u'])
         .trim_start_matches("texture");
     match shape {
-        "1D" | "1DArray" => TextureDimension::D1,
+        "1D" => TextureDimension::D1,
+        "1DArray" => TextureDimension::D1Array,
         "2DArray" => TextureDimension::D2Array,
         "3D" => TextureDimension::D3,
         "Cube" => TextureDimension::Cube,
@@ -643,11 +677,11 @@ fn varying(
     let base = iface.varying(stage, key, size, explicit);
     let mut offset = 0;
     for (k, (leaf_path, leaf_ty)) in leaves.iter().enumerate() {
-        let vname = if key == path {
+        let vname = c.fresh_name(if key == path {
             format!("iris_v_{key}_{k}")
         } else {
             format!("iris_b_{}_{k}", key.replace('.', "_"))
-        };
+        });
         let loc = format!("{base} + {offset}");
         offset += loc_size(leaf_ty, 1);
         c.io.extend(
@@ -701,7 +735,7 @@ fn interface_block(
     }
     let instance = inst.iter().find_map(|t| t.ident());
     if let Some(instance) = instance {
-        let sname = format!("iris_block_{bname}");
+        let sname = c.fresh_name(format!("iris_block_{bname}"));
         c.hoisted
             .extend([id("struct").at(line), id(&sname).at(line), p("{").at(line)]);
         for (_, ty, name, arr, _) in &fields {
@@ -755,7 +789,7 @@ fn fragment_output(c: &mut Collected, name: &str, ty: &str, loc: u32, line: u32)
     };
     match pad {
         Some((wide, rest)) => {
-            let wname = format!("iris_out_{name}");
+            let wname = c.fresh_name(format!("iris_out_{name}"));
             c.split_globals.extend(
                 lex(&format!("{ty} {name};"))
                     .into_iter()
@@ -829,6 +863,17 @@ flat in int blockId;
 out vec3 color;
 void main() {}";
 
+    #[test]
+    fn sampler_compatibility_array_dimensions_stay_distinct() {
+        assert_ne!(
+            texture_dimension("texture1D"),
+            texture_dimension("texture1DArray")
+        );
+        assert_ne!(
+            texture_dimension("texture2D"),
+            texture_dimension("texture2DArray")
+        );
+    }
     #[test]
     fn stages_collect_shared_resources_and_vertex_inputs() {
         let mut iface = ProgramInterface::default();
