@@ -358,3 +358,28 @@ fn assert_gpu_bytes(gpu: &FarTerrainGpu, device: &RenderDevice, queue: &RenderQu
     drop(data);
     readback.unmap();
 }
+
+/// A view that drew before far terrain was released drops the bind group holding the old storage.
+#[test]
+fn releasing_a_drawn_view_drops_its_bind_group() {
+    let (device, _) = device();
+    let gpu = FarTerrainGpu::new(&device);
+    let layout = device.create_bind_group_layout("far terrain test layout", &[]);
+    let key = BindGroupKey {
+        view_uniforms: gpu.mask.id(),
+        quads: gpu.quads.id(),
+        records: gpu.records.id(),
+        colours: gpu.colours_view.id(),
+        mask: gpu.mask.id(),
+    };
+    let mut view = FarTerrainView {
+        pipeline: CachedRenderPipelineId::INVALID,
+        visible: Vec::new(),
+        bind_group: Some((
+            key,
+            device.create_bind_group("far terrain test", &layout, &[]),
+        )),
+    };
+    view.release();
+    assert!(view.bind_group.is_none() && view.visible.is_empty());
+}
