@@ -3,6 +3,7 @@ use bevy::input::keyboard::Key;
 use client_ui::test_support::mini_engine_presentation;
 use mod_ui::PanelUiOwner;
 
+mod capture_tests;
 mod closing_result;
 mod native_fields;
 
