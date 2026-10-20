@@ -175,9 +175,11 @@ impl Canvas<'_> {
             .map(|scale| scale as f32)
         });
         std::array::from_fn(|axis| {
-            ((bounds[axis + 2] - bounds[axis]).abs() * self.metrics.dpi_scale.get() * scale[axis])
-                .ceil()
-                .max(1.) as u32
+            raster_axis_size(
+                (bounds[axis + 2] - bounds[axis]).abs()
+                    * self.metrics.dpi_scale.get()
+                    * scale[axis],
+            )
         })
     }
 
@@ -259,10 +261,36 @@ impl Canvas<'_> {
     }
 }
 
+/// Uses at most one texel per whole screen pixel, retaining one texel for subpixel bounds.
+/// This keeps nearest sampling from skipping thin edges during fractional minification.
+fn raster_axis_size(pixels: f32) -> u32 {
+    pixels.floor().max(1.) as u32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::sources::{ImageWork, RemoteImage, RemoteSource};
+
+    #[test]
+    fn prepared_mask_edges_survive_fractional_scale_and_translation() {
+        for extent in [1.1_f32, 18.3, 40.1] {
+            let texels = raster_axis_size(extent);
+            for phase in 0..64 {
+                let origin = phase as f32 / 64.;
+                let sampled: Vec<_> = (0..(origin + extent).ceil() as u32)
+                    .map(|pixel| pixel as f32 + 0.5)
+                    .filter(|pixel| *pixel >= origin && *pixel < origin + extent)
+                    .map(|pixel| ((pixel - origin) / extent * texels as f32).floor() as u32)
+                    .collect();
+                assert!(sampled.contains(&0), "left edge lost at {extent}, {origin}");
+                assert!(
+                    sampled.contains(&(texels - 1)),
+                    "right edge lost at {extent}, {origin}"
+                );
+            }
+        }
+    }
 
     struct Offline;
     impl RemoteSource for Offline {
