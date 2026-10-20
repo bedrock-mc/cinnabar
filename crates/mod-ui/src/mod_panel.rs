@@ -163,12 +163,9 @@ impl ModUi {
         if let Some(current) = self.mod_panel.as_mut() {
             if !same_shape {
                 let transitions = (current.owner == owner
-                    && current
-                        .panel
-                        .surface
-                        .as_ref()
-                        .zip(panel.surface.as_ref())
-                        .is_some_and(|(previous, next)| previous.screen == next.screen))
+                    && current.open
+                    && current.panel.surface.is_some()
+                    && panel.surface.is_some())
                 .then(|| std::mem::take(&mut current.motion.transitions));
                 current.text_events.clear();
                 current.owner = owner;

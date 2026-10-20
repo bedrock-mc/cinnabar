@@ -30,7 +30,7 @@ use serde::{
     de::{DeserializeSeed, IgnoredAny},
 };
 
-use super::{MAX_FORM_JSON_BYTES, MAX_UI_TEXT_BYTES, UiEvent, UiPacketError};
+use super::{MAX_FORM_JSON_BYTES, UiEvent, UiPacketError};
 
 /// Array entries remain bounded by the document size, including their separators.
 pub const MAX_CUSTOM_FORM_ITEMS: usize = MAX_FORM_JSON_BYTES / 2;
@@ -323,7 +323,6 @@ fn bounded_form(value: wire::Str) -> Result<Arc<str>, UiPacketError> {
 struct FormHeader {
     kind: Option<FormKind>,
     title: Option<Arc<str>>,
-    title_overflow: Option<(usize, usize)>,
 }
 
 fn scan_form_header(json: &str, header: &mut FormHeader) -> Result<(), UiPacketError> {
@@ -332,9 +331,6 @@ fn scan_form_header(json: &str, header: &mut FormHeader) -> Result<(), UiPacketE
         .deserialize(&mut deserializer)
         .and_then(|()| deserializer.end())
         .map_err(|_| UiPacketError::InvalidFormJson)?;
-    if let Some((bytes, max)) = header.title_overflow.take() {
-        return Err(UiPacketError::TextTooLong { bytes, max });
-    }
     Ok(())
 }
 
@@ -376,12 +372,7 @@ impl<'de, 'a> serde::de::Visitor<'de> for FormHeaderProbe<'a> {
                 }
                 "title" => {
                     if let Some(value) = metadata_text(&mut map)? {
-                        if value.len() > MAX_UI_TEXT_BYTES {
-                            self.header.title_overflow = Some((value.len(), MAX_UI_TEXT_BYTES));
-                        } else {
-                            self.header.title = Some(Arc::from(value));
-                            self.header.title_overflow = None;
-                        }
+                        self.header.title = Some(Arc::from(value));
                     }
                 }
                 _ => {
