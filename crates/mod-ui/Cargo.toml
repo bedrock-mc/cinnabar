@@ -19,5 +19,8 @@ tracing.workspace = true
 ui = { path = "../ui" }
 ui-engine = { path = "../ui-engine" }
 
+[dev-dependencies]
+test-alloc = { path = "../test-alloc" }
+
 [lints]
 workspace = true

@@ -1,5 +1,8 @@
 # Entity masks
 
+Personal mods use the user's approved permissions in both local and remote worlds.
+Server negotiation and server grants do not control these capabilities.
+
 The experimental `cinnabar:world-draw/masks@0.1.0` interface retains selections across
 successful callbacks. `create(test)` defaults to scene-depth-tested coverage; `create(always)`
 also requires `render_through_walls`. Both require `entity_highlight`. Each component owns its

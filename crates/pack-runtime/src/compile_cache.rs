@@ -2,7 +2,7 @@
 
 use std::{
     fs,
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
     time::{Duration, SystemTime},
 };
@@ -25,9 +25,12 @@ pub fn current() -> Option<&'static CompileCache> {
     COMPILE_CACHE.get()
 }
 
-const MAGIC: [u8; 8] = *b"CNBRCMP1";
-const HEADER: usize = MAGIC.len() + 32 + 8;
+const MAGIC: [u8; 8] = *b"CNBRCMP2";
 const HASH: usize = 32;
+const KEY_OFFSET: usize = MAGIC.len();
+const LENGTH_OFFSET: usize = KEY_OFFSET + HASH;
+const DECODED_LENGTH_OFFSET: usize = LENGTH_OFFSET + std::mem::size_of::<u64>();
+const HEADER: usize = DECODED_LENGTH_OFFSET + std::mem::size_of::<u64>();
 const EXTENSION: &str = "bin";
 /// A writer that died mid-entry leaves its temporary file; later writers sweep it after this.
 const STALE_TEMPORARY: Duration = Duration::from_secs(3600);
@@ -78,10 +81,37 @@ impl CompileCache {
         Self { dir, max_bytes }
     }
 
+    /// Reuses a subscriber output and its reads, compiling on a miss or invalid entry.
+    pub fn get_or_compile<T: serde::Serialize + serde::de::DeserializeOwned>(
+        &self,
+        key: &[u8; 32],
+        view: &resource_pack::LayeredPackView,
+        compile: impl FnOnce() -> T,
+    ) -> T {
+        let Some(files) = view.dependencies() else {
+            return compile();
+        };
+        if let Some(entry) = self.load(key)
+            && let Some((dependencies, payload)) = resource_pack::PackDependency::decode_set(&entry)
+            && let Ok((output, [])) = postcard::take_from_bytes(payload)
+        {
+            files.extend(dependencies);
+            return output;
+        }
+        let output = compile();
+        if let Ok(payload) = postcard::to_allocvec(&output) {
+            let mut entry = Vec::new();
+            resource_pack::PackDependency::encode_set(&files.snapshot(), &mut entry);
+            entry.extend_from_slice(&payload);
+            self.store(key, &entry);
+        }
+        output
+    }
+
     /// Returns the stored payload, or `None` for a miss; a damaged entry is deleted.
     pub fn load(&self, key: &[u8; 32]) -> Option<Vec<u8>> {
         let path = self.entry(key);
-        let mut bytes = fs::read(&path).ok()?;
+        let bytes = fs::read(&path).ok()?;
         if !valid(&bytes, key) {
             tracing::warn!(path = %path.display(), "discarding a damaged compile cache entry");
             let _ = fs::remove_file(&path);
@@ -92,17 +122,41 @@ impl CompileCache {
             .append(true)
             .open(&path)
             .and_then(|file| file.set_modified(SystemTime::now()));
-        bytes.truncate(bytes.len() - HASH);
-        bytes.drain(..HEADER);
-        Some(bytes)
+        let compressed = &bytes[HEADER..bytes.len() - HASH];
+        let length = u64::from_le_bytes(bytes[DECODED_LENGTH_OFFSET..HEADER].try_into().ok()?);
+        let mut decoder = flate2::read::DeflateDecoder::new(compressed);
+        let mut payload = Vec::new();
+        payload
+            .try_reserve_exact(usize::try_from(length).ok()?)
+            .ok()?;
+        let decoded = decoder
+            .by_ref()
+            .take(length.checked_add(1)?)
+            .read_to_end(&mut payload);
+        if decoded.is_err()
+            || payload.len() as u64 != length
+            || decoder.total_in() != compressed.len() as u64
+        {
+            let _ = fs::remove_file(&path);
+            return None;
+        }
+        Some(payload)
     }
 
     /// Writes the entry atomically, then evicts the least recently used past the size bound.
     pub fn store(&self, key: &[u8; 32], payload: &[u8]) {
-        if (HEADER + payload.len() + HASH) as u64 > self.max_bytes {
+        let mut encoder =
+            flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::fast());
+        if encoder.write_all(payload).is_err() {
             return;
         }
-        if let Err(error) = self.write(key, payload) {
+        let Ok(compressed) = encoder.finish() else {
+            return;
+        };
+        if (HEADER + compressed.len() + HASH) as u64 > self.max_bytes {
+            return;
+        }
+        if let Err(error) = self.write(key, &compressed, payload.len() as u64) {
             tracing::warn!(%error, dir = %self.dir.display(), "compile cache entry was not stored");
             return;
         }
@@ -115,7 +169,7 @@ impl CompileCache {
     }
 
     /// No fsync: a torn entry fails validation on load and is treated as a miss.
-    fn write(&self, key: &[u8; 32], payload: &[u8]) -> std::io::Result<()> {
+    fn write(&self, key: &[u8; 32], payload: &[u8], decoded_length: u64) -> std::io::Result<()> {
         static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         fs::create_dir_all(&self.dir)?;
         let path = self.entry(key);
@@ -124,7 +178,13 @@ impl CompileCache {
         let mut hash = Sha256::new();
         let mut file = fs::File::create(&temporary)?;
         let length = (payload.len() as u64).to_le_bytes();
-        for chunk in [&MAGIC[..], key, &length, payload] {
+        for chunk in [
+            &MAGIC[..],
+            key,
+            &length,
+            &decoded_length.to_le_bytes(),
+            payload,
+        ] {
             hash.update(chunk);
             file.write_all(chunk)?;
         }
@@ -174,9 +234,13 @@ fn valid(bytes: &[u8], key: &[u8; 32]) -> bool {
         return false;
     };
     body >= HEADER
-        && bytes[..8] == MAGIC
-        && bytes[8..40] == key[..]
-        && u64::from_le_bytes(bytes[40..48].try_into().unwrap()) == (body - HEADER) as u64
+        && bytes[..KEY_OFFSET] == MAGIC
+        && bytes[KEY_OFFSET..LENGTH_OFFSET] == key[..]
+        && u64::from_le_bytes(
+            bytes[LENGTH_OFFSET..DECODED_LENGTH_OFFSET]
+                .try_into()
+                .unwrap(),
+        ) == (body - HEADER) as u64
         && Sha256::digest(&bytes[..body])[..] == bytes[body..]
 }
 
@@ -237,10 +301,11 @@ mod tests {
     #[test]
     fn eviction_drops_the_least_recently_used_entries_first() {
         let dir = tempfile::tempdir().unwrap();
-        let entry = (HEADER + 100 + HASH) as u64;
-        let cache = CompileCache::new(dir.path().to_owned(), entry * 2);
+        let mut cache = CompileCache::new(dir.path().to_owned(), 1 << 20);
         cache.store(&key(1), &[1; 100]);
         cache.store(&key(2), &[2; 100]);
+        cache.max_bytes = fs::metadata(cache.entry(&key(1))).unwrap().len()
+            + fs::metadata(cache.entry(&key(2))).unwrap().len();
         age(&cache, &key(1), 20);
         age(&cache, &key(2), 10);
         // A hit refreshes the older entry, so the other one is evicted.
@@ -275,3 +340,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "compile_cache/tests.rs"]
+mod subscriber_tests;

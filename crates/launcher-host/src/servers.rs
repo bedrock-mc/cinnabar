@@ -7,7 +7,7 @@
 
 use std::{
     fs,
-    io::{Read, Write},
+    io::Write,
     path::{Path, PathBuf},
     process,
 };
@@ -18,11 +18,6 @@ use {
     launcher::menu::view::SavedServer,
     launcher::menu::{MAX_SERVER_ADDRESS_BYTES, MAX_SERVER_NAME_BYTES},
 };
-
-/// Maximum number of saved-server entries retained from one local file.
-pub const MAX_SAVED_SERVERS: usize = 256;
-/// Maximum saved-server JSON bytes read or written in one operation.
-pub const MAX_SAVED_SERVER_FILE_BYTES: usize = 64 * 1024;
 
 /// Result of reading the saved-server file.
 pub struct LoadedServers {
@@ -41,7 +36,7 @@ pub struct LoadedServers {
 /// so the failure is visible instead of silently losing the player's list.
 /// Transient read errors return an empty list without touching the file.
 pub fn load_servers(path: &Path) -> LoadedServers {
-    let bytes = match read_bounded(path) {
+    let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return LoadedServers {
@@ -61,29 +56,14 @@ pub fn load_servers(path: &Path) -> LoadedServers {
             };
         }
     };
-    if bytes.len() > MAX_SAVED_SERVER_FILE_BYTES {
-        return quarantine_invalid(path);
-    }
     match serde_json::from_slice::<Vec<SavedServer>>(&bytes) {
-        Ok(servers) if servers.len() <= MAX_SAVED_SERVERS && servers.iter().all(schema_valid) => {
-            LoadedServers {
-                servers,
-                allow_writes: true,
-                recovery_message: None,
-            }
-        }
+        Ok(servers) if servers.iter().all(schema_valid) => LoadedServers {
+            servers,
+            allow_writes: true,
+            recovery_message: None,
+        },
         Ok(_) | Err(_) => quarantine_invalid(path),
     }
-}
-
-/// Reads at most one byte beyond the saved-server file ceiling so a growing
-/// or hostile local file can be rejected without allocating its full size.
-fn read_bounded(path: &Path) -> std::io::Result<Vec<u8>> {
-    let file = fs::File::open(path)?;
-    let mut bytes = Vec::with_capacity(MAX_SAVED_SERVER_FILE_BYTES.saturating_add(1));
-    file.take((MAX_SAVED_SERVER_FILE_BYTES as u64).saturating_add(1))
-        .read_to_end(&mut bytes)?;
-    Ok(bytes)
 }
 
 /// Quarantines one semantically invalid or over-limit saved-server file.
@@ -133,12 +113,6 @@ pub fn save_servers(path: &Path, servers: &[SavedServer]) -> Result<()> {
 
 /// The schema limits [`load_servers`] enforces, checked before any write.
 pub(crate) fn validate(servers: &[SavedServer]) -> Result<()> {
-    if servers.len() > MAX_SAVED_SERVERS {
-        bail!(
-            "too many saved servers: {} exceeds {MAX_SAVED_SERVERS}",
-            servers.len()
-        );
-    }
     for server in servers {
         if !schema_valid(server) {
             bail!(
@@ -166,12 +140,6 @@ fn write_servers(path: &Path, servers: &[SavedServer]) -> Result<()> {
         .context(format!("{} has no parent directory", path.display()))?;
     fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     let bytes = serde_json::to_vec_pretty(servers).context("encode saved servers")?;
-    if bytes.len() > MAX_SAVED_SERVER_FILE_BYTES {
-        bail!(
-            "saved-server file is {} bytes, exceeding {MAX_SAVED_SERVER_FILE_BYTES}",
-            bytes.len()
-        );
-    }
     let temp = path.with_file_name(format!(
         "{}.tmp-{}",
         path.file_name()

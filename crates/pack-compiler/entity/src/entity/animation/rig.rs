@@ -8,7 +8,7 @@ use assets::{
 use serde_json::{Map, Value};
 
 use super::{
-    super::{SourcePayloads, invalid, molang::MolangCompiler},
+    super::{SourceDocuments, invalid, molang::MolangCompiler},
     ClipIndices, CompileReferenceOutcome, FallbackReason, RejectReason,
     clip::read_json,
     controller::{ControllerKey, PendingController},
@@ -130,7 +130,7 @@ impl PendingRigPayload {
 
 pub(super) struct RigSources<'a> {
     pub root: &'a Path,
-    pub payloads: &'a SourcePayloads,
+    pub payloads: &'a SourceDocuments<'a>,
     pub sources: &'a [EntityAssetSource],
     pub symbols: &'a [EntityAssetSymbol],
     pub geometries: &'a [EntityGeometry],
@@ -178,7 +178,7 @@ pub(super) fn compile_rigs(
     }) {
         let source = &sources[entity.source_index as usize];
         let value = read_json(root, payloads, source)?;
-        let description = roots::description(&value)
+        let description = roots::description(value)
             .ok_or_else(|| invalid("client entity description is absent"))?;
         let reject = |reason| CompileReferenceOutcome::RequiredRigRejected {
             source: entity.source_index,
@@ -267,9 +267,9 @@ pub(super) fn compile_rigs(
             Some(GeometrySelection::Unsupported) => static_fallback = true,
             None => {}
         }
-        let animation_aliases = roots::animation_aliases(&value)?;
-        let controller_aliases = roots::legacy_controller_aliases(&value)?;
-        let roots = roots::activation_roots(&value);
+        let animation_aliases = roots::animation_aliases(value)?;
+        let controller_aliases = roots::legacy_controller_aliases(value)?;
+        let roots = roots::activation_roots(value);
         let root_condition = |name: &str| {
             roots.as_ref().and_then(|roots| {
                 roots

@@ -61,7 +61,7 @@ fn candidate(root: &std::path::Path, name: &str, text: &str) -> Box<Candidate> {
 }
 
 /// Provides frame publication with real bounded channels and no coordinator thread.
-fn world() -> (World, Receiver<Message>, Receiver<ModHost>) {
+fn world() -> (World, Receiver<Message>, Receiver<Retired>) {
     let (_, updates) = bounded(1);
     let (messages, incoming) = bounded(8);
     let (retired, retiring) = bounded(mod_api::MAX_LOADED_MODS * 2);
@@ -71,6 +71,7 @@ fn world() -> (World, Receiver<Message>, Receiver<ModHost>) {
         messages,
         retired,
         latest: Arc::new(AtomicU64::new(0)),
+        applied: AtomicU64::new(0),
         desired: Arc::new(Mutex::new(Desired::default())),
         alive: Arc::new(AtomicBool::new(true)),
         thread: None,
@@ -526,7 +527,7 @@ fn settings_owner_publication_includes_environment_loaded_hosts() {
     apply(&mut world, vec![entry.clone()], vec![change(prepared)]);
     world.resource_mut::<ModRuntime>().metadata[0].registration = None;
     let watcher = world.resource::<Watcher>();
-    watcher.remember_settings(Some(world.resource::<ModRuntime>()), None);
+    watcher.remember_settings(Some(world.resource::<ModRuntime>()));
     let permit = removal::Permit::new(
         watcher.latest.load(Ordering::Acquire),
         watcher.latest.clone(),
@@ -683,6 +684,112 @@ fn failed_admission_acknowledges_an_absent_host_without_retrying() {
     assert!(messages.try_recv().is_err());
 }
 
+/// A binary reactor exercises the same source kind and canonical exports as a Go build.
+fn packet_bytes() -> Vec<u8> {
+    let fixture = include_str!("../../../../crates/mod-host/src/packet_mod/tests/guest.wat")
+        .replace("$IMPORTS", "")
+        .replace("$START", "");
+    wat::parse_str(fixture).unwrap()
+}
+
+#[test]
+fn packet_candidates_survive_source_removal_and_revoke_on_disable() {
+    let root = tempfile::tempdir().unwrap();
+    let (mut world, messages, _) = world();
+    let path = root.path().join("packet.wasm");
+    fs::write(&path, packet_bytes()).unwrap();
+    let entry = Entry {
+        component: path.clone(),
+        enabled: true,
+        grants: mod_host::ModGrants {
+            packets: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let candidate =
+        Box::new(build_candidate(source::source_snapshot(entry.clone()).unwrap()).unwrap());
+    fs::remove_file(&path).unwrap();
+    apply(&mut world, vec![entry.clone()], vec![change(candidate)]);
+    assert!(
+        !world.contains_resource::<ModRuntime>(),
+        "packet guests do not enter the frame host"
+    );
+    let relay = world
+        .resource::<crate::modding::packets::PacketMods>()
+        .session_relay()
+        .unwrap();
+    let identity = protocol::session_wire::SessionIdentity {
+        display_name: "Steve".into(),
+        xuid: "1".into(),
+        uuid: "u".into(),
+    };
+    assert_eq!(relay.start(&identity, "{}", &[1]).len(), 2);
+    assert_eq!(relay.outbound(&[1]), Some(vec![0]));
+    assert!(
+        matches!(messages.try_recv().unwrap(), Message::Acknowledge { statuses, .. } if statuses[0].state == "next-join")
+    );
+    let mut disabled = entry;
+    disabled.enabled = false;
+    apply(&mut world, vec![disabled], Vec::new());
+    assert_eq!(relay.outbound(&[1]), None);
+    assert!(
+        world
+            .resource::<crate::modding::packets::PacketMods>()
+            .session_relay()
+            .is_none()
+    );
+}
+
+#[test]
+fn joins_wait_for_initial_observation_and_finish_after_admission() {
+    let (mut world, _, _) = world();
+    assert!(world.resource::<Watcher>().preparing());
+    apply(&mut world, Vec::new(), Vec::new());
+    assert!(!world.resource::<Watcher>().preparing());
+
+    let root = tempfile::tempdir().unwrap();
+    let entry = Entry {
+        component: root.path().join("packet.wasm"),
+        enabled: true,
+        grants: mod_host::ModGrants {
+            packets: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    fs::write(&entry.component, packet_bytes()).unwrap();
+    let candidate =
+        Box::new(build_candidate(source::source_snapshot(entry.clone()).unwrap()).unwrap());
+    let watcher = world.resource::<Watcher>();
+    watcher.desired.lock().unwrap().generation += 1;
+    assert!(
+        watcher.preparing(),
+        "a newer selection is still being prepared"
+    );
+    apply(&mut world, vec![entry.clone()], vec![change(candidate)]);
+    assert!(!world.resource::<Watcher>().preparing());
+    assert!(
+        world
+            .resource::<crate::modding::packets::PacketMods>()
+            .session_relay()
+            .is_some()
+    );
+
+    apply(
+        &mut world,
+        vec![entry.clone()],
+        vec![Change {
+            entry,
+            result: Err("bad source".into()),
+        }],
+    );
+    assert!(
+        !world.resource::<Watcher>().preparing(),
+        "an admission error ends the wait too"
+    );
+}
+
 #[test]
 fn drawing_fence_changes_cannot_restore_withdrawn_registration_grants() {
     let root = tempfile::tempdir().unwrap();
@@ -734,12 +841,14 @@ fn registered_drawing_restart_uses_worker_admission_and_rejects_stale_results() 
         .bind_drawing_session(session);
     let context = super::super::admission::DrawingContext::capture(
         world.resource::<ModRuntime>().hosts.host(0),
-        None,
     );
     let mut snapshot = source::source_snapshot(entry.clone()).unwrap();
     snapshot.drawing = context;
     let prepared = Box::new(build_candidate(snapshot).unwrap());
-    assert_eq!(prepared.host.drawing_session(), Some(session));
+    assert_eq!(
+        prepared.frame_host().unwrap().drawing_session(),
+        Some(session)
+    );
     apply(&mut world, vec![entry.clone()], vec![change(prepared)]);
     assert!(world.resource::<ModRuntime>().hosts.host(0).is_active());
     assert!(
@@ -752,7 +861,6 @@ fn registered_drawing_restart_uses_worker_admission_and_rejects_stale_results() 
     let mut snapshot = source::source_snapshot(entry.clone()).unwrap();
     snapshot.drawing = super::super::admission::DrawingContext::capture(
         world.resource::<ModRuntime>().hosts.host(0),
-        None,
     );
     let stale = Box::new(build_candidate(snapshot).unwrap());
     world

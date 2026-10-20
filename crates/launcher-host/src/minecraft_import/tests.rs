@@ -88,7 +88,7 @@ fn sized_pack(root: &Path, name: &str, id: &str, payload_bytes: usize) -> PathBu
 }
 
 #[test]
-fn combined_archive_limit_skips_activation_before_apply_and_keeps_other_data_importable() {
+fn combined_selected_archives_remain_available_during_import() {
     let root = tempfile::tempdir().unwrap();
     let mut service = service(root.path());
     let mut library = library(root.path());
@@ -130,13 +130,17 @@ fn combined_archive_limit_skips_activation_before_apply_and_keeps_other_data_imp
         &mut library,
     );
     let preview = service.preview.as_ref().unwrap();
-    assert_eq!(preview.selection.len(), original.len() + 1);
+    assert_eq!(preview.selection.len(), original.len() + 2);
     assert_eq!(
         preview.selection[0].id.to_string(),
+        "33333333-3333-3333-3333-333333333333"
+    );
+    assert_eq!(
+        preview.selection[1].id.to_string(),
         "44444444-4444-4444-4444-444444444444"
     );
-    assert_eq!(&preview.selection[1..], original);
-    assert!(preview.skipped > 0);
+    assert_eq!(&preview.selection[2..], original);
+    let selected = preview.selection.clone();
     assert_eq!(library.available(), available);
     assert_eq!(library.active(), original);
     assert!(!storage::has_backup(&service.config_root));
@@ -145,7 +149,19 @@ fn combined_archive_limit_skips_activation_before_apply_and_keeps_other_data_imp
     let imported = applied.state.unwrap();
     assert_eq!(imported.settings.value(SettingId::FieldOfView), 80);
     assert_eq!(imported.servers.len(), 1);
-    assert_eq!(&imported.active[1..], original);
+    assert_eq!(
+        imported
+            .active
+            .iter()
+            .map(|pack| (pack.id, &pack.subpack))
+            .collect::<Vec<_>>(),
+        selected
+            .iter()
+            .map(|pack| (pack.id, &pack.subpack))
+            .collect::<Vec<_>>()
+    );
+    assert!(imported.active[..2].iter().all(|pack| pack.revision != 0));
+    assert_eq!(&imported.active[2..], original);
 }
 
 #[test]
@@ -327,8 +343,8 @@ fn changed_pack_catalog_requires_a_fresh_preview() {
 }
 
 #[test]
-fn merged_servers_fit_the_existing_storage_byte_limit() {
-    let incoming = (0..crate::servers::MAX_SAVED_SERVERS)
+fn merged_servers_preserve_large_valid_lists() {
+    let incoming = (0..600)
         .map(|index| SavedServer {
             name: "n".repeat(launcher::menu::MAX_SERVER_NAME_BYTES),
             address: format!(
@@ -340,12 +356,8 @@ fn merged_servers_fit_the_existing_storage_byte_limit() {
         })
         .collect::<Vec<_>>();
     let (merged, skipped) = preview::merge_servers(&[], &incoming);
-    assert!(skipped > 0);
-    assert_eq!(merged.len() + skipped, incoming.len());
-    assert!(
-        serde_json::to_vec_pretty(&merged).unwrap().len()
-            <= crate::servers::MAX_SAVED_SERVER_FILE_BYTES
-    );
+    assert_eq!(skipped, 0);
+    assert_eq!(merged, incoming);
     crate::servers::validate(&merged).unwrap();
 }
 

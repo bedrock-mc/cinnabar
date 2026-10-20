@@ -2,6 +2,16 @@
 
 use std::io::{Cursor, Write};
 
+/// Counts uncached inflate/decrypt attempts for a file, shared across aliases and pack clones.
+pub fn file_read_count(pack: &crate::ValidatedPack, path: &str) -> Option<usize> {
+    pack.entry(path).map(|entry| {
+        entry
+            .cached
+            .reads
+            .load(std::sync::atomic::Ordering::Relaxed)
+    })
+}
+
 /// Admits an archive containing the supplied artwork as a server pack.
 pub fn pack_view(files: &[(String, Vec<u8>)]) -> crate::LayeredPackView {
     layered_pack_view(&[files])

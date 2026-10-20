@@ -5,6 +5,7 @@ mod continuity;
 mod first_presentation;
 mod frame_budget;
 mod held_scale;
+mod reuse;
 mod rotation;
 mod walk;
 

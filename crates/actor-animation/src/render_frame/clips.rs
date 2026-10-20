@@ -27,11 +27,10 @@ pub(super) fn sample(
         server_effects,
     } = history;
     let mut journal = journal.clone();
-    let mut controllers = controllers.to_vec();
-    let mut clips = tick::selection::select(
+    let mut clips = tick::selection::replay(
         evaluator,
         variables,
-        &mut controllers,
+        controllers,
         tick::selection::Input {
             clocks,
             geometry: state.geometry_binding,

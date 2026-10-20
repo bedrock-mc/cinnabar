@@ -85,6 +85,31 @@ fn uniform_biome(id: u32) -> Vec<u8> {
 }
 
 #[test]
+fn byte_array_does_not_swallow_the_following_block_entity_root() {
+    let len = world::MAX_NBT_COLLECTION_LENGTH + 1;
+    let mut unknown = vec![10, 0, 7];
+    string("Bytes", &mut unknown);
+    zigzag_i32(len as i32, &mut unknown);
+    unknown.resize(unknown.len() + len, 0xaa);
+    unknown.push(0);
+    let key = BlockEntityKey::new(0, 1, 64, 1);
+    let entity = block_entity("Chest", key.position());
+    let tail = [&unknown[..], &entity].concat();
+    let sub_chunk = SubChunkKey::new(0, 0, 4, 0);
+    let decoded = DecodedBlockEntities::decode_sub_chunk_tail(sub_chunk, &tail);
+    assert_eq!(decoded.len(), 1);
+    assert_eq!(decoded.get(key).unwrap().bytes(), entity);
+    let chunk_tail = [&[0][..], &tail].concat();
+    let decoded = DecodedBlockEntities::decode_level_chunk_tail(
+        ChunkKey::new(0, 0, 0),
+        OVERWORLD_Y,
+        &chunk_tail,
+    );
+    assert_eq!(decoded.len(), 1);
+    assert_eq!(decoded.get(key).unwrap().bytes(), entity);
+}
+
+#[test]
 fn chunk_tail_keeps_in_scope_entities_after_the_border_block_list() {
     let chunk = ChunkKey::new(0, -2, 3);
     let first_key = BlockEntityKey::new(0, -31, 64, 49);
