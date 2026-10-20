@@ -99,7 +99,16 @@ impl History {
 impl HudEditor {
     /// Steps history, drops transient feedback and persists the resulting draft when opted in.
     pub(super) fn step_history(&mut self, redo: bool) {
+        let restore_gesture = self.drag.is_some() && !self.autosave;
         self.cancel_pointer_input();
+        if restore_gesture
+            && self
+                .history
+                .current
+                .restore(&mut self.draft, &mut self.hidden)
+        {
+            self.catalog = None;
+        }
         self.settle_anchor_motion();
         if let Some(resized) = self.history.step(redo, &mut self.draft, &mut self.hidden) {
             if resized {

@@ -91,7 +91,11 @@ fn studio_history_covers_move_resize_nudge_anchor_scale_visibility_reset_and_red
             "hud.reset",
         ] {
             // Hidden cards have no screen hits, but remain actionable from the guest's drawer.
-            editor.action(action, &mut []).unwrap();
+            if action == "hud.reset" {
+                editor.reset_layout();
+            } else {
+                editor.action(action, &mut []).unwrap();
+            }
             states.push(editor.snapshot(true));
         }
         for expected in states.iter().rev().skip(1) {
@@ -409,4 +413,21 @@ fn studio_full_preview_reorders_by_id_and_cancelling_a_new_card_drag_keeps_fresh
     editor.cancel_pointer_input();
     assert_eq!(editor.draft.cards[0].id, "new");
     assert_eq!(editor.draft.cards[0].offset, preview.cards[0].offset);
+}
+
+#[test]
+fn studio_undo_cancels_an_unfinished_first_gesture_in_both_save_modes() {
+    for autosave in [false, true] {
+        let mut editor = editor(autosave);
+        let original = editor.draft.cards[0].clone();
+        let point = frame(&mut editor, "hud.card:0");
+        editor.pointer(point, true, true, &mut []);
+        editor.pointer([point[0] + 20., point[1] + 20.], false, true, &mut []);
+        assert_ne!(editor.draft.cards[0], original);
+        editor.step_history(false);
+        assert_eq!(editor.draft.cards[0], original);
+        assert!(editor.drag.is_none());
+        assert_eq!(editor.history.available(), [false, false]);
+        assert!(editor.result.is_none());
+    }
 }
