@@ -17,9 +17,13 @@ use carrier::{
 mod fallback;
 #[cfg(test)]
 mod merge_tests;
+mod outline;
 mod rendering;
 mod runtime;
-pub use rendering::{FONT_STYLE_COVERAGE_GAMMA, FONT_STYLE_SDF, FontRendering};
+pub use outline::rasterize_outline_font;
+pub use rendering::{
+    FONT_STYLE_COVERAGE_GAMMA, FONT_STYLE_OUTLINE_COVERAGE, FONT_STYLE_SDF, FontRendering,
+};
 
 pub const FONT_CARRIER_MAGIC: [u8; 9] = *b"MCBEFONT1";
 pub const FONT_CARRIER_SCHEMA: u32 = 2;

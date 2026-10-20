@@ -26,7 +26,7 @@ fn all_air_connectivity_walks_the_loaded_graph() {
     ]);
 
     let visible = cave_visible_sub_chunks(first, &graph);
-    assert_eq!(visible, [first, second, third].into());
+    assert_eq!(visible, HashSet::from([first, second, third]));
 }
 
 #[test]
@@ -43,7 +43,7 @@ fn sealed_middle_subchunk_stops_bfs_beyond_the_conservative_shell() {
     ]);
 
     let visible = cave_visible_sub_chunks(first, &graph);
-    assert_eq!(visible, [first, sealed, shell].into());
+    assert_eq!(visible, HashSet::from([first, sealed, shell]));
 }
 
 #[test]
@@ -120,7 +120,10 @@ fn missing_camera_node_falls_back_to_conservative_visibility() {
     let loaded = SubChunkKey::new(0, 0, 0, 0);
     let graph = grid([(loaded, FaceConnectivity::none())]);
 
-    assert_eq!(cave_visible_sub_chunks(camera, &graph), [loaded].into());
+    assert_eq!(
+        cave_visible_sub_chunks(camera, &graph),
+        HashSet::from([loaded])
+    );
 }
 
 #[test]
@@ -143,7 +146,7 @@ fn outdoor_camera_boundary_keeps_the_loaded_graph_continuously_visible() {
         before, after,
         "crossing an outdoor sub-chunk boundary must not hide a loaded entity for one frame"
     );
-    assert_eq!(before, graph.keys().collect());
+    assert_eq!(before, graph.keys().collect::<HashSet<_>>());
 }
 
 /// The hash-map traversal the dense grid replaced, kept verbatim as the output oracle.
@@ -358,7 +361,7 @@ fn dense_traversal_matches_the_oracle_on_random_worlds() {
         grid.retain(|key| key.x % 3 != 0);
         assert_eq!(
             grid.keys().collect::<HashSet<_>>(),
-            map.keys().copied().collect()
+            map.keys().copied().collect::<HashSet<_>>()
         );
         let camera = map
             .keys()
@@ -490,7 +493,7 @@ fn incremental_additions_keep_exactly_one_support_shell() {
     ));
     assert_eq!(
         visible.iter().collect::<HashSet<_>>(),
-        [key(0), key(1), key(2)].into()
+        HashSet::from([key(0), key(1), key(2)])
     );
     grid.insert(key(4), FaceConnectivity::all());
     assert!(!update_incrementally(

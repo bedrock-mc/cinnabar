@@ -40,6 +40,7 @@ names! {
         MenuNetworkServerItem = "button.menu_network_server_item",
         MenuNetworkServerWorldEdit = "button.menu_network_server_world_edit",
         MenuNetworkWorldItem = "button.menu_network_world_item",
+        MenuOk = "button.menu_ok",
         MenuPlay = "button.menu_play",
         MenuProfile = "button.menu_profile",
         MenuQuit = "button.menu_quit",
