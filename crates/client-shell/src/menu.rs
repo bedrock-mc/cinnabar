@@ -43,8 +43,8 @@ pub mod settings_options;
 mod settings_paths;
 pub mod settings_storage;
 pub mod settings_support;
-mod shader_pack_status;
 mod settings_values;
+mod shader_pack_status;
 #[cfg(feature = "developer-control")]
 mod sign_in_fixture;
 pub mod video_settings;
