@@ -274,22 +274,15 @@ impl<R: bridge::FrameRead> PlaySession<R> {
     }
 
     /// Receives the next world-streaming event without decoding unrelated play packets.
+    /// Latency probes are returned in order; the caller replies once earlier work is applied.
     pub async fn recv_world_event(
         &mut self,
         current_dimension: i32,
     ) -> Result<WorldEvent, ProtocolError> {
-        loop {
-            let event = self
-                .recv_world_ingress(current_dimension)
-                .await?
-                .into_world_event();
-            if let WorldEvent::NetworkStackLatency(creation_time) = event {
-                self.send(network_stack_latency_reply(creation_time))
-                    .await?;
-            } else {
-                return Ok(event);
-            }
-        }
+        Ok(self
+            .recv_world_ingress(current_dimension)
+            .await?
+            .into_world_event())
     }
 
     /// Receives world work while allowing the app to retain an uncopied LevelChunk payload.

@@ -24,6 +24,15 @@ Headless sessions render through a hidden window. They can verify pixels and
 rendering work, but displayed-frame pacing, OS focus, and occlusion gates require
 appropriate presentation evidence and remain incomplete without it.
 
+A signed-in capture account still receives Xbox join requests and other toasts, which `F1` does
+not hide. `--hide-toasts` (`developer-control` builds only) stops drawing toasts for the session
+so they cannot land in a comparison capture; they still queue and expire as usual.
+
+To compare frames against another renderer at a known time of day, launch a `developer-control`
+build with `--fixed-time <TICKS>` (0 = sunrise, 6000 = noon, 12000 = sunset, 18000 = midnight).
+The sky and lighting then draw at that time for the whole session, ahead of any mod's time
+changer; the server clock, and so gameplay, keep running. Release builds reject the flag.
+
 Server compatibility tests can establish connection, transfer, or server-authority
 behavior. They do not by themselves establish version-matched Bedrock parity.
 Choose a reproducible scenario and distinguish server behavior from client output.

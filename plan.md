@@ -41,6 +41,8 @@ closes no gate and provides no new runtime or performance evidence.
   conformance findings, classify every decode error, and qualify frame and mutation
   latency against the current [live-testing requirements](docs/agents/live-testing.md).
   Use the current headless client workflow for scripted tests; keep captures local.
+  Dimension definitions use an exclusive maximum Y and retain complete sub-chunks;
+  live custom-dimension transfer acceptance remains open.
 
 ## Phase 1 — Core service
 
@@ -256,6 +258,17 @@ Implemented: [actor rigs, Molang, controllers, attachables and pose evaluation](
 with [client presentation](crates/client-presentation/src/lib.rs) and
 [rendering](crates/render/src/lib.rs). The open gates require complete behavioral
 and rendered qualification, not initial implementation of those systems.
+Frame sampling retains matching expression, layer and composition results; equipment
+placement reuses unchanged owner and attachment inputs. Hardware crowd captures and
+full temporal/visual qualification remain open.
+
+Pure numeric Molang expressions use bound f32 lane programs with load fusion;
+mixed values and effects retain the generic evaluator, including exact budget tails.
+Full rig history and rendered qualification remain part of `P4.3-RIGS`.
+Body and custom-skin composition use shared parent-first programs and caller-owned
+output, including attachable root modes and legacy attacks. Alternate render
+geometries and skin layers retain recursive composition. Rendered and live
+performance qualification remains open.
 
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
@@ -407,6 +420,9 @@ fallback; do not bundle game assets to fill gaps.
 Complete clean-install, first-run asset preparation, update/install recovery, startup
 and crash diagnostics, packaging and platform acceptance. Required carriers must pass
 validation; retain only the explicitly permitted diagnostic/optional fallbacks.
+
+Windows runtime executables use `asInvoker` manifests and allow both normal and elevated
+launches. Native Windows startup, update and crash-restart acceptance remains incomplete.
 
 ## Experimental hosts and extensions
 
