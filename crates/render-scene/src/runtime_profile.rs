@@ -114,12 +114,15 @@ pub enum RuntimeStage {
     GpuModPass7,
     GpuModPrimitives,
     GpuFarTerrain,
+    /// GPU time between the previous frame's last timestamp and this frame's first, when both
+    /// frames were timed; untimed work between them (uploads, presentation) counts as idle.
+    GpuIdle,
     /// CPU time from submission admission to its completion callback, including queue and poll delay.
     GpuFrameCompletionLatency,
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 83] = [
+    pub const ALL: [Self; 84] = [
         Self::ActorSessionSetup,
         Self::PackReload,
         Self::WorldPoll,
@@ -202,11 +205,12 @@ impl RuntimeStage {
         Self::GpuModPass7,
         Self::GpuModPrimitives,
         Self::GpuFarTerrain,
+        Self::GpuIdle,
         Self::GpuFrameCompletionLatency,
     ];
 
     /// GPU diagnostics, including labelled completion latency, in the tail of [`Self::ALL`].
-    pub const GPU: [Self; 41] = [
+    pub const GPU: [Self; 42] = [
         Self::GpuFrame,
         Self::GpuShadows,
         Self::GpuOpaque,
@@ -247,6 +251,7 @@ impl RuntimeStage {
         Self::GpuModPass7,
         Self::GpuModPrimitives,
         Self::GpuFarTerrain,
+        Self::GpuIdle,
         Self::GpuFrameCompletionLatency,
     ];
 
@@ -330,6 +335,7 @@ impl RuntimeStage {
             Self::FramePacingLateness => "frame_pacing_lateness",
             Self::GpuFrame => "gpu_frame",
             Self::GpuFrameCompletionLatency => "gpu_frame_completion_latency",
+            Self::GpuIdle => "gpu_idle",
             Self::GpuShadows => "gpu_shadows",
             Self::GpuOpaque => "gpu_opaque",
             Self::GpuTransparent => "gpu_transparent",
@@ -619,7 +625,9 @@ impl RuntimeStageProfiler {
         if frame.iter().any(|(stage, _)| {
             !matches!(
                 stage,
-                RuntimeStage::GpuFrame | RuntimeStage::GpuFrameCompletionLatency
+                RuntimeStage::GpuFrame
+                    | RuntimeStage::GpuIdle
+                    | RuntimeStage::GpuFrameCompletionLatency
             )
         }) {
             *self

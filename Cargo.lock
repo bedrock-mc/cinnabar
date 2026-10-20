@@ -131,6 +131,7 @@ dependencies = [
  "sha2 0.10.9",
  "simulation-clock",
  "test-alloc",
+ "test-time",
  "tracing",
  "world",
 ]
@@ -547,6 +548,7 @@ dependencies = [
  "assets",
  "block-transform",
  "clap",
+ "flate2",
  "image",
  "pack-compile-input",
  "pack-compiler",
@@ -561,6 +563,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "world",
+ "zip",
 ]
 
 [[package]]
@@ -8698,6 +8701,7 @@ dependencies = [
  "bevy",
  "block-transform",
  "bytemuck",
+ "criterion",
  "env-compat",
  "far-terrain",
  "glam",

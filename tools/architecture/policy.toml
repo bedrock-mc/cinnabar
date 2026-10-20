@@ -50,6 +50,10 @@ ownership_record = "docs/architecture/workspace.md"
 path = "crates/assets/data/item-facts-v2193.bin"
 ownership_record = "docs/architecture/workspace.md"
 
+[[owned_artifacts]]
+path = "crates/assets/data/java-mapping-v2193.bin"
+ownership_record = "docs/architecture/workspace.md"
+
 # Generated packet models remain a direct dependency of `protocol` only.
 [[dependency_owners]]
 package = "bedrock-protocol-1-26-51"
@@ -162,7 +166,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "client-world", "chunk-p
 [[crates]]
 name = "actor-animation"
 path = "crates/actor-animation"
-allowed_dependencies = ["cosmetics", "simulation-clock", "assets", "protocol", "render-api", "render-model", "world", "protocol-ids", "test-alloc"]
+allowed_dependencies = ["cosmetics", "simulation-clock", "assets", "protocol", "render-api", "render-model", "world", "protocol-ids", "test-alloc", "test-time"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "client-world", "chunk-pipeline", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-world", "chunk-pipeline", "meshing", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
@@ -1370,7 +1374,8 @@ vocabularies = [
     { path = "crates/protocol/data/item_tags_native.tsv", column = 0 },
 ]
 block_registries = ["crates/assets/data/block-registry-v2193.bin"]
-# The provisional PBR texture-name table must move to a generated mapping (plan.md).
+# The provisional PBR texture-name table stays: the pinned Java/Bedrock mapping has no texture
+# names, so it waits for a model-derived source (plan.md).
 baselines = [
     { path = "crates/pack-compiler/src/pbr/sources/names.rs", max = 55 },
 ]

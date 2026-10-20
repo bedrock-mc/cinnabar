@@ -371,6 +371,84 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 <!-- END PRISMARINEJS-MINECRAFT-DATA-MIT -->
 
+## GeyserMC mappings
+
+- Source: https://github.com/GeyserMC/mappings
+- Commit: `81700ab543c1f4e9f9041f58dac4154ecb0d0c8b` (Java Edition 26.3, Bedrock Edition 1.26.50)
+- Archive: the `2.1.0-build.1` release of https://github.com/GeyserMC/mappings-generator,
+  the generator's published output for that commit, pinned in
+  `assets/geyser-mappings-source.json`
+- License: MIT
+- Copyright: Copyright (c) 2019-2026 GeyserMC
+- Upstream license SHA-256:
+  `4f49de5134b13de98672e8f870aae5d36f5b415086fb1c6fdf832b78c47c7094`
+- Use: `crates/assets/data/java-mapping-v2193.bin` is generated from its Java-to-Bedrock
+  block-state, biome and item mappings and from the archive's MCProtocolLib network exports
+  (`mcpl/data/networkTags.nbt` block and biome tags, `mcpl/data/networkCodec.nbt` Java biome
+  registry). GeyserMC licenses only its contributors' own work; it does not relicense
+  Minecraft data owned by Mojang or Microsoft.
+
+<!-- BEGIN GEYSERMC-MAPPINGS-MIT -->
+The MIT License
+
+Copyright (c) 2019-2026 GeyserMC. http://geysermc.org
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+<!-- END GEYSERMC-MAPPINGS-MIT -->
+
+## GeyserMC Geyser
+
+- Source: https://github.com/GeyserMC/Geyser
+- Commit: `8f6a9d20b05c302282f9496314b7c18cf6d4cc53`, pinned in
+  `assets/geyser-mappings-source.json`
+- License: MIT
+- Copyright: Copyright (c) 2019-2025 GeyserMC
+- Upstream license SHA-256:
+  `7380cf017734f26977e907a07fd806e9dcba38023d522b7c6e56bd3a2482b08a`
+- Use: the Java entity type to Bedrock entity id pairs in
+  `crates/assets/data/java-mapping-v2193.bin` are read from its `VanillaEntities.java` and
+  `BedrockEntityDefinitions.java`.
+
+<!-- BEGIN GEYSERMC-GEYSER-MIT -->
+The MIT License
+
+Copyright (c) 2019-2025 GeyserMC. http://geysermc.org
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+<!-- END GEYSERMC-GEYSER-MIT -->
+
 ## Axolotl Stack
 
 - Source: https://github.com/axolotl-stack/axolotl-stack
