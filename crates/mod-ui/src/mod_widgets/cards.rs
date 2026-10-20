@@ -2,13 +2,14 @@
 
 use super::{ModWidgets, template, text_plate};
 use crate::{ModUi, PanelUiOwner, RowIcons};
-use json_ui::{Context, DrawNode, Scalar, ViewState};
+use json_ui::{Context, DataSource, DrawNode, Scalar, ViewState};
 use std::sync::Arc;
 use ui::{IconRef, UiNode, mod_hud::Hud};
 use ui_engine::{
     cached_screen::CachedScreen,
     engine::{
-        CachedFragment, FormEngine, ScreenArt, item_renderer::ItemRenderer, screen::PaintFrame,
+        CachedFragment, CachedFragmentTextures, FormEngine, ScreenArt, item_renderer::ItemRenderer,
+        screen::PaintFrame,
     },
 };
 
@@ -17,11 +18,14 @@ pub(crate) struct CardPaint {
     reference: String,
     screen: CachedScreen,
     row_start: usize,
+    data: Arc<DataSource>,
+    revision: u64,
     icon_keys: Vec<String>,
     resolved: Vec<Option<IconRef>>,
     icons: Vec<IconRef>,
     laid: Option<Arc<[DrawNode]>>,
     pub(crate) nodes: Arc<[UiNode]>,
+    pub(crate) textures: CachedFragmentTextures,
     pub(crate) size: [f32; 2],
     pub(crate) px: f32,
     metrics: Option<[u64; 9]>,
@@ -33,8 +37,12 @@ pub(crate) struct CardPaint {
 }
 
 impl CardPaint {
-    /// Forces icon globals to be restored after replacing the shared live binding data.
-    pub(super) fn invalidate_icons(&mut self) {
+    /// Replaces only this card's bindings, preserving sibling cards' prepared output.
+    pub(super) fn publish(&mut self, card: &ui::mod_hud::Card, index: usize) {
+        let mut data = DataSource::new();
+        template::card_data(&mut data, card, index, self.row_start, [0.; 2]);
+        self.data = Arc::new(data);
+        self.revision += 1;
         self.resolved.clear();
     }
 }
@@ -48,11 +56,15 @@ pub(super) fn entries(hud: &Hud) -> Vec<CardPaint> {
         .map(|(index, card)| {
             let start = row_start;
             row_start += card.rows.len();
+            let mut data = DataSource::new();
+            template::card_data(&mut data, card, index, start, [0.; 2]);
             CardPaint {
                 source: None,
                 reference: format!("cinnabar_personal_hud.card_{index}"),
                 screen: CachedScreen::default(),
                 row_start: start,
+                data: Arc::new(data),
+                revision: 0,
                 icon_keys: (start..row_start)
                     .map(|row| format!("#row_{row}_icon"))
                     .collect(),
@@ -60,6 +72,7 @@ pub(super) fn entries(hud: &Hud) -> Vec<CardPaint> {
                 icons: Vec::new(),
                 laid: None,
                 nodes: Arc::from([]),
+                textures: CachedFragmentTextures::default(),
                 size: [0.; 2],
                 px: 1.,
                 metrics: None,
@@ -95,9 +108,9 @@ impl ModWidgets {
             entry.resolved[local] = resolved;
         }
         if changed {
-            self.data_revision += 1;
+            entry.revision += 1;
             entry.icons.clear();
-            let data = Arc::make_mut(&mut self.data);
+            let data = Arc::make_mut(&mut entry.data);
             for (key, resolved) in entry.icon_keys.iter().zip(&entry.resolved) {
                 let value = resolved.map_or(Scalar::Json(serde_json::Value::Null), |icon| {
                     let index = entry.icons.len();
@@ -107,6 +120,10 @@ impl ModWidgets {
                 data.set_global(key, value);
             }
         }
+        let mut changed_textures = entry
+            .laid
+            .as_ref()
+            .is_some_and(|laid| engine.refresh_fragment_textures(&mut entry.textures, laid));
         let px = frame.metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
         let key = [
             frame.font as *const _ as usize as u64,
@@ -120,9 +137,10 @@ impl ModWidgets {
             engine.textures.metadata_revision(),
         ];
         if !changed
+            && !changed_textures
             && entry.metrics == Some(key)
             && entry.language == frame.language
-            && entry.prepared_revision == Some(self.data_revision)
+            && entry.prepared_revision == Some(entry.revision)
         {
             return Ok(());
         }
@@ -139,14 +157,14 @@ impl ModWidgets {
         let laid = engine
             .prepare(ScreenArt::default(), &mut target, |env, _| {
                 if text_plate::measure_card(card, env.text) {
-                    self.data_revision += 1;
-                    text_plate::data(Arc::make_mut(&mut self.data), card, index, self.viewport);
+                    entry.revision += 1;
+                    text_plate::data(Arc::make_mut(&mut entry.data), card, index, self.viewport);
                 }
                 entry.screen.render_shared_with(
                     &entry.reference,
                     &self.catalog,
                     &Context::default(),
-                    Arc::clone(&self.data),
+                    Arc::clone(&entry.data),
                     (template::dimensions(card), px, language),
                     env,
                     &ViewState::default(),
@@ -157,14 +175,16 @@ impl ModWidgets {
             entry.nodes = Arc::from([]);
             return Ok(());
         };
+        changed_textures |= engine.refresh_fragment_textures(&mut entry.textures, &laid);
         if !changed
+            && !changed_textures
             && entry.metrics == Some(key)
             && entry
                 .laid
                 .as_ref()
                 .is_some_and(|old| Arc::ptr_eq(old, &laid))
         {
-            entry.prepared_revision = Some(self.data_revision);
+            entry.prepared_revision = Some(entry.revision);
             entry.language = language;
             return Ok(());
         }
@@ -189,7 +209,7 @@ impl ModWidgets {
                 &entry.reference,
                 &self.catalog,
                 &Context::default(),
-                Arc::clone(&self.data),
+                Arc::clone(&entry.data),
                 (template::dimensions(card), px, language),
                 env,
                 &ViewState::default(),
@@ -200,7 +220,7 @@ impl ModWidgets {
         entry.px = px;
         entry.laid = Some(laid);
         entry.metrics = Some(key);
-        entry.prepared_revision = Some(self.data_revision);
+        entry.prepared_revision = Some(entry.revision);
         entry.language = language;
         #[cfg(any(test, feature = "test-support"))]
         {
@@ -227,7 +247,6 @@ impl ModUi {
         let px = frame.metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
         let viewport = frame.content.map(|axis| f64::from(axis / px));
         if widgets.viewport != viewport {
-            widgets.data_revision += 1;
             widgets.viewport = viewport;
             for (index, card) in widgets.content.cards.iter().enumerate() {
                 text_plate::data(Arc::make_mut(&mut widgets.data), card, index, viewport);
@@ -339,6 +358,9 @@ impl ui_engine::engine::screen::CustomRenderer for Gameplay<'_> {
         let origin = template::origin(&source.content.cards[index], self.viewport)
             .map(|axis| axis as f32 * canvas.px());
         let entry = &mut source.cards[index];
+        if !entry.textures.matches(canvas.textures()) {
+            return Ok(true);
+        }
         let dest = [
             origin[0],
             origin[1],
@@ -354,6 +376,25 @@ impl ui_engine::engine::screen::CustomRenderer for Gameplay<'_> {
             1.,
         )?;
         Ok(true)
+    }
+    /// Keeps all visible cards' textures resident together before their cached artwork is replayed.
+    fn textures<'s>(&'s self, _: &dyn Fn(&str) -> bool, texture: &mut dyn FnMut(&'s str)) {
+        for (index, card) in self.widgets.content.cards.iter().enumerate() {
+            if card.preview_only {
+                continue;
+            }
+            let entry = if let Some((owner, source_index)) = self.widgets.cards[index].source {
+                let Some(source) = self.sources.get(owner) else {
+                    continue;
+                };
+                &source.cards[source_index]
+            } else {
+                &self.widgets.cards[index]
+            };
+            for path in entry.textures.paths() {
+                texture(path);
+            }
+        }
     }
 }
 

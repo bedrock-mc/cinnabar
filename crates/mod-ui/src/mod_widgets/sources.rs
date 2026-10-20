@@ -24,6 +24,16 @@ impl ModUi {
         &mut self,
         sources: impl Iterator<Item = (PanelUiOwner, u64, &'a Hud)> + Clone,
     ) -> Result<(), String> {
+        for (owner, revision, hud) in sources.clone() {
+            if !self
+                .hud_sources
+                .entries
+                .get(&owner)
+                .is_some_and(|source| source.revision == revision)
+            {
+                hud.validate()?;
+            }
+        }
         if !self
             .hud_sources
             .order
@@ -45,13 +55,11 @@ impl ModUi {
                 source.live = true;
                 if source.revision != revision {
                     changed = true;
-                    hud.validate()?;
                     source.widgets.publish(Arc::new(hud.clone()))?;
                     source.revision = revision;
                 }
             } else {
                 changed = true;
-                hud.validate()?;
                 self.hud_sources.entries.insert(
                     owner,
                     Source {
@@ -80,6 +88,11 @@ impl ModUi {
 }
 
 impl HudSources {
+    /// Reads one owner's retained dependencies without exposing another guest's cards.
+    pub(crate) fn get(&self, owner: PanelUiOwner) -> Option<&ModWidgets> {
+        self.entries.get(&owner).map(|source| &source.widgets)
+    }
+
     /// Borrows only the named guest's currently published cards.
     pub(crate) fn get_mut(&mut self, owner: PanelUiOwner) -> Option<&mut ModWidgets> {
         self.entries

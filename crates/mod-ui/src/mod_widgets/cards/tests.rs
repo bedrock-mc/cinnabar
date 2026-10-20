@@ -72,7 +72,10 @@ impl Harness {
             next: &mut next,
             renderers: &mut [],
         };
-        if panel {
+        if ui.mod_hud_editor_open() {
+            let icons = ui.mod_hud_editor_icons(|_, _| None).unwrap();
+            ui.paint_mod_hud_editor(Some(&self.engine), &mut frame, &icons);
+        } else if panel {
             ui.paint_mod_panel(Some(&self.engine), &mut frame);
         } else {
             let icons = ui.mod_widget_icons(|_, _| None).unwrap();
@@ -126,7 +129,7 @@ fn panel(collection: bool) -> ui::mod_panel::Panel {
         let definition = ui::mod_panel::CollectionDefinition {
             template,
             columns: 4,
-            viewport: [408., 180.],
+            viewport: [408., 120.],
             items: (0..32)
                 .map(|index| ui::mod_panel::CollectionItem {
                     values: [(
@@ -389,4 +392,98 @@ fn hud_card_preview_unknown_id_paints_nothing_and_warns_once() {
     });
     assert_eq!(warnings.0.load(std::sync::atomic::Ordering::Relaxed), 1);
     assert_eq!(ui.hud_preview_unknowns(), 1);
+}
+
+#[test]
+fn hud_card_preview_sibling_measurement_and_updates_do_not_invalidate_shared_output() {
+    let mut hud: Hud = serde_json::from_value(json!({"cards":[
+        {"id":"card_0","anchor":"top_right","rows":[{"label":"","value":"0"}],"text_plate":{}},
+        {"id":"card_1","rows":[{"label":"","value":"2"}],"text_plate":{}}
+    ]}))
+    .unwrap();
+    let mut ui = installed(&hud, &panel(false));
+    let mut harness = Harness::new();
+    harness.paint(&mut ui, false);
+    let first = Arc::clone(&ui.hud_sources.get_mut(OWNER).unwrap().cards[0].nodes);
+    harness.paint(&mut ui, true);
+    assert!(Arc::ptr_eq(
+        &first,
+        &ui.hud_sources.get_mut(OWNER).unwrap().cards[0].nodes
+    ));
+    let before_origin = template::origin(
+        &ui.hud_sources.get_mut(OWNER).unwrap().content.cards[0],
+        [640., 360.],
+    );
+    hud.cards[1].rows[0].value = "20".into();
+    ui.set_mod_hud_sources([(OWNER, 2, &hud)].into_iter())
+        .unwrap();
+    assert_eq!(
+        before_origin,
+        template::origin(
+            &ui.hud_sources.get_mut(OWNER).unwrap().content.cards[0],
+            [640., 360.]
+        )
+    );
+    harness.paint(&mut ui, true);
+    assert!(Arc::ptr_eq(
+        &first,
+        &ui.hud_sources.get_mut(OWNER).unwrap().cards[0].nodes
+    ));
+}
+
+#[test]
+fn hud_card_preview_invalid_source_batch_preserves_previous_owner_output() {
+    let first = hud(2);
+    let mut ui = installed(&first, &panel(false));
+    let mut changed = first.clone();
+    changed.cards.remove(0);
+    let mut invalid = first.clone();
+    invalid.cards[0].id = "bad.id".into();
+    assert!(
+        ui.set_mod_hud_sources(
+            [
+                (OWNER, 2, &changed),
+                (PanelUiOwner::Registration(9), 3, &invalid)
+            ]
+            .into_iter()
+        )
+        .is_err()
+    );
+    let source = ui.hud_sources.get_mut(OWNER).unwrap();
+    assert_eq!(source.card_index("card_0"), Some(0));
+    assert_eq!(source.content.cards.len(), 2);
+}
+
+#[test]
+fn hud_card_preview_transformed_into_view_keeps_its_artwork() {
+    let mut panel = panel(false);
+    let surface = panel.surface.as_mut().unwrap();
+    let mut document: serde_json::Value = serde_json::from_str(&surface.document).unwrap();
+    let node = &mut document["screen"]["controls"][0]["stage"];
+    node["offset"] = json!([-100, 30]);
+    node["cinnabar_transform"] = json!({"scale":4,"origin":[-1,0]});
+    surface.document = document.to_string();
+    let mut ui = installed(&hud(1), &panel);
+    let mut harness = Harness::new();
+    harness.paint(&mut ui, true);
+    assert!(!harness.drawn().vertices.is_empty());
+    let bounds = harness.drawn().painted_bounds().unwrap();
+    assert!(bounds.min().x() >= 200.);
+}
+
+#[test]
+fn hud_card_preview_only_keeps_artwork_in_explicit_editor_previews() {
+    let mut hud = hud(1);
+    hud.cards[0].preview_only = true;
+    let mut ui = installed(&hud, &panel(false));
+    ui.open_mod_hud_editor(&hud).unwrap();
+    let mut harness = Harness::new();
+    harness.paint(&mut ui, true);
+    assert!(
+        harness
+            .drawn()
+            .vertices
+            .iter()
+            .any(|vertex| vertex.color == [255, 0, 0, 255])
+    );
 }

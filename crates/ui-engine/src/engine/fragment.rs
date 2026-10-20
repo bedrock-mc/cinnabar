@@ -1,7 +1,9 @@
 //! Replays already painted controls without re-entering the engine's texture or animation locks.
 
 mod cached;
+mod textures;
 pub use cached::CachedFragment;
+pub use textures::CachedFragmentTextures;
 
 use std::{collections::BTreeMap, sync::Arc};
 

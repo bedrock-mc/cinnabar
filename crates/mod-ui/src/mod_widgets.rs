@@ -26,7 +26,6 @@ pub(super) struct ModWidgets {
     pub(super) catalog: Arc<Catalog>,
     screen: CachedScreen,
     data: Arc<DataSource>,
-    data_revision: u64,
     pub(super) viewport: [f64; 2],
     projection: Option<[f32; 16]>,
     pub(crate) cards: Vec<cards::CardPaint>,
@@ -38,7 +37,6 @@ impl ModWidgets {
         Ok(Self {
             catalog: Arc::new(template::catalog(&content)?),
             data: Arc::new(template::data(&content, [0.; 2])),
-            data_revision: 0,
             cards: cards::entries(&content),
             card_indices: content
                 .cards
@@ -65,6 +63,7 @@ impl ModWidgets {
             self.published = content;
             return Ok(());
         }
+        let mut next = content.as_ref().clone();
         if !template::same_shape(&self.content, &content) {
             self.catalog = Arc::new(template::catalog(&content)?);
             self.screen = CachedScreen::default();
@@ -75,14 +74,27 @@ impl ModWidgets {
                 .enumerate()
                 .map(|(index, card)| (card.id.clone(), index))
                 .collect();
+        } else {
+            for (index, ((entry, old), new)) in self
+                .cards
+                .iter_mut()
+                .zip(&self.content.cards)
+                .zip(&mut next.cards)
+                .enumerate()
+            {
+                if old != new {
+                    entry.publish(new, index);
+                } else if let Some(plate) = &mut new.text_plate {
+                    plate.layout = old
+                        .text_plate
+                        .as_ref()
+                        .and_then(|plate| plate.layout.clone());
+                }
+            }
         }
-        self.published = content.clone();
-        self.content = content.as_ref().clone();
-        self.data = Arc::new(template::data(&content, self.viewport));
-        self.data_revision += 1;
-        for card in &mut self.cards {
-            card.invalidate_icons();
-        }
+        self.published = content;
+        self.content = next;
+        self.data = Arc::new(template::data(&self.content, self.viewport));
         Ok(())
     }
 }

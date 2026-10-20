@@ -195,7 +195,7 @@ fn normalizes_actual_clipped_artwork_with_negative_child_offsets_and_root_overfl
 }
 
 #[test]
-fn an_authored_outer_transform_moves_fragment_artwork_and_its_clip_together() {
+fn hud_card_preview_uncached_fragment_preserves_outer_transforms() {
     transformed_fragment(false);
 }
 

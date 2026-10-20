@@ -26,6 +26,10 @@ struct Instance {
 
 impl Previews {
     /// Prepares only shown, intersecting preview nodes, after collection virtualization.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "preparation borrows the selected owner, engine, frame and item atlas"
+    )]
     pub(super) fn prepare(
         &mut self,
         nodes: &[DrawNode],
@@ -40,15 +44,8 @@ impl Previews {
             instance.live = false;
         }
         for node in nodes {
-            if node.alpha <= 0.
-                || !node.shown(view)
-                || node.dest.w <= 0.
-                || node.dest.h <= 0.
-                || node.dest.x >= node.clip.x + node.clip.w
-                || node.dest.y >= node.clip.y + node.clip.h
-                || node.dest.x + node.dest.w <= node.clip.x
-                || node.dest.y + node.dest.h <= node.clip.y
-            {
+            // The emitter already culls against transformed clips and preserves moving nodes.
+            if (node.alpha <= 0. && node.anim.is_none()) || !node.shown(view) {
                 continue;
             }
             let Draw::Custom { renderer, data } = &node.draw else {
@@ -159,6 +156,9 @@ impl CustomRenderer for Renderer<'_> {
         let Some(entry) = source.cards.get(instance.card) else {
             return Ok(true);
         };
+        if !entry.textures.matches(canvas.textures()) {
+            return Ok(true);
+        }
         let scale = property(node.data, "scale")
             .and_then(Value::as_f64)
             .unwrap_or(1.) as f32;
@@ -200,5 +200,18 @@ impl CustomRenderer for Renderer<'_> {
             f32::from(node.alpha([255; 4])[3]) / 255.,
         )?;
         Ok(true)
+    }
+    /// Pins every visible preview's texture requirements before replay, including shared cards.
+    fn textures<'s>(&'s self, _: &dyn Fn(&str) -> bool, texture: &mut dyn FnMut(&'s str)) {
+        let Some(source) = self.sources.get(self.owner) else {
+            return;
+        };
+        for instance in self.previews.nodes.values() {
+            if let Some(entry) = source.cards.get(instance.card) {
+                for path in entry.textures.paths() {
+                    texture(path);
+                }
+            }
+        }
     }
 }

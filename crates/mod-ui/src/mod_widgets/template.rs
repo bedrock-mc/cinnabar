@@ -65,11 +65,6 @@ fn center_on_row(label: &mut Value, center_y: f64) {
 /// Shares card controls between gameplay publication and native previews.
 pub(in super::super) fn card(card: &Card, card_index: usize, row_index: &mut usize) -> Value {
     let mut node = card_content(card, card_index, row_index);
-    node["bindings"]
-        .as_array_mut()
-        .expect("card bindings")
-        .push(json!({
-        "binding_name":format!("#card_{card_index}_visible"),"binding_name_override":"#visible"}));
     if card.font != ui::mod_hud::CardFont::Native {
         apply_font(&mut node, card.font.name());
     }
@@ -347,7 +342,12 @@ pub(super) fn catalog(hud: &Hud) -> Result<Catalog, String> {
     let mut gameplay = Vec::new();
     for (index, source) in hud.cards.iter().enumerate() {
         let mut body = card(source, index, &mut row);
-        let placement = body["bindings"].clone();
+        let mut placement = body["bindings"].clone();
+        placement
+            .as_array_mut()
+            .expect("card bindings")
+            .push(json!({
+            "binding_name":format!("#card_{index}_visible"),"binding_name_override":"#visible"}));
         body["bindings"]
             .as_array_mut()
             .expect("card bindings")
@@ -390,44 +390,56 @@ pub(in super::super) fn data(hud: &Hud, viewport: [f64; 2]) -> DataSource {
     let mut data = DataSource::new();
     let mut index = 0;
     for (n, card) in hud.cards.iter().enumerate() {
-        data.set_global(
-            format!("#card_{n}_visible"),
-            Scalar::Bool(!card.preview_only),
-        );
-        data.set_global(format!("#card_{n}_title"), Scalar::Text(card.title.clone()));
-        data.set_global(
-            format!("#card_{n}_offset"),
-            Scalar::Json(json!(origin(card, viewport))),
-        );
-        data.set_global(
-            format!("#card_{n}_background"),
-            Scalar::Json(json!([0.045, 0.05, 0.065, card.background_opacity])),
-        );
-        super::cells::data(&mut data, card, n);
-        super::text_plate::data(&mut data, card, n, viewport);
-        super::compass::data(&mut data, card, n);
-        for row in &card.rows {
-            data.set_global(
-                format!("#row_{index}_label"),
-                Scalar::Text(row.label.clone()),
-            );
-            data.set_global(
-                format!("#row_{index}_value"),
-                Scalar::Text(row.value.clone()),
-            );
-            data.set_global(
-                format!("#row_{index}_color"),
-                Scalar::Json(json!(row.color)),
-            );
-            data.set_global(
-                format!("#row_{index}_progress"),
-                Scalar::Num(f64::from(row.progress.unwrap_or(0.))),
-            );
-            data.set_global(format!("#row_{index}_icon"), Scalar::Json(Value::Null));
-            index += 1;
-        }
+        card_data(&mut data, card, n, index, viewport);
+        index += card.rows.len();
     }
     data
+}
+
+/// Writes one card's indexed bindings for both aggregate HUDs and isolated retained cards.
+pub(super) fn card_data(
+    data: &mut DataSource,
+    card: &Card,
+    n: usize,
+    mut index: usize,
+    viewport: [f64; 2],
+) {
+    data.set_global(
+        format!("#card_{n}_visible"),
+        Scalar::Bool(!card.preview_only),
+    );
+    data.set_global(format!("#card_{n}_title"), Scalar::Text(card.title.clone()));
+    data.set_global(
+        format!("#card_{n}_offset"),
+        Scalar::Json(json!(origin(card, viewport))),
+    );
+    data.set_global(
+        format!("#card_{n}_background"),
+        Scalar::Json(json!([0.045, 0.05, 0.065, card.background_opacity])),
+    );
+    super::cells::data(data, card, n);
+    super::text_plate::data(data, card, n, viewport);
+    super::compass::data(data, card, n);
+    for row in &card.rows {
+        data.set_global(
+            format!("#row_{index}_label"),
+            Scalar::Text(row.label.clone()),
+        );
+        data.set_global(
+            format!("#row_{index}_value"),
+            Scalar::Text(row.value.clone()),
+        );
+        data.set_global(
+            format!("#row_{index}_color"),
+            Scalar::Json(json!(row.color)),
+        );
+        data.set_global(
+            format!("#row_{index}_progress"),
+            Scalar::Num(f64::from(row.progress.unwrap_or(0.))),
+        );
+        data.set_global(format!("#row_{index}_icon"), Scalar::Json(Value::Null));
+        index += 1;
+    }
 }
 
 /// Shared card geometry for gameplay publication and native layout editing.

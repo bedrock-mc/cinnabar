@@ -11,9 +11,11 @@ fn value(card: &Card) -> &str {
 
 /// Measures actual glyph runs at their paint scale; stable runs reuse the engine's text cache.
 pub(in super::super) fn measure(hud: &mut Hud, text: &dyn TextMeasure) -> bool {
-    hud.cards
-        .iter_mut()
-        .fold(false, |changed, card| measure_card(card, text) || changed)
+    let mut changed = false;
+    for card in &mut hud.cards {
+        changed |= measure_card(card, text);
+    }
+    changed
 }
 
 /// Measures a single requested card so hidden preview cards do no layout work.

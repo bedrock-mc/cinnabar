@@ -26,7 +26,7 @@ mod fill_renderers;
 mod filter;
 mod formatting_colors;
 mod fragment;
-pub use fragment::{CachedFragment, normalize_fragment};
+pub use fragment::{CachedFragment, CachedFragmentTextures, normalize_fragment};
 pub mod glass;
 pub mod host_edit;
 pub mod item_renderer;
