@@ -24,10 +24,13 @@ impl PlayerInventoryLedger {
             && self.controls.personal.confirmed.is_none()
             && self.controls.personal.desired_open
             && self.controls.storage.server_window().is_none()
-            && let Some(PersonalWindow::Opening {
-                generation,
-                admitted: false,
-            }) = self.personal
+            && let Some(
+                PersonalWindow::Opening {
+                    generation,
+                    admitted: false,
+                }
+                | PersonalWindow::Recovering { generation },
+            ) = self.personal
         {
             return Some(ControlRequest::Open {
                 generation,
@@ -58,10 +61,11 @@ impl PlayerInventoryLedger {
             return false;
         };
         self.controls.sent(request, now_millis);
-        if matches!(request, ControlRequest::Open { .. })
-            && let Some(PersonalWindow::Opening { admitted, .. }) = self.personal.as_mut()
-        {
-            *admitted = true;
+        if let ControlRequest::Open { generation, .. } = request {
+            self.personal = Some(PersonalWindow::Opening {
+                generation,
+                admitted: true,
+            });
         }
         true
     }
@@ -88,24 +92,26 @@ impl PlayerInventoryLedger {
             (true, None)
                 if state.sent.is_none() && self.controls.storage.server_window().is_none() =>
             {
-                if !matches!(self.personal, Some(PersonalWindow::Opening { .. })) {
-                    let generation = if let Some(PersonalWindow::Closing {
+                if !matches!(
+                    self.personal,
+                    Some(PersonalWindow::Opening { .. } | PersonalWindow::Recovering { .. })
+                ) {
+                    if let Some(PersonalWindow::Closing {
                         generation,
                         awaiting_open: true,
                     }) = self.personal
                     {
-                        generation
+                        self.personal = Some(PersonalWindow::Recovering { generation });
                     } else {
                         let generation = self.next_open_generation;
                         self.next_open_generation = generation.wrapping_add(1).max(1);
-                        generation
-                    };
-                    self.confirmed.clear_result();
-                    self.refold();
-                    self.personal = Some(PersonalWindow::Opening {
-                        generation,
-                        admitted: false,
-                    });
+                        self.confirmed.clear_result();
+                        self.refold();
+                        self.personal = Some(PersonalWindow::Opening {
+                            generation,
+                            admitted: false,
+                        });
+                    }
                 }
             }
             (false, Some(window)) => {
@@ -141,10 +147,8 @@ impl PlayerInventoryLedger {
                         .personal
                         .is_some_and(|personal| personal.generation() == generation);
                     if owned_screen && self.personal_generation_pending(generation) {
-                        if let Some(PersonalWindow::Opening { admitted, .. }) =
-                            self.personal.as_mut()
-                        {
-                            *admitted = false;
+                        if matches!(self.personal, Some(PersonalWindow::Opening { .. })) {
+                            self.personal = Some(PersonalWindow::Recovering { generation });
                         }
                         continue;
                     }

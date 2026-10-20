@@ -6,6 +6,10 @@ pub(super) enum PersonalWindow {
         generation: u64,
         admitted: bool,
     },
+    /// The initial open was admitted; a recovery open has not left transport yet.
+    Recovering {
+        generation: u64,
+    },
     Open {
         generation: u64,
     },
@@ -21,6 +25,7 @@ impl PersonalWindow {
     pub(super) const fn generation(&self) -> u64 {
         match self {
             Self::Opening { generation, .. }
+            | Self::Recovering { generation }
             | Self::Open { generation, .. }
             | Self::Closing { generation, .. } => *generation,
         }
@@ -50,7 +55,8 @@ impl PlayerInventoryLedger {
                     generation,
                     admitted: true,
                 }
-                | PersonalWindow::Open { generation, .. },
+                | PersonalWindow::Open { generation, .. }
+                | PersonalWindow::Recovering { generation },
             ) => Some(generation),
             _ => None,
         }
@@ -100,8 +106,7 @@ impl PlayerInventoryLedger {
                 true
             })
         } else {
-            self.personal
-                .is_some_and(|personal| self.personal_generation_pending(personal.generation()))
+            false
         };
         self.controls.personal.desired_open = false;
         if let Some(personal) = self.personal {
@@ -112,8 +117,13 @@ impl PlayerInventoryLedger {
                         && pending.state == InventoryPendingState::AwaitingTransport
                 });
             }
-            if let PersonalWindow::Opening { admitted, .. } = personal {
-                self.personal = (admitted || returning).then_some(PersonalWindow::Closing {
+            let retained = match personal {
+                PersonalWindow::Opening { admitted, .. } => Some(admitted || returning),
+                PersonalWindow::Recovering { .. } => Some(true),
+                _ => None,
+            };
+            if let Some(retained) = retained {
+                self.personal = retained.then_some(PersonalWindow::Closing {
                     generation,
                     awaiting_open: true,
                 });
@@ -124,7 +134,10 @@ impl PlayerInventoryLedger {
 
     /// Drops an opening screen's gestures without changing its retained intent or wire request.
     pub(super) fn discard_pending_personal_open(&mut self) {
-        let Some(PersonalWindow::Opening { generation, .. }) = self.personal else {
+        let Some(
+            PersonalWindow::Opening { generation, .. } | PersonalWindow::Recovering { generation },
+        ) = self.personal
+        else {
             return;
         };
         self.personal = None;

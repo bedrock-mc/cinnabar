@@ -38,7 +38,8 @@ impl PlayerInventoryLedger {
                         generation,
                         awaiting_open: true,
                     }
-                    | PersonalWindow::Opening { generation, .. },
+                    | PersonalWindow::Opening { generation, .. }
+                    | PersonalWindow::Recovering { generation },
                 ) if self.personal_generation_pending(generation) => Some(generation),
                 _ => None,
             })

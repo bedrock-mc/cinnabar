@@ -127,3 +127,29 @@ fn canceling_a_recovery_open_retains_its_earlier_cursor_return() {
         assert!(ledger.pending_batch().unwrap().is_some());
     }
 }
+
+#[test]
+fn closing_a_recovery_open_returns_a_take_that_has_not_been_answered() {
+    for accept_before_close in [false, true] {
+        let mut ledger = ledger_with_slot_zero();
+        assert!(ledger.request_personal_open(42));
+        assert!(ledger.mark_transport_enqueued(10));
+        let take = ledger.begin_click(0).unwrap();
+        assert!(ledger.mark_transport_enqueued(20));
+        ledger.poll_timeout(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS);
+        if accept_before_close {
+            accept_cursor_move(&mut ledger, take, false);
+        }
+        ledger.request_personal_close();
+        let returning = ledger.newest_request().unwrap().request_id;
+        assert_ne!(returning, take);
+        if !accept_before_close {
+            accept_cursor_move(&mut ledger, take, false);
+        }
+        assert!(ledger.mark_transport_enqueued(30 + INVENTORY_REQUEST_TIMEOUT_MILLIS));
+        accept_cursor_move(&mut ledger, returning, true);
+        assert_eq!(ledger.displayed_stack(0).map(|stack| stack.count), Some(32));
+        assert!(ledger.cursor_stack().is_none());
+        assert!(!ledger.resync_required());
+    }
+}
