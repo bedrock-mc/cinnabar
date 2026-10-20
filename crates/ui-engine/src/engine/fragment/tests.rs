@@ -156,7 +156,7 @@ fn normalizes_actual_clipped_artwork_with_negative_child_offsets_and_root_overfl
     let size = normalize_fragment(&mut source, [0.0, 0.0, 500.0, 500.0])
         .unwrap()
         .unwrap();
-    assert_eq!(size, [70.0, 80.0]);
+    assert_eq!([size.width(), size.height()], [70.0, 80.0]);
     assert_eq!(edges(source[0].bounds()), [25.0, 65.0, 35.0, 75.0]);
     assert_eq!(
         source[1].bounds(),
@@ -171,7 +171,7 @@ fn normalizes_actual_clipped_artwork_with_negative_child_offsets_and_root_overfl
     assert_eq!(edges(measured), [0.0, 0.0, 70.0, 80.0]);
     let (painted, _) = replay(
         &source,
-        size,
+        [size.width(), size.height()],
         [10.0, 20.0, 80.0, 100.0],
         [0.0, 0.0, 500.0, 500.0],
         1.0,

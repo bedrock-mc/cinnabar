@@ -180,7 +180,11 @@ impl CustomRenderer for Renderer<'_> {
                 *axis = value as f32;
             }
         }
-        let size = entry.size.map(|axis| axis / entry.px * canvas.px() * scale);
+        let Some(bounds) = entry.bounds else {
+            return Ok(true);
+        };
+        let source_size = [bounds.width(), bounds.height()];
+        let size = source_size.map(|axis| axis / entry.px * canvas.px() * scale);
         let origin = [
             node.dest[0] + (node.dest[2] - node.dest[0] - size[0]) * alignment[0],
             node.dest[1] + (node.dest[3] - node.dest[1] - size[1]) * alignment[1],
@@ -194,7 +198,7 @@ impl CustomRenderer for Renderer<'_> {
         canvas.paint_cached_fragment(
             &mut instance.replay,
             &entry.nodes,
-            entry.size,
+            source_size,
             dest,
             node.dest,
             f32::from(node.alpha([255; 4])[3]) / 255.,

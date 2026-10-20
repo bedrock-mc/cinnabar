@@ -230,7 +230,7 @@ fn png_fixture(
             let mut ui = mod_ui::ModUi::default();
             if let Some(hud) = &hud {
                 ui.set_mod_hud_sources(
-                    [(mod_ui::PanelUiOwner::Environment(0), 1, hud)].into_iter(),
+                    [(mod_ui::PanelUiOwner::Environment(0), 1, hud.as_ref())].into_iter(),
                 )?;
             }
             ui.set_mod_panel(mod_ui::PanelUiOwner::Environment(0), Some(&panel))?;

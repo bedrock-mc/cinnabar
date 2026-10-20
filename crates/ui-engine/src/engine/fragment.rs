@@ -15,13 +15,13 @@ use ui::{
 use super::{Canvas, rect, screen::PaintError};
 
 /// Measures already painted artwork in its actual source viewport and translates it to
-/// a zero origin for [`Canvas::paint_fragment`]. Returns its size in logical pixels, or
+/// a zero origin for [`Canvas::paint_fragment`]. Returns its original painted bounds, or
 /// `None` for empty/unsupported filter artwork. Layout and all node-local transforms stay
 /// intact; only root positions and absolute clips move. Retained draw budgets also apply.
 pub fn normalize_fragment(
     nodes: &mut [UiNode],
     viewport: [f32; 4],
-) -> Result<Option<[f32; 2]>, PaintError> {
+) -> Result<Option<ui::UiRect>, PaintError> {
     if nodes.iter().any(filtered) {
         return Ok(None);
     }
@@ -56,7 +56,7 @@ pub fn normalize_fragment(
         })
         .collect::<Result<Vec<_>, PaintError>>()?;
     nodes.clone_from_slice(&translated);
-    Ok(Some([bounds.width(), bounds.height()]))
+    Ok(Some(bounds))
 }
 
 impl Canvas<'_> {

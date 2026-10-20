@@ -53,8 +53,23 @@ impl Harness {
         }
     }
 
-    /// Paints a panel or the gameplay HUD at the same scale and clock.
+    /// Paints a panel, gameplay HUD or explicit editor at the same scale and clock.
     fn paint(&mut self, ui: &mut ModUi, panel: bool) {
+        self.paint_with(|engine, frame| {
+            if ui.mod_hud_editor_open() {
+                let icons = ui.mod_hud_editor_icons(|_, _| None).unwrap();
+                ui.paint_mod_hud_editor(Some(engine), frame, &icons);
+            } else if panel {
+                ui.paint_mod_panel(Some(engine), frame);
+            } else {
+                let icons = ui.mod_widget_icons(|_, _| None).unwrap();
+                ui.paint_mod_widgets(Some(engine), frame, &icons);
+            }
+        });
+    }
+
+    /// Supplies consistent display resources to a production painter or its reference path.
+    fn paint_with(&mut self, paint: impl FnOnce(&FormEngine, &mut PaintFrame<'_>)) {
         self.nodes.clear();
         let mut next = 1;
         let mut frame = PaintFrame {
@@ -75,15 +90,7 @@ impl Harness {
             next: &mut next,
             renderers: &mut [],
         };
-        if ui.mod_hud_editor_open() {
-            let icons = ui.mod_hud_editor_icons(|_, _| None).unwrap();
-            ui.paint_mod_hud_editor(Some(&self.engine), &mut frame, &icons);
-        } else if panel {
-            ui.paint_mod_panel(Some(&self.engine), &mut frame);
-        } else {
-            let icons = ui.mod_widget_icons(|_, _| None).unwrap();
-            ui.paint_mod_widgets(Some(&self.engine), &mut frame, &icons);
-        }
+        paint(&self.engine, &mut frame);
     }
 
     /// Resolves actual painted vertices and scissors through the normal retained geometry path.
@@ -521,4 +528,57 @@ fn hud_card_preview_reuses_gameplay_artwork_when_the_panel_uses_a_different_scal
     assert_eq!(source.cards[0].paints, 1);
     let bounds = harness.drawn().painted_bounds().unwrap();
     assert_eq!([bounds.width(), bounds.height()], [80., 40.]);
+}
+
+#[test]
+fn hud_card_preview_preserves_small_text_plate_glyph_and_shadow_overflow() {
+    let hud: Hud = serde_json::from_value(json!({"cards":[{
+        "id":"card_0","offset":[6,6],"scale":0.25,"rows":[{"label":"","value":"0"}],
+        "text_plate":{"width":48,"height":1,"background":[1,0,0,1]}
+    }]}))
+    .unwrap();
+    let mut ui = installed(&hud, &panel(false));
+    let mut harness = Harness::new();
+    harness.paint(&mut ui, false);
+    let actual = harness.drawn().painted_bounds().unwrap();
+    let source = ui.hud_sources.get(OWNER).unwrap();
+    let catalog = Arc::clone(&source.catalog);
+    let data = Arc::new(template::data(&source.content, [640., 360.]));
+    let mut screen = CachedScreen::default();
+    harness.paint_with(|engine, frame| {
+        let px = frame.metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
+        let language = frame.language;
+        engine
+            .draw(ScreenArt::default(), frame, |env, root| {
+                screen.render_shared_with(
+                    "cinnabar_personal_hud.cards",
+                    &catalog,
+                    crate::personal_context(),
+                    data,
+                    (root, px, language),
+                    env,
+                    &ViewState::default(),
+                )
+            })
+            .unwrap();
+    });
+    let expected = harness.drawn().painted_bounds().unwrap();
+    for (actual, expected) in [
+        actual.min().x(),
+        actual.min().y(),
+        actual.max().x(),
+        actual.max().y(),
+    ]
+    .into_iter()
+    .zip([
+        expected.min().x(),
+        expected.min().y(),
+        expected.max().x(),
+        expected.max().y(),
+    ]) {
+        assert!(
+            (actual - expected).abs() < 0.01,
+            "painted edge changed: {actual} != {expected}"
+        );
+    }
 }

@@ -26,7 +26,7 @@ pub(crate) struct CardPaint {
     laid: Option<Arc<[DrawNode]>>,
     pub(crate) nodes: Arc<[UiNode]>,
     pub(crate) textures: CachedFragmentTextures,
-    pub(crate) size: [f32; 2],
+    pub(crate) bounds: Option<ui::UiRect>,
     pub(crate) px: f32,
     metrics: Option<[u64; 9]>,
     language: [usize; 3],
@@ -73,7 +73,7 @@ pub(super) fn entries(hud: &Hud) -> Vec<CardPaint> {
                 laid: None,
                 nodes: Arc::from([]),
                 textures: CachedFragmentTextures::default(),
-                size: [0.; 2],
+                bounds: None,
                 px: 1.,
                 metrics: None,
                 language: [0; 3],
@@ -84,6 +84,11 @@ pub(super) fn entries(hud: &Hud) -> Vec<CardPaint> {
             }
         })
         .collect()
+}
+
+/// Uses a stable reference viewport with room for glyph and shadow overflow on every edge.
+fn canvas_size(card: &ui::mod_hud::Card) -> [f64; 2] {
+    template::dimensions(card).map(|axis| axis + 2. * template::CANVAS_INSET)
 }
 
 impl ModWidgets {
@@ -165,7 +170,7 @@ impl ModWidgets {
                     &self.catalog,
                     crate::personal_context(),
                     Arc::clone(&entry.data),
-                    (template::dimensions(card), px, language),
+                    (canvas_size(card), px, language),
                     env,
                     &ViewState::default(),
                 )
@@ -198,7 +203,7 @@ impl ModWidgets {
             metrics: target.metrics,
             solid_page: target.solid_page,
             safe_area: ui::SafeArea::ZERO,
-            content: template::dimensions(card).map(|axis| axis as f32 * px),
+            content: canvas_size(card).map(|axis| axis as f32 * px),
             translate: target.translate,
             language,
             now: target.now,
@@ -210,13 +215,18 @@ impl ModWidgets {
                 &self.catalog,
                 crate::personal_context(),
                 Arc::clone(&entry.data),
-                (template::dimensions(card), px, language),
+                (canvas_size(card), px, language),
                 env,
                 &ViewState::default(),
             )
         })?;
+        let content = canvas_size(card).map(|axis| axis as f32 * px);
+        entry.bounds =
+            ui_engine::engine::normalize_fragment(&mut nodes, [0., 0., content[0], content[1]])?
+                .map(|bounds| bounds.translated([-template::CANVAS_INSET as f32 * px; 2]))
+                .transpose()
+                .map_err(ui_engine::engine::screen::PaintError::Geometry)?;
         entry.nodes = nodes.into();
-        entry.size = template::dimensions(card).map(|value| value as f32 * px);
         entry.px = px;
         entry.laid = Some(laid);
         entry.metrics = Some(key);
@@ -365,16 +375,21 @@ impl ui_engine::engine::screen::CustomRenderer for Gameplay<'_> {
         if !entry.textures.matches(canvas.textures()) {
             return Ok(true);
         }
+        let Some(bounds) = entry.bounds else {
+            return Ok(true);
+        };
+        let size = [bounds.width(), bounds.height()];
+        let origin = [origin[0] + bounds.min().x(), origin[1] + bounds.min().y()];
         let dest = [
             origin[0],
             origin[1],
-            origin[0] + entry.size[0],
-            origin[1] + entry.size[1],
+            origin[0] + size[0],
+            origin[1] + size[1],
         ];
         canvas.paint_cached_fragment(
             &mut entry.gameplay,
             &entry.nodes,
-            entry.size,
+            size,
             dest,
             canvas.screen(),
             1.,

@@ -3,6 +3,8 @@ use serde_json::{Value, json};
 use ui::mod_hud::{Anchor, Card, DEFAULT_ROW_HEIGHT, Hud, RowLayout};
 
 const HEADER: f64 = 18.;
+/// Keeps canonical artwork away from viewport edges until its actual bounds are measured.
+pub(super) const CANVAS_INSET: f64 = ui::mod_panel::preview::MAX_PREVIEW_EXTENT;
 
 #[cfg(test)]
 mod tests;
@@ -357,6 +359,7 @@ pub(super) fn catalog(hud: &Hud) -> Result<Catalog, String> {
                     Some("#offset" | "#visible")
                 )
             });
+        body["offset"] = json!([CANVAS_INSET; 2]);
         document[format!("card_{index}")] = body;
         controls.push(named(
             &format!("{}@cinnabar_personal_hud.card_{index}", source.id),
