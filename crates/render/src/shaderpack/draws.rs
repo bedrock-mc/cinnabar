@@ -915,6 +915,8 @@ mod tests {
             [
                 DrawKind::Translucent,
                 DrawKind::EntitiesTranslucent,
+                DrawKind::ArmorGlintTranslucent,
+                DrawKind::HandGlint,
                 DrawKind::BlockTranslucent,
                 DrawKind::BeaconBeam,
                 DrawKind::HandWater
