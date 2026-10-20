@@ -139,6 +139,29 @@ fn the_vsync_setting_applies_the_surface_latency_policy() {
     );
 }
 
+/// Presentation updates retain measured queue choices instead of restoring the startup default.
+#[test]
+fn repeated_presentation_updates_preserve_adaptive_frame_latency() {
+    let mut app = vsync_app(PresentModeRuntime::from_startup(false, false, false, false));
+    publish_vsync(&mut app, true);
+    let policy = app.world().resource::<PresentModeRuntime>().policy();
+    for selected in [2, 1, 2] {
+        policy.publish_frame_latency(std::num::NonZeroU32::new(selected).unwrap());
+        for _ in 0..3 {
+            app.update();
+            let window = app
+                .world_mut()
+                .query::<&Window>()
+                .single(app.world())
+                .unwrap();
+            assert_eq!(
+                window.desired_maximum_frame_latency,
+                Some(policy.frame_latency_for_vsync(true))
+            );
+        }
+    }
+}
+
 #[test]
 fn a_completed_probe_moves_no_vsync_to_mailbox() {
     let mut app = vsync_app(PresentModeRuntime::from_startup(false, false, false, false));

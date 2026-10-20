@@ -164,3 +164,60 @@ fn urgent_light_takes_the_reserve_behind_ordinary_transfer_work() {
             .any(|candidate| candidate.key == transfer)
     );
 }
+
+/// A delayed camera refresh must not erase an urgent revision's access to reserved workers.
+#[test]
+fn delayed_refresh_preserves_same_revision_urgency_for_light_reserve() {
+    let mut stream = lit_stream(1);
+    let view = stream.scheduler_view([8.0; 3]);
+    stream
+        .lighting
+        .jobs
+        .refresh
+        .refresh(view, &mut stream.lighting.jobs.lanes, None, |_, _| true);
+    let urgent = SubChunkKey::new(1, scheduler::NEAR_CAMERA_RADIUS * 8, 0, 0);
+    for x in [urgent.x / 3, urgent.x / 2, urgent.x] {
+        let key = SubChunkKey::new(1, x, 0, 0);
+        install_current_light(&mut stream, key, 0, 0, false);
+        stream.mark_light_dirty_exact(key).unwrap();
+    }
+    stream
+        .lighting
+        .jobs
+        .ingress(view, None, |_, _, _| (0, true));
+    let moved = stream.scheduler_view([24.0, 8.0, 8.0]);
+    stream.lighting.jobs.refresh.refresh(
+        moved,
+        &mut stream.lighting.jobs.lanes,
+        Some(Instant::now()),
+        |_, _| true,
+    );
+    let revision = stream.lighting.jobs.pending[&urgent].revision;
+    assert_eq!(
+        stream.mark_light_dirty_exact_with_priority(urgent, true),
+        Some(revision)
+    );
+    stream
+        .lighting
+        .jobs
+        .ingress(moved, Some(Instant::now()), |_, _, pending| {
+            (0, pending.urgent)
+        });
+    assert!(
+        stream.lighting.jobs.lanes[0]
+            .ready
+            .iter()
+            .any(|candidate| candidate.key == urgent && candidate.urgent)
+    );
+    stream
+        .lighting
+        .running_jobs
+        .store(effective_light_job_cap(), Ordering::Release);
+    stream.poll_deadline = Some(Instant::now());
+
+    assert_eq!(
+        stream.dispatch_light_jobs_reserving(moved.position, 4, 1),
+        1
+    );
+    assert!(stream.lighting.jobs.in_flight.contains_key(&urgent));
+}

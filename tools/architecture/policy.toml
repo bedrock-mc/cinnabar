@@ -160,7 +160,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "client-world", "chunk-p
 [[crates]]
 name = "actor-animation"
 path = "crates/actor-animation"
-allowed_dependencies = ["cosmetics", "simulation-clock", "assets", "protocol", "render-api", "render-model", "world", "protocol-ids", "test-alloc"]
+allowed_dependencies = ["cosmetics", "simulation-clock", "assets", "protocol", "render-api", "render-model", "world", "protocol-ids", "test-alloc", "test-time"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "client-world", "chunk-pipeline", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-world", "chunk-pipeline", "meshing", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
