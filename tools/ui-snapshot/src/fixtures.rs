@@ -81,6 +81,18 @@ const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 
 pub const STATES: &[State] = &[
     State {
+        name: "sign-in-cache-error",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || out_of_game::sign_in_recovery(false),
+    },
+    State {
+        name: "sign-in-device-code",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || out_of_game::sign_in_recovery(true),
+    },
+    State {
         name: "backup-font",
         size: [640, 360],
         gui_scale: 2,
