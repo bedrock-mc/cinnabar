@@ -137,6 +137,7 @@ pub(super) fn resolve_binding(
         rig_binding,
         geometry_binding,
         bones,
+        composition: Arc::clone(&plan.composition),
         bone_names,
         attachment_bindings: Arc::clone(&plan.attachments),
         channel_bindings: Arc::clone(&plan.channels),
@@ -536,6 +537,7 @@ fn reselect_geometry_with_checkpoint(
     state.samples_render_frames = plan.frames;
     state.geometry_binding = selected;
     state.bones = bones;
+    state.composition = Arc::clone(&plan.composition);
     state.bone_names = bone_names;
     state.channel_bindings = Arc::clone(&plan.channels);
     state.attachment_bindings = Arc::clone(&plan.attachments);

@@ -69,6 +69,7 @@ enum Plan {
 #[derive(Debug)]
 pub(super) struct RigPlan {
     pub(super) bones: Box<[RuntimeBone]>,
+    pub(super) composition: Arc<pose::Composition>,
     pub(super) names: Box<[Box<str>]>,
     pub(super) rest: Box<[BoneTransform]>,
     pub(super) channels: Arc<pose::ChannelBindings>,
@@ -290,6 +291,7 @@ impl RigPlan {
             return None;
         }
         let (bones, names) = resolve_bones(assets, candidate.geometry as usize)?;
+        let composition = Arc::new(pose::Composition::new(&bones)?);
         let rest = compose_pose(&bones, &[])?;
         let first = candidate.first_controller as usize;
         let end = first.checked_add(candidate.controller_count as usize)?;
@@ -323,6 +325,7 @@ impl RigPlan {
             )),
             channels: Arc::new(pose::ChannelBindings::new(assets, &names)),
             bones: bones.into(),
+            composition,
             names: names.into(),
             rest: rest.into(),
             controllers: controllers.into(),
@@ -344,6 +347,7 @@ impl RigPlan {
         // Exhaustive matching makes new retained fields require an accounting review.
         let Self {
             bones,
+            composition,
             names,
             rest,
             channels,
@@ -355,16 +359,17 @@ impl RigPlan {
             presentation: _,
             always_depth: _,
         } = self;
-        let arrays = bones
-            .len()
-            .checked_mul(size_of::<RuntimeBone>())?
-            .checked_add(names.len().checked_mul(size_of::<Box<str>>())?)?
-            .checked_add(rest.len().checked_mul(size_of::<BoneTransform>())?)?
-            .checked_add(
-                controllers
-                    .len()
-                    .checked_mul(size_of::<ControllerState>())?,
-            )?;
+        let arrays = arc_bytes::<pose::Composition>(
+            size_of::<pose::Composition>().checked_add(composition.heap_bytes())?,
+        )?
+        .checked_add(bones.len().checked_mul(size_of::<RuntimeBone>())?)?
+        .checked_add(names.len().checked_mul(size_of::<Box<str>>())?)?
+        .checked_add(rest.len().checked_mul(size_of::<BoneTransform>())?)?
+        .checked_add(
+            controllers
+                .len()
+                .checked_mul(size_of::<ControllerState>())?,
+        )?;
         let arrays = arrays.checked_add(arc_bytes::<pose::ChannelBindings>(
             size_of::<pose::ChannelBindings>().checked_add(channels.retained_bytes())?,
         )?)?;

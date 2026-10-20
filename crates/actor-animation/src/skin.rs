@@ -55,22 +55,31 @@ impl ActorRigState {
             .map_or(&self.bone_names, |skeleton| &skeleton.prepared.names)
     }
 
-    /// Composes the default rig's animation deltas onto the posed skeleton.
-    pub(super) fn compose(&self, local: &[LocalDelta]) -> Option<Vec<BoneTransform>> {
+    /// Writes the selected skeleton into caller-owned storage without composition allocations.
+    pub(super) fn compose_into(
+        &self,
+        local: &[LocalDelta],
+        output: &mut [BoneTransform],
+    ) -> Option<()> {
         match self.skin_skeleton() {
             Some(skeleton) => {
-                let local = skeleton
-                    .driver
-                    .iter()
-                    .map(|driver| {
-                        driver
-                            .and_then(|index| local.get(index).copied())
+                let prepared = &skeleton.prepared;
+                let program = prepared.composition.as_ref()?;
+                program.compose_into(
+                    &prepared.bones,
+                    |index| {
+                        skeleton.driver[index]
+                            .and_then(|driver| local.get(driver).copied())
                             .unwrap_or_default()
-                    })
-                    .collect::<Vec<_>>();
-                compose_pose(&skeleton.prepared.bones, &local)
+                    },
+                    output,
+                )
             }
-            None => compose_pose(&self.bones, local),
+            None => self.composition.compose_into(
+                &self.bones,
+                |index| local.get(index).copied().unwrap_or_default(),
+                output,
+            ),
         }
     }
 

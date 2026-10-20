@@ -366,7 +366,9 @@ impl ActorAnimationStore {
             Some(local) => {
                 let Some(pose) =
                     compositions.compose(None, true, state.posed_bones().len(), local, || {
-                        state.compose(local)
+                        let mut pose = vec![BoneTransform::default(); state.posed_bones().len()];
+                        state.compose_into(local, &mut pose)?;
+                        Some(pose)
                     })
                 else {
                     return Some(fallback());
@@ -379,7 +381,9 @@ impl ActorAnimationStore {
             Some(local) => {
                 let Some(pose) =
                     compositions.compose(None, false, state.posed_bones().len(), local, || {
-                        state.compose(local)
+                        let mut pose = vec![BoneTransform::default(); state.posed_bones().len()];
+                        state.compose_into(local, &mut pose)?;
+                        Some(pose)
                     })
                 else {
                     return Some(fallback());

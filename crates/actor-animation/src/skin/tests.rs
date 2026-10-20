@@ -215,7 +215,8 @@ fn legacy_attack_targets_preserve_custom_skin_and_persona_geometry() {
     assert!(!sync_skin(state, Some(&source), &store.skin_preparation));
     let mut local = vec![LocalDelta::default(); state.bones.len()];
     crate::legacy_swing::apply(&state.bone_names, &mut local, 0.5, 0.0, 1.0).unwrap();
-    let body = state.compose(&local).unwrap();
+    let mut body = vec![BoneTransform::default(); state.posed_bones().len()];
+    state.compose_into(&local, &mut body).unwrap();
     let prepared = &state.skin_skeleton().unwrap().prepared;
     let baseline = compose_pose(&prepared.bones, &[]).unwrap();
     assert_custom_attack(&body, &baseline, &prepared.names);

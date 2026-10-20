@@ -217,6 +217,11 @@ placement reuses unchanged owner and attachment inputs. Rig plans retain clip ma
 named channel indices; appearance bindings retain cape and cosmetic anchors. Hardware crowd captures and
 full temporal/visual qualification remain open.
 
+Body and custom-skin composition use shared parent-first programs and caller-owned
+output, including attachable root modes and legacy attacks. Alternate render
+geometries and skin layers retain recursive composition. Rendered and live
+performance qualification remains open.
+
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
 - [ ] `P4.4-LIVE-ACTOR` — Close spawn, movement, rotation and teleport ground-contact
@@ -364,6 +369,9 @@ fallback; do not bundle game assets to fill gaps.
 Complete clean-install, first-run asset preparation, update/install recovery, startup
 and crash diagnostics, packaging and platform acceptance. Required carriers must pass
 validation; retain only the explicitly permitted diagnostic/optional fallbacks.
+
+Windows runtime executables use `asInvoker` manifests and allow both normal and elevated
+launches. Native Windows startup, update and crash-restart acceptance remains incomplete.
 
 ## Experimental hosts and extensions
 
