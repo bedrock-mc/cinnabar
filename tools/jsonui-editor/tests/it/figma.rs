@@ -922,3 +922,89 @@ fn reverse_stacking_and_fill_blend_modes_warn() {
         ]
     );
 }
+
+// A text `@button` sized to its text hugs the label, as in Figma, instead of
+// filling its parent.
+#[test]
+fn text_buttons_hug_their_label() {
+    let node: Node = serde_json::from_value(json!({
+        "id": "20:1", "name": "Hug Test", "type": "FRAME", "width": 200, "height": 100,
+        "children": [{
+            "id": "20:2", "name": "Play @button", "type": "TEXT", "x": 10, "y": 10, "width": 24, "height": 9,
+            "fills": [{ "type": "SOLID", "color": [1, 1, 1] }],
+            "text": { "characters": "Play", "font_family": "Minecraft" }
+        }]
+    }))
+    .unwrap();
+    let conversion = figma::convert(&node, &BTreeMap::new());
+    let (_, _, frame) = laid_out(&conversion, 1);
+    let label = rect(&frame, "content");
+    assert_eq!(
+        rect(&frame, "play"),
+        label,
+        "the button is the label's size"
+    );
+    assert!(label[2] < 100.0 && label[3] < 50.0, "{label:?}");
+    assert_eq!(label[..2], [10.0, 10.0]);
+}
+
+// A missing state copied from the default keeps the default's directives.
+#[test]
+fn copied_states_keep_their_directives() {
+    let node: Node = serde_json::from_value(json!({
+        "id": "21:1", "name": "Copy Test", "type": "FRAME", "width": 100, "height": 40,
+        "children": [{
+            "id": "21:2", "name": "Go @button", "type": "FRAME", "width": 60, "height": 20,
+            "children": [{
+                "id": "21:3", "name": "Default $binding=#Title", "type": "TEXT", "width": 60, "height": 9,
+                "fills": [{ "type": "SOLID", "color": [1, 1, 1] }],
+                "text": { "characters": "Go", "font_family": "Minecraft" }
+            }]
+        }]
+    }))
+    .unwrap();
+    let conversion = figma::convert(&node, &BTreeMap::new());
+    let ui = ui(&conversion);
+    let go = control(&ui, "go");
+    for state in ["default", "hover", "pressed"] {
+        assert_eq!(control(go, state)["text"], "#Title", "{state}");
+    }
+    laid_out(&conversion, 1);
+}
+
+// A rotated image paint has no JSON-UI form and says so.
+#[test]
+fn rotated_image_fills_warn() {
+    let node: Node = serde_json::from_value(json!({
+        "id": "22:1", "name": "Rotate Test", "type": "FRAME", "width": 40, "height": 40,
+        "children": [{
+            "id": "22:2", "name": "Photo", "type": "RECTANGLE", "width": 40, "height": 40,
+            "fills": [{ "type": "IMAGE", "image": "photo", "scale_mode": "FILL", "rotation": 90 }]
+        }]
+    }))
+    .unwrap();
+    let images = BTreeMap::from([("photo".to_owned(), solid_png(2, 2, [0, 255, 0, 255]))]);
+    let conversion = figma::convert(&node, &images);
+    assert_eq!(
+        messages(&conversion),
+        [(
+            "Rotate Test / Photo".to_owned(),
+            "rotated image fills are not supported".to_owned()
+        )]
+    );
+}
+
+// A frame named `Namespace` cannot take the file's `namespace` key.
+#[test]
+fn the_namespace_key_is_reserved() {
+    let node: Node = serde_json::from_value(json!({
+        "id": "23:1", "name": "Namespace", "type": "FRAME", "width": 40, "height": 40,
+        "children": [{ "id": "23:2", "name": "Namespace", "type": "FRAME", "width": 10, "height": 10 }]
+    }))
+    .unwrap();
+    let conversion = figma::convert(&node, &BTreeMap::new());
+    let ui = ui(&conversion);
+    assert_eq!(ui["namespace"], "namespace");
+    assert!(ui[conversion.screen.split_once('.').unwrap().1].is_object());
+    laid_out(&conversion, 1);
+}

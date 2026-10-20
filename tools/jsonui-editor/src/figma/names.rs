@@ -59,6 +59,17 @@ pub(super) fn parse(name: &str) -> Directives {
     out
 }
 
+/// `name` with its words replaced by `words`, keeping its directive tokens.
+pub(super) fn with_words(name: &str, words: &str) -> String {
+    let directives = name
+        .split_whitespace()
+        .filter(|token| token.starts_with(['@', '$']));
+    std::iter::once(words)
+        .chain(directives)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// `#name` from `#name` or `name`, exactly as written: JSON-UI names are case-sensitive.
 fn binding_name(value: &str) -> Option<String> {
     let name = value.trim_start_matches('#');

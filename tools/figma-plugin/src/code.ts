@@ -205,6 +205,7 @@ async function paints(list: ReadonlyArray<Paint>, images: Images): Promise<Json[
     if (paint.type === 'IMAGE' && paint.imageHash) {
       entry.image = paint.imageHash;
       entry.scale_mode = paint.scaleMode;
+      entry.rotation = paint.rotation ?? 0;
       entry.has_filters = Object.values(paint.filters ?? {}).some((value) => value !== 0);
       const image = paint.imageHash in images ? null : figma.getImageByHash(paint.imageHash);
       if (image) images[paint.imageHash] = await image.getBytesAsync();

@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use serde_json::json;
 
-use super::names::{identifier, parse};
+use super::names::{identifier, parse, with_words};
 use super::{Body, Ctx, Place, Scope, entry, panel, type_of};
 use crate::figma::{Constraint, Constraints, Node, Positioning};
 
@@ -69,8 +69,8 @@ pub(super) fn state_frame(node: &Node) -> Option<(Node, Vec<&'static str>)> {
             vertical: Constraint::Stretch,
         };
         child.positioning = Positioning::Auto;
-        if let Some(name) = name {
-            child.name = name.to_owned();
+        if let Some(state) = name {
+            child.name = with_words(&child.name, state);
         }
         child
     };
@@ -115,7 +115,8 @@ pub(super) fn state_frame(node: &Node) -> Option<(Node, Vec<&'static str>)> {
 /// Wraps `content` as a button pressed as `button.<id>`. With a `default`
 /// among `states`, each names a descendant control the button switches;
 /// otherwise the content sits outside any state control and always shows.
-pub(super) fn button(content: Body, id: &str, states: &[&'static str]) -> Body {
+/// Content sized to itself on a `hug` axis keeps that size inside the button.
+pub(super) fn button(content: Body, id: &str, states: &[&'static str], hug: [bool; 2]) -> Body {
     let states = if states.contains(&"default") {
         states
     } else {
@@ -125,7 +126,8 @@ pub(super) fn button(content: Body, id: &str, states: &[&'static str]) -> Body {
         content
     } else {
         let mut inner = content;
-        inner.insert("size".into(), json!(["100%", "100%"]));
+        let size = hug.map(|hug| if hug { "default" } else { "100%" });
+        inner.insert("size".into(), json!(size));
         panel(vec![entry("content", inner)])
     };
     body.insert("type".into(), "button".into());

@@ -137,6 +137,8 @@ pub struct Paint {
     pub has_filters: bool,
     /// The paint's own blend mode.
     pub blend_mode: String,
+    /// An image paint's own rotation, in degrees.
+    pub rotation: f64,
 }
 
 impl Default for Paint {
@@ -150,6 +152,7 @@ impl Default for Paint {
             scale_mode: String::new(),
             has_filters: false,
             blend_mode: String::new(),
+            rotation: 0.0,
         }
     }
 }

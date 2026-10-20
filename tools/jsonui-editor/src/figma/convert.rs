@@ -23,6 +23,8 @@ const BASE_FONT_SIZE: f64 = 8.0;
 /// A reset formatting code: it draws nothing, and keeps literal text that
 /// starts with `#` from reading as a binding reference.
 const LITERAL_PREFIX: &str = "\u{a7}r";
+/// The UI file's metadata key, which no control may take.
+const NAMESPACE_KEY: &str = "namespace";
 /// Image key of the generated white texture that solid fills tint.
 const SOLID_KEY: &str = "\0solid";
 const CONTAINERS: [&str; 6] = [
@@ -49,6 +51,7 @@ pub fn convert(root: &Node, images: &BTreeMap<String, Vec<u8>>) -> Conversion {
         warnings: Vec::new(),
         mock: MockData::default(),
     };
+    ctx.top.unique(NAMESPACE_KEY);
     let root_name = ctx.top.unique(&namespace);
     let screen_name = ctx.top.unique(&format!("{root_name}_screen"));
     let body = ctx
@@ -183,7 +186,7 @@ impl Ctx<'_> {
         }
         let name = names::identifier(&directives.words, &node.kind.to_ascii_lowercase());
         if let Some(id) = &directives.button {
-            body = button(body, id.as_deref().unwrap_or(&name), &states);
+            body = button(body, id.as_deref().unwrap_or(&name), &states, auto);
         }
         if !node.visible {
             body.insert("visible".into(), false.into());
@@ -201,6 +204,16 @@ impl Ctx<'_> {
             }
         }
         place_control(&mut body, node, extent, auto, place);
+        // A button wrapped around content sized to itself hugs that content.
+        if directives.button.is_some()
+            && let Some(Value::Array(size)) = body.get_mut("size")
+        {
+            for (axis, value) in size.iter_mut().enumerate() {
+                if auto[axis] && *value == "default" {
+                    *value = "100%c".into();
+                }
+            }
+        }
         Some((name, body))
     }
 
@@ -728,6 +741,8 @@ impl Ctx<'_> {
     /// Image controls for `node`'s visible fills, bottom first, with their Figma paint type.
     fn fills(&mut self, node: &Node, path: &str) -> Vec<(String, Body)> {
         let mut out = Vec::new();
+        // Figma's plugin API lists fills bottom-first, the last on top (FigmaToCode's
+        // `retrieveTopFill` relies on the same), so they emit in order.
         for paint in visible_fills(node) {
             let mut body = match (paint.kind.as_str(), paint.color, paint.image.as_deref()) {
                 ("SOLID", Some(rgb), _) => {
@@ -740,6 +755,9 @@ impl Ctx<'_> {
                     let Some(texture) = self.texture(node, key, path) else {
                         continue;
                     };
+                    if paint.rotation.abs() > 0.01 {
+                        self.warn(node, path, "rotated image fills are not supported");
+                    }
                     let mut body = image(&texture);
                     match paint.scale_mode.as_str() {
                         "FILL" | "" => {
@@ -916,5 +934,10 @@ fn pretty(value: &Value) -> Vec<u8> {
 /// The UI file with `namespace` first, as authors write it.
 fn ui_file(namespace: &str, definitions: &BTreeMap<String, Value>) -> Vec<u8> {
     let body = serde_json::to_string_pretty(definitions).unwrap_or_default();
-    format!("{{\n  \"namespace\": {},{}\n", json!(namespace), &body[1..]).into_bytes()
+    format!(
+        "{{\n  \"{NAMESPACE_KEY}\": {},{}\n",
+        json!(namespace),
+        &body[1..]
+    )
+    .into_bytes()
 }
