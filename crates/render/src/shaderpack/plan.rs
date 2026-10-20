@@ -75,6 +75,7 @@ impl BufferClear {
 pub(crate) struct PlannedProgram {
     pub name: String,
     pub group: ProgramGroup,
+    pub kind: shaderpack::ProgramKind,
     /// Destination buffer per fragment output location; empty for compute programs.
     pub outputs: Vec<Option<u32>>,
     /// Buffers referenced through samplers or images.
@@ -243,7 +244,14 @@ pub(crate) fn plan_frame(programs: &[PlannedProgram], flips: &[FlipRule]) -> Fra
         for (b, _) in writes.iter().flatten() {
             flip |= 1 << b;
         }
-        for rule in flips.iter().filter(|r| r.program == program.name) {
+        let finishes_pass = program.kind == shaderpack::ProgramKind::Render
+            || !programs.iter().any(|next| {
+                next.name == program.name && next.kind == shaderpack::ProgramKind::Render
+            });
+        for rule in flips
+            .iter()
+            .filter(|r| finishes_pass && r.program == program.name)
+        {
             if let Some(b) = color_buffer_of(&rule.buffer) {
                 if rule.flip {
                     flip |= 1 << b;
@@ -391,9 +399,14 @@ pub(crate) fn plan_buffers(
     directives: &BufferDirectives,
     sizes: &[shaderpack::BufferSize],
 ) -> Vec<BufferPlan> {
-    let mut used = 1u32;
+    let final_alternate = frame
+        .swap_back
+        .iter()
+        .chain(&frame.exchange)
+        .fold(0, |mask, index| mask | (1 << index));
+    let mut alternate = frame.scene_alt | final_alternate;
+    let mut used = 1 | alternate;
     let mut mipmapped = 0u32;
-    let mut alternate = frame.scene_alt;
     for program in programs.iter().chain(geometry) {
         for b in program.outputs.iter().flatten().chain(&program.reads) {
             used |= 1 << b;
@@ -460,6 +473,7 @@ mod tests {
         PlannedProgram {
             name: name.to_string(),
             group,
+            kind: shaderpack::ProgramKind::Render,
             outputs: outputs.iter().map(|b| Some(*b)).collect(),
             reads: vec![],
             mipmaps: vec![],
@@ -747,5 +761,56 @@ mod tests {
         assert_eq!(color_buffer_of("colorimg12"), Some(12));
         assert_eq!(color_buffer_of("colortex16"), None);
         assert_eq!(color_buffer_of("shadowcolor0"), None);
+    }
+    #[test]
+    fn forced_flip_after_a_compute_and_render_pair_happens_once() {
+        let mut compute = program("composite", ProgramGroup::Composite, &[]);
+        compute.kind = shaderpack::ProgramKind::Compute;
+        let render = program("composite", ProgramGroup::Composite, &[0]);
+        let programs = [compute.clone(), render];
+        let rules = [flip("composite", "colortex5", true)];
+        let frame = plan_frame(&programs, &rules);
+        assert_eq!(frame.post[1].read_alt, 0);
+        assert!(frame.swap_back.contains(&5));
+        let alone = plan_frame(&[compute], &rules);
+        assert!(alone.swap_back.contains(&5));
+    }
+
+    #[test]
+    fn final_forced_flips_allocate_alternates_even_without_an_output() {
+        let mut pass = program("composite", ProgramGroup::Composite, &[0]);
+        pass.reads = vec![5];
+        let mut programs = [pass];
+        let mut directives = BufferDirectives::default();
+        directives
+            .buffers
+            .entry(BufferId::Color(5))
+            .or_default()
+            .clear = Some(false);
+        for reads_buffer in [true, false] {
+            if !reads_buffer {
+                programs[0].reads.clear();
+            }
+            let mut frame = plan_frame(&programs, &[flip("composite", "colortex5", true)]);
+            let buffers = plan_buffers(&programs, &[], &frame, &directives, &[]);
+            assert!(
+                buffers
+                    .iter()
+                    .find(|buffer| buffer.index == 5)
+                    .unwrap()
+                    .alternate
+            );
+            skip_cleared_swap_back(&mut frame, &buffers, &programs);
+            assert!(frame.swap_back.contains(&5));
+            exchange_swap_back(&mut frame, &programs, &[]);
+            let exchanged = plan_buffers(&programs, &[], &frame, &directives, &[]);
+            assert!(
+                exchanged
+                    .iter()
+                    .find(|buffer| buffer.index == 5)
+                    .unwrap()
+                    .alternate
+            );
+        }
     }
 }

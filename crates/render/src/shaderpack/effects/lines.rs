@@ -65,6 +65,7 @@ pub(super) fn widen(camera: &EffectCamera, from: Vec3, to: Vec3, width: f32) -> 
     Some([shift(a, 1.0), shift(a, -1.0), shift(b, -1.0), shift(b, 1.0)])
 }
 
+/// Appends a widened selection segment when its visible projection is nondegenerate.
 fn line(mesh: &mut Mesh, camera: &EffectCamera, from: Vec3, to: Vec3, width: f32) {
     let normal = (to - from).normalize_or_zero();
     if let Some(corners) = widen(camera, from, to, width) {
@@ -129,21 +130,29 @@ fn boundary_edges(face: &[BlockEntityVertex]) -> Vec<(BlockEntityVertex, BlockEn
 /// Crack faces: Cinnabar's crack triangles with their destroy-stage atlas coordinates,
 /// full-bright as Iris's `CRUMBLING` key.
 pub(super) fn cracks(mesh: &mut Mesh, vertices: &[BlockEntityVertex], camera: Vec3) {
-    for triangle in vertices.as_chunks::<3>().0 {
-        let mid = triangle.iter().fold([0.0; 2], |acc, v| {
-            [acc[0] + v.uv[0] / 3.0, acc[1] + v.uv[1] / 3.0]
-        });
-        mesh.triangle([0, 1, 2].map(|i| {
-            let v = &triangle[i];
-            Vertex {
-                position: Vec3::from_array(v.position) - camera,
-                colour: v.color,
-                normal: Vec3::from_array(v.normal),
-                uv: v.uv,
-                mid_uv: mid,
-                light: FULL_BRIGHT,
+    for face in vertices.chunks(6) {
+        let mut low = [f32::INFINITY; 2];
+        let mut high = [f32::NEG_INFINITY; 2];
+        for vertex in face {
+            for axis in 0..2 {
+                low[axis] = low[axis].min(vertex.uv[axis]);
+                high[axis] = high[axis].max(vertex.uv[axis]);
             }
-        }));
+        }
+        let mid = std::array::from_fn(|axis| (low[axis] + high[axis]) * 0.5);
+        for triangle in face.as_chunks::<3>().0 {
+            mesh.triangle([0, 1, 2].map(|i| {
+                let v = &triangle[i];
+                Vertex {
+                    position: Vec3::from_array(v.position) - camera,
+                    colour: v.color,
+                    normal: Vec3::from_array(v.normal),
+                    uv: v.uv,
+                    mid_uv: mid,
+                    light: FULL_BRIGHT,
+                }
+            }));
+        }
     }
 }
 

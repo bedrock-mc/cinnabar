@@ -6,8 +6,8 @@
 //! - group 0, binding 0: the program's loose uniforms as one std140 block ([`UniformBlock`]);
 //!   further pack-declared uniform blocks follow from binding 1.
 //! - group 1: binding 0 is the shared filtering sampler, binding 1 the shared comparison
-//!   sampler, bindings 2–4 the other [`SamplerClass`]es; sampled textures start at binding 5,
-//!   numbered per program by first declaration.
+//!   sampler, followed by the other [`SamplerClass`]es; sampled textures start at
+//!   [`FIRST_TEXTURE_BINDING`], numbered per program by first declaration.
 //! - group 2: storage images from binding 0.
 //! - group 3: storage buffers at the pack's own `binding`.
 
@@ -25,7 +25,18 @@ pub const SAMPLER_BINDING: u32 = 0;
 /// Binding of the shared depth-comparison sampler in [`TEXTURE_GROUP`].
 pub const SHADOW_SAMPLER_BINDING: u32 = 1;
 /// First sampled-texture binding in [`TEXTURE_GROUP`].
-pub const FIRST_TEXTURE_BINDING: u32 = 5;
+pub const FIRST_TEXTURE_BINDING: u32 = {
+    let mut next = SHADOW_SAMPLER_BINDING + 1;
+    let mut index = 0;
+    while index < SamplerClass::ALL.len() {
+        let binding = SamplerClass::ALL[index].binding();
+        if binding >= next {
+            next = binding + 1;
+        }
+        index += 1;
+    }
+    next
+};
 /// Group of storage images.
 pub const IMAGE_GROUP: u32 = 2;
 /// Group of storage buffers.
@@ -70,6 +81,8 @@ sampler_classes! {
     ClampNearest => (3, "iris_samplerClampNearest"),
     /// Repeat, nearest: the block atlas and its PBR companions.
     RepeatNearest => (4, "iris_samplerRepeatNearest"),
+    /// Repeat with nearest texels and nearest mips, for integer textures.
+    RepeatNonFiltering => (5, "iris_samplerRepeatNonFiltering"),
 }
 
 impl SamplerClass {
@@ -93,9 +106,17 @@ impl SamplerClass {
         matches!(self, SamplerClass::ClampLinear | SamplerClass::ClampNearest)
     }
 
-    /// Filters linearly (including between mip levels) rather than taking the nearest texel.
+    /// Filters linearly within a mip level rather than taking the nearest texel.
     pub const fn linear(self) -> bool {
         matches!(self, SamplerClass::RepeatLinear | SamplerClass::ClampLinear)
+    }
+
+    /// Blends neighbouring mip levels, including the atlas's nearest-texel class.
+    pub const fn mipmap_linear(self) -> bool {
+        match self {
+            Self::RepeatLinear | Self::ClampLinear | Self::RepeatNearest => true,
+            Self::ClampNearest | Self::RepeatNonFiltering => false,
+        }
     }
 
     /// The class of a built-in sampler name: depth textures are nearest, colour and shadow
@@ -254,8 +275,15 @@ impl VertexAttribute {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ScalarType {
     Bool,
+    Int8,
+    Int16,
     Int,
+    Int64,
+    Uint8,
+    Uint16,
     Uint,
+    Uint64,
+    Half,
     Float,
     Double,
 }
@@ -333,6 +361,7 @@ pub struct UniformBlock {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TextureDimension {
     D1,
+    D1Array,
     D2,
     D2Array,
     D3,
@@ -485,5 +514,22 @@ mod tests {
             VertexAttribute::Other("myInput".to_string())
         );
         assert_eq!(VertexAttribute::Other("x".into()).location(), None);
+    }
+}
+
+#[cfg(test)]
+mod sampler_tests {
+    use super::*;
+
+    #[test]
+    fn sampler_catalog_keeps_texture_bindings_separate() {
+        let mut bindings = std::collections::BTreeSet::from([SHADOW_SAMPLER_BINDING]);
+        for class in SamplerClass::ALL {
+            assert!(bindings.insert(class.binding()));
+            assert!(class.binding() < FIRST_TEXTURE_BINDING);
+        }
+        assert_eq!(bindings.last().copied().unwrap() + 1, FIRST_TEXTURE_BINDING);
+        assert!(SamplerClass::RepeatNearest.mipmap_linear());
+        assert!(!SamplerClass::RepeatNonFiltering.mipmap_linear());
     }
 }

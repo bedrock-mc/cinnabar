@@ -174,3 +174,95 @@ fn dispatches_cover_every_job_and_vertex() {
     let big = linear_workgroups(MAX_WORKGROUPS * SKIN_WORKGROUP_SIZE + 1);
     assert_eq!(big, [MAX_WORKGROUPS, 2, 1]);
 }
+
+#[test]
+fn glint_keeps_base_coverage_and_first_person_matrices() {
+    for kind in [
+        DrawKind::ArmorGlint,
+        DrawKind::ArmorGlintTranslucent,
+        DrawKind::HandGlint,
+    ] {
+        assert_eq!(kind.depth_compare(), wgpu::CompareFunction::Equal);
+        assert!(!kind.depth_write(&Default::default()));
+    }
+    assert!(DrawKind::HandGlint.hand() && DrawKind::HandGlint.after_deferred());
+    assert!(DrawKind::ArmorGlintTranslucent.after_deferred());
+}
+
+#[test]
+fn translucent_actor_order_follows_the_view_and_keeps_draw_slots() {
+    use super::view::{ActorDraw, ViewActors};
+    let mut actors = ViewActors::default();
+    let texture = bevy::render::render_resource::TextureId::new();
+    for distance in [2., 12., 5.] {
+        actors.draws.push(ActorDraw {
+            kind: DrawKind::EntitiesTranslucent,
+            vertices: 0..6,
+            texture: (texture, 0),
+            values: DrawValues::NONE,
+            distance,
+        });
+    }
+    actors.slot_of = vec![10, 20, 30];
+    let ordered: Vec<_> = actors
+        .draw_order(DrawKind::EntitiesTranslucent)
+        .iter()
+        .map(|i| actors.slot_of[*i])
+        .collect();
+    assert_eq!(ordered, [20, 30, 10]);
+    for draw in &mut actors.draws {
+        draw.distance = -draw.distance;
+    }
+    let ordered: Vec<_> = actors
+        .draw_order(DrawKind::EntitiesTranslucent)
+        .iter()
+        .map(|i| actors.slot_of[*i])
+        .collect();
+    assert_eq!(ordered, [10, 30, 20]);
+}
+
+#[test]
+fn actor_vertex_inputs_bind_full_float_uvs() {
+    use shaderpack::{ScalarType, ValueType, VertexAttribute, VertexInput};
+    let inputs = [VertexAttribute::TexCoord, VertexAttribute::MidTexCoord]
+        .into_iter()
+        .enumerate()
+        .map(|(location, attribute)| VertexInput {
+            location: location as u32,
+            name: format!("uv{location}"),
+            attribute,
+            ty: ValueType::Vector {
+                size: 2,
+                scalar: ScalarType::Float,
+            },
+        })
+        .collect::<Vec<_>>();
+    let layouts = super::layout::vertex_layouts(&inputs).unwrap();
+    let stream = &layouts[crate::shaderpack::geometry::GEOMETRY_VERTEX_BUFFER as usize];
+    assert_eq!(stream.array_stride, super::layout::ACTOR_VERTEX_STRIDE);
+    assert!(
+        stream
+            .attributes
+            .iter()
+            .all(|attribute| attribute.format == wgpu::VertexFormat::Float32x2)
+    );
+}
+
+#[test]
+fn hand_translucent_depth_is_independent_of_the_world_camera() {
+    let position = Vec3::new(1., 0., -2.);
+    for forward in [Vec3::X, Vec3::NEG_Z] {
+        assert_eq!(
+            super::view::draw_depth(position, Vec3::splat(10_000.), forward, true),
+            2.
+        );
+    }
+    assert_eq!(
+        super::view::draw_depth(position, Vec3::ZERO, Vec3::NEG_Z, false),
+        2.
+    );
+    assert_eq!(
+        super::view::draw_depth(position, Vec3::ZERO, Vec3::Z, false),
+        -2.
+    );
+}

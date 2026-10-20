@@ -1,11 +1,13 @@
 //! Merges a program's loose uniforms and writes each stage's final GLSL.
 
 use super::StageDraft;
+use super::items::{parse_decl, split_items};
 use crate::reflection::{
     LOOSE_UNIFORM_BINDING, LOOSE_UNIFORM_BLOCK, SHADOW_SAMPLER_BINDING, SHADOW_SAMPLER_NAME,
     TEXTURE_GROUP, UNIFORM_GROUP,
 };
 use crate::token::{Emitter, Tok};
+use std::collections::{HashMap, HashSet};
 
 /// The union of the stages' loose uniforms in first-declaration order. A name declared with
 /// different types in two stages is an error.
@@ -13,8 +15,24 @@ pub(crate) fn merge_uniforms<'a>(
     drafts: impl IntoIterator<Item = &'a StageDraft>,
 ) -> Result<Vec<UboMember>, String> {
     let mut merged: Vec<UboMember> = vec![];
+    let mut definitions = HashMap::new();
     for d in drafts {
         for m in &d.ubo {
+            let dependencies = uniform_dependencies(m, &d.hoisted);
+            for dependency in &dependencies {
+                let spelling: Vec<_> = dependency.iter().map(Tok::text).collect();
+                for name in declaration_names(dependency) {
+                    let spelling = spelling.join(" ");
+                    if definitions
+                        .insert(name.clone(), spelling.clone())
+                        .is_some_and(|old| old != spelling)
+                    {
+                        return Err(format!(
+                            "uniform dependency `{name}` differs between stages"
+                        ));
+                    }
+                }
+            }
             match merged.iter().find(|x| x.name == m.name) {
                 Some(x) if x.spelling() != m.spelling() => {
                     return Err(format!(
@@ -25,11 +43,92 @@ pub(crate) fn merge_uniforms<'a>(
                     ));
                 }
                 Some(_) => {}
-                None => merged.push(m.clone()),
+                None => {
+                    let mut member = m.clone();
+                    member.dependencies = dependencies;
+                    merged.push(member);
+                }
             }
         }
     }
     Ok(merged)
+}
+
+/// Names introduced by a hoisted struct or constant declaration.
+fn declaration_names(tokens: &[Tok]) -> Vec<String> {
+    let Some(declaration) = parse_decl(tokens) else {
+        return Vec::new();
+    };
+    if let Some((name, _, _)) = declaration.block {
+        vec![name]
+    } else {
+        declaration
+            .decls
+            .into_iter()
+            .map(|(name, _, _)| name)
+            .collect()
+    }
+}
+
+/// Type names and constant references used by a declaration, excluding declared field names.
+fn declaration_dependencies(tokens: &[Tok]) -> HashSet<String> {
+    let mut needed = HashSet::new();
+    let mut pending = vec![tokens.to_vec()];
+    while let Some(tokens) = pending.pop() {
+        let Some(declaration) = parse_decl(&tokens) else {
+            continue;
+        };
+        if let Some((_, members, _)) = declaration.block {
+            pending.extend(split_items(&members));
+        } else {
+            needed.insert(declaration.ty);
+            needed.extend(
+                declaration
+                    .ty_arr
+                    .iter()
+                    .filter_map(Tok::ident)
+                    .map(str::to_string),
+            );
+            for (_, array, initializer) in declaration.decls {
+                needed.extend(
+                    array
+                        .iter()
+                        .chain(&initializer)
+                        .filter_map(Tok::ident)
+                        .map(str::to_string),
+                );
+            }
+        }
+    }
+    needed
+}
+
+/// Selects the transitive type and constant declarations needed by one uniform.
+fn uniform_dependencies(member: &UboMember, hoisted: &[Tok]) -> Vec<Vec<Tok>> {
+    let declarations = split_items(hoisted);
+    let mut needed = declaration_dependencies(&member.toks);
+    loop {
+        let before = needed.len();
+        for declaration in &declarations {
+            if declaration_names(declaration)
+                .iter()
+                .any(|name| needed.contains(name))
+            {
+                needed.extend(declaration_dependencies(declaration));
+            }
+        }
+        if needed.len() == before {
+            break;
+        }
+    }
+    declarations
+        .into_iter()
+        .filter(|declaration| {
+            declaration_names(declaration)
+                .iter()
+                .any(|name| needed.contains(name))
+        })
+        .collect()
 }
 
 /// GLSL text of a draft with the program's merged uniform block, and the include-expanded
@@ -42,7 +141,22 @@ pub(crate) fn assemble(
     let mut e = Emitter::default();
     e.raw(&draft.header);
     e.raw(locations);
-    e.tokens(&draft.hoisted);
+    let mut emitted = HashSet::new();
+    for dependency in ubo.iter().flat_map(|member| &member.dependencies) {
+        let names = declaration_names(dependency);
+        if names.iter().any(|name| !emitted.contains(name)) {
+            e.tokens(dependency);
+            emitted.extend(names);
+        }
+    }
+    for declaration in split_items(&draft.hoisted) {
+        if declaration_names(&declaration)
+            .iter()
+            .all(|name| !emitted.contains(name))
+        {
+            e.tokens(&declaration);
+        }
+    }
     if ubo.iter().any(|m| m.name == "iris_Fog") {
         e.raw(FOG_STRUCT);
     }
@@ -82,6 +196,7 @@ const FOG_STRUCT: &str = "struct iris_FogParameters { vec4 color; float density;
 pub(crate) struct UboMember {
     pub name: String,
     toks: Vec<Tok>,
+    dependencies: Vec<Vec<Tok>>,
 }
 
 impl UboMember {
@@ -90,6 +205,7 @@ impl UboMember {
         UboMember {
             name: name.to_string(),
             toks,
+            dependencies: Vec::new(),
         }
     }
 

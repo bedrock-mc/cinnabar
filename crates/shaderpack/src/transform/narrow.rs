@@ -1,7 +1,8 @@
 //! Lowers the 16- and 8-bit types of `GL_NV_gpu_shader5` and
 //! `GL_EXT_shader_explicit_arithmetic_types_*` to their 32-bit counterparts.
 //!
-//! naga has no 16- or 8-bit integers, and its GLSL frontend has no `float16_t`. Packs
+//! naga has no 16- or 8-bit integers. This lowering also avoids requiring native
+//! half-precision arithmetic. Packs
 //! use these types for register pressure and ALU rate, and fall back to 32-bit
 //! definitions themselves when the extensions are missing (Noble's `primitive_types.glsl`
 //! defines `u16vec2` as `uvec2`), so lowering keeps their meaning. Values gain range and
@@ -11,7 +12,7 @@
 //! revisited.
 
 use crate::token::{Tok, TokKind, id, lex};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, HashSet};
 
 /// The 32-bit type for a 16- or 8-bit scalar, vector or matrix type name.
 fn wide_type(name: &str) -> Option<String> {
@@ -76,26 +77,36 @@ const HELPER_BUILTINS: &[&str] = &[
     "int16BitsToFloat16",
 ];
 
+/// Supplies the integer packing signature and an expression usable by helpers and constants.
+fn integer_packing(builtin: &str) -> Option<(&'static str, &'static str, &'static str)> {
+    Some(match builtin {
+        "packUint2x16" => (
+            "uvec2",
+            "uint",
+            "((uint(v.x) & 65535u) | ((uint(v.y) & 65535u) << 16u))",
+        ),
+        "packInt2x16" => (
+            "ivec2",
+            "int",
+            "int((uint(v.x) & 65535u) | ((uint(v.y) & 65535u) << 16u))",
+        ),
+        "unpackUint2x16" => ("uint", "uvec2", "uvec2(uint(v) & 65535u, uint(v) >> 16u)"),
+        "unpackInt2x16" => (
+            "int",
+            "ivec2",
+            "ivec2(int(uint(v) & 65535u) - int((uint(v) & 32768u) * 2u), int(uint(v) >> 16u) - int((uint(v) >> 31u) * 65536u))",
+        ),
+        _ => return None,
+    })
+}
+
 /// GLSL for the helper standing in for `builtin` on lowered values. The bit-cast helpers
 /// have overloads for one to four components, as the built-ins do.
 fn helper_source(builtin: &str) -> String {
+    if let Some((arg, ret, body)) = integer_packing(builtin) {
+        return format!("{ret} iris_{builtin}({arg} v) {{ return {body}; }}\n");
+    }
     let (arg, ret, body) = match builtin {
-        "packUint2x16" => {
-            return "uint iris_packUint2x16(uvec2 v) { return bitfieldInsert(v.x, v.y, 16, 16); }\n"
-                .into();
-        }
-        "unpackUint2x16" => {
-            return "uvec2 iris_unpackUint2x16(uint v) { return uvec2(bitfieldExtract(v, 0, 16), bitfieldExtract(v, 16, 16)); }\n"
-                .into();
-        }
-        "packInt2x16" => {
-            return "int iris_packInt2x16(ivec2 v) { return bitfieldInsert(v.x, v.y, 16, 16); }\n"
-                .into();
-        }
-        "unpackInt2x16" => {
-            return "ivec2 iris_unpackInt2x16(int v) { return ivec2(bitfieldExtract(v, 0, 16), bitfieldExtract(v, 16, 16)); }\n"
-                .into();
-        }
         "float16BitsToUint16" => (
             ("float", "vec"),
             ("uint", "uvec"),
@@ -135,13 +146,6 @@ fn helper_source(builtin: &str) -> String {
     src
 }
 
-/// Whether `src` defines a function called `name` (`<type> name(` outside a call).
-fn defines_function(src: &[Tok], name: &str) -> bool {
-    src.windows(3).any(|w| {
-        w[1].ident() == Some(name) && w[2].is("(") && w[0].ident().is_some_and(|t| t != "return")
-    })
-}
-
 /// Rewrites 16- and 8-bit types and built-ins, or `None` if the stage uses none.
 pub(super) fn lower(src: &[Tok]) -> Option<Vec<Tok>> {
     let narrow = |t: &Tok| {
@@ -152,11 +156,46 @@ pub(super) fn lower(src: &[Tok]) -> Option<Vec<Tok>> {
     if !src.iter().any(narrow) {
         return None;
     }
-    let mut helpers: BTreeSet<&'static str> = BTreeSet::new();
-    let mut out: Vec<Tok> = Vec::with_capacity(src.len());
-    for (i, t) in src.iter().enumerate() {
+    let user_functions: HashSet<_> = super::items::split_items(src)
+        .into_iter()
+        .filter(|item| super::items::parse_decl(item).is_none())
+        .filter_map(|item| {
+            super::items::func_params(&item).and_then(|(lp, _)| {
+                lp.checked_sub(1)
+                    .and_then(|name| item[name].ident())
+                    .map(str::to_string)
+            })
+        })
+        .collect();
+    let mut helpers = BTreeMap::new();
+    let identifiers = src.iter().filter_map(Tok::ident).collect();
+    let mut out = lower_tokens(src, false, &identifiers, &user_functions, &mut helpers);
+    if !helpers.is_empty() {
+        let src: String = helpers
+            .iter()
+            .map(|(builtin, name)| helper_source(builtin).replace(&format!("iris_{builtin}"), name))
+            .collect();
+        out.splice(0..0, lex(&src));
+    }
+    Some(out)
+}
+
+/// Lowers tokens recursively, inlining integer packing where GLSL requires a constant.
+fn lower_tokens(
+    src: &[Tok],
+    constant: bool,
+    identifiers: &HashSet<&str>,
+    user_functions: &HashSet<String>,
+    helpers: &mut BTreeMap<&'static str, String>,
+) -> Vec<Tok> {
+    let constants = super::items::constant_contexts(src);
+    let mut out = Vec::with_capacity(src.len());
+    let mut i = 0;
+    while i < src.len() {
+        let t = &src[i];
         let TokKind::Ident(name) = &t.kind else {
             out.push(t.clone());
+            i += 1;
             continue;
         };
         let member = i > 0 && src[i - 1].is(".");
@@ -165,26 +204,46 @@ pub(super) fn lower(src: &[Tok]) -> Option<Vec<Tok>> {
             out.push(id(&wide).at(t.line));
         } else if !member
             && called
+            && !user_functions.contains(name)
             && let Some(f) = wide_builtin(name)
-            && !defines_function(src, name)
         {
             out.push(id(f).at(t.line));
         } else if !member
             && called
-            && let Some(h) = HELPER_BUILTINS.iter().find(|h| **h == name.as_str())
-            && !defines_function(src, name)
+            && !user_functions.contains(name)
+            && let Some(&h) = HELPER_BUILTINS.iter().find(|h| **h == name.as_str())
         {
-            helpers.insert(h);
-            out.push(id(&format!("iris_{h}")).at(t.line));
+            let inline = integer_packing(h).map(|(_, _, body)| body);
+            if let Some(inline) = inline.filter(|_| constant || constants.contains(&i)) {
+                let end = super::items::matching(src, i + 1, "(", ")");
+                let argument =
+                    lower_tokens(&src[i + 2..end], true, identifiers, user_functions, helpers);
+                for token in lex(inline) {
+                    if token.ident() == Some("v") {
+                        out.push(crate::token::p("(").at(t.line));
+                        out.extend(argument.iter().cloned());
+                        out.push(crate::token::p(")").at(t.line));
+                    } else {
+                        out.push(token.at(t.line));
+                    }
+                }
+                i = end;
+            } else {
+                let name = helpers.entry(h).or_insert_with(|| {
+                    let mut name = format!("iris_{h}");
+                    while identifiers.contains(name.as_str()) {
+                        name.push('_');
+                    }
+                    name
+                });
+                out.push(id(name).at(t.line));
+            }
         } else {
             out.push(t.clone());
         }
+        i += 1;
     }
-    if !helpers.is_empty() {
-        let src: String = helpers.iter().map(|h| helper_source(h)).collect();
-        out.splice(0..0, lex(&src));
-    }
-    Some(out)
+    out
 }
 
 #[cfg(test)]

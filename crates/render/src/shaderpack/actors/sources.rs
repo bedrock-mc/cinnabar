@@ -79,8 +79,6 @@ pub(crate) struct BlockEntitySource<'a> {
     pub solid: Option<BlockEntityList<'a>>,
     /// Blended layers: `gbuffers_block_translucent`.
     pub overlay: Option<BlockEntityList<'a>>,
-    /// The beacon beam: `gbuffers_beaconbeam`.
-    pub additive: Option<BlockEntityList<'a>>,
 }
 
 /// Everything the actor adapter reads for one view and frame.
@@ -96,6 +94,8 @@ pub(crate) struct ActorSources<'a> {
     pub held_items: [i32; 2],
     /// World-space camera position; actor vertices are written relative to it.
     pub camera: Vec3,
+    /// Camera forward direction for sorting blended instances.
+    pub view_forward: Vec3,
     /// Seconds since the client started, which the glint texture matrix scrolls by.
     pub seconds: f32,
 }

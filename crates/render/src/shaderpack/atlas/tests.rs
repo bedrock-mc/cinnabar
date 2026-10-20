@@ -7,7 +7,9 @@ use super::*;
 use assets::texture::{
     PBR_REF_HEIGHT, PBR_REF_LABPBR, PBR_REF_MATERIAL, PBR_REF_NORMAL, PBR_REF_SUBSURFACE,
 };
-use assets::{ANIMATION_FLAG_BLEND, Animation, Material, TextureArray, TextureMip, TextureRef};
+use assets::{
+    ANIMATION_FLAG_BLEND, Animation, Material, RuntimeAssets, TextureArray, TextureMip, TextureRef,
+};
 use render_scene::select_animation_frames;
 
 /// Original synthetic texel, distinct per page, layer, mip and position, with varied alpha.
@@ -220,20 +222,30 @@ fn remap_slots_hold_the_sampled_region_at_source_resolution() {
         (reference(0, 0), 0, 16),
         // Grid layers expose the upper-left quarter at full resolution.
         (reference(1, 0), 0, 16),
-        // Smaller sources keep their resolution through a coarser physical mip.
-        (reference(1, 1), 2, 8),
+        // Source mip zero retains detail even when the physical page is larger.
+        (reference(1, 1), 0, 8),
     ] {
         let rect = slot_rect(&plan, static_sprite_slot(texture.page(), texture.layer()));
         assert_eq!(rect.side, side, "{texture:?}");
         for level in 0..2 {
             assert_eq!(
                 images.atlas.color.read(level, rect),
-                expected(
-                    texture.page(),
-                    texture.layer(),
-                    physical_mip + level,
-                    side >> level
-                ),
+                {
+                    let region = fixture.pages[texture.page() as usize].mips
+                        [(physical_mip + level) as usize]
+                        .size
+                        >> layout(texture).grid;
+                    pixels::resample(
+                        &expected(
+                            texture.page(),
+                            texture.layer(),
+                            physical_mip + level,
+                            region,
+                        ),
+                        region,
+                        side >> level,
+                    )
+                },
                 "{texture:?} at mip {level}"
             );
         }
@@ -515,4 +527,144 @@ fn mer_and_unauthored_layers_convert_to_labpbr_equivalents() {
     assert_eq!(labpbr_specular([0, 0, 0, 255], subsurface)[2], 255);
     assert_eq!(labpbr_specular([0, 0, 0, 1], subsurface)[2], 66);
     assert_eq!(labpbr_specular([0, 0, 0, 255], PBR_REF_MATERIAL)[2], 0);
+}
+
+#[test]
+fn atlas_rebuilds_for_added_replaced_and_removed_authored_maps() {
+    let assets = ChunkTextureAssets::with_revision(Arc::new(RuntimeAssets::diagnostic()), 1);
+    let authored = || {
+        Arc::new(render_scene::EnhancedTextureAssets {
+            color_pages: [page(0, 1, 1), page(0, 1, 1)],
+            normal_pages: [page(0, 1, 1), page(0, 1, 1)],
+            mer_pages: [page(0, 1, 1), page(0, 1, 1)],
+            texture_refs: Box::new([]),
+        })
+    };
+    let added = assets.with_updated_enhanced(Some(authored()));
+    let replaced = added.with_updated_enhanced(Some(authored()));
+    let removed = replaced.with_updated_enhanced(None);
+    let mut build = AtlasBuild::default();
+    for source in [&assets, &added, &replaced, &removed] {
+        assert!(build.request(source));
+        assert!(!build.request(&source.clone()));
+    }
+}
+
+#[test]
+fn terrain_source_lod_keeps_detail_on_a_larger_physical_page() {
+    let source = |x: u32| {
+        if x % 2 == 0 {
+            [255, 0, 0, 255]
+        } else {
+            [0, 0, 255, 255]
+        }
+    };
+    let texture = TextureArray {
+        layers: 1,
+        mips: (0..=6)
+            .map(|level| {
+                let size = 64 >> level;
+                TextureMip {
+                    size,
+                    rgba8: (0..size * size)
+                        .flat_map(|i| {
+                            if level == 0 {
+                                source(i % size / 4)
+                            } else {
+                                [127, 0, 127, 255]
+                            }
+                        })
+                        .collect(),
+                }
+            })
+            .collect(),
+    };
+    let inputs = AtlasInputs {
+        pages: &[&texture],
+        materials: &[],
+        animations: &[],
+        animation_frames: &[],
+        layout: &|_| LayerLayout {
+            grid: 0,
+            source_side: 16,
+        },
+        authored: None,
+    };
+    let content = plan::SpriteContent::Layer {
+        reference: reference(0, 0),
+        opaque: false,
+    };
+    let base = pixels::color_texels(&inputs, content, 16);
+    let expected = (0..16 * 16)
+        .flat_map(|i| source(i % 16))
+        .collect::<Vec<_>>();
+    assert_eq!(base, expected);
+    assert_eq!(
+        pixels::color_texels(&inputs, content, 8),
+        [127, 0, 127, 255].repeat(64)
+    );
+}
+
+#[test]
+fn animation_blend_targets_keep_encoded_colour() {
+    let layout = bevy::render::render_resource::BindGroupLayoutDescriptor::new("test", &[]);
+    let pipeline = blend::descriptor(&layout, "fragment_colour", &[upload::COLOR_STORAGE_FORMAT]);
+    assert_eq!(
+        pipeline.fragment.unwrap().targets[0]
+            .as_ref()
+            .unwrap()
+            .format,
+        wgpu::TextureFormat::Rgba8Unorm
+    );
+}
+
+#[test]
+fn malformed_pbr_pages_keep_neutral_texels() {
+    let empty = TextureArray {
+        layers: 1,
+        mips: Box::new([]),
+    };
+    let authored = AuthoredPbr {
+        normal_pages: [&empty, &empty],
+        mer_pages: [&empty, &empty],
+        refs: &[PBR_REF_NORMAL | PBR_REF_MATERIAL],
+    };
+    let content = plan::SpriteContent::Layer {
+        reference: reference(0, 0),
+        opaque: false,
+    };
+    assert_eq!(
+        pixels::pbr_texels(&authored, content, 1),
+        [NEUTRAL_NORMAL.to_vec(), NEUTRAL_SPECULAR.to_vec()]
+    );
+}
+
+#[test]
+fn animation_blend_shader_validates_without_a_gpu() {
+    let module = naga::front::wgsl::parse_str(include_str!("blend.wgsl")).unwrap();
+    naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .unwrap();
+}
+
+#[test]
+fn pending_atlas_identity_keeps_its_source_alive_until_replaced() {
+    let source = ChunkTextureAssets::with_revision(Arc::new(RuntimeAssets::diagnostic()), 1);
+    let weak = Arc::downgrade(source.assets());
+    let mut build = AtlasBuild::default();
+    assert!(build.request(&source));
+    drop(source);
+    assert!(
+        weak.upgrade().is_some(),
+        "the cached pointer cannot be reused while requested"
+    );
+    let replacement = ChunkTextureAssets::with_revision(Arc::new(RuntimeAssets::diagnostic()), 2);
+    assert!(build.request(&replacement));
+    assert!(
+        weak.upgrade().is_none(),
+        "replacing the request releases its previous source"
+    );
 }

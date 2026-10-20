@@ -2,12 +2,15 @@ use super::*;
 use assets::EntityAnimationProperty;
 use std::collections::BTreeSet;
 
+mod masks;
+use masks::ClipMasks;
+
 pub(super) const TRANSLATION: u8 = 1;
 pub(super) const ROTATION: u8 = 2;
 pub(super) const SCALE: u8 = 4;
 pub(super) const ROTATION_FRAME: u8 = 8;
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct MotionSampling {
     frame_queries: Option<Arc<[u32]>>,
     uses_swell: bool,
@@ -21,6 +24,7 @@ pub(crate) struct MotionSampling {
     properties: bool,
     selection_effects: bool,
     rig_scale: bool,
+    masks: Box<[ClipMasks]>,
 }
 
 /// Resamples every channel of `bones` from both endpoints.
@@ -183,7 +187,7 @@ impl MotionSampling {
         let rig_scale = assets.rig_bindings()[rig]
             .scale_expressions
             .is_some_and(|scales| scales.iter().any(|scale| expressions.contains(scale)));
-        Arc::new(Self {
+        let mut sampling = Self {
             frame_queries,
             uses_swell,
             uses_rotation,
@@ -196,7 +200,10 @@ impl MotionSampling {
             weighted_symbols: freeze(weighted_symbols),
             timed_symbols: freeze(timed_symbols),
             rig_scale,
-        })
+            masks: Box::new([]),
+        };
+        sampling.masks = sampling.bind_masks(assets, rig, geometry, controllers, extra_clips);
+        Arc::new(sampling)
     }
 
     /// Retained object and exact sorted-set payload, excluding the caller's Arc header.
@@ -215,10 +222,16 @@ impl MotionSampling {
             properties: _,
             selection_effects: _,
             rig_scale: _,
+            masks,
         } = self;
+        let bytes = masks
+            .iter()
+            .try_fold(std::mem::size_of::<Self>(), |bytes, masks| {
+                bytes.checked_add(masks.retained_bytes()?)
+            })?;
         [expressions, weighted_symbols, timed_symbols, queries]
             .into_iter()
-            .try_fold(std::mem::size_of::<Self>(), |bytes, values| {
+            .try_fold(bytes, |bytes, values| {
                 bytes.checked_add(values.len().checked_mul(std::mem::size_of::<u32>())?)
             })
             .and_then(|bytes| {
@@ -231,6 +244,15 @@ impl MotionSampling {
                 };
                 bytes.checked_add(extra)
             })
+    }
+
+    /// Retains dependency analysis but restores the previous mask path for differential tests.
+    #[cfg(test)]
+    pub(crate) fn reference_masks(&self) -> Arc<Self> {
+        Arc::new(Self {
+            masks: Box::new([]),
+            ..self.clone()
+        })
     }
 
     /// Returns live-query dependencies analyzed with this exact rig and clip topology.
@@ -311,7 +333,8 @@ impl MotionSampling {
             .is_some_and(|clip| self.timed_symbols.binary_search(&clip.symbol).is_ok())
     }
 
-    pub(crate) fn mask(
+    /// Builds an uncached union for constructor analysis and unbound dynamic clips.
+    fn mask_unbound(
         &self,
         assets: &RuntimeEntityAssets,
         names: &[Box<str>],
