@@ -9,6 +9,8 @@ mod edit_selection;
 #[cfg(feature = "test-support")]
 mod form_overlap;
 mod panorama;
+#[cfg(feature = "test-support")]
+mod settings_draft;
 
 use std::{
     collections::HashMap,
@@ -80,6 +82,10 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
     if matches!(&fixture, Fixture::FormOverlap) {
         return form_overlap::png(state, dir);
     }
+    #[cfg(feature = "test-support")]
+    if matches!(&fixture, Fixture::SettingsDraft) {
+        return settings_draft::png(state, dir);
+    }
     let menu = matches!(&fixture, Fixture::Menu(_) | Fixture::Loading(_));
     let show_panorama = match &fixture {
         Fixture::Menu(view) => view.out_of_game(),
@@ -89,6 +95,7 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
         Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
         | Fixture::FormOverlap
+        | Fixture::SettingsDraft
         | Fixture::CosmeticParticles { .. } => false,
     };
     let mut carriers = carriers::load(dir, menu)?;
@@ -125,7 +132,7 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
     };
     match fixture {
         #[cfg(feature = "test-support")]
-        Fixture::CosmeticParticles { .. } | Fixture::FormOverlap => {
+        Fixture::CosmeticParticles { .. } | Fixture::FormOverlap | Fixture::SettingsDraft => {
             unreachable!("specialized capture returned above")
         }
         #[cfg(feature = "test-support")]
