@@ -26,7 +26,7 @@ struct ExpandParams {
 @group(1) @binding(2) var<storage, read> atlas_remap: array<vec2<u32>>;
 @group(1) @binding(3) var<uniform> params: ExpandParams;
 
-const EXPAND_WORKGROUP_SIZE: u32 = 64u;
+const EXPAND_WORKGROUP_SIZE: u32 = GENERATED_EXPAND_WORKGROUP_SIZE;
 const NO_ANIMATION: u32 = 0xffffffffu;
 const LAYOUT_ABSENT: u32 = 0xffu;
 /// Packed positions: steps per block, and blocks below the section origin of step zero

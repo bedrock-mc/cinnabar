@@ -16,7 +16,8 @@ use bevy::render::render_resource::{
 };
 use bevy::render::renderer::{RenderAdapter, RenderContext, RenderDevice, RenderQueue};
 use bevy::render::view::{ExtractedView, RenderVisibleEntities};
-use render_scene::{ChunkTextureAssets, RuntimeStage, RuntimeStageProfiler};
+use meshing::ChunkBiomeTintIdentity;
+use render_scene::{ChunkRenderInstance, ChunkTextureAssets, RuntimeStage, RuntimeStageProfiler};
 
 use super::block_ids::{ShaderpackBlockIds, material_attribute_words};
 use super::draw::{DrawInputs, ViewDraws, face_indices};
@@ -81,10 +82,32 @@ struct ExpansionInputs {
     materials: BufferId,
     model_templates: BufferId,
     biome_tints: BufferId,
+    biome_tint_table: ChunkBiomeTintIdentity,
     atlas_generation: u64,
     attribute_key: AttributeKey,
     separate_ao: bool,
     old_lighting: bool,
+}
+
+impl ExpansionInputs {
+    /// Refreshes changed inputs, retaining drawable faces during palette-only updates.
+    fn refresh_residency(
+        &self,
+        previous: Option<&Self>,
+        rebased: bool,
+        residency: &mut Residency,
+        entities: impl IntoIterator<Item = Entity>,
+    ) {
+        let previous = previous.cloned().map(|mut inputs| {
+            inputs.biome_tints = self.biome_tints;
+            inputs
+        });
+        if !rebased && previous.as_ref() == Some(self) {
+            residency.enqueue_all(entities);
+        } else {
+            residency.invalidate_contents(entities);
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -587,6 +610,7 @@ pub(crate) fn prepare_shaderpack_geometry(
         materials: buffers.materials.id(),
         model_templates: buffers.model_templates.id(),
         biome_tints: buffers.biome_tints.id(),
+        biome_tint_table: buffers.tint_identity,
         atlas_generation: atlas.generation,
         attribute_key,
         separate_ao: settings.separate_ao,
@@ -611,7 +635,12 @@ pub(crate) fn prepare_shaderpack_geometry(
             "shader-pack terrain re-expands every resident section"
         );
         let resident: Vec<_> = sections.entities().collect();
-        geometry.residency.invalidate_contents(resident);
+        expansion_inputs.refresh_residency(
+            geometry.inputs.as_ref(),
+            reexpand_rebased,
+            &mut geometry.residency,
+            resident,
+        );
         geometry.inputs = Some(expansion_inputs);
     }
     let mut expanded = 0;
@@ -639,9 +668,9 @@ pub(crate) fn prepare_shaderpack_geometry(
         geometry
             .residency
             .pending()
-            // Sections moving off a draining page still draw their old faces.
-            .filter(|entity| !geometry.residency.moving(*entity))
-            .filter_map(|entity| sections.get(entity))
+            // Palette refreshes and page moves keep their existing drawable faces.
+            .filter(|entity| !geometry.residency.drawable(*entity))
+            .filter_map(|entity| sections.get(entity, buffers.tint_identity))
             .map(|section| section_distance(section.origin, eye))
             .min_by(f64::total_cmp)
             .map(|nearest| (nearest.sqrt() - SECTION_RADIUS).max(0.0) as f32)
@@ -707,7 +736,7 @@ fn plan_frame(
         .take_queue()
         .into_iter()
         .filter_map(|entity| {
-            let section = sections.get(entity)?;
+            let section = sections.get(entity, buffers.tint_identity)?;
             Some((
                 eye.map_or(0.0, |eye| section_distance(section.origin, eye)),
                 entity,
@@ -725,7 +754,7 @@ fn plan_frame(
                 .for_each(|(_, rest)| geometry.residency.enqueue(rest));
             break;
         }
-        let Some(section) = sections.get(entity) else {
+        let Some(section) = sections.get(entity, buffers.tint_identity) else {
             continue;
         };
         let mut plan: SectionPlan = plan_section(&section.geometry, &tables);
