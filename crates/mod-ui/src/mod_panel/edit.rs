@@ -43,10 +43,13 @@ impl ModUi {
     /// Routes keyboard input exclusively to an open personal-panel editor.
     pub fn mod_panel_key(&mut self, key: &str, text: Option<&str>) -> Vec<Event> {
         if let Some(editor) = self.mod_hud_editor.as_mut().filter(|e| e.open) {
-            let close_autosave = editor.autosave && key == "Escape";
-            editor.key(key);
+            let close_autosave =
+                editor.autosave && matches!(key, "Escape" | "Enter" | "NumpadEnter");
             if close_autosave {
+                editor.close_requested = key != "Escape";
                 self.set_mod_panel_open(false);
+            } else {
+                editor.key(key);
             }
             return Vec::new();
         }

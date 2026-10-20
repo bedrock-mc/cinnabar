@@ -3,6 +3,9 @@ use bevy::input::keyboard::Key;
 use client_ui::test_support::mini_engine_presentation;
 use mod_ui::PanelUiOwner;
 
+mod closing_result;
+mod native_fields;
+
 fn fixture() -> String {
     fixture_with_capture(false)
 }
@@ -845,125 +848,79 @@ fn autosave_editor_escape_closes_entire_panel_without_reopening_it() {
     );
 }
 
-/// Platform composition stays inline until commit and unidentified keyboard text is discarded.
+/// Closing chrome keeps its original live-session fence until the animation completes.
 #[test]
-fn native_text_platform_ime_commits_without_unidentified_leaks() {
-    let component = fixture_with_panel(
-        r#"{"title":"Search","toggle_key":"F10","dark":true,"controls":[{"kind":"text","id":"name","label":"Search","value":"Main","live":true,"navigation_keys":true}]}"#,
-    );
-    let (mut app, window) = personal_panel_app_with_fixture(false, &component);
-    app.add_message::<Ime>();
-    open_rendered_field(&mut app);
-    app.update();
-    assert!(
-        app.world()
-            .entity(window)
-            .get::<Window>()
-            .unwrap()
-            .ime_enabled
-    );
-    app.world_mut().write_message(Ime::Preedit {
-        window,
-        value: "日本".into(),
-        cursor: Some((3, 3)),
-    });
-    app.world_mut().write_message(KeyboardInput {
-        key_code: KeyCode::Unidentified(bevy::input::keyboard::NativeKeyCode::Unidentified),
-        logical_key: Key::Character("leak".into()),
-        state: ButtonState::Pressed,
-        text: Some("leak".into()),
-        repeat: false,
-        window,
-    });
-    app.update();
-    assert!(
-        matches!(&app.world().resource::<ModRuntime>().hosts.host(0).panel().unwrap().controls[0], ui::mod_panel::Control::Text { value, .. } if value == "Main")
-    );
-    app.world_mut().write_message(Ime::Commit {
-        window,
-        value: "日本".into(),
-    });
-    app.update();
-    assert!(
-        matches!(&app.world().resource::<ModRuntime>().hosts.host(0).panel().unwrap().controls[0], ui::mod_panel::Control::Text { value, .. } if value == "日本")
-    );
-    app.world_mut()
-        .entity_mut(window)
-        .get_mut::<Window>()
-        .unwrap()
-        .focused = false;
-    app.update();
-    assert!(
-        !app.world()
-            .entity(window)
-            .get::<Window>()
-            .unwrap()
-            .ime_enabled
-    );
-}
-
-/// A submit followed by more typing in the same physical frame retains the newest live value.
-#[test]
-fn native_text_submit_then_typing_keeps_latest_value() {
-    let component = fixture_with_panel(
-        r#"{"title":"Search","toggle_key":"F10","dark":true,"controls":[{"kind":"text","id":"name","label":"Search","value":"Main","live":true,"navigation_keys":true}]}"#,
-    );
-    let (mut app, window) = personal_panel_app_with_fixture(false, &component);
-    open_rendered_field(&mut app);
-    for (key_code, text) in [
-        (KeyCode::KeyA, Some("a")),
-        (KeyCode::Enter, None),
-        (KeyCode::KeyB, Some("b")),
-    ] {
+fn hud_editor_closing_surface_is_revoked_on_focus_or_session_loss() {
+    for focus_loss in [false, true] {
+        let (mut app, window) = hud_editor_app();
+        let preview: ui::mod_hud::Hud = serde_json::from_value(serde_json::json!({
+            "autosave":true,"cards":[],
+            "surface":{
+                "screen":"fixture.root",
+                "document":serde_json::json!({"namespace":"fixture","root":{
+                    "type":"screen","size":["100%","100%"],"controls":[]
+                }}).to_string(),
+                "bindings":{"#alpha":1},
+                "transitions":{"#alpha":{"duration":0.2,"exit":0}}
+            }
+        }))
+        .unwrap();
+        {
+            let mut p = app.world_mut().resource_mut::<UiPresentationResource>();
+            p.mod_ui_mut().open_mod_hud_editor(&preview).unwrap();
+            render(
+                &mut p,
+                &client_state::PlayerRuntime(player_state::PlayerState::new(1)),
+                &UiRuntime::new(1),
+            );
+        }
         app.world_mut().write_message(KeyboardInput {
-            key_code,
-            logical_key: Key::Unidentified(bevy::input::keyboard::NativeKey::Unidentified),
+            key_code: KeyCode::ShiftRight,
+            logical_key: Key::Shift,
             state: ButtonState::Pressed,
-            text: text.map(Into::into),
+            text: None,
             repeat: false,
             window,
         });
+        app.update();
+        {
+            let p = app.world().resource::<UiPresentationResource>();
+            assert!(!p.mod_ui().mod_hud_editor_open() && !p.mod_ui().mod_panel_open());
+            assert!(p.mod_ui().mod_hud_editor_painting());
+            assert!(
+                app.world()
+                    .resource::<ModRuntime>()
+                    .hud_editor_owner
+                    .is_some()
+            );
+        }
+        app.update();
+        assert!(
+            app.world()
+                .resource::<UiPresentationResource>()
+                .mod_ui()
+                .mod_hud_editor_painting(),
+            "an ordinary closed-panel frame must continue the exit"
+        );
+        if focus_loss {
+            app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
+        } else {
+            app.world_mut()
+                .resource_mut::<UiRuntimeResource>()
+                .begin_session(2);
+        }
+        app.update();
+        assert!(
+            !app.world()
+                .resource::<UiPresentationResource>()
+                .mod_ui()
+                .mod_hud_editor_painting()
+        );
+        assert!(
+            app.world()
+                .resource::<ModRuntime>()
+                .hud_editor_owner
+                .is_none()
+        );
     }
-    app.update();
-    assert!(
-        matches!(&app.world().resource::<ModRuntime>().hosts.host(0).panel().unwrap().controls[0], ui::mod_panel::Control::Text { value, .. } if value == "ab")
-    );
-}
-
-/// Ordered window events keep the keystroke after a composition commit in the same update.
-#[test]
-fn native_text_orders_ime_and_keyboard_in_one_update() {
-    let component = fixture_with_panel(
-        r#"{"title":"Search","toggle_key":"F10","dark":true,"controls":[{"kind":"text","id":"name","label":"Search","value":"Main","live":true}]}"#,
-    );
-    let (mut app, window) = personal_panel_app_with_fixture(false, &component);
-    app.add_message::<WindowEvent>();
-    open_rendered_field(&mut app);
-    app.world_mut()
-        .write_message(WindowEvent::Ime(Ime::Preedit {
-            window,
-            value: "ka".into(),
-            cursor: Some((2, 2)),
-        }));
-    app.update();
-    let key = |key_code, text: &str| {
-        WindowEvent::KeyboardInput(KeyboardInput {
-            key_code,
-            logical_key: Key::Character(text.into()),
-            state: ButtonState::Pressed,
-            text: Some(text.into()),
-            repeat: false,
-            window,
-        })
-    };
-    app.world_mut().write_message(key(KeyCode::KeyQ, "discard"));
-    app.world_mut().write_message(WindowEvent::Ime(Ime::Commit {
-        window,
-        value: "か".into(),
-    }));
-    app.world_mut().write_message(key(KeyCode::KeyA, "a"));
-    app.update();
-    assert!(
-        matches!(&app.world().resource::<ModRuntime>().hosts.host(0).panel().unwrap().controls[0], ui::mod_panel::Control::Text { value, .. } if value == "かa")
-    );
 }

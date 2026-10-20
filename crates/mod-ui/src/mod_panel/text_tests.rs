@@ -429,6 +429,10 @@ fn native_field_blink_reuses_shaping_and_catalog() {
         .open_editor(0, [40., 40., 180., 26.]);
     ui.mod_panel_key("End", None);
     let first = paint_field(&mut ui, &engine, &font, &mut layouts, 1.);
+    assert!(
+        ui.mod_panel_motion_active(),
+        "focused fields keep caret frames active"
+    );
     let catalog = Arc::clone(ui.mod_panel.as_ref().unwrap().catalog.as_ref().unwrap());
     let passes = ui.mod_panel.as_ref().unwrap().screen.passes;
     let shaped = layouts.built_layout_count();
