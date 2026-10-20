@@ -1,0 +1,45 @@
+{
+  "id": "6:1", "name": "Convention Test", "type": "FRAME", "width": 200, "height": 120,
+  "children": [
+    { "id": "6:2", "name": "Title $binding=#title", "type": "TEXT", "x": 0, "y": 0, "width": 200, "height": 10,
+      "constraints": { "horizontal": "STRETCH", "vertical": "MIN" },
+      "fills": [{ "type": "SOLID", "color": [1, 1, 1] }],
+      "text": { "characters": "Welcome", "font_family": "Minecraft", "align_h": "CENTER", "auto_resize": "HEIGHT" } },
+    { "id": "6:3", "name": "Play @button=play", "type": "FRAME", "x": 10, "y": 20, "width": 80, "height": 20,
+      "fills": [{ "type": "SOLID", "color": [0.3, 0.3, 0.3] }],
+      "children": [
+        { "id": "6:4", "name": "Label", "type": "TEXT", "x": 0, "y": 6, "width": 80, "height": 8,
+          "fills": [{ "type": "SOLID", "color": [1, 1, 1] }],
+          "text": { "characters": "Play", "font_family": "Minecraft", "align_h": "CENTER", "auto_resize": "HEIGHT" } }
+      ] },
+    { "id": "6:5", "name": "Quit @button", "type": "FRAME", "x": 110, "y": 20, "width": 80, "height": 20,
+      "children": [
+        { "id": "6:6", "name": "Default", "type": "RECTANGLE", "x": 0, "y": 0, "width": 80, "height": 20,
+          "fills": [{ "type": "SOLID", "color": [0.5, 0, 0] }] },
+        { "id": "6:7", "name": "Hover", "type": "RECTANGLE", "visible": false, "x": 0, "y": 0, "width": 80, "height": 20,
+          "fills": [{ "type": "SOLID", "color": [0.8, 0, 0] }] }
+      ] },
+    { "id": "6:8", "name": "Badge $visible=#has_badge", "type": "RECTANGLE", "x": 0, "y": 110, "width": 10, "height": 10,
+      "fills": [{ "type": "SOLID", "color": [1, 1, 0] }] },
+    { "id": "6:9", "name": "Servers @factory=servers", "type": "FRAME", "x": 100, "y": 50, "width": 100, "height": 60,
+      "layout": { "mode": "VERTICAL" },
+      "children": [
+        { "id": "6:10", "name": "Server Row", "type": "FRAME", "x": 0, "y": 0, "width": 100, "height": 20,
+          "children": [
+            { "id": "6:11", "name": "Name $binding=#server_name", "type": "TEXT", "x": 2, "y": 6, "width": 60, "height": 8,
+              "fills": [{ "type": "SOLID", "color": [1, 1, 1] }],
+              "text": { "characters": "Lobby", "font_family": "Minecraft" } }
+          ] },
+        { "id": "6:12", "name": "Server Row", "type": "FRAME", "x": 0, "y": 20, "width": 100, "height": 20,
+          "children": [
+            { "id": "6:13", "name": "Name $binding=#server_name", "type": "TEXT", "x": 2, "y": 6, "width": 60, "height": 8,
+              "text": { "characters": "Survival", "font_family": "Minecraft" } }
+          ] },
+        { "id": "6:14", "name": "Server Row", "type": "FRAME", "x": 0, "y": 40, "width": 100, "height": 20,
+          "children": [
+            { "id": "6:15", "name": "Name $binding=#server_name", "type": "TEXT", "x": 2, "y": 6, "width": 60, "height": 8,
+              "text": { "characters": "Creative", "font_family": "Minecraft" } }
+          ] }
+      ] }
+  ]
+}
