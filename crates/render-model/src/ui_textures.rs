@@ -96,6 +96,7 @@ pub struct UiTexturePage {
     pixels: Pixels,
     /// Every texel is zero, as in an unused reserved slot.
     blank: bool,
+    repeat_content: Option<[u32; 4]>,
 }
 
 impl UiTexturePage {
@@ -114,6 +115,7 @@ impl UiTexturePage {
             format: UiTextureFormat::Coverage,
             blank: pixels.iter().all(|&byte| byte == 0),
             pixels: Pixels::Owned(pixels),
+            repeat_content: None,
         })
     }
     pub fn owned(dimensions: [u32; 2], pixels: Arc<[u8]>) -> Result<Self, UiRenderRejectReason> {
@@ -130,6 +132,7 @@ impl UiTexturePage {
             format: UiTextureFormat::Rgba8,
             blank: pixels.iter().all(|&byte| byte == 0),
             pixels: Pixels::Owned(pixels),
+            repeat_content: None,
         })
     }
 
@@ -162,7 +165,32 @@ impl UiTexturePage {
             format,
             pixels: Pixels::Font { catalog, page },
             blank: false,
+            repeat_content: None,
         })
+    }
+
+    /// Records the non-overlapping content of an original-image page, excluding its filter halo.
+    pub fn with_repeat_content(mut self, bounds: [u32; 4]) -> Result<Self, UiRenderRejectReason> {
+        if bounds[0] >= bounds[2]
+            || bounds[1] >= bounds[3]
+            || bounds[2] > self.dimensions[0]
+            || bounds[3] > self.dimensions[1]
+        {
+            return Err(UiRenderRejectReason::InvalidTextureExtent);
+        }
+        let mut identity = Sha256::new();
+        identity.update(self.identity);
+        for value in bounds {
+            identity.update(value.to_le_bytes());
+        }
+        self.identity = identity.finalize().into();
+        self.repeat_content = Some(bounds);
+        Ok(self)
+    }
+
+    /// The source texels this page owns, separate from overlapping linear-filter neighbors.
+    pub fn repeat_content(&self) -> Option<[u32; 4]> {
+        self.repeat_content
     }
 
     /// Font pages reserve a bounded demand atlas; source texels remain in catalog coordinates.
@@ -623,6 +651,18 @@ mod budget_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repeated_page_ownership_is_validated_and_changes_content_identity() {
+        let page = UiTexturePage::owned([2, 2], Arc::from([255; 16])).unwrap();
+        let left = page.clone().with_repeat_content([0, 0, 1, 2]).unwrap();
+        let right = page.clone().with_repeat_content([1, 0, 2, 2]).unwrap();
+        assert_ne!(left.identity(), right.identity());
+        assert_eq!(left.repeat_content(), Some([0, 0, 1, 2]));
+        for bounds in [[0, 0, 3, 2], [2, 0, 1, 2], [0, 1, 2, 1]] {
+            assert!(page.clone().with_repeat_content(bounds).is_err());
+        }
+    }
 
     /// Dense icon coverage fits the old local-font byte budget; RGBA cannot use the larger extent.
     #[test]

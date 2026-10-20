@@ -361,6 +361,41 @@ fn fades_text_and_meshes_without_changing_source_artwork() {
 }
 
 #[test]
+fn fades_repeated_fragments_without_changing_source_coordinates_or_styles() {
+    let source = [
+        solid(1, None, [0.0, 0.0, 10.0, 10.0]).with_visual(UiVisual::RepeatedSprite {
+            texture_page: 3,
+            tile_uv: [0.25, 0.5, 20.25, 30.5],
+            source: [2.0, 3.0, 4.0, 5.0],
+            color: [80, 160, 240, 200],
+            style: render_api::ui_repeat::UI_STYLE_REPEAT
+                | render_api::ui_repeat::UI_STYLE_REPEAT_PAGE,
+        }),
+    ];
+    let before = draw(&source);
+    let (nodes, _) = replay(
+        &source,
+        [10.0; 2],
+        [0.0, 0.0, 10.0, 10.0],
+        [0.0, 0.0, 10.0, 10.0],
+        0.5,
+        10,
+        0,
+    )
+    .unwrap();
+    let after = draw(&nodes);
+    assert_eq!(after.vertices.len(), before.vertices.len());
+    assert_eq!(after.batches[0].texture_page, 3);
+    for (before, after) in before.vertices.iter().zip(&after.vertices) {
+        assert_eq!(after.uv, before.uv);
+        assert_eq!(after.overlay_color, before.overlay_color);
+        assert_eq!(after.style_flags, before.style_flags);
+        assert_eq!(after.color, [80, 160, 240, 100]);
+    }
+    assert!(draw(&source).vertices.iter().all(|v| v.color[3] == 200));
+}
+
+#[test]
 fn rejects_filter_fragments_as_a_whole_and_bounds_replay() {
     let ordinary = solid(1, None, [0.0, 0.0, 10.0, 10.0]);
     let filtered = solid(2, None, [0.0, 0.0, 10.0, 10.0]).with_filter_group(7);
