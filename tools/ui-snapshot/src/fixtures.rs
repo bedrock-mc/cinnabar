@@ -25,6 +25,10 @@ pub struct State {
 
 /// Inputs borrowed by the same screen painters the client uses.
 pub enum Fixture {
+    /// An original checker repeated beyond a small sprite's former draw cutoff.
+    TiledImage {
+        scale: f64,
+    },
     /// A server form whose editable controls are locked during a session.
     #[cfg(feature = "test-support")]
     ControlLocked,
@@ -74,6 +78,18 @@ const TALL_SIZE: [u32; 2] = [1280, 900];
 const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 
 pub const STATES: &[State] = &[
+    State {
+        name: "jsonui-tiled-image",
+        size: [256, 128],
+        gui_scale: 1,
+        fixture: || Fixture::TiledImage { scale: 1.0 },
+    },
+    State {
+        name: "jsonui-tiled-image-extreme",
+        size: [256, 128],
+        gui_scale: 1,
+        fixture: || Fixture::TiledImage { scale: 0.001 },
+    },
     #[cfg(feature = "test-support")]
     State {
         name: "settings-draft-return",
