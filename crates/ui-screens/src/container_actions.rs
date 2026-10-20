@@ -34,6 +34,14 @@ impl InventoryCellHit {
 /// A clickable control that is not an item cell.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Widget {
+    TradeOffer {
+        tier: usize,
+        row: usize,
+    },
+    TradeCycle {
+        next: bool,
+    },
+    Trade,
     EnchantOption(u8),
     BeaconEffect {
         id: i32,

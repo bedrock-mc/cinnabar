@@ -68,6 +68,7 @@ impl PlayerInventoryLedger {
             self.item_registry = Some(std::sync::Arc::new(next));
             self.item_facts = facts;
             self.refresh_fuel_facts();
+            self.refresh_trade_items();
             return;
         };
         let affected_cells = self.registry_affected_cells(previous, &next);
@@ -102,6 +103,7 @@ impl PlayerInventoryLedger {
         self.item_registry = Some(std::sync::Arc::new(next));
         self.item_facts = facts;
         self.refresh_fuel_facts();
+        self.refresh_trade_items();
         self.retire_rerouted_quick_moves();
         self.refold();
     }

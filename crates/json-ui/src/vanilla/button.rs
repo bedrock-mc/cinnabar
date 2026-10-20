@@ -83,5 +83,8 @@ names! {
         ToProfileScreen = "button.to_profile_screen",
         ToastInteraction = "button.toast_interaction",
         TurnDoll = "button.turn_doll",
+        CycleRecipeLeft = "button.cycle_recipe_left",
+        CycleRecipeRight = "button.cycle_recipe_right",
+        Trade = "button.trade",
     }
 }

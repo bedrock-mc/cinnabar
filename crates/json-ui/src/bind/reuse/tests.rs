@@ -39,6 +39,156 @@ fn reader(control_name: &str, name: &str) -> ResolvedControl {
     )
 }
 
+/// Collects the rendered captions, excluding a grid's retained unbound template.
+fn captions(control: &ResolvedControl) -> Vec<String> {
+    if control
+        .properties
+        .get(crate::layout::GRID_TEMPLATE_KEY)
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        return Vec::new();
+    }
+    let own = (control.control_type.as_deref() == Some("label"))
+        .then(|| {
+            control
+                .properties
+                .get("text")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .flatten();
+    own.into_iter()
+        .chain(control.children.iter().flat_map(captions))
+        .collect()
+}
+
+#[test]
+fn scoped_controller_answers_follow_collection_instances_and_refresh() {
+    struct Labels(ResolvedControl);
+    impl crate::ControlLibrary for Labels {
+        /// Returns the original label template for each fixture row.
+        fn resolve(&self, _: &crate::ControlRef) -> Option<ResolvedControl> {
+            Some(self.0.clone())
+        }
+    }
+    let library = Labels(reader("caption", "#caption"));
+    let root = Arc::new(control(
+        "grid",
+        "grid",
+        json!({
+            "collection_name": "rows", "grid_dimensions": [1, 2], "grid_item_template": "fixture.caption"
+        }),
+        vec![],
+    ));
+    for incremental in [false, true] {
+        let mut state = BindState::new();
+        for labels in [["first", "second"], ["first", "changed"]] {
+            let mut data = DataSource::new();
+            data.set_global("#caption", Scalar::Text("fallback".into()));
+            data.set_collection(
+                "rows",
+                labels
+                    .into_iter()
+                    .map(|label| {
+                        crate::CollectionItem::default()
+                            .with_controller_value("#caption", Scalar::Text(label.into()))
+                    })
+                    .collect(),
+            );
+            let data = Arc::new(data);
+            let bound = if incremental {
+                crate::bind_incremental(&root, &data, &library, &mut state)
+            } else {
+                crate::bind_stateful(&root, &data, &library, &mut state).0
+            };
+            assert_eq!(captions(&bound), labels, "incremental={incremental}");
+        }
+    }
+}
+
+#[test]
+fn nested_collection_counts_read_the_enclosing_items_list() {
+    struct Templates {
+        group: ResolvedControl,
+        label: ResolvedControl,
+    }
+    impl crate::ControlLibrary for Templates {
+        /// Resolves the fixture's two nested collection templates.
+        fn resolve(&self, reference: &crate::ControlRef) -> Option<ResolvedControl> {
+            Some(if reference.name == "group" {
+                self.group.clone()
+            } else {
+                self.label.clone()
+            })
+        }
+    }
+    let mut group = control(
+        "entries",
+        "stack_panel",
+        json!({
+            "collection_name": "entries", "bindings": [{
+                "binding_type": "collection", "binding_collection_name": "entries",
+                "binding_name": "#count", "binding_name_override": "#collection_length"
+            }]
+        }),
+        vec![],
+    );
+    group.factory = Some(crate::Factory {
+        name: Some("rows".into()),
+        control_name: Some(crate::ControlRef::new("fixture", "label")),
+        ..Default::default()
+    });
+    let templates = Templates {
+        group,
+        label: reader("caption", "#caption"),
+    };
+    let root = Arc::new(control(
+        "groups",
+        "grid",
+        json!({
+            "collection_name": "groups", "grid_dimensions": [1, 2], "grid_item_template": "fixture.group"
+        }),
+        vec![],
+    ));
+    for incremental in [false, true] {
+        let mut state = BindState::new();
+        for lengths in [[1, 2], [2, 1]] {
+            let mut data = DataSource::new();
+            data.set_collection("groups", vec![crate::CollectionItem::default(); 2]);
+            for (group, count) in lengths.into_iter().enumerate() {
+                data.set_scoped_collection(
+                    "groups",
+                    group,
+                    "entries",
+                    (0..count)
+                        .map(|index| {
+                            crate::CollectionItem::default()
+                                .with("#count", Scalar::Int(count as i64))
+                                .with_controller_value(
+                                    "#caption",
+                                    Scalar::Text(format!("{group}:{index}")),
+                                )
+                        })
+                        .collect(),
+                );
+            }
+            let data = Arc::new(data);
+            let bound = if incremental {
+                crate::bind_incremental(&root, &data, &templates, &mut state)
+            } else {
+                crate::bind_stateful(&root, &data, &templates, &mut state).0
+            };
+            let expected: Vec<_> = lengths
+                .into_iter()
+                .enumerate()
+                .flat_map(|(group, count)| (0..count).map(move |index| format!("{group}:{index}")))
+                .collect();
+            assert_eq!(captions(&bound), expected, "incremental={incremental}");
+        }
+    }
+}
+
 #[test]
 fn creation_text_does_not_replace_a_view_bound_caption_on_refresh() {
     let root = Arc::new(control(

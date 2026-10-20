@@ -58,6 +58,8 @@ mod request_tests;
 mod response;
 mod revisions;
 mod screen_actions;
+mod trading;
+pub use trading::{ResolvedTrade, TradeState};
 #[cfg(test)]
 mod screens_tests;
 #[cfg(test)]
@@ -126,6 +128,7 @@ pub enum PlayerInventorySlot<'a> {
 /// Open generic-storage window metadata; its cells live in [`Cells`].
 #[derive(Debug, Clone)]
 struct StorageWindow {
+    trade: Option<TradeState>,
     window_id: i32,
     window_type: i8,
     kind: protocol::WindowKind,

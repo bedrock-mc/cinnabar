@@ -823,7 +823,10 @@ fn station_cell<'a>(
             match (ledger.created_output_stack(), frame.recipe_output) {
                 // The anvil's result is the client's prediction until the server states one.
                 (None, Some(output))
-                    if ledger.window_kind() == Some(protocol::WindowKind::Anvil) =>
+                    if matches!(
+                        ledger.window_kind(),
+                        Some(protocol::WindowKind::Anvil | protocol::WindowKind::Trade { .. })
+                    ) =>
                 {
                     (Some(&output.stack), output.icon, output.durability)
                 }

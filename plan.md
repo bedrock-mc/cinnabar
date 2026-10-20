@@ -299,6 +299,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Native block requirements now cover every catalog identifier, including no-tool
   beds; recipe tags share the pinned native catalog. Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
+  Trading screens admit server offers and support purchases with manually placed inputs.
+  Automatic ingredient filling, trader experience, restock and demand-price transitions,
+  and full item/container acceptance across trading layouts remain incomplete.
 - [ ] `P5.6-FORMS` — Close modal/menu/custom form navigation, validation, cancellation
   and responses, including server-pack definitions, structured text, custom controls,
   scaling and image/layout behavior against matched native views. Overlapping requests

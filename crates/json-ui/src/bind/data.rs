@@ -17,14 +17,23 @@ pub struct CollectionItem {
     pub values: BTreeMap<String, Scalar>,
     /// Collection answers that read a live global instead of copying its current value.
     pub(super) global_bindings: BTreeMap<String, String>,
+    /// Controller callbacks selected by this enclosing collection instance.
+    pub(super) controller_values: BTreeMap<String, Scalar>,
 }
 
 impl CollectionItem {
+    /// Supplies a global controller answer for controls inside this collection item.
+    pub fn with_controller_value(mut self, name: impl Into<String>, value: Scalar) -> Self {
+        self.controller_values.insert(name.into(), value);
+        self
+    }
+
     pub fn new(role: impl Into<String>) -> Self {
         Self {
             role: Some(role.into()),
             values: BTreeMap::new(),
             global_bindings: BTreeMap::new(),
+            controller_values: BTreeMap::new(),
         }
     }
 
