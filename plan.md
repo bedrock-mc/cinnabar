@@ -400,6 +400,12 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Diagnostics or bounded fixtures do not establish safe general gameplay use. Java
   shader-pack source loading is implemented in `shaderpack`; configuration parsing,
   translation, render-host integration and in-game acceptance remain incomplete.
+- `registryc --kind java-mapping` generates `crates/assets/data/java-mapping-v2193.bin` from
+  the GeyserMC data pinned in `assets/geyser-mappings-source.json`: Java block states, block
+  tags, biomes and their colours, entity types and items for every Bedrock id Geyser maps.
+  States Geyser never produces take the closest same-block state and are flagged approximate;
+  Bedrock-only biomes and blocks stay unmapped. Nothing reads the carrier yet; Java shader
+  packs' ids, biome uniforms and sky colours are its first consumers.
 - Runtime pack compatibility still includes custom texture inheritance/tints, authored
   geometry and block/item component behavior beyond the currently supported cases.
 

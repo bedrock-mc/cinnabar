@@ -459,6 +459,7 @@ dependencies = [
  "assets",
  "block-transform",
  "clap",
+ "flate2",
  "image",
  "pack-compile-input",
  "pack-compiler",
@@ -473,6 +474,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "world",
+ "zip",
 ]
 
 [[package]]

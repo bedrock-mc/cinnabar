@@ -21,6 +21,8 @@ reads = [
     "assets/cinnangles-sans-source.json",
     "assets/fonts/CinnanglesSans.ttf",
     "assets/hud-source-v2193.json",
+    "assets/licenses/GeyserMC-Geyser-MIT.txt",
+    "assets/licenses/GeyserMC-mappings-MIT.txt",
     "assets/licenses/Monocraft-OFL-1.1.txt",
     "assets/licenses/NotoSansCJK-OFL-1.1.txt",
     "assets/ui-font-source.json",
@@ -42,6 +44,7 @@ pack-compiler = { path = "../pack-compiler" }
 pack-entity-compiler = { path = "../pack-compiler/entity" }
 pack-font-compiler = { path = "../pack-compiler/font" }
 clap = { version = "4", features = ["derive"] }
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 same-file = "1"
 serde = { version = "1", features = ["derive"] }
@@ -49,6 +52,7 @@ serde_json = "1"
 sha2.workspace = true
 tempfile = "3"
 tokio.workspace = true
+zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [build-dependencies]
 sha2.workspace = true

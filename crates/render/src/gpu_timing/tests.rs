@@ -799,3 +799,78 @@ fn timing_starts_inside_the_render_app_under_pipelined_rendering() {
     render_app.world_mut().run_schedule(RenderStartup);
     assert!(render_app.world().contains_resource::<GpuTimestamps>());
 }
+
+/// Supplies deterministic mapped timestamps without running GPU commands.
+fn mapped_frame(
+    timestamps: &mut GpuTimestamps,
+    device: &RenderDevice,
+    first: u64,
+    last: u64,
+    coverage: bool,
+) {
+    let index = timestamps.frame.slot.load(Ordering::Acquire) as usize;
+    let slot = &mut timestamps.slots[index];
+    slot.buffer = device.wgpu_device().create_buffer(&wgpu::BufferDescriptor {
+        label: Some("synthetic timing readback"),
+        size: SLOT_BYTES,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: true,
+    });
+    {
+        let mut bytes = slot.buffer.slice(..).get_mapped_range_mut().unwrap();
+        bytes.slice(..8).copy_from_slice(&first.to_le_bytes());
+        bytes.slice(8..16).copy_from_slice(&last.to_le_bytes());
+    }
+    slot.passes = 1;
+    slot.stages[0] = RuntimeStage::GpuFrame;
+    slot.graph_coverage = coverage;
+    slot.state.store(MAPPED, Ordering::Release);
+    timestamps.ring.submit(index);
+}
+
+#[test]
+fn idle_pairing_preserves_recording_identity_and_coverage() {
+    let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
+    let mut timestamps = GpuTimestamps::new(&device, &queue, false).unwrap();
+    let period = timestamps.period_ns;
+    let mut frames = Vec::new();
+    timestamps.begin(42, |_, _, _| unreachable!("first frame has no readback"));
+    mapped_frame(&mut timestamps, &device, 100, 160, true);
+    timestamps.begin(99, |id, frame, whole| frames.push((id, *frame, whole)));
+    mapped_frame(&mut timestamps, &device, 200, 240, false);
+    timestamps.begin(99, |id, frame, whole| frames.push((id, *frame, whole)));
+    mapped_frame(&mut timestamps, &device, 300, 330, true);
+    timestamps.begin(100, |id, frame, whole| frames.push((id, *frame, whole)));
+    assert_eq!(
+        frames.iter().map(|(id, _, _)| *id).collect::<Vec<_>>(),
+        [42, 99, 99]
+    );
+    assert_eq!(
+        frames
+            .iter()
+            .map(|(_, _, whole)| *whole)
+            .collect::<Vec<_>>(),
+        [true, false, true]
+    );
+    assert_eq!(frames[0].1.get(RuntimeStage::GpuIdle), None);
+    assert_eq!(
+        frames[1].1.get(RuntimeStage::GpuIdle),
+        Some(ticks_to_duration(40, period))
+    );
+    assert_eq!(
+        frames[2].1.get(RuntimeStage::GpuIdle),
+        Some(ticks_to_duration(60, period))
+    );
+
+    // A render frame with no recorded spans breaks the idle-time pair.
+    finish_frame(&mut timestamps, &device, &queue);
+    timestamps.begin(101, |_, _, _| {
+        unreachable!("the preceding frame had no spans")
+    });
+    mapped_frame(&mut timestamps, &device, 400, 430, true);
+    timestamps.begin(102, |id, frame, whole| {
+        assert_eq!(id, 101);
+        assert!(whole);
+        assert_eq!(frame.get(RuntimeStage::GpuIdle), None);
+    });
+}
