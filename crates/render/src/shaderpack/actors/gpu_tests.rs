@@ -612,7 +612,7 @@ fn scalar_lit_block_entity_top_faces_keep_outward_normals() {
     receive.recv().unwrap().unwrap();
     let bytes = readback.slice(..).get_mapped_range().unwrap();
     let words: &[u32] = bytemuck::cast_slice(&bytes);
-    for vertex in words.chunks_exact(ACTOR_VERTEX_WORDS as usize) {
+    for vertex in words.as_chunks::<{ ACTOR_VERTEX_WORDS as usize }>().0 {
         assert_eq!(vertex[NORMAL.word as usize].to_le_bytes(), [0, 127, 0, 0]);
     }
 }
