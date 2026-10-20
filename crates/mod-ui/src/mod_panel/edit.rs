@@ -117,10 +117,14 @@ impl ModUi {
             }) = &mut panel.edit
             && let Control::Text { max_chars, .. } = panel.panel.controls[*control]
         {
+            let was_invalid = *invalid;
             state.clear_composition();
             if state.insert(text, max_chars, false) {
                 *invalid = false;
                 panel.live_change();
+                if was_invalid {
+                    panel.refresh_editor();
+                }
             }
         }
     }
@@ -466,6 +470,10 @@ impl ModPanel {
         };
         if ui::mod_panel::validate_text_value(&state.text, *min_chars, *max_chars).is_ok() {
             value.clone_from(&state.text);
+            Arc::make_mut(&mut self.data).set_global(
+                format!("#row_{control}_value"),
+                json_ui::Scalar::Text(state.text.clone()),
+            );
         }
         self.field_events.retain(|existing| !matches!(existing, ui::mod_panel::FieldEvent::Change(old) if old.id == event.id));
         if self.field_events.len() < ui::mod_panel::MAX_PANEL_EVENTS {

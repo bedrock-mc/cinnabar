@@ -410,6 +410,7 @@ fn native_field_blink_reuses_shaping_and_catalog() {
     let catalog = Arc::clone(ui.mod_panel.as_ref().unwrap().catalog.as_ref().unwrap());
     let passes = ui.mod_panel.as_ref().unwrap().screen.passes;
     let shaped = layouts.built_layout_count();
+    let rectangles = field_state(&ui).feedback_updates;
     let layout = Arc::clone(field_state(&ui).layout.as_ref().unwrap());
     let second = paint_field(&mut ui, &engine, &font, &mut layouts, 1.6);
     assert_eq!(
@@ -418,6 +419,11 @@ fn native_field_blink_reuses_shaping_and_catalog() {
         "blink removes only the caret rectangle"
     );
     assert_eq!(layouts.built_layout_count(), shaped);
+    assert_eq!(
+        field_state(&ui).feedback_updates,
+        rectangles,
+        "blink reuses feedback rectangles"
+    );
     assert_eq!(ui.mod_panel.as_ref().unwrap().screen.passes, passes);
     assert!(Arc::ptr_eq(
         &catalog,
@@ -479,4 +485,23 @@ impl ui_engine::sources::RemoteSource for NoImages {
     fn state(&self, _: &str) -> ui_engine::sources::RemoteImage {
         ui_engine::sources::RemoteImage::Failed
     }
+}
+
+/// Dismissing a live draft must leave the saved row and any collection binding on its new value.
+#[test]
+fn native_live_field_dismissal_keeps_published_value() {
+    let mut ui = live_field("Main", false);
+    ui.mod_panel_key("TextInput", Some("Latest"));
+    ui.mod_panel_key("Escape", None);
+    let panel = ui.mod_panel.as_ref().unwrap().panel.clone();
+    ui.set_mod_panel(PanelUiOwner::Environment(0), Some(&panel))
+        .unwrap();
+    assert_eq!(
+        ui.mod_panel
+            .as_ref()
+            .unwrap()
+            .data
+            .global_value("#row_0_value"),
+        Some(&json_ui::Scalar::Text("Latest".into()))
+    );
 }

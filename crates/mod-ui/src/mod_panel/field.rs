@@ -16,6 +16,9 @@ pub(super) struct Field {
     pub ime_position: [f32; 2],
     pub left: f32,
     pub dragging: bool,
+    pub feedback: Option<super::field_paint::Geometry>,
+    #[cfg(test)]
+    pub feedback_updates: usize,
 }
 
 impl Field {
@@ -35,6 +38,9 @@ impl Field {
             ime_position: [0.; 2],
             left: 0.,
             dragging: false,
+            feedback: None,
+            #[cfg(test)]
+            feedback_updates: 0,
         }
     }
 
@@ -57,6 +63,7 @@ impl Field {
     /// Publishes a display only on text/preedit changes; caret motion keeps its shaped layout.
     fn refresh_display(&mut self) {
         self.blink_start = None;
+        self.feedback = None;
         let selection = self.selection();
         let same = if self.composition.is_empty() {
             self.display == self.text
@@ -80,6 +87,7 @@ impl Field {
         }
         self.layout = None;
         self.blink_start = None;
+        self.feedback = None;
     }
 
     /// Replaces selection after checking the complete resulting character count.
@@ -127,6 +135,7 @@ impl Field {
                 self.anchor = 0;
                 self.cursor = self.text.len();
                 self.blink_start = None;
+                self.feedback = None;
                 return false;
             }
             "Home" => Some(0),
@@ -153,6 +162,7 @@ impl Field {
                 self.anchor = target;
             }
             self.blink_start = None;
+            self.feedback = None;
             return false;
         }
         if !matches!(key, "Backspace" | "Delete") {
@@ -206,6 +216,7 @@ impl Field {
             self.anchor = self.cursor;
         }
         self.blink_start = None;
+        self.feedback = None;
     }
 
     /// Maps a displayed IME caret to the same byte stops used for the painted text.
