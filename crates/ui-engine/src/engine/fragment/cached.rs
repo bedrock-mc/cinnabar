@@ -70,7 +70,11 @@ impl Canvas<'_> {
             cache.source = Some(Arc::clone(source));
             cache.placement = Some(placement);
         }
-        let count = self.nodes.len().saturating_add(cache.nodes.len());
+        let count = self
+            .nodes
+            .len()
+            .saturating_add(cache.nodes.len())
+            .saturating_add(usize::from(!cache.nodes.is_empty()));
         if count > ui::UiLimits::MAX_NODES {
             return Err(PaintError::Tree(ui::UiError::NodeLimitExceeded {
                 actual: count,
@@ -79,7 +83,7 @@ impl Canvas<'_> {
         }
         let after = self
             .next
-            .checked_add(cache.nodes.len() as u32)
+            .checked_add((cache.nodes.len() + usize::from(!cache.nodes.is_empty())) as u32)
             .ok_or(PaintError::Tree(ui::UiError::DrawIndexOverflow))?;
         for node in &cache.nodes {
             self.nodes.push(node.clone().with_identity(
@@ -87,7 +91,11 @@ impl Canvas<'_> {
                 node.parent().map(|id| UiNodeId::new(*self.next + id.get())),
             ));
         }
-        *self.next = after;
+        *self.next = after - u32::from(!cache.nodes.is_empty());
+        if !cache.nodes.is_empty() {
+            self.clip = None;
+            self.group(outer)?;
+        }
         Ok(())
     }
 }

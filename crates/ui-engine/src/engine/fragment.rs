@@ -87,13 +87,21 @@ impl Canvas<'_> {
             source_clip,
             opacity,
             *self.next,
-            self.nodes.len(),
+            self.nodes.len().saturating_add(1),
         )?;
         if let Some(transform) = self.residual {
             move_clips(&mut painted, transform, clip)?;
         }
+        let appended = !painted.is_empty();
+        if appended && next == u32::MAX {
+            return Err(PaintError::Tree(UiError::DrawIndexOverflow));
+        }
         self.nodes.extend(painted);
         *self.next = next;
+        if appended {
+            self.clip = None;
+            self.group(clip)?;
+        }
         Ok(())
     }
 }

@@ -355,8 +355,12 @@ impl ui_engine::engine::screen::CustomRenderer for Gameplay<'_> {
         } else {
             (&mut *self.widgets, index)
         };
-        let origin = template::origin(&source.content.cards[index], self.viewport)
-            .map(|axis| axis as f32 * canvas.px());
+        let origin = template::origin(&source.content.cards[index], self.viewport);
+        let origin = ui_engine::engine::pixel_snap::positioned(
+            [origin[0], origin[1], 0., 0.],
+            canvas.metrics().gui_scale,
+            canvas.px(),
+        );
         let entry = &mut source.cards[index];
         if !entry.textures.matches(canvas.textures()) {
             return Ok(true);

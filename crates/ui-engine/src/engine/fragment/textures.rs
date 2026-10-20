@@ -7,7 +7,24 @@ use crate::{
 use json_ui::DrawNode;
 use std::sync::Arc;
 
-type Sample = Option<(u16, [f32; 4])>;
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Sample {
+    sprite: Option<(u16, [f32; 4])>,
+    native: Option<Option<usize>>,
+}
+
+/// Tracks both ordinary atlas locations and completion or relocation of original image tiles.
+fn sample(textures: &Textures<'_>, path: &str) -> Sample {
+    let native = textures.native_sheet(path).then(|| {
+        textures
+            .native_quads(path, json_ui::UvRect::full(), [0., 0., 1., 1.])
+            .and_then(|mut quads| quads.next().map(|quad| quad.page))
+    });
+    Sample {
+        sprite: textures.sprite(path),
+        native,
+    }
+}
 
 /// Keeps dependency keys and texture placements without rebuilding a path set every frame.
 #[derive(Default)]
@@ -30,7 +47,7 @@ impl CachedFragmentTextures {
         self.paths
             .iter()
             .zip(&self.samples)
-            .all(|(path, sample)| textures.sprite(path) == *sample)
+            .all(|(path, sample)| self::sample(textures, path) == *sample)
     }
 }
 
@@ -80,9 +97,9 @@ impl FormEngine {
             images: None,
         };
         let mut changed = cache.samples.len() != cache.paths.len();
-        cache.samples.resize(cache.paths.len(), None);
+        cache.samples.resize(cache.paths.len(), Sample::default());
         for (path, sample) in cache.paths.iter().zip(&mut cache.samples) {
-            let current = textures.sprite(path);
+            let current = self::sample(&textures, path);
             changed |= *sample != current;
             *sample = current;
         }
@@ -113,9 +130,9 @@ mod tests {
     }
 
     /// Encodes original pixels that each occupy one bounded atlas page.
-    fn png(color: [u8; 4]) -> Vec<u8> {
+    fn png(size: [u32; 2], color: [u8; 4]) -> Vec<u8> {
         let mut bytes = Cursor::new(Vec::new());
-        image::RgbaImage::from_pixel(200, 200, image::Rgba(color))
+        image::RgbaImage::from_pixel(size[0], size[1], image::Rgba(color))
             .write_to(&mut bytes, image::ImageFormat::Png)
             .unwrap();
         bytes.into_inner()
@@ -125,14 +142,6 @@ mod tests {
     fn hud_card_preview_textures_follow_worker_completion_and_eviction_without_metadata_changes() {
         static REGISTRY: std::sync::OnceLock<ScreenRegistry> = std::sync::OnceLock::new();
         let bytes = assets::encode_ui_catalog([1; 32], &[], &[], &[], &[]).unwrap();
-        let mut engine = FormEngine::new(
-            Arc::new(assets::RuntimeUiAssets::decode(&bytes).unwrap()),
-            json_ui::Catalog::default(),
-            0,
-            REGISTRY.get_or_init(|| ScreenRegistry::new(json_ui::Context::default())),
-            Arc::new(NoImages),
-            ImageWork::inline(),
-        );
         let clock = Arc::new(AtomicU64::new(0));
         let work = ImageWork {
             workers: true,
@@ -140,17 +149,28 @@ mod tests {
                 Duration::from_secs(clock.fetch_add(1, Ordering::Relaxed))
             })),
         };
+        let mut engine = FormEngine::new(
+            Arc::new(assets::RuntimeUiAssets::decode(&bytes).unwrap()),
+            json_ui::Catalog::default(),
+            0,
+            REGISTRY.get_or_init(|| ScreenRegistry::new(json_ui::Context::default())),
+            Arc::new(NoImages),
+            work.clone(),
+        );
         engine.set_server_atlas(
             ServerAtlas::new(
                 &[
-                    ("textures/a.png".into(), png([255, 0, 0, 255])),
-                    ("textures/b.png".into(), png([0, 0, 255, 255])),
+                    ("textures/a.png".into(), png([200; 2], [255, 0, 0, 255])),
+                    ("textures/b.png".into(), png([200; 2], [0, 0, 255, 255])),
+                    (
+                        "textures/native.png".into(),
+                        png([render_model::MAX_UI_TEXTURE_SIDE + 1, 4], [0, 255, 0, 255]),
+                    ),
                 ],
                 None,
                 1,
-            )
-            .with_image_work(work),
-            10,
+            ),
+            crate::pages::SERVER_UI_PAGE as u16,
         );
         let nodes: Arc<[DrawNode]> = Arc::from([DrawNode {
             name: "image".into(),
@@ -181,11 +201,11 @@ mod tests {
         }]);
         let mut cache = CachedFragmentTextures::default();
         engine.refresh_fragment_textures(&mut cache, &nodes);
-        assert_eq!(cache.samples, [None]);
+        assert_eq!(cache.samples, [Sample::default()]);
         let metadata = engine.textures.metadata_revision();
         test_time::eventually("HUD preview worker texture becomes resident", || {
             engine.refresh_fragment_textures(&mut cache, &nodes);
-            cache.samples[0].is_some()
+            cache.samples[0].sprite.is_some()
         });
         assert_eq!(metadata, engine.textures.metadata_revision());
         let (_, allocation) =
@@ -207,15 +227,29 @@ mod tests {
             assert!(!cache.matches(&textures));
         }
         engine.refresh_fragment_textures(&mut cache, &nodes);
-        let atlas = engine.textures.lock();
-        let textures = Textures {
-            assets: &engine.assets,
-            set: &engine.textures,
-            atlas: &atlas,
-            images: None,
-        };
-        assert!(cache.matches(&textures));
-        assert!(cache.samples[0].is_some());
+        {
+            let atlas = engine.textures.lock();
+            let textures = Textures {
+                assets: &engine.assets,
+                set: &engine.textures,
+                atlas: &atlas,
+                images: None,
+            };
+            assert!(cache.matches(&textures));
+            assert!(cache.samples[0].sprite.is_some());
+        }
+        let mut native_node = nodes[0].clone();
+        if let json_ui::Draw::Sprite { texture, .. } = &mut native_node.draw {
+            *texture = "textures/native".into();
+        }
+        let native_nodes = Arc::from([native_node]);
+        let mut native = CachedFragmentTextures::default();
+        engine.refresh_fragment_textures(&mut native, &native_nodes);
+        assert_eq!(native.samples[0].native, Some(None));
+        test_time::eventually("native preview image tiles become resident", || {
+            engine.refresh_fragment_textures(&mut native, &native_nodes);
+            native.samples[0].native.flatten().is_some()
+        });
         assert_eq!(metadata, engine.textures.metadata_revision());
     }
 }

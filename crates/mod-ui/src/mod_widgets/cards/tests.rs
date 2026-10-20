@@ -488,3 +488,20 @@ fn hud_card_preview_only_keeps_artwork_in_explicit_editor_previews() {
             .any(|vertex| vertex.color == [255, 0, 0, 255])
     );
 }
+
+#[test]
+fn hud_card_preview_gameplay_origin_stays_on_the_physical_pixel_grid() {
+    for (offset, position, expected) in [
+        ([0.25, 0.75], None, [0., 1.]),
+        ([0., 0.], Some([0.333, 0.177]), [399., 120.]),
+    ] {
+        let mut hud = hud(1);
+        hud.cards[0].offset = offset;
+        hud.cards[0].position = position;
+        let mut ui = installed(&hud, &panel(false));
+        let mut harness = Harness::new();
+        harness.paint(&mut ui, false);
+        let bounds = harness.drawn().painted_bounds().unwrap();
+        assert_eq!([bounds.min().x(), bounds.min().y()], expected);
+    }
+}

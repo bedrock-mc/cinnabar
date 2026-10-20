@@ -281,13 +281,39 @@ fn transformed_fragment(cached: bool) {
         nodes: Arc::from([solid(1, None, [0.0, 0.0, 10.0, 10.0])]),
         cache: cached.then(CachedFragment::default),
     };
+    let overlay = [json_ui::DrawNode {
+        name: "foreground".into(),
+        key: "foreground".into(),
+        dest: json_ui::RectOut {
+            x: 120.,
+            y: 120.,
+            w: 10.,
+            h: 10.,
+        },
+        clip: json_ui::RectOut {
+            x: 0.,
+            y: 0.,
+            w: 500.,
+            h: 500.,
+        },
+        layer: 0,
+        alpha: 1.,
+        anim: None,
+        gates: Vec::new(),
+        draw: json_ui::Draw::Solid {
+            color: [0, 255, 0, 255],
+        },
+    }];
     for frame in 0..2 {
         nodes.clear();
         next = 1 + frame * 1000;
         let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut fragment];
         engine
             .draw(
-                ScreenArt::default(),
+                ScreenArt {
+                    overlay: &overlay,
+                    ..Default::default()
+                },
                 &mut PaintFrame {
                     layouts: &mut layouts,
                     font: &font,
@@ -318,6 +344,7 @@ fn transformed_fragment(cached: bool) {
         assert_eq!(cache.builds, 1);
     }
     let drawn = draw(&nodes);
+    assert_eq!(drawn.vertices.last().unwrap().color, [0, 255, 0, 255]);
     let expected = [75.0, 75.0, 175.0, 175.0].map(|value| value * px);
     assert_eq!(edges(drawn.batches[0].clip), expected);
     let min = drawn
