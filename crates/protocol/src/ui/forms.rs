@@ -149,10 +149,11 @@ pub struct FormRequestEvent {
 
 pub(crate) fn normalize_form(packet: ModalFormRequest) -> Result<UiEvent, UiPacketError> {
     let json = bounded_form(packet.form_ui_json)?;
+    let parsed = json::comment_free(&json)?;
     let mut header = FormHeader::default();
-    scan_form_header(&json, &mut header)?;
+    scan_form_header(&parsed, &mut header)?;
     let kind = header.kind.unwrap_or(FormKind::Unknown);
-    let model = form_model(&json, kind);
+    let model = form_model(&parsed, kind);
     Ok(UiEvent::Form(FormRequestEvent {
         form_id: packet.form_id.0,
         kind,

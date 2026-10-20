@@ -188,10 +188,6 @@ pub struct StageMask {
 }
 
 impl StageMask {
-    #[allow(
-        dead_code,
-        reason = "wired into ShaderPack::translate later in the translator stack"
-    )]
     /// Marks a stage as using the reflected resource.
     pub(crate) fn add(&mut self, stage: StageKind) {
         match stage {
@@ -281,6 +277,8 @@ pub struct StorageImageBinding {
     pub format: naga::StorageFormat,
     pub read: bool,
     pub write: bool,
+    /// Used with `imageAtomic*`: bind with atomic storage access.
+    pub atomic: bool,
     pub stages: StageMask,
 }
 

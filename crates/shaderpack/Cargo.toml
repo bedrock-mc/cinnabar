@@ -15,6 +15,7 @@ doctest = false
 assets = { path = "../assets" }
 naga.workspace = true
 pp-rs = "0.2.1"
+rayon.workspace = true
 zip-footer = { path = "../zip-footer" }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 

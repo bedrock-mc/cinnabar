@@ -164,15 +164,18 @@ wasi-preview1-component-adapter-provider = "=36.0.16"
 wit-component = "=0.247.0"
 
 
-# Keep Metal display-link delivery, bounded submissions and indirect validation on wgpu 30.0.1.
+# Keep Metal display-link delivery, bounded submissions and indirect validation on wgpu 30.0.1,
+# plus naga GLSL frontend fixes for Java shader packs: constant `?:` and indexing,
+# missing returns, scalar swizzles, atomics and barriers, SPIR-V `fma` NoContraction.
+# Every wgpu crate comes from the same rev so wgpu and the shaderpack crate share one naga.
 [patch.crates-io]
-naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1c86cda04099890ab157b1ae5035" }
-wgpu = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1c86cda04099890ab157b1ae5035" }
-wgpu-core = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1c86cda04099890ab157b1ae5035" }
-wgpu-hal = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1c86cda04099890ab157b1ae5035" }
-wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1c86cda04099890ab157b1ae5035" }
+naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "241cdd04a413ce5dc8547d7f4693297e403d40f3" }
+wgpu = { git = "https://github.com/cinnabar-mc/wgpu", rev = "241cdd04a413ce5dc8547d7f4693297e403d40f3" }
+wgpu-core = { git = "https://github.com/cinnabar-mc/wgpu", rev = "241cdd04a413ce5dc8547d7f4693297e403d40f3" }
+wgpu-hal = { git = "https://github.com/cinnabar-mc/wgpu", rev = "241cdd04a413ce5dc8547d7f4693297e403d40f3" }
+wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "241cdd04a413ce5dc8547d7f4693297e403d40f3" }
 
-wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1c86cda04099890ab157b1ae5035" }
+wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "241cdd04a413ce5dc8547d7f4693297e403d40f3" }
 
 # Iris conditions allow float option values and conditional expressions.
 pp-rs = { git = "https://github.com/cinnabar-mc/glslpp-rs", rev = "2032a88999c95c6ca0b397758dc97930089a6608" }
