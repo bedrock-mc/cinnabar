@@ -13,9 +13,11 @@ use std::{
 };
 use ui::{UiBlendMode, UiMesh, UiNode, UiVisual};
 
+type CachedRow = (MaskLayout, [u32; 4], Arc<[Tile]>);
+
 #[derive(Default)]
 pub(crate) struct MaskCache {
-    rows: BTreeMap<String, (MaskLayout, Arc<[Tile]>)>,
+    rows: BTreeMap<String, CachedRow>,
 }
 
 struct Tile {
@@ -136,6 +138,39 @@ impl Canvas<'_> {
         color: [u8; 4],
         blend: UiBlendMode,
     ) -> Result<(), PaintError> {
+        self.prepared.namespaces.insert(namespace.to_owned());
+        let Some(clip) = self.clip() else {
+            return Ok(());
+        };
+        let viewport = [
+            clip[0].max(self.screen[0]),
+            clip[1].max(self.screen[1]),
+            clip[2].min(self.screen[2]),
+            clip[3].min(self.screen[3]),
+        ];
+        let Some(raster) = visible_mask_rect(layout.size, bounds, viewport, self.residual) else {
+            return Ok(());
+        };
+        let [left, top, right, bottom] = raster;
+        let [w, h] = [(right - left) as usize, (bottom - top) as usize];
+        let page = crate::atlas::PAGE_SIDE as usize;
+        let count = w.div_ceil(page).saturating_mul(h.div_ceil(page));
+        let bytes = w.saturating_mul(h).saturating_mul(4);
+        let (queued_count, queued_bytes) = self
+            .prepared
+            .images
+            .iter()
+            .filter(|(key, _)| key.starts_with(namespace))
+            .fold((0_usize, 0_usize), |(count, bytes), (_, image)| {
+                (count + 1, bytes + image.pixels().len())
+            });
+        if !self.textures.atlas.admits_client_rasters(
+            namespace,
+            queued_count.saturating_add(count),
+            bytes.saturating_add(queued_bytes),
+        ) {
+            return Ok(());
+        }
         let cache_key = format!("{namespace}{key}");
         let mut cache = self
             .textures
@@ -143,26 +178,22 @@ impl Canvas<'_> {
             .masks
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
-        let tiles = if let Some((old, tiles)) = cache.rows.get(&cache_key)
+        let tiles = if let Some((old, old_raster, tiles)) = cache.rows.get(&cache_key)
             && *old == layout
+            && *old_raster == raster
         {
             tiles.clone()
         } else {
-            let rgba = layout.rasterize().ok_or(PaintError::InvalidFontTexture)?;
-            let [w, h] = layout.size;
-            let mut tiles = Vec::new();
-            for y in (0..h).step_by(crate::atlas::PAGE_SIDE as usize) {
-                for x in (0..w).step_by(crate::atlas::PAGE_SIDE as usize) {
+            let mut tiles = Vec::with_capacity(count);
+            for y in (top..bottom).step_by(page) {
+                for x in (left..right).step_by(page) {
                     let [tw, th] = [
-                        (w - x).min(crate::atlas::PAGE_SIDE),
-                        (h - y).min(crate::atlas::PAGE_SIDE),
+                        (right - x).min(crate::atlas::PAGE_SIDE),
+                        (bottom - y).min(crate::atlas::PAGE_SIDE),
                     ];
-                    let mut pixels = Vec::with_capacity((tw * th * 4) as usize);
-                    for row in y..y + th {
-                        pixels.extend_from_slice(
-                            &rgba[((row * w + x) * 4) as usize..((row * w + x + tw) * 4) as usize],
-                        );
-                    }
+                    let pixels = layout
+                        .rasterize_rect([x, y, x + tw, y + th])
+                        .ok_or(PaintError::InvalidFontTexture)?;
                     tiles.push(Tile {
                         image: UiTexturePage::owned([tw, th], pixels.into())
                             .map_err(|_| PaintError::InvalidFontTexture)?,
@@ -173,11 +204,10 @@ impl Canvas<'_> {
             let tiles: Arc<[Tile]> = tiles.into();
             cache
                 .rows
-                .insert(cache_key.clone(), (layout.clone(), tiles.clone()));
+                .insert(cache_key.clone(), (layout.clone(), raster, tiles.clone()));
             tiles
         };
         drop(cache);
-        self.prepared.namespaces.insert(namespace.to_owned());
         self.prepared.rows.insert(cache_key.clone());
         for tile in tiles.iter() {
             let dest = std::array::from_fn(|edge| {
@@ -204,6 +234,50 @@ impl Canvas<'_> {
     }
 }
 
+/// Maps the viewport back into layout texels; rotation uses conservative corner bounds.
+fn visible_mask_rect(
+    size: [u32; 2],
+    bounds: [f32; 4],
+    viewport: [f32; 4],
+    transform: Option<json_ui::transform::Affine>,
+) -> Option<[u32; 4]> {
+    if viewport[2] <= viewport[0]
+        || viewport[3] <= viewport[1]
+        || bounds[2] <= bounds[0]
+        || bounds[3] <= bounds[1]
+    {
+        return None;
+    }
+    let inverse = transform
+        .unwrap_or(json_ui::transform::Affine::IDENTITY)
+        .inverse()?;
+    let visible = inverse.bounds(json_ui::Rect {
+        x: f64::from(viewport[0]),
+        y: f64::from(viewport[1]),
+        w: f64::from(viewport[2] - viewport[0]),
+        h: f64::from(viewport[3] - viewport[1]),
+    });
+    let edges = [
+        visible.x,
+        visible.y,
+        visible.x + visible.w,
+        visible.y + visible.h,
+    ];
+    let raster: [u32; 4] = std::array::from_fn(|edge| {
+        let axis = edge % 2;
+        let value = (edges[edge] - f64::from(bounds[axis]))
+            / f64::from(bounds[axis + 2] - bounds[axis])
+            * f64::from(size[axis]);
+        (if edge < 2 {
+            value.floor()
+        } else {
+            value.ceil()
+        })
+        .clamp(0., f64::from(size[axis])) as u32
+    });
+    (raster[2] > raster[0] && raster[3] > raster[1]).then_some(raster)
+}
+
 /// Uses at most one texel per whole screen pixel, retaining one texel for subpixel bounds.
 /// This keeps nearest sampling from skipping thin edges during fractional minification.
 fn raster_axis_size(pixels: f32) -> u32 {
@@ -214,6 +288,115 @@ fn raster_axis_size(pixels: f32) -> u32 {
 mod tests {
     use super::*;
     use crate::sources::{ImageWork, RemoteImage, RemoteSource};
+
+    #[test]
+    fn scaled_mask_allocates_only_visible_pixels_and_checks_admission_first() {
+        use render_api::sprite_mask::MaskPatch;
+        let assets = assets::RuntimeUiAssets::decode(
+            &assets::encode_ui_catalog([1; 32], &[], &[], &[], &[]).unwrap(),
+        )
+        .unwrap();
+        let set = crate::textures::TextureSet::new(0, Arc::new(Offline), ImageWork::inline());
+        let atlas = ServerAtlas::new(&[], None, 1);
+        let font = crate::test_support::fixture_font();
+        let animator = std::sync::Mutex::new(json_ui::Animator::default());
+        let mut canvas = Canvas {
+            prepared: Default::default(),
+            edit: None,
+            textures: Textures {
+                assets: &assets,
+                set: &set,
+                atlas: &atlas,
+                images: None,
+            },
+            solid_page: 0,
+            art: Default::default(),
+            now: 0.,
+            screen: [0., 0., 64., 48.],
+            layouts: &mut ui::TextLayoutCache::new(4, 1 << 20),
+            font: &font,
+            metrics: crate::text_metrics::TextMetrics::for_viewport(
+                [64, 48],
+                ui::DpiScale::new(1.).unwrap(),
+                Some(1),
+            ),
+            px: 1.,
+            translate: &|_| None,
+            nodes: &mut Vec::new(),
+            next: &mut 0,
+            clip: None,
+            animator: animator.lock().unwrap(),
+            length_scale: 1.,
+            residual: Some(json_ui::transform::Affine {
+                linear: [64., 0., 0., 64.],
+                translation: [-128., -64.],
+            }),
+            filter: None,
+        };
+        canvas.group(canvas.screen).unwrap();
+        let bounds = [0., 0., 81., 11.];
+        let mut layout = MaskLayout {
+            source: Arc::new(SpriteMask::outline([9; 2], [9; 2], |_, _| 255)),
+            extent: [81., 11.],
+            size: canvas.raster_size(bounds),
+            patches: vec![MaskPatch {
+                bounds,
+                uv: [0., 0., 1., 1.],
+                opacity: 255,
+            }],
+        };
+        assert_eq!(layout.size, [5184, 704]);
+        let (_, allocations) = test_alloc::measure(|| {
+            canvas
+                .mask(
+                    "client-raster:test/",
+                    "row",
+                    layout.clone(),
+                    bounds,
+                    [255; 4],
+                    UiBlendMode::Alpha,
+                )
+                .unwrap()
+        });
+        assert!(
+            allocations.bytes < 64 * 48 * 16,
+            "visible row requested {allocations:?}"
+        );
+        let image = canvas.prepared.images.values().next().unwrap();
+        assert_eq!(image.dimensions(), [64, 48]);
+        assert!(
+            image
+                .pixels()
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| *pixel == [255; 4])
+        );
+        assert_eq!(
+            canvas.nodes[1].bounds().min().x(),
+            2.,
+            "cropping preserves row coordinates"
+        );
+        canvas.prepared = Default::default();
+        canvas.screen = [0., 0., 4096., 2304.];
+        canvas.group(canvas.screen).unwrap();
+        canvas.residual = None;
+        layout.size = [4096, 2304];
+        let (_, rejected) = test_alloc::measure(|| {
+            canvas
+                .mask(
+                    "client-raster:test/",
+                    "huge",
+                    layout,
+                    canvas.screen,
+                    [255; 4],
+                    UiBlendMode::Alpha,
+                )
+                .unwrap()
+        });
+        assert!(rejected.bytes < 1024, "rejected row requested {rejected:?}");
+        assert!(canvas.prepared.images.is_empty());
+    }
 
     #[test]
     fn prepared_mask_edges_survive_fractional_scale_and_translation() {

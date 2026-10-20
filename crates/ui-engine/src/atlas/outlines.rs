@@ -1,7 +1,8 @@
 //! CPU source outlines prepared independently of GPU texture admission.
 
 use std::{
-    collections::BTreeMap,
+    cell::RefCell,
+    collections::VecDeque,
     sync::{
         Arc, OnceLock,
         atomic::{AtomicBool, Ordering},
@@ -22,6 +23,14 @@ pub(super) enum Input {
 }
 
 impl Input {
+    /// Reads source dimensions without decoding its pixels.
+    fn size(&self) -> [u32; 2] {
+        match self {
+            Self::Encoded(source) => source.size,
+            Self::Carrier { bounds, .. } => [bounds[2], bounds[3]],
+        }
+    }
+
     /// Derives alpha coverage on the image worker, retaining no decoded source pixels.
     fn outline(self, size: [u32; 2]) -> Option<Arc<SpriteMask>> {
         Some(match self {
@@ -59,11 +68,26 @@ fn outline(
 }
 
 type Key = (String, [u32; 2]);
-type Completed = (Key, Option<Arc<SpriteMask>>);
+type Completed = (Key, [u32; 2], Option<Arc<SpriteMask>>);
+const MAX_READY: usize = 8;
+
+struct Ready {
+    key: Key,
+    source_size: [u32; 2],
+    mask: Option<Arc<SpriteMask>>,
+}
+
+impl Ready {
+    /// Matches requests that produce the same clamped source grid.
+    fn matches(&self, key: &str, size: [u32; 2]) -> bool {
+        self.key.0 == key && self.key.1 == SpriteMask::grid_size(self.source_size, size)
+    }
+}
 
 struct Job {
     key: Key,
     input: Input,
+    source_size: [u32; 2],
     cancelled: Arc<AtomicBool>,
     done: Sender<Completed>,
 }
@@ -76,7 +100,7 @@ impl ImageJob for Job {
         }
         let outline = self.input.outline(self.key.1);
         if !self.cancelled.load(Ordering::Acquire) {
-            let _ = self.done.try_send((self.key, outline));
+            let _ = self.done.try_send((self.key, self.source_size, outline));
         }
     }
 }
@@ -97,7 +121,7 @@ pub(crate) fn run_one() -> bool {
 
 /// Keeps ready masks and one pending input for the atlas's source lifetime.
 pub(super) struct Outlines {
-    ready: BTreeMap<String, BTreeMap<[u32; 2], Option<Arc<SpriteMask>>>>,
+    ready: RefCell<VecDeque<Ready>>,
     dirty: bool,
     pending: bool,
     retry: Option<Job>,
@@ -110,7 +134,7 @@ impl Default for Outlines {
     fn default() -> Self {
         let (sender, receiver) = crossbeam_channel::bounded(1);
         Self {
-            ready: BTreeMap::new(),
+            ready: RefCell::default(),
             dirty: false,
             pending: false,
             retry: None,
@@ -131,15 +155,34 @@ impl Outlines {
     /// Avoids resolving inputs already cached or while this atlas has outstanding work.
     pub(super) fn needs(&self, key: &str, size: [u32; 2]) -> bool {
         !self.pending
-            && self
+            && !self
                 .ready
-                .get(key)
-                .is_none_or(|sizes| !sizes.contains_key(&size))
+                .borrow()
+                .iter()
+                .any(|entry| entry.matches(key, size))
     }
 
-    /// Reads completed coverage without decoding, hashing or sampling any pixels.
+    /// Reads completed coverage and marks its actual grid as recently used.
     pub(super) fn get(&self, key: &str, size: [u32; 2]) -> Option<Arc<SpriteMask>> {
-        self.ready.get(key)?.get(&size).and_then(Clone::clone)
+        let mut ready = self.ready.borrow_mut();
+        let index = ready.iter().position(|entry| entry.matches(key, size))?;
+        let entry = ready.remove(index)?;
+        let mask = entry.mask.clone();
+        ready.push_back(entry);
+        mask
+    }
+
+    /// Retains a small LRU of actual grids, releasing old resolutions after GUI scale changes.
+    fn insert(&mut self, (key, source_size, mask): Completed) {
+        let ready = self.ready.get_mut();
+        if ready.len() == MAX_READY {
+            ready.pop_front();
+        }
+        ready.push_back(Ready {
+            key,
+            source_size,
+            mask,
+        });
     }
 
     /// Schedules one draw-sized source; explicitly inline hosts also prepare it outside paint.
@@ -147,11 +190,10 @@ impl Outlines {
         if !self.needs(key, size) {
             return;
         }
+        let source_size = input.size();
+        let size = SpriteMask::grid_size(source_size, size);
         if !workers {
-            self.ready
-                .entry(key.to_owned())
-                .or_default()
-                .insert(size, input.outline(size));
+            self.insert(((key.to_owned(), size), source_size, input.outline(size)));
             self.dirty = true;
             return;
         }
@@ -159,6 +201,7 @@ impl Outlines {
         let job = Job {
             key: (key.to_owned(), size),
             input,
+            source_size,
             cancelled: self.cancelled.clone(),
             done: self.sender.clone(),
         };
@@ -171,10 +214,10 @@ impl Outlines {
             self.submit(job);
         }
         let dirty = std::mem::take(&mut self.dirty);
-        let Ok(((key, size), mask)) = self.receiver.try_recv() else {
+        let Ok(completed) = self.receiver.try_recv() else {
             return dirty;
         };
-        self.ready.entry(key).or_default().insert(size, mask);
+        self.insert(completed);
         self.pending = false;
         true
     }
@@ -182,15 +225,66 @@ impl Outlines {
     /// Retains one input on backpressure without running image work on the caller.
     fn submit(&mut self, job: Job) {
         let Some(worker) = worker() else {
-            let _ = job.done.try_send((job.key, None));
+            let _ = job.done.try_send((job.key, job.source_size, None));
             return;
         };
         match worker.sender().try_send(job) {
             Ok(()) => {}
             Err(TrySendError::Full(job)) => self.retry = Some(job),
             Err(TrySendError::Disconnected(job)) => {
-                let _ = job.done.try_send((job.key, None));
+                let _ = job.done.try_send((job.key, job.source_size, None));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn outline_cache_reuses_clamped_grids_and_bounds_scale_history() {
+        let page = assets::UiAtlasPage {
+            width: 72,
+            height: 72,
+            rgba8: vec![255; 72 * 72 * 4].into(),
+        };
+        let input = || Input::Carrier {
+            page: page.clone(),
+            bounds: [0, 0, 72, 72],
+        };
+        let mut cache = Outlines::default();
+        cache.request("icon", [16; 2], input(), false);
+        let hot = cache.get("icon", [16; 2]).unwrap();
+        cache.request("icon", [17; 2], input(), false);
+        let cold = Arc::downgrade(&cache.get("icon", [17; 2]).unwrap());
+        let mut history = Vec::new();
+        for scale in 18..=72 {
+            cache.request("icon", [scale; 2], input(), false);
+            history.push(Arc::downgrade(&cache.get("icon", [scale; 2]).unwrap()));
+            assert!(Arc::ptr_eq(&hot, &cache.get("icon", [16; 2]).unwrap()));
+        }
+        assert!(
+            cold.upgrade().is_none(),
+            "old GUI scales must release their buffers"
+        );
+        assert!(
+            history
+                .iter()
+                .filter(|mask| mask.upgrade().is_some())
+                .count()
+                < MAX_READY
+        );
+        let full = cache.get("icon", [72; 2]).unwrap();
+        for scale in (73..=2048).rev() {
+            cache.request("icon", [scale; 2], input(), false);
+            assert!(Arc::ptr_eq(&full, &cache.get("icon", [scale; 2]).unwrap()));
+        }
+        assert!(Arc::ptr_eq(&hot, &cache.get("icon", [1; 2]).unwrap()));
+        cache.request("icon", [17; 2], input(), false);
+        assert!(
+            cache.get("icon", [17; 2]).is_some(),
+            "an evicted scale can be prepared again"
+        );
     }
 }

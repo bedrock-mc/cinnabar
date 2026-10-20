@@ -3,6 +3,25 @@
 use super::*;
 
 impl ServerAtlas {
+    /// Checks the shared tile and byte budget before a painter allocates a namespace's pixels.
+    pub(crate) fn admits_client_rasters(
+        &self,
+        namespace: &str,
+        count: usize,
+        bytes: usize,
+    ) -> bool {
+        let (other_count, other_bytes) = self
+            .client_rasters
+            .iter()
+            .filter(|(key, _)| !key.starts_with(namespace))
+            .fold((0, 0), |(count, bytes), (_, image)| {
+                (count + 1, bytes + image.pixels().len())
+            });
+        namespace.starts_with("client-raster:")
+            && count <= MAX_EXTRA.saturating_sub(other_count)
+            && bytes <= MAX_DECODED_BYTES.saturating_sub(other_bytes)
+    }
+
     /// Replaces one namespace of client rasters while preserving other painters' artwork. Keys use the reserved `client-raster:` prefix;
     /// images must fit an atlas page and the shared decoded-image budget. Unchanged
     /// content does no work; changed residents keep their slot when dimensions match.
@@ -11,18 +30,12 @@ impl ServerAtlas {
         namespace: &str,
         images: &BTreeMap<String, UiTexturePage>,
     ) {
-        let (other_count, other_bytes) = self
-            .client_rasters
-            .iter()
-            .filter(|(key, _)| !key.starts_with(namespace))
-            .fold((0, 0), |(count, bytes), (_, image)| {
-                (count + 1, bytes + image.pixels().len())
-            });
-        if !namespace.starts_with("client-raster:")
-            || images.keys().any(|key| !key.starts_with(namespace))
-            || images.len() + other_count > MAX_EXTRA
-            || images.values().map(|p| p.pixels().len()).sum::<usize>() + other_bytes
-                > MAX_DECODED_BYTES
+        if images.keys().any(|key| !key.starts_with(namespace))
+            || !self.admits_client_rasters(
+                namespace,
+                images.len(),
+                images.values().map(|p| p.pixels().len()).sum(),
+            )
             || images.iter().any(|(key, image)| {
                 !key.starts_with("client-raster:")
                     || image

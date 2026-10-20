@@ -13,6 +13,11 @@ pub struct SpriteMask {
 }
 
 impl SpriteMask {
+    /// The stored grid keeps small sources exact and never magnifies source pixels.
+    pub fn grid_size(source_size: [u32; 2], draw_size: [u32; 2]) -> [u32; 2] {
+        std::array::from_fn(|axis| source_size[axis].min(draw_size[axis].max(MIN_FILTER_SIDE)))
+    }
+
     /// Derives the original alpha outline and area-filters it before paint, ignoring source RGB.
     /// Small authored masks stay exact for overlapping subpixel copies; magnification keeps the source grid.
     pub fn outline(
@@ -20,8 +25,7 @@ impl SpriteMask {
         draw_size: [u32; 2],
         alpha: impl Fn(u32, u32) -> u8,
     ) -> Self {
-        let size =
-            std::array::from_fn(|axis| source_size[axis].min(draw_size[axis].max(MIN_FILTER_SIDE)));
+        let size = Self::grid_size(source_size, draw_size);
         let mut coverage = Self {
             size,
             alpha: vec![0.; (size[0] * size[1]) as usize],
@@ -185,10 +189,20 @@ impl<'a> PreparedPatch<'a> {
 impl MaskLayout {
     /// Integrates max coverage on small prepared grids, with paint cost bounded by output pixels.
     pub fn rasterize(&self) -> Option<Vec<u8>> {
-        let [width, height] = self.size;
-        if width == 0 || height == 0 || self.extent.iter().any(|v| !v.is_finite() || *v <= 0.) {
+        self.rasterize_rect([0, 0, self.size[0], self.size[1]])
+    }
+
+    /// Rasterizes only these output texels, preserving the full layout's coverage coordinates.
+    pub fn rasterize_rect(&self, [left, top, right, bottom]: [u32; 4]) -> Option<Vec<u8>> {
+        if right > self.size[0]
+            || bottom > self.size[1]
+            || right <= left
+            || bottom <= top
+            || self.extent.iter().any(|v| !v.is_finite() || *v <= 0.)
+        {
             return None;
         }
+        let [width, height] = [right - left, bottom - top];
         let len = (width as usize)
             .checked_mul(height as usize)?
             .checked_mul(4)?;
@@ -204,8 +218,8 @@ impl MaskLayout {
         let mut active = Vec::with_capacity(patches.len());
         let capacity = 2 + patches.len() * (MIN_FILTER_SIDE as usize + 3);
         let (mut xs, mut ys) = (Vec::with_capacity(capacity), Vec::with_capacity(capacity));
-        for y in 0..height {
-            for x in 0..width {
+        for y in top..bottom {
+            for x in left..right {
                 let (px, py) = (x as f64, y as f64);
                 active.clear();
                 active.extend(patches.iter().filter(|patch| {
@@ -236,7 +250,8 @@ impl MaskLayout {
                         alpha += coverage * (x[1] - x[0]) * (y[1] - y[0]);
                     }
                 }
-                rgba[((y * width + x) * 4 + 3) as usize] = alpha.round().clamp(0., 255.) as u8;
+                rgba[(((y - top) * width + x - left) * 4 + 3) as usize] =
+                    alpha.round().clamp(0., 255.) as u8;
             }
         }
         Some(rgba)

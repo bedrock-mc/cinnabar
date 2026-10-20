@@ -419,8 +419,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   displayed-frame pacing and complete rendering acceptance.
   Saturation overlays prepare source outlines on image workers independently of GPU-sheet
   capacity and area-filter them to the requested draw size. Paint skips pending sources,
-  unions small masks with work bounded by output pixels and draws ordinary prepared
-  sprites. Current and held-food
+  unions small masks within the visible viewport and atlas allocation budget, and draws
+  ordinary prepared sprites. A small LRU reuses clamped source grids across GUI scales. Current and held-food
   coverage share one mask. CPU/GPU regressions cover tint, cropping, unequal translucent
   edges, independent shake, inversion and high-resolution minification; complete in-game
   and platform acceptance remain pending.
