@@ -966,3 +966,37 @@ fn min_and_max_sizes_bound_filling_layers() {
     let (_, _, frame) = laid_out(&conversion, 1);
     assert_eq!(rect(&frame, "bar"), [0.0, 0.0, 50.0, 20.0]);
 }
+
+// Fixed-height, top-aligned text keeps every line: the label takes its natural
+// height inside the box, so overflow shows as in Figma instead of being cut.
+#[test]
+fn fixed_height_text_keeps_overflowing_lines() {
+    let node: Node = serde_json::from_value(json!({
+        "id": "31:1", "name": "Overflow Test", "type": "FRAME", "width": 100, "height": 60,
+        "children": [{
+            "id": "31:2", "name": "Notes", "type": "TEXT", "width": 60, "height": 9,
+            "fills": [{ "type": "SOLID", "color": [1, 1, 1] }],
+            "text": { "characters": "one\ntwo\nthree", "font_family": "Minecraft", "auto_resize": "NONE" }
+        }]
+    }))
+    .unwrap();
+    let conversion = figma::convert(&node, &BTreeMap::new());
+    let (_, _, frame) = laid_out(&conversion, 1);
+    assert_eq!(
+        rect(&frame, "notes"),
+        [0.0, 0.0, 60.0, 9.0],
+        "the box keeps its design size"
+    );
+    assert_eq!(
+        rect(&frame, "text"),
+        [0.0, 0.0, 60.0, 27.0],
+        "the label shows all three lines"
+    );
+}
+
+// Named label fonts are listed, since the preview draws them with its one font.
+#[test]
+fn named_fonts_are_listed_for_the_preview() {
+    let conversion = figma::convert(&fixture("text"), &BTreeMap::new());
+    assert_eq!(conversion.font_types, ["MinecraftTen", "smooth"]);
+}

@@ -1,7 +1,7 @@
 //! The layer-to-control mapping: containers to panels and stack panels, text
 //! to labels, fills and `@image` exports to images.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value, json};
 
@@ -57,6 +57,7 @@ pub fn convert(root: &Node, images: &BTreeMap<String, Vec<u8>>) -> Conversion {
         top: NameSet::default(),
         warnings: Vec::new(),
         mock: MockData::default(),
+        font_types: BTreeSet::new(),
     };
     ctx.top.unique(NAMESPACE_KEY);
     let root_name = ctx.top.unique(&namespace);
@@ -90,6 +91,7 @@ pub fn convert(root: &Node, images: &BTreeMap<String, Vec<u8>>) -> Conversion {
         size: [root.width, root.height],
         files: ctx.files,
         warnings: ctx.warnings,
+        font_types: ctx.font_types.into_iter().collect(),
         mock: ctx.mock,
     }
 }
@@ -124,6 +126,8 @@ struct Ctx<'a> {
     top: NameSet,
     warnings: Vec<Warning>,
     mock: MockData,
+    /// Named label fonts used.
+    font_types: BTreeSet<String>,
 }
 
 impl Ctx<'_> {
@@ -429,6 +433,7 @@ impl Ctx<'_> {
         let (font, known) = font_type(&text.font_family);
         if font != "default" {
             body.insert("font_type".into(), font.into());
+            self.font_types.insert(font.to_owned());
         }
         if !known {
             let message = format!(
@@ -496,12 +501,16 @@ impl Ctx<'_> {
             "HEIGHT" => [false, true],
             _ => [false, false],
         };
+        // Truncated text keeps its box so the label ellipsizes as Figma does.
+        let truncates = text.truncate || text.auto_resize == "TRUNCATE";
         let vertical = match text.align_v.as_str() {
             "CENTER" => Some("left_middle"),
             "BOTTOM" => Some("bottom_left"),
-            _ => None,
+            _ if truncates => None,
+            _ => Some("top_left"),
         };
-        // Labels have no vertical alignment: a fixed-height box anchors its text instead.
+        // Labels have no vertical alignment, and cut lines that overflow their
+        // height: a fixed-height box anchors a natural-height label instead.
         match vertical {
             Some(anchor) if !auto[1] => {
                 body.insert("size".into(), json!(["100%", "default"]));

@@ -185,12 +185,26 @@ async function variants(node: InstanceNode, images: Images): Promise<Json[]> {
   const main = await node.getMainComponentAsync();
   const set = main?.parent;
   if (!set || set.type !== 'COMPONENT_SET') return [];
+  // Moved to the page, a clone would lose the variable modes the instance
+  // inherits; they are set on it explicitly instead.
+  const modes: [VariableCollection, string][] = [];
+  for (const [id, mode] of Object.entries(node.resolvedVariableModes)) {
+    const collection = await figma.variables.getVariableCollectionByIdAsync(id);
+    if (collection) modes.push([collection, mode]);
+  }
   const out: Json[] = [];
   for (const variant of set.children) {
     if (variant.type !== 'COMPONENT') continue;
     const clone = node.clone();
     try {
       figma.currentPage.appendChild(clone);
+      for (const [collection, mode] of modes) {
+        try {
+          clone.setExplicitVariableModeForCollection(collection, mode);
+        } catch {
+          figma.notify(`Button states of "${node.name}" may show variables in the page's mode`);
+        }
+      }
       clone.swapComponent(variant);
       // Named for its variant, the clone no longer carries the button token.
       clone.name = variant.name;

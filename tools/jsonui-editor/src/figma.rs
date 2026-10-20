@@ -300,6 +300,8 @@ pub struct Conversion {
     #[serde(skip)]
     pub files: BTreeMap<String, Vec<u8>>,
     pub warnings: Vec<Warning>,
+    /// Named label fonts (`font_type`s) the preview draws with its one font.
+    pub font_types: Vec<String>,
     /// Bound values as the design shows them, so a preview matches the frame.
     #[serde(skip)]
     pub mock: MockData,

@@ -9,6 +9,7 @@ type Warning = { node_id: string; layer: string; message: string };
 type Diagnostic = { severity: string; stage: string; message: string };
 type Conversion = {
   namespace: string;
+  font_types: string[];
   screen: string;
   size: [number, number];
   warnings: Warning[];
@@ -71,7 +72,13 @@ function show(editor: Editor, message: Document): void {
   canvas.getContext('2d')?.putImageData(new ImageData(pixels, frame.width, frame.height), 0, 0);
   const [width, height] = conversion.size;
   status.textContent = `${conversion.screen}: ${width}×${height} at GUI scale ${frame.gui_scale}`;
-  listWarnings(conversion.warnings, [...conversion.diagnostics, ...frame.diagnostics]);
+  // The game's named fonts are not shipped; the preview draws them with its own.
+  const fonts = conversion.font_types.map((font) => ({
+    severity: 'info',
+    stage: 'preview',
+    message: `previewed with the default font; ${font} draws in its own font in game`,
+  }));
+  listWarnings(conversion.warnings, [...fonts, ...conversion.diagnostics, ...frame.diagnostics]);
   source.textContent = editor.file_text(0, conversion.ui_path) ?? '';
   exportButton.disabled = false;
 }
