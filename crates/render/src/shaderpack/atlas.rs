@@ -58,7 +58,7 @@ use bevy::{
     tasks::{AsyncComputeTaskPool, Task, block_on},
 };
 use plan::{AtlasInputs, AtlasPlan, LayerLayout};
-use render_scene::{ChunkAnimationClock, ChunkTextureAssets, ChunkTextureBindingIdentity};
+use render_scene::{ChunkAnimationClock, ChunkTextureAssets};
 use std::sync::Arc;
 use upload::UploadedAtlas;
 
@@ -140,18 +140,22 @@ struct BuiltAtlas {
 /// The requested carrier and its in-flight replacement; the published atlas stays until then.
 #[derive(Resource, Default)]
 struct AtlasBuild {
-    requested: Option<ChunkTextureBindingIdentity>,
+    requested: Option<ChunkTextureAssets>,
     task: Option<Task<Option<BuiltAtlas>>>,
     generation: u64,
 }
 
 impl AtlasBuild {
-    /// Claims a changed texture source once, retaining its identity until the next request.
+    /// Claims a changed source once and owns its pointer identities until the next request.
     fn request(&mut self, assets: &ChunkTextureAssets) -> bool {
-        if self.requested == Some(assets.binding_identity()) {
+        if self
+            .requested
+            .as_ref()
+            .is_some_and(|requested| requested.binding_identity() == assets.binding_identity())
+        {
             return false;
         }
-        self.requested = Some(assets.binding_identity());
+        self.requested = Some(assets.clone());
         true
     }
 }
