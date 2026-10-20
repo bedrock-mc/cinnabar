@@ -578,7 +578,7 @@ impl<'a> Binder<'a> {
             .filter(|index| *index != -1);
         let index = match (index, grid) {
             (Some(index), _) => index,
-            (None, true) => scope.cursor.indices.get(&collection).copied().unwrap_or(0),
+            (None, true) => return None,
             (None, false) => -1,
         };
         // A factory or grid instance already entered its own list; a collection panel's child inside a

@@ -39,7 +39,7 @@ pub(super) struct PendingRequest {
     pub(super) personal_generation: Option<u64>,
     pub(super) storage_identity: Option<ContainerIdentity>,
     /// The offer whose remaining use this purchase reserves until settlement.
-    pub(super) trade_purchase: Option<u32>,
+    pub(super) trade_purchase: Option<super::trading::TradePurchase>,
     /// A split must end with distinct settled stack ids on surviving halves.
     pub(super) requires_distinct_stack_ids: bool,
     /// A merge whose capacity came from the session item registry.

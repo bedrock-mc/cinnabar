@@ -545,6 +545,23 @@ fn an_unread_change_leaves_a_subtree_reading_many_keys_standing() {
 
 #[test]
 fn a_static_grid_enters_its_own_collection_without_an_authored_cell_index() {
+    struct Geometry;
+    impl crate::TextMeasure for Geometry {
+        /// Gives the synthetic label a fixed nonzero extent.
+        fn extent(&self, _: &str) -> [f64; 2] {
+            [20.0, 10.0]
+        }
+    }
+    impl crate::TextureSource for Geometry {
+        /// This fixture contains no texture-backed controls.
+        fn texture(&self, _: &str) -> Option<crate::TextureMeta> {
+            None
+        }
+    }
+    let env = crate::LayoutEnv {
+        text: &Geometry,
+        textures: &Geometry,
+    };
     let root = Arc::new(control(
         "outer",
         "grid",
@@ -557,7 +574,12 @@ fn a_static_grid_enters_its_own_collection_without_an_authored_cell_index() {
                 "inner",
                 "grid",
                 json!({"collection_name":"inner", "grid_dimensions":[1,1]}),
-                vec![reader("caption", "#caption")],
+                vec![control(
+                    "preview",
+                    "button",
+                    json!({"size":[20,20]}),
+                    vec![reader("caption", "#caption")],
+                )],
             )],
         )],
     ));
@@ -582,5 +604,15 @@ fn a_static_grid_enters_its_own_collection_without_an_authored_cell_index() {
         );
         let bound = crate::bind_incremental(&root, &Arc::new(data), &EmptyLibrary, &mut state);
         assert_eq!(captions(&bound), [text]);
+        let placed = crate::layout(&bound, [100.0, 100.0], &env);
+        let hits = crate::hit_regions(&placed);
+        let preview = hits
+            .iter()
+            .find(|hit| hit.name == "preview")
+            .expect("preview hit");
+        assert_eq!(
+            preview.collections,
+            [("outer".to_owned(), 0), ("inner".to_owned(), 0)]
+        );
     }
 }

@@ -306,3 +306,66 @@ fn purchases_reserve_stock_until_rejected_and_commit_it_when_accepted() {
     assert_eq!(ledger.trading().unwrap().offers[0].offer.uses, 2);
     assert!(ledger.trade_output().is_none());
 }
+
+#[test]
+fn refreshed_stock_is_not_changed_again_by_an_older_purchase_response() {
+    for status in [StackResponseStatus::Accepted, StackResponseStatus::Rejected] {
+        let mut ledger = ledger(true);
+        let id = ledger.begin_trade().unwrap();
+        assert!(ledger.mark_transport_enqueued(10));
+        let state = ledger.trading().unwrap();
+        let mut offers: Vec<_> = state
+            .offers
+            .iter()
+            .map(|offer| offer.offer.clone())
+            .collect();
+        offers[0].uses = 1;
+        ledger.apply(&InventoryEvent::Trade(TradeEvent {
+            container: ContainerIdentity::window(7),
+            actor_unique_id: 90,
+            title: Arc::from("Trader"),
+            modern: true,
+            tier: 0,
+            offers: offers.into(),
+        }));
+        ledger.apply(&InventoryEvent::Response(
+            protocol::ItemStackResponseEvent {
+                responses: Arc::from([StackResponse {
+                    request_id: id,
+                    status,
+                    containers: Arc::from([]),
+                }]),
+            },
+        ));
+        assert_eq!(ledger.trading().unwrap().offers[0].offer.uses, 1);
+        assert!(ledger.trade_offer_available(0));
+    }
+}
+
+#[test]
+fn unsent_purchase_stock_rolls_back_after_a_same_window_refresh() {
+    for refresh in [false, true] {
+        let mut ledger = ledger(true);
+        let id = ledger.begin_trade().unwrap();
+        if refresh {
+            let state = ledger.trading().unwrap();
+            let mut offers: Vec<_> = state
+                .offers
+                .iter()
+                .map(|offer| offer.offer.clone())
+                .collect();
+            offers[0].uses = 0;
+            ledger.apply(&InventoryEvent::Trade(TradeEvent {
+                container: ContainerIdentity::window(7),
+                actor_unique_id: 90,
+                title: Arc::from("Trader"),
+                modern: true,
+                tier: 0,
+                offers: offers.into(),
+            }));
+        }
+        assert_eq!(ledger.trading().unwrap().offers[0].offer.uses, 1);
+        ledger.abandon_requests(|request| request.request_id == id);
+        assert_eq!(ledger.trading().unwrap().offers[0].offer.uses, 0);
+    }
+}
