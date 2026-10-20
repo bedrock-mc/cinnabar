@@ -4,13 +4,16 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
+mod axis;
 mod control;
 pub use control::{Control, Event, MAX_PANEL_VALUE_CHARS, TextEvent, validate_text_value};
-mod surface;
+pub(crate) mod surface;
 mod update;
+pub use axis::{AxisExtent, AxisRoute};
 pub use surface::{
-    CollectionArt, CollectionDefinition, CollectionItem, MAX_TRANSITION_SECONDS, Surface,
-    SurfaceCollection, SurfaceTransition, SurfaceValue, TransitionEasing, backdrop,
+    CollectionArt, CollectionDefinition, CollectionItem, MAX_SURFACE_NODES, MAX_TRANSITION_SECONDS,
+    Surface, SurfaceCollection, SurfaceTransition, SurfaceValue, TransitionEasing, backdrop,
+    preview,
 };
 pub use update::{
     MAX_PANEL_BUNDLE_BYTES, MAX_PANEL_PATCH_BYTES, MAX_PANEL_SURFACES, PanelBundle, PanelPatch,
@@ -26,6 +29,8 @@ pub const MAX_PANEL_CHOICES: usize = 8;
 pub const MAX_PANEL_SECTIONS: usize = 32;
 pub const MAX_PANEL_CATEGORIES: usize = 4;
 pub const FONT_NAME: &str = "mod_panel";
+/// A shipped, smoothly sampled sans face for authored native panels.
+pub const SANS_FONT_NAME: &str = "mod_panel_sans";
 /// Opens the selected personal panel when its authored hotkey is unavailable on a keyboard.
 pub const FALLBACK_TOGGLE_KEY: &str = "F10";
 
@@ -76,6 +81,10 @@ pub struct Panel {
     /// Lets a binding control receive Escape instead of dismissing the panel.
     #[serde(default)]
     pub capture_key: bool,
+    /// Keeps the resource-pack gameplay HUD visible behind this panel.
+    /// Hide HUD and death screens still apply; focused panels always hide the crosshair.
+    #[serde(default)]
+    pub show_gameplay_hud: bool,
     /// Opts into native hover/toggle easing and smooth discrete wheel scrolling.
     #[serde(default)]
     pub motion: bool,
@@ -143,14 +152,17 @@ impl Panel {
                         .parse::<usize>()
                         .ok()
                         .is_some_and(|index| index < self.controls.len())
-                } else if let Some(axis) = action.strip_prefix("mod.axis:") {
-                    axis.split_once(':').is_some_and(|(index, axis)| {
-                        matches!(axis, "x" | "y")
-                            && index.parse::<usize>().ok().is_some_and(|i| {
-                                matches!(self.controls.get(i), Some(Control::Slider { .. }))
-                            })
-                    })
-                } else if let Some(indices) = action.strip_prefix("mod.vector:") {
+                } else if let Some(axis) = AxisRoute::parse(&action) {
+                    matches!(
+                        self.controls.get(axis.control),
+                        Some(Control::Slider { .. })
+                    ) && axis
+                        .extent
+                        .is_none_or(|extent| extent.resolve(&surface.bindings).is_some())
+                } else if let Some(indices) = action
+                    .strip_prefix("mod.vector:")
+                    .or_else(|| action.strip_prefix("mod.drag:"))
+                {
                     indices.split_once(':').is_some_and(|(x, y)| {
                         let index = |s: &str| {
                             s.parse::<usize>().ok().filter(|i| {

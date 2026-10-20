@@ -283,7 +283,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "client-extensions"
 path = "crates/client-extensions"
-allowed_dependencies = ["assets", "client-state", "client-ui", "client-world", "inventory", "mod-api", "mod-host", "mod-render", "player-state", "protocol", "render-api", "render-model", "server-experience", "ui"]
+allowed_dependencies = ["assets", "client-state", "client-ui", "client-world", "inventory", "mod-api", "mod-host", "mod-render", "mod-ui", "player-state", "protocol", "render-api", "render-model", "server-experience", "ui"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-runtime", "client-interaction", "client-shell", "client-presentation", "client-audio", "render"]
 
 [[crates]]
@@ -592,7 +592,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "ui-snapshot"
 path = "tools/ui-snapshot"
-allowed_dependencies = ["client-ui", "cosmetics", "assets", "bridge", "inventory", "json-ui", "jsonui-editor", "launcher", "oreui", "player-state", "protocol", "render-api", "render-model", "ui", "ui-engine", "ui-screens"]
+allowed_dependencies = ["client-ui", "cosmetics", "assets", "bridge", "inventory", "json-ui", "jsonui-editor", "launcher", "mod-ui", "resource-pack", "oreui", "player-state", "protocol", "render-api", "render-model", "ui", "ui-engine", "ui-screens"]
 test_support_features = ["test-support"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "bevy", "bevy_*", "wgpu*"]
 
@@ -1749,6 +1749,11 @@ reason = "Cargo artifact-directory name used to locate an in-tree development ex
 path = "crates/mod-host/src/runtime/exports.rs"
 literal = "frame"
 reason = "Required WebAssembly callback export name in the checked mod WIT contract."
+
+[[identifier_literal_exceptions]]
+path = "crates/mod-host/src/packet_mod/native_capabilities.rs"
+literal = "frame"
+reason = "Optional WebAssembly native callback export name shared by packet-mod discovery and execution."
 
 [[identifier_literal_exceptions]]
 path = "crates/mod-render/src/shader.rs"
