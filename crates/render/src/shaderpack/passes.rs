@@ -130,6 +130,49 @@ impl ViewState {
         Arc::ptr_eq(&self.pack, pack) && self.targets.screen_size == screen
     }
 
+    /// Keeps native queues available when a geometry draw would reject its attachments.
+    pub(crate) fn geometry_targets_ready(&self) -> bool {
+        self.pack.draws.iter().all(|draw| {
+            let shadow = self.pack.shadow.as_ref().filter(|_| draw.kind.shadow());
+            let mut size = draw.kind.depth().then(|| {
+                shadow.map_or(self.targets.screen_size, |shadow| {
+                    [shadow.slots.resolution; 2]
+                })
+            });
+            draw.outputs.iter().flatten().all(|index| {
+                let extent = if let Some(shadow) = shadow {
+                    shadow
+                        .slots
+                        .color
+                        .iter()
+                        .find(|(buffer, ..)| buffer == index)
+                        .map(|_| [shadow.slots.resolution; 2])
+                } else {
+                    self.targets
+                        .buffers
+                        .get(*index as usize)
+                        .and_then(|buffer| buffer.as_ref())
+                        .map(|buffer| buffer.size)
+                };
+                extent.is_some_and(|extent| super::frame_geometry::admit_extent(&mut size, extent))
+            })
+        })
+    }
+
+    /// Refreshes atlas dimensions after native texture preparation and before recording draws.
+    pub(crate) fn sync_draw_atlas_sizes(&mut self, queue: &Queue, context: &DrawContext) {
+        for (draw, binding) in self.pack.draws.iter().zip(&mut self.bindings.draws) {
+            let Some(block) = &self.pack.programs[draw.program].reflection.uniforms else {
+                continue;
+            };
+            if binding.update_atlas_size(block, context.atlas_size(draw.kind)) {
+                if let Some(buffer) = &binding.uniforms {
+                    queue.write_buffer(buffer, 0, &binding.base);
+                }
+            }
+        }
+    }
+
     /// Restarts every smoothed uniform (`smooth()` custom uniforms, `wetness`,
     /// `eyeBrightnessSmooth`, `centerDepthSmooth`) on the first frame that knows the player's
     /// biome. Iris builds a pack's uniforms once the world renders, so they start from world
@@ -198,6 +241,8 @@ impl ViewState {
             };
             pack_block(block, &lookup, &mut self.scratch, &mut self.unknown);
             queue.write_buffer(buffer, 0, &self.scratch);
+            binding.base.clone_from(&self.scratch);
+            binding.atlas_size = values.atlas_size;
             if let Some(audit) = &mut self.audit {
                 audit.block(&format!("program {}", program.name), block, &lookup);
             }

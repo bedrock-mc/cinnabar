@@ -255,6 +255,7 @@ fn needs_native_scene(
     weather: Option<&render_scene::PrecipitationScene>,
     covered: impl Fn(Effect) -> bool,
 ) -> bool {
+<<<<<<< HEAD
     atmosphere.is_some_and(|frame| {
         frame.sky_kind() == render_scene::SkyKind::Overworld
             && [Effect::Sun, Effect::Moon, Effect::Stars, Effect::Clouds]
@@ -265,6 +266,48 @@ fn needs_native_scene(
             || (!frame.blend.is_empty() && !covered(Effect::ParticlesTranslucent))
             || (!frame.add.is_empty() && !covered(Effect::ParticlesAdditive))
     }) || weather.is_some_and(|scene| !scene.layers.is_empty() && !covered(Effect::Weather))
+=======
+    atmosphere.is_some_and(|frame| frame.sky_kind() == render_scene::SkyKind::Overworld)
+        || particles.is_some_and(|frame| !frame.blend.is_empty() || !frame.add.is_empty())
+        || weather.is_some_and(|scene| !scene.layers.is_empty())
+}
+
+/// Replaces native queues only after every pack view and terrain category is ready.
+#[allow(clippy::too_many_arguments, reason = "one frame’s replacement inputs")]
+fn configure_replacement(
+    pack: Option<Res<LoadedShaderPack>>,
+    cameras: Query<Entity, With<ShaderPackRendering>>,
+    geometry: Option<Res<ShaderpackGeometry>>,
+    views: Res<ShaderPackViews>,
+    mut drawn: ResMut<ShaderPackDrawnCategories>,
+    atmosphere: Option<Res<render_scene::AtmosphereFrame>>,
+    particles: Option<Res<render_scene::ParticleGpuFrame>>,
+    weather: Option<Res<render_scene::PrecipitationScene>>,
+) {
+    let states = views.states.lock().unwrap_or_else(|e| e.into_inner());
+    let ready = pack
+        .as_ref()
+        .and_then(|pack| pack.0.as_ref())
+        .filter(|pack| {
+            !cameras.is_empty()
+                && cameras.iter().all(|entity| {
+                    states.get(&entity).is_some_and(|state| {
+                        Arc::ptr_eq(&state.pack, pack) && state.geometry_targets_ready()
+                    })
+                })
+        });
+    let draws = |kind| ready.is_some_and(|pack| pack.draws.iter().any(|draw| draw.kind == kind));
+    drawn.set_if_neq(ShaderPackDrawnCategories {
+        terrain: geometry.is_some_and(|geometry| {
+            geometry.supported() && geometry.origin().is_some() && geometry.all_sections_fit()
+        }) && super::draws::complete_terrain(draws)
+            && !needs_native_scene(
+                atmosphere.as_deref(),
+                particles.as_deref(),
+                weather.as_deref(),
+            ),
+    });
+>>>>>>> origin/Jviguy/sp-gc-8
 }
 
 /// Hands out the revisions [`ShaderpackBlockIds`] are published under, each one no earlier
@@ -342,6 +385,21 @@ fn configure_replacement(
             .filter(|_| drawn.terrain)
             .map_or_else(Default::default, |pack| replaced_effects(pack)),
     );
+}
+
+/// Reads the atlas dimensions that current geometry bindings will sample.
+fn atlas_context(
+    atlas: Option<&ShaderpackAtlas>,
+    effects: Option<&ShaderpackEffectTextures>,
+) -> DrawContext {
+    DrawContext {
+        chunk_offset: Vec3::ZERO,
+        atlas_size: atlas.map_or([0; 2], |atlas| {
+            atlas.size.to_array().map(|side| side as i32)
+        }),
+        particle_atlas_size: effects.map_or([0; 2], ShaderpackEffectTextures::particle_atlas_size),
+        crack_atlas_size: effects.map_or([0; 2], ShaderpackEffectTextures::crack_atlas_size),
+    }
 }
 
 /// Allocates or resizes view targets, writes this frame's uniforms and builds each view's
@@ -425,19 +483,7 @@ fn prepare_views(
             .as_ref()
             .and_then(|g| g.chunk_offset(position.as_dvec3()))
             .unwrap_or(Vec3::ZERO);
-        let atlas_size = atlas.as_ref().map_or([0; 2], |atlas| {
-            atlas.size.to_array().map(|side| side as i32)
-        });
-        let context = DrawContext {
-            chunk_offset,
-            atlas_size,
-            crack_atlas_size: effect_textures
-                .as_ref()
-                .map_or([0; 2], |t| t.crack_atlas_size()),
-            particle_atlas_size: effect_textures
-                .as_ref()
-                .map_or([0; 2], |t| t.particle_atlas_size()),
-        };
+        let context = DrawContext { chunk_offset, ..atlas_context(atlas.as_deref(), effect_textures.as_deref()) };
         state.write_uniforms(&queue, &frame, clock.delta_seconds, &context);
         if let Some(geometry) = geometry.as_deref_mut()
             && pack.shadow.is_some()
@@ -557,6 +603,13 @@ fn shaderpack_post(
     let render_device = world.resource::<RenderDevice>();
     let device = render_device.wgpu_device().clone();
     let queue: wgpu::Queue = (**world.resource::<RenderQueue>()).clone();
+    state.sync_draw_atlas_sizes(
+        &queue,
+        &atlas_context(
+            world.get_resource::<ShaderpackAtlas>(),
+            world.get_resource::<ShaderpackEffectTextures>(),
+        ),
+    );
     let destination_format = target.main_texture_format();
     let terrain = pack_terrain(world).map(|geometry| ViewTerrain {
         geometry,
