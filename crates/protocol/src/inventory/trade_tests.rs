@@ -93,3 +93,26 @@ fn trading_keeps_adjusted_counts_recipe_identity_and_every_item_tag() {
     assert_eq!(offer.output.metadata, 3);
     assert_eq!(offer.output.block_descriptor.as_deref(), Some(&[0][..]));
 }
+
+#[test]
+fn trade_and_close_packets_share_the_full_window_id_domain() {
+    for id in [0, 127, 128, 200, 255] {
+        let trade = super::normalize_trade(&UpdateTrade {
+            container_id: wire::U8(id),
+            type_: wire::U8(protocol_ids::WindowType::Trade.wire_value() as u8),
+            data: wire::NetworkNbt(vec![10, 0, 0].into()),
+            ..Default::default()
+        })
+        .unwrap();
+        let super::InventoryEvent::Close(close) =
+            super::normalize_container_close(bedrock_protocol_1_26_51::packets::ContainerClose {
+                container_id: wire::U8(id),
+                ..Default::default()
+            })
+            .unwrap()
+        else {
+            panic!("close event")
+        };
+        assert_eq!(trade.container, close.container);
+    }
+}

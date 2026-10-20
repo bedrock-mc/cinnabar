@@ -129,11 +129,7 @@ impl PlayerInventoryLedger {
     pub(in crate::inventory_ledger) fn discard_request(&mut self, index: usize) -> PendingRequest {
         let owner = self.queue[index].request_id;
         self.detach_request_sources(owner, false);
-        let request = self.queue.remove(index).expect("request index observed");
-        if request.state == InventoryPendingState::AwaitingTransport {
-            self.cancel_trade_purchase(&request);
-        }
-        request
+        self.queue.remove(index).expect("request index observed")
     }
 
     /// Discards selected owners and unsent descendants; admitted gameplay history remains.

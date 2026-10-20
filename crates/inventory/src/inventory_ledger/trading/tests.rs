@@ -15,6 +15,12 @@ fn ledger(modern: bool) -> PlayerInventoryLedger {
         64,
         0,
     ));
+    ledger.apply(&InventoryEvent::Content(protocol::InventoryContentEvent {
+        container: ContainerIdentity::window(protocol::PLAYER_INVENTORY_WINDOW_ID),
+        slots: vec![NetworkItemStack::empty(); usize::from(protocol::PLAYER_INVENTORY_SLOTS)]
+            .into(),
+        storage_item: NetworkItemStack::empty(),
+    }));
     let item = |count| TradeItem {
         identifier: Arc::from("minecraft:apple"),
         metadata: 0,
@@ -346,6 +352,18 @@ fn refreshed_stock_is_not_changed_again_by_an_older_purchase_response() {
 fn unsent_purchase_stock_rolls_back_after_a_same_window_refresh() {
     for refresh in [false, true] {
         let mut ledger = ledger(true);
+        Arc::make_mut(
+            &mut ledger
+                .storage
+                .as_mut()
+                .unwrap()
+                .trade
+                .as_mut()
+                .unwrap()
+                .offers,
+        )[0]
+        .offer
+        .max_uses = 1;
         let id = ledger.begin_trade().unwrap();
         if refresh {
             let state = ledger.trading().unwrap();
@@ -364,8 +382,109 @@ fn unsent_purchase_stock_rolls_back_after_a_same_window_refresh() {
                 offers: offers.into(),
             }));
         }
-        assert_eq!(ledger.trading().unwrap().offers[0].offer.uses, 1);
+        assert!(!ledger.trade_offer_available(0));
         ledger.abandon_requests(|request| request.request_id == id);
+        assert!(ledger.trade_offer_available(0));
         assert_eq!(ledger.trading().unwrap().offers[0].offer.uses, 0);
     }
+}
+
+/// Refreshes the fixture's stock without replacing its window or offer identities.
+fn refresh_stock(ledger: &mut PlayerInventoryLedger, uses: i32) {
+    let window = ledger.storage.as_ref().unwrap();
+    let state = window.trade.as_ref().unwrap();
+    let mut offers: Vec<_> = state
+        .offers
+        .iter()
+        .map(|offer| offer.offer.clone())
+        .collect();
+    offers[0].uses = uses;
+    let event = TradeEvent {
+        container: ContainerIdentity::window(window.window_id),
+        actor_unique_id: window.actor_unique_id,
+        title: Arc::clone(&state.title),
+        modern: window.kind == WindowKind::Trade { modern: true },
+        tier: state.tier,
+        offers: offers.into(),
+    };
+    ledger.apply(&InventoryEvent::Trade(event));
+}
+
+/// Delivers one original response for the current fixture request.
+fn answer(ledger: &mut PlayerInventoryLedger, id: i32, status: StackResponseStatus) {
+    ledger.apply(&InventoryEvent::Response(
+        protocol::ItemStackResponseEvent {
+            responses: Arc::from([StackResponse {
+                request_id: id,
+                status,
+                containers: Arc::from([]),
+            }]),
+        },
+    ));
+}
+
+#[test]
+fn an_unchanged_refresh_keeps_an_admitted_purchase_reserved() {
+    for status in [StackResponseStatus::Accepted, StackResponseStatus::Rejected] {
+        let mut ledger = ledger(true);
+        Arc::make_mut(
+            &mut ledger
+                .storage
+                .as_mut()
+                .unwrap()
+                .trade
+                .as_mut()
+                .unwrap()
+                .offers,
+        )[0]
+        .offer
+        .max_uses = 1;
+        let id = ledger.begin_trade().unwrap();
+        assert!(ledger.mark_transport_enqueued(10));
+        refresh_stock(&mut ledger, 0);
+        assert!(!ledger.trade_offer_available(0));
+        answer(&mut ledger, id, status);
+        assert_eq!(
+            ledger.trade_offer_available(0),
+            status == StackResponseStatus::Rejected
+        );
+    }
+}
+
+#[test]
+fn refreshed_stock_counts_out_of_order_purchase_results_once() {
+    for rejection_first in [false, true] {
+        let mut ledger = ledger(true);
+        let first = ledger.begin_trade().unwrap();
+        assert!(ledger.mark_transport_enqueued(10));
+        ledger.begin_click(0).unwrap();
+        assert!(ledger.mark_transport_enqueued(20));
+        let second = ledger.begin_trade().unwrap();
+        assert!(ledger.mark_transport_enqueued(30));
+        refresh_stock(&mut ledger, 1);
+        if rejection_first {
+            answer(&mut ledger, first, StackResponseStatus::Rejected);
+        }
+        answer(&mut ledger, second, StackResponseStatus::Accepted);
+        if !rejection_first {
+            answer(&mut ledger, first, StackResponseStatus::Rejected);
+        }
+        assert_eq!(ledger.trading().unwrap().offers[0].offer.uses, 1);
+        assert!(ledger.trade_offer_available(0));
+    }
+}
+
+#[test]
+fn stock_observations_do_not_credit_later_purchases() {
+    let mut ledger = ledger(true);
+    let first = ledger.begin_trade().unwrap();
+    assert!(ledger.mark_transport_enqueued(10));
+    refresh_stock(&mut ledger, 1);
+    answer(&mut ledger, first, StackResponseStatus::Rejected);
+    let second = ledger.begin_trade().unwrap();
+    assert!(ledger.mark_transport_enqueued(20));
+    assert!(!ledger.trade_offer_available(0));
+    answer(&mut ledger, second, StackResponseStatus::Accepted);
+    assert_eq!(ledger.trading().unwrap().offers[0].offer.uses, 2);
+    assert!(!ledger.trade_offer_available(0));
 }

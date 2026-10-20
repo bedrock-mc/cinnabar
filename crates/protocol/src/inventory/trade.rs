@@ -54,7 +54,7 @@ pub(crate) fn normalize_trade(packet: &UpdateTrade) -> Option<TradeEvent> {
         .and_then(|value| value.compounds())
         .unwrap_or_default();
     Some(TradeEvent {
-        container: ContainerIdentity::window(i32::from(packet.container_id.0)),
+        container: ContainerIdentity::window(super::raw_window_id(packet.container_id.0).ok()?),
         actor_unique_id: packet.entity_unique_id.0,
         title: Arc::from(packet.display_name.to_str().ok()?),
         modern: packet.use_new_trade_screen,

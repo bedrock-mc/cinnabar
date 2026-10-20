@@ -14,6 +14,7 @@ pub struct ResolvedTrade {
     pub offer: TradeOffer,
     pub inputs: [Option<NetworkItemStack>; 2],
     pub output: Option<NetworkItemStack>,
+    stock: TradeStock,
 }
 
 /// The server-owned trading window and the player's selected offer.
@@ -23,15 +24,49 @@ pub struct TradeState {
     pub tier: i32,
     pub offers: Arc<[ResolvedTrade]>,
     pub selected: Option<usize>,
-    /// The server offer snapshot that owns local stock predictions.
-    revision: u64,
 }
 
-/// One predicted purchase's stock ownership within a server offer snapshot.
-#[derive(Debug, Clone, Copy)]
-pub(super) struct TradePurchase {
-    network_id: u32,
-    revision: u64,
+/// Server-reported uses that already account for unanswered purchases.
+#[derive(Debug, Clone, Default)]
+struct TradeStock {
+    credits: usize,
+    through_request: Option<i32>,
+}
+
+impl TradeStock {
+    /// Keeps credits on requests that existed when their stock was observed.
+    fn includes(&self, request_id: i32) -> bool {
+        self.through_request
+            .is_some_and(|through| request_id >= through)
+    }
+
+    /// Reconciles a new authoritative count with the current in-flight request cohort.
+    fn observe(&mut self, uses: i32, previous: i32, admitted: &[i32]) {
+        self.credits = self
+            .credits
+            .min(admitted.iter().filter(|id| self.includes(**id)).count());
+        let added = (i64::from(uses) - i64::from(previous)).max(0) as usize;
+        if added != 0
+            && let Some(through) = admitted.iter().min()
+        {
+            // Local request IDs decrease; newer purchases stay outside this observation.
+            self.through_request = Some(
+                self.through_request
+                    .map_or(*through, |old| old.min(*through)),
+            );
+            self.credits = self.credits.saturating_add(added).min(admitted.len());
+        }
+    }
+
+    /// Consumes a reported use only for an accepted member of its request cohort.
+    fn accept(&mut self, request_id: i32) -> bool {
+        if self.credits != 0 && self.includes(request_id) {
+            self.credits -= 1;
+            true
+        } else {
+            false
+        }
+    }
 }
 
 impl PlayerInventoryLedger {
@@ -98,6 +133,7 @@ impl PlayerInventoryLedger {
             }),
             output: self.resolve_trade_item(&offer.output),
             offer: offer.clone(),
+            stock: TradeStock::default(),
         }
     }
 
@@ -108,7 +144,11 @@ impl PlayerInventoryLedger {
         };
         let resolved = offers
             .iter()
-            .map(|trade| self.resolve_trade(&trade.offer))
+            .map(|trade| {
+                let mut resolved = self.resolve_trade(&trade.offer);
+                resolved.stock = trade.stock.clone();
+                resolved
+            })
             .collect();
         self.storage
             .as_mut()
@@ -128,10 +168,10 @@ impl PlayerInventoryLedger {
                 && window.kind == kind
                 && window.actor_unique_id == event.actor_unique_id
         });
-        let revision = same
+        let previous = same
             .then(|| self.trading())
             .flatten()
-            .map_or(1, |state| state.revision.wrapping_add(1));
+            .map(|trade| Arc::clone(&trade.offers));
         let selected_id = same
             .then(|| self.trading())
             .flatten()
@@ -151,10 +191,31 @@ impl PlayerInventoryLedger {
         }) {
             return;
         }
+        let generation = self.storage.as_ref().expect("admitted trader").generation;
         let offers: Arc<[ResolvedTrade]> = event
             .offers
             .iter()
-            .map(|offer| self.resolve_trade(offer))
+            .map(|offer| {
+                let mut resolved = self.resolve_trade(offer);
+                if let Some(previous) = previous.as_ref().and_then(|offers| {
+                    offers
+                        .iter()
+                        .find(|previous| previous.offer.network_id == offer.network_id)
+                }) {
+                    resolved.stock = previous.stock.clone();
+                    let admitted: Vec<_> = self
+                        .trade_requests(generation, offer.network_id)
+                        .filter(|request| {
+                            request.state == super::InventoryPendingState::AwaitingResponse
+                        })
+                        .map(|request| request.request_id)
+                        .collect();
+                    resolved
+                        .stock
+                        .observe(offer.uses, previous.offer.uses, &admitted);
+                }
+                resolved
+            })
             .collect();
         let selected = selected_id
             .and_then(|id| offers.iter().position(|trade| trade.offer.network_id == id))
@@ -170,22 +231,7 @@ impl PlayerInventoryLedger {
             tier: event.tier,
             offers,
             selected,
-            revision,
         });
-        // A fresh offer list replaces old predictions; unsent purchases still need their uses.
-        let trade = window.trade.as_mut().expect("admitted offers");
-        for request in &mut self.queue {
-            if request.storage_generation == Some(window.generation)
-                && request.state == super::InventoryPendingState::AwaitingTransport
-                && let Some(purchase) = request.trade_purchase.as_mut()
-                && let Some(offer) = Arc::make_mut(&mut trade.offers)
-                    .iter_mut()
-                    .find(|offer| offer.offer.network_id == purchase.network_id)
-            {
-                purchase.revision = revision;
-                offer.offer.uses = offer.offer.uses.saturating_add(1);
-            }
-        }
     }
 
     /// Selects an offered recipe without sending an item mutation or discarding inputs.
@@ -232,33 +278,64 @@ impl PlayerInventoryLedger {
         Some(expected)
     }
 
-    /// Whether an unlocked offer has a use left after local purchase predictions.
-    pub fn trade_offer_available(&self, index: usize) -> bool {
-        self.trading().is_some_and(|state| {
-            state.offers.get(index).is_some_and(|trade| {
-                trade.offer.tier <= state.tier && trade.offer.uses < trade.offer.max_uses
-            })
+    /// Iterates purchase reservations owned by one current window and offer.
+    fn trade_requests(
+        &self,
+        generation: u64,
+        network_id: u32,
+    ) -> impl Iterator<Item = &super::queue::PendingRequest> {
+        self.pending_requests().filter(move |request| {
+            request.storage_generation == Some(generation)
+                && request.trade_purchase == Some(network_id)
         })
     }
 
-    /// Rolls back a rejected or unsent purchase only while its stock snapshot is still current.
-    pub(super) fn cancel_trade_purchase(&mut self, request: &super::queue::PendingRequest) {
+    /// Whether an unlocked offer has a use left after unanswered purchase reservations.
+    pub fn trade_offer_available(&self, index: usize) -> bool {
+        let Some(window) = self.storage.as_ref() else {
+            return false;
+        };
+        let Some(state) = window.trade.as_ref() else {
+            return false;
+        };
+        let Some(trade) = state.offers.get(index) else {
+            return false;
+        };
+        let (pending, eligible) = self
+            .trade_requests(window.generation, trade.offer.network_id)
+            .fold((0_usize, 0_usize), |(pending, eligible), request| {
+                (
+                    pending + 1,
+                    eligible
+                        + usize::from(
+                            request.state == super::InventoryPendingState::AwaitingResponse
+                                && trade.stock.includes(request.request_id),
+                        ),
+                )
+            });
+        let used =
+            i64::from(trade.offer.uses) + pending as i64 - trade.stock.credits.min(eligible) as i64;
+        trade.offer.tier <= state.tier && used < i64::from(trade.offer.max_uses)
+    }
+
+    /// Commits an accepted purchase unless a server stock observation already included it.
+    pub(super) fn accept_trade_purchase(&mut self, request: &super::queue::PendingRequest) {
         if !self.request_is_current(request) {
             return;
         }
-        let Some(purchase) = request.trade_purchase else {
+        let Some(id) = request.trade_purchase else {
             return;
         };
         if let Some(state) = self
             .storage
             .as_mut()
             .and_then(|window| window.trade.as_mut())
-            && state.revision == purchase.revision
-            && let Some(offer) = Arc::make_mut(&mut state.offers)
+            && let Some(trade) = Arc::make_mut(&mut state.offers)
                 .iter_mut()
-                .find(|offer| offer.offer.network_id == purchase.network_id)
+                .find(|offer| offer.offer.network_id == id)
+            && !trade.stock.accept(request.request_id)
         {
-            offer.offer.uses = offer.offer.uses.saturating_sub(1);
+            trade.offer.uses = trade.offer.uses.saturating_add(1);
         }
     }
 
@@ -349,7 +426,6 @@ impl PlayerInventoryLedger {
         let state = self.trading().expect("validated trader");
         let trade = &state.offers[state.selected.expect("validated selection")];
         let recipe_network_id = trade.offer.network_id;
-        let revision = state.revision;
         let craft = ScreenCraft::Trade {
             recipe_network_id,
             output,
@@ -362,19 +438,7 @@ impl PlayerInventoryLedger {
             .iter_mut()
             .find(|request| request.request_id == id)
             .expect("submitted purchase")
-            .trade_purchase = Some(TradePurchase {
-            network_id: recipe_network_id,
-            revision,
-        });
-        let state = self
-            .storage
-            .as_mut()
-            .and_then(|window| window.trade.as_mut())
-            .expect("validated trader");
-        let offer = &mut Arc::make_mut(&mut state.offers)
-            [state.selected.expect("validated selection")]
-        .offer;
-        offer.uses = offer.uses.saturating_add(1);
+            .trade_purchase = Some(recipe_network_id);
         Ok(id)
     }
 }

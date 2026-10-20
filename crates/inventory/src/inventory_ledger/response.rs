@@ -154,9 +154,9 @@ impl PlayerInventoryLedger {
             let request = self.queue.remove(index).expect("index observed");
             let current = self.request_is_current(&request);
             if response.status == StackResponseStatus::Accepted {
+                self.accept_trade_purchase(&request);
                 self.settle(&request, &response.containers);
             } else if response.status == StackResponseStatus::Rejected && current {
-                self.cancel_trade_purchase(&request);
                 self.reject_request(&request);
             }
             self.finish_request_retirement(
