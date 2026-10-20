@@ -1376,6 +1376,16 @@ literal = "the_end"
 reason = "Java Edition dimension id in the default OptiFine/Iris shader-pack folder mapping, not a Bedrock identifier."
 
 [[identifier_literal_exceptions]]
+path = "crates/shaderpack/src/custom_uniforms/compile.rs"
+literal = "log2"
+reason = "GLSL built-in function name in the custom-uniform expression language, not a game identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/shaderpack/src/custom_uniforms/compile.rs"
+literal = "sign"
+reason = "GLSL built-in function name in the custom-uniform expression language, not a game identifier."
+
+[[identifier_literal_exceptions]]
 path = "tools/devtool/src/web.rs"
 literal = "web"
 reason = "wasm-bindgen's static browser output target, unrelated to a game identifier."
