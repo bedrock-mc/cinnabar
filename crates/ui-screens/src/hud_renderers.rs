@@ -17,6 +17,7 @@ use ui_engine::engine::{
 };
 
 mod hunger_animation;
+mod hunger_overlay;
 mod mob_effects;
 mod status;
 mod status_motion;
@@ -185,6 +186,7 @@ fn paint(
             for cell in hud.hunger.cells(updates) {
                 paint_cell(canvas, &cell, top_left, visible, alpha);
             }
+            hunger_overlay::paint(canvas, &hud.hunger, updates, top_left, visible, alpha);
             return true;
         }
         "bubbles_renderer" => (&hud.bubbles, top_left),

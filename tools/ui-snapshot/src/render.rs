@@ -11,6 +11,7 @@ mod edit_selection;
 #[cfg(feature = "test-support")]
 mod form_overlap;
 mod panorama;
+mod sprite_outline;
 mod tiled_image;
 
 use std::{
@@ -110,6 +111,9 @@ fn png_fixture(
     seconds: f64,
     resource_pack: Option<&Path>,
 ) -> Result<Vec<u8>, Error> {
+    if let Fixture::SpriteOutline { outline } = &fixture {
+        return sprite_outline::png(state.size, *outline);
+    }
     if let Fixture::TiledImage { scale } = &fixture {
         return tiled_image::png(state.size, *scale);
     }
@@ -132,6 +136,7 @@ fn png_fixture(
         Fixture::Chat { .. }
         | Fixture::TabList(_)
         | Fixture::EditSelection
+        | Fixture::SpriteOutline { .. }
         | Fixture::TiledImage { .. }
         | Fixture::ModPanel(_) => false,
         #[cfg(feature = "test-support")]
@@ -174,7 +179,9 @@ fn png_fixture(
         renderers: &mut [],
     };
     match fixture {
-        Fixture::TiledImage { .. } => unreachable!("tiled image capture returned above"),
+        Fixture::SpriteOutline { .. } | Fixture::TiledImage { .. } => {
+            unreachable!("asset-free capture returned above")
+        }
         #[cfg(feature = "test-support")]
         Fixture::CosmeticParticles { .. } | Fixture::FormOverlap | Fixture::ControlLocked => {
             unreachable!("specialized capture returned above")

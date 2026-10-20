@@ -82,6 +82,10 @@ pub const UI_STYLE_ADDITIVE: u32 = 1 << 9;
 /// Particle materials threshold cutout texels before applying the emitter's independent alpha.
 pub const UI_STYLE_PARTICLE: u32 = 1 << 10;
 
+const _: () = assert!(
+    (render_api::UI_STYLE_SPRITE_OUTLINE as u32) & (UI_STYLE_ADDITIVE | UI_STYLE_PARTICLE) == 0
+);
+
 /// Clamps interpolated particle UVs to source texel centres without shrinking sprite geometry.
 /// Bounds are (x, y, width, height) in texels; nonpositive extents disable clamping.
 #[must_use]

@@ -288,6 +288,45 @@ fn emit_untransformed(
                 batches,
             )
         }
+        UiVisual::SpriteOutline {
+            texture_page,
+            uv,
+            source,
+            color,
+            blend,
+        } => {
+            if is_empty(bounds) {
+                return Ok(());
+            }
+            let start = vertices.len();
+            emit_colored_quad(
+                [
+                    [bounds.min().x(), bounds.min().y()],
+                    [bounds.max().x(), bounds.min().y()],
+                    [bounds.max().x(), bounds.max().y()],
+                    [bounds.min().x(), bounds.max().y()],
+                ],
+                [
+                    [uv[0], uv[1]],
+                    [uv[2], uv[1]],
+                    [uv[2], uv[3]],
+                    [uv[0], uv[3]],
+                ],
+                *texture_page,
+                [*color; 4],
+                0,
+                *blend,
+                clip,
+                vertices,
+                indices,
+                batches,
+            )?;
+            for vertex in &mut vertices[start..] {
+                vertex.style_flags = render_api::UI_STYLE_SPRITE_OUTLINE;
+                vertex.overlay_color = *source;
+            }
+            Ok(())
+        }
         UiVisual::InvertedSprite { texture_page, uv } => {
             if is_empty(bounds) {
                 return Ok(());

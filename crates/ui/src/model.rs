@@ -109,6 +109,15 @@ pub enum UiVisual {
         colors: [[u8; 4]; 2],
         horizontal: bool,
     },
+    /// An inner one-source-texel outline, using texture alpha and the authored tint only.
+    /// `uv` can crop the draw; `source` keeps the complete sprite's mask boundaries intact.
+    SpriteOutline {
+        texture_page: u16,
+        uv: [f32; 4],
+        source: [f32; 4],
+        color: [u8; 4],
+        blend: UiBlendMode,
+    },
     /// A sprite drawn with the invert blend instead of alpha compositing.
     InvertedSprite {
         texture_page: u16,

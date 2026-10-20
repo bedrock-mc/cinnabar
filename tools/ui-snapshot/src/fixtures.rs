@@ -25,6 +25,10 @@ pub struct State {
 
 /// Inputs borrowed by the same screen painters the client uses.
 pub enum Fixture {
+    /// Original sprite samples before and after alpha-only outline shading.
+    SpriteOutline {
+        outline: bool,
+    },
     /// An original checker repeated beyond a small sprite's former draw cutoff.
     TiledImage {
         scale: f64,
@@ -75,6 +79,18 @@ const TALL_SIZE: [u32; 2] = [1280, 900];
 const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 
 pub const STATES: &[State] = &[
+    State {
+        name: "sprite-outline-before",
+        size: [800, 240],
+        gui_scale: 1,
+        fixture: || Fixture::SpriteOutline { outline: false },
+    },
+    State {
+        name: "sprite-outline",
+        size: [800, 240],
+        gui_scale: 1,
+        fixture: || Fixture::SpriteOutline { outline: true },
+    },
     State {
         name: "jsonui-tiled-image",
         size: [256, 128],

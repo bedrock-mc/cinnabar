@@ -2,6 +2,8 @@
 //! triangles with sprite filtering and font coverage, clipped per batch, alpha or invert blended.
 //! Axis-aligned quads (nearly everything) take a direct span fill.
 
+mod outline;
+
 use std::sync::Arc;
 
 use ui::{UiBlendMode, UiDrawBatch, UiDrawList, UiVertex};
@@ -262,6 +264,8 @@ impl Canvas {
                     let border = (0..3).map(|k| w[k] * v[k].model_light).sum();
                     let paint = render_api::UiCoveragePaint::from_vertex_colors(color, overlay);
                     (straight(paint.sample(u, [t, border])), [255; 4])
+                } else if flags & render_api::UI_STYLE_SPRITE_OUTLINE != 0 {
+                    (outline::sample(texture, [u, t], v[0].overlay_color), color)
                 } else if u32::from(flags) & render_model::UI_STYLE_RADIAL_GRADIENT != 0 {
                     let radius = u.hypot(t).clamp(0.0, 1.0);
                     let outer: [f32; 4] = std::array::from_fn(|channel| {
@@ -326,7 +330,8 @@ fn axis_aligned(v: &[&UiVertex; 4]) -> bool {
 
 /// The span fast path only handles uniformly tinted ordinary texture quads.
 fn flat_texture(v: &[&UiVertex; 4]) -> bool {
-    v[0].style_flags & render_api::UI_STYLE_COVERAGE_PAINT == 0
+    v[0].style_flags & (render_api::UI_STYLE_COVERAGE_PAINT | render_api::UI_STYLE_SPRITE_OUTLINE)
+        == 0
         && u32::from(v[0].style_flags) & render_model::UI_STYLE_RADIAL_GRADIENT == 0
         && v.iter().all(|vertex| vertex.color == v[0].color)
         && v[0].uv[1] == v[1].uv[1]

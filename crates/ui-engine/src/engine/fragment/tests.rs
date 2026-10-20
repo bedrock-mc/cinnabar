@@ -478,3 +478,33 @@ fn rejects_filter_fragments_as_a_whole_and_bounds_replay() {
         Err(PaintError::Tree(UiError::MissingParent { .. }))
     ));
 }
+
+/// Fragment transitions fade outline coverage while preserving crop bounds and inverse blending.
+#[test]
+fn fades_sprite_outline_fragments_without_changing_the_mask() {
+    let visual = UiVisual::SpriteOutline {
+        texture_page: 7,
+        uv: [4.5, 0., 9., 9.],
+        source: [0., 0., 9., 9.],
+        color: [255, 198, 0, 128],
+        blend: UiBlendMode::Invert,
+    };
+    let faded = faded(&visual, 0.5, &mut BTreeMap::new());
+    assert_eq!(
+        faded,
+        UiVisual::SpriteOutline {
+            texture_page: 7,
+            uv: [4.5, 0., 9., 9.],
+            source: [0., 0., 9., 9.],
+            color: [255, 198, 0, 64],
+            blend: UiBlendMode::Invert
+        }
+    );
+    assert!(matches!(
+        visual,
+        UiVisual::SpriteOutline {
+            color: [255, 198, 0, 128],
+            ..
+        }
+    ));
+}

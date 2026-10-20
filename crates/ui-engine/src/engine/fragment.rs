@@ -343,6 +343,7 @@ fn faded(visual: &UiVisual, opacity: f32, meshes: &mut BTreeMap<usize, Arc<UiMes
         | UiVisual::GlintSprite { color, .. }
         | UiVisual::StyledSprite { color, .. }
         | UiVisual::RepeatedSprite { color, .. }
+        | UiVisual::SpriteOutline { color, .. }
         | UiVisual::Text { color, .. }
         | UiVisual::RotatedText { color, .. } => alpha(color),
         UiVisual::Gradient { colors, .. } => colors.iter_mut().for_each(alpha),
