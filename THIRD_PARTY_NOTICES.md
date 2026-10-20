@@ -529,9 +529,9 @@ The cosmetic regression geometry and textures in `crates/render-model/src/hats/`
 
 - Source: https://github.com/Kangz/glslpp-rs
 - Cinnabar fork: https://github.com/cinnabar-mc/glslpp-rs, pinned in `Cargo.lock`.
-- Dependency: `pp-rs`, shared by shader-pack preprocessing and naga.
+- Dependency: `pp-rs`, shared by properties and shader preprocessing.
 - License: BSD-3-Clause.
-- The fork adds an opt-in mode for float values in preprocessor conditions.
+- The fork adds opt-in Iris conditions and bounds expression recursion.
 
 BSD 3-Clause License
 

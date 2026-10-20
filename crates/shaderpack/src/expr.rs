@@ -198,16 +198,6 @@ pub(crate) fn macro_value(value: &str) -> f64 {
     }
 }
 
-/// The integer JCPP evaluates a float literal as in `#if`: its integer part (`1.0f` → `1`,
-/// `0.75` → `0`). `None` for integer, hex and malformed literals, which stay as written.
-pub(crate) fn truncated(literal: &str) -> Option<String> {
-    let digits = literal.trim_end_matches(['f', 'F', 'l', 'L']);
-    let is_float =
-        !digits.starts_with("0x") && !digits.starts_with("0X") && digits.contains(['.', 'e', 'E']);
-    let value: f64 = digits.parse().ok().filter(|_| is_float)?;
-    Some(format!("{}", value.trunc() as i64))
-}
-
 /// Converts a boolean result to the numeric value used by expressions.
 fn bool_value(value: bool) -> f64 {
     if value { 1.0 } else { 0.0 }
@@ -884,17 +874,5 @@ mod tests {
         assert_eq!(parse_number_literal(""), None);
         assert_eq!(parse_number_literal("ABC"), None);
         assert_eq!(parse_number_literal("1 + 1"), None);
-    }
-
-    #[test]
-    fn float_literals_truncate_to_their_integer_part() {
-        assert_eq!(truncated("1.0").as_deref(), Some("1"));
-        assert_eq!(truncated("0.75").as_deref(), Some("0"));
-        assert_eq!(truncated("2.5f").as_deref(), Some("2"));
-        assert_eq!(truncated(".5").as_deref(), Some("0"));
-        assert_eq!(truncated("1e3").as_deref(), Some("1000"));
-        assert_eq!(truncated("10"), None);
-        assert_eq!(truncated("0x1E"), None);
-        assert_eq!(truncated("1.0.0"), None);
     }
 }
