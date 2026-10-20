@@ -618,3 +618,61 @@ fn expanded_properties_bytes_are_bounded_across_lines() {
     assert_eq!(properties.get("after"), Some("ok"));
     assert_eq!(diagnostic_lines(&properties), [3]);
 }
+
+#[test]
+fn deep_conditions_return_a_recoverable_diagnostic() {
+    let nested = format!("{}1{}", "(".repeat(10_000), ")".repeat(10_000));
+    let properties = parse(&format!("#if {nested}\nhidden=1\n#endif\nafter=ok\n"));
+    assert_eq!(properties.get("hidden"), None);
+    assert_eq!(properties.get("after"), Some("ok"));
+    assert_eq!(diagnostic_lines(&properties), [1]);
+}
+
+#[test]
+fn property_conditions_accept_ternaries() {
+    let text = "#if MC_VERSION >= 12100 ? 1 : 0\npick=new\n#else\npick=old\n#endif\n";
+    let properties = parse_with(text, &[("MC_VERSION", "12111")]);
+    assert_eq!(properties.get("pick"), Some("new"));
+    assert!(properties.diagnostics.is_empty());
+    assert_eq!(
+        parse_with(text, &[("MC_VERSION", "12000")]).get("pick"),
+        Some("old")
+    );
+}
+
+#[test]
+fn comments_in_directives_are_whitespace_and_property_literals_stay_literal() {
+    let properties = parse_with(
+        "#define/* name */ LOCAL\n#ifndef/* absent */ MISSING\n#if defined/* gap\n */ LOCAL && defined ENV\nselected=ok\n#endif\n#endif\n#if 0\nhidden=1\n#elif/* choice */ defined LOCAL\nbranch=ok\n#endif\nliteral=\"QUALITY\" QUALITY /* QUALITY */\n",
+        &[("ENV", ""), ("QUALITY", "2")],
+    );
+    assert_eq!(properties.get("selected"), Some("ok"));
+    assert_eq!(properties.get("branch"), Some("ok"));
+    assert_eq!(
+        properties.get("literal"),
+        Some("\"QUALITY\" 2 /* QUALITY */")
+    );
+    assert!(
+        properties.diagnostics.is_empty(),
+        "{:?}",
+        properties.diagnostics
+    );
+}
+
+#[test]
+fn conditional_reference_forms_crlf_and_empty_values() {
+    let properties = parse_with(
+        "#define LOCAL\r\n#ifndef MISSING\r\n#if defined LOCAL && defined(ENV)\r\nempty=\r\nselected=ok\r\n#endif\r\n#endif\r\n#if 0\r\nhidden=1\r\n#elif defined ENV\r\nbranch=ok\r\n#else\r\nhidden=1\r\n#endif\r\n",
+        &[("ENV", "")],
+    );
+    assert_eq!(keys(&properties), ["empty", "selected", "branch"]);
+    assert_eq!(properties.get("empty"), Some(""));
+    assert!(properties.diagnostics.is_empty());
+}
+
+#[test]
+fn hash_comments_do_not_open_directive_block_comments() {
+    let properties = parse("# Notes mentioning /* without a matching end\nafter=ok\n");
+    assert_eq!(properties.get("after"), Some("ok"));
+    assert!(properties.diagnostics.is_empty());
+}
