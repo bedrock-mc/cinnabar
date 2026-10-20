@@ -276,7 +276,6 @@ fn transformed_fragment(cached: bool) {
     let px = metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
     let mut layouts = ui::TextLayoutCache::new(1, 16 * 1024);
     let mut nodes = Vec::new();
-    let mut next = 1;
     let mut fragment = Fragment {
         nodes: Arc::from([solid(1, None, [0.0, 0.0, 10.0, 10.0])]),
         cache: cached.then(CachedFragment::default),
@@ -306,7 +305,7 @@ fn transformed_fragment(cached: bool) {
     }];
     for frame in 0..2 {
         nodes.clear();
-        next = 1 + frame * 1000;
+        let mut next = 1 + frame * 1000;
         let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut fragment];
         engine
             .draw(
