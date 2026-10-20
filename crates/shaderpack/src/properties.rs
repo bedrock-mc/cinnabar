@@ -5,7 +5,7 @@
 //! texture bindings and custom images are typed; other keys stay in `entries`.
 //! Malformed input never fails the whole file: it becomes a [`PropertiesDiagnostic`].
 
-mod reader;
+pub(crate) mod reader;
 mod rules;
 #[cfg(test)]
 mod tests;
@@ -103,7 +103,7 @@ impl ShaderProperties {
 }
 
 /// Keeps the last item for each key, ordered by the key's first occurrence.
-fn last_by_key<T>(items: &[T], key: impl Fn(&T) -> &str) -> Vec<&T> {
+pub(crate) fn last_by_key<T>(items: &[T], key: impl Fn(&T) -> &str) -> Vec<&T> {
     let mut positions = BTreeMap::new();
     let mut kept: Vec<&T> = Vec::new();
     for item in items {
