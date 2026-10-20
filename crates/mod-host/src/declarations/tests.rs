@@ -177,22 +177,97 @@ fn requests_are_optional_validated_and_never_hide_metadata() {
 }
 
 #[test]
-fn raw_reactor_requests_follow_their_wasi_imports() {
-    for (source, wasi) in [
-        ("(module)", false),
+fn raw_core_requests_follow_valid_top_level_native_exports() {
+    let init = r#"(func (export "native-init") (param i32))"#;
+    let menu = r#"(func (export "menu") (param i32 i32) (result i32) i32.const 0)"#;
+    let frame = r#"(func (export "frame") (param i32 i32) (result i32) i32.const 0)"#;
+    for (name, exports, controls, camera) in [
+        ("none", String::new(), false, false),
+        ("menu", format!("{init} {menu}"), true, false),
+        ("frame", format!("{init} {frame}"), false, true),
+        ("both", format!("{init} {menu} {frame}"), true, true),
+        ("missing init", menu.to_owned(), false, false),
+        ("init only", init.to_owned(), false, false),
         (
-            r#"(module (import "wasi_snapshot_preview1" "fd_write" (func)))"#,
-            true,
+            "non-function init",
+            format!(r#"(global (export "native-init") i32 (i32.const 0)) {menu}"#),
+            false,
+            false,
         ),
-        (r#"(module (import "other" "fd_write" (func)))"#, false),
+        (
+            "non-function menu",
+            format!(r#"{init} (global (export "menu") i32 (i32.const 0))"#),
+            false,
+            false,
+        ),
+        (
+            "wrong init signature",
+            format!(r#"(func (export "native-init")) {menu}"#),
+            false,
+            false,
+        ),
+        (
+            "wrong parameter type",
+            format!(r#"{init} (func (export "menu") (param i32 i64) (result i32) i32.const 0)"#),
+            false,
+            false,
+        ),
+        (
+            "wrong return count",
+            format!(r#"{init} (func (export "frame") (param i32 i32))"#),
+            false,
+            false,
+        ),
+        (
+            "invalid companion callback",
+            format!(r#"{init} {menu} (func (export "frame"))"#),
+            false,
+            false,
+        ),
     ] {
-        let bytes = wat::parse_str(source).unwrap();
+        let bytes = wat::parse_str(format!("(module {exports})")).unwrap();
         let requested = read(&bytes).requested.unwrap().unwrap();
         assert_eq!(
             requested,
             ModGrants {
                 packets: true,
-                wasi,
+                controls,
+                players: camera,
+                camera,
+                ..Default::default()
+            },
+            "{name}"
+        );
+    }
+    let nested =
+        wat::parse_str(format!("(component (core module {init} {menu} {frame}))")).unwrap();
+    assert!(read(&nested).requested.unwrap().is_none());
+}
+
+#[test]
+fn raw_core_export_signatures_include_imported_function_offsets() {
+    for source in [
+        r#"(module
+            (import "wasi_snapshot_preview1" "clock_time_get" (func (param i32 i64 i32) (result i32)))
+            (import "host" "state" (global i32))
+            (import "host" "memory" (memory 1))
+            (func (export "native-init") (param i32))
+            (func (export "menu") (param i32 i32) (result i32) i32.const 0))"#,
+        r#"(module
+            (import "wasi_snapshot_preview1" "callback" (func $menu (param i32 i32) (result i32)))
+            (func (export "native-init") (param i32))
+            (export "menu" (func $menu)))"#,
+    ] {
+        let requested = read(&wat::parse_str(source).unwrap())
+            .requested
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            requested,
+            ModGrants {
+                packets: true,
+                wasi: true,
+                controls: true,
                 ..Default::default()
             }
         );
@@ -200,17 +275,46 @@ fn raw_reactor_requests_follow_their_wasi_imports() {
 }
 
 #[test]
-fn explicit_reactor_requests_override_inference() {
-    let mut bytes =
-        wat::parse_str(r#"(module (import "wasi_snapshot_preview1" "fd_write" (func)))"#).unwrap();
+fn explicit_raw_core_requests_override_native_export_inference() {
+    let module = wat::parse_str(
+        r#"(module
+            (import "wasi_snapshot_preview1" "random_get" (func (param i32 i32) (result i32)))
+            (func (export "native-init") (param i32))
+            (func (export "menu") (param i32 i32) (result i32) i32.const 0)
+            (func (export "frame") (param i32 i32) (result i32) i32.const 0))"#,
+    )
+    .unwrap();
+    for request in [
+        br#"{}"#.as_slice(),
+        br#"{"packets":true,"controls":false,"camera":false,"players":false}"#,
+    ] {
+        let mut bytes = module.clone();
+        section(&mut bytes, REQUESTED_GRANTS_SECTION, request);
+        assert_eq!(
+            read(&bytes).requested.unwrap().unwrap(),
+            serde_json::from_slice::<ModGrants>(request).unwrap()
+        );
+    }
+    let mut nested = module;
     section(
-        &mut bytes,
+        &mut nested,
         REQUESTED_GRANTS_SECTION,
-        br#"{"packets":true,"wasi":false}"#,
+        br#"{"controls":true}"#,
     );
-    let requested = read(&bytes).requested.unwrap().unwrap();
-    assert!(requested.packets);
-    assert!(!requested.wasi);
+    let mut outer = wat::parse_str("(component)").unwrap();
+    // A component's core-module section contains the complete nested module encoding.
+    outer.push(1);
+    let mut size = nested.len();
+    loop {
+        let byte = (size & 0x7f) as u8;
+        size >>= 7;
+        outer.push(byte | if size == 0 { 0 } else { 0x80 });
+        if size == 0 {
+            break;
+        }
+    }
+    outer.extend(nested);
+    assert!(read(&outer).requested.unwrap().is_none());
 }
 
 #[test]
@@ -283,4 +387,22 @@ fn automatic_update_url_requires_one_valid_top_level_declaration() {
     length(valid.len(), &mut nested);
     nested.extend(valid);
     assert!(read(&nested).metadata.update_url.is_none());
+}
+
+#[test]
+fn snapshot_declarations_keep_native_permissions_and_update_metadata_together() {
+    let mut bytes = wat::parse_str(
+        r#"(module
+        (func (export "native-init") (param i32))
+        (func (export "menu") (param i32 i32) (result i32) i32.const 0))"#,
+    )
+    .unwrap();
+    section(
+        &mut bytes,
+        mod_api::UPDATE_URL_SECTION,
+        b"https://github.com/example/native/releases/latest/download/native.wasm",
+    );
+    let declared = declarations_snapshot(&bytes).unwrap();
+    assert!(declared.requested.unwrap().unwrap().controls);
+    assert_eq!(declared.metadata.update_url.unwrap().asset(), "native.wasm");
 }

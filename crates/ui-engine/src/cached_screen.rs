@@ -6,7 +6,7 @@ use std::sync::Arc;
 use json_ui::{
     BindState, CachedLibrary, Catalog, CatalogLibrary, Context, DataSource, FormRender,
     LayoutCacheKey, ResolveCache, ResolvedControl, ViewState, bind_incremental, rebind,
-    render_bound_cached, resolve,
+    render_bound_cached, resolve_with_limits,
 };
 
 /// One screen's resolved tree per catalog and its last layout per model.
@@ -47,6 +47,15 @@ struct Laid {
 }
 
 impl CachedScreen {
+    /// Restricts binding and factory prototype resolution, invalidating old layout.
+    pub fn with_node_limit(mut self, limit: usize) -> Self {
+        self.binding = self.binding.with_node_limit(limit);
+        self.library = self.library.with_node_limit(self.binding.node_limit());
+        self.laid = None;
+        self.measures = json_ui::MeasureCache::default();
+        self
+    }
+
     /// Opts one admitted native grid into bounded tile creation before its first bind.
     pub fn virtualize_clipped_grid(&mut self, collection: &str, initial: usize) {
         if self.virtual_grids.get(collection) == Some(&initial) {
@@ -174,7 +183,15 @@ impl CachedScreen {
                     {
                         self.resolves += 1;
                     }
-                    resolve(catalog, reference, context).control.map(Arc::new)
+                    resolve_with_limits(
+                        catalog,
+                        reference,
+                        context,
+                        usize::MAX,
+                        self.binding.node_limit(),
+                    )
+                    .control
+                    .map(Arc::new)
                 });
                 self.resolved = Some(ResolvedScreen {
                     reference: reference.to_owned(),
@@ -182,8 +199,8 @@ impl CachedScreen {
                     context: context.clone(),
                     tree,
                 });
-                self.library = ResolveCache::default();
-                self.binding = BindState::new();
+                self.library = ResolveCache::default().with_node_limit(self.binding.node_limit());
+                self.binding = BindState::new().with_node_limit(self.binding.node_limit());
                 for (name, initial) in &self.virtual_grids {
                     self.binding.virtualize_clipped_grid(name, *initial);
                 }
