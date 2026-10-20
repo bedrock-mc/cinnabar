@@ -667,3 +667,154 @@ fn unknown_directives_are_skipped_like_banner_comments() {
     assert!(!is_unknown_directive("#") && !is_unknown_directive("#  // note"));
     assert!(!is_unknown_directive("#extension GL_ARB_foo : enable"));
 }
+
+/// Returns the active integer constant chosen by a preprocessor condition.
+fn selected_float_condition(text: &str, defines: &[(&str, &str)]) -> i32 {
+    let pp = run(&[("a.fsh", text)], "a.fsh", defines);
+    pp.consts.last().unwrap().value.parse().unwrap()
+}
+
+#[test]
+fn float_macro_undef_removes_its_condition_value() {
+    assert_eq!(
+        selected_float_condition(
+            "#define S 1.5\n#undef S\n#if S\nconst int chosen = 1;\n#else\nconst int chosen = 0;\n#endif",
+            &[]
+        ),
+        0
+    );
+}
+
+#[test]
+fn float_macro_inactive_redefinitions_do_not_change_conditions() {
+    assert_eq!(
+        selected_float_condition(
+            "#define S 0.5\n#if 0\n#define S 2.5\n#endif\n#if S\nconst int chosen = 1;\n#else\nconst int chosen = 0;\n#endif",
+            &[]
+        ),
+        0
+    );
+}
+
+#[test]
+fn float_macro_aliases_expand_before_truncation() {
+    assert_eq!(
+        selected_float_condition(
+            "#define BASE 1.5\n#define S BASE\n#if S\nconst int chosen = 1;\n#else\nconst int chosen = 0;\n#endif",
+            &[]
+        ),
+        1
+    );
+}
+
+#[test]
+fn float_macro_environment_values_expand_before_truncation() {
+    assert_eq!(
+        selected_float_condition(
+            "#if S\nconst int chosen = 1;\n#else\nconst int chosen = 0;\n#endif",
+            &[("S", "1.5")]
+        ),
+        1
+    );
+}
+
+#[test]
+fn a_later_define_replaces_an_earlier_one_as_in_jcpp() {
+    let src = "#version 450\n#define D(m) 1\n#define D(m) (m) + 2\nint x = D(3);\n";
+    let pp = run(&[("a.fsh", src)], "a.fsh", &[]);
+    assert!(
+        pp.tokens.iter().any(|t| t.is("+")),
+        "the second body expands"
+    );
+    let x = pp
+        .tokens
+        .iter()
+        .find(|t| t.ident() == Some("x"))
+        .expect("x");
+    assert_eq!(
+        pp.map.locate(x.line).expect("mapped").to_string(),
+        "a.fsh:4"
+    );
+}
+
+#[test]
+fn float_conditions_compare_integer_parts_as_in_jcpp() {
+    let src = "#version 450\n#define speed 0.5 // [0.5 1.0]\n\
+        #if speed < 1.0 && !defined speed2 && 1.9 >= 1\nint slow;\n#else\nint fast;\n#endif\n\
+        #if 0.9\nint truncated_true;\n#endif\n";
+    let pp = run(&[("a.fsh", src)], "a.fsh", &[]);
+    let has = |n: &str| pp.tokens.iter().any(|t| t.ident() == Some(n));
+    assert!(has("slow") && !has("fast"));
+    assert!(!has("truncated_true"));
+}
+
+#[test]
+fn iris_ternaries_use_expanded_float_options() {
+    assert_eq!(
+        selected_float_condition(
+            "#if QUALITY >= 1.0 ? 1 : 0\nconst int chosen = 1;\n#else\nconst int chosen = 0;\n#endif",
+            &[("QUALITY", "1.5")],
+        ),
+        1
+    );
+}
+
+#[test]
+fn deep_glsl_conditions_return_a_diagnostic() {
+    let text = format!(
+        "#if {}1{}\nfloat hidden;\n#endif",
+        "(".repeat(10_000),
+        ")".repeat(10_000)
+    );
+    let source = PackSource::from_files([("a.fsh", text)]);
+    let expanded = expand(&source, "a.fsh", &[], &OptionValues::new()).unwrap();
+    let diagnostic = preprocess(expanded, &[]).err().expect("depth diagnostic");
+    assert_eq!(diagnostic.phase, Phase::Preprocess);
+}
+#[test]
+fn frontend_redefinition_preludes_spend_expansion_budget() {
+    let text = "#define VALUE 1\n";
+    let expected = format!("#undef VALUE\n{text}");
+    let source = PackSource::from_files([("a.fsh", text)]);
+    let expanded =
+        expand_limited(&source, "a.fsh", &[], &OptionValues::new(), expected.len()).unwrap();
+    assert_eq!(expanded.text, expected);
+    let error = expand_limited(
+        &source,
+        "a.fsh",
+        &[],
+        &OptionValues::new(),
+        expected.len() - 1,
+    )
+    .err()
+    .expect("expanded source budget");
+    assert_eq!(error.phase, Phase::Include);
+    assert!(error.message.contains("expanded GLSL"));
+}
+
+#[test]
+fn repeated_defines_preserve_original_logical_lines() {
+    let pp = run(
+        &[
+            (
+                "a.fsh",
+                "#define VALUE 1\nint first = __LINE__;\n#define VALUE 2\nint second = __LINE__;\n#include \"/lib/value.glsl\"\nint third = __LINE__;\n#line 80\n#define VALUE 3\nint explicitLine = __LINE__;",
+            ),
+            (
+                "lib/value.glsl",
+                "#define VALUE 4\nint included = __LINE__;",
+            ),
+        ],
+        "a.fsh",
+        &[],
+    );
+    let values: Vec<_> = pp
+        .tokens
+        .iter()
+        .filter_map(|token| match &token.kind {
+            TokKind::Int(value) => Some(value.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(values, ["2", "4", "2", "6", "82"]);
+}

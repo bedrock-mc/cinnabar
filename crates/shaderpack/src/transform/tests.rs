@@ -4,6 +4,7 @@ use super::*;
 use crate::compile::{OutputMap, compile};
 use crate::options::OptionValues;
 use crate::preprocess::{expand, preprocess};
+use crate::reflection::VertexAttribute;
 use crate::source::PackSource;
 
 const VERTEX: &str = "#version 120
@@ -36,7 +37,11 @@ fn draft(
     let source = PackSource::from_files([(file, text)]);
     let expanded = expand(&source, file, &[], &OptionValues::new()).expect("expands");
     let pp = preprocess(expanded, &[]).expect("preprocesses");
-    let draft = transform(&pp, stage, iface, &HashMap::new()).expect("transforms");
+    let names = ResourceNames {
+        image_formats: &HashMap::new(),
+        sampler_classes: &SamplerClasses::new(),
+    };
+    let draft = transform(&pp, stage, iface, &names).expect("transforms");
     (draft, pp.map)
 }
 
@@ -60,7 +65,17 @@ fn a_version_120_program_becomes_vulkan_glsl_naga_validates() {
         .iter()
         .map(|(_, n)| n.as_str())
         .collect();
-    assert_eq!(inputs, ["iris_Vertex", "iris_Color", "iris_MultiTexCoord0"]);
+    // `ftransform()` reads the position, so the raw packed-position parts follow the inputs.
+    assert_eq!(
+        inputs,
+        [
+            "iris_Vertex",
+            "iris_Color",
+            "iris_MultiTexCoord0",
+            "iris_PackedPosition",
+            "iris_DrawOrigin",
+        ]
+    );
     assert_eq!(fragment.0.frag_outputs, [(0, "iris_FragData0".to_owned())]);
     assert!(
         fragment
@@ -102,13 +117,16 @@ void main() { id = mc_Entity.x; gl_Position = gl_Vertex; }
         .iter()
         .map(|(location, name)| (name.as_str(), Some(*location)))
         .collect();
+    // The position also reads the raw packed-position parts, at the next free locations.
     assert_eq!(
-        inputs,
+        inputs[..2],
         [
             ("mc_Entity", VertexAttribute::BlockId.location()),
             ("iris_Vertex", VertexAttribute::Position.location()),
         ]
     );
+    let parts: Vec<_> = inputs[2..].iter().map(|(name, _)| *name).collect();
+    assert_eq!(parts, ["iris_PackedPosition", "iris_DrawOrigin"]);
 }
 
 #[test]

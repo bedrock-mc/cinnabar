@@ -132,7 +132,7 @@ fn option_overrides_change_the_compiled_program_and_enable_rules() {
     let composite = program(&t, "composite");
     let r = reflection(composite);
     assert_eq!(texture_names(r), ["colortex0", "noisetex"]);
-    assert_eq!(r.textures[1].binding, 3);
+    assert_eq!(r.textures[1].binding, shaderpack::FIRST_TEXTURE_BINDING + 1);
     assert_eq!(
         uniform_names(r),
         ["iris_ModelViewMat", "iris_ProjMat", "shadowWeights"]

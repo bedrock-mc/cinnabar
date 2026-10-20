@@ -1,8 +1,10 @@
 use json_ui::{Catalog, DataSource, Scalar};
 use serde_json::{Value, json};
-use ui::mod_hud::{Anchor, Card, DEFAULT_ROW_HEIGHT, Hud, RowLayout};
+use ui::mod_hud::{Card, DEFAULT_ROW_HEIGHT, Hud, RowLayout};
 
 const HEADER: f64 = 18.;
+/// Keeps canonical artwork away from viewport edges until its actual bounds are measured.
+pub(super) const CANVAS_INSET: f64 = ui::mod_panel::preview::MAX_PREVIEW_EXTENT;
 
 #[cfg(test)]
 mod tests;
@@ -19,6 +21,7 @@ pub(super) fn same_shape(a: &Hud, b: &Hud) -> bool {
                 && left.row_height == right.row_height
                 && left.icon_size == right.icon_size
                 && left.text_scale == right.text_scale
+                && left.font == right.font
                 && left.shadow == right.shadow
                 && left.title.is_empty() == right.title.is_empty()
                 && left.compass.is_some() == right.compass.is_some()
@@ -63,6 +66,35 @@ fn center_on_row(label: &mut Value, center_y: f64) {
 }
 /// Shares card controls between gameplay publication and native previews.
 pub(in super::super) fn card(card: &Card, card_index: usize, row_index: &mut usize) -> Value {
+    let mut node = card_content(card, card_index, row_index);
+    if card.font != ui::mod_hud::CardFont::Native {
+        apply_font(&mut node, card.font.name());
+    }
+    node
+}
+
+/// Applies card typography to retained labels, including cells and measured text spans.
+fn apply_font(node: &mut Value, font: &str) {
+    match node {
+        Value::Object(object) => {
+            if object.get("type").and_then(Value::as_str) == Some("label") {
+                object.insert("font_type".into(), json!(font));
+            }
+            for value in object.values_mut() {
+                apply_font(value, font);
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                apply_font(value, font);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Builds card geometry before applying its selected typography.
+fn card_content(card: &Card, card_index: usize, row_index: &mut usize) -> Value {
     if card.text_plate.is_some() {
         *row_index += card.rows.len();
         return super::text_plate::control(card, card_index);
@@ -306,20 +338,47 @@ fn grid_columns(card: &Card) -> usize {
     ((card.width / card.row_height).floor() as usize).max(1)
 }
 pub(super) fn catalog(hud: &Hud) -> Result<Catalog, String> {
-    let mut index = 0;
-    let mut controls: Vec<_> = hud
-        .cards
-        .iter()
-        .enumerate()
-        .map(|(n, c)| named(&c.id, card(c, n, &mut index)))
-        .collect();
-    controls.extend(
-        hud.world_labels
-            .iter()
-            .enumerate()
-            .map(|(n, label)| super::world_labels::control(n, label)),
-    );
-    let definition = json!({"namespace":"cinnabar_personal_hud","cards":{"type":"panel","size":["100%","100%"],"controls":controls}}).to_string();
+    let mut document = json!({"namespace":"cinnabar_personal_hud"});
+    let mut row = 0;
+    let mut controls = Vec::new();
+    let mut gameplay = Vec::new();
+    for (index, source) in hud.cards.iter().enumerate() {
+        let mut body = card(source, index, &mut row);
+        let mut placement = body["bindings"].clone();
+        placement
+            .as_array_mut()
+            .expect("card bindings")
+            .push(json!({
+            "binding_name":format!("#card_{index}_visible"),"binding_name_override":"#visible"}));
+        body["bindings"]
+            .as_array_mut()
+            .expect("card bindings")
+            .retain(|binding| {
+                !matches!(
+                    binding["binding_name_override"].as_str(),
+                    Some("#offset" | "#visible")
+                )
+            });
+        body["offset"] = json!([CANVAS_INSET, CANVAS_INSET]);
+        document[format!("card_{index}")] = body;
+        controls.push(named(
+            &format!("{}@cinnabar_personal_hud.card_{index}", source.id),
+            json!({"bindings":placement}),
+        ));
+        gameplay.push(named(
+            &format!("card_{index}"),
+            json!({"type":"custom","renderer":"cinnabar_gameplay_card",
+            "card_index":index,"size":["100%","100%"]}),
+        ));
+    }
+    for (index, label) in hud.world_labels.iter().enumerate() {
+        let control = super::world_labels::control(index, label);
+        controls.push(control.clone());
+        gameplay.push(control);
+    }
+    document["cards"] = json!({"type":"panel","size":["100%","100%"],"controls":controls});
+    document["gameplay"] = json!({"type":"panel","size":["100%","100%"],"controls":gameplay});
+    let definition = document.to_string();
     Catalog::from_files([
         ("ui/_global_variables.json", &b"{}"[..]),
         (
@@ -334,40 +393,56 @@ pub(in super::super) fn data(hud: &Hud, viewport: [f64; 2]) -> DataSource {
     let mut data = DataSource::new();
     let mut index = 0;
     for (n, card) in hud.cards.iter().enumerate() {
-        data.set_global(format!("#card_{n}_title"), Scalar::Text(card.title.clone()));
-        data.set_global(
-            format!("#card_{n}_offset"),
-            Scalar::Json(json!(origin(card, viewport))),
-        );
-        data.set_global(
-            format!("#card_{n}_background"),
-            Scalar::Json(json!([0.045, 0.05, 0.065, card.background_opacity])),
-        );
-        super::cells::data(&mut data, card, n);
-        super::text_plate::data(&mut data, card, n, viewport);
-        super::compass::data(&mut data, card, n);
-        for row in &card.rows {
-            data.set_global(
-                format!("#row_{index}_label"),
-                Scalar::Text(row.label.clone()),
-            );
-            data.set_global(
-                format!("#row_{index}_value"),
-                Scalar::Text(row.value.clone()),
-            );
-            data.set_global(
-                format!("#row_{index}_color"),
-                Scalar::Json(json!(row.color)),
-            );
-            data.set_global(
-                format!("#row_{index}_progress"),
-                Scalar::Num(f64::from(row.progress.unwrap_or(0.))),
-            );
-            data.set_global(format!("#row_{index}_icon"), Scalar::Json(Value::Null));
-            index += 1;
-        }
+        card_data(&mut data, card, n, index, viewport);
+        index += card.rows.len();
     }
     data
+}
+
+/// Writes one card's indexed bindings for both aggregate HUDs and isolated retained cards.
+pub(super) fn card_data(
+    data: &mut DataSource,
+    card: &Card,
+    n: usize,
+    mut index: usize,
+    viewport: [f64; 2],
+) {
+    data.set_global(
+        format!("#card_{n}_visible"),
+        Scalar::Bool(!card.preview_only),
+    );
+    data.set_global(format!("#card_{n}_title"), Scalar::Text(card.title.clone()));
+    data.set_global(
+        format!("#card_{n}_offset"),
+        Scalar::Json(json!(origin(card, viewport))),
+    );
+    data.set_global(
+        format!("#card_{n}_background"),
+        Scalar::Json(json!([0.045, 0.05, 0.065, card.background_opacity])),
+    );
+    super::cells::data(data, card, n);
+    super::text_plate::data(data, card, n, viewport);
+    super::compass::data(data, card, n);
+    for row in &card.rows {
+        data.set_global(
+            format!("#row_{index}_label"),
+            Scalar::Text(row.label.clone()),
+        );
+        data.set_global(
+            format!("#row_{index}_value"),
+            Scalar::Text(row.value.clone()),
+        );
+        data.set_global(
+            format!("#row_{index}_color"),
+            Scalar::Json(json!(row.color)),
+        );
+        data.set_global(
+            format!("#row_{index}_progress"),
+            Scalar::Num(f64::from(row.progress.unwrap_or(0.))),
+        );
+        data.set_global(format!("#row_{index}_icon"), Scalar::Json(Value::Null));
+        index += 1;
+    }
 }
 
 /// Shared card geometry for gameplay publication and native layout editing.
@@ -418,12 +493,5 @@ pub(in super::super) fn origin(card: &Card, viewport: [f64; 2]) -> [f64; 2] {
     if let Some(position) = card.position {
         return std::array::from_fn(|axis| f64::from(position[axis]) * available[axis]);
     }
-    let edge = match card.anchor {
-        Anchor::TopLeft => [0., 0.],
-        Anchor::TopCenter => [(viewport[0] - size[0]) * 0.5, 0.],
-        Anchor::TopRight => [available[0], 0.],
-        Anchor::BottomLeft => [0., available[1]],
-        Anchor::BottomRight => available,
-    };
-    std::array::from_fn(|axis| edge[axis] + f64::from(card.offset[axis]))
+    card.anchor.origin(card.offset, size, viewport)
 }

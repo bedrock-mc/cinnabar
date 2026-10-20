@@ -222,6 +222,12 @@ fn model_quad(instance_index: u32, metadata_index: u32) -> ModelQuad {
     }
     let model_ref_index = geometry_streams[draw_ref_word];
     let quad_index = geometry_streams[draw_ref_word + 1u];
+    return model_quad_at(model_ref_index, quad_index, metadata_index);
+}
+
+/// Decodes a stable model-ref address and template quad in an origin slot, validating all reads.
+fn model_quad_at(model_ref_index: u32, quad_index: u32, metadata_index: u32) -> ModelQuad {
+    let geometry_word_count = arrayLength(&geometry_streams);
     if (quad_index >= 32u || model_ref_index > 0x3fffffffu) {
         return invalid_model_quad();
     }

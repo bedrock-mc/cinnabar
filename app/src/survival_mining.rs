@@ -57,17 +57,45 @@ pub(crate) fn observe_destroy_target(
     }
     let stream = context.client_world.stream.as_ref()?;
     let mode = stream.network_id_mode();
-    let block = sim::BlockDestroyInfo::from_facts(
-        stream
-            .runtime_assets()
-            .resolve(mode, observed.target.runtime_id)
-            .destroy(),
-    );
+    let mut destroy_facts = stream
+        .runtime_assets()
+        .resolve(mode, observed.target.runtime_id)
+        .destroy();
     let item = &observed.selection.item;
     let fact = ui
         .inventory_ledger(player_runtime)
         .item_facts()
         .get(item.network_id());
+    if let Some((mining, effective_tools)) = context
+        .collisions
+        .custom_block_mining(mode, observed.target.runtime_id)
+    {
+        let entry = ui
+            .inventory_ledger(player_runtime)
+            .negotiated_item_entry(item.network_id());
+        let builtin = assets::facts::ItemFacts::builtin().ok();
+        destroy_facts = pack_runtime::custom_mining_seconds(
+            mining,
+            &context.client_world.mining_filters,
+            entry.map(|entry| entry.identifier.as_ref()),
+            item.metadata(),
+            &|tag| {
+                entry.is_some_and(|entry| entry.item_tags.iter().any(|value| value.as_ref() == tag))
+                    || builtin
+                        .as_ref()
+                        .and_then(|facts| facts.tag(tag))
+                        .is_some_and(|tag| fact.tags.contains(tag))
+            },
+        )
+        .map_or(
+            assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
+            |seconds| assets::compiled::block_destroy::BlockDestroyFacts::Custom {
+                seconds_to_destroy_bits: seconds.to_bits(),
+                effective_tools,
+            },
+        );
+    }
+    let block = sim::BlockDestroyInfo::from_facts(destroy_facts);
     let instant = caps.instant_break;
     if instant && !destroys_in_creative(fact) {
         return None;

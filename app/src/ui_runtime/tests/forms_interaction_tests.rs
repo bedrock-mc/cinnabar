@@ -331,10 +331,24 @@ fn mouse_activates_visible_buttons_once_and_rejects_old_rendered_hits() {
             client_ui::ui_runtime::LocalFormAction::SubmitButton(0)
         );
         if stale {
-            app.world_mut()
-                .resource_mut::<UiRuntimeResource>()
-                .apply(&mut player_runtime, retained(7, 2))
+            // Reusing an ID requires the previous form and its answer to retire first.
+            let mut runtime = app.world_mut().resource_mut::<UiRuntimeResource>();
+            runtime
+                .respond_to_server_form(hit.0, client_ui::ui_runtime::LocalFormAction::Dismiss)
                 .unwrap();
+            assert!(
+                flush_form_response(
+                    &mut runtime,
+                    |_| false,
+                    |packet| {
+                        assert_eq!(packet, protocol::modal_form_cancel_response(hit.0.form_id));
+                        Ok(())
+                    }
+                )
+                .unwrap()
+            );
+            runtime.apply(&mut player_runtime, retained(7, 2)).unwrap();
+            assert_ne!(runtime.server_forms().active().unwrap().identity, hit.0);
         }
         app.world_mut()
             .get_mut::<Window>(entity)
@@ -376,36 +390,26 @@ fn mouse_activates_visible_buttons_once_and_rejects_old_rendered_hits() {
 fn enter_reveals_a_hidden_button_before_it_can_submit() {
     let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
-    let (mut app, entity) = app(&mut player_runtime);
-    let mut event = retained(7, 2);
+    let mut event = retained(7, 1);
     if let protocol::UiEvent::Form(form) = &mut event.event
         && let protocol::ServerFormModel::TextMenu(menu) = &mut form.model
     {
         menu.content = "Long body\n".repeat(100).into();
         menu.omitted_images = 1;
     }
-    let mut runtime = app
-        .world_mut()
-        .remove_resource::<UiRuntimeResource>()
-        .unwrap();
-    runtime.apply(&mut player_runtime, event).unwrap();
-    app.world_mut()
-        .resource_mut::<UiPresentationResource>()
-        .build(
-            &player_runtime,
-            &runtime,
-            0,
-            [1280, 720],
-            ui::DpiScale::new(1.0).unwrap(),
-        )
-        .unwrap();
-    let identity = runtime.server_forms().active().unwrap().identity;
+    let (mut app, entity) = app_for_event(&mut player_runtime, event);
+    let identity = app
+        .world()
+        .resource::<UiRuntimeResource>()
+        .server_forms()
+        .active()
+        .unwrap()
+        .identity;
     assert!(
         !app.world()
             .resource::<UiPresentationResource>()
             .form_button_visible(identity, 0)
     );
-    app.insert_resource(runtime);
     press(&mut app, entity, KeyCode::Enter);
     app.update();
     let runtime = app

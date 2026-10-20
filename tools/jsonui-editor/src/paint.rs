@@ -56,6 +56,7 @@ pub fn paint(input: &PaintInput, fonts: &Fonts, textures: &Textures) -> Result<V
             font.pages()
                 .iter()
                 .map(|page| Page {
+                    repeat_content: None,
                     width: page.width,
                     height: page.height,
                     rgba: (0..page.width as usize * page.height as usize)
@@ -239,7 +240,11 @@ impl Painter<'_, '_> {
                 }
             }
             Draw::Sprite {
-                texture, uv, color, ..
+                texture,
+                uv,
+                color,
+                filter,
+                ..
             } => {
                 let Some((page, [w, h])) = self.textures.sprite(texture) else {
                     return;
@@ -248,15 +253,35 @@ impl Painter<'_, '_> {
                 let color = &drawn.color.unwrap_or(*color);
                 let pixel =
                     |span: f64, t: f32| (span * f64::from(t)).round().clamp(0.0, 65_535.0) as u16;
-                let visual = UiVisual::Sprite {
-                    texture_page: self.pages.texture(page),
-                    uv: [
-                        pixel(w, uv.u0),
-                        pixel(h, uv.v0),
-                        pixel(w, uv.u1),
-                        pixel(h, uv.v1),
-                    ],
-                    color: alpha(*color),
+                let visual = if let Some(repeat) = drawn.repeat {
+                    let source = [
+                        w as f32 * uv.u0,
+                        h as f32 * uv.v0,
+                        w as f32 * uv.u1,
+                        h as f32 * uv.v1,
+                    ];
+                    let Ok(visual) = UiVisual::repeated_sprite(
+                        self.pages.texture(page),
+                        source,
+                        repeat,
+                        alpha(*color),
+                        *filter,
+                        false,
+                    ) else {
+                        return;
+                    };
+                    visual
+                } else {
+                    UiVisual::Sprite {
+                        texture_page: self.pages.texture(page),
+                        uv: [
+                            pixel(w, uv.u0),
+                            pixel(h, uv.v0),
+                            pixel(w, uv.u1),
+                            pixel(h, uv.v1),
+                        ],
+                        color: alpha(*color),
+                    }
                 };
                 if self.group(clip).is_some() {
                     self.push(visual, dest);
@@ -359,6 +384,7 @@ mod tests {
             layer: 0,
             alpha: 0.5,
             anim: None,
+            paint_region: None,
             draw,
             gates: Vec::new(),
         }
@@ -395,6 +421,7 @@ mod tests {
                     uv: UvRect::full(),
                     color: [255; 4],
                     filter: Default::default(),
+                    repeat: None,
                 },
             ),
             node(

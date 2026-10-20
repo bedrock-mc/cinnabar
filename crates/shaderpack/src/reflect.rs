@@ -576,7 +576,7 @@ mod tests {
     const FRAGMENT: &str = "#version 450
 layout(set = 0, binding = 0) uniform IrisUniforms { float frameTimeCounter; vec3 cameraPosition; };
 layout(set = 1, binding = 0) uniform sampler iris_sampler;
-layout(set = 1, binding = 2) uniform texture2D colortex0;
+layout(set = 1, binding = 5) uniform texture2D colortex0;
 layout(location = 0) out vec4 outColor;
 void main() {
     vec4 base = texture(sampler2D(colortex0, iris_sampler), vec2(frameTimeCounter));

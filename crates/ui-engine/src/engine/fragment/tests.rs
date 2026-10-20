@@ -140,7 +140,7 @@ fn preserves_retained_paint_order_when_source_subtrees_are_interleaved() {
 }
 
 #[test]
-fn normalizes_actual_clipped_artwork_with_negative_child_offsets_and_root_overflow() {
+fn hud_card_preview_normalizes_original_painted_bounds_with_overflow() {
     let child = solid(2, Some(1), [-30.0, -70.0, 50.0, 20.0])
         .with_viewport_clip(rect(75.0, 35.0, 145.0, 115.0).unwrap());
     let mut source = [
@@ -156,7 +156,7 @@ fn normalizes_actual_clipped_artwork_with_negative_child_offsets_and_root_overfl
     let size = normalize_fragment(&mut source, [0.0, 0.0, 500.0, 500.0])
         .unwrap()
         .unwrap();
-    assert_eq!(size, [70.0, 80.0]);
+    assert_eq!(edges(size), [75.0, 35.0, 145.0, 115.0]);
     assert_eq!(edges(source[0].bounds()), [25.0, 65.0, 35.0, 75.0]);
     assert_eq!(
         source[1].bounds(),
@@ -171,7 +171,7 @@ fn normalizes_actual_clipped_artwork_with_negative_child_offsets_and_root_overfl
     assert_eq!(edges(measured), [0.0, 0.0, 70.0, 80.0]);
     let (painted, _) = replay(
         &source,
-        size,
+        [size.width(), size.height()],
         [10.0, 20.0, 80.0, 100.0],
         [0.0, 0.0, 500.0, 500.0],
         1.0,
@@ -195,7 +195,17 @@ fn normalizes_actual_clipped_artwork_with_negative_child_offsets_and_root_overfl
 }
 
 #[test]
-fn an_authored_outer_transform_moves_fragment_artwork_and_its_clip_together() {
+fn hud_card_preview_uncached_fragment_preserves_outer_transforms() {
+    transformed_fragment(false);
+}
+
+#[test]
+fn hud_card_preview_cached_fragment_reuses_placement_and_preserves_outer_transforms() {
+    transformed_fragment(true);
+}
+
+/// Exercises both replay paths against the same transformed production canvas.
+fn transformed_fragment(cached: bool) {
     use crate::{
         engine::{
             FormEngine, ScreenArt,
@@ -212,7 +222,10 @@ fn an_authored_outer_transform_moves_fragment_artwork_and_its_clip_together() {
             RemoteImage::Failed
         }
     }
-    struct Fragment(Vec<UiNode>);
+    struct Fragment {
+        nodes: Arc<[UiNode]>,
+        cache: Option<CachedFragment>,
+    }
     impl CustomRenderer for Fragment {
         /// Replays the same fragment path used by native pack-control previews.
         fn paint(
@@ -220,7 +233,18 @@ fn an_authored_outer_transform_moves_fragment_artwork_and_its_clip_together() {
             node: &CustomDraw<'_>,
             canvas: &mut Canvas<'_>,
         ) -> Result<bool, PaintError> {
-            canvas.paint_fragment(&self.0, [10.0; 2], node.dest, 1.0)?;
+            if let Some(cache) = &mut self.cache {
+                canvas.paint_cached_fragment(
+                    cache,
+                    &self.nodes,
+                    [10.; 2],
+                    node.dest,
+                    node.dest,
+                    1.,
+                )?;
+            } else {
+                canvas.paint_fragment(&self.nodes, [10.0; 2], node.dest, 1.0)?;
+            }
             Ok(true)
         }
     }
@@ -252,38 +276,75 @@ fn an_authored_outer_transform_moves_fragment_artwork_and_its_clip_together() {
     let px = metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
     let mut layouts = ui::TextLayoutCache::new(1, 16 * 1024);
     let mut nodes = Vec::new();
-    let mut next = 1;
-    let mut fragment = Fragment(vec![solid(1, None, [0.0, 0.0, 10.0, 10.0])]);
-    let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut fragment];
-    engine
-        .draw(
-            ScreenArt::default(),
-            &mut PaintFrame {
-                layouts: &mut layouts,
-                font: &font,
-                metrics,
-                solid_page: 0,
-                safe_area: SafeArea::ZERO,
-                content: [500.0; 2],
-                translate: &|_| None,
-                language: [0; 3],
-                now: 0.0,
-                nodes: &mut nodes,
-                next: &mut next,
-                renderers: &mut renderers,
-            },
-            |env, root| {
-                Some(json_ui::render_bound(
-                    tree,
-                    root,
-                    env,
-                    &json_ui::ViewState::default(),
-                ))
-            },
-        )
-        .unwrap()
-        .unwrap();
+    let mut fragment = Fragment {
+        nodes: Arc::from([solid(1, None, [0.0, 0.0, 10.0, 10.0])]),
+        cache: cached.then(CachedFragment::default),
+    };
+    let overlay = [json_ui::DrawNode {
+        name: "foreground".into(),
+        key: "foreground".into(),
+        dest: json_ui::RectOut {
+            x: 120.,
+            y: 120.,
+            w: 10.,
+            h: 10.,
+        },
+        clip: json_ui::RectOut {
+            x: 0.,
+            y: 0.,
+            w: 500.,
+            h: 500.,
+        },
+        layer: 0,
+        alpha: 1.,
+        paint_region: None,
+        anim: None,
+        gates: Vec::new(),
+        draw: json_ui::Draw::Solid {
+            color: [0, 255, 0, 255],
+        },
+    }];
+    for frame in 0..2 {
+        nodes.clear();
+        let mut next = 1 + frame * 1000;
+        let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut fragment];
+        engine
+            .draw(
+                ScreenArt {
+                    overlay: &overlay,
+                    ..Default::default()
+                },
+                &mut PaintFrame {
+                    layouts: &mut layouts,
+                    font: &font,
+                    metrics,
+                    solid_page: 0,
+                    safe_area: SafeArea::ZERO,
+                    content: [500.0; 2],
+                    translate: &|_| None,
+                    language: [0; 3],
+                    now: 0.0,
+                    nodes: &mut nodes,
+                    next: &mut next,
+                    renderers: &mut renderers,
+                },
+                |env, root| {
+                    Some(json_ui::render_bound(
+                        tree.clone(),
+                        root,
+                        env,
+                        &json_ui::ViewState::default(),
+                    ))
+                },
+            )
+            .unwrap()
+            .unwrap();
+    }
+    if let Some(cache) = &fragment.cache {
+        assert_eq!(cache.builds, 1);
+    }
     let drawn = draw(&nodes);
+    assert_eq!(drawn.vertices.last().unwrap().color, [0, 255, 0, 255]);
     let expected = [75.0, 75.0, 175.0, 175.0].map(|value| value * px);
     assert_eq!(edges(drawn.batches[0].clip), expected);
     let min = drawn
@@ -358,6 +419,41 @@ fn fades_text_and_meshes_without_changing_source_artwork() {
     assert!(Arc::ptr_eq(&first, &second));
     assert_eq!(first.vertices()[0].color[3], 64);
     assert_eq!(mesh.vertices()[0].color[3], 128);
+}
+
+#[test]
+fn fades_repeated_fragments_without_changing_source_coordinates_or_styles() {
+    let source = [
+        solid(1, None, [0.0, 0.0, 10.0, 10.0]).with_visual(UiVisual::RepeatedSprite {
+            texture_page: 3,
+            tile_uv: [0.25, 0.5, 20.25, 30.5],
+            source: [2.0, 3.0, 4.0, 5.0],
+            color: [80, 160, 240, 200],
+            style: render_api::ui_repeat::UI_STYLE_REPEAT
+                | render_api::ui_repeat::UI_STYLE_REPEAT_PAGE,
+        }),
+    ];
+    let before = draw(&source);
+    let (nodes, _) = replay(
+        &source,
+        [10.0; 2],
+        [0.0, 0.0, 10.0, 10.0],
+        [0.0, 0.0, 10.0, 10.0],
+        0.5,
+        10,
+        0,
+    )
+    .unwrap();
+    let after = draw(&nodes);
+    assert_eq!(after.vertices.len(), before.vertices.len());
+    assert_eq!(after.batches[0].texture_page, 3);
+    for (before, after) in before.vertices.iter().zip(&after.vertices) {
+        assert_eq!(after.uv, before.uv);
+        assert_eq!(after.overlay_color, before.overlay_color);
+        assert_eq!(after.style_flags, before.style_flags);
+        assert_eq!(after.color, [80, 160, 240, 100]);
+    }
+    assert!(draw(&source).vertices.iter().all(|v| v.color[3] == 200));
 }
 
 #[test]

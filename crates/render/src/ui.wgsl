@@ -7,7 +7,7 @@ struct UiViewport {
 // Vertex style bits (the UI crate's glint, grayscale and bilinear flags).
 const STYLE_GLINT: u32 = UI_STYLE_GLINT;
 const STYLE_GRAYSCALE: u32 = 4u;
-const STYLE_BILINEAR: u32 = 8u;
+const STYLE_BILINEAR: u32 = UI_STYLE_BILINEAR;
 const STYLE_FONT_GAMMA: u32 = FONT_STYLE_COVERAGE_GAMMA;
 const STYLE_FONT_SDF: u32 = FONT_STYLE_SDF;
 const STYLE_FONT_OUTLINE: u32 = FONT_STYLE_OUTLINE_COVERAGE;
@@ -18,13 +18,47 @@ const STYLE_ADDITIVE: u32 = UI_STYLE_ADDITIVE;
 const STYLE_PARTICLE: u32 = UI_STYLE_PARTICLE;
 const STYLE_RADIAL_GRADIENT: u32 = UI_STYLE_RADIAL_GRADIENT;
 const STYLE_COVERAGE_PAINT: u32 = UI_STYLE_COVERAGE_PAINT;
+const STYLE_SHADOW: u32 = UI_STYLE_SHADOW;
+const STYLE_REPEAT_X: u32 = UI_STYLE_REPEAT_X;
+const STYLE_REPEAT_Y: u32 = UI_STYLE_REPEAT_Y;
+
+const STYLE_REPEAT_PAGE: u32 = UI_STYLE_REPEAT_PAGE;
+
+struct PageRegion {
+    content: vec4<f32>,
+    size: vec4<f32>,
+};
+struct PageFormat {
+    format: vec4<u32>,
+    regions: array<PageRegion, MAX_UI_TEXTURE_LAYERS>,
+};
+
+UI_REPEAT_DECODER
+UI_SHADOW_DECODER
+
+// Sample the shared decoder's source coordinates with the requested filter.
+fn sample_repeat(input: UiVertexOutput, dimensions: vec2<f32>) -> vec4<f32> {
+    let bounds = vec4<f32>(input.overlay_color.xy + input.atlas_offset, input.overlay_color.zw);
+    var page = PageRegion(vec4<f32>(0.0), vec4<f32>(0.0));
+    if (input.style_flags & STYLE_REPEAT_PAGE) != 0u {
+        page = ui_page_format.regions[input.texture_page];
+    }
+    let decoded = ui_repeat_uv(input.uv, bounds, input.style_flags, page.content, page.size.xy);
+    if decoded.z == 0.0 { discard; }
+    let uv = decoded.xy;
+    let linear = (input.style_flags & STYLE_BILINEAR) != 0u;
+    if linear {
+        return textureSampleLevel(ui_pages, ui_linear_sampler, uv / dimensions, i32(input.texture_page), 0.0);
+    }
+    return textureSampleLevel(ui_pages, ui_sampler, uv / dimensions, i32(input.texture_page), 0.0);
+}
 
 @group(0) @binding(0) var<uniform> viewport: UiViewport;
 @group(0) @binding(1) var ui_pages: texture_2d_array<f32>;
 @group(0) @binding(2) var ui_sampler: sampler;
 @group(0) @binding(3) var ui_linear_sampler: sampler;
 // x is 1 when the bucket stores one coverage byte per texel of a white page.
-@group(0) @binding(4) var<uniform> ui_page_format: vec4<u32>;
+@group(0) @binding(4) var<uniform> ui_page_format: PageFormat;
 @group(0) @binding(5) var item_glint: texture_2d<f32>;
 @group(0) @binding(6) var item_glint_sampler: sampler;
 
@@ -105,6 +139,12 @@ fn sample_outline(uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>, dimensions: vec2<
 fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
     let uv_dx = dpdx(input.uv);
     let uv_dy = dpdy(input.uv);
+    if (input.style_flags & STYLE_SHADOW) != 0u {
+        let pixel = max(length(uv_dx), length(uv_dy));
+        let alpha = input.color.a * ui_shadow_coverage(input.uv, input.overlay_color, pixel);
+        let rgb = select(input.color.rgb, srgb_to_linear(input.color.rgb), direct);
+        return vec4<f32>(rgb * alpha, alpha);
+    }
     if (input.style_flags & STYLE_COVERAGE_PAINT) != 0u {
         let packed = vec4<u32>(round(input.overlay_color));
         let end_color = vec4<f32>(packed & vec4<u32>(255u)) / 255.0;
@@ -140,6 +180,7 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
     // Preserve source interpolation and SDF derivatives when a glyph moves in the atlas.
     var sample_uv = input.uv + input.atlas_offset;
     let particle = (input.style_flags & STYLE_PARTICLE) != 0u;
+    let repeated = (input.style_flags & (STYLE_REPEAT_X | STYLE_REPEAT_Y)) != 0u;
     if particle && all(input.overlay_color.zw > vec2<f32>(0.0)) {
         let low = input.overlay_color.xy + input.atlas_offset + vec2<f32>(0.5);
         let high = input.overlay_color.xy + input.overlay_color.zw
@@ -152,7 +193,10 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
     let texels_per_pixel = sqrt(abs(uv_dx.x * uv_dy.y - uv_dx.y * uv_dy.x));
     // Level 0 sampling keeps the per-vertex sampler choice legal in non-uniform flow.
     var sample: vec4<f32>;
-    if (input.style_flags & STYLE_FONT_OUTLINE) != 0u {
+    // Repeat UVs use tile units and must retain wrapping and page ownership.
+    if repeated {
+        sample = sample_repeat(input, dimensions);
+    } else if (input.style_flags & STYLE_FONT_OUTLINE) != 0u {
         sample = sample_outline(sample_uv, uv_dx, uv_dy, dimensions, input.texture_page);
     } else if native_font && !sdf_font {
         let texel = clamp(vec2<i32>(floor(sample_uv)), vec2<i32>(0), vec2<i32>(dimensions) - vec2<i32>(1));
@@ -162,7 +206,7 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
     } else {
         sample = textureSampleLevel(ui_pages, ui_sampler, normalized_uv, i32(input.texture_page), 0.0);
     }
-    if ui_page_format.x != 0u {
+    if ui_page_format.format.x != 0u {
         sample = vec4<f32>(1.0, 1.0, 1.0, sample.r);
     }
     if sdf_font {
@@ -189,7 +233,7 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
         if sample.a * input.color.a < 0.01 { discard; }
     }
     // Particle vertices carry sprite bounds in the overlay field.
-    let entity_overlay = select(input.overlay_color, vec4<f32>(0.0), particle);
+    let entity_overlay = select(input.overlay_color, vec4<f32>(0.0), particle || repeated);
     var straight_color = input.color;
     // Mix the render-controller overlay into sampled RGB before lighting.
     // Sampled and node alpha remain unchanged.

@@ -17,6 +17,20 @@ pub const AIR_IDENTIFIER: &str = "minecraft:air";
 /// Placeholder identity for a block state the client has not admitted.
 pub const RESERVED_BLOCK_NAME: &str = "cinnabar:reserved";
 
+/// Resolves the ordinary digging tools a custom block's declared tags accelerate.
+pub fn custom_block_effective_tools<'a>(tags: impl IntoIterator<Item = &'a str>) -> u8 {
+    use crate::compiled::block_destroy::ToolKind;
+    tags.into_iter().fold(0, |mask, tag| {
+        mask | match tag {
+            "minecraft:is_pickaxe_item_destructible" => ToolKind::Pickaxe.bit(),
+            "minecraft:is_hatchet_item_destructible" => ToolKind::Axe.bit(),
+            "minecraft:is_shovel_item_destructible" => ToolKind::Shovel.bit(),
+            "minecraft:is_hoe_item_destructible" => ToolKind::Hoe.bit(),
+            _ => 0,
+        }
+    })
+}
+
 /// Identity, placement and support metadata for one runtime ID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockFact {

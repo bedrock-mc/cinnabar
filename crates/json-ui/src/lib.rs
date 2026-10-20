@@ -36,6 +36,7 @@ mod pack;
 pub mod position;
 mod predicate;
 mod resolve;
+pub mod rounded;
 mod scene;
 mod screens;
 mod sidecar;
@@ -69,8 +70,8 @@ pub use component::{
 };
 pub use context::Context;
 pub use emit::{
-    Draw, DrawNode, RectOut, SpriteFilter, SpriteQuad, StateGate, TextAlign, UvRect, color_value,
-    emit, emit_gated,
+    Draw, DrawNode, RectOut, SpriteFilter, SpriteQuad, SpriteRepeat, StateGate, TextAlign, UvRect,
+    color_value, emit, emit_gated,
 };
 pub use env::Env;
 pub use expr::{AxisContext, Length, Resolved, Term, Unit, length_from_value, parse_length};

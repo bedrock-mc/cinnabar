@@ -1,5 +1,10 @@
 //! Replays already painted controls without re-entering the engine's texture or animation locks.
 
+mod cached;
+mod textures;
+pub use cached::CachedFragment;
+pub use textures::CachedFragmentTextures;
+
 use std::{collections::BTreeMap, sync::Arc};
 
 use ui::{
@@ -10,13 +15,13 @@ use ui::{
 use super::{Canvas, rect, screen::PaintError};
 
 /// Measures already painted artwork in its actual source viewport and translates it to
-/// a zero origin for [`Canvas::paint_fragment`]. Returns its size in logical pixels, or
+/// a zero origin for [`Canvas::paint_fragment`]. Returns its original painted bounds, or
 /// `None` for empty/unsupported filter artwork. Layout and all node-local transforms stay
 /// intact; only root positions and absolute clips move. Retained draw budgets also apply.
 pub fn normalize_fragment(
     nodes: &mut [UiNode],
     viewport: [f32; 4],
-) -> Result<Option<[f32; 2]>, PaintError> {
+) -> Result<Option<ui::UiRect>, PaintError> {
     if nodes.iter().any(filtered) {
         return Ok(None);
     }
@@ -51,7 +56,7 @@ pub fn normalize_fragment(
         })
         .collect::<Result<Vec<_>, PaintError>>()?;
     nodes.clone_from_slice(&translated);
-    Ok(Some([bounds.width(), bounds.height()]))
+    Ok(Some(bounds))
 }
 
 impl Canvas<'_> {
@@ -82,13 +87,21 @@ impl Canvas<'_> {
             source_clip,
             opacity,
             *self.next,
-            self.nodes.len(),
+            self.nodes.len().saturating_add(1),
         )?;
         if let Some(transform) = self.residual {
             move_clips(&mut painted, transform, clip)?;
         }
+        let appended = !painted.is_empty();
+        if appended && next == u32::MAX {
+            return Err(PaintError::Tree(UiError::DrawIndexOverflow));
+        }
         self.nodes.extend(painted);
         *self.next = next;
+        if appended {
+            self.clip = None;
+            self.group(clip)?;
+        }
         Ok(())
     }
 }
@@ -160,7 +173,7 @@ fn edges(bounds: ui::UiRect) -> [f32; 4] {
 /// Rejects filter packets before replay can change the caller's output or filter scope.
 fn filtered(node: &UiNode) -> bool {
     node.filter_group().is_some()
-        || matches!(node.visual(), UiVisual::Mesh(mesh) if mesh.batches().iter().any(|batch|
+        || matches!(node.visual(), UiVisual::Mesh(mesh) | UiVisual::TintedMesh { mesh, .. } if mesh.batches().iter().any(|batch|
             matches!(batch.blend, UiBlendMode::Filter | UiBlendMode::Backdrop)))
 }
 
@@ -337,11 +350,13 @@ fn faded(visual: &UiVisual, opacity: f32, meshes: &mut BTreeMap<usize, Arc<UiMes
                     .or_insert_with(|| Arc::new((**mesh).clone().with_opacity(opacity))),
             );
         }
-        UiVisual::Solid { color, .. }
+        UiVisual::TintedMesh { color, .. }
+        | UiVisual::Solid { color, .. }
         | UiVisual::Sprite { color, .. }
         | UiVisual::RotatedSprite { color, .. }
         | UiVisual::GlintSprite { color, .. }
         | UiVisual::StyledSprite { color, .. }
+        | UiVisual::RepeatedSprite { color, .. }
         | UiVisual::Text { color, .. }
         | UiVisual::RotatedText { color, .. } => alpha(color),
         UiVisual::Gradient { colors, .. } => colors.iter_mut().for_each(alpha),

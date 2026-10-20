@@ -3,6 +3,9 @@ use bevy::input::keyboard::Key;
 use client_ui::test_support::mini_engine_presentation;
 use mod_ui::PanelUiOwner;
 
+mod closing_result;
+mod native_fields;
+
 fn fixture() -> String {
     fixture_with_capture(false)
 }
@@ -184,9 +187,9 @@ fn hud_editor_app() -> (App, Entity) {
     personal_panel_app(true, false)
 }
 
-/// Text-only keyboard messages edit native fields without becoming held gameplay controls.
+/// Unidentified messages cannot insert text or become held controls; identified text still edits.
 #[test]
-fn text_without_a_physical_key_reaches_the_native_editor() {
+fn unidentified_text_is_discarded_while_identified_text_edits() {
     let (mut app, window) = personal_panel_app(false, false);
     let directory = tempfile::tempdir().unwrap();
     let other = mod_host::ModHost::load_snapshot_with_grants(
@@ -235,6 +238,13 @@ fn text_without_a_physical_key_reaches_the_native_editor() {
             .keys_pressed
             .is_empty()
     );
+    assert_eq!(
+        app.world()
+            .resource::<UiPresentationResource>()
+            .mod_ui()
+            .mod_panel_field_selection(),
+        Some("35")
+    );
     // The panel clears shared key state each frame; the physical modifier must survive that.
     for (key_code, text) in [
         (KeyCode::SuperLeft, None),
@@ -257,11 +267,7 @@ fn text_without_a_physical_key_reaches_the_native_editor() {
     for (key_code, state, text) in [
         (KeyCode::KeyA, ButtonState::Pressed, None),
         (KeyCode::SuperLeft, ButtonState::Released, None),
-        (
-            KeyCode::Unidentified(bevy::input::keyboard::NativeKeyCode::Unidentified),
-            ButtonState::Pressed,
-            Some("73"),
-        ),
+        (KeyCode::Digit7, ButtonState::Pressed, Some("73")),
     ] {
         app.world_mut().write_message(KeyboardInput {
             key_code,
@@ -840,4 +846,81 @@ fn autosave_editor_escape_closes_entire_panel_without_reopening_it() {
         runtime.controls.keys_pressed.is_empty(),
         "Escape does not leak to gameplay"
     );
+}
+
+/// Closing chrome keeps its original live-session fence until the animation completes.
+#[test]
+fn hud_editor_closing_surface_is_revoked_on_focus_or_session_loss() {
+    for focus_loss in [false, true] {
+        let (mut app, window) = hud_editor_app();
+        let preview: ui::mod_hud::Hud = serde_json::from_value(serde_json::json!({
+            "autosave":true,"cards":[],
+            "surface":{
+                "screen":"fixture.root",
+                "document":serde_json::json!({"namespace":"fixture","root":{
+                    "type":"screen","size":["100%","100%"],"controls":[]
+                }}).to_string(),
+                "bindings":{"#alpha":1},
+                "transitions":{"#alpha":{"duration":0.2,"exit":0}}
+            }
+        }))
+        .unwrap();
+        {
+            let mut p = app.world_mut().resource_mut::<UiPresentationResource>();
+            p.mod_ui_mut().open_mod_hud_editor(&preview).unwrap();
+            render(
+                &mut p,
+                &client_state::PlayerRuntime(player_state::PlayerState::new(1)),
+                &UiRuntime::new(1),
+            );
+        }
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::ShiftRight,
+            logical_key: Key::Shift,
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window,
+        });
+        app.update();
+        {
+            let p = app.world().resource::<UiPresentationResource>();
+            assert!(!p.mod_ui().mod_hud_editor_open() && !p.mod_ui().mod_panel_open());
+            assert!(p.mod_ui().mod_hud_editor_painting());
+            assert!(
+                app.world()
+                    .resource::<ModRuntime>()
+                    .hud_editor_owner
+                    .is_some()
+            );
+        }
+        app.update();
+        assert!(
+            app.world()
+                .resource::<UiPresentationResource>()
+                .mod_ui()
+                .mod_hud_editor_painting(),
+            "an ordinary closed-panel frame must continue the exit"
+        );
+        if focus_loss {
+            app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
+        } else {
+            app.world_mut()
+                .resource_mut::<UiRuntimeResource>()
+                .begin_session(2);
+        }
+        app.update();
+        assert!(
+            !app.world()
+                .resource::<UiPresentationResource>()
+                .mod_ui()
+                .mod_hud_editor_painting()
+        );
+        assert!(
+            app.world()
+                .resource::<ModRuntime>()
+                .hud_editor_owner
+                .is_none()
+        );
+    }
 }
