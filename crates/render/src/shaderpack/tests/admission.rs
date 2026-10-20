@@ -68,7 +68,7 @@ fn geometry_storage_attachment_aliases_fail_view_admission() {
     let gpu = validation_gpu();
     for (output, sampled, accepted) in [(0, false, false), (1, false, true), (0, true, true)] {
         let fragment = format!(
-            "#version 430\nlayout(rgba8) uniform image2D colorimg0;\n{}\n/* DRAWBUFFERS:{output} */\nvoid main() {{ imageStore(colorimg0, ivec2(0), vec4(1.0)); gl_FragData[0] = {}; }}",
+            "#version 430\nlayout(rgba8) writeonly uniform image2D colorimg0;\n{}\n/* DRAWBUFFERS:{output} */\nvoid main() {{ imageStore(colorimg0, ivec2(0), vec4(1.0)); gl_FragData[0] = {}; }}",
             if sampled {
                 "uniform sampler2D colortex0;"
             } else {
