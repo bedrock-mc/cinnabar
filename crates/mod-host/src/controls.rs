@@ -537,16 +537,7 @@ pub(super) fn queue_field_events(
             }
             FieldEvent::Key(e) => {
                 ensure!(
-                    *navigation_keys
-                        && matches!(
-                            e.key.as_str(),
-                            "ArrowUp"
-                                | "ArrowDown"
-                                | "ArrowLeft"
-                                | "ArrowRight"
-                                | "Enter"
-                                | "NumpadEnter"
-                        ),
+                    *navigation_keys && ui::mod_panel::is_field_navigation_key(&e.key),
                     "invalid native field navigation key"
                 );
             }

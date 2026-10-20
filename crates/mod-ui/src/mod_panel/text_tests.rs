@@ -482,6 +482,42 @@ fn native_field_blink_reuses_shaping_and_catalog() {
             >= 2,
         "composition paints underline and caret"
     );
+    let rect = [40., 40., 42., 26.];
+    let panel = ui.mod_panel.as_mut().unwrap();
+    panel.panel.controls[0] = Control::Slider {
+        id: "number".into(),
+        label: "Number".into(),
+        value: 35.,
+        min: 0.,
+        max: 100.,
+        step: 1.,
+    };
+    panel.refresh_data();
+    panel.open_editor(0, rect);
+    let number = "123456789012345678901234";
+    ui.mod_panel_ime_commit(number);
+    ui.mod_panel_key("TextInput", Some("1"));
+    assert_eq!(
+        field_state(&ui).text,
+        number,
+        "numeric character capacity is unchanged"
+    );
+    paint_field(&mut ui, &engine, &font, &mut layouts, 3.);
+    assert!(
+        field_state(&ui).scroll > 0.,
+        "long numeric drafts scroll to their caret"
+    );
+    let frame = ui.mod_panel.as_ref().unwrap().frame.as_ref().unwrap();
+    let bounds = [rect[0], rect[0] + rect[2]].map(|x| frame.origin[0] + x as f32 * frame.scale);
+    assert!((bounds[0]..=bounds[1]).contains(&field_state(&ui).ime_position[0]));
+    let layout = Arc::clone(field_state(&ui).layout.as_ref().unwrap());
+    ui.mod_panel_key("Home", None);
+    paint_field(&mut ui, &engine, &font, &mut layouts, 3.1);
+    assert_eq!(field_state(&ui).scroll, 0.);
+    assert!(
+        Arc::ptr_eq(&layout, field_state(&ui).layout.as_ref().unwrap()),
+        "scrolling reuses the shaped text"
+    );
 }
 
 struct NoImages;
@@ -534,4 +570,43 @@ fn native_live_field_guest_replaces_focused_value() {
             .value,
         "next"
     );
+}
+
+/// Explicit scripted/IME text commits also preserve the existing native number editor.
+#[test]
+fn native_numeric_field_accepts_explicit_text_commits() {
+    let mut ui = text_field("Main", 0, 24);
+    let panel = ui.mod_panel.as_mut().unwrap();
+    panel.panel.controls[0] = Control::Slider {
+        id: "number".into(),
+        label: "Number".into(),
+        value: 35.,
+        min: 0.,
+        max: 100.,
+        step: 1.,
+    };
+    panel.open_editor(0, [40., 40., 100., 20.]);
+    assert!(ui.mod_panel_field_focused());
+    ui.mod_panel_preedit("7", Some(1));
+    assert!(ui.mod_panel_composing());
+    ui.mod_panel_ime_commit("73");
+    assert_eq!(
+        ui.mod_panel_key("Enter", None),
+        vec![Event {
+            id: "number".into(),
+            value: 73.
+        }]
+    );
+}
+
+/// Every admitted navigation key must have a real focused-field route to the guest.
+#[test]
+fn native_field_navigation_contract_reaches_guest() {
+    for key in ui::mod_panel::FIELD_NAVIGATION_KEYS {
+        let mut ui = live_field("ab", true);
+        ui.mod_panel_key(if *key == "ArrowLeft" { "Home" } else { "End" }, None);
+        ui.mod_panel_key(key, None);
+        assert!(ui.take_mod_panel_field_events(PanelUiOwner::Environment(0)).iter().any(|event|
+            matches!(event, ui::mod_panel::FieldEvent::Key(event) if event.key == *key)), "missing navigation route for {key}");
+    }
 }

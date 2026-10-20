@@ -156,3 +156,51 @@ pub(super) fn sync_ime(
         ui.mod_panel_preedit("", None);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Physical enum names must keep matching every native field modifier, including right keys.
+    #[test]
+    fn native_field_modifiers_follow_physical_key_names() {
+        for (keys, expected) in [
+            (
+                [KeyCode::ShiftLeft, KeyCode::ShiftRight],
+                FieldModifiers {
+                    shift: true,
+                    ..Default::default()
+                },
+            ),
+            (
+                [KeyCode::ControlLeft, KeyCode::ControlRight],
+                FieldModifiers {
+                    control: true,
+                    ..Default::default()
+                },
+            ),
+            (
+                [KeyCode::AltLeft, KeyCode::AltRight],
+                FieldModifiers {
+                    alt: true,
+                    ..Default::default()
+                },
+            ),
+            (
+                [KeyCode::SuperLeft, KeyCode::SuperRight],
+                FieldModifiers {
+                    super_key: true,
+                    ..Default::default()
+                },
+            ),
+        ] {
+            for key in keys {
+                assert_eq!(modifiers(&[format!("{key:?}")]), expected);
+            }
+        }
+        assert_eq!(
+            modifiers(&[format!("{:?}", KeyCode::KeyA)]),
+            FieldModifiers::default()
+        );
+    }
+}

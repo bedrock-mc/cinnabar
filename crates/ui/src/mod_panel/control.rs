@@ -138,3 +138,18 @@ pub enum FieldEvent {
     Submit(TextEvent),
     Key(FieldKey),
 }
+
+/// Navigation keys shared by field routing and host event admission.
+pub const FIELD_NAVIGATION_KEYS: &[&str] = &[
+    "ArrowUp",
+    "ArrowDown",
+    "ArrowLeft",
+    "ArrowRight",
+    "Enter",
+    "NumpadEnter",
+];
+
+/// Admits the navigation keys a focused native field may forward to its guest.
+pub fn is_field_navigation_key(key: &str) -> bool {
+    FIELD_NAVIGATION_KEYS.contains(&key)
+}

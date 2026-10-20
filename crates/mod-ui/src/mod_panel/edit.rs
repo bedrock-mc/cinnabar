@@ -2,6 +2,8 @@ use super::widgets::*;
 use super::*;
 use serde_json::Value;
 
+const MAX_NUMERIC_CHARS: usize = 24;
+
 pub(super) enum Editor {
     Choice {
         control: usize,
@@ -68,13 +70,13 @@ impl ModUi {
             .map_or_else(Vec::new, |panel| panel.edit_key(key, text, modifiers))
     }
 
-    /// Reports native text focus for platform IME activation.
+    /// Reports native field focus for platform IME activation.
     pub fn mod_panel_field_focused(&self) -> bool {
         !self.mod_hud_editor_open()
             && self
                 .mod_panel
                 .as_ref()
-                .is_some_and(|panel| panel.open && panel.editing_text())
+                .is_some_and(|panel| panel.open && matches!(panel.edit, Some(Editor::Field { .. })))
     }
 
     /// Reports the focused field's one authoritative IME composition state.
@@ -103,9 +105,9 @@ impl ModUi {
             return;
         };
         if let Some(Editor::Field { control, state, .. }) = &mut panel.edit
-            && let Control::Text { max_chars, .. } = panel.panel.controls[*control]
+            && let Some((maximum, _)) = field_bounds(&panel.panel.controls[*control])
         {
-            state.preedit(text, cursor, max_chars);
+            state.preedit(text, cursor, maximum);
         }
     }
 
@@ -121,11 +123,11 @@ impl ModUi {
                 invalid,
                 ..
             }) = &mut panel.edit
-            && let Control::Text { max_chars, .. } = panel.panel.controls[*control]
+            && let Some((maximum, numeric)) = field_bounds(&panel.panel.controls[*control])
         {
             let was_invalid = *invalid;
             state.clear_composition();
-            if state.insert(text, max_chars, false) {
+            if state.insert(text, maximum, numeric) {
                 *invalid = false;
                 panel.live_change();
                 if was_invalid {
@@ -405,9 +407,8 @@ impl ModPanel {
                 if state.composing {
                     return Vec::new();
                 }
-                let (limit, numeric) = match &self.panel.controls[*control] {
-                    Control::Text { max_chars, .. } => (*max_chars, false),
-                    _ => (24, true),
+                let Some((limit, numeric)) = field_bounds(&self.panel.controls[*control]) else {
+                    return Vec::new();
                 };
                 let was_invalid = *invalid;
                 let changed = if matches!(
@@ -463,11 +464,11 @@ impl ModPanel {
                 ..
             })
         ) && !state.composing
+            && ui::mod_panel::is_field_navigation_key(key)
             && match key {
-                "ArrowUp" | "ArrowDown" | "Enter" | "NumpadEnter" => true,
                 "ArrowLeft" => state.selection().is_empty() && state.cursor == 0,
                 "ArrowRight" => state.selection().is_empty() && state.cursor == state.text.len(),
-                _ => false,
+                _ => true,
             }
     }
 
@@ -520,6 +521,15 @@ impl ModPanel {
             self.field_events
                 .push(ui::mod_panel::FieldEvent::Change(event));
         }
+    }
+}
+
+/// Shares character capacity and numeric admission across typing, paste and explicit commits.
+fn field_bounds(control: &Control) -> Option<(usize, bool)> {
+    match control {
+        Control::Text { max_chars, .. } => Some((*max_chars, false)),
+        Control::Slider { .. } => Some((MAX_NUMERIC_CHARS, true)),
+        _ => None,
     }
 }
 

@@ -1,11 +1,15 @@
 //! Paints text feedback from the retained glyph layout without changing the panel catalog.
 
-use super::{edit::Editor, field::Field, widgets::Palette};
+use super::{
+    edit::Editor,
+    field::Field,
+    widgets::{LABEL_SCALE, Palette},
+};
 use std::sync::{Arc, OnceLock};
 use ui_engine::engine::{
     Canvas,
     screen::{CustomDraw, CustomRenderer, PaintError},
-    text_paint::painted_label_request,
+    text_paint::{UNWRAPPED_LOGICAL, painted_label_request},
 };
 
 pub(super) const RENDERER: &str = "cinnabar_native_field";
@@ -52,9 +56,14 @@ impl CustomRenderer for FieldRenderer<'_> {
         let request = painted_label_request(
             canvas.metrics(),
             &state.display,
-            [dest[0], dest[1], dest[0] + 1_000_000., dest[3]],
+            [
+                dest[0],
+                dest[1],
+                dest[0] + UNWRAPPED_LOGICAL as f32,
+                dest[3],
+            ],
             canvas.font(),
-            0.85,
+            LABEL_SCALE as f32,
             options,
             json_ui::TextAlign::Left,
             px,
