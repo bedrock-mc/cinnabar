@@ -46,8 +46,9 @@ mod font_atlas;
 mod font_atlas_tests;
 #[path = "ui_render/item_glint.rs"]
 mod item_glint;
-#[path = "ui_render/page_uniform.rs"]
-mod page_uniform;
+#[cfg(test)]
+#[path = "ui_render/page_uniform_tests.rs"]
+mod page_uniform_tests;
 #[path = "ui_render/textures.rs"]
 mod textures;
 pub(crate) use textures::DeviceObservation;

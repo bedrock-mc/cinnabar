@@ -300,8 +300,8 @@ impl UiGpuTextures {
                 state.execute(catalog, &pages, |_, page, location| {
                     queue.profiled_write_buffer(
                         &bucket.format_uniform,
-                        super::page_uniform::offset(location.layer),
-                        bytemuck::cast_slice(&super::page_uniform::region(page)),
+                        render_model::ui_page_uniform::offset(location.layer),
+                        bytemuck::cast_slice(&render_model::ui_page_uniform::region(page)),
                     );
                     write_page(queue, &bucket.texture, page, location, profile);
                     Ok::<(), UiRenderRejectReason>(())
@@ -442,7 +442,7 @@ fn bind_texture(
         dimension: Some(TextureViewDimension::D2Array),
         ..Default::default()
     });
-    let format = super::page_uniform::words(bucket.format == UiTextureFormat::Coverage);
+    let format = render_model::ui_page_uniform::words(bucket.format == UiTextureFormat::Coverage);
     let format_uniform =
         device.create_buffer_with_data(&bevy::render::render_resource::BufferInitDescriptor {
             label: Some("UI bucket page format"),

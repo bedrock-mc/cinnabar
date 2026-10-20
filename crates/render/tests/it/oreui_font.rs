@@ -43,7 +43,10 @@ fn oreui_font_edges_use_native_coverage_gamma_sampling_and_sdf_scale() {
         ..Default::default()
     });
     let viewport = gpu.buffer(&[256.0, 256.0, 0.0, 0.0], wgpu::BufferUsages::UNIFORM);
-    let format = gpu.words(&[1, 0, 0, 0], wgpu::BufferUsages::UNIFORM);
+    let format = gpu.words(
+        &render_model::ui_page_uniform::words(true),
+        wgpu::BufferUsages::UNIFORM,
+    );
     let nearest = gpu
         .device
         .create_sampler(&wgpu::SamplerDescriptor::default());

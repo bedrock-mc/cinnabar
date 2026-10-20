@@ -376,24 +376,15 @@ fn repeated_sample(
     flags: u16,
     linear: bool,
 ) -> [f32; 4] {
-    let mut uv = render_api::ui_repeat::source_uv(uv, bounds, flags);
-    if linear {
-        uv = render_api::ui_repeat::filtered_uv(uv, bounds);
-    }
-    if flags & render_api::ui_repeat::UI_STYLE_REPEAT_PAGE != 0 {
-        let content = texture
-            .repeat_content
-            .unwrap_or([0, 0, texture.width, texture.height]);
-        for axis in 0..2 {
-            let size = [texture.width, texture.height][axis] as f32;
-            let lo = content[axis] as f32;
-            let hi = content[axis + 2] as f32;
-            if (uv[axis] < lo && lo > 0.0) || (uv[axis] >= hi && hi < size) {
-                return [0.0; 4];
-            }
-            uv[axis] = uv[axis].clamp(0.5, (size - 0.5).max(0.5));
-        }
-    }
+    let Some(uv) = render_api::ui_repeat::decode_uv(
+        uv,
+        bounds,
+        flags,
+        [texture.width, texture.height],
+        texture.repeat_content,
+    ) else {
+        return [0.0; 4];
+    };
     let sample = |uv: [f32; 2]| texture.sample(uv[0], uv[1]).map(|c| f32::from(c) / 255.0);
     if !linear {
         return sample(uv);

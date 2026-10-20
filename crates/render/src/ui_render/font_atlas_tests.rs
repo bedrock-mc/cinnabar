@@ -239,7 +239,10 @@ fn raster(
         ..Default::default()
     });
     let viewport = gpu.buffer(&[256., 256., 0., 0.], BufferUsages::UNIFORM);
-    let format = gpu.words(&super::page_uniform::words(coverage), BufferUsages::UNIFORM);
+    let format = gpu.words(
+        &render_model::ui_page_uniform::words(coverage),
+        BufferUsages::UNIFORM,
+    );
     let nearest = gpu.device.create_sampler(&SamplerDescriptor::default());
     let linear = gpu.device.create_sampler(&SamplerDescriptor {
         mag_filter: FilterMode::Linear,

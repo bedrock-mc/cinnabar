@@ -205,12 +205,12 @@ impl Raster {
             bytemuck::cast_slice(&[SIDE as f32, SIDE as f32, 0.0, strength]),
             wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         );
-        let mut page_info = super::super::super::page_uniform::words(false);
+        let mut page_info = render_model::ui_page_uniform::words(false);
         for (layer, page) in input.textures.pages().iter().enumerate() {
-            let offset = super::super::super::page_uniform::offset(layer as u32) as usize / 4;
+            let offset = render_model::ui_page_uniform::offset(layer as u32) as usize / 4;
             for (dst, src) in page_info[offset..]
                 .iter_mut()
-                .zip(super::super::super::page_uniform::region(page))
+                .zip(render_model::ui_page_uniform::region(page))
             {
                 *dst = src.to_bits();
             }

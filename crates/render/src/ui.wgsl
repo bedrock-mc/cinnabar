@@ -31,28 +31,19 @@ struct PageFormat {
     regions: array<PageRegion, MAX_UI_TEXTURE_LAYERS>,
 };
 
-// Wrap geometry in tile units; clamp filtering to each region's texel centers.
+UI_REPEAT_DECODER
+
+// Sample the shared decoder's source coordinates with the requested filter.
 fn sample_repeat(input: UiVertexOutput, dimensions: vec2<f32>) -> vec4<f32> {
-    let axes = vec2<bool>((input.style_flags & STYLE_REPEAT_X) != 0u, (input.style_flags & STYLE_REPEAT_Y) != 0u);
     let bounds = vec4<f32>(input.overlay_color.xy + input.atlas_offset, input.overlay_color.zw);
-    var uv = bounds.xy + select(input.uv, fract(input.uv), axes) * bounds.zw;
-    let linear = (input.style_flags & STYLE_BILINEAR) != 0u;
-    if linear {
-        let inset = min(abs(bounds.zw) * 0.5, vec2<f32>(0.5));
-        let low = min(bounds.xy, bounds.xy + bounds.zw) + inset;
-        let high = max(bounds.xy, bounds.xy + bounds.zw) - inset;
-        uv = clamp(uv, low, high);
-    }
+    var page = PageRegion(vec4<f32>(0.0), vec4<f32>(0.0));
     if (input.style_flags & STYLE_REPEAT_PAGE) != 0u {
-        let page = ui_page_format.regions[input.texture_page];
-        let lo = page.content.xy;
-        let hi = page.content.zw;
-        if any(page.size.xy <= vec2<f32>(0.0)) || (uv.x < lo.x && lo.x > 0.0) || (uv.y < lo.y && lo.y > 0.0) || (uv.x >= hi.x && hi.x < page.size.x) || (uv.y >= hi.y && hi.y < page.size.y) {
-            discard;
-        }
-        // Original-image pages contain neighboring texels as a filtering halo.
-        uv = clamp(uv, vec2<f32>(0.5), max(vec2<f32>(0.5), page.size.xy - vec2<f32>(0.5)));
+        page = ui_page_format.regions[input.texture_page];
     }
+    let decoded = ui_repeat_uv(input.uv, bounds, input.style_flags, page.content, page.size.xy);
+    if decoded.z == 0.0 { discard; }
+    let uv = decoded.xy;
+    let linear = (input.style_flags & STYLE_BILINEAR) != 0u;
     if linear {
         return textureSampleLevel(ui_pages, ui_linear_sampler, uv / dimensions, i32(input.texture_page), 0.0);
     }
