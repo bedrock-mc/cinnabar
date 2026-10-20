@@ -10,6 +10,7 @@ mod entity_shadow;
 pub mod equipment;
 mod font_atlas;
 pub mod font_shading;
+mod frame_latency;
 mod frame_pacing;
 pub mod hats;
 pub use font_atlas::{
@@ -57,6 +58,7 @@ pub use entity_shadow::{
     SHADOW_VOLUME_TOP_RADIUS, SHADOW_VOLUME_TOP_Y, SHADOW_VOLUME_VERTICES, entity_shadow_colour,
     shadow_screen_rect, shadow_volume_mesh, unit_volume_contains,
 };
+pub use frame_latency::{FrameLatencyPolicy, FrameWorkSample};
 pub use frame_pacing::{
     Cadence, FrameRate, OCCLUDED_FRAME_RATE, UNFOCUSED_FRAME_RATE, WindowActivity,
     effective_frame_rate,
