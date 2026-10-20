@@ -25,6 +25,7 @@ pub(super) fn png(
             (
                 index,
                 Page {
+                    repeat_content: None,
                     width,
                     height,
                     rgba: Arc::from(page.pixels()),
@@ -35,6 +36,7 @@ pub(super) fn png(
     pages.insert(
         0,
         Page {
+            repeat_content: None,
             width: 1,
             height: 1,
             rgba: Arc::from([255; 4]),

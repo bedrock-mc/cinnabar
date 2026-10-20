@@ -1,5 +1,17 @@
 //! Generic two-axis pointer input backed by two existing bounded slider controls.
 use super::*;
+
+/// Captured axis routes retain their initial values for relative dragging.
+#[derive(Clone)]
+pub(super) struct Drag {
+    key: String,
+    action: String,
+    indices: [Option<usize>; 2],
+    origin: [f64; 2],
+    values: Option<[f32; 2]>,
+    extent: [f64; 2],
+}
+
 impl ModPanel {
     /// Captures authored vector rectangles and commits both stepped axes, including release.
     pub(super) fn vector_pointer(
@@ -10,41 +22,67 @@ impl ModPanel {
     ) -> Option<Vec<Event>> {
         let frame = self.frame.as_ref()?;
         let selected = pressed
-            .then(|| {
-                frame.hits.iter().rev().find(|r| {
-                    r.enabled
-                        && r.contains(point)
-                        && r.pressed.as_deref().is_some_and(|a| {
-                            a.starts_with("mod.vector:") || a.starts_with("mod.axis:")
-                        })
-                })
-            })
+            .then(|| json_ui::hit_test(&frame.hits, point))
             .flatten()
-            .and_then(|r| r.pressed.clone());
+            .filter(|region| region.pressed.as_deref().and_then(axes).is_some());
         if pressed {
-            self.vector_drag = selected;
+            self.vector_drag = selected.and_then(|region| {
+                let action = region.pressed.clone()?;
+                let (indices, relative, override_extent) = axes(&action)?;
+                let values = if relative {
+                    let mut values = [0.0; 2];
+                    for (axis, index) in indices.into_iter().enumerate() {
+                        if let Some(index) = index {
+                            let Some(Control::Slider { value, .. }) =
+                                self.panel.controls.get(index)
+                            else {
+                                return None;
+                            };
+                            values[axis] = *value;
+                        }
+                    }
+                    Some(values)
+                } else {
+                    None
+                };
+                let mut extent = self
+                    .panel
+                    .reference_size
+                    .map(|size| size.map(f64::from))
+                    .unwrap_or(self.viewport);
+                if let Some(override_extent) = override_extent {
+                    let override_extent =
+                        override_extent.resolve(&self.panel.surface.as_ref()?.bindings)?;
+                    extent = [override_extent; 2];
+                }
+                if action.starts_with("mod.drag:") {
+                    let rect = json_ui::Rect::new(
+                        region.rect.x,
+                        region.rect.y,
+                        region.rect.w,
+                        region.rect.h,
+                    );
+                    let bounds = region
+                        .transform
+                        .map_or(rect, |transform| transform.bounds(rect));
+                    extent = [extent[0] - bounds.w, extent[1] - bounds.h]
+                        .map(|available| available.max(0.0));
+                }
+                Some(Drag {
+                    key: region.key.clone(),
+                    action,
+                    indices,
+                    origin: point,
+                    values,
+                    extent,
+                })
+            });
         }
-        let action = self.vector_drag.clone()?;
-        let Some(region) = frame
-            .hits
-            .iter()
-            .find(|r| r.pressed.as_deref() == Some(&action))
-        else {
-            self.vector_drag = None;
-            return Some(Vec::new());
-        };
-        let indices: [Option<usize>; 2] = if let Some(vector) = action.strip_prefix("mod.vector:") {
-            let (x, y) = vector.split_once(':')?;
-            [Some(x.parse().ok()?), Some(y.parse().ok()?)]
-        } else if let Some(axis) = action.strip_prefix("mod.axis:") {
-            let (index, axis) = axis.split_once(':')?;
-            let index = Some(index.parse().ok()?);
-            if axis == "y" {
-                [None, index]
-            } else {
-                [index, None]
-            }
-        } else {
+        let drag = self.vector_drag.clone()?;
+        let action = &drag.action;
+        let Some(region) = frame.hits.iter().find(|region| {
+            region.key == drag.key && region.pressed.as_deref() == Some(action.as_str())
+        }) else {
             self.vector_drag = None;
             return Some(Vec::new());
         };
@@ -58,7 +96,7 @@ impl ModPanel {
             },
         ];
         let mut events = Vec::new();
-        for (index, fraction) in indices.into_iter().zip(fractions) {
+        for (axis, (index, fraction)) in drag.indices.into_iter().zip(fractions).enumerate() {
             let Some(index) = index else {
                 continue;
             };
@@ -73,9 +111,22 @@ impl ModPanel {
             else {
                 continue;
             };
-            let raw = *min + fraction as f32 * (*max - *min);
-            let next = (*min + ((raw - *min) / *step).round() * *step).clamp(*min, *max);
-            if *value != next {
+            let raw = if let Some(initial) = drag.values {
+                let delta = if drag.extent[axis] > 0.0 {
+                    ((point[axis] - drag.origin[axis]) / drag.extent[axis]) as f32
+                } else {
+                    0.0
+                };
+                initial[axis] + delta * (*max - *min)
+            } else {
+                *min + fraction as f32 * (*max - *min)
+            };
+            let next = if pressed && drag.values.is_some() {
+                *value
+            } else {
+                (*min + ((raw - *min) / *step).round() * *step).clamp(*min, *max)
+            };
+            if *value != next || pressed && drag.values.is_some() {
                 *value = next;
                 events.push(Event {
                     id: id.clone(),
@@ -88,5 +139,31 @@ impl ModPanel {
         }
         self.refresh_data();
         Some(events)
+    }
+}
+
+/// Decodes the shared absolute/relative paired and single-axis pointer routes.
+fn axes(
+    action: &str,
+) -> Option<(
+    [Option<usize>; 2],
+    bool,
+    Option<ui::mod_panel::AxisExtent<'_>>,
+)> {
+    if let Some(route) = action
+        .strip_prefix("mod.vector:")
+        .or_else(|| action.strip_prefix("mod.drag:"))
+    {
+        let (x, y) = route.split_once(':')?;
+        Some((
+            [Some(x.parse().ok()?), Some(y.parse().ok()?)],
+            action.starts_with("mod.drag:"),
+            None,
+        ))
+    } else {
+        let axis = ui::mod_panel::AxisRoute::parse(action)?;
+        let mut indices = [None; 2];
+        indices[axis.axis] = Some(axis.control);
+        Some((indices, axis.relative, axis.extent))
     }
 }

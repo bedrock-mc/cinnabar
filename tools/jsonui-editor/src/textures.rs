@@ -171,6 +171,7 @@ fn decode(bytes: &[u8], path: &str) -> Option<Page> {
     }
     let rgba = image.into_rgba8();
     Some(Page {
+        repeat_content: None,
         width: rgba.width(),
         height: rgba.height(),
         rgba: Arc::from(rgba.into_raw()),

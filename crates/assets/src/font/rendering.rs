@@ -1,6 +1,8 @@
 /// Text shader bits shared by catalog metadata and draw submission.
 pub const FONT_STYLE_COVERAGE_GAMMA: u8 = 32;
 pub const FONT_STYLE_SDF: u8 = 64;
+/// Integrates a monochrome outline raster over each displayed pixel's footprint.
+pub const FONT_STYLE_OUTLINE_COVERAGE: u16 = 1 << 11;
 
 /// Runtime text coverage interpretation; serialized carriers retain ordinary coverage.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -14,11 +16,12 @@ pub enum FontRendering {
 }
 
 impl FontRendering {
-    pub const fn style_flags(self) -> u8 {
+    pub const fn style_flags(self) -> u16 {
         match self {
-            Self::Coverage | Self::OutlineCoverage => 0,
-            Self::NativeCoverage => FONT_STYLE_COVERAGE_GAMMA,
-            Self::NativeSdf => FONT_STYLE_COVERAGE_GAMMA | FONT_STYLE_SDF,
+            Self::Coverage => 0,
+            Self::OutlineCoverage => FONT_STYLE_OUTLINE_COVERAGE,
+            Self::NativeCoverage => FONT_STYLE_COVERAGE_GAMMA as u16,
+            Self::NativeSdf => (FONT_STYLE_COVERAGE_GAMMA | FONT_STYLE_SDF) as u16,
         }
     }
 }

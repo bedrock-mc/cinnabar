@@ -244,6 +244,10 @@ impl<'a> Expander<'a> {
                         .at(Some(here.clone()))
                 })?;
             let code = &scan.code;
+            if is_unknown_directive(code.trim_start()) {
+                self.append("", frame.file, n as u32 + 1);
+                continue;
+            }
             let directive = code.trim_start().strip_prefix('#').map(str::trim_start);
             if let Some(rest) = directive
                 .and_then(|d| d.strip_prefix("include"))
@@ -294,6 +298,22 @@ impl<'a> Expander<'a> {
             .lines
             .extend((0..text.split('\n').count()).map(|index| (file, line + index as u32)));
     }
+}
+
+/// A `#` line whose directive name GLSL doesn't define. A lone `#` is the null directive.
+fn is_unknown_directive(trimmed: &str) -> bool {
+    let Some(rest) = trimmed.strip_prefix('#') else {
+        return false;
+    };
+    let rest = rest.trim_start();
+    let end = rest
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or(rest.len());
+    let word = &rest[..end];
+    if word.is_empty() {
+        return !rest.is_empty() && !rest.starts_with("//") && !rest.starts_with("/*");
+    }
+    word != "include" && !Preprocessor::is_directive(word)
 }
 
 /// `shaders/`-relative target of an `#include` argument written in `from`.

@@ -291,6 +291,13 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   from chat byte budgets. Structured text keeps its component/depth validation limits;
   extreme structured-text and live rendered-form acceptance remain open.
   The structured-text expansion budget (`MAX_RAW_TEXT_EXPANSION_BYTES`) is an unverified parity bound.
+  Tiled images retain full coverage with bounded repeat geometry across cropped regions and sliced
+  borders; large collection admission and hardware frame-work acceptance remain incomplete.
+  stable retained resources and correct supported DPI/aspect behavior. Form JSON
+  container parsing and cleanup use heap stacks and accept line/block comments.
+  Structured text keeps its separate
+  container parsing and cleanup use heap stacks; structured text keeps its separate
+  validation limits. Extreme structured-text and rendered-form acceptance remain open.
 - [ ] `P5.2-HUD` — Close received text, titles, actionbar, toasts, survival/status HUD
   and lifecycle behavior without leaking UI-owned input into movement.
 - [ ] `P5.3-CHAT` — Close history/autocomplete, formatting, bounded UTF-8 editing,
@@ -306,16 +313,15 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   effective item durability and live mining acceptance remain incomplete.
 - [ ] `P5.6-FORMS` — Close modal/menu/custom form navigation, validation, cancellation
   and responses, including server-pack definitions, structured text, custom controls,
-  scaling and image/layout behavior against matched native views. Server settings
-  replies are cached until their tab is selected; embedding their controls within
-  the settings panel instead of a separate form remains incomplete. URL images use
-  the UI texture-file allowance; aggregate encoded-image cache bounds and remaining
-  image admission and download-deadline parity remain incomplete.
-  scaling and image/layout behavior against matched native views. Custom forms
-  retain control locks and publish enabled bindings for the current game phase
-  without removing locked response values; device acceptance remains open. Server
-  settings replies are cached until their tab is selected; embedding their controls
-  within the settings panel instead of a separate form remains incomplete.
+  scaling and image/layout behavior against matched native views. Overlapping requests
+  keep the active form and answer busy, including reused IDs.
+  Busy cancellations retain every request through transport backpressure.
+  Custom forms retain control locks and publish enabled bindings for the current
+  game phase without removing locked response values; device acceptance remains open.
+  Server settings replies are cached until their tab is selected; embedding their
+  controls within the settings panel instead of a separate form remains incomplete.
+  URL images use the UI texture-file allowance; aggregate encoded-image cache bounds
+  and remaining image admission and download-deadline parity remain incomplete.
 - [ ] `P5.7-PARITY-PERF` — Qualify combined chat, scoreboard, boss bars, inventory and
   forms at supported scales/aspects and devices, with bounded memory and stable frame work.
 - [ ] `P5.8-SETTINGS` — Close menu, control, video and persistence acceptance. Desktop
@@ -419,6 +425,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Diagnostics or bounded fixtures do not establish safe general gameplay use. Java
   shader-pack source loading and configuration metadata are implemented in
   `shaderpack`, including options, dimensions, parsed properties, program discovery
+  and enable rules, and its programs translate to validated naga modules with a binding
+  contract. Pack-specific translation fixes, render-host integration and in-game
+  acceptance remain incomplete.
   and enable rules. Translation, render-host integration and in-game acceptance
   remain incomplete; parsed custom uniform expressions are not executed or rendered.
   Pack block, item and entity ids, Java biome values and Java sky and fog colours are
