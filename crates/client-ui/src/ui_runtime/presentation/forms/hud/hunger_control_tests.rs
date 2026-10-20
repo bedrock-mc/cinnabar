@@ -492,4 +492,22 @@ fn prepared_saturation_masks_publish_once_and_reuse_texels_for_faded_inverse_row
         !engine.textures.lock().take_dirty(),
         "tint opacity changes must not rebuild or upload mask pixels"
     );
+    paint.hunger.saturation_overlay = Some(18);
+    let changed = render(&paint);
+    let batch = changed
+        .batches
+        .iter()
+        .find(|batch| batch.blend == ui::UiBlendMode::Invert)
+        .unwrap();
+    let changed_vertex =
+        &changed.vertices[changed.indices[batch.index_range.start as usize] as usize];
+    assert_eq!(batch.texture_page, inverse[0].texture_page);
+    assert_eq!(
+        changed_vertex.uv, first.uv,
+        "moving coverage must update the existing atlas slot"
+    );
+    assert!(
+        engine.textures.lock().take_dirty(),
+        "changed coverage must upload its new pixels"
+    );
 }

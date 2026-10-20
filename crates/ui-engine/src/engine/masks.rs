@@ -246,15 +246,7 @@ impl Canvas<'_> {
             if self.nodes.len() == start {
                 continue;
             }
-            use std::fmt::Write;
-            let mut key = format!(
-                "{namespace}{}x{}/",
-                tile.image.dimensions()[0],
-                tile.image.dimensions()[1]
-            );
-            for byte in tile.image.identity() {
-                write!(key, "{byte:02x}").expect("writing a raster key");
-            }
+            let key = format!("{cache_key}/{}-{}", tile.bounds[0], tile.bounds[1]);
             self.prepared.images.insert(key.clone(), tile.image.clone());
             self.prepared.sprites.push(PendingSprite {
                 node: start,
