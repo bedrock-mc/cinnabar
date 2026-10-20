@@ -39,6 +39,8 @@ pub(crate) mod plugin;
 #[cfg(feature = "shaderpacks")]
 mod resources;
 #[cfg(feature = "shaderpacks")]
+mod scene_bindings;
+#[cfg(feature = "shaderpacks")]
 mod targets;
 #[cfg(all(test, feature = "shaderpacks"))]
 mod tests;
