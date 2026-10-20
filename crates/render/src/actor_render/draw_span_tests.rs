@@ -289,12 +289,16 @@ fn merged_distinct_rigs_match_separate_draw_pixels() {
     assert_eq!(merged, separate);
     assert!(
         merged
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|pixel| pixel[0] > 100 && pixel[1] == 0)
     );
     assert!(
         merged
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|pixel| pixel[1] > 100 && pixel[0] == 0)
     );
 }
