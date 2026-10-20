@@ -1,6 +1,8 @@
 //! The render-world geometry resource: preparing expansion work and draw lists each frame, and
 //! recording the expansion before any camera draws.
 
+mod views;
+
 use std::collections::HashMap;
 
 use bevy::log::{debug, warn};
@@ -17,8 +19,8 @@ use bevy::render::view::{ExtractedView, RenderVisibleEntities};
 use render_scene::{ChunkRenderInstance, ChunkTextureAssets, RuntimeStage, RuntimeStageProfiler};
 
 use super::block_ids::{ShaderpackBlockIds, material_attribute_words};
-use super::draw::{DrawInputs, ViewDraws, eye_section_centre, face_indices};
-use super::expansion_buffers::{ExpansionBuffers, PARAM_WORDS};
+use super::draw::{ViewDraws, face_indices};
+use super::expansion_buffers::{ExpansionBuffers, PARAM_WORDS, frame_job_capacity};
 use super::jobs::{
     GeometryCategory, JOB_KINDS, JobKind, MaterialTables, SectionPlan, plan_section,
 };
@@ -48,7 +50,7 @@ const RETRY_DISTANCE: f64 = 16.0;
 /// Host controls of the geometry adapter, in the render world.
 #[derive(Resource, Clone, Debug, PartialEq, Eq)]
 pub struct ShaderpackGeometrySettings {
-    /// Expand and track terrain; while false the adapter holds no GPU memory.
+    /// Expand and track terrain; while false expanded GPU buffers are released.
     pub enabled: bool,
     /// The pack's `separateAo`: AO goes to the colour's alpha instead of its RGB.
     pub separate_ao: bool,
@@ -152,8 +154,14 @@ impl FromWorld for ShaderpackGeometry {
     fn from_world(world: &mut World) -> Self {
         let device = world.resource::<RenderDevice>();
         let adapter = world.resource::<RenderAdapter>();
+        Self::new(device, terrain_multi_draw_indirect(adapter, device))
+    }
+}
+
+impl ShaderpackGeometry {
+    /// Creates empty expansion state for the device's native terrain draw mode.
+    fn new(device: &RenderDevice, draw_mode: Option<bool>) -> Self {
         let limits = device.limits();
-        let draw_mode = terrain_multi_draw_indirect(adapter, device);
         let supported = draw_mode.is_some()
             && JOB_KINDS.iter().all(|kind| {
                 storage_buffers_per_stage(*kind) <= limits.max_storage_buffers_per_shader_stage
@@ -206,7 +214,7 @@ impl ShaderpackGeometry {
 
     /// Whether every live section can fit a page; otherwise the host keeps the native scene.
     pub fn all_sections_fit(&self) -> bool {
-        !self.residency.has_unplaceable()
+        self.inputs.is_some() && !self.residency.has_unplaceable()
     }
 
     /// Block position every expanded vertex position is relative to; it moves (re-expanding
@@ -297,7 +305,7 @@ impl ShaderpackGeometry {
         }
         let built = ViewDraws::build(&inputs);
         let max_faces = built.max_faces();
-        draws.replace(built, key, self.multi_draw.then_some((device, queue)));
+        draws.replace(built, key, device, queue, self.multi_draw);
         if max_faces > 0 {
             self.ensure_index_buffer(device, max_faces);
         }
@@ -308,6 +316,7 @@ impl ShaderpackGeometry {
         self.shadows.retain(|view, _| keep(*view));
     }
 
+    /// Releases resident and transient expansion buffers and withdraws every draw list.
     fn release_all(&mut self) {
         self.residency.clear();
         self.pages.clear();
@@ -317,6 +326,9 @@ impl ShaderpackGeometry {
         self.views.clear();
         self.shadows.clear();
         self.prepared = PreparedExpansion::default();
+        self.expansion = ExpansionBuffers::default();
+        self.attributes.clear();
+        self.attribute_key = None;
         self.complete_radius = None;
         self.budget_horizon = None;
         self.retry_eye = None;
@@ -503,9 +515,7 @@ pub(crate) fn prepare_shaderpack_geometry(
     geometry.prepared = PreparedExpansion::default();
     let settings = inputs.settings.as_deref().cloned().unwrap_or_default();
     if !settings.enabled || !geometry.supported {
-        if !geometry.pages.is_empty() || geometry.residency.pending_len() > 0 {
-            geometry.release_all();
-        }
+        geometry.release_all();
         return;
     }
     if settings.layout != geometry.layout {
@@ -553,8 +563,13 @@ pub(crate) fn prepare_shaderpack_geometry(
         inputs.textures.as_deref(),
         inputs.atlas.as_deref(),
     ) else {
+        geometry.release_all();
         return;
     };
+    if !expansion_sources_match(textures, &atlas.source, buffers.carrier) {
+        geometry.release_all();
+        return;
+    }
     let kernels_ready = geometry.pipelines_ready(&inputs.cache, &inputs.pipelines);
     let attribute_key = AttributeKey {
         assets: std::sync::Arc::as_ptr(&textures.assets) as usize,
@@ -642,7 +657,7 @@ pub(crate) fn prepare_shaderpack_geometry(
         .as_deref()
         .map(|frame| frame.render_distance)
         .filter(|far| *far > 0.0);
-    build_draws(
+    views::build_draws(
         geometry,
         &inputs.device,
         &inputs.queue,
@@ -683,6 +698,8 @@ fn plan_frame(
     // Jobs per (kind, page), with face indices relative to the page.
     let mut jobs: HashMap<(usize, usize), Vec<[u32; 4]>> = HashMap::new();
     let mut planned_faces = 0_u32;
+    let mut planned_jobs = 0;
+    let job_capacity = frame_job_capacity(&device.limits(), geometry.attributes.len());
     let mut overflow = false;
     // Nearest first, so the budget and the frame's expansion go to what the camera sees most.
     let mut queue: Vec<(f64, Entity)> = geometry
@@ -716,6 +733,20 @@ fn plan_frame(
             geometry.residency.remove(entity);
             continue;
         }
+        let job_count: usize = plan.jobs.iter().map(Vec::len).sum();
+        if job_count > job_capacity {
+            // The device cannot bind even one section with these tables; keep native terrain.
+            geometry.release_all();
+            return 0;
+        }
+        if planned_jobs + job_count > job_capacity {
+            geometry.residency.enqueue(entity);
+            queue
+                .by_ref()
+                .for_each(|(_, rest)| geometry.residency.enqueue(rest));
+            break;
+        }
+
         let placement = geometry.residency.place_nearest(
             entity,
             &plan,
@@ -758,6 +789,12 @@ fn plan_frame(
         let slot = geometry
             .residency
             .commit(entity, &placement, &plan, section.origin);
+        geometry
+            .residency
+            .sections
+            .get_mut(&entity)
+            .expect("committed above")
+            .translucent = section.translucent_faces(&plan, textures);
         if geometry.layout.packed() {
             geometry.write_draw_origin(device, &inputs.queue, slot, section.origin, origin);
         }
@@ -767,6 +804,7 @@ fn plan_frame(
                 .extend(planned);
         }
         planned_faces = planned_faces.saturating_add(plan.faces);
+        planned_jobs += job_count;
     }
     if overflow && !geometry.overflow_reported {
         warn!(
@@ -845,70 +883,6 @@ fn expand_params(
     params
 }
 
-/// Draw lists per camera view of its visible resident sections within `far` horizontally of
-/// the camera's section, as Java culls render sections by render distance from it, leaving
-/// out faces the camera sees only from behind. A view's list is rebuilt only when the
-/// sections it lists, the camera's section or the facing groups it sees change.
-fn build_draws(
-    geometry: &mut ShaderpackGeometry,
-    device: &RenderDevice,
-    queue: &RenderQueue,
-    sources: &PackedChunkSources,
-    views: &GeometryViews,
-    far: Option<f32>,
-) {
-    let epoch = geometry.residency.epoch;
-    let mut max_faces = 0;
-    geometry
-        .views
-        .retain(|entity, _| views.get(*entity).is_ok());
-    let reach = far.map(|far| f64::from(far) + 8.0);
-    for (entity, view, visible, _) in views.iter() {
-        let eye = view.world_from_view.translation().as_dvec3();
-        let centre = eye_section_centre(eye);
-        let within = |faces: &ResidentFaces| {
-            reach.is_none_or(|reach| {
-                let [x, _, z] = faces.origin;
-                let dx = f64::from(x) + 8.0 - centre.x;
-                let dz = f64::from(z) + 8.0 - centre.z;
-                dx * dx + dz * dz <= reach * reach
-            })
-        };
-        let inputs = DrawInputs::new(
-            visible
-                .get::<ChunkRenderInstance>()
-                .into_iter()
-                .flat_map(|class| class.iter_visible())
-                .map(|(entity, _)| *entity)
-                .filter(|entity| !sources.is_hidden(*entity))
-                .filter_map(|entity| geometry.residency.sections.get(&entity))
-                .filter(|faces| within(faces)),
-            Some(eye),
-            epoch,
-            geometry.residency.generation,
-            Some(eye),
-        );
-        let key = inputs.key();
-        if geometry
-            .views
-            .get(&entity)
-            .is_some_and(|draws| draws.is_current(key))
-        {
-            continue;
-        }
-        let built = ViewDraws::build(&inputs);
-        max_faces = max_faces.max(built.max_faces());
-        geometry.views.entry(entity).or_default().replace(
-            built,
-            key,
-            geometry.multi_draw.then_some((device, queue)),
-        );
-    }
-    if max_faces > 0 {
-        geometry.ensure_index_buffer(device, max_faces);
-    }
-}
-
 /// Records this frame's expansion dispatches ahead of camera passes.
 pub(crate) fn record_geometry_expansion(
     mut geometry: ResMut<ShaderpackGeometry>,
@@ -949,3 +923,16 @@ pub(crate) fn record_geometry_expansion(
         },
     );
 }
+
+/// Requires the atlas and packed tables to represent the selected texture source.
+fn expansion_sources_match(
+    selected: &ChunkTextureAssets,
+    atlas: &ChunkTextureAssets,
+    packed: render_scene::ChunkTextureAssetIdentity,
+) -> bool {
+    selected.binding_identity() == atlas.binding_identity() && selected.identity() == packed
+}
+
+#[cfg(test)]
+#[path = "gpu_tests.rs"]
+mod tests;

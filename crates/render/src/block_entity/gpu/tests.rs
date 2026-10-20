@@ -26,6 +26,7 @@ fn overlapping_draws() -> (
     {
         let mut gpu = app.world_mut().resource_mut::<BlockEntityGpu>();
         gpu.crack.count = 6;
+        gpu.frame_crack_count = 6;
         gpu.crack.bind_group = Some(group);
     }
     app.world_mut().run_system_once(queue_crack).unwrap();
@@ -105,4 +106,12 @@ fn mining_particles_occlude_cracks_and_cracks_remain_on_translucent_targets() {
             }
         );
     }
+}
+
+#[test]
+fn damage_and_selection_keep_independent_ranges_in_the_shared_buffer() {
+    assert_eq!(crack_vertices(18, 12, false), 0..12);
+    assert_eq!(crack_vertices(18, 12, true), 12..18);
+    assert!(crack_vertices(12, 12, true).is_empty());
+    assert!(crack_vertices(6, 0, false).is_empty());
 }

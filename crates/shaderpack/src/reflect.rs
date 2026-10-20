@@ -316,6 +316,7 @@ fn merge(existing: &mut Resource, new: Resource, rb: &naga::ResourceBinding) -> 
         {
             a.read |= b.read;
             a.write |= b.write;
+            a.atomic |= b.atomic;
             union(&mut a.stages, b.stages);
         }
         _ => return Err(conflict()),
@@ -335,7 +336,8 @@ fn union(a: &mut StageMask, b: StageMask) {
 
 fn dimension(dim: ImageDimension, arrayed: bool) -> TextureDimension {
     match (dim, arrayed) {
-        (ImageDimension::D1, _) => TextureDimension::D1,
+        (ImageDimension::D1, false) => TextureDimension::D1,
+        (ImageDimension::D1, true) => TextureDimension::D1Array,
         (ImageDimension::D2, false) => TextureDimension::D2,
         (ImageDimension::D2, true) => TextureDimension::D2Array,
         (ImageDimension::D3, _) => TextureDimension::D3,
@@ -349,10 +351,18 @@ fn dimension(dim: ImageDimension, arrayed: bool) -> TextureDimension {
 fn scalar(s: naga::Scalar) -> ScalarType {
     match (s.kind, s.width) {
         (ScalarKind::Bool, _) => ScalarType::Bool,
-        (ScalarKind::Sint | ScalarKind::AbstractInt, _) => ScalarType::Int,
-        (ScalarKind::Uint, _) => ScalarType::Uint,
-        (_, 8) => ScalarType::Double,
-        _ => ScalarType::Float,
+        (ScalarKind::Sint, 1) => ScalarType::Int8,
+        (ScalarKind::Sint, 2) => ScalarType::Int16,
+        (ScalarKind::Sint | ScalarKind::AbstractInt, 4) => ScalarType::Int,
+        (ScalarKind::Sint | ScalarKind::AbstractInt, 8) => ScalarType::Int64,
+        (ScalarKind::Uint, 1) => ScalarType::Uint8,
+        (ScalarKind::Uint, 2) => ScalarType::Uint16,
+        (ScalarKind::Uint, 4) => ScalarType::Uint,
+        (ScalarKind::Uint, 8) => ScalarType::Uint64,
+        (ScalarKind::Float, 2) => ScalarType::Half,
+        (ScalarKind::Float, 4) => ScalarType::Float,
+        (ScalarKind::Float | ScalarKind::AbstractFloat, 8) => ScalarType::Double,
+        _ => unreachable!("validated scalar width: {s:?}"),
     }
 }
 
@@ -582,6 +592,42 @@ void main() {
     outColor = base + vec4(cameraPosition, 0.0);
 }
 ";
+
+    #[test]
+    fn reflection_keeps_array_dimensions_distinct() {
+        assert_ne!(
+            dimension(ImageDimension::D1, false),
+            dimension(ImageDimension::D1, true)
+        );
+        assert_ne!(
+            dimension(ImageDimension::D2, false),
+            dimension(ImageDimension::D2, true)
+        );
+        assert_ne!(
+            dimension(ImageDimension::Cube, false),
+            dimension(ImageDimension::Cube, true)
+        );
+    }
+
+    #[test]
+    fn reflection_keeps_component_widths_distinct() {
+        for kind in [ScalarKind::Sint, ScalarKind::Uint, ScalarKind::Float] {
+            let widths: &[u8] = if kind == ScalarKind::Float {
+                &[2, 4, 8]
+            } else {
+                &[1, 2, 4, 8]
+            };
+            for (i, a) in widths.iter().enumerate() {
+                for b in &widths[i + 1..] {
+                    assert_ne!(
+                        scalar(naga::Scalar { kind, width: *a }),
+                        scalar(naga::Scalar { kind, width: *b }),
+                        "{kind:?}: {a} and {b}"
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn a_compiled_fragment_stage_reflects_its_uniforms_textures_and_outputs() {

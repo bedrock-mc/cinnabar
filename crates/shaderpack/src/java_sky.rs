@@ -30,11 +30,6 @@ fn rgb(colour: u32) -> [f32; 3] {
     [16, 8, 0].map(|shift| ((colour >> shift) & 0xFF) as f32 / 255.0)
 }
 
-/// A float colour through an 8-bit channel each, as Java packs colours into ints.
-fn quantize(colour: [f32; 3]) -> [f32; 3] {
-    colour.map(|c| (c * 255.0).floor().clamp(0.0, 255.0) / 255.0)
-}
-
 /// Blends two colours by the supplied fraction.
 fn mix(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
     std::array::from_fn(|i| a[i] + (b[i] - a[i]) * t)
@@ -157,6 +152,8 @@ pub struct SkyFogInputs {
     pub look: [f32; 3],
     /// The camera's world Y.
     pub camera_y: f32,
+    /// Positive void-darkness onset range: 32 for normal worlds, 1 for flat worlds.
+    pub void_darkness_range: f32,
     pub medium: FogMedium,
     /// Night vision strength `0..1`.
     pub night_vision: f32,
@@ -199,13 +196,41 @@ fn sky_color(inputs: &SkyFogInputs) -> [f32; 3] {
         .sky
         .map(|c| c * daylight(inputs.celestial_angle));
     let luminance = |c: [f32; 3]| c[0] * 0.3 + c[1] * 0.59 + c[2] * 0.11;
-    for (level, grey) in [(inputs.rain, 0.6), (inputs.thunder, 0.2)] {
+    for (level, brightness, factor) in [
+        (inputs.rain - inputs.thunder, 0.6, 0.75),
+        (inputs.thunder, 0.24, 0.94),
+    ] {
         if level > 0.0 {
-            let grey = luminance(colour) * grey;
-            colour = mix(colour, [grey; 3], level * 0.75);
+            let grey = luminance(colour) * brightness;
+            colour = mix(colour, [grey; 3], level * factor);
         }
     }
-    quantize(colour)
+    colour
+}
+
+/// Applies the rain-only and thunder RGB attribute layers in order.
+fn weather_color(mut colour: [f32; 3], inputs: &SkyFogInputs) -> [f32; 3] {
+    for (level, multiplier) in [
+        (inputs.rain - inputs.thunder, rgb(0x7F_7F_99)),
+        (inputs.thunder, rgb(0x3F_3F_4C)),
+    ] {
+        if level > 0.0 {
+            let target = std::array::from_fn(|i| colour[i] * multiplier[i]);
+            colour = mix(colour, target, level);
+        }
+    }
+    colour
+}
+
+/// Darkens the sky contribution to atmospheric fog for the current weather.
+fn fog_sky_color([r, g, b]: [f32; 3], inputs: &SkyFogInputs) -> [f32; 3] {
+    let rain = inputs.rain;
+    [
+        r * (1.0 - rain * 0.5),
+        g * (1.0 - rain * 0.5),
+        b * (1.0 - rain * 0.4),
+    ]
+    .map(|channel| channel * (1.0 - inputs.thunder * 0.5))
 }
 
 /// The fog colour in air: the biome fog dimmed by the time of day in the overworld, the
@@ -225,6 +250,7 @@ fn air_fog(inputs: &SkyFogInputs, sky: [f32; 3]) -> [f32; 3] {
         }
         JavaDimension::Nether | JavaDimension::End => inputs.biome.fog,
     };
+    fog = weather_color(fog, inputs);
     let chunks = inputs.render_distance_chunks;
     if inputs.dimension == JavaDimension::Overworld && chunks >= 4.0 {
         let sun_side = if (inputs.celestial_angle * std::f32::consts::TAU).sin() > 0.0 {
@@ -236,11 +262,11 @@ fn air_fog(inputs: &SkyFogInputs, sky: [f32; 3]) -> [f32; 3] {
         if let Some([r, g, b, strength]) = sunrise_color(inputs.celestial_angle)
             && facing > 0.0
         {
-            fog = mix(fog, [r, g, b], facing * strength);
+            fog = mix(fog, weather_color([r, g, b], inputs), facing * strength);
         }
     }
     let distance = 1.0 - (0.25 + 0.75 * chunks.min(32.0) / 32.0).powf(0.25);
-    mix(fog, sky, distance)
+    mix(fog, fog_sky_color(sky, inputs), distance)
 }
 
 /// `skyColor` and `fogColor` for one frame and view.
@@ -252,17 +278,8 @@ pub fn sky_fog(inputs: &SkyFogInputs) -> SkyFogColors {
         FogMedium::Lava => LAVA_FOG,
         FogMedium::PowderSnow => POWDER_SNOW_FOG,
     };
-    if inputs.medium == FogMedium::Air {
-        let [r, g, b] = fog;
-        let rain = inputs.rain;
-        fog = [
-            r * (1.0 - rain * 0.5),
-            g * (1.0 - rain * 0.5),
-            b * (1.0 - rain * 0.4),
-        ];
-        fog = fog.map(|c| c * (1.0 - inputs.thunder * 0.5));
-    }
-    let above_floor = inputs.camera_y - dimension_floor(inputs.dimension);
+    let above_floor =
+        (inputs.camera_y - dimension_floor(inputs.dimension)) / inputs.void_darkness_range;
     if above_floor < 1.0 && matches!(inputs.medium, FogMedium::Air | FogMedium::Water) {
         let fade = above_floor.max(0.0);
         fog = fog.map(|c| c * fade * fade);
@@ -270,7 +287,7 @@ pub fn sky_fog(inputs: &SkyFogInputs) -> SkyFogColors {
     let vision = inputs.night_vision;
     if vision > 0.0 && inputs.medium != FogMedium::Water {
         let brightest = fog.into_iter().fold(0.0f32, f32::max);
-        if brightest > 0.0 {
+        if fog.into_iter().all(|channel| channel != 0.0) {
             fog = fog.map(|c| c * (1.0 - vision) + c / brightest * vision);
         }
     }

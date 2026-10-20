@@ -4,8 +4,8 @@
 //! # Layout
 //! Every live carrier layer becomes one power-of-two square sprite holding the region of the
 //! physical layer Cinnabar's shaders sample for sprite-local UV `[0, 1)²` (the upper-left
-//! `page_side >> grid` square), stored at the coarsest physical mip that still covers the
-//! layer's source resolution. Sprites are packed largest first, then by slot, each aligned to
+//! `page_side >> grid` square), selected by source LOD before removing physical expansion.
+//! Sprites are packed largest first, then by slot, each aligned to
 //! its own side, so every one of the atlas's [`ShaderpackAtlas::mip_levels`] lands on whole
 //! texels. The level count is Java's [`JAVA_MIPMAP_LEVELS`] plus the base, reduced so the
 //! smallest sprite keeps one texel.
@@ -23,7 +23,7 @@
 //!
 //! # Overflow
 //! When the sprites do not fit `max_texture_dimension_2d`, every sprite is halved (using the
-//! next physical mip as its base) until the atlas fits, and one warning reports the scale.
+//! next source mip as its base) until the atlas fits, and one warning reports the scale.
 //! Remap rectangles always describe the stored sprites.
 //!
 //! # PBR atlases
@@ -46,7 +46,6 @@ mod tests;
 mod upload;
 
 use animate::AtlasAnimations;
-use assets::RuntimeAssets;
 use bevy::{
     asset::load_internal_asset,
     math::UVec2,
@@ -60,7 +59,7 @@ use bevy::{
 };
 pub(crate) use labpbr::{NEUTRAL_NORMAL, NEUTRAL_SPECULAR};
 use plan::{AtlasInputs, AtlasPlan, LayerLayout};
-use render_scene::{ChunkAnimationClock, ChunkTextureAssetIdentity, ChunkTextureAssets};
+use render_scene::{ChunkAnimationClock, ChunkTextureAssets};
 use std::sync::Arc;
 use upload::UploadedAtlas;
 
@@ -103,6 +102,8 @@ pub struct ShaderpackAtlas {
     pub mip_levels: u32,
     /// Increments whenever sprite rectangles may have changed.
     pub generation: u64,
+    /// Texture bindings retained for the lifetime of this atlas generation.
+    pub(crate) source: ChunkTextureAssets,
 }
 
 /// Builds the atlas off the render thread and keeps its animated sprites current.
@@ -136,15 +137,30 @@ struct BuiltAtlas {
     plan: AtlasPlan,
     uploaded: UploadedAtlas,
     sampler: wgpu::Sampler,
-    runtime: Arc<RuntimeAssets>,
+    source: ChunkTextureAssets,
 }
 
 /// The requested carrier and its in-flight replacement; the published atlas stays until then.
 #[derive(Resource, Default)]
 struct AtlasBuild {
-    requested: Option<ChunkTextureAssetIdentity>,
+    requested: Option<ChunkTextureAssets>,
     task: Option<Task<Option<BuiltAtlas>>>,
     generation: u64,
+}
+
+impl AtlasBuild {
+    /// Claims a changed source once and owns its pointer identities until the next request.
+    fn request(&mut self, assets: &ChunkTextureAssets) -> bool {
+        if self
+            .requested
+            .as_ref()
+            .is_some_and(|requested| requested.binding_identity() == assets.binding_identity())
+        {
+            return false;
+        }
+        self.requested = Some(assets.clone());
+        true
+    }
 }
 
 /// Builds replacement atlases off the render thread, retaining the previous generation until ready.
@@ -156,9 +172,8 @@ fn prepare_shaderpack_atlas(
     mut build: ResMut<AtlasBuild>,
 ) {
     if let Some(assets) = assets
-        && build.requested != Some(assets.identity())
+        && build.request(&assets)
     {
-        build.requested = Some(assets.identity());
         let (assets, device, queue) = (assets.clone(), device.clone(), queue.clone());
         build.task = Some(
             AsyncComputeTaskPool::get()
@@ -246,7 +261,7 @@ fn build_atlas(
         plan,
         uploaded,
         sampler,
-        runtime: Arc::clone(&runtime),
+        source: assets.clone(),
     })
 }
 
@@ -256,7 +271,7 @@ fn publish(built: BuiltAtlas, generation: u64) -> (ShaderpackAtlas, AtlasAnimati
         plan,
         uploaded,
         sampler,
-        runtime,
+        source,
     } = built;
     let [normals, specular] = uploaded
         .atlas
@@ -282,7 +297,9 @@ fn publish(built: BuiltAtlas, generation: u64) -> (ShaderpackAtlas, AtlasAnimati
         size: UVec2::new(plan.atlas.width, plan.atlas.height),
         mip_levels: plan.mip_levels,
         generation,
+        source: source.clone(),
     };
+    let runtime = source.assets();
     let animations = AtlasAnimations::new(
         &uploaded,
         runtime.animations(),

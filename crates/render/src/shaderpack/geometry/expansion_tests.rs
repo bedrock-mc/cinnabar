@@ -480,9 +480,9 @@ fn greedy_top_face_expands_to_per_block_faces_with_java_attributes() {
     let Some(expanded) = expand_fixture("shader-pack cube expansion") else {
         return;
     };
-    // Solid: two blocks of the greedy quad; cutout: the two-sided (leaf) face, one-sided.
-    assert_eq!(expanded.categories, [0..2, 2..3, 3..3]);
-    assert_eq!(expanded.faces, 3);
+    // Solid: two blocks of the greedy quad; cutout: both sides of the leaf face.
+    assert_eq!(expanded.categories, [0..2, 2..4, 4..4]);
+    assert_eq!(expanded.faces, 4);
     let offset = Vec3::new(16.0, 0.0, 0.0);
     let top_positions = [
         [
@@ -562,22 +562,27 @@ fn greedy_top_face_expands_to_per_block_faces_with_java_attributes() {
     }
 }
 
-/// Two-sided cube materials (leaves) expand one face, as Java's one-sided cube faces: the
-/// shader-pack mesher gives each leaf its own face of a shared plane instead.
+/// Two-sided cube materials keep a reverse-wound face with the opposite normal.
 #[test]
-fn two_sided_cube_materials_expand_one_sided_faces() {
+fn two_sided_cube_materials_expand_front_and_back_faces() {
     let Some(expanded) = expand_fixture("shader-pack two-sided expansion") else {
         return;
     };
     assert_eq!(
         expanded.words.len(),
-        3 * 4 * IRIS_VERTEX_WORDS as usize,
-        "no back face"
+        4 * 4 * IRIS_VERTEX_WORDS as usize,
+        "front and back faces"
     );
     let front: Vec<_> = (8..12)
         .map(|vertex| decode(&expanded.words, vertex))
         .collect();
     assert_eq!(front[0].normal, [-127, 0, 0, 0]);
+    let back: Vec<_> = (12..16)
+        .map(|vertex| decode(&expanded.words, vertex))
+        .collect();
+    assert_eq!(back[0].normal, [127, 0, 0, 0]);
+    assert_eq!(back[0].position, front[0].position);
+    assert_eq!(back[3].position, front[1].position);
     assert_eq!(
         front[0].block_id, -1,
         "materials without an id read Iris's -1"

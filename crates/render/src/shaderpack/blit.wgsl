@@ -14,6 +14,7 @@ struct DepthParameters {
     // 1 / the projection's x and y scales, to turn view depth into eye distance.
     inverse_focal: vec2<f32>,
     _padding: vec2<f32>,
+    viewport: vec4<f32>,
 }
 
 @group(0) @binding(0) var source_colour: texture_2d<f32>;
@@ -64,8 +65,7 @@ struct SceneColourOut {
 // The scene (linear values) into colortex0, gamma-encoded and bottom-up.
 @fragment
 fn scene_colour(in: Fullscreen) -> SceneColourOut {
-    let size = textureDimensions(source_colour);
-    let texel = flipped_texel(in.uv, size);
+    let texel = vec2<i32>(depth_parameters.viewport.xy) + flipped_texel(in.uv, vec2<u32>(depth_parameters.viewport.zw));
     let colour = textureLoad(source_colour, texel, 0);
     var out: SceneColourOut;
     out.colour = vec4<f32>(linear_to_srgb(colour.rgb), colour.a);
@@ -74,8 +74,7 @@ fn scene_colour(in: Fullscreen) -> SceneColourOut {
 
 // OpenGL window depth of the scene sample under this bottom-up pixel; the sky stays at 1.
 fn gl_depth(in: Fullscreen) -> f32 {
-    let size = textureDimensions(source_depth);
-    let texel = flipped_texel(in.uv, size);
+    let texel = vec2<i32>(depth_parameters.viewport.xy) + flipped_texel(in.uv, vec2<u32>(depth_parameters.viewport.zw));
     let reverse = textureLoad(source_depth, texel, 0);
     if (reverse <= 0.0) {
         return 1.0;
@@ -147,8 +146,7 @@ struct OverlayOut {
 // waits, rather than Vanilla terrain without gbuffer data.
 @fragment
 fn vanilla_overlay(in: Fullscreen) -> OverlayOut {
-    let size = textureDimensions(source_depth);
-    let texel = flipped_texel(in.uv, size);
+    let texel = vec2<i32>(depth_parameters.viewport.xy) + flipped_texel(in.uv, vec2<u32>(depth_parameters.viewport.zw));
     let reverse = textureLoad(source_depth, texel, 0);
     if (reverse <= 0.0) {
         discard;
@@ -168,4 +166,5 @@ fn vanilla_overlay(in: Fullscreen) -> OverlayOut {
     out.colour = vec4<f32>(linear_to_srgb(colour.rgb), 1.0);
     out.depth = gl_depth(in);
     return out;
+    viewport: vec4<f32>,
 }

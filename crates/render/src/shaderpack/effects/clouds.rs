@@ -2,8 +2,8 @@
 //! renderer draws): one 16-block cell per occupied `clouds.png` texel, scrolled with the
 //! renderer's cloud offset and coloured by the baked face shade times the frame's cloud
 //! colour. Fancy draws the cuboids (the cap facing the camera and open sides); fast draws a
-//! flat layer at the cloud base, visible from both sides. Texture coordinates sample the
-//! cell's `clouds.png` texel, so packs reading `gtexture` see the cloud mask.
+//! flat layer at the cloud base, visible from both sides. Source RGBA is baked into vertex
+//! colours; the draw binds white so textured fallback programs apply it only once.
 
 use super::vertices::{FULL_BRIGHT, Mesh, Vertex};
 use assets::AtmosphereTexture;

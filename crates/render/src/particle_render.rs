@@ -521,9 +521,6 @@ fn queue_particles(
     ];
     drop(functions);
     for (view_entity, main_entity, view, extracted_camera, msaa) in &views {
-        if pack.replaces(view_entity, |drawn| drawn.particles) {
-            continue;
-        }
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -535,7 +532,13 @@ fn queue_particles(
         ] {
             let first = offset;
             offset += instances.len() as u32;
-            if instances.is_empty() {
+            if instances.is_empty()
+                || pack.replaces(view_entity, |drawn| match material {
+                    ParticleMode::Opaque => drawn.particles_opaque,
+                    ParticleMode::Blend => drawn.particles_translucent,
+                    ParticleMode::Add => drawn.particles_additive,
+                })
+            {
                 continue;
             }
             let Ok(pipeline) = pipeline.variants.specialize(

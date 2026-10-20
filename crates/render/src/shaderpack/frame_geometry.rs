@@ -82,6 +82,11 @@ fn clear_depth(encoder: &mut CommandEncoder, view: &TextureView) {
     ));
 }
 
+/// Admits an attachment only when it shares the draw's established extent.
+pub(crate) fn admit_extent(expected: &mut Option<[u32; 2]>, actual: [u32; 2]) -> bool {
+    *expected.get_or_insert(actual) == actual
+}
+
 /// Opens the render pass of `kind`'s draw (the pack has at most one) over its outputs:
 /// `colortex` sides per `write_alt`, or `shadowcolor` targets in the shadow pass, with its
 /// pipeline set. `None` without such a draw, or when its outputs differ in size from the
@@ -114,7 +119,7 @@ pub(crate) fn open_kind<'e>(
                 let side = colour.side(write_alt & (1 << buffer) != 0);
                 (&colour.attachment[side], colour.size)
             };
-            consistent &= *size.get_or_insert(extent) == extent;
+            consistent &= admit_extent(&mut size, extent);
             load_attachment(view)
         })
         .collect();
@@ -128,6 +133,11 @@ pub(crate) fn open_kind<'e>(
         }
         return None;
     }
+    targets.take_snapshots(
+        encoder,
+        &pack.programs[draw.program],
+        super::targets::draw_reads(&pack, draw).alt,
+    );
     let depth = depth.and_then(|(view, _)| depth_attachment(view, false));
     let mut render = pass(
         encoder,
@@ -515,6 +525,7 @@ pub(crate) fn record_translucent(
     let view = depth.view.clone();
     let size = state.targets.screen_size;
     record_vanilla_overlay(device, encoder, state, vanilla, &view);
+    copy_view_depth(device, encoder, state, &[1], &[0, 1]);
     let translucent_alt = state.pack.frame.translucent_alt;
     record_kind(
         encoder,
@@ -527,6 +538,7 @@ pub(crate) fn record_translucent(
     );
     for kind in [
         DrawKind::EntitiesTranslucent,
+        DrawKind::ArmorGlintTranslucent,
         DrawKind::BlockTranslucent,
         DrawKind::BeaconBeam,
     ] {
@@ -550,13 +562,9 @@ pub(crate) fn record_translucent(
         translucent_alt,
         Some((&view, size)),
     );
-    super::actors::record(
-        encoder,
-        state,
-        DrawKind::HandWater,
-        translucent_alt,
-        Some((&view, size)),
-    );
+    for kind in [DrawKind::HandWater, DrawKind::HandGlint] {
+        super::actors::record(encoder, state, kind, translucent_alt, Some((&view, size)));
+    }
     copy_view_depth(device, encoder, state, &[], &[0]);
 }
 
@@ -596,7 +604,7 @@ fn record_vanilla_overlay(
             },
             wgpu::BindGroupEntry {
                 binding: 2,
-                resource: pack.host.depth_parameters.as_entire_binding(),
+                resource: state.depth_parameters.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
                 binding: 5,
@@ -613,4 +621,18 @@ fn record_vanilla_overlay(
     render.set_pipeline(&pack.host.vanilla_overlay);
     render.set_bind_group(0, &group, &[]);
     render.draw(0..3, 0..1);
+}
+
+#[cfg(test)]
+mod extent_tests {
+    use super::*;
+    #[test]
+    fn geometry_replacement_requires_matching_attachment_extents() {
+        let mut depth = Some([128, 64]);
+        assert!(admit_extent(&mut depth, [128, 64]));
+        assert!(!admit_extent(&mut depth, [64, 32]));
+        let mut colour_only = None;
+        assert!(admit_extent(&mut colour_only, [64, 32]));
+        assert!(!admit_extent(&mut colour_only, [128, 64]));
+    }
 }

@@ -47,6 +47,16 @@ impl BufferId {
     }
 }
 
+/// Uses one key for buffer aliases and for the compatibility texture uniform.
+pub(crate) fn canonical_sampler_name(name: &str) -> String {
+    match BufferId::parse(name) {
+        Some(BufferId::Color(index)) => format!("colortex{index}"),
+        Some(BufferId::ShadowColor(index)) => format!("shadowcolor{index}"),
+        None if name == "texture" => "gtexture".to_string(),
+        None => name.to_string(),
+    }
+}
+
 macro_rules! buffer_formats {
     ($($variant:ident => $name:literal),* $(,)?) => {
         /// A colour buffer internal format, named as in OptiFine/Iris directives.
@@ -98,11 +108,20 @@ impl BufferFormat {
             .find(|f| f.name().eq_ignore_ascii_case(name.trim()))
     }
 
-    /// The GLSL image format qualifier, e.g. `rgba16f`, `r11f_g11f_b10f`.
-    pub fn glsl_qualifier(self) -> String {
+    /// The GLSL storage-image qualifier, or `None` for render-only formats.
+    pub fn glsl_qualifier(self) -> Option<String> {
+        use BufferFormat::*;
         match self {
-            BufferFormat::Rgba => "rgba8".to_string(),
-            f => f.name().to_ascii_lowercase(),
+            Rgba => Some("rgba8".to_string()),
+            R8 | Rg8 | Rgba8 | R8Snorm | Rg8Snorm | Rgba8Snorm | R16 | Rg16 | Rgba16 | R16Snorm
+            | Rg16Snorm | Rgba16Snorm | R16f | Rg16f | Rgba16f | R32f | Rg32f | Rgba32f | R8i
+            | Rg8i | Rgba8i | R8ui | Rg8ui | Rgba8ui | R16i | Rg16i | Rgba16i | R16ui | Rg16ui
+            | Rgba16ui | R32i | Rg32i | Rgba32i | R32ui | Rg32ui | Rgba32ui | Rgb10A2
+            | Rgb10A2ui | R11fG11fB10f => Some(self.name().to_ascii_lowercase()),
+            Rgb8 | Rgb8Snorm | Rgb16 | Rgb16Snorm | Rgb16f | Rgb32f | Rgb8i | Rgb8ui | Rgb16i
+            | Rgb16ui | Rgb32i | Rgb32ui | Rgba2 | Rgba4 | R3G3B2 | Rgb5A1 | Rgb565 | Rgb9E5 => {
+                None
+            }
         }
     }
 }
@@ -186,6 +205,37 @@ mod tests {
     }
 
     #[test]
+    fn sampler_compatibility_names_keep_buffer_identity() {
+        for (name, index) in LEGACY_COLOR_NAMES {
+            assert_eq!(
+                BufferId::parse(&canonical_sampler_name(name)),
+                Some(BufferId::Color(*index))
+            );
+        }
+        assert_eq!(
+            BufferId::parse(&canonical_sampler_name("shadowcolor")),
+            Some(BufferId::ShadowColor(0))
+        );
+        assert_eq!(canonical_sampler_name("texture"), "gtexture");
+    }
+
+    #[test]
+    fn reflection_image_qualifiers_parse() {
+        for format in BufferFormat::ALL {
+            let qualifier: Option<String> = format.glsl_qualifier().into();
+            let Some(qualifier) = qualifier else { continue };
+            let source = format!(
+                "#version 450\nlayout(set=0,binding=0,{qualifier}) uniform image2D image;\nvoid main() {{}}"
+            );
+            let result = naga::front::glsl::Frontend::default().parse(
+                &naga::front::glsl::Options::from(naga::ShaderStage::Compute),
+                &source,
+            );
+            assert!(result.is_ok(), "{format:?}: {result:?}");
+        }
+    }
+
+    #[test]
     fn buffer_names_include_legacy_aliases() {
         assert_eq!(BufferId::parse("colortex12"), Some(BufferId::Color(12)));
         assert_eq!(BufferId::parse("gaux2"), Some(BufferId::Color(5)));
@@ -219,7 +269,7 @@ mod tests {
         );
         assert_eq!(
             BufferFormat::R11fG11fB10f.glsl_qualifier(),
-            "r11f_g11f_b10f"
+            Some("r11f_g11f_b10f".to_string())
         );
     }
 }

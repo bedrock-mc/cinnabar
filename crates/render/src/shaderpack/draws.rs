@@ -58,6 +58,10 @@ pub(crate) enum DrawKind {
     SpiderEyes,
     /// The enchantment foil over glinted actors (`gbuffers_armor_glint`).
     ArmorGlint,
+    /// Foil after blended world actors.
+    ArmorGlintTranslucent,
+    /// Foil in hand space, after first-person base geometry.
+    HandGlint,
     /// Block entities (`gbuffers_block`).
     Block,
     /// Blended block-entity layers (`gbuffers_block_translucent`), after the deferred passes.
@@ -104,7 +108,7 @@ pub(crate) const GLINT_BLEND: BlendMode = BlendMode::Factors {
 };
 
 impl DrawKind {
-    pub(crate) const ALL: [DrawKind; 30] = [
+    pub(crate) const ALL: [DrawKind; 32] = [
         DrawKind::Sky,
         DrawKind::Sunset,
         DrawKind::Effect(Effect::Sun),
@@ -125,6 +129,8 @@ impl DrawKind {
         DrawKind::EntitiesTranslucent,
         DrawKind::SpiderEyes,
         DrawKind::ArmorGlint,
+        DrawKind::ArmorGlintTranslucent,
+        DrawKind::HandGlint,
         DrawKind::Block,
         DrawKind::BlockTranslucent,
         DrawKind::BeaconBeam,
@@ -147,7 +153,9 @@ impl DrawKind {
             DrawKind::Entities => "gbuffers_entities",
             DrawKind::EntitiesTranslucent => "gbuffers_entities_translucent",
             DrawKind::SpiderEyes => "gbuffers_spidereyes",
-            DrawKind::ArmorGlint => "gbuffers_armor_glint",
+            DrawKind::ArmorGlint | DrawKind::ArmorGlintTranslucent | DrawKind::HandGlint => {
+                "gbuffers_armor_glint"
+            }
             DrawKind::Block => "gbuffers_block",
             DrawKind::BlockTranslucent => "gbuffers_block_translucent",
             DrawKind::BeaconBeam => "gbuffers_beaconbeam",
@@ -209,12 +217,17 @@ impl DrawKind {
                 | DrawKind::BlockTranslucent
                 | DrawKind::BeaconBeam
                 | DrawKind::HandWater
+                | DrawKind::HandGlint
+                | DrawKind::ArmorGlintTranslucent
         )
     }
 
     /// The first-person hand, drawn in hand space with the hand projection.
     pub(crate) fn hand(self) -> bool {
-        matches!(self, DrawKind::Hand | DrawKind::HandWater)
+        matches!(
+            self,
+            DrawKind::Hand | DrawKind::HandWater | DrawKind::HandGlint
+        )
     }
 
     /// Tests depth: everything but the sky and the sky effects, which draw behind everything.
@@ -234,9 +247,25 @@ impl DrawKind {
                 self.depth()
                     && !matches!(
                         self,
-                        DrawKind::SpiderEyes | DrawKind::ArmorGlint | DrawKind::BeaconBeam
+                        DrawKind::SpiderEyes
+                            | DrawKind::ArmorGlint
+                            | DrawKind::ArmorGlintTranslucent
+                            | DrawKind::HandGlint
+                            | DrawKind::BeaconBeam
                     )
             }
+        }
+    }
+
+    /// Foil only covers samples whose base geometry wrote the same depth.
+    pub(crate) fn depth_compare(self) -> wgpu::CompareFunction {
+        if matches!(
+            self,
+            Self::ArmorGlint | Self::ArmorGlintTranslucent | Self::HandGlint
+        ) {
+            wgpu::CompareFunction::Equal
+        } else {
+            wgpu::CompareFunction::LessEqual
         }
     }
 
@@ -260,6 +289,8 @@ impl DrawKind {
                     | DrawKind::EntitiesTranslucent
                     | DrawKind::SpiderEyes
                     | DrawKind::ArmorGlint
+                    | DrawKind::ArmorGlintTranslucent
+                    | DrawKind::HandGlint
                     | DrawKind::Hand
                     | DrawKind::HandWater
             ),
@@ -280,12 +311,13 @@ impl DrawKind {
             | DrawKind::EntitiesTranslucent
             | DrawKind::SpiderEyes
             | DrawKind::ArmorGlint
+            | DrawKind::ArmorGlintTranslucent
             | DrawKind::ShadowEntities => render_stage::ENTITIES,
             DrawKind::Block
             | DrawKind::BlockTranslucent
             | DrawKind::BeaconBeam
             | DrawKind::ShadowBlock => render_stage::BLOCK_ENTITIES,
-            DrawKind::Hand => render_stage::HAND_SOLID,
+            DrawKind::Hand | DrawKind::HandGlint => render_stage::HAND_SOLID,
             DrawKind::HandWater => render_stage::HAND_TRANSLUCENT,
             DrawKind::Effect(effect) => effect.render_stage(),
         }
@@ -314,7 +346,9 @@ impl DrawKind {
             | DrawKind::BeaconBeam
             | DrawKind::HandWater => TRANSLUCENT_BLEND,
             DrawKind::SpiderEyes => ADDITIVE_BLEND,
-            DrawKind::ArmorGlint => GLINT_BLEND,
+            DrawKind::ArmorGlint | DrawKind::ArmorGlintTranslucent | DrawKind::HandGlint => {
+                GLINT_BLEND
+            }
             DrawKind::Effect(effect) => effect.default_blend(),
             _ => BlendMode::Off,
         }
@@ -480,10 +514,14 @@ pub(crate) fn draw_pipeline(
     inputs: &DrawPipelineInputs<'_>,
 ) -> Result<(wgpu::RenderPipeline, Vec<Option<u32>>), String> {
     let reflection = inputs.reflection;
-    let layouts = vertex_buffer_layouts(
-        &reflection.vertex_inputs,
-        &draw_layout(kind, inputs.terrain_layout),
-    )
+    let layouts = if kind.actor() {
+        super::actors::layout::vertex_layouts(&reflection.vertex_inputs)
+    } else {
+        vertex_buffer_layouts(
+            &reflection.vertex_inputs,
+            &draw_layout(kind, inputs.terrain_layout),
+        )
+    }
     .map_err(|e| e.to_string())?;
     let buffers: Vec<_> = layouts
         .iter()
@@ -580,7 +618,7 @@ pub(crate) fn draw_pipeline(
             depth_stencil: kind.depth().then_some(wgpu::DepthStencilState {
                 format: TextureFormat::Depth32Float,
                 depth_write_enabled: Some(kind.depth_write(inputs.effects)),
-                depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                depth_compare: Some(kind.depth_compare()),
                 stencil: Default::default(),
                 bias: Default::default(),
             }),
@@ -877,6 +915,8 @@ mod tests {
             [
                 DrawKind::Translucent,
                 DrawKind::EntitiesTranslucent,
+                DrawKind::ArmorGlintTranslucent,
+                DrawKind::HandGlint,
                 DrawKind::BlockTranslucent,
                 DrawKind::BeaconBeam,
                 DrawKind::HandWater
