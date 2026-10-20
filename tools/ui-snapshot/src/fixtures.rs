@@ -3,6 +3,7 @@
 #[cfg(feature = "test-support")]
 mod cosmetics;
 mod hud_cards;
+mod local_identity;
 mod minecraft_import;
 mod mods;
 mod out_of_game;
@@ -56,7 +57,11 @@ pub enum Fixture {
     /// Two original custom-form inputs after selection moves from the first to the second.
     EditSelection,
     /// An externally supplied bounded native mod panel.
-    ModPanel(Box<ui::mod_panel::Panel>, Option<Box<ui::mod_hud::Hud>>),
+    ModPanel(
+        Box<ui::mod_panel::Panel>,
+        Option<Box<ui::mod_hud::Hud>>,
+        Option<(&'static str, render_model::UiTexturePage)>,
+    ),
     /// Two same-ID requests arriving while the first menu is still open.
     #[cfg(feature = "test-support")]
     FormOverlap,
@@ -82,6 +87,18 @@ const TALL_SIZE: [u32; 2] = [1280, 900];
 const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 
 pub const STATES: &[State] = &[
+    State {
+        name: "mod-local-player-neutral",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || local_identity::fixture(false),
+    },
+    State {
+        name: "mod-local-player-head",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || local_identity::fixture(true),
+    },
     State {
         name: "mod-hud-card-previews",
         size: SIZE,

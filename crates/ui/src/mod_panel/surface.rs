@@ -7,6 +7,7 @@ use std::sync::Arc;
 pub mod backdrop;
 mod collection;
 pub mod hud_card;
+pub mod local_player_head;
 mod paint_transform;
 pub mod preview;
 mod shadow;
@@ -376,6 +377,9 @@ fn node(
     ) || (kind == "screen" && depth != 0)
     {
         return Err("surface control type is unsupported".into());
+    }
+    if kind == "image" {
+        local_player_head::validate(object)?;
     }
     for (name, value) in object {
         if name.starts_with('$') {

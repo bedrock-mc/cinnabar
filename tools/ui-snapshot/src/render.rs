@@ -98,7 +98,7 @@ pub fn panel_png(
     };
     png_fixture(
         &state,
-        Fixture::ModPanel(Box::new(panel), None),
+        Fixture::ModPanel(Box::new(panel), None, None),
         dir,
         seconds,
         resource_pack,
@@ -213,7 +213,7 @@ fn png_fixture(
             )?;
             add_server_pages(&mut engine, &mut carriers.pages);
         }
-        Fixture::ModPanel(panel, hud) => {
+        Fixture::ModPanel(panel, hud, identity) => {
             let mut engine = json_engine(&carriers)?;
             if let Some(root) = resource_pack {
                 let files = panel_textures(&panel, root)?;
@@ -228,6 +228,13 @@ fn png_fixture(
                 );
             }
             let mut ui = mod_ui::ModUi::default();
+            if let Some((name, portrait)) = identity {
+                engine
+                    .textures
+                    .lock()
+                    .set_local_player_head(Some(&portrait));
+                ui.set_local_player_panel_identity(name, true);
+            }
             if let Some(hud) = &hud {
                 ui.set_mod_hud_sources(
                     [(mod_ui::PanelUiOwner::Environment(0), 1, hud.as_ref())].into_iter(),

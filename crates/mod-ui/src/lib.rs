@@ -7,6 +7,7 @@ pub mod crosshair;
 mod experience;
 pub mod experience_modal;
 pub mod fonts;
+mod local_player_identity;
 mod mod_hud;
 mod mod_hud_editor;
 mod mod_panel;
@@ -36,6 +37,7 @@ pub struct ModUi {
     hud_sources: mod_widgets::sources::HudSources,
     mod_crosshair: Option<ui::mod_hud::Crosshair>,
     mod_panel: Option<mod_panel::ModPanel>,
+    local_player_identity: local_player_identity::LocalPlayerIdentity,
     prepared_panel_ui: std::collections::BTreeMap<PanelUiOwner, mod_panel::prepared::PreparedOwner>,
     experience: Option<experience::ExperienceChrome>,
     /// A client part's modal screen.
