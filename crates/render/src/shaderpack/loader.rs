@@ -524,6 +524,7 @@ pub(crate) fn build(
             reflection,
             &buffer_formats,
             &translation.properties.blends,
+            None,
         );
         let pipeline = match reflection.kind {
             ProgramKind::Compute => {
