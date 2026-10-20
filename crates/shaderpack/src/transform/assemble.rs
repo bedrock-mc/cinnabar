@@ -10,13 +10,15 @@ use crate::token::{Emitter, Tok};
 use std::collections::{HashMap, HashSet};
 
 /// The union of the stages' loose uniforms in first-declaration order. A name declared with
-/// different types in two stages is an error.
+/// different types in two stages is an error. Imported dependencies must also agree with
+/// each stage's local type and constant declarations.
 pub(crate) fn merge_uniforms<'a>(
     drafts: impl IntoIterator<Item = &'a StageDraft>,
 ) -> Result<Vec<UboMember>, String> {
+    let drafts: Vec<_> = drafts.into_iter().collect();
     let mut merged: Vec<UboMember> = vec![];
     let mut definitions = HashMap::new();
-    for d in drafts {
+    for d in &drafts {
         for m in &d.ubo {
             let dependencies = uniform_dependencies(m, &d.hoisted);
             for dependency in &dependencies {
@@ -47,6 +49,25 @@ pub(crate) fn merge_uniforms<'a>(
                     let mut member = m.clone();
                     member.dependencies = dependencies;
                     merged.push(member);
+                }
+            }
+        }
+    }
+    for draft in drafts {
+        for declaration in split_items(&draft.hoisted) {
+            let spelling = declaration
+                .iter()
+                .map(Tok::text)
+                .collect::<Vec<_>>()
+                .join(" ");
+            for name in declaration_names(&declaration) {
+                if definitions
+                    .get(&name)
+                    .is_some_and(|imported| imported != &spelling)
+                {
+                    return Err(format!(
+                        "uniform dependency `{name}` conflicts with a stage-local declaration"
+                    ));
                 }
             }
         }

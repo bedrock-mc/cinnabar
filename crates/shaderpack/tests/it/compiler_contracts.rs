@@ -411,6 +411,42 @@ fn compiler_uniforms_share_struct_and_constant_dependencies() {
 }
 
 #[test]
+fn compiler_rejects_missing_declaration_separators() {
+    let translation = translate(
+        VERTEX,
+        "#version 330\nout vec4 color; void main() { float a b c d; color = vec4(1.0); }",
+    );
+    let failed = program(&translation, "composite");
+    assert!(!failed.is_ok());
+    assert!(
+        failed
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.phase == Phase::Parse)
+    );
+}
+
+#[test]
+fn compiler_rejects_imported_dependency_collisions() {
+    for count in [3, 2] {
+        let translation = translate(
+            &format!(
+                "#version 330\nconst int COUNT = {count}; void main() {{ gl_Position = vec4(float(COUNT)); }}"
+            ),
+            "#version 330\nconst int COUNT = 2; uniform float weights[COUNT]; out vec4 color; void main() { color = vec4(weights[1]); }",
+        );
+        let translated = program(&translation, "composite");
+        if count == 2 {
+            reflection(translated);
+        } else {
+            assert!(!translated.is_ok());
+            assert!(translated.all_diagnostics().any(|diagnostic| {
+                diagnostic.phase == Phase::Link && diagnostic.message.contains("COUNT")
+            }));
+        }
+    }
+}
+
+#[test]
 fn compiler_loop_bindings_end_after_the_loop_statement() {
     success(
         VERTEX,

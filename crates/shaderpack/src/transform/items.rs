@@ -279,8 +279,10 @@ pub(super) fn parse_decl(toks: &[Tok]) -> Option<Decl> {
             }
         }
         decls.push((name, arr, init));
-        if toks.get(i)?.is(",") {
-            i += 1;
+        match toks.get(i)? {
+            token if token.is(",") && i + 1 < last => i += 1,
+            token if token.is(";") && i == last => {}
+            _ => return None,
         }
     }
     Some(Decl {
