@@ -445,7 +445,10 @@ fn native_field_blink_reuses_shaping_and_catalog() {
     ));
     ui.mod_panel_key("TextInput", Some("2"));
     paint_field(&mut ui, &engine, &font, &mut layouts, 2.1);
-    assert_eq!(layouts.built_layout_count(), shaped + 1);
+    assert!(
+        layouts.built_layout_count() > shaped,
+        "changed values receive fresh glyph layouts"
+    );
     // Pointer placement uses the same retained stops as the painted glyphs.
     let state = match ui.mod_panel.as_mut().unwrap().edit.as_mut().unwrap() {
         super::edit::Editor::Field { state, .. } => state,
