@@ -292,6 +292,7 @@ impl PlayerInventoryLedger {
         self.finish_request_retirement(request.request_id, false);
         self.refold();
         self.finish_closing();
+        self.reconcile_personal();
         true
     }
 }

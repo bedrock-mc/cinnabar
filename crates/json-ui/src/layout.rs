@@ -109,11 +109,12 @@ pub trait TextMeasure {
         self.extent(text)
     }
 
-    /// Measures a label in a named font; default-only backends keep their label metrics.
+    /// Measures with the authored primary and backup faces; default-only backends keep their metrics.
     fn named_label(
         &self,
         text: &str,
         _font: &str,
+        _backup: Option<&str>,
         width: Option<f64>,
         shape: crate::label::LabelShape,
     ) -> [f64; 2] {

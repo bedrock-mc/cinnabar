@@ -387,3 +387,15 @@ fn backdrop_vertices_read_the_shared_ui_viewport_layout() {
         layout(&shader::source(include_str!("../ui.wgsl")))
     );
 }
+
+/// Admission refreshes the cached blur strength when materials change without retaining old work.
+#[test]
+fn backdrop_levels_follow_the_accepted_publication_and_drop_non_backdrop_work() {
+    let (mut world, _) = view_world();
+    publish(&mut world, 1, UI_BLEND_BACKDROP);
+    assert_eq!(world.resource::<UiGpu>().backdrop_blur, 8.);
+    publish(&mut world, 2, UI_BLEND_ALPHA);
+    assert_eq!(world.resource::<UiGpu>().backdrop_blur, 0.);
+    publish(&mut world, 3, UI_BLEND_BACKDROP);
+    assert_eq!(world.resource::<UiGpu>().backdrop_blur, 8.);
+}

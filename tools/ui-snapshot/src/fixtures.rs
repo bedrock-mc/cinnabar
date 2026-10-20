@@ -25,6 +25,12 @@ pub struct State {
 
 /// Inputs borrowed by the same screen painters the client uses.
 pub enum Fixture {
+    /// A label whose unavailable primary face selects its installed backup.
+    BackupFont,
+    /// An original checker repeated beyond a small sprite's former draw cutoff.
+    TiledImage {
+        scale: f64,
+    },
     /// A server form whose editable controls are locked during a session.
     #[cfg(feature = "test-support")]
     ControlLocked,
@@ -52,6 +58,9 @@ pub enum Fixture {
     /// Two same-ID requests arriving while the first menu is still open.
     #[cfg(feature = "test-support")]
     FormOverlap,
+    /// An edited settings draft after switching away from and back to its tab.
+    #[cfg(feature = "test-support")]
+    SettingsDraft,
     /// A damaged stack picked up from the survival inventory.
     #[cfg(feature = "test-support")]
     CursorDurability,
@@ -71,6 +80,31 @@ const TALL_SIZE: [u32; 2] = [1280, 900];
 const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 
 pub const STATES: &[State] = &[
+    State {
+        name: "backup-font",
+        size: [640, 360],
+        gui_scale: 2,
+        fixture: || Fixture::BackupFont,
+    },
+    State {
+        name: "jsonui-tiled-image",
+        size: [256, 128],
+        gui_scale: 1,
+        fixture: || Fixture::TiledImage { scale: 1.0 },
+    },
+    State {
+        name: "jsonui-tiled-image-extreme",
+        size: [256, 128],
+        gui_scale: 1,
+        fixture: || Fixture::TiledImage { scale: 0.001 },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "settings-draft-return",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::SettingsDraft,
+    },
     #[cfg(feature = "test-support")]
     State {
         name: "form-overlap",

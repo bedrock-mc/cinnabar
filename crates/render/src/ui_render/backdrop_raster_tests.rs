@@ -87,6 +87,11 @@ fn draw(gpu: &Gpu, scene: &[u8], shapes: &[Shape]) -> Vec<u8> {
 /// Composites `shapes` in `mode` from `source` (bytes in the mode's format) and reads back
 /// the target.
 fn raster(gpu: &Gpu, mode: Mode, scene: &[u8], shapes: &[Shape]) -> Vec<u8> {
+    raster_levels(gpu, mode, scene, shapes, true)
+}
+
+/// Runs either the optimized chain or the previous full chain through the unchanged production shaders.
+fn raster_levels(gpu: &Gpu, mode: Mode, scene: &[u8], shapes: &[Shape], pruned: bool) -> Vec<u8> {
     let device = &gpu.device;
     let filter = module(gpu, include_str!("../ui_backdrop_filter.wgsl"));
     let apply = module(gpu, include_str!("../ui_backdrop.wgsl"));
@@ -242,7 +247,18 @@ fn raster(gpu: &Gpu, mode: Mode, scene: &[u8], shapes: &[Shape]) -> Vec<u8> {
         .take(mips as usize)
         .map(|view| group_for(&downsample, view))
         .collect();
-    for (destination, input) in levels.iter().zip(&inputs) {
+    let used = if pruned {
+        super::super::backdrop_levels::count(
+            shapes
+                .iter()
+                .map(|shape| shape.paint.blur)
+                .fold(0., f32::max),
+            mips as usize,
+        )
+    } else {
+        mips as usize
+    };
+    for (destination, input) in levels.iter().zip(&inputs).take(used) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             color_attachments: &[Some(target(destination))],
             ..Default::default()
@@ -554,5 +570,47 @@ fn element_filters_blur_their_premultiplied_group_without_losing_coverage() {
     for x in 0..SIDE {
         let pixel = at(&output, x, SIDE / 2);
         assert!(pixel[0].abs_diff(pixel[3]) <= 1, "{pixel:?} at {x}");
+    }
+}
+
+/// Skipping unused levels preserves real backdrop and element-filter pixels at fractional LODs.
+#[test]
+fn backdrop_levels_preserve_full_chain_pixels_through_strength_transitions() {
+    let Some(gpu) = Gpu::for_fixture("UI backdrop mip work") else {
+        return;
+    };
+    let mut scene = vec![0; (SIDE * SIDE * 4) as usize];
+    for y in 0..SIDE {
+        for x in 0..SIDE {
+            let at = ((y * SIDE + x) * 4) as usize;
+            scene[at..at + 4].copy_from_slice(&[
+                if (x / 3 + y / 5) % 2 == 0 { 240 } else { 20 },
+                ((x * 17) % 256) as u8,
+                ((y * 29) % 256) as u8,
+                255,
+            ]);
+        }
+    }
+    let mut strengths = vec![0., 0.25, 1., 3., 6., 12., 24., 120.];
+    for level in 1..=5 {
+        let boundary = (2. / 3. * 4f32.powi(level) - 0.25).sqrt();
+        strengths.extend([boundary.next_down(), boundary, boundary.next_up()]);
+    }
+    for mode in [Mode::Backdrop, Mode::Filter] {
+        for sigma in &strengths {
+            let shapes = [everywhere(UiBackdropPaint {
+                blur: *sigma,
+                ..UiBackdropPaint::IDENTITY
+            })];
+            let pruned = raster_levels(&gpu, mode, &scene, &shapes, true);
+            let full = raster_levels(&gpu, mode, &scene, &shapes, false);
+            assert_eq!(pruned.len(), full.len());
+            for (index, (a, b)) in pruned.iter().zip(&full).enumerate() {
+                assert!(
+                    (i16::from(*a) - i16::from(*b)).abs() <= 1,
+                    "blur={sigma}, byte={index}: pruned={a}, full={b}"
+                );
+            }
+        }
     }
 }

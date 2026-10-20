@@ -475,7 +475,8 @@ pub(super) fn apply_backdrops(
     let profile = world.get_resource::<profile::UiProfile>();
     let stage = render_scene::RuntimeStage::GpuUiBackdrop;
     let post = target.post_process_write();
-    for (level, destination) in pyramid.levels.iter().enumerate() {
+    let levels = super::backdrop_levels::count(draw.gpu.backdrop_blur, pyramid.levels.len());
+    for (level, destination) in pyramid.levels.iter().take(levels).enumerate() {
         let source = if level == 0 {
             scene_source
         } else {
