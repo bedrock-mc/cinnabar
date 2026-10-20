@@ -97,18 +97,6 @@ impl UiPresentationRuntime {
         self.screens.mod_ui.set_mod_screens(input, page);
     }
 
-    /// Applies the Screen animations setting to mod surface motion. It reads the settings
-    /// snapshot, which gameplay publishes while the launcher menu is hidden.
-    pub(in super::super) fn configure_mod_ui_motion(&mut self) {
-        let animations = self
-            .screens
-            .chat
-            .settings
-            .options()
-            .value(SettingId::ScreenAnimations);
-        self.screens.mod_ui.configure_motion(animations != 0);
-    }
-
     /// All personal HUD content follows gameplay focus and the player's HUD preference.
     pub(in super::super) fn mod_hud_visible(
         &self,
@@ -181,6 +169,7 @@ impl UiPresentationRuntime {
     /// Draws the personal panel, or the HUD editor while it owns the panel surface.
     pub(in super::super) fn append_mod_panel(
         &mut self,
+        player: &player_state::PlayerState,
         runtime: &UiRuntime,
         nodes: &mut Vec<UiNode>,
         next: &mut u32,
@@ -201,7 +190,72 @@ impl UiPresentationRuntime {
                 .paint_mod_hud_editor(self.engine.as_deref(), &mut paint, &resolved);
             return;
         }
-        let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &|_| None);
+        let Some(engine) = self.engine.as_deref() else {
+            return;
+        };
+        self.control_previews.sync(
+            self.screens.mod_ui.control_previews(),
+            runtime.session_id(),
+            engine.catalog(),
+            &self.font,
+        );
+        if self.control_previews.is_empty() {
+            let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &|_| None);
+            self.screens
+                .mod_ui
+                .paint_mod_panel(self.engine.as_deref(), &mut paint);
+            return;
+        }
+        let native_paint = super::super::hud_layout::capture_hud_paint(
+            player,
+            runtime,
+            &self.hud_frame,
+            self.hud_textures.as_ref(),
+            self.screens.chat.settings.options(),
+        );
+        let mut hud_renderer = ui_screens::hud_renderers::HudRenderer {
+            hud: &native_paint,
+            hunger_update: None,
+        };
+        let mut item_renderer = ui_engine::engine::item_renderer::ItemRenderer {
+            icons: &self.hud_cache.icons,
+            id_aux: &[],
+        };
+        let preview_view = std::cell::Cell::new(None);
+        let mut player_renderer = super::preview_renderer::PreviewRenderer {
+            preview: self.hud_frame.player_preview,
+            view: Some(&preview_view),
+            ..Default::default()
+        };
+        let translate = |key: &str| runtime.translation(key);
+        let mut renderers: [&mut dyn ui_engine::engine::screen::CustomRenderer; 3] =
+            [&mut hud_renderer, &mut item_renderer, &mut player_renderer];
+        let mut preview_frame = PaintFrame {
+            layouts: &mut self.layouts,
+            font: &self.font,
+            metrics,
+            solid_page: self.solid_texture_page,
+            safe_area: self.safe_area,
+            content,
+            translate: &translate,
+            language: runtime.text_generation(),
+            now: self.menu_seconds,
+            nodes,
+            next,
+            renderers: &mut renderers,
+        };
+        self.control_previews.paint(
+            engine,
+            &json_ui::hud_context(engine.context()),
+            &mut preview_frame,
+        );
+        if let Some(view) = preview_view.get() {
+            self.player_preview_view = view;
+        }
+        let mut previews = self.control_previews.renderer();
+        let mut panel_renderers: [&mut dyn ui_engine::engine::screen::CustomRenderer; 1] =
+            [&mut previews];
+        let mut paint = preview_frame.with_renderers(&mut panel_renderers);
         self.screens
             .mod_ui
             .paint_mod_panel(self.engine.as_deref(), &mut paint);

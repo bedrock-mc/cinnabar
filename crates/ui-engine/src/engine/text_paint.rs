@@ -4,7 +4,7 @@
 
 use std::{borrow::Cow, cell::RefCell, sync::Arc};
 
-use assets::{FontRendering, RuntimeFontCatalog};
+use assets::RuntimeFontCatalog;
 use json_ui::{LabelShape, TextAlign, TextMeasure, TextOptions};
 use ui::{
     FONT_DESIGN_PIXEL_TEXELS, TextLayoutCache, TextLayoutRequest, TextLineAlign, TextShadow,
@@ -76,7 +76,7 @@ pub fn label_origin(
     [dest[0], dest[1] + px]
 }
 
-/// Distance-field labels retain fractional placement; pixel faces use the physical grid.
+/// Filtered outline labels retain fractional placement; pixel faces use the physical grid.
 pub(super) fn label_positioned(
     dest: [f64; 4],
     font: &RuntimeFontCatalog,
@@ -85,7 +85,7 @@ pub(super) fn label_positioned(
     px: f32,
 ) -> [f32; 4] {
     let selected = font.font_named(options.font_type.as_deref().unwrap_or("default"));
-    if !std::ptr::eq(font, selected) && selected.rendering() == FontRendering::NativeSdf {
+    if selected.linear_sampling() {
         let [x, y, w, h] = dest.map(|value| value as f32 * px);
         [x, y, x + w, y + h]
     } else {
@@ -198,8 +198,11 @@ impl<'a> LabelMetrics<'a> {
             TextAlign::Center => TextLineAlign::Center,
             TextAlign::Right => TextLineAlign::Right,
         };
-        request.wrap.align_grid_65536 =
-            super::pixel_snap::align_grid_65536(self.authored_factor, self.metrics.gui_scale, px);
+        request.wrap.align_grid_65536 = if self.font.linear_sampling() {
+            0
+        } else {
+            super::pixel_snap::align_grid_65536(self.authored_factor, self.metrics.gui_scale, px)
+        };
         request
     }
 }
