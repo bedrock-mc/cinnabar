@@ -53,18 +53,21 @@ impl MenuRuntime {
             }
             _ => status.failure = None,
         }
-        let Some(toast) = status.notices.observe(load, now) else {
-            return;
-        };
         let millis = u64::try_from(now.as_millis()).unwrap_or(u64::MAX);
         let standing = runtime.hud().standing_toast();
         let ours = standing.is_some_and(|toast| toast.id == LOADING_TOAST && toast.press.is_none());
+        let can_stand = !standing.is_some_and(|toast| {
+            toast.press.is_some()
+                && millis
+                    < toast
+                        .until_millis
+                        .saturating_add(ui::TOAST_SLIDE_OUT_MILLIS)
+        });
+        let Some(toast) = status.notices.observe(load, now, can_stand) else {
+            return;
+        };
         match toast {
             PackToast::Loading { title, message } => {
-                // A toast that opens something, such as a join request, keeps the slot.
-                if standing.is_some_and(|toast| toast.press.is_some()) {
-                    return;
-                }
                 runtime.stand_toast(StandingToast {
                     id: LOADING_TOAST,
                     title: title.into(),
@@ -218,6 +221,55 @@ mod tests {
         };
         menu.sync_shader_pack_status(retry, &mut &mut runtime, Duration::from_secs(9));
         assert_eq!(menu.view().renderer_failure, None, "loading it again");
+    }
+
+    #[test]
+    fn unchanged_loading_returns_after_a_join_toast_expires() {
+        let mut menu = shader_pack_menu("Dusk.zip");
+        let mut runtime = UiRuntimeResource(UiRuntime::new(1));
+        let loading = PackLoad::Loading {
+            pack: "Dusk.zip",
+            programs: Some((4, 4)),
+        };
+        menu.sync_shader_pack_status(loading, &mut &mut runtime, Duration::ZERO);
+        menu.sync_shader_pack_status(loading, &mut &mut runtime, LOADING_TOAST_DELAY);
+        runtime.stand_toast(StandingToast {
+            id: 7,
+            title: Arc::from("Join request"),
+            message: Arc::from(""),
+            press: Some(ToastPress::JoinRequests),
+            since_millis: 0,
+            until_millis: 30_000,
+        });
+        menu.sync_shader_pack_status(loading, &mut &mut runtime, Duration::from_secs(1));
+        assert_eq!(runtime.hud().standing_toast().unwrap().id, 7);
+        menu.sync_shader_pack_status(loading, &mut &mut runtime, Duration::from_secs(31));
+        let standing = runtime.hud().standing_toast().unwrap();
+        assert_eq!(standing.id, LOADING_TOAST);
+        assert_eq!(standing.message.as_ref(), "Building pipelines");
+    }
+
+    #[test]
+    fn a_blocked_loading_notice_retries_when_the_slot_is_retired() {
+        let mut menu = shader_pack_menu("Dusk.zip");
+        let mut runtime = UiRuntimeResource(UiRuntime::new(1));
+        runtime.stand_toast(StandingToast {
+            id: 7,
+            title: Arc::from("Join request"),
+            message: Arc::from(""),
+            press: Some(ToastPress::JoinRequests),
+            since_millis: 0,
+            until_millis: 30_000,
+        });
+        let loading = PackLoad::Loading {
+            pack: "Dusk.zip",
+            programs: None,
+        };
+        menu.sync_shader_pack_status(loading, &mut &mut runtime, Duration::ZERO);
+        menu.sync_shader_pack_status(loading, &mut &mut runtime, LOADING_TOAST_DELAY);
+        runtime.retire_standing_toast(1000);
+        menu.sync_shader_pack_status(loading, &mut &mut runtime, Duration::from_secs(2));
+        assert_eq!(runtime.hud().standing_toast().unwrap().id, LOADING_TOAST);
     }
 
     #[test]

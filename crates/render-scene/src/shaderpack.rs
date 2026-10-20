@@ -72,6 +72,17 @@ impl ShaderPackLoadProgress {
         Arc::clone(self.0.insert(Arc::default()))
     }
 
+    /// Stops publishing a completed or cancelled load, leaving late worker updates detached.
+    pub fn finish(&mut self) {
+        self.0 = None;
+    }
+
+    /// Whether a load is running, including reloads that keep the previous pack drawing.
+    #[must_use]
+    pub fn is_loading(&self) -> bool {
+        self.0.is_some()
+    }
+
     /// `(translated, programs)` of the latest load once it knows its program count.
     #[must_use]
     pub fn programs(&self) -> Option<(u32, u32)> {
@@ -391,7 +402,9 @@ mod tests {
     fn each_load_reports_its_own_program_progress() {
         let mut progress = ShaderPackLoadProgress::default();
         assert_eq!(progress.programs(), None, "nothing loading");
+        assert!(!progress.is_loading());
         let first = progress.start();
+        assert!(progress.is_loading());
         assert_eq!(progress.programs(), None, "program count not known yet");
         first.record(0, 40);
         first.record(12, 40);
@@ -405,5 +418,9 @@ mod tests {
         );
         second.record(3, 7);
         assert_eq!(progress.programs(), Some((3, 7)));
+        progress.finish();
+        second.record(7, 7);
+        assert!(!progress.is_loading());
+        assert_eq!(progress.programs(), None);
     }
 }

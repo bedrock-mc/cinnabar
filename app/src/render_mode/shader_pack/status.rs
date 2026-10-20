@@ -30,13 +30,19 @@ fn pack_load<'a>(
 ) -> PackLoad<'a> {
     match status {
         ShaderPackStatus::Idle => PackLoad::Idle,
-        ShaderPackStatus::Loading(path) => PackLoad::Loading {
-            pack: pack_name(config, path),
-            programs: progress.and_then(ShaderPackLoadProgress::programs),
-        },
-        ShaderPackStatus::Ready(path) => PackLoad::Ready {
-            pack: pack_name(config, path),
-        },
+        ShaderPackStatus::Loading(path) | ShaderPackStatus::Ready(path) => {
+            let pack = pack_name(config, path);
+            if matches!(status, ShaderPackStatus::Loading(_))
+                || progress.is_some_and(ShaderPackLoadProgress::is_loading)
+            {
+                PackLoad::Loading {
+                    pack,
+                    programs: progress.and_then(ShaderPackLoadProgress::programs),
+                }
+            } else {
+                PackLoad::Ready { pack }
+            }
+        }
         ShaderPackStatus::Failed { pack, reason } => PackLoad::Failed {
             pack: pack_name(config, pack),
             reason,
@@ -59,4 +65,41 @@ pub(in super::super) fn sync_shader_pack_status(
     };
     let load = pack_load(&config, &status, progress.as_deref());
     menu.sync_shader_pack_status(load, &mut runtime, time.elapsed());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ready_pack_reload_reports_loading_until_the_worker_finishes() {
+        let config = RenderModeConfig {
+            cli: None,
+            attributable: false,
+            path: None,
+            cli_shader_pack: None,
+            shader_packs: None,
+            shader_pack_revision: 0,
+        };
+        let status = ShaderPackStatus::Ready("Dusk.zip".into());
+        let mut progress = ShaderPackLoadProgress::default();
+        assert_eq!(
+            pack_load(&config, &status, Some(&progress)),
+            PackLoad::Ready { pack: "Dusk.zip" }
+        );
+        let worker = progress.start();
+        worker.record(3, 7);
+        assert_eq!(
+            pack_load(&config, &status, Some(&progress)),
+            PackLoad::Loading {
+                pack: "Dusk.zip",
+                programs: Some((3, 7))
+            }
+        );
+        progress.finish();
+        assert_eq!(
+            pack_load(&config, &status, Some(&progress)),
+            PackLoad::Ready { pack: "Dusk.zip" }
+        );
+    }
 }
