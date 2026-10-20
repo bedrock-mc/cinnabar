@@ -585,3 +585,36 @@ fn a_macro_is_not_expanded_inside_its_own_expansion() {
         properties.diagnostics
     );
 }
+
+#[test]
+fn layout_and_profile_values_keep_option_names() {
+    let properties = parse_with(
+        "screen=QUALITY\nscreen.details=QUALITY \\\n QUALITY\nsliders=QUALITY\nprofile.low=QUALITY:1\nother=QUALITY\n",
+        &[("QUALITY", "2")],
+    );
+    assert_eq!(properties.get("screen"), Some("QUALITY"));
+    assert_eq!(properties.get("screen.details"), Some("QUALITY QUALITY"));
+    assert_eq!(properties.get("sliders"), Some("QUALITY"));
+    assert_eq!(properties.get("profile.low"), Some("QUALITY:1"));
+    assert_eq!(properties.get("other"), Some("2"));
+    assert!(properties.diagnostics.is_empty());
+}
+
+#[test]
+fn expanded_properties_bytes_are_bounded_across_lines() {
+    use crate::source::{MAX_EXPANDED_PROPERTIES_BYTES, MAX_TEXT_FILE_BYTES};
+
+    let chunk = ".".repeat(64 * 1024);
+    let repetitions = MAX_EXPANDED_PROPERTIES_BYTES / chunk.len() / 2 + 1;
+    let references = vec!["BIG"; repetitions].join(" ");
+    let text = format!("#define BIG {chunk}\na={references}\nb={references}\nafter=ok\n");
+    assert!(text.len() < MAX_TEXT_FILE_BYTES);
+    let properties = parse(&text);
+    assert_eq!(
+        properties.get("a").unwrap().len(),
+        (chunk.len() + 1) * repetitions - 1
+    );
+    assert!(properties.get("b").is_none());
+    assert_eq!(properties.get("after"), Some("ok"));
+    assert_eq!(diagnostic_lines(&properties), [3]);
+}

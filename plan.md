@@ -413,6 +413,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   and enable rules, and custom uniform expressions evaluate per frame. Translation,
   render-host integration and in-game acceptance remain incomplete; evaluated custom
   uniforms are not uploaded or rendered.
+  acceptance remain incomplete.
+  and enable rules. Translation, render-host integration and in-game acceptance
+  remain incomplete.
   shader-pack source loading is implemented in `shaderpack`; configuration parsing,
   translation, render-host integration and in-game acceptance remain incomplete.
 - `registryc --kind java-mapping` generates `crates/assets/data/java-mapping-v2193.bin` from

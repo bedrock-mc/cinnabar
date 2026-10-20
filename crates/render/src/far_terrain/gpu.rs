@@ -764,6 +764,14 @@ pub(crate) struct FarTerrainView {
     pub(super) bind_group: Option<(BindGroupKey, BindGroup)>,
 }
 
+impl FarTerrainView {
+    /// Drops the draws and the bind group, which would otherwise keep released storage alive.
+    pub(super) fn release(&mut self) {
+        self.visible.clear();
+        self.bind_group = None;
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) struct BindGroupKey {
     view_uniforms: BufferId,
@@ -799,7 +807,7 @@ pub(super) fn prepare_far_terrain_views(
     if gpu.draws.is_empty() {
         for (.., state) in &mut views {
             if let Some(mut state) = state {
-                state.visible.clear();
+                state.release();
             }
         }
         return;
