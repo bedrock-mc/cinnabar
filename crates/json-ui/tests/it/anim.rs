@@ -160,6 +160,27 @@ fn every_property_type_animates() {
     assert!((uv.u0 - 8.0 / 32.0).abs() < 0.01, "uv {uv:?}");
 }
 
+#[test]
+fn repeated_sprite_clip_animation_keeps_the_source_region_and_tile_phase() {
+    let nodes = draws(
+        r#""reveal": { "anim_type": "clip", "from": 0.5, "to": 0.5, "duration": 1 },
+        "image": { "type": "image", "texture": "textures/ui/strip", "size": [80, 32],
+            "uv": [8, 0], "uv_size": [8, 8], "tiled": true,
+            "clip_direction": "right", "anims": ["@audit.reveal"] }"#,
+        "image",
+    );
+    let image = node(&nodes, "image");
+    let drawn = play(&mut Animator::new(), image, 0.0, 0.5);
+    let Draw::Sprite { uv, .. } = image.draw else {
+        unreachable!()
+    };
+    assert_eq!(drawn.uv, Some(uv));
+    assert_eq!(drawn.dest.w, 40.0);
+    let repeat = drawn.repeat.unwrap();
+    assert_eq!([repeat.uv.u0, repeat.uv.u1], [5.0, 10.0]);
+    assert_eq!([repeat.uv.v0, repeat.uv.v1], [0.0, 4.0]);
+}
+
 // N7/N17: a standalone wait destroys its named ancestor, siblings included.
 #[test]
 fn wait_destroys_the_named_ancestor() {
