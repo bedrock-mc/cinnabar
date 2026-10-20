@@ -125,7 +125,7 @@ fn minecraftten_alias_normalizes_outline_line_height_across_rasters() {
                     px,
                     translate: &|_| None,
                 }
-                .named_label("0\n0", alias, None, shape);
+                .named_label("0\n0", alias, None, None, shape);
                 assert_eq!(
                     measured,
                     native
@@ -203,6 +203,7 @@ fn named_labels_paint_all_lines_at_their_measured_height() {
                     .named_label(
                         &text,
                         alias,
+                        None,
                         None,
                         LabelShape {
                             scale: f64::from(factor),
@@ -818,5 +819,88 @@ fn filtered_outline_labels_preserve_fractional_positions() {
                 assert_eq!(delta, 0.);
             }
         }
+    }
+}
+
+#[test]
+fn unavailable_primary_uses_backup_for_label_measurement_and_paint() {
+    let face = assets::carriers::FONT_TEN.font_face.unwrap();
+    let alias = face.json_ui_alias.unwrap();
+    let font = fixture_font()
+        .with_named_font(face.name, &native_font(26))
+        .unwrap();
+    let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(1.0).unwrap(), Some(2));
+    let screen = |primary: &str, backup: &str| {
+        serde_json::json!({
+            "namespace": "fixture",
+            "screen": {"type":"button", "size":["100%c","100%c"], "controls":[
+                {"caption":{"type":"label", "text":"00\n00", "localize":false,
+                    "font_type":primary, "backup_font_type":backup}}
+            ]}
+        })
+        .to_string()
+    };
+    let (expected, expected_nodes) = paint_fixture(&font, metrics, &screen(alias, "unavailable"));
+    let expected_size = expected.hits[0].rect;
+    let expected_layout = expected_nodes
+        .iter()
+        .find_map(|node| match node.visual() {
+            UiVisual::Text { layout, .. } => Some(layout),
+            _ => None,
+        })
+        .unwrap();
+    let (fallback, fallback_nodes) = paint_fixture(&font, metrics, &screen("unavailable", alias));
+    assert_eq!(
+        fallback.hits[0].rect, expected_size,
+        "backup must determine content size"
+    );
+    let fallback_layout = fallback_nodes
+        .iter()
+        .find_map(|node| match node.visual() {
+            UiVisual::Text { layout, .. } => Some(layout),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        fallback_layout.glyphs(),
+        expected_layout.glyphs(),
+        "backup must supply painted glyphs"
+    );
+    assert_eq!(fallback_layout.size_64(), expected_layout.size_64());
+    let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+    let options = TextOptions {
+        font_type: Some("unavailable".into()),
+        backup_font_type: Some(alias.into()),
+        ..Default::default()
+    };
+    let request = painted_label_request(
+        metrics,
+        "00\n00",
+        [0.0, 0.0, 800.0, 800.0],
+        &font,
+        1.0,
+        &options,
+        TextAlign::Left,
+        px,
+    );
+    assert_eq!(request.font.identity(), font.font_named(alias).identity());
+}
+
+#[test]
+fn backup_selection_preserves_available_primary_and_open_default() {
+    let face = assets::carriers::FONT_TEN.font_face.unwrap();
+    let alias = face.json_ui_alias.unwrap();
+    let font = fixture_font()
+        .with_named_font(face.name, &native_font(26))
+        .unwrap();
+    for (primary, backup, expected) in [
+        (alias, Some("default"), alias),
+        (face.name, Some("default"), face.name),
+        ("default", Some(alias), "default"),
+        ("unavailable", Some("also-unavailable"), "default"),
+        ("unavailable", None, "default"),
+        ("unavailable", Some(face.name), face.name),
+    ] {
+        assert_eq!(font.resolve_font_name(primary, backup), expected);
     }
 }

@@ -145,11 +145,13 @@ pub const LEGACY_UNIFORMS: &[(&str, &str, &str)] = &[
 
 /// Declares supplied vertex inputs, names and location order together.
 macro_rules! vertex_attributes {
-    ($( $(#[$doc:meta])* $kind:ident => [$($name:literal),+]),+ $(,)?) => {
+    ($( $(#[$doc:meta])* $kind:ident => [$($name:literal),+]),+ $(,)?;
+     $($(#[$dynamic_doc:meta])* $dynamic:ident => [$($dynamic_name:literal),+]),+ $(,)?) => {
         /// A per-vertex input the host's vertex buffers must provide.
         #[derive(Clone, Debug, PartialEq, Eq, Hash)]
         pub enum VertexAttribute {
             $($(#[$doc])* $kind,)+
+            $($(#[$dynamic_doc])* $dynamic,)+
             /// An input the pack declares that Iris does not supply.
             Other(String),
         }
@@ -157,6 +159,7 @@ macro_rules! vertex_attributes {
         /// GLSL input aliases in location order.
         const ATTRIBUTE_NAMES: &[(&str, VertexAttribute)] = &[
             $($(($name, VertexAttribute::$kind),)+)+
+            $($(($dynamic_name, VertexAttribute::$dynamic),)+)+
         ];
 
         /// Supplied attributes in location order.
@@ -195,10 +198,24 @@ vertex_attributes! {
     ChunkFade => ["mc_chunkFade"],
     /// `dhMaterialId`.
     DhMaterialId => ["dhMaterialId"],
+    ;
+    /// Position in unsigned fixed point, with lightmap bytes in `w`; dynamically located.
+    /// Reads as `stored + origin.xyz + vec3(packed.xyz) * origin.w` for positions and
+    /// `stored + vec2(packed.w & 255, packed.w >> 8)` for lightmaps.
+    PackedPosition => ["iris_PackedPosition"],
+    /// Per-draw origin (`xyz`) and scale (`w`) of the packed position input.
+    DrawOrigin => ["iris_DrawOrigin"],
 }
 
 /// First location used for [`VertexAttribute::Other`] inputs.
 pub const FIRST_OTHER_ATTRIBUTE_LOCATION: u32 = SUPPLIED.len() as u32;
+
+/// Whether the host's vertex stream stores an attribute as floats or as integers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum StoredNumbers {
+    Float,
+    Int,
+}
 
 impl VertexAttribute {
     /// The attribute a translated vertex input name stands for.
@@ -210,9 +227,26 @@ impl VertexAttribute {
             .unwrap_or_else(|| VertexAttribute::Other(name.to_string()))
     }
 
-    /// The fixed shader location of a supplied attribute; `None` for `Other`.
+    /// The fixed shader location of a supplied attribute; `None` for `Other` and the raw
+    /// position parts, which take free locations.
     pub fn location(&self) -> Option<u32> {
         SUPPLIED.iter().position(|a| a == self).map(|i| i as u32)
+    }
+
+    /// How the host's vertex stream stores this attribute, for those a declaration of the
+    /// other kind reads converted rather than as declared, as GL converts integer vertex
+    /// data for float inputs. The lightmap is stored as exact floats or bytes, summed into
+    /// floats (`in ivec2 vaUV2` reads them and rounds); `mc_Entity` and `at_midBlock` as the
+    /// integers Iris stores
+    /// (`in vec4 mc_Entity` reads them and converts). `None` for every other attribute.
+    pub fn stored_numbers(&self) -> Option<StoredNumbers> {
+        match self {
+            VertexAttribute::Lightmap | VertexAttribute::MultiTexCoord2 => {
+                Some(StoredNumbers::Float)
+            }
+            VertexAttribute::BlockId | VertexAttribute::MidBlock => Some(StoredNumbers::Int),
+            _ => None,
+        }
     }
 }
 
@@ -438,8 +472,13 @@ mod tests {
 
     #[test]
     fn every_named_attribute_has_a_location_and_every_location_a_name() {
+        let position_parts = [VertexAttribute::PackedPosition, VertexAttribute::DrawOrigin];
         for (name, attribute) in ATTRIBUTE_NAMES {
-            assert!(attribute.location().is_some(), "{name} has no location");
+            assert_eq!(
+                attribute.location().is_some(),
+                !position_parts.contains(attribute),
+                "{name}: only the position parts take free locations"
+            );
             assert_eq!(&VertexAttribute::from_glsl_name(name), attribute);
         }
         for attribute in SUPPLIED {

@@ -1,10 +1,13 @@
 //! Token-level rewrites of compatibility-profile and GLSL 1.20 constructs.
 
 use super::TransformError;
-use super::items::{matching, size_unsized_arrays, split_args};
+use super::items::{
+    func_params, matching, parse_decl, shadowed_bindings, size_unsized_arrays, split_args,
+    split_items, struct_body_end,
+};
 use crate::programs::StageKind;
 use crate::token::{Tok, TokKind, id, lex, p};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 
 /// Identifiers reserved or built in since GLSL 1.30 that 1.20 code may use as names.
 const RESERVED_SINCE_130: &[&str] = &[
@@ -84,6 +87,96 @@ fn builtin_variable(name: &str, stage: StageKind) -> Option<&'static str> {
     })
 }
 
+/// Core-profile names and the compatibility built-ins Iris's core-profile transformer
+/// renames them to. Iris compiles line programs with that transformer whatever their
+/// version, so Complementary's `#version 130` `gbuffers_line` uses these without declaring
+/// them. Vertex attributes only apply to vertex stages.
+const CORE_NAMES: &[(&str, &str, bool)] = &[
+    ("modelViewMatrix", "gl_ModelViewMatrix", false),
+    ("modelViewMatrixInverse", "gl_ModelViewMatrixInverse", false),
+    ("projectionMatrix", "gl_ProjectionMatrix", false),
+    (
+        "projectionMatrixInverse",
+        "gl_ProjectionMatrixInverse",
+        false,
+    ),
+    ("normalMatrix", "gl_NormalMatrix", false),
+    ("vaPosition", "gl_Vertex.xyz", true),
+    ("vaColor", "gl_Color", true),
+    ("vaNormal", "gl_Normal", true),
+    ("vaUV0", "gl_MultiTexCoord0.xy", true),
+    ("vaUV2", "ivec2(gl_MultiTexCoord1.xy)", true),
+];
+
+/// Replaces undeclared [`CORE_NAMES`] with their compatibility built-ins, so a stage that
+/// uses both (`gl_Normal` and `vaNormal`) reads one input. A declared name stays the
+/// pack's own variable.
+fn undeclared_core_names(src: &[Tok], stage: StageKind) -> Option<Vec<Tok>> {
+    let mut declared = HashSet::new();
+    let mut shadowed = shadowed_bindings(src, CORE_NAMES.iter().map(|(name, _, _)| *name));
+    let mut offset = 0;
+    for item in split_items(src) {
+        if let Some(declaration) = parse_decl(&item) {
+            declared.extend(declaration.decls.into_iter().map(|(name, _, _)| name));
+            if let Some((name, members, instance)) = declaration.block {
+                let open = item.iter().position(|token| token.is("{")).unwrap();
+                shadowed.extend(offset + open + 1..offset + open + 1 + members.len());
+                declared.insert(name.clone());
+                let mut tokens = vec![id(&name)];
+                tokens.extend(instance);
+                tokens.push(p(";"));
+                if let Some(instances) = parse_decl(&tokens) {
+                    declared.extend(instances.decls.into_iter().map(|(name, _, _)| name));
+                }
+            }
+        } else if let Some((lp, params)) = func_params(&item) {
+            if let Some(name) = lp.checked_sub(1).and_then(|index| item[index].ident()) {
+                declared.insert(name.to_string());
+            }
+            let names: HashSet<_> = params.into_iter().map(|param| param.name).collect();
+            shadowed.extend(
+                item.iter()
+                    .enumerate()
+                    .filter(|(_, token)| token.ident().is_some_and(|name| names.contains(name)))
+                    .map(|(i, _)| offset + i),
+            );
+        }
+        offset += item.len();
+    }
+    let replace: Vec<(&str, &str)> = CORE_NAMES
+        .iter()
+        .filter(|(n, _, attribute)| {
+            (!attribute || stage == StageKind::Vertex)
+                && src.iter().any(|t| t.ident() == Some(n))
+                && !declared.contains(*n)
+        })
+        .map(|(n, compat, _)| (*n, *compat))
+        .collect();
+    if replace.is_empty() {
+        return None;
+    }
+    let mut out = Vec::with_capacity(src.len());
+    let mut type_end = 0;
+    for (i, t) in src.iter().enumerate() {
+        if let Some(end) = struct_body_end(src, i) {
+            type_end = type_end.max(end);
+        }
+        let member = i < type_end || i > 0 && src[i - 1].is(".");
+        match replace
+            .iter()
+            .find(|(n, _)| !member && !shadowed.contains(&i) && t.ident() == Some(n))
+        {
+            Some((_, compat)) => {
+                out.push(p("(").at(t.line));
+                out.extend(lex(compat).into_iter().map(|c| c.at(t.line)));
+                out.push(p(")").at(t.line));
+            }
+            None => out.push(t.clone()),
+        }
+    }
+    Some(out)
+}
+
 /// Renames reserved identifiers, maps legacy built-ins and lookup functions, and gives
 /// implicit-LOD sampling outside fragment shaders an explicit LOD.
 pub(super) fn rewrite(
@@ -113,7 +206,10 @@ pub(super) fn rewrite(
         return Err(TransformError::new("unclosed delimiter", open.line));
     }
     let legacy = version < 130;
-    let sized = size_unsized_arrays(src);
+    let mut sized = size_unsized_arrays(src);
+    if let Some(core) = undeclared_core_names(&sized, stage) {
+        sized = core;
+    }
     let src = &sized;
     let mut out = Legacy {
         toks: Vec::with_capacity(src.len()),

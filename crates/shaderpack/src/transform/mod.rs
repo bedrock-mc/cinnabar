@@ -17,7 +17,7 @@ use crate::preprocess::Preprocessed;
 use crate::programs::StageKind;
 use crate::reflection::{
     LEGACY_UNIFORMS, SHADOW_SAMPLER_BINDING, SHADOW_SAMPLER_NAME, SamplerClass, TEXTURE_GROUP,
-    TextureDimension, VertexAttribute,
+    TextureDimension,
 };
 use crate::token::{Tok, lex};
 pub(crate) use assemble::{UboMember, assemble, merge_uniforms};
@@ -42,6 +42,13 @@ impl TransformError {
         }
     }
 }
+
+/// Converts the vertex stage's OpenGL clip position to wgpu's: depth `[-w, w]` becomes
+/// `[0, w]`, so window depth keeps GL's `(z + 1) / 2`, and Y flips, so rows are stored
+/// bottom-up exactly as GL stores them. Texture coordinates, `gl_FragCoord` and
+/// `texelFetch` then agree with the pack's GL assumptions; hosts flip Y when copying
+/// images into or out of pack buffers, and triangle winding is mirrored.
+const GL_CLIP_TO_WGPU: &str = "gl_Position = vec4(gl_Position.x, -gl_Position.y, (gl_Position.z + gl_Position.w) * 0.5, gl_Position.w);";
 
 /// One translated stage, waiting for the program's merged uniform block.
 pub(crate) struct StageDraft {
@@ -106,6 +113,9 @@ pub(crate) fn transform(
     }
     let items = specialize::specialize_opaque_params(items);
     let mut c = declare::collect(items, stage, iface, names)?;
+    if stage == StageKind::Vertex {
+        c.after_main.push(GL_CLIP_TO_WGPU.to_string());
+    }
 
     let mut ubo: Vec<UboMember> = LEGACY_UNIFORMS
         .iter()
@@ -119,7 +129,7 @@ pub(crate) fn transform(
         // Inputs Iris supplies without the pack declaring them.
         for (n, ty) in [("mc_chunkFade", "float"), ("dhMaterialId", "int")] {
             if !c.declared.contains(n) && lg.toks.iter().any(|t| t.ident() == Some(n)) {
-                vertex_input(&mut builtin_io, &mut c.vertex_inputs, n, ty);
+                declare::vertex_input(&mut builtin_io, &mut c, n, ty);
             }
         }
         for (g, n, ty) in [
@@ -132,9 +142,10 @@ pub(crate) fn transform(
             ("gl_MultiTexCoord3", "iris_MultiTexCoord3", "vec4"),
         ] {
             if lg.builtins.contains(g) {
-                vertex_input(&mut builtin_io, &mut c.vertex_inputs, n, ty);
+                declare::vertex_input(&mut builtin_io, &mut c, n, ty);
             }
         }
+        declare::position_parts(&mut builtin_io, &mut c);
     }
     let varying_dir = match stage {
         StageKind::Vertex => Some("out"),
@@ -278,14 +289,6 @@ pub(crate) fn transform(
         frag_outputs: c.frag_outputs,
         resource_names,
     })
-}
-
-/// Emits a supplied vertex input at its fixed host location.
-fn vertex_input(io: &mut String, inputs: &mut Vec<(u32, String)>, name: &str, ty: &str) {
-    if let Some(loc) = VertexAttribute::from_glsl_name(name).location() {
-        io.push_str(&format!("layout(location = {loc}) in {ty} {name};\n"));
-        inputs.push((loc, name.to_string()));
-    }
 }
 
 #[cfg(test)]

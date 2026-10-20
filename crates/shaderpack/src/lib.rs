@@ -72,8 +72,9 @@ pub use reflection::{
     FIRST_TEXTURE_BINDING, IMAGE_GROUP, LEGACY_UNIFORMS, LOOSE_UNIFORM_BINDING,
     LOOSE_UNIFORM_BLOCK, ProgramReflection, SAMPLER_BINDING, SAMPLER_NAME, SHADOW_SAMPLER_BINDING,
     SHADOW_SAMPLER_NAME, STORAGE_BUFFER_GROUP, SampleType, SamplerBinding, SamplerClass,
-    ScalarType, StageMask, StorageImageBinding, TEXTURE_GROUP, TextureBinding, TextureDimension,
-    UNIFORM_GROUP, UniformBlock, UniformMember, ValueType, VertexAttribute, VertexInput,
+    ScalarType, StageMask, StorageImageBinding, StoredNumbers, TEXTURE_GROUP, TextureBinding,
+    TextureDimension, UNIFORM_GROUP, UniformBlock, UniformMember, ValueType, VertexAttribute,
+    VertexInput,
 };
 pub use source::{PackError, PackOrigin, PackSource};
 pub use translate::{ProgramTranslation, StageTranslation};

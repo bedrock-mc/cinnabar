@@ -1,5 +1,6 @@
-//! GLSL that OpenGL drivers accept and naga's parser needs rewritten: integer 1D samplers,
-//! `coherent`/`volatile` resources and implicit-LOD shadow lookups in compute shaders.
+//! GLSL that OpenGL drivers accept and naga's parser needs rewritten: interface blocks
+//! between stages, integer 1D samplers, `coherent`/`volatile` resources and implicit-LOD
+//! shadow lookups in compute shaders.
 
 use crate::{program, reflection};
 use shaderpack::{PackSource, SampleType, ShaderPack, TextureDimension, TranslateConfig};
@@ -7,6 +8,39 @@ use shaderpack::{PackSource, SampleType, ShaderPack, TextureDimension, Translate
 fn translate(files: &[(&str, &str)]) -> shaderpack::PackTranslation {
     ShaderPack::new(PackSource::from_files(files.iter().copied()))
         .translate(&TranslateConfig::default())
+}
+
+#[test]
+fn interface_blocks_link_by_block_and_member_name() {
+    let t = translate(&[
+        (
+            "composite.vsh",
+            "#version 430 compatibility\n\
+             out DATA { vec4 color; flat int id; mat3 m; } data_out;\n\
+             void main() {\n\
+                 gl_Position = ftransform();\n\
+                 data_out.color = gl_Color;\n\
+                 data_out.id = 3;\n\
+                 data_out.m = mat3(2.0);\n\
+             }\n",
+        ),
+        (
+            "composite.fsh",
+            "#version 430\n\
+             in DATA { vec4 color; flat int id; mat3 m; } data_in;\n\
+             /* RENDERTARGETS: 0 */\n\
+             layout(location = 0) out vec4 colour;\n\
+             void main() { colour = data_in.color * float(data_in.id) * data_in.m[0].x; }\n",
+        ),
+    ]);
+    let pass = program(&t, "composite");
+    reflection(pass);
+    // The vertex stage writes and the fragment stage reads the same locations.
+    for stage in &pass.stages {
+        let glsl = stage.result.as_ref().map(|c| c.glsl.as_str()).unwrap_or("");
+        assert!(glsl.contains("iris_b_DATA_color_0"), "{glsl}");
+        assert!(glsl.contains("flat"), "integer members are flat: {glsl}");
+    }
 }
 
 #[test]

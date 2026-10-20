@@ -55,6 +55,9 @@ The Go core and local stream boundary are implemented. Keep authentication,
 encryption and upstream transports with the core, and client behavior with Rust.
 Changes still need current protocol conformance, bounded framing and lifecycle coverage.
 The pinned target comes from [the target manifest](assets/bedrock-target.json).
+Invalid saved-token contents recover through device sign-in, preserving the cache
+until authentication succeeds. Filesystem failures retain credential-free operation
+and numeric OS diagnostics. Live Windows recovery acceptance remains open.
 
 ## Phase 2 — World rendering
 
@@ -285,6 +288,11 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
 
 - [ ] `P5.1-UI` — Close pack-driven UI, bounded text/draw work, formatting, scaling,
   safe areas, focus/navigation and keyboard/mouse/controller/touch acceptance. Prove
+  stable retained resources and correct supported DPI/aspect behavior. Labels share primary/backup
+  face selection across measurement and painting; broader text acceptance remains open.
+  stable retained resources and correct supported DPI/aspect behavior. Tiled images
+  retain full coverage with bounded repeat geometry across cropped regions and sliced
+  borders; large collection admission and hardware frame-work acceptance remain incomplete.
   stable retained resources and correct supported DPI/aspect behavior. Form JSON
   container parsing and cleanup use heap stacks and accept line/block comments.
   Form display strings retain ordinary long literal and translated text separately
@@ -420,6 +428,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 - Native extension UI and HUD APIs (retained modules, profile fields, text plates,
   compass markers, totem annotations and bounded camera overrides) still need
   displayed-frame pacing and complete rendering acceptance.
+  Backdrop and element blur now limit downsampling to referenced mip levels and
+  cache the admitted maximum blur. Pixel-equivalence regressions are included;
+  executed GPU checks and measured frame-budget acceptance remain pending.
   Server-day HUD rows now consume scoped native clock observations and leave missing
   or stale clocks unknown. Clock/host regressions are included; executed checks and
   populated-world acceptance remain pending.

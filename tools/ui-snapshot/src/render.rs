@@ -1,5 +1,6 @@
 //! Production screen painting into the JSON-UI editor's existing CPU target.
 
+mod backup_font;
 mod character;
 #[cfg(feature = "test-support")]
 mod control_locked;
@@ -138,6 +139,7 @@ fn png_fixture(
         Fixture::Chat { .. }
         | Fixture::TabList(_)
         | Fixture::EditSelection
+        | Fixture::BackupFont
         | Fixture::TiledImage { .. }
         | Fixture::ModPanel(_) => false,
         #[cfg(feature = "test-support")]
@@ -148,7 +150,7 @@ fn png_fixture(
         | Fixture::ControlLocked
         | Fixture::CosmeticParticles { .. } => false,
     };
-    let mut carriers = carriers::load(dir, menu)?;
+    let mut carriers = carriers::load(dir, menu || matches!(&fixture, Fixture::BackupFont))?;
     #[cfg(feature = "test-support")]
     let craft_icons = matches!(
         &fixture,
@@ -181,6 +183,10 @@ fn png_fixture(
         renderers: &mut [],
     };
     match fixture {
+        Fixture::BackupFont => {
+            let engine = json_engine(&carriers)?;
+            backup_font::paint(&engine, &mut frame)?;
+        }
         Fixture::TiledImage { .. } => unreachable!("tiled image capture returned above"),
         #[cfg(feature = "test-support")]
         Fixture::CosmeticParticles { .. }
