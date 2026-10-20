@@ -96,6 +96,4 @@ pub(crate) struct ActorSources<'a> {
     pub camera: Vec3,
     /// Camera forward direction for sorting blended instances.
     pub view_forward: Vec3,
-    /// Seconds since the client started, which the glint texture matrix scrolls by.
-    pub seconds: f32,
 }
