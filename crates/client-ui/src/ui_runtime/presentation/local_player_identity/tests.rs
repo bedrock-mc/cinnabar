@@ -141,7 +141,7 @@ fn draw(presentation: &mut UiPresentationRuntime, runtime: &UiRuntime) -> Vec<u8
 
 /// Checks a whole rendered image for an exact original fixture texel.
 fn contains(image: &[u8], color: [u8; 4]) -> bool {
-    image.as_chunks::<4>().0.iter().any(|pixel| *pixel == color)
+    image.as_chunks::<4>().0.contains(&color)
 }
 
 #[test]

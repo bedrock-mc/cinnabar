@@ -67,8 +67,8 @@ mod tests {
     #[test]
     fn local_player_head_allows_only_host_texture_and_presentation_bindings() {
         let image = json!({"type":"image","bindings":[
-            {"binding_name":"#local_player_head","binding_name_override":"#texture"},
-            {"binding_name":"#local_player_head_available","binding_name_override":"#visible"}
+            {"binding_name":HEAD,"binding_name_override":"#texture"},
+            {"binding_name":AVAILABLE,"binding_name_override":"#visible"}
         ]});
         validate(image.as_object().unwrap()).unwrap();
         for property in ["texture", "texture_file_system", "texture_path"] {
