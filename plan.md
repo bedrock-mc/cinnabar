@@ -432,7 +432,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   displayed-frame pacing and complete rendering acceptance.
   HUD layout editing stores nine anchors and GUI-pixel offsets after completed
   moves, resizes and nudges, with an additive anchored-layout read and normalized
-  compatibility reads. Displayed-frame pacing acceptance remains pending.
+  compatibility reads. Editor drags snap to neighboring cards, stacking gaps and
+  host-supplied native HUD bounds, with edge distances and Shift snap bypass.
+  Displayed-frame pacing acceptance remains pending.
   Backdrop and element blur now limit downsampling to referenced mip levels and
   cache the admitted maximum blur. Pixel-equivalence regressions are included;
   executed GPU checks and measured frame-budget acceptance remain pending.

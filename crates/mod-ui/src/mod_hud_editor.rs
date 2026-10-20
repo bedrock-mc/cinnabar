@@ -1,7 +1,9 @@
 //! Native layout editing of bounded HUD previews. Pointer data never enters a guest.
 
 mod data;
+mod feedback;
 mod input;
+mod snapping;
 mod template;
 
 use crate::{
@@ -35,6 +37,12 @@ pub(super) struct HudEditor {
     pub(super) close_requested: bool,
     reset: bool,
     snap: bool,
+    bypass_snap: bool,
+    data_dirty: bool,
+    snap_dirty: bool,
+    row_icons: Vec<Option<IconRef>>,
+    icons: Vec<IconRef>,
+    keep_out: Vec<[f64; 4]>,
     selected: Option<usize>,
     pub(super) drag: Option<input::Drag>,
     pub(super) open: bool,
@@ -68,6 +76,12 @@ impl ModUi {
             close_requested: false,
             reset: false,
             snap: false,
+            bypass_snap: false,
+            data_dirty: true,
+            snap_dirty: false,
+            row_icons: Vec::new(),
+            icons: Vec::new(),
+            keep_out: Vec::new(),
             selected: None,
             drag: None,
             open: true,
@@ -81,6 +95,38 @@ impl ModUi {
             transitions: SurfaceTransitions::default(),
         });
         Ok(())
+    }
+
+    /// Supplies safe-content GUI-pixel rectangles from the host's native HUD layout.
+    /// Rectangles guide placement but never prohibit overlap.
+    pub fn set_mod_hud_editor_keep_out(&mut self, rects: &[[f64; 4]]) {
+        let Some(editor) = self.mod_hud_editor.as_mut().filter(|e| e.open) else {
+            return;
+        };
+        if editor.keep_out == rects {
+            return;
+        }
+        editor.snap_dirty = true;
+        editor.keep_out.clear();
+        editor.keep_out.extend(
+            rects
+                .iter()
+                .copied()
+                .filter(|r| r.iter().all(|v| v.is_finite()) && r[2] > 0. && r[3] > 0.),
+        );
+    }
+
+    /// Temporarily bypasses every placement snap while the host observes Shift held.
+    pub fn set_mod_hud_editor_shift(&mut self, held: bool) {
+        if let Some(editor) = self.mod_hud_editor.as_mut().filter(|e| e.open) {
+            editor.snap_dirty |= editor.bypass_snap != held;
+            editor.data_dirty |= editor.bypass_snap != held;
+            editor.bypass_snap = held;
+            if held && let Some(drag) = &mut editor.drag {
+                drag.guides = [None; 2];
+                drag.targets = [None; 2];
+            }
+        }
     }
 
     /// Whether native layout editing currently owns the personal panel surface.
@@ -139,31 +185,40 @@ impl ModUi {
             return;
         }
         if editor.viewport != viewport {
+            editor.data_dirty = true;
             editor.viewport = viewport;
             editor.catalog = None;
             editor.frame = None;
             editor.cancel_pointer_input();
         }
-        let mut data = editor.data();
-        if let Some(surface) = &editor.draft.surface {
+        let transition_changed = editor.draft.surface.as_ref().is_some_and(|surface| {
             editor
                 .transitions
-                .advance(surface, paint_frame.now, !self.reduced_motion);
-            editor.transitions.write(&mut data);
-        }
-        let mut icons = Vec::<IconRef>::new();
-        for (index, icon) in resolved.as_slice().iter().enumerate() {
-            let scalar = if let Some(icon) = icon {
-                let id = icons.len();
-                icons.push(*icon);
-                Scalar::Num(id as f64)
-            } else {
-                Scalar::Json(serde_json::Value::Null)
-            };
-            data.set_global(format!("#row_{index}_icon"), scalar);
-        }
-        if *editor.data != data {
-            editor.data = Arc::new(data);
+                .advance(surface, paint_frame.now, !self.reduced_motion)
+        });
+        let icons_changed = editor.row_icons != resolved.as_slice();
+        if editor.data_dirty || icons_changed || transition_changed {
+            let mut data = editor.data();
+            if editor.draft.surface.is_some() {
+                editor.transitions.write(&mut data);
+            }
+            editor.row_icons.clear();
+            editor.row_icons.extend_from_slice(resolved.as_slice());
+            editor.icons.clear();
+            for (index, icon) in resolved.as_slice().iter().enumerate() {
+                let scalar = if let Some(icon) = icon {
+                    let id = editor.icons.len();
+                    editor.icons.push(*icon);
+                    Scalar::Num(id as f64)
+                } else {
+                    Scalar::Json(serde_json::Value::Null)
+                };
+                data.set_global(format!("#row_{index}_icon"), scalar);
+            }
+            if *editor.data != data {
+                editor.data = Arc::new(data);
+            }
+            editor.data_dirty = false;
         }
         let rollback = (paint_frame.nodes.len(), *paint_frame.next);
         let language = paint_frame.language;
@@ -181,11 +236,15 @@ impl ModUi {
             return;
         }
         let mut items = ItemRenderer {
-            icons: &icons,
+            icons: &editor.icons,
             id_aux: &[],
         };
         let mut glass = GlassRenderer::new(world);
-        let mut renderers: [&mut dyn CustomRenderer; 2] = [&mut items, &mut glass];
+        let mut zones = feedback::KeepOutRenderer {
+            rects: &editor.keep_out,
+            dragging: editor.drag.is_some(),
+        };
+        let mut renderers: [&mut dyn CustomRenderer; 3] = [&mut items, &mut glass, &mut zones];
         // Keep pointer feedback outside the editor borrow while measuring native hit bounds.
         let view = std::mem::take(&mut editor.view);
         let art = ScreenArt {
@@ -203,9 +262,10 @@ impl ModUi {
                         crate::mod_widgets::text_plate::data(data, card, n, viewport);
                     }
                     data::write_bounds(data, &editor.draft, viewport, editor.selected);
+                    feedback::measurements(data, &editor.draft, viewport, editor.selected);
                 }
                 if editor.catalog.is_none() {
-                    let catalog = match template::catalog(editor, viewport) {
+                    let catalog = match template::catalog(&editor.draft, viewport) {
                         Ok(catalog) => catalog,
                         Err(error) => {
                             tracing::warn!(%error,"HUD editor template rejected");

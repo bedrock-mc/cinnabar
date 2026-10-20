@@ -125,3 +125,38 @@ fn hidden_missing_mapped_ambiguous_and_old_session_roots_are_not_reported() {
         "unpainted HUD geometry is retired with its frame"
     );
 }
+
+/// Keep-out input follows native pack layout and the editor's GUI scale, without a second layout.
+#[test]
+fn editor_keep_out_uses_the_completed_native_layout_and_rejects_old_sessions() {
+    let mut p = crate::test_support::mini_engine_presentation();
+    p.set_server_ui_pack(&super::super::super::super::ServerUiPack {
+        ui_layers: vec![vec![
+            ("ui/_ui_defs.json".into(), br#"{"ui_defs":["ui/hud_screen.json"]}"#.to_vec()),
+            ("ui/hud_screen.json".into(), br#"{"namespace":"hud","hud_screen":{"type":"screen","controls":[{"hotbar_panel":{"type":"input_panel","size":[182,22],"offset":[30,200],"anchor_from":"top_left","anchor_to":"top_left","cinnabar_transform":{"scale":1.5,"origin":[0,0]}}}]}}"#.to_vec()),
+        ]], ..Default::default()
+    });
+    p.mod_ui_mut()
+        .set_mod_panel(
+            PanelUiOwner::Environment(0),
+            Some(&mod_ui::test_support::sample_panel()),
+        )
+        .unwrap();
+    p.mod_ui_mut().set_mod_panel_open(true);
+    p.mod_ui_mut()
+        .open_mod_hud_editor(&ui::mod_hud::Hud::default())
+        .unwrap();
+    p.set_gui_scale_preference(Some(2));
+    build(&mut p, 7);
+    let frame = p.screens.touch.hud.as_ref().unwrap();
+    let unit = f64::from(frame.scale / FONT_DESIGN_PIXEL_TEXELS as f32);
+    let passes = p.hud_passes();
+    assert_eq!(
+        p.mod_hud_editor_native_keep_out(7),
+        Some([30., 200., 273., 33.].map(|v| v * unit))
+    );
+    assert_eq!(p.hud_passes(), passes);
+    assert_eq!(p.mod_hud_editor_native_keep_out(8), None);
+    p.screens.touch.begin_frame();
+    assert_eq!(p.mod_hud_editor_native_keep_out(7), None);
+}

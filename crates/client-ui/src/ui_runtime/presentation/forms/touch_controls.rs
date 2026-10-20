@@ -42,6 +42,8 @@ pub(in super::super) struct TouchControls {
     pub(super) hud: Option<EngineFrame>,
     /// Session that produced the retained HUD input geometry.
     pub(super) hud_session: Option<u64>,
+    /// Native bottom-HUD artwork bounds from the same completed paint.
+    pub(super) hud_keep_out: Option<[f64; 4]>,
     /// The stick knob's drag key and size from the last overlay paint.
     knob: Option<(String, [f64; 2])>,
     /// Held contacts, which press their controls and move the stick's knob.
@@ -54,6 +56,7 @@ impl TouchControls {
         self.frame = None;
         self.hud = None;
         self.hud_session = None;
+        self.hud_keep_out = None;
     }
 }
 

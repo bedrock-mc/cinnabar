@@ -24,8 +24,7 @@ fn button(action: &str, size: [f64; 2], offset: [f64; 2], controls: Vec<Value>) 
 }
 
 /// Builds stable card previews and a bounded grid with editor controls.
-pub(super) fn catalog(editor: &HudEditor, viewport: [f64; 2]) -> Result<Catalog, String> {
-    let hud = &editor.draft;
+pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> {
     let style = hud.editor_style.unwrap_or_default();
     let color = |value: [f32; 4]| value.map(f64::from);
     let mut controls = Vec::new();
@@ -36,7 +35,8 @@ pub(super) fn catalog(editor: &HudEditor, viewport: [f64; 2]) -> Result<Catalog,
     if hud.surface.is_none() {
         let mut lines = Vec::new();
         for axis in 0..2 {
-            let spacing = 8. * (viewport[axis] / (192. * 8.)).ceil().max(1.);
+            let spacing =
+                snapping::GRID * (viewport[axis] / (192. * snapping::GRID)).ceil().max(1.);
             for n in 1..=(viewport[axis] / spacing) as usize {
                 let mut size = viewport;
                 size[axis] = 0.5;
@@ -64,6 +64,32 @@ pub(super) fn catalog(editor: &HudEditor, viewport: [f64; 2]) -> Result<Catalog,
         ]);
         node["layer"] = json!(10);
         controls.push(named(&format!("guide_{axis}"), node));
+    }
+    controls.push(named(
+        "keep_out",
+        json!({
+            "type":"custom", "renderer":"cinnabar_hud_keep_out", "size":viewport,
+            "anchor_from":"top_left", "anchor_to":"top_left", "layer":1
+        }),
+    ));
+    for axis in 0..2 {
+        let visible = json!({"binding_name":format!("#measurement_{axis}_visible"), "binding_name_override":"#visible"});
+        let mut line = rect([1.; 2], [0.; 2], color(style.guide));
+        line["layer"] = json!(10);
+        line["bindings"] = json!([visible.clone(),
+            {"binding_name":format!("#measurement_{axis}_offset"), "binding_name_override":"#offset"},
+            {"binding_name":format!("#measurement_{axis}_size"), "binding_name_override":"#size"}]);
+        controls.push(named(&format!("measurement_{axis}"), line));
+        let mut text = label(&format!("#measurement_{axis}_label"), [36., 12.], [0.; 2]);
+        text["text_alignment"] = json!("center");
+        text["bindings"] = json!([{"binding_name":format!("#measurement_{axis}_label")}]);
+        let mut background = rect([36., 12.], [0.; 2], [0.055, 0.065, 0.08, 0.97]);
+        background["radius"] = json!(6);
+        controls.push(named(&format!("measurement_{axis}_pill"), json!({
+            "type":"panel", "size":[36,12], "anchor_from":"top_left", "anchor_to":"top_left", "layer":11,
+            "bindings":[visible, {"binding_name":format!("#measurement_{axis}_pill"),"binding_name_override":"#offset"}],
+            "controls":[named("background",background),named("label",text)]
+        })));
     }
     let mut row = 0;
     for (index, card) in hud.cards.iter().enumerate() {
@@ -180,8 +206,8 @@ pub(super) fn catalog(editor: &HudEditor, viewport: [f64; 2]) -> Result<Catalog,
         if !hud.hide_editor_labels {
             let mut caption = label(
                 "#editor_label",
-                [310_f64.min(viewport[0] - 12.), 12.],
-                [((viewport[0] - 310.) * 0.5).max(6.), viewport[1] - 61.],
+                [390_f64.min(viewport[0] - 12.), 12.],
+                [((viewport[0] - 390.) * 0.5).max(6.), viewport[1] - 61.],
             );
             caption["text_alignment"] = json!("center");
             caption["bindings"] = json!([{"binding_name":"#editor_label"}]);
@@ -191,12 +217,12 @@ pub(super) fn catalog(editor: &HudEditor, viewport: [f64; 2]) -> Result<Catalog,
             "help",
             label(
                 if hud.autosave {
-                    "Drag / arrows nudge / autosaved / Esc closes"
+                    "Drag / Shift bypasses snapping / arrows nudge / autosaved"
                 } else {
-                    "Drag cards / arrows nudge / Enter saves / Esc cancels"
+                    "Drag / Shift bypasses snapping / Enter saves / Esc cancels"
                 },
-                [310_f64.min(viewport[0] - 12.), 12.],
-                [((viewport[0] - 310.) * 0.5).max(6.), viewport[1] - 46.],
+                [390_f64.min(viewport[0] - 12.), 12.],
+                [((viewport[0] - 390.) * 0.5).max(6.), viewport[1] - 46.],
             ),
         ));
     }

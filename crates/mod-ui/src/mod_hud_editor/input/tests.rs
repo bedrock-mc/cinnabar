@@ -288,3 +288,188 @@ fn anchored_reset_restores_captured_fallbacks_and_explicit_guest_defaults() {
     assert_eq!(card.position, None);
     editor.result.take().unwrap().validate().unwrap();
 }
+
+/// Places a second visible card away from the viewport guides.
+fn snapping_editor() -> HudEditor {
+    let mut editor = editor(false);
+    editor.draft.cards.push(Card {
+        id: "neighbor".into(),
+        width: 123.,
+        offset: [217., 173.],
+        ..Default::default()
+    });
+    editor
+}
+
+#[test]
+fn snapping_neighbor_edges_stacking_and_keep_out_use_gui_pixels() {
+    let editor = snapping_editor();
+    let size = cards::dimensions(&editor.draft.cards[0]);
+    let neighbor = cards::dimensions(&editor.draft.cards[1]);
+    let find = |at, zones: &[[f64; 4]]| {
+        snapping::targets(&editor.draft, 0, at, editor.viewport, zones, false)
+    };
+    let edge = find([220., 100.], &[])[0].unwrap();
+    assert_eq!((edge.at, edge.guide, edge.card), (217., 217., Some(1)));
+    for (at, expected, guide) in [
+        (173. - 8. - size[1] + 2., 173. - 8. - size[1], 173. - 8.),
+        (
+            173. + neighbor[1] + 8. - 2.,
+            173. + neighbor[1] + 8.,
+            173. + neighbor[1] + 8.,
+        ),
+    ] {
+        let stack = find([230., at], &[])[1].unwrap();
+        assert_eq!(
+            (stack.at, stack.guide, stack.card),
+            (expected, guide, Some(1))
+        );
+    }
+    for axis in 0..2 {
+        for guide in [
+            f64::from(editor.draft.cards[1].offset[axis]),
+            f64::from(editor.draft.cards[1].offset[axis]) + neighbor[axis],
+        ] {
+            for edge in [0., size[axis]] {
+                let mut at = [100., 100.];
+                at[axis] = guide - edge + 1.;
+                let snapped = find(at, &[])[axis].unwrap();
+                assert_eq!((snapped.at, snapped.card), (guide - edge, Some(1)));
+            }
+        }
+    }
+    let zone = find([502., 360.], &[[500., 350., 140., 80.]])[0].unwrap();
+    assert_eq!((zone.at, zone.guide, zone.card), (500., 500., None));
+    assert!(find([230., 260.], &[])[1].is_none());
+}
+
+#[test]
+fn snapping_nearest_wins_across_viewport_cards_and_keep_out() {
+    let mut editor = snapping_editor();
+    editor.draft.cards[1].offset[0] = 446.;
+    for (x, zones, expected) in [
+        (446.5, vec![], 446.),
+        (449.5, vec![], 450.),
+        (447.8, vec![[448., 100., 60., 80.]], 448.),
+    ] {
+        let target = snapping::targets(&editor.draft, 0, [x, 250.], editor.viewport, &zones, false)
+            [0]
+        .unwrap();
+        assert_eq!(target.at, expected);
+    }
+    editor.draft.cards[1].offset[0] = 950.;
+    assert!(
+        snapping::targets(&editor.draft, 0, [849., 250.], editor.viewport, &[], false)[0].is_none()
+    );
+}
+
+#[test]
+fn snapping_shift_bypasses_guides_and_grid_without_disabling_the_grid_setting() {
+    let mut editor = snapping_editor();
+    editor.snap = true;
+    editor.bypass_snap = true;
+    let at = [219.25, 211.75];
+    assert_eq!(
+        snapping::targets(
+            &editor.draft,
+            0,
+            at,
+            editor.viewport,
+            &[[220., 210., 30., 30.]],
+            true
+        ),
+        [None; 2]
+    );
+    editor.move_card(0, at);
+    for axis in 0..2 {
+        assert!(
+            (cards::origin(&editor.draft.cards[0], editor.viewport)[axis] - at[axis]).abs() < 0.001
+        );
+    }
+    assert!(editor.snap);
+    editor.bypass_snap = false;
+    editor.move_card(0, at);
+    let at = cards::origin(&editor.draft.cards[0], editor.viewport);
+    assert!((at[0] - 216.).abs() < 0.001 && (at[1] - 208.).abs() < 0.001);
+}
+
+#[test]
+fn snapping_highlight_and_measurements_update_through_bindings() {
+    let mut editor = snapping_editor();
+    editor.selected = Some(0);
+    editor.move_card(0, [37., 41.]);
+    editor.drag = Some(Drag {
+        index: 0,
+        grab: [0.; 2],
+        start: [0.; 2],
+        last: [0.; 2],
+        moved: true,
+        resize: None,
+        guides: [Some(217.), None],
+        targets: [Some(1), None],
+    });
+    let data = editor.data();
+    assert_eq!(
+        data.global_value("#bounds_1_color"),
+        Some(&Scalar::Json(serde_json::json!(
+            editor.draft.editor_style.unwrap_or_default().guide
+        )))
+    );
+    assert_eq!(
+        data.global_value("#measurement_0_label"),
+        Some(&Scalar::Text("37 px".into()))
+    );
+    assert_eq!(
+        data.global_value("#measurement_1_label"),
+        Some(&Scalar::Text("41 px".into()))
+    );
+    assert_eq!(
+        data.global_value("#measurement_0_visible"),
+        Some(&Scalar::Bool(true))
+    );
+    editor.drag = None;
+    let size = cards::dimensions(&editor.draft.cards[0]);
+    editor.move_card(
+        0,
+        [
+            editor.viewport[0] - size[0] - 20.,
+            editor.viewport[1] - size[1] - 11.,
+        ],
+    );
+    let data = editor.data();
+    assert_eq!(
+        data.global_value("#measurement_0_label"),
+        Some(&Scalar::Text("20 px".into()))
+    );
+    assert_eq!(
+        data.global_value("#measurement_1_visible"),
+        Some(&Scalar::Bool(false))
+    );
+    assert_eq!(
+        data.global_value("#bounds_1_color"),
+        Some(&Scalar::Json(serde_json::json!(
+            editor.draft.editor_style.unwrap_or_default().outline
+        )))
+    );
+}
+
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
+
+#[test]
+fn snapping_candidate_search_allocates_nothing_during_steady_drag() {
+    let editor = snapping_editor();
+    let (_, allocations) = test_alloc::measure(|| {
+        for x in 210..230 {
+            std::hint::black_box(snapping::targets(
+                &editor.draft,
+                0,
+                [f64::from(x), 160.],
+                editor.viewport,
+                &[[500., 350., 140., 80.]],
+                false,
+            ));
+        }
+    });
+    assert_eq!(allocations.calls, 0);
+}

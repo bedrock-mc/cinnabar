@@ -512,3 +512,59 @@ fn guides_align_both_edges_and_center_above_below_and_beside_center_axes() {
         }
     }
 }
+
+/// Native input and retained painting share snapping feedback without rebuilding the catalog.
+#[test]
+fn snapping_drag_feedback_retains_catalog_and_shift_bypasses_all_snaps() {
+    let mut p = super::mod_hud_anchors::presentation();
+    let runtime = UiRuntime::new(1);
+    let hud: ui::mod_hud::Hud = serde_json::from_value(serde_json::json!({"autosave":true,"cards":[
+        {"id":"fps","font":"sans","editor_label":"Frame rate","width":100,"offset":[40,80],"rows":[{"label":"FPS","value":"144"}]},
+        {"id":"clock","font":"sans","editor_label":"Clock","width":120,"offset":[317,220],"rows":[{"label":"Time","value":"12:30"}]}
+    ]})).unwrap();
+    p.mod_ui_mut()
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&panel()))
+        .unwrap();
+    p.mod_ui_mut().set_mod_panel_open(true);
+    p.mod_ui_mut().open_mod_hud_editor(&hud).unwrap();
+    p.mod_ui_mut()
+        .set_mod_hud_editor_keep_out(&[[549., 650., 182., 60.]]);
+    frame(&mut p, &runtime, [1280, 720], 1.);
+    let e = p.mod_ui().mod_hud_editor_state().unwrap();
+    let catalog = std::sync::Arc::clone(e.catalog.unwrap());
+    let original = card_origin(&e.draft.cards[0], e.viewport);
+    let px = e.frame.unwrap().scale;
+    let at = point(&p, "hud.card:0");
+    let destination = [
+        at[0] + ((320. - original[0]) as f32 * px),
+        at[1] + ((140. - original[1]) as f32 * px),
+    ];
+    p.mod_ui_mut().mod_panel_events(at, true, true);
+    let before = frame(&mut p, &runtime, [1280, 720], 1.);
+    snapshot::write(&before, "hud-snapping-before");
+    p.mod_ui_mut().mod_panel_events(destination, false, true);
+    let after = frame(&mut p, &runtime, [1280, 720], 1.);
+    snapshot::write(&after, "hud-snapping-after");
+    let e = p.mod_ui().mod_hud_editor_state().unwrap();
+    assert!((card_origin(&e.draft.cards[0], e.viewport)[0] - 317.).abs() < 0.001);
+    assert_eq!(e.drag.unwrap()[0], Some(317.));
+    assert!(std::sync::Arc::ptr_eq(&catalog, e.catalog.unwrap()));
+    let passes = e.passes;
+    // An unchanged captured pointer must not regenerate bindings or rerun layout.
+    p.mod_ui_mut().mod_panel_events(destination, false, true);
+    frame(&mut p, &runtime, [1280, 720], 1.);
+    let e = p.mod_ui().mod_hud_editor_state().unwrap();
+    assert_eq!(e.passes, passes);
+    assert!(std::sync::Arc::ptr_eq(&catalog, e.catalog.unwrap()));
+    p.mod_ui_mut().set_mod_hud_editor_shift(true);
+    p.mod_ui_mut().mod_panel_events(destination, false, true);
+    let e = p.mod_ui().mod_hud_editor_state().unwrap();
+    assert!((card_origin(&e.draft.cards[0], e.viewport)[0] - 320.).abs() < 0.001);
+    assert_eq!(e.drag, Some([None; 2]));
+    p.mod_ui_mut().set_mod_hud_editor_shift(false);
+    p.mod_ui_mut().mod_panel_events(destination, false, true);
+    let e = p.mod_ui().mod_hud_editor_state().unwrap();
+    assert!((card_origin(&e.draft.cards[0], e.viewport)[0] - 317.).abs() < 0.001);
+    p.mod_ui_mut().mod_panel_events(destination, false, false);
+    assert!(p.mod_ui_mut().take_mod_hud_editor_result().unwrap().saved);
+}
