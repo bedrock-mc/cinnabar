@@ -358,16 +358,14 @@ fn item_glint_coordinates_are_independent_of_atlas_placement_and_dimensions() {
         };
         for (index, (_, front, _)) in CORNERS.into_iter().enumerate() {
             let base = index * ACTOR_VERTEX_WORDS as usize + UV0.word as usize;
-            for axis in 0..2 {
-                assert!((f32::from_bits(words[base + axis]) - front[axis]).abs() < 1e-6);
+            for (axis, expected) in front.into_iter().enumerate() {
+                assert!((f32::from_bits(words[base + axis]) - expected).abs() < 1e-6);
             }
         }
         for (slot, corner) in [0, 2, 1].into_iter().enumerate() {
             let base = (slot + 3) * ACTOR_VERTEX_WORDS as usize + UV0.word as usize;
-            for axis in 0..2 {
-                assert!(
-                    (f32::from_bits(words[base + axis]) - CORNERS[corner].2[axis]).abs() < 1e-6
-                );
+            for (axis, expected) in CORNERS[corner].2.into_iter().enumerate() {
+                assert!((f32::from_bits(words[base + axis]) - expected).abs() < 1e-6);
             }
         }
     }

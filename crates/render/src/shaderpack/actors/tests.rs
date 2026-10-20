@@ -278,3 +278,12 @@ fn hand_translucent_depth_is_independent_of_the_world_camera() {
         -2.
     );
 }
+
+#[test]
+fn actor_skinning_and_glint_kernel_validate_without_a_gpu() {
+    crate::shader_source::composed_prepared_with(
+        &super::skin::skin_shader_source(include_str!("skin.wesl")),
+        &[],
+        Vec::new(),
+    );
+}
