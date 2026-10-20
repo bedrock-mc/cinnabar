@@ -182,7 +182,7 @@ async fn pending_pack_cache_io_keeps_original_raknet_ack_and_packet_prefix() {
     let mut stores = Stores::new();
     let held = Arc::clone(&stores.slot).acquire_owned().await.unwrap();
     stores.register(&offered);
-    let (mut offer, _) = offer.start().unwrap();
+    let (offer, _) = offer.start().unwrap();
     stores.queue_completed(
         &Some(Arc::clone(&cache)),
         |id| offer.completed_archive(id),

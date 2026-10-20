@@ -199,6 +199,7 @@ impl Transport {
     pub(super) async fn maintain(&mut self) {
         match self {
             Self::Messaging(transport) => transport.maintain().await,
+            Self::RakNet(transport) => transport.maintain().await,
             _ => std::future::pending().await,
         }
     }

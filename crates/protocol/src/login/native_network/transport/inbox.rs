@@ -1,4 +1,4 @@
-//! Bounded wire input retained while a NetherNet write waits for its driver.
+//! Bounded wire input retained while its original transport keeps progressing.
 
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
@@ -19,7 +19,7 @@ impl Inbox {
     }
 
     /// Retains one bounded wire message for the ordinary decoder to consume later.
-    fn push(&mut self, message: Bytes) -> io::Result<()> {
+    pub(super) fn push(&mut self, message: Bytes) -> io::Result<()> {
         let limits = bedrock_net::BatchLimits::default();
         let bytes = self
             .bytes
