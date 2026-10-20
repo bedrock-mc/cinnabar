@@ -285,7 +285,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
 
 - [ ] `P5.1-UI` — Close pack-driven UI, bounded text/draw work, formatting, scaling,
   safe areas, focus/navigation and keyboard/mouse/controller/touch acceptance. Prove
-  stable retained resources and correct supported DPI/aspect behavior.
+  stable retained resources and correct supported DPI/aspect behavior. Form JSON
+  container parsing and cleanup use heap stacks; structured text keeps its separate
+  validation limits. Extreme structured-text and rendered-form acceptance remain open.
 - [ ] `P5.2-HUD` — Close received text, titles, actionbar, toasts, survival/status HUD
   and lifecycle behavior without leaking UI-owned input into movement.
 - [ ] `P5.3-CHAT` — Close history/autocomplete, formatting, bounded UTF-8 editing,

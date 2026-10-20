@@ -1,6 +1,6 @@
 use super::*;
 use crate::{engine::pixel_snap, text_metrics::TextMetrics};
-use json_ui::{Draw, LayoutEnv, Rect, Scalar, TextMeasure, TextureMeta, TextureSource};
+use json_ui::{Draw, LayoutEnv, Rect, Scalar, TextMeasure, TextureMeta, TextureSource, resolve};
 use ui::{DpiScale, FONT_DESIGN_PIXEL_TEXELS};
 
 struct DisplayMeasure {
@@ -35,6 +35,120 @@ impl TextureSource for DisplayMeasure {
     /// This authored fixture has no texture dependencies.
     fn texture(&self, _: &str) -> Option<TextureMeta> {
         None
+    }
+}
+
+/// Counts expanded binding nodes rather than just the visible emitted primitives.
+fn expanded_nodes(tree: &ResolvedControl) -> usize {
+    1 + tree.children.iter().map(expanded_nodes).sum::<usize>()
+}
+
+#[test]
+fn prepared_screen_node_limit_survives_catalog_replacement_and_factory_refresh() {
+    let mut catalog = Catalog::default();
+    catalog.overlay_text("ui/limited.json", r#"{"namespace":"limited",
+        "root":{"type":"panel","size":[100,100],"factory":{"name":"rows","control_ids":{"row":"limited.row"}}},
+        "row":{"type":"panel","size":[10,10],"controls":[{"label":{"type":"label","text":"row","size":[10,8]}}]}}"#);
+    let catalog = Arc::new(catalog);
+    let context = Context::default();
+    let root = Arc::new(resolve(&catalog, "limited.root", &context).control.unwrap());
+    let mut screen =
+        CachedScreen::from_resolved("limited.root", Arc::clone(&catalog), context.clone(), root)
+            .with_node_limit(7);
+    let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(1.0).unwrap(), None);
+    let measure = DisplayMeasure { metrics, px: 2.0 };
+    let env = LayoutEnv {
+        text: &measure,
+        textures: &measure,
+    };
+    for current in [Arc::clone(&catalog), Arc::new((*catalog).clone())] {
+        for rows in [20, 1, 20] {
+            let mut data = DataSource::new();
+            data.set_factory(
+                "rows",
+                (0..rows)
+                    .map(|_| json_ui::FactoryItem::new("row", 0.0))
+                    .collect(),
+            );
+            let rendered = screen
+                .render(
+                    "limited.root",
+                    &current,
+                    &context,
+                    Arc::new(data),
+                    ([100.0; 2], 2.0, [0; 3]),
+                    &env,
+                )
+                .unwrap();
+            assert_eq!(
+                expanded_nodes(&rendered.bound),
+                if rows == 1 { 3 } else { 7 }
+            );
+            assert_eq!(screen.binding.node_limit(), 7);
+        }
+    }
+}
+
+#[test]
+fn a_large_factory_prototype_is_bounded_before_the_screen_binds_it() {
+    let mut catalog = Catalog::default();
+    let controls: Vec<_> = (0..1_000)
+        .map(|index| serde_json::json!({ format!("leaf{index}"): {"type":"panel"} }))
+        .collect();
+    catalog.overlay_text("ui/prototype.json", &serde_json::json!({
+        "namespace":"prototype",
+        "root":{"type":"panel", "factory":{"name":"rows", "control_ids":{"row":"prototype.row"}}},
+        "row":{"type":"panel", "controls":controls}
+    }).to_string());
+    let catalog = Arc::new(catalog);
+    let context = Context::default();
+    let tree = Arc::new(
+        resolve(&catalog, "prototype.root", &context)
+            .control
+            .unwrap(),
+    );
+    let mut screen = CachedScreen::from_resolved(
+        "prototype.root",
+        Arc::clone(&catalog),
+        context.clone(),
+        tree,
+    )
+    .with_node_limit(7);
+    let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(1.0).unwrap(), None);
+    let measure = DisplayMeasure { metrics, px: 2.0 };
+    let env = LayoutEnv {
+        text: &measure,
+        textures: &measure,
+    };
+    for current in [Arc::clone(&catalog), Arc::new((*catalog).clone())] {
+        let mut data = DataSource::new();
+        data.set_factory("rows", vec![json_ui::FactoryItem::new("row", 0.0)]);
+        let rendered = screen
+            .render(
+                "prototype.root",
+                &current,
+                &context,
+                Arc::new(data),
+                ([100.0; 2], 2.0, [0; 3]),
+                &env,
+            )
+            .unwrap();
+        assert_eq!(expanded_nodes(&rendered.bound), 7);
+        // Inspect the cached prototype directly: the bind cap alone cannot prove
+        // resolution avoided materializing the entire hostile template first.
+        let library = CachedLibrary {
+            library: CatalogLibrary {
+                catalog: &current,
+                context: &context,
+            },
+            cache: &screen.library,
+        };
+        let prototype = json_ui::ControlLibrary::resolve(
+            &library,
+            &json_ui::ControlRef::parse("prototype.row", "prototype"),
+        )
+        .unwrap();
+        assert_eq!(expanded_nodes(&prototype), 7);
     }
 }
 
