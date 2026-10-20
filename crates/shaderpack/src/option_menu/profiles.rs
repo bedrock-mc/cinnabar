@@ -1,6 +1,6 @@
 //! `profile.<NAME>` presets: option values a selector applies together, as Iris reads them.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::options::{OptionValues, PackOption, find_option};
 
@@ -71,9 +71,13 @@ pub(crate) fn scan(
 /// whose profiles include a missing profile or include one twice along the way; such a pack
 /// keeps its options here but gets no profiles.
 pub(super) fn parse(tree: &[(String, Vec<String>)], options: &[PackOption]) -> Vec<Profile> {
+    let tokens = tree
+        .iter()
+        .map(|(name, tokens)| (name.as_str(), tokens.as_slice()))
+        .collect();
     let mut profiles = Vec::with_capacity(tree.len());
     for (name, _) in tree {
-        match resolve(name, &mut Vec::new(), tree, options) {
+        match resolve(name, &tokens, options) {
             Some(profile) => profiles.push(profile),
             None => return Vec::new(),
         }
@@ -82,31 +86,33 @@ pub(super) fn parse(tree: &[(String, Vec<String>)], options: &[PackOption]) -> V
     profiles
 }
 
-/// One profile with its includes merged in token order. `parents` holds every profile
-/// included so far from the top-level profile, as Iris tracks them.
+/// Merges includes in token order using a heap stack. Every included name is tracked for
+/// the whole traversal, so repeated includes are rejected even across separate branches.
 fn resolve(
     name: &str,
-    parents: &mut Vec<String>,
-    tree: &[(String, Vec<String>)],
+    tree: &BTreeMap<&str, &[String]>,
     options: &[PackOption],
 ) -> Option<Profile> {
-    let (_, tokens) = tree.iter().find(|(declared, _)| declared == name)?;
+    let tokens = tree.get(name)?;
+    let mut pending = vec![tokens.iter()];
+    let mut parents = BTreeSet::new();
     let mut profile = Profile {
         name: name.to_owned(),
         values: BTreeMap::new(),
         disabled_programs: Vec::new(),
     };
-    for token in tokens {
+    while let Some(tokens) = pending.last_mut() {
+        let Some(token) = tokens.next() else {
+            pending.pop();
+            continue;
+        };
         if let Some(program) = token.strip_prefix("!program.") {
             profile.disabled_programs.push(program.to_owned());
         } else if let Some(included) = token.strip_prefix("profile.") {
-            if parents.iter().any(|parent| parent == included) {
+            if !parents.insert(included) {
                 return None;
             }
-            parents.push(included.to_owned());
-            let included = resolve(included, parents, tree, options)?;
-            profile.values.extend(included.values);
-            profile.disabled_programs.extend(included.disabled_programs);
+            pending.push(tree.get(included)?.iter());
         } else if let Some(option) = token.strip_prefix('!') {
             profile.values.insert(option.to_owned(), "false".to_owned());
         } else if let Some((option, value)) =

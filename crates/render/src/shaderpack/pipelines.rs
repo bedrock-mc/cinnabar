@@ -659,13 +659,15 @@ pub(crate) fn color_target(
     })
 }
 
-/// Colour targets per fragment output location. `final` writes the screen at location 0.
+/// Colour targets per fragment output location, applying pack overrides to the draw's
+/// baseline blend state. `final` writes the screen at location 0.
 pub(crate) fn color_targets(
     group: ProgramGroup,
     name: &str,
     reflection: &ProgramReflection,
     buffer_formats: &[Option<TextureFormat>; MAX_COLOR_BUFFERS as usize],
     blends: &[BlendRule],
+    baseline: Option<BlendState>,
 ) -> Vec<Option<ColorTargetState>> {
     let len = reflection
         .color_outputs
@@ -699,8 +701,8 @@ pub(crate) fn color_targets(
                 })
                 .map(|r| r.mode)
         });
-        let mode = buffer_blend.or(program_blend).unwrap_or(BlendMode::Off);
-        targets[output.location as usize] = color_target(format, output.ty, blend_state(mode));
+        let blend = buffer_blend.or(program_blend).map_or(baseline, blend_state);
+        targets[output.location as usize] = color_target(format, output.ty, blend);
     }
     targets
 }

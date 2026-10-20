@@ -56,7 +56,7 @@ fn choices(view: &MenuView) -> impl Iterator<Item = (RendererChoice, &str)> {
     };
     let packs = packs.iter().enumerate().filter_map(|(index, name)| {
         Some((
-            RendererChoice::ShaderPack(u16::try_from(index).ok()?),
+            RendererChoice::ShaderPack(u16::try_from(index).ok()?, view.shader_packs_revision),
             pack_label(name),
         ))
     });

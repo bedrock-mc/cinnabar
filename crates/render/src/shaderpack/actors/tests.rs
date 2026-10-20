@@ -130,16 +130,27 @@ fn per_draw_values_patch_iris_entity_uniforms() {
 }
 
 #[test]
-fn the_glint_matrix_scrolls_like_javas() {
-    let start = glint_texture_matrix(0.0, ENTITY_GLINT_SCALE);
+fn the_glint_matrix_uses_configured_scrolls_with_javas_rotation_and_scale() {
+    let start = glint_texture_matrix(
+        render_model::ActorGlint::default().parameters(),
+        ENTITY_GLINT_SCALE,
+    );
     let expected = Mat4::from_rotation_z(10f32.to_radians())
         * Mat4::from_scale(Vec3::splat(ENTITY_GLINT_SCALE));
     assert!(start.abs_diff_eq(expected, 1e-6));
-    // 2.5 s at speed 0.5: 10 000 ms of glint time.
-    let later = glint_texture_matrix(2.5, 1.0);
-    let origin = later.transform_point3(Vec3::ZERO);
-    assert!((origin.x + 10_000.0 / 110_000.0).abs() < 1e-5);
-    assert!((origin.y - 10_000.0 / 30_000.0).abs() < 1e-5);
+    for speed in [0.0, 0.5, 1.0] {
+        let glint = render_model::ActorGlint {
+            speed,
+            ..render_model::ActorGlint::item(2.5, [0.25, 0.125])
+        };
+        let later = glint_texture_matrix(glint.parameters(), 1.0);
+        let scroll = glint.scroll();
+        assert!(
+            later
+                .transform_point3(Vec3::ZERO)
+                .abs_diff_eq(Vec3::new(scroll[0], scroll[1], 0.0), 1e-6)
+        );
+    }
 }
 
 #[test]
@@ -160,6 +171,7 @@ fn the_hand_projection_keeps_hand_depths_around_one_half() {
     );
     let point = Vec4::new(0.2, -0.3, -0.5, 1.0);
     let (a, b) = (projection * point, unscaled * point);
+    assert!((a.z - b.z * shaderpack::Environment::default().hand_depth).abs() < 1e-6);
     assert!(
         (a.x / a.w - b.x / b.w).abs() < 1e-5,
         "screen position unchanged"
@@ -264,5 +276,14 @@ fn hand_translucent_depth_is_independent_of_the_world_camera() {
     assert_eq!(
         super::view::draw_depth(position, Vec3::ZERO, Vec3::Z, false),
         -2.
+    );
+}
+
+#[test]
+fn actor_skinning_and_glint_kernel_validate_without_a_gpu() {
+    crate::shader_source::composed_prepared_with(
+        &super::skin::skin_shader_source(include_str!("skin.wesl")),
+        &[],
+        Vec::new(),
     );
 }

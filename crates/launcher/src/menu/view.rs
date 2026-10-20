@@ -446,6 +446,8 @@ pub struct MenuView {
     pub render_mode: ui::RenderMode,
     /// Names of the discovered shader packs that [`super::RendererChoice::ShaderPack`] indexes.
     pub shader_packs: std::sync::Arc<[String]>,
+    /// Revision of the discovered list carried by shader-pack picker actions.
+    pub shader_packs_revision: u64,
     /// The highlighted Video renderer; `None` while the selected shader pack is missing.
     pub renderer: Option<super::RendererChoice>,
     /// The requested pack has an option screen, including a command-line pack not listed.
@@ -704,6 +706,7 @@ impl MenuView {
             fullscreen: false,
             render_mode: ui::RenderMode::Vanilla,
             shader_packs: std::sync::Arc::from([]),
+            shader_packs_revision: 0,
             renderer: Some(super::RendererChoice::Vanilla),
             shader_options_available: false,
             renderer_failure: None,

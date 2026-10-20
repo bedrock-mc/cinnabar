@@ -19,6 +19,7 @@ use super::resources::vanilla::VanillaTextures;
 use super::sky::SkyInputs;
 use super::targets::AtlasViews;
 use super::uniforms::{FAR_PLANE_SCALE, FrameClock, FrameUniforms, ViewCamera};
+use assets::facts::java_mapping::JavaDimension;
 use bevy::render::render_phase::TrackedRenderPass;
 use bevy::render::render_resource::PipelineCache;
 use bevy::{
@@ -47,11 +48,8 @@ use std::{
 
 /// Java ids of the built-in dimensions, indexed by Bedrock dimension id (Overworld, Nether,
 /// End), which select the pack's dimension folder.
-pub(crate) const JAVA_DIMENSIONS: [&str; 3] = [
-    "minecraft:overworld",
-    "minecraft:the_nether",
-    "minecraft:the_end",
-];
+pub(crate) static JAVA_DIMENSIONS: std::sync::LazyLock<[&str; JavaDimension::ALL.len()]> =
+    std::sync::LazyLock::new(|| JavaDimension::ALL.map(JavaDimension::identifier));
 
 /// Java's first-person field of view, for the hand projection while no hand rig draws.
 const DEFAULT_HAND_FOV_DEGREES: f32 = 70.0;
@@ -332,7 +330,15 @@ impl BlockIdRevisions {
     }
 }
 
+/// Native actor frames checked before shader packs can replace their queues.
+type NativeActorFrames<'w> = (
+    Option<Res<'w, render_scene::ActorRenderFrame>>,
+    Option<Res<'w, render_scene::HandRigScene>>,
+    Option<Res<'w, render_scene::BlockEntityFrameResource>>,
+);
+
 /// Replaces native queues only after every pack view and terrain category is ready.
+#[allow(clippy::too_many_arguments, reason = "native queue replacement inputs")]
 fn configure_replacement(
     pack: Option<Res<LoadedShaderPack>>,
     cameras: Query<Entity, With<ShaderPackRendering>>,
@@ -345,11 +351,7 @@ fn configure_replacement(
     atmosphere: Option<Res<render_scene::AtmosphereFrame>>,
     particles: Option<Res<render_scene::ParticleGpuFrame>>,
     weather: Option<Res<render_scene::PrecipitationScene>>,
-    native: (
-        Option<Res<render_scene::ActorRenderFrame>>,
-        Option<Res<render_scene::HandRigScene>>,
-        Option<Res<render_scene::BlockEntityFrameResource>>,
-    ),
+    native: NativeActorFrames<'_>,
 ) {
     let states = views.states.lock().unwrap_or_else(|e| e.into_inner());
     let ready = pack
@@ -703,9 +705,6 @@ fn shaderpack_post(
         held_items: [inputs.held_item_id, inputs.held_item_id2],
         camera: view.world_from_view.translation(),
         view_forward: view.world_from_view.rotation() * Vec3::NEG_Z,
-        seconds: world
-            .get_resource::<Time>()
-            .map_or(0.0, |time| time.elapsed_secs()),
     };
     let geometry = terrain.as_ref().map(|terrain| FrameGeometry {
         device: render_device,
@@ -851,8 +850,7 @@ pub(super) fn finish(app: &mut App) {
                 prepare_effect_textures
                     .in_set(RenderSystems::PrepareResources)
                     .after(crate::particle_render::prepare_particle_resources)
-                    .after(crate::block_entity::prepare_block_entity_resources)
-                    .before(prepare_views),
+                    .after(crate::block_entity::prepare_block_entity_resources),
                 prepare_views
                     .after(RenderSystems::PrepareViews)
                     .before(RenderSystems::Queue)
@@ -882,6 +880,22 @@ mod camera_tests {
         let command_line = loader_key(&request, 0);
         request.options = Some(PathBuf::from("Outer.txt"));
         assert_ne!(loader_key(&request, 0), command_line);
+    }
+
+    #[test]
+    fn shaderpack_render_schedule_initializes_without_a_selected_pack() {
+        let mut render_app = bevy::app::SubApp::new();
+        render_app.add_schedule(Render::base_schedule());
+        let mut app = App::new();
+        app.insert_sub_app(RenderApp, render_app);
+        finish(&mut app);
+        app.sub_app_mut(RenderApp)
+            .world_mut()
+            .schedule_scope(Render, |world, schedule| {
+                schedule
+                    .initialize(world)
+                    .expect("shader-pack render schedule must initialize");
+            });
     }
 
     #[test]
@@ -928,10 +942,7 @@ mod camera_tests {
         let mut world = World::new();
         world.init_resource::<ShaderPackViews>();
         world.init_resource::<ShaderPackEffects>();
-        world.insert_resource(ShaderPackDrawnCategories {
-            terrain: true,
-            ..default()
-        });
+        world.insert_resource(ShaderPackDrawnCategories { terrain: true });
         world.init_resource::<QueuedTerrain>();
         let mut schedule = bevy::ecs::schedule::Schedule::default();
         schedule.configure_sets(

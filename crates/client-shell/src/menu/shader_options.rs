@@ -113,7 +113,10 @@ mod tests {
         menu.activate(MenuAction::ShaderOptions(Action::Apply));
         assert!(menu.take_shader_option_actions().is_empty());
         assert_eq!(menu.view().shader_options, None);
-        menu.activate(MenuAction::SelectRenderer(RendererChoice::ShaderPack(0)));
+        menu.activate(MenuAction::SelectRenderer(RendererChoice::ShaderPack(
+            0,
+            menu.shader_packs_revision,
+        )));
         menu.activate(MenuAction::ShaderOptions(Action::Open));
         if !render_model::SHADER_PACKS_ENABLED {
             assert!(menu.take_shader_option_actions().is_empty());
@@ -140,7 +143,10 @@ mod tests {
         }
         let mut menu = menu();
         menu.activate(MenuAction::Navigate(MenuScreen::Settings));
-        menu.activate(MenuAction::SelectRenderer(RendererChoice::ShaderPack(0)));
+        menu.activate(MenuAction::SelectRenderer(RendererChoice::ShaderPack(
+            0,
+            menu.shader_packs_revision,
+        )));
         menu.activate(MenuAction::ShaderOptions(Action::Open));
         menu.take_shader_option_actions();
         menu.activate(MenuAction::AddBack);
@@ -164,7 +170,10 @@ mod tests {
                 .definition()
                 .index,
         ));
-        menu.activate(MenuAction::SelectRenderer(RendererChoice::ShaderPack(0)));
+        menu.activate(MenuAction::SelectRenderer(RendererChoice::ShaderPack(
+            0,
+            menu.shader_packs_revision,
+        )));
         menu.activate(MenuAction::ShaderOptions(Action::Open));
         menu.take_shader_option_actions();
         let mut view = View::loading("Dusk.zip");

@@ -45,7 +45,7 @@ fn view(editor: &Editor) -> MenuView {
 fn selected() -> MenuView {
     let mut view = settings(SettingSection::Video.definition().name);
     view.shader_packs = Arc::from([PACK.to_owned()]);
-    view.renderer = Some(RendererChoice::ShaderPack(0));
+    view.renderer = Some(RendererChoice::ShaderPack(0, view.shader_packs_revision));
     view.render_mode = ui::RenderMode::ShaderPack;
     view.shader_options_available = true;
     view

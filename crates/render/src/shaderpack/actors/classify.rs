@@ -10,15 +10,10 @@ use crate::shaderpack::uniforms::{GL_NEAR, HostValue, gl_perspective};
 /// Java's glint texture-matrix scale for worn and entity glint, and for held items.
 pub(super) const ENTITY_GLINT_SCALE: f32 = 0.16;
 pub(super) const ITEM_GLINT_SCALE: f32 = 8.0;
-/// Java's default glint speed option.
-const GLINT_SPEED: f64 = 0.5;
 
-/// Java's glint texture matrix (`RenderStateShard.setupGlintTexturing`) at `seconds`.
-pub(crate) fn glint_texture_matrix(seconds: f32, scale: f32) -> Mat4 {
-    let ticks = (f64::from(seconds) * 1000.0 * GLINT_SPEED * 8.0) as i64;
-    let u = (ticks % 110_000) as f32 / 110_000.0;
-    let v = (ticks % 30_000) as f32 / 30_000.0;
-    Mat4::from_translation(Vec3::new(-u, v, 0.0))
+/// Applies the instance's configured glint scroll with Java's texture rotation and scale.
+pub(crate) fn glint_texture_matrix(glint: [f32; 6], scale: f32) -> Mat4 {
+    Mat4::from_translation(Vec3::new(glint[0] * glint[3], glint[1] * glint[3], 0.0))
         * Mat4::from_rotation_z(10f32.to_radians())
         * Mat4::from_scale(Vec3::splat(scale))
 }
@@ -30,11 +25,12 @@ pub(crate) fn hand_projection(fov_radians: f32, screen: [u32; 2], far: f32) -> M
     let focal_y = 1.0 / (fov_radians * 0.5).tan();
     let aspect = screen[0] as f32 / screen[1].max(1) as f32;
     let projection = gl_perspective([focal_y / aspect, focal_y], GL_NEAR, far);
-    Mat4::from_scale(Vec3::new(1.0, 1.0, HAND_DEPTH)) * projection
+    Mat4::from_scale(Vec3::new(
+        1.0,
+        1.0,
+        shaderpack::Environment::default().hand_depth,
+    )) * projection
 }
-
-/// Iris's `MC_HAND_DEPTH`.
-pub(crate) const HAND_DEPTH: f32 = 0.125;
 
 /// The per-draw values Iris sets around each entity, block entity and item.
 #[derive(Clone, Copy, Debug, PartialEq)]

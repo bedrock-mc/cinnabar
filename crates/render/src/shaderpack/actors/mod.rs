@@ -24,8 +24,9 @@
 //! `entityId` (the actor's Bedrock identifier through `entity.properties`), `entityColor`
 //! (the hurt/creeper-flash overlay), `blockEntityId` and `currentRenderedItemId` (the held
 //! item's `item.properties` id for first-person items). Glinted instances add a
-//! `gbuffers_armor_glint` draw over the same vertices with the glint raster and Java's glint
-//! texture matrix. Block entities use `mc_Entity`/`blockEntityId` -1: Cinnabar merges their
+//! `gbuffers_armor_glint` draw with sprite-local UVs, configured strength and scroll, the
+//! glint raster and Java's texture rotation and scale. Block entities use
+//! `mc_Entity`/`blockEntityId` -1: Cinnabar merges their
 //! meshes without the source block state.
 //!
 //! # Not drawn by the pack

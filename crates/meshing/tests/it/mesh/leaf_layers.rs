@@ -156,11 +156,9 @@ fn deep_leaves_are_opaque_with_unchanged_fancy_texture_and_keep_faces_against_no
     }
 }
 
-/// Java fancy leaves (shader-pack mode) have no opaque deep leaves: an enclosed leaf keeps
-/// the cutout material like any other leaf, and every leaf draws its own face toward each
-/// neighbouring leaf, so a shared plane carries both leaves' faces.
+/// Shader-pack leaves stay cutout even when enclosed, with one two-sided quad per shared plane.
 #[test]
-fn cutout_leaves_mesh_enclosed_leaves_cutout_with_both_faces_of_shared_planes() {
+fn cutout_leaves_keep_enclosed_leaves_cutout_without_duplicate_shared_planes() {
     let assets = seasonal_leaf_fixture();
     let origin = [8, 8, 8];
     let mode = NetworkIdMode::Sequential;
@@ -181,15 +179,45 @@ fn cutout_leaves_mesh_enclosed_leaves_cutout_with_both_faces_of_shared_planes() 
     for cell in std::iter::once(origin).chain(Face::ALL.map(|face| leaf_neighbour(origin, face))) {
         assert_leaf_layer(&mesh, &assets, cell, false);
     }
-    // Seven leaves, none occluding: every leaf keeps all six faces.
-    for face in Face::ALL {
+    for (face, opposite) in [
+        (Face::PositiveX, Face::NegativeX),
+        (Face::PositiveY, Face::NegativeY),
+        (Face::PositiveZ, Face::NegativeZ),
+    ] {
+        // Seven cubes have fourteen faces on each axis, with two shared planes.
         let faces: u32 = mesh
             .cube_quads()
             .iter()
-            .filter(|quad| quad.face() == face)
+            .filter(|quad| [face, opposite].contains(&quad.face()))
             .map(|quad| u32::from(quad.width()) * u32::from(quad.height()))
             .sum();
-        assert_eq!(faces, 7, "{face:?}");
+        assert_eq!(faces, 12, "{face:?}");
+        for (cell, direction) in [(origin, face), (leaf_neighbour(origin, opposite), face)] {
+            let neighbour = leaf_neighbour(cell, direction);
+            let shared: u32 = mesh
+                .cube_quads()
+                .iter()
+                .filter(|quad| {
+                    (quad.face() == direction
+                        && leaf_span_covers_cell(
+                            quad.origin(),
+                            quad.face(),
+                            quad.width(),
+                            quad.height(),
+                            cell,
+                        ))
+                        || (quad.face() == opposite
+                            && leaf_span_covers_cell(
+                                quad.origin(),
+                                quad.face(),
+                                quad.width(),
+                                quad.height(),
+                                neighbour,
+                            ))
+                })
+                .count() as u32;
+            assert_eq!(shared, 1, "{cell:?} {direction:?}");
+        }
     }
 }
 

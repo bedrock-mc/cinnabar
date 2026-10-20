@@ -119,6 +119,12 @@ fn downsample(in: Fullscreen) -> @location(0) vec4<f32> {
     return textureSampleLevel(source_colour, source_sampler, in.uv, 0.0);
 }
 
+// Keeps the scene's linear colour outside the camera viewport unchanged.
+@fragment
+fn preserve(in: Fullscreen) -> @location(0) vec4<f32> {
+    return textureLoad(source_colour, vec2<i32>(in.position.xy), 0);
+}
+
 // The geometry depth attachment into a float `depthtex`/`shadowtex`, texel for texel.
 @fragment
 fn depth_copy(in: Fullscreen) -> @location(0) vec4<f32> {
@@ -166,5 +172,4 @@ fn vanilla_overlay(in: Fullscreen) -> OverlayOut {
     out.colour = vec4<f32>(linear_to_srgb(colour.rgb), 1.0);
     out.depth = gl_depth(in);
     return out;
-    viewport: vec4<f32>,
 }
