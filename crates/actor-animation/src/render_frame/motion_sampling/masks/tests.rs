@@ -1,5 +1,4 @@
 use super::*;
-use assets::*;
 
 /// Creates named custom channels covering dependent axes and conditional override clips.
 fn catalog(

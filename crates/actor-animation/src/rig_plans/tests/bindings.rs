@@ -66,13 +66,15 @@ fn named_frames_preserve_selection_skin_and_owner_locator_outputs_without_lookup
             }
         }
         let changed = crate::test_support::SKIN_MODEL.replace("\"body\"", "\"rightitem\"");
-        for model in [
+        for (appearance, model) in [
             None,
             Some(crate::test_support::SKIN_MODEL),
             Some(changed.as_str()),
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let source = model.map(crate::test_support::skin_source);
-            actors.get_mut(&actor.runtime_id).unwrap().position[0] += 0.2;
             for store in [&mut bound, &mut reference] {
                 if let Some(source) = &source {
                     store.request_skin_preparation(source);
@@ -80,10 +82,18 @@ fn named_frames_preserve_selection_skin_and_owner_locator_outputs_without_lookup
                     store.finish_skin_fixture_batch();
                     store.sync_skin_model(actor.runtime_id, Some(source));
                 }
-                store.advance_tick(&actors, None, None, true, false, |_| ActorTickContext {
-                    skin_geometry: source.clone(),
-                    ..Default::default()
-                });
+            }
+            // The reset tick seeds equal endpoints; another moved tick supplies an interval.
+            for _ in 0..2 {
+                let moving = actors.get_mut(&actor.runtime_id).unwrap();
+                moving.previous_position = moving.position;
+                moving.position[0] += 0.2;
+                for store in [&mut bound, &mut reference] {
+                    store.advance_tick(&actors, None, None, true, false, |_| ActorTickContext {
+                        skin_geometry: source.clone(),
+                        ..Default::default()
+                    });
+                }
             }
             let actor = &actors[&actor.runtime_id];
             let mut reference_scans = 0;
@@ -155,7 +165,7 @@ fn named_frames_preserve_selection_skin_and_owner_locator_outputs_without_lookup
             assert_eq!(reference.frame_fallbacks(), 0);
             assert!(
                 reference_scans > 0,
-                "each appearance must exercise named frame sampling"
+                "appearance {appearance}, reverse={reverse} must exercise named frame sampling"
             );
         }
     }
