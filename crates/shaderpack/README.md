@@ -3,7 +3,9 @@
 `PackSource` loads text and bounded binary assets from a folder, ZIP archive or memory.
 `ShaderPack` discovers options, dimension mappings and shader programs, and parses
 `shaders.properties` under a caller-supplied `Environment` and option values, typing
-program enable rules and custom images; other keys stay as raw entries.
+program enable rules, buffer sizes, flips, scales, custom texture bindings, custom images
+and custom uniform and variable definitions; other keys stay as raw entries. Custom uniform
+expressions are parsed, not evaluated.
 
 `ShaderPack::translate` turns a folder's programs into validated naga modules: Iris-style
 includes and option overrides, pp-rs preprocessing, a compatibility-profile to GLSL 4.50

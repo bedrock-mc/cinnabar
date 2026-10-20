@@ -411,6 +411,7 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   contract. Pack-specific translation fixes, render-host integration and in-game
   acceptance remain incomplete.
   and enable rules. Translation, render-host integration and in-game acceptance
+  remain incomplete; parsed custom uniform expressions are not executed or rendered.
   remain incomplete.
   shader-pack source loading is implemented in `shaderpack`; configuration parsing,
   translation, render-host integration and in-game acceptance remain incomplete.

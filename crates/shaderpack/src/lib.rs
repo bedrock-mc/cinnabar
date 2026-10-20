@@ -17,6 +17,7 @@
 //! never stops the others.
 //!
 //! Render-host integration and in-game acceptance remain incomplete.
+//! Parsing custom uniform expressions does not execute or render them.
 mod buffers;
 mod compile;
 mod diagnostics;
@@ -48,7 +49,10 @@ pub use programs::{
     GEOMETRY_FALLBACKS, ProgramGroup, ProgramKind, ProgramSource, StageKind, geometry_fallback,
     program_group,
 };
-pub use properties::{CustomImage, ImageSize, ProgramRule, PropertiesDiagnostic, ShaderProperties};
+pub use properties::{
+    BufferSize, CustomImage, CustomTexture, CustomUniform, CustomUniformKind, FlipRule, ImageSize,
+    ProgramRule, PropertiesDiagnostic, ScaleRule, ShaderProperties, SizeValue, TextureSource,
+};
 pub use reflection::{
     BufferBinding, ColorOutput, ComputeDispatch, FIRST_OTHER_ATTRIBUTE_LOCATION,
     FIRST_TEXTURE_BINDING, IMAGE_GROUP, LEGACY_UNIFORMS, LOOSE_UNIFORM_BINDING,
