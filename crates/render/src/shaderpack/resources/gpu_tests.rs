@@ -88,8 +88,8 @@ fn custom_storage_images_reject_mismatched_dimensions() {
              void main() {{ imageStore(fixture, {coordinate}, vec4(1.0)); }}"
         );
         let pack = ShaderPack::new(shaderpack::PackSource::from_files([
-            ("shaders/shaders.properties", properties.as_str()),
-            ("shaders/composite.csh", compute.as_str()),
+            ("shaders.properties", properties.as_str()),
+            ("composite.csh", compute.as_str()),
         ]));
         let translation = pack.translate(&Default::default());
         let reflection = translation.programs[0]

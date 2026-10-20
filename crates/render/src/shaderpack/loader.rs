@@ -789,11 +789,11 @@ mod tests {
                 );
                 let pack = ShaderPack::new(shaderpack::PackSource::from_files([
                     (
-                        "shaders/composite.vsh",
+                        "composite.vsh",
                         "#version 330 compatibility\nvoid main() { gl_Position = gl_Vertex; }",
                     ),
-                    ("shaders/composite.fsh", fragment.as_str()),
-                    ("shaders/shaders.properties", properties),
+                    ("composite.fsh", fragment.as_str()),
+                    ("shaders.properties", properties),
                 ]));
                 let translation = pack.translate(&Default::default());
                 let reflection = translation.programs[0]
