@@ -38,10 +38,15 @@ pub(crate) struct SkinJob {
     /// Gamma RGBA8 vertex colour.
     pub colour: u32,
     pub block_id: i32,
-    pub pad: u32,
+    pub first_output_high: u32,
 }
 
 impl SkinJob {
+    /// The full output address used when selecting a page for this job.
+    pub(crate) fn output_start(&self) -> u64 {
+        u64::from(self.first_output) | (u64::from(self.first_output_high) << 32)
+    }
+
     /// Output vertices the job writes: its front faces, then as many back faces.
     pub(crate) fn output_vertices(&self) -> u32 {
         self.vertex_count * 2
@@ -65,6 +70,18 @@ const _: () = assert!(std::mem::size_of::<SkinParams>() as u64 == SKIN_PARAMS_BY
 pub(crate) fn skin_shader_source(source: &str) -> String {
     substitute_layout_constants(
         &crate::material_shader::source(source)
+            .replace(
+                "ACTOR_VERTEX_WORDS",
+                &format!("{}u", super::layout::ACTOR_VERTEX_WORDS),
+            )
+            .replace(
+                "ACTOR_UV_WORD",
+                &format!("{}u", super::layout::ACTOR_UV_WORD),
+            )
+            .replace(
+                "ACTOR_MID_UV_WORD",
+                &format!("{}u", super::layout::ACTOR_MID_UV_WORD),
+            )
             .replace(
                 "ACTOR_GPU_INSTANCE_WORDS",
                 &format!("{}u", render_model::ACTOR_GPU_INSTANCE_WORDS),

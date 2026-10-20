@@ -533,6 +533,7 @@ pub(crate) fn record_translucent(
     );
     for kind in [
         DrawKind::EntitiesTranslucent,
+        DrawKind::ArmorGlintTranslucent,
         DrawKind::BlockTranslucent,
         DrawKind::BeaconBeam,
     ] {
@@ -556,13 +557,9 @@ pub(crate) fn record_translucent(
         translucent_alt,
         Some((&view, size)),
     );
-    super::actors::record(
-        encoder,
-        state,
-        DrawKind::HandWater,
-        translucent_alt,
-        Some((&view, size)),
-    );
+    for kind in [DrawKind::HandWater, DrawKind::HandGlint] {
+        super::actors::record(encoder, state, kind, translucent_alt, Some((&view, size)));
+    }
     copy_view_depth(device, encoder, state, &[], &[0]);
 }
 

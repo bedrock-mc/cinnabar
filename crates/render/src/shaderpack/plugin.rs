@@ -310,6 +310,11 @@ fn configure_replacement(
     atmosphere: Option<Res<render_scene::AtmosphereFrame>>,
     particles: Option<Res<render_scene::ParticleGpuFrame>>,
     weather: Option<Res<render_scene::PrecipitationScene>>,
+    native: (
+        Option<Res<render_scene::ActorRenderFrame>>,
+        Option<Res<render_scene::HandRigScene>>,
+        Option<Res<render_scene::BlockEntityFrameResource>>,
+    ),
 ) {
     let states = views.states.lock().unwrap_or_else(|e| e.into_inner());
     let ready = pack
@@ -332,6 +337,11 @@ fn configure_replacement(
         .and_then(|(pipelines, cache)| pipelines.kernels(cache))
         .is_some()
         && super::draws::complete_world(draws)
+        && actors::compatibility::frame_supported(
+            native.0.as_deref(),
+            native.1.as_deref(),
+            native.2.as_deref().map(|frame| &frame.0),
+        )
         && !needs_native_scene(
             atmosphere.as_deref(),
             particles.as_deref(),
@@ -355,7 +365,7 @@ fn configure_replacement(
     replaced.set_if_neq(
         ready
             .filter(|_| drawn.terrain)
-            .map_or_else(Default::default, replaced_effects),
+            .map_or_else(Default::default, |pack| replaced_effects(pack)),
     );
 }
 
@@ -643,6 +653,7 @@ fn shaderpack_post(
         entity_ids: world.get_resource::<ShaderPackActorIds>(),
         held_items: [inputs.held_item_id, inputs.held_item_id2],
         camera: view.world_from_view.translation(),
+        view_forward: view.world_from_view.rotation() * Vec3::NEG_Z,
         seconds: world
             .get_resource::<Time>()
             .map_or(0.0, |time| time.elapsed_secs()),

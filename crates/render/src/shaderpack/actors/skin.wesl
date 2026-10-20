@@ -23,7 +23,7 @@ struct SkinJob {
     colour: u32,
     // `mc_Entity.x`.
     block_id: i32,
-    pad: u32,
+    first_output_high: u32,
 }
 
 struct SkinParams {
@@ -134,13 +134,20 @@ fn write_vertex(
     tangent: vec4<f32>,
     block_id: i32,
 ) {
-    let base = index * IRIS_VERTEX_WORDS;
+    // Unsigned subtraction also handles pages that cross the low address word's wrap.
+    let local = index - params.counts.w;
+    if (local >= arrayLength(&vertices) / ACTOR_VERTEX_WORDS) { return; }
+    let base = local * ACTOR_VERTEX_WORDS;
     let raw_light = clamp(light, vec2(0.0), vec2(15.0)) * 16.0;
     vertices[base + IRIS_WORD_POSITION] = bitcast<u32>(position.x);
     vertices[base + IRIS_WORD_POSITION + 1u] = bitcast<u32>(position.y);
     vertices[base + IRIS_WORD_POSITION + 2u] = bitcast<u32>(position.z);
     vertices[base + IRIS_WORD_COLOR] = colour;
     vertices[base + IRIS_WORD_UV0] = pack2x16unorm(uv);
+    vertices[base + ACTOR_UV_WORD] = bitcast<u32>(uv.x);
+    vertices[base + ACTOR_UV_WORD + 1u] = bitcast<u32>(uv.y);
+    vertices[base + ACTOR_MID_UV_WORD] = bitcast<u32>(mid_uv.x);
+    vertices[base + ACTOR_MID_UV_WORD + 1u] = bitcast<u32>(mid_uv.y);
     vertices[base + IRIS_WORD_MID_TEX] = pack2x16unorm(mid_uv);
     vertices[base + IRIS_WORD_LIGHTMAP] = pack2x16float(raw_light);
     vertices[base + IRIS_WORD_NORMAL] = pack4x8snorm(vec4(normal, 0.0));
@@ -157,12 +164,13 @@ fn skin_rig(
     @builtin(global_invocation_id) id: vec3<u32>,
     @builtin(num_workgroups) groups: vec3<u32>,
 ) {
-    let job_index = id.y + id.z * groups.y;
+    let x_blocks = (params.counts.z + groups.x * SKIN_WORKGROUP_SIZE - 1u) / (groups.x * SKIN_WORKGROUP_SIZE);
+    let job_index = id.y + (id.z / x_blocks) * groups.y;
     if (job_index >= params.counts.x) {
         return;
     }
     let job = jobs[params.counts.y + job_index];
-    let vertex = id.x;
+    let vertex = id.x + (id.z % x_blocks) * groups.x * SKIN_WORKGROUP_SIZE;
     if (vertex >= job.vertex_count) {
         return;
     }

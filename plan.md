@@ -404,7 +404,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   block atlas packs sample. Pack-specific translation fixes, the rest of the render-host
   integration and in-game acceptance remain incomplete. Geometry replacement retains the
   native scene-copy path when celestial layers or effects without depth writes still need
-  native composition; their geometry-host composition is incomplete.
+  native composition; their geometry-host composition is incomplete. Actor color masks,
+  multitexture materials, dissolve pairs, beacon beams and additive rays retain native scene
+  composition until the host supports their complete material contracts.
   contract. Pack-specific translation fixes, render-host integration and in-game
   acceptance remain incomplete; parsed custom uniform expressions are not executed or
   rendered.

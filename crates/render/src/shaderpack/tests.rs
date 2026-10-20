@@ -238,7 +238,7 @@ fn render_frame_options(
             position: Vec3::new(0.0, 64.0, 0.0),
             rotation: Quat::IDENTITY,
             focal: [1.0, 1.0],
-            screen: size,
+            screen: [viewport[2], viewport[3]],
         },
         &game,
         &pack.settings,
@@ -293,6 +293,27 @@ fn render_frame_options(
             device: &render_device,
             terrain: &terrain,
             atlas: None,
+            effect_textures: None,
+            actors: super::actors::ActorSources::default(),
+            effects: super::effects::EffectInputs {
+                camera: super::effects::EffectCamera {
+                    position: Vec3::new(0., 64., 0.),
+                    model_view: bevy::math::Mat4::IDENTITY,
+                    focal: [1.; 2],
+                    screen: [viewport[2], viewport[3]],
+                },
+                frame: game,
+                atmosphere: None,
+                atmosphere_view: None,
+                atmosphere_textures: None,
+                clouds_visible: false,
+                particles: None,
+                precipitation: None,
+                lightning: None,
+                selection: None,
+                block_entities: None,
+                seconds: 0.,
+            },
             sky: super::sky::SkyInputs {
                 sky_color: [0.; 3],
                 fog_color: [0.; 3],
@@ -311,7 +332,7 @@ fn render_frame_options(
     if second_view {
         let mut other =
             ViewState::new(&gpu.device, Arc::clone(&pack), [viewport[2], viewport[3]]).unwrap();
-        other.write_uniforms(&gpu.queue, &frame, 0.016);
+        other.write_uniforms(&gpu.queue, &frame, 0.016, &context);
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
         let other_io = FrameIo {
             scene_near: 10.0,
@@ -728,23 +749,21 @@ fn programs_without_colour_outputs_load_and_keep_their_stores() {
 }
 
 #[test]
-fn a_draw_pipeline_the_device_rejects_drops_only_that_draw() {
+fn a_rejected_required_actor_pipeline_keeps_native_world_rendering() {
     let Some(gpu) = gpu() else {
         eprintln!("missing fixture: native GPU adapter for the shader pack frame");
         return;
     };
-    // The entities stages disagree on `tint`'s type: both translate, the pipeline fails
-    // validation. Iris falls back per program; the pack still loads with its terrain draw.
+    // Integer fragment output cannot bind the default normalized color target.
     let pack = pack(&[
+        ("gbuffers_basic.vsh", PASS_VERTEX),
+        ("gbuffers_basic.fsh", FILL),
         ("gbuffers_terrain.vsh", PASS_VERTEX),
         ("gbuffers_terrain.fsh", FILL),
-        (
-            "gbuffers_entities.vsh",
-            "#version 120\nvarying vec2 tint;\nvoid main() { tint = vec2(1.0); gl_Position = ftransform(); }\n",
-        ),
+        ("gbuffers_entities.vsh", PASS_VERTEX),
         (
             "gbuffers_entities.fsh",
-            "#version 120\nvarying vec3 tint;\nvoid main() { gl_FragData[0] = vec4(tint, 1.0); }\n",
+            "#version 430\nlayout(location=0) out uvec4 colour; void main() { colour = uvec4(1); }",
         ),
     ]);
     let pack = build(
@@ -755,17 +774,15 @@ fn a_draw_pipeline_the_device_rejects_drops_only_that_draw() {
         &gpu,
         &Default::default(),
     )
-    .expect("one rejected draw does not reject the pack");
+    .expect("pipeline rejection retains the loaded pack and native scene");
     let entities = pack
         .programs
         .iter()
         .position(|p| p.name == "gbuffers_entities")
         .expect("gbuffers_entities translated");
     assert!(
-        pack.draws
-            .iter()
-            .any(|d| d.kind == super::draws::DrawKind::TerrainSolid),
-        "the terrain draw survives"
+        pack.draws.is_empty(),
+        "a rejected required draw retains the native world path"
     );
     let kept: Vec<_> = pack
         .draws
@@ -946,6 +963,8 @@ fn native_overlay_refreshes_pre_translucent_depth() {
     let (_, bytes) = render_frame_options(
         &gpu,
         &[
+            ("gbuffers_basic.vsh", PASS_VERTEX),
+            ("gbuffers_basic.fsh", FILL),
             ("gbuffers_terrain.vsh", PASS_VERTEX),
             ("gbuffers_terrain.fsh", INVERT),
             ("final.vsh", PASS_VERTEX),
@@ -970,6 +989,8 @@ fn geometry_draws_refresh_custom_image_feedback_before_opening_the_pass() {
         return;
     };
     let source = pack(&[
+        ("gbuffers_basic.vsh", PASS_VERTEX),
+        ("gbuffers_basic.fsh", FILL),
         (
             "shaders.properties",
             "image.marker = markerSampler RGBA RGBA8 UNSIGNED_BYTE true false 1 1\n",
@@ -1086,4 +1107,28 @@ fn geometry_draws_refresh_custom_image_feedback_before_opening_the_pass() {
         &readback.slice(..).get_mapped_range().unwrap()[..4],
         &[255, 0, 0, 255]
     );
+}
+
+#[test]
+fn geometry_overlay_crops_the_native_camera_viewport() {
+    let Some(gpu) = gpu() else {
+        eprintln!("missing fixture: native GPU adapter for the shader pack frame");
+        return;
+    };
+    let (_, bytes) = render_frame_options(
+        &gpu,
+        &[
+            ("gbuffers_basic.vsh", PASS_VERTEX),
+            ("gbuffers_basic.fsh", FILL),
+            ("gbuffers_terrain.vsh", PASS_VERTEX),
+            ("gbuffers_terrain.fsh", INVERT),
+            ("final.vsh", PASS_VERTEX),
+            ("final.fsh", FINAL),
+        ],
+        1,
+        [1, 0, 2, 2],
+        false,
+        true,
+    );
+    assert_pixels(&bytes, |row| if row < 2 { [255, 0, 0] } else { [128; 3] });
 }

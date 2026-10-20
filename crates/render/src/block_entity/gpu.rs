@@ -700,7 +700,6 @@ fn queue_additive(
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
     views: Query<BlockEntityView>,
-    drawn: Option<Res<render_scene::shaderpack::ShaderPackDrawnCategories>>,
 ) {
     let draw_function = draw_functions.read().id::<DrawAdditiveCommands>();
     queue_blended(
@@ -711,7 +710,7 @@ fn queue_additive(
         &mut pipeline,
         &mut phases,
         &views,
-        |_, pack_view| pack_view && pack_draws_block_entities(drawn.as_deref()),
+        |_, _| false,
     );
 }
 
