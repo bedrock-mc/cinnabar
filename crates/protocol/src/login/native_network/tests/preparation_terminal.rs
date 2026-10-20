@@ -35,7 +35,6 @@ async fn native_disconnect_during_held_preparation_keeps_reason_and_accepted_fif
             message: "presentation interrupted".into(),
             filtered_message: "filtered presentation interrupted".into(),
         },
-        ..Default::default()
     });
     let result = held_preparation(terminal, false).await;
     let error = result
@@ -83,7 +82,6 @@ async fn received_native_disconnect_supersedes_held_preparation_without_consumin
             message: "buffered presentation interrupted".into(),
             filtered_message: "".into(),
         },
-        ..Default::default()
     });
     let result = held_preparation(terminal, true).await;
     let error = result
@@ -190,7 +188,6 @@ fn relay_disconnect() -> Packet {
             message: "original upstream reason".into(),
             filtered_message: "".into(),
         },
-        ..Default::default()
     })
 }
 
