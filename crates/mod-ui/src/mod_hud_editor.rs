@@ -247,6 +247,7 @@ impl ModUi {
             view: &editor.view,
             viewport: editor.viewport,
             snap: editor.snap,
+            passes: editor.screen.passes,
             drag: editor.drag.as_ref().map(|drag| drag.guides),
         })
     }

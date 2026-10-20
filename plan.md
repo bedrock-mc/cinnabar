@@ -428,6 +428,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 - Native extension UI and HUD APIs (retained modules, profile fields, text plates,
   compass markers, totem annotations and bounded camera overrides) still need
   displayed-frame pacing and complete rendering acceptance.
+  HUD layout editing stores nine anchors and GUI-pixel offsets after completed
+  moves, resizes and nudges, with an additive anchored-layout read and normalized
+  compatibility reads. Displayed-frame pacing acceptance remains pending.
   Backdrop and element blur now limit downsampling to referenced mip levels and
   cache the admitted maximum blur. Pixel-equivalence regressions are included;
   executed GPU checks and measured frame-budget acceptance remain pending.

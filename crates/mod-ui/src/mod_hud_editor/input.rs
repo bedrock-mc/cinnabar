@@ -1,6 +1,9 @@
 use super::*;
 use ui::mod_hud::Placement;
 
+#[cfg(test)]
+mod tests;
+
 pub(in super::super) struct Drag {
     index: usize,
     grab: [f64; 2],
@@ -59,10 +62,28 @@ impl HudEditor {
                 self.draft
                     .cards
                     .iter()
-                    .map(|c| Placement {
-                        id: c.id.clone(),
-                        position: c.position,
-                        scale: c.scale,
+                    .map(|c| {
+                        let at = cards::origin(c, self.viewport);
+                        let size = cards::dimensions(c);
+                        let (anchor, offset) = if c.position.is_some() {
+                            ui::mod_hud::Anchor::from_origin(at, size, self.viewport)
+                        } else {
+                            (c.anchor, c.offset)
+                        };
+                        Placement {
+                            id: c.id.clone(),
+                            anchor,
+                            offset,
+                            position: Some(std::array::from_fn(|axis| {
+                                let available = (self.viewport[axis] - size[axis]).max(0.);
+                                if available > 0. {
+                                    (at[axis] / available) as f32
+                                } else {
+                                    0.
+                                }
+                            })),
+                            scale: c.scale,
+                        }
                     })
                     .collect()
             } else {
@@ -118,6 +139,14 @@ impl HudEditor {
                 0.
             }
         }));
+    }
+    /// Stores a completed move or resize as an anchor without changing its current origin.
+    fn anchor_card(&mut self, index: usize) {
+        let card = &mut self.draft.cards[index];
+        let at = cards::origin(card, self.viewport);
+        (card.anchor, card.offset) =
+            ui::mod_hud::Anchor::from_origin(at, cards::dimensions(card), self.viewport);
+        card.position = None;
     }
     /// Scales from the captured corner while retaining the opposite corner and viewport bounds.
     fn resize_card(&mut self, index: usize, resize: Resize, delta: [f64; 2]) {
@@ -309,11 +338,9 @@ impl HudEditor {
                 }
             }
         }
-        if !held {
-            let completed = self.drag.take().is_some_and(|drag| drag.moved);
-            if completed {
-                self.checkpoint();
-            }
+        if !held && let Some(drag) = self.drag.take().filter(|drag| drag.moved) {
+            self.anchor_card(drag.index);
+            self.checkpoint();
         }
         Vec::new()
     }
@@ -338,6 +365,7 @@ impl HudEditor {
                         1.
                     } * if self.snap { 8. } else { 1. };
                     self.move_card(index, at);
+                    self.anchor_card(index);
                     self.checkpoint();
                 }
             }
