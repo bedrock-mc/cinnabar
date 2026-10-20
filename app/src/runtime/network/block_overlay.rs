@@ -202,7 +202,10 @@ pub(super) fn compile_block_overlay_with_textures(
                     &visual,
                     &geometries,
                     block,
-                    physics.mining.seconds_to_destroy,
+                    physics
+                        .mining
+                        .as_ref()
+                        .map(|mining| mining.seconds_to_destroy),
                 );
                 builder.overlay.hashes.push(Some(state.hash));
             }
@@ -219,7 +222,10 @@ pub(super) fn compile_block_overlay_with_textures(
                 &visual,
                 &geometries,
                 block,
-                physics.mining.seconds_to_destroy,
+                physics
+                    .mining
+                    .as_ref()
+                    .map(|mining| mining.seconds_to_destroy),
             );
             builder
                 .overlay
@@ -315,16 +321,19 @@ impl Builder<'_> {
         state: &StateVisual,
         geometries: &HashMap<String, Geometry>,
         block: &protocol::CustomBlock,
-        seconds_to_destroy: f32,
+        seconds_to_destroy: Option<f32>,
     ) {
         let light = state_light(&state.components);
         let mut visual = self.visual(state, geometries);
-        visual.destroy = assets::compiled::block_destroy::BlockDestroyFacts::Custom {
-            seconds_to_destroy_bits: seconds_to_destroy.to_bits(),
-            effective_tools: assets::facts::block::custom_block_effective_tools(
-                block.tags.iter().map(AsRef::as_ref),
-            ),
-        };
+        visual.destroy = seconds_to_destroy.map_or(
+            assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
+            |seconds| assets::compiled::block_destroy::BlockDestroyFacts::Custom {
+                seconds_to_destroy_bits: seconds.to_bits(),
+                effective_tools: assets::facts::block::custom_block_effective_tools(
+                    block.tags.iter().map(AsRef::as_ref),
+                ),
+            },
+        );
         if state.components.random_offset.is_some()
             && matches!(
                 state.components.geometry.as_deref(),

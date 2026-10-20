@@ -96,9 +96,9 @@ fn item(value: &Nbt) -> Option<CustomMiningItem> {
         return None;
     }
     let metadata = match value.field("Aux") {
-        Some(Nbt::Short(value)) if *value != i64::from(crate::RECIPE_ANY_AUX) => {
-            Some(u16::try_from(*value).ok()?)
-        }
+        Some(Nbt::Short(value)) if *value != i64::from(crate::RECIPE_ANY_AUX) => Some(
+            u16::from_ne_bytes(i16::try_from(*value).ok()?.to_ne_bytes()),
+        ),
         _ => None,
     };
     Some(CustomMiningItem::Item {
@@ -197,5 +197,19 @@ mod tests {
     #[test]
     fn custom_mining_skips_nonfinite_values() {
         assert_eq!(component(Some(&Nbt::Float(f64::NAN))), (None, 1));
+    }
+
+    #[test]
+    fn custom_mining_item_metadata_preserves_signed_short_bits() {
+        assert_eq!(
+            item(&compound(vec![
+                ("Name", Nbt::String("test:tool".into())),
+                ("Aux", Nbt::Short(-1))
+            ])),
+            Some(CustomMiningItem::Item {
+                name: "test:tool".into(),
+                metadata: Some(u16::MAX)
+            })
+        );
     }
 }

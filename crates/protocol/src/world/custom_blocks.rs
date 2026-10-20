@@ -216,7 +216,8 @@ pub struct CustomCollision {
 /// Effective physical components for one palette state.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CustomBlockPhysics {
-    pub mining: Arc<CustomBlockMining>,
+    /// `None` when a mining permutation could not be resolved for this state.
+    pub mining: Option<Arc<CustomBlockMining>>,
     pub random_offset: Option<block_transform::random_offset::RandomOffsetComponent>,
     /// Transform this state's boxes inherit, about the block centre.
     pub transformation: Option<CustomTransformation>,
@@ -249,19 +250,39 @@ pub struct CustomHashedState {
 }
 
 impl CustomBlock {
-    /// Falls back to the base component set when a state has not been resolved.
+    /// Falls back to base shapes while keeping unprepared mining permutations unresolved.
     #[must_use]
     pub fn physics_for_state(&self, index: u32) -> CustomBlockPhysics {
         self.state_physics
             .get(index as usize)
             .cloned()
-            .unwrap_or_else(|| self.base_physics())
+            .unwrap_or_else(|| {
+                let mut physics = self.base_physics();
+                physics.mining = self.mining_for_state(index).cloned();
+                physics
+            })
+    }
+
+    /// Borrows resolved mining data; an unprepared mining permutation cannot use the base value.
+    pub fn mining_for_state(&self, index: u32) -> Option<&Arc<CustomBlockMining>> {
+        if let Some(physics) = self.state_physics.get(index as usize) {
+            physics.mining.as_ref()
+        } else if self
+            .visual
+            .permutations
+            .iter()
+            .any(|permutation| permutation.physical.mining.is_some())
+        {
+            None
+        } else {
+            Some(&self.mining)
+        }
     }
 
     #[must_use]
     pub fn base_physics(&self) -> CustomBlockPhysics {
         CustomBlockPhysics {
-            mining: Arc::clone(&self.mining),
+            mining: Some(Arc::clone(&self.mining)),
             random_offset: self.visual.base.random_offset,
             transformation: self.visual.base.transformation,
             collides: self.collides,

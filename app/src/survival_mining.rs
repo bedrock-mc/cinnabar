@@ -66,7 +66,7 @@ pub(crate) fn observe_destroy_target(
         .inventory_ledger(player_runtime)
         .item_facts()
         .get(item.network_id());
-    if let Some(mining) = context
+    if let Some((mining, effective_tools)) = context
         .collisions
         .custom_block_mining(mode, observed.target.runtime_id)
     {
@@ -75,7 +75,7 @@ pub(crate) fn observe_destroy_target(
             .negotiated_item_entry(item.network_id());
         let builtin = assets::facts::ItemFacts::builtin().ok();
         destroy_facts = pack_runtime::custom_mining_seconds(
-            &mining,
+            mining,
             entry.map(|entry| entry.identifier.as_ref()),
             item.metadata(),
             &|tag| {
@@ -90,13 +90,7 @@ pub(crate) fn observe_destroy_target(
             assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
             |seconds| assets::compiled::block_destroy::BlockDestroyFacts::Custom {
                 seconds_to_destroy_bits: seconds.to_bits(),
-                effective_tools: match destroy_facts {
-                    assets::compiled::block_destroy::BlockDestroyFacts::Custom {
-                        effective_tools,
-                        ..
-                    } => effective_tools,
-                    _ => 0,
-                },
+                effective_tools,
             },
         );
     }

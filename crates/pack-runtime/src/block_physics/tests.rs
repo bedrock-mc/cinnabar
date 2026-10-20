@@ -31,10 +31,56 @@ fn custom_mining_permutations_replace_the_whole_component() {
             blocks.blocks[0]
                 .physics_for_state(state)
                 .mining
+                .unwrap()
                 .seconds_to_destroy,
             0.5
         );
     }
+}
+
+#[test]
+fn custom_mining_unresolved_conditions_keep_the_state_unresolved() {
+    for condition in ["return 1;", "q.block_state('test:missing')"] {
+        let mut block = slab();
+        Arc::make_mut(&mut block.visual).permutations = [protocol::CustomPermutation {
+            condition: condition.into(),
+            components: Default::default(),
+            physical: protocol::CustomPhysicalComponents {
+                mining: Some(Arc::new(protocol::CustomBlockMining {
+                    seconds_to_destroy: -1.0,
+                    ..Default::default()
+                })),
+                ..Default::default()
+            },
+        }]
+        .into();
+        assert!(block.mining_for_state(0).is_none());
+        let mut blocks = CustomBlocks {
+            blocks: [block].into(),
+            ..Default::default()
+        };
+        resolve(&mut blocks);
+        assert!(!blocks.blocks[0].state_physics_complete);
+        for state in 0..blocks.blocks[0].state_count {
+            assert!(blocks.blocks[0].mining_for_state(state).is_none());
+        }
+    }
+}
+
+#[test]
+fn custom_mining_unrelated_physics_gaps_keep_the_base_component() {
+    let mut block = slab();
+    Arc::make_mut(&mut block.visual)
+        .permutations
+        .iter_mut()
+        .for_each(|permutation| permutation.condition = "q.unsupported()".into());
+    let mut blocks = CustomBlocks {
+        blocks: [block].into(),
+        ..Default::default()
+    };
+    resolve(&mut blocks);
+    assert!(!blocks.blocks[0].state_physics_complete);
+    assert!(blocks.blocks[0].mining_for_state(0).is_some());
 }
 
 fn text(value: &str) -> Vec<u8> {
@@ -167,7 +213,7 @@ fn preparation_materializes_state_physics_for_registry_consumers() {
         assert_eq!(
             block.physics_for_state(state),
             CustomBlockPhysics {
-                mining: Default::default(),
+                mining: Some(Default::default()),
                 random_offset: None,
                 transformation,
                 collides,

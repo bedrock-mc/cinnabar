@@ -46,6 +46,7 @@ fn custom_mining_components_resolve_in_both_runtime_identity_spaces() {
     .unwrap();
     let mut custom = definitions(&[[0.0, 0.0, 0.0, 16.0, 16.0, 16.0]]);
     let block = &mut Arc::make_mut(&mut custom.blocks)[0];
+    block.tags = [Arc::from("minecraft:is_pickaxe_item_destructible")].into();
     block.mining = Arc::new(protocol::CustomBlockMining {
         seconds_to_destroy: 2.0,
         ..Default::default()
@@ -59,12 +60,11 @@ fn custom_mining_components_resolve_in_both_runtime_identity_spaces() {
             custom.blocks[0].hashed_states()[0].hash,
         ),
     ] {
+        let (mining, tools) = registries.custom_block_mining(mode, id).unwrap();
+        assert_eq!(mining.seconds_to_destroy, 2.0);
         assert_eq!(
-            registries
-                .custom_block_mining(mode, id)
-                .unwrap()
-                .seconds_to_destroy,
-            2.0
+            tools,
+            assets::compiled::block_destroy::ToolKind::Pickaxe.bit()
         );
     }
 }
@@ -345,7 +345,7 @@ fn resolved_state_collision_and_selection_reach_both_identity_spaces() {
     };
     block.state_physics = [
         protocol::CustomBlockPhysics {
-            mining: Default::default(),
+            mining: Some(Default::default()),
             random_offset: None,
             transformation: None,
             collides: true,
@@ -354,7 +354,7 @@ fn resolved_state_collision_and_selection_reach_both_identity_spaces() {
             friction: None,
         },
         protocol::CustomBlockPhysics {
-            mining: Default::default(),
+            mining: Some(Default::default()),
             random_offset: None,
             transformation: None,
             collides: true,
@@ -363,7 +363,7 @@ fn resolved_state_collision_and_selection_reach_both_identity_spaces() {
             friction: None,
         },
         protocol::CustomBlockPhysics {
-            mining: Default::default(),
+            mining: Some(Default::default()),
             random_offset: None,
             transformation: None,
             collides: false,
@@ -564,7 +564,7 @@ fn face_facing() -> protocol::CustomBlocks {
         ([0, 1, 3], "east"),
     ];
     let physics = turns.map(|(rotation, _)| protocol::CustomBlockPhysics {
-        mining: Default::default(),
+        mining: Some(Default::default()),
         random_offset: None,
         // `up` is the default face and carries no authored turn.
         transformation: if rotation == [0; 3] {

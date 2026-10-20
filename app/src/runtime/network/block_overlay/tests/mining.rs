@@ -1,5 +1,36 @@
 use super::*;
 
+#[test]
+fn custom_mining_unresolved_permutation_cannot_use_an_instant_base() {
+    let block = block(
+        "test:unknown_mining",
+        1,
+        CustomBlockVisuals {
+            permutations: [protocol::CustomPermutation {
+                condition: "return 1;".into(),
+                components: Default::default(),
+                physical: protocol::CustomPhysicalComponents {
+                    mining: Some(Arc::new(protocol::CustomBlockMining {
+                        seconds_to_destroy: -1.0,
+                        ..Default::default()
+                    })),
+                    ..Default::default()
+                },
+            }]
+            .into(),
+            ..Default::default()
+        },
+    );
+    let blocks = CustomBlocks {
+        blocks: [block].into(),
+        ..Default::default()
+    };
+    for hashed in [false, true] {
+        let compiled = compile_block_overlay(&view(), &blocks, hashed, None).unwrap();
+        assert!(sim::BlockDestroyInfo::from_facts(compiled.overlay.visuals[0].destroy).is_none());
+    }
+}
+
 /// Encodes a named tag in a small network NBT fixture.
 fn named(tag: u8, name: &str, bytes: &mut Vec<u8>) {
     bytes.extend([tag, u8::try_from(name.len()).unwrap()]);

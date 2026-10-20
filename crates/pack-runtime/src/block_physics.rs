@@ -8,7 +8,7 @@ use protocol::{
 /// Bounds materialized state records across a session without allocating the reserve.
 const MAX_RESOLVED_PHYSICS_STATES: usize = 1 << 18;
 
-type Condition<'a> = (BlockMolang, &'a CustomPhysicalComponents);
+type Condition<'a> = (Option<BlockMolang>, &'a CustomPhysicalComponents);
 
 fn conditions(block: &CustomBlock) -> (Vec<Condition<'_>>, usize) {
     let mut skipped = 0;
@@ -27,12 +27,12 @@ fn conditions(block: &CustomBlock) -> (Vec<Condition<'_>>, usize) {
             {
                 return None;
             }
-            match BlockMolang::parse(&permutation.condition) {
-                Some(expression) => Some((expression, physical)),
-                None => {
-                    skipped += 1;
-                    None
-                }
+            let expression = BlockMolang::parse(&permutation.condition);
+            skipped += usize::from(expression.is_none());
+            if expression.is_none() && physical.mining.is_none() {
+                None
+            } else {
+                Some((expression, physical))
             }
         })
         .collect();
@@ -60,8 +60,15 @@ fn evaluate(
     };
     let mut physics = block.base_physics();
     for (condition, physical) in conditions {
-        let Some(value) = condition.evaluate(&query).filter(|value| value.is_finite()) else {
+        let Some(value) = condition
+            .as_ref()
+            .and_then(|condition| condition.evaluate(&query))
+            .filter(|value| value.is_finite())
+        else {
             *complete = false;
+            if physical.mining.is_some() {
+                physics.mining = None;
+            }
             continue;
         };
         if value == 0.0 {
@@ -84,7 +91,7 @@ fn evaluate(
             physics.friction = Some(friction);
         }
         if let Some(mining) = &physical.mining {
-            physics.mining = Arc::clone(mining);
+            physics.mining = Some(Arc::clone(mining));
         }
     }
     Some(physics)
