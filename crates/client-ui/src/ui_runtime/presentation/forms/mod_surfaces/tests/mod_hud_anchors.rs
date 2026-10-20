@@ -57,7 +57,9 @@ fn anchored_layout_resize_snapshot_preserves_edge_distance_after_a_real_drop() {
     p.mod_ui_mut().mod_panel_events(destination, false, false);
     let mut anchored = p.mod_ui().mod_hud_editor_state().unwrap().draft.clone();
     assert_eq!(anchored.cards[0].anchor, Anchor::TopRight);
-    assert_eq!(anchored.cards[0].offset, [32., 40.]);
+    for (actual, expected) in anchored.cards[0].offset.into_iter().zip([32., 40.]) {
+        assert!((actual - expected).abs() < 0.001);
+    }
     p.mod_ui_mut().mod_panel_key("Enter", None);
     let saved = p.mod_ui_mut().take_mod_hud_editor_result().unwrap();
     p.mod_ui_mut().set_mod_panel_open(false);

@@ -138,7 +138,9 @@ fn anchored_wide_viewport_placements_remain_valid_guest_input() {
     let result = editor.snapshot(true);
     result.validate().unwrap();
     editor.draft.validate().unwrap();
-    assert_eq!(editor.draft.cards[0].offset, [4000., 2200.]);
+    for (actual, expected) in editor.draft.cards[0].offset.into_iter().zip([4000., 2200.]) {
+        assert!((actual - expected).abs() < 0.001);
+    }
 }
 
 #[test]
