@@ -1,6 +1,9 @@
 //! Typed parsing of the recognised `shaders.properties` keys.
 
-use super::{CustomImage, ImageSize, ProgramRule, PropertiesDiagnostic, ShaderProperties};
+use super::{
+    BufferSize, CustomImage, CustomTexture, CustomUniform, CustomUniformKind, FlipRule, ImageSize,
+    ProgramRule, PropertiesDiagnostic, ScaleRule, ShaderProperties, SizeValue, TextureSource,
+};
 use crate::expr::Expr;
 
 /// Records the typed rule for a recognised `key`; a malformed value adds a diagnostic
@@ -28,8 +31,45 @@ fn apply_rule(
         properties
             .program_rules
             .push(program_rule(target, value, line)?);
+    } else if let Some(buffer) = key.strip_prefix("size.buffer.") {
+        let (width, height) = first_of_two(value)?;
+        properties.buffer_sizes.push(BufferSize {
+            buffer: name(buffer, "buffer")?,
+            width: size_value(width)?,
+            height: size_value(height)?,
+        });
+    } else if let Some(target) = key.strip_prefix("flip.") {
+        let (program, buffer) = split_target(target, "program", "buffer")?;
+        properties.flips.push(FlipRule {
+            program,
+            buffer,
+            flip: match value {
+                "0" => false,
+                "1" => true,
+                _ => parse_bool(value)?,
+            },
+        });
+    } else if let Some(program) = key.strip_prefix("scale.") {
+        properties.scales.push(scale_rule(program, value)?);
+    } else if let Some(target) = key.strip_prefix("texture.") {
+        let (stage, sampler) = if target == "noise" {
+            ("noise".to_owned(), "noisetex".to_owned())
+        } else {
+            split_target(target, "stage", "sampler")?
+        };
+        properties.custom_textures.push(CustomTexture {
+            stage,
+            sampler,
+            source: texture_source(value)?,
+        });
     } else if let Some(image) = key.strip_prefix("image.") {
         properties.images.push(custom_image(image, value)?);
+    } else if let Some(target) = key.strip_prefix("uniform.") {
+        let uniform = custom_uniform(CustomUniformKind::Uniform, target, value, line)?;
+        properties.custom_uniforms.push(uniform);
+    } else if let Some(target) = key.strip_prefix("variable.") {
+        let variable = custom_uniform(CustomUniformKind::Variable, target, value, line)?;
+        properties.custom_uniforms.push(variable);
     }
     Ok(())
 }
@@ -40,6 +80,23 @@ fn name(segment: &str, what: &str) -> Result<String, String> {
         return Err(format!("missing {what} name"));
     }
     Ok(segment.to_owned())
+}
+
+/// Splits `<first>.<rest>` at the first `.`; both parts must be non-empty.
+fn split_target(target: &str, first: &str, rest: &str) -> Result<(String, String), String> {
+    let Some((head, tail)) = target.split_once('.') else {
+        return Err(format!("expected `<{first}>.<{rest}>`"));
+    };
+    Ok((name(head, first)?, name(tail, rest)?))
+}
+
+/// The two whitespace-separated tokens of `value`.
+fn first_of_two(value: &str) -> Result<(&str, &str), String> {
+    let mut tokens = value.split_whitespace();
+    match (tokens.next(), tokens.next(), tokens.next()) {
+        (Some(first), Some(second), None) => Ok((first, second)),
+        _ => Err(format!("expected two values, found `{value}`")),
+    }
 }
 
 /// Parses true or false without regard to case, rejecting other values.
@@ -96,6 +153,61 @@ fn program_rule(target: &str, value: &str, line: u32) -> Result<ProgramRule, Str
     })
 }
 
+/// Iris rule: a value containing '.' is a screen-relative fraction, else pixels.
+fn size_value(text: &str) -> Result<SizeValue, String> {
+    if text.contains('.') {
+        positive_f32(text).map(SizeValue::Relative)
+    } else {
+        positive_u32(text).map(SizeValue::Absolute)
+    }
+}
+
+/// Parses a positive viewport scale and its optional offset.
+fn scale_rule(program: &str, value: &str) -> Result<ScaleRule, String> {
+    let numbers = value
+        .split_whitespace()
+        .map(parse_f32)
+        .collect::<Result<Vec<_>, _>>()?;
+    let (scale, offset) = match *numbers.as_slice() {
+        [scale] => (scale, [0.0, 0.0]),
+        [scale, x, y] => (scale, [x, y]),
+        _ => {
+            return Err(format!(
+                "expected `<scale> [<offsetX> <offsetY>]`, found `{value}`"
+            ));
+        }
+    };
+    if scale <= 0.0 {
+        return Err(format!("scale `{scale}` must be positive"));
+    }
+    Ok(ScaleRule {
+        program: name(program, "program")?,
+        scale,
+        offset,
+    })
+}
+
+/// Classifies a texture value: extra tokens make a raw texture, a `:` a resource location,
+/// anything else a pack file. Leading `/` is stripped from pack paths.
+fn texture_source(value: &str) -> Result<TextureSource, String> {
+    let mut tokens = value.split_whitespace();
+    let Some(first) = tokens.next() else {
+        return Err("missing texture path".to_owned());
+    };
+    let spec: Vec<String> = tokens.map(str::to_owned).collect();
+    let path = first.trim_start_matches('/');
+    if !spec.is_empty() {
+        return Ok(TextureSource::Raw {
+            path: name(path, "texture path")?,
+            spec,
+        });
+    }
+    if first.contains(':') {
+        return Ok(TextureSource::Resource(first.to_owned()));
+    }
+    Ok(TextureSource::File(name(path, "texture path")?))
+}
+
 /// Parses an image declaration with positive absolute or relative dimensions.
 fn custom_image(image: &str, value: &str) -> Result<CustomImage, String> {
     let tokens: Vec<&str> = value.split_whitespace().collect();
@@ -150,4 +262,22 @@ fn image_usage(value: &str) -> String {
         "expected `<sampler> <format> <internalFormat> <pixelType> <clear> <relative> \
          <width> [<height> [<depth>]]`, found `{value}`"
     )
+}
+
+/// Parses a `<type>.<name>` custom uniform or variable target and its expression.
+fn custom_uniform(
+    kind: CustomUniformKind,
+    target: &str,
+    value: &str,
+    line: u32,
+) -> Result<CustomUniform, String> {
+    let (ty, name) = split_target(target, "type", "name")?;
+    let expr = Expr::parse_custom(value).map_err(|err| format!("invalid expression: {err}"))?;
+    Ok(CustomUniform {
+        kind,
+        ty,
+        name,
+        expr,
+        line,
+    })
 }
