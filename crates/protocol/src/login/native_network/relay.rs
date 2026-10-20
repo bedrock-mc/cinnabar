@@ -68,11 +68,11 @@ pub struct NativeRelayRetired {
 impl NativeRelayConnecting {
     /// Takes the caller's actual established numeric socket; `address` is Login metadata only.
     /// Admission, original overall deadline and controller cancellation remain the caller's job.
+    /// Only known primary-player input reaches Login, the startup handoff and play.
     pub fn from_raknet(connection: RakNetConnection, address: String) -> Self {
-        Self::from_connection(
-            Connection::new(transport::Transport::from_raknet(connection)),
-            address,
-        )
+        let mut connection = Connection::new(transport::Transport::from_raknet(connection));
+        connection.primary_only();
+        Self::from_connection(connection, address)
     }
 
     /// Starts the same private protocol owner on an actual already-established transport.

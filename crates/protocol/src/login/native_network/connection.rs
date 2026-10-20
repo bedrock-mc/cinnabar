@@ -130,7 +130,7 @@ impl Connection {
         }
     }
 
-    /// Applies the local relay's primary-player policy before any generated body is decoded.
+    /// Admits only known primary-player input before any relay body is interpreted.
     pub(super) fn primary_only(&mut self) {
         self.primary_only = true;
     }
@@ -383,14 +383,20 @@ impl Connection {
             let mut reader = wire::Reader::from_shared(packet);
             let header =
                 wire::PacketHeader::from_raw(reader.read_var_u32().map_err(io::Error::other)?);
-            if header.sender_subclient == 0 && header.target_subclient == 0 {
+            if header.sender_subclient == 0
+                && header.target_subclient == 0
+                && packets::PacketId::from_raw(header.id).is_some()
+            {
                 return Ok(true);
             }
             drop(self.pending.pop_front());
             self.negotiation_skips = self.negotiation_skips.saturating_add(1);
             tracing::debug!(
+                id = header.id,
+                sender = header.sender_subclient,
+                target = header.target_subclient,
                 skipped = self.negotiation_skips,
-                "skipped unused local relay subclient"
+                "skipped unused native relay packet"
             );
         }
         Ok(false)
