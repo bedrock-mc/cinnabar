@@ -21,7 +21,7 @@ use meshing::CameraMedium;
 use protocol::NetworkItemStack;
 use render_model::celestial;
 use render_scene::{
-    ActorRenderFrame, AtmosphereFrame, WorldLighting,
+    ActorRenderFrame, AtmosphereFrame, ChunkRenderQueue, WorldLighting,
     shaderpack::{
         SKY_BIOME_SLOTS, ShaderPackActorIds, ShaderPackFrameInputs, ShaderPackIdMaps,
         ShaderPackStatus,
@@ -99,6 +99,7 @@ fn mesh_like_java_for_shader_packs(
     status: Option<Res<ShaderPackStatus>>,
     mut client_world: ResMut<ClientWorld>,
     mut resolved: Local<Option<ResolvedWaterFilled>>,
+    queue: Option<ResMut<ChunkRenderQueue>>,
 ) {
     let ready = status.as_deref().is_some_and(ShaderPackStatus::is_ready);
     let Some(stream) = client_world.stream.as_ref() else {
@@ -132,6 +133,9 @@ fn mesh_like_java_for_shader_packs(
         && let Some(stream) = client_world.stream.as_mut()
     {
         stream.set_java_meshing(wanted, web_time::Instant::now());
+        if let Some(mut queue) = queue {
+            queue.discard_resource_work();
+        }
     }
 }
 
@@ -457,6 +461,67 @@ fn fraction(current: u16, maximum: u16) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn java_meshing_toggle_discards_old_uploads_and_preserves_removals() {
+        use render_scene::{ChunkRenderQueue, ChunkUploadPriority};
+        let stream = WorldStream::new(protocol::WorldBootstrap {
+            local_player_unique_id: 1,
+            local_player_runtime_id: 1,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
+            block_network_ids_are_hashes: false,
+        });
+        let mut app = App::new();
+        app.insert_resource(ClientWorld {
+            stream: Some(stream),
+            ..Default::default()
+        })
+        .init_resource::<ChunkRenderQueue>()
+        .insert_resource(ShaderPackStatus::Ready("test".into()))
+        .add_systems(Update, mesh_like_java_for_shader_packs);
+        let upload = world::SubChunkKey { x: 0, y: 0, z: 0 };
+        let removal = world::SubChunkKey { x: 1, ..upload };
+        for status in [
+            ShaderPackStatus::Ready("test".into()),
+            ShaderPackStatus::Idle,
+        ] {
+            app.insert_resource(status);
+            {
+                let mut queue = app.world_mut().resource_mut::<ChunkRenderQueue>();
+                queue
+                    .try_insert(
+                        upload,
+                        meshing::ChunkMesh::default(),
+                        ChunkUploadPriority::new(0.0),
+                    )
+                    .unwrap();
+                queue.try_remove(removal).unwrap();
+            }
+            app.update();
+            let queue = app.world().resource::<ChunkRenderQueue>();
+            assert!(queue.pending.is_empty());
+            assert_eq!(queue.pending_bytes, 0);
+            assert!(queue.removals.contains_key(&removal));
+        }
+        app.world_mut()
+            .resource_mut::<ChunkRenderQueue>()
+            .try_insert(
+                upload,
+                meshing::ChunkMesh::default(),
+                ChunkUploadPriority::new(0.0),
+            )
+            .unwrap();
+        app.update();
+        assert!(
+            app.world()
+                .resource::<ChunkRenderQueue>()
+                .pending
+                .contains_key(&upload)
+        );
+    }
 
     /// Java's `getTimeOfDay` for a tick, written out independently of the celestial helper.
     fn java_time_of_day(ticks: f64) -> f32 {
