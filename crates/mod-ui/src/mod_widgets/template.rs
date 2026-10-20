@@ -1,6 +1,6 @@
 use json_ui::{Catalog, DataSource, Scalar};
 use serde_json::{Value, json};
-use ui::mod_hud::{Anchor, Card, DEFAULT_ROW_HEIGHT, Hud, RowLayout};
+use ui::mod_hud::{Card, DEFAULT_ROW_HEIGHT, Hud, RowLayout};
 
 const HEADER: f64 = 18.;
 
@@ -19,6 +19,7 @@ pub(super) fn same_shape(a: &Hud, b: &Hud) -> bool {
                 && left.row_height == right.row_height
                 && left.icon_size == right.icon_size
                 && left.text_scale == right.text_scale
+                && left.font == right.font
                 && left.shadow == right.shadow
                 && left.title.is_empty() == right.title.is_empty()
                 && left.compass.is_some() == right.compass.is_some()
@@ -63,6 +64,35 @@ fn center_on_row(label: &mut Value, center_y: f64) {
 }
 /// Shares card controls between gameplay publication and native previews.
 pub(in super::super) fn card(card: &Card, card_index: usize, row_index: &mut usize) -> Value {
+    let mut node = card_content(card, card_index, row_index);
+    if card.font != ui::mod_hud::CardFont::Native {
+        apply_font(&mut node, card.font.name());
+    }
+    node
+}
+
+/// Applies card typography to retained labels, including cells and measured text spans.
+fn apply_font(node: &mut Value, font: &str) {
+    match node {
+        Value::Object(object) => {
+            if object.get("type").and_then(Value::as_str) == Some("label") {
+                object.insert("font_type".into(), json!(font));
+            }
+            for value in object.values_mut() {
+                apply_font(value, font);
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                apply_font(value, font);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Builds card geometry before applying its selected typography.
+fn card_content(card: &Card, card_index: usize, row_index: &mut usize) -> Value {
     if card.text_plate.is_some() {
         *row_index += card.rows.len();
         return super::text_plate::control(card, card_index);
@@ -418,12 +448,5 @@ pub(in super::super) fn origin(card: &Card, viewport: [f64; 2]) -> [f64; 2] {
     if let Some(position) = card.position {
         return std::array::from_fn(|axis| f64::from(position[axis]) * available[axis]);
     }
-    let edge = match card.anchor {
-        Anchor::TopLeft => [0., 0.],
-        Anchor::TopCenter => [(viewport[0] - size[0]) * 0.5, 0.],
-        Anchor::TopRight => [available[0], 0.],
-        Anchor::BottomLeft => [0., available[1]],
-        Anchor::BottomRight => available,
-    };
-    std::array::from_fn(|axis| edge[axis] + f64::from(card.offset[axis]))
+    card.anchor.origin(card.offset, size, viewport)
 }

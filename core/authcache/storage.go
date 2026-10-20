@@ -53,7 +53,7 @@ func savePrivate(path string, serialized []byte) error {
 	defer os.Remove(file.Name())
 	defer file.Close()
 	if err := protectOpenedCacheFile(file); err != nil {
-		return errors.New("protect temporary auth cache")
+		return fmt.Errorf("protect temporary auth cache: %w", err)
 	}
 	if _, err := file.Write(serialized); err != nil {
 		return err
