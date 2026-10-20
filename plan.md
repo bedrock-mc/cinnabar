@@ -453,7 +453,11 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   moves, resizes and nudges, with an additive anchored-layout read and normalized
   compatibility reads. Editor drags snap to neighboring cards, stacking gaps and
   host-supplied native HUD bounds, with edge distances and Shift snap bypass.
-  Displayed-frame pacing acceptance remains pending.
+  The editor also retains bounded undo/redo history, per-card draft visibility,
+  anchor and scale actions, live owner-scoped card updates and inspector bindings.
+  Hidden card IDs have an additive result read; toast and anchor motion use the
+  presentation clock. Displayed-frame pacing and populated-world Studio acceptance
+  remain pending.
   Backdrop and element blur now limit downsampling to referenced mip levels and
   cache the admitted maximum blur. Pixel-equivalence regressions are included;
   executed GPU checks and measured frame-budget acceptance remain pending.

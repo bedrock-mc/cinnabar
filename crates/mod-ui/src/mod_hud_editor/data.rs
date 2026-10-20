@@ -30,6 +30,53 @@ impl HudEditor {
             Scalar::Text(if self.snap { "Grid: ON" } else { "Grid: OFF" }.into()),
         );
         write_bounds(&mut data, &self.draft, self.viewport, self.selected);
+        write_selection(&mut data, &self.draft, self.viewport, self.selected);
+        for (name, value) in [
+            ("#hud_can_undo", self.history.available()[0]),
+            ("#hud_can_redo", self.history.available()[1]),
+            ("#hud_dragging", self.drag.is_some()),
+        ] {
+            data.set_global(name, Scalar::Bool(value));
+        }
+        data.set_global("#hud_toast", Scalar::Text(self.toast.text.clone()));
+        for (index, card) in self.draft.cards.iter().enumerate() {
+            let visible = !self.hidden.contains(&card.id);
+            data.set_global(format!("#hud_card_{index}_visible"), Scalar::Bool(visible));
+            data.set_global(
+                format!("#hud_card_{index}_name"),
+                Scalar::Text(
+                    if card.editor_label.is_empty() {
+                        &card.id
+                    } else {
+                        &card.editor_label
+                    }
+                    .clone(),
+                ),
+            );
+            let at = self.card_origin(index);
+            data.set_global(
+                format!("#card_{index}_offset"),
+                Scalar::Json(serde_json::json!(at)),
+            );
+            let size = cards::dimensions(card);
+            let y = if at[1] >= 12. {
+                at[1] - 12.
+            } else {
+                at[1] + size[1] + 2.
+            };
+            data.set_global(
+                format!("#bounds_{index}_label_offset"),
+                Scalar::Json(serde_json::json!([
+                    at[0],
+                    y.clamp(0., (self.viewport[1] - 12.).max(0.))
+                ])),
+            );
+        }
+        if let Some(index) = self.selected {
+            let at = self.card_origin(index);
+            data.set_global("#hud_selected_x", Scalar::Num(at[0]));
+            data.set_global("#hud_selected_y", Scalar::Num(at[1]));
+        }
         if let Some(drag) = &self.drag {
             let color = self.draft.editor_style.unwrap_or_default().guide;
             for index in drag.targets.into_iter().flatten() {
@@ -39,7 +86,13 @@ impl HudEditor {
                 );
             }
         }
-        feedback::measurements(&mut data, &self.draft, self.viewport, self.selected);
+        feedback::measurements(
+            &mut data,
+            &self.draft,
+            self.viewport,
+            self.selected
+                .filter(|index| !self.hidden.contains(&self.draft.cards[*index].id)),
+        );
         data
     }
     /// Names the hovered widget or current selection without placing labels over nearby cards.
@@ -76,6 +129,49 @@ impl HudEditor {
             })
             .unwrap_or("Select a widget")
     }
+}
+
+/// Publishes inspector geometry after layout or native text measurement changes.
+pub(super) fn write_selection(
+    data: &mut DataSource,
+    hud: &Hud,
+    viewport: [f64; 2],
+    selected: Option<usize>,
+) {
+    let card = selected.and_then(|index| hud.cards.get(index));
+    data.set_global(
+        "#hud_selected",
+        Scalar::Num(
+            selected
+                .filter(|_| card.is_some())
+                .map_or(-1., |i| i as f64),
+        ),
+    );
+    let at = card.map_or([0.; 2], |card| cards::origin(card, viewport));
+    let size = card.map_or([0.; 2], cards::dimensions);
+    for (name, value) in [
+        ("#hud_selected_x", at[0]),
+        ("#hud_selected_y", at[1]),
+        ("#hud_selected_w", size[0]),
+        ("#hud_selected_h", size[1]),
+    ] {
+        data.set_global(name, Scalar::Num(value));
+    }
+    let anchor = card
+        .filter(|card| card.position.is_none())
+        .and_then(|card| {
+            ui::mod_hud::Anchor::ALL
+                .iter()
+                .position(|anchor| *anchor == card.anchor)
+        });
+    data.set_global(
+        "#hud_selected_anchor",
+        Scalar::Num(anchor.map_or(-1., |i| i as f64)),
+    );
+    data.set_global(
+        "#hud_selected_scale_text",
+        Scalar::Text(card.map_or_else(String::new, |card| format!("{:.0}%", card.scale * 100.))),
+    );
 }
 
 /// Refreshes labels after native font measurement without replacing icon or transition bindings.

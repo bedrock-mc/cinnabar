@@ -98,10 +98,13 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
     }
     let mut row = 0;
     for (index, card) in hud.cards.iter().enumerate() {
-        controls.push(named(
-            &format!("card_{index}"),
-            cards::card(card, index, &mut row),
-        ));
+        let visible = json!({"binding_name":format!("#hud_card_{index}_visible"), "binding_name_override":"#visible"});
+        let mut artwork = cards::card(card, index, &mut row);
+        artwork["bindings"]
+            .as_array_mut()
+            .expect("card bindings")
+            .push(visible.clone());
+        controls.push(named(&format!("card_{index}"), artwork));
         let size = cards::dimensions(card);
         let edges = [
             ([size[0], 0.5], [0., 0.]),
@@ -115,7 +118,7 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
             named(&format!("edge_{n}"),node)
         }).collect();
         let mut bounds = button(&format!("hud.card:{index}"), size, [0.; 2], border);
-        bounds["bindings"] = json!([{"binding_name":format!("#card_{index}_offset"),"binding_name_override":"#offset"}]);
+        bounds["bindings"] = json!([{"binding_name":format!("#card_{index}_offset"),"binding_name_override":"#offset"}, visible.clone()]);
         controls.push(named(&format!("bounds_{index}"), bounds));
         if hud.resizable {
             for corner in 0..4 {
@@ -149,18 +152,14 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
                     named("pressed", feedback(style.handle_pressed)),
                 ]);
                 let mut group = json!({"type":"panel","size":size,"controls":[named("handle",handle)],"anchor_from":"top_left","anchor_to":"top_left","layer":20});
-                group["bindings"] = json!([{"binding_name":format!("#card_{index}_offset"),"binding_name_override":"#offset"}]);
+                group["bindings"] = json!([{"binding_name":format!("#card_{index}_offset"),"binding_name_override":"#offset"}, visible.clone()]);
                 controls.push(named(&format!("resize_{index}_{corner}"), group));
             }
         }
         if !hud.hide_editor_labels && hud.surface.is_some() {
-            let text = if card.editor_label.is_empty() {
-                &card.id
-            } else {
-                &card.editor_label
-            };
-            let mut text = label(text, [size[0], 12.], [0.; 2]);
-            text["bindings"] = json!([{"binding_name":format!("#bounds_{index}_label_offset"),"binding_name_override":"#offset"}]);
+            let name = format!("#hud_card_{index}_name");
+            let mut text = label(&name, [size[0], 12.], [0.; 2]);
+            text["bindings"] = json!([{"binding_name":format!("#bounds_{index}_label_offset"),"binding_name_override":"#offset"}, {"binding_name":name}, visible]);
             controls.push(named(&format!("name_{index}"), text));
         }
     }

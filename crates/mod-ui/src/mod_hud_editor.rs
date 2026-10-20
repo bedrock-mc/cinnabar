@@ -1,8 +1,12 @@
 //! Native layout editing of bounded HUD previews. Pointer data never enters a guest.
 
+mod actions;
 mod data;
 mod feedback;
+mod history;
 mod input;
+mod motion;
+mod publication;
 mod snapping;
 mod template;
 
@@ -37,6 +41,11 @@ const AXIS_SNAP_DISTANCE: f64 = 6.;
 pub(super) struct HudEditor {
     draft: Hud,
     committed: Hud,
+    hidden: std::collections::HashSet<String>,
+    committed_hidden: std::collections::HashSet<String>,
+    history: history::History,
+    toast: motion::Toast,
+    anchor_motion: Option<motion::AnchorMotion>,
     pub(super) autosave: bool,
     pub(super) close_requested: bool,
     reset: bool,
@@ -82,10 +91,16 @@ impl ModUi {
         for card in &mut preview.cards {
             card.reset_anchor.get_or_insert(card.anchor);
             card.reset_offset.get_or_insert(card.offset);
+            card.reset_scale.get_or_insert(card.scale);
         }
         self.mod_hud_editor = Some(HudEditor {
             autosave: preview.autosave,
             draft: preview.clone(),
+            history: history::History::new(&preview),
+            hidden: Default::default(),
+            committed_hidden: Default::default(),
+            toast: Default::default(),
+            anchor_motion: None,
             committed: preview,
             close_requested: false,
             reset: false,
@@ -167,7 +182,11 @@ impl ModUi {
     /// Whether editor surface bindings need another frame to finish opening or closing.
     pub(super) fn mod_hud_editor_motion_active(&self) -> bool {
         self.mod_hud_editor.as_ref().is_some_and(|editor| {
-            editor.transitions.exiting() || editor.open && editor.transitions.active()
+            editor.transitions.exiting()
+                || editor.open
+                    && (editor.transitions.active()
+                        || editor.anchor_motion.is_some()
+                        || !editor.toast.text.is_empty())
         })
     }
 
@@ -231,8 +250,10 @@ impl ModUi {
             editor.catalog = None;
             editor.frame = None;
             editor.cancel_pointer_input();
+            editor.anchor_motion = None;
         }
         editor.advance_transitions(paint_frame.now, !self.reduced_motion);
+        editor.advance_feedback(paint_frame.now, !self.reduced_motion);
         if !editor.painting() {
             return;
         }
@@ -304,6 +325,7 @@ impl ModUi {
                         crate::mod_widgets::text_plate::data(data, card, n, viewport);
                     }
                     data::write_bounds(data, &editor.draft, viewport, editor.selected);
+                    data::write_selection(data, &editor.draft, viewport, editor.selected);
                     feedback::measurements(data, &editor.draft, viewport, editor.selected);
                 }
                 if editor.catalog.is_none() {

@@ -3,6 +3,25 @@
 use super::Anchor;
 
 impl Anchor {
+    /// Row-major order used by the editor's nine-position anchor picker.
+    pub const ALL: [Self; 9] = [
+        Self::TopLeft,
+        Self::TopCenter,
+        Self::TopRight,
+        Self::Left,
+        Self::Center,
+        Self::Right,
+        Self::BottomLeft,
+        Self::BottomCenter,
+        Self::BottomRight,
+    ];
+
+    /// Insets edge axes by the editor margin and leaves centered axes centered.
+    pub fn editor_offset(self, margin: f32) -> [f32; 2] {
+        self.fractions()
+            .map(|fraction| if fraction == 0.5 { 0. } else { margin })
+    }
+
     /// Returns each axis's matching card and viewport reference point.
     fn fractions(self) -> [f64; 2] {
         match self {
@@ -40,18 +59,7 @@ impl Anchor {
                 2
             }
         });
-        let anchor = match thirds {
-            [0, 0] => Self::TopLeft,
-            [1, 0] => Self::TopCenter,
-            [2, 0] => Self::TopRight,
-            [0, 1] => Self::Left,
-            [1, 1] => Self::Center,
-            [2, 1] => Self::Right,
-            [0, 2] => Self::BottomLeft,
-            [1, 2] => Self::BottomCenter,
-            [2, 2] => Self::BottomRight,
-            _ => unreachable!("each axis selects one of three viewport thirds"),
-        };
+        let anchor = Self::ALL[usize::from(thirds[1] * 3 + thirds[0])];
         let fractions = anchor.fractions();
         let offset = std::array::from_fn(|axis| {
             let available = (viewport[axis] - size[axis]).max(0.);

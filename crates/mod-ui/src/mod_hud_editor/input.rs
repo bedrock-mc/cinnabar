@@ -106,13 +106,29 @@ impl HudEditor {
             } else {
                 Vec::new()
             },
+            hidden_cards: if saved {
+                self.draft
+                    .cards
+                    .iter()
+                    .filter(|card| self.hidden.contains(&card.id))
+                    .map(|card| card.id.clone())
+                    .collect()
+            } else {
+                Vec::new()
+            },
         }
     }
     /// Persists completed opted-in gestures while retaining the live editor.
-    fn checkpoint(&mut self) {
-        if self.autosave && self.draft != self.committed {
+    pub(super) fn checkpoint(&mut self) {
+        self.history.record(&self.draft, &self.hidden);
+        self.persist();
+    }
+    /// Coalesces autosaved output without adding an undo or redo restoration to history.
+    pub(super) fn persist(&mut self) {
+        if self.autosave && (self.draft != self.committed || self.hidden != self.committed_hidden) {
             self.result = Some(self.snapshot(true));
             self.committed = self.draft.clone();
+            self.committed_hidden.clone_from(&self.hidden);
             self.reset = false;
         }
     }
@@ -171,6 +187,10 @@ impl HudEditor {
     }
     /// Restores explicit factory values or the authored anchor and offset captured on open.
     fn reset_layout(&mut self) {
+        self.cancel_drag();
+        self.anchor_motion = None;
+        self.toast = Default::default();
+        self.hidden.clear();
         self.data_dirty = true;
         for card in &mut self.draft.cards {
             card.anchor = card.reset_anchor.unwrap_or(card.anchor);
@@ -239,7 +259,7 @@ impl HudEditor {
         position: [f32; 2],
         pressed: bool,
         held: bool,
-        controls: &[ui::mod_panel::Control],
+        controls: &mut [ui::mod_panel::Control],
     ) -> Vec<ui::mod_panel::Event> {
         if !self.open || !position.into_iter().all(f32::is_finite) {
             self.cancel_pointer_input();
@@ -270,6 +290,12 @@ impl HudEditor {
         let action = pressed
             .then(|| hit.and_then(|hit| hit.pressed.clone()))
             .flatten();
+        if let Some(events) = action
+            .as_deref()
+            .and_then(|action| self.action(action, controls))
+        {
+            return events;
+        }
         if let Some(id) = action
             .as_deref()
             .and_then(|action| action.strip_prefix("hud.done:"))
@@ -310,6 +336,7 @@ impl HudEditor {
         }
         if pressed {
             self.cancel_drag();
+            self.anchor_motion = None;
             let capture = action.as_deref().and_then(|action| {
                 if let Some(index) = action.strip_prefix("hud.card:") {
                     return index.parse::<usize>().ok().map(|index| (index, None));
@@ -321,7 +348,10 @@ impl HudEditor {
                     .then_some((index.parse::<usize>().ok()?, Some(corner)))
             });
             self.drag = capture
-                .filter(|(index, _)| *index < self.draft.cards.len())
+                .filter(|(index, _)| {
+                    *index < self.draft.cards.len()
+                        && !self.hidden.contains(&self.draft.cards[*index].id)
+                })
                 .map(|(index, corner)| {
                     let card = &self.draft.cards[index];
                     let at = cards::origin(card, self.viewport);
@@ -372,6 +402,7 @@ impl HudEditor {
                         self.viewport,
                         &self.keep_out,
                         self.bypass_snap,
+                        &self.hidden,
                     );
                     let mut aligned = at;
                     for axis in 0..2 {
@@ -386,10 +417,12 @@ impl HudEditor {
                 }
             }
         }
-        if !held && let Some(drag) = self.drag.take().filter(|drag| drag.moved) {
+        if !held && let Some(drag) = self.drag.take() {
             self.data_dirty = true;
-            self.anchor_card(drag.index);
-            self.checkpoint();
+            if drag.moved {
+                self.anchor_card(drag.index);
+                self.checkpoint();
+            }
         }
         Vec::new()
     }
@@ -402,9 +435,10 @@ impl HudEditor {
             "Escape" => self.finish(false),
             "Enter" | "NumpadEnter" => self.finish(true),
             "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown" => {
-                if self.autosave && self.drag.is_some() {
+                if self.drag.is_some() {
                     return;
                 }
+                self.anchor_motion = None;
                 if let Some(index) = self.selected {
                     let mut at = cards::origin(&self.draft.cards[index], self.viewport);
                     let axis = usize::from(matches!(key, "ArrowUp" | "ArrowDown"));
@@ -424,6 +458,31 @@ impl HudEditor {
             }
             _ => {}
         }
+    }
+
+    /// Preserves physical modifiers for the editor's undo and redo shortcuts.
+    pub(in super::super) fn key_with_modifiers(
+        &mut self,
+        key: &str,
+        modifiers: ui::mod_panel::FieldModifiers,
+    ) {
+        if !self.open {
+            return;
+        }
+        if !modifiers.alt && (modifiers.control || modifiers.super_key) {
+            match key {
+                "KeyZ" | "z" | "Z" => {
+                    self.step_history(modifiers.shift);
+                    return;
+                }
+                "KeyY" | "y" | "Y" if modifiers.control => {
+                    self.step_history(true);
+                    return;
+                }
+                _ => {}
+            }
+        }
+        self.key(key);
     }
 }
 

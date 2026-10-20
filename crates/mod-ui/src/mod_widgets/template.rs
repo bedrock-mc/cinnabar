@@ -10,7 +10,7 @@ pub(super) const CANVAS_INSET: f64 = ui::mod_panel::preview::MAX_PREVIEW_EXTENT;
 mod tests;
 
 /// Rebuilds only when card geometry, row font or icon topology changes.
-pub(super) fn same_shape(a: &Hud, b: &Hud) -> bool {
+pub(in super::super) fn same_shape(a: &Hud, b: &Hud) -> bool {
     super::world_labels::same_shape(&a.world_labels, &b.world_labels)
         && a.cards.len() == b.cards.len()
         && a.cards.iter().zip(&b.cards).all(|(left, right)| {

@@ -10,6 +10,9 @@ mod anchored_tests;
 pub(super) mod bounds;
 #[path = "hud/clock.rs"]
 mod clock;
+#[path = "hud/visibility.rs"]
+mod visibility;
+pub(super) use visibility::read_editor_visibility;
 #[path = "hud/compass.rs"]
 mod compass;
 #[path = "hud/days.rs"]
@@ -604,6 +607,7 @@ mod tests {
             Default::default(),
         );
         state.hud.editor_result = Some(EditorResult {
+            hidden_cards: Vec::new(),
             saved: true,
             reset: true,
             placements: vec![ui::mod_hud::Placement {
@@ -641,6 +645,7 @@ mod tests {
             Default::default(),
         );
         state.hud.deliver_editor_result(EditorResult {
+            hidden_cards: Vec::new(),
             saved: true,
             reset: true,
             placements: vec![ui::mod_hud::Placement {
@@ -652,6 +657,7 @@ mod tests {
             }],
         });
         let newest = EditorResult {
+            hidden_cards: Vec::new(),
             saved: true,
             reset: false,
             placements: vec![ui::mod_hud::Placement {
@@ -684,6 +690,7 @@ mod tests {
         assert!(following.saved && !following.reset);
         state.hud.commit();
         state.hud.deliver_editor_result(EditorResult {
+            hidden_cards: Vec::new(),
             saved: true,
             reset: true,
             placements: Vec::new(),

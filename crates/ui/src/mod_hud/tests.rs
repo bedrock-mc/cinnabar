@@ -144,6 +144,7 @@ mod tests {
     fn editor_results_are_bounded_and_cancellation_carries_no_changes() {
         assert!(EditorResult::default().validate().is_ok());
         let saved = EditorResult {
+            hidden_cards: Vec::new(),
             saved: true,
             reset: false,
             placements: vec![Placement {
@@ -405,6 +406,7 @@ fn uniform_card_scale_supports_quarter_to_five_without_widening_text_scale() {
         };
         hud.validate().unwrap();
         super::EditorResult {
+            hidden_cards: Vec::new(),
             saved: true,
             reset: false,
             placements: vec![super::Placement {
@@ -418,4 +420,82 @@ fn uniform_card_scale_supports_quarter_to_five_without_widening_text_scale() {
         .validate()
         .unwrap();
     }
+}
+
+/// Studio's fixed action names use the same bounds as cards, controls and anchor choices.
+#[test]
+fn studio_surface_actions_accept_exact_names_and_reject_out_of_range_indices() {
+    use crate::mod_panel::{MAX_PANEL_CONTROLS, Surface};
+    let check = |action: &str| {
+        let hud = super::Hud {
+            surface: Some(Surface {
+                screen: "studio.root".into(),
+                document: serde_json::json!({"namespace":"studio","root":{"type":"screen","controls":[{"action":{
+                    "type":"button", "size":[20,20], "button_mappings":[{"from_button_id":"button.menu_select","to_button_id":action,"mapping_type":"pressed"}]
+                }}]}}).to_string(),
+                bindings: Default::default(), transitions: Default::default(), collections: Default::default(), previews: Default::default(),
+            }),
+            ..Default::default()
+        };
+        hud.validate()
+    };
+    for action in [
+        "hud.undo",
+        "hud.redo",
+        "hud.scale_down",
+        "hud.scale_up",
+        "hud.save",
+        "hud.cancel",
+        "hud.close",
+        "hud.reset",
+        "hud.grid",
+    ] {
+        check(action).unwrap();
+    }
+    for (prefix, bound) in [
+        ("hud.visibility:", super::MAX_HUD_CARDS),
+        ("hud.select:", super::MAX_HUD_CARDS),
+        ("hud.card:", super::MAX_HUD_CARDS),
+        ("hud.anchor:", 9),
+        ("hud.control:", MAX_PANEL_CONTROLS),
+        ("hud.done:", MAX_PANEL_CONTROLS),
+    ] {
+        for index in [0, bound - 1] {
+            check(&format!("{prefix}{index}")).unwrap();
+        }
+        for suffix in [
+            bound.to_string(),
+            "-1".into(),
+            "1.5".into(),
+            "".into(),
+            "99999999999999999999999999999".into(),
+        ] {
+            assert!(check(&format!("{prefix}{suffix}")).is_err());
+        }
+    }
+    assert!(check("hud.toggle:0").is_err());
+}
+
+#[test]
+fn studio_hidden_results_require_unique_saved_placement_ids() {
+    let mut result = super::EditorResult {
+        saved: true,
+        placements: vec![super::Placement {
+            id: "fps".into(),
+            anchor: super::Anchor::TopLeft,
+            offset: [0.; 2],
+            scale: 1.,
+            position: None,
+        }],
+        hidden_cards: vec!["fps".into()],
+        ..Default::default()
+    };
+    result.validate().unwrap();
+    result.hidden_cards.push("fps".into());
+    assert!(result.validate().is_err());
+    result.hidden_cards = vec!["unknown".into()];
+    assert!(result.validate().is_err());
+    result.hidden_cards = vec!["fps".into()];
+    result.saved = false;
+    assert!(result.validate().is_err());
 }

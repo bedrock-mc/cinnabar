@@ -339,11 +339,34 @@ pub struct Placement {
     pub position: Option<[f32; 2]>,
 }
 
+impl Placement {
+    /// Captures authored placement without card artwork, text or runtime layout caches.
+    pub fn capture(card: &Card) -> Self {
+        Self {
+            id: card.id.clone(),
+            anchor: card.anchor,
+            offset: card.offset,
+            scale: card.scale,
+            position: card.position,
+        }
+    }
+
+    /// Restores placement onto a card already matched by ID, leaving its content intact.
+    pub fn apply_to(&self, card: &mut Card) {
+        card.anchor = self.anchor;
+        card.offset = self.offset;
+        card.scale = self.scale;
+        card.position = self.position;
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct EditorResult {
     pub saved: bool,
     pub reset: bool,
     pub placements: Vec<Placement>,
+    /// IDs hidden in this saved draft; every ID also has a placement.
+    pub hidden_cards: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -503,8 +526,20 @@ impl Hud {
                 };
                 if !matches!(
                     action.as_str(),
-                    "hud.save" | "hud.cancel" | "hud.close" | "hud.reset" | "hud.grid"
+                    "hud.save"
+                        | "hud.cancel"
+                        | "hud.close"
+                        | "hud.reset"
+                        | "hud.grid"
+                        | "hud.undo"
+                        | "hud.redo"
+                        | "hud.scale_down"
+                        | "hud.scale_up"
                 ) && !indexed("hud.card:", MAX_HUD_CARDS)
+                    && !indexed("hud.select:", MAX_HUD_CARDS)
+                    && !indexed("hud.visibility:", MAX_HUD_CARDS)
+                    && !indexed("hud.anchor:", Anchor::ALL.len())
+                    && !indexed("hud.control:", crate::mod_panel::MAX_PANEL_CONTROLS)
                     && !indexed("hud.done:", crate::mod_panel::MAX_PANEL_CONTROLS)
                 {
                     return Err("HUD editor surface action is unsupported".into());
@@ -672,7 +707,9 @@ impl Hud {
 impl EditorResult {
     /// Rejects malformed placement output and changes attached to cancellation.
     pub fn validate(&self) -> Result<(), String> {
-        if !self.saved && (self.reset || !self.placements.is_empty()) {
+        if !self.saved
+            && (self.reset || !self.placements.is_empty() || !self.hidden_cards.is_empty())
+        {
             return Err("cancelled HUD editor cannot carry changes".into());
         }
         let hud = Hud {
@@ -690,7 +727,14 @@ impl EditorResult {
                 .collect(),
             ..Default::default()
         };
-        hud.validate()
+        hud.validate()?;
+        let mut hidden = HashSet::new();
+        if self.hidden_cards.iter().any(|id| {
+            !hidden.insert(id) || !self.placements.iter().any(|placement| &placement.id == id)
+        }) {
+            return Err("hidden HUD cards require unique placement IDs".into());
+        }
+        Ok(())
     }
 }
 impl Crosshair {
