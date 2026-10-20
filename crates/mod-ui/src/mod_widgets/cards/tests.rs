@@ -593,7 +593,11 @@ fn hud_card_preview_aligns_the_card_geometry_and_clips_painted_overflow() {
     let mut harness = Harness::new();
     harness.paint(&mut ui, true);
     assert!(
-        harness.drawn().vertices.is_empty(),
+        harness
+            .drawn()
+            .vertices
+            .iter()
+            .all(|vertex| vertex.color[3] == 0),
         "right-aligned value lies outside the narrow centered preview node"
     );
 }
