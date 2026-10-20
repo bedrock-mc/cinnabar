@@ -78,8 +78,10 @@ pub(super) fn measurements(
             size[axis] = distance;
             pill = offset;
             pill[axis] += distance * 0.5;
-            pill[0] = (pill[0] - 18.).clamp(0., (viewport[0] - 36.).max(0.));
-            pill[1] = (pill[1] - 6.).clamp(0., (viewport[1] - 12.).max(0.));
+            for axis in 0..2 {
+                pill[axis] = (pill[axis] - MEASUREMENT_PILL[axis] * 0.5)
+                    .clamp(0., (viewport[axis] - MEASUREMENT_PILL[axis]).max(0.));
+            }
         }
         for (suffix, value) in [
             ("visible", Scalar::Bool(distance >= 12.)),

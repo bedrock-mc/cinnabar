@@ -81,13 +81,17 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
             {"binding_name":format!("#measurement_{axis}_width"), "binding_name_override":"#size_binding_x_absolute"},
             {"binding_name":format!("#measurement_{axis}_height"), "binding_name_override":"#size_binding_y_absolute"}]);
         controls.push(named(&format!("measurement_{axis}"), line));
-        let mut text = label(&format!("#measurement_{axis}_label"), [36., 12.], [0.; 2]);
+        let mut text = label(
+            &format!("#measurement_{axis}_label"),
+            MEASUREMENT_PILL,
+            [0.; 2],
+        );
         text["text_alignment"] = json!("center");
         text["bindings"] = json!([{"binding_name":format!("#measurement_{axis}_label")}]);
-        let mut background = rect([36., 12.], [0.; 2], [0.055, 0.065, 0.08, 0.97]);
-        background["radius"] = json!(6);
+        let mut background = rect(MEASUREMENT_PILL, [0.; 2], [0.055, 0.065, 0.08, 0.97]);
+        background["radius"] = json!(MEASUREMENT_PILL[1] * 0.5);
         controls.push(named(&format!("measurement_{axis}_pill"), json!({
-            "type":"panel", "size":[36,12], "anchor_from":"top_left", "anchor_to":"top_left", "layer":11,
+            "type":"panel", "size":MEASUREMENT_PILL, "anchor_from":"top_left", "anchor_to":"top_left", "layer":11,
             "bindings":[visible, {"binding_name":format!("#measurement_{axis}_pill"),"binding_name_override":"#offset"}],
             "controls":[named("background",background),named("label",text)]
         })));

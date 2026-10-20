@@ -28,6 +28,7 @@ use ui_engine::{
 
 const SCREEN: &str = "cinnabar_hud_editor.layout";
 const GUIDE_WIDTH: f64 = 0.75;
+const MEASUREMENT_PILL: [f64; 2] = [36., 12.];
 const AXIS_SNAP_DISTANCE: f64 = 6.;
 
 pub(super) struct HudEditor {
