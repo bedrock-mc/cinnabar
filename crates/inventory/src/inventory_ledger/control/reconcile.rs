@@ -72,6 +72,9 @@ impl PlayerInventoryLedger {
         if self.storage.is_some() {
             return;
         }
+        if state.confirmed.is_none() && state.sent.is_none() && self.personal_close_pending() {
+            return;
+        }
         match (state.desired_open, state.confirmed) {
             (true, Some(window)) => {
                 self.personal = Some(PersonalWindow::Open {
@@ -96,10 +99,17 @@ impl PlayerInventoryLedger {
                 if self.personal.is_some() {
                     self.personal = Some(PersonalWindow::Closing {
                         generation: window.generation,
+                        awaiting_open: false,
                     });
                 }
             }
-            (false, None) if state.sent.is_none() => self.personal = None,
+            (false, None) if state.sent.is_none() => {
+                if matches!(self.personal, Some(PersonalWindow::Closing { .. })) {
+                    self.finish_personal_close(true);
+                } else {
+                    self.personal = None;
+                }
+            }
             _ => {}
         }
     }
@@ -117,6 +127,9 @@ impl PlayerInventoryLedger {
                     let owned_screen = self
                         .personal
                         .is_some_and(|personal| personal.generation() == generation);
+                    if owned_screen && self.personal_close_pending() {
+                        continue;
+                    }
                     if owned_screen {
                         self.personal = None;
                         self.controls.personal.desired_open = false;

@@ -2,9 +2,18 @@ use super::{InventoryPendingState, PlayerInventoryLedger};
 
 #[derive(Debug, Clone, Copy)]
 pub(super) enum PersonalWindow {
-    Opening { generation: u64, admitted: bool },
-    Open { generation: u64 },
-    Closing { generation: u64 },
+    Opening {
+        generation: u64,
+        admitted: bool,
+    },
+    Open {
+        generation: u64,
+    },
+    Closing {
+        generation: u64,
+        /// The initial open has not received a server window yet.
+        awaiting_open: bool,
+    },
 }
 
 impl PersonalWindow {
@@ -47,6 +56,12 @@ impl PlayerInventoryLedger {
         }
     }
 
+    /// Keeps a closing screen's authority until its queued item returns have settled.
+    pub(super) fn personal_close_pending(&self) -> bool {
+        matches!(self.personal, Some(PersonalWindow::Closing { generation, .. })
+            if self.pending_requests().any(|request| request.personal_generation == Some(generation)))
+    }
+
     /// Queues inventory input for the runtime actor selected when the user pressed it.
     pub fn request_personal_open(&mut self, target_runtime_id: u64) -> bool {
         if self.authority.is_none() || target_runtime_id == 0 || self.storage.is_some() {
@@ -87,6 +102,11 @@ impl PlayerInventoryLedger {
                 }
             ) {
                 self.personal = None;
+            } else if matches!(personal, PersonalWindow::Opening { admitted: true, .. }) {
+                self.personal = Some(PersonalWindow::Closing {
+                    generation,
+                    awaiting_open: true,
+                });
             }
         }
         self.reconcile_personal();
