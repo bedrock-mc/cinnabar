@@ -80,6 +80,8 @@ fn all_anchor_references_keep_their_authored_offsets() {
             ..Default::default()
         };
         assert_eq!(origin(&card, [640., 360.]), expected, "{anchor:?}");
+        assert_eq!(origin(&card, [100., 60.]), [0.; 2]);
+        assert_eq!(origin(&card, [640., 360.]), expected, "restored {anchor:?}");
         assert_eq!(card.offset, [13., 17.]);
         assert_eq!(card.position, None);
     }
