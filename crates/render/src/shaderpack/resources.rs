@@ -274,11 +274,14 @@ impl<'a> ConstantBuilder<'a> {
             return Ok(*found);
         }
         let depth = format.is_depth_stencil_format();
-        let dimension = if depth {
-            TextureDimension::D2
-        } else {
-            dimension
-        };
+        if depth
+            && matches!(
+                dimension,
+                TextureDimension::D1 | TextureDimension::D1Array | TextureDimension::D3
+            )
+        {
+            return Err(format!("depth placeholders do not support {dimension:?}"));
+        }
         let mut usage = TextureUsages::TEXTURE_BINDING;
         if storage {
             usage |= TextureUsages::STORAGE_BINDING;
@@ -429,14 +432,11 @@ impl<'a> ConstantBuilder<'a> {
             MAX_CUSTOM_TEXTURE_SIDE.min(self.gpu.device.limits().max_texture_dimension_2d),
         )
         .map_err(|error| format!("{label}: {error}"))?;
-        let row = 4 * width as usize;
         if rgba.len() != expected {
             return Err(format!(
                 "{label}: {width}x{height} does not match its pixels"
             ));
         }
-        // Images are stored bottom-up in pack textures, as OpenGL uploads them.
-        let flipped: Vec<u8> = rgba.chunks_exact(row).rev().flatten().copied().collect();
         let (texture, view) = self.texture(
             label,
             TextureFormat::Rgba8Unorm,
@@ -444,7 +444,7 @@ impl<'a> ConstantBuilder<'a> {
             TextureDimension::D2,
             TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
         )?;
-        self.upload(&texture, &flipped, 4 * width, [width, height, 1]);
+        self.upload(&texture, rgba, 4 * width, [width, height, 1]);
         Ok((texture, view))
     }
 
@@ -498,7 +498,8 @@ impl<'a> ConstantBuilder<'a> {
         name: &str,
         dimension: TextureDimension,
     ) -> Option<(usize, TextureFormat)> {
-        let key = Key::Custom(stage.to_string(), name.to_string(), dimension);
+        let name = shaderpack::canonical_sampler_name(name);
+        let key = Key::Custom(stage.to_string(), name.clone(), dimension);
         if let Some(found) = self.keys.get(&key) {
             return Some(*found);
         }
@@ -508,7 +509,11 @@ impl<'a> ConstantBuilder<'a> {
             .custom_textures
             .iter()
             .rev()
-            .find(|t| t.stage == stage && t.uniform() == name && t.source.dimension() == dimension)?
+            .find(|t| {
+                t.stage == stage
+                    && shaderpack::canonical_sampler_name(t.uniform()) == name
+                    && t.source.dimension() == dimension
+            })?
             .source
             .clone();
         let (texture, view) = self.decode(&source)?;
@@ -601,40 +606,48 @@ impl<'a> ConstantBuilder<'a> {
                         label: Some("shader pack constant clears"),
                     });
             for (index, value, depth) in &self.clears {
-                let view = &self.out.textures[*index].view;
+                let texture = &self.out.textures[*index].texture;
                 let wgpu::LoadOp::Clear(value) = *value else {
                     continue;
                 };
-                let colour = [Some(wgpu::RenderPassColorAttachment {
-                    view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: f64::from(value),
-                            g: f64::from(value),
-                            b: f64::from(value),
-                            a: f64::from(value),
+                for layer in 0..texture.depth_or_array_layers() {
+                    let view = texture.create_view(&wgpu::TextureViewDescriptor {
+                        dimension: Some(wgpu::TextureViewDimension::D2),
+                        base_array_layer: layer,
+                        array_layer_count: Some(1),
+                        ..Default::default()
+                    });
+                    let colour = [Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color {
+                                r: f64::from(value),
+                                g: f64::from(value),
+                                b: f64::from(value),
+                                a: f64::from(value),
+                            }),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })];
+                    let depth_attachment = depth.then(|| wgpu::RenderPassDepthStencilAttachment {
+                        view: &view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(value),
+                            store: wgpu::StoreOp::Store,
                         }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })];
-                let depth_attachment = depth.then(|| wgpu::RenderPassDepthStencilAttachment {
-                    view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(value),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                });
-                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("shader pack constant clear"),
-                    color_attachments: if *depth { &[] } else { &colour },
-                    depth_stencil_attachment: depth_attachment,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                    multiview_mask: None,
-                });
+                        stencil_ops: None,
+                    });
+                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("shader pack constant clear"),
+                        color_attachments: if *depth { &[] } else { &colour },
+                        depth_stencil_attachment: depth_attachment,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                }
             }
             self.gpu.queue.submit([encoder.finish()]);
         }
@@ -804,3 +817,7 @@ mod tests {
         assert!(png_buffer_len(4097, 1, Some(16388), limits.max_texture_dimension_2d).is_err());
     }
 }
+
+#[cfg(test)]
+#[path = "resources/gpu_tests.rs"]
+mod gpu_tests;
