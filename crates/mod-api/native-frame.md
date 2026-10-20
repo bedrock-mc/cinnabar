@@ -54,6 +54,21 @@ invalidate every effect. Omission
 restores the player's current camera settings and perspective.
 
 
+### Retained input intents
+
+Capability bit `64` additionally permits `look` and `movement` in camera effects.
+`look` supplies absolute yaw/pitch in radians and a turn speed in radians per
+second. The host evaluates it against its current pose on every render frame.
+It excludes both relative rotation and detached views. `movement` supplies unit
+axes (`+X` right, `+Y` forward), their yaw frame, and held jump/sneak/sprint
+requests. The host rotates these axes after camera updates and feeds its ordinary
+semantic input and physics; physical movement takes priority. Resolved held
+requests preserve the player's separate toggle settings. Detached views exclude
+walking requests. Input loss releases controls and fences older callbacks;
+unchanged suspended frames still permit world drawing. Retained input expires
+250 ms after its observation. Session/world replacement, revocation, failure and
+stop release it as well. Guests must omit these fields without bit `64`.
+
 ## World drawing
 
 The independent `render-frame` callback uses native-init bit `8` when both
