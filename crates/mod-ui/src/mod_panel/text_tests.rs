@@ -699,7 +699,19 @@ fn native_field_safe_area_preserves_pointer_and_ime_geometry() {
         assert_eq!(ui.mod_panel_ime_position(), Some([x(4), text.max().y()]));
         ui.mod_panel_events([x(1), y], true, true);
         assert_eq!(field_state(&ui).cursor, 1);
-        ui.mod_panel_events([x(3), y], false, true);
-        assert_eq!(&field_state(&ui).text[field_state(&ui).selection()], "00");
+        ui.mod_panel_events([x(3), y], false, false);
+        assert_eq!(
+            &field_state(&ui).text[field_state(&ui).selection()],
+            "00",
+            "a move and release between frames completes the selection"
+        );
+        ui.mod_panel_events([x(1), y], true, true);
+        ui.mod_panel_events([x(2), y], false, true);
+        ui.mod_panel_events([x(4), y], false, false);
+        assert_eq!(
+            &field_state(&ui).text[field_state(&ui).selection()],
+            "000",
+            "release extends an existing drag to its final endpoint"
+        );
     }
 }

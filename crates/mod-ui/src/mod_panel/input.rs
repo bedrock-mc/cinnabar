@@ -44,9 +44,11 @@ impl ModPanel {
         if let Some(edit::Editor::Field { state, .. }) = &mut self.edit
             && state.dragging
         {
-            if held && !pressed {
+            if !pressed {
                 state.place_cursor(position[0], true);
-                return Vec::new();
+                if held {
+                    return Vec::new();
+                }
             }
             state.dragging = false;
         }
