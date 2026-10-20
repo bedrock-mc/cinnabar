@@ -43,20 +43,36 @@ fn png() -> Vec<u8> {
     bytes
 }
 
+/// Keeps a binary PNG on disk while its pack lazily reads the texture.
+fn png_pack(properties: &str) -> (tempfile::TempDir, ShaderPack) {
+    let directory = tempfile::tempdir().unwrap();
+    let shaders = directory.path().join("shaders");
+    std::fs::create_dir(&shaders).unwrap();
+    std::fs::write(shaders.join("sample.png"), png()).unwrap();
+    std::fs::write(shaders.join("shaders.properties"), properties).unwrap();
+    let source = shaderpack::PackSource::open(directory.path()).unwrap();
+    (directory, ShaderPack::new(source))
+}
+
 #[test]
 fn decoded_png_rows_reach_the_texture_in_their_original_order() {
     let Some(gpu) = gpu() else { return };
-    let pack = ShaderPack::new(shaderpack::PackSource::from_files([("sample.png", png())]));
+    let (_directory, pack) = png_pack("");
     let translation = pack.translate(&Default::default());
     let vanilla = VanillaTextures::default();
     let builder = ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
     let (_, view) = builder.decode_png("sample.png").unwrap();
+    assert_eq!(read_rows(&gpu, &view), [[255, 0, 0, 255], [0, 0, 255, 255]]);
+}
+
+/// Reads both RGBA8 rows through the texture interface used by pack samplers.
+fn read_rows(gpu: &GpuContext, view: &wgpu::TextureView) -> Vec<[u32; 4]> {
     let witness = crate::gpu_snapshot::Gpu {
         device: gpu.device.clone(),
         queue: gpu.queue.clone(),
         backend: gpu.adapter.get_info().backend,
     };
-    let rows = witness.compute_readback(
+    witness.compute_readback(
         "@group(0) @binding(0) var image: texture_2d<f32>;
          @group(0) @binding(1) var<storage, read_write> rows: array<vec4<u32>>;
          @compute @workgroup_size(1) fn witness(@builtin(global_invocation_id) id: vec3<u32>) {
@@ -64,13 +80,12 @@ fn decoded_png_rows_reach_the_texture_in_their_original_order() {
          }",
         &[wgpu::BindGroupEntry {
             binding: 0,
-            resource: wgpu::BindingResource::TextureView(&view),
+            resource: wgpu::BindingResource::TextureView(view),
         }],
         1,
         2,
         2,
-    );
-    assert_eq!(rows, [[255, 0, 0, 255], [0, 0, 255, 255]]);
+    )
 }
 
 #[test]
@@ -90,10 +105,7 @@ fn custom_textures_match_both_spellings_of_buffer_aliases() {
         ("shadowcolor0", "shadowcolor"),
     ] {
         let properties = format!("texture.composite.{property} = sample.png\n");
-        let pack = ShaderPack::new(shaderpack::PackSource::from_files([
-            ("sample.png", png()),
-            ("shaders.properties", properties.into_bytes()),
-        ]));
+        let (_directory, pack) = png_pack(&properties);
         let translation = pack.translate(&Default::default());
         let vanilla = VanillaTextures::default();
         let mut builder = ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
@@ -153,7 +165,7 @@ fn depth_placeholders_bind_with_the_requested_array_or_cube_shape() {
                     count: None,
                 }],
             });
-        gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let _ = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &layout,
             entries: &[wgpu::BindGroupEntry {
@@ -164,4 +176,26 @@ fn depth_placeholders_bind_with_the_requested_array_or_cube_shape() {
     }
     builder.finish();
     assert!(bevy::tasks::block_on(scope.pop()).is_none());
+}
+
+#[test]
+fn resource_texture_rows_keep_their_decoded_order() {
+    let Some(gpu) = gpu() else { return };
+    let (_directory, pack) = png_pack("");
+    let translation = pack.translate(&Default::default());
+    let vanilla = VanillaTextures::default().with(
+        "textures/environment/fixture.png",
+        vanilla::VanillaImage {
+            width: 1,
+            height: 2,
+            rgba8: std::sync::Arc::from([255, 0, 0, 255, 0, 0, 255, 255]),
+        },
+    );
+    let builder = ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
+    let (_, view) = builder
+        .decode(&PackTexture::Resource(
+            "minecraft:textures/environment/fixture.png".into(),
+        ))
+        .unwrap();
+    assert_eq!(read_rows(&gpu, &view), [[255, 0, 0, 255], [0, 0, 255, 255]]);
 }
