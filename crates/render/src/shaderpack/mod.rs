@@ -29,10 +29,16 @@ mod ids;
 #[expect(dead_code, reason = "consumed by the shader-pack frame host")]
 mod loader;
 #[cfg(feature = "shaderpacks")]
-#[expect(dead_code, reason = "consumed by the shader-pack frame host")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "consumed by the shader-pack frame host")
+)]
 mod pipeline_cache;
 #[cfg(feature = "shaderpacks")]
-#[expect(dead_code, reason = "consumed by the shader-pack frame host")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "consumed by the shader-pack frame host")
+)]
 mod pipelines;
 #[cfg(feature = "shaderpacks")]
 #[expect(dead_code, reason = "consumed by the shader-pack frame host")]
