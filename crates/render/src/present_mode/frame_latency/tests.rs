@@ -99,14 +99,29 @@ fn vsync_reserves_a_prefetch_slot_only_for_display_link_delivery() {
     assert_eq!(frame_latency(false, true).get(), 2);
 }
 
-/// Platforms without display-link delivery, including macOS before 14, keep one VSync frame.
+/// Windows starts with overlap until headroom is measured; other platforms retain their default.
 #[test]
 fn vsync_latency_follows_the_backend_delivery_path() {
-    let expected = if metal_display_link_delivery() { 2 } else { 1 };
+    let expected = if cfg!(target_os = "windows") || metal_display_link_delivery() {
+        2
+    } else {
+        1
+    };
     assert_eq!(frame_latency_for_vsync(true).get(), expected);
     assert_eq!(frame_latency_for_vsync(false).get(), 2);
     #[cfg(not(target_os = "macos"))]
     assert!(!metal_display_link_delivery());
+}
+
+/// Adaptive decisions cannot consume the slot reserved for prefetched Metal drawables.
+#[test]
+fn adaptive_feedback_preserves_display_link_and_unsynchronized_latency() {
+    for measured in [1, 2] {
+        assert_eq!(resolve_latency(true, false, measured).get(), measured);
+        assert_eq!(resolve_latency(true, true, measured).get(), 2);
+        assert_eq!(resolve_latency(false, false, measured).get(), 2);
+        assert_eq!(resolve_latency(false, true, measured).get(), 2);
+    }
 }
 
 /// Both latency change directions invalidate retained outputs with an unchanged present mode.
