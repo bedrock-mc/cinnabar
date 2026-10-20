@@ -303,9 +303,11 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   and responses, including server-pack definitions, structured text, custom controls,
   scaling and image/layout behavior against matched native views. Overlapping requests
   keep the active form and answer busy, including reused IDs. Busy cancellations retain
-  every request through transport backpressure. Server settings retain drafts across
-  tabs and submit their final values when settings close. Embedding their controls
-  within the settings panel instead of a separate form remains incomplete.
+  every request through transport backpressure. Custom forms retain control locks and
+  publish enabled bindings for the current game phase without removing locked response
+  values; device acceptance remains open. Server settings retain drafts across tabs
+  and submit their final values when settings close. Embedding their controls within
+  the settings panel instead of a separate form remains incomplete.
 - [ ] `P5.7-PARITY-PERF` — Qualify combined chat, scoreboard, boss bars, inventory and
   forms at supported scales/aspects and devices, with bounded memory and stable frame work.
 - [ ] `P5.8-SETTINGS` — Close menu, control, video and persistence acceptance. Desktop
@@ -410,6 +412,7 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   shader-pack source loading and configuration metadata are implemented in
   `shaderpack`, including options, dimensions, parsed properties, program discovery
   and enable rules. Translation, render-host integration and in-game acceptance
+  remain incomplete; parsed custom uniform expressions are not executed or rendered.
   remain incomplete.
   shader-pack source loading is implemented in `shaderpack`; configuration parsing,
   translation, render-host integration and in-game acceptance remain incomplete.

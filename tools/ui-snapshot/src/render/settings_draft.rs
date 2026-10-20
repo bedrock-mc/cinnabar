@@ -26,11 +26,13 @@ pub(super) fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
                 elements: vec![
                     CustomFormElement::Toggle {
                         text: "Enable feature".into(),
+                        control_locked: Default::default(),
                         default: false,
                         tooltip: None,
                     },
                     CustomFormElement::Input {
                         text: "Message".into(),
+                        control_locked: Default::default(),
                         placeholder: "".into(),
                         default: "Initial value".into(),
                         tooltip: None,

@@ -111,11 +111,13 @@ fn custom_settings(store: &mut ServerFormStore, id: u32) {
                 elements: vec![
                     protocol::CustomFormElement::Toggle {
                         text: "Enabled".into(),
+                        control_locked: Default::default(),
                         default: false,
                         tooltip: None,
                     },
                     protocol::CustomFormElement::Input {
                         text: "Name".into(),
+                        control_locked: Default::default(),
                         placeholder: "".into(),
                         default: "Initial".into(),
                         tooltip: None,

@@ -316,14 +316,21 @@ impl MockElement {
             MockElement::Label { text } => CustomElement::Label { text },
             MockElement::Header { text } => CustomElement::Header { text },
             MockElement::Divider => CustomElement::Divider,
-            MockElement::Toggle { text, on } => CustomElement::Toggle { text, on, tooltip },
+            MockElement::Toggle { text, on } => CustomElement::Toggle {
+                text,
+                on,
+                tooltip,
+                enabled: true,
+            },
             MockElement::Slider { text, fraction } => CustomElement::Slider {
+                enabled: true,
                 text,
                 fraction,
                 timeout: 0.0,
                 tooltip,
             },
             MockElement::StepSlider { text, steps, index } => CustomElement::StepSlider {
+                enabled: true,
                 text,
                 steps,
                 index,
@@ -345,6 +352,7 @@ impl MockElement {
                 value,
                 placeholder,
             } => CustomElement::Input {
+                enabled: true,
                 text,
                 value,
                 placeholder,
