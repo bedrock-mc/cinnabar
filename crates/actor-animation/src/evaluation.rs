@@ -29,6 +29,17 @@ pub(super) fn take_expression_work() -> Vec<usize> {
     EXPRESSION_WORK.with(|work| std::mem::take(&mut *work.borrow_mut()))
 }
 
+/// Counts an expression whose inputs changed, including a direct single-read program.
+#[cfg(test)]
+pub(super) fn record_expression_work(index: usize) {
+    EXPRESSION_WORK.with(|work| {
+        let mut work = work.borrow_mut();
+        let size = work.len().max(index + 1);
+        work.resize(size, 0);
+        work[index] += 1;
+    });
+}
+
 /// Takes query evaluations performed on this test thread since its last observation.
 #[cfg(test)]
 pub(super) fn take_query_work() -> usize {
@@ -469,12 +480,7 @@ impl Evaluator<'_> {
         reads: Option<&mut ObservedInputs>,
     ) -> Result<MolangValue, EvalError> {
         #[cfg(test)]
-        EXPRESSION_WORK.with(|work| {
-            let mut work = work.borrow_mut();
-            let size = work.len().max(expression_index + 1);
-            work.resize(size, 0);
-            work[expression_index] += 1;
-        });
+        record_expression_work(expression_index);
         let mut stack = std::mem::take(&mut budget.stack.0);
         stack.clear();
         let result = self.run_on(&mut stack, expression_index, variables, this, budget, reads);

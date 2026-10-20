@@ -14,6 +14,17 @@ impl Clone for FrameVariables {
 }
 
 impl FrameVariables {
+    /// Replaces a tick baseline while retaining scratch allocations and expression plans.
+    pub(crate) fn rebase(&mut self, source: &MolangVariables) {
+        for variables in self.0.get_mut().unwrap() {
+            let cache = variables.frame_cache.take();
+            let undo = variables.rollback.take();
+            variables.clone_from(source);
+            variables.frame_cache = cache;
+            variables.rollback = undo;
+        }
+    }
+
     /// Copies the immutable baseline once, then restores only writes between samples.
     pub(crate) fn lease<'a>(&'a self, source: &MolangVariables) -> FrameVariableLease<'a> {
         let mut variables = self

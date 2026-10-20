@@ -41,17 +41,16 @@ fn crowd(mode: &str) -> (ActorAnimationStore, HashMap<u64, test_actor::TestActor
     let mut store = ActorAnimationStore::with_assets(assets);
     let mut actors: HashMap<_, _> = (1..=128u64)
         .map(|id| {
-            (
-                id,
-                test_actor::TestActor {
-                    runtime_id: id,
-                    kind: protocol::ActorKind::Player {
-                        uuid: (id as u128).to_le_bytes(),
-                        username: "fixture".into(),
-                    },
-                    ..Default::default()
+            let actor = test_actor::TestActor {
+                unique_id: id as i64,
+                runtime_id: id,
+                kind: protocol::ActorKind::Player {
+                    uuid: (id as u128).to_le_bytes(),
+                    username: "fixture".into(),
                 },
-            )
+                ..Default::default()
+            };
+            (actor.unique_id as u64, actor)
         })
         .collect();
     for actor in actors.values() {

@@ -336,6 +336,26 @@ pub(super) fn carry_motion_history(
         next.previous_walk = previous.previous_walk;
     }
     let mut previous = previous;
+    if let Some(previous) = previous.as_deref_mut() {
+        next.motion.scratch = if advance && next.motion_poses.is_some() {
+            previous
+                .previous_motion
+                .as_mut()
+                .map(|motion| std::mem::take(&mut motion.scratch))
+                .unwrap_or_default()
+        } else {
+            std::mem::take(&mut previous.motion.scratch)
+        };
+        next.motion.scratch.rebase(&next.motion.variables);
+        next.layers = std::mem::take(&mut previous.layers);
+        next.compositions = std::mem::take(&mut previous.compositions);
+        if let Some(sampling) = &next.motion.sampling {
+            next.retained = std::mem::take(&mut previous.retained);
+            if let Some(retained) = next.retained.get_mut().unwrap() {
+                retained.rebase(sampling.frame_queries());
+            }
+        }
+    }
     if next.motion_poses.is_some() {
         next.previous_motion = previous.as_deref_mut().map(|frame| {
             if advance {

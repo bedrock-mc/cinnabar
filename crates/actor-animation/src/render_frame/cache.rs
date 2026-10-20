@@ -93,12 +93,31 @@ impl Inputs {
                 }
             }
         }
+        pure &= symbols
+            .iter()
+            .all(|&symbol| assets.molang_symbols().get(symbol as usize).is_some());
         Self {
             symbols: symbols.into_iter().collect::<Vec<_>>().into(),
             values: Vec::new(),
             pure,
             valid: false,
         }
+    }
+
+    /// A single-read program can use its validated input without evaluating the query twice.
+    pub(crate) fn single_value(&self) -> Option<evaluation::MolangValue> {
+        if !self.valid {
+            return None;
+        }
+        let [value] = self.values.as_slice() else {
+            return None;
+        };
+        Some(match value {
+            Value::Unset => evaluation::MolangValue::Number(0.0),
+            Value::Number(bits) => evaluation::MolangValue::Number(f32::from_bits(*bits)),
+            Value::String(value) => evaluation::MolangValue::String(Arc::clone(value)),
+            Value::Actor(value) => evaluation::MolangValue::ActorReference(*value),
+        })
     }
 
     /// Shares immutable query identities across actors and completed ticks.
@@ -115,6 +134,16 @@ impl Inputs {
             pure,
             valid: false,
         }
+    }
+
+    /// Changes the tick's query topology without discarding its sample-value allocation.
+    pub(crate) fn reset_query_plan(&mut self, plan: Option<Arc<[u32]>>) {
+        self.pure = plan.is_some();
+        if let Some(symbols) = plan {
+            self.symbols = symbols;
+        }
+        self.values.clear();
+        self.valid = false;
     }
 
     /// Whether the bytecode can be sampled without authored writes or random draws.

@@ -67,6 +67,7 @@ pub(crate) struct Sample {
     inputs: cache::Inputs,
     key: Option<Key>,
     output: Option<Output>,
+    valid: bool,
 }
 
 impl Sample {
@@ -98,7 +99,15 @@ impl Sample {
             inputs,
             key: None,
             output: None,
+            valid: false,
         }
+    }
+
+    /// A new tick keeps storage but must produce its own controller, variable and pose results.
+    pub(super) fn rebase(&mut self, queries: Option<Arc<[u32]>>) {
+        self.inputs.reset_query_plan(queries);
+        self.key = None;
+        self.valid = false;
     }
 
     /// A failed or changed sample invalidates its previous output before replay begins.
@@ -113,7 +122,10 @@ impl Sample {
         let unchanged =
             self.inputs.update(evaluator, variables, budget) && self.key.as_ref() == Some(&key);
         self.key = Some(key);
-        if unchanged && let Some(output) = &self.output {
+        if unchanged
+            && self.valid
+            && let Some(output) = &self.output
+        {
             return Some(ActorRenderLayers {
                 render: Cow::Owned(output.render.clone()),
                 skin: output
@@ -125,7 +137,7 @@ impl Sample {
                 held_item_scale: output.scale,
             });
         }
-        self.output = None;
+        self.valid = false;
         None
     }
 
@@ -139,13 +151,18 @@ impl Sample {
         if !self.inputs.pure() {
             return;
         }
-        self.output = Some(Output {
-            render: render.to_vec(),
-            skin: match skin {
-                Cow::Owned(skin) => Some(skin.clone()),
-                Cow::Borrowed(_) => None,
-            },
+        let output = self.output.get_or_insert_with(|| Output {
+            render: Vec::new(),
+            skin: None,
             scale,
         });
+        output.render.clear();
+        output.render.extend_from_slice(render);
+        match skin {
+            Cow::Owned(skin) => output.skin.get_or_insert_with(Vec::new).clone_from(skin),
+            Cow::Borrowed(_) => output.skin = None,
+        }
+        output.scale = scale;
+        self.valid = true;
     }
 }

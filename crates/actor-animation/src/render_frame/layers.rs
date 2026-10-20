@@ -131,7 +131,9 @@ impl ActorAnimationStore {
             static_draw: None,
         };
         let mut retained = frame.retained.lock().unwrap();
-        let retained = if cache::enabled() && !state.complete_spear_variables {
+        let retained = if cache::enabled()
+            && (!state.complete_spear_variables || layout.engine.spear.is_empty())
+        {
             Some(retained.get_or_insert_with(|| retained::Sample::new(&evaluator, state, frame)))
         } else {
             None
