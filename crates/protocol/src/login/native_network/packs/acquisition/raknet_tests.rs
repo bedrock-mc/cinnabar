@@ -23,7 +23,7 @@ use tokio::{
 
 /// Drives the original server/socket and releases cache admission after the ACK observation.
 async fn peer(
-    socket: UdpSocket,
+    socket: &UdpSocket,
     mut waiting: oneshot::Receiver<()>,
     held: OwnedSemaphorePermit,
     message: Bytes,
@@ -156,7 +156,6 @@ async fn peer(
     if closing.state() != RakSessionState::Disconnected || closing.finish().is_err() {
         return Err("original peer did not finish after draining its terminal output".to_owned());
     }
-    drop(socket);
     acknowledged.ok_or_else(|| "original ACK observation was never reached".to_owned())
 }
 
@@ -220,7 +219,7 @@ async fn pending_pack_cache_io_keeps_original_raknet_ack_and_packet_prefix() {
         Instant::now() + options.connect_timeout + options.close_timeout + options.close_timeout;
     let mut client_address: Option<SocketAddr> = None;
     let result = tokio::time::timeout_at(cutoff, async {
-        let serving = peer(socket, waiting, held, batches.remove(0));
+        let serving = peer(&socket, waiting, held, batches.remove(0));
         let application = async {
             let actual = RakNetConnection::connect(address, options)
                 .await
@@ -259,6 +258,8 @@ async fn pending_pack_cache_io_keeps_original_raknet_ack_and_packet_prefix() {
         tokio::join!(serving, application)
     })
     .await;
+    // Retain the same socket through the client's terminal read and close, including failed setup.
+    drop(socket);
     // The original cache owner is joined even if an earlier transport/setup stage failed.
     stores.finish().await;
     let server_socket_released = UdpSocket::bind(address).await.is_ok();
