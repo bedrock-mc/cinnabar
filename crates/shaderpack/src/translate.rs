@@ -220,8 +220,15 @@ pub(crate) fn translate_program(
             return out;
         }
     };
+    let locations = match iface.location_defines() {
+        Ok(locations) => locations,
+        Err(message) => {
+            out.diagnostics.push(Diagnostic::new(Phase::Link, message));
+            return out;
+        }
+    };
     for (i, draft, map) in &drafts {
-        let (glsl, origins) = assemble(draft, &ubo);
+        let (glsl, origins) = assemble(draft, &ubo, &locations);
         let output = OutputMap {
             glsl: &glsl,
             origins: &origins,

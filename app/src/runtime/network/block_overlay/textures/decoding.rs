@@ -16,8 +16,9 @@ impl TextureCatalog<'_> {
         if reason != FailureReason::TextureFileMissing {
             return false;
         }
-        if self.terrain.contains_key(route.key()) {
-            self.diagnostics
+        if self.data.terrain.contains_key(route.key()) {
+            self.data
+                .diagnostics
                 .failure(reason, route.key(), Some(&choice.path));
         }
         true
@@ -64,7 +65,8 @@ impl TextureCatalog<'_> {
         use pack_runtime::pack_textures::texture_image_paths;
         let key = route.key();
         let Some((_, _, choice)) = self.resolve_choice(route) else {
-            self.diagnostics
+            self.data
+                .diagnostics
                 .failure(FailureReason::TerrainKeyMissing, key, None);
             return None;
         };
@@ -95,8 +97,8 @@ impl TextureCatalog<'_> {
         }
         if image.is_none() {
             let reason = diagnostics::failure_reason(self.view, path);
-            if self.terrain.contains_key(key) || reason != FailureReason::TextureFileMissing {
-                self.diagnostics.failure(reason, key, Some(path));
+            if self.data.terrain.contains_key(key) || reason != FailureReason::TextureFileMissing {
+                self.data.diagnostics.failure(reason, key, Some(path));
             }
         }
         image

@@ -36,6 +36,7 @@ pub(crate) fn reflect(
     stages: &[(&CompiledStage, StageNames<'_>)],
     draw_buffers: &[u32],
 ) -> Result<ProgramReflection, String> {
+    crate::reflect_link::validate(&stages.iter().map(|(stage, _)| *stage).collect::<Vec<_>>())?;
     let mut out = ProgramReflection {
         kind,
         entry_points: vec![],
@@ -163,11 +164,15 @@ pub(crate) fn output_buffer(index: u32, shadow: bool) -> BufferId {
     }
 }
 
+/// Creates a visibility mask for one compiled stage.
+
 fn mask(stage: StageKind) -> StageMask {
     let mut m = StageMask::default();
     m.add(stage);
     m
 }
+
+/// Reflects one bound global and its host-visible layout.
 
 fn resource(
     module: &naga::Module,
@@ -318,11 +323,15 @@ fn merge(existing: &mut Resource, new: Resource, rb: &naga::ResourceBinding) -> 
     Ok(())
 }
 
+/// Adds every stage in the source mask to the destination mask.
+
 fn union(a: &mut StageMask, b: StageMask) {
     a.vertex |= b.vertex;
     a.fragment |= b.fragment;
     a.compute |= b.compute;
 }
+
+/// Converts a naga image shape to the host texture dimension.
 
 fn dimension(dim: ImageDimension, arrayed: bool) -> TextureDimension {
     match (dim, arrayed) {
@@ -335,6 +344,8 @@ fn dimension(dim: ImageDimension, arrayed: bool) -> TextureDimension {
     }
 }
 
+/// Converts a naga scalar to its reflected component type.
+
 fn scalar(s: naga::Scalar) -> ScalarType {
     match (s.kind, s.width) {
         (ScalarKind::Bool, _) => ScalarType::Bool,
@@ -345,7 +356,9 @@ fn scalar(s: naga::Scalar) -> ScalarType {
     }
 }
 
-fn value_type(inner: &TypeInner) -> Option<ValueType> {
+/// Describes scalar, vector and matrix interface values.
+
+pub(crate) fn value_type(inner: &TypeInner) -> Option<ValueType> {
     Some(match inner {
         TypeInner::Scalar(s) => ValueType::Scalar(scalar(*s)),
         TypeInner::Vector { size, scalar: s } => ValueType::Vector {
@@ -450,6 +463,8 @@ fn locations(
     out
 }
 
+/// Finds a builtin in direct or structured entry-point values.
+
 fn has_builtin(
     module: &naga::Module,
     ty: naga::Handle<naga::Type>,
@@ -469,6 +484,7 @@ fn has_builtin(
 struct ConstValue(Vec<naga::Literal>);
 
 impl ConstValue {
+    /// Reads a fixed-size constant containing nonnegative integer components.
     fn as_u32s<const N: usize>(&self) -> Option<[u32; N]> {
         let v: Option<Vec<u32>> = self
             .0
@@ -481,6 +497,8 @@ impl ConstValue {
             .collect();
         v?.try_into().ok()
     }
+
+    /// Reads a fixed-size numeric constant as floating-point components.
 
     fn as_f32s<const N: usize>(&self) -> Option<[f32; N]> {
         let v: Option<Vec<f32>> = self
@@ -506,6 +524,8 @@ fn constant(module: &naga::Module, name: &str) -> Option<ConstValue> {
     literals(module, c.init, &mut out)?;
     Some(ConstValue(out))
 }
+
+/// Collects scalar components from a constant expression.
 
 fn literals(
     module: &naga::Module,

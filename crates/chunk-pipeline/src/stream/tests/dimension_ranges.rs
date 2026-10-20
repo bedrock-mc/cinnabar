@@ -17,7 +17,7 @@ fn server_height_stream() -> WorldStream {
                 name: Arc::from("minecraft:overworld"),
                 dimension: 3,
                 minimum_y: 0,
-                height_range: 256,
+                maximum_y: 256,
                 generator: 1,
             }]),
         )
@@ -112,7 +112,7 @@ fn definitions_waiting_behind_decode_do_not_shift_admitted_columns() {
                 name: Arc::from("minecraft:overworld"),
                 dimension: 3,
                 minimum_y: 0,
-                height_range: 256,
+                maximum_y: 256,
                 generator: 1,
             }]),
         )
@@ -171,7 +171,7 @@ fn new_dimension_definition_is_available_to_later_decode_while_commits_wait() {
                 name: Arc::from("example:dimension"),
                 dimension: 1000,
                 minimum_y: 0,
-                height_range: 256,
+                maximum_y: 256,
                 generator: 1,
             }]),
         )
@@ -243,7 +243,7 @@ fn synced_block_admission_freezes_height_before_later_definitions() {
                 name: Arc::from("minecraft:overworld"),
                 dimension: 3,
                 minimum_y: 0,
-                height_range: 256,
+                maximum_y: 256,
                 generator: 1,
             }]),
         )

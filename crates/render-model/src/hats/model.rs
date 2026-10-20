@@ -52,6 +52,9 @@ pub(super) fn build(
     } else {
         serde_json::from_slice(animation).ok()?
     };
+    if definition.cloth.is_some() {
+        definition.wind = None;
+    }
     if definition.wind.as_ref().is_some_and(|wind| {
         !["x", "y", "z"].contains(&wind.axis.as_str())
             || ![wind.max_degrees, wind.speed, wind.rise, wind.fall]
@@ -170,6 +173,16 @@ pub(super) fn build(
             })
         })
         .collect();
+    let cloth = match definition.cloth.as_ref() {
+        Some(definition) => Some(super::cloth::ClothRig::build(
+            definition,
+            &names,
+            &mut original,
+            &mut parents,
+        )?),
+        None => None,
+    };
+    flex.resize(parents.len(), 0.0);
     rest_rotations.resize(parents.len(), Quat::IDENTITY);
     let mut rig = HatRig {
         playback,
@@ -189,6 +202,7 @@ pub(super) fn build(
         pixels,
         world_pixels,
         emitters,
+        cloth,
         wind: definition.wind,
     };
     rig.rest_vertices = rig.preview_vertices(rig.preview_motion(0.0)).into();

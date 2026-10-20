@@ -10,11 +10,7 @@ use launcher::{install_layout::InstallLayout, menu::DEFAULT_PORT};
 use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    time::Duration,
 };
-
-/// How long a join waits for the core to answer `connect.v1`.
-const SELECT_TIMEOUT: Duration = Duration::from_secs(3);
 
 pub struct LauncherCore {
     pub _guard: CoreProcessGuard,
@@ -164,18 +160,19 @@ fn launcher_command(
     command
 }
 
-/// Sends `connect.v1`, waiting a bounded time for the answer.
+/// Sends `connect.v1` and leaves service deadlines with the account core.
 fn select(socket_dir: &Path, target: ConnectTarget) -> Result<(), String> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|error| error.to_string())?;
-    // The timer must be created inside the runtime; building it outside panics.
-    runtime
-        .block_on(async {
-            tokio::time::timeout(SELECT_TIMEOUT, bridge::connect_target(socket_dir, &target)).await
-        })
-        .map_err(|_| "the launcher core did not answer".to_owned())?
+    runtime.block_on(select_target(socket_dir, target))
+}
+
+/// Waits for the selected target's account-service result on the join worker runtime.
+async fn select_target(socket_dir: &Path, target: ConnectTarget) -> Result<(), String> {
+    bridge::connect_target(socket_dir, &target)
+        .await
         .map_err(|error| error.to_string())
 }
 
@@ -220,6 +217,45 @@ pub fn target_for(address: &str) -> ConnectTarget {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A responsive account core may still be resolving its selected experience after three seconds.
+    #[cfg(unix)]
+    #[tokio::test(start_paused = true)]
+    async fn selection_waits_for_the_account_service_result() {
+        use std::time::Duration;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let directory = tempfile::tempdir().unwrap();
+        let endpoint = bridge::control_endpoint_path(directory.path());
+        std::fs::create_dir_all(endpoint.parent().unwrap()).unwrap();
+        let listener = tokio::net::UnixListener::bind(&endpoint).unwrap();
+        let socket_dir = directory.path().to_path_buf();
+        let selecting = tokio::spawn(async move {
+            select_target(&socket_dir, ConnectTarget::Gathering("fixture".into())).await
+        });
+        let (mut core, _) = listener.accept().await.unwrap();
+        let length = core.read_u32().await.unwrap();
+        let mut request = vec![0; length as usize];
+        core.read_exact(&mut request).await.unwrap();
+        let request: serde_json::Value = serde_json::from_slice(&request).unwrap();
+        assert_eq!(request["method"], bridge::contract::METHOD_CONNECT);
+        tokio::time::advance(Duration::from_secs(4)).await;
+        tokio::task::yield_now().await;
+        assert!(
+            !selecting.is_finished(),
+            "an active service request must remain pending"
+        );
+        let response = serde_json::to_vec(&serde_json::json!({
+            "jsonrpc": bridge::contract::JSON_RPC_VERSION,
+            "id": request["id"],
+            "result": {"schema_version": bridge::contract::CONTROL_SCHEMA_VERSION}
+        }))
+        .unwrap();
+        core.write_u32(response.len() as u32).await.unwrap();
+        core.write_all(&response).await.unwrap();
+        assert_eq!(selecting.await.unwrap(), Ok(()));
+    }
+
     #[test]
     fn launcher_core_remembers_trusted_servers_in_user_data() {
         let layout = launcher::test_support::scratch("server-trust-file");

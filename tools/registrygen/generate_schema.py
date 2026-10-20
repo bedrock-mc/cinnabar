@@ -9,6 +9,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = ROOT / "crates/assets/data/registry-schema.json"
+SERDE_DERIVE = ", serde::Serialize, serde::Deserialize"  # Opt-in for types stored in the compiled-pack disk cache.
 
 
 def validate(schema):
@@ -104,8 +105,9 @@ def rust_declarations(schema):
         if limit["rust_name"]:
             lines.append(f'pub(super) const {limit["rust_name"]}: usize = {limit["value"]};')
     for flags in schema["flags"]:
+        derive = "Debug, Clone, Copy, Default, PartialEq, Eq, Hash" + SERDE_DERIVE * flags.get("serde", False)
         lines += ["", "bitflags! {", f'    /// {flags["doc"]}',
-                  "    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]",
+                  f"    #[derive({derive})]",
                   f'    pub struct {flags["name"]}: {flags.get("type", "u8")} {{']
         for value in flags["values"]:
             if value.get("doc"):
@@ -117,6 +119,7 @@ def rust_declarations(schema):
         derive = "Debug, Clone, Copy, PartialEq, Eq, Hash"
         if enum["default"]:
             derive += ", Default"
+        derive += SERDE_DERIVE * enum.get("serde", False)
         name = enum["name"]
         lines += ["", "/// " + enum.get("doc", "A byte-sized registry discriminator."),
                   f"#[derive({derive})]", "#[repr(u8)]", f"pub enum {name} {{"]

@@ -8,6 +8,8 @@ use anyhow::{Result, bail, ensure};
 use mod_host::{ModGrants, ModHost};
 use std::{hint::black_box, path::Path, time::Instant};
 
+mod packet_bench;
+
 /// Dispatches packaging, an input smoke test, or the bounded callback benchmark.
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
@@ -44,10 +46,19 @@ fn main() -> Result<()> {
             println!("time_override={:?}", host.time_override());
             println!("initial={initial:?}\nafter_key={:?}", host.label());
         }
+        [command, flag, world, source, output]
+            if command == "pack" && flag == "--world" && world == "packet-mod" =>
+        {
+            let bytes = std::fs::read(source)?;
+            std::fs::write(output, mod_host::packet_mod::packet_mod_component(&bytes)?)?;
+        }
         [command, path] if command == "bench" => benchmark(Path::new(path))?,
+        [command, component, capture] if command == "bench-packets" => {
+            packet_bench::run(Path::new(component), Path::new(capture))?
+        }
         [command, path] if command == "probe-render" => probe_render(Path::new(path))?,
         _ => bail!(
-            "usage: mod-host pack CORE.wasm COMPONENT.wasm | probe[-environment] COMPONENT.wasm | probe-render COMPONENT.wasm | bench COMPONENT.wasm"
+            "usage: mod-host pack [--world packet-mod] CORE.wasm COMPONENT.wasm | probe[-environment] COMPONENT.wasm | probe-render COMPONENT.wasm | bench COMPONENT.wasm | bench-packets COMPONENT.wasm CAPTURE"
         ),
     }
     Ok(())

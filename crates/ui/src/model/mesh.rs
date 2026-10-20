@@ -20,7 +20,8 @@ pub struct UiMeshVertex {
     pub color: [u8; 4],
     /// Interpolated linear lighting; coverage paint uses this field for the border area.
     pub model_light: f32,
-    /// Entity overlay RGB and mix amount, or the coverage paint's packed constant colors.
+    /// Entity overlay RGB and mix amount, coverage paint colors, or particle source bounds
+    /// (x, y, width, height) in texture-page texels.
     pub overlay_color: [f32; 4],
     pub style_flags: u16,
     pub alpha_test: bool,

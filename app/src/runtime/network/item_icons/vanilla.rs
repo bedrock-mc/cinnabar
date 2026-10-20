@@ -15,6 +15,9 @@ struct Route {
     variant: u32,
     aliases: Vec<String>,
 }
+pub(in crate::runtime::network) static CACHE_IDENTITY: OnceLock<Option<([u8; 32], [u8; 32])>> =
+    OnceLock::new();
+
 static PATHS: OnceLock<Vec<Route>> = OnceLock::new();
 
 /// Whether the carrier's item routes are installed; once installed they never change.
@@ -29,6 +32,11 @@ pub(crate) fn install_vanilla_item_assets(
 ) {
     set_vanilla_item_paths(entities);
     set_vanilla_item_sprites(entities, icons);
+    let _ = CACHE_IDENTITY.set(
+        entities
+            .carrier_identity()
+            .map(|identity| (identity, icons.carrier_identity())),
+    );
 }
 
 /// Retains source routes once, so menus can apply packs before any item registry arrives.
