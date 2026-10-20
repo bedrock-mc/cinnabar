@@ -490,7 +490,7 @@ pub(super) fn prepare_mod_input(
     if !focused {
         presentation.mod_ui_mut().cancel_mod_panel_pointer_input();
     }
-    if absorbed || interrupt {
+    if absorbed || interrupt && !presentation.mod_ui().mod_hud_editor_open() {
         presentation.mod_ui_mut().cancel_mod_panel_edit();
     }
     let mut pressed = pointer_pressed;

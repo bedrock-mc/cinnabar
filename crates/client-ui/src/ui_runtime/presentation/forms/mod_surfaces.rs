@@ -114,6 +114,7 @@ impl UiPresentationRuntime {
                 .value(SettingId::HideHud)
                 == 0
             && !self.screens.mod_ui.mod_panel_open()
+            && !self.screens.mod_ui.mod_hud_editor_painting()
     }
 
     /// Draws the extension label through JSON-UI only while the gameplay HUD owns focus.
@@ -176,7 +177,7 @@ impl UiPresentationRuntime {
         metrics: TextMetrics,
         content: [f32; 2],
     ) {
-        if self.screens.mod_ui.mod_hud_editor_open() {
+        if self.screens.mod_ui.mod_hud_editor_painting() {
             let Some(resolved) = self
                 .screens
                 .mod_ui
