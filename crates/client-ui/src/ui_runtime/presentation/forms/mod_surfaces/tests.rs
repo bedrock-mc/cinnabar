@@ -4,6 +4,7 @@ mod experience;
 mod experience_modal;
 mod gameplay_hud;
 mod mod_hud;
+mod mod_hud_anchors;
 mod mod_hud_editor;
 mod mod_hud_editor_autosave;
 mod mod_hud_editor_motion;

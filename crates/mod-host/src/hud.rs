@@ -3,6 +3,9 @@
 use super::{MAX_IMPORT_WRITES, State};
 use anyhow::{Result, bail};
 use ui::mod_hud::{Crosshair, EditorResult, Hud, MAX_CROSSHAIR_BYTES, MAX_HUD_BYTES};
+#[cfg(test)]
+#[path = "hud/anchored_tests.rs"]
+mod anchored_tests;
 #[path = "hud/bounds.rs"]
 pub(super) mod bounds;
 #[path = "hud/clock.rs"]
@@ -183,6 +186,50 @@ pub(super) fn read_editor_layout(
                     id: p.id.clone(),
                     scale: p.scale,
                     position: p.position.map(|[x, y]| Point { x, y }),
+                })
+                .collect(),
+        }
+    })))
+}
+/// Returns anchored placements until a successful callback consumes any editor read.
+pub(super) fn read_editor_anchored_layout(
+    state: &mut State,
+) -> Result<Result<Option<super::cinnabar::extension::hud::AnchoredLayoutResult>, String>> {
+    if let Err(error) = admit(state)? {
+        return Ok(Err(error));
+    }
+    if !state.grants.controls {
+        return Ok(Err("controls capability denied".into()));
+    }
+    state.hud.result_read = true;
+    Ok(Ok(state.hud.editor_result.as_ref().map(|result| {
+        use super::cinnabar::extension::hud::{
+            Anchor, AnchoredLayoutResult, AnchoredPlacement, Point,
+        };
+        AnchoredLayoutResult {
+            saved: result.saved,
+            reset: result.reset,
+            placements: result
+                .placements
+                .iter()
+                .map(|p| AnchoredPlacement {
+                    id: p.id.clone(),
+                    anchor: match p.anchor {
+                        ui::mod_hud::Anchor::TopLeft => Anchor::TopLeft,
+                        ui::mod_hud::Anchor::TopCenter => Anchor::TopCenter,
+                        ui::mod_hud::Anchor::TopRight => Anchor::TopRight,
+                        ui::mod_hud::Anchor::Left => Anchor::Left,
+                        ui::mod_hud::Anchor::Center => Anchor::Center,
+                        ui::mod_hud::Anchor::Right => Anchor::Right,
+                        ui::mod_hud::Anchor::BottomLeft => Anchor::BottomLeft,
+                        ui::mod_hud::Anchor::BottomCenter => Anchor::BottomCenter,
+                        ui::mod_hud::Anchor::BottomRight => Anchor::BottomRight,
+                    },
+                    offset: Point {
+                        x: p.offset[0],
+                        y: p.offset[1],
+                    },
+                    scale: p.scale,
                 })
                 .collect(),
         }
@@ -561,6 +608,8 @@ mod tests {
             reset: true,
             placements: vec![ui::mod_hud::Placement {
                 id: "equipment".into(),
+                anchor: ui::mod_hud::Anchor::Right,
+                offset: [8., -12.],
                 scale: 1.5,
                 position: Some([0.25, 0.75]),
             }],
@@ -596,6 +645,8 @@ mod tests {
             reset: true,
             placements: vec![ui::mod_hud::Placement {
                 id: "equipment".into(),
+                anchor: ui::mod_hud::Anchor::TopLeft,
+                offset: [0.; 2],
                 scale: 1.,
                 position: None,
             }],
@@ -605,6 +656,8 @@ mod tests {
             reset: false,
             placements: vec![ui::mod_hud::Placement {
                 id: "equipment".into(),
+                anchor: ui::mod_hud::Anchor::Right,
+                offset: [8., -12.],
                 scale: 1.5,
                 position: Some([0.25, 0.75]),
             }],
@@ -614,6 +667,17 @@ mod tests {
         assert!(pending.saved && pending.reset);
         assert_eq!(pending.placements[0].scale, 1.5);
         assert_eq!(pending.placements[0].position.as_ref().unwrap().x, 0.25);
+        let anchored = read_editor_anchored_layout(&mut state)
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(anchored.saved && anchored.reset);
+        assert_eq!(
+            anchored.placements[0].anchor,
+            super::super::cinnabar::extension::hud::Anchor::Right
+        );
+        assert_eq!(anchored.placements[0].offset.x, 8.);
+        assert_eq!(anchored.placements[0].offset.y, -12.);
         state.hud.commit();
         state.hud.deliver_editor_result(newest);
         let following = read_editor_layout(&mut state).unwrap().unwrap().unwrap();

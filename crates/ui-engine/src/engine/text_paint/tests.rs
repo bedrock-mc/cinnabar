@@ -298,6 +298,31 @@ fn paint_fixture(
     paint_fixture_selection(font, metrics, json, None)
 }
 
+#[test]
+fn long_form_label_paints_a_visible_prefix() {
+    let text = "0".repeat(ui::UiLimits::MAX_TEXT_BYTES + 4_096);
+    let json = serde_json::json!({"namespace":"fixture", "screen":{
+        "type":"screen", "controls":[{"form_label":{
+            "type":"label", "text":text, "localize":false, "size":[300,100],
+            "anchor_from":"top_left", "anchor_to":"top_left"
+        }}]
+    }})
+    .to_string();
+    let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(1.0).unwrap(), Some(2));
+    let (_, nodes) = paint_fixture(&fixture_font(), metrics, &json);
+    assert!(nodes.iter().any(|node| matches!(node.visual(),
+        UiVisual::Text { layout, .. } if layout.glyphs().iter().any(|glyph| glyph.codepoint == '0')
+    )), "the form label must paint part of its text");
+    let mut tree = UiTree::new(nodes).unwrap();
+    tree.layout(
+        rect(0.0, 0.0, 1280.0, 720.0).unwrap(),
+        UiScale::default(),
+        SafeArea::ZERO,
+    )
+    .unwrap();
+    assert!(!tree.build_draw_list().unwrap().vertices.is_empty());
+}
+
 /// Paints a focused root edit box with the host's actual selection feedback.
 fn paint_fixture_selection(
     font: &RuntimeFontCatalog,

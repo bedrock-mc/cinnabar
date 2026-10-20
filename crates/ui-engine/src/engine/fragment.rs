@@ -160,7 +160,7 @@ fn edges(bounds: ui::UiRect) -> [f32; 4] {
 /// Rejects filter packets before replay can change the caller's output or filter scope.
 fn filtered(node: &UiNode) -> bool {
     node.filter_group().is_some()
-        || matches!(node.visual(), UiVisual::Mesh(mesh) if mesh.batches().iter().any(|batch|
+        || matches!(node.visual(), UiVisual::Mesh(mesh) | UiVisual::TintedMesh { mesh, .. } if mesh.batches().iter().any(|batch|
             matches!(batch.blend, UiBlendMode::Filter | UiBlendMode::Backdrop)))
 }
 
@@ -337,7 +337,8 @@ fn faded(visual: &UiVisual, opacity: f32, meshes: &mut BTreeMap<usize, Arc<UiMes
                     .or_insert_with(|| Arc::new((**mesh).clone().with_opacity(opacity))),
             );
         }
-        UiVisual::Solid { color, .. }
+        UiVisual::TintedMesh { color, .. }
+        | UiVisual::Solid { color, .. }
         | UiVisual::Sprite { color, .. }
         | UiVisual::RotatedSprite { color, .. }
         | UiVisual::GlintSprite { color, .. }

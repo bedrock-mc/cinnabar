@@ -1,6 +1,6 @@
 use json_ui::{Catalog, DataSource, Scalar};
 use serde_json::{Value, json};
-use ui::mod_hud::{Anchor, Card, DEFAULT_ROW_HEIGHT, Hud, RowLayout};
+use ui::mod_hud::{Card, DEFAULT_ROW_HEIGHT, Hud, RowLayout};
 
 const HEADER: f64 = 18.;
 
@@ -448,19 +448,5 @@ pub(in super::super) fn origin(card: &Card, viewport: [f64; 2]) -> [f64; 2] {
     if let Some(position) = card.position {
         return std::array::from_fn(|axis| f64::from(position[axis]) * available[axis]);
     }
-    let edge = match card.anchor {
-        Anchor::TopLeft => [0., 0.],
-        Anchor::TopCenter => [(viewport[0] - size[0]) * 0.5, 0.],
-        Anchor::TopRight => [available[0], 0.],
-        Anchor::BottomLeft => [0., available[1]],
-        Anchor::BottomRight => available,
-    };
-    std::array::from_fn(|axis| {
-        let at = edge[axis] + f64::from(card.offset[axis]);
-        if size[axis] <= viewport[axis] {
-            at.clamp(0., available[axis])
-        } else {
-            at
-        }
-    })
+    card.anchor.origin(card.offset, size, viewport)
 }

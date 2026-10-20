@@ -95,12 +95,15 @@ fn assert_successful_save_survives_close(checkpoint_before_close: bool) {
         app.world_mut()
             .resource_scope(|world, mut p: Mut<UiPresentationResource>| {
                 p.mod_ui_mut().mod_panel_events([640., 360.], true, false);
+                let before = {
+                    let editor = p.mod_ui().mod_hud_editor_state().unwrap();
+                    mod_ui::test_support::card_origin(&editor.draft.cards[0], editor.viewport)
+                };
                 p.mod_ui_mut().mod_panel_key("ArrowRight", None);
+                let editor = p.mod_ui().mod_hud_editor_state().unwrap();
                 assert!(
-                    p.mod_ui().mod_hud_editor_state().unwrap().draft.cards[0]
-                        .position
-                        .unwrap()[0]
-                        > 0.5
+                    mod_ui::test_support::card_origin(&editor.draft.cards[0], editor.viewport)[0]
+                        > before[0]
                 );
                 let mut runtime = world.resource_mut::<ModRuntime>();
                 super::super::super::hud_editor::collect(&mut runtime, &mut p);

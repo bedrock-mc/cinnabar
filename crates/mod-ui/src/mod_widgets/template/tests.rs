@@ -1,4 +1,5 @@
 use super::*;
+use ui::mod_hud::Anchor;
 
 /// Center anchoring follows viewport and scale changes until a saved drag position overrides it.
 #[test]
@@ -7,7 +8,7 @@ fn centered_compass_follows_viewport_and_saved_placement() {
     assert_eq!(origin(&card, [800., 500.]), [260., 8.]);
     assert_eq!(origin(&card, [400., 200.]), [60., 8.]);
     card.scale = 2.;
-    assert_eq!(origin(&card, [400., 200.]), [-80., 8.]);
+    assert_eq!(origin(&card, [400., 200.]), [0., 8.]);
     card.scale = 1.;
     card.position = Some([0.25, 0.5]);
     assert_eq!(origin(&card, [400., 200.]), [30., 84.]);
@@ -20,7 +21,11 @@ fn anchored_cards_remain_reachable_in_a_smaller_viewport() {
         Anchor::TopLeft,
         Anchor::TopCenter,
         Anchor::TopRight,
+        Anchor::Left,
+        Anchor::Center,
+        Anchor::Right,
         Anchor::BottomLeft,
+        Anchor::BottomCenter,
         Anchor::BottomRight,
     ] {
         for offset in [[600., 400.], [-600., -400.]] {
@@ -50,6 +55,36 @@ fn anchored_cards_remain_reachable_in_a_smaller_viewport() {
     }
 }
 
+/// All nine anchor references use inward edge distances and signed center offsets.
+#[test]
+fn all_anchor_references_keep_their_authored_offsets() {
+    for (anchor, expected) in [
+        (Anchor::TopLeft, [13., 17.]),
+        (Anchor::TopCenter, [283., 17.]),
+        (Anchor::TopRight, [527., 17.]),
+        (Anchor::Left, [13., 167.]),
+        (Anchor::Center, [283., 167.]),
+        (Anchor::Right, [527., 167.]),
+        (Anchor::BottomLeft, [13., 283.]),
+        (Anchor::BottomCenter, [283., 283.]),
+        (Anchor::BottomRight, [527., 283.]),
+    ] {
+        let card = Card {
+            anchor,
+            offset: [13., 17.],
+            width: 100.,
+            cells: vec![ui::mod_hud::Cell {
+                rect: [0., 0., 100., 60.],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(origin(&card, [640., 360.]), expected, "{anchor:?}");
+        assert_eq!(card.offset, [13., 17.]);
+        assert_eq!(card.position, None);
+    }
+}
+
 /// Effective bounds correction does not replace the default layout saved in the card.
 #[test]
 fn factory_offsets_return_when_the_viewport_grows() {
@@ -67,7 +102,7 @@ fn factory_offsets_return_when_the_viewport_grows() {
     assert_eq!(card.position, None);
 }
 
-/// Oversized authored axes retain their placement while normalized positions use bounded travel.
+/// Oversized anchored and normalized axes both collapse to zero available travel.
 #[test]
 fn oversized_and_normalized_placement_keep_their_existing_contracts() {
     let mut card = Card {
@@ -80,7 +115,7 @@ fn oversized_and_normalized_placement_keep_their_existing_contracts() {
         }],
         ..Default::default()
     };
-    assert_eq!(origin(&card, [220., 120.]), [-8., 60.]);
+    assert_eq!(origin(&card, [220., 120.]), [0., 60.]);
     card.position = Some([0.75, 0.25]);
     assert_eq!(origin(&card, [220., 120.]), [0., 15.]);
     assert_eq!(origin(&card, [700., 300.]), [300., 60.]);
@@ -282,4 +317,23 @@ fn card_font_selects_smooth_cell_labels_and_invalidates_geometry() {
         serde_json::from_str::<Hud>(r#"{"cards":[{"id":"bad","rows":[],"font":"unknown"}]}"#)
             .is_err()
     );
+}
+/// Positive edge offsets remain inward after a viewport resize.
+#[test]
+fn anchored_edge_offset_survives_viewport_change() {
+    let card = ui::mod_hud::Card {
+        anchor: ui::mod_hud::Anchor::BottomRight,
+        offset: [13., 17.],
+        ..Default::default()
+    };
+    let size = super::dimensions(&card);
+    for viewport in [[640., 360.], [960., 540.]] {
+        let at = super::origin(&card, viewport);
+        for axis in 0..2 {
+            assert!(
+                (viewport[axis] - at[axis] - size[axis] - f64::from(card.offset[axis])).abs()
+                    < 0.001
+            );
+        }
+    }
 }

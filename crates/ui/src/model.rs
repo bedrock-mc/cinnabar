@@ -61,6 +61,11 @@ pub enum UiVisual {
     None,
     /// Direct geometry at this control's authored draw position; depth-using materials get private depth.
     Mesh(Arc<UiMesh>),
+    /// Shared geometry with a uniform replacement color, without copying the retained vertices.
+    TintedMesh {
+        mesh: Arc<UiMesh>,
+        color: [u8; 4],
+    },
     Solid {
         texture_page: u16,
         color: [u8; 4],
@@ -488,7 +493,9 @@ impl UiTree {
         let mut by_id = BTreeMap::new();
         for node in nodes {
             let id = node.id;
-            if node.world_projection.is_some() && matches!(node.visual, UiVisual::Mesh(_)) {
+            if node.world_projection.is_some()
+                && matches!(node.visual, UiVisual::Mesh(_) | UiVisual::TintedMesh { .. })
+            {
                 return Err(UiError::MeshWorldProjectionConflict { node: id });
             }
             if node
