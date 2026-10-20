@@ -49,6 +49,7 @@ pub(super) fn poll_join(
                 &attempt.address,
                 attempt.auth_cache.as_deref(),
                 attempt.generation,
+                None,
             ) {
                 Ok(stage) => {
                     attempt.stage = stage;
@@ -216,6 +217,7 @@ pub(super) fn attempt_connect(
     session: &mut SessionResources<'_>,
     cache: &BlobCache,
     intent: JoinIntent,
+    native_transport_override: Option<protocol::NativeTransport>,
 ) {
     let profile = bridge::join_profile::JoinProfile::current();
     if profile.id().is_none() {
@@ -285,7 +287,14 @@ pub(super) fn attempt_connect(
             return;
         }
         None => {
-            match controller.start_core(menu, cache, &address, auth_cache.as_deref(), generation) {
+            match controller.start_core(
+                menu,
+                cache,
+                &address,
+                auth_cache.as_deref(),
+                generation,
+                native_transport_override,
+            ) {
                 Ok(stage) => stage,
                 Err(message) => {
                     controller.fail_join(menu, message);

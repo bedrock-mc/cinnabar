@@ -23,7 +23,7 @@ fn native_lan_transfer_selects_addressed_transport_after_tearing_down_the_origin
         .with_client_random_id(Some(protocol::ClientRandomId::new(1).unwrap()));
     let old_generation = controller.generation;
     let JoinStage::Native(original) = controller
-        .start_core(&menu, &cache, "127.0.0.1:19132", None, old_generation)
+        .start_core(&menu, &cache, "127.0.0.1:19132", None, old_generation, None)
         .unwrap()
     else {
         panic!("original directed LAN join retains its native owner");
@@ -88,6 +88,7 @@ fn native_lan_transfer_selects_addressed_transport_after_tearing_down_the_origin
             "127.0.0.1:19134",
             None,
             generation,
+            None,
         )
         .unwrap()
     else {
