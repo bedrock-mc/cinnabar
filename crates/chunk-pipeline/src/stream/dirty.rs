@@ -97,6 +97,7 @@ impl WorldStream {
                         [position.x, position.y, position.z]
                             .map(|axis| axis.rem_euclid(world::SUB_CHUNK_SIDE as i32) as u8)
                     }),
+                    self.java_meshing.as_deref().unwrap_or_default(),
                 )
             })
             .map(PreparedSubChunkMutation::key)

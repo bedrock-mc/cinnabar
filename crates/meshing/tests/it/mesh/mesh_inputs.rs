@@ -104,6 +104,7 @@ fn twin_preserves(previous: &SubChunk, replacement: &SubChunk, hint: &[[u8; 3]])
         previous,
         replacement,
         hint.iter().copied(),
+        &[],
     )
 }
 
@@ -188,4 +189,27 @@ fn a_swap_inside_a_failed_closed_cell_is_not_proven() {
         &layered(TWIN_B),
         &[]
     ));
+}
+
+#[test]
+fn water_filled_alias_changes_are_not_mesh_neutral() {
+    let previous = twin_cube_section(TWIN_A);
+    let replacement = twin_cube_section(TWIN_B);
+    for hint in [vec![], vec![[15, 4, 4]]] {
+        for filled in [&[TWIN_A][..], &[TWIN_B][..], &[TWIN_A, TWIN_B][..]] {
+            assert_eq!(
+                meshing::block_changes_preserve_meshes(
+                    BlockClassifier::new(TWIN_AIR),
+                    twin_cube_assets(),
+                    NetworkIdMode::Sequential,
+                    &previous,
+                    &replacement,
+                    hint.iter().copied(),
+                    filled,
+                ),
+                filled.len() == 2,
+                "hint {hint:?}, filled {filled:?}",
+            );
+        }
+    }
 }
