@@ -4,9 +4,12 @@ use {super::*, simulation_clock::TICK_DURATION as ACTOR_TICK_DURATION};
 #[cfg(test)]
 mod state_time_tests;
 
+mod scratch;
+pub(super) use scratch::Controllers;
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ControllerJournal {
-    events: Vec<ControllerEvent>,
+    events: Arc<Vec<ControllerEvent>>,
     retain_states: bool,
 }
 
@@ -34,10 +37,10 @@ impl ControllerJournal {
         &self,
         reference: usize,
         path: &[usize],
-        controllers: &mut [ControllerState],
+        controllers: &mut Controllers<'_>,
         variables: &mut MolangVariables,
     ) -> Result<(), EvalError> {
-        for event in &self.events {
+        for event in self.events.iter() {
             if event.reference == reference
                 && event.depth >= path.len()
                 && &event.path[..path.len()] == path
@@ -50,17 +53,17 @@ impl ControllerJournal {
     }
 
     pub(crate) fn apply(&self, variables: &mut MolangVariables) -> Result<(), EvalError> {
-        for event in &self.events {
+        for event in self.events.iter() {
             event.effects.apply(variables)?;
         }
         Ok(())
     }
 }
 
-pub(super) struct ControllerWalk<'e, 'v, 'b, 'w> {
+pub(super) struct ControllerWalk<'e, 'v, 'b, 'w, 'c> {
     pub(super) evaluator: &'e Evaluator<'e>,
     pub(super) variables: &'v mut MolangVariables,
-    pub(super) controllers: &'v mut [ControllerState],
+    pub(super) controllers: &'v mut Controllers<'c>,
     pub(super) clip_clocks: &'v super::clock::ClipClocks,
     pub(super) clips: &'v mut Vec<WeightedClip>,
     pub(super) budget: &'b mut EvalBudget<'w>,
@@ -71,7 +74,7 @@ pub(super) struct ControllerWalk<'e, 'v, 'b, 'w> {
     pub(super) path: [usize; assets::MAX_ENTITY_CONTROLLER_NESTING],
 }
 
-impl ControllerWalk<'_, '_, '_, '_> {
+impl ControllerWalk<'_, '_, '_, '_, '_> {
     pub(super) fn evaluate(
         &mut self,
         controller: usize,
@@ -217,7 +220,7 @@ fn state_animations(
     }
 }
 
-impl ControllerWalk<'_, '_, '_, '_> {
+impl ControllerWalk<'_, '_, '_, '_, '_> {
     /// Whether every and any clip of a state has played through once since it was entered.
     fn finished(&self, state: usize, entered_tick: u64) -> Result<(bool, bool), EvalError> {
         let elapsed = self.evaluator.anim_tick.saturating_sub(entered_tick) as f32
@@ -278,7 +281,7 @@ impl ControllerWalk<'_, '_, '_, '_> {
         let effects = self.variables.finish_effects(capture);
         let state = state?;
         if self.journal.retain_states || !effects.is_empty() {
-            self.journal.events.push(ControllerEvent {
+            Arc::make_mut(&mut self.journal.events).push(ControllerEvent {
                 slot,
                 reference: self.reference,
                 path: self.path,

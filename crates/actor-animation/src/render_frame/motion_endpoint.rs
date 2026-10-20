@@ -4,6 +4,7 @@ use super::*;
 #[derive(Clone, Debug, Default)]
 pub(crate) struct MotionEndpointState {
     pub variables: MolangVariables,
+    pub scratch: evaluation::variables::frame::FrameVariables,
     pub sampling: Option<Arc<super::motion_sampling::MotionSampling>>,
     pub queries: Vec<(u32, MolangValue)>,
     pub actor: Option<Arc<dyn AnimatedActor>>,
@@ -20,8 +21,8 @@ pub(crate) struct MotionEndpointState {
 
 pub(super) struct MotionEndpoint<'a> {
     pub evaluator: evaluation::Evaluator<'a>,
-    pub variables: ScratchVariables,
-    pub clips: Vec<tick::WeightedClip>,
+    pub variables: evaluation::variables::frame::FrameVariableLease<'a>,
+    pub clips: Cow<'a, [tick::WeightedClip]>,
     pub scale: Option<[f32; 4]>,
 }
 
@@ -50,7 +51,7 @@ impl MotionEndpointState {
             },
             ..base
         };
-        let mut variables = ScratchVariables::copy_of(&self.variables);
+        let mut variables = self.scratch.lease(&self.variables);
         if let Some(swing) = swing {
             variables.set(evaluator.layout.engine.attack_time, swing);
         }
@@ -100,10 +101,11 @@ impl MotionEndpointState {
                 false,
                 budget,
             )?
+            .into()
         } else {
             self.journal.apply(&mut variables)?;
             self.server_effects.apply(&mut variables)?;
-            self.clips.clone()
+            Cow::Borrowed(self.clips.as_slice())
         };
         Ok(MotionEndpoint {
             evaluator,

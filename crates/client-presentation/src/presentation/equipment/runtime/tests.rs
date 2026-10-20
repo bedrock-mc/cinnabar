@@ -866,3 +866,67 @@ fn held_blocks_skip_the_hurt_overlay_in_both_views_and_hands() {
     assert_eq!(off.presentation.submission.overlay_rgba8, 0);
     assert_eq!(body.overlay_rgba8, 0x6600_00ff);
 }
+
+#[test]
+fn attachment_placement_reuses_unchanged_inputs_and_invalidates_owner_and_local_pose() {
+    let (runtime, mut body, _) = block_fixture();
+    let assets = Arc::clone(&runtime.assets);
+    let bones = body_bones(vec!["rightItem".into()]);
+    let hidden = Arc::from([]);
+    let mut local = [actor_animation::BoneTransform {
+        rotation: [0.0, 0.0, 0.0, 1.0],
+        translation_scale: [0.0, 0.0, 0.0, 1.0],
+        axis_scale: [1.0; 3],
+    }];
+    let mut cache = placement_cache::PlacementCache::default();
+    let work = std::cell::Cell::new(0);
+    let mut sample = |body: &ActorRigSubmission, local: &[actor_animation::BoneTransform]| {
+        cache
+            .sample(
+                body,
+                (false, LAYER_MAIN_HAND),
+                1,
+                placement_cache::Inputs {
+                    assets: &assets,
+                    bones: &bones,
+                    owner_names: &bones.names,
+                    geometry: (0, 0),
+                    local,
+                    hidden: &hidden,
+                    scale: [1.0; 3],
+                    alpha: None,
+                },
+                |endpoint, index| {
+                    work.set(work.get() + 1);
+                    modern::compose_parent(
+                        if endpoint == 0 {
+                            body.input.previous_bones[index]
+                        } else {
+                            body.input.current_bones[index]
+                        },
+                        local[index],
+                    )
+                },
+            )
+            .unwrap()
+    };
+    let first = sample(&body, &local);
+    work.set(0);
+    let allocated = test_alloc::thread_allocations();
+    let repeated = sample(&body, &local);
+    assert_eq!(work.get(), 0);
+    assert_eq!(test_alloc::thread_allocations() - allocated, 0);
+    assert!(Arc::ptr_eq(&first[0], &repeated[0]));
+    assert!(Arc::ptr_eq(&first[1], &repeated[1]));
+    Arc::make_mut(&mut body.input.current_bones)[0].translation_scale[0] += 1.0;
+    let moved = sample(&body, &local);
+    assert_eq!(work.replace(0), 2);
+    assert_ne!(moved[1], first[1]);
+    local[0].translation_scale[1] += 1.0;
+    let changed = sample(&body, &local);
+    assert_eq!(work.replace(0), 2);
+    assert_ne!(changed[1], moved[1]);
+    body.input.identity.spawn_revision += 1;
+    sample(&body, &local);
+    assert_eq!(work.get(), 2);
+}

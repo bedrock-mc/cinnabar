@@ -2,11 +2,14 @@ use std::borrow::Cow;
 
 use super::*;
 
+pub(crate) mod cache;
 pub(super) mod camera;
 mod clips;
+mod composition;
 mod layers;
 pub(super) mod motion_endpoint;
 pub(super) mod motion_sampling;
+mod retained;
 mod rotation;
 pub(super) mod sampling;
 
@@ -172,27 +175,8 @@ impl<'a> ActorRenderFrame<'a> {
     /// Shares the frame's sampled layers without committing variables, clocks or poses.
     /// Unsupported or exhausted evaluations retain the completed tick's layers.
     pub fn layers(&mut self, runtime_id: u64) -> Option<Cow<'a, [RenderTextureLayer]>> {
-        if self
-            .store
-            .get(runtime_id)
-            .is_some_and(|rig| rig.held_item_scale.is_some())
-        {
-            return self
-                .cached_layers(runtime_id)
-                .map(|layers| layers.render.clone());
-        }
-        if let Some(layers) = self.sampled_layers.get(&runtime_id) {
-            return layers.as_ref().map(|layers| layers.render.clone());
-        }
-        Self::sample(
-            self.store,
-            self.actors,
-            (self.camera_rotation, self.camera_position, self.alpha),
-            runtime_id,
-            &mut self.remaining_ops,
-            false,
-        )
-        .map(|layers| layers.render)
+        self.cached_layers(runtime_id)
+            .map(|layers| layers.render.clone())
     }
 
     /// Samples possible Always rigs and retains the same frame layers for the eventual draw.
@@ -227,6 +211,9 @@ impl<'a> ActorRenderFrame<'a> {
 
 #[derive(Debug)]
 pub(super) struct FrameState {
+    pub layers: std::sync::Mutex<render::cache::RenderCache>,
+    pub compositions: std::sync::Mutex<composition::Compositions>,
+    pub retained: std::sync::Mutex<Option<retained::Sample>>,
     pub motion: MotionEndpointState,
     /// Previous simulation tick, even when that tick did not evaluate a visual pose.
     pub previous_rotation: ActorTickInput,
@@ -286,6 +273,7 @@ impl FrameState {
     }
 
     pub(super) fn hold_motion(&mut self) {
+        *self.retained.get_mut().unwrap() = None;
         self.previous_rotation = self.motion.input;
         self.previous_walk = self.motion.input;
         self.swelling[0] = self.swelling[1];
@@ -386,15 +374,15 @@ impl MotionPoses {
         current: &mut [pose::LocalDelta],
         sampled_previous: &[pose::LocalDelta],
         mask: Option<&[[u8; 3]]>,
-    ) -> Vec<pose::LocalDelta> {
-        let mut previous = self.previous.clone();
+    ) -> pose::PoseBuffer {
+        let mut previous = pose::PoseBuffer::copy_of(&self.previous);
         for (
             (((((sample, completed), previous), sampled_previous), sampled_mask), current_mask),
             previous_mask,
         ) in current
             .iter_mut()
             .zip(&self.current)
-            .zip(&mut previous)
+            .zip(previous.iter_mut())
             .zip(sampled_previous)
             .zip(mask.unwrap_or(&self.mask))
             .zip(&self.mask)

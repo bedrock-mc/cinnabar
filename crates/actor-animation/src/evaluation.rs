@@ -3,6 +3,7 @@ use assets::{MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_LOOP_ITERATIONS, MolangSymbolKind
 
 use {super::*, simulation_clock::TICK_DURATION as ACTOR_TICK_DURATION};
 
+pub(crate) mod frame_cache;
 mod input_reads;
 mod observed;
 #[cfg(test)]
@@ -19,6 +20,13 @@ mod invalid_input_tests;
 #[cfg(test)]
 thread_local! {
     static QUERY_WORK: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static EXPRESSION_WORK: std::cell::RefCell<Vec<usize>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Takes bytecode evaluations by expression on the current test thread.
+#[cfg(test)]
+pub(super) fn take_expression_work() -> Vec<usize> {
+    EXPRESSION_WORK.with(|work| std::mem::take(&mut *work.borrow_mut()))
 }
 
 /// Takes query evaluations performed on this test thread since its last observation.
@@ -332,6 +340,18 @@ impl MolangEffects {
 }
 
 impl VariableLayout {
+    /// Reads an inherited persistent input; expression temporaries start unassigned.
+    pub(crate) fn input_variable(
+        &self,
+        variables: &MolangVariables,
+        symbol: u32,
+    ) -> Option<MolangValue> {
+        match self.place(symbol) {
+            Some(Place::Variable(slot)) => variables.variable(slot),
+            _ => None,
+        }
+    }
+
     fn place(&self, symbol: u32) -> Option<Place> {
         let symbol = symbol as usize;
         if let Some(slot) = symbol.checked_sub(self.variable_base)
@@ -426,7 +446,16 @@ impl Evaluator<'_> {
         this: f32,
         budget: &mut EvalBudget<'_>,
     ) -> Result<MolangValue, EvalError> {
-        self.run_observed(expression_index, variables, this, budget, None)
+        if self.program.is_none()
+            && crate::render_frame::cache::enabled()
+            && let Some(mut cache) = variables.frame_cache.take()
+        {
+            let result = cache.run(self, expression_index, variables, this, budget);
+            variables.frame_cache = Some(cache);
+            result
+        } else {
+            self.run_observed(expression_index, variables, this, budget, None)
+        }
     }
 
     /// Records selection reads when given a recorder; its caller supplies clean temporaries and
@@ -439,6 +468,13 @@ impl Evaluator<'_> {
         budget: &mut EvalBudget<'_>,
         reads: Option<&mut ObservedInputs>,
     ) -> Result<MolangValue, EvalError> {
+        #[cfg(test)]
+        EXPRESSION_WORK.with(|work| {
+            let mut work = work.borrow_mut();
+            let size = work.len().max(expression_index + 1);
+            work.resize(size, 0);
+            work[expression_index] += 1;
+        });
         let mut stack = std::mem::take(&mut budget.stack.0);
         stack.clear();
         let result = self.run_on(&mut stack, expression_index, variables, this, budget, reads);
