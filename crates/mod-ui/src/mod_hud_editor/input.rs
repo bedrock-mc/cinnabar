@@ -47,6 +47,13 @@ impl HudEditor {
         if self.autosave {
             self.cancel_drag();
         }
+        // An unpainted layout has no geometry from which to derive saved anchors.
+        let saved = saved
+            && (self.draft.cards.is_empty()
+                || self
+                    .viewport
+                    .into_iter()
+                    .all(|extent| extent.is_finite() && extent > 0.));
         // A completed gesture can precede dismissal in the same input batch.
         // Ownership-loss cancellation separately drains this retained result.
         if saved || !self.autosave || !self.result.as_ref().is_some_and(|result| result.saved) {

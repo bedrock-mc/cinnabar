@@ -143,3 +143,28 @@ fn hud_editor_navigation_finishes_directly_and_autosave_enter_closes_the_underly
         assert!(ui.take_mod_hud_editor_result().unwrap().saved);
     }
 }
+
+#[test]
+fn closing_before_first_paint_does_not_save_unmeasured_anchors() {
+    for key in ["Escape", "Enter", "NumpadEnter", "panel"] {
+        let (mut ui, mut preview) = editor();
+        preview.cards = vec![ui::mod_hud::Card {
+            id: "untouched".into(),
+            position: Some([0.5, 0.5]),
+            ..Default::default()
+        }];
+        ui.open_mod_hud_editor(&preview).unwrap();
+        assert_eq!(ui.mod_hud_editor.as_ref().unwrap().viewport, [0.; 2]);
+        if key == "panel" {
+            ui.set_mod_panel_open(false);
+        } else {
+            ui.mod_panel_key(key, None);
+        }
+        assert!(!ui.mod_panel_open() && !ui.mod_hud_editor_open());
+        assert_eq!(
+            ui.take_mod_hud_editor_result(),
+            Some(EditorResult::default()),
+            "{key}"
+        );
+    }
+}
