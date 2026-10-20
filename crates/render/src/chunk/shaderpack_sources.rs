@@ -11,6 +11,7 @@ use render_scene::ChunkRenderInstance;
 
 /// The packed-chunk buffers the expansion kernels read, by their chunk-layout binding.
 pub(crate) struct PackedChunkBuffers<'a> {
+    pub(crate) carrier: render_scene::ChunkTextureAssetIdentity,
     /// Binding 1: packed cube quads.
     pub(crate) quads: &'a Buffer,
     /// Binding 2: section origins and stream bases.
@@ -48,6 +49,7 @@ impl PackedChunkSources<'_> {
         let textures = self.textures.as_deref()?.prepared.as_ref()?;
         let tints = self.tints.as_deref()?.prepared.as_ref()?;
         Some(PackedChunkBuffers {
+            carrier: textures.identity.carrier,
             quads: &arena.quad_buffer,
             origins: &arena.origin_buffer,
             materials: &textures.material_buffer,
@@ -88,6 +90,7 @@ pub(crate) struct ResidentSections<'w, 's> {
 pub(crate) struct ResidentSection<'a> {
     pub(crate) geometry: SectionGeometry<'a>,
     pub(crate) origin: [i32; 3],
+    instance: &'a ChunkRenderInstance,
 }
 
 impl ResidentSections<'_, '_> {
@@ -131,6 +134,7 @@ impl ResidentSections<'_, '_> {
                 liquid_quads: &instance.liquid_quads,
             },
             origin: instance.origin,
+            instance,
         })
     }
 }
@@ -157,5 +161,66 @@ pub(crate) fn terrain_multi_draw_indirect(
         ChunkDrawMode::Direct => Some(false),
         ChunkDrawMode::MultiDrawIndirect => Some(true),
         ChunkDrawMode::Unsupported => None,
+    }
+}
+
+impl ResidentSection<'_> {
+    /// Resolves expanded translucent slots with the native model and liquid centroids.
+    pub(crate) fn translucent_faces(
+        &self,
+        plan: &crate::shaderpack::geometry::jobs::SectionPlan,
+        assets: &ChunkTextureAssets,
+    ) -> Vec<crate::chunk::transparent::mixed::plan::MixedFace> {
+        use crate::chunk::transparent::mixed::plan::{MixedFace, MixedStream};
+        use crate::shaderpack::geometry::jobs::{GeometryCategory, JobKind, job_slots};
+        let range = &plan.categories[GeometryCategory::Translucent.index()];
+        let mut faces = Vec::with_capacity(range.len());
+        for (kind, jobs) in plan.jobs.iter().enumerate() {
+            for &[record, _, first, flags] in jobs {
+                if !range.contains(&first) {
+                    continue;
+                }
+                let anchor = if kind == JobKind::Model as usize {
+                    let local = record - self.geometry.transparent_model_draw_base;
+                    self.geometry
+                        .transparent_model_draw_refs
+                        .get(local as usize)
+                        .and_then(|draw| {
+                            transparent_model_draw_candidate(
+                                self.instance.key,
+                                &self.instance.model_refs,
+                                &self.instance.model_lighting,
+                                *draw,
+                                assets.assets().model_templates(),
+                                assets.assets().model_quads(),
+                                0,
+                            )
+                            .map(|(centroid, stable)| (MixedStream::Model, centroid, stable))
+                        })
+                } else if kind == JobKind::Liquid as usize {
+                    let local = record - self.geometry.liquid_base;
+                    self.geometry.liquid_quads.get(local as usize).map(|quad| {
+                        (
+                            MixedStream::Water,
+                            Vec3::from_array(liquid_quad_centroid(self.origin, *quad)),
+                            [local, 0],
+                        )
+                    })
+                } else {
+                    None
+                };
+                if let Some((stream, centroid, stable)) = anchor {
+                    for index in first..first + job_slots(flags) {
+                        faces.push(MixedFace {
+                            stream,
+                            index,
+                            centroid,
+                            stable,
+                        });
+                    }
+                }
+            }
+        }
+        faces
     }
 }

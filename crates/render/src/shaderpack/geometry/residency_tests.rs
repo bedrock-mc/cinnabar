@@ -449,3 +449,16 @@ fn failed_drains_keep_all_queued_movers_blocked() {
     );
     assert!(residency.take_queue().is_empty());
 }
+
+#[test]
+fn resident_shrink_retries_sections_waiting_for_room() {
+    let mut residency = Residency::new(100 * FACE_BYTES, 100 * FACE_BYTES, STRIDE);
+    let first = residency.place(entity(1), &plan(90)).unwrap();
+    residency.commit(entity(1), &first, &plan(90), [0; 3]);
+    assert!(residency.place(entity(2), &plan(20)).is_none());
+    residency.wait(entity(2));
+    let smaller = residency.place(entity(1), &plan(70)).unwrap();
+    residency.commit(entity(1), &smaller, &plan(70), [0; 3]);
+    assert_eq!(residency.take_queue(), [entity(2)]);
+    assert!(residency.place(entity(2), &plan(20)).is_some());
+}
