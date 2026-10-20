@@ -1139,3 +1139,31 @@ fn section_signs_in_design_text_warn() {
         )]
     );
 }
+
+// A faded group fades each of its layers, so overlapping layers look stronger
+// than Figma's flattened fade; that warns, while side-by-side layers stay exact.
+#[test]
+fn faded_groups_with_overlapping_layers_warn() {
+    let square = |id: &str, x: f64| {
+        json!({ "id": id, "name": "Square", "type": "RECTANGLE", "x": x, "width": 20, "height": 20,
+                "fills": [{ "type": "SOLID", "color": [1, 1, 1] }] })
+    };
+    let node: Node = serde_json::from_value(json!({
+        "id": "28:1", "name": "Fade Test", "type": "FRAME", "width": 100, "height": 40,
+        "children": [
+            { "id": "28:2", "name": "Faded", "type": "FRAME", "width": 50, "height": 20, "opacity": 0.5,
+              "children": [square("28:3", 0.0), square("28:4", 10.0)] },
+            { "id": "28:5", "name": "Spread", "type": "FRAME", "y": 20, "width": 50, "height": 20, "opacity": 0.5,
+              "children": [square("28:6", 0.0), square("28:7", 25.0)] }
+        ]
+    }))
+    .unwrap();
+    let conversion = figma::convert(&node, &BTreeMap::new());
+    assert_eq!(
+        messages(&conversion),
+        [(
+            "Fade Test / Faded".to_owned(),
+            "a faded group fades each layer, so overlapping layers look stronger than in Figma; name it `@image` to flatten it".to_owned(),
+        )]
+    );
+}
