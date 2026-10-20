@@ -1,4 +1,4 @@
-//! Construction of the native session worker's owned login inputs.
+//! Construction of the session worker's owned login inputs.
 
 #[cfg(feature = "native-networking")]
 use super::NativeConnectionPreparation;
@@ -31,6 +31,7 @@ impl NetworkConfig {
     }
 
     /// Moves the original account acquisition into the same session worker's cancellation lifetime.
+    #[must_use]
     #[cfg(feature = "native-networking")]
     pub fn with_native_preparation(
         mut self,
