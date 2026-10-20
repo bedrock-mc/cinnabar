@@ -531,7 +531,7 @@ The cosmetic regression geometry and textures in `crates/render-model/src/hats/`
 - Cinnabar fork: https://github.com/cinnabar-mc/glslpp-rs, pinned in `Cargo.lock`.
 - Dependency: `pp-rs`, shared by properties and shader preprocessing.
 - License: BSD-3-Clause.
-- The fork adds opt-in Iris conditions and bounds expression recursion.
+- The fork adds opt-in Iris conditions and text output, and bounds expression recursion.
 
 BSD 3-Clause License
 

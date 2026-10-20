@@ -5,9 +5,19 @@ mod pool;
 
 /// Independent players whose frame programs read walk, swing, variables and random draws.
 pub(super) fn crowd(count: u64, padding: usize) -> (ActorAnimationStore, HashMap<u64, TestActor>) {
+    crowd_with_channel_name(count, padding, None)
+}
+
+/// Builds the same crowd with either numeric channels or a named skeleton binding.
+pub(super) fn crowd_with_channel_name(
+    count: u64,
+    padding: usize,
+    bone_name: Option<&str>,
+) -> (ActorAnimationStore, HashMap<u64, TestActor>) {
     let mut compiled = crate::test_support::counting_random_compiled(
         assets::facts::VanillaEntity::Player.identifier(),
     );
+    compiled.animation_channels[0].bone_name = bone_name.map(Into::into);
     compiled.molang_symbols[4].identifier = "query.modified_distance_moved".into();
     compiled.molang_symbols[7].identifier = "variable.attack_time".into();
     let mut ops = compiled.molang_ops.to_vec();
@@ -87,7 +97,7 @@ pub(super) fn crowd(count: u64, padding: usize) -> (ActorAnimationStore, HashMap
 }
 
 /// Captures all public layer values and exact pose/scalar float bits in request order.
-fn output(frame: &mut ActorRenderFrame<'_>, ids: &[u64]) -> Vec<u8> {
+pub(super) fn output(frame: &mut ActorRenderFrame<'_>, ids: &[u64]) -> Vec<u8> {
     let mut bytes = Vec::new();
     for &id in ids {
         let sample = frame.layers_with_skin(id);

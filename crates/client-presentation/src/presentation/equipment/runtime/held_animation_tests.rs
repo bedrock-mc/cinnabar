@@ -84,6 +84,7 @@ pub(in crate::presentation::equipment) fn owner_rig<'a>(
         previous_body_yaw: 0.0,
         body_yaw: 0.0,
         render: &[],
+        attachments: None,
         bone_names: names,
         skin_geometry: None,
         skin_mesh: None,

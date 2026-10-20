@@ -128,3 +128,25 @@ void main() { id = mc_Entity.x; gl_Position = gl_Vertex; }
     let parts: Vec<_> = inputs[2..].iter().map(|(name, _)| *name).collect();
     assert_eq!(parts, ["iris_PackedPosition", "iris_DrawOrigin"]);
 }
+
+#[test]
+fn loop_shadowing_preserves_a_valid_shader() {
+    let mut iface = ProgramInterface::default();
+    let (stage, lines) = draft(
+        "composite.fsh",
+        "#version 330\nuniform bool enabled; out vec4 color; void main() { float value = 0.0; for (int enabled = 0; enabled < 2; enabled++) { value += float(enabled); } color = vec4(enabled ? value : 0.0); }",
+        StageKind::Fragment,
+        &mut iface,
+    );
+    let uniforms = merge_uniforms([&stage]).unwrap();
+    let (glsl, origins) = assemble(&stage, &uniforms, &iface.location_defines().unwrap());
+    let result = compile(
+        StageKind::Fragment,
+        &OutputMap {
+            glsl: &glsl,
+            origins: &origins,
+            lines: &lines,
+        },
+    );
+    assert!(result.is_ok(), "{result:?}\n{glsl}");
+}

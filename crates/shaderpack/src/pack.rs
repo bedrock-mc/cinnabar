@@ -1,6 +1,6 @@
 //! A loaded shader pack, its configuration metadata and whole-pack translation.
 
-use crate::buffers::{BufferDirectives, BufferFormat};
+use crate::buffers::{BufferDirectives, BufferFormat, canonical_sampler_name};
 use crate::dimensions::DimensionSelector;
 use crate::environment::Environment;
 use crate::ids::{BLOCK_FILE, ENTITY_FILE, ITEM_FILE, IdMaps};
@@ -228,10 +228,9 @@ impl ShaderPack {
             .images
             .iter()
             .map(|i| {
-                let q = BufferFormat::parse(&i.internal_format).map_or_else(
-                    || i.internal_format.to_ascii_lowercase(),
-                    BufferFormat::glsl_qualifier,
-                );
+                let q = BufferFormat::parse(&i.internal_format)
+                    .and_then(BufferFormat::glsl_qualifier)
+                    .unwrap_or_else(|| i.internal_format.to_ascii_lowercase());
                 (i.name.clone(), q)
             })
             .collect();
@@ -240,13 +239,21 @@ impl ShaderPack {
         let mut sampler_classes: SamplerClasses = properties
             .images
             .iter()
-            .map(|i| ((i.sampler.clone(), None), SamplerClass::ClampLinear))
+            .map(|i| {
+                (
+                    (canonical_sampler_name(&i.sampler), None),
+                    SamplerClass::ClampLinear,
+                )
+            })
             .collect();
         for noise in [true, false] {
             for t in &properties.custom_textures {
                 if t.applies_to(program.group) && (t.stage == "noise") == noise {
                     sampler_classes.insert(
-                        (t.uniform().to_string(), Some(t.source.dimension())),
+                        (
+                            canonical_sampler_name(t.uniform()),
+                            Some(t.source.dimension()),
+                        ),
                         t.sampler_class(&self.source),
                     );
                 }
