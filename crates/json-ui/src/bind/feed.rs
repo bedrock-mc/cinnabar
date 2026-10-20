@@ -345,15 +345,29 @@ pub(super) fn collection_name(control: &ResolvedControl) -> Option<&str> {
     (!name.is_empty()).then_some(name)
 }
 
-pub(crate) fn is_collection_factory(control: &ResolvedControl) -> bool {
+/// Classifies a resolved control before its bound nodes exist.
+pub(crate) fn has_collection_factory(control: &ResolvedControl) -> bool {
+    let bindings = super::spec::parse(control, &mut Vec::new());
+    is_collection_factory(control, &bindings)
+}
+
+pub(super) fn is_collection_factory(control: &ResolvedControl, bindings: &[Binding]) -> bool {
     control.factory.is_some()
         && (collection_name(control).is_some()
-            || control.control_type.as_deref() == Some("collection_panel"))
+            || control.control_type.as_deref() == Some("collection_panel")
+            || control
+                .properties
+                .get("property_bag")
+                .and_then(|bag| bag.get("#collection_length"))
+                .is_some()
+            || bindings
+                .iter()
+                .any(|binding| binding.writes("#collection_length")))
 }
 
 /// A collection factory whose roles must wait for a view's property-bag write.
 pub(super) fn factory_awaits_views(control: &ResolvedControl, bindings: &[Binding]) -> bool {
-    is_collection_factory(control)
+    is_collection_factory(control, bindings)
         && bindings.iter().any(|binding| {
             matches!(&binding.kind, Kind::View { target, .. } if target == "#collection_length")
         })

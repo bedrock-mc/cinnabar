@@ -363,12 +363,12 @@ fn absent_removal_objective_differs_from_an_empty_name() {
 
 #[test]
 fn oversized_text_scores_and_form_json_fail_closed() {
-    let text = raw_text_packet("x".repeat(MAX_UI_TEXT_BYTES + 1));
+    let text = raw_text_packet("x".repeat(crate::ui::MAX_TEXT_MESSAGE_BYTES + 1));
     assert_eq!(
         ui(text).unwrap_err(),
         UiPacketError::TextTooLong {
-            bytes: MAX_UI_TEXT_BYTES + 1,
-            max: MAX_UI_TEXT_BYTES,
+            bytes: crate::ui::MAX_TEXT_MESSAGE_BYTES + 1,
+            max: crate::ui::MAX_TEXT_MESSAGE_BYTES,
         }
     );
 

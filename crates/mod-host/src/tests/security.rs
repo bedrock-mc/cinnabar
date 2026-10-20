@@ -71,10 +71,18 @@ fn wasi_authority_is_unlinked() {
             1,
         );
         std::fs::write(&path, source).unwrap();
-        let error = ModHost::load(&path)
-            .err()
-            .expect("authority must be unlinked");
-        assert!(format!("{error:#}").contains(interface), "{error:#}");
+        // The packet-mod grants never link WASI into an ordinary mod.
+        let trusted = ModGrants {
+            packets: true,
+            wasi: true,
+            ..Default::default()
+        };
+        for grants in [ModGrants::default(), trusted] {
+            let error = ModHost::load_with_grants(&path, grants)
+                .err()
+                .expect("authority must be unlinked");
+            assert!(format!("{error:#}").contains(interface), "{error:#}");
+        }
     }
 }
 

@@ -113,6 +113,11 @@ impl Slots {
         )
     }
 
+    /// Whether this carrier consumes any of the completed spear pose variables.
+    pub(super) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     /// Publishes one sampled pose without advancing any actor or item clocks.
     pub(super) fn apply(
         &self,

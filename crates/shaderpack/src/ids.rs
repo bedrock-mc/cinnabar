@@ -20,8 +20,8 @@ pub use block::{BlockIdMap, RenderLayer};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Display;
 
-use crate::properties::PropertiesDiagnostic;
 use crate::properties::reader::{RawEntry, read_entries};
+use crate::properties::{PropertiesDiagnostic, last_by_key};
 
 /// `shaders/`-relative name of the block id map.
 pub(crate) const BLOCK_FILE: &str = "block.properties";
@@ -138,23 +138,10 @@ fn load(
     let mut own = Vec::new();
     let entries = read_entries(text, defines, &mut own);
     diagnostics.extend(own.into_iter().map(|d| diagnostic(file, d.line, d.message)));
-    let mut positions: HashMap<String, usize> = HashMap::with_capacity(entries.len());
-    let mut unique: Vec<RawEntry> = Vec::with_capacity(entries.len());
-    for entry in entries {
-        match positions.get(&entry.key) {
-            Some(&index) => {
-                if let Some(first) = unique.get_mut(index) {
-                    first.value = entry.value;
-                    first.line = entry.line;
-                }
-            }
-            None => {
-                positions.insert(entry.key.clone(), unique.len());
-                unique.push(entry);
-            }
-        }
-    }
-    unique
+    last_by_key(&entries, |entry| &entry.key)
+        .into_iter()
+        .cloned()
+        .collect()
 }
 
 /// The integer id of a `prefix<int>` key; `None` for keys without `prefix` (ignored, as in

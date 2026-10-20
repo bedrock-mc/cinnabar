@@ -3,6 +3,39 @@
 use super::*;
 use crate::{ModGrants, PlayerStateItem, PlayerStateSlot, PlayerStateSnapshot};
 
+/// A native-source update invalidates a merge even when the guest publishes nothing new.
+#[test]
+fn output_revisions_follow_native_bindings_and_ignore_identical_publications() {
+    let mut state = State::new(
+        ModGrants {
+            hud: true,
+            player_state: true,
+            ..Default::default()
+        },
+        String::new(),
+        Default::default(),
+    );
+    let json = r#"{"cards":[{"id":"count","rows":[],"source":{"kind":{"kind":"item_count","label":"Items","items":["minecraft:stone"],"blocks":false},"limit":1}}]}"#.to_owned();
+    super::set_content(&mut state, json.clone())
+        .unwrap()
+        .unwrap();
+    state.hud.commit();
+    state.player_state.set_snapshot(Some(snapshot())).unwrap();
+    sources::refresh(&mut state);
+    let first = state.hud.revision;
+    sources::refresh(&mut state);
+    assert_eq!(state.hud.revision, first);
+    super::set_content(&mut state, json).unwrap().unwrap();
+    state.hud.commit();
+    sources::refresh(&mut state);
+    assert_eq!(state.hud.revision, first);
+    let mut changed = snapshot();
+    changed.inventory[0].item.as_mut().unwrap().count = 1;
+    state.player_state.set_snapshot(Some(changed)).unwrap();
+    sources::refresh(&mut state);
+    assert_ne!(state.hud.revision, first);
+}
+
 /// Creates a known inventory with one real stack, one unknown cell and current effects.
 fn snapshot() -> PlayerStateSnapshot {
     let mut inventory = vec![

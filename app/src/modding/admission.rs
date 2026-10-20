@@ -3,7 +3,6 @@
 use assets::RuntimeFontCatalog;
 use client_extensions::modding::font;
 use mod_host::{ModGrants, ModHost};
-use sha2::{Digest, Sha256};
 use std::{path::Path, sync::Arc};
 
 /// The predecessor fence captured before an off-frame admission request.
@@ -12,7 +11,6 @@ pub(super) struct DrawingContext {
     source: [u8; 32],
     session: mod_api::drawing::DrawingSession,
     readiness: GuestReadiness,
-    remote: client_extensions::modding::drawing_policy::DrawingGrant,
 }
 
 /// Distinguishes a fresh admission request from a running or permanently stopped guest.
@@ -24,15 +22,8 @@ enum GuestReadiness {
 }
 
 impl DrawingContext {
-    /// Captures only admitted identity and trusted drawing authority.
-    pub(super) fn capture(
-        host: &ModHost,
-        ui: Option<&client_ui::ui_runtime::UiRuntime>,
-    ) -> Option<Self> {
-        let grant = ui.and_then(|ui| match &ui.experiences.session.state {
-            server_experience::session::State::Granted(grant) => Some(grant),
-            _ => None,
-        });
+    /// Captures the admitted identity and its live-world fence.
+    pub(super) fn capture(host: &ModHost) -> Option<Self> {
         host.drawing_session().map(|session| Self {
             source: host.source_digest(),
             session,
@@ -43,10 +34,6 @@ impl DrawingContext {
             } else {
                 GuestReadiness::Stopped
             },
-            remote: client_extensions::modding::drawing_policy::DrawingGrant::capture(
-                grant,
-                client_ui::experience_session::unix_seconds(),
-            ),
         })
     }
 
@@ -60,13 +47,9 @@ impl DrawingContext {
         self.readiness == GuestReadiness::Restarting
     }
 
-    /// Authorizes replacement bytes independently against the trusted remote grant.
-    pub(super) fn policy(&self, source: [u8; 32]) -> mod_api::drawing::DrawingSession {
-        let mut session = self.session;
-        if session.connection != 0 && !session.local && self.source != source {
-            session.permissions = self.remote.permissions(&source);
-        }
-        session
+    /// Keeps replacement admission under the same live-world fence and user consent.
+    pub(super) fn policy(&self) -> mod_api::drawing::DrawingSession {
+        self.session
     }
 }
 
@@ -107,7 +90,7 @@ pub(super) fn prepare(
     settings: Option<(&Path, &str)>,
     drawing: Option<DrawingContext>,
 ) -> Result<PreparedMod, String> {
-    let session = drawing.map(|drawing| drawing.policy(Sha256::digest(component).into()));
+    let session = drawing.map(|drawing| drawing.policy());
     let host = ModHost::prepare_snapshot_in_session(path, component, grants, settings, session)
         .map_err(|error| format!("{error:#}"))?;
     prepare_presentation(host, font_bytes, ui)
@@ -123,7 +106,7 @@ pub(super) fn prepare_package(
     settings: Option<(&Path, &str)>,
     drawing: Option<DrawingContext>,
 ) -> Result<PreparedMod, String> {
-    let session = drawing.map(|drawing| drawing.policy(package.digest));
+    let session = drawing.map(|drawing| drawing.policy());
     let host = ModHost::prepare_package_in_session(path, package, grants, settings, session)
         .map_err(|error| format!("{error:#}"))?;
     prepare_presentation(host, font_bytes, ui)
@@ -180,38 +163,4 @@ pub(super) fn prepare_branding(
         mod_api::MAX_MENU_LOGO_PIXELS,
     )
     .map(|branding| Some(Arc::new(branding)))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use mod_api::drawing::{DrawingPermissions, DrawingSession};
-
-    #[test]
-    fn changed_remote_bytes_keep_plain_drawing_without_inheriting_digest_scopes() {
-        let context = DrawingContext {
-            source: [1; 32],
-            session: DrawingSession {
-                connection: 1,
-                permissions: DrawingPermissions::ALL,
-                ..Default::default()
-            },
-            readiness: GuestReadiness::Active,
-            remote: Default::default(),
-        };
-        assert_eq!(context.policy([1; 32]), context.session);
-        let changed = context.policy([2; 32]);
-        assert_eq!(
-            changed.permissions,
-            client_extensions::modding::drawing_policy::remote_permissions(None, &[2; 32], 0)
-        );
-        let local = DrawingContext {
-            session: DrawingSession {
-                local: true,
-                ..context.session
-            },
-            ..context
-        };
-        assert_eq!(local.policy([2; 32]), local.session);
-    }
 }

@@ -27,6 +27,7 @@ gl_FragData[0] = texture2D(colortex0, texcoord) * color * viewWidth;
 }
 ";
 
+/// Expands and transforms an in-memory stage with a shared program interface.
 fn draft(
     file: &str,
     text: &str,
@@ -85,7 +86,7 @@ fn a_version_120_program_becomes_vulkan_glsl_naga_validates() {
     );
 
     for ((draft, lines), stage) in [(vertex, StageKind::Vertex), (fragment, StageKind::Fragment)] {
-        let (glsl, origins) = assemble(&draft, &ubo);
+        let (glsl, origins) = assemble(&draft, &ubo, &iface.location_defines().unwrap());
         let map = OutputMap {
             glsl: &glsl,
             origins: &origins,

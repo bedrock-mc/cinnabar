@@ -17,6 +17,7 @@ mod sources_tests;
 
 #[derive(Default)]
 pub(super) struct HudState {
+    pub revision: u64,
     pub content: Option<Hud>,
     pub crosshair: Option<Crosshair>,
     pending_content: Option<Option<Hud>>,
@@ -38,6 +39,12 @@ pub(super) struct HudState {
     source_totem_uses: Option<u32>,
 }
 impl HudState {
+    /// Identifies changed committed output across component replacement and reload.
+    pub(super) fn changed(&mut self) {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        self.revision = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
     pub fn commit(&mut self) {
         let room = 4usize.saturating_sub(self.local_messages.len());
         self.local_messages
@@ -46,9 +53,12 @@ impl HudState {
             self.editor_result = None;
             self.result_read = false;
         }
-        if let Some(content) = self.pending_content.take() {
+        if let Some(content) = self.pending_content.take()
+            && self.content != content
+        {
             self.sources_dirty = true;
             self.content = content;
+            self.changed();
         }
         if let Some(crosshair) = self.pending_crosshair.take() {
             self.crosshair = crosshair;

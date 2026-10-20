@@ -3,7 +3,9 @@
 use crate::diagnostics::{Diagnostic, Phase};
 use crate::preprocess::LineMap;
 use crate::programs::StageKind;
-use naga::valid::{Capabilities, ModuleInfo, ValidationFlags, Validator};
+use naga::valid::ModuleInfo;
+
+mod inputs;
 
 /// A validated stage module.
 #[derive(Clone, Debug)]
@@ -64,7 +66,7 @@ pub(crate) fn compile(
         )]);
     };
     let mut frontend = naga::front::glsl::Frontend::default();
-    let module = frontend
+    let mut module = frontend
         .parse(&naga::front::glsl::Options::from(naga_stage), map.glsl)
         .map_err(|e| {
             e.errors
@@ -78,15 +80,13 @@ pub(crate) fn compile(
                 })
                 .collect::<Vec<_>>()
         })?;
-    let info = Validator::new(ValidationFlags::all(), Capabilities::all())
-        .validate(&module)
-        .map_err(|e| {
-            let line = e
-                .spans()
-                .find(|(span, _)| span.is_defined())
-                .map(|(span, _)| span.location(map.glsl).line_number);
-            vec![map.diagnostic(Phase::Validate, error_chain(&e), line)]
-        })?;
+    let info = inputs::validate(&mut module).map_err(|e| {
+        let line = e
+            .spans()
+            .find(|(span, _)| span.is_defined())
+            .map(|(span, _)| span.location(map.glsl).line_number);
+        vec![map.diagnostic(Phase::Validate, error_chain(&e), line)]
+    })?;
     Ok(CompiledStage {
         stage,
         glsl: map.glsl.to_string(),

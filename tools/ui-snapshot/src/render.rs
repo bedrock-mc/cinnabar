@@ -2,6 +2,8 @@
 
 mod character;
 #[cfg(feature = "test-support")]
+mod cosmetic_particles;
+#[cfg(feature = "test-support")]
 mod crafting;
 mod edit_selection;
 mod panorama;
@@ -68,6 +70,10 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
 /// Samples caller-owned UI and cosmetic animation time without reading the clock.
 pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error> {
     let fixture = (state.fixture)();
+    #[cfg(feature = "test-support")]
+    if let Fixture::CosmeticParticles { view, emitting } = &fixture {
+        return cosmetic_particles::png(state.size, *view, seconds, *emitting);
+    }
     let menu = matches!(&fixture, Fixture::Menu(_) | Fixture::Loading(_));
     let show_panorama = match &fixture {
         Fixture::Menu(view) => view.out_of_game(),
@@ -77,7 +83,9 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
         | Fixture::EditSelection
         | Fixture::Toast { .. } => false,
         #[cfg(feature = "test-support")]
-        Fixture::CraftOverlap { .. } | Fixture::CursorDurability => false,
+        Fixture::CraftOverlap { .. }
+        | Fixture::CursorDurability
+        | Fixture::CosmeticParticles { .. } => false,
     };
     let mut carriers = carriers::load(dir, menu)?;
     #[cfg(feature = "test-support")]
@@ -112,6 +120,8 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
         renderers: &mut [],
     };
     match fixture {
+        #[cfg(feature = "test-support")]
+        Fixture::CosmeticParticles { .. } => unreachable!("particle capture returned above"),
         #[cfg(feature = "test-support")]
         Fixture::CursorDurability => {
             let mut engine = json_engine(&carriers)?;

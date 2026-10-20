@@ -802,3 +802,18 @@ fn graphics_api_shows_only_platform_backends_and_explains_restart() {
         assert!(nodes.iter().any(|node| matches!(node.visual(), ui::UiVisual::Text { layout, .. } if layout.glyphs().iter().map(|glyph| glyph.codepoint).collect::<String>().contains("Restart required"))));
     }
 }
+
+#[test]
+fn server_settings_tab_is_available_only_over_a_session() {
+    let mut view = settings_view("video_forced_index");
+    let action = MenuAction::SettingsSection(
+        launcher::menu::settings_sections::SettingSection::Server
+            .definition()
+            .index,
+    );
+    for over_world in [false, true] {
+        view.over_world = over_world;
+        let frame = paint(&view, [1280.0, 1600.0], HashMap::new());
+        assert_eq!(frame.hits.iter().any(|(hit, _)| *hit == action), over_world);
+    }
+}

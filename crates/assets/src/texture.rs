@@ -35,14 +35,14 @@ const ALPHA_SCALE_MAX: u32 = 16 << ALPHA_SCALE_FRACTION_BITS;
 const ALPHA_SCALE_SEARCH_STEPS: usize = 21;
 
 /// One mip level containing every array layer in layer-major RGBA8 order.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TextureMip {
     pub size: u32,
     pub rgba8: Box<[u8]>,
 }
 
 /// Equal-sized square texture-array layers with independent mip chains.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TextureArray {
     pub layers: u32,
     pub mips: Box<[TextureMip]>,

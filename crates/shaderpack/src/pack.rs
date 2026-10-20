@@ -12,9 +12,9 @@ use crate::reflection::SamplerClass;
 use crate::source::{PackError, PackSource};
 use crate::transform::SamplerClasses;
 use crate::translate::{Context, ProgramTranslation, forcing, translate_program};
+use rayon::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
-use std::sync::Mutex;
 
 /// Extensions of files that hold GLSL option definitions.
 const SHADER_EXTENSIONS: &[&str] = &["glsl", "vsh", "fsh", "gsh", "csh", "tcs", "tes", "inc", "h"];
@@ -161,29 +161,17 @@ impl ShaderPack {
         let properties = self.properties(&config.environment, &config.options);
         let programs = self.programs(&config.folder, &config.environment);
         progress(0, programs.len());
-        let queue = Mutex::new(programs.iter().enumerate());
-        let results: Mutex<Vec<(usize, ProgramTranslation)>> =
-            Mutex::new(Vec::with_capacity(programs.len()));
-        let threads = std::thread::available_parallelism()
-            .map_or(4, |n| n.get())
-            .min(programs.len().max(1));
-        std::thread::scope(|s| {
-            for _ in 0..threads {
-                s.spawn(|| {
-                    loop {
-                        let next = queue.lock().unwrap_or_else(|e| e.into_inner()).next();
-                        let Some((i, program)) = next else { break };
-                        let t = self.translate_one(program, config, &properties);
-                        let mut done = results.lock().unwrap_or_else(|e| e.into_inner());
-                        done.push((i, t));
-                        progress(done.len(), programs.len());
-                    }
-                });
-            }
-        });
-        let mut results = results.into_inner().unwrap_or_else(|e| e.into_inner());
-        results.sort_by_key(|(i, _)| *i);
-        let mut programs: Vec<ProgramTranslation> = results.into_iter().map(|(_, t)| t).collect();
+        let completed = std::sync::Mutex::new(0);
+        let mut programs: Vec<ProgramTranslation> = programs
+            .par_iter()
+            .map(|program| {
+                let translated = self.translate_one(program, config, &properties);
+                let mut done = completed.lock().unwrap_or_else(|error| error.into_inner());
+                *done += 1;
+                progress(*done, programs.len());
+                translated
+            })
+            .collect();
         let mut buffers = BufferDirectives::default();
         for c in programs
             .iter()

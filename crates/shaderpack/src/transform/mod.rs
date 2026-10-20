@@ -36,6 +36,7 @@ pub(crate) struct TransformError {
 }
 
 impl TransformError {
+    /// Creates a transform error at the expanded source line.
     pub fn new(message: impl Into<String>, line: u32) -> TransformError {
         TransformError {
             message: message.into(),
@@ -160,14 +161,7 @@ pub(crate) fn transform(
         let front = (stage == StageKind::Vertex && lg.builtins.contains("gl_FrontColor"))
             || (stage == StageKind::Fragment && lg.builtins.contains("gl_Color"));
         let mut varying = |name: &str, ty: &str| {
-            if dir == "out" {
-                iface.write(name);
-            } else if !iface.written(name) {
-                builtin_io.push_str(&format!("{ty} {name};\n"));
-                c.before_main.push(format!("{name} = {ty}(0);"));
-                return;
-            }
-            let loc = iface.varying(name, 1);
+            let loc = iface.varying(stage, name, 1, None);
             builtin_io.push_str(&format!("layout(location = {loc}) {dir} {ty} {name};\n"));
         };
         if front {

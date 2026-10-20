@@ -2,15 +2,10 @@
 
 use super::UserState;
 use anyhow::{Context, Result};
-use std::{
-    fs,
-    io::{Read, Write},
-    path::Path,
-};
+use std::{fs, io::Write, path::Path};
 
 const ANSWER_FILE: &str = "minecraft-import-answer.json";
 const BACKUP_FILE: &str = "minecraft-import-backup.json";
-const MAX_BACKUP_BYTES: u64 = 512 * 1024;
 
 /// An answer marker survives either choice, preview cancellation and process restart.
 pub(super) fn answered(root: &Path) -> bool {
@@ -30,28 +25,15 @@ pub(super) fn has_backup(root: &Path) -> bool {
 /// Saves all replaced authorities before any import mutation can begin.
 pub(super) fn backup(root: &Path, state: &UserState) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(state)?;
-    anyhow::ensure!(
-        bytes.len() as u64 <= MAX_BACKUP_BYTES,
-        "Import backup exceeds its size limit"
-    );
     write(root, BACKUP_FILE, &bytes)
 }
 
-/// Reads a bounded backup and validates its settings before presenting a revert.
+/// Reads a backup and validates its settings before presenting a revert.
 pub(super) fn restore(root: &Path) -> Result<UserState> {
-    let mut bytes = Vec::new();
-    fs::File::open(root.join(BACKUP_FILE))?
-        .take(MAX_BACKUP_BYTES + 1)
-        .read_to_end(&mut bytes)?;
-    anyhow::ensure!(
-        bytes.len() as u64 <= MAX_BACKUP_BYTES,
-        "Import backup exceeds its size limit"
-    );
+    let bytes = fs::read(root.join(BACKUP_FILE))?;
     let mut state: UserState = serde_json::from_slice(&bytes)?;
     anyhow::ensure!(
-        state.settings.stored_bindings_valid()
-            && state.servers.len() <= crate::servers::MAX_SAVED_SERVERS
-            && state.active.len() <= resource_pack::MAX_PACKS,
+        state.settings.stored_bindings_valid() && state.active.len() <= resource_pack::MAX_PACKS,
         "Import backup is invalid"
     );
     crate::servers::validate(&state.servers)?;

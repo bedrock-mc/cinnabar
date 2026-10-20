@@ -10,7 +10,7 @@ pub use shape_actor::ShapeActor;
 pub const MAX_BLOCK_ENTITY_NBT_BYTES: usize = 1024 * 1024;
 /// Maximum nested compound/list depth accepted from untrusted network NBT.
 pub const MAX_NBT_DEPTH: usize = 64;
-/// Maximum elements accepted in one NBT list or primitive array.
+/// Maximum elements accepted in one NBT list, int array, or long array.
 pub const MAX_NBT_COLLECTION_LENGTH: usize = 16_384;
 /// Maximum UTF-8 byte length accepted for an NBT name or string value.
 pub const MAX_NBT_STRING_BYTES: usize = 64 * 1024;
@@ -552,7 +552,6 @@ fn scan_payload(
         6 => reader.skip(8, "double"),
         7 => {
             let len = reader.read_collection_length("byte array")?;
-            reader.check_collection_limit(len, 1, "byte array")?;
             reader.skip(len, "byte array")
         }
         8 => {
