@@ -113,21 +113,30 @@ fn poll_with_timeout(
         let (profile, mut outcome, queued_refresh) = match completed {
             active::Outcome::Stopped => return,
             active::Outcome::Retired => continue,
-            active::Outcome::Complete(result, queued) => {
+            active::Outcome::Complete(result, mut queued) => {
                 let outcome = match &result {
                     Ok(profile) if profile.partial() => "partial",
                     Ok(_) => "success",
                     Err(active::Failure::Unavailable) => "unavailable",
                     Err(active::Failure::TimedOut) => "timeout",
                 };
-                (
-                    result
-                        .ok()
-                        .and_then(|profile| profile.into_current().ok())
-                        .ok_or(()),
-                    outcome,
-                    queued,
-                )
+                let profile = match result {
+                    Ok(profile) => match runtime.block_on(active::wait(
+                        profile.into_current(),
+                        shared,
+                        &selection,
+                        &mut requests,
+                        None,
+                        &mut queued,
+                    )) {
+                        Ok(profile) => profile,
+                        Err(active::Exit::Stopped) => return,
+                        Err(active::Exit::Retired) => continue,
+                        Err(active::Exit::TimedOut | active::Exit::Unavailable) => Err(()),
+                    },
+                    Err(_) => Err(()),
+                };
+                (profile, outcome, queued)
             }
         };
         if *requests.borrow() == Wake::Stop {

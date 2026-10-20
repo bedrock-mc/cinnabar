@@ -277,7 +277,7 @@ fn listing_revision_fence_and_service_promotion_retain_one_account_owner() {
         binding: cached.binding,
     };
     drop(operation);
-    assert!(listing.into_current_cards(&account).is_some());
+    assert!(matches!(listing.into_current_cards(&account), Ok(Some(_))));
 
     let mut operation = account.begin().unwrap();
     let lease = transaction("reacquire Realm fixture account", || {
@@ -305,7 +305,7 @@ fn listing_revision_fence_and_service_promotion_retain_one_account_owner() {
     assert_eq!(services.session_id(), session);
     drop(operation);
     assert!(
-        stale.into_current_cards(&account).is_none(),
+        matches!(stale.into_current_cards(&account), Ok(None)),
         "an earlier credential revision published its list"
     );
     assert_eq!(

@@ -1,6 +1,6 @@
 //! Profile presentation from the selected account's existing leased social owner.
 
-use super::*;
+use super::{read_identity::ReadIdentity, *};
 use bedrock_services::xbox::social::{PeopleList, ProfileDetail, User};
 
 mod achievements;
@@ -31,28 +31,15 @@ impl NativeProfile {
         }
     }
 
-    /// Rejects a retired or currently unverifiable selection immediately before menu publication.
-    /// The profile worker calls this off-frame; the short protected lease performs no authentication.
-    pub(crate) fn into_current(self) -> Option<bridge::Profile> {
-        let lease = self.account.store.try_native_lease().ok()?;
-        let state = self.account.state.try_lock().ok()?;
-        let cached = state.cached.as_ref()?;
-        (!state.busy
-            && cached.generation == self.generation
-            && lease.generation() == self.generation
-            && cached.binding == lease.binding()
-            && lease
-                .selected_id()
-                .is_none_or(|selected| selected == self.profile.xuid)
-            && self
-                .account
-                .selected_id
-                .as_deref()
-                .is_none_or(|selected| lease.selected_id() == Some(selected))
-            && cached.identity.as_ref().is_some_and(|identity| {
-                identity.current_credential && identity.xuid == self.profile.xuid
-            }))
-        .then_some(self.profile)
+    /// Retains the completed profile through temporary checkout, rejecting replacement identity.
+    /// The original profile worker owns cancellation while this protected read waits off-frame.
+    pub(crate) async fn into_current(self) -> Option<bridge::Profile> {
+        let identity = ReadIdentity {
+            account: self.account,
+            generation: self.generation,
+            xuid: self.profile.xuid.clone(),
+        };
+        identity.wait_current().await.then_some(self.profile)
     }
 }
 

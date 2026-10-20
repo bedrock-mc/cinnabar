@@ -108,11 +108,11 @@ impl Loaded {
     }
 
     /// Rechecks the original native generation after all artwork awaits before publishing.
-    pub(super) fn into_current(self) -> Result<Profile, ()> {
+    pub(super) async fn into_current(self) -> Result<Profile, ()> {
         #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
         match self {
             Self::Core(profile) => Ok(profile),
-            Self::Native(result) => result.into_current().ok_or(()),
+            Self::Native(result) => result.into_current().await.ok_or(()),
         }
         #[cfg(not(all(feature = "native-networking", not(target_arch = "wasm32"))))]
         {

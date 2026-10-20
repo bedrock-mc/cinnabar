@@ -116,6 +116,7 @@ fn actual_catalog_retirement_coalesces_refresh_and_rejects_stale_publication() {
         menu.native_catalog.request = Some(Request {
             epoch: menu.native_catalog.epoch,
             worker,
+            completed: None,
         });
         observed(&running, "the actual catalog read to be polled");
         menu.native_catalog.refresh();

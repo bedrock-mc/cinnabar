@@ -3,7 +3,8 @@
 use super::*;
 use launcher::menu::CATALOG_REFRESH_INTERVAL;
 use launcher_host::native_account::{
-    CatalogCards, CatalogWorker, NativeAccount, NativeFriendSelection, NativeFriendWorld,
+    CatalogCards, CatalogListing, CatalogWorker, NativeAccount, NativeFriendSelection,
+    NativeFriendWorld,
 };
 use std::{sync::Arc, time::Instant};
 
@@ -30,6 +31,8 @@ struct Selection {
 struct Request {
     epoch: u64,
     worker: CatalogWorker,
+    /// Keeps this read's original rows while the selected account is temporarily checked out.
+    completed: Option<CatalogListing>,
 }
 
 impl std::fmt::Debug for Controller {
@@ -260,24 +263,35 @@ impl MenuRuntime {
             self.friends.replace(Vec::new());
             self.feeds.selected_realm = None;
         }
-        if let Some(result) = self
-            .native_catalog
-            .request
-            .as_mut()
-            .and_then(|request| request.worker.poll())
-        {
-            let request = self
-                .native_catalog
-                .request
+        if let Some(mut request) = self.native_catalog.request.take() {
+            let result = request
+                .completed
                 .take()
-                .expect("completed request");
+                .map(Ok)
+                .or_else(|| request.worker.poll());
+            let Some(result) = result else {
+                self.native_catalog.request = Some(request);
+                return;
+            };
             let epoch = request.epoch;
+            let cards = if epoch == self.native_catalog.epoch {
+                match result {
+                    Ok(listing) => match listing.into_current_cards(&account) {
+                        Ok(cards) => cards,
+                        Err(listing) => {
+                            request.completed = Some(listing);
+                            self.native_catalog.request = Some(request);
+                            return;
+                        }
+                    },
+                    Err(_) => None,
+                }
+            } else {
+                None
+            };
             self.native_catalog.retire_worker(request.worker);
             if epoch == self.native_catalog.epoch {
-                match result
-                    .ok()
-                    .and_then(|listing| listing.into_current_cards(&account))
-                {
+                match cards {
                     Some(cards) => self.apply_native_catalog(cards),
                     None => self.catalog_message = Some(FAILURE_MESSAGE.into()),
                 }
@@ -299,6 +313,7 @@ impl MenuRuntime {
                     self.native_catalog.request = Some(Request {
                         epoch: self.native_catalog.epoch,
                         worker,
+                        completed: None,
                     })
                 }
                 Err(_) => {

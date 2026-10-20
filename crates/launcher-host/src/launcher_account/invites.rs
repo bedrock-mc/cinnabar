@@ -215,7 +215,7 @@ async fn people(
         changed,
     )
     .await?;
-    loaded.into_current()
+    wait(loaded.into_current(), shared, selected, changed).await?
 }
 
 /// Retains the pinned phase until completion, account retirement or terminal worker stop.

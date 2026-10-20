@@ -1,6 +1,7 @@
-//! Actual backend delivery/receipt state survives the directory wrapper's ready-result postcheck.
+//! Actual backend delivery/receipt state survives a contended directory ready-result postcheck.
 
 use super::*;
+use crate::native_account::Operation;
 use crate::native_account::hosted_world::serve::play::output::Output;
 use bridge::host_world::{
     ActiveBackendPeer, HostProcess, PendingHostProcess, Reader, Writer,
@@ -10,6 +11,7 @@ use bridge::host_world::{
     },
     split,
 };
+use std::{cell::RefCell, future::Future};
 use tokio::net::TcpStream;
 
 #[derive(Clone, Copy)]
@@ -19,16 +21,16 @@ enum Boundary {
 }
 
 #[tokio::test]
-async fn delivered_backend_output_resumes_after_the_real_service_postcheck_rejects() {
+async fn delivered_backend_output_resumes_after_the_real_account_checkout() {
     exercise(Boundary::Delivered).await;
 }
 
 #[tokio::test]
-async fn acknowledged_backend_output_is_not_replayed_after_the_real_service_postcheck_rejects() {
+async fn acknowledged_backend_output_is_not_replayed_after_the_real_account_checkout() {
     exercise(Boundary::Acknowledged).await;
 }
 
-/// Uses a real account reservation only after actual IO completed, so current rejects the ready result.
+/// Retains one actual completed effect while a real account checkout delays its authority postcheck.
 async fn exercise(boundary: Boundary) {
     tokio::time::timeout(ACQUISITION_TIMEOUT, async {
         let fixture = NativeHostFixture::new();
@@ -154,8 +156,8 @@ async fn exercise(boundary: Boundary) {
         let first = raw_packet(1);
         let second = raw_packet(2);
         let mut obligation = Output::default();
-        let mut reserved_account = None;
-        let mut postcheck_rejected = false;
+        let reserved_account = RefCell::new(None);
+        let mut postcheck_waited = false;
         let mut original_restored = true;
         let operation: io::Result<()> = async {
             for (index, packet) in [first.clone(), second.clone()].into_iter().enumerate() {
@@ -168,16 +170,17 @@ async fn exercise(boundary: Boundary) {
                     let packet = backend.recv().await?.ok_or_else(ended)?;
                     obligation.stage(&mut wire, packet, deadline)?;
                     if index == 0 && matches!(boundary, Boundary::Delivered) {
-                        reserved_account = Some(account.begin()?);
+                        *reserved_account.borrow_mut() = Some(account.begin()?);
                     }
                     Ok(())
-                }).await;
+                });
                 if index == 0 && matches!(boundary, Boundary::Delivered) {
-                    postcheck_rejected = delivered.is_err();
-                    drop(reserved_account.take());
+                    let (delivered, waited) = finish_after_checkout(delivered, &reserved_account).await;
+                    postcheck_waited = waited;
+                    delivered?;
                     original_restored &= host.recheck_approval(&approval).is_ok();
                 } else {
-                    delivered?;
+                    delivered.await?;
                 }
                 // This exact production owner resumes the already delivered packet, not backend.recv.
                 obligation.forward(&mut host, &approval, &mut wire).await?;
@@ -185,21 +188,22 @@ async fn exercise(boundary: Boundary) {
                     backend.received(deadline).await?;
                     obligation.acknowledged(&mut wire)?;
                     if index == 0 && matches!(boundary, Boundary::Acknowledged) {
-                        reserved_account = Some(account.begin()?);
+                        *reserved_account.borrow_mut() = Some(account.begin()?);
                     }
                     Ok(())
-                }).await;
+                });
                 if index == 0 && matches!(boundary, Boundary::Acknowledged) {
-                    postcheck_rejected = acknowledged.is_err();
-                    drop(reserved_account.take());
+                    let (acknowledged, waited) = finish_after_checkout(acknowledged, &reserved_account).await;
+                    postcheck_waited = waited;
+                    acknowledged?;
                     original_restored &= host.recheck_approval(&approval).is_ok();
                 } else {
-                    acknowledged?;
+                    acknowledged.await?;
                 }
             }
             Ok(())
         }.await;
-        drop(reserved_account.take());
+        drop(reserved_account.borrow_mut().take());
 
         // Observe the actual ordered stream through its marker even if an earlier operation failed.
         sender.send_before(Bytes::from_static(MARKER), deadline).await.unwrap();
@@ -291,8 +295,8 @@ async fn exercise(boundary: Boundary) {
         let cleanup_empty = fixture.manager.native_host_cleanup().unwrap().is_none();
         let world_running = !fixture.runner.last().stopped();
         assert!(operation.is_ok(), "actual retained backend output failed: {operation:?}");
-        assert!(postcheck_rejected && original_restored,
-            "actual ready-result postcheck was not rejected and restored through its original account owner");
+        assert!(postcheck_waited && original_restored,
+            "actual ready-result postcheck did not retain its result until the original account checkout ended");
         assert_eq!(packets, [first, second], "external output was lost, repeated or reordered");
         assert_eq!(receipts, [Bytes::copy_from_slice(&1_u64.to_be_bytes()), Bytes::copy_from_slice(&2_u64.to_be_bytes())],
             "backend receipt was lost, repeated or assigned to the wrong delivered packet");
@@ -300,6 +304,30 @@ async fn exercise(boundary: Boundary) {
             && reliable_drained && unreliable_drained && signaling_joined && revoked
             && cleanup_empty && world_running, "original owned cleanup did not finish");
     }).await.expect("finite original backend output control stalled");
+}
+
+/// Observes Pending only after the real effect checks out its account, then resumes that same future.
+async fn finish_after_checkout(
+    operation: impl Future<Output = io::Result<()>>,
+    reserved_account: &RefCell<Option<Operation>>,
+) -> (io::Result<()>, bool) {
+    tokio::pin!(operation);
+    let first = poll_fn(|cx| {
+        let result = operation.as_mut().poll(cx);
+        if result.is_ready() || reserved_account.borrow().is_some() {
+            Poll::Ready(result)
+        } else {
+            Poll::Pending
+        }
+    })
+    .await;
+    let waited = first.is_pending() && reserved_account.borrow().is_some();
+    drop(reserved_account.borrow_mut().take());
+    let result = match first {
+        Poll::Ready(result) => result,
+        Poll::Pending => operation.await,
+    };
+    (result, waited)
 }
 
 struct Backend {
