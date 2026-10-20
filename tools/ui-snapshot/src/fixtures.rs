@@ -25,6 +25,9 @@ pub struct State {
 
 /// Inputs borrowed by the same screen painters the client uses.
 pub enum Fixture {
+    /// A server form whose editable controls are locked during a session.
+    #[cfg(feature = "test-support")]
+    ControlLocked,
     /// An equipped original cosmetic rendered by the full production particle-preview path.
     #[cfg(feature = "test-support")]
     CosmeticParticles {
@@ -72,6 +75,13 @@ pub const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: || Fixture::FormOverlap,
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "form-control-locked",
+        size: [1280, 960],
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::ControlLocked,
     },
     #[cfg(feature = "test-support")]
     State {

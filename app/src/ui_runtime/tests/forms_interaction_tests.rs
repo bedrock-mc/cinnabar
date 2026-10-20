@@ -848,11 +848,13 @@ fn custom_form_toggle_and_input_edit_their_values() {
                         title: "T".into(),
                         elements: vec![
                             CustomFormElement::Toggle {
+                                control_locked: Default::default(),
                                 text: "On".into(),
                                 default: false,
                                 tooltip: None,
                             },
                             CustomFormElement::Input {
+                                control_locked: Default::default(),
                                 text: "Name".into(),
                                 placeholder: "".into(),
                                 default: Arc::from(""),

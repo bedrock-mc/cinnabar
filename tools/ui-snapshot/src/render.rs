@@ -2,6 +2,8 @@
 
 mod character;
 #[cfg(feature = "test-support")]
+mod control_locked;
+#[cfg(feature = "test-support")]
 mod cosmetic_particles;
 #[cfg(feature = "test-support")]
 mod crafting;
@@ -73,6 +75,10 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
 pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error> {
     let fixture = (state.fixture)();
     #[cfg(feature = "test-support")]
+    if matches!(&fixture, Fixture::ControlLocked) {
+        return control_locked::png(state, dir);
+    }
+    #[cfg(feature = "test-support")]
     if let Fixture::CosmeticParticles { view, emitting } = &fixture {
         return cosmetic_particles::png(state.size, *view, seconds, *emitting);
     }
@@ -89,6 +95,7 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
         Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
         | Fixture::FormOverlap
+        | Fixture::ControlLocked
         | Fixture::CosmeticParticles { .. } => false,
     };
     let mut carriers = carriers::load(dir, menu)?;
@@ -125,7 +132,7 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
     };
     match fixture {
         #[cfg(feature = "test-support")]
-        Fixture::CosmeticParticles { .. } | Fixture::FormOverlap => {
+        Fixture::CosmeticParticles { .. } | Fixture::FormOverlap | Fixture::ControlLocked => {
             unreachable!("specialized capture returned above")
         }
         #[cfg(feature = "test-support")]
