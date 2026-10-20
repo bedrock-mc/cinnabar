@@ -52,10 +52,18 @@ pub(crate) struct Connection {
     send_retirement: Option<SendRetirement>,
     send_sealed: bool,
     negotiation_skips: u64,
-    primary_only: bool,
+    ingress: Ingress,
     pub(super) identity: Option<crate::session_wire::SessionIdentity>,
     #[cfg(test)]
     observed_batches: Option<BatchLifetimes>,
+}
+
+/// Separates opaque accepting input from the packets consumed by upstream client owners.
+#[derive(Clone, Copy)]
+enum Ingress {
+    Raw,
+    Known,
+    Primary,
 }
 
 /// Weak observations of actual socket input allocations; never retains the bytes being measured.
@@ -105,6 +113,7 @@ impl Connection {
     pub(super) fn new(transport: Transport) -> Self {
         let mut connection = Self::with_limits(transport, BatchLimits::default());
         connection.incoming_decoded_limit = bridge::contract::MAX_UPSTREAM_DECOMPRESSED_BATCH_BYTES;
+        connection.ingress = Ingress::Known;
         connection
     }
 
@@ -123,7 +132,7 @@ impl Connection {
             send_retirement: None,
             send_sealed: false,
             negotiation_skips: 0,
-            primary_only: false,
+            ingress: Ingress::Raw,
             identity: None,
             #[cfg(test)]
             observed_batches: OBSERVE_BATCHES.try_with(std::sync::Arc::clone).ok(),
@@ -132,7 +141,7 @@ impl Connection {
 
     /// Admits only known primary-player input before any relay body is interpreted.
     pub(super) fn primary_only(&mut self) {
-        self.primary_only = true;
+        self.ingress = Ingress::Primary;
     }
 
     /// Instruments actual received batch ownership without replacing transport or codec behavior.
@@ -377,15 +386,16 @@ impl Connection {
     /// Filters only the actual FIFO front, keeping one lazy cursor behind every replayed prefix.
     fn pending_ready(&mut self) -> io::Result<bool> {
         while let Some(packet) = self.pending.front() {
-            if !self.primary_only {
-                return Ok(true);
-            }
+            let primary_only = match self.ingress {
+                Ingress::Raw => return Ok(true),
+                Ingress::Known => false,
+                Ingress::Primary => true,
+            };
             let mut reader = wire::Reader::from_shared(packet);
             let header =
                 wire::PacketHeader::from_raw(reader.read_var_u32().map_err(io::Error::other)?);
-            if header.sender_subclient == 0
-                && header.target_subclient == 0
-                && packets::PacketId::from_raw(header.id).is_some()
+            if packets::PacketId::from_raw(header.id).is_some()
+                && (!primary_only || (header.sender_subclient == 0 && header.target_subclient == 0))
             {
                 return Ok(true);
             }
@@ -396,7 +406,7 @@ impl Connection {
                 sender = header.sender_subclient,
                 target = header.target_subclient,
                 skipped = self.negotiation_skips,
-                "skipped unused native relay packet"
+                "skipped unused native packet"
             );
         }
         Ok(false)

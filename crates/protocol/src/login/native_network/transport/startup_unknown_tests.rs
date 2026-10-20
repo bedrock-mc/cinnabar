@@ -10,6 +10,8 @@ use bedrock_protocol_1_26_51::{enums::PlayStatusType, packets, types::ActorRunti
 use nethernet_tokio::AcceptedSession;
 use std::time::Duration;
 
+mod live;
+
 #[derive(Clone, Copy, Debug)]
 enum Case {
     Healthy,
