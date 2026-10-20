@@ -39,21 +39,23 @@ impl PixelType {
         }
     }
 
-    /// Component `bytes` as f64: normalized for 8/16-bit unsigned and signed types unless
+    /// Component `bytes` as f64: normalized for integer pixel types unless
     /// `integer`, raw otherwise.
     fn read(self, bytes: &[u8], integer: bool) -> f64 {
-        let norm = |v: f64, max: f64| if integer { v } else { v / max };
+        let norm = |v: f64, max: f64| if integer { v } else { (v / max).max(-1.0) };
         match self {
             PixelType::U8 => norm(f64::from(bytes[0]), 255.0),
             PixelType::I8 => norm(f64::from(bytes[0] as i8), 127.0),
             PixelType::U16 => norm(f64::from(u16::from_le_bytes([bytes[0], bytes[1]])), 65535.0),
             PixelType::I16 => norm(f64::from(i16::from_le_bytes([bytes[0], bytes[1]])), 32767.0),
-            PixelType::U32 => {
-                f64::from(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
-            }
-            PixelType::I32 => {
-                f64::from(i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
-            }
+            PixelType::U32 => norm(
+                f64::from(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])),
+                f64::from(u32::MAX),
+            ),
+            PixelType::I32 => norm(
+                f64::from(i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])),
+                f64::from(i32::MAX),
+            ),
             PixelType::F16 => f64::from(half_to_f32(u16::from_le_bytes([bytes[0], bytes[1]]))),
             PixelType::F32 => {
                 f64::from(f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
@@ -280,5 +282,34 @@ mod tests {
         .convert(&[51], TextureFormat::Rgba8Unorm)
         .unwrap();
         assert_eq!(bytes8, [51, 0, 0, 255]);
+    }
+    #[test]
+    fn raw_32_bit_components_normalize_for_noninteger_textures() {
+        for (pixel, bytes) in [
+            ("UNSIGNED_INT", 0x8000_0000_u32.to_le_bytes()),
+            ("INT", 0x4000_0000_i32.to_le_bytes()),
+        ] {
+            let raw =
+                RawSpec::parse(&spec(&["TEXTURE_2D", "RGBA8", "1", "1", "RED", pixel])).unwrap();
+            assert_eq!(
+                raw.convert(&bytes, TextureFormat::Rgba8Unorm).unwrap(),
+                [128, 0, 0, 255]
+            );
+        }
+        assert_eq!(
+            PixelType::U32.read(&u32::MAX.to_le_bytes(), true),
+            f64::from(u32::MAX)
+        );
+        assert_eq!(
+            PixelType::I32.read(&i32::MIN.to_le_bytes(), true),
+            f64::from(i32::MIN)
+        );
+    }
+
+    #[test]
+    fn signed_normalized_components_clamp_the_minimum_to_negative_one() {
+        assert_eq!(PixelType::I8.read(&i8::MIN.to_le_bytes(), false), -1.0);
+        assert_eq!(PixelType::I16.read(&i16::MIN.to_le_bytes(), false), -1.0);
+        assert_eq!(PixelType::I8.read(&i8::MIN.to_le_bytes(), true), -128.0);
     }
 }

@@ -12,7 +12,7 @@
 //! instance's light as Java lightmap coordinates, its dye as the vertex colour, and an
 //! explicit reversed back face for every two-sided triangle, so pack pipelines cull back
 //! faces as Java's entity render types do. Block-entity vertex lists go through a second
-//! entry point of the same kernel. Both stream into one per-view vertex buffer that every
+//! entry point of the same kernel. Both stream into device-sized pages that every
 //! actor draw (camera and shadow) reads; the geometry adapter's constant stream supplies
 //! the attributes actors do not carry, as it does for terrain.
 //!
@@ -34,9 +34,12 @@
 //! overlay. Lightning, block cracks and the selection outline are effects (`super::effects`).
 
 mod classify;
+pub(super) mod compatibility;
 mod frame;
 #[cfg(test)]
 mod gpu_tests;
+pub(super) mod layout;
+mod pages;
 mod skin;
 mod sources;
 #[cfg(test)]

@@ -55,7 +55,17 @@ fn fragment_colour(in: Varyings) -> @location(0) vec4<f32> {
     return mixed(colour_frames, in);
 }
 
+// LabPBR alpha 255 and 0 both mean no emission; interpolate their decoded strength.
+fn mixed_specular(in: Varyings) -> vec4<f32> {
+    let local = vec2<i32>(floor(in.position.xy)) - in.origin_mip.xy;
+    var current = textureLoad(specular_frames, in.sources.xy + local, in.origin_mip.z);
+    var next = textureLoad(specular_frames, in.sources.zw + local, in.origin_mip.z);
+    current.a = select(current.a, 0.0, current.a == 1.0);
+    next.a = select(next.a, 0.0, next.a == 1.0);
+    return mix(current, next, in.blend);
+}
+
 @fragment
 fn fragment_layers(in: Varyings) -> Layers {
-    return Layers(mixed(colour_frames, in), mixed(normal_frames, in), mixed(specular_frames, in));
+    return Layers(mixed(colour_frames, in), mixed(normal_frames, in), mixed_specular(in));
 }

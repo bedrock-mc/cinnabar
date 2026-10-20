@@ -2,7 +2,9 @@
 
 use super::labpbr::{NEUTRAL_NORMAL, NEUTRAL_SPECULAR, labpbr_normal, labpbr_specular};
 use super::pack::{PackedAtlas, SpriteRect};
-use super::plan::{AtlasInputs, AtlasPlan, AuthoredPbr, MISSING_SPRITE_SIDE, SpriteContent};
+use super::plan::{
+    AtlasInputs, AtlasPlan, AuthoredPbr, LayerLayout, MISSING_SPRITE_SIDE, SpriteContent,
+};
 use assets::TextureArray;
 
 /// Missing-sprite colours, alternating in quadrants.
@@ -71,26 +73,29 @@ pub(crate) struct AtlasImages {
     pub frames: Option<LayerImages>,
 }
 
-/// The upper-left `page_side >> grid` region of `layer` resampled to `side`², taken from the
-/// physical mip whose region is the smallest at least `side`; coarser targets box-filter it and
-/// a region smaller than `side` repeats texels. `None` when the layer's bytes are malformed.
+/// Extracts the sampled region at source LOD before removing physical page expansion.
+/// Malformed pages or absent layers return `None`.
 pub(crate) fn region_texels(
     texture: &TextureArray,
     layer: u32,
-    grid: u8,
+    layout: LayerLayout,
     side: u32,
 ) -> Option<Vec<u8>> {
-    let regions = texture.mips.iter().enumerate().filter_map(|(index, mip)| {
-        let region = mip.size.checked_shr(u32::from(grid)).unwrap_or(0);
-        (region > 0).then_some((index, region))
-    });
-    let (index, region) = regions
-        .clone()
-        .filter(|&(_, region)| region >= side)
-        .min_by_key(|&(_, region)| region)
-        .or_else(|| regions.max_by_key(|&(_, region)| region))
-        .unwrap_or((0, 1));
-    let mip = &texture.mips[index];
+    if layer >= texture.layers || side == 0 {
+        return None;
+    }
+    let source_lod = (layout.source_side.max(1) / side)
+        .checked_ilog2()
+        .unwrap_or(0);
+    let (mip, region) = texture
+        .mips
+        .iter()
+        .take(source_lod as usize + 1)
+        .filter_map(|mip| {
+            let region = mip.size.checked_shr(u32::from(layout.grid))?;
+            (region > 0).then_some((mip, region))
+        })
+        .next_back()?;
     let size = mip.size as usize;
     let layer_bytes = size.checked_mul(size)?.checked_mul(4)?;
     if mip.rgba8.len() != layer_bytes.checked_mul(texture.layers as usize)? {
@@ -158,14 +163,10 @@ pub(crate) fn color_texels(inputs: &AtlasInputs<'_>, content: SpriteContent, sid
     let SpriteContent::Layer { reference, opaque } = content else {
         return missing_texels(side);
     };
-    let Some(mut texels) = inputs.layer_page(reference).and_then(|page| {
-        region_texels(
-            page,
-            reference.layer(),
-            (inputs.layout)(reference).grid,
-            side,
-        )
-    }) else {
+    let Some(mut texels) = inputs
+        .layer_page(reference)
+        .and_then(|page| region_texels(page, reference.layer(), (inputs.layout)(reference), side))
+    else {
         return missing_texels(side);
     };
     if opaque {
@@ -201,7 +202,16 @@ pub(crate) fn pbr_texels(
     let layer = authored_ref & (assets::texture::PBR_REF_COLOR - 1);
     let convert =
         |pages: [&TextureArray; 2], map: fn([u8; 4], u32) -> [u8; 4], fallback: [u8; 4]| {
-            region_texels(pages[page], layer, 0, side).map_or_else(
+            region_texels(
+                pages[page],
+                layer,
+                LayerLayout {
+                    grid: 0,
+                    source_side: pages[page].mips.first().map_or(0, |mip| mip.size),
+                },
+                side,
+            )
+            .map_or_else(
                 || fallback.repeat((side * side) as usize),
                 |texels| {
                     texels
