@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 pub mod backdrop;
 mod collection;
+pub mod hud_card;
 mod paint_transform;
 pub mod preview;
 mod shadow;
@@ -436,6 +437,7 @@ fn node(
                         | "cinnabar_vector_path"
                         | "gradient_renderer"
                         | preview::RENDERER
+                        | hud_card::RENDERER
                 )
             })
     {
@@ -443,6 +445,9 @@ fn node(
     }
     if object.get("renderer").and_then(Value::as_str) == Some(backdrop::GLASS_RENDERER) {
         backdrop::validate_glass(object)?;
+    }
+    if object.get("renderer").and_then(Value::as_str) == Some(hud_card::RENDERER) {
+        hud_card::validate(object)?;
     }
     if object.get("renderer").and_then(Value::as_str) == Some(json_ui::rounded::RENDERER) {
         shadow::validate(object)?;

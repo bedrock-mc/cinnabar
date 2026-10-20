@@ -26,7 +26,7 @@ mod fill_renderers;
 mod filter;
 mod formatting_colors;
 mod fragment;
-pub use fragment::normalize_fragment;
+pub use fragment::{CachedFragment, CachedFragmentTextures, normalize_fragment};
 pub mod glass;
 pub mod host_edit;
 pub mod item_renderer;
@@ -505,6 +505,9 @@ pub type TextColor<'a> = &'a dyn Fn(&DrawNode) -> Option<char>;
 pub struct ScreenArt<'a> {
     /// Keeps this screen's sprites on the shared nearest sampler, including pack overrides.
     pub nearest_sampling: bool,
+    /// GUI offset into the source coordinate system used for physical-pixel snapping.
+    /// Cached artwork adds this before snapping each control and removes it afterward.
+    pub pixel_snap_offset: [f64; 2],
     /// Native replacements retain the pack's backdrop while omitting the replaced controls.
     pub omit_controls: &'a [&'a str],
     /// The interaction state gated nodes ([`json_ui::render_bound_gated`]) paint under.
@@ -615,20 +618,22 @@ impl Canvas<'_> {
     /// `rect` as logical bounds on whole physical pixels, where vanilla places
     /// an image ([`pixel_snap`]).
     fn snapped(&self, rect: &RectOut) -> [f32; 4] {
-        pixel_snap::snapped(
+        pixel_snap::translated(
             [rect.x, rect.y, rect.w, rect.h],
-            self.metrics.gui_scale,
+            self.art.pixel_snap_offset,
             self.px,
+            |rect| pixel_snap::snapped(rect, self.metrics.gui_scale, self.px),
         )
     }
 
     /// `rect` as logical bounds moved to a whole physical pixel, where vanilla
     /// places text ([`pixel_snap`]).
     fn positioned(&self, rect: &RectOut) -> [f32; 4] {
-        pixel_snap::positioned(
+        pixel_snap::translated(
             [rect.x, rect.y, rect.w, rect.h],
-            self.metrics.gui_scale,
+            self.art.pixel_snap_offset,
             self.px,
+            |rect| pixel_snap::positioned(rect, self.metrics.gui_scale, self.px),
         )
     }
 
@@ -791,12 +796,19 @@ impl Canvas<'_> {
             self.logical(&drawn.clip)
         };
         let dest = if let Draw::Text { options, .. } = &node.draw {
-            text_paint::label_positioned(
+            pixel_snap::translated(
                 [drawn.dest.x, drawn.dest.y, drawn.dest.w, drawn.dest.h],
-                self.font,
-                options,
-                self.metrics.gui_scale,
+                self.art.pixel_snap_offset,
                 self.px,
+                |rect| {
+                    text_paint::label_positioned(
+                        rect,
+                        self.font,
+                        options,
+                        self.metrics.gui_scale,
+                        self.px,
+                    )
+                },
             )
         } else {
             self.snapped(&drawn.dest)

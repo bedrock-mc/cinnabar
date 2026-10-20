@@ -161,7 +161,8 @@ impl UiPresentationRuntime {
         else {
             return;
         };
-        let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &|_| None);
+        let translate = |key: &str| runtime.translation(key);
+        let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &translate);
         self.screens
             .mod_ui
             .paint_mod_widgets(self.engine.as_deref(), &mut paint, &resolved);
@@ -177,6 +178,7 @@ impl UiPresentationRuntime {
         metrics: TextMetrics,
         content: [f32; 2],
     ) {
+        let translate = |key: &str| runtime.translation(key);
         if self.screens.mod_ui.mod_hud_editor_painting() {
             let Some(resolved) = self
                 .screens
@@ -185,12 +187,24 @@ impl UiPresentationRuntime {
             else {
                 return;
             };
-            let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &|_| None);
+            let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &translate);
             self.screens
                 .mod_ui
                 .paint_mod_hud_editor(self.engine.as_deref(), &mut paint, &resolved);
             return;
         }
+        let session_icons = &self.session_icons;
+        let icon_catalog = self.icon_catalog.as_deref();
+        let icon_refs = self.icon_refs.as_deref();
+        let icon = |id: &str, metadata| {
+            super::super::session_icons::lookup_icon(
+                session_icons,
+                icon_catalog,
+                icon_refs,
+                id,
+                metadata,
+            )
+        };
         let Some(engine) = self.engine.as_deref() else {
             return;
         };
@@ -201,10 +215,12 @@ impl UiPresentationRuntime {
             &self.font,
         );
         if self.control_previews.is_empty() {
-            let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &|_| None);
-            self.screens
-                .mod_ui
-                .paint_mod_panel(self.engine.as_deref(), &mut paint);
+            let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &translate);
+            self.screens.mod_ui.paint_mod_panel_with_icons(
+                self.engine.as_deref(),
+                &mut paint,
+                &icon,
+            );
             return;
         }
         let native_paint = super::super::hud_layout::capture_hud_paint(
@@ -228,7 +244,6 @@ impl UiPresentationRuntime {
             view: Some(&preview_view),
             ..Default::default()
         };
-        let translate = |key: &str| runtime.translation(key);
         let mut renderers: [&mut dyn ui_engine::engine::screen::CustomRenderer; 3] =
             [&mut hud_renderer, &mut item_renderer, &mut player_renderer];
         let mut preview_frame = PaintFrame {
@@ -259,7 +274,7 @@ impl UiPresentationRuntime {
         let mut paint = preview_frame.with_renderers(&mut panel_renderers);
         self.screens
             .mod_ui
-            .paint_mod_panel(self.engine.as_deref(), &mut paint);
+            .paint_mod_panel_with_icons(self.engine.as_deref(), &mut paint, &icon);
     }
 
     /// Draws the client part's modal over the gameplay scenes; trusted chrome draws after it.

@@ -65,6 +65,8 @@ fn persistent_blocks_and_icons_preserve_compiled_output_and_skip_work() {
                 }),
                 player_interact: false,
                 state_physics: Default::default(),
+                state_mining: Default::default(),
+                mining: Default::default(),
                 state_physics_complete: false,
             })
             .collect(),
