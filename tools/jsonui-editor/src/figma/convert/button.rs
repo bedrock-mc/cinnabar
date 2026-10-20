@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use serde_json::json;
 
 use super::names::{identifier, parse, with_words};
-use super::{Body, Ctx, Place, Scope, entry, panel, type_of};
+use super::{Body, Ctx, Natural, Place, Scope, entry, panel, type_of};
 use crate::figma::{Constraint, Constraints, Node, Positioning};
 
 /// The variant property a component set's button states vary.
@@ -115,8 +115,8 @@ pub(super) fn state_frame(node: &Node) -> Option<(Node, Vec<&'static str>)> {
 /// Wraps `content` as a button pressed as `button.<id>`. With a `default`
 /// among `states`, each names a descendant control the button switches;
 /// otherwise the content sits outside any state control and always shows.
-/// Content sized to itself on a `hug` axis keeps that size inside the button.
-pub(super) fn button(content: Body, id: &str, states: &[&'static str], hug: [bool; 2]) -> Body {
+/// Content sized to itself on a `natural` axis keeps that size inside the button.
+pub(super) fn button(content: Body, id: &str, states: &[&'static str], natural: &Natural) -> Body {
     let states = if states.contains(&"default") {
         states
     } else {
@@ -126,7 +126,9 @@ pub(super) fn button(content: Body, id: &str, states: &[&'static str], hug: [boo
         content
     } else {
         let mut inner = content;
-        let size = hug.map(|hug| if hug { "default" } else { "100%" });
+        let size = natural
+            .clone()
+            .map(|natural| natural.unwrap_or_else(|| json!("100%")));
         inner.insert("size".into(), json!(size));
         panel(vec![entry("content", inner)])
     };

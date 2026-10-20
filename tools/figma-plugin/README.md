@@ -25,7 +25,9 @@ manifest…** and choose `tools/figma-plugin/manifest.json`. Run it from
 **Plugins → Development → Figma to JSON-UI**, then select a frame.
 
 The window shows the preview, every warning (click a layer name to select it)
-and the generated JSON. **Export pack** downloads a `.mcpack` or `.zip`;
+and the generated JSON. Selecting layers inside the converted frame keeps it as
+the screen; select another frame, or use **Convert selection** to convert the
+selected layer itself. **Export pack** downloads a `.mcpack` or `.zip`;
 re-exporting the same frame keeps its UUIDs and bumps the version.
 
 ## What converts

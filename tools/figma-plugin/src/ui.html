@@ -21,7 +21,8 @@
     padding: 8px 12px;
     border-bottom: 1px solid var(--figma-color-border, #e5e5e5);
   }
-  header p { margin: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header p { margin: 0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  label { white-space: nowrap; }
   select, button {
     font: inherit;
     color: inherit;
@@ -32,7 +33,7 @@
   }
   button.primary { background: var(--figma-color-bg-brand, #0d99ff); color: var(--figma-color-text-onbrand, #fff); border: 0; }
   button:disabled { opacity: 0.5; }
-  main { display: grid; grid-template-columns: 1fr 320px; min-height: 0; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; min-height: 0; }
   #stage { display: grid; place-items: center; padding: 12px; background: #1e1e1e; min-height: 0; overflow: hidden; }
   #preview { max-width: 100%; max-height: 100%; image-rendering: pixelated; }
   aside { display: grid; grid-template-rows: auto 1fr auto 1fr; min-height: 0; border-left: 1px solid var(--figma-color-border, #e5e5e5); }
@@ -48,7 +49,8 @@
 <header>
   <p id="status">Loading the converter…</p>
   <label>Scale <select id="scale"><option>1</option><option selected>2</option><option>3</option><option>4</option></select></label>
-  <button id="refresh">Refresh</button>
+  <button id="refresh" title="Convert the same frame again">Refresh</button>
+  <button id="adopt" title="Convert the selected layer as the screen">Convert selection</button>
   <select id="format"><option value="mcpack">.mcpack</option><option value="zip">.zip</option></select>
   <button id="export" class="primary" disabled>Export pack</button>
 </header>

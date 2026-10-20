@@ -8,6 +8,7 @@ type Directives = { raster: string; button: string };
 type Message =
   | { type: 'ready'; directives: Directives }
   | { type: 'convert' }
+  | { type: 'convert-selection' }
   | { type: 'select'; id: string }
   | { type: 'save-pack'; id: string; pack: unknown };
 
@@ -16,6 +17,8 @@ const PACK_KEY = 'jsonui-pack';
 
 // The converter's layer-name tokens, sent by the UI once it has loaded.
 let directives: Directives | null = null;
+// The frame being converted. Selecting inside it, as warning links do, keeps it.
+let rootId: string | null = null;
 // Bumped per serialization so a stale result never replaces a newer one.
 let generation = 0;
 
@@ -25,10 +28,13 @@ figma.ui.onmessage = async (message: Message) => {
   switch (message.type) {
     case 'ready':
       directives = message.directives;
-      await send();
+      await adopt(true);
       break;
     case 'convert':
       await send();
+      break;
+    case 'convert-selection':
+      await adopt(true);
       break;
     case 'select': {
       const node = await figma.getNodeByIdAsync(message.id);
@@ -46,17 +52,40 @@ figma.ui.onmessage = async (message: Message) => {
   }
 };
 
-figma.on('selectionchange', () => void send());
+figma.on('selectionchange', () => void adopt(false));
 
-async function send(): Promise<void> {
-  if (directives === null) return;
-  const run = ++generation;
+// Makes the single selected layer the conversion root and converts it. Unless
+// `force`d, a selection inside the current root leaves the root as it is.
+async function adopt(force: boolean): Promise<void> {
   const selection = figma.currentPage.selection;
   if (selection.length !== 1) {
+    if (rootId === null) figma.ui.postMessage({ type: 'empty', message: 'Select one frame to convert.' });
+    return;
+  }
+  const [node] = selection;
+  if (!force && rootId !== null && within(node, rootId)) return;
+  rootId = node.id;
+  await send();
+}
+
+// Whether `node` is the layer `id` or inside it.
+function within(node: BaseNode, id: string): boolean {
+  for (let current: BaseNode | null = node; current; current = current.parent) {
+    if (current.id === id) return true;
+  }
+  return false;
+}
+
+// Serializes the conversion root for the UI.
+async function send(): Promise<void> {
+  if (directives === null || rootId === null) return;
+  const run = ++generation;
+  const root = await figma.getNodeByIdAsync(rootId);
+  if (!root || root.type === 'DOCUMENT' || root.type === 'PAGE') {
+    rootId = null;
     figma.ui.postMessage({ type: 'empty', message: 'Select one frame to convert.' });
     return;
   }
-  const root = selection[0];
   const images: Images = {};
   try {
     const document = await serialize(root, root.absoluteTransform, images);

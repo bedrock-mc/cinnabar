@@ -7,7 +7,7 @@ use std::io::Cursor;
 use serde_json::{Map, Value, json};
 
 use super::names::{self, Directives, NameSet};
-use super::place::{Place, anchor, number, place_control, stretch};
+use super::place::{Natural, Place, anchor, number, place_control, stretch};
 use super::{Align, AutoLayout, Conversion, LayoutMode, Node, Paint, Positioning, Sizing, Warning};
 use crate::mock::MockData;
 
@@ -155,13 +155,13 @@ impl Ctx<'_> {
         if node.raster.is_some() {
             opacity = 1.0;
         }
-        let (mut body, auto, extent) = match variants {
+        let (mut body, natural, extent) = match variants {
             Some((panel, found, extent)) => {
                 states = found;
                 if node.kind == "INSTANCE" {
                     opacity = 1.0;
                 }
-                (panel, [false; 2], extent)
+                (panel, [None, None], extent)
             }
             None => {
                 self.check_common(node, &path);
@@ -177,8 +177,8 @@ impl Ctx<'_> {
                     }
                     None => node,
                 };
-                let (body, auto) = self.content(source, &path, &directives, scope, &inner)?;
-                (body, auto, [node.width, node.height])
+                let (body, natural) = self.content(source, &path, &directives, scope, &inner)?;
+                (body, natural, [node.width, node.height])
             }
         };
         if directives.image && node.raster.is_none() {
@@ -190,7 +190,7 @@ impl Ctx<'_> {
         }
         let name = names::identifier(&directives.words, &node.kind.to_ascii_lowercase());
         if let Some(id) = &directives.button {
-            body = button(body, id.as_deref().unwrap_or(&name), &states, auto);
+            body = button(body, id.as_deref().unwrap_or(&name), &states, &natural);
         }
         if !node.visible {
             body.insert("visible".into(), false.into());
@@ -207,13 +207,13 @@ impl Ctx<'_> {
                 body.insert("propagate_alpha".into(), true.into());
             }
         }
-        place_control(&mut body, node, extent, auto, place);
+        place_control(&mut body, node, extent, &natural, place);
         // A button wrapped around content sized to itself hugs that content.
         if directives.button.is_some()
             && let Some(Value::Array(size)) = body.get_mut("size")
         {
-            for (axis, value) in size.iter_mut().enumerate() {
-                if auto[axis] && *value == "default" {
+            for (value, natural) in size.iter_mut().zip(&natural) {
+                if natural.as_ref() == Some(value) {
                     *value = "100%c".into();
                 }
             }
@@ -221,7 +221,7 @@ impl Ctx<'_> {
         Some((name, body))
     }
 
-    /// `node`'s own control before placement, and which axes size to content.
+    /// `node`'s own control before placement, and how its axes size to content.
     fn content(
         &mut self,
         node: &Node,
@@ -229,13 +229,19 @@ impl Ctx<'_> {
         directives: &Directives,
         scope: &Scope,
         inner: &Scope,
-    ) -> Option<(Body, [bool; 2])> {
+    ) -> Option<(Body, Natural)> {
         Some(match (node.raster.as_deref(), node.kind.as_str()) {
-            (Some(key), _) => (self.raster(node, key, path, directives, scope)?, [false; 2]),
-            (None, "TEXT") => self.text(node, path, directives, scope)?,
-            (None, "RECTANGLE") => (self.rectangle(node, path, directives, scope), [false; 2]),
+            (Some(key), _) => (
+                self.raster(node, key, path, directives, scope)?,
+                [None, None],
+            ),
+            (None, "TEXT") => {
+                let (body, auto) = self.text(node, path, directives, scope)?;
+                (body, auto.map(|auto| auto.then(|| json!("default"))))
+            }
+            (None, "RECTANGLE") => (self.rectangle(node, path, directives, scope), [None, None]),
             (None, kind) if CONTAINERS.contains(&kind) => {
-                (self.container(node, path, directives, inner), [false; 2])
+                self.container(node, path, directives, inner)
             }
             (None, kind) => {
                 let message = format!(
@@ -494,7 +500,7 @@ impl Ctx<'_> {
         path: &str,
         directives: &Directives,
         scope: &Scope,
-    ) -> Body {
+    ) -> (Body, Natural) {
         if directives.binding.is_some() {
             self.warn(node, path, "`$binding` binds a text or image layer");
         }
@@ -510,7 +516,7 @@ impl Ctx<'_> {
                 entry(&names.unique("background"), fill)
             })
             .collect();
-        let mut body = match &node.layout {
+        let (mut body, natural) = match &node.layout {
             Some(layout) if layout.mode != LayoutMode::Other => {
                 let factory = directives.factory.as_deref();
                 self.auto_layout(node, layout, path, factory, scope, (names, controls))
@@ -532,13 +538,13 @@ impl Ctx<'_> {
                         controls.push(entry(&names.unique(&name), body));
                     }
                 }
-                panel(controls)
+                (panel(controls), [None, None])
             }
         };
         if node.clips_content {
             body.insert("clips_children".into(), true.into());
         }
-        body
+        (body, natural)
     }
 
     /// A stack panel, wrapped in a panel when backgrounds, padding, primary-axis
@@ -551,7 +557,7 @@ impl Ctx<'_> {
         factory: Option<&str>,
         scope: &Scope,
         (mut names, mut outer): (NameSet, Vec<Value>),
-    ) -> Body {
+    ) -> (Body, Natural) {
         let main = usize::from(layout.mode != LayoutMode::Horizontal);
         let cross = 1 - main;
         if layout.wrap {
@@ -657,8 +663,13 @@ impl Ctx<'_> {
         let [left, top, right, bottom] = layout.padding;
         let (start, end) = ([left, top], [right, bottom]);
         let padded = layout.padding.iter().any(|pad| *pad != 0.0);
+        // A hugging axis sizes to the stacked items: their sum along it, the
+        // largest across it.
+        let hug = |axis: usize| node.sizing[axis] == Sizing::Hug;
+        let content = |axis: usize| json!(if axis == main { "100%c" } else { "100%cm" });
         if outer.is_empty() && !padded && primary == Align::Min && absolute.is_empty() {
-            return stack;
+            let natural = std::array::from_fn(|axis| hug(axis).then(|| content(axis)));
+            return (stack, natural);
         }
         let mut size = [Value::Null, Value::Null];
         let mut offset = [Value::Null, Value::Null];
@@ -670,6 +681,16 @@ impl Ctx<'_> {
             Align::Max => (2, number(-end[main]), json!("100%c")),
             _ => (0, number(start[main]), stretch(start[main] + end[main])),
         };
+        // A hugging wrapper is its stack plus padding.
+        let mut natural: Natural = [None, None];
+        for axis in (0..2).filter(|axis| hug(*axis)) {
+            size[axis] = content(axis);
+            let padding = start[axis] + end[axis];
+            natural[axis] = Some(match number(padding) {
+                Value::Number(n) if n.as_f64() == Some(0.0) => json!("100%cm"),
+                padding => json!(format!("100%cm + {padding}px")),
+            });
+        }
         stack.insert("size".into(), json!(size));
         stack.insert("offset".into(), json!(offset));
         anchor(&mut stack, parts);
@@ -703,7 +724,7 @@ impl Ctx<'_> {
         }
         outer.push(entry(&names.unique("content"), stack));
         outer.extend(after);
-        panel(outer)
+        (panel(outer), natural)
     }
 
     /// Binds `property` (`text`, `texture` or `visible`) to `binding`, sampling

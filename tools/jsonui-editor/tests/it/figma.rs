@@ -1050,3 +1050,44 @@ fn evaluator_prefixed_text_stays_literal() {
         frame.diagnostics
     );
 }
+
+// Hugging auto-layout frames grow with wrapping text, padded or not, and the
+// items after them move down.
+#[test]
+fn hugging_frames_grow_with_their_content() {
+    let words = "aaaaaaaa bbbbbbbb cccccccc";
+    let body = |id: &str, width: f64| {
+        json!({
+            "id": id, "name": "Body", "type": "TEXT", "width": width, "height": 9, "sizing": ["FILL", "HUG"],
+            "fills": [{ "type": "SOLID", "color": [1, 1, 1] }],
+            "text": { "characters": words, "font_family": "Minecraft", "auto_resize": "HEIGHT" }
+        })
+    };
+    let node: Node = serde_json::from_value(json!({
+        "id": "25:1", "name": "Hug Frames", "type": "FRAME", "width": 200, "height": 100,
+        "layout": { "mode": "VERTICAL" },
+        "children": [
+            { "id": "25:2", "name": "Card", "type": "FRAME", "width": 200, "height": 9, "sizing": ["FILL", "HUG"],
+              "layout": { "mode": "VERTICAL" }, "children": [body("25:3", 200.0)] },
+            { "id": "25:4", "name": "Next", "type": "FRAME", "y": 9, "width": 200, "height": 10 },
+            { "id": "25:5", "name": "Padded", "type": "FRAME", "y": 19, "width": 200, "height": 15, "sizing": ["FILL", "HUG"],
+              "fills": [{ "type": "SOLID", "color": [0, 0, 0] }],
+              "layout": { "mode": "VERTICAL", "padding": [2, 3, 2, 3] }, "children": [body("25:6", 196.0)] },
+            { "id": "25:7", "name": "Last", "type": "FRAME", "y": 34, "width": 200, "height": 10 }
+        ]
+    }))
+    .unwrap();
+    let conversion = figma::convert(&node, &BTreeMap::new());
+    assert!(conversion.warnings.is_empty(), "{:?}", conversion.warnings);
+    let (mut session, mut view, frame) = laid_out(&conversion, 1);
+    assert_eq!(rect(&frame, "card"), [0.0, 0.0, 200.0, 9.0]);
+    assert_eq!(rect(&frame, "padded"), [0.0, 19.0, 200.0, 15.0]);
+    assert_eq!(rect(&frame, "last")[1], 34.0);
+    // At half the width the text wraps onto two lines.
+    view.size = [100, 100];
+    let frame = session.frame(&view);
+    assert_eq!(rect(&frame, "card"), [0.0, 0.0, 100.0, 18.0]);
+    assert_eq!(rect(&frame, "next")[1], 18.0);
+    assert_eq!(rect(&frame, "padded"), [0.0, 28.0, 100.0, 24.0]);
+    assert_eq!(rect(&frame, "last")[1], 52.0);
+}

@@ -29,13 +29,17 @@ pub(super) enum Place {
     },
 }
 
+/// Per axis, the size rule of a control that sizes to its content (a label's
+/// `default`, a hugging frame's `100%c`), or `None` for its design extent.
+pub(super) type Natural = [Option<Value>; 2];
+
 /// Sets `size`, `offset` and anchors for `place` of a control `extent` in
-/// size. `auto` axes size to content.
+/// size, `natural` axes sizing to content.
 pub(super) fn place_control(
     body: &mut Body,
     node: &Node,
     extent: [f64; 2],
-    auto: [bool; 2],
+    natural: &Natural,
     place: Place,
 ) {
     match place {
@@ -54,7 +58,7 @@ pub(super) fn place_control(
                     position[axis],
                     extent[axis],
                     parent[axis],
-                    auto[axis],
+                    natural[axis].clone(),
                 );
             }
             body.insert("size".into(), json!(size));
@@ -69,8 +73,9 @@ pub(super) fn place_control(
             let size: [Value; 2] = std::array::from_fn(|axis| match node.sizing[axis] {
                 Sizing::Fill if axis == main => json!("fill"),
                 Sizing::Fill => json!("100%"),
-                _ if auto[axis] => json!("default"),
-                _ => number(extent[axis]),
+                _ => natural[axis]
+                    .clone()
+                    .unwrap_or_else(|| number(extent[axis])),
             });
             body.insert("size".into(), json!(size));
             if anchored {
@@ -93,13 +98,9 @@ fn free_axis(
     position: f64,
     length: f64,
     parent: f64,
-    auto: bool,
+    natural: Option<Value>,
 ) -> (usize, Value, Value) {
-    let size = if auto {
-        json!("default")
-    } else {
-        number(length)
-    };
+    let size = natural.unwrap_or_else(|| number(length));
     match constraint {
         Constraint::Max => (2, number(position + length - parent), size),
         Constraint::Center => (1, number(position + length / 2.0 - parent / 2.0), size),

@@ -55,6 +55,7 @@ async function main(): Promise<void> {
   };
   scale.onchange = () => post({ type: 'convert' });
   element<HTMLButtonElement>('refresh').onclick = () => post({ type: 'convert' });
+  element<HTMLButtonElement>('adopt').onclick = () => post({ type: 'convert-selection' });
   exportButton.onclick = () => exportPack(editor);
   post({ type: 'ready', directives: JSON.parse(editor.figma_directives()) });
 }
