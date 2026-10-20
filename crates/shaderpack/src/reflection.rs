@@ -6,7 +6,8 @@
 //! - group 0, binding 0: the program's loose uniforms as one std140 block ([`UniformBlock`]);
 //!   further pack-declared uniform blocks follow from binding 1.
 //! - group 1: binding 0 is the shared filtering sampler, binding 1 the shared comparison
-//!   sampler; sampled textures start at binding 2, numbered per program by first declaration.
+//!   sampler, bindings 2–4 the other [`SamplerClass`]es; sampled textures start at binding 5,
+//!   numbered per program by first declaration.
 //! - group 2: storage images from binding 0.
 //! - group 3: storage buffers at the pack's own `binding`.
 
@@ -24,7 +25,7 @@ pub const SAMPLER_BINDING: u32 = 0;
 /// Binding of the shared depth-comparison sampler in [`TEXTURE_GROUP`].
 pub const SHADOW_SAMPLER_BINDING: u32 = 1;
 /// First sampled-texture binding in [`TEXTURE_GROUP`].
-pub const FIRST_TEXTURE_BINDING: u32 = 2;
+pub const FIRST_TEXTURE_BINDING: u32 = 5;
 /// Group of storage images.
 pub const IMAGE_GROUP: u32 = 2;
 /// Group of storage buffers.
@@ -35,6 +36,84 @@ pub const LOOSE_UNIFORM_BLOCK: &str = "IrisUniforms";
 pub const SAMPLER_NAME: &str = "iris_sampler";
 /// Name of the shared comparison sampler in translated GLSL.
 pub const SHADOW_SAMPLER_NAME: &str = "iris_samplerShadow";
+
+/// Declares sampler classes, their binding order and GLSL names together.
+macro_rules! sampler_classes {
+    ($($(#[$doc:meta])* $class:ident => ($binding:expr, $name:expr)),+ $(,)?) => {
+        /// Filtering and addressing settings used by a sampled texture.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        pub enum SamplerClass { $($(#[$doc])* $class),+ }
+
+        impl SamplerClass {
+            /// Every class, in binding order.
+            pub const ALL: [Self; [$(stringify!($class)),+].len()] = [$(Self::$class),+];
+
+            /// Binding in the texture group.
+            pub const fn binding(self) -> u32 {
+                match self { $(Self::$class => $binding),+ }
+            }
+
+            /// Name in translated GLSL.
+            pub const fn glsl_name(self) -> &'static str {
+                match self { $(Self::$class => $name),+ }
+            }
+        }
+    };
+}
+
+sampler_classes! {
+    /// Repeat, linear: noise textures and names without a rule.
+    RepeatLinear => (SAMPLER_BINDING, SAMPLER_NAME),
+    /// Clamp to edge, linear: colour and shadow targets.
+    ClampLinear => (2, "iris_samplerClampLinear"),
+    /// Clamp to edge, nearest: depth textures.
+    ClampNearest => (3, "iris_samplerClampNearest"),
+    /// Repeat, nearest: the block atlas and its PBR companions.
+    RepeatNearest => (4, "iris_samplerRepeatNearest"),
+}
+
+impl SamplerClass {
+    /// The class bound at `binding` of [`TEXTURE_GROUP`].
+    pub fn from_binding(binding: u32) -> Option<SamplerClass> {
+        Self::ALL.into_iter().find(|c| c.binding() == binding)
+    }
+
+    /// From `.mcmeta` texture settings.
+    pub const fn from_filtering(blur: bool, clamp: bool) -> SamplerClass {
+        match (blur, clamp) {
+            (true, true) => SamplerClass::ClampLinear,
+            (true, false) => SamplerClass::RepeatLinear,
+            (false, true) => SamplerClass::ClampNearest,
+            (false, false) => SamplerClass::RepeatNearest,
+        }
+    }
+
+    /// Edges clamp rather than repeat.
+    pub const fn clamps(self) -> bool {
+        matches!(self, SamplerClass::ClampLinear | SamplerClass::ClampNearest)
+    }
+
+    /// Filters linearly (including between mip levels) rather than taking the nearest texel.
+    pub const fn linear(self) -> bool {
+        matches!(self, SamplerClass::RepeatLinear | SamplerClass::ClampLinear)
+    }
+
+    /// The class of a built-in sampler name: depth textures are nearest, colour and shadow
+    /// targets linear, both clamped; the atlas repeats without filtering; everything else
+    /// (`noisetex`, unknown names) is the shared repeat/linear sampler. Custom textures
+    /// override this per program stage.
+    pub fn for_name(name: &str) -> SamplerClass {
+        match name {
+            "depthtex0" | "depthtex1" | "depthtex2" | "gdepthtex" => SamplerClass::ClampNearest,
+            "shadow" | "watershadow" | "shadowtex0" | "shadowtex1" | "lightmap" => {
+                SamplerClass::ClampLinear
+            }
+            "gtexture" | "texture" | "tex" | "normals" | "specular" => SamplerClass::RepeatNearest,
+            _ if crate::buffers::BufferId::parse(name).is_some() => SamplerClass::ClampLinear,
+            _ => SamplerClass::RepeatLinear,
+        }
+    }
+}
 
 /// Fixed-function state of the compatibility profile, supplied as members of the loose
 /// uniform block: (GLSL built-in, block member name, member declaration).
@@ -188,10 +267,6 @@ pub struct StageMask {
 }
 
 impl StageMask {
-    #[allow(
-        dead_code,
-        reason = "wired into ShaderPack::translate later in the translator stack"
-    )]
     /// Marks a stage as using the reflected resource.
     pub(crate) fn add(&mut self, stage: StageKind) {
         match stage {
@@ -261,7 +336,7 @@ pub struct TextureBinding {
     pub stages: StageMask,
 }
 
-/// One of the two shared samplers.
+/// One of the shared samplers: a [`SamplerClass`] or the comparison sampler.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SamplerBinding {
     pub name: String,
@@ -269,6 +344,17 @@ pub struct SamplerBinding {
     pub binding: u32,
     pub comparison: bool,
     pub stages: StageMask,
+}
+
+impl SamplerBinding {
+    /// The filtering class, `None` for the comparison sampler.
+    pub fn class(&self) -> Option<SamplerClass> {
+        if self.comparison {
+            None
+        } else {
+            SamplerClass::from_binding(self.binding)
+        }
+    }
 }
 
 /// A storage image (`image2D`, `uimage3D` …).
@@ -281,6 +367,8 @@ pub struct StorageImageBinding {
     pub format: naga::StorageFormat,
     pub read: bool,
     pub write: bool,
+    /// Used with `imageAtomic*`: bind with atomic storage access.
+    pub atomic: bool,
     pub stages: StageMask,
 }
 

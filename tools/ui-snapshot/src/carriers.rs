@@ -126,6 +126,7 @@ pub fn load(dir: &Path, menu: bool) -> Result<Carriers, Error> {
         .pages()
         .iter()
         .map(|page| Page {
+            repeat_content: None,
             width: page.width,
             height: page.height,
             rgba: (0..page.width as usize * page.height as usize)
@@ -137,6 +138,7 @@ pub fn load(dir: &Path, menu: bool) -> Result<Carriers, Error> {
     pages.push(Page::white());
     let ui_page = pages.len() as u16;
     pages.extend(ui.atlas_pages().iter().map(|page| Page {
+        repeat_content: None,
         width: page.width,
         height: page.height,
         rgba: Arc::clone(&page.rgba8),

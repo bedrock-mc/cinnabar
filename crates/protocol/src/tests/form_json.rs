@@ -85,3 +85,53 @@ fn form_json_keeps_structured_text_limits_separate_from_container_parsing() {
     ));
     assert!(matches!(event.model, ServerFormModel::TextMenu(_)));
 }
+
+#[test]
+fn form_json_accepts_line_and_block_comments_without_changing_wire_text() {
+    for json in [
+        r#"/* before */ {"type":"form",/* note */"buttons":[{"text":"OK"}]} /* after */"#,
+        "// before\n{\"type\":// family\r\n\"form\",\"buttons\":[// button\n{\"text\":\"OK\"}/* end */]}// eof",
+    ] {
+        let event = form(json);
+        assert_eq!(event.json.as_ref(), json);
+        let ServerFormModel::TextMenu(menu) = event.model else {
+            panic!("commented menu");
+        };
+        assert_eq!(menu.buttons[0].as_ref(), "OK");
+    }
+}
+
+#[test]
+fn form_json_comments_preserve_strings_and_do_not_enable_json5() {
+    let text = r#"https://example.invalid/\"/* literal */ // path"#;
+    let json = format!(
+        r#"{{"type":"form",/* comment */"title":{},"buttons":[]}}"#,
+        serde_json::to_string(text).unwrap()
+    );
+    let event = form(&json);
+    assert_eq!(event.title.as_deref(), Some(text));
+    for malformed in [
+        r#"{"type":"form",/* unfinished"#,
+        r#"{"type":"form","buttons":[],}"#,
+        r#"{type:"form","buttons":[]}"#,
+        r#"{"type":'form',"buttons":[]}"#,
+        r#"{"type":"form","metadata":NaN,"buttons":[]}"#,
+        r#"{"type":"form","metadata":+1,"buttons":[]}"#,
+        r#"{"type":"form","metadata":0x10,"buttons":[]}"#,
+        r#"{"type":"form","metadata":tr/* split */ue,"buttons":[]}"#,
+        r#"{"type":"form","metadata":1/* split */2,"buttons":[]}"#,
+        r#"{"type"/* separator */:"form","buttons":[]}"#,
+    ] {
+        assert!(
+            into_world_event(
+                protocol::Packet::new(ModalFormRequest {
+                    form_id: wire::VarUInt(7),
+                    form_ui_json: malformed.into(),
+                }),
+                0
+            )
+            .is_err(),
+            "accepted {malformed}"
+        );
+    }
+}

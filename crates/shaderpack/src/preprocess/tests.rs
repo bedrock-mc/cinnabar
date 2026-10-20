@@ -646,3 +646,24 @@ fn frontend_metadata_uses_expanded_values_and_comment_whitespace() {
         }]
     );
 }
+
+#[test]
+fn unknown_directives_are_skipped_like_banner_comments() {
+    let pp = run(
+        &[(
+            "a.fsh",
+            "#version 330\n#==== Copyright banner ====\nfloat x;\n/*\n#==== in a comment\n*/\n",
+        )],
+        "a.fsh",
+        &[],
+    );
+    let names: Vec<_> = pp.tokens.iter().filter_map(|t| t.ident()).collect();
+    assert_eq!(names, ["float", "x"]);
+    assert_eq!(
+        pp.map.locate(pp.tokens[0].line).unwrap().to_string(),
+        "a.fsh:3"
+    );
+    assert!(is_unknown_directive("#====") && is_unknown_directive("# banner"));
+    assert!(!is_unknown_directive("#") && !is_unknown_directive("#  // note"));
+    assert!(!is_unknown_directive("#extension GL_ARB_foo : enable"));
+}
