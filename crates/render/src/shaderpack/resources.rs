@@ -629,9 +629,9 @@ impl<'a> ConstantBuilder<'a> {
     /// The 16×16 `lightmap` geometry programs sample with `gl_TextureMatrix[1]` coordinates,
     /// block light along U and sky light along V. It starts as the daylight table;
     /// [`super::lightmap::update_lightmap`] keeps it equal to the world lightmap.
-    fn lightmap(&mut self) -> (usize, TextureFormat) {
+    fn lightmap(&mut self) -> Result<(usize, TextureFormat), String> {
         if let Some(found) = self.keys.get(&Key::Lightmap) {
-            return *found;
+            return Ok(*found);
         }
         let side = super::lightmap::LIGHTMAP_SIDE;
         let (texture, view) = self.texture(
@@ -640,11 +640,11 @@ impl<'a> ConstantBuilder<'a> {
             [side, side, 1],
             TextureDimension::D2,
             TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-        );
+        )?;
         let texels =
             super::lightmap::lightmap_texels(Some(render_model::LightmapInputs::default()));
         self.upload(&texture, &texels, side * 4, [side, side, 1]);
-        self.push(Key::Lightmap, texture, view)
+        Ok(self.push(Key::Lightmap, texture, view))
     }
 
     /// The `lightmap` texture, when some program samples it.
