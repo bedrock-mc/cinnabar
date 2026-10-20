@@ -34,9 +34,6 @@ func registerChatCommands() {
 	cmd.Register(cmd.New("weather", "Sets the weather: clear, rain or thunder", nil, weatherSet{}))
 }
 
-// defaultWeatherSeconds keeps a requested weather for an hour unless a duration is given.
-const defaultWeatherSeconds = 3600
-
 // weatherKind is the /weather argument.
 type weatherKind string
 
@@ -44,26 +41,26 @@ func (weatherKind) Type() string { return "WeatherType" }
 
 func (weatherKind) Options(cmd.Source) []string { return []string{"clear", "rain", "thunder"} }
 
+// weatherSet holds the requested weather until the next /weather, so captures stay deterministic.
 type weatherSet struct {
-	Kind    weatherKind       `cmd:"type"`
-	Seconds cmd.Optional[int] `cmd:"seconds"`
+	Kind weatherKind `cmd:"type"`
 }
 
 func (w weatherSet) Run(_ cmd.Source, o *cmd.Output, tx *world.Tx) {
-	seconds := max(w.Seconds.LoadOr(defaultWeatherSeconds), 1)
-	duration := time.Duration(seconds) * time.Second
 	level := tx.World()
+	// Dragonfly only clears thunder while it rains, so rain first to drop any latent thunder flag.
+	level.StartRaining(time.Hour)
+	if w.Kind != "thunder" {
+		level.StopThundering()
+	}
 	switch w.Kind {
 	case "clear":
-		level.StopThundering()
 		level.StopRaining()
-	case "rain":
-		level.StopThundering()
-		level.StartRaining(duration)
 	case "thunder":
-		level.StartThundering(duration)
+		level.StartThundering(time.Hour)
 	}
-	o.Printf("Weather set to %s for %d seconds", w.Kind, seconds)
+	level.StopWeatherCycle()
+	o.Printf("Weather set to %s until the next /weather", w.Kind)
 }
 
 // speedMultiplier clamps m to the accepted range.

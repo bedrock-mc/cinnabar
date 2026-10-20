@@ -78,7 +78,7 @@ pub struct JavaMappingPayload {
     pub biome_tags: Box<[JavaBiomeTag]>,
     /// The colours each [`JavaDimension`] type sets, in [`JavaDimension::ALL`] order: what a
     /// biome that leaves a colour unset shows in that dimension.
-    pub dimension_colours: [JavaSkyColours; 3],
+    pub dimension_colours: [JavaSkyColours; JavaDimension::ALL.len()],
     /// Bedrock biome id to Java biome index, sorted by Bedrock id.
     pub biomes: Box<[JavaBiome]>,
     /// Every Java entity type Geyser registers with the Bedrock entity id it spawns, sorted by
@@ -136,26 +136,33 @@ impl JavaSkyColours {
     }
 }
 
-/// The Java dimension types whose colours the carrier keeps.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum JavaDimension {
-    Overworld,
-    Nether,
-    End,
+/// Declares dimension variants, carrier order and registry identifiers together.
+macro_rules! java_dimensions {
+    ($($variant:ident => $identifier:literal),+ $(,)?) => {
+        /// The Java dimension types whose colours the carrier keeps.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub enum JavaDimension {
+            $($variant),+
+        }
+
+        impl JavaDimension {
+            /// Every kept dimension type, in [`JavaMappingPayload::dimension_colours`] order.
+            pub const ALL: [Self; [$(stringify!($variant)),+].len()] = [$(Self::$variant),+];
+
+            /// The dimension type's registry id.
+            pub const fn identifier(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $identifier),+
+                }
+            }
+        }
+    };
 }
 
-impl JavaDimension {
-    /// Every kept dimension type, in [`JavaMappingPayload::dimension_colours`] order.
-    pub const ALL: [Self; 3] = [Self::Overworld, Self::Nether, Self::End];
-
-    /// The dimension type's registry id.
-    pub const fn identifier(self) -> &'static str {
-        match self {
-            Self::Overworld => "minecraft:overworld",
-            Self::Nether => "minecraft:the_nether",
-            Self::End => "minecraft:the_end",
-        }
-    }
+java_dimensions! {
+    Overworld => "minecraft:overworld",
+    Nether => "minecraft:the_nether",
+    End => "minecraft:the_end",
 }
 
 /// One serialized Java biome registry entry; [`JavaBiomeEntry`] is its borrowed view.
