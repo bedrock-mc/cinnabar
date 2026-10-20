@@ -118,7 +118,7 @@ impl CustomRenderer for FieldRenderer<'_> {
             canvas.solid(composition, node.alpha(color(self.palette.text)))?;
         }
         let start = *state.blink_start.get_or_insert(self.now);
-        let shown = ((self.now - start).max(0.) / BLINK_SECONDS) as u64 % 2 == 0;
+        let shown = (((self.now - start).max(0.) / BLINK_SECONDS) as u64).is_multiple_of(2);
         if shown && (state.composition.is_empty() || state.composition_cursor.is_some()) {
             canvas.solid(geometry.caret, node.alpha(color(self.palette.text)))?;
         }
