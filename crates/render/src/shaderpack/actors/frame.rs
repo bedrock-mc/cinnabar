@@ -10,9 +10,7 @@ use super::skin::{self, SKIN_PARAMS_BYTES, SKIN_WORKGROUP_SIZE, SkinJob, SkinPar
 use super::view::{Dispatch, NeutralTextures, Slot, ViewActors};
 use crate::shaderpack::draws::DrawKind;
 use crate::shaderpack::frame_geometry::open_kind;
-use crate::shaderpack::geometry::{
-    CONSTANT_VERTEX_BUFFER, GEOMETRY_VERTEX_BUFFER, IRIS_VERTEX_STRIDE,
-};
+use crate::shaderpack::geometry::{CONSTANT_VERTEX_BUFFER, GEOMETRY_VERTEX_BUFFER};
 use crate::shaderpack::passes::ViewState;
 use crate::shaderpack::targets::{
     AtlasViews, draw_reads, draws_into_geometry_depth, exchanged_by, pass_bind_groups,
@@ -49,7 +47,7 @@ pub(crate) fn prepare(
     {
         return;
     }
-    let mut output = 0u32;
+    let mut output = 0u64;
     if let Some(source) = sources.actors {
         actors.plan_rig(source, false, sources, &drawn, &mut output);
     }
@@ -139,48 +137,72 @@ fn skin(
     actors: &mut ViewActors,
     sources: &ActorSources<'_>,
     kernels: skin::SkinKernels<'_>,
-    output: u32,
+    output: u64,
 ) {
+    let limit = u64::from(device.limits().max_storage_buffer_binding_size)
+        .min(device.limits().max_buffer_size);
+    let pages = super::pages::plan(&actors.jobs, &actors.dispatches, output, limit);
+    actors.pages.resize_with(pages.len(), Default::default);
+    for (page, buffers) in pages.iter().zip(&mut actors.pages) {
+        skin_page(device, queue, encoder, buffers, page, sources, kernels);
+    }
+}
+
+/// Uploads and dispatches only the jobs touching one output page.
+fn skin_page(
+    device: &Device,
+    queue: &Queue,
+    encoder: &mut CommandEncoder,
+    buffers: &mut super::view::PageBuffers,
+    page: &super::pages::Page,
+    sources: &ActorSources<'_>,
+    kernels: skin::SkinKernels<'_>,
+) {
+    buffers.first = page.first;
+    buffers.vertices = page.vertices;
     let storage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
-    let output_buffer = actors
+    let output_buffer = buffers
         .output
         .ensure(
             device,
             "shader-pack actor vertices",
-            u64::from(output) * IRIS_VERTEX_STRIDE,
+            u64::from(page.vertices) * super::layout::ACTOR_VERTEX_STRIDE,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::VERTEX,
         )
         .clone();
-    let jobs = actors
-        .job_buffer
+    let jobs = buffers
+        .jobs
         .ensure(
             device,
             "shader-pack actor skinning jobs",
-            (actors.jobs.len().max(1) * std::mem::size_of::<SkinJob>()) as u64,
+            (page.jobs.len().max(1) * std::mem::size_of::<SkinJob>()) as u64,
             storage,
         )
         .clone();
-    queue.write_buffer(&jobs, 0, bytemuck::cast_slice(&actors.jobs));
+    queue.write_buffer(&jobs, 0, bytemuck::cast_slice(&page.jobs));
     let stride =
         u64::from(device.limits().min_uniform_buffer_offset_alignment).max(SKIN_PARAMS_BYTES);
-    let params = actors
+    let params = buffers
         .params
         .ensure(
             device,
             "shader-pack actor skinning parameters",
-            stride * actors.dispatches.len() as u64,
+            stride * page.dispatches.len() as u64,
             wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         )
         .clone();
     let camera = sources.camera.extend(0.0).to_array();
     let block_lists = sources
         .block_entities
-        .map(|source| [source.solid, source.overlay, source.additive]);
-    let mut groups = Vec::with_capacity(actors.dispatches.len());
-    for (index, dispatch) in actors.dispatches.iter().enumerate() {
+        .map(|source| [source.solid, source.overlay]);
+    let mut groups = Vec::with_capacity(page.dispatches.len());
+    for (index, dispatch) in page.dispatches.iter().enumerate() {
         let (counts, source_group) = match *dispatch {
             Dispatch::Rig {
-                hand, first, count, ..
+                hand,
+                first,
+                count,
+                max_vertices,
             } => {
                 let source = if hand { sources.hand } else { sources.actors };
                 let Some(source) = source else {
@@ -207,7 +229,7 @@ fn skin(
                     layout: kernels.rig_layout,
                     entries: &entries,
                 });
-                ([count, first, 0, 0], group)
+                ([count, first, max_vertices, page.first as u32], group)
             }
             Dispatch::BlockEntities {
                 list,
@@ -226,7 +248,15 @@ fn skin(
                         resource: list.buffer.as_entire_binding(),
                     }],
                 });
-                ([count, first_output, (-1i32).cast_unsigned(), 0], group)
+                (
+                    [
+                        count,
+                        first_output as u32,
+                        (-1i32).cast_unsigned(),
+                        page.first as u32,
+                    ],
+                    group,
+                )
             }
         };
         let offset = stride * index as u64;
@@ -263,7 +293,7 @@ fn skin(
         label: Some("shader-pack actor skinning"),
         timestamp_writes: None,
     });
-    for (dispatch, groups) in actors.dispatches.iter().zip(&groups) {
+    for (dispatch, groups) in page.dispatches.iter().zip(&groups) {
         let Some((source_group, output_group)) = groups else {
             continue;
         };
@@ -286,9 +316,10 @@ fn skin(
 
 /// Workgroups of a rig dispatch: rig vertices in x, jobs in y, continuing in z.
 pub(crate) fn rig_workgroups(jobs: u32, max_vertices: u32) -> [u32; 3] {
-    let x = max_vertices.div_ceil(SKIN_WORKGROUP_SIZE).max(1);
+    let vertex_groups = max_vertices.div_ceil(SKIN_WORKGROUP_SIZE).max(1);
+    let x = vertex_groups.min(MAX_WORKGROUPS);
     let y = jobs.clamp(1, MAX_WORKGROUPS);
-    [x, y, jobs.div_ceil(y).max(1)]
+    [x, y, jobs.div_ceil(y).max(1) * vertex_groups.div_ceil(x)]
 }
 
 /// Workgroups covering `count` invocations, continuing in y past the x limit.
@@ -309,26 +340,21 @@ pub(crate) fn record(
     if !state.actors.draws.iter().any(|draw| draw.kind == kind) {
         return;
     }
-    let Some(output) = state.actors.output.buffer.clone() else {
-        return;
-    };
     let constant = state.pack.host.constant_stream.clone();
     let Some((mut render, _)) = open_kind(encoder, state, kind, write_alt, depth) else {
         return;
     };
-    render.set_vertex_buffer(GEOMETRY_VERTEX_BUFFER, output.slice(..));
     render.set_vertex_buffer(CONSTANT_VERTEX_BUFFER, constant.slice(..));
     let actors = &state.actors;
     let parity = state.targets.parity;
     let Some(slots) = actors.slots.get(&kind) else {
         return;
     };
-    for (draw, slot) in actors.draws.iter().zip(&actors.slot_of) {
-        if draw.kind != kind {
-            continue;
-        }
+    for index in actors.draw_order(kind) {
+        let draw = &actors.draws[index];
+        let slot = actors.slot_of[index];
         let Some(slot) = slots
-            .get(*slot as usize)
+            .get(slot as usize)
             .filter(|slot| slot.texture == Some(draw.texture))
         else {
             continue;
@@ -338,6 +364,23 @@ pub(crate) fn record(
                 render.set_bind_group(index as u32, group, &[]);
             }
         }
-        render.draw(draw.vertices.clone(), 0..1);
+        for buffers in &actors.pages {
+            let start = draw.vertices.start.max(buffers.first);
+            let end = draw
+                .vertices
+                .end
+                .min(buffers.first + u64::from(buffers.vertices));
+            if start >= end {
+                continue;
+            }
+            let Some(output) = buffers.output.buffer.as_ref() else {
+                continue;
+            };
+            render.set_vertex_buffer(GEOMETRY_VERTEX_BUFFER, output.slice(..));
+            render.draw(
+                (start - buffers.first) as u32..(end - buffers.first) as u32,
+                0..1,
+            );
+        }
     }
 }

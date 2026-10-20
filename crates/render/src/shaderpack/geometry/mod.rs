@@ -16,7 +16,7 @@
 //! # Host contract
 //! - Add [`ShaderpackGeometryPlugin`] (and [`crate::shaderpack::atlas::ShaderpackAtlasPlugin`]),
 //!   then set [`ShaderpackGeometrySettings::enabled`] in the render world while a pack draws;
-//!   disabled, the adapter releases every buffer. Set `separate_ao`/`old_lighting` from the
+//!   disabled, the adapter releases its expanded and transient buffers. Set `separate_ao`/`old_lighting` from the
 //!   pack's `separateAo`/`oldLighting`.
 //! - Pipelines: build each gbuffers/shadow program's vertex state with [`vertex_buffer_layouts`]
 //!   from `ProgramReflection::vertex_inputs` and the pack's [`TerrainLayout::compact`] layout
@@ -50,7 +50,7 @@
 //! no larger than one storage binding, within [`ShaderpackGeometrySettings::budget_bytes`];
 //! sections that do not fit wait, undrawn, until space frees (a warning is logged once).
 //! Expansion is bounded to [`FRAME_EXPANSION_FACES`] per frame, except after an origin move,
-//! which re-expands everything in one frame.
+//! which re-expands terrain within the device’s job-buffer limits.
 
 mod allocator;
 mod block_ids;
@@ -74,7 +74,7 @@ pub use jobs::GeometryCategory;
 pub use residency::{DEFAULT_GEOMETRY_BUDGET_BYTES, device_geometry_budget};
 pub(crate) use shadow_cull::{ShadowCulling, ShadowFrustum};
 #[cfg(test)]
-pub(crate) use vertex::{BLOCK_ID, IRIS_VERTEX_WORDS, LIGHTMAP, NORMAL, POSITION, UV0};
+pub(crate) use vertex::{BLOCK_ID, LIGHTMAP, NORMAL, POSITION, UV0};
 pub(crate) use vertex::{
     CONSTANT_STREAM_WORDS, f32_to_half, host_vertex, substitute_layout_constants,
     textured_host_vertex,
@@ -119,7 +119,9 @@ impl Plugin for ShaderpackGeometryPlugin {
             .add_systems(
                 Render,
                 crate::chunk::shaderpack_sources::after_packed_chunk_upload(
-                    gpu::prepare_shaderpack_geometry.in_set(RenderSystems::PrepareResources),
+                    gpu::prepare_shaderpack_geometry
+                        .after(RenderSystems::PrepareViews)
+                        .before(RenderSystems::Queue),
                 ),
             )
             .add_systems(bevy::render::RenderStartup, install_expansion_recording);

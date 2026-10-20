@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
+use bevy::math::Vec3;
 use bevy::render::render_resource::{Texture, TextureId};
 use wgpu::{Device, Queue, TextureView};
 
@@ -23,9 +24,20 @@ pub(super) type TextureKey = (TextureId, u32);
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct ActorDraw {
     pub(super) kind: DrawKind,
-    pub(super) vertices: Range<u32>,
+    pub(super) vertices: Range<u64>,
+    /// Camera-relative depth used by translucent draw ordering.
+    pub(super) distance: f32,
     pub(super) texture: TextureKey,
     pub(super) values: DrawValues,
+}
+
+/// Measures world geometry along the view and hand geometry in its existing view space.
+pub(super) fn draw_depth(position: Vec3, camera: Vec3, forward: Vec3, hand: bool) -> f32 {
+    if hand {
+        -position.z
+    } else {
+        (position - camera).dot(forward)
+    }
 }
 
 /// One draw's uniform copy and the bind groups over it and its texture.
@@ -54,7 +66,14 @@ impl Growable {
         if self.buffer.as_ref().is_none_or(|b| b.size() < size) {
             self.buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(label),
-                size: size.next_power_of_two(),
+                size: super::pages::allocation_size(
+                    size,
+                    if usage.contains(wgpu::BufferUsages::STORAGE) {
+                        u64::from(device.limits().max_storage_buffer_binding_size)
+                    } else {
+                        device.limits().max_buffer_size
+                    },
+                ),
                 usage,
                 mapped_at_creation: false,
             }));
@@ -76,9 +95,19 @@ pub(super) enum Dispatch {
     /// Block-entity list `list` (0 solid, 1 overlay, 2 additive) into `first_output`.
     BlockEntities {
         list: usize,
-        first_output: u32,
+        first_output: u64,
         count: u32,
     },
+}
+
+/// Retained allocations for one device-sized output page.
+#[derive(Default)]
+pub(super) struct PageBuffers {
+    pub first: u64,
+    pub vertices: u32,
+    pub output: Growable,
+    pub jobs: Growable,
+    pub params: Growable,
 }
 
 /// A view's actor geometry: skinned vertices, draws and their bindings.
@@ -91,9 +120,7 @@ pub(crate) struct ViewActors {
     pub(super) dispatches: Vec<Dispatch>,
     pub(super) slots: HashMap<DrawKind, Vec<Slot>>,
     pub(super) views: HashMap<TextureKey, (TextureView, u64)>,
-    pub(super) output: Growable,
-    pub(super) job_buffer: Growable,
-    pub(super) params: Growable,
+    pub(super) pages: Vec<PageBuffers>,
     pub(super) neutral: Option<NeutralTextures>,
     pub(super) frame: u64,
     pub(super) scratch: Vec<u8>,
@@ -180,16 +207,35 @@ impl ViewActors {
     fn push(
         &mut self,
         kind: DrawKind,
-        vertices: Range<u32>,
+        vertices: Range<u64>,
         texture: TextureKey,
         values: DrawValues,
+        distance: f32,
     ) {
         self.draws.push(ActorDraw {
             kind,
             vertices,
             texture,
             values,
+            distance,
         });
+    }
+
+    /// Returns draw indices in camera order, preserving each draw's retained slot association.
+    pub(super) fn draw_order(&self, kind: DrawKind) -> Vec<usize> {
+        let mut order: Vec<_> = self
+            .draws
+            .iter()
+            .enumerate()
+            .filter_map(|(index, draw)| (draw.kind == kind).then_some(index))
+            .collect();
+        if matches!(
+            kind,
+            DrawKind::EntitiesTranslucent | DrawKind::BlockTranslucent | DrawKind::HandWater
+        ) {
+            order.sort_by(|a, b| self.draws[*b].distance.total_cmp(&self.draws[*a].distance));
+        }
+        order
     }
 
     /// Plans the jobs and draws of one rig source; `output` is the next free output vertex.
@@ -199,7 +245,7 @@ impl ViewActors {
         hand: bool,
         sources: &ActorSources<'_>,
         drawn: &dyn Fn(DrawKind) -> bool,
-        output: &mut u32,
+        output: &mut u64,
     ) {
         let first_job = self.jobs.len() as u32;
         let mut max_vertices = 0;
@@ -223,7 +269,8 @@ impl ViewActors {
             let first = *output;
             let job = SkinJob {
                 instance: instance.index,
-                first_output: first,
+                first_output: first as u32,
+                first_output_high: (first >> 32) as u32,
                 vertex_count,
                 flags: if hand { JOB_VIEW_SPACE } else { 0 }
                     | if class.one_sided { JOB_ONE_SIDED } else { 0 },
@@ -237,9 +284,8 @@ impl ViewActors {
                     ),
                 ),
                 block_id: -1,
-                pad: 0,
             };
-            *output += job.output_vertices();
+            *output += u64::from(job.output_vertices());
             max_vertices = max_vertices.max(vertex_count);
             self.jobs.push(job);
             let entity_id = instance
@@ -257,12 +303,29 @@ impl ViewActors {
                 entity_color: entity_colour(data.overlay_rgba8, data.material),
                 ..DrawValues::NONE
             };
+            let distance = draw_depth(
+                Vec3::new(
+                    data.world_from_actor[0][3],
+                    data.world_from_actor[1][3],
+                    data.world_from_actor[2][3],
+                ),
+                sources.camera,
+                sources.view_forward,
+                hand,
+            );
             let vertices = first..*output;
             if let Some(kind) = camera {
-                self.push(kind, vertices.clone(), texture, values);
+                self.push(kind, vertices.clone(), texture, values, distance);
                 let item = data.glint[5] > 0.0 || instance.held.is_some();
+                let glint_kind = if hand {
+                    DrawKind::HandGlint
+                } else if kind == DrawKind::EntitiesTranslucent {
+                    DrawKind::ArmorGlintTranslucent
+                } else {
+                    DrawKind::ArmorGlint
+                };
                 if class.glint
-                    && drawn(DrawKind::ArmorGlint)
+                    && drawn(glint_kind)
                     && let Some(glint) = glint_keys[usize::from(item)]
                 {
                     let scale = if item {
@@ -272,18 +335,25 @@ impl ViewActors {
                     };
                     let texture_matrix = glint_texture_matrix(sources.seconds, scale);
                     self.push(
-                        DrawKind::ArmorGlint,
+                        glint_kind,
                         vertices.clone(),
                         glint,
                         DrawValues {
                             texture_matrix,
                             ..values
                         },
+                        distance,
                     );
                 }
             }
             if shadow {
-                self.push(DrawKind::ShadowEntities, vertices, texture, values);
+                self.push(
+                    DrawKind::ShadowEntities,
+                    vertices,
+                    texture,
+                    values,
+                    distance,
+                );
             }
         });
         let count = self.jobs.len() as u32 - first_job;
@@ -302,7 +372,7 @@ impl ViewActors {
         &mut self,
         source: &BlockEntitySource<'_>,
         drawn: &dyn Fn(DrawKind) -> bool,
-        output: &mut u32,
+        output: &mut u64,
     ) {
         let texture = self.view(LayerTexture {
             texture: source.atlas,
@@ -311,7 +381,6 @@ impl ViewActors {
         let lists = [
             (source.solid, DrawKind::Block, true),
             (source.overlay, DrawKind::BlockTranslucent, false),
-            (source.additive, DrawKind::BeaconBeam, false),
         ];
         for (list_index, (list, kind, casts)) in lists.into_iter().enumerate() {
             let Some(list) = list.filter(|list| list.count >= 3) else {
@@ -323,7 +392,7 @@ impl ViewActors {
             }
             let count = list.count - list.count % 3;
             let first = *output;
-            *output += count;
+            *output += u64::from(count);
             self.dispatches.push(Dispatch::BlockEntities {
                 list: list_index,
                 first_output: first,
@@ -331,10 +400,16 @@ impl ViewActors {
             });
             let vertices = first..*output;
             if drawn(kind) {
-                self.push(kind, vertices.clone(), texture, DrawValues::NONE);
+                self.push(kind, vertices.clone(), texture, DrawValues::NONE, 0.0);
             }
             if shadow {
-                self.push(DrawKind::ShadowBlock, vertices, texture, DrawValues::NONE);
+                self.push(
+                    DrawKind::ShadowBlock,
+                    vertices,
+                    texture,
+                    DrawValues::NONE,
+                    0.0,
+                );
             }
         }
     }

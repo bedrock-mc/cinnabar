@@ -1,9 +1,10 @@
 //! Device-independent buffer usage and storage sizing for translated pack programs.
 
 use super::super::plan::{MAX_COLOR_BUFFERS, PlannedProgram, color_buffer_of};
+use super::super::uniforms::PackSettings;
 use shaderpack::{
-    BlendMode, BufferId, ProgramKind, ProgramReflection, ProgramTranslation, ShaderProperties,
-    StageKind,
+    BlendMode, BufferId, ProgramGroup, ProgramKind, ProgramReflection, ProgramTranslation,
+    ShaderProperties, StageKind,
 };
 
 /// Destination buffer per fragment output location.
@@ -90,6 +91,7 @@ pub(super) fn planned(
     PlannedProgram {
         name: name.to_owned(),
         group: program.program.group,
+        kind: program.program.kind,
         outputs,
         reads: reflection
             .textures
@@ -103,7 +105,7 @@ pub(super) fn planned(
     }
 }
 
-/// Storage-buffer sizes: the reflected minimum, raised by `bufferObject.<binding>=<size>`.
+/// Storage bindings: the reflected minimum, raised to the pack's complete requested words.
 /// Resolves whole-buffer binding sizes, rejecting requests whose alignment would overflow.
 pub(super) fn storage_sizes(
     reflections: &[&ProgramReflection],
@@ -115,17 +117,32 @@ pub(super) fn storage_sizes(
             .get(&format!("bufferObject.{}", buffer.binding))
             .and_then(|v| v.split_whitespace().next()?.parse::<u64>().ok())
             .unwrap_or(0);
-        let size = u64::from(buffer.min_size)
-            .max(declared)
-            .max(16)
-            .checked_next_multiple_of(16)
-            .ok_or_else(|| format!("storage binding {} size overflows", buffer.binding))?;
+        let size = storage_binding_size(buffer.min_size, declared)
+            .map_err(|error| format!("storage binding {}: {error}", buffer.binding))?;
         match sizes.iter_mut().find(|(b, _)| *b == buffer.binding) {
             Some((_, s)) => *s = (*s).max(size),
             None => sizes.push((buffer.binding, size)),
         }
     }
     Ok(sizes)
+}
+
+/// Settings declared by the enabled programs in the pack.
+pub(super) fn pack_settings(programs: &[ProgramTranslation]) -> PackSettings {
+    PackSettings::read(
+        programs
+            .iter()
+            .filter(|p| p.enabled)
+            .flat_map(|p| &p.consts),
+    )
+}
+
+/// Binding size in complete storage words, at least the reflected prefix.
+fn storage_binding_size(minimum: u32, declared: u64) -> Result<u64, String> {
+    let minimum = u64::from(minimum).max(4).next_multiple_of(4);
+    let size = minimum.max(declared);
+    let aligned = size.checked_next_multiple_of(4).ok_or("size overflows")?;
+    Ok(aligned - if size.is_multiple_of(4) { 0 } else { 4 })
 }
 
 #[cfg(test)]
@@ -155,5 +172,47 @@ mod tests {
             .collect();
         assert_eq!(reflections.len(), 1);
         assert!(storage_sizes(&reflections, &translation.properties).is_err());
+    }
+    /// A program with one pack-wide setting, independently of host execution support.
+    fn setting_program(group: ProgramGroup, enabled: bool, value: &str) -> ProgramTranslation {
+        ProgramTranslation {
+            program: shaderpack::ProgramSource {
+                name: String::new(),
+                group,
+                kind: ProgramKind::Render,
+                folder: String::new(),
+                stages: vec![],
+            },
+            enabled,
+            forced: vec![],
+            stages: vec![],
+            diagnostics: vec![],
+            reflection: None,
+            draw_buffers: vec![],
+            consts: vec![shaderpack::ConstDirective {
+                ty: "float".into(),
+                name: "sunPathRotation".into(),
+                value: value.into(),
+            }],
+        }
+    }
+
+    #[test]
+    fn pack_settings_include_enabled_geometry_and_shadow_programs() {
+        let programs = [
+            setting_program(ProgramGroup::Gbuffers, true, "30.0"),
+            setting_program(ProgramGroup::Shadow, true, "45.0"),
+            setting_program(ProgramGroup::Composite, false, "90.0"),
+        ];
+        assert_eq!(pack_settings(&programs).sun_path_rotation, 45.0);
+    }
+
+    #[test]
+    fn storage_binding_lengths_keep_complete_declared_words() {
+        for declared in [20, 21, 23] {
+            assert_eq!(storage_binding_size(4, declared).unwrap(), 20);
+        }
+        assert_eq!(storage_binding_size(16, 4).unwrap(), 16);
+        assert!(storage_binding_size(4, u64::MAX).is_err());
     }
 }

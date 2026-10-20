@@ -290,7 +290,7 @@ impl ActorAnimationStore {
                 &current.evaluator,
                 &mut current.variables,
                 &state.bones,
-                &state.bone_names,
+                pose::ChannelBones::bound(&state.bone_names, &state.channel_bindings),
                 &current.clips,
                 &mut budget,
             ) else {
@@ -305,7 +305,7 @@ impl ActorAnimationStore {
                 &evaluator,
                 &mut variables,
                 &state.bones,
-                &state.bone_names,
+                pose::ChannelBones::bound(&state.bone_names, &state.channel_bindings),
                 sampled_clips.as_deref().unwrap_or(&frame.motion.clips),
                 &mut budget,
             ) else {
@@ -352,7 +352,7 @@ impl ActorAnimationStore {
                 &previous.evaluator,
                 &mut previous.variables,
                 &state.bones,
-                &state.bone_names,
+                pose::ChannelBones::bound(&state.bone_names, &state.channel_bindings),
                 &previous.clips,
                 &mut budget,
             ) else {

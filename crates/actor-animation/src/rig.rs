@@ -50,6 +50,8 @@ pub struct ActorRigSnapshot<'a> {
     pub body_yaw: f32,
     /// Texture layers the rig's render controllers select this tick, in draw order.
     pub render: &'a [RenderTextureLayer],
+    /// Indices prepared for the current appearance; absent on unbound diagnostic snapshots.
+    pub attachments: Option<&'a Arc<render_model::ActorAttachmentBindings>>,
     /// Lowercase bone names in pose order.
     pub bone_names: &'a [Box<str>],
     /// The skin model the pose drives, instead of the rig's geometry.

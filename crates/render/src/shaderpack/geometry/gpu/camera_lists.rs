@@ -7,7 +7,7 @@ use bevy::platform::hash::FixedHasher;
 use bevy::render::renderer::{RenderDevice, RenderQueue};
 use render_scene::ChunkRenderInstance;
 
-use super::super::draw::{DrawInputs, ViewDraws, eye_cells, eye_section_centre};
+use super::super::draw::{DrawInputs, ViewDraws, eye_section_centre};
 use super::super::residency::ResidentFaces;
 use super::{GeometryViews, ShaderpackGeometry};
 use crate::chunk::shaderpack_sources::PackedChunkSources;
@@ -48,14 +48,7 @@ pub(super) fn build_draws(
                 .flat_map(|class| class.iter_visible())
                 .map(|(entity, _)| *entity)
         };
-        let source = {
-            let mut hasher = FixedHasher.build_hasher();
-            (revisions, eye_cells(eye)).hash(&mut hasher);
-            for entity in visible() {
-                entity.hash(&mut hasher);
-            }
-            hasher.finish()
-        };
+        let source = camera_source(revisions, eye, visible());
         if geometry
             .views
             .get(&entity)
@@ -90,9 +83,43 @@ pub(super) fn build_draws(
         }
         let built = ViewDraws::build(&inputs);
         max_faces = max_faces.max(built.max_faces());
-        draws.replace(built, key, geometry.multi_draw.then_some((device, queue)));
+        draws.replace(built, key, device, queue, geometry.multi_draw);
     }
     if max_faces > 0 {
         geometry.ensure_index_buffer(device, max_faces);
+    }
+}
+
+/// Keeps stationary-view reuse while invalidating native face sorting for camera motion.
+fn camera_source(
+    revisions: impl Hash,
+    eye: bevy::math::DVec3,
+    visible: impl Iterator<Item = bevy::prelude::Entity>,
+) -> u64 {
+    let mut hasher = FixedHasher.build_hasher();
+    (revisions, eye.to_array().map(f64::to_bits)).hash(&mut hasher);
+    for entity in visible {
+        entity.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn camera_motion_inside_a_section_invalidates_cached_face_order() {
+        use bevy::math::DVec3;
+        let eye = DVec3::new(1.0, 1.0, 1.0);
+        let source = camera_source(0, eye, std::iter::empty());
+        let mut draws = ViewDraws::default();
+        draws.set_source(source);
+        assert!(draws.is_from(camera_source(0, eye, std::iter::empty())));
+        assert!(!draws.is_from(camera_source(
+            0,
+            DVec3::new(15.0, 1.0, 1.0),
+            std::iter::empty()
+        )));
     }
 }

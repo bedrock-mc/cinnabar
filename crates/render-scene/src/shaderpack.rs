@@ -232,6 +232,8 @@ pub struct ShaderPackFrameInputs {
     pub dimension: i32,
     /// Lowest block Y of the current dimension (`bedrockLevel`, Iris's dimension `minY`).
     pub bedrock_level: i32,
+    /// Positive range over which void fog fades; normal worlds use 32, flat worlds use 1.
+    pub void_darkness_range: f32,
     /// Local player is sneaking, sprinting, hurt, burning (`is_sneaking` …).
     pub sneaking: bool,
     pub sprinting: bool,
@@ -271,6 +273,7 @@ impl Default for ShaderPackFrameInputs {
             biome_block_y: 64,
             dimension: 0,
             bedrock_level: 0,
+            void_darkness_range: 32.0,
             sneaking: false,
             sprinting: false,
             hurt: false,
@@ -285,13 +288,15 @@ impl Default for ShaderPackFrameInputs {
 /// views. Written in the render world by the pack host.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ShaderPackEffects {
-    pub particles: bool,
+    pub particles_opaque: bool,
+    pub particles_translucent: bool,
+    pub particles_additive: bool,
     pub weather: bool,
     pub lightning: bool,
     pub clouds: bool,
     /// The block selection outline.
     pub selection: bool,
-    /// Block cracks (with the selection highlight, which shares their draw).
+    /// Block cracks; selection highlights follow `selection`.
     pub cracks: bool,
 }
 

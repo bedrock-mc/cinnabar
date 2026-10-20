@@ -8,14 +8,14 @@
 
 mod planning;
 
-use planning::{planned, storage_sizes};
+use planning::{pack_settings, planned, storage_sizes};
 
 use super::draws::{GeometryDraw, GeometryStage, geometry_draws, select_draws};
 use super::effects::EffectSettings;
 use super::host_pipelines::{HostPipelines, host_pipelines};
 use super::pipeline_cache::PipelineCacheFile;
 use super::pipelines::{
-    GpuContext, Kind, MASKED_TARGET, bind_group_layouts, color_targets, format_kind,
+    GpuContext, Kind, MASKED_TARGET, bind_group_layouts, class_sampler, color_targets, format_kind,
     layout_entries, quad_attributes, quad_layout, shader_modules, storage_format, stores,
     texture_format,
 };
@@ -179,37 +179,6 @@ impl PackGpu {
             Some(class) => &self.filtering[class as usize],
             None => &self.comparison,
         }
-    }
-}
-
-/// The wgpu sampler of a [`SamplerClass`]. Linear classes also filter between mip levels,
-/// as Iris does for buffers with mipmaps enabled; repeat/nearest blends mip levels like
-/// Java's atlas (`NEAREST_MIPMAP_LINEAR`), which single-level custom textures never see.
-pub(crate) fn class_sampler(class: SamplerClass) -> wgpu::SamplerDescriptor<'static> {
-    let address = if class.clamps() {
-        wgpu::AddressMode::ClampToEdge
-    } else {
-        wgpu::AddressMode::Repeat
-    };
-    let filter = if class.linear() {
-        wgpu::FilterMode::Linear
-    } else {
-        wgpu::FilterMode::Nearest
-    };
-    let mipmap = if class == SamplerClass::ClampNearest {
-        wgpu::MipmapFilterMode::Nearest
-    } else {
-        wgpu::MipmapFilterMode::Linear
-    };
-    wgpu::SamplerDescriptor {
-        label: Some(class.glsl_name()),
-        address_mode_u: address,
-        address_mode_v: address,
-        address_mode_w: address,
-        mag_filter: filter,
-        min_filter: filter,
-        mipmap_filter: mipmap,
-        ..Default::default()
     }
 }
 
@@ -518,8 +487,7 @@ pub(crate) fn build(
         );
         TextureFormat::R16Float
     };
-    let all_consts = all.iter().flat_map(|p| &p.consts);
-    let mut settings = PackSettings::read(all_consts);
+    let mut settings = pack_settings(&translation.programs);
     settings.shadow.culling = translation
         .properties
         .get("shadow.culling")
@@ -567,7 +535,7 @@ pub(crate) fn build(
             depth_format,
             &translation.properties.images,
             &image_formats,
-        );
+        )?;
         for source in &bindings.textures {
             match *source {
                 TextureSource::DepthCompare(i) => depth_compare[i] = true,
@@ -580,7 +548,7 @@ pub(crate) fn build(
             .iter()
             .map(|s| s.sample_type(support))
             .collect();
-        let entries = layout_entries(reflection, &sample_types);
+        let entries = layout_entries(reflection, &sample_types)?;
         let layouts = bind_group_layouts(&gpu.device, &program.program.name, &entries);
         let layout_refs: Vec<Option<&wgpu::BindGroupLayout>> =
             layouts.iter().map(Option::as_ref).collect();
@@ -604,7 +572,7 @@ pub(crate) fn build(
         ) {
             if program.program.group == ProgramGroup::Shadow {
                 for buffer in reflection.color_outputs.iter().filter_map(|o| o.buffer) {
-                    constants.shadow_color(buffer);
+                    constants.shadow_color(buffer)?;
                 }
             }
             let vertex = modules
@@ -784,7 +752,7 @@ pub(crate) fn build(
         (block_ids, actor_ids)
     };
     let atlas_placeholder = constants
-        .placeholder(ATLAS_FORMAT, shaderpack::TextureDimension::D2, false)
+        .placeholder(ATLAS_FORMAT, shaderpack::TextureDimension::D2, false)?
         .0;
     let flag = |key: &str| translation.properties.get(key) == Some("true");
     let mipmap_formats: Vec<TextureFormat> = buffers
@@ -794,7 +762,7 @@ pub(crate) fn build(
         .filter(|f| format_kind(*f) == Kind::Float)
         .collect();
     let host = host_pipelines(
-        gpu,
+        &gpu.device,
         &buffer_formats,
         depth_format,
         depth_compare.contains(&true) || !draws.is_empty(),
