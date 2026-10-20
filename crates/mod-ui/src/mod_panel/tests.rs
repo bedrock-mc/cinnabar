@@ -307,7 +307,7 @@ impl json_ui::TextureSource for InputArt {
 }
 
 /// Resolves the native panel's input regions without a renderer or local game assets.
-fn panel_frame(panel: &ModPanel) -> EngineFrame {
+pub(super) fn panel_frame(panel: &ModPanel) -> EngineFrame {
     let (catalog, _) = template::catalog(
         &panel.panel,
         panel.viewport,

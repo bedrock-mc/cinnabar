@@ -766,8 +766,12 @@ impl ModPanel {
         !self.open && self.motion.transitions.exiting()
     }
 
-    /// Publishes typed control values and host viewport dimensions together.
+    /// Synchronizes disabled feedback after local edits, then publishes values and viewport size.
     fn refresh_data(&mut self) {
+        if !self.panel.motion {
+            self.motion
+                .advance(&self.panel, &mut self.view, None, self.motion.now, false);
+        }
         let mut data = control_data(&self.panel);
         if self.panel.surface.is_some() {
             surface::viewport(&mut data, self.viewport);

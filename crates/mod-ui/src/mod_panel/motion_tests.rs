@@ -205,3 +205,65 @@ fn screen_animation_preference_still_bounds_panel_motion() {
     );
     assert!(!ui.mod_panel_motion_active());
 }
+
+/// Local toggle edits stay exact under both disabled preferences, including after re-enabling.
+#[test]
+fn local_toggle_edits_stay_settled_with_motion_disabled() {
+    for boundary in 0..3 {
+        let mut panel = content(boundary != 0);
+        panel.surface.as_mut().unwrap().document = json!({
+            "namespace":"extension","screen":{"type":"screen","size":["100%","100%"],
+                "controls":[{"toggle":{"type":"button","size":[40,20],
+                    "anchor_from":"top_left","anchor_to":"top_left",
+                    "button_mappings":[{"from_button_id":"button.menu_select",
+                        "to_button_id":"mod.control:0","mapping_type":"pressed"}]}}]}
+        })
+        .to_string();
+        let mut ui = ModUi::default();
+        ui.set_mod_panel(PanelUiOwner::Environment(0), Some(&panel))
+            .unwrap();
+        ui.set_mod_panel_open(true);
+        sample(&mut ui, 1.0);
+        sample(&mut ui, 2.0);
+        if boundary == 2 {
+            ui.configure_motion(false);
+        } else {
+            patch(&mut ui, r#"{"motion":false}"#);
+        }
+        let current = ui.mod_panel.as_mut().unwrap();
+        current.viewport = [600.0, 400.0];
+        current.frame = Some(super::tests::panel_frame(current));
+        for expected in [1.0, 0.0] {
+            let events = ui.mod_panel_events([10.0, 10.0], true, true);
+            assert_eq!(events.len(), 1);
+            assert_eq!(f64::from(events[0].value), expected);
+            sample(&mut ui, 2.0);
+            assert_eq!(
+                ui.mod_panel
+                    .as_ref()
+                    .unwrap()
+                    .data
+                    .global_value("#row_0_toggle_progress"),
+                Some(&Scalar::Num(expected))
+            );
+            assert!(!ui.mod_panel_motion_active());
+        }
+        ui.mod_panel_events([100.0, 100.0], false, false);
+        sample(&mut ui, 2.0);
+        if boundary == 2 {
+            ui.configure_motion(true);
+        } else {
+            patch(&mut ui, r#"{"motion":true}"#);
+        }
+        sample(&mut ui, 3.0);
+        assert_eq!(
+            ui.mod_panel
+                .as_ref()
+                .unwrap()
+                .data
+                .global_value("#row_0_toggle_progress"),
+            Some(&Scalar::Num(0.0))
+        );
+        assert!(!ui.mod_panel_motion_active());
+    }
+}
