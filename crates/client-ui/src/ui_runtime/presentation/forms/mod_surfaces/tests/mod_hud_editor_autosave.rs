@@ -549,7 +549,10 @@ fn snapping_drag_feedback_retains_catalog_and_shift_bypasses_all_snaps() {
     assert!((card_origin(&e.draft.cards[0], e.viewport)[0] - 317.).abs() < 0.001);
     assert_eq!(e.drag.unwrap()[0], Some(317.));
     assert!(std::sync::Arc::ptr_eq(&catalog, e.catalog.unwrap()));
-    let passes = e.passes;
+    // Let hover feedback catch up with the card's newly painted hit bounds.
+    p.mod_ui_mut().mod_panel_events(destination, false, true);
+    frame(&mut p, &runtime, [1280, 720], 1.);
+    let passes = p.mod_ui().mod_hud_editor_state().unwrap().passes;
     // An unchanged captured pointer must not regenerate bindings or rerun layout.
     p.mod_ui_mut().mod_panel_events(destination, false, true);
     frame(&mut p, &runtime, [1280, 720], 1.);
