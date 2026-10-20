@@ -13,7 +13,7 @@ and friends' worlds with vanilla behaviour, and it's built to run much faster th
 client.
 
 [![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/MeEz7BEHcM)
-[![Website](https://img.shields.io/badge/Website-cinnabar.gg-B22222)](https://cinnabar.gg/)
+[![Website](https://img.shields.io/badge/Website-cinnabar.restartfu.com-B22222)](https://cinnabar.restartfu.com/)
 
 <img width="1282" height="752" alt="Cinnabar in game" src="https://github.com/user-attachments/assets/ca040799-e00e-4a6e-85f8-a0e28af6ea72" />
 
