@@ -151,6 +151,24 @@ impl Inputs {
         self.pure
     }
 
+    /// Shares a program's read identities while starting an independent occurrence key.
+    pub(crate) fn fresh(&self) -> Self {
+        Self {
+            symbols: Arc::clone(&self.symbols),
+            values: Vec::new(),
+            pure: self.pure,
+            valid: false,
+        }
+    }
+
+    /// Compares validated occurrences of the same immutable program without querying twice.
+    pub(crate) fn same_values(&self, other: &Self) -> bool {
+        self.valid
+            && other.valid
+            && Arc::ptr_eq(&self.symbols, &other.symbols)
+            && self.values == other.values
+    }
+
     /// Compares only actual reads; changing a frame fraction affects only its readers.
     pub(crate) fn update(
         &mut self,

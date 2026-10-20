@@ -5,17 +5,45 @@ use crate::render_frame::cache::Inputs;
 #[derive(Debug)]
 struct Expression {
     pure: Inputs,
-    direct_read: bool,
     observed: Option<ObservedInputs>,
     this: u32,
     value: Option<MolangValue>,
     effects: MolangEffects,
 }
 
+#[derive(Debug)]
+struct Occurrences {
+    entries: Vec<Expression>,
+    cursor: usize,
+    last_used: Option<usize>,
+    direct_read: bool,
+}
+
+impl Expression {
+    /// Keeps a separate result and effect journal for one invocation within a frame.
+    fn new(pure: Inputs) -> Self {
+        Self {
+            pure,
+            observed: None,
+            this: 0,
+            value: None,
+            effects: MolangEffects::default(),
+        }
+    }
+}
+
 #[derive(Debug, Default)]
-pub(crate) struct Expressions(BTreeMap<usize, Expression>);
+pub(crate) struct Expressions(BTreeMap<usize, Occurrences>);
 
 impl Expressions {
+    /// Rewinds invocation positions while retaining each occurrence's buffers and results.
+    pub(crate) fn begin(&mut self) {
+        for occurrences in self.0.values_mut() {
+            occurrences.cursor = 0;
+            occurrences.last_used = None;
+        }
+    }
+
     /// Validates executed reads and replays writes and random draws on a cache hit.
     pub(crate) fn run(
         &mut self,
@@ -26,7 +54,7 @@ impl Expressions {
         budget: &mut EvalBudget<'_>,
     ) -> Result<MolangValue, EvalError> {
         variables.clear_temporaries();
-        let cached = self.0.entry(index).or_insert_with(|| Expression {
+        let occurrences = self.0.entry(index).or_insert_with(|| Occurrences {
             direct_read: evaluator
                 .assets
                 .molang_expressions()
@@ -46,12 +74,21 @@ impl Expressions {
                             _ => false,
                         }
                 }),
-            pure: Inputs::new(evaluator.assets, [index as u32]),
-            observed: None,
-            this: this.to_bits(),
-            value: None,
-            effects: MolangEffects::default(),
+            entries: vec![Expression::new(Inputs::new(
+                evaluator.assets,
+                [index as u32],
+            ))],
+            cursor: 0,
+            last_used: None,
         });
+        let slot = occurrences.cursor;
+        occurrences.cursor += 1;
+        if slot == occurrences.entries.len() {
+            let inputs = occurrences.entries[0].pure.fresh();
+            occurrences.entries.push(Expression::new(inputs));
+        }
+        let (earlier, remaining) = occurrences.entries.split_at_mut(slot);
+        let cached = &mut remaining[0];
         let unchanged = if cached.pure.pure() {
             cached.pure.update(evaluator, variables, budget)
         } else if let Some(inputs) = &cached.observed {
@@ -67,17 +104,44 @@ impl Expressions {
             && let Some(value) = &cached.value
         {
             cached.effects.apply(variables)?;
+            occurrences.last_used = Some(slot);
             return Ok(value.clone());
+        }
+        // A shared program often supplies several identical channels. Try only the last
+        // successful occurrence, so validating repeated programs stays linear in their uses.
+        if let Some(previous) = occurrences.last_used.and_then(|slot| earlier.get(slot))
+            && previous.this == this.to_bits()
+            && let Some(value) = &previous.value
+        {
+            if cached.pure.pure() && cached.pure.same_values(&previous.pure) {
+                cached.this = this.to_bits();
+                cached.value = Some(value.clone());
+                occurrences.last_used = Some(slot);
+                return Ok(value.clone());
+            }
+            if !cached.pure.pure()
+                && let Some(inputs) = &previous.observed
+            {
+                let mut validation = budget.work_left;
+                if inputs
+                    .matches(evaluator, variables, &mut validation)
+                    .unwrap_or(false)
+                {
+                    previous.effects.apply(variables)?;
+                    return Ok(value.clone());
+                }
+            }
         }
         cached.value = None;
         cached.this = this.to_bits();
-        if cached.direct_read
+        if occurrences.direct_read
             && let Some(value) = cached.pure.single_value()
         {
             budget.charge()?;
             #[cfg(test)]
             super::record_expression_work(index);
             cached.value = Some(value.clone());
+            occurrences.last_used = Some(slot);
             return Ok(value);
         }
         let result = if cached.pure.pure() {
@@ -92,6 +156,7 @@ impl Expressions {
         };
         let value = result?;
         cached.value = Some(value.clone());
+        occurrences.last_used = Some(slot);
         Ok(value)
     }
 }

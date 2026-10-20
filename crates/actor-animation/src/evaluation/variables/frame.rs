@@ -26,7 +26,7 @@ impl FrameVariables {
     pub(crate) fn lease<'a>(&'a mut self, source: &MolangVariables) -> FrameVariableLease<'a> {
         let mut variables = self.0.pop().unwrap_or_else(|| source.clone());
         let frame = variables.frame.get_or_insert_with(Default::default);
-        frame.cache.get_or_insert_with(Default::default);
+        frame.cache.get_or_insert_with(Default::default).begin();
         frame.undo.get_or_insert_with(Vec::new).clear();
         let random = (variables.random, variables.random_draws);
         FrameVariableLease {

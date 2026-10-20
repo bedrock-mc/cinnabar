@@ -37,7 +37,7 @@ fn fixture() -> (ActorAnimationStore, TestActor) {
     (store, actor)
 }
 
-/// Samples a complete frame without retaining any of the frame object's local cache.
+/// Samples through the store so each new consumer exercises the retained actor state.
 fn sample(store: &ActorAnimationStore, actor: &TestActor, alpha: f32) -> Vec<RenderTextureLayer> {
     let mut budget = MAX_MOLANG_OPS_PER_RENDER_FRAME;
     store
@@ -71,10 +71,12 @@ fn changed_fraction_evaluates_only_its_dependent_layer() {
 
 /// Walk and attack queries feed separate axes while the layer reads the current frame fraction.
 fn moving_fixture() -> (ActorAnimationStore, HashMap<u64, TestActor>) {
-    let mut actor = TestActor::default();
-    actor.kind = ActorKind::Player {
-        uuid: [1; 16],
-        username: "fixture".into(),
+    let actor = TestActor {
+        kind: ActorKind::Player {
+            uuid: [1; 16],
+            username: "fixture".into(),
+        },
+        ..Default::default()
     };
     let mut compiled = crate::test_support::counting_random_compiled(
         assets::facts::VanillaEntity::Player.identifier(),
@@ -179,4 +181,61 @@ fn held_tick_history_invalidates_a_retained_frame_sample() {
     let after = sample(&store, &actors[&1], 0.5);
     assert_eq!(after, cache::uncached(|| sample(&store, &actors[&1], 0.5)));
     assert_ne!(after, before);
+}
+
+#[test]
+fn unchanged_frames_replay_each_occurrence_of_a_side_effecting_expression() {
+    let actor = TestActor::default();
+    let mut compiled = crate::test_support::counting_random_compiled("minecraft:test");
+    compiled.rig_bindings[0].pre_animation = None;
+    compiled.animation_keyframes[0].expressions = [None; 3];
+    let program = [
+        MolangOp::LoadVariable(7),
+        MolangOp::Push(crate::test_support::scalar(1.0)),
+        MolangOp::Add,
+        MolangOp::StoreVariable(7),
+        MolangOp::Push(crate::test_support::scalar(0.0)),
+        MolangOp::CallQuery(assets::MolangCall {
+            symbol: 1,
+            arguments: 1,
+        }),
+        MolangOp::Pop,
+        MolangOp::LoadVariable(7),
+    ];
+    let mut expressions = compiled.molang_expressions.to_vec();
+    let expression = expressions.len() as u32;
+    expressions.push(assets::CompiledMolangExpression {
+        first_op: compiled.molang_ops.len() as u32,
+        op_count: program.len() as u16,
+        max_stack: 2,
+    });
+    let mut ops = compiled.molang_ops.to_vec();
+    ops.extend(program);
+    compiled.molang_ops = ops.into();
+    compiled.molang_expressions = expressions.into();
+    compiled.render.layers[0].color = Some([expression; 4]);
+    let assets = Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
+    );
+    let mut store = ActorAnimationStore::with_assets(assets);
+    store.insert(1, 0, &actor);
+    store.advance_tick(
+        &HashMap::from([(1, actor.clone())]),
+        None,
+        None,
+        true,
+        false,
+        |_| ActorTickContext::default(),
+    );
+    let authored = authored_state(&store);
+    let mut budget = MAX_MOLANG_OPS_PER_RENDER_FRAME;
+    let first = store
+        .render_layers(&actor, 0.25, [0.0; 2], [0.0; 3], &mut budget, false)
+        .unwrap();
+    assert!(matches!(first.render, Cow::Owned(_)));
+    assert_eq!(first.render[0].color, [1.0, 2.0, 3.0, 4.0]);
+    evaluation::take_expression_work();
+    assert_eq!(sample(&store, &actor, 0.25), first.render.as_ref());
+    assert_eq!(evaluation::take_expression_work().iter().sum::<usize>(), 0);
+    assert_eq!(authored_state(&store), authored);
 }
