@@ -114,7 +114,7 @@ fn multiselect_response_is_an_index_array_in_the_custom_response_slot() {
 }
 
 #[test]
-fn structured_display_text_stays_bounded_and_literal_json_stays_literal() {
+fn literal_json_display_strings_stay_literal() {
     let literal = r#"{"rawtext":[{"text":"literal JSON"}]}"#;
     let ServerFormModel::TextMenu(form) =
         model(json!({"type":"form","buttons":[{"text":literal}]}))
@@ -123,11 +123,6 @@ fn structured_display_text_stays_bounded_and_literal_json_stays_literal() {
     };
     assert!(matches!(&form.buttons[0], protocol::FormText::Literal(_)));
     assert_eq!(form.buttons[0].as_ref(), literal);
-    let too_long = "x".repeat(protocol::MAX_UI_TEXT_BYTES + 1);
-    assert!(matches!(
-        model(json!({"type":"form","buttons":[{"text":{"rawtext":[{"text":too_long}]}}]})),
-        ServerFormModel::Unsupported(protocol::UnsupportedForm::Limit)
-    ));
 }
 
 #[test]
@@ -302,4 +297,137 @@ fn structured_display_metadata_and_component_precedence_are_preserved() {
         };
         assert_eq!(text, expected);
     }
+}
+
+#[test]
+fn form_display_strings_keep_long_utf8_in_every_family() {
+    let long = "世界🙂".repeat(protocol::MAX_UI_TEXT_BYTES / "世界🙂".len() + 1);
+    for value in [json!(long), json!({"rawtext":[{"text":long}]})] {
+        let ServerFormModel::TextMenu(menu) =
+            model(json!({"type":"form","title":value,"content":value,"buttons":[{"text":value}]}))
+        else {
+            panic!("long menu text");
+        };
+        for text in [&menu.title, &menu.content, &menu.buttons[0]] {
+            assert_eq!(text.as_ref(), long);
+        }
+        let ServerFormModel::Modal(modal) = model(
+            json!({"type":"modal","title":value,"content":value,"button1":value,"button2":value}),
+        ) else {
+            panic!("long modal text");
+        };
+        for text in [&modal.title, &modal.content, &modal.button1, &modal.button2] {
+            assert_eq!(text.as_ref(), long);
+        }
+        let ServerFormModel::Custom(custom) = model(
+            json!({"type":"custom_form","title":value,"submit":value,"content":[
+                {"type":"label","text":value}, {"type":"header","text":value},
+                {"type":"toggle","text":value,"tooltip":value},
+                {"type":"slider","text":value,"tooltip":value},
+                {"type":"step_slider","text":value,"steps":[value],"tooltip":value},
+                {"type":"dropdown","text":value,"options":[value],"tooltip":value},
+                {"type":"multiselect","text":value,"options":[value],"tooltip":value},
+                {"type":"input","text":value,"placeholder":value,"tooltip":value,"default":"Draft"}
+            ]}),
+        ) else {
+            panic!("long custom text");
+        };
+        assert_eq!(custom.title.as_ref(), long);
+        assert_eq!(custom.submit.as_ref().unwrap().as_ref(), long);
+        use protocol::CustomFormElement::*;
+        for element in custom.elements.iter() {
+            let (text, tooltip) = match element {
+                Label { text } | Header { text } => (text, None),
+                Toggle { text, tooltip, .. } | Slider { text, tooltip, .. } => {
+                    (text, tooltip.as_ref())
+                }
+                StepSlider {
+                    text,
+                    steps,
+                    tooltip,
+                    ..
+                } => {
+                    assert_eq!(steps[0].as_ref(), long);
+                    (text, tooltip.as_ref())
+                }
+                Dropdown {
+                    text,
+                    options,
+                    tooltip,
+                    ..
+                }
+                | MultiSelect {
+                    text,
+                    options,
+                    tooltip,
+                    ..
+                } => {
+                    assert_eq!(options[0].as_ref(), long);
+                    (text, tooltip.as_ref())
+                }
+                Input {
+                    text,
+                    placeholder,
+                    default,
+                    tooltip,
+                } => {
+                    assert_eq!(placeholder.as_ref(), long);
+                    assert_eq!(default.as_ref(), "Draft");
+                    (text, tooltip.as_ref())
+                }
+                Divider => panic!("unexpected divider"),
+            };
+            assert_eq!(text.as_ref(), long);
+            if let Some(tooltip) = tooltip {
+                assert_eq!(tooltip.as_ref(), long);
+            }
+        }
+    }
+}
+
+#[test]
+fn form_display_resolution_keeps_expanded_translations_without_changing_chat() {
+    let expanded: std::sync::Arc<str> = "Translated 🌍 ".repeat(3_000).into();
+    let translate = |key: &str| match key {
+        "long" => Some(std::sync::Arc::clone(&expanded)),
+        "repeat" => Some(std::sync::Arc::from("%1/%1")),
+        _ => None,
+    };
+    let resolver = protocol::RawTextResolver {
+        reader_name: "Player",
+        translate: &translate,
+        score: &|_, _| None,
+        selector: &|_| None,
+    };
+    for (component, expected) in [
+        (json!({"translate":"long"}), expanded.to_string()),
+        (
+            json!({"translate":"repeat","with":["%long"]}),
+            format!("{expanded}/{expanded}"),
+        ),
+    ] {
+        let text = json!({"rawtext":[component]});
+        let ServerFormModel::TextMenu(menu) =
+            model(json!({"type":"form","buttons":[{"text":text}]}))
+        else {
+            panic!("translated form");
+        };
+        let protocol::FormText::Raw(document) = &menu.buttons[0] else {
+            panic!("structured form text");
+        };
+        let resolved = document.resolve(&resolver);
+        assert_eq!(resolved.text, expected);
+        assert!(!resolved.truncated);
+        let chat = protocol::parse_raw_text(&text.to_string())
+            .unwrap()
+            .resolve(&resolver);
+        assert!(chat.text.len() <= protocol::MAX_RAW_TEXT_OUTPUT_BYTES);
+        assert!(chat.truncated);
+    }
+    assert!(
+        protocol::parse_raw_text(
+            &json!({"rawtext":[{"text":"x".repeat(protocol::MAX_UI_TEXT_BYTES + 1)}]}).to_string()
+        )
+        .is_err()
+    );
 }
