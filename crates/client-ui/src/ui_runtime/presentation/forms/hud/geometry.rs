@@ -64,15 +64,11 @@ impl UiPresentationRuntime {
     }
 }
 
-/// Unions native bottom-HUD cells in the editor's safe-content GUI coordinate space.
+/// Unions native artwork in the GUI coordinates shared by the HUD and editor frames.
 pub(super) fn keep_out(
     frame: &ui_engine::frame::EngineFrame,
     paint: &ui_screens::hud_renderers::HudPaint,
 ) -> Option<[f64; 4]> {
-    let unit = f64::from(frame.scale / FONT_DESIGN_PIXEL_TEXELS as f32);
-    if !unit.is_finite() || unit <= 0. {
-        return None;
-    }
     let mut bounds: Option<Rect> = None;
     for hit in &frame.hits {
         let clip = Rect::new(hit.clip.x, hit.clip.y, hit.clip.w, hit.clip.h);
@@ -146,7 +142,7 @@ pub(super) fn keep_out(
             _ => {}
         }
     }
-    bounds.map(|r| [r.x, r.y, r.w, r.h].map(|v| v * unit))
+    bounds.map(|r| [r.x, r.y, r.w, r.h])
 }
 
 #[cfg(test)]

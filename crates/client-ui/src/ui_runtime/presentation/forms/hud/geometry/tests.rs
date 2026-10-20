@@ -146,16 +146,49 @@ fn editor_keep_out_uses_the_completed_native_layout_and_rejects_old_sessions() {
     p.mod_ui_mut()
         .open_mod_hud_editor(&ui::mod_hud::Hud::default())
         .unwrap();
-    p.set_gui_scale_preference(Some(2));
-    build(&mut p, 7);
+    let runtime = UiRuntime::new(7);
+    let player = player_state::PlayerState::new(1);
+    for (gui, dpi) in [(1, 1.), (2, 1.), (4, 1.), (4, 2.), (2, 1.5)] {
+        p.set_gui_scale_preference(Some(gui));
+        p.build(
+            &player,
+            &runtime,
+            0,
+            [2560, 1600],
+            DpiScale::new(dpi).unwrap(),
+        )
+        .unwrap();
+        let native = p.screens.touch.hud.as_ref().unwrap();
+        let editor = p.mod_ui().mod_hud_editor_state().unwrap().frame.unwrap();
+        let reported = p.mod_hud_editor_native_keep_out(7).unwrap();
+        let hit = native
+            .hits
+            .iter()
+            .find(|hit| hit.name == "hotbar_panel")
+            .unwrap();
+        let raw = Rect::new(hit.rect.x, hit.rect.y, hit.rect.w, hit.rect.h);
+        let painted = hit.transform.unwrap().bounds(raw);
+        for axis in 0..2 {
+            let native_start = f64::from(native.origin[axis])
+                + [painted.x, painted.y][axis] * f64::from(native.scale);
+            let editor_start =
+                f64::from(editor.origin[axis]) + reported[axis] * f64::from(editor.scale);
+            let native_size = [painted.w, painted.h][axis] * f64::from(native.scale);
+            let editor_size = reported[axis + 2] * f64::from(editor.scale);
+            assert!(
+                (native_start - editor_start).abs() < 0.001,
+                "gui {gui}, dpi {dpi}, axis {axis}"
+            );
+            assert!(
+                (native_size - editor_size).abs() < 0.001,
+                "gui {gui}, dpi {dpi}, axis {axis}"
+            );
+        }
+        let passes = p.hud_passes();
+        assert_eq!(reported, [30., 200., 273., 33.]);
+        assert_eq!(p.hud_passes(), passes);
+    }
     let frame = p.screens.touch.hud.as_ref().unwrap();
-    let unit = f64::from(frame.scale / FONT_DESIGN_PIXEL_TEXELS as f32);
-    let passes = p.hud_passes();
-    assert_eq!(
-        p.mod_hud_editor_native_keep_out(7),
-        Some([30., 200., 273., 33.].map(|v| v * unit))
-    );
-    assert_eq!(p.hud_passes(), passes);
     // Native status cells may extend outside zero-sized renderer controls.
     let mut native = frame.clone();
     let mut hit = frame
@@ -184,7 +217,7 @@ fn editor_keep_out_uses_the_completed_native_layout_and_rejects_old_sessions() {
         native.hits = vec![hit.clone()].into();
         assert_eq!(
             keep_out(&native, &paint),
-            Some([200., 90., 9., 9.].map(|v| v * unit)),
+            Some([200., 90., 9., 9.]),
             "{renderer}"
         );
     }
