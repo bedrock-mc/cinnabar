@@ -46,6 +46,7 @@ pub struct RenderTextureLayer {
 pub(super) struct LayerSkeleton {
     pub(super) bones: Vec<RuntimeBone>,
     pub(super) names: Vec<Box<str>>,
+    pub(super) channels: Arc<pose::ChannelBindings>,
 }
 
 pub(super) fn bind_attachable_roots(state: &mut ActorRigState, owner_names: &[Box<str>]) {
@@ -66,10 +67,14 @@ pub(super) struct RenderRig<'a> {
     pub skeletons: &'a BTreeMap<u32, Option<Arc<LayerSkeleton>>>,
 }
 
-/// Resolves, once per actor, every geometry the rig's controllers can choose.
-pub(super) fn cache_layer_skeletons(assets: &RuntimeEntityAssets, state: &mut ActorRigState) {
+/// Prepares every geometry choice once for its shared rig plan.
+pub(super) fn layer_skeletons(
+    assets: &RuntimeEntityAssets,
+    binding: usize,
+) -> Box<[(u32, Option<Arc<LayerSkeleton>>)]> {
+    let mut skeletons = BTreeMap::new();
     let render = assets.render_data();
-    for layer in assets.render_layers(state.rig_binding) {
+    for layer in assets.render_layers(binding) {
         let first = layer.first_geometry as usize;
         let Some(choices) = render
             .geometries
@@ -78,15 +83,17 @@ pub(super) fn cache_layer_skeletons(assets: &RuntimeEntityAssets, state: &mut Ac
             continue;
         };
         for choice in choices {
-            state
-                .layer_skeletons
-                .entry(choice.geometry)
-                .or_insert_with(|| {
-                    let (bones, names) = resolve_bones(assets, choice.geometry as usize)?;
-                    Some(Arc::new(LayerSkeleton { bones, names }))
-                });
+            skeletons.entry(choice.geometry).or_insert_with(|| {
+                let (bones, names) = resolve_bones(assets, choice.geometry as usize)?;
+                Some(Arc::new(LayerSkeleton {
+                    channels: Arc::new(pose::ChannelBindings::new(&names)),
+                    bones,
+                    names,
+                }))
+            });
         }
     }
+    skeletons.into_iter().collect()
 }
 
 /// Poses each layer drawing its own geometry: the actor's clips, recompiled for that geometry,
@@ -162,7 +169,7 @@ pub(super) fn sample_layer_local(
         evaluator,
         &mut scratch,
         &skeleton.bones,
-        &skeleton.names,
+        pose::ChannelBones::bound(&skeleton.names, &skeleton.channels),
         &mapped,
         budget,
     )?;

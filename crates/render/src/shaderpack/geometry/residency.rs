@@ -56,8 +56,9 @@ pub(crate) fn section_distance(origin: [i32; 3], eye: DVec3) -> f64 {
 }
 
 /// A resident section's faces: their page, the range they occupy and each category's range.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ResidentFaces {
+    pub(crate) translucent: Vec<crate::chunk::transparent::mixed::plan::MixedFace>,
     pub(crate) page: usize,
     pub(crate) faces: Range<u32>,
     pub(crate) categories: [Range<u32>; 3],
@@ -132,6 +133,8 @@ pub(crate) struct Residency {
     draining: Option<usize>,
     /// Frames in a row in which no section arrived, changed or left.
     settled_frames: u32,
+    /// A drain returned to its source page; only a changed free layout may retry it.
+    failed_drain: Option<usize>,
 }
 
 impl Residency {
@@ -167,6 +170,7 @@ impl Residency {
             slot_count: 0,
             draining: None,
             settled_frames: 0,
+            failed_drain: None,
         }
     }
 
@@ -176,6 +180,7 @@ impl Residency {
     }
 
     fn release(&mut self, resident: &ResidentFaces) {
+        self.failed_drain = None;
         self.pages[resident.page]
             .faces
             .release(resident.faces.clone());
@@ -328,12 +333,24 @@ impl Residency {
             return None;
         }
         let previous = self.sections.remove(&entity);
+        let draining_move = previous.as_ref().is_some_and(|resident| {
+            (Some(resident.page) == self.draining || Some(resident.page) == self.failed_drain)
+                && resident.faces.end - resident.faces.start == plan.faces
+        });
         if let Some(previous) = &previous {
             self.pages[previous.page]
                 .faces
                 .release(previous.faces.clone());
         }
         let placement = self.allocate(plan.faces);
+        let changed_space = placement.as_ref().is_some_and(|placed| {
+            previous.as_ref().is_none_or(|resident| {
+                resident.page != placed.page || resident.faces != placed.faces
+            })
+        });
+        let shrank = previous
+            .as_ref()
+            .is_some_and(|old| placement.is_some() && old.faces.end - old.faces.start > plan.faces);
         match previous {
             Some(previous) if placement.is_none() => {
                 // Keep drawing the old faces until a later frame finds room.
@@ -345,6 +362,12 @@ impl Residency {
             }
             Some(previous) => self.free_slots.push(previous.slot),
             None => {}
+        }
+        if changed_space && !draining_move {
+            self.failed_drain = None;
+        }
+        if shrank {
+            self.retry_waiting();
         }
         placement
     }
@@ -418,8 +441,9 @@ impl Residency {
         if let Some(page) = draining
             && let Some(range) = self.pages[page].faces.allocate(faces)
         {
-            // Nothing else has room: the page stays.
+            // Nothing else has room: the page stays until its free layout changes.
             self.draining = None;
+            self.failed_drain = Some(page);
             return Some(Placement {
                 page,
                 faces: range,
@@ -478,6 +502,7 @@ impl Residency {
     /// its sections to move. Returns whether it started.
     pub(crate) fn start_draining(&mut self) -> bool {
         if self.draining.is_some()
+            || self.failed_drain.is_some()
             || self.settled_frames < DRAIN_SETTLED_FRAMES
             || self.pending_len() > 0
             || self.pages.len() < 2
@@ -498,7 +523,7 @@ impl Residency {
             return false;
         };
         let used = u64::from(space.faces.used());
-        let free_elsewhere = free - u64::from(space.faces.capacity()) + used;
+        let free_elsewhere = free - u64::from(space.faces.capacity() - space.faces.used());
         if free_elsewhere < used + used / 4 {
             return false;
         }
@@ -545,6 +570,7 @@ impl Residency {
         self.sections.insert(
             entity,
             ResidentFaces {
+                translucent: Vec::new(),
                 page: placement.page,
                 faces: placement.faces.clone(),
                 categories: plan.categories.clone(),
@@ -572,6 +598,7 @@ impl Residency {
         self.free_slots.clear();
         self.slot_count = 0;
         self.draining = None;
+        self.failed_drain = None;
     }
 }
 

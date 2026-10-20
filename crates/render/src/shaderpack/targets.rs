@@ -12,7 +12,7 @@ use super::plan::{BufferReads, MAX_COLOR_BUFFERS, PassStep};
 use super::resources::{ImageSource, TextureSource};
 use shaderpack::ProgramKind;
 
-mod admission;
+pub(super) mod admission;
 use std::sync::Arc;
 use wgpu::{Device, TextureFormat, TextureUsages, TextureView};
 
@@ -29,6 +29,102 @@ pub(crate) struct ColorBuffer {
 }
 
 impl ColorBuffer {
+    /// Allocates colour sides and their full-chain, attachment and per-level views.
+    fn new(
+        device: &Device,
+        label: &str,
+        format: TextureFormat,
+        size: [u32; 2],
+        mips: u32,
+        sides: usize,
+        usage: TextureUsages,
+    ) -> Self {
+        let textures: Vec<_> = (0..sides)
+            .map(|side| {
+                device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some(&format!(
+                        "{label}{}",
+                        if side == 1 { " alternate" } else { "" }
+                    )),
+                    size: wgpu::Extent3d {
+                        width: size[0],
+                        height: size[1],
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: mips,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage,
+                    view_formats: &[],
+                })
+            })
+            .collect();
+        let level = |texture: &wgpu::Texture, mip| {
+            texture.create_view(&wgpu::TextureViewDescriptor {
+                base_mip_level: mip,
+                mip_level_count: Some(1),
+                ..Default::default()
+            })
+        };
+        Self {
+            size,
+            sampled: textures
+                .iter()
+                .map(|texture| texture.create_view(&Default::default()))
+                .collect(),
+            attachment: textures.iter().map(|texture| level(texture, 0)).collect(),
+            levels: if mips > 1 {
+                textures
+                    .iter()
+                    .map(|texture| (0..mips).map(|mip| level(texture, mip)).collect())
+                    .collect()
+            } else {
+                vec![]
+            },
+            textures,
+        }
+    }
+
+    /// A sampled copy with the same allocated mip chain as this colour buffer.
+    fn snapshot(&self, device: &Device, label: &str) -> Self {
+        Self::new(
+            device,
+            label,
+            self.texture(0).format(),
+            self.size,
+            self.texture(0).mip_level_count(),
+            1,
+            TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+        )
+    }
+
+    /// Copies every mip of the selected side into its sampled snapshot.
+    fn copy_snapshot(&self, encoder: &mut wgpu::CommandEncoder, side: usize, snapshot: &Self) {
+        for (mip, size) in snapshot_levels(self.size, self.texture(side).mip_level_count()) {
+            encoder.copy_texture_to_texture(
+                wgpu::TexelCopyTextureInfo {
+                    mip_level: mip,
+                    ..self.texture(side).as_image_copy()
+                },
+                wgpu::TexelCopyTextureInfo {
+                    mip_level: mip,
+                    ..snapshot.texture(0).as_image_copy()
+                },
+                size,
+            );
+        }
+    }
+
+    /// The whole chain when mips are visible to this pass, otherwise only its base level.
+    fn sampled_view(&self, side: usize, mipmapped: bool) -> &TextureView {
+        if mipmapped {
+            &self.sampled[side]
+        } else {
+            &self.attachment[side]
+        }
+    }
+
     /// Index of the main (`false`) or alternate (`true`) texture; buffers without an
     /// alternate always use main.
     pub(crate) fn side(&self, alternate: bool) -> usize {
@@ -87,7 +183,7 @@ pub(crate) struct ViewTargets {
     pub images: Vec<(wgpu::Texture, TextureView)>,
     pub storage: Vec<(u32, wgpu::Buffer)>,
     /// Per colour buffer, the copy sampled by programs that also write it as an image.
-    pub snapshots: Vec<Option<Target>>,
+    pub snapshots: Vec<Option<ColorBuffer>>,
     /// Per custom image, the copy sampled by programs that also write it as an image.
     pub image_snapshots: Vec<Option<Target>>,
     /// Flips each time [`Self::swap_sides`] exchanges the textures of the pack's
@@ -163,52 +259,15 @@ impl ViewTargets {
                 usage |= TextureUsages::STORAGE_ATOMIC;
             }
             let sides = if plan.alternate { 2 } else { 1 };
-            let textures: Vec<wgpu::Texture> = (0..sides)
-                .map(|side| {
-                    device.create_texture(&wgpu::TextureDescriptor {
-                        label: Some(&format!(
-                            "shader pack colortex{}{}",
-                            plan.index,
-                            if side == 1 { " alternate" } else { "" }
-                        )),
-                        size: wgpu::Extent3d {
-                            width: size[0],
-                            height: size[1],
-                            depth_or_array_layers: 1,
-                        },
-                        mip_level_count: mips,
-                        sample_count: 1,
-                        dimension: wgpu::TextureDimension::D2,
-                        format,
-                        usage,
-                        view_formats: &[],
-                    })
-                })
-                .collect();
-            let level = |texture: &wgpu::Texture, mip: u32| {
-                texture.create_view(&wgpu::TextureViewDescriptor {
-                    base_mip_level: mip,
-                    mip_level_count: Some(1),
-                    ..Default::default()
-                })
-            };
-            buffers[plan.index as usize] = Some(ColorBuffer {
+            buffers[plan.index as usize] = Some(ColorBuffer::new(
+                device,
+                &format!("shader pack colortex{}", plan.index),
+                format,
                 size,
-                sampled: textures
-                    .iter()
-                    .map(|t| t.create_view(&Default::default()))
-                    .collect(),
-                attachment: textures.iter().map(|t| level(t, 0)).collect(),
-                levels: if mips > 1 {
-                    textures
-                        .iter()
-                        .map(|t| (0..mips).map(|m| level(t, m)).collect())
-                        .collect()
-                } else {
-                    vec![]
-                },
-                textures,
-            });
+                mips,
+                sides,
+                usage,
+            ));
         }
         let sampled = TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING;
         let allocated = float_depths(pack.depth_sampled);
@@ -332,13 +391,7 @@ impl ViewTargets {
                 let buffer = buffer
                     .as_ref()
                     .filter(|_| snapshotted & (1 << index) != 0)?;
-                Some(target(
-                    device,
-                    &format!("shader pack colortex{index} snapshot"),
-                    buffer.texture(0).format(),
-                    buffer.size,
-                    TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                ))
+                Some(buffer.snapshot(device, &format!("shader pack colortex{index} snapshot")))
             })
             .collect();
         Self {
@@ -422,15 +475,7 @@ impl ViewTargets {
                 continue;
             }
             let side = buffer.side(read_alt & (1 << index) != 0);
-            encoder.copy_texture_to_texture(
-                buffer.texture(side).as_image_copy(),
-                snapshot.texture.as_image_copy(),
-                wgpu::Extent3d {
-                    width: buffer.size[0],
-                    height: buffer.size[1],
-                    depth_or_array_layers: 1,
-                },
-            );
+            buffer.copy_snapshot(encoder, side, snapshot);
         }
         for (index, snapshot) in self.image_snapshots.iter().enumerate() {
             let Some(snapshot) = snapshot else {
@@ -463,11 +508,7 @@ impl ViewTargets {
                     .as_ref()
                     .expect("planned buffers are allocated");
                 let side = buffer.side(reads.alt & (1 << index) != 0);
-                if reads.mipmapped & (1 << index) != 0 {
-                    &buffer.sampled[side]
-                } else {
-                    &buffer.attachment[side]
-                }
+                buffer.sampled_view(side, reads.mipmapped & (1 << index) != 0)
             }
             TextureSource::Depth { index, .. } => self.depth_view(index),
             TextureSource::DepthCompare(index) => {
@@ -557,12 +598,11 @@ fn pass_bind_entries<'a>(
     let snapshotted = program.sampled_while_written();
     for (texture, source) in reflection.textures.iter().zip(&program.textures) {
         let view = match *source {
-            TextureSource::Buffer { index, .. } if snapshotted & (1 << index) != 0 => {
-                &targets.snapshots[index as usize]
-                    .as_ref()
-                    .expect("snapshots are allocated for every such buffer")
-                    .view
-            }
+            TextureSource::Buffer { index, .. } if snapshotted & (1 << index) != 0 => targets
+                .snapshots[index as usize]
+                .as_ref()
+                .expect("snapshots are allocated for every such buffer")
+                .sampled_view(0, reads.mipmapped & (1 << index) != 0),
             TextureSource::Image { index, .. } if program.image_sampled_while_written(index) => {
                 &targets.image_snapshots[index]
                     .as_ref()
@@ -758,4 +798,62 @@ fn present_groups(
 /// Whether a program dispatches compute work.
 pub(crate) fn is_compute(pack: &PackGpu, step: &PassStep) -> bool {
     pack.programs[step.program].reflection.kind == ProgramKind::Compute
+}
+
+/// The mip extents a colour snapshot must preserve, including rectangular tail levels.
+fn snapshot_levels(size: [u32; 2], mips: u32) -> impl Iterator<Item = (u32, wgpu::Extent3d)> {
+    (0..mips).map(move |mip| {
+        (
+            mip,
+            wgpu::Extent3d {
+                width: (size[0] >> mip).max(1),
+                height: (size[1] >> mip).max(1),
+                depth_or_array_layers: 1,
+            },
+        )
+    })
+}
+
+#[cfg(test)]
+mod snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn snapshots_copy_every_allocated_mip() {
+        let sizes: Vec<_> = snapshot_levels([16, 4], 5)
+            .map(|(level, size)| (level, size.width, size.height))
+            .collect();
+        assert_eq!(
+            sizes,
+            [(0, 16, 4), (1, 8, 2), (2, 4, 1), (3, 2, 1), (4, 1, 1)]
+        );
+    }
+    #[test]
+    fn gpu_snapshots_keep_the_source_chain_and_per_pass_mip_visibility() {
+        let Some(gpu) = crate::gpu_snapshot::Gpu::new() else {
+            return;
+        };
+        let source = ColorBuffer::new(
+            &gpu.device,
+            "snapshot source",
+            TextureFormat::Rgba8Unorm,
+            [16, 4],
+            5,
+            1,
+            TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC,
+        );
+        let snapshot = source.snapshot(&gpu.device, "snapshot copy");
+        assert_eq!(snapshot.texture(0).mip_level_count(), 5);
+        assert!(std::ptr::eq(
+            snapshot.sampled_view(0, false),
+            &snapshot.attachment[0]
+        ));
+        assert!(std::ptr::eq(
+            snapshot.sampled_view(0, true),
+            &snapshot.sampled[0]
+        ));
+        let mut encoder = gpu.device.create_command_encoder(&Default::default());
+        source.copy_snapshot(&mut encoder, 0, &snapshot);
+        gpu.queue.submit([encoder.finish()]);
+    }
 }

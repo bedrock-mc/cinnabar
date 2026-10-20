@@ -35,15 +35,18 @@ pub(crate) struct GpuContext {
 
 impl GpuContext {
     pub(crate) fn support(&self) -> FormatSupport {
-        FormatSupport::from_features(self.device.features())
+        FormatSupport::for_device(self.device.features(), |format| {
+            self.adapter.get_texture_format_features(format)
+        })
     }
 
     /// Whether the adapter can use `format` with every usage in `usages`.
     pub(crate) fn supports(&self, format: TextureFormat, usages: TextureUsages) -> bool {
-        self.adapter
-            .get_texture_format_features(format)
-            .allowed_usages
-            .contains(usages)
+        effective_format_features(self.device.features(), format, |format| {
+            self.adapter.get_texture_format_features(format)
+        })
+        .allowed_usages
+        .contains(usages)
     }
 
     /// Whether the device has image atomics on `format` (`TEXTURE_ATOMIC`, `r32ui`/`r32i`).
@@ -55,6 +58,23 @@ impl GpuContext {
     }
 }
 
+/// Uses adapter-specific usages only when the device enabled them.
+fn effective_format_features(
+    features: Features,
+    format: TextureFormat,
+    adapter: impl Fn(TextureFormat) -> wgpu::TextureFormatFeatures,
+) -> wgpu::TextureFormatFeatures {
+    let mut support = if features.contains(Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES) {
+        adapter(format)
+    } else {
+        format.guaranteed_format_features(features)
+    };
+    if !features.contains(format.required_features()) {
+        support.allowed_usages = TextureUsages::empty();
+    }
+    support
+}
+
 /// Device features that decide which pack buffer formats need a fallback.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct FormatSupport {
@@ -63,18 +83,45 @@ pub(crate) struct FormatSupport {
     pub float32_filterable: bool,
     /// `RG11B10UFLOAT_RENDERABLE`.
     pub rg11b10_renderable: bool,
-    /// `TEXTURE_FORMAT_16BIT_NORM`: exact 16-bit unorm buffers; without it they use 32-bit
-    /// floats, which hold every 16-bit value exactly.
+    /// Exact 16-bit unorm buffers support render attachments; otherwise they use 32-bit
+    /// floating-point formats.
     pub norm16: bool,
 }
 
 impl FormatSupport {
+    /// Uses only the format usages guaranteed by the enabled device features.
+    #[cfg(test)]
     pub(crate) fn from_features(features: Features) -> Self {
-        Self {
+        Self::for_device(features, |format| {
+            format.guaranteed_format_features(features)
+        })
+    }
+
+    /// Enables exact norm16 targets only when every selected norm16 format can be attached.
+    fn for_device(
+        features: Features,
+        adapter: impl Fn(TextureFormat) -> wgpu::TextureFormatFeatures,
+    ) -> Self {
+        let mut support = Self {
             float32_filterable: features.contains(Features::FLOAT32_FILTERABLE),
             rg11b10_renderable: features.contains(Features::RG11B10UFLOAT_RENDERABLE),
             norm16: features.contains(Features::TEXTURE_FORMAT_16BIT_NORM),
-        }
+        };
+        support.norm16 = support.norm16
+            && BufferFormat::ALL
+                .iter()
+                .map(|format| texture_format(*format, support))
+                .filter(|format| {
+                    format
+                        .required_features()
+                        .contains(Features::TEXTURE_FORMAT_16BIT_NORM)
+                })
+                .all(|format| {
+                    effective_format_features(features, format, &adapter)
+                        .allowed_usages
+                        .contains(TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING)
+                });
+        support
     }
 
     fn float32(self, format: TextureFormat, half: TextureFormat) -> TextureFormat {
@@ -161,14 +208,24 @@ pub(crate) fn format_kind(format: TextureFormat) -> Kind {
 
 /// The kind of a reflected scalar type.
 pub(crate) fn scalar_kind(ty: ValueType) -> Kind {
-    let scalar = match ty {
+    match scalar_type(ty) {
+        ScalarType::Int8
+        | ScalarType::Int16
+        | ScalarType::Int
+        | ScalarType::Int64
+        | ScalarType::Bool => Kind::Sint,
+        ScalarType::Uint8 | ScalarType::Uint16 | ScalarType::Uint | ScalarType::Uint64 => {
+            Kind::Uint
+        }
+        ScalarType::Half | ScalarType::Float | ScalarType::Double => Kind::Float,
+    }
+}
+
+/// Returns the component type shared by a scalar, vector or matrix.
+fn scalar_type(ty: ValueType) -> ScalarType {
+    match ty {
         ValueType::Scalar(s) | ValueType::Vector { scalar: s, .. } => s,
         ValueType::Matrix { scalar, .. } => scalar,
-    };
-    match scalar {
-        ScalarType::Int | ScalarType::Bool => Kind::Sint,
-        ScalarType::Uint => Kind::Uint,
-        ScalarType::Float | ScalarType::Double => Kind::Float,
     }
 }
 
@@ -182,15 +239,17 @@ pub(crate) fn sample_kind(sample: SampleType) -> Option<Kind> {
     }
 }
 
-pub(crate) fn view_dimension(dimension: PackDimension) -> TextureViewDimension {
-    match dimension {
+/// Rejects texture shapes that wgpu cannot bind.
+fn view_dimension(dimension: PackDimension) -> Result<TextureViewDimension, String> {
+    Ok(match dimension {
+        PackDimension::D1Array => return Err("1D array textures are unsupported by wgpu".into()),
         PackDimension::D1 => TextureViewDimension::D1,
         PackDimension::D2 => TextureViewDimension::D2,
         PackDimension::D2Array => TextureViewDimension::D2Array,
         PackDimension::D3 => TextureViewDimension::D3,
         PackDimension::Cube => TextureViewDimension::Cube,
         PackDimension::CubeArray => TextureViewDimension::CubeArray,
-    }
+    })
 }
 
 fn stages(mask: StageMask) -> ShaderStages {
@@ -277,12 +336,43 @@ pub(crate) fn texture_sample_type(
 }
 
 /// Binding type of a reflected sampler: depth comparison, or a filtering class. The
-/// clamp/nearest class is non-filtering, so it also reads unfilterable float textures.
+/// classes without texel or mip filtering also read integer and unfilterable textures.
 pub(crate) fn sampler_binding_type(sampler: &SamplerBinding) -> SamplerBindingType {
     match sampler.class() {
         None => SamplerBindingType::Comparison,
-        Some(SamplerClass::ClampNearest) => SamplerBindingType::NonFiltering,
+        Some(class) if !class.linear() && !class.mipmap_linear() => {
+            SamplerBindingType::NonFiltering
+        }
         Some(_) => SamplerBindingType::Filtering,
+    }
+}
+
+/// The native sampler settings of a class, including the atlas's linear mip filtering.
+pub(crate) fn class_sampler(class: SamplerClass) -> wgpu::SamplerDescriptor<'static> {
+    let address = if class.clamps() {
+        wgpu::AddressMode::ClampToEdge
+    } else {
+        wgpu::AddressMode::Repeat
+    };
+    let filter = if class.linear() {
+        wgpu::FilterMode::Linear
+    } else {
+        wgpu::FilterMode::Nearest
+    };
+    let mipmap = if class.mipmap_linear() {
+        wgpu::MipmapFilterMode::Linear
+    } else {
+        wgpu::MipmapFilterMode::Nearest
+    };
+    wgpu::SamplerDescriptor {
+        label: Some(class.glsl_name()),
+        address_mode_u: address,
+        address_mode_v: address,
+        address_mode_w: address,
+        mag_filter: filter,
+        min_filter: filter,
+        mipmap_filter: mipmap,
+        ..Default::default()
     }
 }
 
@@ -292,7 +382,20 @@ pub(crate) fn sampler_binding_type(sampler: &SamplerBinding) -> SamplerBindingTy
 pub(crate) fn layout_entries(
     reflection: &ProgramReflection,
     sample_types: &[TextureSampleType],
-) -> [Vec<BindGroupLayoutEntry>; 4] {
+) -> Result<[Vec<BindGroupLayoutEntry>; 4], String> {
+    if let Some(block) = &reflection.uniforms {
+        for member in &block.members {
+            if !matches!(
+                scalar_type(member.ty),
+                ScalarType::Bool | ScalarType::Int | ScalarType::Uint | ScalarType::Float
+            ) {
+                return Err(format!(
+                    "uniform {} has an unsupported component width",
+                    member.name
+                ));
+            }
+        }
+    }
     let mut groups: [Vec<BindGroupLayoutEntry>; 4] = Default::default();
     let mut push = |group: u32, entry: BindGroupLayoutEntry| {
         if let Some(entries) = groups.get_mut(group as usize) {
@@ -360,7 +463,7 @@ pub(crate) fn layout_entries(
                 visibility: stages(texture.stages),
                 ty: BindingType::Texture {
                     sample_type: *sample_type,
-                    view_dimension: view_dimension(texture.dimension),
+                    view_dimension: view_dimension(texture.dimension)?,
                     multisampled: false,
                 },
                 count: None,
@@ -384,7 +487,7 @@ pub(crate) fn layout_entries(
                         _ => StorageTextureAccess::WriteOnly,
                     },
                     format,
-                    view_dimension: view_dimension(image.dimension),
+                    view_dimension: view_dimension(image.dimension)?,
                 },
                 count: None,
             },
@@ -393,7 +496,7 @@ pub(crate) fn layout_entries(
     for entries in &mut groups {
         entries.sort_by_key(|e| e.binding);
     }
-    groups
+    Ok(groups)
 }
 
 /// Creates the four bind-group layouts of a program; empty groups have no layout.
@@ -755,6 +858,12 @@ mod tests {
 
     #[test]
     fn float32_textures_filter_with_the_feature_and_depth_reads_never_filter() {
+        let integer = class_sampler(SamplerClass::RepeatNonFiltering);
+        assert_eq!(integer.address_mode_u, wgpu::AddressMode::Repeat);
+        assert_eq!(integer.mipmap_filter, wgpu::MipmapFilterMode::Nearest);
+        let atlas = class_sampler(SamplerClass::RepeatNearest);
+        assert_eq!(atlas.min_filter, wgpu::FilterMode::Nearest);
+        assert_eq!(atlas.mipmap_filter, wgpu::MipmapFilterMode::Linear);
         let with = FormatSupport {
             float32_filterable: true,
             ..FormatSupport::default()
@@ -785,8 +894,94 @@ mod tests {
             SamplerBindingType::Filtering
         );
         assert_eq!(
+            sampler_binding_type(&sampler(SamplerClass::RepeatNearest.binding(), false)),
+            SamplerBindingType::Filtering
+        );
+        assert_eq!(
+            sampler_binding_type(&sampler(SamplerClass::RepeatNonFiltering.binding(), false)),
+            SamplerBindingType::NonFiltering
+        );
+        assert_eq!(
             sampler_binding_type(&sampler(shaderpack::SHADOW_SAMPLER_BINDING, true)),
             SamplerBindingType::Comparison
         );
+    }
+    #[test]
+    fn norm16_feature_alone_does_not_select_an_unrenderable_target() {
+        let support = FormatSupport::from_features(Features::TEXTURE_FORMAT_16BIT_NORM);
+        for format in [BufferFormat::R16, BufferFormat::Rg16, BufferFormat::Rgba16] {
+            assert!(
+                texture_format(format, support)
+                    .guaranteed_format_features(Features::TEXTURE_FORMAT_16BIT_NORM)
+                    .allowed_usages
+                    .contains(TextureUsages::RENDER_ATTACHMENT)
+            );
+        }
+    }
+    #[test]
+    fn norm16_targets_require_effective_adapter_attachment_usages() {
+        let features = Features::TEXTURE_FORMAT_16BIT_NORM
+            | Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
+        let allowed = |format: TextureFormat| {
+            let mut support = format.guaranteed_format_features(features);
+            support.allowed_usages |= TextureUsages::RENDER_ATTACHMENT;
+            support
+        };
+        let exact = FormatSupport::for_device(features, allowed);
+        assert_eq!(
+            texture_format(BufferFormat::R16, exact),
+            TextureFormat::R16Unorm
+        );
+        let limited = FormatSupport::for_device(features, |format| {
+            let mut support = allowed(format);
+            if format == TextureFormat::Rg16Unorm {
+                support
+                    .allowed_usages
+                    .remove(TextureUsages::RENDER_ATTACHMENT);
+            }
+            support
+        });
+        assert_ne!(
+            texture_format(BufferFormat::Rg16, limited),
+            TextureFormat::Rg16Unorm
+        );
+        let guaranteed = FormatSupport::for_device(Features::TEXTURE_FORMAT_16BIT_NORM, allowed);
+        assert!(!guaranteed.norm16);
+        let missing_feature = effective_format_features(
+            Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
+            TextureFormat::R16Unorm,
+            allowed,
+        );
+        assert!(missing_feature.allowed_usages.is_empty());
+    }
+
+    #[test]
+    fn unsupported_reflected_interfaces_fail_layout_admission() {
+        assert_eq!(
+            view_dimension(PackDimension::D2).unwrap(),
+            TextureViewDimension::D2
+        );
+        assert!(view_dimension(PackDimension::D1Array).is_err());
+        let mut reflection = ProgramReflection::default();
+        reflection.uniforms = Some(shaderpack::UniformBlock {
+            name: "host".into(),
+            group: 0,
+            binding: 0,
+            size: 16,
+            members: vec![shaderpack::UniformMember {
+                name: "viewWidth".into(),
+                offset: 0,
+                ty: ValueType::Scalar(ScalarType::Int64),
+                array: None,
+            }],
+            stages: StageMask::default(),
+        });
+        assert!(
+            layout_entries(&reflection, &[])
+                .unwrap_err()
+                .contains("viewWidth")
+        );
+        reflection.uniforms.as_mut().unwrap().members[0].ty = ValueType::Scalar(ScalarType::Int);
+        assert!(layout_entries(&reflection, &[]).is_ok());
     }
 }

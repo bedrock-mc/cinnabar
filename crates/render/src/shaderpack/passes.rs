@@ -462,17 +462,18 @@ fn copy_scene(
             ],
         })
     };
-    let group = depth_group(&host.scene_depth);
-    let attachments: Vec<_> = targets
-        .depth
-        .iter()
-        .map(|d| d.as_ref().and_then(|d| load_attachment(&d.view)))
-        .collect();
-    let mut render = pass(encoder, "shader pack scene depth", &attachments, None);
-    render.set_pipeline(&host.scene_depth);
-    render.set_bind_group(0, &group, &[]);
-    render.draw(0..3, 0..1);
-    drop(render);
+    if let Some(pipeline) = &host.scene_depth {
+        let group = depth_group(pipeline);
+        let attachments: Vec<_> = targets
+            .depth
+            .iter()
+            .map(|d| d.as_ref().and_then(|d| load_attachment(&d.view)))
+            .collect();
+        let mut render = pass(encoder, "shader pack scene depth", &attachments, None);
+        render.set_pipeline(pipeline);
+        render.set_bind_group(0, &group, &[]);
+        render.draw(0..3, 0..1);
+    }
     if let Some(pipeline) = &host.scene_depth_attachment {
         let group = depth_group(pipeline);
         for target in targets.depth_compare.iter().flatten() {

@@ -17,7 +17,7 @@ pub(crate) fn resolve_bindings(
     depth_format: TextureFormat,
     images: &[CustomImage],
     image_formats: &[TextureFormat],
-) -> ProgramBindings {
+) -> Result<ProgramBindings, String> {
     let stage = group.texture_stage();
     let geometry = matches!(group, ProgramGroup::Gbuffers | ProgramGroup::Shadow);
     let textures = reflection
@@ -32,7 +32,7 @@ pub(crate) fn resolve_bindings(
                 } else if let Some(layer) = atlas_layer(&t.name).filter(|_| geometry) {
                     Some(TextureSource::Atlas(layer))
                 } else if t.name == "noisetex" {
-                    let (index, format) = constants.noise();
+                    let (index, format) = constants.noise()?;
                     Some(TextureSource::Constant { index, format })
                 } else if let Some(index) = depth_index(&t.name) {
                     Some(if t.sample_type == SampleType::Depth {
@@ -48,10 +48,10 @@ pub(crate) fn resolve_bindings(
                     "shadowtex1" => Some(1),
                     _ => None,
                 } {
-                    let (index, format) = constants.shadow(index, t.sample_type);
+                    let (index, format) = constants.shadow(index, t.sample_type)?;
                     Some(TextureSource::Constant { index, format })
                 } else if let Some(BufferId::ShadowColor(i)) = BufferId::parse(&t.name) {
-                    let (index, format) = constants.shadow_color(i);
+                    let (index, format) = constants.shadow_color(i)?;
                     Some(TextureSource::Constant { index, format })
                 } else if let Some(index) = color_buffer_of(&t.name)
                     && let Some(format) = buffer_formats[index as usize]
@@ -78,7 +78,7 @@ pub(crate) fn resolve_bindings(
                 }
                 _ => t.dimension == TextureDimension::D2,
             };
-            match source {
+            Ok(match source {
                 Some(s)
                     if fits(s.format())
                         && dimension_fits(&s)
@@ -93,11 +93,11 @@ pub(crate) fn resolve_bindings(
                         texture = %t.name, resolved = ?other,
                         "binding a placeholder"
                     );
-                    constants.placeholder_for(t.sample_type, t.dimension)
+                    constants.placeholder_for(t.sample_type, t.dimension)?
                 }
-            }
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, String>>()?;
     let images = reflection
         .storage_images
         .iter()
@@ -107,16 +107,18 @@ pub(crate) fn resolve_bindings(
                 && storage_buffers & (1 << b) != 0
                 && buffer_formats[b as usize] == format
             {
-                return ImageSource::Buffer(b);
+                return Ok(ImageSource::Buffer(b));
             }
             if let Some(index) = images.iter().position(|i| i.name == image.name)
                 && Some(image_formats[index]) == format
             {
-                return ImageSource::Image(index);
+                return Ok(ImageSource::Image(index));
             }
             let format = format.unwrap_or(TextureFormat::Rgba8Unorm);
-            ImageSource::Constant(constants.placeholder(format, image.dimension, true).0)
+            Ok(ImageSource::Constant(
+                constants.placeholder(format, image.dimension, true)?.0,
+            ))
         })
-        .collect();
-    ProgramBindings { textures, images }
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(ProgramBindings { textures, images })
 }

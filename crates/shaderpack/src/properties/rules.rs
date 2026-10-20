@@ -51,7 +51,11 @@ fn apply_rule(
         properties.flips.push(FlipRule {
             program,
             buffer,
-            flip: parse_bool(value)?,
+            flip: match value {
+                "0" => false,
+                "1" => true,
+                _ => parse_bool(value)?,
+            },
         });
     } else if let Some(program) = key.strip_prefix("scale.") {
         properties.scales.push(scale_rule(program, value)?);
@@ -215,9 +219,9 @@ fn blend_factor(text: &str) -> Result<BlendFactor, String> {
     })
 }
 
-/// Reads an alpha comparison and reference, or disables the test with `off`.
+/// Reads an alpha comparison and reference, or disables the test with `off` or `false`.
 fn alpha_test(value: &str) -> Result<Option<AlphaTest>, String> {
-    if value.eq_ignore_ascii_case("off") {
+    if value.eq_ignore_ascii_case("off") || value.eq_ignore_ascii_case("false") {
         return Ok(None);
     }
     let (function, reference) = first_of_two(value)?;
@@ -348,7 +352,7 @@ fn custom_uniform(
     line: u32,
 ) -> Result<CustomUniform, String> {
     let (ty, name) = split_target(target, "type", "name")?;
-    let expr = Expr::parse(value).map_err(|err| format!("invalid expression: {err}"))?;
+    let expr = Expr::parse_custom(value).map_err(|err| format!("invalid expression: {err}"))?;
     Ok(CustomUniform {
         kind,
         ty,

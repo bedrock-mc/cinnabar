@@ -599,7 +599,6 @@ fn evaluate_job(
         stack: OperandStack::lease(),
         static_draw: None,
     };
-    render::cache_layer_skeletons(assets, state);
     if job.refresh_view {
         geometry::reselect_geometry_replay(
             assets,

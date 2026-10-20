@@ -2,16 +2,17 @@
 
 use super::UniformValue;
 
-/// A value during evaluation. Ints and floats are both [`Value::Num`] (OptiFine evaluates
-/// in floating point); the declared type converts the final result.
+/// A value during evaluation. Float operations and vector lanes retain float precision;
+/// integer inputs and random results keep their full signed range.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum Value {
     Bool(bool),
-    Num(f64),
+    Int(i32),
+    Num(f32),
     /// A 2–4 component vector; components past `len` are zero.
     Vector {
         len: u8,
-        items: [f64; 4],
+        items: [f32; 4],
     },
 }
 
@@ -22,11 +23,20 @@ pub(super) struct Mismatch;
 
 impl Value {
     /// The value as a number (`true` is 1); `None` for a vector.
-    pub(super) fn number(self) -> Option<f64> {
+    pub(super) fn number(self) -> Option<f32> {
         match self {
             Value::Bool(value) => Some(if value { 1.0 } else { 0.0 }),
             Value::Num(value) => Some(value),
+            Value::Int(value) => Some(value as f32),
             Value::Vector { .. } => None,
+        }
+    }
+
+    /// The value as a Java integer cast, preserving integer inputs exactly.
+    pub(super) fn integer(self) -> Option<i32> {
+        match self {
+            Value::Int(value) => Some(value),
+            other => other.number().map(|value| value as i32),
         }
     }
 
@@ -35,12 +45,13 @@ impl Value {
         match self {
             Value::Bool(value) => Some(value),
             Value::Num(value) => Some(value != 0.0),
+            Value::Int(value) => Some(value != 0),
             Value::Vector { .. } => None,
         }
     }
 
     /// Component `index` of a vector; `None` for a scalar or an index past its length.
-    pub(super) fn component(self, index: usize) -> Option<f64> {
+    pub(super) fn component(self, index: usize) -> Option<f32> {
         match self {
             Value::Vector { len, items } if index < usize::from(len) => items.get(index).copied(),
             _ => None,
@@ -51,7 +62,7 @@ impl Value {
     pub(super) fn lane_count(self) -> Option<u8> {
         match self {
             Value::Vector { len, .. } => Some(len),
-            Value::Bool(_) | Value::Num(_) => None,
+            Value::Bool(_) | Value::Int(_) | Value::Num(_) => None,
         }
     }
 
@@ -59,19 +70,19 @@ impl Value {
     pub(super) fn to_numeric(self) -> Value {
         match self {
             Value::Bool(_) => self.map(|n| n),
-            Value::Num(_) | Value::Vector { .. } => self,
+            Value::Int(_) | Value::Num(_) | Value::Vector { .. } => self,
         }
     }
 
     /// Applies `f` to a scalar or to every component of a vector.
-    pub(super) fn map(self, f: impl Fn(f64) -> f64) -> Value {
+    pub(super) fn map(self, f: impl Fn(f32) -> f32) -> Value {
         let (len, items) = self.lanes();
         from_lanes(len, items.map(f))
     }
 
     /// Applies `f` component-wise; a scalar operand broadcasts, vectors must agree in
     /// length.
-    pub(super) fn zip(self, other: Value, f: impl Fn(f64, f64) -> f64) -> Result<Value, Mismatch> {
+    pub(super) fn zip(self, other: Value, f: impl Fn(f32, f32) -> f32) -> Result<Value, Mismatch> {
         let (a_len, a) = self.lanes();
         let (b_len, b) = other.lanes();
         let len = common_len(a_len, b_len)?;
@@ -83,7 +94,7 @@ impl Value {
         a: Value,
         b: Value,
         c: Value,
-        f: impl Fn(f64, f64, f64) -> f64,
+        f: impl Fn(f32, f32, f32) -> f32,
     ) -> Result<Value, Mismatch> {
         let (a_len, a) = a.lanes();
         let (b_len, b) = b.lanes();
@@ -102,21 +113,24 @@ impl Value {
                 Ok(x == y)
             }
             (Value::Vector { .. }, _) | (_, Value::Vector { .. }) => Err(Mismatch),
-            (a, b) => Ok(a.number() == b.number()),
+            (Value::Int(a), Value::Int(b)) => Ok(a == b),
+            (a, b) => Ok(a.number().zip(b.number()).is_some_and(|(a, b)| a == b)),
         }
     }
 
     /// Component count (`None` for a scalar) and components; a scalar fills every lane.
-    fn lanes(self) -> (Option<u8>, [f64; 4]) {
+    fn lanes(self) -> (Option<u8>, [f32; 4]) {
         match self {
             Value::Vector { len, items } => (Some(len), items),
-            Value::Bool(_) | Value::Num(_) => (None, [self.number().unwrap_or(0.0); 4]),
+            Value::Bool(_) | Value::Int(_) | Value::Num(_) => {
+                (None, [self.number().unwrap_or(0.0); 4])
+            }
         }
     }
 }
 
 /// Builds a scalar (`len` is `None`) or a vector, zeroing components past `len`.
-pub(super) fn from_lanes(len: Option<u8>, items: [f64; 4]) -> Value {
+pub(super) fn from_lanes(len: Option<u8>, items: [f32; 4]) -> Value {
     match len {
         None => Value::Num(items[0]),
         Some(len) => Value::Vector {
@@ -140,7 +154,7 @@ impl From<UniformValue> for Value {
         let vector = |items: &[f32]| {
             let mut lanes = [0.0; 4];
             for (lane, item) in lanes.iter_mut().zip(items) {
-                *lane = f64::from(*item);
+                *lane = *item;
             }
             Value::Vector {
                 len: items.len() as u8,
@@ -149,8 +163,8 @@ impl From<UniformValue> for Value {
         };
         match value {
             UniformValue::Bool(value) => Value::Bool(value),
-            UniformValue::Int(value) => Value::Num(f64::from(value)),
-            UniformValue::Float(value) => Value::Num(f64::from(value)),
+            UniformValue::Int(value) => Value::Int(value),
+            UniformValue::Float(value) => Value::Num(value),
             UniformValue::Vec2(items) => vector(&items),
             UniformValue::Vec3(items) => vector(&items),
             UniformValue::Vec4(items) => vector(&items),
