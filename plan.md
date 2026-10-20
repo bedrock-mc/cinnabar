@@ -276,6 +276,9 @@ Implemented: [chat, HUD and scoreboard state](crates/ui/src/lib.rs),
 [inventory prediction and crafting](crates/inventory/src/lib.rs), and
 [menus and settings](crates/client-shell/src/menu.rs). The boxes track full acceptance
 across these existing features; they are not a list of missing screens or systems.
+Gameplay mouse capture resumes after focus or occlusion returns when it was active
+before switching away. Screen ownership and focus-loss input clearing remain in effect;
+OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
 
 - [ ] `P5.1-UI` — Close pack-driven UI, bounded text/draw work, formatting, scaling,
   safe areas, focus/navigation and keyboard/mouse/controller/touch acceptance. Prove
