@@ -715,6 +715,7 @@ mod camera_tests {
     #[test]
     fn opted_in_cameras_admit_single_sample_depth_sampling() {
         let mut app = App::new();
+        app.init_resource::<Assets<bevy::shader::Shader>>();
         build(&mut app);
         let camera = app
             .world_mut()
