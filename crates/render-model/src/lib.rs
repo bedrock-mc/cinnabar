@@ -25,6 +25,7 @@ mod presentation;
 pub mod primitive_shapes;
 pub mod terrain_units;
 mod ui;
+pub mod ui_page_uniform;
 mod ui_textures;
 mod visibility;
 pub mod visibility_bounds;
