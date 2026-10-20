@@ -6,7 +6,6 @@ fn resident(size: [u32; 2]) -> Sheet {
     Sheet {
         size,
         bytes: plan.bytes,
-        outline: OnceLock::new(),
         tiles: plan
             .tiles
             .into_iter()
@@ -135,24 +134,29 @@ fn repeated_source_bounds_remain_in_original_image_units_across_pages() {
 }
 
 #[test]
-fn source_outline_crosses_native_tile_boundaries_without_adding_edges() {
-    use render_api::sprite_mask::{MaskLayout, MaskPatch};
-    let sheet = resident([INTERIOR + 8, 9]);
-    let pixels = MaskLayout {
-        source: sheet.outline(),
-        extent: [(INTERIOR + 8) as f32, 9.],
-        size: [INTERIOR + 8, 9],
-        patches: vec![MaskPatch {
-            bounds: [0., 0., (INTERIOR + 8) as f32, 9.],
-            uv: [0., 0., 1., 1.],
-            opacity: 255,
-        }],
+fn full_native_sheet_table_still_prepares_source_outline() {
+    use crate::{atlas::ServerAtlas, sources::ImageWork};
+    let path = "textures/ui/hunger_outline";
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(512, 9, image::Rgba([255; 4]))
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+    let mut atlas = ServerAtlas::new(&[(format!("{path}.png"), png.into_inner())], None, 1)
+        .with_image_work(ImageWork::inline());
+    for index in 0..MAX_UI_NATIVE_SHEET_PAGES {
+        atlas
+            .native
+            .publish(format!("occupied-{index}"), Some(resident([1; 2])));
     }
-    .rasterize()
-    .unwrap();
-    let alpha = |x, y| pixels[((y * (INTERIOR + 8) + x) * 4 + 3) as usize];
-    assert_eq!(alpha(0, 4), 255);
-    assert_eq!(alpha(INTERIOR + 7, 4), 255);
-    assert_eq!(alpha(INTERIOR - 1, 4), 0);
-    assert_eq!(alpha(INTERIOR, 4), 0);
+    atlas.require([path]);
+    assert!(
+        atlas.placement(path).is_some(),
+        "the ordinary sprite remains drawable"
+    );
+    atlas.prepare_outline(path);
+    assert!(
+        atlas.original_outline(path).is_some(),
+        "GPU page admission must not suppress CPU outlines"
+    );
+    assert_eq!(atlas.native.pages().len(), MAX_UI_NATIVE_SHEET_PAGES);
 }

@@ -486,8 +486,10 @@ mod review_tests {
             .unwrap();
         let assets = test_carrier();
         let set = TextureSet::new(0, Arc::new(NoDownloads), ImageWork::inline());
-        let mut atlas = ServerAtlas::new(&[(format!("{path}.png"), png)], None, 1);
+        let mut atlas = ServerAtlas::new(&[(format!("{path}.png"), png)], None, 1)
+            .with_image_work(ImageWork::inline());
         atlas.require([path]);
+        atlas.prepare_outline(path);
         let first = Textures {
             assets: &assets,
             set: &set,
@@ -560,6 +562,115 @@ mod review_tests {
             0,
             "a fitted preview would incorrectly double the border width"
         );
+    }
+
+    #[test]
+    fn outline_paint_waits_for_worker_completion_without_generating_source_pixels() {
+        use render_api::sprite_mask::{MaskLayout, MaskPatch};
+        let path = "textures/ui/worker_mask";
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(4096, 9, image::Rgba([255; 4]))
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let assets = test_carrier();
+        let set = TextureSet::new(0, Arc::new(NoDownloads), ImageWork::default());
+        let mut atlas = ServerAtlas::new(&[(format!("{path}.png"), png.into_inner())], None, 1)
+            .with_native_sheets(true)
+            .with_image_work(ImageWork::inline());
+        atlas.require([path]);
+        assert!(atlas.native_sheet_ready(path));
+        atlas = atlas.with_image_work(ImageWork::default());
+        atlas.prepare_outline(path);
+        let paint = |atlas: &ServerAtlas| {
+            Textures {
+                assets: &assets,
+                set: &set,
+                atlas,
+                images: None,
+            }
+            .outline_mask(path)
+        };
+        for _ in 0..3 {
+            assert!(
+                paint(&atlas).is_none(),
+                "paint must skip a source whose worker result has not been collected"
+            );
+        }
+        test_time::eventually("source outline worker", || {
+            atlas.poll_native_images();
+            paint(&atlas).is_some()
+        });
+        let pixels = MaskLayout {
+            source: paint(&atlas).unwrap(),
+            extent: [4096., 9.],
+            size: [4096, 9],
+            patches: vec![MaskPatch {
+                bounds: [0., 0., 4096., 9.],
+                uv: [0., 0., 1., 1.],
+                opacity: 255,
+            }],
+        }
+        .rasterize()
+        .unwrap();
+        assert_eq!(pixels[(4 * 4096) * 4 + 3], 255);
+        assert_eq!(pixels[(4 * 4096 + 1) * 4 + 3], 0);
+        let boundary = render_model::MAX_UI_TEXTURE_SIDE - 2;
+        for x in [boundary - 1, boundary] {
+            assert_eq!(pixels[((4 * 4096 + x) * 4 + 3) as usize], 0);
+        }
+    }
+
+    #[test]
+    fn outline_preparation_reads_carrier_bounds_and_retires_replaced_sources() {
+        use render_api::sprite_mask::{MaskLayout, MaskPatch};
+        let path = "textures/ui/carrier_mask";
+        let make_carrier = |alpha| {
+            let page = assets::UiAtlasPage {
+                width: 8,
+                height: 8,
+                rgba8: [10, 20, 30, alpha].repeat(64).into(),
+            };
+            let slot = assets::UiTexturePlacement {
+                path: path.into(),
+                page: 0,
+                x: 2,
+                y: 3,
+                width: 3,
+                height: 3,
+            };
+            let bytes = assets::encode_ui_catalog([alpha; 32], &[page], &[slot], &[], &[]).unwrap();
+            Arc::new(RuntimeUiAssets::decode(&bytes).unwrap())
+        };
+        let assets = make_carrier(128);
+        let mut atlas = ServerAtlas::new(&[], None, 1)
+            .with_carrier(Some(assets.clone()))
+            .with_image_work(ImageWork::inline());
+        assert!(atlas.original_outline(path).is_none());
+        atlas.prepare_outline(path);
+        let source = atlas.original_outline(path).unwrap();
+        let pixels = MaskLayout {
+            source: source.clone(),
+            extent: [3.; 2],
+            size: [3; 2],
+            patches: vec![MaskPatch {
+                bounds: [0., 0., 3., 3.],
+                uv: [0., 0., 1., 1.],
+                opacity: 255,
+            }],
+        }
+        .rasterize()
+        .unwrap();
+        assert_eq!(pixels[3], 128, "the crop edge is a source edge");
+        assert_eq!(pixels[4 * 4 + 3], 0);
+        atlas = atlas.with_carrier(Some(assets));
+        assert!(Arc::ptr_eq(&source, &atlas.original_outline(path).unwrap()));
+        atlas = atlas.with_carrier(Some(make_carrier(255)));
+        assert!(atlas.original_outline(path).is_none());
+        atlas.prepare_outline(path);
+        assert!(!Arc::ptr_eq(
+            &source,
+            &atlas.original_outline(path).unwrap()
+        ));
     }
 
     #[test]

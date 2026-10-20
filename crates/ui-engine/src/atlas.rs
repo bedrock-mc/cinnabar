@@ -26,6 +26,7 @@ pub(crate) mod fitted;
 mod frame_sidecars;
 pub mod jobs;
 mod local_sources;
+mod outlines;
 mod oversized;
 pub use oversized::OversizedTextures;
 mod client_rasters;
@@ -307,6 +308,7 @@ pub struct ServerAtlas {
     decodes: Decodes,
     native_enabled: bool,
     native: native_sheets::NativeSheets,
+    outlines: outlines::Outlines,
     work: ImageWork,
 }
 
@@ -501,23 +503,34 @@ impl ServerAtlas {
             }
     }
 
-    /// Requests original pixels for a derived mask instead of using a fitted atlas preview.
+    /// Requests source coverage independently of GPU sheets, before any renderer paints.
     pub(crate) fn prepare_outline(&mut self, key: &str) {
-        if let Some(source) = self.native_source(key)
-            && source.size != source.packed
+        if !self.outlines.needs(key) {
+            return;
+        }
+        let carrier = (!self.has_image(key))
+            .then(|| {
+                let carrier = self.carrier.as_ref()?;
+                let slot = carrier.texture(key)?;
+                Some(outlines::Input::Carrier {
+                    page: carrier.atlas_pages().get(usize::from(slot.page))?.clone(),
+                    bounds: [slot.x, slot.y, slot.width, slot.height].map(u32::from),
+                })
+            })
+            .flatten();
+        if let Some(input) =
+            carrier.or_else(|| self.native_source(key).map(outlines::Input::Encoded))
         {
-            self.native.request(key, &source, self.work.workers);
+            self.outlines.request(key, input, self.work.workers);
         }
     }
 
-    /// Returns a mask for fitted artwork; an inner `None` means original pixels are not ready.
+    /// Reads a ready original-resolution mask without doing source work during paint.
     pub(crate) fn original_outline(
         &self,
         key: &str,
-    ) -> Option<Option<Arc<render_api::sprite_mask::SpriteMask>>> {
-        let source = self.native_source(key)?;
-        (source.size != source.packed)
-            .then(|| self.native.get(key).map(|(sheet, _)| sheet.outline()))
+    ) -> Option<Arc<render_api::sprite_mask::SpriteMask>> {
+        self.outlines.get(key)
     }
 
     /// Whether an original virtual image has finished its one-time decode.
@@ -552,7 +565,7 @@ impl ServerAtlas {
             self.metadata_revision = self.metadata_revision.wrapping_add(1);
             self.metadata_dirty = true;
         }
-        ready | self.native.collect()
+        ready | self.native.collect() | self.outlines.collect()
     }
 
     /// Changes to image dimensions must rebuild normalized UVs, aspect ratios and slice geometry.

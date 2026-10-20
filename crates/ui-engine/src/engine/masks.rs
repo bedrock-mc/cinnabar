@@ -13,11 +13,8 @@ use std::{
 };
 use ui::{UiBlendMode, UiMesh, UiNode, UiVisual};
 
-type SourceKey = ([u8; 32], [u32; 4]);
-
 #[derive(Default)]
 pub(crate) struct MaskCache {
-    sources: BTreeMap<String, (SourceKey, [u8; 32], Arc<SpriteMask>)>,
     rows: BTreeMap<String, (MaskLayout, Arc<[Tile]>)>,
 }
 
@@ -85,80 +82,11 @@ impl PreparedRasters {
 }
 
 impl Textures<'_> {
-    /// Caches the active source's outline, using its complete rectangle and source identity.
+    /// Reads the prepared source outline, skipping the overlay until its worker completes.
     pub fn outline_mask(&self, path: &str) -> Option<Arc<SpriteMask>> {
-        if !self.admits(path) {
-            return None;
-        }
-        if let Some(original) = self.atlas.original_outline(&self.canonical(path)) {
-            return original;
-        }
-        let (page, [x, y, w, h]) = self.sprite(path)?;
-        let bounds = [x as u32, y as u32, w as u32, h as u32];
-        let native_first = usize::from(self.set.server_page)
-            .checked_sub(crate::pages::SERVER_UI_PAGE)
-            .map(|first| first + render_model::UI_NATIVE_SHEET_PAGE_OFFSET);
-        let native = native_first
-            .and_then(|first| usize::from(page).checked_sub(first))
-            .and_then(|index| self.atlas.native_pages().get(index));
-        let server = page
-            .checked_sub(self.set.server_page)
-            .and_then(|index| self.atlas.images().get(usize::from(index)));
-        let carrier = page
-            .checked_sub(self.set.first_page)
-            .and_then(|index| self.assets.atlas_pages().get(usize::from(index)));
-        let (identity, stride, rgba) = if let Some(image) = native.or(server) {
-            (image.identity(), image.dimensions()[0], image.pixels())
-        } else {
-            let image = carrier?;
-            (
-                self.assets.source_manifest_sha256(),
-                image.width,
-                image.rgba8.as_ref(),
-            )
-        };
-        if w <= 0.
-            || h <= 0.
-            || ((y + h - 1.) as usize * stride as usize + (x + w) as usize) * 4 > rgba.len()
-        {
-            return None;
-        }
-        let key = (identity, bounds);
-        let mut cache = self
-            .set
-            .masks
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        if let Some((old, _, mask)) = cache.sources.get(path)
-            && *old == key
-        {
-            return Some(mask.clone());
-        }
-        let alpha: Vec<_> = (0..bounds[3])
-            .flat_map(|py| {
-                (0..bounds[2]).map(move |px| {
-                    rgba[((py + bounds[1]) as usize * stride as usize + (px + bounds[0]) as usize)
-                        * 4
-                        + 3]
-                })
-            })
-            .collect();
-        use sha2::{Digest, Sha256};
-        let digest: [u8; 32] = Sha256::digest(&alpha).into();
-        if let Some((old_key, old_digest, mask)) = cache.sources.get_mut(path)
-            && *old_digest == digest
-            && old_key.1[2..] == bounds[2..]
-        {
-            *old_key = key;
-            return Some(mask.clone());
-        }
-        let mask = Arc::new(SpriteMask::outline([bounds[2], bounds[3]], |px, py| {
-            alpha[(py * bounds[2] + px) as usize]
-        }));
-        cache
-            .sources
-            .insert(path.to_owned(), (key, digest, mask.clone()));
-        Some(mask)
+        self.admits(path)
+            .then(|| self.atlas.original_outline(&self.canonical(path)))
+            .flatten()
     }
 }
 

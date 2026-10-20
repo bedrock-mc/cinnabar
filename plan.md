@@ -417,7 +417,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 - Native extension UI and HUD APIs (retained modules, profile fields, text plates,
   compass markers, totem annotations and bounded camera overrides) still need
   displayed-frame pacing and complete rendering acceptance.
-  Saturation overlays derive source outlines once on the CPU, union whole-row coverage
+  Saturation overlays prepare source outlines on image workers independently of GPU-sheet
+  capacity, skip pending sources during paint, union whole-row coverage
   before area filtering, and draw ordinary prepared sprites. Current and held-food
   coverage share one mask. CPU/GPU regressions cover tint, cropping, unequal translucent
   edges, independent shake, inversion and high-resolution minification; complete in-game
