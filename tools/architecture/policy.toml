@@ -106,7 +106,7 @@ forbidden_dependencies = ["bevy", "wgpu"]
 [[crates]]
 name = "shaderpack"
 path = "crates/shaderpack"
-allowed_dependencies = ["zip-footer"]
+allowed_dependencies = ["zip-footer", "assets"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 [[crates]]

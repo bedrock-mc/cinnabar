@@ -413,6 +413,12 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Diagnostics or bounded fixtures do not establish safe general gameplay use. Java
   shader-pack source loading and configuration metadata are implemented in
   `shaderpack`, including options, dimensions, parsed properties, program discovery
+  and enable rules. Translation, render-host integration and in-game acceptance
+  remain incomplete; parsed custom uniform expressions are not executed or rendered.
+  Pack block, item and entity ids, Java biome values and Java sky and fog colours are
+  computed from the pinned Bedrock→Java mappings but not yet uploaded to shaders.
+  Sky/fog time curves and sunrise colours remain provisional; lightning, status effects,
+  underwater colour easing and the water-vision ramp are not implemented.
   and enable rules. Custom uniform expressions evaluate per frame, including numeric
   operations and smoothing. Complete Iris type checking and target-dependent function
   return overloads remain incomplete, as do translation, render-host integration and

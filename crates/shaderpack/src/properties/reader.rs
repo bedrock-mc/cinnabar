@@ -13,15 +13,16 @@ use pp_rs::pp::Preprocessor;
 const REJECTED: char = '\0';
 
 /// One key/value pair from an active logical line.
-pub(super) struct RawEntry {
+#[derive(Clone)]
+pub(crate) struct RawEntry {
     /// 1-based line where the logical line starts.
-    pub(super) line: u32,
-    pub(super) key: String,
-    pub(super) value: String,
+    pub(crate) line: u32,
+    pub(crate) key: String,
+    pub(crate) value: String,
 }
 
 /// Runs one preprocessor over the complete file; layout metadata uses the original values.
-pub(super) fn read_entries(
+pub(crate) fn read_entries(
     text: &str,
     defines: &BTreeMap<String, String>,
     diagnostics: &mut Vec<PropertiesDiagnostic>,
