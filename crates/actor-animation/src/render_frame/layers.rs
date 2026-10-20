@@ -617,7 +617,14 @@ impl ActorAnimationStore {
         let complete = skin.is_ok();
         let skin = skin.unwrap_or(Cow::Borrowed(state.skin_layers.as_slice()));
         if complete && let Some(retained) = retained {
-            retained.store(&layers, &skin, held_item_scale);
+            retained.store(
+                &layers,
+                match &skin {
+                    Cow::Owned(skin) => Some(skin.as_slice()),
+                    Cow::Borrowed(_) => None,
+                },
+                held_item_scale,
+            );
         }
         Some(ActorRenderLayers {
             render: Cow::Owned(layers),

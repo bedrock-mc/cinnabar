@@ -145,7 +145,7 @@ impl Sample {
     pub(super) fn store(
         &mut self,
         render: &[RenderTextureLayer],
-        skin: &Cow<'_, [SkinRenderLayer]>,
+        sampled_skin: Option<&[SkinRenderLayer]>,
         scale: Option<f32>,
     ) {
         if !self.inputs.pure() {
@@ -158,9 +158,13 @@ impl Sample {
         });
         output.render.clear();
         output.render.extend_from_slice(render);
-        match skin {
-            Cow::Owned(skin) => output.skin.get_or_insert_with(Vec::new).clone_from(skin),
-            Cow::Borrowed(_) => output.skin = None,
+        match sampled_skin {
+            Some(skin) => {
+                let output = output.skin.get_or_insert_with(Vec::new);
+                output.clear();
+                output.extend_from_slice(skin);
+            }
+            None => output.skin = None,
         }
         output.scale = scale;
         self.valid = true;

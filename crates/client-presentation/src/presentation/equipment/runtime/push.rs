@@ -530,6 +530,7 @@ impl EquipmentRuntime {
                     owner_names: animation.rig.bone_names,
                     geometry: (geometry_index, evaluated.geometry),
                     local,
+                    paired: false,
                     hidden: &layer.hidden_bones,
                     scale: evaluated.axis_scale.map(|axis| axis * evaluated.scale),
                     alpha: placement_cache::alpha(

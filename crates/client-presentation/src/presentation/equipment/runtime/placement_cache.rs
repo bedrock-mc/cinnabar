@@ -12,6 +12,7 @@ pub(super) struct Inputs<'a> {
     pub hidden: &'a Arc<[u32]>,
     pub scale: [f32; 3],
     pub alpha: Option<f32>,
+    pub paired: bool,
 }
 
 struct Entry {
@@ -24,6 +25,7 @@ struct Entry {
     hidden: Arc<[u32]>,
     scale: [u32; 3],
     alpha: Option<u32>,
+    paired: bool,
     owner: [RenderPose; 2],
     poses: [RenderPose; 2],
     frame: u64,
@@ -60,6 +62,7 @@ impl PlacementCache {
             hidden,
             scale,
             alpha,
+            paired,
         } = inputs;
         let identity = body.input.identity;
         let lifetime = (
@@ -78,6 +81,7 @@ impl PlacementCache {
             && entry.hidden == *hidden
             && entry.scale == scale.map(f32::to_bits)
             && entry.alpha == alpha.map(f32::to_bits)
+            && entry.paired == paired
             && entry.local.len() == local.len()
             && entry
                 .local
@@ -95,7 +99,7 @@ impl PlacementCache {
         }
         self.entries.remove(&key);
         let mut poses: [RenderPose; 2] = [Arc::from([]), Arc::from([])];
-        for endpoint in 0..2 {
+        for endpoint in 0..if paired { 2 } else { 1 } {
             let pose: Vec<_> = (0..local.len())
                 .map(|index| transform(endpoint, index))
                 .collect::<Option<_>>()?;
@@ -104,6 +108,9 @@ impl PlacementCache {
             } else {
                 pose.into()
             };
+        }
+        if !paired {
+            poses[1] = Arc::clone(&poses[0]);
         }
         self.entries.insert(
             key,
@@ -117,6 +124,7 @@ impl PlacementCache {
                 hidden: Arc::clone(hidden),
                 scale: scale.map(f32::to_bits),
                 alpha: alpha.map(f32::to_bits),
+                paired,
                 owner: owner.map(Arc::clone),
                 poses: poses.clone(),
                 frame,

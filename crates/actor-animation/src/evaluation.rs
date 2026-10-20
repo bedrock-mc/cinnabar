@@ -459,10 +459,13 @@ impl Evaluator<'_> {
     ) -> Result<MolangValue, EvalError> {
         if self.program.is_none()
             && crate::render_frame::cache::enabled()
-            && let Some(mut cache) = variables.frame_cache.take()
+            && let Some(mut cache) = variables
+                .frame
+                .as_mut()
+                .and_then(|frame| frame.cache.take())
         {
             let result = cache.run(self, expression_index, variables, this, budget);
-            variables.frame_cache = Some(cache);
+            variables.frame.as_mut().unwrap().cache = Some(cache);
             result
         } else {
             self.run_observed(expression_index, variables, this, budget, None)

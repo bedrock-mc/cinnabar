@@ -28,8 +28,7 @@ enum SlotView<'a> {
 /// One actor's Molang variables and random stream; an unassigned variable reads as 0.0.
 #[derive(Debug, Default)]
 pub(crate) struct MolangVariables {
-    pub(crate) frame_cache: Option<super::frame_cache::Expressions>,
-    rollback: Option<Vec<(Place, Option<MolangValue>)>>,
+    pub(super) frame: Option<Box<frame::ScratchState>>,
     values: Vec<Slot>,
     temps: Vec<Slot>,
     /// Temporary slots assigned since the last clear; every assigned temporary is listed.
@@ -48,8 +47,7 @@ pub(crate) struct MolangVariables {
 impl Clone for MolangVariables {
     fn clone(&self) -> Self {
         let Self {
-            frame_cache: _,
-            rollback: _,
+            frame: _,
             values,
             temps,
             live_temps,
@@ -62,8 +60,7 @@ impl Clone for MolangVariables {
             writes,
         } = self;
         Self {
-            frame_cache: None,
-            rollback: None,
+            frame: None,
             values: values.clone(),
             temps: temps.clone(),
             live_temps: live_temps.clone(),
@@ -80,8 +77,7 @@ impl Clone for MolangVariables {
     /// Copies into this set's existing buffers instead of allocating new ones.
     fn clone_from(&mut self, source: &Self) {
         let Self {
-            frame_cache: _,
-            rollback: _,
+            frame: _,
             values,
             temps,
             live_temps,
@@ -93,8 +89,7 @@ impl Clone for MolangVariables {
             capture_writes,
             writes,
         } = source;
-        self.frame_cache = None;
-        self.rollback = None;
+        self.frame = None;
         self.values.clone_from(values);
         self.temps.clone_from(temps);
         self.live_temps.clone_from(live_temps);
@@ -204,9 +199,19 @@ impl MolangVariables {
     /// string slot. Returns whether the slot was unassigned before; `None` when out of range.
     fn put(&mut self, place: Place, value: Option<MolangValue>) -> Option<bool> {
         let old = self.slot(place)?;
-        if self.rollback.is_some() {
+        if self
+            .frame
+            .as_ref()
+            .is_some_and(|frame| frame.undo.is_some())
+        {
             let value = self.load(old);
-            self.rollback.as_mut().unwrap().push((place, value));
+            self.frame
+                .as_mut()
+                .unwrap()
+                .undo
+                .as_mut()
+                .unwrap()
+                .push((place, value));
         }
         #[cfg(test)]
         super::selection_work::record(|work| work.assigned += 1);

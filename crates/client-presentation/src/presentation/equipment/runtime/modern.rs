@@ -167,6 +167,7 @@ impl EquipmentRuntime {
                 owner_names: owner_rig.bone_names,
                 geometry: (geometry_index, evaluated.geometry),
                 local: pose,
+                paired: !input.first_person,
                 hidden: &selected.hidden_bones,
                 scale: model_scale,
                 alpha: input

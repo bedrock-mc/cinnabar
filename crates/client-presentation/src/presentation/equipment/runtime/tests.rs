@@ -892,6 +892,7 @@ fn attachment_placement_reuses_unchanged_inputs_and_invalidates_owner_and_local_
                     owner_names: &bones.names,
                     geometry: (0, 0),
                     local,
+                    paired: true,
                     hidden: &hidden,
                     scale: [1.0; 3],
                     alpha: None,
@@ -929,4 +930,38 @@ fn attachment_placement_reuses_unchanged_inputs_and_invalidates_owner_and_local_
     body.input.identity.spawn_revision += 1;
     sample(&body, &local);
     assert_eq!(work.get(), 2);
+}
+
+#[test]
+fn attachment_placement_shared_endpoint_composes_once() {
+    let (runtime, body, _) = block_fixture();
+    let bones = body_bones(vec!["rightItem".into()]);
+    let local = [actor_animation::BoneTransform::default()];
+    let mut cache = placement_cache::PlacementCache::default();
+    let mut work = 0;
+    let poses = cache
+        .sample(
+            &body,
+            (true, 0),
+            1,
+            placement_cache::Inputs {
+                assets: &runtime.assets,
+                bones: &bones,
+                owner_names: &bones.names,
+                geometry: (0, 0),
+                local: &local,
+                hidden: &Arc::from([]),
+                scale: [1.0; 3],
+                alpha: None,
+                paired: false,
+            },
+            |endpoint, _| {
+                assert_eq!(endpoint, 0);
+                work += 1;
+                Some(body.input.current_bones[0])
+            },
+        )
+        .unwrap();
+    assert_eq!(work, 1);
+    assert!(Arc::ptr_eq(&poses[0], &poses[1]));
 }

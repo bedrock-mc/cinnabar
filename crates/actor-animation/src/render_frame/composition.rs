@@ -3,7 +3,14 @@ use super::*;
 
 #[derive(Debug, Default)]
 pub(crate) struct Compositions {
-    poses: BTreeMap<(Option<u32>, bool), (Vec<pose::LocalDelta>, Arc<[BoneTransform]>)>,
+    poses: BTreeMap<(Option<u32>, bool), ComposedPose>,
+}
+
+/// One geometry endpoint's local channels and the matrices they produced.
+#[derive(Debug, Default)]
+struct ComposedPose {
+    local: Vec<pose::LocalDelta>,
+    model: Arc<[BoneTransform]>,
 }
 
 impl Compositions {
@@ -20,16 +27,16 @@ impl Compositions {
             return compose().map(Arc::from);
         }
         let entry = self.poses.entry((geometry, previous)).or_default();
-        if entry.0.len() == local.len()
-            && entry.0.iter().zip(local).all(|(a, b)| a.same_bits(*b))
-            && entry.1.len() == count
+        if entry.local.len() == local.len()
+            && entry.local.iter().zip(local).all(|(a, b)| a.same_bits(*b))
+            && entry.model.len() == count
         {
-            return Some(Arc::clone(&entry.1));
+            return Some(Arc::clone(&entry.model));
         }
         let composed = Arc::from(compose()?);
-        entry.0.clear();
-        entry.0.extend_from_slice(local);
-        entry.1 = composed;
-        Some(Arc::clone(&entry.1))
+        entry.local.clear();
+        entry.local.extend_from_slice(local);
+        entry.model = composed;
+        Some(Arc::clone(&entry.model))
     }
 }
