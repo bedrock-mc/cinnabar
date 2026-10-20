@@ -9,7 +9,7 @@
 use super::host_pipelines::{HostPipelines, host_pipelines};
 use super::pipeline_cache::PipelineCacheFile;
 use super::pipelines::{
-    GpuContext, Kind, MASKED_TARGET, bind_group_layouts, color_targets, format_kind,
+    GpuContext, Kind, MASKED_TARGET, bind_group_layouts, class_sampler, color_targets, format_kind,
     layout_entries, quad_attributes, quad_layout, shader_modules, storage_format, stores,
     texture_format,
 };
@@ -145,37 +145,6 @@ impl PackGpu {
             Some(class) => &self.filtering[class as usize],
             None => &self.comparison,
         }
-    }
-}
-
-/// The wgpu sampler of a [`SamplerClass`]. Linear classes also filter between mip levels,
-/// as Iris does for buffers with mipmaps enabled; repeat/nearest blends mip levels like
-/// Java's atlas (`NEAREST_MIPMAP_LINEAR`), which single-level custom textures never see.
-pub(crate) fn class_sampler(class: SamplerClass) -> wgpu::SamplerDescriptor<'static> {
-    let address = if class.clamps() {
-        wgpu::AddressMode::ClampToEdge
-    } else {
-        wgpu::AddressMode::Repeat
-    };
-    let filter = if class.linear() {
-        wgpu::FilterMode::Linear
-    } else {
-        wgpu::FilterMode::Nearest
-    };
-    let mipmap = if class == SamplerClass::ClampNearest {
-        wgpu::MipmapFilterMode::Nearest
-    } else {
-        wgpu::MipmapFilterMode::Linear
-    };
-    wgpu::SamplerDescriptor {
-        label: Some(class.glsl_name()),
-        address_mode_u: address,
-        address_mode_v: address,
-        address_mode_w: address,
-        mag_filter: filter,
-        min_filter: filter,
-        mipmap_filter: mipmap,
-        ..Default::default()
     }
 }
 

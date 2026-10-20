@@ -10,7 +10,7 @@
 use super::plan::{MAX_COLOR_BUFFERS, color_buffer_of};
 use shaderpack::{
     BlendFactor as PackFactor, BlendMode, BlendRule, BufferFormat, ProgramGroup, ProgramReflection,
-    SampleType, SamplerBinding, ScalarType, StageKind, StageMask,
+    SampleType, SamplerBinding, SamplerClass, ScalarType, StageKind, StageMask,
     TextureDimension as PackDimension, ValueType, VertexAttribute,
 };
 use std::borrow::Cow;
@@ -324,12 +324,43 @@ pub(crate) fn texture_sample_type(
 }
 
 /// Binding type of a reflected sampler: depth comparison, or a filtering class. The
-/// nearest classes are non-filtering, so they also read integer and unfilterable textures.
+/// classes without texel or mip filtering also read integer and unfilterable textures.
 pub(crate) fn sampler_binding_type(sampler: &SamplerBinding) -> SamplerBindingType {
     match sampler.class() {
         None => SamplerBindingType::Comparison,
-        Some(class) if !class.linear() => SamplerBindingType::NonFiltering,
+        Some(class) if !class.linear() && !class.mipmap_linear() => {
+            SamplerBindingType::NonFiltering
+        }
         Some(_) => SamplerBindingType::Filtering,
+    }
+}
+
+/// The native sampler settings of a class, including the atlas's linear mip filtering.
+pub(crate) fn class_sampler(class: SamplerClass) -> wgpu::SamplerDescriptor<'static> {
+    let address = if class.clamps() {
+        wgpu::AddressMode::ClampToEdge
+    } else {
+        wgpu::AddressMode::Repeat
+    };
+    let filter = if class.linear() {
+        wgpu::FilterMode::Linear
+    } else {
+        wgpu::FilterMode::Nearest
+    };
+    let mipmap = if class.mipmap_linear() {
+        wgpu::MipmapFilterMode::Linear
+    } else {
+        wgpu::MipmapFilterMode::Nearest
+    };
+    wgpu::SamplerDescriptor {
+        label: Some(class.glsl_name()),
+        address_mode_u: address,
+        address_mode_v: address,
+        address_mode_w: address,
+        mag_filter: filter,
+        min_filter: filter,
+        mipmap_filter: mipmap,
+        ..Default::default()
     }
 }
 
@@ -690,7 +721,6 @@ pub(crate) fn shader_modules(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shaderpack::SamplerClass;
 
     #[test]
     fn every_pack_format_maps_to_a_renderable_format_of_the_same_kind() {
@@ -803,6 +833,12 @@ mod tests {
 
     #[test]
     fn float32_textures_filter_with_the_feature_and_depth_reads_never_filter() {
+        let integer = class_sampler(SamplerClass::RepeatNonFiltering);
+        assert_eq!(integer.address_mode_u, wgpu::AddressMode::Repeat);
+        assert_eq!(integer.mipmap_filter, wgpu::MipmapFilterMode::Nearest);
+        let atlas = class_sampler(SamplerClass::RepeatNearest);
+        assert_eq!(atlas.min_filter, wgpu::FilterMode::Nearest);
+        assert_eq!(atlas.mipmap_filter, wgpu::MipmapFilterMode::Linear);
         let with = FormatSupport {
             float32_filterable: true,
             ..FormatSupport::default()
@@ -834,6 +870,10 @@ mod tests {
         );
         assert_eq!(
             sampler_binding_type(&sampler(SamplerClass::RepeatNearest.binding(), false)),
+            SamplerBindingType::Filtering
+        );
+        assert_eq!(
+            sampler_binding_type(&sampler(SamplerClass::RepeatNonFiltering.binding(), false)),
             SamplerBindingType::NonFiltering
         );
         assert_eq!(

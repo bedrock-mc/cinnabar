@@ -163,7 +163,7 @@ void main() { gl_FragData[0] = vec4(textureGather(colortex0, vec2(0.5))) + vec4(
     bindings.sort_unstable();
     let mut expected = [
         SamplerClass::ClampNearest,
-        SamplerClass::RepeatNearest,
+        SamplerClass::RepeatNonFiltering,
         SamplerClass::ClampLinear,
     ]
     .map(SamplerClass::binding);
