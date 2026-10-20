@@ -1017,6 +1017,7 @@ fn geometry_draws_refresh_custom_image_feedback_before_opening_the_pass() {
             None,
             &gpu,
             &Default::default(),
+            &Default::default(),
         )
         .unwrap(),
     );
