@@ -1,6 +1,6 @@
 //! Retained desktop input ownership across focus and occlusion changes.
 
-/// Focus loss requires an explicit gameplay return before pointer capture resumes.
+/// Retains gameplay capture across focus loss and explicit returns from screens.
 #[derive(Debug)]
 pub struct CursorFocus {
     focused: bool,
@@ -8,6 +8,7 @@ pub struct CursorFocus {
     lost_this_frame: bool,
     waiting_for_return: bool,
     activated: bool,
+    resume_capture: bool,
     /// Gameplay holds the pointer on platforms without an OS cursor grab, as a lock would.
     grab_free_capture: bool,
 }
@@ -20,6 +21,7 @@ impl Default for CursorFocus {
             lost_this_frame: false,
             waiting_for_return: false,
             activated: false,
+            resume_capture: false,
             grab_free_capture: false,
         }
     }
@@ -82,6 +84,7 @@ impl CursorFocus {
     /// Records whether gameplay holds the pointer where the platform cannot lock the cursor.
     pub fn set_grab_free_capture(&mut self, captured: bool) {
         self.grab_free_capture = captured;
+        self.record_capture(captured);
     }
 
     /// Whether gameplay holds the pointer without an OS grab, while capture stays authorized.
@@ -89,10 +92,17 @@ impl CursorFocus {
         self.grab_free_capture && self.capture_allowed()
     }
 
-    /// Retires implicit capture authorization when desktop input leaves the game.
+    /// Remembers the last available frame's capture request through background frames.
+    pub fn record_capture(&mut self, captured: bool) {
+        if self.available() {
+            self.resume_capture = captured;
+        }
+    }
+
+    /// Suspends capture while desktop input leaves the game.
     fn lose_input(&mut self) {
         self.lost_this_frame = true;
-        self.waiting_for_return = true;
+        self.waiting_for_return = !self.resume_capture;
         self.grab_free_capture = false;
     }
 }

@@ -77,7 +77,7 @@ test-time = { path = "../test-time" }
 wgpu = { workspace = true, features = ["counters"] }
 pack-compiler = { path = "../pack-compiler" }
 image.workspace = true
-naga = { version = "30.0.1", features = ["wgsl-in", "wgsl-out"] }
+naga = { workspace = true, features = ["wgsl-out"] }
 wesl = "0.6.0"
 tempfile = "3"
 
