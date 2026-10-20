@@ -386,10 +386,12 @@ Committed text arrives through `input.read-text-events()` as `{id, value}` entri
 separately from the unchanged numeric events in `input.read-controls()`.
 The batch is visible only during its regular frame callback, remains stable across
 reads and stays queued when the callback is deferred. It shares the controls grant
-and read budget. Native integrations drain
-`ModUi::take_mod_panel_text_events(owner)` and call that owner's
-`ModHost::queue_text_events` before running its frame. Admission validates the
-entire batch against its current text controls before updating any retained value.
+and read budget. Before running a frame, native integrations first drain
+`ModUi::take_mod_panel_text_events(owner)` into `ModHost::queue_text_events`, then
+`ModUi::take_mod_panel_field_events(owner)` into `ModHost::queue_field_events`.
+Draining field events retains the same valid, coalesced values that the host
+admits. Below-minimum drafts remain editable without changing the retained value.
+Admission validates each complete batch before updating any retained value.
 Optional `show_gameplay_hud: true` retains the resource-pack gameplay HUD behind an
 open panel, for example while placing HUD elements. It defaults to false. Hide HUD
 and death-screen suppression still apply, and the crosshair stays hidden while a

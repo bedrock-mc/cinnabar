@@ -541,6 +541,7 @@ fn native_live_field_dismissal_keeps_published_value() {
     let mut ui = live_field("Main", false);
     ui.mod_panel_key("TextInput", Some("Latest"));
     ui.mod_panel_key("Escape", None);
+    ui.take_mod_panel_field_events(PanelUiOwner::Environment(0));
     let panel = ui.mod_panel.as_ref().unwrap().panel.clone();
     ui.set_mod_panel(PanelUiOwner::Environment(0), Some(&panel))
         .unwrap();
@@ -560,6 +561,7 @@ fn native_live_field_guest_replaces_focused_value() {
     let mut ui = live_field("Main", true);
     ui.mod_panel_key("TextInput", Some("query"));
     ui.mod_panel_key("Enter", None);
+    ui.take_mod_panel_field_events(PanelUiOwner::Environment(0));
     let mut panel = ui.mod_panel.as_ref().unwrap().panel.clone();
     if let Control::Text { value, .. } = &mut panel.controls[0] {
         value.clear();
@@ -616,4 +618,24 @@ fn native_field_navigation_contract_reaches_guest() {
         assert!(ui.take_mod_panel_field_events(PanelUiOwner::Environment(0)).iter().any(|event|
             matches!(event, ui::mod_panel::FieldEvent::Key(event) if event.key == *key)), "missing navigation route for {key}");
     }
+}
+
+/// A host echo cannot replace a below-minimum draft after an intermediate valid edit coalesces away.
+#[test]
+fn native_live_field_coalescing_keeps_retained_values_in_sync() {
+    let mut ui = text_field("Main", 1, 8);
+    if let Control::Text { live, .. } = &mut ui.mod_panel.as_mut().unwrap().panel.controls[0] {
+        *live = true;
+    }
+    let echo = ui.mod_panel.as_ref().unwrap().panel.clone();
+    ui.mod_panel_key("TextInput", Some("a"));
+    ui.mod_panel_key("Backspace", None);
+    let events = ui.take_mod_panel_field_events(PanelUiOwner::Environment(0));
+    assert!(
+        matches!(&events[..], [ui::mod_panel::FieldEvent::Change(event)] if event.value.is_empty())
+    );
+    ui.set_mod_panel(PanelUiOwner::Environment(0), Some(&echo))
+        .unwrap();
+    assert!(ui.mod_panel_field_focused());
+    assert_eq!(field_state(&ui).text, "");
 }

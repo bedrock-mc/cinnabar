@@ -109,7 +109,7 @@ impl ModUi {
         self.mod_panel
             .as_mut()
             .filter(|panel| panel.owner == owner)
-            .map_or_else(Vec::new, |panel| std::mem::take(&mut panel.field_events))
+            .map_or_else(Vec::new, |panel| panel.drain_field_events())
     }
 
     /// Drops the panel's laid-out text and pointer capture after its private font changed.

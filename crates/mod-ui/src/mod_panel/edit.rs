@@ -494,33 +494,56 @@ impl ModPanel {
         }
     }
 
+    /// Retains exactly the valid values in the emitted batch, matching host-side admission.
+    pub(super) fn drain_field_events(&mut self) -> Vec<ui::mod_panel::FieldEvent> {
+        use ui::mod_panel::FieldEvent;
+        let events = std::mem::take(&mut self.field_events);
+        for event in &events {
+            let (FieldEvent::Change(event) | FieldEvent::Submit(event)) = event else {
+                continue;
+            };
+            let Some((
+                index,
+                Control::Text {
+                    value,
+                    min_chars,
+                    max_chars,
+                    ..
+                },
+            )) = self
+                .panel
+                .controls
+                .iter_mut()
+                .enumerate()
+                .find(|(_, control)| control.id() == event.id)
+            else {
+                continue;
+            };
+            if value.as_str() != event.value.as_str()
+                && ui::mod_panel::validate_text_value(&event.value, *min_chars, *max_chars).is_ok()
+            {
+                value.clone_from(&event.value);
+                Arc::make_mut(&mut self.data).set_global(
+                    format!("#row_{index}_value"),
+                    json_ui::Scalar::Text(event.value.clone()),
+                );
+            }
+        }
+        events
+    }
+
     /// Coalesces live values by field until the app drains this frame's native batch.
     fn live_change(&mut self) {
         let Some(Editor::Field { control, state, .. }) = &self.edit else {
             return;
         };
-        let Some(Control::Text {
-            id,
-            value,
-            live: true,
-            min_chars,
-            max_chars,
-            ..
-        }) = self.panel.controls.get_mut(*control)
-        else {
+        let Some(Control::Text { id, live: true, .. }) = self.panel.controls.get(*control) else {
             return;
         };
         let event = ui::mod_panel::TextEvent {
             id: id.clone(),
             value: state.text.clone(),
         };
-        if ui::mod_panel::validate_text_value(&state.text, *min_chars, *max_chars).is_ok() {
-            value.clone_from(&state.text);
-            Arc::make_mut(&mut self.data).set_global(
-                format!("#row_{control}_value"),
-                json_ui::Scalar::Text(state.text.clone()),
-            );
-        }
         self.field_events.retain(|existing| !matches!(existing, ui::mod_panel::FieldEvent::Change(old) if old.id == event.id));
         if self.field_events.len() < ui::mod_panel::MAX_PANEL_EVENTS {
             self.field_events
