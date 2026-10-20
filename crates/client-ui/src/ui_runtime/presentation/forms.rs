@@ -84,6 +84,8 @@ pub mod tests;
 mod texture_sources;
 pub mod toast_screen;
 mod touch_controls;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod url_images_tests;
 
 pub use containers::observe_station_block;
 
@@ -707,9 +709,14 @@ impl UiPresentationRuntime {
                 let state = runtime.server_forms().engine();
                 let remote = renderer.textures.remote.clone();
                 let images = |url: &str| remote.state(url);
-                match model::engine_model(&entry.model, state, &translate, &images, &|text| {
-                    runtime.resolve_form_text(text)
-                }) {
+                match model::engine_model(
+                    &entry.model,
+                    state,
+                    runtime.session_id() != 0,
+                    &translate,
+                    &images,
+                    &|text| runtime.resolve_form_text(text),
+                ) {
                     None => "form kind has no engine template".to_owned(),
                     Some(form) => {
                         let rollback = (nodes.len(), *next);

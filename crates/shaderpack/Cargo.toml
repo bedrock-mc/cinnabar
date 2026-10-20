@@ -12,6 +12,7 @@ platform-specific = ["macos"]
 doctest = false
 
 [dependencies]
+assets = { path = "../assets" }
 naga.workspace = true
 pp-rs = "0.2.1"
 rayon.workspace = true
