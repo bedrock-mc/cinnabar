@@ -150,7 +150,7 @@ pub(crate) fn read_plain_entries(text: &str) -> Vec<RawEntry> {
     let mut pending: Option<(u32, String)> = None;
     for (index, physical) in text.lines().enumerate() {
         let line = u32::try_from(index + 1).unwrap_or(u32::MAX);
-        let text = physical.trim_start();
+        let text = physical.trim_start_matches(property_space);
         if let Some((start, mut logical)) = pending.take() {
             match strip_continuation(text) {
                 Some(head) => {
@@ -277,9 +277,8 @@ fn strip_continuation(text: &str) -> Option<&str> {
 }
 
 /// Splits a logical line into key and value: the key ends at the first unescaped `=`,
-/// `:` or whitespace; whitespace and one `=`/`:` separator follow; both sides are
-/// unescaped and trimmed, except that a value keeps an escaped leading space (`\ `) as
-/// java.util.Properties does.
+/// `:` or property whitespace; whitespace and one `=`/`:` separator follow. Unescaping
+/// preserves whitespace in keys and values, including escaped separators.
 fn parse_entry(line: u32, logical: &str) -> RawEntry {
     let mut key_end = logical.len();
     let mut escaped = false;
@@ -288,20 +287,25 @@ fn parse_entry(line: u32, logical: &str) -> RawEntry {
             escaped = false;
         } else if c == '\\' {
             escaped = true;
-        } else if c == '=' || c == ':' || c.is_whitespace() {
+        } else if c == '=' || c == ':' || property_space(c) {
             key_end = index;
             break;
         }
     }
-    let mut value = logical[key_end..].trim_start();
+    let mut value = logical[key_end..].trim_start_matches(property_space);
     if let Some(stripped) = value.strip_prefix(['=', ':']) {
-        value = stripped.trim_start();
+        value = stripped.trim_start_matches(property_space);
     }
     RawEntry {
         line,
-        key: unescape(&logical[..key_end]).trim().to_owned(),
-        value: unescape(value).trim_end().to_owned(),
+        key: unescape(&logical[..key_end]),
+        value: unescape(value),
     }
+}
+
+/// Whitespace that separates a Java property key from its value.
+fn property_space(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '\u{c}')
 }
 
 /// Java properties escapes: `\t \n \r \f`, `\uXXXX`, and `\c` → `c` for anything else. A
