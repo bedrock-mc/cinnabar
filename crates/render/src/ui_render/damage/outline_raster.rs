@@ -174,17 +174,13 @@ fn adjacent_sprite_outlines_preserve_sparse_edges_in_alpha_and_inverse_modes() {
                         ]
                     })
                     .collect();
-                input.textures = Arc::new(
-                    UiTextureCatalog::new(
-                        vec![
-                            UiTexturePage::owned([9, 9], [17, 99, 180, 255].repeat(81).into())
-                                .unwrap(),
-                            UiTexturePage::owned([9, 9], mask.into()).unwrap(),
-                        ],
-                        1,
-                    )
-                    .unwrap(),
-                );
+                let pages = vec![
+                    UiTexturePage::owned([9, 9], [17, 99, 180, 255].repeat(81).into()).unwrap(),
+                    UiTexturePage::owned([9, 9], mask.into()).unwrap(),
+                ];
+                // Both pages are fixed fixture art, outside the reserved dynamic slots.
+                let dynamic_start = pages.len();
+                input.textures = Arc::new(UiTextureCatalog::new(pages, dynamic_start).unwrap());
                 quad(
                     &mut input,
                     [0., 0., SIDE as f32, SIDE as f32],
