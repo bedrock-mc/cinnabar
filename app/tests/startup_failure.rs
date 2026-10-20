@@ -2,21 +2,6 @@
 use std::{fs, process::Command};
 
 #[allow(dead_code)]
-mod fixture_installer {
-    pub mod privilege {
-        use std::sync::atomic::{AtomicBool, Ordering};
-
-        pub static CHECKED: AtomicBool = AtomicBool::new(false);
-
-        /// Supplies normal permissions without querying the test host's Windows token.
-        pub fn normal_user<T>(action: impl FnOnce() -> std::io::Result<T>) -> std::io::Result<T> {
-            CHECKED.store(true, Ordering::Relaxed);
-            action()
-        }
-    }
-}
-
-#[allow(dead_code)]
 mod fixture_client {
     pub mod args {
         pub const HELP: &str = "fixture";
@@ -48,11 +33,6 @@ mod fixture_client {
         pub fn show_failure(_: &anyhow::Error) {}
         /// Starts file logging, then reproduces a preparation failure before the client runs.
         pub fn before_run(_: bool) -> anyhow::Result<bool> {
-            assert!(
-                crate::fixture_installer::privilege::CHECKED
-                    .load(std::sync::atomic::Ordering::Relaxed),
-                "startup fixtures must use injected normal permissions"
-            );
             let dir = std::path::PathBuf::from(std::env::var_os("STARTUP_FAILURE_LOG").unwrap());
             diagnostics::console::initialize_log(&diagnostics::console::SessionFiles {
                 dir: &dir,
@@ -77,7 +57,6 @@ mod fixture_client {
 #[allow(dead_code)]
 mod entry {
     use crate::fixture_client as cinnabar;
-    use crate::fixture_installer as update_installer;
     include!("../src/entry.rs");
     /// Invokes the production dispatch with the fixture lifecycle boundary.
     pub fn invoke() {

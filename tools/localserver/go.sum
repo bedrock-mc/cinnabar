@@ -1,5 +1,5 @@
-github.com/bedrock-mc/dragonfly v0.0.0-20261009181128-3ee589b2f500 h1:YyMtCqqU5Z98BR2mo8lwXlbZNIfpsOvCYc2V6B9AHm0=
-github.com/bedrock-mc/dragonfly v0.0.0-20261009181128-3ee589b2f500/go.mod h1:uQOU9omfzE6W0msSLE8bnQALWwx8Y3VKdiW+lhBV2+8=
+github.com/bedrock-mc/dragonfly v0.0.0-20261019182817-14a1c91693e7 h1:Vm4wMLzqI/ZIC2bSboS6nQOVuZ8Np0UxQ7Q9JP5s9sc=
+github.com/bedrock-mc/dragonfly v0.0.0-20261019182817-14a1c91693e7/go.mod h1:5gl+GtL66Nvgnzs+4y59Jx2UQGsvDBm5ygvwD2DtU7o=
 github.com/bedrock-mc/vanilla-gen v0.0.0-20261007153212-e56215898732 h1:OZ/ChZFeaai/IdDsrraECMldzPYKMfIqi0a7TwF1sY0=
 github.com/bedrock-mc/vanilla-gen v0.0.0-20261007153212-e56215898732/go.mod h1:KXTHlUeGYIVp3z1synzJ0zJ6CVdr4ZQoaSE1I1eBzjY=
 github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479 h1:UZbbt19ACBOFO+CiDQFjaEoPJkBhj7GNGtIq59WR6Os=
@@ -8,6 +8,8 @@ github.com/cenkalti/backoff/v7 v7.0.0 h1:ZP+QAaaOnVUHo+ufFpZ835hbT3x2fy+h2lecVEo
 github.com/cenkalti/backoff/v7 v7.0.0/go.mod h1:qcKBGwsu4hpxHtQ8tWYsQ+ifzx2+sS+Xx/3jfe30lI8=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
 github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
+github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261019181927-1b7677ddec59 h1:rBFry3/th+w69zgrrF3sn7j23iJVLHZ+1PJ/LiWlZhI=
+github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261019181927-1b7677ddec59/go.mod h1:kBTWfCuCMRGWmcsX3bojKsX8yUyLpXVjquuPn12vB7c=
 github.com/coder/websocket v1.8.14 h1:9L0p0iKiNOibykf283eHkKUHHrpG7f65OE3BhhO7v9g=
 github.com/coder/websocket v1.8.14/go.mod h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=
 github.com/coreos/go-oidc/v3 v3.17.0 h1:hWBGaQfbi0iVviX4ibC7bk8OKT5qNr4klBaCHVNvehc=
@@ -39,8 +41,8 @@ github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/hashimthearab/go-raknet v1.15.1-0.20261011190141-6124f52657d4 h1:dcgWv1CcC/2ksUy5wYonEeH5VJwjrcJ/IyqyIQz18/c=
 github.com/hashimthearab/go-raknet v1.15.1-0.20261011190141-6124f52657d4/go.mod h1:/yysjwfCXm2+2OY8mBazLzcxJ3irnylKCyG3FLgUPVU=
-github.com/hashimthearab/gophertunnel v1.25.3-0.20261017173210-81e65c54fb21 h1:CQEPcmXoXBEg46MVab50LPqyaLglxXLy7H10dRwvY9Q=
-github.com/hashimthearab/gophertunnel v1.25.3-0.20261017173210-81e65c54fb21/go.mod h1:IUEh1CfJyWrcEvD8z/Zsp4Lo/v6jG30iz4NXUijEI7M=
+github.com/hashimthearab/gophertunnel v1.25.3-0.20261019151115-85d4022854e1 h1:o0uCvBBvuSDpG75KbSFPkGLtDR3G0j5R+G9dUwtxrxA=
+github.com/hashimthearab/gophertunnel v1.25.3-0.20261019151115-85d4022854e1/go.mod h1:IUEh1CfJyWrcEvD8z/Zsp4Lo/v6jG30iz4NXUijEI7M=
 github.com/hpcloud/tail v1.0.0/go.mod h1:ab1qPbhIpdTxEkNHXyeSf5vhxWSCs/tWer42PpOxQnU=
 github.com/klauspost/compress v1.13.6/go.mod h1:/3/Vjq9QcHkK5uEr5lBEmyoZ1iFhe47etQ6QUkpK6sk=
 github.com/klauspost/compress v1.18.4 h1:RPhnKRAQ4Fh8zU2FY/6ZFDwTVTxgJ/EMydqSTzE9a2c=

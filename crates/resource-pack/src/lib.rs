@@ -2,8 +2,8 @@
 //!
 //! Each archive is admitted independently: a bad pack is dropped with a counted
 //! reason and the rest of the stack still applies. Encrypted packs are decrypted
-//! in memory per read; compiled outputs derived from any server pack, encrypted
-//! ones included, may persist in the install's local compile cache.
+//! in memory with a bounded shared read cache. Compiled outputs derived from any
+//! server pack, encrypted ones included, may persist in the install's local compile cache.
 
 use std::sync::Arc;
 
@@ -11,20 +11,25 @@ use std::sync::Arc;
 use protocol::ResourcePackHandoff;
 use thiserror::Error;
 
+mod added;
 mod crypto;
 mod dependencies;
+mod fingerprint;
 mod import;
 mod library;
 mod manifest;
 mod merge;
 mod pack;
 mod parser;
+mod read_cache;
 pub mod subpacks;
 #[cfg(all(feature = "handoff", any(test, feature = "test-support")))]
 pub mod test_support;
 mod view;
 
+pub use added::{AddedPack, compose_added_packs};
 pub use dependencies::{PackDependencies, PackDependency};
+pub use fingerprint::StackFingerprint;
 pub use import::{
     GlobalSelectionEntry, PACK_IMPORT_EXTENSIONS, ParsedGlobalSelection, PreparedImport,
     is_pack_import_path, merge_global_selection, parse_global_selection, prepare_import,
@@ -40,17 +45,22 @@ pub use view::LayeredPackView;
 /// Maximum compressed source bytes decoded for one pack texture.
 pub const MAX_PACK_TEXTURE_BYTES: u64 = 4 * 1024 * 1024;
 
+/// Maximum number of globally selected local packs; server selections are independent.
 pub const MAX_PACKS: usize = 32;
+/// Maximum compressed archive bytes accepted by local import readers.
 pub const MAX_ARCHIVE_BYTES: usize = 64 * 1024 * 1024;
+/// Maximum compressed archive bytes accepted in one local import.
 pub const MAX_STACK_ARCHIVE_BYTES: usize = 128 * 1024 * 1024;
+/// Explicit read allowance for local import metadata and skin manifests.
 pub const MAX_MANIFEST_BYTES: usize = 256 * 1024;
+/// Explicit name allowance for stored global selections and local skin import.
 pub const MAX_PATH_BYTES: usize = 512;
 pub const MAX_ENTRIES_PER_PACK: usize = 32_768;
 pub const MAX_ENTRIES_PER_STACK: usize = 65_536;
+/// Explicit read allowance for local imports and bounded content subscribers.
 pub const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_DECLARED_BYTES_PER_PACK: u64 = 512 * 1024 * 1024;
 pub const MAX_DECLARED_BYTES_PER_STACK: u64 = 1024 * 1024 * 1024;
-pub const MAX_SUBPACKS: usize = 64;
 
 /// A stable, attacker-data-free reason why the whole selected stack was rejected.
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
@@ -117,7 +127,7 @@ impl From<zip_footer::FooterError> for AdmissionError {
     }
 }
 
-/// Admission result carried with StartGame. Dropped packs never fail the session.
+/// Admission result carried with StartGame, including per-pack rejection reasons.
 #[derive(Clone, Debug)]
 pub enum PackAdmission {
     None,
@@ -146,3 +156,6 @@ pub fn validate_handoff_for_device(
 
 #[cfg(all(test, feature = "handoff"))]
 mod handoff_tests;
+
+#[cfg(test)]
+mod subpack_count_tests;

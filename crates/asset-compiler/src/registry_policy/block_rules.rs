@@ -345,7 +345,7 @@ pub(super) fn vocabulary(root: &std::path::Path, blocks: &[BlockFact]) -> Result
             );
         }
     }
-    for row in include_str!("../../../protocol/data/item_tags_dragonfly.tsv")
+    for row in include_str!("../../../protocol/data/item_tags_native.tsv")
         .lines()
         .filter(|r| !r.starts_with('#'))
     {

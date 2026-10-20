@@ -40,10 +40,16 @@ pub(crate) struct AtmospherePreferences<'w> {
     skybox: Option<ResMut<'w, render_scene::SkyboxSettings>>,
 }
 
+/// The renderer-clock overrides, in [`super::rendered_clock`] precedence order.
+type TimeOverrides<'w> = (
+    Option<Res<'w, super::FixedTime>>,
+    Option<Res<'w, super::VisualTimeOverride>>,
+);
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn update_atmosphere_frame(
     clock: Res<WorldClock>,
-    time_override: Option<Res<super::VisualTimeOverride>>,
+    time_overrides: TimeOverrides,
     weather: Res<WeatherState>,
     medium: Res<CameraMediumState>,
     context: Res<EnvironmentContext>,
@@ -70,9 +76,8 @@ pub(crate) fn update_atmosphere_frame(
         clock.server_time().map(|_| clock.session_generation()),
         time.elapsed_secs_f64(),
     );
-    let clock = time_override
-        .as_ref()
-        .map_or(*clock, |value| value.rendering_clock(*clock));
+    let (fixed_time, time_override) = time_overrides;
+    let clock = super::rendered_clock(*clock, fixed_time.as_deref(), time_override.as_deref());
     #[cfg(not(target_arch = "wasm32"))]
     let options = preferences
         .menu

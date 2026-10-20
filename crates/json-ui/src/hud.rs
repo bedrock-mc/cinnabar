@@ -31,6 +31,10 @@ pub struct HudModel {
     pub effects_visible: bool,
     pub spectator: bool,
     pub title: Option<HudTitle>,
+    /// Controller inputs retained after native title instances finish their animations.
+    /// None derives the input from `title` for callers supplying only a timed title model.
+    pub title_text: Option<String>,
+    pub subtitle_text: Option<String>,
     pub actionbar: Option<Timed>,
     /// The tip text above the hotbar, which server packs reposition (the
     /// Lumine array list moves it to the screen's top right).
@@ -474,21 +478,21 @@ mod tests;
 fn titles(data: &mut DataSource, model: &HudModel) {
     data.set_global(
         "#hud_title_text_string",
-        Scalar::Text(
+        Scalar::Text(model.title_text.clone().unwrap_or_else(|| {
             model
                 .title
                 .as_ref()
-                .map_or_else(String::new, |title| title.title.clone()),
-        ),
+                .map_or_else(String::new, |title| title.title.clone())
+        })),
     );
     data.set_global(
         "#hud_subtitle_text_string",
-        Scalar::Text(
+        Scalar::Text(model.subtitle_text.clone().unwrap_or_else(|| {
             model
                 .title
                 .as_ref()
-                .map_or_else(String::new, |title| title.subtitle.clone()),
-        ),
+                .map_or_else(String::new, |title| title.subtitle.clone())
+        })),
     );
     if let Some(title) = &model.title {
         data.set_factory(

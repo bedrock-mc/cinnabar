@@ -137,6 +137,7 @@ pub(super) fn resolve_binding(
         rig_binding,
         geometry_binding,
         bones,
+        composition: Arc::clone(&plan.composition),
         bone_names,
         render: Vec::new(),
         may_use_always_depth_material: plan.always_depth,
@@ -534,6 +535,7 @@ fn reselect_geometry_with_checkpoint(
     state.samples_render_frames = plan.frames;
     state.geometry_binding = selected;
     state.bones = bones;
+    state.composition = Arc::clone(&plan.composition);
     state.bone_names = bone_names;
     state.controllers = controllers;
     state.reset_to_skeleton(pose);

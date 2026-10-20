@@ -33,12 +33,12 @@ fn pack() -> crate::entity::EntityPackCompilation {
 fn rig_order_and_one_read_per_source_survive_prepared_pixel_sharing() {
     let pack = pack();
     let runtime = assets::RuntimeEntityAssets::from_compiled(pack.assets.clone()).unwrap();
-    let mut calls = BTreeMap::<u32, usize>::new();
+    let calls = std::sync::Mutex::new(BTreeMap::<u32, usize>::new());
     let build = build_artwork(
         &pack.assets,
         &runtime,
-        &mut |source| {
-            *calls.entry(source).or_default() += 1;
+        &|source| {
+            *calls.lock().unwrap().entry(source).or_default() += 1;
             Ok(pack.payloads[pack.assets.sources[source as usize].path.as_ref()].to_vec())
         },
         true,
@@ -54,6 +54,7 @@ fn rig_order_and_one_read_per_source_survive_prepared_pixel_sharing() {
     assert_eq!(paths, ["textures/entity/b.png", "textures/entity/a.png"]);
     assert_eq!(build.bindings[0].texture, 0);
     assert_eq!(build.pixel_bytes, 2 * 4 * 4 * 4);
+    let calls = calls.into_inner().unwrap();
     assert_eq!(calls.len(), 3);
     assert!(calls.values().all(|&count| count == 1));
 }
@@ -69,11 +70,12 @@ fn a_failed_prepass_read_is_retried_at_the_owning_rig_and_still_reports_failure(
         .position(|source| source.path.as_ref() == "textures/entity/b.png")
         .unwrap() as u32;
     for recover in [true, false] {
-        let mut calls = BTreeMap::<u32, usize>::new();
+        let calls = std::sync::Mutex::new(BTreeMap::<u32, usize>::new());
         let result = build_artwork(
             &pack.assets,
             &runtime,
-            &mut |source| {
+            &|source| {
+                let mut calls = calls.lock().unwrap();
                 let count = calls.entry(source).or_default();
                 *count += 1;
                 if source == retry && (*count == 1 || !recover) {
@@ -83,7 +85,7 @@ fn a_failed_prepass_read_is_retried_at_the_owning_rig_and_still_reports_failure(
             },
             true,
         );
-        assert_eq!(calls[&retry], 2);
+        assert_eq!(calls.lock().unwrap()[&retry], 2);
         if recover {
             let build = result.unwrap();
             assert_eq!(build.textures[0].source, retry);
@@ -101,12 +103,12 @@ fn a_failed_prepass_read_is_retried_at_the_owning_rig_and_still_reports_failure(
 fn unusable_sources_keep_the_owning_rig_fallback_and_are_not_read_again() {
     let pack = pack();
     let runtime = assets::RuntimeEntityAssets::from_compiled(pack.assets.clone()).unwrap();
-    let mut calls = BTreeMap::<u32, usize>::new();
+    let calls = std::sync::Mutex::new(BTreeMap::<u32, usize>::new());
     let build = build_artwork(
         &pack.assets,
         &runtime,
-        &mut |source| {
-            *calls.entry(source).or_default() += 1;
+        &|source| {
+            *calls.lock().unwrap().entry(source).or_default() += 1;
             Ok(b"unusable image".to_vec())
         },
         true,
@@ -122,6 +124,41 @@ fn unusable_sources_keep_the_owning_rig_fallback_and_are_not_read_again() {
             reason: "missing_or_ambiguous_texture".into(),
         }]
     );
+    let calls = calls.into_inner().unwrap();
     assert_eq!(calls.len(), 3);
     assert!(calls.values().all(|&count| count == 1));
+}
+
+#[test]
+fn existing_actor_fixture_is_byte_identical_on_one_and_four_threads() {
+    let pack = pack();
+    let runtime = assets::RuntimeEntityAssets::from_compiled(pack.assets.clone()).unwrap();
+    let entity_bytes = encode_entity_blob(&pack.assets).unwrap();
+    let compile = |threads| {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .unwrap()
+            .install(|| {
+                let artwork = build_artwork(
+                    &pack.assets,
+                    &runtime,
+                    &|source| {
+                        Ok(
+                            pack.payloads[pack.assets.sources[source as usize].path.as_ref()]
+                                .as_ref(),
+                        )
+                    },
+                    true,
+                )
+                .unwrap();
+                assert_eq!(artwork.bindings.len(), 1);
+                (
+                    encode_actor_catalog(&entity_bytes, &artwork.textures, &artwork.bindings)
+                        .unwrap(),
+                    artwork.fallbacks,
+                )
+            })
+    };
+    assert_eq!(compile(1), compile(4));
 }

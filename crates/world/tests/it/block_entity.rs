@@ -230,7 +230,7 @@ fn decoder_enforces_depth_collection_string_and_byte_limits() {
     ));
 
     let mut collection = vec![10, 0];
-    named_header(7, b"a", &mut collection);
+    named_header(11, b"a", &mut collection);
     zigzag_i32((MAX_NBT_COLLECTION_LENGTH + 1) as i32, &mut collection);
     collection.resize(collection.len() + MAX_NBT_COLLECTION_LENGTH + 1, 0);
     assert!(matches!(
@@ -256,6 +256,44 @@ fn decoder_enforces_depth_collection_string_and_byte_limits() {
     oversized.push(0);
     assert!(matches!(
         BlockEntityNbt::decode_prefix(&oversized),
+        Err(BlockEntityNbtError::TooManyBytes { .. })
+    ));
+}
+
+#[test]
+fn byte_array_accepts_contiguous_bytes_beyond_the_collection_work_limit() {
+    let len = MAX_NBT_COLLECTION_LENGTH + 1;
+    let mut bytes = vec![10, 0];
+    named_header(7, b"Bytes", &mut bytes);
+    zigzag_i32(len as i32, &mut bytes);
+    let header_len = bytes.len();
+    bytes.resize(header_len + len, 0xaa);
+    bytes.push(0);
+    let mut followed = bytes.clone();
+    followed.extend_from_slice(&representative_compound());
+    let (nbt, consumed) = BlockEntityNbt::decode_prefix(&followed).expect("complete byte array");
+    assert_eq!(consumed, bytes.len());
+    assert_eq!(nbt.bytes(), bytes);
+    assert!(BlockEntityNbt::decode_prefix(&followed[consumed..]).is_ok());
+    assert!(matches!(
+        BlockEntityNbt::decode_prefix(&bytes[..header_len + len - 1]),
+        Err(BlockEntityNbtError::UnexpectedEof { .. })
+    ));
+}
+
+#[test]
+fn byte_array_still_checks_total_bytes_and_truncation() {
+    let mut bytes = vec![10, 0];
+    named_header(7, b"Bytes", &mut bytes);
+    zigzag_i32(MAX_BLOCK_ENTITY_NBT_BYTES as i32, &mut bytes);
+    assert!(matches!(
+        BlockEntityNbt::decode_prefix(&bytes),
+        Err(BlockEntityNbtError::UnexpectedEof { .. })
+    ));
+    bytes.resize(bytes.len() + MAX_BLOCK_ENTITY_NBT_BYTES, 0);
+    bytes.push(0);
+    assert!(matches!(
+        BlockEntityNbt::decode_prefix(&bytes),
         Err(BlockEntityNbtError::TooManyBytes { .. })
     ));
 }
@@ -301,7 +339,7 @@ fn oversized_declared_fields_prove_truncation_before_policy() {
     ));
 
     let collection_len = MAX_NBT_COLLECTION_LENGTH + 1;
-    for tag in [7_u8, 11, 12] {
+    for tag in [11_u8, 12] {
         let mut truncated = vec![10, 0];
         named_header(tag, b"a", &mut truncated);
         zigzag_i32(collection_len as i32, &mut truncated);

@@ -3,6 +3,22 @@ use {
     launcher::menu::{MenuAction, MenuScreen},
 };
 
+#[cfg(feature = "developer-control")]
+#[test]
+fn explicit_test_auth_applies_only_to_the_pending_join() {
+    let mut menu = MenuRuntime::new(true, 2, "Player".into());
+    let auth_cache = std::path::PathBuf::from("/test/private-token.json");
+    menu.use_auth_cache_for_pending_join(auth_cache.clone());
+    assert!(menu.take_join_intent().is_none());
+    menu.request_connect("example.invalid:19132".into());
+    menu.use_auth_cache_for_pending_join(auth_cache.clone());
+    let join = menu.take_join_intent().unwrap();
+    assert_eq!(join.auth_cache, Some(auth_cache));
+    assert!(menu.launcher_auth_cache().is_none());
+    menu.request_connect("127.0.0.1:19132".into());
+    assert!(menu.take_join_intent().unwrap().auth_cache.is_none());
+}
+
 #[test]
 fn remote_join_failure_logs_its_complete_provisioning_diagnostic() {
     let log = tempfile::NamedTempFile::new().unwrap();

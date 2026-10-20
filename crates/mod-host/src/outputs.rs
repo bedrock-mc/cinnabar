@@ -43,6 +43,11 @@ impl ModHost {
         self.instance.hud()
     }
 
+    /// Process-unique committed HUD identity, including changes from native bindings.
+    pub fn hud_revision(&self) -> Option<u64> {
+        self.hud().map(|_| self.instance.hud_revision())
+    }
+
     /// Consumes a committed native-editor request without entering the guest.
     pub fn take_hud_editor_request(&mut self) -> Option<ui::mod_hud::Hud> {
         self.instance.take_hud_editor_request()

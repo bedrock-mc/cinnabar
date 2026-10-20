@@ -17,9 +17,9 @@ func TestBuildJoinsSharedMiningFacts(t *testing.T) {
 	}
 	rows := build(hardness)
 	want := []row{
-		{"minecraft:cocoa", 0.2, nil, nil, -1, true},
+		{"minecraft:cocoa", 0.2, []string{"axe"}, nil, -1, false},
 		{"minecraft:custom_only", 1, nil, nil, -1, true},
-		{"minecraft:glass", 0.3, nil, nil, -1, true},
+		{"minecraft:glass", 0.3, nil, nil, -1, false},
 		{"minecraft:grass_block", 0.6, []string{"shovel"}, nil, -1, false},
 		{"minecraft:obsidian", 35, []string{"pickaxe"}, []string{"pickaxe"}, 3, false},
 		{"minecraft:web", 4, []string{"shears", "sword"}, []string{"shears", "sword"}, 0, false},
