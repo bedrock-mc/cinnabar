@@ -99,26 +99,29 @@ pub(super) fn targets(
         .enumerate()
         .map(|(index, base)| {
             let delta = local.get(index)?.legacy_swing?;
-            let mut target = *base;
-            if delta.rotation != [0.0; 3] {
-                let [x, y, z, w] = target.rotation;
-                let angles = [
-                    (2.0 * (w * x + y * z)).atan2(1.0 - 2.0 * (x * x + y * y)),
-                    (2.0 * (w * y - z * x)).clamp(-1.0, 1.0).asin(),
-                    (2.0 * (w * z + x * y)).atan2(1.0 - 2.0 * (y * y + z * z)),
-                ];
-                target.rotation = pose::quat_from_euler(std::array::from_fn(|axis| {
-                    (angles[axis] + delta.rotation[axis] * if axis == 2 { 1.0 } else { -1.0 })
-                        .to_degrees()
-                }));
-            }
-            for (translation, offset) in target.translation_scale[..3]
-                .iter_mut()
-                .zip(delta.translation)
-            {
-                *translation += offset;
-            }
-            Some(target)
+            Some(target(*base, delta))
         })
         .collect()
+}
+
+/// Applies one named attack delta to its destination skeleton's model-space baseline.
+pub(super) fn target(mut target: BoneTransform, delta: Delta) -> BoneTransform {
+    if delta.rotation != [0.0; 3] {
+        let [x, y, z, w] = target.rotation;
+        let angles = [
+            (2.0 * (w * x + y * z)).atan2(1.0 - 2.0 * (x * x + y * y)),
+            (2.0 * (w * y - z * x)).clamp(-1.0, 1.0).asin(),
+            (2.0 * (w * z + x * y)).atan2(1.0 - 2.0 * (y * y + z * z)),
+        ];
+        target.rotation = pose::quat_from_euler(std::array::from_fn(|axis| {
+            (angles[axis] + delta.rotation[axis] * if axis == 2 { 1.0 } else { -1.0 }).to_degrees()
+        }));
+    }
+    for (translation, offset) in target.translation_scale[..3]
+        .iter_mut()
+        .zip(delta.translation)
+    {
+        *translation += offset;
+    }
+    target
 }

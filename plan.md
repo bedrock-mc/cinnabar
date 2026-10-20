@@ -211,6 +211,11 @@ with [client presentation](crates/client-presentation/src/lib.rs) and
 [rendering](crates/render/src/lib.rs). The open gates require complete behavioral
 and rendered qualification, not initial implementation of those systems.
 
+Body and custom-skin composition use shared parent-first programs and caller-owned
+output, including attachable root modes and legacy attacks. Alternate render
+geometries and skin layers retain recursive composition. Rendered and live
+performance qualification remains open.
+
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
 - [ ] `P4.4-LIVE-ACTOR` — Close spawn, movement, rotation and teleport ground-contact

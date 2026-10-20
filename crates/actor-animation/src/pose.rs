@@ -1,3 +1,6 @@
+mod composition;
+pub(super) use composition::Composition;
+
 use assets::{EntityAnimationKeyframe, EntityAnimationProperty};
 
 use super::{
@@ -370,6 +373,7 @@ fn sample_channel(
     }
 }
 
+/// Composes skeletons without retained programs, including alternate render and skin layers.
 pub(super) fn compose_pose(
     bones: &[RuntimeBone],
     local: &[LocalDelta],

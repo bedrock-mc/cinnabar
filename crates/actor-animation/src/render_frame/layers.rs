@@ -334,7 +334,8 @@ impl ActorAnimationStore {
         };
         let motion_previous = match &sampled_previous_local {
             Some(local) => {
-                let Some(pose) = state.compose(local) else {
+                let mut pose = vec![BoneTransform::default(); state.posed_bones().len()];
+                let Some(()) = state.compose_into(local, &mut pose) else {
                     return Some(fallback());
                 };
                 Some(Arc::<[BoneTransform]>::from(pose))
@@ -343,7 +344,8 @@ impl ActorAnimationStore {
         };
         let pose = match &sampled_local {
             Some(local) => {
-                let Some(pose) = state.compose(local) else {
+                let mut pose = vec![BoneTransform::default(); state.posed_bones().len()];
+                let Some(()) = state.compose_into(local, &mut pose) else {
                     return Some(fallback());
                 };
                 Some(Arc::<[BoneTransform]>::from(pose))

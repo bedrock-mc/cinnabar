@@ -692,7 +692,10 @@ pub(super) fn evaluate_state(
     if let Some(capture) = pose_capture {
         render_frame.as_mut().unwrap().retained_pose_effects = variables.finish_effects(capture);
     }
-    let pose = state.compose(&local).ok_or(EvalError::Invalid)?;
+    let mut pose = vec![BoneTransform::default(); state.posed_bones().len()];
+    state
+        .compose_into(&local, &mut pose)
+        .ok_or(EvalError::Invalid)?;
     // Initial publication needs a complete selection; later ticks can retain completed layers.
     let mut motion_layers = BTreeMap::new();
     let render = super::render::evaluate_render(
