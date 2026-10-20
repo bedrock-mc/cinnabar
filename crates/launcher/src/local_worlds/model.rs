@@ -30,6 +30,7 @@ pub enum Screen {
     BackendPrompt,
     /// Copying picked or dropped world files into the saved worlds.
     Importing,
+    ExportSucceeded,
     Error,
 }
 
@@ -63,6 +64,8 @@ pub enum Input {
     Prompt(PromptButton),
     /// Picks world files to import.
     Import,
+    /// Exports the selected world to a .mcworld file.
+    Export,
     /// Imports dropped world files.
     ImportFiles(Vec<PathBuf>),
     /// Cancels the current screen; while opening it also closes the world.
@@ -97,6 +100,8 @@ pub enum Effect {
     AcceptEula,
     /// Imports world files; `None` asks the file picker for one first.
     Import(Option<Vec<PathBuf>>),
+    /// Exports a world by its ID.
+    Export(String),
     /// Handled by the embedding resource, not the world worker.
     OpenUrl(&'static str),
 }
@@ -112,6 +117,7 @@ pub enum Event {
     EulaRequired,
     EulaAccepted,
     /// The imported worlds and why any file was refused; both empty when the picker was cancelled.
+    Exported(PathBuf),
     Imported {
         worlds: Vec<World>,
         errors: Vec<String>,
@@ -147,6 +153,7 @@ pub struct WorldsView {
     /// Whether the selected BDS backend can run on this machine.
     pub bds_can_run: bool,
     pub bds_unavailable: Option<UnavailableReason>,
+    pub exported: Option<PathBuf>,
 }
 
 /// What a Docker modal or EULA gate resumes once cleared.
@@ -179,6 +186,7 @@ pub struct WorldsMenu {
     unavailable: Option<UnavailableReason>,
     pending: Option<Pending>,
     eula_for: Option<String>,
+    exported: Option<PathBuf>,
 }
 
 impl WorldsMenu {
@@ -216,6 +224,7 @@ impl WorldsMenu {
             busy: self.busy,
             bds_can_run: self.bds_can_run(),
             bds_unavailable: self.unavailable,
+            exported: self.exported.clone(),
         }
     }
 
@@ -510,6 +519,13 @@ impl WorldsMenu {
                 vec![Effect::AcceptEula]
             }
             Input::OpenEulaLink => vec![Effect::OpenUrl(EULA_URL)],
+            Input::Export if self.screen == Screen::Edit => {
+                if let Some(world) = self.selected() {
+                    vec![Effect::Export(world.id.clone())]
+                } else {
+                    Vec::new()
+                }
+            }
             Input::Import if self.screen == Screen::List => self.begin_import(None),
             Input::ImportFiles(files) if self.screen == Screen::List && !files.is_empty() => {
                 self.begin_import(Some(files))
@@ -588,6 +604,11 @@ impl WorldsMenu {
                 self.busy = false;
                 self.screen = Screen::List;
                 vec![Effect::Close]
+            }
+            Screen::ExportSucceeded => {
+                self.screen = Screen::Edit;
+                self.exported = None;
+                Vec::new()
             }
             Screen::ConfirmDelete => {
                 self.busy = self.mutation_pending;
@@ -710,6 +731,12 @@ impl WorldsMenu {
                         Vec::new()
                     }
                 }
+            }
+            Event::Exported(path) => {
+                self.screen = Screen::ExportSucceeded;
+                self.exported = Some(path);
+                self.busy = false;
+                Vec::new()
             }
             Event::Imported { worlds, errors } => {
                 self.mutation_pending = false;

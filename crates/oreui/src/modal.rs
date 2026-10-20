@@ -471,6 +471,17 @@ pub(super) fn local_world_modal(view: &WorldsView) -> Option<Modal<'_>> {
         },
         Screen::Create if view.busy => Modal::text("Creating new world...", ""),
         Screen::Importing => Modal::text("Importing world...", ""),
+        Screen::ExportSucceeded => Modal {
+            buttons: vec![("OK".into(), Variant::Primary, back)],
+            close: back,
+            ..Modal::text(
+                "World export finished",
+                view.exported
+                    .as_ref()
+                    .map(|p| format!("Exported world to {}", p.display()))
+                    .unwrap_or_else(|| "Export finished successfully.".to_owned()),
+            )
+        },
         _ => return None,
     })
 }

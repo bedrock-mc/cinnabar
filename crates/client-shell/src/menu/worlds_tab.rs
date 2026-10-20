@@ -316,11 +316,12 @@ impl MenuRuntime {
                 A::Difficulty(Difficulty::Normal),
                 A::Difficulty(Difficulty::Hard),
                 A::Delete,
+                A::Export,
             ]),
             Screen::Templates => Some(vec![MenuAction::LocalWorld(A::BeginCreate)]),
             Screen::ConfirmDelete => local(&[A::Back, A::ConfirmDelete]),
             Screen::Eula => local(&[A::AcceptEula, A::ViewEula, A::Back]),
-            Screen::Error => local(&[A::Back]),
+            Screen::ExportSucceeded | Screen::Error => local(&[A::Back]),
         }
     }
 

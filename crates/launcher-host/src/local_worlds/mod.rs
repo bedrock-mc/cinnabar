@@ -6,6 +6,9 @@ mod container;
 mod core_link;
 mod docker;
 mod download;
+mod export;
+#[cfg(test)]
+mod export_tests;
 mod import;
 mod junction;
 mod manager;

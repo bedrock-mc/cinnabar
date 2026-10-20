@@ -13,6 +13,7 @@ pub enum LocalWorldAction {
     BeginCreate,
     OpenTemplates,
     Import,
+    Export,
     Back,
     Tab(Tab),
     /// Focuses the world name field (create or edit).
@@ -48,6 +49,7 @@ impl LocalWorldAction {
             Self::BeginCreate => Input::BeginCreate,
             Self::OpenTemplates => Input::OpenTemplates,
             Self::Import => Input::Import,
+            Self::Export => Input::Export,
             Self::Back => Input::Back,
             Self::Tab(tab) => Input::SelectTab(tab),
             Self::NameField | Self::SeedField => return None,

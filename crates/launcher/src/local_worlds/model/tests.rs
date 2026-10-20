@@ -800,3 +800,31 @@ fn dropped_files_import_only_from_the_list() {
     assert!(menu.update(Input::ImportFiles(files)).is_empty());
     assert_eq!(menu.screen(), Screen::Create);
 }
+
+/// An export request sends Effect::Export with the selected world's id.
+#[test]
+fn export_sends_effect_and_shows_success_modal() {
+    let mut menu = loaded(&["a", "b"]);
+    menu.update(Input::BeginEdit(0));
+    assert_eq!(menu.screen(), Screen::Edit);
+    assert_eq!(
+        menu.update(Input::Export),
+        vec![Effect::Export("id0".to_owned())]
+    );
+    let dest = PathBuf::from("/exports/a.mcworld");
+    menu.apply(Event::Exported(dest.clone()));
+    assert_eq!(menu.screen(), Screen::ExportSucceeded);
+    assert_eq!(menu.view().exported, Some(dest));
+
+    menu.update(Input::Back);
+    assert_eq!(menu.screen(), Screen::Edit);
+    assert_eq!(menu.view().exported, None);
+}
+
+/// An export cannot be triggered outside of the edit screen.
+#[test]
+fn export_ignores_requests_outside_edit_screen() {
+    let mut menu = loaded(&["a"]);
+    assert_eq!(menu.screen(), Screen::List);
+    assert!(menu.update(Input::Export).is_empty());
+}

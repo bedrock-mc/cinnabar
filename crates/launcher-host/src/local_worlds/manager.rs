@@ -190,6 +190,11 @@ impl Manager {
     }
 
     /// Saved worlds, most recently played first.
+    /// Returns one saved world by its ID.
+    pub fn get(&self, id: &str) -> Result<World, WorldError> {
+        self.inner.store.get(id)
+    }
+
     pub fn list(&self) -> Result<Vec<World>, WorldError> {
         self.inner.store.list()
     }
@@ -278,6 +283,21 @@ impl Manager {
             return Err(WorldError::InUse);
         }
         self.inner.store.delete(id)
+    }
+
+    /// Exports the saved world [`id`] as a `.mcworld` archive at `destination`.
+    pub fn export(&self, id: &str, destination: &std::path::Path) -> Result<(), WorldError> {
+        let life = lock(&self.inner.life);
+        let open = !matches!(life.state, WorldState::Idle | WorldState::Failed);
+        let saving = life
+            .retiring
+            .iter()
+            .any(|retiring| retiring.world_id == id && !retiring.done());
+        if saving || (open && life.world.as_ref().is_some_and(|world| world.id == id)) {
+            return Err(WorldError::InUse);
+        }
+        drop(life);
+        super::export::export(&self.inner.store, id, destination)
     }
 
     /// Records the user's acceptance of the Minecraft EULA, so BDS worlds may download the server.

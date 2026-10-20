@@ -28,6 +28,8 @@ pub enum WorldError {
     ImageNotPinned,
     #[error("the start was cancelled")]
     Cancelled,
+    #[error("world has no saved data to export")]
+    NoWorldData,
     /// An archive was refused for its contents; the message names no local path.
     #[error("{0}")]
     Rejected(String),

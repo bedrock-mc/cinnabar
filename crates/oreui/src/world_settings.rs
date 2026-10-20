@@ -39,7 +39,7 @@ fn local(action: A) -> MenuAction {
 pub(super) fn route(screen: Screen, view: &WorldsView) -> Option<Screen> {
     match screen {
         Screen::Create | Screen::Edit | Screen::Templates => Some(screen),
-        Screen::ConfirmDelete => Some(Screen::Edit),
+        Screen::ConfirmDelete | Screen::ExportSucceeded => Some(Screen::Edit),
         Screen::BackendPrompt
             if view
                 .prompt
@@ -358,6 +358,19 @@ fn edit_general(
             Variant::Destructive,
             "Delete world",
             Some(local(A::Delete)),
+        )?;
+        button(
+            canvas,
+            view,
+            [
+                area[0] + half + space(canvas, 2),
+                y,
+                area[2],
+                y + canvas.r(CONTROL),
+            ],
+            Variant::Secondary,
+            "Export world",
+            Some(local(A::Export)),
         )?;
         if let Some(world) = &local_view.edited {
             let details = format!(
