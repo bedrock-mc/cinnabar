@@ -31,6 +31,10 @@ pub struct ShaderProperties {
     pub flips: Vec<FlipRule>,
     /// `scale.<program>` rules, one per key.
     pub scales: Vec<ScaleRule>,
+    /// `blend.<program>[.<buffer>]` overrides, one per key.
+    pub blends: Vec<BlendRule>,
+    /// `alphaTest.<program>` overrides, one per key.
+    pub alpha_tests: Vec<AlphaTestRule>,
     /// `texture.<stage>.<sampler>` and `texture.noise` bindings, one per key.
     pub custom_textures: Vec<CustomTexture>,
     /// `image.<name>` declarations, one per key.
@@ -164,6 +168,80 @@ pub enum SizeValue {
     Absolute(u32),
     /// Multiple of the screen dimension.
     Relative(f32),
+}
+
+/// `blend.<program>=...` (buffer None) or `blend.<program>.<buffer>=...`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlendRule {
+    /// Program the override applies to.
+    pub program: String,
+    /// Draw buffer (e.g. "colortex0") for a per-buffer override, else all buffers.
+    pub buffer: Option<String>,
+    /// The blend state to use.
+    pub mode: BlendMode,
+}
+
+/// Blend state from `off` or `<srcColor> <dstColor> <srcAlpha> <dstAlpha>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlendMode {
+    /// Blending disabled.
+    Off,
+    /// Separate color and alpha factors, in the order written (additive equation).
+    Factors {
+        src_color: BlendFactor,
+        dst_color: BlendFactor,
+        src_alpha: BlendFactor,
+        dst_alpha: BlendFactor,
+    },
+}
+
+/// A GL blend factor, written in packs as its upper-case GL name without the `GL_`
+/// prefix (`ZERO`, `ONE`, `SRC_COLOR`, ..., `SRC_ALPHA_SATURATE`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlendFactor {
+    Zero,
+    One,
+    SrcColor,
+    OneMinusSrcColor,
+    DstColor,
+    OneMinusDstColor,
+    SrcAlpha,
+    OneMinusSrcAlpha,
+    DstAlpha,
+    OneMinusDstAlpha,
+    SrcAlphaSaturate,
+}
+
+/// `alphaTest.<program>=off` / `false` or `<FUNC> <ref>` (FUNC: NEVER LESS EQUAL LEQUAL GREATER NOTEQUAL GEQUAL ALWAYS).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AlphaTestRule {
+    /// Program the override applies to.
+    pub program: String,
+    /// The alpha test, or `None` when the value is `off` or `false`.
+    pub test: Option<AlphaTest>,
+}
+
+/// Fragments pass when `alpha <function> reference` holds.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AlphaTest {
+    /// Comparison applied to the fragment alpha.
+    pub function: CompareFunction,
+    /// Reference value the alpha is compared against.
+    pub reference: f32,
+}
+
+/// Comparison of an alpha test, written in packs as its GL name: NEVER, LESS, EQUAL,
+/// LEQUAL, GREATER, NOTEQUAL, GEQUAL or ALWAYS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompareFunction {
+    Never,
+    Less,
+    Equal,
+    LessEqual,
+    Greater,
+    NotEqual,
+    GreaterEqual,
+    Always,
 }
 
 /// `flip.<program>.<buffer>=true|false`.

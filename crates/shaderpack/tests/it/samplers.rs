@@ -199,15 +199,47 @@ fn locals_and_parameters_shadowing_a_sampler_stay_plain() {
         }\n";
     let p = pack(fragment, "", &[]);
     let t = p.translate(&TranslateConfig::default());
-    let glsl = fragment_glsl(program(&t, "composite"));
-    assert!(glsl.contains("float specular = x * 2.0;"), "{glsl}");
-    assert!(glsl.contains("return specular * 0.5;"), "{glsl}");
-    assert!(glsl.contains("s += specular.x;"), "{glsl}");
-    // The initializer and the last read both sample the global.
+    let module = &fragment_stage(program(&t, "composite")).module;
+    let ggx = module
+        .functions
+        .iter()
+        .find(|(_, function)| function.name.as_deref() == Some("ggx"))
+        .unwrap()
+        .1;
+    let local = ggx
+        .local_variables
+        .iter()
+        .find(|(_, variable)| variable.name.as_deref() == Some("specular"))
+        .unwrap()
+        .1;
+    assert!(matches!(
+        module.types[local.ty].inner,
+        naga::TypeInner::Scalar(naga::Scalar {
+            kind: naga::ScalarKind::Float,
+            width: 4
+        })
+    ));
+    let scale = module
+        .functions
+        .iter()
+        .find(|(_, function)| function.name.as_deref() == Some("scale"))
+        .unwrap()
+        .1;
+    assert!(matches!(
+        module.types[scale.arguments[0].ty].inner,
+        naga::TypeInner::Scalar(naga::Scalar {
+            kind: naga::ScalarKind::Float,
+            width: 4
+        })
+    ));
     assert_eq!(
-        glsl.matches("sampler2D(specular, iris_sampler").count(),
-        2,
-        "{glsl}"
+        module
+            .functions
+            .iter()
+            .flat_map(|(_, function)| function.expressions.iter())
+            .filter(|(_, expression)| matches!(expression, naga::Expression::ImageSample { .. }))
+            .count(),
+        2
     );
 }
 

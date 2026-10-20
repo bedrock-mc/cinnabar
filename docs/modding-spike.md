@@ -1228,9 +1228,13 @@ the player's effects. It remains active with empty `cards`; clearing the HUD,
 omitting the flag or setting it to false restores the ordinary icons.
 
 Card data contains `cards`, each with a unique `id`, `rows`, and optional
-`title`, `anchor`, `offset`, `scale`, `position`, and `background_opacity`. Anchors are `top_left`, `top_center`, `top_right`, `bottom_left`,
-and `bottom_right`; offsets are GUI pixels from that anchor. Negative offsets
-move inward from right/bottom anchors. Scale is 0.25–5 and scales card text, icons,
+`title`, `anchor`, `offset`, `scale`, `position`, and `background_opacity`. Anchors are
+`top_left`, `top_center`, `top_right`, `left`, `center`, `right`, `bottom_left`,
+`bottom_center`, and `bottom_right`. Offsets are finite GUI pixels measured inward
+from anchored edges; centered axes use signed offsets toward the right or bottom.
+Anchored cards clamp to the available viewport without changing their saved offsets.
+An explicit `position` keeps its existing normalized-travel behavior and takes precedence.
+Scale is 0.25–5 and scales card text, icons,
 and geometry together. Each row has `label`, `value`, and optional `item`
 (resource identifier), `metadata`, `effect_id` (canonical Bedrock effect icon),
 `progress` (0–1), and `color` (RGBA 0–1). Item and effect icons are mutually exclusive;
@@ -1328,6 +1332,14 @@ opposite corner fixed when space permits, and clamps its placement to the viewpo
 Use `hud.read-editor-layout()` to read `saved`, `reset`, and `placements` containing
 ID, normalized position, and scale. It shares result consumption with the existing
 `hud.read-editor-result()`; the legacy position-only API remains unchanged.
+
+Completed moves, resizes, and arrow nudges choose one of nine anchors from the
+viewport third containing the card's center. The stored GUI-pixel offset preserves
+the current origin and its distance from that anchor on later viewports and GUI scales.
+Use `hud.read-editor-anchored-layout()` for `saved`, `reset`, and placements with
+`id`, `anchor`, `offset`, and `scale`. Republish these cards without `position` to
+retain anchoring. Both older reads still return normalized positions at the current
+viewport and share the same callback lifetime and result consumption.
 
 An editor request may opt into `autosave: true`. Completed pointer drags and resizes, arrow
 nudges, and Reset then return incremental saved results while the editor stays

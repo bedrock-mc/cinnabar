@@ -109,6 +109,13 @@ fn rasterize_offsets(input: &UiRenderInput, offset: impl Fn(usize) -> [f32; 2]) 
                         let paint = render_api::UiCoveragePaint::from_vertex_colors(color, overlay);
                         return Some(paint.sample(u, [v, coverage]));
                     }
+                    if corners[0].style_flags & u32::from(render_api::ui_shadow::UI_STYLE_SHADOW)
+                        != 0
+                    {
+                        let area =
+                            render_api::ui_shadow::coverage([u, v], overlay, shadow_pixel(corners));
+                        return Some(premultiply(color).map(|channel| channel * area));
+                    }
                     if corners[0].style_flags & UI_STYLE_RADIAL_GRADIENT != 0 {
                         let radius = u.hypot(v).clamp(0.0, 1.0);
                         let inner = premultiply(color);
@@ -185,6 +192,18 @@ fn sample(page: &UiTexturePage, pixels: &[u8], uv: [f32; 2], linear: bool) -> [u
             f32::from(taps[2][channel]) * (1. - mix[0]) + f32::from(taps[3][channel]) * mix[0];
         (top * (1. - mix[1]) + bottom * mix[1]).round() as u8
     })
+}
+
+/// Largest local UV derivative along one physical pixel of the shadow triangle.
+fn shadow_pixel(corners: [UiRenderVertex; 3]) -> f32 {
+    let [a, b, c] = corners;
+    let dx = [b.position[0] - a.position[0], c.position[0] - a.position[0]];
+    let dy = [b.position[1] - a.position[1], c.position[1] - a.position[1]];
+    let area = dx[0] * dy[1] - dx[1] * dy[0];
+    let duv = [0, 1].map(|axis| [b.uv[axis] - a.uv[axis], c.uv[axis] - a.uv[axis]]);
+    let x = duv.map(|d| (d[0] * dy[1] - d[1] * dy[0]) / area);
+    let y = duv.map(|d| (d[1] * dx[0] - d[0] * dx[1]) / area);
+    x[0].hypot(x[1]).max(y[0].hypot(y[1]))
 }
 
 /// Converts an RGBA byte color into normalized premultiplied color for composition.

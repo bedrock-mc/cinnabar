@@ -8,6 +8,7 @@ pub mod backdrop;
 mod collection;
 mod paint_transform;
 pub mod preview;
+mod shadow;
 mod static_templates;
 mod transition;
 pub use collection::{CollectionArt, CollectionDefinition, CollectionItem, SurfaceCollection};
@@ -429,7 +430,7 @@ fn node(
             .is_some_and(|name| {
                 matches!(
                     name,
-                    "cinnabar_rounded_rectangle"
+                    json_ui::rounded::RENDERER
                         | backdrop::GLASS_RENDERER
                         | "cinnabar_vector_icon"
                         | "cinnabar_vector_path"
@@ -442,6 +443,9 @@ fn node(
     }
     if object.get("renderer").and_then(Value::as_str) == Some(backdrop::GLASS_RENDERER) {
         backdrop::validate_glass(object)?;
+    }
+    if object.get("renderer").and_then(Value::as_str) == Some(json_ui::rounded::RENDERER) {
+        shadow::validate(object)?;
     }
     if let Some(mappings) = object.get("button_mappings") {
         let mappings = mappings

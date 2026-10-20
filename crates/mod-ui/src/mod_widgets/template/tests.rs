@@ -7,7 +7,7 @@ fn centered_compass_follows_viewport_and_saved_placement() {
     assert_eq!(origin(&card, [800., 500.]), [260., 8.]);
     assert_eq!(origin(&card, [400., 200.]), [60., 8.]);
     card.scale = 2.;
-    assert_eq!(origin(&card, [400., 200.]), [-80., 8.]);
+    assert_eq!(origin(&card, [400., 200.]), [0., 8.]);
     card.scale = 1.;
     card.position = Some([0.25, 0.5]);
     assert_eq!(origin(&card, [400., 200.]), [30., 84.]);
@@ -209,4 +209,23 @@ fn card_font_selects_smooth_cell_labels_and_invalidates_geometry() {
         serde_json::from_str::<Hud>(r#"{"cards":[{"id":"bad","rows":[],"font":"unknown"}]}"#)
             .is_err()
     );
+}
+/// Positive edge offsets remain inward after a viewport resize.
+#[test]
+fn anchored_edge_offset_survives_viewport_change() {
+    let card = ui::mod_hud::Card {
+        anchor: ui::mod_hud::Anchor::BottomRight,
+        offset: [13., 17.],
+        ..Default::default()
+    };
+    let size = super::dimensions(&card);
+    for viewport in [[640., 360.], [960., 540.]] {
+        let at = super::origin(&card, viewport);
+        for axis in 0..2 {
+            assert!(
+                (viewport[axis] - at[axis] - size[axis] - f64::from(card.offset[axis])).abs()
+                    < 0.001
+            );
+        }
+    }
 }
