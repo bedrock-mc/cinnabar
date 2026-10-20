@@ -69,6 +69,9 @@ pub(super) fn read_entries(
             Ok(token) => {
                 // Rejected lines still expand, so recursive macros need a budget of their own.
                 let Some(left) = work.checked_sub(token.text.len().max(1)) else {
+                    // The entry in progress may hold only a prefix of its expansion.
+                    lines.remove(&token.line);
+                    rejected.insert(token.line);
                     diagnostics.push(PropertiesDiagnostic {
                         line: token.line,
                         message: "properties preprocessing exceeds work limit".to_owned(),
@@ -113,10 +116,8 @@ pub(super) fn read_entries(
         }
     }
     let mut entries: Vec<_> =
+        // Blank lines stay in the stream: they end a continued entry, as in Java properties.
         logical_entries(text.lines().enumerate().filter_map(|(index, physical)| {
-            if physical.trim().is_empty() {
-                return None;
-            }
             let line = (index + 1) as u32;
             if rejected.contains(&line) {
                 // Keep the continuation so the marker poisons every line of the entry.
@@ -134,9 +135,6 @@ pub(super) fn read_entries(
     entries.extend(
         logical_entries(text.lines().enumerate().filter_map(|(index, line)| {
             let line = line.trim();
-            if line.is_empty() {
-                return None;
-            }
             Some((
                 (index + 1) as u32,
                 if line.starts_with('#') {
