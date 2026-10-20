@@ -162,7 +162,7 @@ impl SegmentedVertexBuffer {
                     let command = encoder.finish();
                     #[cfg(feature = "tracy")]
                     let _span = bevy::log::info_span!("actor.geometry_submit").entered();
-                    queue.profiled_submit([command]);
+                    queue.submit([command]);
                 }
                 for index in plan.writes {
                     #[cfg(feature = "tracy")]

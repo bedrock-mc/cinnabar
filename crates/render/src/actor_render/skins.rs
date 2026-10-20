@@ -251,9 +251,7 @@ impl GpuSkinArrays {
             let command = copies.finish();
             #[cfg(feature = "tracy")]
             let _span = bevy::log::info_span!("actor.skin_copy_submit").entered();
-            gpu_allocation::checked(device, "actor skin copy", 0, || {
-                queue.profiled_submit([command])
-            })?;
+            gpu_allocation::checked(device, "actor skin copy", 0, || queue.submit([command]))?;
         }
         self.synced = Some(Arc::clone(residency));
         Some(views_changed)

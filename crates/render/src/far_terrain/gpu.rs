@@ -507,7 +507,7 @@ impl FarTerrainGpu {
         );
         // Submission flushes earlier writes to the old resources before the copies.
         // Later uploads to the new resources must be queued after this submission.
-        queue.profiled_submit([encoder.finish()]);
+        queue.submit([encoder.finish()]);
         self.colours = colours;
         self.colours_view = view;
         self.records = records;
@@ -549,7 +549,7 @@ impl FarTerrainGpu {
         );
         let mut encoder = device.create_command_encoder(&Default::default());
         encoder.copy_buffer_to_buffer(&self.quads, 0, &quads, 0, self.quads.size());
-        queue.profiled_submit([encoder.finish()]);
+        queue.submit([encoder.finish()]);
         self.quads = quads;
         self.quad_capacity = capacity;
     }

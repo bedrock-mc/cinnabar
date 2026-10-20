@@ -152,7 +152,7 @@ fn latency_review_camera_only_span_cannot_prove_complete_gpu_coverage() {
 
 #[test]
 #[cfg(not(target_os = "macos"))]
-fn latency_review_full_query_ring_restores_two_queued_frames() {
+fn latency_cadence_full_query_ring_keeps_the_current_depth() {
     use crate::present_mode::{PresentModePolicy, frame_latency::adaptive::AdaptiveFrameLatency};
     let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
     let mut timestamps = GpuTimestamps::new(&device, &queue, false).unwrap();
@@ -168,7 +168,7 @@ fn latency_review_full_query_ring_restores_two_queued_frames() {
     world.insert_resource(AdaptiveFrameLatency::default());
     world.insert_resource(RuntimeStageProfiler::default());
     world.run_system_once(begin_gpu_frame).unwrap();
-    assert_eq!(policy.frame_latency_for_vsync(true).get(), 2);
+    assert_eq!(policy.frame_latency_for_vsync(true).get(), 1);
 }
 
 #[cfg(target_os = "macos")]

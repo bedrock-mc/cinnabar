@@ -1,5 +1,4 @@
 use crate::chunk::*;
-use crate::queue_writes::ProfiledQueue as _;
 use meshing::liquid::{TRANSPARENT_WATER_DRAW_FLAG, TRANSPARENT_WATER_RECORD_FLAG};
 
 /// Hard 16 MiB ceiling for one committed transparent indirection snapshot.
@@ -149,7 +148,7 @@ pub(in crate::chunk) fn ensure_transparent_ref_capacity(
             bytes = copies.iter().map(|copy| copy.bytes).sum::<u64>(),
         )
         .entered();
-        queue.profiled_submit([command]);
+        queue.submit([command]);
     }
     arena.transparent_ref_buffer = grown;
     arena.transparent_slot_refs = slot_refs;

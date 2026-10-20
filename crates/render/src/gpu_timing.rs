@@ -751,12 +751,6 @@ fn begin_gpu_frame(
         #[cfg(not(any(target_os = "windows", test)))]
         let _ = (id, whole_frame);
     });
-    #[cfg(any(target_os = "windows", test))]
-    if timestamps.frame.slot.load(Ordering::Acquire) == NO_SLOT
-        && let (Some(adaptive), Some(policy)) = (adaptive.as_mut(), policy.as_ref())
-    {
-        adaptive.invalidate_gpu(policy);
-    }
 }
 
 fn request_gpu_frame_readback(timestamps: Option<ResMut<GpuTimestamps>>, queue: Res<RenderQueue>) {

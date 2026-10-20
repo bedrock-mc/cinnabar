@@ -208,7 +208,7 @@ impl Staging {
         #[cfg(feature = "tracy")]
         let _span = miss.span.entered();
         if let Some(command) = miss.flush {
-            queue.profiled_submit([command]);
+            queue.submit([command]);
         }
         fallback(&miss.rest);
     }

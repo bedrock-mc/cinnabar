@@ -6,11 +6,14 @@ use crate::FrameRate;
 
 const HISTORY: usize = 32;
 const HEADROOM_SAMPLES: u32 = 120;
-const HEADROOM_TIME: Duration = Duration::from_secs(2);
-/// Readbacks older than this cannot establish current workload headroom.
-const FRAME_WORK_MAX_AGE: Duration = Duration::from_millis(250);
+const QUALIFICATION: Duration = Duration::from_secs(2);
+const MAX_SAMPLE_AGE: Duration = Duration::from_millis(250);
+const PROBE_WINDOW: Duration = Duration::from_secs(10);
+const MAX_COOLDOWN: Duration = Duration::from_secs(120);
+const CADENCE_WINDOW: u8 = 8;
+const MISSES_TO_ESCALATE: u32 = 6;
 
-/// CPU feeding work and GPU execution from the same rendered frame, excluding acquisition.
+/// A coarse render-thread/GPU estimate used only to decide when to try one queued frame.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FrameWorkSample {
     pub frame: u64,
@@ -19,30 +22,26 @@ pub struct FrameWorkSample {
     pub gpu: Duration,
 }
 
-/// Evidence accumulated for the pure queue-depth decision.
+/// Inputs to the pure depth decision; work estimates never escalate the queue.
 #[derive(Clone, Copy, Debug, Default)]
 struct Evidence {
-    pressure: u8,
-    headroom_samples: u32,
-    headroom_elapsed: Duration,
-    since_change: Duration,
+    missed_cadence: bool,
+    headroom: bool,
+    cooldown_finished: bool,
 }
 
-/// Chooses two frames under sustained pressure, and one only after sustained headroom.
+/// Escalates on delivered cadence and probes one frame only after headroom and a cool-down.
 fn select_latency(current: NonZeroU32, evidence: Evidence) -> NonZeroU32 {
-    if evidence.pressure >= 3 {
+    if current == NonZeroU32::MIN && evidence.missed_cadence {
         NonZeroU32::new(2).expect("two is nonzero")
-    } else if evidence.headroom_samples >= HEADROOM_SAMPLES
-        && evidence.headroom_elapsed >= HEADROOM_TIME
-        && evidence.since_change >= HEADROOM_TIME
-    {
+    } else if evidence.headroom && evidence.cooldown_finished {
         NonZeroU32::MIN
     } else {
         current
     }
 }
 
-/// Deterministic evidence window; callers supply monotonic time and matched, fresh samples.
+/// Deterministic policy. A bad estimate causes a brief cadence-checked probe, then backs off.
 #[derive(Debug)]
 pub struct FrameLatencyPolicy {
     latency: NonZeroU32,
@@ -51,8 +50,12 @@ pub struct FrameLatencyPolicy {
     next: usize,
     last: Option<FrameWorkSample>,
     headroom_since: Option<Duration>,
+    headroom_samples: u32,
     changed_at: Duration,
-    evidence: Evidence,
+    cooldown: Duration,
+    next_probe: Duration,
+    cadence_misses: u8,
+    cadence_samples: u8,
 }
 
 impl Default for FrameLatencyPolicy {
@@ -64,80 +67,123 @@ impl Default for FrameLatencyPolicy {
             next: 0,
             last: None,
             headroom_since: None,
+            headroom_samples: 0,
             changed_at: Duration::ZERO,
-            evidence: Evidence::default(),
+            cooldown: QUALIFICATION,
+            next_probe: QUALIFICATION,
+            cadence_misses: 0,
+            cadence_samples: 0,
         }
     }
 }
 
 impl FrameLatencyPolicy {
-    /// Advances the policy without reading a clock. Missing or stale evidence keeps two frames;
-    /// duplicates never count toward either threshold, and gaps restart headroom qualification.
+    /// The current recommendation, before platform-specific surface reservations are applied.
+    pub fn latency(&self) -> NonZeroU32 {
+        self.latency
+    }
+
+    /// Advances on caller-supplied time. `refresh` is present only for an active fixed-refresh
+    /// VSync surface without a lower frame cap. `cadence` is a new acquisition/present interval
+    /// at the selected depth. Incomplete work samples are ignored, including while at depth one.
     pub fn update(
         &mut self,
         now: Duration,
         refresh: Option<FrameRate>,
+        cadence: Option<Duration>,
         sample: Option<FrameWorkSample>,
     ) -> NonZeroU32 {
         let Some(refresh) = refresh else {
             *self = Self::default();
-            return self.latency;
-        };
-        if self
-            .last
-            .is_some_and(|last| now < last.at || now.saturating_sub(last.at) > FRAME_WORK_MAX_AGE)
-        {
-            *self = Self::default();
             self.changed_at = now;
-        }
-        let Some(sample) = sample.filter(|sample| {
-            sample.at <= now
-                && now - sample.at <= FRAME_WORK_MAX_AGE
-                && self.last.is_none_or(|last| sample.frame > last.frame)
-        }) else {
+            self.next_probe = now.saturating_add(self.cooldown);
             return self.latency;
         };
-        if self
-            .last
-            .is_some_and(|last| sample.frame != last.frame.saturating_add(1))
-        {
-            self.headroom_since = None;
-            self.evidence = Evidence::default();
-            self.len = 0;
-            self.next = 0;
-        }
-        self.last = Some(sample);
-        self.samples[self.next] = sample;
-        self.next = (self.next + 1) % HISTORY;
-        self.len = (self.len + 1).min(HISTORY);
-        let budget = self.budget();
         let interval = Duration::from_nanos(refresh.period_nanos());
-        self.evidence.pressure = if budget >= interval.mul_f64(0.95) {
-            self.evidence.pressure.saturating_add(1)
+        if self.latency == NonZeroU32::MIN {
+            if let Some(cadence) = cadence.filter(|interval| !interval.is_zero()) {
+                self.cadence_misses =
+                    (self.cadence_misses << 1) | u8::from(cadence > interval.mul_f64(1.25));
+                self.cadence_samples = (self.cadence_samples + 1).min(CADENCE_WINDOW);
+            }
         } else {
-            0
-        };
-        if budget <= interval.mul_f64(0.80) {
-            let since = *self.headroom_since.get_or_insert(sample.at);
-            self.evidence.headroom_samples = self.evidence.headroom_samples.saturating_add(1);
-            self.evidence.headroom_elapsed = sample.at.saturating_sub(since);
-        } else {
-            self.headroom_since = None;
-            self.evidence.headroom_samples = 0;
-            self.evidence.headroom_elapsed = Duration::ZERO;
+            self.record_headroom(now, interval, sample);
         }
-        self.evidence.since_change = now.saturating_sub(self.changed_at);
-        let next = select_latency(self.latency, self.evidence);
-        if next != self.latency {
-            self.latency = next;
+        let selected = select_latency(
+            self.latency,
+            Evidence {
+                missed_cadence: self.cadence_samples == CADENCE_WINDOW
+                    && self.cadence_misses.count_ones() >= MISSES_TO_ESCALATE,
+                headroom: self.headroom_samples >= HEADROOM_SAMPLES
+                    && self
+                        .headroom_since
+                        .is_some_and(|since| now.saturating_sub(since) >= QUALIFICATION),
+                cooldown_finished: now >= self.next_probe,
+            },
+        );
+        if selected != self.latency {
+            if selected.get() == 2 {
+                self.cooldown = if now.saturating_sub(self.changed_at) <= PROBE_WINDOW {
+                    self.cooldown.saturating_mul(2).min(MAX_COOLDOWN)
+                } else {
+                    QUALIFICATION
+                };
+                self.next_probe = now.saturating_add(self.cooldown);
+            }
+            self.latency = selected;
             self.changed_at = now;
-            self.headroom_since = None;
-            self.evidence = Evidence::default();
+            self.clear_headroom();
+            self.cadence_misses = 0;
+            self.cadence_samples = 0;
         }
         self.latency
     }
 
-    /// Conservatively adds the independent 95th-percentile CPU and GPU work estimates.
+    /// Keeps fresh work estimates without requiring uninterrupted query coverage.
+    fn record_headroom(
+        &mut self,
+        now: Duration,
+        interval: Duration,
+        sample: Option<FrameWorkSample>,
+    ) {
+        if self
+            .last
+            .is_some_and(|last| now.saturating_sub(last.at) > MAX_SAMPLE_AGE)
+        {
+            self.clear_headroom();
+        }
+        let Some(sample) = sample.filter(|sample| {
+            sample.at >= self.changed_at
+                && sample.at <= now
+                && now - sample.at <= MAX_SAMPLE_AGE
+                && self.last.is_none_or(|last| sample.frame > last.frame)
+        }) else {
+            return;
+        };
+        self.last = Some(sample);
+        self.samples[self.next] = sample;
+        self.next = (self.next + 1) % HISTORY;
+        self.len = (self.len + 1).min(HISTORY);
+        if self.budget() <= interval.mul_f64(0.80) {
+            self.headroom_since.get_or_insert(sample.at);
+            self.headroom_samples = self.headroom_samples.saturating_add(1);
+        } else {
+            self.headroom_since = None;
+            self.headroom_samples = 0;
+        }
+    }
+
+    /// Discards only the headroom estimate, preserving depth and failed-probe backoff.
+    fn clear_headroom(&mut self) {
+        self.len = 0;
+        self.next = 0;
+        self.last = None;
+        self.headroom_since = None;
+        self.headroom_samples = 0;
+    }
+
+    /// Adds independent 95th-percentile CPU and coarse GPU durations, allowing missing components
+    /// to bias the estimate low; delivered cadence and probe backoff contain that error.
     fn budget(&self) -> Duration {
         let mut cpu = self.samples.map(|sample| sample.render);
         let mut gpu = self.samples.map(|sample| sample.gpu);

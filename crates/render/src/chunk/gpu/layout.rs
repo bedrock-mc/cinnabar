@@ -431,7 +431,7 @@ pub(in crate::chunk) fn advance_arena_migration(
         {
             #[cfg(feature = "tracy")]
             let _span = bevy::log::info_span!("terrain.migration_submit", bytes = slice).entered();
-            uploads.queue.profiled_submit([command]);
+            uploads.queue.submit([command]);
         }
         migration.copied_bytes += slice;
     }

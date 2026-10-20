@@ -23,8 +23,9 @@ evidence; the [workspace map](docs/architecture/workspace.md) explains code owne
 
 1. Identify and resolve confirmed terrain, actor, movement and UI behavior gaps with version-matched evidence.
 2. Qualify frame pacing, streaming, joining and retained memory on the reference hardware.
-   Windows VSync queue depth now follows matched render/GPU work with sustained headroom
-   and pressure thresholds. Incomplete upload or query coverage keeps two queued frames.
+   Windows VSync queue depth uses coarse work estimates to try one queued frame and
+   observed acquisition cadence to restore two. Failed probes back off exponentially;
+   missing GPU samples leave the cadence policy running.
    Displayed cadence, input latency and surface-reconfiguration
    stalls still need hardware qualification; this closes no acceptance gate.
 3. Verify complete session and input paths across supported platforms.
