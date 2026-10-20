@@ -2,6 +2,8 @@
 
 mod character;
 #[cfg(feature = "test-support")]
+mod control_locked;
+#[cfg(feature = "test-support")]
 mod cosmetic_particles;
 #[cfg(feature = "test-support")]
 mod crafting;
@@ -75,6 +77,10 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
         return tiled_image::png(state.size, *scale);
     }
     #[cfg(feature = "test-support")]
+    if matches!(&fixture, Fixture::ControlLocked) {
+        return control_locked::png(state, dir);
+    }
+    #[cfg(feature = "test-support")]
     if let Fixture::CosmeticParticles { view, emitting } = &fixture {
         return cosmetic_particles::png(state.size, *view, seconds, *emitting);
     }
@@ -89,6 +95,7 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
         #[cfg(feature = "test-support")]
         Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
+        | Fixture::ControlLocked
         | Fixture::CosmeticParticles { .. } => false,
     };
     let mut carriers = carriers::load(dir, menu)?;
@@ -125,6 +132,8 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
     };
     match fixture {
         Fixture::TiledImage { .. } => unreachable!("tiled image capture returned above"),
+        #[cfg(feature = "test-support")]
+        Fixture::ControlLocked => unreachable!("form capture returned above"),
         #[cfg(feature = "test-support")]
         Fixture::CosmeticParticles { .. } => unreachable!("particle capture returned above"),
         #[cfg(feature = "test-support")]

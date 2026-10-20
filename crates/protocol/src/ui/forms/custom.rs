@@ -39,6 +39,26 @@ pub struct CustomForm {
     pub submit: Option<FormText>,
 }
 
+/// The game phase in which an editable form control is disabled.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum FormControlLock {
+    #[default]
+    None,
+    Pregame,
+    Ingame,
+}
+
+impl FormControlLock {
+    /// Resolves the lock against the host's current game phase.
+    pub fn is_enabled(self, in_game: bool) -> bool {
+        match self {
+            Self::None => true,
+            Self::Pregame => in_game,
+            Self::Ingame => !in_game,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CustomFormElement {
     Label {
@@ -50,11 +70,13 @@ pub enum CustomFormElement {
     Divider,
     Toggle {
         text: FormText,
+        control_locked: FormControlLock,
         default: bool,
         tooltip: Option<FormText>,
     },
     Slider {
         text: FormText,
+        control_locked: FormControlLock,
         min: FormNumber,
         max: FormNumber,
         step: FormNumber,
@@ -65,6 +87,7 @@ pub enum CustomFormElement {
     },
     StepSlider {
         text: FormText,
+        control_locked: FormControlLock,
         steps: Arc<[FormText]>,
         default: i32,
         tooltip: Option<FormText>,
@@ -83,6 +106,7 @@ pub enum CustomFormElement {
     },
     Input {
         text: FormText,
+        control_locked: FormControlLock,
         placeholder: FormText,
         default: Arc<str>,
         tooltip: Option<FormText>,
@@ -133,11 +157,17 @@ fn element(value: &Value) -> Result<CustomFormElement, UnsupportedForm> {
         Some(value) => Some(text_value(value)?),
     };
     let default = object.get("default").filter(|value| !value.is_null());
+    let control_locked = match object.get("control_locked").and_then(Value::as_str) {
+        Some("pregame") => FormControlLock::Pregame,
+        Some("ingame") => FormControlLock::Ingame,
+        _ => FormControlLock::None,
+    };
     Ok(match kind {
         "label" => CustomFormElement::Label { text },
         "header" => CustomFormElement::Header { text },
         "toggle" => CustomFormElement::Toggle {
             text,
+            control_locked,
             // A well-formed but non-boolean default is skipped, not fatal.
             default: default.and_then(Value::as_bool).unwrap_or(false),
             tooltip,
@@ -155,6 +185,7 @@ fn element(value: &Value) -> Result<CustomFormElement, UnsupportedForm> {
             let finite = |value: f64| FormNumber::new(value).ok_or(UnsupportedForm::Controls);
             CustomFormElement::Slider {
                 text,
+                control_locked,
                 min: finite(min)?,
                 max: finite(max)?,
                 step: finite(step)?,
@@ -167,6 +198,7 @@ fn element(value: &Value) -> Result<CustomFormElement, UnsupportedForm> {
             let steps = string_list(object.get("steps"))?;
             CustomFormElement::StepSlider {
                 text,
+                control_locked,
                 default: index_default(default),
                 steps,
                 tooltip,
@@ -200,6 +232,7 @@ fn element(value: &Value) -> Result<CustomFormElement, UnsupportedForm> {
         },
         "input" => CustomFormElement::Input {
             text,
+            control_locked,
             placeholder: optional_text(object, "placeholder")?,
             default: match default {
                 Some(value) => literal_value(value)?,

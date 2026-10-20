@@ -29,6 +29,9 @@ pub enum Fixture {
     TiledImage {
         scale: f64,
     },
+    /// A server form whose editable controls are locked during a session.
+    #[cfg(feature = "test-support")]
+    ControlLocked,
     /// An equipped original cosmetic rendered by the full production particle-preview path.
     #[cfg(feature = "test-support")]
     CosmeticParticles {
@@ -78,6 +81,13 @@ pub const STATES: &[State] = &[
         size: [256, 128],
         gui_scale: 1,
         fixture: || Fixture::TiledImage { scale: 0.001 },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "form-control-locked",
+        size: [1280, 960],
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::ControlLocked,
     },
     #[cfg(feature = "test-support")]
     State {
