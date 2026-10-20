@@ -63,10 +63,24 @@ impl WorldStream {
                 continue;
             }
             examined = true;
+            // Output credit is part of readiness; dispatch reserves it again in rank order.
             let ready = self.revisions.is_current(retry.key, retry.revision)
                 && !self.mesh_jobs.in_flight.contains_key(&retry.key)
                 && !self.mesh_neighbour_is_due(retry.key, now)
-                && self.mesh_light_halo(retry.key).is_some();
+                && self.mesh_light_halo(retry.key).is_some()
+                && self
+                    .authority
+                    .terrain()
+                    .sub_chunk(retry.key)
+                    .is_some_and(|source| {
+                        self.mesh_memory
+                            .try_admit(
+                                &source,
+                                self.authority.runtime_assets(),
+                                self.authority.network_id_mode(),
+                            )
+                            .is_some()
+                    });
             if ready {
                 candidates.push((candidate, pending, MeshCandidateOrigin::Retry));
                 self.mesh_jobs.retries.requeue(retry);

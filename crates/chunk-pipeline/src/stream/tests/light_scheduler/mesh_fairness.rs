@@ -74,6 +74,19 @@ fn far_settled_halo_publishes_before_ready_backlog() {
     assert!(stream.mesh_jobs.pending.contains_key(&backlog));
 }
 
+/// A successful retry spends the expired poll's single dispatch allowance.
+#[test]
+fn expired_far_retry_dispatches_once_before_ready_backlog() {
+    let (mut stream, view, visible, backlog) = deferred_mesh_stream();
+    stream.poll_deadline = Some(Instant::now());
+    assert_eq!(stream.dispatch_mesh_jobs(view.position, 2), 1);
+    let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(completion.key, visible);
+    stream.accept_mesh_completion(completion);
+    assert!(stream.mesh_jobs.pending.contains_key(&backlog));
+    assert!(!stream.mesh_jobs.in_flight.contains_key(&backlog));
+}
+
 /// Rechecking a far mesh must keep stale light blocked and let ready geometry progress.
 #[test]
 fn far_stale_halo_cannot_starve_ready_backlog() {

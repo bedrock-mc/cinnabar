@@ -107,8 +107,7 @@ impl WorldStream {
         }
         let mut dispatch = workers::WORKERS.batch(workers::Lane::Mesh);
         let mut dispatched = 0;
-        let mut examined_ordinary = false;
-        let mut examined_retry = false;
+        let mut examined = false;
         let now = Instant::now();
         self.prioritize_transfer_mesh_candidates(&mut resident_candidates);
         resident_candidates.sort_unstable_by_key(|candidate| std::cmp::Reverse(candidate.0));
@@ -182,19 +181,11 @@ impl WorldStream {
                 }
                 continue;
             }
-            let capacity_exhausted =
-                self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES || dispatched >= worker_budget;
-            // FIFO retries add work beside the existing queue. A failed retry cannot spend
-            // the ordinary queue's one attempt when this poll's time slice has expired.
-            let retry = origin == MeshCandidateOrigin::Retry;
-            let deadline_exhausted =
-                self.poll_budget_exhausted() && (examined_ordinary || (retry && examined_retry));
-            let exhausted = capacity_exhausted || deadline_exhausted;
+            let exhausted = self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES
+                || dispatched >= worker_budget
+                || (examined && self.poll_budget_exhausted());
             if exhausted || (dispatched >= regular_budget && !candidate.urgent) {
                 self.requeue_mesh_candidate(candidate, origin);
-                if !capacity_exhausted && deadline_exhausted && retry && !examined_ordinary {
-                    continue;
-                }
                 // Only a transfer candidate can rank above urgent work still to come.
                 if !exhausted && candidate.transfer {
                     continue;
@@ -214,8 +205,7 @@ impl WorldStream {
                 }
                 continue;
             }
-            examined_retry |= retry;
-            examined_ordinary |= !retry;
+            examined = true;
             self.mesh_jobs.retries.enqueue(key, pending.revision);
             if self.mesh_neighbour_is_due(key, now) {
                 self.mesh_jobs.retries.block(key, pending.revision);
