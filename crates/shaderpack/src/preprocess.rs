@@ -443,7 +443,7 @@ pub(crate) fn preprocess(
         line_starts.partition_point(|s| *s <= offset) as u32
     };
     let mut pp = Preprocessor::new(text);
-    pp.set_allow_float_conditions(true);
+    pp.set_iris_conditions(true);
     for (k, v) in defines {
         pp.add_define(k, v).map_err(|e| {
             Diagnostic::new(Phase::Preprocess, format!("cannot define `{k}`: {e:?}"))
@@ -829,5 +829,29 @@ mod tests {
         let has = |n: &str| pp.tokens.iter().any(|t| t.ident() == Some(n));
         assert!(has("slow") && !has("fast"));
         assert!(!has("truncated_true"));
+    }
+
+    #[test]
+    fn iris_ternaries_use_expanded_float_options() {
+        assert_eq!(
+            selected_float_condition(
+                "#if QUALITY >= 1.0 ? 1 : 0\nconst int chosen = 1;\n#else\nconst int chosen = 0;\n#endif",
+                &[("QUALITY", "1.5")],
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn deep_glsl_conditions_return_a_diagnostic() {
+        let text = format!(
+            "#if {}1{}\nfloat hidden;\n#endif",
+            "(".repeat(10_000),
+            ")".repeat(10_000)
+        );
+        let source = PackSource::from_files([("a.fsh", text)]);
+        let expanded = expand(&source, "a.fsh", &[], &OptionValues::new()).unwrap();
+        let diagnostic = preprocess(expanded, &[]).err().expect("depth diagnostic");
+        assert_eq!(diagnostic.phase, Phase::Preprocess);
     }
 }
