@@ -247,7 +247,7 @@ impl HatState {
                     attachment
                 };
                 let Some((previous, current)) =
-                    attachment.pose(item, &body, &rig.bone_names, (self.seconds, partial_tick))
+                    attachment.pose(item, &body, rig.bone_names, (self.seconds, partial_tick))
                 else {
                     continue;
                 };
