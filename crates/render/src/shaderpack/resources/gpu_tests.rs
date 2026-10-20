@@ -1,6 +1,10 @@
 use super::*;
 
 /// Requests a device for resource fixtures, skipping only an absent adapter.
+#[expect(
+    clippy::print_stderr,
+    reason = "names the absent GPU fixture when tests skip"
+)]
 fn gpu() -> Option<GpuContext> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = match bevy::tasks::block_on(instance.request_adapter(&Default::default())) {
