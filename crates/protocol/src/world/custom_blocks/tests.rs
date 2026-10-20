@@ -16,6 +16,7 @@ fn hashed_states_enumerate_axes_and_hash_distinctly() {
         mining: Default::default(),
         state_physics_complete: false,
         state_physics: Default::default(),
+        state_mining: Default::default(),
         player_interact: false,
         name: "ns:b".into(),
         tags: Default::default(),
@@ -55,6 +56,7 @@ fn hashed_states_enumerate_axes_and_hash_distinctly() {
         mining: Default::default(),
         state_physics_complete: false,
         state_physics: Default::default(),
+        state_mining: Default::default(),
         player_interact: false,
         visual: std::sync::Arc::new(CustomBlockVisuals::default()),
         ..block
@@ -206,6 +208,7 @@ fn custom_block(name: &str, root: &Nbt) -> CustomBlock {
         mining: definition.mining,
         state_physics_complete: false,
         state_physics: Default::default(),
+        state_mining: Default::default(),
         player_interact: definition.player_interact,
         name: name.into(),
         tags: definition.tags,

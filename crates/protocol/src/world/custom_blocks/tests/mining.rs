@@ -18,7 +18,7 @@ fn custom_mining_unprepared_permutations_do_not_use_the_base_value() {
         ])]),
     )]);
     let block = custom_block("test:unprepared_mining", &root);
-    assert!(block.physics_for_state(0).mining.is_none());
+    assert!(block.mining_for_state(0).is_none());
 }
 
 #[test]
@@ -35,12 +35,8 @@ fn custom_mining_discarded_permutations_cannot_use_an_instant_base() {
     assert!(!block.visual.components_incomplete);
     assert!(block.visual.mining_incomplete);
     assert!(block.mining_for_state(0).is_none());
-    assert!(block.physics_for_state(0).mining.is_none());
-    let mut cached = block.base_physics();
-    cached.mining = Some(std::sync::Arc::clone(&block.mining));
-    block.state_physics = [cached].into();
+    block.state_mining = [Some(std::sync::Arc::clone(&block.mining))].into();
     assert!(block.mining_for_state(0).is_none());
-    assert!(block.physics_for_state(0).mining.is_none());
 }
 
 #[test]
@@ -87,6 +83,18 @@ fn custom_mining_discarded_condition_and_invalid_values_stay_unresolved() {
         let block = custom_block("test:incomplete_mining", &root);
         assert!(!block.visual.components_incomplete);
         assert!(block.mining_for_state(0).is_none());
-        assert!(block.base_physics().mining.is_none());
     }
+}
+
+#[test]
+fn custom_mining_cache_preserves_unknown_and_resolved_states() {
+    let mut block = custom_block("test:cached_mining", &compound(vec![]));
+    block.state_mining = [None].into();
+    assert!(block.mining_for_state(0).is_none());
+    block.state_mining = [Some(std::sync::Arc::new(super::super::CustomBlockMining {
+        seconds_to_destroy: 2.0,
+        ..Default::default()
+    }))]
+    .into();
+    assert_eq!(block.mining_for_state(0).unwrap().seconds_to_destroy, 2.0);
 }

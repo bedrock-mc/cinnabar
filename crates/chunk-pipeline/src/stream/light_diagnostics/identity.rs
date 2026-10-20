@@ -193,6 +193,7 @@ mod tests {
                 mining: Default::default(),
                 state_physics_complete: false,
                 state_physics: Default::default(),
+                state_mining: Default::default(),
                 player_interact: false,
                 name: Arc::from("test:roof"),
                 tags: Default::default(),

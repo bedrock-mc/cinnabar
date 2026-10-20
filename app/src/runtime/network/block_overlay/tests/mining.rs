@@ -1,6 +1,73 @@
 use super::*;
 
 #[test]
+fn custom_mining_prepared_state_overrides_reach_both_overlay_modes() {
+    let mut definition = block(
+        "test:state_mining",
+        2,
+        CustomBlockVisuals {
+            state_axes: [protocol::CustomStateAxis {
+                name: "test:fast".into(),
+                values: [false, true].map(protocol::CustomStateValue::Bool).into(),
+            }]
+            .into(),
+            permutations: [protocol::CustomPermutation {
+                condition: "q.block_state('test:fast')".into(),
+                components: Default::default(),
+                physical: protocol::CustomPhysicalComponents {
+                    mining: Some(Arc::new(protocol::CustomBlockMining {
+                        seconds_to_destroy: 0.5,
+                        ..Default::default()
+                    })),
+                    ..Default::default()
+                },
+            }]
+            .into(),
+            ..Default::default()
+        },
+    );
+    definition.mining = Arc::new(protocol::CustomBlockMining {
+        seconds_to_destroy: 4.0,
+        ..Default::default()
+    });
+    let data = protocol::GameData {
+        custom_blocks: CustomBlocks {
+            blocks: [definition].into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let prepared = pack_runtime::prepare_session_packs(
+        protocol::ResourcePackHandoff::from_archives(vec![]),
+        &data,
+        u64::MAX,
+    );
+    for hashed in [false, true] {
+        let compiled =
+            compile_block_overlay(&view(), &prepared.inputs.blocks, hashed, None).unwrap();
+        assert_eq!(compiled.overlay.visuals.len(), 2);
+        for (visual, rate) in compiled
+            .overlay
+            .visuals
+            .iter()
+            .zip([1.0 / 120.0, 1.0 / 15.0])
+        {
+            let info = sim::BlockDestroyInfo::from_facts(visual.destroy).unwrap();
+            assert_eq!(
+                sim::destroy_progress_per_tick(
+                    &info,
+                    &sim::DestroyConditions {
+                        on_ground: true,
+                        ..Default::default()
+                    }
+                ),
+                Some(rate)
+            );
+        }
+    }
+}
+
+#[test]
 fn custom_mining_discarded_data_stays_unresolved_in_shared_materials() {
     let mut incomplete = block("test:incomplete_mining", 1, CustomBlockVisuals::default());
     Arc::make_mut(&mut incomplete.visual).mining_incomplete = true;

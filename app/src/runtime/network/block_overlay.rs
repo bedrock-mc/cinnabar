@@ -202,9 +202,8 @@ pub(super) fn compile_block_overlay_with_textures(
                     &visual,
                     &geometries,
                     block,
-                    physics
-                        .mining
-                        .as_ref()
+                    block
+                        .mining_for_state(index as u32)
                         .map(|mining| mining.seconds_to_destroy),
                 );
                 builder.overlay.hashes.push(Some(state.hash));
@@ -222,9 +221,8 @@ pub(super) fn compile_block_overlay_with_textures(
                 &visual,
                 &geometries,
                 block,
-                physics
-                    .mining
-                    .as_ref()
+                block
+                    .mining_for_state(state)
                     .map(|mining| mining.seconds_to_destroy),
             );
             builder

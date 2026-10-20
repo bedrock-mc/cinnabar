@@ -530,6 +530,7 @@ fn overlay_cache_reuses_the_previous_session_compile() {
             mining: Default::default(),
             state_physics_complete: false,
             state_physics: Default::default(),
+            state_mining: Default::default(),
             player_interact: false,
             name: "cache:test".into(),
             tags: Default::default(),

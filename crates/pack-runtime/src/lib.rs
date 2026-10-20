@@ -4,6 +4,7 @@
 #[global_allocator]
 static TEST_ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 
+mod block_condition;
 mod block_mining;
 mod block_physics;
 pub use block_mining::{CustomMiningFilters, custom_mining_seconds};

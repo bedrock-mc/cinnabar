@@ -1,7 +1,81 @@
 //! Resolves the held item's override of a custom block's mining value.
 
-use protocol::{CustomBlockMining, CustomMiningItem};
+use pack_entity_compiler::BlockMolang;
+use protocol::{CustomBlock, CustomBlockMining, CustomBlocks, CustomMiningItem};
 use std::{collections::HashMap, sync::Arc};
+
+/// Bounds mining cache records without reserving or consuming physical state records.
+const MAX_RESOLVED_MINING_STATES: usize = 1 << 18;
+
+type MiningCondition<'a> = (Option<BlockMolang>, &'a Arc<CustomBlockMining>);
+
+/// Resolves the effective mining component without changing physical state admission.
+pub(crate) fn resolve(blocks: &mut CustomBlocks) {
+    resolve_bounded(blocks, MAX_RESOLVED_MINING_STATES);
+}
+
+/// Applies the independent mining reservation, leaving unprepared overrides unknown.
+pub(super) fn resolve_bounded(blocks: &mut CustomBlocks, mut remaining: usize) {
+    for block in Arc::make_mut(&mut blocks.blocks) {
+        if block.visual.materialization_disabled || block.visual.mining_incomplete {
+            continue;
+        }
+        let conditions: Vec<_> = block
+            .visual
+            .permutations
+            .iter()
+            .filter_map(|permutation| {
+                let mining = permutation.physical.mining.as_ref()?;
+                Some((BlockMolang::parse(&permutation.condition), mining))
+            })
+            .collect();
+        if conditions.is_empty() {
+            continue;
+        }
+        if block.visual.state_identity_incomplete || block.state_count as usize > remaining {
+            blocks.skipped += 1;
+            continue;
+        }
+        let mut complete = true;
+        let resolved = (0..block.state_count)
+            .map(|state| evaluate_state(block, state, &conditions, &mut complete))
+            .collect::<Option<Vec<_>>>();
+        if !complete {
+            blocks.skipped += 1;
+        }
+        if let Some(resolved) = resolved {
+            remaining -= resolved.len();
+            block.state_mining = resolved.into();
+        } else {
+            blocks.skipped += 1;
+        }
+    }
+}
+
+/// Applies ordered mining overrides; an unknown condition cannot fall back to the base value.
+fn evaluate_state(
+    block: &CustomBlock,
+    state: u32,
+    conditions: &[MiningCondition<'_>],
+    complete: &mut bool,
+) -> Option<Option<Arc<CustomBlockMining>>> {
+    let values = block.state_values(state)?;
+    let mut mining = Some(Arc::clone(&block.mining));
+    for (condition, override_mining) in conditions {
+        match condition
+            .as_ref()
+            .and_then(|condition| crate::block_condition::evaluate(condition, block, &values))
+        {
+            Some(0.0) => {}
+            Some(_) => mining = Some(Arc::clone(override_mining)),
+            None => {
+                *complete = false;
+                mining = None;
+            }
+        }
+    }
+    Some(mining)
+}
 
 /// Session-owned item tag programs, including failed compilations that must stay unresolved.
 #[derive(Debug, Default)]
@@ -19,12 +93,7 @@ impl CustomMiningFilters {
                         .iter()
                         .filter_map(|permutation| permutation.physical.mining.as_deref()),
                 )
-                .chain(
-                    block
-                        .state_physics
-                        .iter()
-                        .filter_map(|state| state.mining.as_deref()),
-                )
+                .chain(block.state_mining.iter().filter_map(Option::as_deref))
         }))
     }
 

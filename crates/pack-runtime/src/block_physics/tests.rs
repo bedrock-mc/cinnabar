@@ -1,5 +1,80 @@
 use super::*;
-use protocol::{CustomBox, CustomSelection};
+use protocol::{CustomBox, CustomSelection, CustomStateValue};
+
+#[test]
+fn mining_only_states_do_not_consume_physics_reservation() {
+    let mut mining_only = slab();
+    Arc::make_mut(&mut mining_only.visual).permutations = [protocol::CustomPermutation {
+        condition: "1".into(),
+        components: Default::default(),
+        physical: protocol::CustomPhysicalComponents {
+            mining: Some(Arc::new(protocol::CustomBlockMining {
+                seconds_to_destroy: 0.5,
+                ..Default::default()
+            })),
+            ..Default::default()
+        },
+    }]
+    .into();
+    let mut shape = slab();
+    Arc::make_mut(&mut shape.visual).permutations[0]
+        .physical
+        .friction = Some(0.2);
+    let mut blocks = CustomBlocks {
+        blocks: std::iter::repeat_n(mining_only, 64)
+            .chain([shape])
+            .collect(),
+        ..Default::default()
+    };
+    resolve_bounded(&mut blocks, 4);
+    crate::block_mining::resolve(&mut blocks);
+    for block in &blocks.blocks[..64] {
+        assert_eq!(block.mining_for_state(1).unwrap().seconds_to_destroy, 0.5);
+    }
+    let shape = blocks.blocks.last().unwrap();
+    assert!(shape.state_physics_complete);
+    assert_eq!(
+        shape.physics_for_state(1).collision_boxes.as_ref().unwrap()[0].min[1],
+        0.5,
+        "mining states must leave the shape reservation available"
+    );
+    assert_eq!(
+        shape.physics_for_state(3).selection,
+        CustomSelection::Disabled
+    );
+    assert_eq!(shape.physics_for_state(1).friction, Some(0.2));
+}
+
+#[test]
+fn mining_and_physics_reservations_are_independent_for_mixed_permutations() {
+    let mut block = slab();
+    Arc::make_mut(&mut block.visual).permutations[0]
+        .physical
+        .mining = Some(Arc::new(protocol::CustomBlockMining {
+        seconds_to_destroy: 0.5,
+        ..Default::default()
+    }));
+    for (physics_budget, mining_budget) in [(0, 4), (4, 0), (4, 4)] {
+        let mut blocks = CustomBlocks {
+            blocks: [block.clone()].into(),
+            ..Default::default()
+        };
+        resolve_bounded(&mut blocks, physics_budget);
+        crate::block_mining::resolve_bounded(&mut blocks, mining_budget);
+        let block = &blocks.blocks[0];
+        assert_eq!(block.state_physics_complete, physics_budget > 0);
+        assert_eq!(
+            block.physics_for_state(1).collision_boxes.as_ref().unwrap()[0].min[1],
+            if physics_budget > 0 { 0.5 } else { 0.0 }
+        );
+        assert_eq!(
+            block
+                .mining_for_state(1)
+                .map(|mining| mining.seconds_to_destroy),
+            (mining_budget > 0).then_some(0.5)
+        );
+    }
+}
 
 #[test]
 fn custom_mining_uncertainty_does_not_make_known_physics_incomplete() {
@@ -23,6 +98,7 @@ fn custom_mining_uncertainty_does_not_make_known_physics_incomplete() {
                 ..Default::default()
             };
             resolve_bounded(&mut blocks, budget);
+            crate::block_mining::resolve(&mut blocks);
             let block = &blocks.blocks[0];
             assert!(
                 block.state_physics_complete,
@@ -58,17 +134,11 @@ fn custom_mining_discarded_data_stays_unresolved_after_physics_merge() {
         ..Default::default()
     };
     resolve(&mut blocks);
+    crate::block_mining::resolve(&mut blocks);
     let block = &blocks.blocks[0];
-    assert!(!block.state_physics.is_empty());
+    assert!(block.state_physics.is_empty());
     assert!(!block.state_physics_complete);
-    assert!(
-        block
-            .state_physics
-            .iter()
-            .all(|state| state.mining.is_none())
-    );
     for state in 0..block.state_count {
-        assert!(block.physics_for_state(state).mining.is_none());
         assert!(block.mining_for_state(state).is_none());
     }
 }
@@ -98,11 +168,11 @@ fn custom_mining_permutations_replace_the_whole_component() {
         ..Default::default()
     };
     resolve(&mut blocks);
+    crate::block_mining::resolve(&mut blocks);
     for state in 0..blocks.blocks[0].state_count {
         assert_eq!(
             blocks.blocks[0]
-                .physics_for_state(state)
-                .mining
+                .mining_for_state(state)
                 .unwrap()
                 .seconds_to_destroy,
             0.5
@@ -132,6 +202,7 @@ fn custom_mining_unresolved_conditions_keep_the_state_unresolved() {
             ..Default::default()
         };
         resolve(&mut blocks);
+        crate::block_mining::resolve(&mut blocks);
         assert!(blocks.blocks[0].state_physics_complete);
         for state in 0..blocks.blocks[0].state_count {
             assert!(blocks.blocks[0].mining_for_state(state).is_none());
@@ -285,7 +356,6 @@ fn preparation_materializes_state_physics_for_registry_consumers() {
         assert_eq!(
             block.physics_for_state(state),
             CustomBlockPhysics {
-                mining: Some(Default::default()),
                 random_offset: None,
                 transformation,
                 collides,
@@ -667,6 +737,7 @@ fn connection_states_select_per_state_collision() {
         mining: Default::default(),
         state_physics_complete: false,
         state_physics: Default::default(),
+        state_mining: Default::default(),
         player_interact: false,
         name: "test:fence".into(),
         tags: Default::default(),

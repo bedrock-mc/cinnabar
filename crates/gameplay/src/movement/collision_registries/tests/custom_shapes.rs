@@ -345,7 +345,6 @@ fn resolved_state_collision_and_selection_reach_both_identity_spaces() {
     };
     block.state_physics = [
         protocol::CustomBlockPhysics {
-            mining: Some(Default::default()),
             random_offset: None,
             transformation: None,
             collides: true,
@@ -354,7 +353,6 @@ fn resolved_state_collision_and_selection_reach_both_identity_spaces() {
             friction: None,
         },
         protocol::CustomBlockPhysics {
-            mining: Some(Default::default()),
             random_offset: None,
             transformation: None,
             collides: true,
@@ -363,7 +361,6 @@ fn resolved_state_collision_and_selection_reach_both_identity_spaces() {
             friction: None,
         },
         protocol::CustomBlockPhysics {
-            mining: Some(Default::default()),
             random_offset: None,
             transformation: None,
             collides: false,
@@ -564,7 +561,6 @@ fn face_facing() -> protocol::CustomBlocks {
         ([0, 1, 3], "east"),
     ];
     let physics = turns.map(|(rotation, _)| protocol::CustomBlockPhysics {
-        mining: Some(Default::default()),
         random_offset: None,
         // `up` is the default face and carries no authored turn.
         transformation: if rotation == [0; 3] {
@@ -610,6 +606,7 @@ fn face_facing() -> protocol::CustomBlocks {
             mining: Default::default(),
             state_physics_complete: false,
             state_physics: physics.into(),
+            state_mining: Default::default(),
         }]),
         vanilla_blocks: Arc::default(),
         skipped: 0,

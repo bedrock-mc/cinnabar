@@ -456,6 +456,7 @@ overrides and resolved state permutations in both runtime identity spaces.
 Discarded mining data stays unresolved through state merging. Item-tag filters
 compile during session preparation and reuse those programs without allocating.
 Mining uncertainty does not prevent prediction with known physical bounds.
+Mining state storage and admission are independent of the physical state budget.
 Regression tests cover component decoding, progress rates and completion packets.
 Complex item-tag scripts and live custom-block acceptance remain incomplete;
 this does not advance the interaction completion gate.

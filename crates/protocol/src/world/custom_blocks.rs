@@ -51,7 +51,9 @@ pub struct CustomBlock {
     /// `minecraft:custom_components` declares a player-interact handler, so using the block
     /// interacts with it rather than placing the held block against it.
     pub player_interact: bool,
-    /// Resolved palette-order component sets; empty until session preparation.
+    /// Resolved mining components in palette order; an absent component is unknown.
+    pub state_mining: Arc<[Option<Arc<CustomBlockMining>>]>,
+    /// Resolved palette-order physical components; empty until session preparation.
     pub state_physics: Arc<[CustomBlockPhysics]>,
     /// Every physical permutation was parsed and evaluated for every state.
     pub state_physics_complete: bool,
@@ -218,8 +220,6 @@ pub struct CustomCollision {
 /// Effective physical components for one palette state.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CustomBlockPhysics {
-    /// `None` when a mining permutation could not be resolved for this state.
-    pub mining: Option<Arc<CustomBlockMining>>,
     pub random_offset: Option<block_transform::random_offset::RandomOffsetComponent>,
     /// Transform this state's boxes inherit, about the block centre.
     pub transformation: Option<CustomTransformation>,
@@ -252,30 +252,21 @@ pub struct CustomHashedState {
 }
 
 impl CustomBlock {
-    /// Falls back to base shapes while keeping unprepared mining permutations unresolved.
+    /// Falls back to base shapes until physical state preparation has completed.
     #[must_use]
     pub fn physics_for_state(&self, index: u32) -> CustomBlockPhysics {
-        let mut physics = self
-            .state_physics
+        self.state_physics
             .get(index as usize)
             .cloned()
-            .unwrap_or_else(|| {
-                let mut physics = self.base_physics();
-                physics.mining = self.mining_for_state(index).cloned();
-                physics
-            });
-        if self.visual.mining_incomplete {
-            physics.mining = None;
-        }
-        physics
+            .unwrap_or_else(|| self.base_physics())
     }
 
     /// Borrows resolved mining data; an unprepared mining permutation cannot use the base value.
     pub fn mining_for_state(&self, index: u32) -> Option<&Arc<CustomBlockMining>> {
         if self.visual.mining_incomplete {
             None
-        } else if let Some(physics) = self.state_physics.get(index as usize) {
-            physics.mining.as_ref()
+        } else if let Some(mining) = self.state_mining.get(index as usize) {
+            mining.as_ref()
         } else if self
             .visual
             .permutations
@@ -291,7 +282,6 @@ impl CustomBlock {
     #[must_use]
     pub fn base_physics(&self) -> CustomBlockPhysics {
         CustomBlockPhysics {
-            mining: (!self.visual.mining_incomplete).then(|| Arc::clone(&self.mining)),
             random_offset: self.visual.base.random_offset,
             transformation: self.visual.base.transformation,
             collides: self.collides,
@@ -498,6 +488,7 @@ impl CustomBlocks {
                         visual: Arc::new(definition.visual),
                         state_physics_complete: false,
                         state_physics: Arc::default(),
+                        state_mining: Default::default(),
                     });
                 }
                 None => skipped += 1,
