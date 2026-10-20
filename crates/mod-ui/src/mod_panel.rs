@@ -19,9 +19,11 @@ mod widgets;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) use {template::same_shape, widgets::Palette};
 
+#[cfg(test)]
+use json_ui::Context;
 use std::sync::Arc;
 
-use json_ui::{Catalog, Context, DataSource, ViewState};
+use json_ui::{Catalog, DataSource, ViewState};
 use ui::{
     FONT_DESIGN_PIXEL_TEXELS, UiScale,
     mod_panel::{Control, Event, Panel},
@@ -532,7 +534,7 @@ impl ModUi {
                             screen.render_shared_with(
                                 SCREEN,
                                 catalog,
-                                &Context::default(),
+                                crate::personal_context(),
                                 Arc::clone(&data),
                                 (root, px, language),
                                 env,
@@ -570,7 +572,7 @@ impl ModUi {
                         screen.render_shared_with(
                             SCREEN,
                             catalog,
-                            &Context::default(),
+                            crate::personal_context(),
                             data,
                             (root, px, language),
                             env,

@@ -200,16 +200,8 @@ impl Dependencies<'_> {
     /// Appends logical base paths without copying their strings.
     fn append_paths<'a>(&'a self, paths: &mut HashSet<&'a str>) {
         match &self.0 {
-            Storage::Cached(summary) => {
-                for path in &summary.paths {
-                    paths.insert(path.as_ref());
-                }
-            }
-            Storage::Uncached(collected) => {
-                for path in &collected.paths {
-                    paths.insert(*path);
-                }
-            }
+            Storage::Cached(summary) => paths.extend(summary.paths.iter().map(AsRef::as_ref)),
+            Storage::Uncached(collected) => paths.extend(collected.paths.iter().copied()),
         }
     }
 
@@ -242,9 +234,7 @@ pub(super) fn paths<'a>(
     let overlay = Collected::new(art.overlay, art);
     let mut paths = HashSet::new();
     base.append_paths(&mut paths);
-    for path in &overlay.paths {
-        paths.insert(*path);
-    }
+    paths.extend(overlay.paths.iter().copied());
     let drawn = |name: &str| base.has_renderer(name) || overlay.renderers.contains(name);
     for renderer in renderers {
         renderer.textures(&drawn, &mut |path| {

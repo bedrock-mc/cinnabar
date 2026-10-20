@@ -2,7 +2,7 @@
 
 use super::{ModWidgets, template, text_plate};
 use crate::{ModUi, PanelUiOwner, RowIcons};
-use json_ui::{Context, DataSource, DrawNode, Scalar, ViewState};
+use json_ui::{DataSource, DrawNode, Scalar, ViewState};
 use std::sync::Arc;
 use ui::{IconRef, UiNode, mod_hud::Hud};
 use ui_engine::{
@@ -163,7 +163,7 @@ impl ModWidgets {
                 entry.screen.render_shared_with(
                     &entry.reference,
                     &self.catalog,
-                    &Context::default(),
+                    crate::personal_context(),
                     Arc::clone(&entry.data),
                     (template::dimensions(card), px, language),
                     env,
@@ -208,7 +208,7 @@ impl ModWidgets {
             entry.screen.render_shared_with(
                 &entry.reference,
                 &self.catalog,
-                &Context::default(),
+                crate::personal_context(),
                 Arc::clone(&entry.data),
                 (template::dimensions(card), px, language),
                 env,
@@ -304,7 +304,7 @@ impl ModUi {
                 screen.render_shared_with(
                     "cinnabar_personal_hud.gameplay",
                     &catalog,
-                    &Context::default(),
+                    crate::personal_context(),
                     data,
                     (root, px, language),
                     env,

@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::test_support::sample_panel;
+use json_ui::Context;
 use serde_json::json;
 use ui::mod_panel::{Surface, SurfaceValue};
 use ui_engine::{

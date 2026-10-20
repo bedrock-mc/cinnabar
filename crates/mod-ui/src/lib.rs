@@ -41,6 +41,12 @@ pub struct ModUi {
     reduced_motion: bool,
 }
 
+/// Shares the immutable default context used by retained client-owned mod surfaces.
+fn personal_context() -> &'static json_ui::Context {
+    static CONTEXT: std::sync::OnceLock<json_ui::Context> = std::sync::OnceLock::new();
+    CONTEXT.get_or_init(json_ui::Context::default)
+}
+
 /// Each personal HUD row's item icon, in card order, as the host's item atlas resolves it.
 pub struct RowIcons {
     icons: [Option<IconRef>; MAX_HUD_ROWS],
