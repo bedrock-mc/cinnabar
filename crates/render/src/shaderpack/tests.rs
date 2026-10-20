@@ -1,8 +1,9 @@
 //! Original fixture packs through planning and, with a GPU, through a whole frame.
 
-use super::loader::{build, class_sampler, runnable_programs, translate_config};
+use super::loader::{build, runnable_programs, translate_config};
 use super::passes::{FrameIo, ViewState, record_frame};
 use super::pipelines::GpuContext;
+use super::pipelines::class_sampler;
 use super::plan::plan_frame;
 use super::plugin::JAVA_DIMENSIONS;
 use super::uniforms::{FrameClock, FrameUniforms, ViewCamera};
