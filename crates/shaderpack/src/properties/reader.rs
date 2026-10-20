@@ -28,7 +28,8 @@ pub(super) fn read_entries(
 ) -> Vec<RawEntry> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     // One line convention for the preprocessor and both passes, including lone carriage returns.
-    let text = &text.replace("\r\n", "\n").replace('\r', "\n");
+    let text = crate::source::normalize_newlines(text);
+    let text = text.as_ref();
     let source: String = text
         .lines()
         .map(|line| {

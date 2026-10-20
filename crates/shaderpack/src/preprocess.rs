@@ -3,10 +3,17 @@
 
 use crate::diagnostics::{Diagnostic, Phase, SourceLocation};
 use crate::options::{OptionValues, PackOption, rewrite_option_line};
-use crate::source::PackSource;
+use crate::source::{MAX_TEXT_FILE_BYTES, PackSource, normalize_newlines};
 use crate::token::{Tok, TokKind, punct};
 use pp_rs::pp::Preprocessor;
 use pp_rs::token::TokenValue;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+/// Maximum expanded source or retained preprocessing storage for one GLSL stage.
+const MAX_EXPANDED_GLSL_BYTES: usize = 4 * MAX_TEXT_FILE_BYTES;
+/// Macro work includes tokens evaluated only in conditions and discarded expansions.
+const MAX_GLSL_PREPROCESSING_TOKENS: u64 = 4 * MAX_TEXT_FILE_BYTES as u64;
 
 /// Identifier prefix of the markers that stand in for comment and `const` directives while
 /// the preprocessor decides which of them sit in active code. Stripped before transforming.
@@ -81,6 +88,8 @@ pub(crate) struct Preprocessed {
 
 struct Expander<'a> {
     source: &'a PackSource,
+    normalized: HashMap<String, Arc<str>>,
+    remaining: usize,
     options: &'a [PackOption],
     values: &'a OptionValues,
     out: String,
@@ -97,8 +106,21 @@ pub(crate) fn expand(
     options: &[PackOption],
     values: &OptionValues,
 ) -> Result<Expanded, Diagnostic> {
+    expand_limited(source, path, options, values, MAX_EXPANDED_GLSL_BYTES)
+}
+
+/// Expands one stage within the supplied include-processing byte budget.
+fn expand_limited(
+    source: &PackSource,
+    path: &str,
+    options: &[PackOption],
+    values: &OptionValues,
+    limit: usize,
+) -> Result<Expanded, Diagnostic> {
     let mut x = Expander {
         source,
+        normalized: HashMap::new(),
+        remaining: limit,
         options,
         values,
         out: String::new(),
@@ -114,27 +136,49 @@ pub(crate) fn expand(
 }
 
 /// One source file being expanded, with its own comment scope and line iterator.
-struct FileFrame<'a> {
+struct FileFrame {
     path: String,
     file: u32,
-    lines: std::iter::Enumerate<std::str::Lines<'a>>,
+    text: Arc<str>,
+    cursor: usize,
+    line: usize,
+}
+
+impl FileFrame {
+    /// Takes the next normalized physical line without copying the file for each include.
+    fn next_line(&mut self) -> Option<(usize, &str)> {
+        if self.cursor == self.text.len() {
+            return None;
+        }
+        let start = self.cursor;
+        let end = self.text[start..]
+            .find('\n')
+            .map_or(self.text.len(), |end| start + end);
+        self.cursor = end + usize::from(end < self.text.len());
+        let line = self.line;
+        self.line += 1;
+        Some((line, &self.text[start..end]))
+    }
 }
 
 impl<'a> Expander<'a> {
-    /// Loads a frame without copying its source; include errors retain the caller's location.
-    fn frame(
-        &mut self,
-        path: &str,
-        from: Option<SourceLocation>,
-    ) -> Result<FileFrame<'a>, Diagnostic> {
+    /// Normalizes a file once and opens an include frame; errors retain the caller location.
+    fn frame(&mut self, path: &str, from: Option<SourceLocation>) -> Result<FileFrame, Diagnostic> {
         let source = self.source;
         let text = source.text(path).ok_or_else(|| {
             Diagnostic::new(Phase::Include, format!("cannot find `{path}`")).at(from)
         })?;
+        let text = self
+            .normalized
+            .entry(path.to_string())
+            .or_insert_with(|| Arc::from(normalize_newlines(text).as_ref()))
+            .clone();
         Ok(FileFrame {
             path: path.to_string(),
             file: self.map.file_index(path),
-            lines: text.lines().enumerate(),
+            text,
+            cursor: 0,
+            line: 0,
         })
     }
 
@@ -142,7 +186,7 @@ impl<'a> Expander<'a> {
     fn file(&mut self, path: &str, from: Option<SourceLocation>) -> Result<(), Diagnostic> {
         let mut frames = vec![self.frame(path, from)?];
         while let Some(frame) = frames.last_mut() {
-            let Some((n, first)) = frame.lines.next() else {
+            let Some((n, first)) = frame.next_line() else {
                 frames.pop();
                 continue;
             };
@@ -157,7 +201,7 @@ impl<'a> Expander<'a> {
                         break;
                     }
                 }
-                let Some((_, next)) = frame.lines.next() else {
+                let Some((_, next)) = frame.next_line() else {
                     if in_block {
                         return Err(Diagnostic::new(
                             Phase::Preprocess,
@@ -199,6 +243,14 @@ impl<'a> Expander<'a> {
             let logical = line.replace("\\\n", "");
             let code = scan_line(&logical, &mut false).code;
             let (out, marker_before) = self.directives_in(&logical, &line);
+            // Include lines count too: duplicating empty files still spends traversal work.
+            self.remaining = self
+                .remaining
+                .checked_sub(line.len().max(out.len()).saturating_add(1))
+                .ok_or_else(|| {
+                    Diagnostic::new(Phase::Include, "expanded GLSL exceeds byte limit")
+                        .at(Some(here.clone()))
+                })?;
             let directive = code.trim_start().strip_prefix('#').map(str::trim_start);
             if let Some(rest) = directive
                 .and_then(|d| d.strip_prefix("include"))
@@ -430,6 +482,21 @@ pub(crate) fn preprocess(
     expanded: Expanded,
     defines: &[(String, String)],
 ) -> Result<Preprocessed, Diagnostic> {
+    preprocess_limited(
+        expanded,
+        defines,
+        MAX_GLSL_PREPROCESSING_TOKENS,
+        MAX_EXPANDED_GLSL_BYTES,
+    )
+}
+
+/// Preprocesses a stage within work and retained-storage budgets.
+fn preprocess_limited(
+    expanded: Expanded,
+    defines: &[(String, String)],
+    work: u64,
+    mut retained: usize,
+) -> Result<Preprocessed, Diagnostic> {
     let text = &expanded.text;
     let line_starts: Vec<usize> = std::iter::once(0)
         .chain(text.match_indices('\n').map(|(i, _)| i + 1))
@@ -439,12 +506,12 @@ pub(crate) fn preprocess(
         line_starts.partition_point(|s| *s <= offset) as u32
     };
     let mut pp = Preprocessor::new(text);
+    pp.set_work_limit(work);
     pp.set_source_lines(expanded.map.lines.iter().map(|(_, line)| *line).collect());
     for (k, v) in defines {
-        pp.add_define(k, v).map_err(|e| {
-            Diagnostic::new(Phase::Preprocess, format!("cannot define `{k}`: {e:?}"))
-        })?;
+        add_define(&mut pp, k, v)?;
     }
+    add_define(&mut pp, "__VERSION__", "110")?;
     let mut out = Preprocessed {
         version: 110,
         profile: None,
@@ -454,14 +521,28 @@ pub(crate) fn preprocess(
         render_targets: None,
         consts: Vec::new(),
     };
-    pp.add_define("__VERSION__", "110")
-        .expect("valid version macro");
     while let Some(item) = pp.next() {
         let tok = item.map_err(|(e, loc)| {
-            Diagnostic::new(Phase::Preprocess, format!("{e:?}"))
-                .at(expanded.map.locate(line_of(loc.start)))
+            Diagnostic::new(
+                Phase::Preprocess,
+                if pp.work_remaining() == 0 {
+                    "GLSL preprocessing exceeds work limit".into()
+                } else {
+                    format!("{e:?}")
+                },
+            )
+            .at(expanded.map.locate(line_of(loc.start)))
         })?;
         let line = line_of(tok.location.start);
+        retained = retained
+            .checked_sub(retained_bytes(&tok.value, &expanded.directives))
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    Phase::Preprocess,
+                    "GLSL preprocessing exceeds storage limit",
+                )
+                .at(expanded.map.locate(line))
+            })?;
         let kind = match tok.value {
             TokenValue::Ident(s) => {
                 if let Some(i) = s.strip_prefix(MARKER).and_then(|n| n.parse::<usize>().ok()) {
@@ -493,8 +574,8 @@ pub(crate) fn preprocess(
                         _ => {}
                     }
                 }
-                pp.add_define("__VERSION__", &out.version.to_string())
-                    .expect("valid version macro");
+                add_define(&mut pp, "__VERSION__", &out.version.to_string())
+                    .map_err(|diagnostic| diagnostic.at(expanded.map.locate(line)))?;
                 continue;
             }
             TokenValue::Extension(e) => {
@@ -518,6 +599,63 @@ pub(crate) fn preprocess(
     Ok(out)
 }
 
+/// Adds a macro, reporting invalid definitions and exhausted work as recoverable diagnostics.
+fn add_define(pp: &mut Preprocessor<'_>, name: &str, value: &str) -> Result<(), Diagnostic> {
+    pp.add_define(name, value).map_err(|error| {
+        Diagnostic::new(
+            Phase::Preprocess,
+            if pp.work_remaining() == 0 {
+                "GLSL preprocessing exceeds work limit".to_string()
+            } else {
+                format!("cannot define `{name}`: {error:?}")
+            },
+        )
+    })
+}
+
+/// Bounds retained tokens and metadata copies, including markers duplicated by macros.
+fn retained_bytes(token: &TokenValue, directives: &[Directive]) -> usize {
+    let text = match token {
+        TokenValue::Ident(name) => {
+            let metadata = name
+                .strip_prefix(MARKER)
+                .and_then(|index| index.parse::<usize>().ok())
+                .and_then(|index| directives.get(index));
+            name.len()
+                + match metadata {
+                    Some(Directive::RenderTargets(values) | Directive::DrawBuffers(values)) => {
+                        values.len() * size_of::<u32>()
+                    }
+                    Some(Directive::Const(value)) => {
+                        size_of::<ConstDirective>()
+                            + value.ty.len()
+                            + value.name.len()
+                            + value.value.len()
+                    }
+                    None => 0,
+                }
+        }
+        TokenValue::Integer(_) | TokenValue::Float(_) => 32,
+        TokenValue::Version(value) => value
+            .tokens
+            .iter()
+            .map(|token| retained_bytes(&token.value, &[]))
+            .sum(),
+        TokenValue::Extension(value) => value
+            .tokens
+            .iter()
+            .map(|token| retained_bytes(&token.value, &[]))
+            .sum(),
+        TokenValue::Pragma(value) => value
+            .tokens
+            .iter()
+            .map(|token| retained_bytes(&token.value, &[]))
+            .sum(),
+        TokenValue::Punct(_) => 0,
+    };
+    size_of::<Tok>() + text
+}
+
 /// GLSL spelling of a float literal; pp-rs literals are finite or overflow to infinity.
 fn float_literal(v: f32) -> String {
     if !v.is_finite() {
@@ -532,244 +670,4 @@ fn float_literal(v: f32) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Expands and preprocesses in-memory files with the supplied macros.
-    fn run(files: &[(&str, &str)], entry: &str, defines: &[(&str, &str)]) -> Preprocessed {
-        let source = PackSource::from_files(files.iter().copied());
-        let expanded = expand(&source, entry, &[], &OptionValues::new()).expect("expands");
-        let defines: Vec<(String, String)> = defines
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect();
-        preprocess(expanded, &defines).expect("preprocesses")
-    }
-
-    #[test]
-    fn frontend_version_condition() {
-        for (version, text) in [(450, "#version 450\n"), (110, "")] {
-            let src = format!(
-                "{text}#if __VERSION__ == {version}\nint selected;\n#else\n#error wrong version\n#endif"
-            );
-            assert!(
-                run(&[("a.fsh", &src)], "a.fsh", &[])
-                    .tokens
-                    .iter()
-                    .any(|t| t.ident() == Some("selected"))
-            );
-        }
-    }
-
-    #[test]
-    fn frontend_marker_scope() {
-        for control in ["#endif", "#else\n#endif", "#elif 1\n#endif"] {
-            let src =
-                format!("#if 0\n#define X 1 /* RENDERTARGETS:3 */\n{control}\nvoid main() {{}}");
-            assert_eq!(run(&[("a.fsh", &src)], "a.fsh", &[]).render_targets, None);
-        }
-        let pp = run(
-            &[("a.fsh", "#if 1\n#define X 1 /* RENDERTARGETS:4 */\n#endif")],
-            "a.fsh",
-            &[],
-        );
-        assert_eq!(pp.render_targets, Some(vec![4]));
-    }
-
-    #[test]
-    fn frontend_multiline_macro_comment() {
-        let pp = run(
-            &[(
-                "a.fsh",
-                "#define X /* first\nsecond */ 1\n#if X != 1\n#error wrong macro\n#endif\nint visible;",
-            )],
-            "a.fsh",
-            &[],
-        );
-        assert!(pp.tokens.iter().any(|t| t.ident() == Some("visible")));
-        assert!(!pp.tokens.iter().any(|t| t.text() == "1"));
-    }
-
-    #[test]
-    fn frontend_splices_before_line_comments() {
-        let pp = run(
-            &[("a.fsh", "// ignored \\\n#error hidden\nint visible;")],
-            "a.fsh",
-            &[],
-        );
-        assert!(pp.tokens.iter().any(|t| t.ident() == Some("visible")));
-    }
-
-    #[test]
-    fn frontend_original_line_numbers_survive_metadata_and_comments() {
-        let pp = run(
-            &[(
-                "a.fsh",
-                "#define X 1 /* DRAWBUFFERS:0 */\nint a = __LINE__;\n#define Y /* one\ntwo */ 2\nint b = __LINE__;\n#line 80\nint c = __LINE__;",
-            )],
-            "a.fsh",
-            &[],
-        );
-        let values: Vec<_> = pp
-            .tokens
-            .iter()
-            .filter_map(|t| match &t.kind {
-                TokKind::Int(n) => Some(n.trim_end_matches('u')),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(values, ["2", "5", "81"]);
-    }
-
-    #[test]
-    fn frontend_empty_drawbuffers() {
-        let pp = run(
-            &[("a.fsh", "/* DRAWBUFFERS:01 */\n/* DRAWBUFFERS: */")],
-            "a.fsh",
-            &[],
-        );
-        assert_eq!(pp.render_targets, Some(vec![]));
-    }
-
-    #[test]
-    fn frontend_const_whitespace() {
-        let pp = run(
-            &[("a.fsh", "const\tint shadowMapResolution = 2048;")],
-            "a.fsh",
-            &[],
-        );
-        assert_eq!(pp.consts.len(), 1);
-    }
-
-    #[test]
-    fn include_filenames_end_before_trailing_comments() {
-        for include in [
-            "#include \"/lib/common.glsl\" // shared",
-            "#include \"/lib/common.glsl\" /* shared */",
-            "/* leading */ #include \"/lib/common.glsl\"",
-            "/* previous\n*/ #include \"/lib/common.glsl\"",
-        ] {
-            let pp = run(
-                &[("a.fsh", include), ("lib/common.glsl", "float shared;")],
-                "a.fsh",
-                &[],
-            );
-            let token = pp
-                .tokens
-                .iter()
-                .find(|t| t.ident() == Some("shared"))
-                .unwrap();
-            assert_eq!(
-                pp.map.locate(token.line).unwrap().to_string(),
-                "lib/common.glsl:1"
-            );
-        }
-    }
-
-    #[test]
-    fn includes_inside_comments_are_ignored() {
-        let pp = run(
-            &[("a.fsh", "/*\n#include \"missing.glsl\"\n*/\nfloat present;")],
-            "a.fsh",
-            &[],
-        );
-        assert!(pp.tokens.iter().any(|t| t.ident() == Some("present")));
-    }
-
-    #[test]
-    fn deep_includes_expand_without_call_stack_recursion() {
-        let mut files = Vec::new();
-        for i in 0..8192 {
-            files.push((
-                format!("lib/{i}.glsl"),
-                if i == 8191 {
-                    "float deepest;".to_string()
-                } else {
-                    format!("#include \"{}.glsl\"", i + 1)
-                },
-            ));
-        }
-        let source = PackSource::from_files(files);
-        let expanded = expand(&source, "lib/0.glsl", &[], &OptionValues::new()).unwrap();
-        let pp = preprocess(expanded, &[]).unwrap();
-        let token = pp
-            .tokens
-            .iter()
-            .find(|t| t.ident() == Some("deepest"))
-            .unwrap();
-        assert_eq!(
-            pp.map.locate(token.line).unwrap().to_string(),
-            "lib/8191.glsl:1"
-        );
-    }
-
-    #[test]
-    fn includes_resolve_absolute_and_relative_paths() {
-        assert_eq!(
-            resolve_include("world0/a.fsh", " \"/lib/x.glsl\"").unwrap(),
-            "lib/x.glsl"
-        );
-        assert_eq!(
-            resolve_include("world0/a.fsh", " \"../lib/x.glsl\"").unwrap(),
-            "lib/x.glsl"
-        );
-        assert_eq!(
-            resolve_include("program/a.glsl", " \"b.glsl\"").unwrap(),
-            "program/b.glsl"
-        );
-    }
-
-    #[test]
-    fn only_directives_in_active_code_survive() {
-        let src = "#version 450\n\
-            #ifdef A\n/* RENDERTARGETS: 3 */\n#else\n/* RENDERTARGETS: 1,2 */\n#endif\n\
-            /*\nconst int colortex1Format = RGBA16F;\n*/\n\
-            #if 0\n/*\nconst int colortex2Format = R8;\n*/\n#endif\n\
-            void main() {}\n";
-        let pp = run(&[("a.fsh", src)], "a.fsh", &[]);
-        assert_eq!(pp.render_targets, Some(vec![1, 2]));
-        assert_eq!(pp.consts.len(), 1);
-        assert_eq!(pp.consts[0].name, "colortex1Format");
-        assert_eq!(pp.consts[0].value, "RGBA16F");
-        let pp = run(&[("a.fsh", src)], "a.fsh", &[("A", "")]);
-        assert_eq!(pp.render_targets, Some(vec![3]));
-    }
-
-    #[test]
-    fn token_lines_map_back_through_includes() {
-        let pp = run(
-            &[
-                (
-                    "world0/a.fsh",
-                    "#version 450\n#include \"/lib/b.glsl\"\nfloat y;\n",
-                ),
-                ("lib/b.glsl", "\nfloat x;\n"),
-            ],
-            "world0/a.fsh",
-            &[],
-        );
-        let x = pp
-            .tokens
-            .iter()
-            .find(|t| t.ident() == Some("x"))
-            .expect("x");
-        let y = pp
-            .tokens
-            .iter()
-            .find(|t| t.ident() == Some("y"))
-            .expect("y");
-        let at = |t: &Tok| pp.map.locate(t.line).expect("mapped");
-        assert_eq!(at(x).to_string(), "lib/b.glsl:2");
-        assert_eq!(at(y).to_string(), "world0/a.fsh:3");
-    }
-
-    #[test]
-    fn missing_include_reports_the_including_line() {
-        let source = PackSource::from_files([("a.fsh", "\n#include \"/nope.glsl\"\n")]);
-        let err = expand(&source, "a.fsh", &[], &OptionValues::new())
-            .err()
-            .expect("fails");
-        assert_eq!(err.phase, Phase::Include);
-        assert_eq!(err.location.expect("located").to_string(), "a.fsh:2");
-    }
-}
+mod tests;

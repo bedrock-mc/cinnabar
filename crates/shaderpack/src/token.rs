@@ -237,6 +237,11 @@ impl Emitter {
 
 /// Reports whether adjacent emitted tokens need separating whitespace.
 fn needs_space(prev: &Tok, t: &Tok) -> bool {
+    if t.is(".") && matches!(prev.kind, TokKind::Int(_))
+        || prev.is(".") && matches!(t.kind, TokKind::Int(_) | TokKind::Float(_))
+    {
+        return true;
+    }
     let tight = t.is(";")
         || t.is(",")
         || t.is(")")
@@ -275,6 +280,22 @@ mod tests {
 #[cfg(test)]
 mod boundary_tests {
     use super::*;
+
+    #[test]
+    fn frontend_numeric_member_boundaries_survive_relexing() {
+        for source in ["1 .xxx", "0x1 .x", "1u .xx", "1.0 .xxx", ". 1"] {
+            let expected: Vec<_> = Preprocessor::new(source)
+                .map(|token| token.unwrap().value)
+                .collect();
+            let mut emitter = Emitter::default();
+            emitter.tokens(&lex(source));
+            let (text, _) = emitter.finish();
+            let actual: Vec<_> = Preprocessor::new(&text)
+                .map(|token| token.unwrap().value)
+                .collect();
+            assert_eq!(actual, expected, "{text}");
+        }
+    }
 
     #[test]
     fn frontend_operator_boundaries() {

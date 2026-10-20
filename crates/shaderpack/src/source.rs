@@ -71,6 +71,15 @@ pub(crate) const MAX_PROPERTIES_PREPROCESSING_BYTES: usize = 2 * MAX_EXPANDED_PR
 /// above the token count of any file within the size limit.
 pub(crate) const MAX_PROPERTIES_PREPROCESSING_TOKENS: u64 = 4 * MAX_TEXT_FILE_BYTES as u64;
 
+/// Converts CRLF and lone carriage returns to the shared preprocessing line convention.
+pub(crate) fn normalize_newlines(text: &str) -> std::borrow::Cow<'_, str> {
+    if text.contains('\r') {
+        std::borrow::Cow::Owned(text.replace("\r\n", "\n").replace('\r', "\n"))
+    } else {
+        std::borrow::Cow::Borrowed(text)
+    }
+}
+
 /// Bounds eager pack ingestion.
 #[derive(Clone, Copy)]
 struct LoadLimits {
