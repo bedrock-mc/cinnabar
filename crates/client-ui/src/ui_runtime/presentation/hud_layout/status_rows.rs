@@ -245,7 +245,6 @@ fn hunger(runtime: &UiRuntime, now_tick: Option<u64>) -> HungerPaint {
     HungerPaint {
         saturation_overlay: None,
         overlay_color: [255; 4],
-        inverse_overlay: false,
         food_preview: None,
         food_saturation_preview: None,
         current,
