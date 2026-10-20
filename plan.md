@@ -259,6 +259,9 @@ Equipped cosmetic emitters also run in visible menu and HUD paper dolls using th
 shared particle engine and attachment poses. Catalog-wide, in-world interaction
 and performance qualification for these previews remains open.
 
+Player name tags use Java's standing player height before pose offsets, independent of
+server collision-box changes. Other actors retain their published label height.
+
 Remaining qualification includes attachables and custom item models, action/use timing,
 projectile interpolation and shake, sleep/mount poses, name tags (including over
 oversized server cosmetics), capes, shadows,
