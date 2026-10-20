@@ -45,8 +45,8 @@ pub mod sign_editor;
 pub mod use_on_identity_evidence;
 
 pub use forms::{
-    FormRespondError, FormTransportError, LocalFormAction, MAX_RETAINED_SERVER_FORMS,
-    ServerFormEntry, ServerFormIdentity, ServerFormStore, flush_form_response,
+    FormRespondError, FormTransportError, LocalFormAction, ServerFormEntry, ServerFormIdentity,
+    ServerFormStore, flush_form_response,
 };
 
 pub use gameplay_authority::Translator;
