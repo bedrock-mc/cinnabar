@@ -418,7 +418,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   displayed-frame pacing and complete rendering acceptance. Packet extensions now
   negotiate bounded detached-view and passive camera effects through the shared
   camera owners; interactive movement, perspective release, teleport and hurt-view
-  acceptance remain unverified in a displayed client.
+  acceptance remain unverified in a displayed client. Packet-extension world
+  drawing uses the retained geometry/depth owners; native box/tracer rendering
+  still needs displayed-frame and hardware acceptance.
 - Enhanced rendering remains restricted until its GPU faults and freezes are resolved.
   Diagnostics or bounded fixtures do not establish safe general gameplay use. Java
   shader-pack source loading and configuration metadata are implemented in

@@ -19,6 +19,7 @@ use std::{
 
 mod native_frame;
 mod native_menu;
+pub use native_frame::FrameOutput;
 use native_frame::{FrameLink, NativeFrames};
 pub use native_menu::MenuOutput;
 use native_menu::{MenuLink, NativeMenu};
@@ -169,10 +170,7 @@ impl PacketModLoader {
     }
 
     /// Replaces obsolete native input and consumes a recent result without waiting for WASI.
-    pub fn native_frame(
-        &self,
-        frame: Option<mod_api::native_frame::Frame>,
-    ) -> Option<mod_api::native_camera::Effects> {
+    pub fn native_frame(&self, frame: Option<mod_api::native_frame::Frame>) -> Option<FrameOutput> {
         self.inner
             .native_frame
             .try_lock()
@@ -473,11 +471,16 @@ fn serve(
                     && let Some(instance) = instance.as_mut()
                 {
                     let output = input
-                        .dispatch(&mut frame_epoch, |frame| instance.frame(frame))
+                        .dispatch(&mut frame_epoch, |frame| {
+                            let camera = instance.frame(frame)?;
+                            let drawing = instance.render_frame(frame)?;
+                            Ok::<_, anyhow::Error>((camera, drawing))
+                        })
                         .ok()
-                        .flatten();
+                        .unwrap_or_default();
                     if instance.is_active() {
-                        frames.complete(input, output);
+                        frames.complete_drawing(&input, output.1);
+                        frames.complete(input, output.0);
                     } else {
                         frames.deactivate();
                         menu.deactivate();

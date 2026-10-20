@@ -5,17 +5,28 @@ use client_presentation::camera::FlyCamera;
 use render_scene::ModRenderScene;
 
 /// Republishes only when some mod's generation changed, so steady frames extract nothing.
-pub(super) fn publish(scene: Option<ResMut<ModRenderScene>>, runtime: &mut super::ModRuntime) {
+pub(super) fn publish(
+    scene: Option<ResMut<ModRenderScene>>,
+    runtime: &mut super::ModRuntime,
+    drawing: Option<&super::packet_render::Drawing>,
+) {
     let Some(mut scene) = scene else { return };
     let unchanged = runtime.render_sources.iter().copied().eq(runtime
         .hosts
         .render_outputs()
-        .map(|(_, generation)| generation));
+        .map(|(_, generation)| generation)
+        .chain(drawing.map(|drawing| drawing.output().1)));
     if unchanged {
         return;
     }
     let mut cache = std::mem::take(&mut runtime.render_merge);
-    let merged = cache.merge(runtime.hosts.render_outputs().map(|(output, _)| output));
+    let merged = cache.merge(
+        runtime
+            .hosts
+            .render_outputs()
+            .map(|(output, _)| output)
+            .chain(drawing.map(|drawing| drawing.output().0)),
+    );
     runtime.render_merge = cache;
     let generation = scene.generation().wrapping_add(1);
     scene.apply(&merged, generation);
@@ -23,6 +34,7 @@ pub(super) fn publish(scene: Option<ResMut<ModRenderScene>>, runtime: &mut super
         .hosts
         .render_outputs()
         .map(|(_, generation)| generation)
+        .chain(drawing.map(|drawing| drawing.output().1))
         .collect();
 }
 

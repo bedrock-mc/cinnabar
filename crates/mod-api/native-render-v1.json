@@ -1,0 +1,57 @@
+{
+  "capability": 8,
+  "max_boxes": 64,
+  "max_lines": 128,
+  "input": {
+    "version": 1,
+    "session": 1,
+    "dimension": 0
+  },
+  "scene": {
+    "version": 1,
+    "session": 1,
+    "dimension": 0,
+    "boxes": [
+      {
+        "centre": [
+          100000,
+          65,
+          100000
+        ],
+        "size": [
+          0.6,
+          1.8,
+          0.6
+        ],
+        "yaw": 0,
+        "colour": [
+          1,
+          0,
+          0,
+          0.5
+        ],
+        "filled": true
+      }
+    ],
+    "lines": [
+      {
+        "start": [
+          100000,
+          65,
+          100000
+        ],
+        "end": [
+          100200,
+          65,
+          100000
+        ],
+        "colour": [
+          0,
+          1,
+          0,
+          1
+        ]
+      }
+    ]
+  }
+}

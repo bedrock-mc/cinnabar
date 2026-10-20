@@ -52,3 +52,24 @@ retains only passive damage and teleport-view policies; it releases detached
 input immediately. Revocation, dimension/session changes, failure and stop
 invalidate every effect. Omission
 restores the player's current camera settings and perspective.
+
+
+## World drawing
+
+The independent `render-frame` callback uses native-init bit `8` when both
+`world_draw` and `render_through_walls` are explicitly granted. Its canonical ABI,
+optional `cabi_post_render-frame`, serialization and 64 KiB bounds match the
+other frame callbacks. Its JSON input is `native_render::Frame`: version, session
+and dimension only, or `null` outside a current world. Drawing does not require
+camera/movement/player observation and continues while gameplay input is suspended.
+
+Successful output is `null` or a complete `native_render::Scene` with the matching
+session/dimension. It contains at most 64 oriented boxes and 128 world lines, using
+existing retained-drawing colour and coordinate bounds. The renderer reuses unit
+geometry and instance handles and splits long lines into bounded retained pieces.
+A line exceeding the remaining per-owner instance budget is omitted whole.
+Retained geometry and depth permissions are admitted by the same drawing store
+used by component extensions. Invalid wire output quarantines its producer;
+resource-admission failure clears its scene atomically. World loss, revocation,
+callback failure and stop release every drawing. Unchanged scenes preserve their
+resource identity. The shared `native-render-v1.json` fixture records the wire ABI.

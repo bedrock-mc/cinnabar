@@ -8,7 +8,10 @@ use mod_api::native_frame::{Delta, Frame, MAX_BYTES};
 impl PacketMod {
     /// Whether this instance negotiated the native player-camera frame capability.
     pub fn has_native_frame(&self) -> bool {
-        self.is_active() && (self.guest.has_native_frame() || self.guest.has_native_camera())
+        self.is_active()
+            && (self.guest.has_native_frame()
+                || self.guest.has_native_camera()
+                || self.guest.has_native_render())
     }
 
     /// Runs one coalesced native frame and validates its once-consumed local output.
@@ -277,9 +280,11 @@ mod tests {
                 _ => None,
             })
             .expect("PACKET_MOD_NATIVE_CAPTURE fixture needs a start record");
-        for movement in [false, true] {
+        for (movement, drawing) in [(false, false), (true, false), (true, true)] {
             let grants = ModGrants {
                 movement,
+                world_draw: drawing,
+                render_through_walls: drawing,
                 packets: true,
                 wasi: true,
                 players: true,
@@ -300,6 +305,12 @@ mod tests {
                     .frame(Some(&frame()))
                     .expect("exchange native Go frame"),
                 movement.then(Effects::default)
+            );
+            assert!(
+                guest
+                    .render_frame(Some(&frame()))
+                    .expect("exchange native Go drawing frame")
+                    .is_none()
             );
             assert!(guest.is_active());
 

@@ -9,6 +9,7 @@ use wasmparser::{
 use wasmtime::{ExternType, Module};
 
 pub(super) const NATIVE_INIT: &str = "native-init";
+pub(super) const RENDER_FRAME: &str = "render-frame";
 pub(super) const CAMERA_FRAME: &str = "camera-frame";
 pub(super) const FRAME: &str = "frame";
 pub(super) const MENU: &str = "menu";
@@ -22,7 +23,7 @@ struct Export {
 }
 
 /// Every native export's ABI and authority live together; discovery never grants authority.
-const EXPORTS: [Export; 4] = [
+const EXPORTS: [Export; 5] = [
     Export {
         name: NATIVE_INIT,
         params: 1,
@@ -49,6 +50,17 @@ const EXPORTS: [Export; 4] = [
         required: || ModGrants {
             camera: true,
             movement: true,
+            ..Default::default()
+        },
+    },
+    Export {
+        name: RENDER_FRAME,
+        params: 2,
+        results: 1,
+        capability: mod_api::native_render::CAPABILITY,
+        required: || ModGrants {
+            world_draw: true,
+            render_through_walls: true,
             ..Default::default()
         },
     },

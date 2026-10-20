@@ -37,6 +37,7 @@ mod hud_editor;
 mod library;
 mod native_camera;
 mod packet_menu;
+mod packet_render;
 pub(crate) mod packets;
 pub(crate) mod registration;
 mod terrain;
@@ -397,6 +398,7 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
 }
 
 fn configure_systems(app: &mut App, watching: bool) {
+    app.init_resource::<packet_render::Drawing>();
     app.init_resource::<ReservedControls>();
     app.init_resource::<client_presentation::actor_publication::ActorPresentationStyle>();
     app.add_systems(Update, environment_loader::poll.before(begin_mod_frame));
@@ -487,6 +489,7 @@ struct ModObservation<'w, 's> {
     packets: Option<Res<'w, packets::PacketMods>>,
     watcher: Option<Res<'w, registration::Watcher>>,
     render_scene: Option<ResMut<'w, render_scene::ModRenderScene>>,
+    drawing: Option<ResMut<'w, packet_render::Drawing>>,
     cameras: Query<
         'w,
         's,
@@ -524,7 +527,8 @@ fn drive_mod(
     let ModObservation {
         packets,
         watcher,
-        render_scene,
+        mut render_scene,
+        mut drawing,
         cameras,
         mut frame_rate,
         mut module_observer,
@@ -562,6 +566,16 @@ fn drive_mod(
             .and_then(|packets| {
                 packets.native_frame(gameplay.native_frame(captured && !absorbed, &ui))
             });
+        if let Some(drawing) = drawing.as_deref_mut() {
+            drawing.update(
+                effects.as_ref().and_then(|effects| effects.drawing.clone()),
+                packet_render::session(&gameplay),
+            );
+            if let Some(scene) = render_scene.as_deref_mut() {
+                packet_render::publish_alone(scene, drawing);
+            }
+        }
+        let effects = effects.and_then(|effects| effects.camera);
         if let Some(camera) = camera.as_deref_mut() {
             camera.set_preserve_teleport_rotation(false);
             camera.set_hurt_camera_style(None);
@@ -576,6 +590,12 @@ fn drive_mod(
         return;
     };
     if extension.suspended {
+        if let Some(drawing) = drawing.as_deref_mut() {
+            drawing.update(None, packet_render::session(&gameplay));
+            if let Some(scene) = render_scene.as_deref_mut() {
+                packet_render::publish_alone(scene, drawing);
+            }
+        }
         if let Some(packets) = packets.as_ref() {
             packets.native_frame(None);
         }
@@ -683,7 +703,7 @@ fn drive_mod(
             );
         }
     }
-    render::publish(render_scene, &mut extension);
+
     if let Some(watcher) = watcher.as_ref() {
         watcher.remember_settings(Some(&extension));
     }
@@ -708,6 +728,16 @@ fn drive_mod(
             packets
                 .native_frame(gameplay.native_frame(captured && !absorbed && !regular_camera, &ui))
         });
+    if let Some(drawing) = drawing.as_deref_mut() {
+        drawing.update(
+            native_effects
+                .as_ref()
+                .and_then(|effects| effects.drawing.clone()),
+            packet_render::session(&gameplay),
+        );
+    }
+    render::publish(render_scene, &mut extension, drawing.as_deref());
+    let native_effects = native_effects.and_then(|effects| effects.camera);
     if let Some(delta) = merged.delta.or_else(|| {
         native_effects
             .as_ref()

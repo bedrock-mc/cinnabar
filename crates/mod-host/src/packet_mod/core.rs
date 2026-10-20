@@ -141,6 +141,7 @@ impl Program {
             post(FRAME)?,
             post(MENU)?,
             post(super::native_capabilities::CAMERA_FRAME)?,
+            post(super::native_capabilities::RENDER_FRAME)?,
         ];
         let frame = if self.native_capabilities & mod_api::native_frame::CAMERA_PLAYERS != 0 {
             Some(instance.get_typed_func(&mut store, FRAME)?)
@@ -157,6 +158,11 @@ impl Program {
         } else {
             None
         };
+        let render_frame = if self.native_capabilities & mod_api::native_render::CAPABILITY != 0 {
+            Some(instance.get_typed_func(&mut store, super::native_capabilities::RENDER_FRAME)?)
+        } else {
+            None
+        };
         let calls = Calls {
             realloc: instance.get_typed_func(&mut store, REALLOC)?,
             start: instance.get_typed_func(&mut store, START)?,
@@ -165,6 +171,7 @@ impl Program {
             stop: instance.get_typed_func(&mut store, STOP)?,
             frame,
             camera_frame,
+            render_frame,
             menu,
             posts,
         };
@@ -187,9 +194,10 @@ struct Calls {
     stop: TypedFunc<(), ()>,
     frame: Option<TypedFunc<(i32, i32), i32>>,
     camera_frame: Option<TypedFunc<(i32, i32), i32>>,
+    render_frame: Option<TypedFunc<(i32, i32), i32>>,
     menu: Option<TypedFunc<(i32, i32), i32>>,
     /// Post-return functions of `start`, `on-batch`, `tick` and optional `frame` and `menu`.
-    posts: [Option<TypedFunc<i32, ()>>; 6],
+    posts: [Option<TypedFunc<i32, ()>>; 7],
 }
 
 struct CoreGuest {
@@ -339,6 +347,21 @@ impl Guest for CoreGuest {
         })
     }
 
+    fn has_native_render(&self) -> bool {
+        self.calls.render_frame.is_some()
+    }
+    fn render_frame(&mut self, json: &[u8]) -> Result<Result<Option<Vec<u8>>, String>> {
+        let Some(frame) = self.calls.render_frame.clone() else {
+            return Ok(Ok(None));
+        };
+        let input = self.lower(json)?;
+        let result = self
+            .deadline
+            .run(frame.call_async(&mut self.store, input))?;
+        self.lift_bounded(6, result, mod_api::native_frame::MAX_BYTES, |reader, at| {
+            reader.result(at, |reader, at| reader.list(at).map(Some))
+        })
+    }
     fn has_native_camera(&self) -> bool {
         self.calls.camera_frame.is_some()
     }
