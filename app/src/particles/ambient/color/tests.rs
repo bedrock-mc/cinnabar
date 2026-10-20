@@ -27,7 +27,7 @@ fn leaf_exposure_uses_the_admitted_session_roof() {
                     name: Arc::from(name),
                     dimension: wire_dimension,
                     minimum_y,
-                    height_range: roof - minimum_y,
+                    maximum_y: roof,
                     generator: 1,
                 }]),
             )

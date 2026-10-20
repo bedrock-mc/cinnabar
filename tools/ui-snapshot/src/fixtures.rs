@@ -1,5 +1,7 @@
 //! Named, anonymous screen fixtures. Add a state here when a PR needs a new capture.
 
+#[cfg(feature = "test-support")]
+mod cosmetics;
 mod minecraft_import;
 mod mods;
 mod out_of_game;
@@ -25,6 +27,12 @@ pub struct State {
 
 /// Inputs borrowed by the same screen painters the client uses.
 pub enum Fixture {
+    /// An equipped original cosmetic rendered by the full production particle-preview path.
+    #[cfg(feature = "test-support")]
+    CosmeticParticles {
+        view: client_ui::ui_runtime::presentation::player_preview::PreviewView,
+        emitting: bool,
+    },
     Menu(Box<MenuView>),
     Loading(ui::LoadingStage),
     Chat {
@@ -64,6 +72,42 @@ const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 const SHADER_PACK_ROW_SIZE: [u32; 2] = [SIZE[0], 1600];
 
 pub const STATES: &[State] = &[
+    #[cfg(feature = "test-support")]
+    State {
+        name: "paper-doll-particles-before",
+        size: [576, 672],
+        gui_scale: 1,
+        fixture: || Fixture::CosmeticParticles {
+            view: client_ui::ui_runtime::presentation::player_preview::PreviewView::Doll {
+                yaw: 30.0,
+                tilt: -10.0,
+            },
+            emitting: false,
+        },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "paper-doll-particles",
+        size: [576, 672],
+        gui_scale: 1,
+        fixture: || Fixture::CosmeticParticles {
+            view: client_ui::ui_runtime::presentation::player_preview::PreviewView::Doll {
+                yaw: 30.0,
+                tilt: -10.0,
+            },
+            emitting: true,
+        },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "hud-doll-particles",
+        size: [288, 336],
+        gui_scale: 1,
+        fixture: || Fixture::CosmeticParticles {
+            view: client_ui::ui_runtime::presentation::player_preview::PreviewView::Hud,
+            emitting: true,
+        },
+    },
     State {
         name: "home-mod-update-before",
         size: SIZE,
@@ -174,70 +218,70 @@ pub const STATES: &[State] = &[
         name: "dressing-room-cosmetics",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: wardrobe,
+        fixture: cosmetics::wardrobe,
     },
     #[cfg(feature = "test-support")]
     State {
         name: "dressing-room-cosmetics-head",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || cosmetic_category(launcher::dressing_room::CosmeticCategory::Head),
+        fixture: || cosmetics::cosmetic_category(launcher::dressing_room::CosmeticCategory::Head),
     },
     #[cfg(feature = "test-support")]
     State {
         name: "dressing-room-cosmetics-filter",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: cosmetic_filter,
+        fixture: cosmetics::cosmetic_filter,
     },
     #[cfg(feature = "test-support")]
     State {
         name: "dressing-room-cosmetics-filter-narrow",
         size: [320, 720],
         gui_scale: GUI_SCALE,
-        fixture: cosmetic_filter,
+        fixture: cosmetics::cosmetic_filter,
     },
     #[cfg(feature = "test-support")]
     State {
         name: "dressing-room-cosmetics-back",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || cosmetic_category(launcher::dressing_room::CosmeticCategory::Back),
+        fixture: || cosmetics::cosmetic_category(launcher::dressing_room::CosmeticCategory::Back),
     },
     #[cfg(feature = "test-support")]
     State {
         name: "dressing-room-cosmetics-back-narrow",
         size: [320, 720],
         gui_scale: GUI_SCALE,
-        fixture: || cosmetic_category(launcher::dressing_room::CosmeticCategory::Back),
+        fixture: || cosmetics::cosmetic_category(launcher::dressing_room::CosmeticCategory::Back),
     },
     #[cfg(feature = "test-support")]
     State {
         name: "dressing-room-devil-horns",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: devil_horns,
+        fixture: cosmetics::devil_horns,
     },
     #[cfg(feature = "test-support")]
     State {
         name: "dressing-room-dragon-wings",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: dragon_wings,
+        fixture: cosmetics::dragon_wings,
     },
     #[cfg(feature = "test-support")]
     State {
         name: "dressing-room-parrot",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: parrot,
+        fixture: cosmetics::parrot,
     },
     #[cfg(feature = "test-support")]
     State {
         name: "dressing-room-parrot-narrow",
         size: [360, 720],
         gui_scale: GUI_SCALE,
-        fixture: parrot,
+        fixture: cosmetics::parrot,
     },
     #[cfg(feature = "test-support")]
     State {
@@ -493,6 +537,16 @@ pub const STATES: &[State] = &[
         fixture: || tab_list_badges(false),
     },
     State {
+        name: "settings-session-navigation",
+        size: [1280, 1600],
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            let mut view = settings("video_forced_index");
+            view.over_world = true;
+            Fixture::Menu(Box::new(view))
+        },
+    },
+    State {
         name: "settings-video",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -502,7 +556,7 @@ pub const STATES: &[State] = &[
         name: "settings-video-shader-packs",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: settings_video_shader_packs,
+        fixture: shader_pack::video_picker,
     },
     State {
         name: "settings-storage",
@@ -884,19 +938,6 @@ fn settings_video() -> Fixture {
     Fixture::Menu(Box::new(settings(SettingSection::Video.definition().name)))
 }
 
-/// Scrolls Video to the renderer picker of a `shaderpacks` build listing two packs, with the
-/// shader-pack folder's Open folder button a desktop host shows below it.
-fn settings_video_shader_packs() -> Fixture {
-    use launcher::menu::settings_storage::{StorageAction, StorageFolder};
-    let mut view = settings(SettingSection::Video.definition().name);
-    view.shader_packs = Arc::from(["Dusk.zip".to_owned(), "Lumen".to_owned()]);
-    Arc::make_mut(&mut view.storage).opens_folders = true;
-    view.focused_action = Some(MenuAction::SettingsStorage(StorageAction::OpenFolder(
-        StorageFolder::ShaderPacks,
-    )));
-    Fixture::Menu(Box::new(view))
-}
-
 /// Shows Storage as a desktop host fills it, with the folder buttons.
 fn settings_storage() -> Fixture {
     let mut view = settings(SettingSection::StorageManagement.definition().name);
@@ -952,84 +993,4 @@ fn settings_keyboard_layout(observed: bool) -> Fixture {
         settings.set_key_label(0x14, "a");
     }
     Fixture::Menu(Box::new(view))
-}
-
-/// Shows an anonymous wardrobe with the first original cosmetic equipped.
-#[cfg(feature = "test-support")]
-fn wardrobe() -> Fixture {
-    let mut view = MenuView::new(true, "Player".into());
-    view.screen = MenuScreen::DressingRoom;
-    let item = render_model::hats::fixture::bunny();
-    render_model::hats::fixture::crown();
-    render_model::hats::fixture::devil_horns();
-    render_model::hats::fixture::shoulder_parrot();
-    render_model::hats::fixture::dragon_wings();
-    Arc::make_mut(&mut view.dressing_room).section =
-        launcher::dressing_room::DressingRoomSection::Cosmetics;
-    Arc::make_mut(&mut view.dressing_room)
-        .selected_cosmetics
-        .insert(item.descriptor().slot.clone(), Some(item.id().into()));
-    Fixture::Menu(Box::new(view))
-}
-
-/// Shows a filtered cosmetic gallery without changing the equipped character.
-#[cfg(feature = "test-support")]
-fn cosmetic_category(category: launcher::dressing_room::CosmeticCategory) -> Fixture {
-    let mut fixture = wardrobe();
-    if let Fixture::Menu(view) = &mut fixture {
-        Arc::make_mut(&mut view.dressing_room).cosmetic_category = category;
-    }
-    fixture
-}
-
-/// Shows the anchored category choices with a selected filter.
-#[cfg(feature = "test-support")]
-fn cosmetic_filter() -> Fixture {
-    let mut fixture = cosmetic_category(launcher::dressing_room::CosmeticCategory::Head);
-    if let Fixture::Menu(view) = &mut fixture {
-        Arc::make_mut(&mut view.dressing_room).cosmetic_filter_open = true;
-    }
-    fixture
-}
-
-/// Shows the catalog gallery with the original devil horns selected.
-#[cfg(feature = "test-support")]
-fn devil_horns() -> Fixture {
-    let mut fixture = wardrobe();
-    if let Fixture::Menu(view) = &mut fixture {
-        let item = render_model::hats::fixture::devil_horns();
-        Arc::make_mut(&mut view.dressing_room)
-            .selected_cosmetics
-            .insert(item.descriptor().slot.clone(), Some(item.id().into()));
-    }
-    fixture
-}
-
-/// Shows independent head and back selections together in the compact catalog gallery.
-#[cfg(feature = "test-support")]
-fn dragon_wings() -> Fixture {
-    let mut fixture = devil_horns();
-    if let Fixture::Menu(view) = &mut fixture {
-        let item = render_model::hats::fixture::dragon_wings();
-        Arc::make_mut(&mut view.dressing_room)
-            .selected_cosmetics
-            .insert(item.descriptor().slot.clone(), Some(item.id().into()));
-    }
-    fixture
-}
-
-/// Shows the parrot alongside head and back items in the cosmetics gallery.
-#[cfg(feature = "test-support")]
-fn parrot() -> Fixture {
-    let mut fixture = dragon_wings();
-    if let Fixture::Menu(view) = &mut fixture {
-        let item = render_model::hats::fixture::shoulder_parrot();
-        let wardrobe = Arc::make_mut(&mut view.dressing_room);
-        wardrobe.section = launcher::dressing_room::DressingRoomSection::Cosmetics;
-        wardrobe.cosmetic_category = launcher::dressing_room::CosmeticCategory::Pet;
-        wardrobe
-            .selected_cosmetics
-            .insert(item.descriptor().slot.clone(), Some(item.id().into()));
-    }
-    fixture
 }

@@ -1,6 +1,11 @@
-//! Bounded, lenient parsing and endpoint-based merging of external servers.
+//! Lenient parsing and endpoint-based merging of external servers.
+
+use std::collections::HashSet;
 
 use crate::menu::{MAX_SERVER_ADDRESS_BYTES, MAX_SERVER_NAME_BYTES, SavedServer, split_address};
+
+/// The vanilla file that stores external server entries.
+pub const FILE_NAME: &str = "external_servers.txt";
 
 /// Parsed player entries and the number of lines that could not be used.
 #[derive(Clone, Debug, Default)]
@@ -10,7 +15,7 @@ pub struct ParsedServers {
 }
 
 /// Parses colon-separated id, name, host, port and optional metadata fields.
-pub fn parse(bytes: &[u8], limit: usize) -> ParsedServers {
+pub fn parse(bytes: &[u8]) -> ParsedServers {
     let mut parsed = ParsedServers::default();
     for bytes in bytes.split(|byte| *byte == b'\n') {
         let Ok(line) = std::str::from_utf8(bytes) else {
@@ -19,10 +24,6 @@ pub fn parse(bytes: &[u8], limit: usize) -> ParsedServers {
         };
         let line = line.trim().trim_start_matches('\u{feff}');
         if line.is_empty() {
-            continue;
-        }
-        if parsed.entries.len() >= limit {
-            parsed.skipped += 1;
             continue;
         }
         match entry(line) {
@@ -68,18 +69,18 @@ fn entry(line: &str) -> Option<SavedServer> {
     })
 }
 
-/// Adds only new endpoints, retaining existing names, flags, order and capacity.
-pub fn merge(existing: &mut Vec<SavedServer>, incoming: &[SavedServer], limit: usize) -> usize {
+/// Adds only new endpoints, retaining existing names, flags and order.
+pub fn merge(existing: &mut Vec<SavedServer>, incoming: &[SavedServer]) -> usize {
+    let mut endpoints = existing
+        .iter()
+        .map(|server| endpoint(&server.address))
+        .collect::<HashSet<_>>();
     let mut skipped = 0;
     for server in incoming {
-        if existing.len() >= limit
-            || existing
-                .iter()
-                .any(|old| endpoint(&old.address) == endpoint(&server.address))
-        {
-            skipped += 1;
-        } else {
+        if endpoints.insert(endpoint(&server.address)) {
             existing.push(server.clone());
+        } else {
+            skipped += 1;
         }
     }
     skipped
@@ -105,7 +106,7 @@ mod tests {
 
     #[test]
     fn malformed_rows_do_not_hide_valid_servers() {
-        let rows = parse(b"1:Test:example.test:19132:0\r\ninvalid\n2:IPv6:[2001:db8::1]:19133:0\n3:bad:host:0:0\n4:bad:host:no:0\n", 256);
+        let rows = parse(b"1:Test:example.test:19132:0\r\ninvalid\n2:IPv6:[2001:db8::1]:19133:0\n3:bad:host:0:0\n4:bad:host:no:0\n");
         assert_eq!(rows.entries.len(), 2);
         assert_eq!(rows.skipped, 3);
         assert_eq!(rows.entries[1].address, "[2001:db8::1]:19133");
@@ -113,25 +114,28 @@ mod tests {
 
     #[test]
     fn merging_preserves_player_entries_and_normalizes_addresses() {
-        let mut existing = parse(
-            b"1:Original:EXAMPLE.test.:19132:0\n2:IPv6:[2001:db8::1]:19132:0",
-            256,
-        )
-        .entries;
+        let mut existing =
+            parse(b"1:Original:EXAMPLE.test.:19132:0\n2:IPv6:[2001:db8::1]:19132:0").entries;
         existing[0].favorite = true;
-        let rows = parse(b"3:Duplicate:example.test:19132:0\n4:Duplicate:[2001:db8:0:0:0:0:0:1]:19132:0\n5:New:another.test:19132:0", 256);
-        assert_eq!(merge(&mut existing, &rows.entries, 256), 2);
+        let rows = parse(b"3:Duplicate:example.test:19132:0\n4:Duplicate:[2001:db8:0:0:0:0:0:1]:19132:0\n5:New:another.test:19132:0");
+        assert_eq!(merge(&mut existing, &rows.entries), 2);
         assert_eq!(existing.len(), 3);
         assert_eq!(existing[0].name, "Original");
         assert!(existing[0].favorite);
-        assert_eq!(merge(&mut existing, &rows.entries, 256), 3);
+        assert_eq!(merge(&mut existing, &rows.entries), 3);
     }
 
+    /// Parsing keeps every valid row, including entries beyond the former list quota.
     #[test]
-    fn row_and_merge_limits_are_enforced() {
-        let parsed = parse(b"1:A:a.test:19132\n2:B:b.test:19132", 1);
-        assert_eq!(parsed.skipped, 1);
-        let mut existing = parsed.entries.clone();
-        assert_eq!(merge(&mut existing, &parsed.entries, 1), 1);
+    fn large_server_lists_keep_their_last_entry() {
+        let text = (0..600)
+            .map(|i| format!("{i}:Server {i}:server-{i}.example:19132\n"))
+            .collect::<String>();
+        let parsed = parse(text.as_bytes());
+        assert_eq!(parsed.entries.len(), 600);
+        assert_eq!(parsed.skipped, 0);
+        let mut merged = Vec::new();
+        assert_eq!(merge(&mut merged, &parsed.entries), 0);
+        assert_eq!(merged, parsed.entries);
     }
 }

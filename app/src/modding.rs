@@ -34,7 +34,8 @@ mod drawing_policy;
 mod environment_loader;
 mod hud_editor;
 mod library;
-mod registration;
+pub(crate) mod packets;
+pub(crate) mod registration;
 mod terrain;
 
 /// Every loaded mod's presentation cues committed this frame, in load order.
@@ -228,7 +229,12 @@ pub(crate) fn configure_from_environment(app: &mut App) {
                     configure_systems(app, true);
                 }
             }
-            Err(error) => warn!("Local extension watcher unavailable: {error}"),
+            Err(error) => {
+                warn!("Local extension watcher unavailable: {error}");
+                if !configured && app.world().contains_resource::<packets::PacketMods>() {
+                    configure_systems(app, false);
+                }
+            }
         }
     }
 }
@@ -265,6 +271,12 @@ fn configure_set(app: &mut App, mods: Vec<(std::path::PathBuf, ModGrants)>) {
 /// Loads components and packages in order, each with its own grants; one failing to load
 /// leaves the rest.
 fn configure_entries(app: &mut App, mods: Vec<(multi::ModSource, ModGrants)>) {
+    if let Some(selection) = multi::packet_mod_entry(&mods) {
+        app.world_mut().init_resource::<packets::PacketMods>();
+        app.world_mut()
+            .resource_mut::<packets::PacketMods>()
+            .select_environment(selection);
+    }
     install(app, multi::load_entries(mods));
 }
 
@@ -424,11 +436,10 @@ fn configure_systems(app: &mut App, watching: bool) {
 fn begin_mod_frame(
     extension: Option<ResMut<ModRuntime>>,
     gameplay: gameplay::GameplayContext,
-    ui: Res<UiRuntimeResource>,
     actors: Option<Res<render_scene::ActorRenderFrame>>,
 ) {
     if let Some(mut extension) = extension {
-        drawing_policy::bind(&mut extension.hosts, &gameplay, &ui);
+        drawing_policy::bind(&mut extension.hosts, &gameplay);
         anchors::reconcile(&mut extension.hosts, &gameplay);
         let needs_targets = (0..extension.hosts.host_count())
             .any(|index| extension.hosts.host(index).grants().entity_highlight);
@@ -543,7 +554,7 @@ fn drive_mod(
     if extension.suspended {
         return;
     }
-    drawing_policy::bind(&mut extension.hosts, &gameplay, &ui);
+    drawing_policy::bind(&mut extension.hosts, &gameplay);
     anchors::reconcile(&mut extension.hosts, &gameplay);
     // Reconcile screen departures before frame callbacks retry deferred edits.
     let cursor = windows
@@ -643,7 +654,7 @@ fn drive_mod(
     }
     render::publish(render_scene, &mut extension);
     if let Some(watcher) = watcher.as_ref() {
-        watcher.remember_settings(Some(&extension), Some(&ui));
+        watcher.remember_settings(Some(&extension));
     }
     if callback_failed || merged.jump_cancel {
         gameplay.synchronize_jump_scope(false, &ui);
@@ -680,7 +691,7 @@ fn drive_mod(
         warn!("Cinnabar extension HUD rejected: {error}");
     }
     let combined_hud = extension.hosts.merged_hud();
-    let hud = combined_hud.as_ref();
+    let hud = combined_hud.as_deref();
     if let Some(style) = actor_style.as_mut() {
         style.attackable_color = hud
             .and_then(|hud| hud.actor_style.as_ref())
@@ -697,7 +708,7 @@ fn drive_mod(
             .and_then(|hud| hud.actor_style.as_ref())
             .and_then(|style| style.hurt_color);
     }
-    if let Err(error) = presentation.set_mod_hud(hud) {
+    if let Err(error) = presentation.set_shared_mod_hud(combined_hud) {
         warn!("Cinnabar extension HUD cards rejected: {error}");
     }
     presentation

@@ -45,6 +45,13 @@ pub(crate) fn flush_server_form_network(
         menu.is_visible() && menu.screen() == launcher::menu::MenuScreen::Settings
     });
     let store = runtime.server_forms_mut();
+    store.select_settings_form(
+        in_settings
+            && menu.as_ref().is_some_and(|menu| {
+                menu.settings_section()
+                    == Some(launcher::menu::settings_sections::SettingSection::Server)
+            }),
+    );
     store.flush_settings_request(in_settings, || {
         network
             .send_form_packet(session, protocol::server_settings_request_packet())

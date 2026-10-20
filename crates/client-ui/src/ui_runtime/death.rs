@@ -38,7 +38,7 @@ impl UiRuntime {
     /// Resolves the same marked parameters used by translated server messages.
     pub(super) fn apply_death_info(&mut self, event: protocol::DeathInfoEvent) {
         let translate = |key: &str| self.translation(key);
-        let template = json_ui::localize_text(&event.message, &translate);
+        let template = json_ui::localize_text_chars(&event.message, &translate);
         let parameters = event
             .parameters
             .iter()
@@ -46,7 +46,7 @@ impl UiRuntime {
                 protocol::localize_parameter_prefix(parameter, &translate, usize::MAX).into_owned()
             })
             .collect::<Vec<_>>();
-        self.death_reason = Arc::from(protocol::format_translation(&template, &parameters));
+        self.death_reason = Arc::from(protocol::format_translation_chars(template, &parameters));
     }
 
     /// Authoritative health availability and life state, independent of HUD rounding.

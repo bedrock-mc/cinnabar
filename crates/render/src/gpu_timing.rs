@@ -53,7 +53,9 @@ use std::{
 
 #[cfg(feature = "tracy")]
 pub(crate) use nodes::SectionSpan;
-pub(crate) use pass::{render_pass_timestamps, ui_pass_timestamps, ui_profiling_requested};
+pub(crate) use pass::{
+    compute_pass_timestamps, render_pass_timestamps, ui_pass_timestamps, ui_profiling_requested,
+};
 
 /// Records `record` into `encoder` between `span`'s marks when one was claimed. Claim spans
 /// while the node runs, so deferred command-buffer tasks still land in the frame's resolve.

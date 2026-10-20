@@ -320,6 +320,44 @@ pub(crate) fn region(
         .pressed_target("button.menu_select")
         .map(str::to_owned);
     let sound = ControlSound::of(control, pressed.as_deref());
+    let widget = crate::component::Widget::read(node);
+    let named_collection = match kind {
+        HitKind::Toggle | HitKind::Dropdown => widget
+            .toggle
+            .as_ref()
+            .and_then(|toggle| toggle.grid_collection.as_deref()),
+        HitKind::Slider => widget
+            .slider
+            .as_ref()
+            .and_then(|slider| slider.collection.as_deref()),
+        HitKind::EditBox => widget
+            .edit
+            .as_ref()
+            .and_then(|edit| edit.grid_collection.as_deref()),
+        _ => None,
+    }
+    .filter(|name| !name.is_empty());
+    // A nested renderer has its own index; the widget still edits the named enclosing list.
+    // Without a matching item, the widget may declare its own explicit index.
+    let collection_index = named_collection.map_or(inner.index, |name| {
+        inner
+            .chain
+            .iter()
+            .rev()
+            .find(|(collection, _)| collection == name)
+            .map(|(_, index)| *index)
+            .or_else(|| {
+                control
+                    .properties
+                    .get("collection_index")
+                    .and_then(Value::as_u64)
+                    .map(|index| index as usize)
+            })
+            .or_else(|| inner.collection.is_none().then_some(inner.index).flatten())
+    });
+    let collection = named_collection
+        .map(str::to_owned)
+        .or_else(|| inner.collection.clone());
     let containers = &inner.containers[..inner.containers.len() - usize::from(opened)];
     let region = HitRegion {
         key: node.key.clone(),
@@ -331,8 +369,8 @@ pub(crate) fn region(
         order: *order,
         pressed,
         control_name,
-        collection_index: inner.index,
-        collection: inner.collection.clone(),
+        collection_index,
+        collection,
         enabled: node.enabled,
         checked: matches!(kind, HitKind::Toggle | HitKind::Dropdown)
             .then(|| widgets::toggle_checked(control)),
@@ -353,7 +391,7 @@ pub(crate) fn region(
         drag_axes: crate::layout::draggable_axes(control),
         sound,
         focus: FocusMeta::read(control, containers),
-        widget: crate::component::Widget::read(node),
+        widget,
         collections: inner.chain.clone(),
         input,
         modal_root: inner.modal_root.clone(),

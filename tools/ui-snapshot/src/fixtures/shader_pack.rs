@@ -1,8 +1,7 @@
-//! Shader-pack load feedback: the toasts a load raises and the Video Renderer row of a pack
-//! that failed, with the text the client derives from the load state.
+//! Shader-pack picker and load feedback fixtures using the client's screen state.
 
 use launcher::menu::{
-    RendererChoice,
+    MenuAction, RendererChoice,
     settings_sections::SettingSection,
     shader_pack_status::{
         LOADING_TOAST_DELAY, PackLoad, PackNotices, PackToast, failure_description,
@@ -10,6 +9,7 @@ use launcher::menu::{
 };
 
 use super::Fixture;
+use std::sync::Arc;
 
 const PACK: &str = "Dusk.zip";
 /// A load failure as the render host reports it: one failed program per line.
@@ -69,9 +69,22 @@ pub(super) fn failed() -> Fixture {
 pub(super) fn settings_video(failed: bool) -> Fixture {
     let mut view = super::settings(SettingSection::Video.definition().name);
     view.render_mode = ui::RenderMode::ShaderPack;
-    view.shader_packs = std::sync::Arc::from([PACK.to_owned(), "Lumen".to_owned()]);
+    view.shader_packs = Arc::from([PACK.to_owned(), "Lumen".to_owned()]);
     view.renderer = Some(RendererChoice::ShaderPack(0));
     view.renderer_failure = failed.then(|| failure_description(REASON).into());
+    Fixture::Menu(Box::new(view))
+}
+
+/// Scrolls Video to the renderer picker of a `shaderpacks` build listing two packs, with the
+/// shader-pack folder's Open folder button a desktop host shows below it.
+pub(super) fn video_picker() -> Fixture {
+    use launcher::menu::settings_storage::{StorageAction, StorageFolder};
+    let mut view = super::settings(SettingSection::Video.definition().name);
+    view.shader_packs = Arc::from(["Dusk.zip".to_owned(), "Lumen".to_owned()]);
+    Arc::make_mut(&mut view.storage).opens_folders = true;
+    view.focused_action = Some(MenuAction::SettingsStorage(StorageAction::OpenFolder(
+        StorageFolder::ShaderPacks,
+    )));
     Fixture::Menu(Box::new(view))
 }
 

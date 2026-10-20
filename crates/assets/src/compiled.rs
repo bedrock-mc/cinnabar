@@ -166,7 +166,7 @@ pub(crate) const fn material_flags_are_valid(flags: u32) -> bool {
 
 /// One immutable GPU material-table entry.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Material {
     pub texture: TextureRef,
     pub flags: u32,
@@ -195,7 +195,7 @@ impl Material {
 const _: () = assert!(std::mem::size_of::<Material>() == 24);
 
 /// Per-face material IDs and registry facts for one sequential block ID.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BlockVisual {
     pub faces: [u32; 6],
     pub flags: BlockFlags,
