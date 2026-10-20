@@ -165,10 +165,10 @@ impl ViewState {
             let Some(block) = &self.pack.programs[draw.program].reflection.uniforms else {
                 continue;
             };
-            if binding.update_atlas_size(block, context.atlas_size(draw.kind)) {
-                if let Some(buffer) = &binding.uniforms {
-                    queue.write_buffer(buffer, 0, &binding.base);
-                }
+            if binding.update_atlas_size(block, context.atlas_size(draw.kind))
+                && let Some(buffer) = &binding.uniforms
+            {
+                queue.write_buffer(buffer, 0, &binding.base);
             }
         }
     }
