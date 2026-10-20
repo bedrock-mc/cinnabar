@@ -463,3 +463,80 @@ fn form_display_resolution_keeps_expanded_translations_without_changing_chat() {
         .is_err()
     );
 }
+
+#[test]
+fn form_display_expansion_stops_nested_amplification_with_bounded_allocations() {
+    use std::sync::Arc;
+    // The safe reduction fails first, before an unbounded resolver can attempt the 100 GB case.
+    for (repeats, seed_bytes) in [(10, 2_048), (1_000, 100)] {
+        let seed = "x".repeat(seed_bytes);
+        let mut component = json!({"text":seed});
+        for _ in 0..3 {
+            component = json!({"translate":"repeat","with":{"rawtext":[component]}});
+        }
+        let ServerFormModel::TextMenu(menu) = model(json!({"type":"form","buttons":[
+            {"text":{"rawtext":[component, {"selector":"@s"}]}}
+        ]})) else {
+            panic!("amplified form");
+        };
+        let protocol::FormText::Raw(document) = &menu.buttons[0] else {
+            panic!("rawtext");
+        };
+        let template: Arc<str> = "%1".repeat(repeats).into();
+        let lookups = std::cell::Cell::new(0);
+        let translate = |_: &str| {
+            lookups.set(lookups.get() + 1);
+            Some(Arc::clone(&template))
+        };
+        let resolver = protocol::RawTextResolver {
+            reader_name: "Player",
+            translate: &translate,
+            score: &|_, _| None,
+            selector: &|_| panic!("expansion must stop after exhaustion"),
+        };
+        let (resolved, allocations) = test_alloc::measure(|| document.resolve(&resolver));
+        assert_eq!(resolved.text.len(), protocol::MAX_RAW_TEXT_EXPANSION_BYTES);
+        assert!(resolved.text.bytes().all(|byte| byte == b'x'));
+        assert!(resolved.truncated);
+        assert!(resolved.text.capacity() <= protocol::MAX_RAW_TEXT_EXPANSION_BYTES);
+        assert_eq!(lookups.get(), 3);
+        assert!(
+            allocations.bytes <= protocol::MAX_RAW_TEXT_EXPANSION_BYTES * 8,
+            "{allocations:?}"
+        );
+    }
+}
+
+#[test]
+fn form_display_expansion_keeps_the_utf8_prefix_when_translation_or_parameter_exhausts_it() {
+    use std::sync::Arc;
+    let expected = "p".repeat(protocol::MAX_RAW_TEXT_EXPANSION_BYTES - 1);
+    let expanded: Arc<str> = format!("{expected}🌍Z").into();
+    let translate = |key: &str| match key {
+        "long" => Some(Arc::clone(&expanded)),
+        "argument" => Some(Arc::from("%1")),
+        _ => None,
+    };
+    for component in [
+        json!({"translate":"long"}),
+        json!({"translate":"argument","with":["%long"]}),
+    ] {
+        let ServerFormModel::TextMenu(menu) = model(json!({"type":"form","buttons":[
+            {"text":{"rawtext":[component,{"text":"Z"}]}}
+        ]})) else {
+            panic!("translated form");
+        };
+        let protocol::FormText::Raw(document) = &menu.buttons[0] else {
+            panic!("rawtext");
+        };
+        let resolved = document.resolve(&protocol::RawTextResolver {
+            reader_name: "Player",
+            translate: &translate,
+            score: &|_, _| None,
+            selector: &|_| None,
+        });
+        assert_eq!(resolved.text, expected);
+        assert!(resolved.truncated);
+        assert!(resolved.text.capacity() <= protocol::MAX_RAW_TEXT_EXPANSION_BYTES);
+    }
+}

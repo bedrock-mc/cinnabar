@@ -263,6 +263,44 @@ mod tests {
     use super::*;
 
     #[test]
+    fn form_display_model_preserves_complete_long_literal_and_translated_labels() {
+        let long = "世界🙂".repeat(4_000);
+        assert!(long.len() > protocol::MAX_UI_TEXT_BYTES);
+        let source = serde_json::json!({"type":"form",
+            "title":{"rawtext":[{"translate":"long"}]}, "content":long,
+            "buttons":[{"text":{"rawtext":[{"text":long}]}}]
+        })
+        .to_string();
+        let packet = protocol::test_support::packets::modal_form_request_packet(1, &source);
+        let Some(protocol::WorldEvent::Ui(protocol::UiEvent::Form(event))) =
+            protocol::into_world_event(packet, 0).unwrap()
+        else {
+            panic!("server form");
+        };
+        let mut runtime = crate::ui_runtime::UiRuntime::new(1);
+        runtime.set_server_lang(assets::ServerLangOverlay::from_layers([format!(
+            "long={long}\n"
+        )]));
+        let state = FormEngineState::for_model(&event.model);
+        let Some(FormModel::Action(form)) = engine_model(
+            &event.model,
+            &state,
+            true,
+            &|key| runtime.translation(key),
+            &|_| RemoteImage::Failed,
+            &|text| runtime.resolve_form_text(text),
+        ) else {
+            panic!("action form");
+        };
+        assert_eq!(form.title, long);
+        assert_eq!(form.body, long);
+        let ActionElement::Button(button) = &form.elements[0] else {
+            panic!("button");
+        };
+        assert_eq!(button.text, long);
+    }
+
+    #[test]
     fn decorated_menu_button_images_use_the_shared_engine_route() {
         let model = ServerFormModel::ElementMenu(protocol::ElementMenuForm {
             title: protocol::FormText::from("Menu"),

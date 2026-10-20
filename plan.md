@@ -287,9 +287,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   safe areas, focus/navigation and keyboard/mouse/controller/touch acceptance. Prove
   stable retained resources and correct supported DPI/aspect behavior. Form JSON
   container parsing and cleanup use heap stacks and accept line/block comments.
-  Form display strings retain their full literal and translated text separately
+  Form display strings retain ordinary long literal and translated text separately
   from chat byte budgets. Structured text keeps its component/depth validation limits;
   extreme structured-text and live rendered-form acceptance remain open.
+  The structured-text expansion budget (`MAX_RAW_TEXT_EXPANSION_BYTES`) is an unverified parity bound.
 - [ ] `P5.2-HUD` — Close received text, titles, actionbar, toasts, survival/status HUD
   and lifecycle behavior without leaking UI-owned input into movement.
 - [ ] `P5.3-CHAT` — Close history/autocomplete, formatting, bounded UTF-8 editing,

@@ -12,6 +12,8 @@ pub const MAX_RAW_TEXT_NODES: usize = 768;
 pub const MAX_RAW_TEXT_DEPTH: usize = 16;
 pub const MAX_RAW_TEXT_COMPONENTS: usize = 256;
 pub const MAX_RAW_TEXT_OUTPUT_BYTES: usize = 8_192;
+/// A full form packet's bytes (1 MiB) leave ample display text while bounding substitution growth.
+pub const MAX_RAW_TEXT_EXPANSION_BYTES: usize = crate::ui::MAX_FORM_JSON_BYTES;
 // One extra scalar preserves the existing parent's exact truncation decision.
 const MAX_FORMATTED_PREFIX_BYTES: usize = MAX_RAW_TEXT_OUTPUT_BYTES + 4;
 // Sign + 309 integer digits + decimal point + precision 0..9 for finite f64.
@@ -105,7 +107,7 @@ pub struct ResolvedRawText {
 
 impl RawTextDocument {
     /// Resolves presentable text using the document's byte budget. Chat keeps
-    /// [`MAX_RAW_TEXT_OUTPUT_BYTES`]; forms retain complete display strings.
+    /// [`MAX_RAW_TEXT_OUTPUT_BYTES`]; forms use [`MAX_RAW_TEXT_EXPANSION_BYTES`].
     /// Components the resolver cannot answer
     /// degrade exactly like the vanilla client: unknown translation keys
     /// present the key itself, unresolvable scores and selectors present as
@@ -114,7 +116,13 @@ impl RawTextDocument {
     pub fn resolve(&self, resolver: &RawTextResolver<'_>) -> ResolvedRawText {
         let mut resolved = ResolvedRawText::default();
         for component in self.components.iter() {
-            resolve_component(component, resolver, &mut resolved, 0, self.max_output_bytes);
+            resolve_component(
+                component,
+                resolver,
+                &mut resolved,
+                0,
+                self.max_output_bytes.min(MAX_RAW_TEXT_EXPANSION_BYTES),
+            );
         }
         resolved
     }
@@ -127,6 +135,10 @@ fn resolve_component(
     depth: usize,
     max_output_bytes: usize,
 ) {
+    if resolved.truncated || resolved.text.len() == max_output_bytes {
+        resolved.truncated = true;
+        return;
+    }
     if depth > MAX_RAW_TEXT_DEPTH {
         resolved.truncated = true;
         return;
@@ -173,13 +185,24 @@ fn resolve_component(
                                 depth + 1,
                                 max_output_bytes,
                             );
+                            let clipped = Cell::new(false);
+                            let translate = |key: &str| {
+                                let value = (resolver.translate)(key);
+                                clipped.set(
+                                    value
+                                        .as_ref()
+                                        .is_some_and(|value| value.len() > max_output_bytes),
+                                );
+                                value
+                            };
                             if let Cow::Owned(localized) = crate::localize_parameter_prefix(
                                 &nested.text,
-                                resolver.translate,
-                                max_output_bytes.saturating_add(4),
+                                &translate,
+                                max_output_bytes,
                             ) {
                                 nested.text.clear();
                                 push_bounded(&mut nested, &localized, max_output_bytes);
+                                nested.truncated |= clipped.get();
                             }
                             resolved.unknown_translations = resolved
                                 .unknown_translations
@@ -197,9 +220,12 @@ fn resolve_component(
                     let formatted = format_translation_chars_with_limit(
                         template.chars(),
                         &arguments,
-                        max_output_bytes.saturating_add(4),
+                        max_output_bytes
+                            .saturating_sub(resolved.text.len())
+                            .saturating_add(4),
                     );
-                    push_bounded(resolved, &formatted, max_output_bytes);
+                    push_bounded(resolved, &formatted.text, max_output_bytes);
+                    resolved.truncated |= formatted.sealed;
                 }
                 None => {
                     // The vanilla client presents an unknown key verbatim.
@@ -227,7 +253,7 @@ pub fn format_translation_chars(
     template: impl Iterator<Item = char>,
     arguments: &[String],
 ) -> String {
-    format_translation_chars_with_limit(template, arguments, MAX_FORMATTED_PREFIX_BYTES)
+    format_translation_chars_with_limit(template, arguments, MAX_FORMATTED_PREFIX_BYTES).text
 }
 
 /// Formats substitutions using the caller's byte budget and complete UTF-8 scalars.
@@ -235,7 +261,8 @@ fn format_translation_chars_with_limit(
     template: impl Iterator<Item = char>,
     arguments: &[String],
     max_bytes: usize,
-) -> String {
+) -> TranslationPrefix {
+    let max_bytes = max_bytes.min(MAX_RAW_TEXT_EXPANSION_BYTES);
     let mut output = TranslationPrefix::new(template.size_hint().0, max_bytes);
     let mut sequential = 0usize;
     let mut chars = template.peekable();
@@ -310,7 +337,8 @@ fn format_translation_chars_with_limit(
             _ => output.push('%'),
         }
     }
-    output.text
+    output.sealed |= output.text.len() == max_bytes && chars.size_hint().1 != Some(0);
+    output
 }
 
 struct TranslationPrefix {
@@ -335,33 +363,9 @@ impl TranslationPrefix {
     }
 
     fn push_str(&mut self, text: &str) {
-        if self.sealed {
-            return;
+        if !self.sealed {
+            self.sealed = append_prefix(&mut self.text, text, self.max_bytes);
         }
-        let remaining = self.max_bytes - self.text.len();
-        let mut end = text.len().min(remaining);
-        while !text.is_char_boundary(end) {
-            end -= 1;
-        }
-        let required = self
-            .text
-            .len()
-            .checked_add(end)
-            .expect("bounded prefix length cannot overflow");
-        if required > self.text.capacity() {
-            let geometric = self
-                .text
-                .capacity()
-                .saturating_mul(2)
-                .max(16)
-                .min(self.max_bytes);
-            let target = required.max(geometric);
-            // reserve_exact's additional count is relative to length, not capacity.
-            self.text.reserve_exact(target - self.text.len());
-        }
-        self.text.push_str(&text[..end]);
-        // Discard the entire suffix, including later smaller ASCII scalars.
-        self.sealed = end < text.len();
     }
 }
 
@@ -396,17 +400,20 @@ impl std::fmt::Write for FixedFloatText {
 }
 
 fn push_bounded(resolved: &mut ResolvedRawText, text: &str, max_bytes: usize) {
-    let remaining = max_bytes.saturating_sub(resolved.text.len());
-    if text.len() <= remaining {
-        resolved.text.push_str(text);
-        return;
+    resolved.truncated |= append_prefix(&mut resolved.text, text, max_bytes);
+}
+
+/// Appends complete UTF-8 scalars without reserving beyond the string's budget.
+/// Returns whether any suffix was omitted.
+fn append_prefix(output: &mut String, text: &str, max_bytes: usize) -> bool {
+    let end = text.floor_char_boundary(text.len().min(max_bytes.saturating_sub(output.len())));
+    let required = output.len() + end;
+    if required > output.capacity() {
+        let target = required.max(output.capacity().saturating_mul(2).max(16).min(max_bytes));
+        output.reserve_exact(target - output.len());
     }
-    let mut end = remaining;
-    while end > 0 && !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    resolved.text.push_str(&text[..end]);
-    resolved.truncated = true;
+    output.push_str(&text[..end]);
+    end < text.len()
 }
 
 /// Parses chat structured text with its input, component and output budgets.
