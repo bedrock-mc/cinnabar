@@ -236,6 +236,9 @@ pub(super) mod early_spawn_tests;
 mod early_packet_tap_tests;
 
 #[cfg(test)]
+mod relay_startup_tests;
+
+#[cfg(test)]
 mod startup_unknown_tests;
 
 #[cfg(test)]
