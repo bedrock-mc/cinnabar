@@ -303,7 +303,14 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   and responses, including server-pack definitions, structured text, custom controls,
   scaling and image/layout behavior against matched native views. Server settings
   replies are cached until their tab is selected; embedding their controls within
-  the settings panel instead of a separate form remains incomplete.
+  the settings panel instead of a separate form remains incomplete. URL images use
+  the UI texture-file allowance; aggregate encoded-image cache bounds and remaining
+  image admission and download-deadline parity remain incomplete.
+  scaling and image/layout behavior against matched native views. Custom forms
+  retain control locks and publish enabled bindings for the current game phase
+  without removing locked response values; device acceptance remains open. Server
+  settings replies are cached until their tab is selected; embedding their controls
+  within the settings panel instead of a separate form remains incomplete.
 - [ ] `P5.7-PARITY-PERF` — Qualify combined chat, scoreboard, boss bars, inventory and
   forms at supported scales/aspects and devices, with bounded memory and stable frame work.
 - [ ] `P5.8-SETTINGS` — Close menu, control, video and persistence acceptance. Desktop
@@ -413,6 +420,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   computed from the pinned Bedrock→Java mappings but not yet uploaded to shaders.
   Sky/fog time curves and sunrise colours remain provisional; lightning, status effects,
   underwater colour easing and the water-vision ramp are not implemented.
+  and enable rules. Custom uniform expressions evaluate per frame, including numeric
+  operations and smoothing. Complete Iris type checking and target-dependent function
+  return overloads remain incomplete, as do translation, render-host integration and
+  in-game acceptance; evaluated custom uniforms are not uploaded or rendered.
 - `registryc --kind java-mapping` generates `crates/assets/data/java-mapping-v2193.bin` from
   the GeyserMC data pinned in `assets/geyser-mappings-source.json`: Java block states, block
   tags, biomes and their colours, entity types and items for every Bedrock id Geyser maps.
