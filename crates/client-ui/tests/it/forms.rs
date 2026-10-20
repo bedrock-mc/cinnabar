@@ -170,9 +170,8 @@ fn every_queued_busy_reply_leaves_in_one_flush() {
 }
 
 #[test]
-fn same_id_reissue_invalidates_full_answer_and_stale_actions() {
+fn same_id_reissue_preserves_full_answer_and_rejects_incoming_request() {
     let mut player_runtime = player_state::PlayerState::new(1);
-
     let mut runtime = UiRuntime::new(1);
     runtime.apply(&mut player_runtime, retained(7, 1)).unwrap();
     let old = identity(&runtime);
@@ -184,6 +183,18 @@ fn same_id_reissue_invalidates_full_answer_and_stale_actions() {
         Err(FormTransportError::Full)
     );
     runtime.apply(&mut player_runtime, retained(7, 2)).unwrap();
+    assert!(runtime.server_forms().active().is_none());
+    assert_eq!(
+        drain(&mut runtime),
+        vec![
+            bytes(protocol::modal_form_submit_response(
+                7,
+                protocol::ModalFormResponseSelection::ButtonIndex(1)
+            )),
+            bytes(protocol::modal_form_busy_response(7)),
+        ]
+    );
+    runtime.apply(&mut player_runtime, retained(7, 3)).unwrap();
     let new = identity(&runtime);
     assert_ne!(old, new);
     assert_eq!(
@@ -191,16 +202,6 @@ fn same_id_reissue_invalidates_full_answer_and_stale_actions() {
         Err(FormRespondError::StaleIdentity)
     );
     assert!(drain(&mut runtime).is_empty());
-    runtime
-        .respond_to_server_form(new, LocalFormAction::SubmitButton(0))
-        .unwrap();
-    assert_eq!(
-        drain(&mut runtime),
-        vec![bytes(protocol::modal_form_submit_response(
-            7,
-            protocol::ModalFormResponseSelection::ButtonIndex(0)
-        ))]
-    );
 }
 
 #[test]
