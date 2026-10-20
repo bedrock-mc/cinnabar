@@ -4,7 +4,7 @@
 
 use super::body::{BoolStorage, SamplerKinds, Structs, flatten_leaves};
 use super::items::{
-    Decl, Item, arr_len, is_image, is_integer, is_opaque, layout_key, loc_size, mat_cols,
+    Decl, Item, arr_len, is_image, is_integer, is_opaque, layout_key, loc_size, mat_cols, matching,
     parse_decl, sampler_info, split_items, strip_layout_keys,
 };
 use super::{ProgramInterface, TransformError, UboMember};
@@ -124,13 +124,24 @@ pub(super) fn collect(
         let is_out = d.has("out") || (d.has("varying") && stage == StageKind::Vertex);
         if stage == StageKind::Vertex && is_in && !d.has("varying") {
             for (name, arr, _) in &d.decls {
-                let loc = VertexAttribute::from_glsl_name(name)
-                    .location()
-                    .unwrap_or_else(|| {
-                        let l = next_attr;
-                        next_attr += loc_size(&d.ty, arr_len(arr).unwrap_or(1));
-                        l
-                    });
+                let loc = if let Some(loc) = VertexAttribute::from_glsl_name(name).location() {
+                    loc
+                } else {
+                    let overflow = || TransformError::new("attribute location overflow", line);
+                    let mut size = loc_size(&d.ty);
+                    for mut dimensions in [&d.ty_arr[..], &arr[..]] {
+                        while !dimensions.is_empty() {
+                            let close = matching(dimensions, 0, "[", "]");
+                            size = size
+                                .checked_mul(arr_len(&dimensions[..=close]).unwrap_or(1).max(1))
+                                .ok_or_else(overflow)?;
+                            dimensions = &dimensions[close + 1..];
+                        }
+                    }
+                    let loc = next_attr;
+                    next_attr = next_attr.checked_add(size).ok_or_else(overflow)?;
+                    loc
+                };
                 c.vertex_inputs.push((loc, name.clone()));
                 c.io.extend(
                     lex(&format!("layout(location = {loc}) in {} {name}", d.ty))
@@ -376,7 +387,7 @@ fn varying(
         q.join(" ")
     };
     if arr.is_empty() && mat_cols(ty).is_none() && !structs.contains_key(ty) {
-        let size = loc_size(ty, 1);
+        let size = loc_size(ty);
         let loc = iface.varying(stage, name, size, explicit);
         let q = if dir == "in" {
             qualifiers(ty)
@@ -395,13 +406,13 @@ fn varying(
     c.split_globals.extend([id(ty).at(line), id(name).at(line)]);
     c.split_globals.extend_from_slice(arr);
     c.split_globals.push(p(";"));
-    let size = leaves.iter().map(|(_, ty)| loc_size(ty, 1)).sum();
+    let size = leaves.iter().map(|(_, ty)| loc_size(ty)).sum();
     let base = iface.varying(stage, name, size, explicit);
     let mut offset = 0;
     for (k, (path, leaf_ty)) in leaves.iter().enumerate() {
         let vname = format!("iris_v_{name}_{k}");
         let loc = format!("{base} + {offset}");
-        offset += loc_size(leaf_ty, 1);
+        offset += loc_size(leaf_ty);
         c.io.extend(
             lex(&format!(
                 "layout(location = {loc}) {} {dir} {leaf_ty} {vname};",

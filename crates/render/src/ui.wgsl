@@ -10,6 +10,7 @@ const STYLE_GRAYSCALE: u32 = 4u;
 const STYLE_BILINEAR: u32 = 8u;
 const STYLE_FONT_GAMMA: u32 = FONT_STYLE_COVERAGE_GAMMA;
 const STYLE_FONT_SDF: u32 = FONT_STYLE_SDF;
+const STYLE_FONT_OUTLINE: u32 = FONT_STYLE_OUTLINE_COVERAGE;
 // Injected from the renderer's single Rust style-bit definition.
 const STYLE_ALPHA_TEST: u32 = UI_STYLE_ALPHA_TEST;
 const STYLE_COLOR_MASK: u32 = UI_STYLE_COLOR_MASK;
@@ -86,6 +87,21 @@ fn srgb_to_linear(srgb: vec3<f32>) -> vec3<f32> {
     return select(high, low, srgb <= vec3<f32>(0.04045));
 }
 
+// Integrate minified outline coverage rather than dropping strokes between sample centers.
+// The source axes follow the screen derivatives, including rotated or stretched labels.
+fn sample_outline(uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>, dimensions: vec2<f32>, page: u32) -> vec4<f32> {
+    let grid = clamp(ceil(vec2<f32>(length(dx), length(dy))), vec2<f32>(1.0), vec2<f32>(OUTLINE_FILTER_MAX_SAMPLES));
+    var total = vec4<f32>(0.0);
+    for (var y = 0u; y < u32(grid.y); y++) {
+        for (var x = 0u; x < u32(grid.x); x++) {
+            let offset = (vec2<f32>(f32(x), f32(y)) + vec2<f32>(0.5)) / grid - vec2<f32>(0.5);
+            let sample_uv = (uv + dx * offset.x + dy * offset.y) / dimensions;
+            total += textureSampleLevel(ui_pages, ui_linear_sampler, sample_uv, i32(page), 0.0);
+        }
+    }
+    return total / (grid.x * grid.y);
+}
+
 fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
     let uv_dx = dpdx(input.uv);
     let uv_dy = dpdy(input.uv);
@@ -136,7 +152,9 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
     let texels_per_pixel = sqrt(abs(uv_dx.x * uv_dy.y - uv_dx.y * uv_dy.x));
     // Level 0 sampling keeps the per-vertex sampler choice legal in non-uniform flow.
     var sample: vec4<f32>;
-    if native_font && !sdf_font {
+    if (input.style_flags & STYLE_FONT_OUTLINE) != 0u {
+        sample = sample_outline(sample_uv, uv_dx, uv_dy, dimensions, input.texture_page);
+    } else if native_font && !sdf_font {
         let texel = clamp(vec2<i32>(floor(sample_uv)), vec2<i32>(0), vec2<i32>(dimensions) - vec2<i32>(1));
         sample = textureLoad(ui_pages, texel, i32(input.texture_page), 0);
     } else if sdf_font || (input.style_flags & STYLE_BILINEAR) != 0u {

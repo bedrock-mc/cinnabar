@@ -3,13 +3,14 @@
 use crate::buffers::{BufferDirectives, BufferFormat};
 use crate::dimensions::DimensionSelector;
 use crate::environment::Environment;
+use crate::ids::{BLOCK_FILE, ENTITY_FILE, ITEM_FILE, IdMaps};
 use crate::options::{OptionValues, PackOption, discover_options, property_defines};
 use crate::programs::{ProgramGroup, ProgramSource, enumerate_programs};
 use crate::properties::ShaderProperties;
 use crate::reflect::output_buffer;
 use crate::source::{PackError, PackSource};
 use crate::translate::{Context, ProgramTranslation, forcing, translate_program};
-use rayon::prelude::*;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
@@ -117,6 +118,18 @@ impl ShaderPack {
     ) -> ShaderProperties {
         let text = self.source.text("shaders.properties").unwrap_or("");
         ShaderProperties::parse(text, &self.defines(environment, options))
+    }
+
+    /// `block.properties`, `item.properties` and `entity.properties` with their conditionals
+    /// evaluated like `shaders.properties`; see [`IdMaps::parse`] (a pack without
+    /// block.properties gets Iris's legacy block ids).
+    pub fn id_maps(&self, environment: &Environment, options: &OptionValues) -> IdMaps {
+        IdMaps::parse(
+            self.source.text(BLOCK_FILE),
+            self.source.text(ITEM_FILE),
+            self.source.text(ENTITY_FILE),
+            &self.defines(environment, options),
+        )
     }
 
     /// Discovers one complete program directory, falling back to the base set when absent.

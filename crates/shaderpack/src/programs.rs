@@ -63,6 +63,25 @@ pub enum ProgramGroup {
     Final,
 }
 
+impl ProgramGroup {
+    /// The `<stage>` of `texture.<stage>.<sampler>` bindings that apply to the group, as
+    /// Iris's `TextureStage` names it: shadow programs share the gbuffers bindings and
+    /// `final` shares the composite ones.
+    pub fn texture_stage(self) -> &'static str {
+        match self {
+            ProgramGroup::Setup => "setup",
+            ProgramGroup::Begin => "begin",
+            ProgramGroup::ShadowComposite => "shadowcomp",
+            ProgramGroup::Prepare => "prepare",
+            ProgramGroup::Shadow | ProgramGroup::Gbuffers | ProgramGroup::DistantHorizons => {
+                "gbuffers"
+            }
+            ProgramGroup::Deferred => "deferred",
+            ProgramGroup::Composite | ProgramGroup::Final => "composite",
+        }
+    }
+}
+
 /// Whether a program is a draw (vertex + fragment, optional geometry/tessellation) or a
 /// compute dispatch. A composite-style pass may have both: its `.csh` files run first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -217,7 +236,9 @@ pub(crate) fn program_file(path: &str) -> Option<(&str, &str, StageKind)> {
 /// A program's stage files as (stage, `shaders/`-relative path).
 type StageFiles = Vec<(StageKind, String)>;
 
-/// Enumerates one complete program directory, sorted by group and name, render first.
+/// Enumerates one complete program directory in frame order: by group, then pass index, with a
+/// pass's compute programs (`<pass>.csh`, then `<pass>_a`…`_z`) dispatched before its draw, as
+/// Iris does.
 pub fn enumerate_programs(source: &PackSource, folder: &str) -> Vec<ProgramSource> {
     let mut found: BTreeMap<(String, ProgramKind), StageFiles> = BTreeMap::new();
     for (path, _) in source.files() {
@@ -250,8 +271,15 @@ pub fn enumerate_programs(source: &PackSource, folder: &str) -> Vec<ProgramSourc
             })
         })
         .collect();
-    out.sort_by(|a, b| {
-        (a.group, natural_key(&a.name), a.kind).cmp(&(b.group, natural_key(&b.name), b.kind))
+    out.sort_by_key(|p| {
+        let (family, index, suffix) = natural_key(&p.name);
+        (
+            p.group,
+            family,
+            index,
+            p.kind == ProgramKind::Render,
+            suffix,
+        )
     });
     out
 }
@@ -426,17 +454,43 @@ mod tests {
         assert_eq!(
             names,
             [
-                ("composite", "world0", ProgramKind::Render),
                 ("composite_a", "world0", ProgramKind::Compute),
+                ("composite", "world0", ProgramKind::Render),
             ]
         );
         assert_eq!(
-            programs[0].stages,
+            programs[1].stages,
             [
                 (StageKind::Vertex, "world0/composite.vsh".to_string()),
                 (StageKind::Fragment, "world0/composite.fsh".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn a_pass_dispatches_its_computes_before_its_draw() {
+        let source = PackSource::from_files([
+            ("deferred4.vsh", ""),
+            ("deferred4.fsh", ""),
+            ("deferred4_a.csh", ""),
+            ("deferred4.csh", ""),
+            ("deferred3.fsh", ""),
+            ("deferred3.vsh", ""),
+            ("deferred10_b.csh", ""),
+        ]);
+        let order: Vec<(String, ProgramKind)> = enumerate_programs(&source, "")
+            .into_iter()
+            .map(|p| (p.name, p.kind))
+            .collect();
+        let expected = [
+            ("deferred3", ProgramKind::Render),
+            ("deferred4", ProgramKind::Compute),
+            ("deferred4_a", ProgramKind::Compute),
+            ("deferred4", ProgramKind::Render),
+            ("deferred10_b", ProgramKind::Compute),
+        ]
+        .map(|(n, k)| (n.to_string(), k));
+        assert_eq!(order, expected);
     }
 
     #[test]
