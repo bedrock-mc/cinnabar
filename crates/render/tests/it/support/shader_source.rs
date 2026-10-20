@@ -200,6 +200,10 @@ fn compile_prepared(source: &str, definitions: &[&str], prune: bool) -> String {
             material_shader::source(include_str!("../../../src/glint.wesl")),
         ),
         (
+            "render::actor_rig",
+            include_str!("../../../src/actor_rig.wesl").to_owned(),
+        ),
+        (
             "render::biome_tint",
             material_shader::bind_biome_tables(&meshing::biome_lattice::shader_source(
                 include_str!("../../../src/biome_tint.wesl"),
