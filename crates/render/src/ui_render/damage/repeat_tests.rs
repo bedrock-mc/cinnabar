@@ -61,7 +61,12 @@ fn repeated_atlas_regions_keep_coverage_clipping_and_filtered_seams() {
         [0.25, 0.5, 1.5, 1.0],
         [0.75, 0.75, 0.25, 0.25],
     ] {
-        for linear in [false, true] {
+        for (linear, outline) in [
+            (false, 0),
+            (true, 0),
+            (false, assets::FONT_STYLE_OUTLINE_COVERAGE),
+            (true, assets::FONT_STYLE_OUTLINE_COVERAGE),
+        ] {
             for (vertex, uv) in Arc::make_mut(&mut input.vertices).iter_mut().zip([
                 [0.25, 0.375],
                 [13.5, 0.375],
@@ -70,7 +75,7 @@ fn repeated_atlas_regions_keep_coverage_clipping_and_filtered_seams() {
             ]) {
                 vertex.uv = uv;
                 vertex.overlay_color = source;
-                vertex.style_flags = u32::from(UI_STYLE_REPEAT)
+                vertex.style_flags = u32::from(UI_STYLE_REPEAT | outline)
                     | if linear {
                         u32::from(render_api::UI_STYLE_BILINEAR)
                     } else {
@@ -161,7 +166,12 @@ fn repeated_original_image_pages_keep_filter_halos_without_overlapping_coverage(
         return;
     };
     for bounds in [[0.0, 0.0, 2.0, 2.0], [-1.0, -1.0, 4.0, 4.0]] {
-        for linear in [false, true] {
+        for (linear, outline) in [
+            (false, 0),
+            (true, 0),
+            (false, assets::FONT_STYLE_OUTLINE_COVERAGE),
+            (true, assets::FONT_STYLE_OUTLINE_COVERAGE),
+        ] {
             for vertices in Arc::make_mut(&mut input.vertices)
                 .as_chunks_mut::<4>()
                 .0
@@ -175,13 +185,13 @@ fn repeated_original_image_pages_keep_filter_halos_without_overlapping_coverage(
                 ]) {
                     vertex.uv = uv;
                     vertex.overlay_color = bounds;
-                    vertex.style_flags =
-                        u32::from(UI_STYLE_REPEAT | render_api::ui_repeat::UI_STYLE_REPEAT_PAGE)
-                            | if linear {
-                                u32::from(render_api::UI_STYLE_BILINEAR)
-                            } else {
-                                0
-                            };
+                    vertex.style_flags = u32::from(
+                        UI_STYLE_REPEAT | render_api::ui_repeat::UI_STYLE_REPEAT_PAGE | outline,
+                    ) | if linear {
+                        u32::from(render_api::UI_STYLE_BILINEAR)
+                    } else {
+                        0
+                    };
                 }
             }
             let output = target(&raster.gpu, false);

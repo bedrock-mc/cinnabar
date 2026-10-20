@@ -10,6 +10,7 @@ use crate::{TextLayout, UiAction, UiLimits, UiPoint, UiRect, UiScale};
 mod budget;
 mod draw;
 mod mesh;
+mod painted_bounds;
 mod projection;
 mod repeat;
 mod retained;
@@ -224,6 +225,11 @@ impl UiNode {
     pub fn with_viewport_clip(mut self, clip: UiRect) -> Self {
         self.viewport_clip = Some(clip);
         self
+    }
+
+    /// The absolute viewport clip, when this node overrides its inherited clip.
+    pub const fn viewport_clip(&self) -> Option<UiRect> {
+        self.viewport_clip
     }
 
     pub fn with_visual(mut self, visual: UiVisual) -> Self {
@@ -545,6 +551,18 @@ impl UiTree {
 
     pub fn focus_mut(&mut self) -> &mut FocusState {
         &mut self.focus
+    }
+
+    /// Visits roots and sibling subtrees in the same ID order used by retained painting.
+    pub fn paint_order(&self) -> impl Iterator<Item = &UiNode> {
+        let mut pending = self.roots.iter().rev().copied().collect::<Vec<_>>();
+        std::iter::from_fn(move || {
+            let id = pending.pop()?;
+            if let Some(children) = self.children.get(&id) {
+                pending.extend(children.iter().rev().copied());
+            }
+            Some(&self.nodes[&id])
+        })
     }
 
     pub fn layout(

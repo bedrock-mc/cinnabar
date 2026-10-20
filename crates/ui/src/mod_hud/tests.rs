@@ -192,6 +192,7 @@ mod tests {
             ("button.resume_game", false),
         ] {
             hud.surface = Some(crate::mod_panel::Surface {
+                previews: Default::default(),
                 collections: Default::default(),
                 transitions: Default::default(),
                 screen: "fixture.editor".into(),

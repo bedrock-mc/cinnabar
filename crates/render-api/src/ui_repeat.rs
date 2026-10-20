@@ -1,13 +1,13 @@
 //! Sampling contract for repeated atlas regions without repeated geometry.
 
 /// Repeats the horizontal tile coordinate within the source bounds in `overlay_color`.
-pub const UI_STYLE_REPEAT_X: u16 = 1 << 11;
+pub const UI_STYLE_REPEAT_X: u16 = 1 << 12;
 /// Repeats the vertical tile coordinate within the source bounds in `overlay_color`.
-pub const UI_STYLE_REPEAT_Y: u16 = 1 << 12;
+pub const UI_STYLE_REPEAT_Y: u16 = 1 << 13;
 /// Identifies vertices whose UVs use tile units and whose overlay holds source texel bounds.
 pub const UI_STYLE_REPEAT: u16 = UI_STYLE_REPEAT_X | UI_STYLE_REPEAT_Y;
 /// Clips a repeated original-image fragment to the content owned by its texture page.
-pub const UI_STYLE_REPEAT_PAGE: u16 = 1 << 13;
+pub const UI_STYLE_REPEAT_PAGE: u16 = 1 << 14;
 
 /// Shader companion of [`decode_uv`], using the renderer's shared style constants.
 pub const WGSL_DECODER: &str = include_str!("ui_repeat.wgsl");

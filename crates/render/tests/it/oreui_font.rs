@@ -122,6 +122,34 @@ fn oreui_font_edges_use_native_coverage_gamma_sampling_and_sdf_scale() {
             );
         }
     }
+    // The left texel has half coverage; minification must average its edge
+    // with the empty neighbor instead of repeatedly sampling only the center.
+    let flags = u32::from(assets::FontRendering::OutlineCoverage.style_flags());
+    for (texels_per_pixel, expected) in [(1.0, 128u8), (2.0, 96), (4.0, 80)] {
+        let source = format!(
+            "{}\n{}",
+            ui_shader::source(include_str!("../../src/ui.wgsl")),
+            vertex([1.0; 3], flags, texels_per_pixel)
+        );
+        let pixels = gpu.render(
+            &source,
+            "font_fixture_vertex",
+            &[Draw {
+                fragment: "ui_fragment",
+                vertices: 0..3,
+                bindings: &bindings,
+                blend: None,
+                write_depth: false,
+            }],
+        );
+        let actual = &pixels[(128 * 256 + 128) * 4..][..4];
+        assert!(
+            actual
+                .iter()
+                .all(|&channel| channel.abs_diff(expected) <= 1),
+            "outline footprint {texels_per_pixel}: {actual:?}, expected {expected}"
+        );
+    }
     gpu.queue.write_texture(
         texture.as_image_copy(),
         &[132, 132],

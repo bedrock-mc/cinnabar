@@ -408,7 +408,7 @@ fn text_draw(control: &ResolvedControl, enabled: bool) -> Draw {
 
 /// Layout and tree keys a custom renderer never reads; every other property
 /// is renderer configuration and travels with the draw.
-const STRUCTURAL: [&str; 13] = [
+const STRUCTURAL: [&str; 14] = [
     "controls",
     "bindings",
     "anims",
@@ -421,6 +421,7 @@ const STRUCTURAL: [&str; 13] = [
     "button_mappings",
     "type",
     crate::transform::TRANSFORM_PROPERTY,
+    crate::position::PROPERTY,
     crate::filter::FILTER_PROPERTY,
 ];
 

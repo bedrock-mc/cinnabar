@@ -79,6 +79,27 @@ impl Page {
             (top * (1.0 - fy) + bottom * fy) / 255.0
         })
     }
+
+    /// Integrates outline coverage across a pixel with the production shader's bounded grid.
+    fn sample_outline(&self, uv: [f32; 2], derivatives: [[f32; 2]; 2]) -> [f32; 4] {
+        use render_model::font_shading::{outline_filter_grid, outline_filter_offset};
+        let [nx, ny] = outline_filter_grid(derivatives);
+        let mut total = [0.; 4];
+        for y in 0..ny {
+            for x in 0..nx {
+                let ox = outline_filter_offset(x, nx);
+                let oy = outline_filter_offset(y, ny);
+                let point: [f32; 2] = std::array::from_fn(|axis| {
+                    uv[axis] + derivatives[0][axis] * ox + derivatives[1][axis] * oy
+                });
+                let sample = self.sample_linear(point[0], point[1]);
+                for channel in 0..4 {
+                    total[channel] += sample[channel];
+                }
+            }
+        }
+        total.map(|value| value / (nx * ny) as f32)
+    }
 }
 
 /// A premultiplied RGBA8 target.
@@ -170,7 +191,7 @@ impl Canvas {
         let [top, bottom] = span(y0.min(y1), y0.max(y1), clip[1], clip[3]);
         let color = v[0].color;
         let flags = style_flags(v[0]);
-        let scale = (((u1 - u0) * (v1 - v0)) / (w * h)).abs().sqrt();
+        let derivatives = [[(u1 - u0) / w, 0.], [0., (v1 - v0) / h]];
         for y in top..bottom {
             let fy = (y as f32 + 0.5 - y0) / h;
             let tv = v0 + (v1 - v0) * fy;
@@ -182,7 +203,7 @@ impl Canvas {
                     particle_uv([u0 + (u1 - u0) * fx, tv], v[0]),
                     color,
                     flags,
-                    scale,
+                    derivatives,
                     Some(v[0].overlay_color),
                 );
                 blend_styled(
@@ -262,14 +283,14 @@ impl Canvas {
                     });
                     (straight(mixed), [255; 4])
                 } else {
-                    let scale = texels_per_pixel(&v);
+                    let derivatives = texel_derivatives(&v);
                     (
                         shaded_sample(
                             texture,
                             particle_uv([u, t], v[0]),
                             color,
                             flags,
-                            scale,
+                            derivatives,
                             Some(v[0].overlay_color),
                         ),
                         color,
@@ -314,13 +335,18 @@ fn flat_texture(v: &[&UiVertex; 4]) -> bool {
         && v[3].uv[0] == v[0].uv[0]
 }
 
-/// Matches the shader's UV derivative determinant for an affine triangle.
-fn texels_per_pixel(v: &[&UiVertex; 3]) -> f32 {
+/// Matches the shader's screen-space UV derivatives for an affine triangle.
+fn texel_derivatives(v: &[&UiVertex; 3]) -> [[f32; 2]; 2] {
     let position = v.map(|vertex| vertex.position);
     let uv = v.map(|vertex| vertex.uv);
-    (edge(uv[0], uv[1], uv[2]) / edge(position[0], position[1], position[2]))
-        .abs()
-        .sqrt()
+    let area = edge(position[0], position[1], position[2]);
+    let dp: [[f32; 2]; 2] =
+        [1, 2].map(|i| std::array::from_fn(|axis| position[i][axis] - position[0][axis]));
+    let duv: [[f32; 2]; 2] = [1, 2].map(|i| std::array::from_fn(|axis| uv[i][axis] - uv[0][axis]));
+    [
+        std::array::from_fn(|axis| (duv[0][axis] * dp[1][1] - duv[1][axis] * dp[0][1]) / area),
+        std::array::from_fn(|axis| (duv[1][axis] * dp[0][0] - duv[0][axis] * dp[1][0]) / area),
+    ]
 }
 
 /// Applies the UI shader's sampler selection, SDF smoothing and native text gamma.
@@ -329,14 +355,17 @@ fn shaded_sample(
     uv: [f32; 2],
     color: [u8; 4],
     flags: u16,
-    scale: f32,
+    derivatives: [[f32; 2]; 2],
     bounds: Option<[f32; 4]>,
 ) -> [u8; 4] {
     let native = flags & u16::from(assets::FONT_STYLE_COVERAGE_GAMMA) != 0;
     let sdf = flags & u16::from(assets::FONT_STYLE_SDF) != 0;
     let linear = sdf || (!native && flags & u16::from(ui::UI_STYLE_BILINEAR) != 0);
+    // Repeat coordinates must be wrapped before sampling, including on mixed-style vertices.
     let mut sample = if flags & render_api::ui_repeat::UI_STYLE_REPEAT != 0 {
         repeated_sample(texture, uv, bounds.unwrap_or_default(), flags, linear)
+    } else if flags & assets::FONT_STYLE_OUTLINE_COVERAGE != 0 {
+        texture.sample_outline(uv, derivatives)
     } else if linear {
         texture.sample_linear(uv[0], uv[1])
     } else {
@@ -345,6 +374,8 @@ fn shaded_sample(
             .map(|channel| f32::from(channel) / 255.0)
     };
     if sdf {
+        let [dx, dy] = derivatives;
+        let scale = (dx[0] * dy[1] - dx[1] * dy[0]).abs().sqrt();
         sample = [
             1.0,
             1.0,
@@ -739,15 +770,19 @@ mod tests {
             height: 4,
             rgba: pixels.into(),
         };
-        for (uv, linear, expected) in [
-            ([1.25, 1.25], false, [0, 0, 0, 255]),
-            ([1.0, 1.0], true, [0, 0, 0, 255]),
+        for (uv, linear, outline) in [
+            ([1.25, 1.25], false, 0),
+            ([1.0, 1.0], true, 0),
+            ([1.25, 1.25], false, assets::FONT_STYLE_OUTLINE_COVERAGE),
+            ([1.0, 1.0], true, assets::FONT_STYLE_OUTLINE_COVERAGE),
         ] {
+            let expected = [0, 0, 0, 255];
             let mut list = quad();
             for vertex in &mut list.vertices {
                 vertex.uv = uv;
                 vertex.overlay_color = [1.0, 1.0, 2.0, 2.0];
                 vertex.style_flags = render_api::ui_repeat::UI_STYLE_REPEAT
+                    | outline
                     | if linear {
                         u16::from(ui::UI_STYLE_BILINEAR)
                     } else {
@@ -756,6 +791,34 @@ mod tests {
             }
             assert_eq!(first_pixel(&list, &texture), expected);
             assert_eq!(first_pixel(&triangle(list), &texture), expected);
+        }
+    }
+
+    #[test]
+    fn minified_outline_strokes_keep_their_area_across_fractional_phases() {
+        let texture = Page {
+            repeat_content: None,
+            width: 32,
+            height: 32,
+            rgba: (0..1024)
+                .flat_map(|index| [255, 255, 255, if index % 4 == 0 { 255 } else { 0 }])
+                .collect(),
+        };
+        for phase in [0., 0.25, 0.5, 0.75] {
+            let mut list = quad();
+            for vertex in &mut list.vertices {
+                vertex.uv = vertex.position.map(|position| position * 4. + 4. + phase);
+                vertex.style_flags = assets::FontRendering::OutlineCoverage.style_flags();
+                vertex.style_flags |= u16::from(ui::UI_STYLE_BILINEAR);
+            }
+            for draw in [&list, &triangle(list.clone())] {
+                let pixel = first_pixel(draw, &texture);
+                assert!(
+                    pixel[3].abs_diff(64) <= 1,
+                    "one-texel strokes occupy one quarter of each pixel at phase {phase}: {pixel:?}"
+                );
+                assert_eq!(pixel[..3], [255; 3]);
+            }
         }
     }
 
@@ -771,25 +834,28 @@ mod tests {
             repeat_content: Some([1, 0, 2, 2]),
             ..first.clone()
         };
-        let mut list = quad();
-        for vertex in &mut list.vertices {
-            vertex.uv = vertex.uv.map(|v| v * 13.25);
-            vertex.overlay_color = [0.0, 0.0, 2.0, 2.0];
-            vertex.style_flags = render_api::ui_repeat::UI_STYLE_REPEAT
-                | render_api::ui_repeat::UI_STYLE_REPEAT_PAGE
-                | u16::from(ui::UI_STYLE_BILINEAR);
+        for outline in [0, assets::FONT_STYLE_OUTLINE_COVERAGE] {
+            let mut list = quad();
+            for vertex in &mut list.vertices {
+                vertex.uv = vertex.uv.map(|v| v * 13.25);
+                vertex.overlay_color = [0.0, 0.0, 2.0, 2.0];
+                vertex.style_flags = render_api::ui_repeat::UI_STYLE_REPEAT
+                    | render_api::ui_repeat::UI_STYLE_REPEAT_PAGE
+                    | u16::from(ui::UI_STYLE_BILINEAR)
+                    | outline;
+            }
+            let mut other = list.batches[0].clone();
+            other.texture_page = 1;
+            list.batches.push(other);
+            let mut canvas = Canvas::new(4, 4);
+            canvas.draw(&list, |page| Some(if page == 0 { &first } else { &second }));
+            assert!(
+                canvas
+                    .into_rgba()
+                    .chunks_exact(4)
+                    .all(|pixel| pixel[3] == 128)
+            );
         }
-        let mut other = list.batches[0].clone();
-        other.texture_page = 1;
-        list.batches.push(other);
-        let mut canvas = Canvas::new(4, 4);
-        canvas.draw(&list, |page| Some(if page == 0 { &first } else { &second }));
-        assert!(
-            canvas
-                .into_rgba()
-                .chunks_exact(4)
-                .all(|pixel| pixel[3] == 128)
-        );
     }
 
     #[test]

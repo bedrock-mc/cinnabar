@@ -11,6 +11,19 @@ use serde_json::{Map, Value};
 /// rotating ancestor: rotated content cannot clip, because clips are axis-aligned scissors.
 pub(super) fn control(object: &Map<String, Value>, rotated: bool) -> Result<bool, String> {
     let overrides = bound_targets(object);
+    if let Some(value) = object.get(json_ui::position::PROPERTY) {
+        let parsed = json_ui::position::parse(value)
+            .ok_or("surface normalized position must be a finite pair")?;
+        if value.as_array().is_none_or(|pair| {
+            pair.iter()
+                .zip(parsed)
+                .any(|(value, parsed)| value.as_f64() != Some(parsed))
+        }) {
+            return Err("surface normalized position exceeds its bounds".into());
+        }
+    } else if overrides.contains(&json_ui::position::BINDING) {
+        return Err("surface normalized position binding requires its property".into());
+    }
     let declared = object.get(TRANSFORM_PROPERTY);
     if declared.is_none()
         && overrides
@@ -113,6 +126,22 @@ mod tests {
         assert_eq!(check(bound, false), Ok(true));
         let inside = json!({"type":"label","text":"x"});
         assert_eq!(check(inside, true), Ok(true));
+    }
+
+    #[test]
+    fn normalized_positions_require_bounded_pairs_and_declared_binding_targets() {
+        assert_eq!(check(json!({"cinnabar_position":[0,1]}), false), Ok(false));
+        for position in [json!([-1, 0]), json!([0, 2]), json!([0]), json!([0, null])] {
+            assert!(check(json!({"cinnabar_position":position}), false).is_err());
+        }
+        assert!(
+            check(
+                json!({"bindings":[{"binding_name":"#at",
+            "binding_name_override":"#cinnabar_position"}]}),
+                false
+            )
+            .is_err()
+        );
     }
 
     #[test]

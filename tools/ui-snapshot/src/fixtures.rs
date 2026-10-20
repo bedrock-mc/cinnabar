@@ -51,6 +51,8 @@ pub enum Fixture {
     TabList(Vec<RosterRow>),
     /// Two original custom-form inputs after selection moves from the first to the second.
     EditSelection,
+    /// An externally supplied bounded native mod panel.
+    ModPanel(Box<ui::mod_panel::Panel>),
     /// Two same-ID requests arriving while the first menu is still open.
     #[cfg(feature = "test-support")]
     FormOverlap,
