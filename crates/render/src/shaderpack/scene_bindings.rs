@@ -164,7 +164,7 @@ mod tests {
         let depth = texture(TextureFormat::Depth32Float);
         let parameters = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: 32,
+            size: std::mem::size_of::<super::super::passes::SceneDepthParameters>() as u64,
             usage: wgpu::BufferUsages::UNIFORM,
             mapped_at_creation: false,
         });

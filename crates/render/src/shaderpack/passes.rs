@@ -14,6 +14,9 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 use wgpu::{CommandEncoder, Device, Queue, TextureFormat, TextureView};
 
+/// Conversion planes and viewport rectangle uploaded to the host scene-copy shaders.
+pub(super) type SceneDepthParameters = [f32; 8];
+
 /// One view's resources and per-frame state for a loaded pack.
 pub(crate) struct ViewState {
     pub pack: Arc<PackGpu>,
@@ -65,7 +68,7 @@ impl ViewState {
         Ok(Self {
             depth_parameters: device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("shader pack view depth parameters"),
-                size: 32,
+                size: std::mem::size_of::<SceneDepthParameters>() as u64,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             }),
@@ -420,7 +423,7 @@ fn record_composite(encoder: &mut CommandEncoder, state: &mut ViewState, io: &Fr
 fn write_depth_parameters(queue: &Queue, buffer: &wgpu::Buffer, io: &FrameIo<'_>) {
     let far = io.render_distance.max(16.0) * FAR_PLANE_SCALE;
     let [x, y, w, h] = io.viewport.map(|v| v as f32);
-    let parameters = [io.scene_near, GL_NEAR, far, 0.0, x, y, w, h];
+    let parameters: SceneDepthParameters = [io.scene_near, GL_NEAR, far, 0.0, x, y, w, h];
     queue.write_buffer(buffer, 0, bytemuck::bytes_of(&parameters));
 }
 

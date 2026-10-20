@@ -108,7 +108,7 @@ fn unsupported_presentation_keeps_the_native_target() {
         .unwrap()
         .main_texture_view()
         .id();
-    world.run_system_once(shaderpack_post).unwrap().unwrap();
+    let _: () = world.run_system_once(shaderpack_post).unwrap();
     assert_eq!(
         world
             .get::<ViewTarget>(entity)
