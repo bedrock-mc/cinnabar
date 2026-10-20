@@ -24,6 +24,10 @@ Headless sessions render through a hidden window. They can verify pixels and
 rendering work, but displayed-frame pacing, OS focus, and occlusion gates require
 appropriate presentation evidence and remain incomplete without it.
 
+A signed-in capture account still receives Xbox join requests and other toasts, which `F1` does
+not hide. `--hide-toasts` (`developer-control` builds only) stops drawing toasts for the session
+so they cannot land in a comparison capture; they still queue and expire as usual.
+
 Server compatibility tests can establish connection, transfer, or server-authority
 behavior. They do not by themselves establish version-matched Bedrock parity.
 Choose a reproducible scenario and distinguish server behavior from client output.
