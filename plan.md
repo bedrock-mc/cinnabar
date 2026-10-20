@@ -446,11 +446,25 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   shader-pack source loading and configuration metadata are implemented in
   `shaderpack`, including options, dimensions, parsed properties, program discovery
   and enable rules, and its programs translate to validated naga modules with a binding
+  contract. Behind the render crate's `shaderpacks` feature, the host builds the Java-style
+  block atlas packs sample. Pack-specific translation fixes, the rest of the render-host
+  integration and in-game acceptance remain incomplete.
   contract. Pack-specific translation fixes, render-host integration and in-game
   acceptance remain incomplete; parsed custom uniform expressions are not executed or
+  rendered.
+  and enable rules. Translation, render-host integration and in-game acceptance
+  remain incomplete; parsed custom uniform expressions are not executed or rendered.
+  Pack block, item and entity ids, Java biome values and Java sky and fog colours are
+  computed from the pinned Bedrock→Java mappings but not yet uploaded to shaders.
+  and enable rules, and custom uniform expressions evaluate per frame. Translation,
+  render-host integration and in-game acceptance remain incomplete; evaluated custom
+  uniforms are not uploaded or rendered.
   rendered. Constant folding for half-float packing and bit casts remains incomplete.
   acceptance remain incomplete.
   and enable rules. Translation, render-host integration and in-game acceptance
+  remain incomplete.
+  shader-pack source loading is implemented in `shaderpack`; configuration parsing,
+  translation, render-host integration and in-game acceptance remain incomplete.
   remain incomplete; parsed custom uniform expressions are not executed or rendered.
   Pack block, item and entity ids, Java biome values and Java sky and fog colours are
   computed from the pinned Bedrock→Java mappings but not yet uploaded to shaders.
