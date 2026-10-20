@@ -4,9 +4,11 @@
 
 Actor nametags use Java Edition rendering as an accepted deviation. All labels share
 camera-right and camera-up, including the front-view pitch sign, with a fixed
-`1.6 / 60` blocks per font pixel. The head anchor scales the published height plus
-`0.5` blocks of clearance by the actor's Scale metadata;
-sneaking players lower it by `0.125` blocks and move the quad `0.25` blocks along
+`1.6 / 60` blocks per font pixel. The head anchor uses Java's fixed `1.8`-block
+standing height for players, so Bedrock's crouching collision height does not lower
+it again. Other actors use their published height. Height plus `0.5` blocks of
+clearance follows the actor's Scale metadata. Sneaking players lower it by
+`0.125` blocks and move the quad `0.25` blocks along
 camera-down; sleeping players lower their anchor by `1.5` blocks.
 Each line's black plate has alpha `0.25`, one pixel of side padding,
 and vertical bounds `-1 .. 8`. The existing ten-pixel multiline spacing and
