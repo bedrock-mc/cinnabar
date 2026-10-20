@@ -482,7 +482,7 @@ mod tests {
         .init_resource::<ChunkRenderQueue>()
         .insert_resource(ShaderPackStatus::Ready("test".into()))
         .add_systems(Update, mesh_like_java_for_shader_packs);
-        let upload = world::SubChunkKey { x: 0, y: 0, z: 0 };
+        let upload = world::SubChunkKey::new(0, 0, 0, 0);
         let removal = world::SubChunkKey { x: 1, ..upload };
         for status in [
             ShaderPackStatus::Ready("test".into()),
