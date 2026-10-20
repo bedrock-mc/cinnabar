@@ -148,6 +148,12 @@ mod tests {
                 ..BlockVisual::diagnostic(BlockFlags::empty(), ContributorRole::Primary)
             }],
             light_properties: vec![assets::LightProperties::OPAQUE_DARK],
+            materials: vec![assets::Material {
+                texture: assets::TextureRef::DIAGNOSTIC,
+                flags: 0,
+                animation: assets::NO_ANIMATION,
+                ..assets::Material::unvaried()
+            }],
             model_templates: vec![ModelTemplate {
                 quad_start: 0,
                 quad_count: quads.len() as u32,
