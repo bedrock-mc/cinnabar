@@ -415,10 +415,11 @@ pub(crate) fn record_frame(
             encoder,
             |encoder| {
                 record_shadow(device, encoder, state, geometry);
-                let shadow_size = pack
-                    .shadow
-                    .as_ref()
-                    .map_or(state.targets.screen_size, |s| [s.slots.resolution; 2]);
+                let shadow_size = super::dispatch::extent(
+                    ProgramGroup::ShadowComposite,
+                    state.targets.screen_size,
+                    pack.shadow.as_ref().map(|shadow| shadow.slots.resolution),
+                );
                 run_steps(encoder, state, Steps::Shadowcomp, shadow_size);
             },
         );
