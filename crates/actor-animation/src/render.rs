@@ -273,8 +273,8 @@ pub(super) fn evaluate_render_cached(
             super::query::wolf::default_render_color(evaluator.actor)
         });
     for (index, layer) in assets.render_layers(rig.binding).iter().enumerate() {
-        let evaluated = match cache.as_deref_mut() {
-            Some(cache) => cache.sample(
+        if let Some(cache) = cache.as_deref_mut() {
+            let evaluated = cache.sample(
                 index,
                 evaluator,
                 variables,
@@ -283,19 +283,20 @@ pub(super) fn evaluate_render_cached(
                 actor_color,
                 multitexture,
                 budget,
-            )?,
-            None => evaluate_layer(
+            )?;
+            unresolved_artwork |= evaluated.unresolved_artwork;
+            output.extend(evaluated.layers);
+        } else {
+            unresolved_artwork |= evaluate_layer_into(
                 evaluator,
                 variables,
                 rig,
                 layer,
-                actor_color,
-                multitexture,
+                (actor_color, multitexture),
+                &mut output,
                 budget,
-            )?,
-        };
-        unresolved_artwork |= evaluated.unresolved_artwork;
-        output.extend(evaluated.layers);
+            )?;
+        }
     }
     if output.is_empty()
         && unresolved_artwork
@@ -351,9 +352,34 @@ fn evaluate_layer(
     multitexture: bool,
     budget: &mut EvalBudget<'_>,
 ) -> Result<LayerOutput, EvalError> {
+    let mut output = Vec::new();
+    let unresolved_artwork = evaluate_layer_into(
+        evaluator,
+        variables,
+        rig,
+        layer,
+        (actor_color, multitexture),
+        &mut output,
+        budget,
+    )?;
+    Ok(LayerOutput {
+        layers: output,
+        unresolved_artwork,
+    })
+}
+
+/// Appends one controller directly so ordinary tick draws retain their single output buffer.
+fn evaluate_layer_into(
+    evaluator: &Evaluator<'_>,
+    variables: &mut MolangVariables,
+    rig: RenderRig<'_>,
+    layer: &assets::EntityRenderLayer,
+    (actor_color, multitexture): ([f32; 4], bool),
+    output: &mut Vec<RenderTextureLayer>,
+    budget: &mut EvalBudget<'_>,
+) -> Result<bool, EvalError> {
     let assets = evaluator.assets;
     let render = assets.render_data();
-    let mut output = Vec::new();
     let mut unresolved_artwork = false;
     budget.charge_work()?;
     if let Some(condition) = layer.condition
@@ -361,10 +387,7 @@ fn evaluate_layer(
             .run(condition as usize, variables, 0.0, budget)?
             .truthy()
     {
-        return Ok(LayerOutput {
-            layers: output,
-            unresolved_artwork,
-        });
+        return Ok(unresolved_artwork);
     }
     let choices = render
         .geometries
@@ -393,10 +416,7 @@ fn evaluate_layer(
             Some(Some(skeleton)) => (Some(geometry), skeleton.names.as_slice()),
             // A geometry without a usable skeleton cannot be drawn.
             _ => {
-                return Ok(LayerOutput {
-                    layers: output,
-                    unresolved_artwork,
-                });
+                return Ok(unresolved_artwork);
             }
         },
     };
@@ -421,10 +441,7 @@ fn evaluate_layer(
     let visible = hidden.iter().any(|hidden| !hidden);
     if layer.unresolved_textures {
         unresolved_artwork |= visible;
-        return Ok(LayerOutput {
-            layers: output,
-            unresolved_artwork,
-        });
+        return Ok(unresolved_artwork);
     }
     let hidden_bones: Arc<[u32]> = hidden
         .iter()
@@ -484,10 +501,7 @@ fn evaluate_layer(
         unresolved_artwork |= texture_slot == 0 && !resolved && visible;
     }
     if multitexture && selected_sources.len() != 3 {
-        return Ok(LayerOutput {
-            layers: output,
-            unresolved_artwork,
-        });
+        return Ok(unresolved_artwork);
     }
     let grouped = if multitexture {
         Some([selected_sources[1], selected_sources[2]])
@@ -518,8 +532,5 @@ fn evaluate_layer(
             sampled_scale: None,
         });
     }
-    Ok(LayerOutput {
-        layers: output,
-        unresolved_artwork,
-    })
+    Ok(unresolved_artwork)
 }

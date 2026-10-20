@@ -51,6 +51,17 @@ impl RenderCache {
             });
         }
         let cached = &mut self.layers[index];
+        if !cached.inputs.pure() {
+            return evaluate_layer(
+                evaluator,
+                variables,
+                rig,
+                layer,
+                color,
+                multitexture,
+                budget,
+            );
+        }
         let unchanged = cached.inputs.update(evaluator, variables, budget)
             && cached.color.map(f32::to_bits) == color.map(f32::to_bits);
         if unchanged && let Some(output) = &cached.output {
