@@ -47,7 +47,7 @@ impl RigSource for ShaderpackActors<'_> {
                 continue;
             }
             let page = (span.page != 0)
-                .then(|| gpu.artwork.pages.get(usize::from(span.page) - 1))
+                .then(|| gpu.artwork.page(usize::from(span.page) - 1))
                 .flatten();
             for index in span.first..span.first + span.count {
                 let Some(data) = gpu.instances.get(index as usize) else {
