@@ -1,9 +1,6 @@
 use mod_ui::PanelUiOwner;
 use mod_ui::test_support::{card_dimensions, card_origin};
-use ui::{
-    mod_hud::EditorResult,
-    mod_panel::{Control, Event},
-};
+use ui::mod_panel::{Control, Event};
 
 use super::super::super::snapshot;
 use super::mod_hud_editor::{click, panel, point};
@@ -80,10 +77,7 @@ fn completed_drag_autosaves_without_closing_and_interrupted_drag_rolls_back() {
     assert!(p.mod_ui_mut().take_mod_hud_editor_result().is_none());
     p.mod_ui_mut().mod_panel_key("Escape", None);
     assert!(!p.mod_ui().mod_hud_editor_open() && !p.mod_ui().mod_panel_open());
-    assert_eq!(
-        p.mod_ui_mut().take_mod_hud_editor_result(),
-        Some(EditorResult::default())
-    );
+    assert_eq!(p.mod_ui_mut().take_mod_hud_editor_result(), Some(saved));
 }
 
 #[test]
