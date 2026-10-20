@@ -19,9 +19,10 @@ pub(crate) struct HostPipelines {
     pub vanilla_overlay: wgpu::RenderPipeline,
     /// `present` per view target format.
     pub present: Vec<(TextureFormat, wgpu::RenderPipeline)>,
+    /// Copies pixels outside a camera viewport through the post-process target swap.
+    pub preserve: Vec<(TextureFormat, wgpu::RenderPipeline)>,
     /// `downsample` per mipmapped buffer format.
     pub downsample: Vec<(TextureFormat, wgpu::RenderPipeline)>,
-    pub depth_parameters: wgpu::Buffer,
     pub linear: wgpu::Sampler,
     /// The geometry adapter's zero-stride constant stream, for host-built sky vertices.
     pub constant_stream: wgpu::Buffer,
@@ -100,16 +101,17 @@ pub(super) fn host_pipelines(
         .into_iter()
         .map(|f| (f, pipeline("present", &[target(f)], false)))
         .collect(),
+        preserve: [
+            render_scene::SCENE_COLOR_FORMAT,
+            render_scene::SCENE_HDR_FORMAT,
+        ]
+        .into_iter()
+        .map(|f| (f, pipeline("preserve", &[target(f)], false)))
+        .collect(),
         downsample: formats
             .into_iter()
             .map(|f| (f, pipeline("downsample", &[target(f)], false)))
             .collect(),
-        depth_parameters: device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("shader pack depth parameters"),
-            size: 32,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        }),
         linear: device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("shader pack host linear"),
             mag_filter: wgpu::FilterMode::Linear,

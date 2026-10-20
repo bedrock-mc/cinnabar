@@ -205,13 +205,15 @@ impl Default for ShaderPackFrameInputs {
 /// views. Written in the render world by the pack host.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ShaderPackEffects {
-    pub particles: bool,
+    pub particles_opaque: bool,
+    pub particles_translucent: bool,
+    pub particles_additive: bool,
     pub weather: bool,
     pub lightning: bool,
     pub clouds: bool,
     /// The block selection outline.
     pub selection: bool,
-    /// Block cracks (with the selection highlight, which shares their draw).
+    /// Block cracks; selection highlights follow `selection`.
     pub cracks: bool,
 }
 

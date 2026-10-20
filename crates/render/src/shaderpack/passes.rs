@@ -34,6 +34,22 @@ pub(crate) struct DrawContext {
     pub particle_atlas_size: [i32; 2],
     /// The first-person hand's projection, its depth scaled by `MC_HAND_DEPTH`.
     pub hand_projection: Mat4,
+    /// The destroy-stage atlas size for damaged-block draws.
+    pub crack_atlas_size: [i32; 2],
+}
+
+impl DrawContext {
+    /// Returns the texel dimensions of the atlas bound to this draw.
+    pub(super) fn atlas_size(&self, kind: DrawKind) -> [i32; 2] {
+        match kind {
+            _ if kind.category().is_some() => self.atlas_size,
+            DrawKind::Effect(
+                Effect::Particles | Effect::ParticlesTranslucent | Effect::ParticlesAdditive,
+            ) => self.particle_atlas_size,
+            DrawKind::Effect(Effect::DamagedBlock) => self.crack_atlas_size,
+            _ => [0; 2],
+        }
+    }
 }
 
 /// One view's resources and per-frame state for a loaded pack.
@@ -41,6 +57,8 @@ pub(crate) struct ViewState {
     pub pack: Arc<PackGpu>,
     pub targets: ViewTargets,
     pub bindings: ViewBindings,
+    /// View-local scene conversion planes and source rectangle.
+    pub(super) depth_parameters: wgpu::Buffer,
     pub history: super::uniforms::UniformHistory,
     /// Actor, block-entity and hand geometry skinned for the pack, with its draw bindings.
     pub actors: super::actors::ViewActors,
@@ -89,6 +107,12 @@ impl ViewState {
             );
         }
         Ok(Self {
+            depth_parameters: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("shader pack view depth parameters"),
+                size: 48,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
             pack,
             targets,
             bindings,
@@ -212,15 +236,7 @@ impl ViewState {
                 },
                 render_stage: draw.kind.render_stage(),
                 lightmap_matrix: draw.kind.lightmap_matrix(),
-                atlas_size: match effect {
-                    _ if terrain => context.atlas_size,
-                    Some(
-                        Effect::Particles
-                        | Effect::ParticlesTranslucent
-                        | Effect::ParticlesAdditive,
-                    ) => context.particle_atlas_size,
-                    _ => [0; 2],
-                },
+                atlas_size: context.atlas_size(draw.kind),
                 entity_id: effect.map_or(-1, |effect| self.pack.effects.entity_id(effect)),
             };
             let lookup = |name: &str| values.value(name).or_else(|| lookup(name));
@@ -251,6 +267,8 @@ impl ViewState {
 
 /// What a view hands the pack for one frame.
 pub(crate) struct FrameIo<'a> {
+    /// Physical source and destination rectangle: x, y, width, height.
+    pub viewport: [u32; 4],
     /// The finished scene colour, sampled as linear values.
     pub scene_colour: &'a TextureView,
     /// The scene depth (infinite reverse-Z).
@@ -332,7 +350,7 @@ pub(crate) fn record_frame(
     io: &FrameIo<'_>,
 ) {
     let pack = Arc::clone(&state.pack);
-    write_depth_parameters(queue, &pack, io);
+    write_depth_parameters(queue, &state.depth_parameters, io);
     for plan in &pack.buffers {
         let (Some(clear), Some(buffer)) = (
             plan.clear,
@@ -379,7 +397,14 @@ pub(crate) fn record_frame(
                 Some(geometry) => {
                     record_opaque(device, queue, encoder, state, geometry, timestamps);
                 }
-                None => copy_scene(device, encoder, &pack, &state.targets, io),
+                None => copy_scene(
+                    device,
+                    encoder,
+                    &pack,
+                    &state.targets,
+                    &state.depth_parameters,
+                    io,
+                ),
             }
         },
     );
@@ -409,13 +434,18 @@ pub(crate) fn record_frame(
         timestamps,
         RuntimeStage::GpuShaderpackComposite,
         encoder,
-        |encoder| record_composite(encoder, state, io),
+        |encoder| record_composite(device, encoder, state, io),
     );
 }
 
 /// `composite*` and `final`, the copy-back of buffers that end flipped (or the exchange of
 /// their textures), and the screen's presentation into the view.
-fn record_composite(encoder: &mut CommandEncoder, state: &mut ViewState, io: &FrameIo<'_>) {
+fn record_composite(
+    device: &Device,
+    encoder: &mut CommandEncoder,
+    state: &mut ViewState,
+    io: &FrameIo<'_>,
+) {
     let pack = Arc::clone(&state.pack);
     run_steps(encoder, state, Steps::Composite, state.targets.screen_size);
     let targets = &state.targets;
@@ -429,6 +459,35 @@ fn record_composite(encoder: &mut CommandEncoder, state: &mut ViewState, io: &Fr
             main.as_image_copy(),
             main.size(),
         );
+    }
+    state.targets.swap_sides(&pack.frame.exchange);
+    let targets = &state.targets;
+    let source = io.scene_colour.texture();
+    if io.viewport != [0, 0, source.width(), source.height()] {
+        if let Some((_, pipeline)) = pack
+            .host
+            .preserve
+            .iter()
+            .find(|(f, _)| *f == io.destination_format)
+        {
+            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("shader pack preserve viewport exterior"),
+                layout: &pipeline.get_bind_group_layout(0),
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(io.scene_colour),
+                }],
+            });
+            let mut render = pass(
+                encoder,
+                "shader pack preserve viewport exterior",
+                &[load_attachment(io.destination)],
+                None,
+            );
+            render.set_pipeline(pipeline);
+            render.set_bind_group(0, &group, &[]);
+            render.draw(0..3, 0..1);
+        }
     }
     let present = pack
         .host
@@ -445,15 +504,16 @@ fn record_composite(encoder: &mut CommandEncoder, state: &mut ViewState, io: &Fr
             &[load_attachment(io.destination)],
             None,
         );
+        let [x, y, w, h] = io.viewport.map(|v| v as f32);
+        render.set_viewport(x, y, w, h, 0.0, 1.0);
         render.set_pipeline(pipeline);
         render.set_bind_group(0, group, &[]);
         render.draw(0..3, 0..1);
     }
-    state.targets.swap_sides(&pack.frame.exchange);
 }
 
 /// Writes the planes and limits the host's depth conversions and the Vanilla overlay use.
-fn write_depth_parameters(queue: &Queue, pack: &PackGpu, io: &FrameIo<'_>) {
+fn write_depth_parameters(queue: &Queue, buffer: &wgpu::Buffer, io: &FrameIo<'_>) {
     let far = io.render_distance.max(16.0) * FAR_PLANE_SCALE;
     // Vanilla content beyond `far` (its far-terrain impostors) has no pack geometry behind it
     // and never comes through; inside, only what lies within the fully expanded radius does.
@@ -462,6 +522,7 @@ fn write_depth_parameters(queue: &Queue, pack: &PackGpu, io: &FrameIo<'_>) {
         .as_ref()
         .map_or(f32::MAX, |g| g.overlay_radius)
         .min(io.render_distance.max(16.0));
+    let [x, y, w, h] = io.viewport.map(|v| v as f32);
     let parameters = [
         io.scene_near,
         GL_NEAR,
@@ -471,9 +532,13 @@ fn write_depth_parameters(queue: &Queue, pack: &PackGpu, io: &FrameIo<'_>) {
         io.inverse_focal[1],
         0.0,
         0.0,
+        x,
+        y,
+        w,
+        h,
     ];
     let bytes: Vec<u8> = parameters.iter().flat_map(|v| v.to_le_bytes()).collect();
-    queue.write_buffer(&pack.host.depth_parameters, 0, &bytes);
+    queue.write_buffer(buffer, 0, &bytes);
 }
 
 /// Which of the pack's pass lists to run.
@@ -517,6 +582,7 @@ fn copy_scene(
     encoder: &mut CommandEncoder,
     pack: &PackGpu,
     targets: &ViewTargets,
+    depth_parameters: &wgpu::Buffer,
     io: &FrameIo<'_>,
 ) {
     let host = &pack.host;
@@ -525,10 +591,16 @@ fn copy_scene(
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("shader pack scene colour"),
             layout: &host.scene_colour.get_bind_group_layout(0),
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(io.scene_colour),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(io.scene_colour),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: depth_parameters.as_entire_binding(),
+                },
+            ],
         });
         let mut render = pass(
             encoder,
@@ -551,7 +623,7 @@ fn copy_scene(
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: host.depth_parameters.as_entire_binding(),
+                    resource: depth_parameters.as_entire_binding(),
                 },
             ],
         })
@@ -747,5 +819,29 @@ fn run_step(
             render.set_vertex_buffer(0, pack.quad.slice(..));
             render.draw(0..4, 0..1);
         }
+    }
+}
+
+#[cfg(test)]
+mod atlas_tests {
+    use super::*;
+    #[test]
+    fn damaged_blocks_use_the_atlas_bound_to_their_draw() {
+        let context = DrawContext {
+            chunk_offset: Vec3::ZERO,
+            atlas_size: [1024; 2],
+            particle_atlas_size: [512; 2],
+            crack_atlas_size: [256, 128],
+            hand_projection: Mat4::IDENTITY,
+        };
+        assert_eq!(
+            context.atlas_size(DrawKind::Effect(Effect::DamagedBlock)),
+            [256, 128]
+        );
+        assert_eq!(context.atlas_size(DrawKind::TerrainSolid), [1024; 2]);
+        assert_eq!(
+            context.atlas_size(DrawKind::Effect(Effect::Particles)),
+            [512; 2]
+        );
     }
 }

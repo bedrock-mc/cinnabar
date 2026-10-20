@@ -128,6 +128,11 @@ pub(crate) fn open_kind<'e>(
         }
         return None;
     }
+    targets.take_snapshots(
+        encoder,
+        &pack.programs[draw.program],
+        super::targets::draw_reads(&pack, draw).alt,
+    );
     let depth = depth.and_then(|(view, _)| depth_attachment(view, false));
     let mut render = pass(
         encoder,
@@ -515,6 +520,7 @@ pub(crate) fn record_translucent(
     let view = depth.view.clone();
     let size = state.targets.screen_size;
     record_vanilla_overlay(device, encoder, state, vanilla, &view);
+    copy_view_depth(device, encoder, state, &[1], &[0, 1]);
     let translucent_alt = state.pack.frame.translucent_alt;
     record_kind(
         encoder,
@@ -596,7 +602,7 @@ fn record_vanilla_overlay(
             },
             wgpu::BindGroupEntry {
                 binding: 2,
-                resource: pack.host.depth_parameters.as_entire_binding(),
+                resource: state.depth_parameters.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
                 binding: 5,

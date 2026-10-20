@@ -402,7 +402,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   and enable rules, and its programs translate to validated naga modules with a binding
   contract. Behind the render crate's `shaderpacks` feature, the host builds the Java-style
   block atlas packs sample. Pack-specific translation fixes, the rest of the render-host
-  integration and in-game acceptance remain incomplete.
+  integration and in-game acceptance remain incomplete. Geometry replacement retains the
+  native scene-copy path when celestial layers or effects without depth writes still need
+  native composition; their geometry-host composition is incomplete.
   contract. Pack-specific translation fixes, render-host integration and in-game
   acceptance remain incomplete; parsed custom uniform expressions are not executed or
   rendered.

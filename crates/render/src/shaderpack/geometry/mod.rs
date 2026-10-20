@@ -119,7 +119,9 @@ impl Plugin for ShaderpackGeometryPlugin {
             .add_systems(
                 Render,
                 crate::chunk::shaderpack_sources::after_packed_chunk_upload(
-                    gpu::prepare_shaderpack_geometry.in_set(RenderSystems::PrepareResources),
+                    gpu::prepare_shaderpack_geometry
+                        .after(RenderSystems::PrepareViews)
+                        .before(RenderSystems::Queue),
                 ),
             )
             .add_systems(bevy::render::RenderStartup, install_expansion_recording);
