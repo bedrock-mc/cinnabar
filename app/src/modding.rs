@@ -153,6 +153,20 @@ impl ModRuntime {
         self.metadata[host].owner
     }
 
+    /// Projects each live guest's HUD and native-binding revision with its stable UI owner.
+    fn hud_sources(
+        &self,
+    ) -> impl Iterator<Item = (mod_ui::PanelUiOwner, u64, &ui::mod_hud::Hud)> + Clone {
+        (0..self.hosts.host_count()).filter_map(|index| {
+            let host = self.hosts.host(index);
+            Some((
+                self.panel_ui_owner(index),
+                host.hud_revision()?,
+                host.hud()?,
+            ))
+        })
+    }
+
     /// Existing mod order chooses one active, explicitly authorized local menu brand.
     fn menu_branding(
         &self,
@@ -744,6 +758,12 @@ fn drive_mod(
         .set_mod_label(extension.hosts.merged_label())
     {
         warn!("Cinnabar extension HUD rejected: {error}");
+    }
+    if let Err(error) = presentation
+        .mod_ui_mut()
+        .set_mod_hud_sources(extension.hud_sources())
+    {
+        warn!("Cinnabar extension HUD sources rejected: {error}");
     }
     let combined_hud = extension.hosts.merged_hud();
     let hud = combined_hud.as_deref();

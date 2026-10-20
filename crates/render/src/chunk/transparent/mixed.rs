@@ -8,7 +8,7 @@ use bevy::render::render_resource::CachedRenderPipelineId;
 use render_scene::{ChunkRenderInstance, ChunkTextureAssetIdentity, ChunkTextureAssets};
 
 mod command;
-mod plan;
+pub(crate) mod plan;
 #[cfg(test)]
 mod tests;
 

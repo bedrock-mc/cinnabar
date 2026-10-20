@@ -1,0 +1,19 @@
+{
+  "id": "1:1", "name": "Layout Test", "type": "FRAME", "width": 200, "height": 100,
+  "children": [
+    { "id": "1:2", "name": "Top Left", "type": "FRAME", "x": 10, "y": 5, "width": 40, "height": 20 },
+    { "id": "1:3", "name": "Bottom Right", "type": "FRAME", "x": 150, "y": 70, "width": 40, "height": 20,
+      "constraints": { "horizontal": "MAX", "vertical": "MAX" } },
+    { "id": "1:4", "name": "Centered", "type": "FRAME", "x": 80, "y": 40, "width": 40, "height": 20,
+      "constraints": { "horizontal": "CENTER", "vertical": "CENTER" } },
+    { "id": "1:5", "name": "Stretched", "type": "FRAME", "x": 10, "y": 30, "width": 180, "height": 10,
+      "constraints": { "horizontal": "STRETCH", "vertical": "MIN" } },
+    { "id": "1:6", "name": "Scaled", "type": "FRAME", "x": 50, "y": 50, "width": 100, "height": 10,
+      "constraints": { "horizontal": "SCALE", "vertical": "SCALE" } },
+    { "id": "1:7", "name": "Group", "type": "GROUP", "x": 20, "y": 60, "width": 30, "height": 30,
+      "children": [
+        { "id": "1:8", "name": "Inner", "type": "FRAME", "x": 5, "y": 5, "width": 10, "height": 10,
+          "clips_content": true, "opacity": 0.5 }
+      ] }
+  ]
+}

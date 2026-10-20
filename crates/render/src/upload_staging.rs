@@ -73,12 +73,18 @@ fn request(app: &mut App, select: impl FnOnce(&mut Installed)) {
         .add_systems(RenderStartup, initialize);
 }
 
+/// The render-graph system that encodes staged copies; later graph work that reads those
+/// buffers orders after it.
+#[derive(bevy::ecs::schedule::SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct BufferUploads;
+
 /// Creates retained staging only when a camera graph will consume its pending copies.
 fn initialize(world: &mut World) {
     let installed = world
         .try_schedule_scope(bevy::render::renderer::RenderGraph, |_, schedule| {
             schedule.add_systems(
                 crate::gpu_timing::profiled(upload_buffers, None, "main/BufferUploads")
+                    .in_set(BufferUploads)
                     .before(bevy::core_pipeline::schedule::camera_driver)
                     .in_set(bevy::render::renderer::RenderGraphSystems::Render),
             );

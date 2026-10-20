@@ -257,7 +257,7 @@ func runWithResourcePackCacheFactory(
 			return errors.New("auth-events mode cannot be combined with proxy or catalog options")
 		}
 		return authflow.Run(ctx, authflow.Config{
-			Path: opts.authCache, Writer: stdout,
+			Path: opts.authCache, Writer: stdout, Logger: logger,
 			CompleteSignIn: func(ctx context.Context, path string, source oauth2.TokenSource) error {
 				return authcache.CompleteSignIn(ctx, path, source, logger)
 			},

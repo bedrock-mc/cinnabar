@@ -638,15 +638,15 @@ fn element_button_forms_reject_ambiguous_or_unsupported_controls_without_renumbe
 }
 
 #[test]
-fn element_button_forms_keep_the_existing_text_limits() {
+fn element_button_forms_keep_long_display_strings() {
     let long = "x".repeat(MAX_UI_TEXT_BYTES + 1);
     let json = format!(
         r#"{{"type":"form","elements":[{{"type":"button","text":"{long}","image":null}}]}}"#
     );
-    assert_eq!(
-        form_event(&json).unwrap().model,
-        protocol::ServerFormModel::Unsupported(protocol::UnsupportedForm::Limit)
-    );
+    let protocol::ServerFormModel::TextMenu(menu) = form_event(&json).unwrap().model else {
+        panic!("long element button text");
+    };
+    assert_eq!(menu.buttons[0].as_ref(), long);
 }
 
 #[test]
@@ -795,20 +795,15 @@ fn modal_and_custom_form_responses_round_trip() {
 }
 
 #[test]
-fn text_button_form_model_refuses_string_overflow_without_truncating_indices() {
+fn text_button_form_images_keep_their_own_reference_limit() {
     let text = "x".repeat(MAX_UI_TEXT_BYTES + 1);
-    for json in [
-        format!(r#"{{"type":"form","content":"{text}","buttons":[]}}"#),
-        format!(r#"{{"type":"form","buttons":[{{"text":"{text}"}}]}}"#),
-        format!(
-            r#"{{"type":"form","buttons":[{{"text":"Icon","image":{{"type":"url","data":"{text}"}}}}]}}"#
-        ),
-    ] {
-        assert!(matches!(
-            form_event(&json).unwrap().model,
-            protocol::ServerFormModel::Unsupported(_)
-        ));
-    }
+    let json = format!(
+        r#"{{"type":"form","buttons":[{{"text":"Icon","image":{{"type":"url","data":"{text}"}}}}]}}"#
+    );
+    assert!(matches!(
+        form_event(&json).unwrap().model,
+        protocol::ServerFormModel::Unsupported(_)
+    ));
 }
 
 #[test]
@@ -870,16 +865,15 @@ fn oversized_or_malformed_form_json_is_a_semantic_error_not_wire_fault() {
 }
 
 #[test]
-fn oversized_form_titles_fail_the_shared_ui_text_budget() {
+fn form_titles_keep_long_display_strings() {
     let title = "x".repeat(MAX_UI_TEXT_BYTES + 1);
-    let json = format!(r#"{{"type":"form","title":"{title}"}}"#);
-    assert_eq!(
-        form_event(&json).unwrap_err(),
-        UiPacketError::TextTooLong {
-            bytes: MAX_UI_TEXT_BYTES + 1,
-            max: MAX_UI_TEXT_BYTES,
-        }
-    );
+    let json = format!(r#"{{"type":"form","title":"{title}","buttons":[]}}"#);
+    let event = form_event(&json).unwrap();
+    assert_eq!(event.title.as_deref(), Some(title.as_str()));
+    let protocol::ServerFormModel::TextMenu(menu) = event.model else {
+        panic!("long title");
+    };
+    assert_eq!(menu.title.as_ref(), title);
 }
 
 #[test]

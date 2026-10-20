@@ -204,7 +204,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap"
 name = "pack-runtime"
 path = "crates/pack-runtime"
 forbidden_dependencies = ["pack-compiler", "pack-font-compiler"]
-allowed_dependencies = ["bridge", "pack-json", "assets", "block-transform", "json-ui", "pack-compile-input", "pack-entity-compiler", "protocol", "resource-pack", "sim"]
+allowed_dependencies = ["bridge", "pack-json", "assets", "block-transform", "json-ui", "pack-compile-input", "pack-entity-compiler", "protocol", "resource-pack", "sim", "test-alloc"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "client-session", "client-ui", "client-presentation", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
@@ -406,7 +406,7 @@ test_support_features = ["publication-test-support"]
 name = "render"
 path = "crates/render"
 test_support_features = ["publication-test-support"]
-allowed_dependencies = ["env-compat", "render-scene", "assets", "block-transform", "far-terrain", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "tracy-client", "world", "test-time"]
+allowed_dependencies = ["env-compat", "render-scene", "assets", "block-transform", "far-terrain", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "shaderpack", "tracy-client", "world", "test-time"]
 forbidden_dependencies = ["asset-compiler"]
 # Also reject game-state edges hidden behind another local crate or test dependency.
 forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol"]
@@ -1369,6 +1369,11 @@ block_registries = ["crates/assets/data/block-registry-v2193.bin"]
 baselines = [
     { path = "crates/pack-compiler/src/pbr/sources/names.rs", max = 55 },
 ]
+
+[[identifier_literal_exceptions]]
+path = "crates/mod-ui/src/mod_hud_editor/feedback.rs"
+literal = "height"
+reason = "Suffix of the editor's own #measurement_<axis>_height data binding, not a vanilla UI property."
 
 [[identifier_literal_exceptions]]
 path = "crates/shaderpack/src/dimensions.rs"
