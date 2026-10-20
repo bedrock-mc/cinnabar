@@ -13,6 +13,79 @@ fn centered_compass_follows_viewport_and_saved_placement() {
     assert_eq!(origin(&card, [400., 200.]), [30., 84.]);
 }
 
+/// Authored offsets keep fitting widgets reachable for every supported anchor after a resize.
+#[test]
+fn anchored_cards_remain_reachable_in_a_smaller_viewport() {
+    for anchor in [
+        Anchor::TopLeft,
+        Anchor::TopCenter,
+        Anchor::TopRight,
+        Anchor::BottomLeft,
+        Anchor::BottomRight,
+    ] {
+        for offset in [[600., 400.], [-600., -400.]] {
+            let card = Card {
+                anchor,
+                offset,
+                width: 100.,
+                cells: vec![ui::mod_hud::Cell {
+                    rect: [0., 0., 100., 60.],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            };
+            for viewport in [[800., 500.], [220., 120.]] {
+                let at = origin(&card, viewport);
+                let size = dimensions(&card);
+                for axis in 0..2 {
+                    assert!(at[axis] >= 0.);
+                    assert!(at[axis] + size[axis] <= viewport[axis]);
+                }
+                assert_eq!(
+                    card.offset, offset,
+                    "bounds correction must preserve authored offsets"
+                );
+            }
+        }
+    }
+}
+
+/// Effective bounds correction does not replace the default layout saved in the card.
+#[test]
+fn factory_offsets_return_when_the_viewport_grows() {
+    let card = Card {
+        offset: [8., 176.],
+        width: 130.,
+        cells: vec![ui::mod_hud::Cell {
+            rect: [0., 0., 130., 18.],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    assert_eq!(origin(&card, [320., 160.]), [8., 142.]);
+    assert_eq!(origin(&card, [800., 500.]), [8., 176.]);
+    assert_eq!(card.position, None);
+}
+
+/// Oversized authored axes retain their placement while normalized positions use bounded travel.
+#[test]
+fn oversized_and_normalized_placement_keep_their_existing_contracts() {
+    let mut card = Card {
+        anchor: Anchor::TopRight,
+        offset: [-8., 180.],
+        width: 300.,
+        cells: vec![ui::mod_hud::Cell {
+            rect: [0., 0., 300., 60.],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    assert_eq!(origin(&card, [220., 120.]), [-8., 60.]);
+    card.position = Some([0.75, 0.25]);
+    assert_eq!(origin(&card, [220., 120.]), [0., 15.]);
+    assert_eq!(origin(&card, [700., 300.]), [300., 60.]);
+}
+
 /// An inventory has nine columns and retains all 36 slots, including empty ones.
 #[test]
 fn inventory_grid_geometry_preserves_slot_count() {

@@ -455,5 +455,12 @@ pub(in super::super) fn origin(card: &Card, viewport: [f64; 2]) -> [f64; 2] {
         Anchor::BottomLeft => [0., available[1]],
         Anchor::BottomRight => available,
     };
-    std::array::from_fn(|axis| edge[axis] + f64::from(card.offset[axis]))
+    std::array::from_fn(|axis| {
+        let at = edge[axis] + f64::from(card.offset[axis]);
+        if size[axis] <= viewport[axis] {
+            at.clamp(0., available[axis])
+        } else {
+            at
+        }
+    })
 }

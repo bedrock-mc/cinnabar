@@ -77,7 +77,7 @@ impl ModUi {
         PanelUiOwner,
         &std::collections::BTreeMap<String, ui::mod_panel::preview::ControlPreview>,
     )> {
-        if self.mod_hud_editor_open() {
+        if self.mod_hud_editor_painting() {
             return None;
         }
         let panel = self
@@ -160,6 +160,9 @@ impl ModUi {
         } else {
             panel.validate()?;
         }
+        if !same_shape {
+            self.cancel_mod_hud_editor();
+        }
         if let Some(current) = self.mod_panel.as_mut() {
             if !same_shape {
                 let transitions = (current.owner == owner
@@ -228,12 +231,15 @@ impl ModUi {
 
     /// Changes visibility once per transition and restores animated feedback when closing.
     /// Closing releases input at once; a painted surface whose transitions declare exit values
-    /// keeps drawing until they settle, unless the HUD editor owned the panel surface.
+    /// keeps drawing until they settle, including authored HUD editor chrome.
     /// Reopening during that exit eases back from the displayed values.
     pub fn set_mod_panel_open(&mut self, open: bool) {
-        let exit = !self.reduced_motion && !self.mod_hud_editor_open();
+        let editor_owned = self.mod_hud_editor_open();
+        let exit = !self.reduced_motion && !editor_owned;
         if !open {
-            self.cancel_mod_hud_editor();
+            if let Some(editor) = self.mod_hud_editor.as_mut() {
+                editor.close(!self.reduced_motion);
+            }
         }
         if let Some(panel) = self.mod_panel.as_mut() {
             if open {
@@ -252,7 +258,7 @@ impl ModUi {
 
     /// Whether the active panel retains resource-pack HUD content for placement or inspection.
     pub fn mod_panel_shows_gameplay_hud(&self) -> bool {
-        self.mod_hud_editor_open()
+        self.mod_hud_editor_painting()
             || self
                 .mod_panel
                 .as_ref()
@@ -268,24 +274,31 @@ impl ModUi {
 
     /// Whether the panel draws: open, or closed while bindings ease to their exit values.
     pub fn mod_panel_painting(&self) -> bool {
-        self.mod_panel
-            .as_ref()
-            .is_some_and(|panel| panel.open || panel.exiting())
+        self.mod_hud_editor_painting()
+            || self
+                .mod_panel
+                .as_ref()
+                .is_some_and(|panel| panel.open || panel.exiting())
     }
 
     /// Native feedback, surface transitions and exits need frames only while they are moving.
     pub fn mod_panel_motion_active(&self) -> bool {
-        self.mod_panel.as_ref().is_some_and(|panel| {
-            panel.exiting()
-                || panel.open
-                    && (panel.motion.active() || panel.motion_data_dirty && panel.animated())
-        })
+        self.mod_hud_editor_motion_active()
+            || self.mod_panel.as_ref().is_some_and(|panel| {
+                panel.exiting()
+                    || panel.open
+                        && (panel.motion.active() || panel.motion_data_dirty && panel.animated())
+            })
     }
 
     /// Explicitly overrides mod surface motion, independently of built-in screen preferences.
     /// Disabling settles transitions, exits and opted-in feedback, including values already moving.
     pub fn configure_motion(&mut self, enabled: bool) {
         self.reduced_motion = !enabled;
+        if !enabled && let Some(editor) = self.mod_hud_editor.as_mut().filter(|editor| !editor.open)
+        {
+            editor.stop_exit();
+        }
     }
 
     pub fn mod_panel_toggle_key(&self) -> Option<&str> {

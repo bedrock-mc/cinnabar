@@ -6,6 +6,7 @@ mod gameplay_hud;
 mod mod_hud;
 mod mod_hud_editor;
 mod mod_hud_editor_autosave;
+mod mod_hud_editor_motion;
 mod mod_panel;
 mod mod_panel_drag;
 mod mod_panel_edit;

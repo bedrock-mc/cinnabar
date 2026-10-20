@@ -467,8 +467,14 @@ fn corners_resize_uniformly_autosave_and_restore_interrupted_drafts() {
             if direction > 0. {
                 assert!(
                     scale == ui::mod_hud::MAX_CARD_SCALE
-                        || (0..2).any(|axis| (size[axis] - editor.viewport[axis]).abs() < 0.001),
-                    "growth fills a limiting dimension or reaches the published maximum"
+                        || (0..2).any(|axis| {
+                            if corner & (1 << axis) == 0 {
+                                origin[axis].abs() < 0.001
+                            } else {
+                                (origin[axis] + size[axis] - editor.viewport[axis]).abs() < 0.001
+                            }
+                        }),
+                    "growth stops at a dragged screen edge or the published maximum"
                 );
             }
             for axis in 0..2 {
