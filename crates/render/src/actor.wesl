@@ -1,4 +1,5 @@
 import bevy_render::view::View;
+import render::actor_rig::{BoneMatrix, transform_point, posed_point, posed_normal, placed_point, placed_normal};
 import render::glint::glint_layer_uvs;
 import render::lighting::{actor_lighting, actor_distance_fog, actor_light_colour, tint_to_gamma, tint_to_linear};
 @if(ALPHA_TO_COVERAGE)
@@ -7,12 +8,6 @@ import render::lighting::{CutoutSample, cutout_alpha_array_region};
 struct GeometrySpan {
     first_vertex: u32,
     vertex_count: u32,
-}
-
-struct BoneMatrix {
-    row_0: vec4<f32>,
-    row_1: vec4<f32>,
-    row_2: vec4<f32>,
 }
 
 // ActorGpuInstance is read as packed words; the loader substitutes its Rust layout stride.
@@ -150,23 +145,6 @@ fn instance_row(base: u32, row: u32) -> vec4<f32> {
     );
 }
 
-fn transform_point(matrix: BoneMatrix, point: vec3<f32>) -> vec3<f32> {
-    let homogeneous = vec4(point, 1.0);
-    return vec3(
-        dot(matrix.row_0, homogeneous),
-        dot(matrix.row_1, homogeneous),
-        dot(matrix.row_2, homogeneous),
-    );
-}
-
-fn transform_direction(matrix: BoneMatrix, direction: vec3<f32>) -> vec3<f32> {
-    return vec3(
-        dot(matrix.row_0.xyz, direction),
-        dot(matrix.row_1.xyz, direction),
-        dot(matrix.row_2.xyz, direction),
-    );
-}
-
 @vertex
 fn actor_vertex(
     @builtin(vertex_index) vertex_index: u32,
@@ -246,24 +224,16 @@ fn actor_vertex(
     out.back_uv = select(uv_offset + raw_back_uv * uv_scale, raw_back_uv, raw_back_uv.x < -1.0e8);
     let bone_index = vertex_words[vertex_base + 10u];
     out.material_parameters.y = vertex_words[vertex_base + 11u];
-    let previous = transform_point(previous_bones[previous_bone_base + bone_index], local);
-    let current = transform_point(current_bones[current_bone_base + bone_index], local);
-    let posed = mix(previous, current, partial_tick);
-    let previous_normal = transform_direction(
-        previous_bones[previous_bone_base + bone_index],
-        local_normal,
+    let previous_bone = previous_bones[previous_bone_base + bone_index];
+    let current_bone = current_bones[current_bone_base + bone_index];
+    let posed = posed_point(previous_bone, current_bone, local, partial_tick);
+    let bone_normal = posed_normal(previous_bone, current_bone, local_normal, partial_tick);
+    let placement = BoneMatrix(
+        instance_row(instance_base, 0u),
+        instance_row(instance_base, 1u),
+        instance_row(instance_base, 2u),
     );
-    let current_normal = transform_direction(
-        current_bones[current_bone_base + bone_index],
-        local_normal,
-    );
-    let posed_normal = normalize(mix(previous_normal, current_normal, partial_tick));
-    let world = vec4(
-        dot(instance_row(instance_base, 0u), vec4(posed, 1.0)),
-        dot(instance_row(instance_base, 1u), vec4(posed, 1.0)),
-        dot(instance_row(instance_base, 2u), vec4(posed, 1.0)),
-        1.0,
-    );
+    let world = vec4(placed_point(placement, posed), 1.0);
     out.position = view.clip_from_world * world;
     @if(ACTOR_MOTION)
     {
@@ -276,11 +246,7 @@ fn actor_vertex(
         }
     }
     out.world_position = world.xyz;
-    let world_normal = normalize(vec3(
-        dot(instance_row(instance_base, 0u).xyz, posed_normal),
-        dot(instance_row(instance_base, 1u).xyz, posed_normal),
-        dot(instance_row(instance_base, 2u).xyz, posed_normal),
-    ));
+    let world_normal = placed_normal(placement, bone_normal);
     @if(!ACTOR_MOTION)
     out.world_normal = world_normal;
     out.native_lighting = actor_lighting(out.light, world_normal, out.overlay.a) * light_color_multiplier;

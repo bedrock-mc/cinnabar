@@ -12,7 +12,7 @@ mod weather;
 pub(crate) use atmosphere::update_atmosphere_frame;
 pub(crate) use diagnostics::log_world_lighting;
 pub(crate) use seasonal_foliage::update_seasonal_foliage;
-pub(crate) use time_override::VisualTimeOverride;
+pub(crate) use time_override::{FixedTime, VisualTimeOverride, rendered_clock};
 pub(crate) use weather::{
     load_optional_weather_textures, update_lightning, update_precipitation_scene,
 };

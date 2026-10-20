@@ -806,6 +806,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         args.render_mode,
         diagnostics_enabled,
     ));
+    app.insert_resource(crate::environment::FixedTime(args.fixed_time));
     app.add_plugins(render::PanoramaRenderPlugin);
     if let Some(particle_assets) = &particle_assets {
         app.insert_resource(render_scene::ParticleSimulation(
