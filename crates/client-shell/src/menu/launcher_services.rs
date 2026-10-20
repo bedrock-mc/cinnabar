@@ -383,6 +383,9 @@ impl MenuRuntime {
 #[cfg(test)]
 mod dead_child_tests;
 
+#[cfg(all(test, feature = "native-networking", not(target_arch = "wasm32")))]
+mod retirement_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;

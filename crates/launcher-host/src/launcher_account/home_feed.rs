@@ -125,6 +125,19 @@ impl Feed {
         shared: &Mutex<Snapshot>,
         changed: &mut watch::Receiver<Wake>,
     ) -> (Option<Home>, bool) {
+        #[cfg(all(
+            feature = "test-support",
+            feature = "native-networking",
+            not(target_arch = "wasm32")
+        ))]
+        {
+            let probe = shared.lock().unwrap().retirement_probe.clone();
+            if let Some(probe) = probe {
+                let selected = Selection::capture(&shared.lock().unwrap());
+                let _ = wait(probe.read(), shared, &selected, changed).await;
+                return (None, false);
+            }
+        }
         #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
         {
             let selected = Selection::capture(&shared.lock().unwrap_or_else(|p| p.into_inner()));

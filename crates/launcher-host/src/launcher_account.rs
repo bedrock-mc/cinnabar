@@ -56,6 +56,12 @@ pub use presence::{TitlePresenceLifetime, TitlePresenceRetirement};
 mod native_host;
 #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
 mod native_presence;
+#[cfg(all(
+    feature = "test-support",
+    feature = "native-networking",
+    not(target_arch = "wasm32")
+))]
+pub mod retirement_test_support;
 
 #[cfg(all(test, unix))]
 mod presence_polling_tests;
@@ -86,6 +92,12 @@ enum AccountSource {
 
 #[derive(Default)]
 struct Snapshot {
+    #[cfg(all(
+        feature = "test-support",
+        feature = "native-networking",
+        not(target_arch = "wasm32")
+    ))]
+    retirement_probe: Option<Arc<retirement_test_support::State>>,
     account_source: AccountSource,
     auth_generation: u64,
     /// Wakes the catalog worker when its account identity changes.

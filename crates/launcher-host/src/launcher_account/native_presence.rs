@@ -55,6 +55,14 @@ impl Service for NativeService<'_> {
 
 /// Retains one actual acquisition/update/removal future across all unrelated control wakes.
 pub(super) async fn run(shared: &Mutex<Snapshot>, lifetime: &TitlePresenceLifetime) {
+    #[cfg(feature = "test-support")]
+    {
+        let probe = shared.lock().unwrap().retirement_probe.clone();
+        if let Some(probe) = probe {
+            publish(&probe, shared, lifetime).await;
+            return;
+        }
+    }
     let account = shared
         .lock()
         .unwrap_or_else(|p| p.into_inner())
@@ -207,3 +215,24 @@ async fn wait_latest(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(feature = "test-support")]
+impl Service for Arc<super::retirement_test_support::State> {
+    type Scope = ();
+    async fn bind(&self) -> io::Result<()> {
+        Ok(())
+    }
+    async fn update(
+        &self,
+        _: &(),
+        _: &bridge::XboxPresenceState,
+        dispatched: &mut bool,
+    ) -> io::Result<Option<Duration>> {
+        *dispatched = true;
+        self.published();
+        Ok(Some(FALLBACK_HEARTBEAT))
+    }
+    async fn remove(&self, _: &()) -> io::Result<()> {
+        super::retirement_test_support::State::remove(self.as_ref()).await
+    }
+}
