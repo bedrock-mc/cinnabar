@@ -146,8 +146,7 @@ struct OverlayOut {
 // waits, rather than Vanilla terrain without gbuffer data.
 @fragment
 fn vanilla_overlay(in: Fullscreen) -> OverlayOut {
-    let size = textureDimensions(source_depth);
-    let texel = flipped_texel(in.uv, size);
+    let texel = vec2<i32>(depth_parameters.viewport.xy) + flipped_texel(in.uv, vec2<u32>(depth_parameters.viewport.zw));
     let reverse = textureLoad(source_depth, texel, 0);
     if (reverse <= 0.0) {
         discard;

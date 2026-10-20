@@ -308,7 +308,7 @@ fn render_frame_options(
     if second_view {
         let mut other =
             ViewState::new(&gpu.device, Arc::clone(&pack), [viewport[2], viewport[3]]).unwrap();
-        other.write_uniforms(&gpu.queue, &frame, 0.016);
+        other.write_uniforms(&gpu.queue, &frame, 0.016, &context);
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
         let other_io = FrameIo {
             scene_near: 10.0,
@@ -1034,4 +1034,28 @@ fn geometry_draws_refresh_custom_image_feedback_before_opening_the_pass() {
         &readback.slice(..).get_mapped_range().unwrap()[..4],
         &[255, 0, 0, 255]
     );
+}
+
+#[test]
+fn geometry_overlay_crops_the_native_camera_viewport() {
+    let Some(gpu) = gpu() else {
+        eprintln!("missing fixture: native GPU adapter for the shader pack frame");
+        return;
+    };
+    let (_, bytes) = render_frame_options(
+        &gpu,
+        &[
+            ("gbuffers_basic.vsh", PASS_VERTEX),
+            ("gbuffers_basic.fsh", FILL),
+            ("gbuffers_terrain.vsh", PASS_VERTEX),
+            ("gbuffers_terrain.fsh", INVERT),
+            ("final.vsh", PASS_VERTEX),
+            ("final.fsh", FINAL),
+        ],
+        1,
+        [1, 0, 2, 2],
+        false,
+        true,
+    );
+    assert_pixels(&bytes, |row| if row < 2 { [255, 0, 0] } else { [128; 3] });
 }
