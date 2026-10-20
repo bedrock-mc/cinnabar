@@ -139,7 +139,8 @@ fn positive_u32(text: &str) -> Result<u32, String> {
 
 /// Parses a program enable expression and its optional dimension prefix.
 fn program_rule(target: &str, value: &str, line: u32) -> Result<ProgramRule, String> {
-    let (dimension, program) = match target.split_once('/') {
+    // Mapped dimension folders may be nested, so the program name follows the last slash.
+    let (dimension, program) = match target.rsplit_once('/') {
         Some((dimension, program)) => (Some(name(dimension, "dimension")?), program),
         None => (None, target),
     };
