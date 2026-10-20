@@ -297,7 +297,7 @@ fn frontend_macro_output_has_a_separate_storage_budget() {
         .expect("retained storage budget");
     assert_eq!(error.phase, Phase::Preprocess);
     assert!(error.message.contains("storage limit"));
-    assert_eq!(error.location.unwrap().to_string(), "a.fsh:1");
+    assert_eq!(error.location.unwrap().to_string(), "a.fsh:2");
 }
 
 #[test]
@@ -365,13 +365,8 @@ fn frontend_include_budget_accepts_the_exact_boundary() {
 #[test]
 fn frontend_metadata_copies_spend_the_storage_budget() {
     let expanded = Expanded {
-        text: format!("{MARKER}0 {MARKER}0"),
+        text: format!("/* const float value = {}; */", "x".repeat(512)),
         map: LineMap::default(),
-        directives: vec![Directive::Const(ConstDirective {
-            ty: "float".into(),
-            name: "value".into(),
-            value: "x".repeat(512),
-        })],
     };
     let error = preprocess_limited(expanded, &[], u64::MAX, 256)
         .err()
@@ -387,4 +382,87 @@ fn frontend_macro_setup_exhaustion_is_recoverable() {
         .err()
         .expect("setup work budget");
     assert!(error.message.contains("work limit"));
+}
+
+#[test]
+fn frontend_inactive_errors_accept_arbitrary_payloads() {
+    for error in [
+        "# error \"x\"",
+        "#error It's x",
+        "# error \"unclosed",
+        "#error `@$",
+    ] {
+        let source = format!("#if 0\n{error}\n#endif\nint visible;");
+        let pp = run(&[("a.fsh", &source)], "a.fsh", &[]);
+        assert!(
+            pp.tokens
+                .iter()
+                .any(|token| token.ident() == Some("visible"))
+        );
+    }
+}
+
+#[test]
+fn frontend_comment_consts_follow_preprocessed_source_order() {
+    let pp = run(
+        &[(
+            "a.fsh",
+            "/* const int colortex0Format = RGBA16F; */\n#if 0\n/* const int colortex1Format = R8; */\n#endif\n// const int colortex2Format = RGBA8;\nconst int shadowMapResolution = 1024;",
+        )],
+        "a.fsh",
+        &[],
+    );
+    assert_eq!(
+        pp.consts
+            .iter()
+            .map(|directive| (directive.name.as_str(), directive.value.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            ("colortex0Format", "RGBA16F"),
+            ("colortex2Format", "RGBA8"),
+            ("shadowMapResolution", "1024")
+        ]
+    );
+}
+
+#[test]
+fn frontend_include_line_comments_survive_expansion() {
+    let pp = run(
+        &[
+            (
+                "a.fsh",
+                "#include \"/lib/common.glsl\" /* RENDERTARGETS: 2 */",
+            ),
+            ("lib/common.glsl", "int included;"),
+        ],
+        "a.fsh",
+        &[],
+    );
+    assert_eq!(pp.render_targets, Some(vec![2]));
+    assert!(
+        pp.tokens
+            .iter()
+            .any(|token| token.ident() == Some("included"))
+    );
+}
+
+#[test]
+fn frontend_metadata_uses_expanded_values_and_comment_whitespace() {
+    let pp = run(
+        &[(
+            "a.fsh",
+            "#define SIZE 2048\nconst/* gap */ int shadowMapResolution = SIZE;\n#if 0 /* RENDERTARGETS: 9 */\n#endif /* RENDERTARGETS: 8 */\n#if 1 /* RENDERTARGETS: 2 */\n#endif",
+        )],
+        "a.fsh",
+        &[],
+    );
+    assert_eq!(pp.render_targets, Some(vec![2]));
+    assert_eq!(
+        pp.consts,
+        [ConstDirective {
+            ty: "int".into(),
+            name: "shadowMapResolution".into(),
+            value: "2048".into()
+        }]
+    );
 }
