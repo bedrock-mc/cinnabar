@@ -14,6 +14,7 @@ pub(super) fn paint(engine: &mut FormEngine, frame: &mut PaintFrame<'_>) -> Resu
         title: "Selection transfer".into(),
         elements: ["First", "Second"]
             .map(|name| CustomElement::Input {
+                enabled: true,
                 text: format!("{name} input"),
                 value: String::new(),
                 placeholder: format!("{name} placeholder"),

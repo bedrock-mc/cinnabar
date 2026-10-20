@@ -21,6 +21,7 @@ fn sliding_panel(x: f64, exit: Option<f64>) -> Panel {
         "button_mappings":[{"from_button_id":"button.menu_select","to_button_id":"mod.control:0","mapping_type":"pressed"}]});
     panel.surface = Some(Surface {
         collections: Default::default(),
+        previews: Default::default(),
         screen: "extension.screen".into(),
         document: json!({"namespace":"extension","screen":{
             "type":"screen","size":["100%","100%"],"controls":[{"slider":button}]
@@ -41,7 +42,7 @@ fn sliding_panel(x: f64, exit: Option<f64>) -> Panel {
 }
 
 /// Builds one frame at `millis` on the presentation clock.
-fn frame_at(presentation: &mut UiPresentationRuntime, millis: u64) {
+fn frame_at(presentation: &mut UiPresentationRuntime, millis: u64) -> render_model::UiRenderInput {
     presentation
         .build(
             &player_state::PlayerState::new(1),
@@ -50,7 +51,7 @@ fn frame_at(presentation: &mut UiPresentationRuntime, millis: u64) {
             [1280, 720],
             DpiScale::new(1.0).unwrap(),
         )
-        .unwrap();
+        .unwrap()
 }
 
 /// The rendered button's left edge in logical surface pixels.
@@ -109,7 +110,7 @@ fn surface_bindings_ease_in_on_open_and_retarget_from_their_displayed_value() {
 }
 
 #[test]
-fn closing_eases_to_exit_values_without_input_and_screen_animations_off_skips_motion() {
+fn closing_eases_to_exit_values_with_screen_animations_off() {
     use launcher::menu::settings_options::{SettingId, SettingsOptions};
 
     let mut presentation = mini_engine_presentation();
@@ -147,8 +148,68 @@ fn closing_eases_to_exit_values_without_input_and_screen_animations_off_skips_mo
     options.set(SettingId::ScreenAnimations.index(), 0);
     presentation.set_chat_settings_snapshot((std::sync::Arc::new(options), None));
     presentation.mod_ui_mut().set_mod_panel_open(true);
-    assert_eq!(moved(&mut presentation, 2_000, origin), 100.0);
-    assert!(!presentation.mod_ui().mod_panel_motion_active());
+    assert_eq!(moved(&mut presentation, 2_000, origin), 0.0);
+    assert!(presentation.mod_ui().mod_panel_motion_active());
+    assert_eq!(moved(&mut presentation, 2_125, origin), 50.0);
+    assert_eq!(moved(&mut presentation, 2_250, origin), 100.0);
     presentation.mod_ui_mut().set_mod_panel_open(false);
+    assert!(presentation.mod_ui().mod_panel_painting());
+    assert_eq!(moved(&mut presentation, 2_250, origin), 100.0);
+    assert_eq!(moved(&mut presentation, 2_375, origin), 50.0);
+    frame_at(&mut presentation, 2_500);
     assert!(!presentation.mod_ui().mod_panel_painting());
+}
+
+/// Native mod feedback follows its own opt-in even when built-in screen motion is disabled.
+#[test]
+fn native_feedback_works_with_screen_animations_off() {
+    use launcher::menu::settings_options::{SettingId, SettingsOptions};
+    use ui::mod_panel::Control;
+    let mut presentation = mini_engine_presentation();
+    let mut options = SettingsOptions::default();
+    options.set(SettingId::ScreenAnimations.index(), 0);
+    presentation.set_chat_settings_snapshot((std::sync::Arc::new(options), None));
+    let mut content = panel();
+    content.motion = true;
+    let owner = PanelUiOwner::Environment(0);
+    presentation
+        .mod_ui_mut()
+        .set_mod_panel(owner, Some(&content))
+        .unwrap();
+    presentation.mod_ui_mut().set_mod_panel_open(true);
+    let before = frame_at(&mut presentation, 1_000);
+    if let Control::Toggle { value, .. } = &mut content.controls[0] {
+        *value = true;
+    }
+    presentation
+        .mod_ui_mut()
+        .set_mod_panel(owner, Some(&content))
+        .unwrap();
+    let point = super::mod_panel::point(&presentation, "mod.control:0", 0.5);
+    presentation
+        .mod_ui_mut()
+        .mod_panel_events(point, false, false);
+    frame_at(&mut presentation, 1_000);
+    assert!(presentation.mod_ui().mod_panel_motion_active());
+    let middle = frame_at(&mut presentation, 1_050);
+    assert_ne!(
+        before.vertices, middle.vertices,
+        "toggle and hover must visibly ease"
+    );
+    let settled = frame_at(&mut presentation, 1_200);
+    assert!(!presentation.mod_ui().mod_panel_motion_active());
+    assert_ne!(middle.vertices, settled.vertices);
+    content.motion = false;
+    if let Control::Toggle { value, .. } = &mut content.controls[0] {
+        *value = false;
+    }
+    presentation
+        .mod_ui_mut()
+        .set_mod_panel(owner, Some(&content))
+        .unwrap();
+    frame_at(&mut presentation, 1_300);
+    assert!(
+        !presentation.mod_ui().mod_panel_motion_active(),
+        "a mod can still disable its feedback"
+    );
 }

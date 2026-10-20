@@ -174,16 +174,22 @@ fn actor_flag(actor: &ActorSnapshot, bit: u32) -> bool {
     actor_animation::AnimatedActor::flag(actor, bit)
 }
 
-/// The tag's height above the feet: the box height plus the head clearance, both following the
-/// actor's size as the Scale metadata sets it. A published zero height counts, so a text host
-/// with an empty box shows its tag one clearance up, and one at near-zero scale at its feet.
-/// Java player pose offsets are applied after that translation.
+/// Places player labels above Java's fixed standing height, independent of Bedrock's
+/// pose-dependent collision box. Other actors use their published height, including zero.
+/// Scale affects the height and clearance; Java player pose offsets follow that translation.
 fn tag_height(actor: &ActorSnapshot) -> f32 {
-    let height = match actor.metadata.get(&METADATA_HEIGHT) {
-        Some(ActorMetadataValue::Float(height)) if height.is_finite() && *height >= 0.0 => *height,
-        _ => DEFAULT_HEIGHT,
+    let player = matches!(actor.kind, ActorKind::Player { .. });
+    let height = if player {
+        DEFAULT_HEIGHT
+    } else {
+        match actor.metadata.get(&METADATA_HEIGHT) {
+            Some(ActorMetadataValue::Float(height)) if height.is_finite() && *height >= 0.0 => {
+                *height
+            }
+            _ => DEFAULT_HEIGHT,
+        }
     };
-    let offset = if !matches!(actor.kind, ActorKind::Player { .. }) {
+    let offset = if !player {
         0.0
     } else if actor_flag(actor, ActorFlag::Sneaking.wire_value()) {
         SNEAK_PLAYER_Y_OFFSET

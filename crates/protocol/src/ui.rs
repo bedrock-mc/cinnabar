@@ -27,8 +27,8 @@ pub(crate) use death::normalize_death_info;
 pub use death::{DeathInfoEvent, DeathRules};
 
 pub use forms::{
-    CustomForm, CustomFormElement, CustomFormValue, ElementMenuForm, FormButtonImage, FormKind,
-    FormNumber, FormRequestEvent, FormText, MAX_CUSTOM_FORM_ITEMS, MAX_FORM_JSON_DEPTH,
+    CustomForm, CustomFormElement, CustomFormValue, ElementMenuForm, FormButtonImage,
+    FormControlLock, FormKind, FormNumber, FormRequestEvent, FormText, MAX_CUSTOM_FORM_ITEMS,
     MenuElement, ModalDialogForm, ModalFormResponseSelection, NPC_DIALOGUE_FORM_ID, NpcButton,
     NpcDialogueForm, NpcRequestKind, ServerFormModel, TextMenuForm, UnsupportedForm,
     custom_form_submit_response, modal_form_busy_response, modal_form_cancel_response,
@@ -434,8 +434,6 @@ pub enum UiPacketError {
     FormTooLarge { bytes: usize, max: usize },
     #[error("server form JSON is malformed or is not a top-level object")]
     InvalidFormJson,
-    #[error("server form JSON nests {depth} levels, exceeding the maximum depth {max}")]
-    FormJsonDepthExceeded { depth: usize, max: usize },
     #[error("autocomplete update has {count} suggestions, exceeding the {max}-suggestion limit")]
     TooManyAutocompleteSuggestions { count: usize, max: usize },
     #[error("autocomplete update retains {bytes} UTF-8 bytes, exceeding the {max}-byte limit")]

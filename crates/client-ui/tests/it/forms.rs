@@ -1,7 +1,7 @@
 //! Form authority, overlap policy and definite-unsent backpressure witnesses.
 use client_ui::ui_runtime::{
-    FormRespondError, FormTransportError, LocalFormAction, MAX_RETAINED_SERVER_FORMS,
-    SequencedUiEvent, ServerFormIdentity, UiRuntime, flush_form_response,
+    FormRespondError, FormTransportError, LocalFormAction, SequencedUiEvent, ServerFormIdentity,
+    UiRuntime, flush_form_response,
 };
 use protocol::UiEvent;
 
@@ -116,7 +116,7 @@ fn decoded_element_button_form_selects_index_one_and_cancels_without_duplicate_r
 }
 
 #[test]
-fn different_id_overlap_is_busy_not_fifo_display_and_queue_is_bounded() {
+fn different_id_overlap_is_busy_and_retains_every_reply() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = UiRuntime::new(1);
@@ -128,14 +128,10 @@ fn different_id_overlap_is_busy_not_fifo_display_and_queue_is_bounded() {
     }
     assert_eq!(identity(&runtime).form_id, 1);
     assert_eq!(runtime.server_forms().entries().count(), 1);
-    assert_eq!(
-        runtime.server_forms().queued_busy_count(),
-        MAX_RETAINED_SERVER_FORMS
-    );
-    assert_eq!(runtime.server_forms().dropped_over_capacity(), 2);
+    assert_eq!(runtime.server_forms().queued_busy_count(), 10);
     let packets = drain(&mut runtime);
     assert_eq!(packets[0], bytes(protocol::modal_form_busy_response(2)));
-    assert_eq!(packets.len(), 8);
+    assert_eq!(packets.len(), 10);
     assert_eq!(identity(&runtime).form_id, 1);
 }
 
@@ -174,9 +170,8 @@ fn every_queued_busy_reply_leaves_in_one_flush() {
 }
 
 #[test]
-fn same_id_reissue_invalidates_full_answer_and_stale_actions() {
+fn same_id_reissue_preserves_full_answer_and_rejects_incoming_request() {
     let mut player_runtime = player_state::PlayerState::new(1);
-
     let mut runtime = UiRuntime::new(1);
     runtime.apply(&mut player_runtime, retained(7, 1)).unwrap();
     let old = identity(&runtime);
@@ -188,6 +183,18 @@ fn same_id_reissue_invalidates_full_answer_and_stale_actions() {
         Err(FormTransportError::Full)
     );
     runtime.apply(&mut player_runtime, retained(7, 2)).unwrap();
+    assert!(runtime.server_forms().active().is_none());
+    assert_eq!(
+        drain(&mut runtime),
+        vec![
+            bytes(protocol::modal_form_submit_response(
+                7,
+                protocol::ModalFormResponseSelection::ButtonIndex(1)
+            )),
+            bytes(protocol::modal_form_busy_response(7)),
+        ]
+    );
+    runtime.apply(&mut player_runtime, retained(7, 3)).unwrap();
     let new = identity(&runtime);
     assert_ne!(old, new);
     assert_eq!(
@@ -195,20 +202,10 @@ fn same_id_reissue_invalidates_full_answer_and_stale_actions() {
         Err(FormRespondError::StaleIdentity)
     );
     assert!(drain(&mut runtime).is_empty());
-    runtime
-        .respond_to_server_form(new, LocalFormAction::SubmitButton(0))
-        .unwrap();
-    assert_eq!(
-        drain(&mut runtime),
-        vec![bytes(protocol::modal_form_submit_response(
-            7,
-            protocol::ModalFormResponseSelection::ButtonIndex(0)
-        ))]
-    );
 }
 
 #[test]
-fn same_id_busy_reissue_removes_all_unsent_old_rejections() {
+fn same_id_busy_reissue_keeps_each_unsent_rejection() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = UiRuntime::new(1);
@@ -219,11 +216,11 @@ fn same_id_busy_reissue_removes_all_unsent_old_rejections() {
         Err(FormTransportError::Full)
     );
     runtime.apply(&mut player_runtime, retained(2, 3)).unwrap();
-    assert_eq!(runtime.server_forms().queued_busy_count(), 1);
+    assert_eq!(runtime.server_forms().queued_busy_count(), 2);
     runtime
         .respond_to_server_form(identity(&runtime), LocalFormAction::Dismiss)
         .unwrap();
-    assert_eq!(drain(&mut runtime).len(), 2);
+    assert_eq!(drain(&mut runtime).len(), 3);
     runtime.apply(&mut player_runtime, retained(2, 4)).unwrap();
     assert_eq!(identity(&runtime).revision, 4);
     assert!(drain(&mut runtime).is_empty());
@@ -245,7 +242,7 @@ fn accepted_answer_is_not_retried_or_retracted_by_id_reissue() {
 }
 
 #[test]
-fn new_displayed_revision_invalidates_queued_same_id_busy_reply() {
+fn new_displayed_revision_keeps_queued_same_id_busy_reply() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = UiRuntime::new(1);
@@ -274,11 +271,12 @@ fn new_displayed_revision_invalidates_queued_same_id_busy_reply() {
     assert_eq!(runtime.server_forms().queued_busy_count(), 1);
     runtime.apply(&mut player_runtime, retained(2, 3)).unwrap();
     assert_eq!(identity(&runtime).form_id, 2);
-    assert_eq!(runtime.server_forms().queued_busy_count(), 0);
-    assert!(
-        drain(&mut runtime).is_empty(),
-        "old busy response cannot cancel displayed replacement"
+    assert_eq!(runtime.server_forms().queued_busy_count(), 1);
+    assert_eq!(
+        drain(&mut runtime),
+        [bytes(protocol::modal_form_busy_response(2))]
     );
+    assert_eq!(identity(&runtime).revision, 3);
 }
 
 #[test]

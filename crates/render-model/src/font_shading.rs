@@ -6,6 +6,23 @@ pub const SDF_SMOOTHING_SCALE: f32 = 128.0 / 255.0;
 pub const SDF_MIN_THRESHOLD: f32 = 0.000001;
 pub const COVERAGE_GAMMA_BASE: f32 = 1.45;
 pub const COVERAGE_LUMINANCE: [f32; 3] = [0.2126, 0.7152, 0.0722];
+/// Bounds outline coverage integration to sixteen filtered texture samples per pixel.
+pub const OUTLINE_FILTER_MAX_SAMPLES: u32 = 4;
+
+/// Samples each minified source axis at least once per texel, within the fixed bound.
+pub fn outline_filter_grid(derivatives: [[f32; 2]; 2]) -> [u32; 2] {
+    derivatives.map(|axis| {
+        axis[0]
+            .hypot(axis[1])
+            .ceil()
+            .clamp(1.0, OUTLINE_FILTER_MAX_SAMPLES as f32) as u32
+    })
+}
+
+/// Centers one stratified sample inside its fraction of the displayed pixel.
+pub fn outline_filter_offset(index: u32, samples: u32) -> f32 {
+    (index as f32 + 0.5) / samples as f32 - 0.5
+}
 
 /// Converts a filtered distance sample to glyph coverage at the drawn texel scale.
 pub fn sdf_coverage(sample: f32, texels_per_pixel: f32) -> f32 {

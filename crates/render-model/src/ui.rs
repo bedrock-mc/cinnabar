@@ -101,7 +101,7 @@ mod style_tests {
     use super::*;
 
     #[test]
-    fn font_coverage_never_enables_opaque_model_color_masks() {
+    fn font_coverage_never_enables_model_or_compositing_styles() {
         for rendering in [
             assets::FontRendering::Coverage,
             assets::FontRendering::OutlineCoverage,
@@ -109,9 +109,15 @@ mod style_tests {
             assets::FontRendering::NativeSdf,
         ] {
             assert_eq!(
-                u32::from(rendering.style_flags()) & UI_STYLE_COLOR_MASK,
+                u32::from(rendering.style_flags())
+                    & (UI_STYLE_COLOR_MASK
+                        | UI_STYLE_ADDITIVE
+                        | UI_STYLE_PARTICLE
+                        | UI_STYLE_ALPHA_TEST
+                        | UI_STYLE_RADIAL_GRADIENT
+                        | UI_STYLE_GLINT),
                 0,
-                "text coverage must remain transparent outside glyphs"
+                "text coverage must retain ordinary alpha compositing"
             );
         }
     }
