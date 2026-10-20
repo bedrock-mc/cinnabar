@@ -256,7 +256,7 @@ fn hud_card_preview_virtualized_tiles_retain_steady_state_card_output() {
     let source = ui.hud_sources.get_mut(OWNER).unwrap();
     let paints: Vec<_> = source.cards.iter().map(|card| card.paints).collect();
     assert!(paints.iter().sum::<usize>() <= ui::mod_panel::SurfaceCollection::INITIAL_WINDOW + 1);
-    assert!(paints.iter().any(|paint| *paint == 0));
+    assert!(paints.contains(&0));
     assert!(paints.iter().sum::<usize>() > 1);
     for _ in 0..8 {
         harness.paint(&mut ui, true);
