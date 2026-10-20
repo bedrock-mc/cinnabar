@@ -239,6 +239,9 @@ mod early_packet_tap_tests;
 mod relay_startup_tests;
 
 #[cfg(test)]
+mod relay_raw_startup_tests;
+
+#[cfg(test)]
 mod startup_unknown_tests;
 
 #[cfg(test)]
