@@ -65,28 +65,31 @@ pub(crate) fn normalize_trade(packet: &UpdateTrade) -> Option<TradeEvent> {
 
 /// Reads one complete offer; missing required items leave just that offer unavailable.
 fn offer(value: &Compound<'_>) -> Option<TradeOffer> {
-    let first = item(value, "buyA")?;
+    let first = item(value, "buyA")??;
     Some(TradeOffer {
         network_id: value
             .field("netId")
             .and_then(|value| value.int32())
             .unwrap_or_default() as u32,
-        inputs: [Some(first), item(value, "buyB")],
-        output: item(value, "sell")?,
+        inputs: [Some(first), item(value, "buyB")?],
+        output: item(value, "sell")??,
         tier: value.number("tier", 0.0) as i32,
         uses: value.number("uses", 0.0) as i32,
         max_uses: value.number("maxUses", i32::MAX as f64) as i32,
     })
 }
 
-/// Preserves an offer item's complete NBT while resolving its saved-item fields.
-fn item(offer: &Compound<'_>, name: &str) -> Option<TradeItem> {
-    let value = offer.field(name)?.compound()?;
+/// Preserves saved item data; outer None is malformed, inner None is absent or empty.
+fn item(offer: &Compound<'_>, name: &str) -> Option<Option<TradeItem>> {
+    let Some(value) = offer.field(name) else {
+        return Some(None);
+    };
+    let value = value.compound()?;
     let count = value.field("Count")?.count()?;
     if count == 0 {
-        return None;
+        return Some(None);
     }
-    Some(TradeItem {
+    Some(Some(TradeItem {
         identifier: Arc::from(value.field("Name")?.string()?),
         metadata: u32::from(value.number("Damage", 0.0) as i16 as u16),
         count,
@@ -95,5 +98,5 @@ fn item(offer: &Compound<'_>, name: &str) -> Option<TradeItem> {
             None => None,
         },
         extra_data: value.item_data()?.into(),
-    })
+    }))
 }

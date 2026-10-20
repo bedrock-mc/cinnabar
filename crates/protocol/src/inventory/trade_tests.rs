@@ -116,3 +116,59 @@ fn trade_and_close_packets_share_the_full_window_id_domain() {
         assert_eq!(trade.container, close.container);
     }
 }
+
+#[test]
+fn unreadable_trade_items_never_become_partial_payments() {
+    let mut bad_name = field(1, "Name", &[1]);
+    bad_name.extend(field(1, "Count", &[1]));
+    bad_name.push(0);
+    for ingredient in ["buyA", "buyB", "sell"] {
+        for malformed in [field(10, ingredient, &bad_name), field(1, ingredient, &[1])] {
+            let mut offer = Vec::new();
+            for name in ["buyA", "buyB", "sell"] {
+                offer.extend(if name == ingredient {
+                    malformed.clone()
+                } else {
+                    field(10, name, &item(1, false))
+                });
+            }
+            offer.push(0);
+            let mut recipes = vec![10, 2];
+            recipes.extend(offer);
+            let mut root = vec![10, 0];
+            root.extend(field(9, "Recipes", &recipes));
+            root.push(0);
+            let trade = super::normalize_trade(&UpdateTrade {
+                type_: wire::U8(protocol_ids::WindowType::Trade.wire_value() as u8),
+                data: wire::NetworkNbt(root.into()),
+                ..Default::default()
+            })
+            .unwrap();
+            assert!(trade.offers.is_empty(), "malformed {ingredient}");
+        }
+    }
+    for secondary in [None, Some(item(0, false)), Some(item(1, false))] {
+        let mut offer = field(10, "buyA", &item(1, false));
+        if let Some(value) = &secondary {
+            offer.extend(field(10, "buyB", value));
+        }
+        offer.extend(field(10, "sell", &item(1, false)));
+        offer.push(0);
+        let mut recipes = vec![10, 2];
+        recipes.extend(offer);
+        let mut root = vec![10, 0];
+        root.extend(field(9, "Recipes", &recipes));
+        root.push(0);
+        let trade = super::normalize_trade(&UpdateTrade {
+            type_: wire::U8(protocol_ids::WindowType::Trade.wire_value() as u8),
+            data: wire::NetworkNbt(root.into()),
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(trade.offers.len(), 1);
+        assert_eq!(
+            trade.offers[0].inputs[1].is_some(),
+            secondary == Some(item(1, false))
+        );
+    }
+}
