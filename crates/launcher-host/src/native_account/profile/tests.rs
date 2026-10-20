@@ -123,11 +123,12 @@ async fn completed_profile_remains_bound_to_selected_generation_after_artwork() 
     };
     let mut lease = account.store.try_native_lease().unwrap();
     lease.suppress_checkpoint().unwrap();
-    let mut state = account.state.lock().unwrap();
-    let cached = state.cached.as_mut().unwrap();
-    cached.binding = lease.binding();
-    cached.checkpoint_revision = lease.checkpoint_revision();
-    drop(state);
+    {
+        let mut state = account.state.lock().unwrap();
+        let cached = state.cached.as_mut().unwrap();
+        cached.binding = lease.binding();
+        cached.checkpoint_revision = lease.checkpoint_revision();
+    }
     drop(lease);
     assert!(result().into_current().await.is_some());
     seed(&directory.path().join("oauth.json"), "replacement");
@@ -138,10 +139,11 @@ async fn completed_profile_remains_bound_to_selected_generation_after_artwork() 
 #[tokio::test]
 async fn completed_profile_rejects_another_verified_xuid() {
     let (_directory, account) = account();
-    let mut state = account.state.lock().unwrap();
-    let cached = state.cached.as_mut().unwrap();
-    cached.identity.as_mut().unwrap().xuid = "456".into();
-    drop(state);
+    {
+        let mut state = account.state.lock().unwrap();
+        let cached = state.cached.as_mut().unwrap();
+        cached.identity.as_mut().unwrap().xuid = "456".into();
+    }
     assert!(
         NativeProfile {
             account,
