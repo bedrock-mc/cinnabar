@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 
 use super::PropertiesDiagnostic;
 use crate::expr::truncated;
+use crate::source::MAX_EXPANDED_PROPERTIES_BYTES;
 use pp_rs::pp::Preprocessor;
 use pp_rs::token::TokenValue;
 
@@ -32,6 +33,8 @@ pub(crate) fn read_entries(
     // Preprocessed lines: blank lines are dropped, while directives, comments and inactive
     // lines leave an empty line that ends any continuation.
     let mut lines: Vec<(u32, String)> = Vec::new();
+    let mut remaining_bytes = MAX_EXPANDED_PROPERTIES_BYTES;
+    let mut raw_continuation = None;
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     for (index, physical) in text.lines().enumerate() {
         let line = u32::try_from(index + 1).unwrap_or(u32::MAX);
@@ -39,14 +42,47 @@ pub(crate) fn read_entries(
         if trimmed.is_empty() {
             continue;
         }
+        let continuation = raw_continuation.take();
         let kept = if let Some(rest) = trimmed.strip_prefix('#') {
             if let Some(directive) = Directive::parse(rest) {
                 conditionals.apply(directive, line, diagnostics);
             }
             String::new()
         } else if conditionals.active() {
-            // Iris strips `#` from content so the preprocessor never reads it as a directive.
-            expand(&trimmed.replace('#', ""), &conditionals.defines, false)
+            let keep_raw = continuation.unwrap_or_else(|| {
+                let key = parse_entry(line, trimmed).key;
+                matches!(key.as_str(), "screen" | "sliders")
+                    || key.starts_with("screen.")
+                    || key.starts_with("profile.")
+            });
+            let expanded = if keep_raw {
+                let mut out = String::new();
+                append_expanded(&mut out, trimmed, remaining_bytes).map(|()| out)
+            } else {
+                // Iris strips `#` from content before preprocessing other properties.
+                expand(
+                    &trimmed.replace('#', ""),
+                    &conditionals.defines,
+                    false,
+                    remaining_bytes,
+                )
+            };
+            match expanded {
+                Ok(kept) => {
+                    remaining_bytes -= kept.len();
+                    raw_continuation = (!kept.starts_with('!')
+                        && strip_continuation(&kept).is_some())
+                    .then_some(keep_raw);
+                    kept
+                }
+                Err(message) => {
+                    diagnostics.push(PropertiesDiagnostic {
+                        line,
+                        message: message.to_owned(),
+                    });
+                    String::new()
+                }
+            }
         } else {
             String::new()
         };
@@ -95,11 +131,16 @@ const MAX_EXPANSIONS: usize = 1024;
 
 /// Expands object-like macros, as Iris's preprocessor does in content and conditions. Numbers
 /// and the spacing between tokens are left unchanged; in a condition, the operand of `defined`
-/// stays a name. As in C, a macro met inside its own expansion is not expanded again: it stays
-/// a name in content and counts as 0 in a condition.
-fn expand(text: &str, defines: &BTreeMap<String, String>, condition: bool) -> String {
+/// stays a name. A macro inside its own expansion stays a name in content and reads as 0
+/// in conditions. Exceeding `max_bytes` returns a recoverable diagnostic.
+fn expand(
+    text: &str,
+    defines: &BTreeMap<String, String>,
+    condition: bool,
+    max_bytes: usize,
+) -> Result<String, &'static str> {
     let mut budget = MAX_EXPANSIONS;
-    let mut out = String::with_capacity(text.len());
+    let mut out = String::with_capacity(text.len().min(max_bytes));
     expand_into(
         text,
         defines,
@@ -107,8 +148,9 @@ fn expand(text: &str, defines: &BTreeMap<String, String>, condition: bool) -> St
         &mut budget,
         &mut Vec::new(),
         &mut out,
-    );
-    out
+        max_bytes,
+    )?;
+    Ok(out)
 }
 
 /// Appends `text` to `out`, replacing each defined identifier that is not already being
@@ -120,17 +162,20 @@ fn expand_into<'a>(
     budget: &mut usize,
     active: &mut Vec<&'a str>,
     out: &mut String,
-) {
+    max_bytes: usize,
+) -> Result<(), &'static str> {
     let is_word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
     let mut rest = text;
     let mut after_defined = false;
     while let Some(start) = rest.bytes().position(is_word) {
-        out.push_str(&rest[..start]);
+        append_expanded(out, &rest[..start], max_bytes)?;
         let len = rest[start..].bytes().take_while(|&b| is_word(b)).count();
         let word = &rest[start..start + len];
         rest = &rest[start + len..];
         match defines.get_key_value(word) {
-            Some(_) if condition && active.contains(&word) && !after_defined => out.push('0'),
+            Some(_) if condition && active.contains(&word) && !after_defined => {
+                append_expanded(out, "0", max_bytes)?;
+            }
             Some((name, value))
                 if *budget > 0
                     && !after_defined
@@ -139,14 +184,31 @@ fn expand_into<'a>(
             {
                 *budget -= 1;
                 active.push(name.as_str());
-                expand_into(flag_value(value), defines, condition, budget, active, out);
+                expand_into(
+                    flag_value(value),
+                    defines,
+                    condition,
+                    budget,
+                    active,
+                    out,
+                    max_bytes,
+                )?;
                 active.pop();
             }
-            _ => out.push_str(word),
+            _ => append_expanded(out, word, max_bytes)?,
         }
         after_defined = condition && word == "defined";
     }
-    out.push_str(rest);
+    append_expanded(out, rest, max_bytes)
+}
+
+/// Appends a fragment only if the expanded output stays within its byte budget.
+fn append_expanded(out: &mut String, text: &str, max_bytes: usize) -> Result<(), &'static str> {
+    if text.len() > max_bytes.saturating_sub(out.len()) {
+        return Err("properties macro expansion exceeds byte limit");
+    }
+    out.push_str(text);
+    Ok(())
 }
 
 /// `text` without its continuation backslash when it ends in an odd number of `\`.
@@ -391,7 +453,13 @@ impl Conditionals {
     fn test(&self, text: &str, report: &mut impl FnMut(&str)) -> bool {
         // pp-rs mis-parses some operators after its own macro expansion, so names are expanded
         // here and pp-rs evaluates literals and `defined` only. pp-rs rejects float literals.
-        let condition = integer_literals(&expand(text, &self.defines, true));
+        let condition = match expand(text, &self.defines, true, MAX_EXPANDED_PROPERTIES_BYTES) {
+            Ok(condition) => integer_literals(&condition),
+            Err(message) => {
+                report(message);
+                return false;
+            }
+        };
         let source = format!("#if {condition}\n1\n#else\n0\n#endif\n");
         let mut preprocessor = Preprocessor::new(&source);
         for (name, value) in &self.defines {
