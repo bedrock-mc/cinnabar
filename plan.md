@@ -359,6 +359,9 @@ Complete clean-install, first-run asset preparation, update/install recovery, st
 and crash diagnostics, packaging and platform acceptance. Required carriers must pass
 validation; retain only the explicitly permitted diagnostic/optional fallbacks.
 
+Windows runtime executables use `asInvoker` manifests and allow both normal and elevated
+launches. Native Windows startup, update and crash-restart acceptance remains incomplete.
+
 ## Experimental hosts and extensions
 
 - Browser/Android implementation and CI checks do not close their complete join, pack,
