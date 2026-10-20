@@ -149,7 +149,9 @@ pub(super) fn rewrite(
         };
         let name = name.as_str();
         let called = src.get(i + 1).is_some_and(|n| n.is("("));
-        if legacy && name == "texture" && !called {
+        // Iris renames a non-call `texture` to `gtexture` in every version (SEUS Renewed's
+        // `#version 130` gbuffers declare `uniform sampler2D texture`).
+        if name == "texture" && !called {
             toks.push(id("gtexture").at(line));
             i += 1;
             continue;
@@ -185,13 +187,23 @@ pub(super) fn rewrite(
                 "shadow2D" | "shadow2DLod" | "shadow2DProj" | "shadow2DArray"
             )
         {
+            let close = matching(src, i + 1, "(", ")");
+            // As for `texture`: a compare sample needs an explicit LOD outside fragment
+            // shaders (Rethinking Voxels' compute `deferred1` filters shadows).
+            let explicit_lod = name == "shadow2D"
+                && stage != StageKind::Fragment
+                && split_args(&src[i + 2..close]).len() == 2;
             let f = match name {
                 "shadow2DLod" => "textureLod",
                 "shadow2DProj" => "textureProj",
+                _ if explicit_lod => "textureLod",
                 _ => "texture",
             };
+            if explicit_lod {
+                pending_lod.push(close);
+            }
             // shadow2D returned vec4 in 1.20; the extra `)` follows the call's own.
-            pending_close.push(matching(src, i + 1, "(", ")"));
+            pending_close.push(close);
             toks.extend([id("vec4").at(line), p("(").at(line), id(f).at(line)]);
             i += 1;
             continue;

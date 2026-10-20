@@ -16,8 +16,8 @@ mod specialize;
 use crate::preprocess::Preprocessed;
 use crate::programs::StageKind;
 use crate::reflection::{
-    LEGACY_UNIFORMS, SAMPLER_BINDING, SAMPLER_NAME, SHADOW_SAMPLER_BINDING, SHADOW_SAMPLER_NAME,
-    TEXTURE_GROUP, VertexAttribute,
+    LEGACY_UNIFORMS, SHADOW_SAMPLER_BINDING, SHADOW_SAMPLER_NAME, SamplerClass, TEXTURE_GROUP,
+    TextureDimension, VertexAttribute,
 };
 use crate::token::{Tok, lex};
 pub(crate) use assemble::{UboMember, assemble, merge_uniforms};
@@ -62,13 +62,23 @@ pub(crate) struct StageDraft {
     pub resource_names: Vec<(u32, u32, String)>,
 }
 
-/// Transforms one preprocessed stage. `image_formats` maps image names to GLSL format
-/// qualifiers from `image.<name>` properties.
+/// Sampler name and shape (`None` for any shape) → class, where the program's custom
+/// textures and images override [`SamplerClass::for_name`].
+pub(crate) type SamplerClasses = HashMap<(String, Option<TextureDimension>), SamplerClass>;
+
+/// Pack-level facts about resource names, from `shaders.properties`.
+pub(crate) struct ResourceNames<'a> {
+    /// Image name → GLSL format qualifier from `image.<name>`.
+    pub image_formats: &'a HashMap<String, String>,
+    pub sampler_classes: &'a SamplerClasses,
+}
+
+/// Transforms one preprocessed stage.
 pub(crate) fn transform(
     pp: &Preprocessed,
     stage: StageKind,
     iface: &mut ProgramInterface,
-    image_formats: &HashMap<String, String>,
+    names: &ResourceNames<'_>,
 ) -> Result<StageDraft, TransformError> {
     let lg = legacy::rewrite(&pp.tokens, stage, pp.version)?;
     let mut items: Vec<Item> = vec![];
@@ -95,7 +105,7 @@ pub(crate) fn transform(
         }
     }
     let items = specialize::specialize_opaque_params(items);
-    let mut c = declare::collect(items, stage, iface, image_formats)?;
+    let mut c = declare::collect(items, stage, iface, names)?;
 
     let mut ubo: Vec<UboMember> = LEGACY_UNIFORMS
         .iter()
@@ -240,8 +250,12 @@ pub(crate) fn transform(
         }
     }
     let mut resource_names = c.resource_names;
-    if used.filtering {
-        resource_names.push((TEXTURE_GROUP, SAMPLER_BINDING, SAMPLER_NAME.to_string()));
+    for class in &used.filtering {
+        resource_names.push((
+            TEXTURE_GROUP,
+            class.binding(),
+            class.glsl_name().to_string(),
+        ));
     }
     if used.comparison {
         resource_names.push((

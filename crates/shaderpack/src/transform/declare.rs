@@ -7,11 +7,12 @@ use super::items::{
     Decl, Item, arr_len, is_image, is_integer, is_opaque, layout_key, loc_size, mat_cols, matching,
     parse_decl, sampler_info, split_items, strip_layout_keys,
 };
-use super::{ProgramInterface, TransformError, UboMember};
+use super::{ProgramInterface, ResourceNames, TransformError, UboMember};
+use crate::buffers::canonical_sampler_name;
 use crate::programs::StageKind;
 use crate::reflection::{
-    FIRST_OTHER_ATTRIBUTE_LOCATION, IMAGE_GROUP, STORAGE_BUFFER_GROUP, TEXTURE_GROUP,
-    UNIFORM_GROUP, VertexAttribute,
+    FIRST_OTHER_ATTRIBUTE_LOCATION, IMAGE_GROUP, STORAGE_BUFFER_GROUP, SamplerClass, TEXTURE_GROUP,
+    TextureDimension, UNIFORM_GROUP, VertexAttribute,
 };
 use crate::token::{Tok, id, lex, p};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -56,7 +57,7 @@ pub(super) fn collect(
     items: Vec<Item>,
     stage: StageKind,
     iface: &mut ProgramInterface,
-    image_formats: &HashMap<String, String>,
+    names: &ResourceNames<'_>,
 ) -> Result<Collected, TransformError> {
     let mut c = Collected::default();
     let mut structs: Structs = HashMap::new();
@@ -116,7 +117,7 @@ pub(super) fn collect(
             continue;
         }
         if d.has("uniform") {
-            uniforms(&mut c, &d, iface, image_formats, line)?;
+            uniforms(&mut c, &d, iface, names, line)?;
             continue;
         }
         let is_in =
@@ -261,7 +262,7 @@ fn block(
     c.resources.extend([id("layout"), p("(")]);
     c.resources.extend(lay);
     c.resources.push(p(")"));
-    for q in &d.quals {
+    for q in d.quals.iter().filter(|q| supported_qualifier(q)) {
         c.resources.push(id(q));
     }
     c.resources.extend([id(bname), p("{")]);
@@ -272,12 +273,18 @@ fn block(
     Ok(())
 }
 
+/// Whether naga's parser takes a resource qualifier. It has no `coherent` or `volatile`;
+/// without them a store is still visible after the barriers packs pair them with.
+fn supported_qualifier(q: &str) -> bool {
+    !matches!(q, "coherent" | "volatile")
+}
+
 /// Lowers loose uniforms, sampled textures and storage images.
 fn uniforms(
     c: &mut Collected,
     d: &Decl,
     iface: &mut ProgramInterface,
-    image_formats: &HashMap<String, String>,
+    names: &ResourceNames<'_>,
     line: u32,
 ) -> Result<(), TransformError> {
     for (name, arr, _) in &d.decls {
@@ -285,7 +292,16 @@ fn uniforms(
             if let Some((tex_ty, shadow)) = sampler_info(&d.ty) {
                 let b = iface.texture_binding(name);
                 c.resource_names.push((TEXTURE_GROUP, b, name.clone()));
-                c.samplers.insert(name.clone(), (d.ty.clone(), shadow));
+                let classes = names.sampler_classes;
+                let key = canonical_sampler_name(name);
+                let shaped = (key.clone(), Some(texture_dimension(tex_ty)));
+                let class = classes
+                    .get(&shaped)
+                    .or_else(|| classes.get(&(key, None)))
+                    .copied()
+                    .unwrap_or_else(|| SamplerClass::for_name(name));
+                c.samplers
+                    .insert(name.clone(), (d.ty.clone(), shadow, class));
                 c.resources.extend(
                     lex(&format!(
                         "layout(set = {TEXTURE_GROUP}, binding = {b}) uniform {tex_ty} {name}"
@@ -302,7 +318,7 @@ fn uniforms(
                 if lay.is_empty() {
                     // OpenGL allows format-less write-only images; WebGPU needs the format,
                     // which Iris knows from `image.<name>` in shaders.properties.
-                    if let Some(f) = image_formats.get(name) {
+                    if let Some(f) = names.image_formats.get(name) {
                         lay.push(id(f));
                     }
                 }
@@ -313,7 +329,7 @@ fn uniforms(
                 c.resources.extend([id("layout").at(line), p("(")]);
                 c.resources.extend(lay);
                 c.resources.push(p(")"));
-                for q in &d.quals {
+                for q in d.quals.iter().filter(|q| supported_qualifier(q)) {
                     c.resources.push(id(q));
                 }
                 c.resources.extend([id(&d.ty), id(name)]);
@@ -352,6 +368,22 @@ fn uniforms(
         c.ubo.push(UboMember::new(name, toks));
     }
     Ok(())
+}
+
+/// Shape of a separate texture type (`texture3D`, `utexture2DArray` …).
+fn texture_dimension(tex_ty: &str) -> TextureDimension {
+    let shape = tex_ty
+        .trim_start_matches(['i', 'u'])
+        .trim_start_matches("texture");
+    match shape {
+        "1D" => TextureDimension::D1,
+        "1DArray" => TextureDimension::D1Array,
+        "2DArray" => TextureDimension::D2Array,
+        "3D" => TextureDimension::D3,
+        "Cube" => TextureDimension::Cube,
+        "CubeArray" => TextureDimension::CubeArray,
+        _ => TextureDimension::D2,
+    }
 }
 
 /// Emits a vertex output or fragment input. Matrices, arrays and structs are not legal
@@ -476,7 +508,18 @@ fn fragment_output(c: &mut Collected, name: &str, ty: &str, loc: u32, line: u32)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::reflection::FIRST_TEXTURE_BINDING;
+    use crate::reflection::{FIRST_TEXTURE_BINDING, SamplerClass};
+    use crate::transform::{ResourceNames, SamplerClasses};
+
+    /// Resource names with the given image formats and no custom sampler classes.
+    fn names(image_formats: &HashMap<String, String>) -> ResourceNames<'_> {
+        static NO_CLASSES: std::sync::LazyLock<SamplerClasses> =
+            std::sync::LazyLock::new(SamplerClasses::new);
+        ResourceNames {
+            image_formats,
+            sampler_classes: &NO_CLASSES,
+        }
+    }
 
     /// Parses fixture declarations into collector input items.
     fn items(src: &str) -> Vec<Item> {
@@ -511,18 +554,30 @@ out vec3 color;
 void main() {}";
 
     #[test]
+    fn sampler_compatibility_array_dimensions_stay_distinct() {
+        assert_ne!(
+            texture_dimension("texture1D"),
+            texture_dimension("texture1DArray")
+        );
+        assert_ne!(
+            texture_dimension("texture2D"),
+            texture_dimension("texture2DArray")
+        );
+    }
+    #[test]
     fn stages_collect_shared_resources_and_vertex_inputs() {
         let mut iface = ProgramInterface::default();
         let formats = HashMap::new();
-        let vertex = collect(items(VERTEX), StageKind::Vertex, &mut iface, &formats).unwrap();
-        let fragment = collect(items(FRAGMENT), StageKind::Fragment, &mut iface, &formats).unwrap();
+        let names = names(&formats);
+        let vertex = collect(items(VERTEX), StageKind::Vertex, &mut iface, &names).unwrap();
+        let fragment = collect(items(FRAGMENT), StageKind::Fragment, &mut iface, &names).unwrap();
 
         let textures = [(TEXTURE_GROUP, FIRST_TEXTURE_BINDING, "colortex0".to_owned())];
         assert_eq!(vertex.resource_names, textures);
         assert_eq!(fragment.resource_names, textures);
         assert_eq!(
             fragment.samplers["colortex0"],
-            ("sampler2D".to_owned(), false)
+            ("sampler2D".to_owned(), false, SamplerClass::ClampLinear)
         );
 
         let ubo: Vec<_> = vertex.ubo.iter().map(|m| m.name.as_str()).collect();
@@ -541,7 +596,7 @@ void main() {}";
             items(FRAGMENT),
             StageKind::Fragment,
             &mut iface,
-            &HashMap::new(),
+            &names(&HashMap::new()),
         )
         .unwrap();
         assert_eq!(fragment.frag_outputs, [(0, "iris_out_color".to_owned())]);
@@ -560,7 +615,7 @@ void main() {}";
             items("uniform writeonly image2D colorimg0; void main() {}"),
             StageKind::Compute,
             &mut iface,
-            &formats,
+            &names(&formats),
         )
         .unwrap();
         assert_eq!(
