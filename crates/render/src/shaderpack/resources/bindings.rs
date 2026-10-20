@@ -78,8 +78,7 @@ pub(crate) fn resolve_bindings(
             let dimension_fits = |s: &TextureSource| match *s {
                 TextureSource::Constant { index, .. } => constants.has_shape(index, t.dimension),
                 TextureSource::Image { index, .. } => {
-                    let image = image_dimension(images[index].size);
-                    storage_shape(image) == storage_shape(t.dimension)
+                    image_dimension(images[index].size) == t.dimension
                 }
                 _ => t.dimension == TextureDimension::D2,
             };

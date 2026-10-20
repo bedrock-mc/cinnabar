@@ -110,3 +110,18 @@ fn present(in: Fullscreen) -> @location(0) vec4<f32> {
 fn downsample(in: Fullscreen) -> @location(0) vec4<f32> {
     return textureSampleLevel(source_colour, source_sampler, in.uv, 0.0);
 }
+
+// The same clamped bilinear average for formats without hardware filtering support.
+@fragment
+fn downsample_unfilterable(in: Fullscreen) -> @location(0) vec4<f32> {
+    let size = textureDimensions(source_colour);
+    let position = in.uv * vec2<f32>(size) - 0.5;
+    let base = vec2<i32>(floor(position));
+    let weight = fract(position);
+    let last = vec2<i32>(size) - 1;
+    let top_left = textureLoad(source_colour, clamp(base, vec2<i32>(0), last), 0);
+    let top_right = textureLoad(source_colour, clamp(base + vec2<i32>(1, 0), vec2<i32>(0), last), 0);
+    let bottom_left = textureLoad(source_colour, clamp(base + vec2<i32>(0, 1), vec2<i32>(0), last), 0);
+    let bottom_right = textureLoad(source_colour, clamp(base + vec2<i32>(1), vec2<i32>(0), last), 0);
+    return mix(mix(top_left, top_right, weight.x), mix(bottom_left, bottom_right, weight.x), weight.y);
+}

@@ -4,6 +4,12 @@
 use super::plan::MAX_COLOR_BUFFERS;
 use wgpu::TextureFormat;
 
+/// Whether a mip source can use the host's linear filtering sampler on this device.
+pub(super) fn downsample_filterable(device: &wgpu::Device, format: TextureFormat) -> bool {
+    format.sample_type(None, Some(device.features()))
+        == Some(wgpu::TextureSampleType::Float { filterable: true })
+}
+
 /// Host passes around the pack's programs.
 pub(crate) struct HostPipelines {
     pub scene_colour: wgpu::RenderPipeline,
@@ -87,7 +93,14 @@ pub(super) fn host_pipelines(
         .collect(),
         downsample: formats
             .into_iter()
-            .map(|f| (f, pipeline("downsample", &[target(f)], false)))
+            .map(|f| {
+                let entry = if downsample_filterable(device, f) {
+                    "downsample"
+                } else {
+                    "downsample_unfilterable"
+                };
+                (f, pipeline(entry, &[target(f)], false))
+            })
             .collect(),
         depth_parameters: device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("shader pack depth parameters"),

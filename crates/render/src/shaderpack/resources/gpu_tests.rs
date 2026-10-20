@@ -68,6 +68,196 @@ fn pack_load_returns_an_error_on_allocation_failure() {
 }
 
 #[test]
+fn unfilterable_float_mipmaps_create_valid_bindings_and_average_texels() {
+    let Some(gpu) = gpu() else { return };
+    assert!(!gpu.support().float32_filterable);
+    let pack = ShaderPack::new(shaderpack::PackSource::from_files([
+        (
+            "composite.vsh",
+            "#version 330 compatibility\nvoid main() { gl_Position = gl_Vertex; }",
+        ),
+        (
+            "composite.fsh",
+            "#version 330 compatibility\n\
+         /* const int colortex1Format = R32F; */\n\
+         const bool colortex1MipmapEnabled = true;\n\
+         uniform sampler2D colortex1;\n\
+         void main() { gl_FragData[0] = texelFetch(colortex1, ivec2(0), 1); }",
+        ),
+    ]));
+    let translation = pack.translate(&Default::default());
+    for program in &translation.programs {
+        assert!(
+            program.is_ok(),
+            "mipmap translation: {:?}",
+            program.all_diagnostics().collect::<Vec<_>>()
+        );
+    }
+    let loaded = std::sync::Arc::new(
+        crate::shaderpack::loader::build(
+            &pack,
+            "mipmap fixture",
+            "minecraft:overworld",
+            None,
+            &gpu,
+            &VanillaTextures::default(),
+        )
+        .unwrap_or_else(|error| panic!("mipmap fixture: {error}")),
+    );
+    assert_eq!(loaded.buffer_formats[1], Some(TextureFormat::R32Float));
+    assert!(loaded.buffers.iter().any(|b| b.index == 1 && b.mipmapped));
+    let mut targets =
+        crate::shaderpack::targets::ViewTargets::new(&gpu.device, &loaded, [4; 2]).unwrap();
+    let scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let bindings =
+        crate::shaderpack::targets::ViewBindings::new(&gpu.device, &loaded, &mut targets);
+    let error = bevy::tasks::block_on(scope.pop());
+    assert!(error.is_none(), "mipmap bindings: {error:?}");
+    let buffer = targets.buffers[1].as_ref().unwrap();
+    let pixels: Vec<f32> = (0..16).map(|value| value as f32).collect();
+    gpu.queue.write_texture(
+        buffer.texture(0).as_image_copy(),
+        bytemuck::cast_slice(&pixels),
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(16),
+            rows_per_image: Some(4),
+        },
+        wgpu::Extent3d {
+            width: 4,
+            height: 4,
+            depth_or_array_layers: 1,
+        },
+    );
+    let (_, _, groups) = bindings.downsample[0]
+        .iter()
+        .find(|(index, side, _)| *index == 1 && *side == 0)
+        .unwrap();
+    assert_eq!(groups.len(), 2);
+    let (_, pipeline) = loaded
+        .host
+        .downsample
+        .iter()
+        .find(|(format, _)| *format == TextureFormat::R32Float)
+        .unwrap();
+    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+    for (mip, group) in groups.iter().enumerate() {
+        let attachments = [Some(wgpu::RenderPassColorAttachment {
+            view: &buffer.levels[0][mip + 1],
+            depth_slice: None,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                store: wgpu::StoreOp::Store,
+            },
+        })];
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            color_attachments: &attachments,
+            ..Default::default()
+        });
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, group, &[]);
+        pass.draw(0..3, 0..1);
+    }
+    gpu.queue.submit([encoder.finish()]);
+    let witness = crate::gpu_snapshot::Gpu {
+        device: gpu.device.clone(),
+        queue: gpu.queue.clone(),
+        backend: gpu.adapter.get_info().backend,
+    };
+    let result = witness.compute_readback(
+        "@group(0) @binding(0) var image: texture_2d<f32>;
+         @group(0) @binding(1) var<storage, read_write> result: vec4<u32>;
+         @compute @workgroup_size(1) fn witness() {
+             result = bitcast<vec4<u32>>(textureLoad(image, vec2<i32>(0), 2));
+         }",
+        &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::TextureView(&buffer.sampled[0]),
+        }],
+        1,
+        1,
+        1,
+    );
+    assert_eq!(f32::from_bits(result[0][0]), 7.5);
+}
+
+#[test]
+fn custom_image_samplers_use_placeholders_for_mismatched_view_dimensions() {
+    let Some(gpu) = gpu() else { return };
+    for (sampler, coordinate) in [
+        ("sampler2DArray", "vec3(0.0)"),
+        ("samplerCube", "vec3(1.0, 0.0, 0.0)"),
+        ("samplerCubeArray", "vec4(1.0, 0.0, 0.0, 0.0)"),
+    ] {
+        let fragment = format!(
+            "#version 430 compatibility\nuniform {sampler} fixtureSampler;\n\
+             void main() {{ gl_FragData[0] = texture(fixtureSampler, {coordinate}); }}"
+        );
+        let pack = ShaderPack::new(shaderpack::PackSource::from_files([
+            (
+                "shaders.properties",
+                "image.fixture = fixtureSampler rgba rgba8 unsigned_byte false false 4 4\n",
+            ),
+            (
+                "composite.vsh",
+                "#version 430 compatibility\nvoid main() { gl_Position = gl_Vertex; }",
+            ),
+            ("composite.fsh", fragment.as_str()),
+        ]));
+        let loaded = std::sync::Arc::new(
+            crate::shaderpack::loader::build(
+                &pack,
+                "view dimension fixture",
+                "minecraft:overworld",
+                None,
+                &gpu,
+                &VanillaTextures::default(),
+            )
+            .unwrap_or_else(|error| panic!("{sampler}: {error}")),
+        );
+        let scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let mut targets =
+            crate::shaderpack::targets::ViewTargets::new(&gpu.device, &loaded, [4; 2]).unwrap();
+        let _bindings =
+            crate::shaderpack::targets::ViewBindings::new(&gpu.device, &loaded, &mut targets);
+        let error = bevy::tasks::block_on(scope.pop());
+        assert!(error.is_none(), "{sampler} bindings: {error:?}");
+        assert!(matches!(
+            loaded.programs[0].textures.as_slice(),
+            [TextureSource::Constant { .. }]
+        ));
+    }
+}
+
+#[test]
+fn constant_shapes_compare_texture_views_instead_of_storage_dimensions() {
+    let Some(gpu) = gpu() else { return };
+    let pack = ShaderPack::new(shaderpack::PackSource::from_files([] as [(&str, &str); 0]));
+    let translation = pack.translate(&Default::default());
+    let vanilla = VanillaTextures::default();
+    let mut constants = ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
+    let dimensions = [
+        TextureDimension::D2,
+        TextureDimension::D2Array,
+        TextureDimension::Cube,
+        TextureDimension::CubeArray,
+    ];
+    for dimension in dimensions {
+        let (index, _) = constants
+            .placeholder(TextureFormat::Rgba8Unorm, dimension, false)
+            .unwrap();
+        for requested in dimensions {
+            assert_eq!(
+                constants.has_shape(index, requested),
+                dimension == requested,
+                "{dimension:?} as {requested:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn custom_storage_images_reject_mismatched_dimensions() {
     let Some(gpu) = gpu() else { return };
     for (dimensions, declaration, coordinate, matches) in [
@@ -155,8 +345,11 @@ fn decoded_png_rows_reach_the_texture_in_their_original_order() {
     let translation = pack.translate(&Default::default());
     let vanilla = VanillaTextures::default();
     let builder = ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
-    let (_, view) = builder.decode_png("sample.png").unwrap();
-    assert_eq!(read_rows(&gpu, &view), [[255, 0, 0, 255], [0, 0, 255, 255]]);
+    let texture = builder.decode_png("sample.png").unwrap();
+    assert_eq!(
+        read_rows(&gpu, &texture.view),
+        [[255, 0, 0, 255], [0, 0, 255, 255]]
+    );
 }
 
 /// Reads both RGBA8 rows through the texture interface used by pack samplers.
@@ -286,10 +479,13 @@ fn resource_texture_rows_keep_their_decoded_order() {
         },
     );
     let builder = ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
-    let (_, view) = builder
+    let texture = builder
         .decode(&PackTexture::Resource(
             "minecraft:textures/environment/fixture.png".into(),
         ))
         .unwrap();
-    assert_eq!(read_rows(&gpu, &view), [[255, 0, 0, 255], [0, 0, 255, 255]]);
+    assert_eq!(
+        read_rows(&gpu, &texture.view),
+        [[255, 0, 0, 255], [0, 0, 255, 255]]
+    );
 }
