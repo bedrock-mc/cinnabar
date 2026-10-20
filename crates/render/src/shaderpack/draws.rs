@@ -275,8 +275,8 @@ impl DrawKind {
     }
 
     /// Culls back faces: camera terrain, actors and clouds do, as Java (actor two-sided faces
-    /// carry explicit back faces); the sky, block entities (whose meshes mix one- and
-    /// two-sided quads of either winding), shadows and other effects draw both sides.
+    /// carry explicit back faces), including actor shadows. The sky, block entities (whose
+    /// meshes mix one- and two-sided quads of either winding) and other shadows draw both sides.
     pub(crate) fn culls(self) -> bool {
         match self {
             DrawKind::Effect(effect) => effect.culls(),
@@ -293,6 +293,7 @@ impl DrawKind {
                     | DrawKind::HandGlint
                     | DrawKind::Hand
                     | DrawKind::HandWater
+                    | DrawKind::ShadowEntities
             ),
         }
     }
@@ -730,6 +731,19 @@ pub(crate) fn geometry_draws(
 mod tests {
     use super::*;
     use shaderpack::CompareFunction;
+
+    #[test]
+    fn actor_shadow_draws_cull_the_synthesized_back_face() {
+        assert!(DrawKind::ShadowEntities.culls());
+        for kind in [
+            DrawKind::ShadowSolid,
+            DrawKind::ShadowCutout,
+            DrawKind::ShadowTranslucent,
+            DrawKind::ShadowBlock,
+        ] {
+            assert!(!kind.culls(), "{kind:?} keeps both authored orientations");
+        }
+    }
 
     fn resolve(kind: DrawKind, provided: &[&str]) -> Option<&'static str> {
         resolve_program(kind.program(), |name| provided.contains(&name))

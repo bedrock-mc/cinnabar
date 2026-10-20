@@ -36,9 +36,9 @@ struct SkinParams {
 
 const SKIN_WORKGROUP_SIZE: u32 = 64u;
 // The job's positions are already in view space (the first-person hand).
-const JOB_VIEW_SPACE: u32 = 1u;
+const JOB_VIEW_SPACE: u32 = JOB_VIEW_SPACE_FLAG;
 // The instance's material culls back faces even where the rig authors them.
-const JOB_ONE_SIDED: u32 = 2u;
+const JOB_ONE_SIDED: u32 = JOB_ONE_SIDED_FLAG;
 // Glint jobs have separate vertex colours and sprite-local UVs.
 const JOB_GLINT: u32 = JOB_GLINT_FLAG;
 
