@@ -5,7 +5,9 @@ use super::super::{
     transport::early_spawn_tests::{FixtureRoute, Route, fixture_route, receive, send},
 };
 use crate::login::{session_join::prepare_with_read_ahead, startup};
+use crate::packet_relay::{PacketRelay, RelayOutput};
 use crate::session_transport::{Inbound, SessionTransport};
+use crate::session_wire::SessionIdentity;
 use crate::{ClientRandomId, LoginSettings, Packet, ProtocolError, SessionLogin};
 use bedrock_net::{
     BatchCodec, BatchHeader, BatchLimits, CompressionAlgorithm, CompressionSettings,
@@ -16,7 +18,13 @@ use bedrock_protocol_1_26_51::{
     types::{ActorRuntimeID, DisconnectMessages},
     wire,
 };
-use std::{future::Future, pin::pin, task::Poll, time::Duration};
+use std::{
+    future::Future,
+    pin::pin,
+    sync::{Arc, Mutex},
+    task::Poll,
+    time::Duration,
+};
 use tokio::sync::oneshot;
 
 #[tokio::test]
@@ -107,10 +115,98 @@ async fn received_native_transfer_supersedes_held_preparation_without_consuming_
     assert!(transfer.reload_world);
 }
 
+#[tokio::test]
+async fn native_relay_drop_during_held_preparation_keeps_final_fifo_and_single_callback() {
+    let result = held_relay_preparation(relay_disconnect(), false, Some(Rewrite::Drop)).await;
+    assert!(
+        result.is_none(),
+        "a terminal dropped by the selected relay ended the held presentation"
+    );
+}
+
+#[tokio::test]
+async fn native_relay_replacement_during_held_preparation_keeps_final_target_and_single_callback() {
+    let replacement = Packet::new(packets::Transfer {
+        server_address: "relay.example.test".into(),
+        server_port: wire::U16LE(19135),
+        reload_world: true,
+        ..Default::default()
+    });
+    let result = held_relay_preparation(
+        relay_disconnect(),
+        false,
+        Some(Rewrite::Replace(replacement)),
+    )
+    .await;
+    let error = result
+        .expect("the final relay terminal must supersede held preparation")
+        .expect_err("a transferred presentation must not succeed");
+    let target = error
+        .server_transfer()
+        .expect("the original server reason displaced the relay's final transfer");
+    assert_eq!(target.host, "relay.example.test");
+    assert_eq!(target.port, 19135);
+    assert!(target.reload_world);
+}
+
+enum Rewrite {
+    Drop,
+    Replace(Packet),
+}
+
+/// Changes only the one actual server body while recording original callback order.
+struct TerminalRelay {
+    original: Vec<u8>,
+    replacement: Vec<u8>,
+    seen: Mutex<Vec<Vec<u8>>>,
+}
+
+impl PacketRelay for TerminalRelay {
+    fn start(&self, _: &SessionIdentity, _: &str, _: &[u8]) -> Vec<bedrock_packs::RelayPack> {
+        Vec::new()
+    }
+
+    fn inbound(&self, body: &[u8]) -> Option<Vec<u8>> {
+        self.seen.lock().unwrap().push(body.to_vec());
+        (body == self.original).then(|| self.replacement.clone())
+    }
+
+    fn outbound(&self, _: &[u8]) -> Option<Vec<u8>> {
+        None
+    }
+
+    fn tick(&self) -> RelayOutput {
+        RelayOutput::default()
+    }
+
+    fn stop(&self) {}
+}
+
+/// Supplies a real generated Disconnect for both selected relay policies.
+fn relay_disconnect() -> Packet {
+    Packet::new(packets::Disconnect {
+        reason: ConnectionDisconnectFailReason::Serverfull,
+        messages: DisconnectMessages::DisconnectPacketMessages {
+            message: "original upstream reason".into(),
+            filtered_message: "".into(),
+        },
+        ..Default::default()
+    })
+}
+
 /// Runs the original real association, Login, packs and spawn before holding one preparation job.
 async fn held_preparation(
     terminal: Packet,
     received_prefix: bool,
+) -> Option<Result<usize, ProtocolError>> {
+    held_relay_preparation(terminal, received_prefix, None).await
+}
+
+/// Keeps the same native fixture while selecting one actual trusted relay transformation.
+async fn held_relay_preparation(
+    terminal: Packet,
+    received_prefix: bool,
+    rewrite: Option<Rewrite>,
 ) -> Option<Result<usize, ProtocolError>> {
     tokio::time::timeout(Duration::from_secs(20), async {
         let FixtureRoute {
@@ -124,6 +220,41 @@ async fn held_preparation(
         let deferred = time(11);
         let prefix = time(17);
         let suffix = time(19);
+        let after = time(23);
+        let spawning = vec![
+            Packet::new(packets::ResourcePackStack::default()),
+            deferred.clone(),
+            Packet::new(packets::PlayStatus {
+                status: PlayStatusType::Playerspawn,
+            }),
+            Packet::new(packets::StartGame {
+                runtime_id: ActorRuntimeID(42),
+                ..Default::default()
+            }),
+            Packet::new(packets::ItemRegistry::default()),
+        ];
+        let mut expected = vec![deferred.clone()];
+        let original = vec![prefix.clone(), terminal.clone(), suffix.clone()];
+        let final_body = match &rewrite {
+            None => original.clone(),
+            Some(Rewrite::Drop) => Vec::new(),
+            Some(Rewrite::Replace(packet)) => {
+                vec![prefix.clone(), packet.clone(), suffix.clone()]
+            }
+        };
+        expected.extend_from_slice(&final_body);
+        let relay = rewrite.map(|_| {
+            expected.push(after.clone());
+            Arc::new(TerminalRelay {
+                original: crate::session_transport::batch_body(&original)
+                    .unwrap()
+                    .to_vec(),
+                replacement: crate::session_transport::batch_body(&final_body)
+                    .unwrap_or_default()
+                    .to_vec(),
+                seen: Mutex::new(Vec::new()),
+            })
+        });
         let (startup_ready, ready) = oneshot::channel();
         let server = async {
             let mut peer = listener.accept().await.unwrap();
@@ -168,18 +299,7 @@ async fn held_preparation(
                 &*receive(&mut peer, &codec).await[0].data,
                 packets::Packet::ResourcePackClientResponse(_)
             ));
-            let mut spawning = vec![
-                Packet::new(packets::ResourcePackStack::default()),
-                deferred.clone(),
-                Packet::new(packets::PlayStatus {
-                    status: PlayStatusType::Playerspawn,
-                }),
-                Packet::new(packets::StartGame {
-                    runtime_id: ActorRuntimeID(42),
-                    ..Default::default()
-                }),
-                Packet::new(packets::ItemRegistry::default()),
-            ];
+            let mut spawning = spawning.clone();
             if received_prefix {
                 spawning.extend([prefix.clone(), terminal.clone(), suffix.clone()]);
             }
@@ -200,6 +320,9 @@ async fn held_preparation(
                     &[prefix.clone(), terminal.clone(), suffix.clone()],
                 )
                 .await;
+            }
+            if relay.is_some() {
+                send(&peer, &codec, std::slice::from_ref(&after)).await;
             }
             peer.session.closed().await;
         };
@@ -225,6 +348,9 @@ async fn held_preparation(
             .unwrap();
             let startup_packets = negotiated.connection.take_deferred();
             let mut transport = SessionTransport::from_native(negotiated.connection);
+            if let Some(relay) = &relay {
+                transport.set_relay(relay.clone());
+            }
             transport.adopt_startup(startup_packets);
             let mut actual_startup = None;
             let _spawned =
@@ -260,7 +386,7 @@ async fn held_preparation(
             })
             .await;
             let mut accepted = Vec::new();
-            for _ in 0..4 {
+            for _ in 0..expected.len() {
                 let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
                     panic!("native packet FIFO was replaced by a synthetic terminal")
                 };
@@ -275,7 +401,22 @@ async fn held_preparation(
         let ((), (before_release, accepted)) = tokio::join!(server, client);
         listener.close().await.unwrap();
         drop(listener);
-        assert_eq!(accepted, [deferred, prefix, terminal, suffix]);
+        assert_eq!(accepted, expected);
+        if let Some(relay) = relay {
+            assert_eq!(
+                *relay.seen.lock().unwrap(),
+                [
+                    crate::session_transport::batch_body(&spawning[1..])
+                        .unwrap()
+                        .to_vec(),
+                    relay.original.clone(),
+                    crate::session_transport::batch_body(&[after])
+                        .unwrap()
+                        .to_vec(),
+                ],
+                "native callbacks must preserve original startup/live FIFO and execute once"
+            );
+        }
         before_release
     })
     .await
