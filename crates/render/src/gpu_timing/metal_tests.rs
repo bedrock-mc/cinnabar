@@ -218,7 +218,7 @@ fn metal_deferred_pass_markers_emit_readable_timestamps() {
     });
     let view = texture.create_view(&Default::default());
     let mut timestamps = GpuTimestamps::new(&device, &queue, false).unwrap();
-    timestamps.begin(|_| unreachable!("first frame has no readback"));
+    timestamps.begin(0, |_, _, _| unreachable!("first frame has no readback"));
     let mut world = World::new();
     world.insert_resource(timestamps);
     let pool = bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
@@ -246,7 +246,9 @@ fn metal_deferred_pass_markers_emit_readable_timestamps() {
     let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
     timestamps.request_readback(&queue);
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-    timestamps.begin(|_| panic!("completed samples still need a readback copy"));
+    timestamps.begin(0, |_, _, _| {
+        panic!("completed samples still need a readback copy")
+    });
     world.insert_resource(timestamps);
     let (_, mut buffers) =
         crate::render_test_support::record(&mut world, &device, |world, context| {
@@ -287,7 +289,7 @@ fn metal_deferred_pass_markers_emit_readable_timestamps() {
     );
     drop(mapped);
     let mut frames = Vec::new();
-    timestamps.begin(|frame| frames.push(*frame));
+    timestamps.begin(0, |_, frame, _| frames.push(*frame));
     assert_eq!(frames.len(), 1);
     assert_eq!(
         frames[0].get(RuntimeStage::GpuOpaque),
@@ -333,7 +335,7 @@ fn metal_depth_resolve_uses_owned_pass_queries_without_extra_passes() {
     let mut resolved = ResolvedDepth::new(&device, &depth, RuntimeStage::GpuShadows);
     let retained = resolved.view.id();
     let mut timestamps = GpuTimestamps::new(&device, &queue, false).unwrap();
-    timestamps.begin(|_| unreachable!("first frame has no readback"));
+    timestamps.begin(0, |_, _, _| unreachable!("first frame has no readback"));
     let mut world = World::new();
     world.insert_resource(timestamps);
     let (_, buffers) = crate::render_test_support::record(&mut world, &device, |world, context| {
