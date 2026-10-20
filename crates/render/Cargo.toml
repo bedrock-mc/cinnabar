@@ -24,6 +24,8 @@ publication-test-support = []
 enhanced = []
 # Enables bounded development captures while the production switch stays disabled.
 enhanced-diagnostics = ["enhanced", "render-model/enhanced-diagnostics", "render-scene/enhanced-diagnostics"]
+# Compiles the experimental shader-pack renderer; default builds leave it out.
+shaderpacks = []
 
 [dependencies]
 web-time.workspace = true
