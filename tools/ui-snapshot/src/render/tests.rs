@@ -136,3 +136,33 @@ fn snapshot_chat_uses_the_shipped_input_and_autocomplete_backdrops() {
         "autocomplete must paint its shipped translucent backdrop"
     );
 }
+
+#[test]
+fn custom_panel_texture_collection_resolves_static_template_parameters() {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::create_dir(directory.path().join("textures")).unwrap();
+    std::fs::write(
+        directory.path().join("textures/icon.png"),
+        b"original-artwork",
+    )
+    .unwrap();
+    let panel: ui::mod_panel::Panel = serde_json::from_value(json!({
+        "title":"Fixture", "toggle_key":"F8", "dark":true, "controls":[],
+        "surface":{
+            "screen":"fixture.root",
+            "document":json!({
+                "namespace":"fixture",
+                "image":{"type":"image", "texture":"$asset"},
+                "root":{"type":"panel", "controls":[
+                    {"icon@fixture.image":{"$asset":"textures/icon"}}
+                ]}
+            }).to_string()
+        }
+    }))
+    .unwrap();
+    let files = super::panel_textures(&panel, directory.path()).unwrap();
+    assert_eq!(
+        files,
+        vec![("textures/icon.png".into(), b"original-artwork".to_vec())]
+    );
+}

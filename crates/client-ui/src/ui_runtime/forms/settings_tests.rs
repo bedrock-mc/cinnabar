@@ -96,7 +96,7 @@ fn clearing_the_session_retires_cached_settings_and_request_state() {
     assert!(requested, "the new session must request its own settings");
 }
 
-/// Receives a custom settings draft with editable defaults.
+/// Receives an editable settings draft while the settings menu owns input.
 fn custom_settings(store: &mut ServerFormStore, id: u32) {
     store.admit(
         FormRequestEvent {
@@ -128,7 +128,7 @@ fn custom_settings(store: &mut ServerFormStore, id: u32) {
         },
         u64::from(id),
         1,
-        false,
+        true,
     );
 }
 
@@ -175,6 +175,8 @@ fn settings_termination_submits_edits_once_and_tab_changes_keep_the_draft() {
     store.flush_settings_request(true, || true);
     store.select_settings_form(true);
     custom_settings(store, 7);
+    assert!(store.settings_form_active());
+    assert_eq!(store.queued_busy_count(), 0);
     edit_settings(store);
     let original = store.active().unwrap().identity;
     store.select_settings_form(false);
