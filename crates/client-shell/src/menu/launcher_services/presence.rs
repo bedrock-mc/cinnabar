@@ -31,7 +31,11 @@ impl LauncherServices {
     }
 
     /// Keeps replacement and account mutation blocked until an actual successful stop result arrives.
-    pub(super) fn retirement_complete(&mut self) -> bool {
+    pub(super) fn retirement_complete(
+        &mut self,
+        commands: &mut Commands,
+        menu: &mut MenuRuntime,
+    ) -> bool {
         if self.retirement_blocked {
             return false;
         }
@@ -39,7 +43,7 @@ impl LauncherServices {
             .presence_lifetime
             .as_ref()
             .is_some_and(|life| life.retirement_requested())
-            && !self.retire_presence()
+            && !self.retire_presence(commands, menu)
         {
             return false;
         }
@@ -60,10 +64,18 @@ impl LauncherServices {
         !self.retirement_blocked
     }
 
-    /// Finishes the original publisher before stopping its core or changing selected credentials.
+    /// Cancels account readers before the original publisher needs their shared lease for cleanup.
     /// A failed removal or lost worker permanently holds this slot; it never resets authority.
-    pub(super) fn retire_presence(&mut self) -> bool {
+    pub(super) fn retire_presence(
+        &mut self,
+        commands: &mut Commands,
+        menu: &mut MenuRuntime,
+    ) -> bool {
         use launcher_host::launcher_account::TitlePresenceRetirement;
+        commands.remove_resource::<LauncherAccount>();
+        #[cfg(feature = "native-networking")]
+        menu.native_catalog.pause();
+        menu.accounts.skip_control = true;
         let Some(lifetime) = &self.presence_lifetime else {
             return true;
         };
