@@ -25,6 +25,8 @@ mod dependencies;
 mod fill_renderers;
 mod filter;
 mod formatting_colors;
+mod fragment;
+pub use fragment::normalize_fragment;
 pub mod glass;
 pub mod host_edit;
 pub mod item_renderer;
@@ -702,10 +704,14 @@ impl Canvas<'_> {
         let Some((clip, parent)) = self.clip else {
             return Ok(());
         };
-        if self.art.nearest_sampling
-            && let UiVisual::StyledSprite { style, .. } = &mut visual
-        {
-            *style &= !ui::UI_STYLE_BILINEAR;
+        if self.art.nearest_sampling {
+            match &mut visual {
+                UiVisual::StyledSprite { style, .. } => *style &= !ui::UI_STYLE_BILINEAR,
+                UiVisual::RepeatedSprite { style, .. } => {
+                    *style &= !u16::from(ui::UI_STYLE_BILINEAR)
+                }
+                _ => {}
+            }
         }
         let id = self.id();
         self.nodes.push(
@@ -879,13 +885,23 @@ impl Canvas<'_> {
                 uv,
                 color,
                 filter,
+                ..
             } => {
                 let uv = drawn.uv.unwrap_or(*uv);
                 let color = drawn.color.unwrap_or(*color);
-                if self.paint_native_sprite(texture, uv, alpha(color), *filter, dest)? {
+                if self.paint_native_sprite(
+                    texture,
+                    uv,
+                    alpha(color),
+                    *filter,
+                    dest,
+                    drawn.repeat,
+                )? {
                     return Ok(());
                 }
-                let Some(visual) = self.sprite(texture, uv, alpha(color), *filter) else {
+                let Some(visual) =
+                    self.sprite_with_repeat(texture, uv, alpha(color), *filter, drawn.repeat)
+                else {
                     return Ok(());
                 };
                 (visual, dest)

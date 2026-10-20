@@ -213,13 +213,52 @@ fn emit_untransformed(
                 ],
                 *texture_page,
                 [*color; 4],
-                *style,
+                u16::from(*style),
                 UiBlendMode::Alpha,
                 clip,
                 vertices,
                 indices,
                 batches,
             )
+        }
+        UiVisual::RepeatedSprite {
+            texture_page,
+            tile_uv: uv,
+            source,
+            color,
+            style,
+        } => {
+            if is_empty(bounds) {
+                return Ok(());
+            }
+            let first = vertices.len();
+            emit_colored_quad(
+                [
+                    [bounds.min().x(), bounds.min().y()],
+                    [bounds.max().x(), bounds.min().y()],
+                    [bounds.max().x(), bounds.max().y()],
+                    [bounds.min().x(), bounds.max().y()],
+                ],
+                [
+                    [uv[0], uv[1]],
+                    [uv[2], uv[1]],
+                    [uv[2], uv[3]],
+                    [uv[0], uv[3]],
+                ],
+                *texture_page,
+                [*color; 4],
+                0,
+                UiBlendMode::Alpha,
+                clip,
+                vertices,
+                indices,
+                batches,
+            )?;
+            for vertex in &mut vertices[first..] {
+                vertex.style_flags |= *style;
+                vertex.overlay_color = *source;
+            }
+            Ok(())
         }
         UiVisual::RotatedSprite {
             texture_page,
@@ -406,7 +445,7 @@ fn emit_text(
                 uv,
                 page,
                 glyph_color,
-                (u8::from(glyph.linear_sampling) * UI_STYLE_BILINEAR)
+                u16::from(u8::from(glyph.linear_sampling) * UI_STYLE_BILINEAR)
                     | glyph.rendering.style_flags(),
                 shear,
                 bold_offset,
@@ -456,14 +495,14 @@ fn obfuscation_selector(seed: u64, layout_id: u64, index: usize) -> u64 {
 
 /// Emits one glyph: italic leans the top edge right by `shear`, and a
 /// `Some(bold_offset)` draws a second copy shifted right to embolden it. Styles
-/// are pure geometry; glyph vertices carry no style bits (bit 1 is the glint).
+/// use geometry; vertices retain the font's sampling and coverage flags.
 #[allow(clippy::too_many_arguments)]
 fn emit_text_glyph(
     glyph_bounds: UiRect,
     uv: [u16; 4],
     page: u16,
     color: [u8; 4],
-    style_flags: u8,
+    style_flags: u16,
     shear: f32,
     bold_offset: Option<f32>,
     device_grid: Option<f32>,
@@ -532,7 +571,7 @@ fn emit_quad(
         uv,
         texture_page,
         color,
-        style_flags,
+        u16::from(style_flags),
         blend,
         clip,
         vertices,
@@ -583,7 +622,7 @@ fn emit_rotated_quad(
         uv,
         texture_page,
         color,
-        style_flags,
+        u16::from(style_flags),
         blend,
         clip,
         vertices,
@@ -598,7 +637,7 @@ fn emit_positioned_quad(
     uv: [[u16; 2]; 4],
     texture_page: u16,
     color: [u8; 4],
-    style_flags: u8,
+    style_flags: u16,
     blend: UiBlendMode,
     clip: DrawSpace<'_>,
     vertices: &mut Vec<UiVertex>,
@@ -626,7 +665,7 @@ fn emit_colored_quad(
     uv: [[f32; 2]; 4],
     texture_page: u16,
     colors: [[u8; 4]; 4],
-    style_flags: u8,
+    style_flags: u16,
     blend: UiBlendMode,
     clip: DrawSpace<'_>,
     vertices: &mut Vec<UiVertex>,
@@ -667,7 +706,7 @@ fn emit_colored_quad(
             clip_w,
             uv,
             color,
-            style_flags: u16::from(style_flags),
+            style_flags,
             alpha_test: clip
                 .projection
                 .is_some_and(|projection| projection.alpha_test),

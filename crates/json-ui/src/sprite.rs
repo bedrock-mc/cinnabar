@@ -4,14 +4,14 @@
 
 use serde_json::Value;
 
-use crate::emit::{RectOut, SpriteQuad, UvRect};
+use crate::emit::{RectOut, SpriteQuad, SpriteRepeat, UvRect};
 use crate::layout::Rect;
 use crate::sidecar::{NineSlice, TextureMeta};
 use crate::tree::ResolvedControl;
 use crate::widgets;
 
-/// Most tiles one sprite may emit, bounding a tiny tile over a huge rect.
-const MAX_TILES: usize = 4096;
+/// Destination, normalized source bounds, and optional tile coordinates for one draw.
+pub(crate) type Quad = (Rect, UvRect, Option<SpriteRepeat>);
 
 /// `clip_direction`: which side of the image stays when `clip_ratio` cuts it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -123,9 +123,9 @@ pub(crate) fn quads(
     rect: Rect,
     meta: Option<&TextureMeta>,
     clip_ratio: Option<f32>,
-) -> Vec<(Rect, UvRect)> {
+) -> Vec<Quad> {
     let Some(meta) = meta.filter(|meta| meta.pixels[0] > 0.0 && meta.pixels[1] > 0.0) else {
-        return vec![(rect, UvRect::full())];
+        return vec![(rect, UvRect::full(), None)];
     };
     let source = Source::of(control, meta);
     let clip = ClipDirection::of(control)
@@ -136,16 +136,17 @@ pub(crate) fn quads(
     } else if let Some(axes) = source.tiled {
         tiles(rect, &source, axes)
     } else if clip.is_some() {
-        vec![(rect, source.uv_rect(source.region()))]
+        vec![(rect, source.uv_rect(source.region()), None)]
     } else if widgets::bound_bool(control, "fill") == Some(true) {
-        vec![(rect, source.uv_rect(cover(rect, source.region())))]
+        vec![(rect, source.uv_rect(cover(rect, source.region())), None)]
     } else if widgets::bound_bool(control, "keep_ratio") != Some(false) {
         vec![(
             contain(rect, source.uv_size),
             source.uv_rect(source.region()),
+            None,
         )]
     } else {
-        vec![(rect, source.uv_rect(source.region()))]
+        vec![(rect, source.uv_rect(source.region()), None)]
     };
     let Some((direction, ratio)) = clip else {
         return quads;
@@ -153,8 +154,20 @@ pub(crate) fn quads(
     let visible = clipped_rect(direction, rect, ratio);
     quads
         .into_iter()
-        .filter_map(|(dest, uv)| crop(dest, uv, visible))
+        .filter_map(|quad| crop_quad(quad, visible))
         .collect()
+}
+
+/// Crops tile coordinates while keeping the repeated source rectangle intact.
+fn crop_quad((dest, uv, repeat): Quad, visible: Rect) -> Option<Quad> {
+    match repeat {
+        Some(mut repeat) => {
+            let (dest, kept) = crop(dest, repeat.uv, visible)?;
+            repeat.uv = kept;
+            Some((dest, uv, Some(repeat)))
+        }
+        None => crop(dest, uv, visible).map(|(dest, uv)| (dest, uv, None)),
+    }
 }
 
 /// `clip_pixelperfect` (default on) rounds the cut down to whole source pixels
@@ -263,28 +276,42 @@ fn cover(rect: Rect, [u, v, w, h]: [f64; 4]) -> [f64; 4] {
 
 /// Repeat `region` across `rect` from its top-left in `tiled_scale × uv_size`
 /// steps, cropping the last tile; an untiled axis stretches.
-fn tiles(rect: Rect, source: &Source, axes: Tiled) -> Vec<(Rect, UvRect)> {
-    tile_region(rect, source, source.region(), source.uv_size, axes)
+fn tiles(rect: Rect, source: &Source, axes: Tiled) -> Vec<Quad> {
+    let mut quads = Vec::new();
+    tile_region(
+        rect,
+        source,
+        source.region(),
+        source.uv_size,
+        axes,
+        &mut quads,
+    );
+    quads
 }
 
+/// Appends one repeated region, regardless of the number of tiles it covers.
 fn tile_region(
     rect: Rect,
     source: &Source,
     region: [f64; 4],
     tile: [f64; 2],
     axes: Tiled,
-) -> Vec<(Rect, UvRect)> {
+    quads: &mut Vec<Quad>,
+) {
     if !rect.w.is_finite() || !rect.h.is_finite() || rect.w <= 0.0 || rect.h <= 0.0 {
-        return Vec::new();
+        return;
     }
-    // Repeating one texel equals stretching it, and a wide 1x1 fill stays under MAX_TILES.
+    // Repeating one texel equals stretching it.
     let along_x = matches!(axes, Tiled::X | Tiled::Both) && region[2] > 1.0;
     let along_y = matches!(axes, Tiled::Y | Tiled::Both) && region[3] > 1.0;
     let axes = match (along_x, along_y) {
         (true, true) => Tiled::Both,
         (true, false) => Tiled::X,
         (false, true) => Tiled::Y,
-        (false, false) => return vec![(rect, source.uv_rect(region))],
+        (false, false) => {
+            quads.push((rect, source.uv_rect(region), None));
+            return;
+        }
     };
     let step = [
         tile[0] * source.tiled_scale[0],
@@ -296,36 +323,27 @@ fn tile_region(
         Tiled::Both => step,
     };
     if step[0] <= 0.0 || step[1] <= 0.0 {
-        return vec![(rect, source.uv_rect(region))];
+        quads.push((rect, source.uv_rect(region), None));
+        return;
     }
-    let mut quads = Vec::new();
-    let mut y = 0.0;
-    let mut rows = 0;
-    while y < rect.h && quads.len() < MAX_TILES && rows < MAX_TILES {
-        rows += 1;
-        let fy = ((rect.h - y) / step[1]).clamp(0.0, 1.0);
-        let mut x = 0.0;
-        while x < rect.w && quads.len() < MAX_TILES {
-            let fx = ((rect.w - x) / step[0]).clamp(0.0, 1.0);
-            quads.push((
-                Rect::new(rect.x + x, rect.y + y, step[0] * fx, step[1] * fy),
-                source.uv_rect([region[0], region[1], region[2] * fx, region[3] * fy]),
-            ));
-            x += step[0];
-        }
-        y += step[1];
-    }
-    quads
+    quads.push((
+        rect,
+        source.uv_rect(region),
+        Some(SpriteRepeat {
+            uv: UvRect {
+                u0: 0.0,
+                v0: 0.0,
+                u1: (rect.w / step[0]) as f32,
+                v1: (rect.h / step[1]) as f32,
+            },
+            axes: [along_x, along_y],
+        }),
+    ));
 }
 
 /// Nine-slice `rect` over the source region: corners 1:1, edges stretched (or
 /// tiled on a `tiled` axis) along one axis, the centre along both.
-fn nine_slice_region(
-    rect: Rect,
-    source: &Source,
-    inset: NineSlice,
-    base: [f64; 2],
-) -> Vec<(Rect, UvRect)> {
+fn nine_slice_region(rect: Rect, source: &Source, inset: NineSlice, base: [f64; 2]) -> Vec<Quad> {
     let [u, v, w, h] = source.region();
     let scale = [
         if base[0] > 0.0 { w / base[0] } else { 1.0 },
@@ -392,9 +410,9 @@ fn nine_slice_region(
             .filter(|_| col == 1 || row == 1);
             match tiled {
                 Some(axes) => {
-                    quads.extend(tile_region(dest, source, piece, [piece[2], piece[3]], axes))
+                    tile_region(dest, source, piece, [piece[2], piece[3]], axes, &mut quads);
                 }
-                None => quads.push((dest, source.uv_rect(piece))),
+                None => quads.push((dest, source.uv_rect(piece), None)),
             }
         }
     }
@@ -416,11 +434,11 @@ pub fn nine_slice(dest: Rect, meta: &TextureMeta) -> Vec<SpriteQuad> {
         Some(inset) if meta.pixels[0] > 0.0 && meta.pixels[1] > 0.0 => {
             nine_slice_region(dest, &source, inset, meta.base_size)
         }
-        _ => vec![(dest, UvRect::full())],
+        _ => vec![(dest, UvRect::full(), None)],
     };
     quads
         .into_iter()
-        .map(|(dest, uv)| SpriteQuad {
+        .map(|(dest, uv, _)| SpriteQuad {
             dest: RectOut::from(dest),
             uv,
         })

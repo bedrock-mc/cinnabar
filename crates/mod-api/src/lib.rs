@@ -19,6 +19,8 @@ pub const MAX_TERRAIN_METADATA_BYTES: usize = 256 * 1024;
 pub const MAX_TERRAIN_RESPONSE_BYTES: usize = 512 * 1024;
 
 mod guest;
+pub mod native_frame;
+pub mod native_menu;
 
 /// Converts observed actor YXZ degrees (forward -Z, pitch up) to Bedrock view degrees.
 pub fn bedrock_view_angles(yaw: f32, pitch: f32) -> [f32; 2] {
@@ -26,6 +28,9 @@ pub fn bedrock_view_angles(yaw: f32, pitch: f32) -> [f32; 2] {
 }
 
 pub use guest::PlayerMod;
+
+/// Native tick rate used when recording elapsed playtime; the app checks the simulation clock.
+pub const BEDROCK_TICKS_PER_SECOND: u32 = 20;
 
 /// Exclusive bound for guest time overrides: ticks in one Bedrock day.
 pub const BEDROCK_DAY_TICKS: u32 = 24_000;
@@ -95,6 +100,12 @@ pub const COMPONENT_ASSET_SECTIONS: [&str; 6] = [
 pub const MAX_CONTROL_KEYS: usize = 64;
 /// Maximum bytes in a physical key name supplied by local controls.
 pub const MAX_CONTROL_KEY_BYTES: usize = 32;
+/// Whether a physical key name fits the shared controls wire contract.
+pub fn control_key_valid(key: &str) -> bool {
+    !key.is_empty()
+        && key.len() <= MAX_CONTROL_KEY_BYTES
+        && key.bytes().all(|c| c.is_ascii_alphanumeric())
+}
 
 /// Maximum nearby mobs in one snapshot, and the radius they are drawn from.
 pub const MAX_GAMEPLAY_MOBS: usize = 64;
