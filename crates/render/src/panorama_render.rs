@@ -538,3 +538,25 @@ mod review_tests {
         assert_eq!(target.unwrap().blend, None);
     }
 }
+
+#[cfg(test)]
+mod latency_tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn latency_cadence_menu_preparation_can_qualify_for_one() {
+        let (device, queue) = crate::gpu_timing::tests::noop_device(wgpu::Features::empty());
+        let mut world = World::new();
+        world.insert_resource(device);
+        world.insert_resource(queue);
+        let mut scene = PanoramaScene::default();
+        scene.set_game_visible(false);
+        world.insert_resource(scene);
+        world.run_system_once(init_gpu).unwrap();
+        crate::present_mode::frame_latency::adaptive::tests::assert_preparation_qualifies(|| {
+            world.run_system_once(prepare_panorama).unwrap();
+            assert!(world.resource::<PanoramaGpu>().visible);
+        });
+    }
+}

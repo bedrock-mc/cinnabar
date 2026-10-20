@@ -12,6 +12,7 @@ pub(super) mod motion_sampling;
 mod retained;
 mod rotation;
 pub(super) mod sampling;
+mod schedule;
 
 use motion_endpoint::{MotionEndpoint, MotionEndpointState};
 
@@ -69,6 +70,11 @@ impl<'a> ActorRenderFrame<'a> {
         self.actors
             .animated_actor(runtime_id)
             .is_some_and(|actor| self.store.may_use_always_depth_material(actor))
+    }
+
+    /// Whether admission can spend this actor's frame budget before its body is sampled.
+    pub fn samples_during_admission(&self, runtime_id: u64) -> bool {
+        self.samples_rig_scale(runtime_id) || self.may_use_always_depth_material(runtime_id)
     }
 
     /// Whether any controller branch can replace the base mesh, including frame selections.

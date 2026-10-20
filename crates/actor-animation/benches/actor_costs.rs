@@ -202,6 +202,8 @@ fn actor_costs(c: &mut Criterion) {
     }
     group.finish();
 }
+#[path = "actor_costs/frame_workers.rs"]
+mod frame_workers;
 
 /// Compares identical nonzero poses, including validation and excluding plan construction.
 fn composition_costs(criterion: &mut Criterion) {
@@ -225,5 +227,10 @@ fn composition_costs(criterion: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, actor_costs, composition_costs);
+criterion_group!(
+    benches,
+    actor_costs,
+    composition_costs,
+    frame_workers::costs
+);
 criterion_main!(benches);

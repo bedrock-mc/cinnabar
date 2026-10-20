@@ -516,8 +516,8 @@ fn stair_rotation_bakes_ao_from_rotated_faces_and_positions_for_both_halves() {
             "WGSL/CPU rotation contract drifted: {clause}"
         );
     }
-    assert!(shader.contains("f32(packed_u16(template_quad_base + 6u, uv_component))"));
-    assert!(shader.contains("f32(packed_u16(template_quad_base + 6u, uv_component + 1u))"));
+    assert!(shader.contains("f32(packed_u16(quad.template_quad_base + 6u, uv_component))"));
+    assert!(shader.contains("f32(packed_u16(quad.template_quad_base + 6u, uv_component + 1u))"));
     let lower = [[0, 0, 32], [0, 224, 32], [0, 224, 192], [0, 0, 192]];
     let upper = lower.map(|[x, y, z]| [x, 256 - y, z]);
     let assets = runtime_assets_with_model_geometry(
