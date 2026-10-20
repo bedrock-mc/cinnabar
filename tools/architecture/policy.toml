@@ -1376,11 +1376,6 @@ literal = "the_end"
 reason = "Java Edition dimension id in the default OptiFine/Iris shader-pack folder mapping, not a Bedrock identifier."
 
 [[identifier_literal_exceptions]]
-path = "crates/render/src/shaderpack/plugin.rs"
-literal = "minecraft:the_end"
-reason = "Vanilla dimension id mapped to the Iris shader-pack folder `world1`."
-
-[[identifier_literal_exceptions]]
 path = "crates/shaderpack/src/transform/declare.rs"
 literal = "flat"
 reason = "GLSL interpolation qualifier in translated shader source."
