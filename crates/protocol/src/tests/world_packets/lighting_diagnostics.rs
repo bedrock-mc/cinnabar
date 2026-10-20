@@ -97,7 +97,7 @@ fn bounds_advertised_dimension_heights_without_rejecting_custom_ranges() {
     assert_eq!(heights[0].dimension, 0);
     assert_eq!(heights[0].name.as_ref(), "custom:0");
     assert_eq!(heights[0].minimum_y, -128);
-    assert_eq!(heights[0].height_range, 1024);
+    assert_eq!(heights[0].maximum_y, 1024);
     assert_eq!(heights.last().unwrap().dimension, 63);
 }
 
@@ -107,8 +107,8 @@ fn retains_named_overworld_definition_with_a_distinct_numeric_type() {
         definitions: vec![(
             "minecraft:overworld".into(),
             DimensionDefinition {
-                minimum_y: wire::ZigZag32(0),
-                height_range: wire::ZigZag32(256),
+                minimum_y: wire::ZigZag32(-64),
+                height_range: wire::ZigZag32(320),
                 dimension_type: DimensionType(3),
                 generator_type: GeneratorType::Overworld,
                 ..Default::default()
@@ -123,7 +123,7 @@ fn retains_named_overworld_definition_with_a_distinct_numeric_type() {
     };
     assert_eq!(heights[0].name.as_ref(), "minecraft:overworld");
     assert_eq!(heights[0].dimension, 3);
-    assert_eq!(heights[0].minimum_y, 0);
-    assert_eq!(heights[0].height_range, 256);
+    assert_eq!(heights[0].minimum_y, -64);
+    assert_eq!(heights[0].maximum_y, 320);
     assert_eq!(heights[0].generator, 1);
 }

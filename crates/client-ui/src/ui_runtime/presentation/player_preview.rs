@@ -520,11 +520,11 @@ impl PlayerPreviewPose {
 }
 
 #[derive(Clone, Copy)]
-struct ProjectedVertex {
+pub(super) struct ProjectedVertex {
     screen: [f32; 2],
     depth: f32,
     uv: [f32; 2],
-    world: [f32; 3],
+    pub(super) world: [f32; 3],
 }
 
 /// Renders a nearest-neighbour, orthographic 3-D biped preview from a
@@ -592,7 +592,7 @@ pub(super) fn render_body_with_cape(
 }
 
 /// A posed, viewer-facing biped.
-struct Rig {
+pub(super) struct Rig {
     parts: [Option<glam::Affine3A>; 6],
     body: f32,
     head_yaw: f32,
@@ -605,7 +605,12 @@ struct Rig {
 }
 
 impl Rig {
-    fn new(pose: PlayerPreviewPose, view: PreviewView, bob: f32, holding: [bool; 2]) -> Self {
+    pub(super) fn new(
+        pose: PlayerPreviewPose,
+        view: PreviewView,
+        bob: f32,
+        holding: [bool; 2],
+    ) -> Self {
         let [body, head_yaw, head_pitch, model_pitch] = view.angles();
         // A vanilla paper doll sets variable.is_paperdoll=1. The vanilla player
         // controller's paperdoll branch excludes holding, sneak and idle bob.
@@ -631,7 +636,7 @@ impl Rig {
         }
     }
 
-    fn project(&self, vertex: ActorVertex) -> ProjectedVertex {
+    pub(super) fn project(&self, vertex: ActorVertex) -> ProjectedVertex {
         let mut local = vertex.position;
         if let Some(Some(transform)) = self.parts.get(vertex.part as usize) {
             local = transform

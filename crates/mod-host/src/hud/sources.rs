@@ -66,7 +66,9 @@ pub(super) fn refresh_with_clock(state: &mut State, clock: Option<super::clock::
         state.hud.source_motion = None;
         state.hud.source_clock = None;
         state.hud.source_totem_uses = None;
-        state.hud.resolved = None;
+        if state.hud.resolved.take().is_some() {
+            state.hud.changed();
+        }
         return;
     }
     let content = state.hud.content.as_ref().expect("bound content");
@@ -135,7 +137,10 @@ pub(super) fn refresh_with_clock(state: &mut State, clock: Option<super::clock::
             .expect("unchanged source facts are resolved")
     };
     super::compass::hydrate(&mut resolved, world, motion.as_ref());
-    state.hud.resolved = Some(resolved);
+    if state.hud.resolved.as_ref() != Some(&resolved) {
+        state.hud.resolved = Some(resolved);
+        state.hud.changed();
+    }
     if facts_changed {
         state.hud.source_snapshot = snapshot.cloned();
         state.hud.source_sidebar = sidebar.cloned();

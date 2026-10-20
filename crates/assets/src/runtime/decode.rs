@@ -57,6 +57,7 @@ impl RuntimeAssets {
         crate::material_variations::validate(&materials)?;
         let biomes = decode_biomes(sections[9], sections[10], sections[11])?;
         let assets = Self {
+            carrier_identity: Some(identity),
             visuals: decode_visuals(sections[0])?,
             light_properties: decode_light_properties(sections[0]),
             hashed: super::hashed_ids::HashedIds::new(decode_hashes(sections[1])),

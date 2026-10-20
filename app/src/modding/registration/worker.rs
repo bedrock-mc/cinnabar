@@ -58,7 +58,7 @@ pub(super) fn run(
     directory: PathBuf,
     messages: Receiver<Message>,
     updates: Sender<Update>,
-    retired: Receiver<ModHost>,
+    retired: Receiver<Retired>,
     latest: Arc<AtomicU64>,
     desired: Arc<Mutex<Desired>>,
     settings: Arc<Mutex<BTreeMap<PathBuf, SettingsSnapshot>>>,
@@ -84,7 +84,7 @@ pub(super) fn run(
                         let _=results.send(result);
                     }
                 }
-                recv(retired) -> host => {let Ok(host)=host else {break};drop(host);}
+                recv(retired) -> host => {let Ok(host)=host else {break};host.dispose();}
                 recv(receive_fences) -> fence => {let Ok(fence)=fence else {break};removal::finish(&retired,fence,&root,&generation);}
             }
         }

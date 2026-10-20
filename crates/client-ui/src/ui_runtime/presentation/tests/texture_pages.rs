@@ -162,7 +162,7 @@ fn mixed_native_font_pages_keep_source_pixels_with_bounded_gpu_residency() {
         .sum();
     let page_bytes = |side: u32| side as usize * side as usize * 4;
     let small_page_bytes = page_bytes(render_model::UI_DYNAMIC_PAGE_SIDE);
-    let dynamic_bytes = render_model::UI_LOCAL_FONT_PAGE_OFFSET * small_page_bytes
+    let dynamic_bytes = (render_model::MAX_UI_DYNAMIC_PAGES - 1) * small_page_bytes
         + page_bytes(render_model::UI_LOCAL_FONT_PAGE_SIDE);
     assert_eq!(
         presentation.textures.plan().bytes(),

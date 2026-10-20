@@ -4,10 +4,7 @@ use std::path::Path;
 
 use bridge::{
     BridgeError,
-    contract::{
-        KIND_PACK_DATA, MAX_PACK_ARCHIVE_BYTES, MAX_SELECTED_PACK_BYTES, MAX_SELECTED_PACKS,
-        PACK_CHUNK_BYTES,
-    },
+    contract::{KIND_PACK_DATA, PACK_CHUNK_BYTES},
 };
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -31,17 +28,10 @@ impl HandoffPackReceiver {
     /// Checks the whole selection before loading any cache or accepting archive bytes.
     /// Cache reads belong on a blocking worker and use only the caller's trusted root.
     pub fn new(handoff: &SessionHandoff, cache_root: Option<&Path>) -> Result<Self, BridgeError> {
-        if handoff.packs.len() > MAX_SELECTED_PACKS {
-            return Err(invalid("too many handoff packs"));
-        }
-        let mut total = 0u64;
         for pack in &handoff.packs {
-            if pack.size > MAX_PACK_ARCHIVE_BYTES as u64
-                || pack.size > MAX_SELECTED_PACK_BYTES as u64 - total
-            {
-                return Err(invalid("handoff pack byte limit"));
+            if usize::try_from(pack.size).map_or(true, |size| size > isize::MAX as usize) {
+                return Err(invalid("handoff archive size cannot be represented"));
             }
-            total += pack.size;
         }
         let archives = handoff
             .packs

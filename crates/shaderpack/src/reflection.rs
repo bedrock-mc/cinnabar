@@ -37,52 +37,42 @@ pub const SAMPLER_NAME: &str = "iris_sampler";
 /// Name of the shared comparison sampler in translated GLSL.
 pub const SHADOW_SAMPLER_NAME: &str = "iris_samplerShadow";
 
-/// The filtering sampler a texture is read with, by Iris's per-texture rules: render
-/// targets clamp and filter linearly, depth textures clamp without filtering, `noisetex`
-/// repeats, and custom textures follow their `.mcmeta` (`blur`, `clamp`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum SamplerClass {
-    /// Repeat, linear: the shared sampler, for `noisetex` and names without a rule.
-    RepeatLinear,
-    /// Clamp to edge, linear: `colortex`/`shadowcolor`/`shadowtex`, `lightmap` and custom
-    /// images.
-    ClampLinear,
-    /// Clamp to edge, nearest: `depthtex`.
-    ClampNearest,
-    /// Repeat, nearest (blending mip levels, as Java's atlas does): the block atlas and its
-    /// `normals`/`specular` companions, and custom textures without `blur` or `clamp`.
-    RepeatNearest,
+/// Declares sampler classes, their binding order and GLSL names together.
+macro_rules! sampler_classes {
+    ($($(#[$doc:meta])* $class:ident => ($binding:expr, $name:expr)),+ $(,)?) => {
+        /// Filtering and addressing settings used by a sampled texture.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        pub enum SamplerClass { $($(#[$doc])* $class),+ }
+
+        impl SamplerClass {
+            /// Every class, in binding order.
+            pub const ALL: [Self; [$(stringify!($class)),+].len()] = [$(Self::$class),+];
+
+            /// Binding in the texture group.
+            pub const fn binding(self) -> u32 {
+                match self { $(Self::$class => $binding),+ }
+            }
+
+            /// Name in translated GLSL.
+            pub const fn glsl_name(self) -> &'static str {
+                match self { $(Self::$class => $name),+ }
+            }
+        }
+    };
+}
+
+sampler_classes! {
+    /// Repeat, linear: noise textures and names without a rule.
+    RepeatLinear => (SAMPLER_BINDING, SAMPLER_NAME),
+    /// Clamp to edge, linear: colour and shadow targets.
+    ClampLinear => (2, "iris_samplerClampLinear"),
+    /// Clamp to edge, nearest: depth textures.
+    ClampNearest => (3, "iris_samplerClampNearest"),
+    /// Repeat, nearest: the block atlas and its PBR companions.
+    RepeatNearest => (4, "iris_samplerRepeatNearest"),
 }
 
 impl SamplerClass {
-    /// Every class, in binding order.
-    pub const ALL: [SamplerClass; 4] = [
-        SamplerClass::RepeatLinear,
-        SamplerClass::ClampLinear,
-        SamplerClass::ClampNearest,
-        SamplerClass::RepeatNearest,
-    ];
-
-    /// Binding in [`TEXTURE_GROUP`].
-    pub const fn binding(self) -> u32 {
-        match self {
-            SamplerClass::RepeatLinear => SAMPLER_BINDING,
-            SamplerClass::ClampLinear => 2,
-            SamplerClass::ClampNearest => 3,
-            SamplerClass::RepeatNearest => 4,
-        }
-    }
-
-    /// Name in translated GLSL.
-    pub const fn glsl_name(self) -> &'static str {
-        match self {
-            SamplerClass::RepeatLinear => SAMPLER_NAME,
-            SamplerClass::ClampLinear => "iris_samplerClampLinear",
-            SamplerClass::ClampNearest => "iris_samplerClampNearest",
-            SamplerClass::RepeatNearest => "iris_samplerRepeatNearest",
-        }
-    }
-
     /// The class bound at `binding` of [`TEXTURE_GROUP`].
     pub fn from_binding(binding: u32) -> Option<SamplerClass> {
         Self::ALL.into_iter().find(|c| c.binding() == binding)
@@ -153,98 +143,69 @@ pub const LEGACY_UNIFORMS: &[(&str, &str, &str)] = &[
     ("gl_Fog", "iris_Fog", "iris_FogParameters iris_Fog;"),
 ];
 
-/// A per-vertex input the host's vertex buffers must provide.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum VertexAttribute {
-    /// `gl_Vertex` (vec4) or `vaPosition` (vec3).
-    Position,
-    /// `gl_Color` or `vaColor`.
-    Color,
-    /// `gl_Normal` or `vaNormal`.
-    Normal,
-    /// `gl_MultiTexCoord0` or `vaUV0`: the texture atlas coordinate.
-    TexCoord,
-    /// `gl_MultiTexCoord1` or `vaUV2`: the lightmap coordinate.
-    Lightmap,
-    /// `gl_MultiTexCoord2`.
-    MultiTexCoord2,
-    /// `gl_MultiTexCoord3`.
-    MultiTexCoord3,
-    /// `vaUV1`: the entity overlay coordinate.
-    Overlay,
-    /// `mc_Entity`: block or entity id from `block.properties`.
-    BlockId,
-    /// `mc_midTexCoord`: centre of the sprite.
-    MidTexCoord,
-    /// `at_tangent`.
-    Tangent,
-    /// `at_midBlock`: offset to the block centre and light emission.
-    MidBlock,
-    /// `at_velocity`.
-    Velocity,
-    /// `mc_chunkFade`.
-    ChunkFade,
-    /// `dhMaterialId`.
-    DhMaterialId,
-    /// `iris_PackedPosition` (`uvec4`): a position in unsigned fixed point, scaled and offset
-    /// by [`VertexAttribute::DrawOrigin`], with the lightmap coordinates' two bytes in `w`.
-    /// The translator unpacks every position input (`gl_Vertex`, `vaPosition`) as
-    /// `stored + origin.xyz + vec3(packed.xyz) * origin.w` and every lightmap input as
-    /// `stored + vec2(packed.w & 255, packed.w >> 8)`, so a vertex stream supplies either
-    /// float values or packed ones and the other part reads zero. Its location is the first
-    /// one the stage leaves free.
-    PackedPosition,
-    /// `iris_DrawOrigin` (`vec4`): the origin (`xyz`) and scale (`w`) of
-    /// [`VertexAttribute::PackedPosition`], per draw.
-    DrawOrigin,
-    /// An input the pack declares that Iris does not supply.
-    Other(String),
+/// Declares supplied vertex inputs, names and location order together.
+macro_rules! vertex_attributes {
+    ($( $(#[$doc:meta])* $kind:ident => [$($name:literal),+]),+ $(,)?;
+     $($(#[$dynamic_doc:meta])* $dynamic:ident => [$($dynamic_name:literal),+]),+ $(,)?) => {
+        /// A per-vertex input the host's vertex buffers must provide.
+        #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+        pub enum VertexAttribute {
+            $($(#[$doc])* $kind,)+
+            $($(#[$dynamic_doc])* $dynamic,)+
+            /// An input the pack declares that Iris does not supply.
+            Other(String),
+        }
+
+        /// GLSL input aliases in location order.
+        const ATTRIBUTE_NAMES: &[(&str, VertexAttribute)] = &[
+            $($(($name, VertexAttribute::$kind),)+)+
+            $($(($dynamic_name, VertexAttribute::$dynamic),)+)+
+        ];
+
+        /// Supplied attributes in location order.
+        const SUPPLIED: &[VertexAttribute] = &[$(VertexAttribute::$kind),+];
+    };
 }
 
-/// GLSL input names (after legacy renaming) for each supplied attribute, in location order.
-const ATTRIBUTE_NAMES: &[(&str, VertexAttribute)] = &[
-    ("iris_Vertex", VertexAttribute::Position),
-    ("vaPosition", VertexAttribute::Position),
-    ("iris_Color", VertexAttribute::Color),
-    ("vaColor", VertexAttribute::Color),
-    ("iris_Normal", VertexAttribute::Normal),
-    ("vaNormal", VertexAttribute::Normal),
-    ("iris_MultiTexCoord0", VertexAttribute::TexCoord),
-    ("vaUV0", VertexAttribute::TexCoord),
-    ("iris_MultiTexCoord1", VertexAttribute::Lightmap),
-    ("vaUV2", VertexAttribute::Lightmap),
-    ("iris_MultiTexCoord2", VertexAttribute::MultiTexCoord2),
-    ("iris_MultiTexCoord3", VertexAttribute::MultiTexCoord3),
-    ("vaUV1", VertexAttribute::Overlay),
-    ("mc_Entity", VertexAttribute::BlockId),
-    ("mc_midTexCoord", VertexAttribute::MidTexCoord),
-    ("at_tangent", VertexAttribute::Tangent),
-    ("at_midBlock", VertexAttribute::MidBlock),
-    ("at_velocity", VertexAttribute::Velocity),
-    ("mc_chunkFade", VertexAttribute::ChunkFade),
-    ("dhMaterialId", VertexAttribute::DhMaterialId),
-    ("iris_PackedPosition", VertexAttribute::PackedPosition),
-    ("iris_DrawOrigin", VertexAttribute::DrawOrigin),
-];
-
-/// Supplied attributes in location order; `Other` inputs take locations after these.
-const SUPPLIED: &[VertexAttribute] = &[
-    VertexAttribute::Position,
-    VertexAttribute::Color,
-    VertexAttribute::Normal,
-    VertexAttribute::TexCoord,
-    VertexAttribute::Lightmap,
-    VertexAttribute::MultiTexCoord2,
-    VertexAttribute::MultiTexCoord3,
-    VertexAttribute::Overlay,
-    VertexAttribute::BlockId,
-    VertexAttribute::MidTexCoord,
-    VertexAttribute::Tangent,
-    VertexAttribute::MidBlock,
-    VertexAttribute::Velocity,
-    VertexAttribute::ChunkFade,
-    VertexAttribute::DhMaterialId,
-];
+vertex_attributes! {
+    /// `gl_Vertex` (vec4) or `vaPosition` (vec3).
+    Position => ["iris_Vertex", "vaPosition"],
+    /// `gl_Color` or `vaColor`.
+    Color => ["iris_Color", "vaColor"],
+    /// `gl_Normal` or `vaNormal`.
+    Normal => ["iris_Normal", "vaNormal"],
+    /// `gl_MultiTexCoord0` or `vaUV0`: the texture atlas coordinate.
+    TexCoord => ["iris_MultiTexCoord0", "vaUV0"],
+    /// `gl_MultiTexCoord1` or `vaUV2`: the lightmap coordinate.
+    Lightmap => ["iris_MultiTexCoord1", "vaUV2"],
+    /// `gl_MultiTexCoord2`.
+    MultiTexCoord2 => ["iris_MultiTexCoord2"],
+    /// `gl_MultiTexCoord3`.
+    MultiTexCoord3 => ["iris_MultiTexCoord3"],
+    /// `vaUV1`: the entity overlay coordinate.
+    Overlay => ["vaUV1"],
+    /// `mc_Entity`: block or entity id from `block.properties`.
+    BlockId => ["mc_Entity"],
+    /// `mc_midTexCoord`: centre of the sprite.
+    MidTexCoord => ["mc_midTexCoord"],
+    /// `at_tangent`.
+    Tangent => ["at_tangent"],
+    /// `at_midBlock`: offset to the block centre and light emission.
+    MidBlock => ["at_midBlock"],
+    /// `at_velocity`.
+    Velocity => ["at_velocity"],
+    /// `mc_chunkFade`.
+    ChunkFade => ["mc_chunkFade"],
+    /// `dhMaterialId`.
+    DhMaterialId => ["dhMaterialId"],
+    ;
+    /// Position in unsigned fixed point, with lightmap bytes in `w`; dynamically located.
+    /// Reads as `stored + origin.xyz + vec3(packed.xyz) * origin.w` for positions and
+    /// `stored + vec2(packed.w & 255, packed.w >> 8)` for lightmaps.
+    PackedPosition => ["iris_PackedPosition"],
+    /// Per-draw origin (`xyz`) and scale (`w`) of the packed position input.
+    DrawOrigin => ["iris_DrawOrigin"],
+}
 
 /// First location used for [`VertexAttribute::Other`] inputs.
 pub const FIRST_OTHER_ATTRIBUTE_LOCATION: u32 = SUPPLIED.len() as u32;
@@ -333,6 +294,8 @@ pub struct StageMask {
 }
 
 impl StageMask {
+    /// Marks a stage as using the reflected resource.
+
     pub(crate) fn add(&mut self, stage: StageKind) {
         match stage {
             StageKind::Fragment => self.fragment = true,

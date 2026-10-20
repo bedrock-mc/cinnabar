@@ -177,6 +177,7 @@ fn mod_card(
     let state = match (active, status) {
         (false, _) => "Ready to enable",
         (true, Some(Status::Running)) => "Running",
+        (true, Some(Status::NextJoin)) => "Ready for your next server join",
         (true, Some(Status::ReloadFailed(_))) => "Reload failed · previous instance running",
         (true, Some(Status::Failed(_))) => "Failed",
         (true, Some(Status::Starting) | None) => "Starting…",
