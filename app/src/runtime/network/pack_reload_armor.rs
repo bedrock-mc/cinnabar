@@ -249,6 +249,7 @@ fn owner_rig<'a>(owner: &ActorSnapshot, names: &'a [Box<str>], tick: u64) -> Act
         body_yaw: 0.0,
         render: &[],
         bone_names: names,
+        attachments: None,
         skin_geometry: None,
         skin_mesh: None,
         skin_layers: &[],
