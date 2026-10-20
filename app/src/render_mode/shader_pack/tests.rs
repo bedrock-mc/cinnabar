@@ -134,9 +134,9 @@ fn a_menu_pick_replaces_the_launch_pack_and_saves_only_its_name() {
     {
         let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
         menu.sync_shader_packs(vec!["Dusk.zip".to_owned()]);
+        let revision = menu.view().shader_packs_revision;
         menu.activate(MenuAction::SelectRenderer(RendererChoice::ShaderPack(
-            0,
-            menu.view().shader_packs_revision,
+            0, revision,
         )));
     }
     app.update();
