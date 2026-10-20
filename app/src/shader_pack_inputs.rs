@@ -334,8 +334,9 @@ fn held_item_id(
 /// (Bedrock sends block runtime id 0 for those) and states missing from the block registry.
 fn held_block_light(stream: &WorldStream, stack: Option<&NetworkItemStack>) -> i32 {
     stack
-        .and_then(|stack| u32::try_from(stack.block_runtime_id).ok())
-        .filter(|&runtime_id| runtime_id != 0)
+        .and_then(|stack| {
+            client_interaction::block_use::held_block_store_id(stream, stack.block_runtime_id)
+        })
         .and_then(|runtime_id| {
             stream
                 .runtime_assets()
@@ -399,6 +400,91 @@ fn fraction(current: u16, maximum: u16) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Builds two emissive states with distinct wire and store identities.
+    fn held_light_stream(hashed: bool) -> WorldStream {
+        use assets::*;
+        let visual = BlockVisual::diagnostic(BlockFlags::CUBE_GEOMETRY, ContributorRole::Primary);
+        let compiled = CompiledAssets {
+            visuals: vec![visual; 3].into_boxed_slice(),
+            light_properties: [0, 7, 15]
+                .map(|v| LightProperties::new(v, 0).unwrap())
+                .into(),
+            hashed: vec![(1, 0), (2, 1), (0x8000_0007, 2)].into_boxed_slice(),
+            materials: vec![Material {
+                texture: TextureRef::DIAGNOSTIC,
+                flags: 0,
+                animation: NO_ANIMATION,
+                ..Material::unvaried()
+            }]
+            .into_boxed_slice(),
+            model_templates: Box::new([]),
+            model_quads: Box::new([]),
+            animations: Box::new([]),
+            animation_frames: Box::new([]),
+            texture_pages: vec![TexturePage::new(TextureArray {
+                layers: 1,
+                mips: [16u32, 8, 4, 2, 1]
+                    .map(|size| TextureMip {
+                        size,
+                        rgba8: vec![0; size as usize * size as usize * 4].into_boxed_slice(),
+                    })
+                    .into(),
+            })]
+            .into_boxed_slice(),
+            biomes: CompiledBiomeAssets::diagnostic(),
+            provenance: *pinned_world_provenance(),
+        };
+        let runtime = RuntimeAssets::decode(&encode_blob(&compiled).unwrap()).unwrap();
+        let mut stream = WorldStream::new_with_assets(
+            protocol::WorldBootstrap {
+                dimension: 0,
+                local_player_runtime_id: 1,
+                local_player_unique_id: 1,
+                player_position: [0.; 3],
+                world_spawn_position: [0; 3],
+                air_network_id: 0,
+                block_network_ids_are_hashes: hashed,
+            },
+            std::sync::Arc::new(runtime),
+            [0.; 3],
+            None,
+        );
+        stream.set_sequential_id_remap(SequentialIdRemap::from_palette(vec![0, 2, 1], 3));
+        stream
+    }
+
+    #[test]
+    fn held_light_uses_hash_bits_and_the_session_palette() {
+        for hashed in [false, true] {
+            let stream = held_light_stream(hashed);
+            let stack = NetworkItemStack {
+                network_id: 1,
+                metadata: 0,
+                stack_network_id: 1,
+                count: 1,
+                block_runtime_id: if hashed { 0x8000_0007u32 as i32 } else { 1 },
+                nbt_digest: [0; 32],
+                extra_data: std::sync::Arc::from([]),
+            };
+            assert_eq!(
+                held_block_light(&stream, Some(&stack)),
+                15,
+                "hashed={hashed}"
+            );
+            assert_eq!(held_block_light(&stream, None), 0);
+            assert_eq!(
+                held_block_light(
+                    &stream,
+                    Some(&NetworkItemStack {
+                        block_runtime_id: 0,
+                        ..stack
+                    })
+                ),
+                0
+            );
+        }
+    }
 
     /// Java's `getTimeOfDay` for a tick, written out independently of the celestial helper.
     fn java_time_of_day(ticks: f64) -> f32 {

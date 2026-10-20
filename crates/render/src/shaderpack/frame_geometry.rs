@@ -457,7 +457,7 @@ fn record_vanilla_overlay(
             },
             wgpu::BindGroupEntry {
                 binding: 2,
-                resource: pack.host.depth_parameters.as_entire_binding(),
+                resource: state.depth_parameters.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
                 binding: 5,

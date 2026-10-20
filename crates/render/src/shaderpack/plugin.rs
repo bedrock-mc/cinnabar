@@ -507,6 +507,7 @@ fn shaderpack_post(
     });
     let post = target.post_process_write();
     let io = FrameIo {
+        viewport: view.viewport.to_array(),
         scene_colour: post.source,
         scene_depth: crate::scene_sampling::view_depth(depth),
         scene_near: view.clip_from_view.w_axis.z,
@@ -573,6 +574,20 @@ fn publish_id_maps(loaded: Res<LoadedShaderPack>, mut maps: ResMut<ShaderPackIdM
     };
 }
 
+/// Keeps opted-in cameras compatible with the host's single-sample depth reads.
+fn admit_cameras(
+    mut cameras: Query<(&mut bevy::render::view::Msaa, &mut Camera3d), With<ShaderPackRendering>>,
+) {
+    for (mut msaa, mut camera) in &mut cameras {
+        msaa.set_if_neq(bevy::render::view::Msaa::Off);
+        let usage = wgpu::TextureUsages::from(camera.depth_texture_usages)
+            | wgpu::TextureUsages::TEXTURE_BINDING;
+        if wgpu::TextureUsages::from(camera.depth_texture_usages) != usage {
+            camera.depth_texture_usages = usage.into();
+        }
+    }
+}
+
 pub(super) fn build(app: &mut App) {
     app.init_resource::<ShaderPackRequest>()
         .init_resource::<ShaderPackStatus>()
@@ -588,7 +603,8 @@ pub(super) fn build(app: &mut App) {
             ShaderpackGeometryPlugin,
             ShaderpackAtlasPlugin,
         ))
-        .add_systems(Update, (drive_loader, publish_id_maps).chain());
+        .add_systems(Update, (drive_loader, publish_id_maps).chain())
+        .add_systems(PostUpdate, admit_cameras);
 }
 
 pub(super) fn finish(app: &mut App) {
@@ -615,4 +631,34 @@ pub(super) fn finish(app: &mut App) {
             ),
         );
     install_graph(render_app.world_mut());
+}
+
+#[cfg(test)]
+mod camera_tests {
+    use super::*;
+    use bevy::render::view::Msaa;
+
+    #[test]
+    fn opted_in_cameras_admit_single_sample_depth_sampling() {
+        let mut app = App::new();
+        build(&mut app);
+        let camera = app
+            .world_mut()
+            .spawn((Camera3d::default(), Msaa::Sample4, ShaderPackRendering))
+            .id();
+        app.update();
+        assert_eq!(*app.world().get::<Msaa>(camera).unwrap(), Msaa::Off);
+        assert!(
+            wgpu::TextureUsages::from(
+                app.world()
+                    .get::<Camera3d>(camera)
+                    .unwrap()
+                    .depth_texture_usages
+            )
+            .contains(wgpu::TextureUsages::TEXTURE_BINDING)
+        );
+        *app.world_mut().get_mut::<Msaa>(camera).unwrap() = Msaa::Sample8;
+        app.update();
+        assert_eq!(*app.world().get::<Msaa>(camera).unwrap(), Msaa::Off);
+    }
 }
