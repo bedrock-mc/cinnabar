@@ -31,6 +31,15 @@ pub(super) struct ActorDraw {
     pub(super) values: DrawValues,
 }
 
+/// Measures world geometry along the view and hand geometry in its existing view space.
+pub(super) fn draw_depth(position: Vec3, camera: Vec3, forward: Vec3, hand: bool) -> f32 {
+    if hand {
+        -position.z
+    } else {
+        (position - camera).dot(forward)
+    }
+}
+
 /// One draw's uniform copy and the bind groups over it and its texture.
 pub(super) struct Slot {
     pub(super) uniforms: wgpu::Buffer,
@@ -294,12 +303,16 @@ impl ViewActors {
                 entity_color: entity_colour(data.overlay_rgba8, data.material),
                 ..DrawValues::NONE
             };
-            let distance = (Vec3::new(
-                data.world_from_actor[0][3],
-                data.world_from_actor[1][3],
-                data.world_from_actor[2][3],
-            ) - sources.camera)
-                .dot(sources.view_forward);
+            let distance = draw_depth(
+                Vec3::new(
+                    data.world_from_actor[0][3],
+                    data.world_from_actor[1][3],
+                    data.world_from_actor[2][3],
+                ),
+                sources.camera,
+                sources.view_forward,
+                hand,
+            );
             let vertices = first..*output;
             if let Some(kind) = camera {
                 self.push(kind, vertices.clone(), texture, values, distance);

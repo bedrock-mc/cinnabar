@@ -247,3 +247,22 @@ fn actor_vertex_inputs_bind_full_float_uvs() {
             .all(|attribute| attribute.format == wgpu::VertexFormat::Float32x2)
     );
 }
+
+#[test]
+fn hand_translucent_depth_is_independent_of_the_world_camera() {
+    let position = Vec3::new(1., 0., -2.);
+    for forward in [Vec3::X, Vec3::NEG_Z] {
+        assert_eq!(
+            super::view::draw_depth(position, Vec3::splat(10_000.), forward, true),
+            2.
+        );
+    }
+    assert_eq!(
+        super::view::draw_depth(position, Vec3::ZERO, Vec3::NEG_Z, false),
+        2.
+    );
+    assert_eq!(
+        super::view::draw_depth(position, Vec3::ZERO, Vec3::Z, false),
+        -2.
+    );
+}
