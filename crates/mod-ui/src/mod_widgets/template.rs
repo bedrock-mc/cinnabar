@@ -19,6 +19,7 @@ pub(super) fn same_shape(a: &Hud, b: &Hud) -> bool {
                 && left.row_height == right.row_height
                 && left.icon_size == right.icon_size
                 && left.text_scale == right.text_scale
+                && left.font == right.font
                 && left.shadow == right.shadow
                 && left.title.is_empty() == right.title.is_empty()
                 && left.compass.is_some() == right.compass.is_some()
@@ -63,6 +64,35 @@ fn center_on_row(label: &mut Value, center_y: f64) {
 }
 /// Shares card controls between gameplay publication and native previews.
 pub(in super::super) fn card(card: &Card, card_index: usize, row_index: &mut usize) -> Value {
+    let mut node = card_content(card, card_index, row_index);
+    if card.font != ui::mod_hud::CardFont::Native {
+        apply_font(&mut node, card.font.name());
+    }
+    node
+}
+
+/// Applies card typography to retained labels, including cells and measured text spans.
+fn apply_font(node: &mut Value, font: &str) {
+    match node {
+        Value::Object(object) => {
+            if object.get("type").and_then(Value::as_str) == Some("label") {
+                object.insert("font_type".into(), json!(font));
+            }
+            for value in object.values_mut() {
+                apply_font(value, font);
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                apply_font(value, font);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Builds card geometry before applying its selected typography.
+fn card_content(card: &Card, card_index: usize, row_index: &mut usize) -> Value {
     if card.text_plate.is_some() {
         *row_index += card.rows.len();
         return super::text_plate::control(card, card_index);

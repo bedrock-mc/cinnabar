@@ -167,3 +167,46 @@ fn grid_count_labels_follow_live_row_tint_and_alpha() {
         assert_eq!(colors, vec![json_ui::color_value(&json!(color)).unwrap()]);
     }
 }
+
+/// A selected card face reaches every label and changing it invalidates retained typography.
+#[test]
+fn card_font_selects_smooth_cell_labels_and_invalidates_geometry() {
+    let native: Hud = serde_json::from_str(
+        r#"{"cards":[{"id":"keys","rows":[],"cells":[{"rect":[0,0,22,22],"label":"W"}]}]}"#,
+    )
+    .unwrap();
+    let mut sans = native.clone();
+    sans.cards[0].font = ui::mod_hud::CardFont::Sans;
+    assert!(!same_shape(&native, &sans));
+    let mut index = 0;
+    let root = card(&sans.cards[0], 0, &mut index);
+    fn check(node: &Value, count: &mut usize) {
+        match node {
+            Value::Object(object) => {
+                if object.get("type").and_then(Value::as_str) == Some("label") {
+                    assert_eq!(
+                        object.get("font_type").and_then(Value::as_str),
+                        Some(ui::mod_panel::SANS_FONT_NAME)
+                    );
+                    *count += 1;
+                }
+                for value in object.values() {
+                    check(value, count);
+                }
+            }
+            Value::Array(values) => {
+                for value in values {
+                    check(value, count);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut count = 0;
+    check(&root, &mut count);
+    assert_eq!(count, 1);
+    assert!(
+        serde_json::from_str::<Hud>(r#"{"cards":[{"id":"bad","rows":[],"font":"unknown"}]}"#)
+            .is_err()
+    );
+}
