@@ -10,11 +10,12 @@ fn actor_open(actor: i64, window_id: i32) -> InventoryEvent {
     })
 }
 
-/// Lets an unanswered mount request expire before the next input.
+/// Closes an unanswered mount request after its transport deadline.
 fn expire_mount(ledger: &mut PlayerInventoryLedger) {
     assert!(ledger.request_personal_open(900));
     assert!(ledger.mark_transport_enqueued(0));
     assert!(ledger.poll_timeout(INVENTORY_REQUEST_TIMEOUT_MILLIS));
+    ledger.request_personal_close();
 }
 
 #[test]

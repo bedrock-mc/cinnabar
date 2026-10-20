@@ -117,6 +117,10 @@ impl PlayerInventoryLedger {
                     let owned_screen = self
                         .personal
                         .is_some_and(|personal| personal.generation() == generation);
+                    // The reply deadline releases transport admission, not the user's screen.
+                    if owned_screen && self.controls.personal.desired_open {
+                        continue;
+                    }
                     if owned_screen {
                         self.personal = None;
                         self.controls.personal.desired_open = false;
