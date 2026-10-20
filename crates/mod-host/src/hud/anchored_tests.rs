@@ -84,6 +84,7 @@ fn anchored_wit_read_round_trips_all_anchors_and_shares_legacy_consumption() {
         assert_eq!(card.offset, [11., -7.]);
         assert_eq!(card.position, None);
         assert_eq!(card.scale, 1.5);
+        state.writes = 0;
         assert!(
             Host::read_editor_anchored_layout(&mut state)
                 .unwrap()

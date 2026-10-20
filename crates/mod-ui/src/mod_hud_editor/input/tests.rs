@@ -55,8 +55,9 @@ fn anchored_completed_moves_and_nudges_keep_their_origin_and_legacy_results() {
                 position: p.position,
                 ..restored
             };
-            for axis in 0..2 {
-                assert!((cards::origin(&legacy, editor.viewport)[axis] - at[axis]).abs() < 0.001);
+            for (resolved, expected) in cards::origin(&legacy, editor.viewport).into_iter().zip(at)
+            {
+                assert!((resolved - expected).abs() < 0.001);
             }
         }
     }
@@ -138,4 +139,29 @@ fn anchored_wide_viewport_placements_remain_valid_guest_input() {
     result.validate().unwrap();
     editor.draft.validate().unwrap();
     assert_eq!(editor.draft.cards[0].offset, [4000., 2200.]);
+}
+
+#[test]
+fn anchored_reset_restores_captured_fallbacks_and_explicit_guest_defaults() {
+    let mut editor = editor(true);
+    editor.move_card(0, [650., 450.]);
+    editor.anchor_card(0);
+    editor.checkpoint();
+    editor.result.take();
+    editor.reset_layout();
+    let result = editor.result.take().unwrap();
+    assert!(result.saved && result.reset);
+    assert_eq!(result.placements[0].anchor, Anchor::TopLeft);
+    assert_eq!(result.placements[0].offset, [0.; 2]);
+    let card = &mut editor.draft.cards[0];
+    card.reset_anchor = Some(Anchor::Right);
+    card.reset_offset = Some([13., -17.]);
+    card.reset_scale = Some(0.75);
+    editor.reset_layout();
+    let card = &editor.draft.cards[0];
+    assert_eq!(card.anchor, Anchor::Right);
+    assert_eq!(card.offset, [13., -17.]);
+    assert_eq!(card.scale, 0.75);
+    assert_eq!(card.position, None);
+    editor.result.take().unwrap().validate().unwrap();
 }

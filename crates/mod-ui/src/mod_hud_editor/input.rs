@@ -148,6 +148,19 @@ impl HudEditor {
             ui::mod_hud::Anchor::from_origin(at, cards::dimensions(card), self.viewport);
         card.position = None;
     }
+    /// Restores explicit factory values or the authored anchor and offset captured on open.
+    fn reset_layout(&mut self) {
+        for card in &mut self.draft.cards {
+            card.anchor = card.reset_anchor.unwrap_or(card.anchor);
+            card.offset = card.reset_offset.unwrap_or(card.offset);
+            card.position = None;
+            card.scale = card.reset_scale.unwrap_or(card.scale);
+        }
+        self.catalog = None;
+        self.reset = true;
+        self.drag = None;
+        self.checkpoint();
+    }
     /// Scales from the captured corner while retaining the opposite corner and viewport bounds.
     fn resize_card(&mut self, index: usize, resize: Resize, delta: [f64; 2]) {
         let base: [f64; 2] = resize.size.map(|size| size / resize.scale);
@@ -253,16 +266,7 @@ impl HudEditor {
                 return Vec::new();
             }
             Some("hud.reset") => {
-                for card in &mut self.draft.cards {
-                    card.anchor = card.reset_anchor.unwrap_or(card.anchor);
-                    card.offset = card.reset_offset.unwrap_or(card.offset);
-                    card.position = None;
-                    card.scale = card.reset_scale.unwrap_or(card.scale);
-                }
-                self.catalog = None;
-                self.reset = true;
-                self.drag = None;
-                self.checkpoint();
+                self.reset_layout();
                 return Vec::new();
             }
             Some("hud.grid") => {

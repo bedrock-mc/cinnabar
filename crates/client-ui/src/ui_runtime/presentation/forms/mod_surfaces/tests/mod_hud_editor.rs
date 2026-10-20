@@ -47,18 +47,19 @@ fn editor_drag_uses_real_scaled_hit_regions_and_retains_its_catalog() {
         ([2560, 1440], 2., 3),
     ] {
         let mut p = presentation(false);
+        let runtime = UiRuntime::new(1);
         p.set_gui_scale_preference(Some(gui));
         let mut hud = content();
         hud.cards[0].title.clear();
         editor(&mut p, &hud);
-        frame(&mut p, &UiRuntime::new(1), size, dpi);
+        frame(&mut p, &runtime, size, dpi);
         let at = point(&p, "hud.card:0");
         let catalog = Arc::clone(p.mod_ui().mod_hud_editor_state().unwrap().catalog.unwrap());
         p.mod_ui_mut().mod_panel_events(at, true, true);
         // Pointer capture persists outside the hit region, clamps at both screen edges.
         p.mod_ui_mut()
             .mod_panel_events([10000., 10000.], false, true);
-        frame(&mut p, &UiRuntime::new(1), size, dpi);
+        frame(&mut p, &runtime, size, dpi);
         let draft = p.mod_ui().mod_hud_editor_state().unwrap().draft;
         assert_eq!(draft.cards[0].position, Some([1., 1.]));
         assert!(Arc::ptr_eq(
@@ -74,9 +75,9 @@ fn editor_drag_uses_real_scaled_hit_regions_and_retains_its_catalog() {
         let draft = &p.mod_ui().mod_hud_editor_state().unwrap().draft.cards[0];
         assert_eq!(draft.anchor, Anchor::TopLeft);
         assert_eq!(draft.offset, [0.; 2]);
-        frame(&mut p, &UiRuntime::new(1), size, dpi);
+        frame(&mut p, &runtime, size, dpi);
         let passes = p.mod_ui().mod_hud_editor_state().unwrap().passes;
-        frame(&mut p, &UiRuntime::new(1), size, dpi);
+        frame(&mut p, &runtime, size, dpi);
         assert_eq!(p.mod_ui().mod_hud_editor_state().unwrap().passes, passes);
         assert!(
             Arc::ptr_eq(
