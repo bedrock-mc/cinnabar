@@ -6,6 +6,7 @@ use super::passes::{FrameIo, ViewState, record_frame};
 use super::pipelines::GpuContext;
 use super::resources::vanilla::VanillaTextures;
 use super::uniforms::{FrameClock, FrameUniforms, ViewCamera};
+use assets::facts::java_mapping::JavaDimension;
 use bevy::{
     core_pipeline::{Core3d, Core3dSystems},
     prelude::*,
@@ -30,11 +31,8 @@ use std::{
 
 /// Java ids of the built-in dimensions, indexed by Bedrock dimension id (Overworld, Nether,
 /// End), which select the pack's dimension folder.
-pub(crate) const JAVA_DIMENSIONS: [&str; 3] = [
-    "minecraft:overworld",
-    "minecraft:the_nether",
-    "minecraft:the_end",
-];
+pub(crate) static JAVA_DIMENSIONS: std::sync::LazyLock<[&str; JavaDimension::ALL.len()]> =
+    std::sync::LazyLock::new(|| JavaDimension::ALL.map(JavaDimension::identifier));
 
 /// The loaded pack, shared with the render world.
 #[derive(Resource, ExtractResource, Clone, Default)]

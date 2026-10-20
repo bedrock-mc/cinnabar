@@ -247,6 +247,7 @@ pub(crate) fn record_frame(
 ) {
     let pack = Arc::clone(&state.pack);
     write_depth_parameters(queue, &state.depth_parameters, io);
+    state.targets.clear_images(encoder, &pack.custom_images);
     for plan in &pack.buffers {
         let (Some(clear), Some(buffer)) = (
             plan.clear,
@@ -562,18 +563,7 @@ fn run_step(
             let Some(dispatch) = &program.reflection.compute else {
                 return;
             };
-            let groups_count = dispatch.work_groups.unwrap_or_else(|| {
-                let scale = dispatch.work_groups_render.unwrap_or([1.0, 1.0]);
-                std::array::from_fn(|i| {
-                    if i == 2 {
-                        1
-                    } else {
-                        ((size[i] as f32 * scale[i]).ceil() as u32)
-                            .div_ceil(dispatch.workgroup_size[i].max(1))
-                            .max(1)
-                    }
-                })
-            });
+            let groups_count = super::dispatch::groups(dispatch, size);
             let mut compute = encoder
                 .begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: Some(&program.name),

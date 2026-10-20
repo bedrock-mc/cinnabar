@@ -17,6 +17,8 @@
 #[cfg(feature = "shaderpacks")]
 pub(crate) mod atlas;
 #[cfg(feature = "shaderpacks")]
+mod dispatch;
+#[cfg(feature = "shaderpacks")]
 pub(crate) mod geometry;
 #[cfg(feature = "shaderpacks")]
 mod host_pipelines;
