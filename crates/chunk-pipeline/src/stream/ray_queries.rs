@@ -3,7 +3,7 @@ use super::*;
 impl WorldStream {
     /// Distance along the unit `direction` from `origin` to the first block cell holding
     /// anything but air in any layer, walking cell by cell up to `max_distance`. Unloaded
-    /// sub-chunks read as air. `None` when nothing is hit or the inputs are not finite.
+    /// sub-chunks read as air. `None` when nothing is hit or a cell is unrepresentable.
     #[must_use]
     pub fn first_block_distance(
         &self,
@@ -19,7 +19,13 @@ impl WorldStream {
             return None;
         }
         let dimension = self.authority.current_dimension();
-        let mut cell = origin.map(floor_to_i32);
+        let [Some(x), Some(y), Some(z)] = origin.map(|value| {
+            let cell = f64::from(value).floor();
+            (cell >= f64::from(i32::MIN) && cell <= f64::from(i32::MAX)).then_some(cell as i32)
+        }) else {
+            return None;
+        };
+        let mut cell = [x, y, z];
         let step = direction.map(|d| if d < 0.0 { -1 } else { 1 });
         // Distance to cross one cell, and to the first boundary, per axis.
         let across = direction.map(|d| {
@@ -70,8 +76,37 @@ impl WorldStream {
                 .unwrap_or(0);
             travelled = next[axis];
             next[axis] += across[axis];
-            cell[axis] += step[axis];
+            cell[axis] = cell[axis].checked_add(step[axis])?;
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn first_block_distance_skips_unrepresentable_cells() {
+        let stream = WorldStream::new(protocol::WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            local_player_unique_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
+            block_network_ids_are_hashes: false,
+        });
+        for axis in 0..3 {
+            for coordinate in [i32::MIN as f32, i32::MAX as f32, f32::MIN, f32::MAX] {
+                let mut origin = [0.0; 3];
+                origin[axis] = coordinate;
+                for sign in [-1.0, 1.0] {
+                    let mut direction = [0.0; 3];
+                    direction[axis] = sign;
+                    assert_eq!(stream.first_block_distance(origin, direction, 16.0), None);
+                }
+            }
+        }
     }
 }

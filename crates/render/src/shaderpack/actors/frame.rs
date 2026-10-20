@@ -139,7 +139,9 @@ fn skin(
     kernels: skin::SkinKernels<'_>,
     output: u64,
 ) {
-    let limit = u64::from(device.limits().max_storage_buffer_binding_size)
+    let limit = device
+        .limits()
+        .max_storage_buffer_binding_size
         .min(device.limits().max_buffer_size);
     let pages = super::pages::plan(&actors.jobs, &actors.dispatches, output, limit);
     actors.pages.resize_with(pages.len(), Default::default);

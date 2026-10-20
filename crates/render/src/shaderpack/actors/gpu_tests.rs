@@ -41,6 +41,17 @@ fn skin(name: &str) -> Option<Vec<u32>> {
 
 /// Skins the fixture after applying an animated UV transform.
 fn skin_with_uv(name: &str, uv: [f32; 4]) -> Option<Vec<u32>> {
+    skin_fixture(name, uv, [0.0; 2], [1.0; 2], 0)
+}
+
+/// Skins a triangle placed in an atlas sprite, optionally as a glint job.
+fn skin_fixture(
+    name: &str,
+    uv: [f32; 4],
+    origin: [f32; 2],
+    span: [f32; 2],
+    flags: u32,
+) -> Option<Vec<u32>> {
     let gpu = Gpu::for_fixture(name)?;
     let mut instance = vec![0_u32; ACTOR_GPU_INSTANCE_WORDS];
     // `world_from_actor` rows: a translation to ACTOR.
@@ -53,6 +64,11 @@ fn skin_with_uv(name: &str, uv: [f32; 4]) -> Option<Vec<u32>> {
     for (index, value) in uv.into_iter().enumerate() {
         instance[20 + index] = value.to_bits();
     }
+    let glint = render_model::ActorGlint::item(0.0, span).parameters();
+    let glint_base = std::mem::offset_of!(render_model::ActorGpuInstance, glint) / 4;
+    for (index, value) in glint.into_iter().enumerate() {
+        instance[glint_base + index] = value.to_bits();
+    }
     let mut vertices = vec![0_u32; CORNERS.len() * ACTOR_RIG_VERTEX_WORDS];
     for (index, (position, uv, back_uv)) in CORNERS.into_iter().enumerate() {
         let base = index * ACTOR_RIG_VERTEX_WORDS;
@@ -63,15 +79,18 @@ fn skin_with_uv(name: &str, uv: [f32; 4]) -> Option<Vec<u32>> {
             0.0,
             0.0,
             1.0,
-            uv[0],
-            uv[1],
-            back_uv[0],
-            back_uv[1],
+            origin[0] + uv[0] * span[0],
+            origin[1] + uv[1] * span[1],
+            origin[0] + back_uv[0] * span[0],
+            origin[1] + back_uv[1] * span[1],
         ];
         for (offset, value) in floats.into_iter().enumerate() {
             vertices[base + offset] = value.to_bits();
         }
         vertices[base + 10] = 0;
+        for (axis, value) in origin.into_iter().enumerate() {
+            vertices[base + ACTOR_RIG_VERTEX_WORDS - 2 + axis] = value.to_bits();
+        }
     }
     let identity_bone: Vec<u32> = [
         [1.0_f32, 0.0, 0.0, 0.0],
@@ -86,7 +105,7 @@ fn skin_with_uv(name: &str, uv: [f32; 4]) -> Option<Vec<u32>> {
         instance: 0,
         first_output: 0,
         vertex_count: 3,
-        flags: 0,
+        flags,
         light: BLOCK_LIGHT | (SKY_LIGHT << 4),
         colour: u32::MAX,
         block_id: ENTITY_ID,
@@ -323,5 +342,140 @@ fn animated_uvs_keep_their_fractional_and_repeating_coordinates() {
         let base = index * ACTOR_VERTEX_WORDS as usize + UV0.word as usize;
         assert_eq!(f32::from_bits(words[base]), -2.5 + uv[0] * 2.);
         assert_eq!(f32::from_bits(words[base + 1]), 3.25 + uv[1] * 4.);
+    }
+}
+
+#[test]
+fn item_glint_coordinates_are_independent_of_atlas_placement_and_dimensions() {
+    for (origin, span) in [([0.0; 2], [1.0; 2]), ([0.375, 0.625], [0.25, 0.125])] {
+        let Some(words) = skin_fixture(
+            "shader-pack sprite-local glint UVs",
+            [0., 0., 1., 1.],
+            origin,
+            span,
+            super::skin::JOB_GLINT,
+        ) else {
+            return;
+        };
+        for (index, (_, front, _)) in CORNERS.into_iter().enumerate() {
+            let base = index * ACTOR_VERTEX_WORDS as usize + UV0.word as usize;
+            for (axis, expected) in front.into_iter().enumerate() {
+                assert!((f32::from_bits(words[base + axis]) - expected).abs() < 1e-6);
+            }
+        }
+        for (slot, corner) in [0, 2, 1].into_iter().enumerate() {
+            let base = (slot + 3) * ACTOR_VERTEX_WORDS as usize + UV0.word as usize;
+            for (axis, expected) in CORNERS[corner].2.into_iter().enumerate() {
+                assert!((f32::from_bits(words[base + axis]) - expected).abs() < 1e-6);
+            }
+        }
+    }
+}
+
+/// A single glinted instance whose textures are enough to exercise draw planning.
+struct GlintSource<'a> {
+    data: render_model::ActorGpuInstance,
+    texture: &'a bevy::render::render_resource::Texture,
+}
+
+impl super::RigSource for GlintSource<'_> {
+    /// Planning does not read storage buffers.
+    fn buffers(&self) -> super::RigBuffers<'_> {
+        unreachable!("draw planning does not bind buffers")
+    }
+
+    /// Visits the fixture instance with its artwork texture.
+    fn for_each_instance(&self, visit: &mut dyn FnMut(super::RigInstance<'_>)) {
+        visit(super::RigInstance {
+            index: 0,
+            data: &self.data,
+            vertex_count: 3,
+            texture: super::LayerTexture {
+                texture: self.texture,
+                layer: 0,
+            },
+            runtime_id: None,
+            camera: true,
+            light: [15; 2],
+            blend: None,
+            held: None,
+        });
+    }
+
+    /// Uses the fixture texture for both glint variants.
+    fn glint(&self, _item: bool) -> Option<&bevy::render::render_resource::Texture> {
+        Some(self.texture)
+    }
+}
+
+#[test]
+fn glint_draws_honor_strength_and_the_configured_clock() {
+    use super::view::ViewActors;
+    use crate::shaderpack::draws::DrawKind;
+    let (device, _) = wgpu::Device::noop(&Default::default());
+    let texture = bevy::render::render_resource::Texture::from(device.create_texture(
+        &wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        },
+    ));
+    for hand in [false, true] {
+        for strength in [0.0, 0.05, 0.25, 1.0] {
+            let source = GlintSource {
+                data: render_model::ActorGpuInstance {
+                    material: assets::EntityRenderMaterial::Glint as u32,
+                    glint: render_model::ActorGlint {
+                        time_seconds: 37.0,
+                        speed: 0.0,
+                        strength,
+                        ..Default::default()
+                    }
+                    .parameters(),
+                    ..Default::default()
+                },
+                texture: &texture,
+            };
+            let mut actors = ViewActors::default();
+            actors.plan_rig(
+                &source,
+                hand,
+                &super::ActorSources::default(),
+                &|_| true,
+                &mut 0,
+            );
+            let glints: Vec<_> = actors
+                .draws
+                .iter()
+                .filter(|draw| matches!(draw.kind, DrawKind::ArmorGlint | DrawKind::HandGlint))
+                .collect();
+            assert_eq!(glints.len(), usize::from(strength > 0.0));
+            if let Some(draw) = glints.first() {
+                assert_eq!(
+                    draw.values.texture_matrix.transform_point3(Vec3::ZERO),
+                    Vec3::ZERO
+                );
+                let job = actors
+                    .jobs
+                    .iter()
+                    .find(|job| job.output_start() == draw.vertices.start)
+                    .unwrap();
+                let [red, green, blue, alpha] = job.colour.to_le_bytes();
+                let test = draw.kind.alpha_test("gbuffers_basic", &[]).unwrap();
+                assert_eq!(test.function, shaderpack::CompareFunction::Greater);
+                assert!(f32::from(alpha) / 255.0 > test.reference);
+                assert_eq!([red, green, blue], [(strength * 255.0).round() as u8; 3]);
+                assert_eq!(alpha, u8::MAX);
+            }
+        }
     }
 }
