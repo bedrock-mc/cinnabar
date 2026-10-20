@@ -280,6 +280,7 @@ pub(crate) fn sky_fog(
         render_distance_chunks: game.render_distance / CHUNK_BLOCKS,
         look: (rotation * Vec3::NEG_Z).to_array(),
         camera_y: position.y,
+        void_darkness_range: game.void_darkness_range,
         medium: match game.eye_medium {
             1 => FogMedium::Water,
             2 => FogMedium::Lava,
