@@ -40,6 +40,8 @@ fn web_login(settings: &LoginSettings) -> SessionLogin<'_> {
         skin: None,
         settings,
         tap: None,
+        #[cfg(not(target_arch = "wasm32"))]
+        relay: None,
         target: Some(bridge::ConnectTarget::RakNet(
             "game.example.test:19132".into(),
         )),

@@ -6,9 +6,10 @@ rust-version.workspace = true
 publish = false
 
 [features]
-test-support = ["protocol/test-support", "render-model/test-support", "ui-screens/test-support"]
+test-support = ["dep:client-ui", "client-ui/test-support", "protocol/test-support", "render-model/test-support", "ui-screens/test-support"]
 
 [dependencies]
+client-ui = { path = "../../crates/client-ui", optional = true }
 cosmetics = { path = "../../crates/cosmetics" }
 assets = { path = "../../crates/assets" }
 image.workspace = true

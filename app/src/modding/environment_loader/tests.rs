@@ -1,5 +1,6 @@
 use super::super::registration::HostMetadata;
 use super::*;
+use client_shell::ui_resources::UiRuntimeResource;
 
 /// Writes a complete package with a verified component and no external resources.
 fn package(directory: &std::path::Path) {
@@ -546,7 +547,7 @@ fn drawing_restart_prepares_changed_guest_and_presentation_as_one_snapshot() {
         .bind_drawing_session(session);
     let old = world.resource::<ModRuntime>().hosts.host(0);
     let mut restart = request(&path, old.source_digest());
-    restart.drawing = admission::DrawingContext::capture(old, None);
+    restart.drawing = admission::DrawingContext::capture(old);
     std::fs::write(&path, component("Second", None)).unwrap();
     let update = prepare(restart, &mut BTreeMap::new()).unwrap();
     let prepared = update.result.as_ref().unwrap();
@@ -587,17 +588,17 @@ fn unchanged_drawing_restart_deduplicates_failures_and_rejects_stale_fences() {
             ..Default::default()
         });
         let mut restart = request(&path, host.source_digest());
-        restart.drawing = admission::DrawingContext::capture(host, None);
+        restart.drawing = admission::DrawingContext::capture(host);
         restart.source.font = Some(directory.path().join("missing-font"));
         assert!(prepare(restart, &mut attempted).unwrap().result.is_err());
         let mut retry = request(&path, host.source_digest());
-        retry.drawing = admission::DrawingContext::capture(host, None);
+        retry.drawing = admission::DrawingContext::capture(host);
         retry.source.font = Some(directory.path().join("missing-font"));
         assert!(prepare(retry, &mut attempted).is_none());
     }
     let old = world.resource::<ModRuntime>().hosts.host(0);
     let mut restart = request(&path, old.source_digest());
-    restart.drawing = admission::DrawingContext::capture(old, None);
+    restart.drawing = admission::DrawingContext::capture(old);
     let update = prepare(restart, &mut attempted).unwrap();
     assert!(update.result.is_ok());
     {
@@ -741,8 +742,10 @@ fn queued_request(world: &mut World, source: Source) -> Request {
 }
 
 #[test]
-fn replacement_init_checks_its_own_digest_against_the_authenticated_grant() {
+fn replacement_init_uses_user_consent_independently_of_server_grants() {
     for scope in [
+        "absent",
+        "user_denied",
         "authorized",
         "unlisted",
         "expired",
@@ -765,9 +768,11 @@ fn replacement_init_checks_its_own_digest_against_the_authenticated_grant() {
             grant.expires_unix = 0;
         }
         let mut ui = client_ui::ui_runtime::UiRuntime::new(1);
-        ui.experiences.session.state = server_experience::session::State::Granted(grant);
+        if scope != "absent" {
+            ui.experiences.session.state = server_experience::session::State::Granted(grant);
+        }
         let mut source = request(&path, old_digest).source;
-        source.grants.render_post = true;
+        source.grants.render_post = scope != "user_denied";
         let previous =
             admission::prepare(&path, &first, source.grants.clone(), None, None, None, None)
                 .unwrap();
@@ -787,10 +792,10 @@ fn replacement_init_checks_its_own_digest_against_the_authenticated_grant() {
             });
         std::fs::write(&path, next).unwrap();
         let update = prepare(queued_request(&mut world, source), &mut BTreeMap::new()).unwrap();
-        if matches!(scope, "unlisted" | "expired") {
+        if scope == "user_denied" {
             assert!(
                 update.result.is_err(),
-                "{scope} cannot authorize post-pass init"
+                "server grants cannot replace user consent"
             );
             continue;
         }
@@ -817,13 +822,8 @@ fn replacement_init_checks_its_own_digest_against_the_authenticated_grant() {
         }
         let retired = apply(&mut world, update).unwrap();
         let current = world.resource::<ModRuntime>().hosts.host(0);
-        if matches!(scope, "revoked_before_publish" | "expired_before_publish") {
-            assert_eq!(current.source_digest(), old_digest);
-            assert!(current.is_revoked());
-            assert_eq!(retired.source_digest(), new_digest);
-        } else {
-            assert_eq!(current.source_digest(), new_digest);
-            assert!(current.is_active());
-        }
+        assert_eq!(retired.source_digest(), old_digest);
+        assert_eq!(current.source_digest(), new_digest);
+        assert!(current.is_active());
     }
 }

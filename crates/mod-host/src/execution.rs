@@ -35,7 +35,27 @@ pub(crate) fn engine() -> Result<(Engine, EpochTicker)> {
         .wasm_multi_memory(false)
         .wasm_relaxed_simd(false)
         .max_wasm_stack(256 * 1024);
-    let engine = Engine::new(&config)?;
+    ticking_engine(&config)
+}
+
+/// Builds the trusted packet-mod engine: wall-clock deadlines instead of fuel, and the deeper
+/// stack a language runtime's guest needs.
+pub(crate) fn trusted_engine() -> Result<(Engine, EpochTicker)> {
+    let mut config = Config::new();
+    config
+        .wasm_component_model(true)
+        .consume_fuel(false)
+        .async_support(true)
+        .epoch_interruption(true)
+        .wasm_memory64(false)
+        .wasm_relaxed_simd(false)
+        .max_wasm_stack(1024 * 1024);
+    ticking_engine(&config)
+}
+
+/// Creates an engine and the ticker thread that advances its epoch for deadline checks.
+fn ticking_engine(config: &Config) -> Result<(Engine, EpochTicker)> {
+    let engine = Engine::new(config)?;
     let ticking = engine.clone();
     let stop = Arc::new(AtomicBool::new(false));
     let stopped = Arc::clone(&stop);
@@ -74,7 +94,7 @@ fn arm_with_elapsed<T>(
     store: &mut Store<T>,
     fuel: u64,
     loading: bool,
-    mut elapsed: impl FnMut() -> Duration + Send + Sync + 'static,
+    elapsed: impl FnMut() -> Duration + Send + Sync + 'static,
 ) -> Result<()> {
     store.set_hostcall_fuel(HOSTCALL_BYTES);
     store.set_fuel(fuel)?;
@@ -83,6 +103,22 @@ fn arm_with_elapsed<T>(
     } else {
         CALLBACK_DEADLINE
     };
+    arm_deadline_with_elapsed(store, deadline, elapsed);
+    Ok(())
+}
+
+/// Gives the next guest call `deadline` of wall-clock time, without touching fuel.
+pub(crate) fn arm_deadline<T>(store: &mut Store<T>, deadline: Duration) {
+    let start = Instant::now();
+    arm_deadline_with_elapsed(store, deadline, move || start.elapsed());
+}
+
+/// Interrupts guest code once `elapsed` reaches `deadline`, checked at each epoch tick.
+fn arm_deadline_with_elapsed<T>(
+    store: &mut Store<T>,
+    deadline: Duration,
+    mut elapsed: impl FnMut() -> Duration + Send + Sync + 'static,
+) {
     store.epoch_deadline_callback(move |_| {
         let remaining = deadline.saturating_sub(elapsed());
         if remaining.is_zero() {
@@ -91,7 +127,6 @@ fn arm_with_elapsed<T>(
         Ok(UpdateDeadline::Continue(epoch_ticks(remaining)))
     });
     store.set_epoch_deadline(epoch_ticks(deadline));
-    Ok(())
 }
 
 /// Rounds a positive remaining duration up to whole ticker periods.

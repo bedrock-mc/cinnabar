@@ -177,6 +177,43 @@ fn requests_are_optional_validated_and_never_hide_metadata() {
 }
 
 #[test]
+fn raw_reactor_requests_follow_their_wasi_imports() {
+    for (source, wasi) in [
+        ("(module)", false),
+        (
+            r#"(module (import "wasi_snapshot_preview1" "fd_write" (func)))"#,
+            true,
+        ),
+        (r#"(module (import "other" "fd_write" (func)))"#, false),
+    ] {
+        let bytes = wat::parse_str(source).unwrap();
+        let requested = read(&bytes).requested.unwrap().unwrap();
+        assert_eq!(
+            requested,
+            ModGrants {
+                packets: true,
+                wasi,
+                ..Default::default()
+            }
+        );
+    }
+}
+
+#[test]
+fn explicit_reactor_requests_override_inference() {
+    let mut bytes =
+        wat::parse_str(r#"(module (import "wasi_snapshot_preview1" "fd_write" (func)))"#).unwrap();
+    section(
+        &mut bytes,
+        REQUESTED_GRANTS_SECTION,
+        br#"{"packets":true,"wasi":false}"#,
+    );
+    let requested = read(&bytes).requested.unwrap().unwrap();
+    assert!(requested.packets);
+    assert!(!requested.wasi);
+}
+
+#[test]
 fn update_repository_is_optional_top_level_and_never_breaks_other_metadata() {
     let empty = wat::parse_str("(component)").unwrap();
     assert!(read(&empty).metadata.update_repository.is_none());

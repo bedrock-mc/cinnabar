@@ -592,7 +592,7 @@ mod tests {
         quad_writes(7).issue(&arena, uploads);
         let old = arena.quad_buffer.id();
         let copy_bytes = 512 * PACKED_QUAD_BYTES;
-        begin_arena_migration(
+        assert!(begin_arena_migration(
             &mut arena,
             &device,
             ArenaStream::Quads,
@@ -600,7 +600,7 @@ mod tests {
                 new_capacity: 1024,
                 gpu_copy_bytes: copy_bytes,
             },
-        );
+        ));
         assert_eq!(
             advance_arena_migration(&mut arena, uploads, u64::MAX),
             copy_bytes
@@ -624,7 +624,7 @@ mod tests {
             queue: &queue,
             staging: Some(&staging),
         };
-        begin_arena_migration(
+        assert!(begin_arena_migration(
             &mut arena,
             &device,
             ArenaStream::Quads,
@@ -632,7 +632,7 @@ mod tests {
                 new_capacity: 1024,
                 gpu_copy_bytes: 512 * PACKED_QUAD_BYTES,
             },
-        );
+        ));
         assert_eq!(advance_arena_migration(&mut arena, uploads, 128), 128);
         quad_writes(9).issue(&arena, uploads);
         assert_eq!(

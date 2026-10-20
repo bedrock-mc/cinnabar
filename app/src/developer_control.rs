@@ -116,7 +116,10 @@ fn dispatch(world: &mut World) {
     let pending: Vec<Pending> = world.resource::<Control>().server.drain().collect();
     for Pending { command, reply } in pending {
         let outcome = match command {
-            Command::Connect { address } => connect(world, address),
+            Command::Connect {
+                address,
+                auth_cache,
+            } => connect(world, address, auth_cache),
             Command::Disconnect => disconnect(world),
             Command::Input(command) => input::apply(world, &command),
             Command::ImportSkin { path } => {
@@ -194,11 +197,18 @@ fn dispatch(world: &mut World) {
     }
 }
 
-fn connect(world: &mut World, address: String) -> Result<Value, String> {
+fn connect(
+    world: &mut World,
+    address: String,
+    auth_cache: Option<std::path::PathBuf>,
+) -> Result<Value, String> {
     let mut menu = world
         .get_resource_mut::<client_shell::menu::MenuRuntime>()
         .ok_or("the launcher menu is unavailable")?;
     menu.request_connect(address.clone());
+    if let Some(auth_cache) = auth_cache {
+        menu.use_auth_cache_for_pending_join(auth_cache);
+    }
     if !menu.is_connecting() {
         return Err("the launcher refused the join (account change pending?)".into());
     }

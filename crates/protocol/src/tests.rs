@@ -41,6 +41,7 @@ mod protocol_ids;
 mod raw_text;
 mod selected_descriptors;
 mod sleep_status;
+mod text_admission;
 mod ui_packets;
 mod world_correction_packets;
 mod world_packets;

@@ -409,7 +409,7 @@ fn same_frame_unit_visibility_preserves_pixels_after_disocclusion() {
                     .write_buffer(&storage.uniform, 0, bytemuck::bytes_of(&uniform));
                 let group = kernels.occlusion_bind_group(&gpu.device, &storage, &pyramid);
                 let mut encoder = gpu.device.create_command_encoder(&Default::default());
-                kernels.encode_pyramid(&mut encoder, &pyramid, &bindings);
+                kernels.encode_pyramid(&mut encoder, &pyramid, &bindings, None);
                 kernels.encode_occlusion(&mut encoder, &group, terrain.records.len() as u32);
                 gpu.queue.submit([encoder.finish()]);
                 for (stream, draws) in [CullStream::Solid, CullStream::Cutout]

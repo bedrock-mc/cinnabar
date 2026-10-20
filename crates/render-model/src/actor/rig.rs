@@ -82,7 +82,9 @@ impl RenderBoneTransform {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable, serde::Serialize, serde::Deserialize,
+)]
 pub struct ActorRigVertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],

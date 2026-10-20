@@ -7,9 +7,9 @@ use aes::cipher::{BlockCipherEncrypt, KeyInit};
 use serde::Deserialize;
 use zeroize::{Zeroize, Zeroizing};
 
-use pack_json::normalize_jsonc;
+use pack_json::parse_jsonc;
 
-use crate::{AdmissionError, MAX_ENTRIES_PER_PACK, MAX_PATH_BYTES};
+use crate::{AdmissionError, MAX_ENTRIES_PER_PACK, parser::canonical_path};
 
 const CONTENTS_HEADER_BYTES: usize = 256;
 
@@ -26,6 +26,12 @@ impl ContentKey {
     /// Whether both keys decrypt identically; used only to compare admitted packs in memory.
     pub(crate) fn same_key(&self, other: &Self) -> bool {
         self.0 == other.0
+    }
+
+    /// Identifies a decryption binding without exposing its key bytes to cache callers.
+    pub(crate) fn digest(&self) -> [u8; 32] {
+        use sha2::{Digest, Sha256};
+        Sha256::digest(&self.0).into()
     }
 
     /// Decrypts `data` in place.
@@ -104,10 +110,14 @@ pub(crate) fn contents_file_keys(
     raw: &[u8],
     pack_key: &ContentKey,
 ) -> Result<HashMap<Box<str>, ContentKey>, AdmissionError> {
-    // The decrypted index and its per-file keys are secrets: wipe them on drop.
-    let json = match normalize_jsonc(raw) {
-        Some(json) => Zeroizing::new(json),
-        None => {
+    // Wipe the decrypted input and owned keys; parser temporaries are outside this boundary.
+    let contents = match parse_jsonc::<Contents>(raw) {
+        Ok(contents) => contents,
+        Err(_) => {
+            // A well-formed document with the wrong shape is not an encrypted index.
+            if parse_jsonc::<serde::de::IgnoredAny>(raw).is_ok() {
+                return Err(AdmissionError::MalformedContentsIndex);
+            }
             let mut body = Zeroizing::new(
                 raw.get(CONTENTS_HEADER_BYTES..)
                     .filter(|body| !body.is_empty())
@@ -115,11 +125,9 @@ pub(crate) fn contents_file_keys(
                     .to_vec(),
             );
             pack_key.decrypt(&mut body);
-            Zeroizing::new(normalize_jsonc(&body).ok_or(AdmissionError::MalformedContentsIndex)?)
+            parse_jsonc::<Contents>(&body).map_err(|_| AdmissionError::MalformedContentsIndex)?
         }
     };
-    let contents: Contents =
-        serde_json::from_slice(&json).map_err(|_| AdmissionError::MalformedContentsIndex)?;
     if contents.content.len() > MAX_ENTRIES_PER_PACK {
         return Err(AdmissionError::TooManyEntries);
     }
@@ -129,13 +137,11 @@ pub(crate) fn contents_file_keys(
             .key
             .as_deref()
             .and_then(|key| ContentKey::new(key.as_bytes()));
-        let path = entry.path.replace('\\', "/");
-        let path = path.trim_start_matches("./");
         let Some(key) = key else {
             continue;
         };
-        if !path.is_empty() && path.len() <= MAX_PATH_BYTES {
-            keys.insert(path.into(), key);
+        if let Some(path) = canonical_path(entry.path.as_bytes()) {
+            keys.insert(path, key);
         }
     }
     Ok(keys)
@@ -242,5 +248,41 @@ pub(crate) mod tests {
             Some(AdmissionError::MalformedContentsIndex)
         );
         assert!(ContentKey::new(b"not-a-key").is_none());
+    }
+
+    #[test]
+    fn contents_index_jsonc_matches_previous_normalization() {
+        let pack_key = ContentKey::new(KEY).unwrap();
+        for body in [
+            br#"{"content":[{"path":"a.json","key":"abcdefghijklmnopqrstuvwxyz012345"}]}"#.as_slice(),
+            b"\xef\xbb\xbf{/* index */\"content\":[{\"path\":\"caf\xe9.json\",\"key\":\"abcdefghijklmnopqrstuvwxyz012345\",},],}",
+            br#"{"content":[],"ignored":1e309}"#,
+            br#"{"content":[],"content":[]}"#,
+            br#"{"content":[{"path":"a","path":"b"}]}"#,
+            br#"{"content":[{"key":"abcdefghijklmnopqrstuvwxyz012345","key":"abcdefghijklmnopqrstuvwxyz012345"}]}"#,
+            br#"{"content":false}"#,
+            br#"{"content":false,"truncated":}"#,
+            b"{} {}",
+        ] {
+            let before = pack_json::normalize_jsonc(body)
+                .and_then(|json| serde_json::from_slice::<Contents>(&json).ok());
+            let mut encrypted = vec![0; CONTENTS_HEADER_BYTES];
+            let mut tail = body.to_vec();
+            encrypt(KEY, &mut tail);
+            encrypted.extend_from_slice(&tail);
+            for raw in [body, encrypted.as_slice()] {
+                let after = contents_file_keys(raw, &pack_key);
+                if let Some(expected) = &before {
+                    let after = after.expect("previously accepted index");
+                    assert_eq!(after.len(), expected.content.len());
+                    for entry in &expected.content {
+                        let key = ContentKey::new(entry.key.as_ref().unwrap().as_bytes()).unwrap();
+                        assert!(after[entry.path.as_str()].same_key(&key));
+                    }
+                } else {
+                    assert_eq!(after.err(), Some(AdmissionError::MalformedContentsIndex));
+                }
+            }
+        }
     }
 }
