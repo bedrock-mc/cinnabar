@@ -154,6 +154,35 @@ fn profiles_merge_includes_and_order_by_value_count() {
 }
 
 #[test]
+fn long_profile_chains_resolve_on_a_small_stack() {
+    let profiles = std::thread::Builder::new()
+        .stack_size(128 * 1024)
+        .spawn(|| {
+            let count = 512;
+            let tree: Vec<_> = (0..count)
+                .map(|index| {
+                    let tokens = if index + 1 == count {
+                        vec!["QUALITY=3".to_owned(), "!program.final".to_owned()]
+                    } else {
+                        vec![format!("profile.p{}", index + 1)]
+                    };
+                    (format!("p{index}"), tokens)
+                })
+                .collect();
+            profiles::parse(&tree, &[])
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+    assert_eq!(profiles.len(), 512);
+    assert_eq!(
+        profiles[0].values.get("QUALITY").map(String::as_str),
+        Some("3")
+    );
+    assert_eq!(profiles[0].disabled_programs, ["final"]);
+}
+
+#[test]
 fn broken_profile_includes_leave_the_pack_without_profiles() {
     for broken in [
         "profile.A=profile.B\nprofile.B=profile.A\n",
