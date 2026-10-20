@@ -19,6 +19,7 @@ pub const MAX_TERRAIN_METADATA_BYTES: usize = 256 * 1024;
 pub const MAX_TERRAIN_RESPONSE_BYTES: usize = 512 * 1024;
 
 mod guest;
+pub mod native_camera;
 pub mod native_frame;
 pub mod native_menu;
 

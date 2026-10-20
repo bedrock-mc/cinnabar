@@ -1,15 +1,16 @@
 //! Latest-value native callbacks: neither frame input nor results can form a backlog.
 
 use super::Request;
+use arc_swap::ArcSwapOption;
+use mod_api::native_camera::Effects;
 use mod_api::native_frame::Frame;
-use mod_host::CameraDelta;
 use std::sync::{
     Arc, Mutex, PoisonError,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     mpsc::Sender,
 };
 
-/// Results older than two client frames are never applied to a new camera pose.
+/// Relative rotations older than two client frames cannot move a new camera pose.
 const MAX_RESULT_AGE: u64 = 2;
 
 /// A session-owned sender, weakly reachable by the app without retaining the session.
@@ -30,7 +31,7 @@ impl FrameLink {
     }
 
     /// Publishes without blocking; a busy worker sees only the newest pending input.
-    pub(super) fn exchange(&self, frame: Option<Frame>) -> Option<CameraDelta> {
+    pub(super) fn exchange(&self, frame: Option<Frame>) -> Option<Effects> {
         let (output, wake) = self.frames.exchange(frame)?;
         if wake && self.requests.send(Request::NativeFrame).is_err() {
             self.frames.deactivate();
@@ -48,11 +49,9 @@ impl FrameLink {
 #[derive(Default)]
 struct State {
     epoch: u64,
-    sequence: u64,
-    scope: Option<(u64, i32)>,
+    scope: Option<(u64, i32, bool)>,
     attack_held: Option<bool>,
     pending: Option<Input>,
-    output: Option<Output>,
     wake_pending: bool,
 }
 
@@ -79,14 +78,18 @@ impl Input {
 }
 
 struct Output {
-    epoch: u64,
     sequence: u64,
-    delta: CameraDelta,
+    scope: (u64, i32, bool),
+    attack_held: bool,
+    effects: Effects,
+    rotation_taken: AtomicBool,
 }
 
 /// Shared data holds no sender and cannot keep the packet worker's channel alive.
 pub(super) struct NativeFrames {
     state: Mutex<State>,
+    output: ArcSwapOption<Output>,
+    sequence: AtomicU64,
     ready: AtomicBool,
     stopped: AtomicBool,
     invalidate: AtomicBool,
@@ -105,6 +108,8 @@ impl NativeFrames {
     pub(super) fn new(authority: Arc<AtomicBool>) -> Self {
         Self {
             state: Mutex::new(State::default()),
+            output: ArcSwapOption::empty(),
+            sequence: AtomicU64::new(0),
             ready: AtomicBool::new(false),
             stopped: AtomicBool::new(false),
             invalidate: AtomicBool::new(false),
@@ -127,7 +132,7 @@ impl NativeFrames {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.epoch = state.epoch.wrapping_add(1);
         state.pending = None;
-        state.output = None;
+        self.output.store(None);
         state.wake_pending = false;
     }
 
@@ -135,48 +140,94 @@ impl NativeFrames {
     pub(super) fn fence_guest_state(&self) {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.pending = None;
-        state.output = None;
+        if let Some(output) = self.output.load_full() {
+            output.rotation_taken.store(true, Ordering::Release);
+        }
     }
 
-    /// Returns a recent effect and whether the worker needs its one queued wake.
-    fn exchange(&self, frame: Option<Frame>) -> Option<(Option<CameraDelta>, bool)> {
+    /// Reads retained configuration without contending with worker completion.
+    fn read_output(&self, frame: Option<&Frame>, sequence: u64) -> Option<Effects> {
+        let frame = frame?;
+        if !self.available() || self.invalidate.load(Ordering::Acquire) {
+            return None;
+        }
+        let output = self.output.load_full()?;
+        if (output.scope.0, output.scope.1) != (frame.session, frame.dimension) {
+            return None;
+        }
+        let mut effects = output.effects.clone();
+        if frame.suspended || output.scope.2 {
+            effects.detached = None;
+        }
+        if frame.suspended
+            || output.scope.2
+            || output.attack_held != frame.attack_held
+            || sequence.wrapping_sub(output.sequence) > MAX_RESULT_AGE
+            || output.rotation_taken.swap(true, Ordering::AcqRel)
+        {
+            effects.rotation = None;
+        }
+        (effects != Effects::default()).then_some(effects)
+    }
+
+    /// Coalesces work while retaining view configuration until its ownership is released.
+    fn exchange(&self, frame: Option<Frame>) -> Option<(Option<Effects>, bool)> {
         if !self.available() {
             return None;
         }
         let frame = frame.filter(Frame::is_valid);
+        let sequence = self.sequence.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
         if frame.is_none() {
             self.invalidate.store(true, Ordering::Release);
         }
-        let mut state = self.state.try_lock().ok()?;
-        let scope = frame.as_ref().map(|frame| (frame.session, frame.dimension));
+        let Ok(mut state) = self.state.try_lock() else {
+            return Some((self.read_output(frame.as_ref(), sequence), false));
+        };
+        let scope = frame
+            .as_ref()
+            .map(|frame| (frame.session, frame.dimension, frame.suspended));
         let attack_held = frame.as_ref().map(|frame| frame.attack_held);
         if state.attack_held != attack_held {
             state.attack_held = attack_held;
-            state.output = None;
+            if let Some(output) = self.output.load_full() {
+                output.rotation_taken.store(true, Ordering::Release);
+            }
         }
-        let invalidated = self.invalidate.swap(false, Ordering::AcqRel);
-        if scope.is_none() && state.scope.is_none() && state.sequence != 0 {
-            state.output = None;
+        let invalidated = self.invalidate.load(Ordering::Acquire);
+        if scope.is_none() && state.scope.is_none() && sequence != 1 {
+            self.output.store(None);
             return Some((None, false));
         }
         if state.scope != scope || invalidated {
+            let same_world = state
+                .scope
+                .zip(scope)
+                .is_some_and(|(old, new)| (old.0, old.1) == (new.0, new.1));
             state.epoch = state.epoch.wrapping_add(1);
             state.scope = scope;
-            state.output = None;
+            let passive = if same_world {
+                self.output.load_full().map(|output| {
+                    let mut effects = output.effects.clone();
+                    effects.rotation = None;
+                    effects.detached = None;
+                    Arc::new(Output {
+                        sequence,
+                        scope: scope.unwrap(),
+                        attack_held: attack_held.unwrap(),
+                        effects,
+                        rotation_taken: AtomicBool::new(true),
+                    })
+                })
+            } else {
+                None
+            };
+            self.output.store(passive);
         }
-        state.sequence = state.sequence.wrapping_add(1);
-        let output = state
-            .output
-            .take()
-            .filter(|output| {
-                scope.is_some()
-                    && output.epoch == state.epoch
-                    && state.sequence.wrapping_sub(output.sequence) <= MAX_RESULT_AGE
-            })
-            .map(|output| output.delta);
+        self.invalidate.store(false, Ordering::Release);
+        let output = self.read_output(frame.as_ref(), sequence);
         state.pending = Some(Input {
             epoch: state.epoch,
-            sequence: state.sequence,
+            sequence,
             frame,
         });
         let wake = !state.wake_pending;
@@ -192,19 +243,24 @@ impl NativeFrames {
         self.available().then_some(input).flatten()
     }
 
-    /// Publishes only a still-current observation; stale worker results are discarded here too.
-    pub(super) fn complete(&self, input: Input, delta: Option<CameraDelta>) {
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+    /// Publishes configuration for the current scope, aging only the relative rotation.
+    pub(super) fn complete(&self, input: Input, effects: Option<Effects>) {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if self.available()
+            && !self.invalidate.load(Ordering::Acquire)
             && input.epoch == state.epoch
             && input.frame.as_ref().map(|frame| frame.attack_held) == state.attack_held
-            && state.sequence.wrapping_sub(input.sequence) <= MAX_RESULT_AGE
         {
-            state.output = delta.map(|delta| Output {
-                epoch: input.epoch,
-                sequence: input.sequence,
-                delta,
-            });
+            self.output.store(effects.and_then(|effects| {
+                let frame = input.frame.as_ref()?;
+                Some(Arc::new(Output {
+                    sequence: input.sequence,
+                    scope: (frame.session, frame.dimension, frame.suspended),
+                    attack_held: frame.attack_held,
+                    effects,
+                    rotation_taken: AtomicBool::new(false),
+                }))
+            }));
         }
     }
 }
@@ -221,6 +277,63 @@ mod tests {
     }
 
     #[test]
+    fn presentation_survives_packet_fences_but_detachment_releases_on_input_loss() {
+        let mailbox = NativeFrames::new(Arc::new(AtomicBool::new(true)));
+        mailbox.activate(true);
+        mailbox.exchange(Some(frame())).unwrap();
+        let input = mailbox.take_input().unwrap();
+        let effects = Effects {
+            detached: Some(mod_api::native_camera::DetachedView::Fly {
+                horizontal_speed: 8.0,
+                vertical_speed: 4.0,
+            }),
+            hurt_intensity: Some(0.0),
+            ..Default::default()
+        };
+        mailbox.complete(input, Some(effects.clone()));
+        mailbox.fence_guest_state();
+        assert_eq!(mailbox.exchange(Some(frame())).unwrap().0, Some(effects));
+        let mut suspended = frame();
+        suspended.suspended = true;
+        suspended.players.clear();
+        suspended.attack_held = false;
+        let passive = mailbox.exchange(Some(suspended)).unwrap().0.unwrap();
+        assert_eq!(passive.detached, None);
+        assert_eq!(passive.rotation, None);
+        assert_eq!(passive.hurt_intensity, Some(0.0));
+        assert_eq!(mailbox.exchange(None).unwrap().0, None);
+    }
+
+    #[test]
+    fn retained_views_survive_worker_contention_and_rotation_expiry() {
+        let mailbox = NativeFrames::new(Arc::new(AtomicBool::new(true)));
+        mailbox.activate(true);
+        mailbox.exchange(Some(frame()));
+        let input = mailbox.take_input().unwrap();
+        let effects = Effects {
+            detached: Some(mod_api::native_camera::DetachedView::Fly {
+                horizontal_speed: 8.0,
+                vertical_speed: 4.0,
+            }),
+            ..Default::default()
+        };
+        mailbox.complete(input, Some(effects.clone()));
+        {
+            let _worker_completing = mailbox.state.lock().unwrap();
+            for _ in 0..8 {
+                assert_eq!(
+                    mailbox.exchange(Some(frame())),
+                    Some((Some(effects.clone()), false))
+                );
+            }
+        }
+        assert_eq!(mailbox.exchange(Some(frame())).unwrap().0, Some(effects));
+        let mut elsewhere = frame();
+        elsewhere.dimension += 1;
+        assert_eq!(mailbox.exchange(Some(elsewhere)).unwrap().0, None);
+    }
+
+    #[test]
     fn frames_coalesce_and_results_are_consumed_once() {
         let mailbox = NativeFrames::new(Arc::new(AtomicBool::new(true)));
         mailbox.activate(true);
@@ -228,11 +341,14 @@ mod tests {
         assert_eq!(mailbox.exchange(Some(frame())), Some((None, false)));
         let input = mailbox.take_input().unwrap();
         assert_eq!(input.sequence, 2);
-        let delta = CameraDelta {
-            yaw: 0.1,
-            pitch: 0.0,
+        let delta = Effects {
+            rotation: Some(mod_api::native_frame::Delta {
+                yaw: 0.1,
+                pitch: 0.0,
+            }),
+            ..Default::default()
         };
-        mailbox.complete(input, Some(delta));
+        mailbox.complete(input, Some(delta.clone()));
         assert_eq!(mailbox.exchange(Some(frame())).unwrap().0, Some(delta));
         assert_eq!(mailbox.exchange(Some(frame())).unwrap().0, None);
     }
@@ -247,9 +363,12 @@ mod tests {
         mailbox.exchange(None);
         mailbox.complete(
             input,
-            Some(CameraDelta {
-                yaw: 0.1,
-                pitch: 0.0,
+            Some(Effects {
+                rotation: Some(mod_api::native_frame::Delta {
+                    yaw: 0.1,
+                    pitch: 0.0,
+                }),
+                ..Default::default()
             }),
         );
         assert_eq!(mailbox.exchange(Some(frame())).unwrap().0, None);
@@ -268,9 +387,12 @@ mod tests {
         }
         mailbox.complete(
             input,
-            Some(CameraDelta {
-                yaw: 0.1,
-                pitch: 0.0,
+            Some(Effects {
+                rotation: Some(mod_api::native_frame::Delta {
+                    yaw: 0.1,
+                    pitch: 0.0,
+                }),
+                ..Default::default()
             }),
         );
         assert_eq!(mailbox.exchange(Some(frame())).unwrap().0, None);
@@ -284,13 +406,16 @@ mod tests {
         let input = mailbox.take_input().unwrap();
         {
             let _locked = mailbox.state.lock().unwrap();
-            assert_eq!(mailbox.exchange(None), None);
+            assert_eq!(mailbox.exchange(None), Some((None, false)));
         }
         mailbox.complete(
             input,
-            Some(CameraDelta {
-                yaw: 0.1,
-                pitch: 0.0,
+            Some(Effects {
+                rotation: Some(mod_api::native_frame::Delta {
+                    yaw: 0.1,
+                    pitch: 0.0,
+                }),
+                ..Default::default()
             }),
         );
         assert_eq!(mailbox.exchange(Some(frame())).unwrap().0, None);
@@ -325,9 +450,12 @@ mod tests {
         let epoch = input.epoch;
         mailbox.complete(
             input,
-            Some(CameraDelta {
-                yaw: 0.1,
-                pitch: 0.0,
+            Some(Effects {
+                rotation: Some(mod_api::native_frame::Delta {
+                    yaw: 0.1,
+                    pitch: 0.0,
+                }),
+                ..Default::default()
             }),
         );
         mailbox.fence_guest_state();
@@ -357,9 +485,12 @@ mod tests {
         let input = mailbox.take_input().unwrap();
         mailbox.complete(
             input,
-            Some(CameraDelta {
-                yaw: 0.1,
-                pitch: 0.0,
+            Some(Effects {
+                rotation: Some(mod_api::native_frame::Delta {
+                    yaw: 0.1,
+                    pitch: 0.0,
+                }),
+                ..Default::default()
             }),
         );
         assert_eq!(mailbox.exchange(Some(released.clone())).unwrap().0, None);
@@ -368,9 +499,12 @@ mod tests {
         mailbox.exchange(Some(released.clone()));
         mailbox.complete(
             in_flight,
-            Some(CameraDelta {
-                yaw: 0.1,
-                pitch: 0.0,
+            Some(Effects {
+                rotation: Some(mod_api::native_frame::Delta {
+                    yaw: 0.1,
+                    pitch: 0.0,
+                }),
+                ..Default::default()
             }),
         );
         assert_eq!(mailbox.exchange(Some(released)).unwrap().0, None);

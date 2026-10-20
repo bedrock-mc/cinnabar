@@ -29,6 +29,7 @@ use client_interaction::movement::LocomotionState;
 /// Reads user movement settings and any native extension policy in one system parameter.
 #[derive(SystemParam)]
 pub(crate) struct MovementSettings<'w> {
+    camera: Option<Res<'w, client_presentation::camera::CameraSettingsAuthority>>,
     settings: Option<Res<'w, RuntimeSettings>>,
     #[cfg(not(target_arch = "wasm32"))]
     mods: Option<Res<'w, crate::modding::ModRuntime>>,
@@ -104,7 +105,7 @@ pub(crate) fn advance_local_physics(
         }
         gameplay
     };
-    let frame = gameplay::movement::PhysicsFrameInput {
+    let mut frame = gameplay::movement::PhysicsFrameInput {
         delta: time.delta(),
         now: time.elapsed(),
         active,
@@ -135,6 +136,24 @@ pub(crate) fn advance_local_physics(
             },
         ),
     };
+    if settings.camera.as_deref().is_some_and(|camera| {
+        matches!(
+            camera.detached_view(),
+            Some(client_presentation::camera::DetachedView::Fly { .. })
+        )
+    }) {
+        frame.movement = [0.0; 2];
+        frame.raw_movement = [0.0; 2];
+        frame.analogue_movement = [0.0; 2];
+        frame.movement_buttons = Default::default();
+        frame.jump = Default::default();
+        frame.sprint = Default::default();
+        frame.sneak = Default::default();
+        frame.always_sprint = false;
+        frame.toggle_sprint = false;
+        frame.toggle_sneak = false;
+    }
+
     if !movement_ticker.can_advance_physics_frame() {
         locals.observe_dismount(&frame, movement_ticker.session_generation());
         // Retain presses and publish the pose while transport pauses simulation.

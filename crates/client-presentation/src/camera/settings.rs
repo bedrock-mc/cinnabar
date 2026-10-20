@@ -22,6 +22,7 @@ pub struct CameraSettingsAuthority {
     perspective: PerspectiveMode,
     configured_perspective: PerspectiveMode,
     pub(super) freelook: bool,
+    detached: Option<super::DetachedView>,
     death_rotation: Option<Quat>,
     feel: CameraFeelSettings,
     game_sensitivity: super::look::GameSensitivity,
@@ -90,6 +91,7 @@ impl Default for CameraSettingsAuthority {
             perspective: settings.gameplay.default_perspective,
             configured_perspective: settings.gameplay.default_perspective,
             freelook: false,
+            detached: None,
             death_rotation: None,
             feel: CameraFeelSettings::from_settings(&settings),
             game_sensitivity: Default::default(),
@@ -169,7 +171,8 @@ impl CameraSettingsAuthority {
     /// shows; a chosen third-person mode is kept.
     #[must_use]
     pub const fn perspective(&self) -> PerspectiveMode {
-        if self.rig.is_some()
+        if self.detached.is_some()
+            || self.rig.is_some()
             || self.freelook
             || (self.death_rotation.is_some()
                 && matches!(self.perspective, PerspectiveMode::FirstPerson))
@@ -205,8 +208,25 @@ impl CameraSettingsAuthority {
 
     #[must_use]
     /// Returns the optional local camera rig override.
-    pub const fn rig(&self) -> Option<CameraRig> {
-        self.rig
+    pub fn rig(&self) -> Option<CameraRig> {
+        match self.detached {
+            Some(super::DetachedView::Orbit { distance }) => Some(CameraRig {
+                offset: Vec3::new(0.0, 0.0, distance),
+                roll_radians: 0.0,
+                fov_delta_degrees: 0.0,
+            }),
+            _ => self.rig,
+        }
+    }
+
+    /// Selects an already validated detached view; omission releases local view ownership.
+    pub fn set_detached_view(&mut self, view: Option<super::DetachedView>) {
+        self.detached = view;
+    }
+
+    /// The current extension-selected view, without changing the player's saved perspective.
+    pub const fn detached_view(&self) -> Option<super::DetachedView> {
+        self.detached
     }
 
     /// A granted extension's current-frame policy for actual teleport yaw/pitch only.
@@ -288,6 +308,7 @@ impl CameraSettingsAuthority {
     pub fn reset_perspective(&mut self) {
         self.perspective = PerspectiveMode::FirstPerson;
         self.freelook = false;
+        self.detached = None;
         self.death_rotation = None;
         self.preserve_teleport_rotation = false;
         self.view_scale = [1.0, 1.0];

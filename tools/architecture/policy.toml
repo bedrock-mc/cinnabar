@@ -439,7 +439,7 @@ forbidden_dependencies = ["bevy", "wgpu", "asset-compiler"]
 [[crates]]
 name = "mod-api"
 path = "crates/mod-api"
-allowed_dependencies = []
+allowed_dependencies = ["render-api"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 # Sandboxed mod render contract: WGSL admission and camera-independent primitive geometry.

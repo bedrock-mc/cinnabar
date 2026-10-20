@@ -60,6 +60,7 @@ pub(super) fn clear_presentation(world: &mut World) {
     {
         camera.set_rig(None);
         camera.set_preserve_teleport_rotation(false);
+        camera.set_detached_view(None);
         camera.set_view_scale(1.0, 1.0);
         camera.set_hurt_camera_style(None);
     }

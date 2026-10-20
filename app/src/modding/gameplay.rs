@@ -59,7 +59,24 @@ impl GameplayContext<'_> {
             camera: true,
             ..Default::default()
         };
-        let snapshot = self.snapshot(allowed, &grants)?;
+        let Some(snapshot) = self.snapshot(allowed, &grants) else {
+            let eye = self.view.as_ref()?.eye_translation().to_array();
+            return Some(mod_api::native_frame::Frame {
+                version: mod_api::native_frame::VERSION,
+                session: ui.session_id(),
+                dimension: world.stream.as_ref()?.current_dimension(),
+                eye,
+                yaw: 0.0,
+                pitch: 0.0,
+                attack_held: false,
+                seconds: self
+                    .real_time
+                    .as_ref()
+                    .map_or(0.0, |time| time.delta_secs().min(1.0)),
+                players: Vec::new(),
+                suspended: true,
+            });
+        };
         Some(mod_api::native_frame::Frame {
             version: mod_api::native_frame::VERSION,
             session: snapshot.session,
@@ -69,6 +86,7 @@ impl GameplayContext<'_> {
             pitch: snapshot.pitch,
             attack_held: snapshot.attack_held,
             seconds: snapshot.frame_seconds,
+            suspended: false,
             players: snapshot
                 .players
                 .into_iter()

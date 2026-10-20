@@ -24,3 +24,31 @@ packets and does not bypass the normal camera owner.
 `native-frame-v1.json` is the shared cross-language conformance fixture. Treat its
 64-bit IDs as integers, preserving all bits. SDK bounds derive from the existing
 player and camera limits.
+
+## General camera effects
+
+A core module may additionally export `camera-frame(ptr: i32, len: i32) -> i32`.
+Capability bit 2 (`4`) selects this callback when both `camera` and `movement` are
+granted. Its input and canonical result ABI match `frame`. A connected world without
+gameplay input carries `suspended: true` and no targets or attack state; the older
+callback still receives `null`. Successful output is
+`null` or `native_camera::Effects`. It takes precedence over the older `frame`
+callback. Without a players grant the host removes player observations before
+calling the guest. `cabi_post_camera-frame(i32)` may release the result.
+
+Effects select either a once-consumed rotation or a detached view, plus optional
+damage-camera intensity and teleport-view preservation. Detached views keep
+native look separate from body heading. Orbit follows the body with host terrain
+collision; flying views consume movement only for the camera while the body's
+physics, gravity, server corrections and network cadence continue. No effect
+changes a teleport destination or its acknowledgment. The shared damage-camera
+owner validates intensity. `native-camera-v1.json` is the cross-language output
+fixture.
+
+Presentation configuration remains valid until replaced or released; only relative
+rotations expire after two client frames and are consumed once. Worker contention
+does not reset detached position. Packet updates invalidate unconsumed rotations. A connected suspended frame
+retains only passive damage and teleport-view policies; it releases detached
+input immediately. Revocation, dimension/session changes, failure and stop
+invalidate every effect. Omission
+restores the player's current camera settings and perspective.

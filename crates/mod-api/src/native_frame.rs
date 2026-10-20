@@ -30,6 +30,9 @@ pub struct Frame {
     pub attack_held: bool,
     pub seconds: f32,
     pub players: Vec<Player>,
+    /// A connected world without gameplay input; only passive camera policies may be returned.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub suspended: bool,
 }
 
 impl Frame {
@@ -41,6 +44,7 @@ impl Frame {
             && self.pitch.is_finite()
             && self.seconds.is_finite()
             && (0.0..=1.0).contains(&self.seconds)
+            && (!self.suspended || !self.attack_held && self.players.is_empty())
             && self.players.len() <= crate::MAX_GAMEPLAY_PLAYERS
             && self.players.iter().all(|player| {
                 player.runtime_id != 0 && player.feet.iter().all(|value| value.is_finite())
