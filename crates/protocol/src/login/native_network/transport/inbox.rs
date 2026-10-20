@@ -140,3 +140,6 @@ mod tests {
         assert_eq!(second, b"second"[..]);
     }
 }
+
+#[cfg(test)]
+mod backpressure_tests;
