@@ -7,12 +7,13 @@ use bevy::ecs::system::{ScheduleSystem, SystemParam};
 use crate::chunk::gpu_cull::ChunkHiddenEntities;
 use crate::chunk::*;
 use crate::shaderpack::geometry::jobs::SectionGeometry;
+use meshing::ChunkBiomeTintIdentity;
 use render_scene::ChunkRenderInstance;
 
 /// The packed-chunk buffers the expansion kernels read, by their chunk-layout binding.
 pub(crate) struct PackedChunkBuffers<'a> {
     pub(crate) carrier: render_scene::ChunkTextureAssetIdentity,
-    pub(crate) tint_identity: render_scene::ChunkBiomeTintIdentity,
+    pub(crate) tint_identity: ChunkBiomeTintIdentity,
     /// Binding 1: packed cube quads.
     pub(crate) quads: &'a Buffer,
     /// Binding 2: section origins and stream bases.
@@ -116,7 +117,7 @@ impl ResidentSections<'_, '_> {
     pub(crate) fn get(
         &self,
         entity: Entity,
-        active_tint_identity: render_scene::ChunkBiomeTintIdentity,
+        active_tint_identity: ChunkBiomeTintIdentity,
     ) -> Option<ResidentSection<'_>> {
         let (_, allocation, instance) = self.sections.get(entity).ok()?;
         if instance.key != allocation.key

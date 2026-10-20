@@ -1,12 +1,11 @@
 use super::*;
 use bevy::ecs::system::RunSystemOnce;
-use render_scene::{ChunkUploadPriority, PackedBiomeRecord};
+use meshing::{ChunkBiomeTintIdentity, PackedBiomeRecord};
+use render_scene::ChunkUploadPriority;
 use std::sync::Arc;
 
 /// One empty packed section and the allocation uploaded from it.
-fn section(
-    tint: render_scene::ChunkBiomeTintIdentity,
-) -> (ChunkRenderInstance, GpuChunkAllocation) {
+fn section(tint: ChunkBiomeTintIdentity) -> (ChunkRenderInstance, GpuChunkAllocation) {
     let key = world::SubChunkKey::new(0, 1, 2, 3);
     let instance = ChunkRenderInstance {
         cube_layout: CubeQuadLayout::default(),
@@ -54,8 +53,8 @@ fn section(
 
 #[test]
 fn expansion_requires_matching_instance_allocation_and_active_tint_tables() {
-    let old = render_scene::ChunkBiomeTintIdentity::new(4, 5);
-    let new = render_scene::ChunkBiomeTintIdentity::new(4, 6);
+    let old = ChunkBiomeTintIdentity::new(4, 5);
+    let new = ChunkBiomeTintIdentity::new(4, 6);
     for (instance_tint, allocation_tint, active, accepted) in [
         (old, old, old, true),
         (old, old, new, false),

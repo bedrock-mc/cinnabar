@@ -14,7 +14,8 @@ use bevy::render::render_resource::{
 };
 use bevy::render::renderer::{RenderAdapter, RenderContext, RenderDevice, RenderQueue};
 use bevy::render::view::{ExtractedView, RenderVisibleEntities};
-use render_scene::{ChunkBiomeTintIdentity, ChunkRenderInstance, ChunkTextureAssets};
+use meshing::ChunkBiomeTintIdentity;
+use render_scene::{ChunkRenderInstance, ChunkTextureAssets};
 
 use super::block_ids::{ShaderpackBlockIds, material_attribute_words};
 use super::draw::{DrawInputs, ViewDraws, face_indices};
