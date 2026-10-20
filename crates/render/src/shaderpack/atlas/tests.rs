@@ -7,7 +7,9 @@ use super::*;
 use assets::texture::{
     PBR_REF_HEIGHT, PBR_REF_LABPBR, PBR_REF_MATERIAL, PBR_REF_NORMAL, PBR_REF_SUBSURFACE,
 };
-use assets::{ANIMATION_FLAG_BLEND, Animation, Material, TextureArray, TextureMip, TextureRef};
+use assets::{
+    ANIMATION_FLAG_BLEND, Animation, Material, RuntimeAssets, TextureArray, TextureMip, TextureRef,
+};
 use render_scene::select_animation_frames;
 
 /// Original synthetic texel, distinct per page, layer, mip and position, with varied alpha.

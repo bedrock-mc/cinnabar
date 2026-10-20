@@ -45,7 +45,6 @@ mod tests;
 mod upload;
 
 use animate::AtlasAnimations;
-use assets::RuntimeAssets;
 use bevy::{
     asset::load_internal_asset,
     math::UVec2,
@@ -101,6 +100,8 @@ pub struct ShaderpackAtlas {
     pub mip_levels: u32,
     /// Increments whenever sprite rectangles may have changed.
     pub generation: u64,
+    /// Texture bindings retained for the lifetime of this atlas generation.
+    pub(crate) source: ChunkTextureAssets,
 }
 
 /// Builds the atlas off the render thread and keeps its animated sprites current.
@@ -134,7 +135,7 @@ struct BuiltAtlas {
     plan: AtlasPlan,
     uploaded: UploadedAtlas,
     sampler: wgpu::Sampler,
-    runtime: Arc<RuntimeAssets>,
+    source: ChunkTextureAssets,
 }
 
 /// The requested carrier and its in-flight replacement; the published atlas stays until then.
@@ -254,7 +255,7 @@ fn build_atlas(
         plan,
         uploaded,
         sampler,
-        runtime: Arc::clone(&runtime),
+        source: assets.clone(),
     })
 }
 
@@ -264,7 +265,7 @@ fn publish(built: BuiltAtlas, generation: u64) -> (ShaderpackAtlas, AtlasAnimati
         plan,
         uploaded,
         sampler,
-        runtime,
+        source,
     } = built;
     let [normals, specular] = uploaded
         .atlas
@@ -290,7 +291,9 @@ fn publish(built: BuiltAtlas, generation: u64) -> (ShaderpackAtlas, AtlasAnimati
         size: UVec2::new(plan.atlas.width, plan.atlas.height),
         mip_levels: plan.mip_levels,
         generation,
+        source: source.clone(),
     };
+    let runtime = source.assets();
     let animations = AtlasAnimations::new(
         &uploaded,
         runtime.animations(),

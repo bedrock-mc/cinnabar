@@ -4,12 +4,14 @@
 use std::hash::{BuildHasher, Hash, Hasher};
 use std::ops::Range;
 
+use crate::chunk::transparent::{face_metric::TransparentFaceMetric, mixed::plan::sort_faces};
 use bevy::math::DVec3;
 use bevy::platform::hash::FixedHasher;
 use bevy::render::render_phase::TrackedRenderPass;
 use bevy::render::render_resource::{Buffer, BufferDescriptor, BufferUsages, IndexFormat};
 use bevy::render::renderer::{RenderDevice, RenderQueue};
 use wgpu::util::DrawIndexedIndirectArgs;
+use world::SubChunkKey;
 
 use super::jobs::{FACING_GROUPS, FACING_REST, GeometryCategory};
 use super::residency::{ResidentFaces, section_distance};
@@ -35,6 +37,8 @@ pub(crate) struct ViewDraws {
     /// The commands as indirect arguments, when the device draws terrain through
     /// multi-draw-indirect; kept across rebuilds and grown when they outgrow it.
     indirect: Option<Buffer>,
+    translucent_indices: Vec<u32>,
+    translucent_buffer: Option<Buffer>,
     /// Fingerprint of the inputs the lists were built from.
     key: Option<u64>,
 }
@@ -69,19 +73,21 @@ pub(crate) fn eye_section_centre(eye: DVec3) -> DVec3 {
 /// The sections one view's lists are built from and the camera they are seen from, reduced
 /// to what the lists depend on: [`Self::key`] changes exactly when [`ViewDraws::build`]
 /// would list something else, so a moving camera rebuilds only when the sections it lists,
-/// the section it is in or the facing groups it sees change.
+/// its native transparent-face ordering class or the facing groups it sees change.
 pub(crate) struct DrawInputs<'a> {
     /// Current-epoch sections, in the order given.
     sections: Vec<&'a ResidentFaces>,
     /// [`eye_section_centre`] of the eye translucent sections are ordered from.
     eye: Option<DVec3>,
+    /// Camera position used by the native within-section face metric.
+    face_eye: Option<DVec3>,
     /// Camera position solid and cutout facing groups are culled for.
     facing: Option<DVec3>,
 }
 
 impl<'a> DrawInputs<'a> {
-    /// `sections` for one view: translucent far to near from the section `eye` is in, as
-    /// Iris draws translucent terrain by section (in page order without an eye); with
+    /// `sections` for one view: translucent sections far to near from the section `eye` is
+    /// in, with faces sorted by the native metric (in page order without an eye); with
     /// `facing`, the camera position, solid and cutout faces it can only see from behind are
     /// left out. Faces from other origin epochs or expansion generations are skipped.
     pub(crate) fn new(
@@ -96,6 +102,7 @@ impl<'a> DrawInputs<'a> {
                 .filter(|section| section.epoch == epoch && section.generation == generation)
                 .collect(),
             eye: eye.map(eye_section_centre),
+            face_eye: eye,
             facing,
         }
     }
@@ -106,6 +113,13 @@ impl<'a> DrawInputs<'a> {
         self.sections.len().hash(&mut hasher);
         for section in &self.sections {
             section.stamp.hash(&mut hasher);
+            if !section.translucent.is_empty()
+                && let Some(eye) = self.face_eye
+            {
+                TransparentFaceMetric::new(eye.as_vec3())
+                    .class(section_key(section))
+                    .hash(&mut hasher);
+            }
         }
         self.eye
             .map(|eye| eye.to_array().map(f64::to_bits))
@@ -121,6 +135,14 @@ impl<'a> DrawInputs<'a> {
             .hash(&mut hasher);
         hasher.finish()
     }
+}
+
+/// Native section key for the block origin retained with expanded faces.
+fn section_key(section: &ResidentFaces) -> SubChunkKey {
+    let [x, y, z] = section.origin.map(|axis| {
+        axis.div_euclid(render_scene::chunk::chunk_origin(SubChunkKey::new(0, 1, 0, 0))[0])
+    });
+    SubChunkKey::new(0, x, y, z)
 }
 
 impl ViewDraws {
@@ -163,6 +185,11 @@ impl ViewDraws {
                 .collect::<Vec<_>>()
         });
         let mut draws = Self::default();
+        let sorted_translucent = inputs.face_eye.is_some()
+            && inputs
+                .sections
+                .iter()
+                .any(|section| !section.translucent.is_empty());
         for category in GeometryCategory::ALL {
             let ordered = match (category, &translucent) {
                 (GeometryCategory::Translucent, Some(ordered)) => ordered,
@@ -171,6 +198,37 @@ impl ViewDraws {
             let facing = inputs.facing;
             for section in ordered {
                 if section.categories[category.index()].is_empty() {
+                    continue;
+                }
+                if category == GeometryCategory::Translucent
+                    && sorted_translucent
+                    && let Some(eye) = inputs.face_eye
+                {
+                    let mut faces = section.translucent.clone();
+                    if faces.is_empty() {
+                        use crate::chunk::transparent::mixed::plan::{MixedFace, MixedStream};
+                        faces.extend(section.categories[category.index()].clone().map(|index| {
+                            MixedFace {
+                                index,
+                                stream: MixedStream::Model,
+                                stable: [index, 0],
+                                centroid: bevy::math::Vec3::from_array(
+                                    section.origin.map(|axis| axis as f32),
+                                ),
+                            }
+                        }));
+                    }
+
+                    sort_faces(section_key(section), eye.as_vec3(), &mut faces);
+                    let first = draws.translucent_indices.len() as u32;
+                    for face in &faces {
+                        draws
+                            .translucent_indices
+                            .extend(FACE_INDICES.map(|index| face.index * 4 + index));
+                    }
+                    let command = draws.commands.len();
+                    draws.push(category, section, 0..faces.len() as u32);
+                    draws.commands[command].first_index = first;
                     continue;
                 }
                 let groups = &section.facing[category.index()];
@@ -238,15 +296,38 @@ impl ViewDraws {
         &mut self,
         built: ViewDraws,
         key: u64,
-        upload: Option<(&RenderDevice, &RenderQueue)>,
+        device: &RenderDevice,
+        queue: &RenderQueue,
+        multi_draw: bool,
     ) {
         self.commands = built.commands;
         self.runs = built.runs;
+        self.translucent_indices = built.translucent_indices;
         self.key = Some(key);
-        let Some((device, queue)) = upload else {
+        if !self.translucent_indices.is_empty() {
+            let contents = bytemuck::cast_slice(&self.translucent_indices);
+            if self
+                .translucent_buffer
+                .as_ref()
+                .is_none_or(|buffer| buffer.size() < contents.len() as u64)
+            {
+                self.translucent_buffer = Some(device.create_buffer(&BufferDescriptor {
+                    label: Some("shader-pack sorted translucent indices"),
+                    size: contents.len() as u64,
+                    usage: BufferUsages::INDEX | BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                }));
+            }
+            queue.write_buffer(
+                self.translucent_buffer.as_ref().expect("created above"),
+                0,
+                contents,
+            );
+        }
+        if !multi_draw {
             self.indirect = None;
             return;
-        };
+        }
         if self.commands.is_empty() {
             return;
         }
@@ -299,6 +380,14 @@ impl ViewDraws {
         if runs.is_empty() {
             return 0;
         }
+        let index_buffer =
+            if category == GeometryCategory::Translucent && !self.translucent_indices.is_empty() {
+                self.translucent_buffer
+                    .as_ref()
+                    .expect("uploaded with draw lists")
+            } else {
+                index_buffer
+            };
         pass.set_index_buffer(index_buffer.slice(..), IndexFormat::Uint32);
         pass.set_vertex_buffer(CONSTANT_VERTEX_BUFFER as usize, constants.slice(..));
         if let Some(origins) = origins {
@@ -362,6 +451,7 @@ mod tests {
             translucent,
         ];
         ResidentFaces {
+            translucent: Vec::new(),
             page,
             faces: faces.clone(),
             facing: categories.clone().map(rest),
@@ -580,5 +670,103 @@ mod tests {
             None,
         ));
         assert_eq!(current.commands.len(), 1);
+    }
+    /// The effective face sequence selected by one category's commands.
+    fn translucent_order(draws: &ViewDraws) -> Vec<u32> {
+        draws.runs[GeometryCategory::Translucent.index()]
+            .iter()
+            .flat_map(|run| run.commands.clone())
+            .flat_map(|index| {
+                let c = &draws.commands[index as usize];
+                (0..c.index_count / 6).map(move |face| {
+                    if draws.translucent_indices.is_empty() {
+                        c.base_vertex as u32 / 4 + face
+                    } else {
+                        draws.translucent_indices[(c.first_index + face * 6) as usize] / 4
+                    }
+                })
+            })
+            .collect()
+    }
+
+    #[test]
+    fn translucent_faces_mix_models_and_water_per_view_inside_one_section() {
+        use crate::chunk::transparent::mixed::plan::{MixedFace, MixedStream};
+        let mut mesh = section(0, 0..3, 0..3, [0; 3]);
+        mesh.translucent = [
+            (MixedStream::Model, 0, 1.0),
+            (MixedStream::Water, 1, 12.0),
+            (MixedStream::Model, 2, 6.0),
+        ]
+        .into_iter()
+        .map(|(stream, index, x)| MixedFace {
+            stream,
+            index,
+            centroid: bevy::math::Vec3::new(x, 1.0, 1.0),
+            stable: [index, 0],
+        })
+        .collect();
+        let build = |x| {
+            ViewDraws::build(&DrawInputs::new(
+                [&mesh].into_iter(),
+                Some(DVec3::new(x, 1.0, 1.0)),
+                1,
+                0,
+                None,
+            ))
+        };
+        assert_eq!(translucent_order(&build(0.0)), [1, 2, 0]);
+        assert_eq!(translucent_order(&build(15.0)), [0, 2, 1]);
+        let left = DrawInputs::new(
+            [&mesh].into_iter(),
+            Some(DVec3::new(0.0, 1.0, 1.0)),
+            1,
+            0,
+            None,
+        );
+        let right = DrawInputs::new(
+            [&mesh].into_iter(),
+            Some(DVec3::new(15.0, 1.0, 1.0)),
+            1,
+            0,
+            None,
+        );
+        assert_ne!(left.key(), right.key());
+    }
+    #[test]
+    fn sorted_translucent_indices_stay_relative_to_each_vertex_page() {
+        use crate::chunk::transparent::mixed::plan::{MixedFace, MixedStream};
+        let mut near = section(0, 20..22, 20..22, [0; 3]);
+        let mut far = section(1, 4..6, 4..6, [64, 0, 0]);
+        for mesh in [&mut near, &mut far] {
+            mesh.translucent = mesh
+                .faces
+                .clone()
+                .map(|index| MixedFace {
+                    stream: MixedStream::Model,
+                    index,
+                    stable: [index, 0],
+                    centroid: bevy::math::Vec3::from_array(mesh.origin.map(|v| v as f32)),
+                })
+                .collect();
+        }
+        let draws = ViewDraws::build(&DrawInputs::new(
+            [&near, &far].into_iter(),
+            Some(DVec3::ZERO),
+            1,
+            0,
+            None,
+        ));
+        assert_eq!(translucent_order(&draws), [4, 5, 20, 21]);
+        assert_eq!(
+            draws.runs[2].iter().map(|run| run.page).collect::<Vec<_>>(),
+            [1, 0]
+        );
+        assert!(
+            draws
+                .commands
+                .iter()
+                .all(|command| command.base_vertex == 0)
+        );
     }
 }
