@@ -71,6 +71,7 @@ fn routed_custom_form_retains_its_label_and_toggle() {
                 text: "A visible label".into(),
             },
             CustomElement::Toggle {
+                enabled: true,
                 text: "Enabled".into(),
                 on: false,
                 tooltip: String::new(),

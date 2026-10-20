@@ -19,6 +19,36 @@ fn model(document: serde_json::Value) -> ServerFormModel {
 }
 
 #[test]
+fn custom_controls_retain_control_locked_in_the_packet_model() {
+    use protocol::{CustomFormElement, FormControlLock};
+    for (lock, expected) in [
+        ("none", FormControlLock::None),
+        ("pregame", FormControlLock::Pregame),
+        ("ingame", FormControlLock::Ingame),
+    ] {
+        let ServerFormModel::Custom(form) = model(json!({"type":"custom_form","content":[
+            {"type":"toggle","control_locked":lock},
+            {"type":"slider","control_locked":lock},
+            {"type":"step_slider","steps":["A"],"control_locked":lock},
+            {"type":"input","control_locked":lock}
+        ]})) else {
+            panic!("custom form");
+        };
+        assert_eq!(form.elements.len(), 4);
+        for element in form.elements.iter() {
+            let (CustomFormElement::Toggle { control_locked, .. }
+            | CustomFormElement::Slider { control_locked, .. }
+            | CustomFormElement::StepSlider { control_locked, .. }
+            | CustomFormElement::Input { control_locked, .. }) = element
+            else {
+                panic!("editable control");
+            };
+            assert_eq!(*control_locked, expected);
+        }
+    }
+}
+
+#[test]
 fn structured_text_is_supported_in_every_form_family() {
     let text = json!({"rawtext":[{"text":"Hello "},{"translate":"gui.submit"}]});
     for document in [
@@ -244,6 +274,7 @@ fn display_fields_use_boolean_and_empty_scalar_fallbacks() {
             placeholder,
             tooltip,
             default,
+            ..
         } = &custom.elements[0]
         else {
             panic!("input");

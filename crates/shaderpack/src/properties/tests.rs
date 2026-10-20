@@ -187,6 +187,153 @@ fn program_rules_prefer_dimension_and_last_occurrence() {
 }
 
 #[test]
+fn buffer_sizes_absolute_relative_and_malformed() {
+    let properties = parse(
+        "size.buffer.colortex4 = 64 64\nsize.buffer.colortex6 = 0.5 0.25\n\
+         size.buffer.colortex7 = 64\nsize.buffer.colortex8 = wide 2\nsize.buffer.colortex9 = 0 4\n\
+         size.buffer.colortex4 = 256 128\n",
+    );
+    assert_eq!(
+        properties.buffer_sizes,
+        [
+            BufferSize {
+                buffer: "colortex4".to_owned(),
+                width: SizeValue::Absolute(256),
+                height: SizeValue::Absolute(128),
+            },
+            BufferSize {
+                buffer: "colortex6".to_owned(),
+                width: SizeValue::Relative(0.5),
+                height: SizeValue::Relative(0.25),
+            },
+        ]
+    );
+    assert_eq!(diagnostic_lines(&properties), [3, 4, 5]);
+    assert_eq!(properties.entries.len(), 6);
+}
+
+#[test]
+fn flip_rules_and_malformed() {
+    let properties = parse(
+        "flip.composite2.colortex3 = true\nflip.deferred.colortex1=false\n\
+         flip.composite3.colortex4 = maybe\nflip.composite4 = true\n",
+    );
+    assert_eq!(
+        properties.flips,
+        [
+            FlipRule {
+                program: "composite2".to_owned(),
+                buffer: "colortex3".to_owned(),
+                flip: true,
+            },
+            FlipRule {
+                program: "deferred".to_owned(),
+                buffer: "colortex1".to_owned(),
+                flip: false,
+            },
+        ]
+    );
+    assert_eq!(diagnostic_lines(&properties), [3, 4]);
+}
+
+#[test]
+fn scale_rules_with_and_without_offset() {
+    let properties = parse(
+        "scale.composite5 = 0.5\nscale.composite6 = 0.25 0.5 0.75\nscale.composite7 = 0.5 0.1\n\
+         scale.composite8 = big\nscale.composite9 = 0\n",
+    );
+    assert_eq!(
+        properties.scales,
+        [
+            ScaleRule {
+                program: "composite5".to_owned(),
+                scale: 0.5,
+                offset: [0.0, 0.0],
+            },
+            ScaleRule {
+                program: "composite6".to_owned(),
+                scale: 0.25,
+                offset: [0.5, 0.75],
+            },
+        ]
+    );
+    assert_eq!(diagnostic_lines(&properties), [3, 4, 5]);
+}
+
+#[test]
+fn custom_textures_file_resource_raw_noise_and_malformed() {
+    let properties = parse(
+        "texture.noise = /textures/grain.png\ntexture.composite.colortex5 = textures/dust.png\n\
+         texture.gbuffers.gaux1 = example:textures/sky/stars.png\n\
+         texture.deferred.colortex9.1 = data/lut.bin TEXTURE_3D RGBA8 16 16 16 RGBA UNSIGNED_BYTE\n\
+         texture.composite = textures/none.png\ntexture.deferred.colortex2 =\n\
+         texture.composite.colortex5 = textures/dust2.png\n",
+    );
+    assert_eq!(
+        properties.custom_textures,
+        [
+            CustomTexture {
+                stage: "noise".to_owned(),
+                sampler: "noisetex".to_owned(),
+                source: TextureSource::File("textures/grain.png".to_owned()),
+            },
+            CustomTexture {
+                stage: "composite".to_owned(),
+                sampler: "colortex5".to_owned(),
+                source: TextureSource::File("textures/dust2.png".to_owned()),
+            },
+            CustomTexture {
+                stage: "gbuffers".to_owned(),
+                sampler: "gaux1".to_owned(),
+                source: TextureSource::Resource("example:textures/sky/stars.png".to_owned()),
+            },
+            CustomTexture {
+                stage: "deferred".to_owned(),
+                sampler: "colortex9.1".to_owned(),
+                source: TextureSource::Raw {
+                    path: "data/lut.bin".to_owned(),
+                    spec: [
+                        "TEXTURE_3D",
+                        "RGBA8",
+                        "16",
+                        "16",
+                        "16",
+                        "RGBA",
+                        "UNSIGNED_BYTE"
+                    ]
+                    .map(str::to_owned)
+                    .to_vec(),
+                },
+            },
+        ]
+    );
+    assert_eq!(diagnostic_lines(&properties), [5, 6]);
+}
+
+#[test]
+fn custom_textures_bind_their_unit_uniform_in_their_stage_programs() {
+    let properties = parse(
+        "texture.noise = noise.png\ntexture.composite.colortex6.1 = lut.png\n\
+         texture.gbuffers.gaux2 = water.png\ntexture.setup.colortex7 = seed.png\n",
+    );
+    let [noise, composite, gbuffers, setup] = properties.custom_textures.as_slice() else {
+        panic!("{:?}", properties.custom_textures);
+    };
+    assert_eq!(noise.uniform(), "noisetex");
+    assert_eq!(composite.uniform(), "colortex6");
+    assert_eq!(gbuffers.uniform(), "gaux2");
+    assert!(noise.applies_to(ProgramGroup::Shadow) && noise.applies_to(ProgramGroup::Final));
+    assert!(composite.applies_to(ProgramGroup::Composite));
+    assert!(composite.applies_to(ProgramGroup::Final));
+    assert!(!composite.applies_to(ProgramGroup::Deferred));
+    assert!(gbuffers.applies_to(ProgramGroup::Gbuffers));
+    assert!(gbuffers.applies_to(ProgramGroup::Shadow));
+    assert!(!gbuffers.applies_to(ProgramGroup::ShadowComposite));
+    assert!(setup.applies_to(ProgramGroup::Setup));
+    assert!(!setup.applies_to(ProgramGroup::Begin));
+}
+
+#[test]
 fn program_rules_match_nested_dimension_folders() {
     let properties = parse("program.regions/world0/final.enabled=false\n");
     let rule = properties
@@ -317,6 +464,77 @@ fn custom_images_relative_absolute_and_malformed() {
 }
 
 #[test]
+fn custom_uniforms_and_variables_keep_file_order() {
+    let properties = parse(
+        "variable.float.half = frameTime * 0.5\nuniform.vec2.pair = vec2(0.0, 1.0)\n\
+         uniform.float.broken = 1 +\nuniform.float = 1\nuniform.vec2.pair = vec2(half, 1.0)\n",
+    );
+    let summary: Vec<_> = properties
+        .custom_uniforms
+        .iter()
+        .map(|uniform| {
+            (
+                uniform.kind,
+                uniform.ty.as_str(),
+                uniform.name.as_str(),
+                uniform.line,
+            )
+        })
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            (CustomUniformKind::Variable, "float", "half", 1),
+            (CustomUniformKind::Uniform, "vec2", "pair", 5),
+        ]
+    );
+    assert_eq!(properties.custom_uniforms[1].expr.identifiers(), ["half"]);
+    assert_eq!(diagnostic_lines(&properties), [3, 4]);
+}
+
+#[test]
+fn custom_uniform_expressions_see_macros_expanded_like_iris() {
+    let properties = parse_with(
+        "#define LOCAL_SCALE 2.0\n\
+         uniform.float.swampy = if(biome_category == CAT_SWAMP, 1.0, 0.0)\n\
+         variable.float.scaled = LOCAL_SCALE * frameTime\n",
+        &[("CAT_SWAMP", "14")],
+    );
+    assert_eq!(
+        properties.get("uniform.float.swampy"),
+        Some("if(biome_category == 14, 1.0, 0.0)")
+    );
+    assert_eq!(
+        properties.get("variable.float.scaled"),
+        Some("2.0 * frameTime")
+    );
+    assert_eq!(
+        properties.custom_uniforms[0].expr.identifiers(),
+        ["biome_category"]
+    );
+    assert_eq!(
+        properties.custom_uniforms[1].expr.identifiers(),
+        ["frameTime"]
+    );
+    assert!(properties.diagnostics.is_empty());
+}
+
+#[test]
+fn a_directive_ends_a_continued_uniform_definition_as_in_iris() {
+    let text = "#ifdef BRIGHT\nuniform.float.b = if( \\\n  x > 0, 1.0, \\\n  0.5) \\\n\
+                #else\nuniform.float.b = 0.25\n#endif\nafter=1\n";
+    let off = parse(text);
+    assert_eq!(off.get("uniform.float.b"), Some("0.25"));
+    assert_eq!(off.custom_uniforms.len(), 1);
+    assert!(off.diagnostics.is_empty(), "{:?}", off.diagnostics);
+    let on = parse_with(text, &[("BRIGHT", "")]);
+    assert_eq!(on.get("uniform.float.b"), Some("if( x > 0, 1.0, 0.5)"));
+    assert_eq!(on.custom_uniforms[0].expr.identifiers(), ["x"]);
+    assert_eq!(on.get("after"), Some("1"));
+    assert!(on.diagnostics.is_empty(), "{:?}", on.diagnostics);
+}
+
+#[test]
 fn unknown_keys_stay_only_in_entries() {
     let properties = parse("sun=true\nshadow.culling=reversed\nscreen=[MAIN] SPEED\n");
     assert_eq!(keys(&properties), ["sun", "shadow.culling", "screen"]);
@@ -362,6 +580,27 @@ fn conditions_use_c_integer_arithmetic_and_macro_aliases() {
 }
 
 #[test]
+fn float_literals_in_conditions_read_as_their_integer_part_as_in_jcpp() {
+    let defines = [
+        ("MC_RENDER_QUALITY", "1.0"),
+        ("STRENGTH", "0.75"),
+        ("colortex4", ""),
+    ];
+    let properties = parse_with(
+        "#if MC_RENDER_QUALITY >= 1\nquality=1\n#endif\n\
+         #if STRENGTH > 0.5\nstrong=1\n#else\nweak=1\n#endif\n\
+         #if 1.5f == 1 && 0x1F == 31 && defined colortex4\nliterals=1\n#endif\n",
+        &defines,
+    );
+    assert_eq!(keys(&properties), ["quality", "weak", "literals"]);
+    assert!(
+        properties.diagnostics.is_empty(),
+        "{:?}",
+        properties.diagnostics
+    );
+}
+
+#[test]
 fn values_expand_object_like_macros() {
     let properties = parse_with(
         "#define LUT_SIZE SIZE\nimage.lut = s red r32f float false false LUT_SIZE\nflag=FLAG 0.5\n",
@@ -376,6 +615,23 @@ fn values_expand_object_like_macros() {
         }
     );
     assert_eq!(properties.get("flag"), Some("1 0.5"));
+}
+
+#[test]
+fn a_macro_is_not_expanded_inside_its_own_expansion() {
+    let properties = parse_with(
+        "#define WIDTH WIDTH * 2\nwidth = WIDTH\nmutual = SELF + 1\n\
+         #if SELF\nself_condition=1\n#endif\n#if SELF == 0 && defined SELF\nzero=1\n#endif\n",
+        &[("SELF", "SELF + ALIAS"), ("ALIAS", "SELF")],
+    );
+    assert_eq!(properties.get("width"), Some("WIDTH * 2"));
+    assert_eq!(properties.get("mutual"), Some("SELF + SELF + 1"));
+    assert_eq!(keys(&properties), ["width", "mutual", "zero"]);
+    assert!(
+        properties.diagnostics.is_empty(),
+        "{:?}",
+        properties.diagnostics
+    );
 }
 
 #[test]
@@ -536,4 +792,68 @@ fn content_block_comments_hide_conditional_directives() {
     let properties = parse("/*\n#if 0\n*/\nprogram.final.enabled=false\n");
     assert_eq!(properties.get("program.final.enabled"), Some("false"));
     assert!(properties.diagnostics.is_empty());
+}
+
+#[test]
+fn flip_numeric_booleans_include_macro_expansions() {
+    let properties = parse_with(
+        "flip.composite.colortex0=0\nflip.composite.colortex1=1\nflip.composite.colortex2=OFF\nflip.composite.colortex3=ON\n",
+        &[("OFF", "0"), ("ON", "1")],
+    );
+    assert!(
+        properties.diagnostics.is_empty(),
+        "{:?}",
+        properties.diagnostics
+    );
+    assert_eq!(
+        properties
+            .flips
+            .iter()
+            .map(|rule| rule.flip)
+            .collect::<Vec<_>>(),
+        [false, true, false, true]
+    );
+}
+
+#[test]
+fn custom_expression_operator_groups_follow_iris() {
+    for (expression, expected) in [
+        ("true || false && false", 0.0),
+        ("true || (false && false)", 1.0),
+        ("1 == 2 < 3", 1.0),
+        ("8 - 2 * 3", 2.0),
+        ("if(true || false && false, 1, 2)", 2.0),
+    ] {
+        let properties = parse(&format!(
+            "uniform.float.result={expression}\nvariable.float.result2={expression}\n"
+        ));
+        assert!(
+            properties.diagnostics.is_empty(),
+            "{:?}",
+            properties.diagnostics
+        );
+        for uniform in &properties.custom_uniforms {
+            assert_eq!(
+                uniform.expr.eval(&|_| None).unwrap(),
+                expected,
+                "{expression}"
+            );
+        }
+    }
+}
+
+#[test]
+fn custom_comparison_aliases_match_ascii_operators() {
+    for expression in ["1 ≠ 2", "1 ≤ 2", "2 ≥ 1"] {
+        let properties = parse(&format!("uniform.bool.result={expression}\n"));
+        assert!(
+            properties.diagnostics.is_empty(),
+            "{:?}",
+            properties.diagnostics
+        );
+        assert_eq!(
+            properties.custom_uniforms[0].expr.eval(&|_| None).unwrap(),
+            1.0
+        );
+    }
 }
