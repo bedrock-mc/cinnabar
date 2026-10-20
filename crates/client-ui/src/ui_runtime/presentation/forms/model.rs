@@ -16,6 +16,7 @@ use ui_engine::sources::RemoteImage;
 pub(super) fn engine_model(
     model: &ServerFormModel,
     state: &FormEngineState,
+    in_game: bool,
     translate: &dyn Fn(&str) -> Option<Arc<str>>,
     remote: &dyn Fn(&str) -> RemoteImage,
     resolve: &dyn Fn(&protocol::FormText) -> String,
@@ -77,7 +78,7 @@ pub(super) fn engine_model(
                     .iter()
                     .enumerate()
                     .map(|(index, element)| {
-                        custom_element(index, element, state, resolve, &slider_format)
+                        custom_element(index, element, state, in_game, resolve, &slider_format)
                     })
                     .collect(),
                 submit_text: match &form.submit {
@@ -113,6 +114,7 @@ fn custom_element(
     index: usize,
     element: &CustomFormElement,
     state: &FormEngineState,
+    in_game: bool,
     resolve: &dyn Fn(&protocol::FormText) -> String,
     slider_format: &str,
 ) -> CustomElement {
@@ -129,10 +131,12 @@ fn custom_element(
         CustomFormElement::Divider => CustomElement::Divider,
         CustomFormElement::Toggle {
             text,
+            control_locked,
             default,
             tooltip: tip,
         } => CustomElement::Toggle {
             text: resolve(text),
+            enabled: control_locked.is_enabled(in_game),
             on: match value {
                 Some(FormValue::Toggle(on)) => *on,
                 _ => *default,
@@ -141,6 +145,7 @@ fn custom_element(
         },
         CustomFormElement::Slider {
             text,
+            control_locked,
             min,
             max,
             default,
@@ -153,6 +158,7 @@ fn custom_element(
                 _ => default.get(),
             };
             CustomElement::Slider {
+                enabled: control_locked.is_enabled(in_game),
                 text: protocol::format_translation(
                     slider_format,
                     &[resolve(text), number_text(current, step.get())],
@@ -164,6 +170,7 @@ fn custom_element(
         }
         CustomFormElement::StepSlider {
             text,
+            control_locked,
             steps,
             default,
             tooltip: tip,
@@ -173,6 +180,7 @@ fn custom_element(
                 _ => *default,
             };
             CustomElement::StepSlider {
+                enabled: control_locked.is_enabled(in_game),
                 text: protocol::format_translation(
                     slider_format,
                     &[
@@ -217,6 +225,7 @@ fn custom_element(
         },
         CustomFormElement::Input {
             text,
+            control_locked,
             placeholder,
             default,
             tooltip: tip,
@@ -227,6 +236,7 @@ fn custom_element(
             };
             CustomElement::Input {
                 text: resolve(text),
+                enabled: control_locked.is_enabled(in_game),
                 value: current,
                 placeholder: resolve(placeholder),
                 tooltip: tooltip(tip),
@@ -244,6 +254,9 @@ fn number_text(value: f64, step: f64) -> String {
         format!("{value:.6}")
     }
 }
+
+#[cfg(test)]
+mod control_locked_tests;
 
 #[cfg(test)]
 mod tests {
@@ -278,11 +291,14 @@ mod tests {
             ),
             (RemoteImage::Failed, None),
         ] {
-            let Some(FormModel::Action(form)) =
-                engine_model(&model, &state, &|_| None, &|_| remote.clone(), &|text| {
-                    text.to_string()
-                })
-            else {
+            let Some(FormModel::Action(form)) = engine_model(
+                &model,
+                &state,
+                true,
+                &|_| None,
+                &|_| remote.clone(),
+                &|text| text.to_string(),
+            ) else {
                 panic!("action form");
             };
             assert!(matches!(&form.elements[0], ActionElement::Header(_)));
@@ -305,6 +321,7 @@ mod tests {
             submit: None,
             elements: vec![CustomFormElement::Slider {
                 text: "Volume".into(),
+                control_locked: Default::default(),
                 min: finite(0.0),
                 max: finite(10.0),
                 step: finite(0.5),
@@ -318,6 +335,7 @@ mod tests {
         let Some(FormModel::Custom(form)) = engine_model(
             &model,
             &state,
+            true,
             &|key| (key == "options.sliderLabelFormat").then(|| Arc::from("%s : %s")),
             &|_| RemoteImage::Failed,
             &|text| text.to_string(),
