@@ -97,13 +97,8 @@ fn trade_previews_reach_the_rich_tooltip_with_complete_item_data() {
         runtime.screen_state_mut().hover = Some(hit);
         let (stack, _) = presentation::publish::hovered_stack(&player, &runtime).unwrap();
         assert_eq!(stack.extra_data, data);
-        let lines = presentation::inventory_tooltip::tooltip_lines(
-            &runtime,
-            &stack,
-            Some("minecraft:apple"),
-            None,
-        );
-        assert!(lines.iter().any(|line| line.text.contains("Named offer")));
-        assert!(lines.len() > 1, "enchantment details reach the tooltip");
+        let details = protocol::item_anvil_data(&stack.extra_data).unwrap();
+        assert_eq!(details.custom_name.as_deref(), Some("Named offer"));
+        assert_eq!(details.enchantments, [(0, 3)]);
     }
 }
