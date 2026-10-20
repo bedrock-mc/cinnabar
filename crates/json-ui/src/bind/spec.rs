@@ -89,6 +89,21 @@ pub(super) struct Binding {
 }
 
 impl Binding {
+    /// Reports whether this binding publishes the named property on its control.
+    pub(super) fn writes(&self, property: &str) -> bool {
+        match &self.kind {
+            Kind::View { target, .. } => target == property,
+            Kind::Global { source, rename } | Kind::Collection { source, rename, .. } => {
+                if !rename.is_empty() {
+                    rename == property
+                } else {
+                    matches!(source, Source::Simple(name) if name == property)
+                }
+            }
+            Kind::Details { .. } => false,
+        }
+    }
+
     /// The collection name a `once` binding waits on an item index for.
     pub(super) fn collection(&self) -> Option<&str> {
         match &self.kind {

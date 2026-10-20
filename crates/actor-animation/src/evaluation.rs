@@ -3,7 +3,9 @@ use assets::{MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_LOOP_ITERATIONS, MolangSymbolKind
 
 use {super::*, simulation_clock::TICK_DURATION as ACTOR_TICK_DURATION};
 
+pub(crate) mod frame_cache;
 mod input_reads;
+mod numeric;
 mod observed;
 #[cfg(test)]
 pub(super) mod selection_work;
@@ -19,6 +21,24 @@ mod invalid_input_tests;
 #[cfg(test)]
 thread_local! {
     static QUERY_WORK: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static EXPRESSION_WORK: std::cell::RefCell<Vec<usize>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Takes bytecode evaluations by expression on the current test thread.
+#[cfg(test)]
+pub(super) fn take_expression_work() -> Vec<usize> {
+    EXPRESSION_WORK.with(|work| std::mem::take(&mut *work.borrow_mut()))
+}
+
+/// Counts an expression whose inputs changed, including a direct single-read program.
+#[cfg(test)]
+pub(super) fn record_expression_work(index: usize) {
+    EXPRESSION_WORK.with(|work| {
+        let mut work = work.borrow_mut();
+        let size = work.len().max(index + 1);
+        work.resize(size, 0);
+        work[index] += 1;
+    });
 }
 
 /// Takes query evaluations performed on this test thread since its last observation.
@@ -68,6 +88,8 @@ pub(super) struct VariableLayout {
     controller_inputs: Vec<PresentationReads>,
     presentation_symbols: Vec<PresentationReads>,
     expression_inputs: Vec<PresentationReads>,
+    /// Pure numeric plans bound to this catalog's immutable bytecode and variable slots.
+    numeric: Vec<Option<numeric::Program>>,
     pub(super) engine: EngineSlots,
     /// Immutable analysis cached only for this finalized layout and its exact catalog.
     pub(super) plans: rig_plans::RigPlans,
@@ -166,6 +188,7 @@ impl VariableLayout {
     pub(super) fn new(assets: &Arc<RuntimeEntityAssets>) -> Self {
         let mut layout = Self::from_symbols(assets.molang_symbols());
         layout.bind_input_reads(assets);
+        layout.numeric = numeric::compile(assets, &layout);
         layout.plans = rig_plans::RigPlans::new(assets);
         layout
     }
@@ -200,6 +223,7 @@ impl VariableLayout {
             controller_inputs: Vec::new(),
             presentation_symbols: Vec::new(),
             expression_inputs: Vec::new(),
+            numeric: Vec::new(),
             engine: EngineSlots {
                 seeded: SEEDED_VARIABLES
                     .iter()
@@ -332,6 +356,18 @@ impl MolangEffects {
 }
 
 impl VariableLayout {
+    /// Reads an inherited persistent input; expression temporaries start unassigned.
+    pub(crate) fn input_variable(
+        &self,
+        variables: &MolangVariables,
+        symbol: u32,
+    ) -> Option<MolangValue> {
+        match self.place(symbol) {
+            Some(Place::Variable(slot)) => variables.variable(slot),
+            _ => None,
+        }
+    }
+
     fn place(&self, symbol: u32) -> Option<Place> {
         let symbol = symbol as usize;
         if let Some(slot) = symbol.checked_sub(self.variable_base)
@@ -426,7 +462,19 @@ impl Evaluator<'_> {
         this: f32,
         budget: &mut EvalBudget<'_>,
     ) -> Result<MolangValue, EvalError> {
-        self.run_observed(expression_index, variables, this, budget, None)
+        if self.program.is_none()
+            && crate::render_frame::cache::enabled()
+            && let Some(mut cache) = variables
+                .frame
+                .as_mut()
+                .and_then(|frame| frame.cache.take())
+        {
+            let result = cache.run(self, expression_index, variables, this, budget);
+            variables.frame.as_mut().unwrap().cache = Some(cache);
+            result
+        } else {
+            self.run_observed(expression_index, variables, this, budget, None)
+        }
     }
 
     /// Records selection reads when given a recorder; its caller supplies clean temporaries and
@@ -439,6 +487,8 @@ impl Evaluator<'_> {
         budget: &mut EvalBudget<'_>,
         reads: Option<&mut ObservedInputs>,
     ) -> Result<MolangValue, EvalError> {
+        #[cfg(test)]
+        record_expression_work(expression_index);
         let mut stack = std::mem::take(&mut budget.stack.0);
         stack.clear();
         let result = self.run_on(&mut stack, expression_index, variables, this, budget, reads);
@@ -461,12 +511,22 @@ impl Evaluator<'_> {
     }
 
     pub(super) fn query(&self, symbol: u32, arguments: &[MolangValue]) -> MolangValue {
-        #[cfg(test)]
-        QUERY_WORK.with(|work| work.set(work.get() + 1));
         let binding = self.program.map_or_else(
             || self.assets.molang_query_binding(symbol),
             |program| program.query_binding(symbol),
         );
+        self.bound_query(symbol, binding, arguments)
+    }
+
+    /// Reads an already bound query with the same history and presentation overrides.
+    fn bound_query(
+        &self,
+        symbol: u32,
+        binding: Option<assets::MolangQuery>,
+        arguments: &[MolangValue],
+    ) -> MolangValue {
+        #[cfg(test)]
+        QUERY_WORK.with(|work| work.set(work.get() + 1));
         if let Some(alpha) = self.presentation_alpha
             && binding == Some(assets::MolangQuery::FrameAlpha)
         {

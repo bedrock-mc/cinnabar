@@ -1,7 +1,7 @@
 github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479 h1:UZbbt19ACBOFO+CiDQFjaEoPJkBhj7GNGtIq59WR6Os=
 github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479/go.mod h1:TOk10ahXejq9wkEaym3KPRNeuR/h5Jx+s8QRWIa2oTM=
-github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261017233730-4e9dc032f2e3 h1:WjMU/InTzeTr5/n6de11rdfWEk1BONWESnDv5om1dh4=
-github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261017233730-4e9dc032f2e3/go.mod h1:kBTWfCuCMRGWmcsX3bojKsX8yUyLpXVjquuPn12vB7c=
+github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261019181927-1b7677ddec59 h1:rBFry3/th+w69zgrrF3sn7j23iJVLHZ+1PJ/LiWlZhI=
+github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261019181927-1b7677ddec59/go.mod h1:kBTWfCuCMRGWmcsX3bojKsX8yUyLpXVjquuPn12vB7c=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/df-mc/dragonfly v0.11.5 h1:amqepXVBRBi/e5j1K2H8GjNFgpMs6FP1RQgNH0Myfn0=

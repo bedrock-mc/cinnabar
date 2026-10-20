@@ -448,10 +448,11 @@ impl CullKernels {
         encoder: &mut wgpu::CommandEncoder,
         bind_group: &wgpu::BindGroup,
         slots: u32,
+        timestamp_writes: Option<wgpu::ComputePassTimestampWrites<'_>>,
     ) {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("terrain cull"),
-            timestamp_writes: None,
+            timestamp_writes,
         });
         pass.set_bind_group(0, bind_group, &[]);
         let groups = group_count(slots);
@@ -572,15 +573,17 @@ impl CullKernels {
         }
     }
 
+    /// Builds all active Hi-Z levels in one pass with an optional timestamp pair.
     pub fn encode_pyramid(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         pyramid: &HizPyramid,
         bindings: &PyramidBindings,
+        timestamp_writes: Option<wgpu::ComputePassTimestampWrites<'_>>,
     ) {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("terrain hi-z"),
-            timestamp_writes: None,
+            timestamp_writes,
         });
         let seed = if bindings.multisampled {
             &self.seed_multisampled

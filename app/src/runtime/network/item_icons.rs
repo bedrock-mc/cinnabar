@@ -11,7 +11,7 @@ mod images;
 mod tints;
 use images::{icon, resolve_key};
 pub(super) use tints::carried_grass_tint;
-mod vanilla;
+pub(super) mod vanilla;
 pub(super) mod vanilla_blocks;
 pub(crate) use vanilla::{install_vanilla_item_assets, vanilla_item_paths_installed};
 

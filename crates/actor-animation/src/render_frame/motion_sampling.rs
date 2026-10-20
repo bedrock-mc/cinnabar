@@ -9,6 +9,7 @@ pub(super) const ROTATION_FRAME: u8 = 8;
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct MotionSampling {
+    frame_queries: Option<Arc<[u32]>>,
     uses_swell: bool,
     uses_rotation: bool,
     uses_walk: bool,
@@ -39,6 +40,8 @@ impl MotionSampling {
     ) -> Arc<Self> {
         let expressions =
             super::sampling::pose_expressions(assets, rig, geometry, controllers, extra_clips);
+        let frame_queries =
+            super::cache::Inputs::queries(assets, expressions.iter().copied()).query_plan();
         let uses_swell = expressions.iter().any(|&expression| {
             ops(assets, expression).iter().any(|op| match op {
                 MolangOp::LoadQuery(symbol) => is_swell(assets, *symbol),
@@ -181,6 +184,7 @@ impl MotionSampling {
             .scale_expressions
             .is_some_and(|scales| scales.iter().any(|scale| expressions.contains(scale)));
         Arc::new(Self {
+            frame_queries,
             uses_swell,
             uses_rotation,
             uses_walk,
@@ -199,6 +203,7 @@ impl MotionSampling {
     pub(crate) fn retained_bytes(&self) -> Option<usize> {
         // Exhaustive matching makes new retained fields require an accounting review.
         let Self {
+            frame_queries,
             expressions,
             weighted_symbols,
             timed_symbols,
@@ -216,6 +221,21 @@ impl MotionSampling {
             .try_fold(std::mem::size_of::<Self>(), |bytes, values| {
                 bytes.checked_add(values.len().checked_mul(std::mem::size_of::<u32>())?)
             })
+            .and_then(|bytes| {
+                let extra = match frame_queries {
+                    Some(queries) => queries
+                        .len()
+                        .checked_mul(std::mem::size_of::<u32>())?
+                        .checked_add(2 * std::mem::size_of::<usize>())?,
+                    None => 0,
+                };
+                bytes.checked_add(extra)
+            })
+    }
+
+    /// Returns live-query dependencies analyzed with this exact rig and clip topology.
+    pub(super) fn frame_queries(&self) -> Option<Arc<[u32]>> {
+        self.frame_queries.clone()
     }
 
     pub(super) fn uses_swell(&self) -> bool {

@@ -4,9 +4,9 @@
 use serde_json::Value;
 use uuid::Uuid;
 
-use pack_json::normalize_jsonc;
+use pack_json::parse_jsonc;
 
-use crate::{AdmissionError, MAX_SUBPACKS, Subpack};
+use crate::{AdmissionError, Subpack};
 
 /// A `major.minor.patch` pack version.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -54,9 +54,7 @@ pub(crate) fn read_manifest(
     pack_id: Uuid,
     version: &str,
 ) -> Result<Manifest, AdmissionError> {
-    let json = normalize_jsonc(bytes).ok_or(AdmissionError::MalformedManifest)?;
-    let root: Value =
-        serde_json::from_slice(&json).map_err(|_| AdmissionError::MalformedManifest)?;
+    let root: Value = parse_jsonc(bytes).map_err(|_| AdmissionError::MalformedManifest)?;
     let format = match &root["format_version"] {
         Value::Number(number) => number.as_f64(),
         Value::String(text) => text.trim().parse::<u64>().ok().map(|number| number as f64),
@@ -85,9 +83,6 @@ pub(crate) fn read_manifest(
         return Err(AdmissionError::InvalidModules);
     }
     let subpacks = root["subpacks"].as_array().map_or(&[][..], Vec::as_slice);
-    if subpacks.len() > MAX_SUBPACKS {
-        return Err(AdmissionError::InvalidSubpack);
-    }
     let subpacks = subpacks
         .iter()
         .filter_map(|subpack| {

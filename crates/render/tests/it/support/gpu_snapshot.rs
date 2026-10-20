@@ -52,6 +52,8 @@ pub struct RasterState {
     pub multisample: wgpu::MultisampleState,
     /// Optional per-draw polygon offsets, applied after clipping and rasterization.
     pub depth_biases: Vec<wgpu::DepthBiasState>,
+    /// Optional instance range for each draw; absent ranges draw the first instance.
+    pub instance_ranges: Vec<Range<u32>>,
 }
 
 pub struct DrawPipeline<'a> {
@@ -80,6 +82,7 @@ impl Default for RasterState {
             write_mask: wgpu::ColorWrites::ALL,
             multisample: Default::default(),
             depth_biases: Vec::new(),
+            instance_ranges: Vec::new(),
         }
     }
 }
@@ -511,7 +514,10 @@ impl Gpu {
             });
             pass.set_pipeline(&pipeline);
             pass.set_bind_group(0, &group, &[]);
-            pass.draw(draw.vertices.clone(), 0..1);
+            pass.draw(
+                draw.vertices.clone(),
+                state.instance_ranges.get(index).cloned().unwrap_or(0..1),
+            );
         }
         let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,

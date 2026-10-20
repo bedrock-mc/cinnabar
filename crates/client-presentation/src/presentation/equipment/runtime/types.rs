@@ -149,6 +149,7 @@ pub struct EquipmentAnimation<'a> {
     pub delta_seconds: f32,
 }
 
+#[derive(Clone, Eq, PartialEq)]
 pub(super) struct BodyBones {
     pub(super) names: Vec<Box<str>>,
     pub(super) right_arm: Option<usize>,
@@ -169,7 +170,7 @@ pub(super) struct WornRender {
     pub texture: Box<str>,
     pub geometry: Box<str>,
     pub layer: actor_animation::RenderTextureLayer,
-    pub pose: Vec<render_model::RenderBoneTransform>,
+    pub pose: Arc<[render_model::RenderBoneTransform]>,
 }
 
 impl EquipmentAnimation<'_> {

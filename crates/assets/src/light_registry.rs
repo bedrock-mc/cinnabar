@@ -9,7 +9,7 @@ const HASH_BYTES: usize = 32;
 const MAX_LIGHT_RECORDS: usize = 65_536;
 
 /// Authoritative per-runtime-state light emission and filtering nibbles.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LightProperties {
     emission: u8,
     filter: u8,

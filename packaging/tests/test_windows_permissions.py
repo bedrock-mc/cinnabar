@@ -23,7 +23,7 @@ class WindowsPermissionTests(unittest.TestCase):
         self.assertEqual(levels[0].attrib, {"level": "asInvoker", "uiAccess": "false"})
 
     def test_installers_never_launch_or_restart_the_game(self):
-        """Installer authoring leaves every game restart to a separate normal user process."""
+        """Installer authoring leaves every game restart to the separate update helper."""
         ns = {"w": "http://wixtoolset.org/schemas/v4/wxs"}
         msi = ET.parse(WINDOWS / "cinnabar.wxs")
         restart = msi.find('.//w:Property[@Id="MSIDISABLERMRESTART"]', ns)

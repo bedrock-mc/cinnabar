@@ -133,6 +133,90 @@ fn review_escape_dispatches_the_vanilla_form_screen_cancel() {
 }
 
 #[test]
+fn a_toggle_mapped_to_submit_answers_with_its_changed_value_on_release() {
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = crate::ui_runtime::presentation::forms::compatibility_tests::replay(
+        &mut player,
+        r#"{"type":"custom_form","content":[{"type":"toggle","text":"Open editor","default":false}]}"#,
+        false,
+    );
+    let mut presentation = mini_engine_presentation();
+    presentation.set_server_ui_pack(&ServerUiPack {
+        ui_layers: vec![vec![("ui/server_form.json".into(), br#"{
+            "namespace":"server_form",
+            "main_screen_content": {"controls":[{"server_form_factory": {
+                "type":"factory","control_ids":{"custom_form":"@server_form.main_custom_form_screen"}
+            }}]},
+            "main_custom_form_screen": {"type":"panel","size":[100,100],"controls":[{"trigger": {
+                "type":"toggle","size":[40,20],"collection_index":0,
+                "toggle_name":"custom_toggle","toggle_collection_name":"custom_form",
+                "button_mappings":[{"from_button_id":"button.menu_select","to_button_id":"button.submit_custom_form","mapping_type":"pressed"}]
+            }}]}
+        }"#.to_vec())]], ..Default::default()
+    });
+    presentation
+        .build(
+            &player,
+            &runtime,
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    let identity = runtime.server_forms().active().unwrap().identity;
+    let frame = presentation.form_engine_frame(identity).unwrap().clone();
+    let hit = frame
+        .hits
+        .iter()
+        .find(|hit| hit.kind == HitKind::Toggle)
+        .unwrap();
+    let cursor = UiPoint::new(
+        frame.origin[0] + (hit.rect.x + 1.0) as f32 * frame.scale,
+        frame.origin[1] + (hit.rect.y + 1.0) as f32 * frame.scale,
+    )
+    .unwrap();
+    for down in [true, false] {
+        drive(
+            &mut runtime,
+            &frame,
+            EngineInput {
+                cursor: Some(cursor),
+                keys: &[],
+                pointer: PointerButtons {
+                    pressed: down,
+                    released: !down,
+                    held: down,
+                },
+                pointer_edges: vec![down],
+                wheel: Vec::new(),
+                typed: Vec::new(),
+                now: if down { 0.0 } else { 0.01 },
+                animator: None,
+            },
+        );
+    }
+    let mut sent = Vec::new();
+    assert!(
+        super::super::flush_form_response(
+            &mut runtime,
+            |_| true,
+            |packet| {
+                sent.push(packet);
+                Ok(())
+            }
+        )
+        .unwrap()
+    );
+    assert_eq!(
+        sent,
+        vec![protocol::custom_form_submit_response(
+            identity.form_id,
+            &[protocol::CustomFormValue::Toggle(true)]
+        )]
+    );
+}
+
+#[test]
 fn screen_cancel_ignores_unmapped_any_events_but_respects_a_consuming_control() {
     let mut player_runtime = player_state::PlayerState::new(1);
 

@@ -420,3 +420,6 @@ impl ActorAnimationStore {
         self.schedule.world_budget = budget;
     }
 }
+
+mod composition;
+pub use composition::CompositionFixture;

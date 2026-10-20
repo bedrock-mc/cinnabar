@@ -35,6 +35,7 @@ fn quantize(colour: [f32; 3]) -> [f32; 3] {
     colour.map(|c| (c * 255.0).floor().clamp(0.0, 255.0) / 255.0)
 }
 
+/// Blends two colours by the supplied fraction.
 fn mix(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
     std::array::from_fn(|i| a[i] + (b[i] - a[i]) * t)
 }
@@ -60,11 +61,11 @@ impl BiomeColors {
     pub fn of(
         entry: &JavaBiomeEntry<'_>,
         mapping: &JavaBlockMapping,
-        dimension: SkyDimension,
+        dimension: JavaDimension,
     ) -> Self {
         let colours = entry
             .colours
-            .over(mapping.java_dimension_colours(dimension.java()));
+            .over(mapping.java_dimension_colours(dimension));
         Self {
             sky: rgb(colours.sky.unwrap_or(0)),
             fog: rgb(colours.fog.unwrap_or(0)),
@@ -78,7 +79,7 @@ impl BiomeColors {
     pub fn at(
         mapping: &JavaBlockMapping,
         bedrock_biome: u32,
-        dimension: SkyDimension,
+        dimension: JavaDimension,
     ) -> Option<Self> {
         let index = mapping
             .java_biome_index(bedrock_biome)
@@ -89,7 +90,7 @@ impl BiomeColors {
     }
 
     /// The colours of the void in `dimension`: what a camera without streamed biomes sees.
-    pub fn fallback(mapping: &JavaBlockMapping, dimension: SkyDimension) -> Option<Self> {
+    pub fn fallback(mapping: &JavaBlockMapping, dimension: JavaDimension) -> Option<Self> {
         let index = crate::biomes::fallback_biome_index(mapping)?;
         mapping
             .java_biome_entry(index)
@@ -123,30 +124,11 @@ impl BiomeColors {
     }
 }
 
-/// The dimension types whose sky and fog behave differently.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SkyDimension {
-    Overworld,
-    Nether,
-    End,
-}
-
-impl SkyDimension {
-    /// The lowest block of the dimension, below which the fog fades to black.
-    fn floor(self) -> f32 {
-        match self {
-            Self::Overworld => -64.0,
-            Self::Nether | Self::End => 0.0,
-        }
-    }
-
-    /// The Java dimension type whose colours apply.
-    const fn java(self) -> JavaDimension {
-        match self {
-            Self::Overworld => JavaDimension::Overworld,
-            Self::Nether => JavaDimension::Nether,
-            Self::End => JavaDimension::End,
-        }
+/// Returns the lowest block Y, below which dimension fog fades to black.
+fn dimension_floor(dimension: JavaDimension) -> f32 {
+    match dimension {
+        JavaDimension::Overworld => -64.0,
+        JavaDimension::Nether | JavaDimension::End => 0.0,
     }
 }
 
@@ -164,7 +146,7 @@ pub enum FogMedium {
 pub struct SkyFogInputs {
     /// The biome colours blended around the camera.
     pub biome: BiomeColors,
-    pub dimension: SkyDimension,
+    pub dimension: JavaDimension,
     /// Fraction of a turn with 0 at noon (Java's time of day).
     pub celestial_angle: f32,
     pub rain: f32,
@@ -209,7 +191,7 @@ pub fn sunrise_color(celestial_angle: f32) -> Option<[f32; 4]> {
 /// by thunder. Only the overworld has a time of day; the nether's is fixed at midnight and
 /// the end's biomes have a black sky, so both are black.
 fn sky_color(inputs: &SkyFogInputs) -> [f32; 3] {
-    if inputs.dimension != SkyDimension::Overworld {
+    if inputs.dimension != JavaDimension::Overworld {
         return [0.0; 3];
     }
     let mut colour = inputs
@@ -233,7 +215,7 @@ fn sky_color(inputs: &SkyFogInputs) -> [f32; 3] {
 fn air_fog(inputs: &SkyFogInputs, sky: [f32; 3]) -> [f32; 3] {
     let light = daylight(inputs.celestial_angle);
     let mut fog = match inputs.dimension {
-        SkyDimension::Overworld => {
+        JavaDimension::Overworld => {
             let [r, g, b] = inputs.biome.fog;
             [
                 r * (light * 0.94 + 0.06),
@@ -241,10 +223,10 @@ fn air_fog(inputs: &SkyFogInputs, sky: [f32; 3]) -> [f32; 3] {
                 b * (light * 0.91 + 0.09),
             ]
         }
-        SkyDimension::Nether | SkyDimension::End => inputs.biome.fog,
+        JavaDimension::Nether | JavaDimension::End => inputs.biome.fog,
     };
     let chunks = inputs.render_distance_chunks;
-    if inputs.dimension == SkyDimension::Overworld && chunks >= 4.0 {
+    if inputs.dimension == JavaDimension::Overworld && chunks >= 4.0 {
         let sun_side = if (inputs.celestial_angle * std::f32::consts::TAU).sin() > 0.0 {
             -1.0
         } else {
@@ -280,7 +262,7 @@ pub fn sky_fog(inputs: &SkyFogInputs) -> SkyFogColors {
         ];
         fog = fog.map(|c| c * (1.0 - inputs.thunder * 0.5));
     }
-    let above_floor = inputs.camera_y - inputs.dimension.floor();
+    let above_floor = inputs.camera_y - dimension_floor(inputs.dimension);
     if above_floor < 1.0 && matches!(inputs.medium, FogMedium::Air | FogMedium::Water) {
         let fade = above_floor.max(0.0);
         fog = fog.map(|c| c * fade * fade);

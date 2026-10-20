@@ -54,6 +54,27 @@ fn saved_servers_survive_an_atomic_save_and_reload() {
     fs::remove_dir_all(&directory).unwrap();
 }
 
+/// A valid list larger than the former count and file quotas survives persistence.
+#[test]
+fn saved_servers_preserve_large_player_lists() {
+    let directory = unique_directory("large-list");
+    let path = directory.join("servers.json");
+    let servers = (0..600)
+        .map(|index| {
+            sample_server(
+                &format!("Server {index}"),
+                &format!("server-{index}.example:19132"),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert!(serde_json::to_vec_pretty(&servers).unwrap().len() > 64 * 1024);
+    save_servers(&path, &servers).expect("save complete player list");
+    let loaded = load_servers(&path);
+    assert!(loaded.recovery_message.is_none());
+    assert_eq!(loaded.servers, servers);
+    fs::remove_dir_all(directory).unwrap();
+}
+
 #[test]
 fn malformed_saved_servers_are_quarantined_and_reported() {
     let directory = unique_directory("malformed");
@@ -90,68 +111,6 @@ fn out_of_schema_entries_quarantine_the_whole_file() {
     assert!(loaded.servers.is_empty());
     assert!(loaded.recovery_message.is_some());
     assert!(!path.exists());
-    fs::remove_dir_all(&directory).unwrap();
-}
-
-#[test]
-fn oversized_saved_server_file_is_bounded_and_quarantined() {
-    let directory = unique_directory("file-bound");
-    let path = directory.join("servers.json");
-    write_bytes(
-        &path,
-        &vec![b' '; crate::servers::MAX_SAVED_SERVER_FILE_BYTES + 1],
-    );
-
-    let loaded = load_servers(&path);
-
-    assert!(loaded.servers.is_empty());
-    assert!(loaded.recovery_message.is_some());
-    assert!(!path.exists());
-    assert!(path.with_file_name("servers.json.invalid").exists());
-    fs::remove_dir_all(&directory).unwrap();
-}
-
-#[test]
-fn too_many_saved_servers_are_rejected_on_load_and_save() {
-    let directory = unique_directory("entry-bound");
-    let path = directory.join("servers.json");
-    let prior = vec![sample_server("Prior", "prior.example:19132")];
-    save_servers(&path, &prior).unwrap();
-    let excessive =
-        vec![sample_server("Entry", "entry.example:19132"); crate::servers::MAX_SAVED_SERVERS + 1];
-
-    let error = save_servers(&path, &excessive).expect_err("entry count must be bounded");
-    assert!(error.to_string().contains("too many saved servers"));
-    assert_eq!(
-        load_servers(&path).servers,
-        prior,
-        "failed save preserves prior file"
-    );
-
-    write_bytes(&path, &serde_json::to_vec(&excessive).unwrap());
-    let loaded = load_servers(&path);
-    assert!(loaded.servers.is_empty());
-    assert!(loaded.recovery_message.is_some());
-    assert!(!path.exists());
-    fs::remove_dir_all(&directory).unwrap();
-}
-
-#[test]
-fn oversized_serialized_save_preserves_the_previous_file() {
-    let directory = unique_directory("serialized-bound");
-    let path = directory.join("servers.json");
-    let prior = vec![sample_server("Prior", "prior.example:19132")];
-    save_servers(&path, &prior).unwrap();
-    let large =
-        vec![sample_server(&"n".repeat(64), &"a".repeat(128)); crate::servers::MAX_SAVED_SERVERS];
-
-    let error = save_servers(&path, &large).expect_err("serialized bytes must be bounded");
-    assert!(error.to_string().contains("saved-server file"));
-    assert_eq!(
-        load_servers(&path).servers,
-        prior,
-        "byte-limit rejection happens before replacing the prior file",
-    );
     fs::remove_dir_all(&directory).unwrap();
 }
 
