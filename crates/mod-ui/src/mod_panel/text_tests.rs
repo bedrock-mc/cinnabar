@@ -415,6 +415,13 @@ fn native_field_blink_reuses_shaping_and_catalog() {
     let rectangles = field_state(&ui).feedback_updates;
     let layout = Arc::clone(field_state(&ui).layout.as_ref().unwrap());
     let second = paint_field(&mut ui, &engine, &font, &mut layouts, 1.6);
+    let bindings = Arc::clone(&ui.mod_panel.as_ref().unwrap().data);
+    ui.mod_panel_key("Enter", None);
+    assert!(
+        Arc::ptr_eq(&bindings, &ui.mod_panel.as_ref().unwrap().data),
+        "submitting an unchanged live value retains its bindings"
+    );
+
     assert_eq!(
         first.len(),
         second.len() + 1,

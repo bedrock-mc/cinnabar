@@ -289,7 +289,10 @@ impl ModPanel {
                 self.refresh_editor();
                 return Vec::new();
             }
-            *value = text.clone();
+            let value_changed = value != text;
+            if value_changed {
+                value.clone_from(text);
+            }
             let event = ui::mod_panel::TextEvent {
                 id: id.clone(),
                 value: text.clone(),
@@ -298,7 +301,9 @@ impl ModPanel {
             self.field_events
                 .push(ui::mod_panel::FieldEvent::Submit(event));
             let live = *live || *navigation_keys;
-            self.refresh_data();
+            if value_changed {
+                self.refresh_data();
+            }
             if live {
                 return Vec::new();
             }
