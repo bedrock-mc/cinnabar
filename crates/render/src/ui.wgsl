@@ -188,7 +188,8 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
         if input.model_light > 0.0 {
             let offset = vec2<f32>(input.model_light, input.alpha_cutoff) * (source.zw - source.xy);
             let neighbor = vec2<i32>(floor(sample_uv - offset));
-            coverage *= 1.0 - sprite_outline(neighbor, source, i32(input.texture_page));
+            // Shared source coverage belongs to the previously painted copy.
+            coverage = max(coverage - sprite_outline(neighbor, source, i32(input.texture_page)), 0.0);
         }
         let alpha = coverage * input.color.a;
         var rgb = input.color.rgb;

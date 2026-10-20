@@ -10,9 +10,7 @@ pub(super) fn sample(texture: &Page, uv: [f32; 2], source: [f32; 4], overlap: [f
             uv[0] - overlap[0] * (source[2] - source[0]),
             uv[1] - overlap[1] * (source[3] - source[1]),
         ];
-        coverage = (u32::from(coverage)
-            * u32::from(255 - self::coverage(texture, neighbor, source))
-            / 255) as u8;
+        coverage = coverage.saturating_sub(self::coverage(texture, neighbor, source));
     }
     [255, 255, 255, coverage]
 }
@@ -54,7 +52,7 @@ mod tests {
     /// Builds a colored pack page with an alpha cutout and opaque art outside the mask bounds.
     fn page() -> Page {
         let mut rgba = vec![0u8; 8 * 8 * 4];
-        for pixel in rgba.chunks_exact_mut(4) {
+        for pixel in rgba.as_chunks_mut::<4>().0 {
             pixel.copy_from_slice(&[17, 99, 180, 255]);
         }
         rgba[(2 * 8 + 2) * 4 + 3] = 0;
@@ -108,7 +106,13 @@ mod tests {
     }
 
     /// Composites two nine-pixel masks at their actual eight-pixel pitch.
-    fn adjacent(inverse: bool, both_edges: bool, dy: u32, opacity: u8) -> Vec<u8> {
+    fn adjacent(
+        inverse: bool,
+        both_edges: bool,
+        dy: u32,
+        opacity: u8,
+        source_alpha: u8,
+    ) -> Vec<u8> {
         let rect = |x, y, w, h| {
             UiRect::new(
                 UiPoint::new(x, y).unwrap(),
@@ -159,7 +163,7 @@ mod tests {
                         50,
                         70,
                         if at % 9 == 8 || both_edges && at % 9 == 0 {
-                            255
+                            source_alpha
                         } else {
                             0
                         },
@@ -183,8 +187,10 @@ mod tests {
         for inverse in [false, true] {
             for both_edges in [false, true] {
                 for dy in [0, 1] {
-                    for opacity in [110, 255] {
-                        let pixels = adjacent(inverse, both_edges, dy, opacity);
+                    for (opacity, source_alpha) in [110, 255].into_iter().flat_map(|opacity| {
+                        [64, 128, 255].map(|source_alpha| (opacity, source_alpha))
+                    }) {
+                        let pixels = adjacent(inverse, both_edges, dy, opacity, source_alpha);
                         for y in 0..10 {
                             for x in 0..17 {
                                 let covered = (y < 9 && (x == 8 || both_edges && x == 0))
@@ -194,7 +200,7 @@ mod tests {
                                     [17., 99., 180.].into_iter().enumerate()
                                 {
                                     let alpha = if covered {
-                                        f32::from(opacity) / 255.
+                                        f32::from(opacity) * f32::from(source_alpha) / (255. * 255.)
                                     } else {
                                         0.
                                     };
@@ -208,7 +214,7 @@ mod tests {
                                         f32::from(pixels[((y * 17 + x) * 4) as usize + channel]);
                                     assert!(
                                         (actual - expected).abs() <= 1.5,
-                                        "({x}, {y}) inverse={inverse} both_edges={both_edges} dy={dy} opacity={opacity}: {actual} != {expected}"
+                                        "({x}, {y}) inverse={inverse} both_edges={both_edges} dy={dy} opacity={opacity} source_alpha={source_alpha}: {actual} != {expected}"
                                     );
                                 }
                             }

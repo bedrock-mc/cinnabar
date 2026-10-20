@@ -1,5 +1,6 @@
 //! Named, anonymous screen fixtures. Add a state here when a PR needs a new capture.
 
+mod chat;
 #[cfg(feature = "test-support")]
 mod cosmetics;
 mod minecraft_import;
@@ -32,6 +33,7 @@ pub enum Fixture {
     /// Adjacent sparse saturation masks before and after overlap-aware exclusion.
     SaturationOverlap {
         crop: bool,
+        source_alpha: u8,
     },
     /// An original checker repeated beyond a small sprite's former draw cutoff.
     TiledImage {
@@ -102,13 +104,28 @@ pub const STATES: &[State] = &[
         name: "saturation-overlap-before",
         size: [640, 240],
         gui_scale: 1,
-        fixture: || Fixture::SaturationOverlap { crop: true },
+        fixture: || Fixture::SaturationOverlap {
+            crop: true,
+            source_alpha: 255,
+        },
     },
     State {
         name: "saturation-overlap",
         size: [640, 240],
         gui_scale: 1,
-        fixture: || Fixture::SaturationOverlap { crop: false },
+        fixture: || Fixture::SaturationOverlap {
+            crop: false,
+            source_alpha: 255,
+        },
+    },
+    State {
+        name: "saturation-translucent-overlap",
+        size: [640, 240],
+        gui_scale: 1,
+        fixture: || Fixture::SaturationOverlap {
+            crop: false,
+            source_alpha: 64,
+        },
     },
     State {
         name: "jsonui-tiled-image",
@@ -239,14 +256,14 @@ pub const STATES: &[State] = &[
         name: "chat-server-content-idle",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || chat_server_content(false),
+        fixture: || chat::server_content(false),
     },
     #[cfg(feature = "test-support")]
     State {
         name: "chat-server-content-hover",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || chat_server_content(true),
+        fixture: || chat::server_content(true),
     },
     State {
         name: "home-update-compact",
@@ -498,50 +515,50 @@ pub const STATES: &[State] = &[
         name: "chat-background-transparent",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || chat_background(0),
+        fixture: || chat::background(0),
     },
     State {
         name: "chat-background-half",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || chat_background(50),
+        fixture: || chat::background(50),
     },
     State {
         name: "chat-background-opaque",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || chat_background(100),
+        fixture: || chat::background(100),
     },
     State {
         name: "chat-history-width",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: chat_history_width,
+        fixture: chat::history_width,
     },
     State {
         name: "chat-history-width-small",
         size: SMALL_SIZE,
         gui_scale: 1,
-        fixture: chat_history_width,
+        fixture: chat::history_width,
     },
     State {
         name: "chat-command-background-transparent",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: chat_command_background,
+        fixture: chat::command_background,
     },
     State {
         name: "chat-command-completion",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || chat_completion("/give @", &["@a", "@e", "@p"]),
+        fixture: || chat::completion("/give @", &["@a", "@e", "@p"]),
     },
     State {
         name: "chat-command-completion-small",
         size: SMALL_SIZE,
         gui_scale: 1,
         fixture: || {
-            chat_completion(
+            chat::completion(
                 "/tell ExamplePlayer AnotherPlayerWithALongName @",
                 &["@Alex", "@ExamplePlayerWithALongName", "@Bo"],
             )
@@ -575,13 +592,13 @@ pub const STATES: &[State] = &[
         name: "chat-mentions",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: chat_mentions,
+        fixture: chat::mentions,
     },
     State {
         name: "chat-command-targets",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: chat_command_targets,
+        fixture: chat::command_targets,
     },
     State {
         name: "tab-list-badges",
@@ -742,113 +759,6 @@ pub const STATES: &[State] = &[
         fixture: mods::undeclared_permissions,
     },
 ];
-
-/// Exercises the native chat collection with an unfinished mention.
-fn chat_mentions() -> Fixture {
-    Fixture::Chat {
-        server_hover: None,
-        draft: "@",
-        suggestions: ["@here", "@Alex", "@Steve"].map(Arc::from).into(),
-        messages: Default::default(),
-        options: Default::default(),
-    }
-}
-
-/// Exercises the native command completion collection with target candidates.
-fn chat_command_targets() -> Fixture {
-    Fixture::Chat {
-        server_hover: None,
-        draft: "/give @",
-        suggestions: ["@a", "@e", "@p", "@r", "@s"].map(Arc::from).into(),
-        messages: Default::default(),
-        options: Default::default(),
-    }
-}
-
-/// Shows readable history and a draft under a selected background-opacity setting.
-fn chat_background(percent: i32) -> Fixture {
-    use launcher::menu::settings_options::{SettingId, SettingsOptions};
-    let mut options = SettingsOptions::default();
-    options.set(SettingId::ChatBackgroundOpacity.index(), percent);
-    let messages = [
-        format!("Chat background opacity: {percent}%"),
-        "The chat text stays visible.".into(),
-    ]
-    .into_iter()
-    .enumerate()
-    .map(|(index, message)| ui::ChatMessage {
-        fifo_sequence: index as u64 + 1,
-        received_millis: 0,
-        kind: ui::ChatMessageKind::System,
-        source: None,
-        message: message.into(),
-        parameters: Arc::from([]),
-    })
-    .collect();
-    Fixture::Chat {
-        server_hover: None,
-        draft: "Typing a message",
-        suggestions: Vec::new(),
-        messages,
-        options: Arc::new(options),
-    }
-}
-
-/// Shows the command input and suggestions with chat backgrounds set to zero percent.
-fn chat_command_background() -> Fixture {
-    chat_completion("/", &["/give", "/help", "/say"])
-}
-
-/// Shows equal-width history backgrounds and a message that wraps inside them.
-fn chat_history_width() -> Fixture {
-    let mut fixture = chat_background(50);
-    if let Fixture::Chat { messages, .. } = &mut fixture {
-        messages.push_back(ui::ChatMessage {
-            fifo_sequence: messages.len() as u64 + 1,
-            received_millis: 0,
-            kind: ui::ChatMessageKind::System,
-            source: None,
-            message: "A longer chat message wraps inside the history box while every visible line keeps the same background width.".into(),
-            parameters: Arc::from([]),
-        });
-    }
-    fixture
-}
-
-/// Shows completions after an anonymous draft with transparent message backgrounds.
-fn chat_completion(draft: &'static str, suggestions: &[&str]) -> Fixture {
-    use launcher::menu::settings_options::SettingsOptions;
-
-    let mut options = SettingsOptions::default();
-    options.set(SettingId::ChatBackgroundOpacity.index(), 0);
-    Fixture::Chat {
-        server_hover: None,
-        draft,
-        suggestions: suggestions.iter().map(|text| Arc::from(*text)).collect(),
-        messages: Default::default(),
-        options: Arc::new(options),
-    }
-}
-
-/// Keeps encoded message metadata out of history and reveals it through a hover renderer.
-#[cfg(feature = "test-support")]
-fn chat_server_content(hover: bool) -> Fixture {
-    Fixture::Chat {
-        draft: "",
-        suggestions: Vec::new(),
-        messages: [ui::ChatMessage {
-            fifo_sequence: 1,
-            received_millis: 0,
-            kind: ui::ChatMessageKind::System,
-            source: None,
-            message: ui_screens::test_support::hover_chat::message().into(),
-            parameters: Arc::from([]),
-        }]
-        .into(),
-        options: Default::default(),
-        server_hover: Some(hover),
-    }
-}
 
 /// Badges two Cinnabar players, one of them sharing a name with an unbadged player.
 fn tab_list_badges(visible: bool) -> Fixture {

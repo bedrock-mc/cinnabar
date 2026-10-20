@@ -7,7 +7,7 @@ use jsonui_editor::raster::{Canvas, Page};
 use ui::{UiBlendMode, UiNode, UiNodeId, UiTree, UiVisual};
 
 /// Shows sparse last-column art above shared edge art, with alpha at left and inverse at right.
-pub(super) fn png(size: [u32; 2], crop: bool) -> Result<Vec<u8>, Error> {
+pub(super) fn png(size: [u32; 2], crop: bool, source_alpha: u8) -> Result<Vec<u8>, Error> {
     let pages: Vec<_> = std::iter::once(Page::white())
         .chain([false, true].map(|both_edges| {
             Page {
@@ -20,7 +20,7 @@ pub(super) fn png(size: [u32; 2], crop: bool) -> Result<Vec<u8>, Error> {
                             50,
                             70,
                             if at % 9 == 8 || both_edges && at % 9 == 0 {
-                                255
+                                source_alpha
                             } else {
                                 0
                             },

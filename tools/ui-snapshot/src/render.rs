@@ -117,8 +117,8 @@ fn png_fixture(
     if let Fixture::SpriteOutline { outline } = &fixture {
         return sprite_outline::png(state.size, *outline);
     }
-    if let Fixture::SaturationOverlap { crop } = &fixture {
-        return saturation_overlap::png(state.size, *crop);
+    if let Fixture::SaturationOverlap { crop, source_alpha } = &fixture {
+        return saturation_overlap::png(state.size, *crop, *source_alpha);
     }
     if let Fixture::TiledImage { scale } = &fixture {
         return tiled_image::png(state.size, *scale);

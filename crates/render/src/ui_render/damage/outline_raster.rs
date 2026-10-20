@@ -9,7 +9,7 @@ fn outline_scene(cropped: bool) -> UiRenderInput {
     input.indices = Arc::from([]);
     input.batches = Arc::from([]);
     let mut texels = vec![0u8; 8 * 8 * 4];
-    for pixel in texels.chunks_exact_mut(4) {
+    for pixel in texels.as_chunks_mut::<4>().0 {
         pixel.copy_from_slice(&[17, 99, 180, 255]);
     }
     texels[(2 * 8 + 2) * 4 + 3] = 0;
@@ -150,12 +150,15 @@ fn inverse_sprite_outline_changes_the_background_without_changing_the_mask() {
     }
 }
 
-/// Sparse nine-pixel art retains its last column; coincident opaque edges blend only once.
+/// Sparse nine-pixel art retains its last column; opaque and translucent shared edges paint once.
 #[test]
 fn adjacent_sprite_outlines_preserve_sparse_edges_in_alpha_and_inverse_modes() {
     for inverse in [false, true] {
         for both_edges in [false, true] {
-            for dy in [0, 1] {
+            for (dy, source_alpha) in [0, 1]
+                .into_iter()
+                .flat_map(|dy| [64, 128, 255].map(|source_alpha| (dy, source_alpha)))
+            {
                 let mut input = scene();
                 input.vertices = Arc::from([]);
                 input.indices = Arc::from([]);
@@ -167,7 +170,7 @@ fn adjacent_sprite_outlines_preserve_sparse_edges_in_alpha_and_inverse_modes() {
                             50,
                             70,
                             if at % 9 == 8 || both_edges && at % 9 == 0 {
-                                255
+                                source_alpha
                             } else {
                                 0
                             },
@@ -230,7 +233,7 @@ fn adjacent_sprite_outlines_preserve_sparse_edges_in_alpha_and_inverse_modes() {
                             || ((dy..dy + 9).contains(&y) && (x == 16 || both_edges && x == 8));
                         for (channel, background) in [17., 99., 180.].into_iter().enumerate() {
                             let alpha = if covered {
-                                f32::from(opacity) / 255.
+                                f32::from(opacity) * f32::from(source_alpha) / (255. * 255.)
                             } else {
                                 0.
                             };
@@ -243,7 +246,7 @@ fn adjacent_sprite_outlines_preserve_sparse_edges_in_alpha_and_inverse_modes() {
                             let actual = f32::from(pixels[((y * SIDE + x) * 4) as usize + channel]);
                             assert!(
                                 (actual - expected).abs() <= 1.5,
-                                "({x}, {y}) inverse={inverse} both_edges={both_edges} dy={dy}: {actual} != {expected}"
+                                "({x}, {y}) inverse={inverse} both_edges={both_edges} dy={dy} source_alpha={source_alpha}: {actual} != {expected}"
                             );
                         }
                     }
