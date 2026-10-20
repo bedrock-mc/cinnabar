@@ -72,10 +72,10 @@ mod tests {
     #[test]
     fn emissive_alpha_materials_keep_native_coverage_and_lighting() {
         let instance = ActorGpuInstance {
-            material: EntityRenderMaterial::Default.word(EntityRenderMaterialState {
+            material: EntityRenderMaterial::Default.word(Some(EntityRenderMaterialState {
                 emissive: true,
                 ..Default::default()
-            }),
+            })),
             ..Default::default()
         };
         assert!(!instance_supported(&instance, false, false));
