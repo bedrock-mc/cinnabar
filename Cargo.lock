@@ -131,6 +131,7 @@ dependencies = [
  "sha2",
  "simulation-clock",
  "test-alloc",
+ "test-time",
  "tracing",
  "world",
 ]
