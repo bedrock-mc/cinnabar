@@ -5,7 +5,10 @@ use shaderpack::ImageSize;
 use wgpu::{Limits, TextureDimension};
 
 /// Resolves a custom image without changing its requested absolute dimensions.
-pub(super) fn image_extent(size: ImageSize, screen: [u32; 2]) -> (TextureDimension, [u32; 3]) {
+pub(in crate::shaderpack) fn image_extent(
+    size: ImageSize,
+    screen: [u32; 2],
+) -> (TextureDimension, [u32; 3]) {
     match size {
         ImageSize::Relative { width, height } => (
             TextureDimension::D2,

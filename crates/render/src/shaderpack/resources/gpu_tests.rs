@@ -27,6 +27,100 @@ fn gpu() -> Option<GpuContext> {
     })
 }
 
+#[test]
+fn pack_load_keeps_depth_copies_at_float32_without_filtering() {
+    let Some(gpu) = gpu() else { return };
+    assert!(
+        !gpu.device
+            .features()
+            .contains(wgpu::Features::FLOAT32_FILTERABLE)
+    );
+    let pack = ShaderPack::new(shaderpack::PackSource::from_files([] as [(&str, &str); 0]));
+    let loaded = crate::shaderpack::loader::build(
+        &pack,
+        "depth fixture",
+        "minecraft:overworld",
+        None,
+        &gpu,
+        &VanillaTextures::default(),
+    )
+    .unwrap_or_else(|error| panic!("depth fixture: {error}"));
+    assert_eq!(loaded.depth_format, TextureFormat::R32Float);
+}
+
+#[test]
+fn pack_load_returns_an_error_on_allocation_failure() {
+    let Some(gpu) = gpu() else { return };
+    let pack = ShaderPack::new(shaderpack::PackSource::from_files([] as [(&str, &str); 0]));
+    let _failure = crate::gpu_allocation::inject(|label, _| label == "shader pack load");
+    let result = crate::shaderpack::loader::build(
+        &pack,
+        "allocation fixture",
+        "minecraft:overworld",
+        None,
+        &gpu,
+        &VanillaTextures::default(),
+    );
+    let error = result
+        .err()
+        .expect("allocation failure must reject the pack");
+    assert!(error.contains("GPU memory"), "{error}");
+}
+
+#[test]
+fn custom_storage_images_reject_mismatched_dimensions() {
+    let Some(gpu) = gpu() else { return };
+    for (dimensions, declaration, coordinate, matches) in [
+        ("4 4", "image3D", "ivec3(0)", false),
+        ("4 4 4", "image2D", "ivec2(0)", false),
+        ("4", "image2D", "ivec2(0)", false),
+        ("4 4", "image2DArray", "ivec3(0)", false),
+        ("4", "image1D", "0", true),
+        ("4 4", "image2D", "ivec2(0)", true),
+        ("4 4 4", "image3D", "ivec3(0)", true),
+    ] {
+        let properties = format!(
+            "image.fixture = fixtureSampler rgba rgba8 unsigned_byte false false {dimensions}\n"
+        );
+        let compute = format!(
+            "#version 430\nlayout(local_size_x=1) in;\n\
+             layout(rgba8) uniform writeonly {declaration} fixture;\n\
+             void main() {{ imageStore(fixture, {coordinate}, vec4(1.0)); }}"
+        );
+        let pack = ShaderPack::new(shaderpack::PackSource::from_files([
+            ("shaders/shaders.properties", properties.as_str()),
+            ("shaders/composite.csh", compute.as_str()),
+        ]));
+        let translation = pack.translate(&Default::default());
+        let reflection = translation.programs[0]
+            .reflection
+            .as_ref()
+            .expect("storage image fixture");
+        let vanilla = VanillaTextures::default();
+        let mut constants =
+            ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
+        let formats = image_formats(&translation.properties.images, &[reflection], gpu.support());
+        let result = bindings::resolve_bindings(
+            &mut constants,
+            ProgramGroup::Composite,
+            reflection,
+            &[None; MAX_COLOR_BUFFERS as usize],
+            0,
+            TextureFormat::R32Float,
+            &translation.properties.images,
+            &formats,
+        );
+        if matches {
+            assert_eq!(result.unwrap().images, [ImageSource::Image(0)]);
+        } else {
+            let error = result
+                .err()
+                .expect("mismatched storage dimensions must reject the pack");
+            assert!(error.contains("fixture"), "{error}");
+        }
+    }
+}
+
 /// Encodes two different rows so their upload order is observable.
 fn png() -> Vec<u8> {
     let mut bytes = vec![];
