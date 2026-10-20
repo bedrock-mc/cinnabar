@@ -215,6 +215,7 @@ mod tests {
     fn surface(value: SurfaceValue, transition: SurfaceTransition) -> Surface {
         Surface {
             collections: Default::default(),
+            previews: Default::default(),
             screen: "fixture.root".into(),
             document: String::new(),
             bindings: BTreeMap::from([("#value".into(), value)]),

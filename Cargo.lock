@@ -485,6 +485,7 @@ dependencies = [
  "block-transform",
  "env-compat",
  "flate2",
+ "fontdue",
  "glam",
  "lewton",
  "png",
@@ -2540,6 +2541,7 @@ dependencies = [
  "mod-api",
  "mod-host",
  "mod-render",
+ "mod-ui",
  "player-state",
  "protocol",
  "render-api",
@@ -5879,6 +5881,8 @@ dependencies = [
 name = "mod-api"
 version = "0.1.22"
 dependencies = [
+ "serde",
+ "serde_json",
  "wit-bindgen",
 ]
 
@@ -8292,6 +8296,7 @@ dependencies = [
 name = "shaderpack"
 version = "0.1.22"
 dependencies = [
+ "assets",
  "naga",
  "pp-rs",
  "rayon",
@@ -9276,11 +9281,13 @@ dependencies = [
  "json-ui",
  "jsonui-editor",
  "launcher",
+ "mod-ui",
  "oreui",
  "player-state",
  "protocol",
  "render-api",
  "render-model",
+ "resource-pack",
  "serde_json",
  "tempfile",
  "tracing-subscriber",

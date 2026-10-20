@@ -3,7 +3,9 @@
 
 use super::TransformError;
 use super::declare::integer_bool;
-use super::items::{arr_len, assignment_end, mat_cols, matching, sampler_info, shadowed_bindings};
+use super::items::{
+    arr_len, assignment_end, mat_cols, matching, sampler_info, shadowed_bindings, struct_body_end,
+};
 use crate::reflection::{SHADOW_SAMPLER_NAME, SamplerClass};
 use crate::token::{Tok, TokKind, id, int, p};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -94,7 +96,15 @@ pub(super) fn rewrite_body(toks: &[Tok], cx: &BodyContext<'_>, used: &mut Sample
     let mut writes: Vec<usize> = vec![];
     let mut read_ends: Vec<(usize, bool)> = Vec::new();
     let mut write_starts: HashMap<usize, String> = HashMap::new();
+    let mut type_end = 0;
     for (i, t) in toks.iter().enumerate() {
+        if let Some(end) = struct_body_end(toks, i) {
+            type_end = type_end.max(end);
+        }
+        if i < type_end {
+            out.push(t.clone());
+            continue;
+        }
         while read_ends.last().is_some_and(|(end, _)| *end == i) {
             let (_, scalar) = read_ends.pop().unwrap();
             if scalar {
@@ -263,6 +273,7 @@ pub(super) fn convert_returns(body: Vec<Tok>, ty: &str) -> Vec<Tok> {
 pub(super) type Structs = HashMap<String, Vec<(String, String, Vec<Tok>)>>;
 
 /// Flattens a matrix, array or struct value into (access path, leaf type) pairs.
+/// Uses an explicit work stack and rejects struct cycles on the current expansion path.
 pub(super) fn flatten_leaves(
     path: String,
     ty: &str,
@@ -271,39 +282,57 @@ pub(super) fn flatten_leaves(
     line: u32,
     out: &mut Vec<(String, String)>,
 ) -> Result<(), TransformError> {
-    if !arr.is_empty() {
-        let close = matching(arr, 0, "[", "]");
-        let n = arr_len(&arr[..=close]).ok_or_else(|| {
-            TransformError::new(
-                format!("varying `{path}` has a non-literal array size"),
-                line,
-            )
-        })?;
-        for a in 0..n {
-            flatten_leaves(
-                format!("{path}[{a}]"),
-                ty,
-                &arr[close + 1..],
-                structs,
-                line,
-                out,
-            )?;
-        }
-        return Ok(());
+    enum Work<'a> {
+        Value(String, &'a str, &'a [Tok]),
+        Array(String, &'a str, &'a [Tok], std::ops::Range<u32>),
+        EndStruct(&'a str),
     }
-    if let Some((n, col)) = mat_cols(ty) {
-        for c in 0..n {
-            out.push((format!("{path}[{c}]"), col.to_string()));
+    let mut pending = vec![Work::Value(path, ty, arr)];
+    let mut expanding = HashSet::new();
+    while let Some(work) = pending.pop() {
+        let (path, ty, arr) = match work {
+            Work::Value(path, ty, arr) => (path, ty, arr),
+            Work::Array(path, ty, arr, mut indices) => {
+                if let Some(index) = indices.next() {
+                    let element = format!("{path}[{index}]");
+                    pending.push(Work::Array(path, ty, arr, indices));
+                    pending.push(Work::Value(element, ty, arr));
+                }
+                continue;
+            }
+            Work::EndStruct(ty) => {
+                expanding.remove(ty);
+                continue;
+            }
+        };
+        if !arr.is_empty() {
+            let close = matching(arr, 0, "[", "]");
+            let n = arr_len(&arr[..=close]).ok_or_else(|| {
+                TransformError::new(
+                    format!("varying `{path}` has a non-literal array size"),
+                    line,
+                )
+            })?;
+            pending.push(Work::Array(path, ty, &arr[close + 1..], 0..n));
+        } else if let Some((n, col)) = mat_cols(ty) {
+            for c in 0..n {
+                out.push((format!("{path}[{c}]"), col.to_string()));
+            }
+        } else if let Some(members) = structs.get(ty) {
+            if !expanding.insert(ty) {
+                return Err(TransformError::new(
+                    format!("varying `{path}` contains cyclic struct `{ty}`"),
+                    line,
+                ));
+            }
+            pending.push(Work::EndStruct(ty));
+            for (mty, mname, marr) in members.iter().rev() {
+                pending.push(Work::Value(format!("{path}.{mname}"), mty, marr));
+            }
+        } else {
+            out.push((path, ty.to_string()));
         }
-        return Ok(());
     }
-    if let Some(members) = structs.get(ty) {
-        for (mty, mname, marr) in members {
-            flatten_leaves(format!("{path}.{mname}"), mty, marr, structs, line, out)?;
-        }
-        return Ok(());
-    }
-    out.push((path, ty.to_string()));
     Ok(())
 }
 
@@ -439,5 +468,53 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(error.line, 7);
+    }
+
+    #[test]
+    fn shared_struct_members_flatten_on_each_path() {
+        let structs = Structs::from([
+            (
+                "Pair".to_owned(),
+                vec![
+                    ("Leaf".to_owned(), "left".to_owned(), vec![]),
+                    ("Leaf".to_owned(), "right".to_owned(), lex("[2]")),
+                ],
+            ),
+            (
+                "Leaf".to_owned(),
+                vec![("float".to_owned(), "value".to_owned(), vec![])],
+            ),
+        ]);
+        let mut leaves = vec![];
+        flatten_leaves("pair".to_owned(), "Pair", &[], &structs, 1, &mut leaves).unwrap();
+        assert_eq!(
+            leaves,
+            [
+                ("pair.left.value".to_owned(), "float".to_owned()),
+                ("pair.right[0].value".to_owned(), "float".to_owned()),
+                ("pair.right[1].value".to_owned(), "float".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn deeply_nested_structs_flatten_without_call_stack_recursion() {
+        let mut structs = Structs::new();
+        let mut ty = "float".to_owned();
+        let depth = 4096;
+        for index in 0..depth {
+            let name = format!("S{index}");
+            structs.insert(name.clone(), vec![(ty, "child".to_owned(), vec![])]);
+            ty = name;
+        }
+        let mut leaves = vec![];
+        flatten_leaves("value".to_owned(), &ty, &[], &structs, 1, &mut leaves).unwrap();
+        assert_eq!(
+            leaves,
+            [(
+                format!("value{}", ".child".repeat(depth)),
+                "float".to_owned()
+            )]
+        );
     }
 }

@@ -91,6 +91,7 @@ fn late_font_replaces_one_page_without_reallocating_static_or_server_slots() {
     let base = fixture_font();
     let mut runtime = UiPresentationRuntime::new(Arc::clone(&base)).unwrap();
     let textures = runtime.textures.clone();
+    let built_in = Arc::clone(&runtime.base_font);
     let font = private_font(19);
     runtime.set_mod_panel_font(Some(font.clone())).unwrap();
     let target = textures.dynamic_start() + UI_LOCAL_FONT_PAGE_OFFSET;
@@ -122,8 +123,8 @@ fn late_font_replaces_one_page_without_reallocating_static_or_server_slots() {
     assert!(Arc::ptr_eq(&runtime.textures, &installed));
     runtime.set_mod_panel_font(None).unwrap();
     assert_eq!(runtime.textures.identity(), textures.identity());
-    assert_eq!(runtime.font.identity(), base.identity());
-    assert!(Arc::ptr_eq(&runtime.base_font, &base));
+    assert_eq!(runtime.font.identity(), built_in.identity());
+    assert!(Arc::ptr_eq(&runtime.base_font, &built_in));
 }
 
 #[test]
