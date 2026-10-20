@@ -560,7 +560,7 @@ fn preprocess_limited(
         let kind = match value {
             TokenValue::Ident(name) => TokKind::Ident(name),
             TokenValue::Integer(_) => TokKind::Int(token.text.trim_start().to_string()),
-            TokenValue::Float(value) => TokKind::Float(float_literal(value.value)),
+            TokenValue::Float(_) => TokKind::Float(token.text.trim_start().to_string()),
             TokenValue::Punct(value) => TokKind::Punct(punct(value)),
             TokenValue::Version(value) => {
                 for token in value.tokens {
@@ -627,19 +627,6 @@ fn add_define(pp: &mut Preprocessor<'_>, name: &str, value: &str) -> Result<(), 
             },
         )
     })
-}
-
-/// GLSL spelling of a float literal; pp-rs literals are finite or overflow to infinity.
-fn float_literal(v: f32) -> String {
-    if !v.is_finite() {
-        return "1e38".into();
-    }
-    let s = format!("{v:?}");
-    if s.contains(['.', 'e']) {
-        s
-    } else {
-        format!("{s}.0")
-    }
 }
 
 #[cfg(test)]

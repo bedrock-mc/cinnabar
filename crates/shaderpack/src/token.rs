@@ -184,25 +184,17 @@ impl Emitter {
         self.text.is_empty() || self.text.ends_with('\n')
     }
 
-    /// Appends tokens, one statement or brace per line, indented by brace depth.
+    /// Appends tokens, one statement or brace per line.
     pub fn tokens(&mut self, toks: &[Tok]) {
-        let mut indent = 0usize;
         let mut paren = 0i32;
         if !self.at_line_start() {
             self.push_char('\n');
         }
         for (i, t) in toks.iter().enumerate() {
-            if t.is("}") {
-                indent = indent.saturating_sub(1);
-                if !self.at_line_start() {
-                    self.push_char('\n');
-                }
+            if t.is("}") && !self.at_line_start() {
+                self.push_char('\n');
             }
-            if self.at_line_start() {
-                for _ in 0..indent {
-                    self.text.push_str("    ");
-                }
-            } else if needs_space(&toks[i - 1], t) {
+            if !self.at_line_start() && needs_space(&toks[i - 1], t) {
                 self.text.push(' ');
             }
             if self.line_origin == 0 {
@@ -214,10 +206,7 @@ impl Emitter {
             } else if t.is(")") {
                 paren -= 1;
             }
-            if t.is("{") {
-                indent += 1;
-                self.push_char('\n');
-            } else if t.is("}") || (t.is(";") && paren == 0) {
+            if t.is("{") || t.is("}") || (t.is(";") && paren == 0) {
                 self.push_char('\n');
             }
         }
@@ -258,6 +247,36 @@ fn needs_space(prev: &Tok, t: &Tok) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frontend_emitter_size_is_linear_for_nested_blocks() {
+        for depth in [64, 512] {
+            let source = format!(
+                "{}float value = 1.0;{}",
+                "{".repeat(depth),
+                "}".repeat(depth)
+            );
+            let tokens = lex(&source);
+            let mut emitter = Emitter::default();
+            emitter.tokens(&tokens);
+            let (text, _) = emitter.finish();
+            assert!(
+                text.len() <= 4 * source.len(),
+                "depth {depth}: {} bytes",
+                text.len()
+            );
+            assert_eq!(
+                lex(&text)
+                    .into_iter()
+                    .map(|token| token.kind)
+                    .collect::<Vec<_>>(),
+                tokens
+                    .into_iter()
+                    .map(|token| token.kind)
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
 
     #[test]
     fn emitter_records_the_first_source_line_of_each_output_line() {

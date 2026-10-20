@@ -473,6 +473,58 @@ fn frontend_include_trailing_comments_follow_included_metadata() {
 }
 
 #[test]
+fn frontend_lfcr_continuations_keep_source_lines() {
+    let source = [
+        "#define VALUE 1 + \\",
+        "2",
+        "int sum = VALUE;",
+        "int line = __LINE__;",
+    ]
+    .join("\n\r");
+    let pp = run(&[("a.fsh", &source)], "a.fsh", &[]);
+    let mut emitter = crate::token::Emitter::default();
+    emitter.tokens(&pp.tokens);
+    assert_eq!(emitter.finish().0, "int sum = 1 + 2;\nint line = 4;\n");
+    let line = pp
+        .tokens
+        .iter()
+        .find(|token| token.ident() == Some("line"))
+        .unwrap();
+    assert_eq!(pp.map.locate(line.line).unwrap().to_string(), "a.fsh:4");
+}
+
+#[test]
+fn frontend_float_literals_keep_expanded_spelling() {
+    let pp = run(
+        &[(
+            "a.fsh",
+            "#define PRECISE 0.1234567890123456789\nfloat values[] = float[](PRECISE, 1e999, 1e-999, 4.1e+10f, .01e12F, 1.000000);",
+        )],
+        "a.fsh",
+        &[],
+    );
+    let literals: Vec<_> = pp
+        .tokens
+        .iter()
+        .filter_map(|token| match &token.kind {
+            TokKind::Float(text) => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        literals,
+        [
+            "0.1234567890123456789",
+            "1e999",
+            "1e-999",
+            "4.1e+10f",
+            ".01e12F",
+            "1.000000"
+        ]
+    );
+}
+
+#[test]
 fn frontend_header_line_macro_preserves_spelling() {
     let pp = run(
         &[("a.fsh", "\n\nint line = __LINE__;\nuint literal = 0x2Au;")],
