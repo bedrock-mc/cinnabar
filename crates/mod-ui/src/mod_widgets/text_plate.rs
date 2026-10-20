@@ -28,7 +28,7 @@ pub(in super::super) fn measure(hud: &mut Hud, text: &dyn TextMeasure) -> bool {
             if plate.style.brackets { "]" } else { "" },
         ];
         let mut extents = words.map(|word| {
-            text.label(word, None, shape)
+            text.named_label(word, card.font.name(), None, None, shape)
                 .map(|v| if v.is_finite() { v.max(0.) } else { 0. })
         });
         let mut remaining = f64::from(ui::mod_hud::MAX_CARD_WIDTH) * k;
