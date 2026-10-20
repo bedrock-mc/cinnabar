@@ -327,7 +327,7 @@ impl Binder<'_> {
             && previous.scope.same(scope)
             // A factory's creations are hoisted to its parent, which rebuilds them.
             && !track.hoisted
-            && self.created + track.count <= crate::resolve::MAX_NODES
+            && self.created + track.count <= self.state.node_limit()
     }
 
     /// Move `previous` over unchanged, as rebuilding it would leave it.

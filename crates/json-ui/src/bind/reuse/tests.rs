@@ -6,6 +6,105 @@ use serde_json::{Value, json};
 
 use crate::{BindState, DataSource, EmptyLibrary, ResolvedControl, Scalar};
 
+/// Counts the expanded tree, including controls materialized by nested factories.
+fn budget_nodes(tree: &ResolvedControl) -> usize {
+    1 + tree.children.iter().map(budget_nodes).sum::<usize>()
+}
+
+/// A stable catalog with factory references whose feeds can exceed a caller's budget.
+fn budget_catalog() -> crate::Catalog {
+    let mut catalog = crate::Catalog::default();
+    catalog.overlay_text("ui/budget.json", r#"{"namespace":"budget",
+        "leaf":{"type":"panel"},
+        "row":{"type":"panel","factory":{"name":"leaves","control_ids":{"leaf":"budget.leaf"}}},
+        "nested":{"type":"panel","factory":{"name":"rows","control_ids":{"row":"budget.row"}}},
+        "reuse":{"type":"panel","controls":[
+            {"expanding":{"type":"panel","factory":{"name":"rows","control_ids":{"leaf":"budget.leaf"}}}},
+            {"stable":{"type":"panel","controls":[{"a":{}},{"b":{}},{"c":{}},{"d":{}},{"e":{}},{"f":{}},{"g":{}},{"h":{}}]}}
+        ]}}"#);
+    catalog
+}
+
+#[test]
+fn a_caller_budget_limits_nested_factory_materialization_on_each_bind() {
+    let catalog = budget_catalog();
+    let context = crate::Context::default();
+    let root = Arc::new(
+        crate::resolve(&catalog, "budget.nested", &context)
+            .control
+            .unwrap(),
+    );
+    let library = crate::CatalogLibrary {
+        catalog: &catalog,
+        context: &context,
+    };
+    let mut state = BindState::new().with_node_limit(17);
+    assert_eq!(BindState::default().node_limit(), crate::resolve::MAX_NODES);
+    assert_eq!(BindState::new().with_node_limit(0).node_limit(), 1);
+    assert_eq!(
+        BindState::new().with_node_limit(usize::MAX).node_limit(),
+        crate::resolve::MAX_NODES
+    );
+    for revision in 0..3 {
+        let mut data = DataSource::new();
+        data.set_factory(
+            "rows",
+            (0..100)
+                .map(|_| crate::FactoryItem::new("row", 0.0))
+                .collect(),
+        );
+        data.set_factory(
+            "leaves",
+            (0..100)
+                .map(|_| crate::FactoryItem::new("leaf", 0.0))
+                .collect(),
+        );
+        data.set_global("#unread", Scalar::Num(f64::from(revision)));
+        let bound = crate::bind_incremental(&root, &Arc::new(data), &library, &mut state);
+        assert_eq!(budget_nodes(&bound), 17);
+        assert!(state.node_budget_exceeded);
+        assert!(
+            state.rebuilt() <= 17,
+            "materialized more controls than the cap"
+        );
+    }
+}
+
+#[test]
+fn reused_subtrees_share_the_creation_budget_and_recover_after_pressure() {
+    let catalog = budget_catalog();
+    let context = crate::Context::default();
+    let root = Arc::new(
+        crate::resolve(&catalog, "budget.reuse", &context)
+            .control
+            .unwrap(),
+    );
+    let library = crate::CatalogLibrary {
+        catalog: &catalog,
+        context: &context,
+    };
+    let mut state = BindState::new().with_node_limit(17);
+    let mut bound = None;
+    let mut measures = crate::MeasureCache::default();
+    for (rows, expected) in [(0, 11), (10, 17), (0, 11), (10, 17)] {
+        let mut data = DataSource::new();
+        data.set_factory(
+            "rows",
+            (0..rows)
+                .map(|_| crate::FactoryItem::new("leaf", 0.0))
+                .collect(),
+        );
+        let data = Arc::new(data);
+        if let Some(bound) = bound.as_mut() {
+            crate::rebind(&root, &data, &library, &mut state, bound, &mut measures);
+        } else {
+            bound = Some(crate::bind_incremental(&root, &data, &library, &mut state));
+        }
+        assert_eq!(budget_nodes(bound.as_ref().unwrap()), expected);
+        assert!(state.tree.as_ref().unwrap().track.count <= 17);
+    }
+}
+
 fn control(
     name: &str,
     kind: &str,

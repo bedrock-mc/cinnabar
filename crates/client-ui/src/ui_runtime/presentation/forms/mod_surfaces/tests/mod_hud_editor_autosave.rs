@@ -240,6 +240,7 @@ fn supplied_editor_buttons_render_hover_and_captured_press_without_disrupting_au
     };
     hud.surface = Some(ui::mod_panel::Surface {
         collections: Default::default(),
+        previews: Default::default(),
         transitions: Default::default(),
         screen: "fixture.overlay".into(),
         document: serde_json::json!({"namespace":"fixture","overlay":{

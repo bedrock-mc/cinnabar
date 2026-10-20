@@ -285,7 +285,11 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
 
 - [ ] `P5.1-UI` — Close pack-driven UI, bounded text/draw work, formatting, scaling,
   safe areas, focus/navigation and keyboard/mouse/controller/touch acceptance. Prove
-  stable retained resources and correct supported DPI/aspect behavior.
+  stable retained resources and correct supported DPI/aspect behavior. Form JSON
+  container parsing and cleanup use heap stacks and accept line/block comments.
+  Structured text keeps its separate
+  container parsing and cleanup use heap stacks; structured text keeps its separate
+  validation limits. Extreme structured-text and rendered-form acceptance remain open.
 - [ ] `P5.2-HUD` — Close received text, titles, actionbar, toasts, survival/status HUD
   and lifecycle behavior without leaking UI-owned input into movement.
 - [ ] `P5.3-CHAT` — Close history/autocomplete, formatting, bounded UTF-8 editing,
@@ -306,6 +310,7 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   and responses, including server-pack definitions, structured text, custom controls,
   scaling and image/layout behavior against matched native views. Overlapping requests
   keep the active form and answer busy, including reused IDs.
+  Busy cancellations retain every request through transport backpressure.
   Custom forms retain control locks and publish enabled bindings for the current
   game phase without removing locked response values; device acceptance remains open.
   Server settings replies are cached until their tab is selected; embedding their

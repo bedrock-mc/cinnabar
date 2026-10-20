@@ -106,6 +106,7 @@ pub fn sample_panel() -> Panel {
         ],
         sections: Vec::new(),
         capture_key: false,
+        show_gameplay_hud: false,
         motion: false,
     }
 }
