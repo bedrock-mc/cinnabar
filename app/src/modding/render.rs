@@ -11,6 +11,9 @@ pub(super) fn publish(
     drawing: Option<&super::packet_render::Drawing>,
 ) {
     let Some(mut scene) = scene else { return };
+    if let Some(drawing) = drawing {
+        drawing.publish_blocks(&mut scene);
+    }
     let unchanged = runtime.render_sources.iter().copied().eq(runtime
         .hosts
         .render_outputs()

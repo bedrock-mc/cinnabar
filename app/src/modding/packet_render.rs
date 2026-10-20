@@ -10,7 +10,7 @@ use mod_render::{
 };
 use std::sync::Arc;
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub(super) struct Drawing {
     store: draw::Store,
     session: DrawingSession,
@@ -19,11 +19,34 @@ pub(super) struct Drawing {
     instances: Vec<DrawingHandle>,
     output: RenderOutput,
     generation: u64,
+    highlights: super::packet_highlights::Highlights,
+}
+impl Default for Drawing {
+    /// Allocates one host-owned drawing namespace for geometry and actor masks.
+    fn default() -> Self {
+        let store = draw::Store::default();
+        let highlights = super::packet_highlights::Highlights::new(store.owner());
+        Self {
+            store,
+            highlights,
+            session: Default::default(),
+            source: None,
+            geometry: Vec::new(),
+            instances: Vec::new(),
+            output: Default::default(),
+            generation: 0,
+        }
+    }
 }
 impl Drawing {
     /// Validates resources once per changed desired scene or trusted connection fence.
     pub(super) fn update(&mut self, scene: Option<Arc<Scene>>, session: DrawingSession) {
-        if self.session == session && self.source == scene {
+        let scene = scene.filter(|scene| {
+            scene.session == session.connection
+                && scene.dimension == session.dimension
+                && scene.is_valid()
+        });
+        if self.session == session && self.source == scene && !self.highlights.dirty {
             return;
         }
         let changed_scope = self.session != session;
@@ -49,11 +72,37 @@ impl Drawing {
         } else {
             self.store.commit();
         }
+        self.output.masks = self.highlights.update(scene.as_deref(), session);
         self.output.retained = if self.store.snapshot().instances.is_empty() {
             Vec::new()
         } else {
             vec![Arc::clone(self.store.snapshot())]
         };
+    }
+
+    /// Avoids actor observation work when the packet scene selects no meshes.
+    pub(super) fn needs_targets(&self) -> bool {
+        self.source
+            .as_ref()
+            .is_some_and(|scene| !scene.entities.is_empty())
+    }
+    /// Reconciles actor identity and vertex admission through the shared mask owner.
+    pub(super) fn targets(&mut self, targets: Vec<(mod_api::drawing::MaskEntity, u64)>) {
+        self.highlights.targets(targets);
+    }
+    /// Shares full-block markers with the existing loaded-block overlay renderer.
+    pub(super) fn publish_blocks(&self, scene: &mut render_scene::ModRenderScene) {
+        scene.set_drawn_block_highlights(
+            self.source
+                .as_ref()
+                .filter(|_| {
+                    self.session.connection != 0
+                        && self.session.permissions.world_draw
+                        && self.session.permissions.render_through_walls
+                })
+                .map(|source| source.blocks.as_slice())
+                .unwrap_or_default(),
+        );
     }
 
     /// Keeps geometry immutable and reuses instance handles across ordinary movement updates.
@@ -265,6 +314,7 @@ pub(super) fn publish_frame(
 }
 /// Supports a packet-only configuration without introducing an empty component host.
 pub(super) fn publish_alone(scene: &mut render_scene::ModRenderScene, drawing: &Drawing) {
+    drawing.publish_blocks(scene);
     if scene.retained != drawing.output.retained
         || !scene.passes.is_empty()
         || scene.masks != drawing.output.masks
@@ -289,7 +339,7 @@ mod tests {
     fn distant_drawings_reuse_geometry_and_release_on_scope_or_permission_loss() {
         let mut drawing = Drawing::default();
         let scope = DrawingSession {
-            connection: 7,
+            connection: 1,
             dimension: 0,
             permissions: mod_api::drawing::DrawingPermissions::ALL,
             ..Default::default()

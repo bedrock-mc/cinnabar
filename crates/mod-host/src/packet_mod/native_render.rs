@@ -30,7 +30,7 @@ impl PacketMod {
                 Err(error) => return Ok(Err(error)),
             };
             ensure!(
-                output.len() <= MAX_BYTES,
+                output.len() <= mod_api::native_render::MAX_BYTES,
                 "render output exceeds its byte limit"
             );
             let scene: Option<Scene> = serde_json::from_slice(&output)?;
@@ -40,6 +40,18 @@ impl PacketMod {
                         == (frame.session, frame.dimension))),
                 "invalid native render scene"
             );
+            if let Some(scene) = &scene {
+                let bits = guest.native_render_capabilities();
+                ensure!(
+                    scene.entities.is_empty()
+                        || bits & mod_api::native_render::ENTITY_HIGHLIGHTS != 0,
+                    "actor highlight authority denied"
+                );
+                ensure!(
+                    scene.blocks.is_empty() || bits & mod_api::native_render::BLOCK_HIGHLIGHTS != 0,
+                    "block highlight authority denied"
+                );
+            }
             Ok(Ok(scene))
         })
         .map(Option::flatten)
@@ -51,7 +63,7 @@ mod tests {
     use super::*;
     use crate::{ModGrants, packet_mod::CompiledPacketMod};
     /// Creates a canonical renderer without granting camera, players or input authority.
-    fn guest(scene: &str, walls: bool) -> PacketMod {
+    fn guest(scene: &str, walls: bool, highlights: bool) -> PacketMod {
         let mut source = include_str!("tests/guest.wat")
             .replace("$IMPORTS", "")
             .replace("$START", "");
@@ -67,13 +79,16 @@ mod tests {
             (i32.store (i32.const 136) (i32.const {length}))
             (if (i32.eq (i32.load8_u (local.get $input)) (i32.const 110)) (then
               (i32.store (i32.const 132) (i32.const 4096)) (i32.store (i32.const 136) (i32.const 4))))
-            (i32.const 128)))"#,length=scene.len(),mask=if walls {8}else{0}));
+            (i32.const 128)))"#,length=scene.len(),mask=if walls {8 | if highlights {16 | 32} else {0}}else{0}));
         CompiledPacketMod::compile(
             &wat::parse_str(source).unwrap(),
             &ModGrants {
                 packets: true,
                 world_draw: true,
                 render_through_walls: walls,
+                entity_observe: highlights,
+                entity_highlight: highlights,
+                block_highlights: highlights,
                 ..Default::default()
             },
         )
@@ -86,7 +101,7 @@ mod tests {
         let fixture: serde_json::Value =
             serde_json::from_str(include_str!("../../../mod-api/native-render-v1.json")).unwrap();
         let scene = serde_json::to_string(&fixture["scene"]).unwrap();
-        let mut guest = guest(&scene, true);
+        let mut guest = guest(&scene, true, true);
         let frame = Frame {
             version: 1,
             session: 1,
@@ -112,8 +127,37 @@ mod tests {
     #[test]
     fn missing_depth_grant_cannot_negotiate_rendering() {
         // An unnegotiated export never receives native-init and cannot emit a scene.
-        let mut guest = guest("null", false);
+        let mut guest = guest("null", false, false);
         assert!(!guest.has_native_frame());
         assert!(guest.render_frame(None).unwrap().is_none());
+    }
+    #[test]
+    fn ungranted_actor_or_block_payload_quarantines_instead_of_publishing() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../mod-api/native-render-v1.json")).unwrap();
+        for rejected in ["entities", "blocks"] {
+            let mut scene = fixture["scene"].clone();
+            let other = if rejected == "entities" {
+                "blocks"
+            } else {
+                "entities"
+            };
+            scene[other] = serde_json::json!([]);
+            let mut guest = guest(&scene.to_string(), true, false);
+            let frame = Frame {
+                version: 1,
+                session: 1,
+                dimension: 0,
+                eye: [0.; 3],
+                yaw: 0.,
+                pitch: 0.,
+                attack_held: false,
+                seconds: 0.016,
+                players: Vec::new(),
+                suspended: true,
+            };
+            assert!(guest.render_frame(Some(&frame)).is_err(), "{rejected}");
+            assert!(!guest.is_active());
+        }
     }
 }

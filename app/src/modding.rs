@@ -36,6 +36,7 @@ mod environment_loader;
 mod hud_editor;
 mod library;
 mod native_camera;
+mod packet_highlights;
 mod packet_menu;
 mod packet_render;
 pub(crate) mod packets;
@@ -443,7 +444,16 @@ fn begin_mod_frame(
     extension: Option<ResMut<ModRuntime>>,
     gameplay: gameplay::GameplayContext,
     actors: Option<Res<render_scene::ActorRenderFrame>>,
+    mut drawing: ResMut<packet_render::Drawing>,
 ) {
+    if drawing.needs_targets() {
+        drawing.targets(
+            actors
+                .as_deref()
+                .map(render_scene::mod_scene::mask_targets)
+                .unwrap_or_default(),
+        );
+    }
     if let Some(mut extension) = extension {
         drawing_policy::bind(&mut extension.hosts, &gameplay);
         anchors::reconcile(&mut extension.hosts, &gameplay);

@@ -218,6 +218,11 @@ impl Default for Store {
 }
 
 impl Store {
+    /// Shares this host-owned drawing namespace with its actor-mask adapter.
+    pub fn owner(&self) -> u64 {
+        self.owner
+    }
+
     /// Binds snapshots to the trusted connection before the guest initializes resources.
     pub fn bind_session(&mut self, connection: u64, dimension: i32) {
         self.revoke();

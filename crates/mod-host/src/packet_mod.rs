@@ -77,6 +77,11 @@ trait Guest: Send {
         Ok(Ok(None))
     }
     /// Whether startup admitted the independent drawing callback.
+    /// Consent bits for optional actor and block output in the drawing callback.
+    fn native_render_capabilities(&self) -> u32 {
+        0
+    }
+
     fn has_native_render(&self) -> bool {
         false
     }

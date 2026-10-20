@@ -181,6 +181,7 @@ impl Program {
             calls,
             deadline,
             camera_players: self.camera_players,
+            native_capabilities: self.native_capabilities,
         }))
     }
 }
@@ -206,6 +207,7 @@ struct CoreGuest {
     calls: Calls,
     deadline: wasi::CallDeadline,
     camera_players: bool,
+    native_capabilities: u32,
 }
 
 impl CoreGuest {
@@ -347,6 +349,10 @@ impl Guest for CoreGuest {
         })
     }
 
+    fn native_render_capabilities(&self) -> u32 {
+        self.native_capabilities
+    }
+
     fn has_native_render(&self) -> bool {
         self.calls.render_frame.is_some()
     }
@@ -358,9 +364,12 @@ impl Guest for CoreGuest {
         let result = self
             .deadline
             .run(frame.call_async(&mut self.store, input))?;
-        self.lift_bounded(6, result, mod_api::native_frame::MAX_BYTES, |reader, at| {
-            reader.result(at, |reader, at| reader.list(at).map(Some))
-        })
+        self.lift_bounded(
+            6,
+            result,
+            mod_api::native_render::MAX_BYTES,
+            |reader, at| reader.result(at, |reader, at| reader.list(at).map(Some)),
+        )
     }
     fn has_native_camera(&self) -> bool {
         self.calls.camera_frame.is_some()

@@ -419,8 +419,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   negotiate bounded detached-view and passive camera effects through the shared
   camera owners; interactive movement, perspective release, teleport and hurt-view
   acceptance remain unverified in a displayed client. Packet-extension world
-  drawing uses the retained geometry/depth owners; native box/tracer rendering
-  still needs displayed-frame and hardware acceptance.
+  drawing uses the retained geometry/depth owners, actor-mask compositor and
+  full-block highlight renderer. Headless camera, box/tracer and menu captures
+  exist; actor silhouettes, coloured full-block highlights and broad platform /
+  hardware-performance acceptance still require validation.
 - Enhanced rendering remains restricted until its GPU faults and freezes are resolved.
   Diagnostics or bounded fixtures do not establish safe general gameplay use. Java
   shader-pack source loading and configuration metadata are implemented in

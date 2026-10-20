@@ -3,6 +3,11 @@ use serde::{Deserialize, Serialize};
 
 /// Native initialization bit for the independent `render-frame` callback.
 pub const CAPABILITY: u32 = 8;
+/// Optional consent bits carried by the same independent callback.
+pub const ENTITY_HIGHLIGHTS: u32 = 16;
+pub const BLOCK_HIGHLIGHTS: u32 = 32;
+/// Complete scenes have separate bounds from the small input snapshot.
+pub const MAX_BYTES: usize = 256 << 10;
 /// A wire box may expand to twelve admitted line instances.
 pub const MAX_BOXES: usize = crate::MAX_DRAW_INSTANCES / 16;
 /// Remaining bounded tracer capacity within the retained instance allowance.
@@ -35,6 +40,20 @@ pub struct Line {
     pub end: [f32; 3],
     pub colour: [f32; 4],
 }
+/// One bounded union of actual actor meshes, composed by the existing mask renderer.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EntityHighlight {
+    pub runtime_ids: Vec<u64>,
+    pub style: crate::drawing::MaskStyle,
+}
+/// One full-block highlight using the host's loaded-block presentation.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BlockHighlight {
+    pub position: [i32; 3],
+    pub colour: [f32; 4],
+}
 /// One complete desired scene, fenced to the host's native frame scope.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -44,6 +63,10 @@ pub struct Scene {
     pub dimension: i32,
     pub boxes: Vec<BoxVolume>,
     pub lines: Vec<Line>,
+    #[serde(default)]
+    pub entities: Vec<EntityHighlight>,
+    #[serde(default)]
+    pub blocks: Vec<BlockHighlight>,
 }
 impl Scene {
     /// Validates the wire budget and finite input; retained drawing owns resource admission.
@@ -51,6 +74,19 @@ impl Scene {
         self.version == super::native_frame::VERSION
             && self.boxes.len() <= MAX_BOXES
             && self.lines.len() <= MAX_LINES
+            && self.entities.len() <= crate::drawing::MAX_MASKS
+            && self.entities.iter().all(|group| {
+                group.style.valid()
+                    && group.runtime_ids.len() <= crate::drawing::MAX_MASK_ENTITIES
+                    && group.runtime_ids.iter().all(|id| *id != 0)
+            })
+            && self.blocks.len() <= crate::MAX_BLOCK_HIGHLIGHTS
+            && self.blocks.iter().all(|b| {
+                point(b.position.map(|v| v as f32))
+                    && b.colour
+                        .iter()
+                        .all(|v| v.is_finite() && (0.0..=1.0).contains(v))
+            })
             && self.boxes.iter().all(|b| {
                 point(b.centre)
                     && b.size.iter().all(|v| {
@@ -87,6 +123,15 @@ mod tests {
         assert_eq!(fixture["capability"], CAPABILITY);
         assert_eq!(fixture["max_boxes"], MAX_BOXES);
         assert_eq!(fixture["max_lines"], MAX_LINES);
+        assert_eq!(fixture["entity_capability"], ENTITY_HIGHLIGHTS);
+        assert_eq!(fixture["block_capability"], BLOCK_HIGHLIGHTS);
+        assert_eq!(fixture["max_bytes"], MAX_BYTES);
+        assert_eq!(fixture["max_blocks"], crate::MAX_BLOCK_HIGHLIGHTS);
+        assert_eq!(fixture["max_groups"], crate::drawing::MAX_MASKS);
+        assert_eq!(
+            fixture["max_group_entities"],
+            crate::drawing::MAX_MASK_ENTITIES
+        );
         assert!(MAX_BOXES * 12 + MAX_LINES <= crate::MAX_DRAW_INSTANCES);
         let scene: Scene = serde_json::from_value(fixture["scene"].clone()).unwrap();
         assert!(scene.is_valid());

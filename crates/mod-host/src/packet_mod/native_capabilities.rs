@@ -150,7 +150,7 @@ impl NativeExports {
     /// Computes callback bits only where the caller explicitly granted every required field.
     pub(super) fn negotiate(&self, granted: &ModGrants) -> Result<u32> {
         self.validate()?;
-        Ok(EXPORTS
+        let mut bits = EXPORTS
             .iter()
             .zip(&self.signatures)
             .filter(|(_, signature)| **signature == Some(true))
@@ -160,7 +160,16 @@ impl NativeExports {
                     .iter()
                     .all(|grant| (grant.requested_allowed)(granted, &required))
             })
-            .fold(0, |bits, (export, _)| bits | export.capability))
+            .fold(0, |bits, (export, _)| bits | export.capability);
+        if bits & mod_api::native_render::CAPABILITY != 0 {
+            if granted.entity_observe && granted.entity_highlight {
+                bits |= mod_api::native_render::ENTITY_HIGHLIGHTS;
+            }
+            if granted.block_highlights {
+                bits |= mod_api::native_render::BLOCK_HIGHLIGHTS;
+            }
+        }
+        Ok(bits)
     }
 
     /// Synthesizes permission requests for a valid ABI without changing any stored grants.
@@ -179,6 +188,11 @@ impl NativeExports {
                     (grant.set)(&mut requested, true, Some(&required));
                 }
             }
+        }
+        if requested.world_draw {
+            requested.entity_observe = true;
+            requested.entity_highlight = true;
+            requested.block_highlights = true;
         }
         requested
     }
