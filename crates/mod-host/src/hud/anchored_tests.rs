@@ -1,7 +1,10 @@
 //! The additive WIT read preserves anchors and the existing callback transaction.
 
 use super::*;
-use crate::{ModGrants, cinnabar::extension::hud::Host};
+use crate::{
+    ModGrants,
+    runtime::cinnabar::extension::hud::{Anchor as WitAnchor, Host},
+};
 use ui::mod_hud::{Anchor, Placement};
 
 /// Creates the same saved placement for granted and denied guest callbacks.
@@ -51,7 +54,6 @@ fn anchored_wit_read_round_trips_all_anchors_and_shares_legacy_consumption() {
             assert!(result.saved && result.reset);
             assert_eq!(result.placements.len(), 1);
             let p = &result.placements[0];
-            use crate::cinnabar::extension::hud::Anchor as WitAnchor;
             let name = match p.anchor {
                 WitAnchor::TopLeft => "top_left",
                 WitAnchor::TopCenter => "top_center",
