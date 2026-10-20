@@ -308,6 +308,9 @@ pub(super) fn fit_line(
     value: &str,
     width: f32,
 ) -> Result<Arc<TextLayout>, UiPresentationError> {
+    // Layout never shows more than its byte limit, so only that prefix is worth fitting.
+    let full = value.len();
+    let value = &value[..value.floor_char_boundary(ui::UiLimits::MAX_TEXT_BYTES.min(full))];
     let ends = value
         .char_indices()
         .map(|(index, _)| index)
@@ -323,7 +326,7 @@ pub(super) fn fit_line(
     while low < high {
         let middle = low + (high - low) / 2;
         let end = ends[middle];
-        let text = if end < value.len() {
+        let text = if end < full {
             format!("{}…", &value[..end])
         } else {
             value.to_owned()
