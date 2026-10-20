@@ -126,10 +126,15 @@ async function serialize(node: SceneNode, parent: Transform, images: Images): Pr
   if ('layoutPositioning' in node) out.positioning = node.layoutPositioning;
   const sizing = layoutSizing(node);
   if (sizing) out.sizing = sizing;
+  if ('minWidth' in node) {
+    out.min_size = [node.minWidth, node.minHeight];
+    out.max_size = [node.maxWidth, node.maxHeight];
+  }
   if (hasToken(node, 'raster')) {
     const key = `node:${node.id}`;
-    // Absolute bounds keep empty margins, so the bitmap covers the serialized box.
-    images[key] = await node.exportAsync({ format: 'PNG', useAbsoluteBounds: true });
+    // Absolute bounds keep empty margins, so the bitmap covers the serialized box;
+    // sRGB is what the pack's PNGs are read as.
+    images[key] = await node.exportAsync({ format: 'PNG', useAbsoluteBounds: true, colorProfile: 'SRGB' });
     out.raster = key;
     return out;
   }

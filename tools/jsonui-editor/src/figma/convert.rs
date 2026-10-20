@@ -7,7 +7,10 @@ use serde_json::{Map, Value, json};
 
 use super::names::{self, Directives, NameSet};
 use super::place::{Natural, Place, anchor, number, place_control, stretch};
-use super::{Align, AutoLayout, Conversion, LayoutMode, Node, Paint, Positioning, Sizing, Warning};
+use super::{
+    Align, AutoLayout, Constraint, Constraints, Conversion, LayoutMode, Node, Paint, Positioning,
+    Sizing, Warning,
+};
 use crate::mock::MockData;
 
 mod button;
@@ -216,6 +219,12 @@ impl Ctx<'_> {
             }
         }
         place_control(&mut body, node, extent, &natural, place);
+        for (key, bounds) in [("min_size", node.min_size), ("max_size", node.max_size)] {
+            if bounds.iter().any(Option::is_some) {
+                let bounds = bounds.map(|bound| bound.map_or_else(|| json!("default"), number));
+                body.insert(key.into(), json!(bounds));
+            }
+        }
         // A button wrapped around content sized to itself hugs that content.
         if directives.button.is_some()
             && let Some(Value::Array(size)) = body.get_mut("size")
@@ -227,6 +236,35 @@ impl Ctx<'_> {
             }
         }
         Some((name, body))
+    }
+
+    /// `child` placed by its constraints in a parent `parent` in size. A plain
+    /// group spans that parent, with its layers moved into the parent's
+    /// coordinates, since Figma resolves their constraints against the
+    /// enclosing frame rather than the group's box.
+    fn free_child(
+        &mut self,
+        child: &Node,
+        parent: [f64; 2],
+        scope: &Scope,
+    ) -> Option<(String, Body)> {
+        let directives = names::parse(&child.name);
+        let plain =
+            directives.button.is_none() && directives.factory.is_none() && !directives.image;
+        if child.kind != "GROUP" || !plain || child.raster.is_some() {
+            return self.control(child, Place::Free { parent }, scope);
+        }
+        let mut spanning = child.clone();
+        for layer in &mut spanning.children {
+            (layer.x, layer.y) = (layer.x + child.x, layer.y + child.y);
+        }
+        (spanning.x, spanning.y) = (0.0, 0.0);
+        (spanning.width, spanning.height) = (parent[0], parent[1]);
+        spanning.constraints = Constraints {
+            horizontal: Constraint::Stretch,
+            vertical: Constraint::Stretch,
+        };
+        self.control(&spanning, Place::Free { parent }, scope)
     }
 
     /// `node`'s own control before placement, and how its axes size to content.
@@ -550,7 +588,7 @@ impl Ctx<'_> {
                 }
                 let parent = [node.width, node.height];
                 for child in &node.children {
-                    if let Some((name, body)) = self.control(child, Place::Free { parent }, scope) {
+                    if let Some((name, body)) = self.free_child(child, parent, scope) {
                         controls.push(entry(&names.unique(&name), body));
                     }
                 }
@@ -728,7 +766,7 @@ impl Ctx<'_> {
                 let message = "an absolute layer between auto-layout items draws above all of them";
                 self.warn(child, &scope.path_to(child), message);
             }
-            let Some((name, body)) = self.control(child, Place::Free { parent }, scope) else {
+            let Some((name, body)) = self.free_child(child, parent, scope) else {
                 continue;
             };
             let control = entry(&names.unique(&name), body);

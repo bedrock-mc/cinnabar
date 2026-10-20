@@ -55,6 +55,10 @@ pub struct Node {
     pub positioning: Positioning,
     /// Horizontal and vertical sizing in an auto-layout parent.
     pub sizing: [Sizing; 2],
+    /// Figma's `minWidth`/`minHeight`, where set.
+    pub min_size: [Option<f64>; 2],
+    /// Figma's `maxWidth`/`maxHeight`, where set.
+    pub max_size: [Option<f64>; 2],
     pub text: Option<Text>,
     /// Image key of the plugin's PNG export of this layer (`@image`).
     pub raster: Option<String>,
@@ -89,6 +93,8 @@ impl Default for Node {
             layout: None,
             positioning: Positioning::Auto,
             sizing: [Sizing::Fixed; 2],
+            min_size: [None; 2],
+            max_size: [None; 2],
             text: None,
             raster: None,
             children: Vec::new(),

@@ -42,7 +42,8 @@ Design at 1 Figma pixel per Bedrock GUI pixel. The selected frame becomes
 | Text | `label` drawn exactly as written (not localized): font (`Minecraft Ten` → `MinecraftTen`, `Minecraft` → default, others → `smooth`), size (8 px = scale 1), colour, alignment |
 | Rectangle with one fill | `image`: solid fills tint a generated white texture; image fills export their PNG |
 | Rectangle with no or several fills | `panel`, one image per fill |
-| Constraints | `anchor_from`/`anchor_to`, `offset` and `size`, so the screen resizes as the frame does |
+| Constraints | `anchor_from`/`anchor_to`, `offset` and `size` against the enclosing frame (through any groups), so the screen resizes as the frame does |
+| Min and max width and height | `min_size` and `max_size` |
 
 ## Naming convention
 
