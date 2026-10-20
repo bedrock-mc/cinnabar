@@ -5,7 +5,6 @@
 use std::collections::BTreeMap;
 
 use super::PropertiesDiagnostic;
-use crate::expr::truncated;
 use crate::source::MAX_EXPANDED_PROPERTIES_BYTES;
 use pp_rs::pp::Preprocessor;
 use pp_rs::token::TokenValue;
@@ -36,7 +35,8 @@ pub(crate) fn read_entries(
     let mut remaining_bytes = MAX_EXPANDED_PROPERTIES_BYTES;
     let mut raw_continuation = None;
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-    for (index, physical) in text.lines().enumerate() {
+    let mut physical_lines = text.lines().enumerate();
+    while let Some((index, physical)) = physical_lines.next() {
         let line = u32::try_from(index + 1).unwrap_or(u32::MAX);
         let trimmed = physical.trim();
         if trimmed.is_empty() {
@@ -44,7 +44,25 @@ pub(crate) fn read_entries(
         }
         let continuation = raw_continuation.take();
         let kept = if let Some(rest) = trimmed.strip_prefix('#') {
-            if let Some(directive) = Directive::parse(rest) {
+            if Directive::parse(rest).is_none() {
+                lines.push((line, String::new()));
+                continue;
+            }
+            let mut in_comment = false;
+            let mut code = directive_code(rest, &mut in_comment);
+            while in_comment {
+                let Some((_, physical)) = physical_lines.next() else {
+                    break;
+                };
+                code.push(' ');
+                code.push_str(&directive_code(physical, &mut in_comment));
+            }
+            if in_comment {
+                diagnostics.push(PropertiesDiagnostic {
+                    line,
+                    message: "directive comment is missing its */".to_owned(),
+                });
+            } else if let Some(directive) = Directive::parse(&code) {
                 conditionals.apply(directive, line, diagnostics);
             }
             String::new()
@@ -164,12 +182,10 @@ fn expand_into<'a>(
     out: &mut String,
     max_bytes: usize,
 ) -> Result<(), &'static str> {
-    let is_word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
     let mut rest = text;
     let mut after_defined = false;
-    while let Some(start) = rest.bytes().position(is_word) {
+    while let Some((start, len)) = crate::options::next_code_word(rest) {
         append_expanded(out, &rest[..start], max_bytes)?;
-        let len = rest[start..].bytes().take_while(|&b| is_word(b)).count();
         let word = &rest[start..start + len];
         rest = &rest[start + len..];
         match defines.get_key_value(word) {
@@ -284,7 +300,36 @@ fn unescape(text: &str) -> String {
     out
 }
 
-/// A preprocessor directive; arguments are trimmed and stripped of `//` comments.
+/// Removes directive comments while preserving quoted text and multi-line block state.
+fn directive_code(mut text: &str, in_comment: &mut bool) -> String {
+    let mut out = String::new();
+    while !text.is_empty() {
+        if *in_comment {
+            let Some((_, rest)) = text.split_once("*/") else {
+                break;
+            };
+            text = rest;
+            *in_comment = false;
+            out.push(' ');
+        } else if text.starts_with("//") {
+            break;
+        } else if let Some(rest) = text.strip_prefix("/*") {
+            text = rest;
+            *in_comment = true;
+            out.push(' ');
+        } else if let Some(len) = crate::options::quoted_len(text) {
+            out.push_str(&text[..len]);
+            text = &text[len..];
+        } else {
+            let c = text.chars().next().unwrap();
+            out.push(c);
+            text = &text[c.len_utf8()..];
+        }
+    }
+    out
+}
+
+/// A preprocessor directive with trimmed, comment-free arguments.
 #[derive(Clone, Copy)]
 enum Directive<'a> {
     If(&'a str),
@@ -311,7 +356,7 @@ impl<'a> Directive<'a> {
         {
             return None;
         }
-        let args = args.split_once("//").map_or(args, |(code, _)| code).trim();
+        let args = args.trim();
         Some(match word {
             "if" => Directive::If(args),
             "ifdef" => Directive::Ifdef(args),
@@ -452,9 +497,9 @@ impl Conditionals {
     /// reads them); malformed conditions are reported and false.
     fn test(&self, text: &str, report: &mut impl FnMut(&str)) -> bool {
         // pp-rs mis-parses some operators after its own macro expansion, so names are expanded
-        // here and pp-rs evaluates literals and `defined` only. pp-rs rejects float literals.
+        // here and pp-rs evaluates literals and `defined` only.
         let condition = match expand(text, &self.defines, true, MAX_EXPANDED_PROPERTIES_BYTES) {
-            Ok(condition) => integer_literals(&condition),
+            Ok(condition) => condition,
             Err(message) => {
                 report(message);
                 return false;
@@ -462,6 +507,7 @@ impl Conditionals {
         };
         let source = format!("#if {condition}\n1\n#else\n0\n#endif\n");
         let mut preprocessor = Preprocessor::new(&source);
+        preprocessor.set_iris_conditions(true);
         for (name, value) in &self.defines {
             // A macro that cannot be defined is simply absent, as an undefined name.
             let _ = preprocessor.add_define(name, flag_value(value));
@@ -492,40 +538,4 @@ impl Conditionals {
 /// Splits `#define`/`#undef` arguments into the macro name and its (trimmed) value.
 fn macro_name(args: &str) -> Option<(&str, &str)> {
     crate::options::split_ident(args).map(|(name, value)| (name, value.trim()))
-}
-
-/// `condition` with each float literal replaced by its integer part (`0.75 > 0.5` → `0 > 0`).
-/// Identifiers are copied whole, so digits inside names are untouched.
-fn integer_literals(condition: &str) -> String {
-    let mut out = String::with_capacity(condition.len());
-    let mut rest = condition;
-    while let Some(c) = rest.chars().next() {
-        let starts_number =
-            c.is_ascii_digit() || (c == '.' && rest[1..].starts_with(|d: char| d.is_ascii_digit()));
-        if !starts_number && !(c.is_ascii_alphabetic() || c == '_') {
-            out.push(c);
-            rest = &rest[c.len_utf8()..];
-            continue;
-        }
-        // An identifier, or a C preprocessing number: digits, letters, `.`, and a sign after an
-        // exponent.
-        let mut previous = ' ';
-        let end = rest
-            .find(|c: char| {
-                let exponent_sign = matches!(c, '+' | '-') && matches!(previous, 'e' | 'E');
-                let number_part = starts_number && (c == '.' || exponent_sign);
-                previous = c;
-                !(c.is_ascii_alphanumeric() || c == '_' || number_part)
-            })
-            .unwrap_or(rest.len());
-        let (token, tail) = rest.split_at(end);
-        rest = tail;
-        let integer = if starts_number {
-            truncated(token)
-        } else {
-            None
-        };
-        out.push_str(integer.as_deref().unwrap_or(token));
-    }
-    out
 }
