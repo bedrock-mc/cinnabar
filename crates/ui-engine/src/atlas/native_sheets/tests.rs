@@ -106,3 +106,29 @@ fn source_limit_regions_keep_clamped_and_constant_sampling_covered() {
         assert_eq!(allocations, 0);
     }
 }
+
+#[test]
+fn repeated_source_bounds_remain_in_original_image_units_across_pages() {
+    let sheet = resident([8192, 16]);
+    let uv = UvRect {
+        u0: -0.25,
+        v0: 0.0,
+        u1: 1.25,
+        v1: 1.0,
+    };
+    for quad in sheet.quads(uv, [0.0, 0.0, 1.0, 1.0], 0) {
+        let origin = sheet.tiles[quad.page].spec.origin;
+        assert_eq!(
+            quad.repeat_source[0] + origin[0] as f32,
+            uv.u0 * sheet.size[0] as f32
+        );
+        assert_eq!(
+            quad.repeat_source[2] + origin[0] as f32,
+            uv.u1 * sheet.size[0] as f32
+        );
+        assert_eq!(
+            quad.repeat_source[3] - quad.repeat_source[1],
+            sheet.size[1] as f32
+        );
+    }
+}
