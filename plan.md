@@ -41,6 +41,8 @@ closes no gate and provides no new runtime or performance evidence.
   conformance findings, classify every decode error, and qualify frame and mutation
   latency against the current [live-testing requirements](docs/agents/live-testing.md).
   Use the current headless client workflow for scripted tests; keep captures local.
+  Dimension definitions use an exclusive maximum Y and retain complete sub-chunks;
+  live custom-dimension transfer acceptance remains open.
 
 ## Phase 1 — Core service
 
@@ -142,6 +144,9 @@ and resource qualification; they do not imply these systems need to be written.
 - [ ] `P2-CHUNK-PUBLICATION` — Qualify initial publication, steady streaming and full-view
   remesh against current frame/join/streaming budgets. Attribute decode, light readiness,
   queue wait, worker time, upload, submission and present latency independently.
+  Sparse startup can complete without a publisher update after terrain decodes, stream
+  and render work drain, and a later GPU frame completes. Empty-world initialization is
+  verified; complete server-form and gameplay acceptance remains open.
 - [ ] Close mesh-neighbour readiness acceptance with slow-delivery and seam coverage.
   Distinguish eligible horizontal columns from the provisional full-neighbour/quiet-time
   fallback; its timeout is not established native behavior.
@@ -207,6 +212,9 @@ Implemented: [actor rigs, Molang, controllers, attachables and pose evaluation](
 with [client presentation](crates/client-presentation/src/lib.rs) and
 [rendering](crates/render/src/lib.rs). The open gates require complete behavioral
 and rendered qualification, not initial implementation of those systems.
+Frame sampling retains matching expression, layer and composition results; equipment
+placement reuses unchanged owner and attachment inputs. Hardware crowd captures and
+full temporal/visual qualification remain open.
 
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
@@ -219,6 +227,18 @@ and rendered qualification, not initial implementation of those systems.
   a version-matched rendered comparison.
 - [ ] Close custom block-item texture resolution, non-cube shapes, tinting, animation
   and matched inventory/held-item presentation. Shared cube face sheets are bounded coverage.
+
+Continuous cosmetic cloth uses shared vertices, fixed-step constraints, world-space
+inertia and player-body contacts with standard-armor clearance. Vertical follow and
+damping restrain jump and landing motion, and local cloth keeps advancing while
+first-person visibility hides the body. View changes transfer the drape between
+body pose spaces. Self-collision and world collision remain open.
+Paid cosmetic selections use session ownership from the API database and withdraw
+on disconnect or revocation; production rollout qualification remains open.
+
+Equipped cosmetic emitters also run in visible menu and HUD paper dolls using the
+shared particle engine and attachment poses. Catalog-wide, in-world interaction
+and performance qualification for these previews remains open.
 
 Remaining qualification includes attachables and custom item models, action/use timing,
 projectile interpolation and shake, sleep/mount poses, name tags (including over
@@ -251,9 +271,14 @@ across these existing features; they are not a list of missing screens or system
 - [ ] `P5.5-INTERACTION-COMBAT-INVENTORY` — Close targeting, mining/cracks, placement/use,
   combat, hotbar selection, stack/network-ID reconciliation and container/crafting
   prediction, acknowledgements, rollback and stale-session behavior.
+  Native block requirements now cover every catalog identifier, including no-tool
+  beds; recipe tags share the pinned native catalog. Sword/shears speed rules,
+  effective item durability and live mining acceptance remain incomplete.
 - [ ] `P5.6-FORMS` — Close modal/menu/custom form navigation, validation, cancellation
   and responses, including server-pack definitions, structured text, custom controls,
-  scaling and image/layout behavior against matched native views.
+  scaling and image/layout behavior against matched native views. Server settings
+  replies are cached until their tab is selected; embedding their controls within
+  the settings panel instead of a separate form remains incomplete.
 - [ ] `P5.7-PARITY-PERF` — Qualify combined chat, scoreboard, boss bars, inventory and
   forms at supported scales/aspects and devices, with bounded memory and stable frame work.
 - [ ] `P5.8-SETTINGS` — Close menu, control, video and persistence acceptance. Desktop
@@ -293,6 +318,28 @@ and keep actual account details out of captures and reports published with PRs.
 Core transfer/disconnect terminals can abandon unfinished join preparation; ordinary
 preparation and presentation readiness remain required for a successful join. Live
 server latency impact and the complete transfer acceptance matrix remain unqualified.
+
+Server pack acquisition, handoff and stack composition no longer impose fixed archive-count
+or compressed-byte quotas. Saved server lists retain every imported entry. Declared sizes,
+identity, digests and framing remain validated. Experience selections preserve service errors
+and wait for the account core result. Complete featured-server acceptance remains open:
+large-pack preparation can be slow or fail, and sparse startup terrain can leave loading open.
+Server language loading retains every readable English and selected-locale layer without fixed
+table, entry or process quotas, and folds inserted keys to ASCII lowercase. Unreadable sources
+and allocation failures are diagnosed without discarding other definitions. Complete pack-content
+acceptance remains open. Local imports, decompression, UI/text expansion and other admission limits
+or compressed-byte quotas. Safe member paths have no added byte cutoff; server manifests
+and default member reads retain complete declared content. Manifest subpack lists have no separate
+row-count cutoff; server and local loading share the existing field validation and device-tier
+selection. Native runtime and device acceptance for larger subpack lists remain open.
+Explicit subscriber limits and large-content live and performance acceptance remain open.
+Saved server lists retain every
+imported entry. Declared sizes, identity, digests and framing remain validated. Experience
+selections preserve service errors and wait for the account core result. Complete
+featured-server, menu and gameplay qualification remains open, including large-pack
+preparation and broader sparse-startup coverage.
+Local imports, decompression, UI/text expansion, language memory and other admission limits
+still need version-matched verification; the limit inventory closes no whole-client parity gate.
 
 Cosmetics require live authenticated multi-account acceptance, catalog/motion envelope
 coverage, supported slot/ownership enforcement, player-preview acceptance and hardware
@@ -345,6 +392,10 @@ Use the current [live-testing guide](docs/agents/live-testing.md) as the single 
 reference hardware, frame/hitch, streaming, join and capture budgets. Capture the
 rendered result on the relevant platform and scale; distinguish hidden-window pixel
 coverage from displayed-frame pacing and OS input/focus evidence.
+
+Compiled entities, blocks and icons share a compressed disk cache. Hits restore dependency
+records; archive, session, startup artwork and device inputs invalidate affected entries.
+Hardware join and frame acceptance still needs the full capture matrix below.
 
 Check deterministic work in CI: bounded queues, invalidation, stale-work rejection,
 retained memory, allocations, uploads and unnecessary rebuilds. Measure release

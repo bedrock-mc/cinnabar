@@ -4,7 +4,7 @@ The API serves production cosmetics. The client downloads, verifies, caches and
 renders them; it does not bundle the catalog artwork.
 
 Editable Blockbench projects, textures, animations, export tooling and the full
-catalog belong in [cinnabar-api/art/cosmetics](https://github.com/cinnabar-mc/cinnabar-api/tree/main/art/cosmetics).
+catalog belong in [the private cosmetics repository](https://github.com/cinnabar-mc/cinnabar-cosmetics).
 That repository checks project/export consistency and packaged asset digests in CI.
 Adding an item with supported features must not require a client change.
 
@@ -13,10 +13,10 @@ inputs for client behavior. They are not synchronized with the live catalog. Kee
 fixtures limited to the features under test; test emission, lighting and playback
 with focused fixtures rather than copying each new catalog item.
 
-To check the entire API catalog with the production client validator:
+To check the entire cosmetics catalog with the production client validator:
 
 ```sh
-CINNABAR_API_CHECKOUT=/path/to/cinnabar-api cargo test -p render-model api_catalog_assets_admit_through_client_validation -- --nocapture
+CINNABAR_COSMETICS_CHECKOUT=/path/to/cinnabar-cosmetics cargo test -p render-model api_catalog_assets_admit_through_client_validation -- --nocapture
 ```
 
 Without that checkout the test reports a named missing fixture. An explicitly

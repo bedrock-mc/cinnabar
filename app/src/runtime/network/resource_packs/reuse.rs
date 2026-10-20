@@ -301,6 +301,8 @@ pub(in crate::runtime::network) fn compile_reusing(
                 packs = compiled.packs().len(),
                 recompile_blocks = changes.blocks,
                 recompile_icons = changes.icons,
+                icon_pairs_changed = previous.inputs.icons != inputs.icons,
+                block_item_pairs_changed = previous.inputs.block_items != inputs.block_items,
                 "reusing a recent compile of the same server packs"
             );
             compile_application(compiled, inputs, Some(&previous), changes, cancelled)

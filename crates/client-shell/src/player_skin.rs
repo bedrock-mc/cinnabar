@@ -75,7 +75,7 @@ impl LocalPlayerSkin {
             skin.skin_id = selected_skin_id(selected);
             skin.engine_version = selected.engine_version.clone();
         }
-        skin.cosmetics = cosmetics::resolve(&catalog.selected_cosmetics, |_| false);
+        skin.cosmetics = cosmetics::resolve(&catalog.selected_cosmetics, cosmetics::owns);
         skin
     }
 

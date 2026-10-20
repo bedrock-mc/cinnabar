@@ -1,6 +1,6 @@
 //! Bounded import of ordinary pack archives and resource halves of add-on bundles.
 
-use pack_json::{normalize_jsonc, parse_jsonc};
+use pack_json::parse_jsonc;
 
 use crate::{
     AdmissionError, MAX_ARCHIVE_BYTES, MAX_DECLARED_BYTES_PER_PACK, MAX_FILE_BYTES,
@@ -296,8 +296,7 @@ fn read_candidate(
 
 /// Accepts content-only indexes but never requests or derives marketplace keys.
 fn reject_encrypted_index(bytes: &[u8]) -> Result<(), LibraryError> {
-    let normalized = normalize_jsonc(bytes).ok_or(LibraryError::Encrypted)?;
-    let root: Value = serde_json::from_slice(&normalized).map_err(|_| LibraryError::Encrypted)?;
+    let root: Value = parse_jsonc(bytes).map_err(|_| LibraryError::Encrypted)?;
     if root["content"].as_array().is_some_and(|entries| {
         entries
             .iter()

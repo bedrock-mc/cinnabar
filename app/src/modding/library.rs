@@ -13,9 +13,9 @@ use launcher::mods::{
     UpdateProgress,
 };
 use launcher_host::desktop::picker::{self, Filter};
-use mod_host::ModHost;
 use sha2::{Digest, Sha256};
 use std::{
+    collections::BTreeMap,
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -77,11 +77,13 @@ pub(super) fn configure(
     app.insert_resource(ModLibrary {
         commands,
         published,
-        updates: launcher_host::mod_updates::Checker::start(mod_host::MAX_COMPONENT_SOURCE_BYTES)
-            .map_err(|error| {
-                warn!("Mod update checks unavailable: {error}");
-            })
-            .ok(),
+        updates: launcher_host::mod_updates::Checker::start(
+            mod_host::packet_mod::MAX_PACKET_MOD_BYTES,
+        )
+        .map_err(|error| {
+            warn!("Mod update checks unavailable: {error}");
+        })
+        .ok(),
         checks: false,
         automatic: false,
         busy: false,
@@ -194,8 +196,9 @@ fn run(
     mut retire: impl FnMut(&Receipt) -> Result<removal::Permit, String>,
 ) {
     let mut requests = 0;
+    let mut metadata = BTreeMap::new();
     let mut reloads = Vec::<update::PendingReload>::new();
-    let mut library = scan(mods, registration, String::new());
+    let mut library = scan_cached(mods, registration, String::new(), &mut metadata);
     let _ = outgoing.send(library.clone());
     loop {
         let message = match incoming.recv_timeout(super::RELOAD_INTERVAL) {
@@ -262,7 +265,7 @@ fn run(
             Err(RecvTimeoutError::Timeout) => library.message.clone(),
             Err(RecvTimeoutError::Disconnected) => return,
         };
-        let mut next = scan(mods, registration, message);
+        let mut next = scan_cached(mods, registration, message, &mut metadata);
         let now = std::time::Instant::now();
         reloads.retain_mut(|pending| {
             if let Some(result) = pending.poll(&next, now) {
@@ -387,9 +390,9 @@ fn import(mods: &Path, source: &Path) -> Result<String, String> {
     if name.starts_with('.') {
         return Err("Mod file names must not start with a dot.".into());
     }
-    let bytes = mod_host::local_files::read(source, mod_host::MAX_COMPONENT_SOURCE_BYTES)
-        .map_err(|error| format!("Could not read {name}: {error}"))?;
-    ModHost::validate_component(&bytes)
+    let bytes =
+        mod_host::read_source(source).map_err(|error| format!("Could not read {name}: {error}"))?;
+    mod_host::validate_source(&bytes)
         .map_err(|error| format!("{name} is not a valid mod: {error:#}"))?;
     publish_component(mods, name, &bytes)?;
     Ok(name.to_owned())
@@ -460,27 +463,8 @@ fn installed(mods: &Path) -> Vec<(InstalledMod, PathBuf)> {
                 .ok()
                 .filter(fs::Metadata::is_file)?;
             (!file.starts_with('.') && is_component(&path)).then(|| {
-                let mut digest = Sha256::new();
-                digest.update(file.as_bytes());
-                digest.update(metadata.len().to_le_bytes());
-                for timestamp in [metadata.created(), metadata.modified()]
-                    .into_iter()
-                    .flatten()
-                {
-                    if let Ok(elapsed) = timestamp.duration_since(std::time::UNIX_EPOCH) {
-                        digest.update(elapsed.as_nanos().to_le_bytes());
-                    }
-                }
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::MetadataExt;
-                    digest.update(metadata.dev().to_le_bytes());
-                    digest.update(metadata.ino().to_le_bytes());
-                }
-                let digest = digest.finalize();
-                let id = u64::from_le_bytes(digest[..8].try_into().expect("eight digest bytes"));
                 let item = InstalledMod {
-                    id,
+                    id: file_identity(&path, &metadata),
                     file,
                     bytes: metadata.len(),
                     permissions: Vec::new(),
@@ -494,7 +478,30 @@ fn installed(mods: &Path) -> Vec<(InstalledMod, PathBuf)> {
     found
 }
 
-/// Retains enabled registrations without directory entries under their own path identity.
+/// Identifies a component's path and file revision without rereading its contents.
+fn file_identity(path: &Path, metadata: &fs::Metadata) -> u64 {
+    let mut digest = Sha256::new();
+    digest.update(path.as_os_str().as_encoded_bytes());
+    digest.update(metadata.len().to_le_bytes());
+    for timestamp in [metadata.created(), metadata.modified()]
+        .into_iter()
+        .flatten()
+    {
+        if let Ok(elapsed) = timestamp.duration_since(std::time::UNIX_EPOCH) {
+            digest.update(elapsed.as_nanos().to_le_bytes());
+        }
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        digest.update(metadata.dev().to_le_bytes());
+        digest.update(metadata.ino().to_le_bytes());
+    }
+    let digest = digest.finalize();
+    u64::from_le_bytes(digest[..8].try_into().expect("eight digest bytes"))
+}
+
+/// Includes enabled external sources with file revisions, and missing sources by path alone.
 fn include_active(entries: &mut Vec<(InstalledMod, PathBuf)>, current: &[selection::Registered]) {
     for current in current.iter().filter(|current| current.entry.enabled) {
         let path = &current.entry.component;
@@ -504,15 +511,21 @@ fn include_active(entries: &mut Vec<(InstalledMod, PathBuf)>, current: &[selecti
         {
             continue;
         }
+        let metadata = fs::symlink_metadata(path)
+            .ok()
+            .filter(fs::Metadata::is_file);
         entries.push((
             InstalledMod {
-                id: selection::component_id(path),
+                id: metadata.as_ref().map_or_else(
+                    || selection::component_id(path),
+                    |metadata| file_identity(path, metadata),
+                ),
                 file: path
                     .file_name()
                     .unwrap_or_default()
                     .to_string_lossy()
                     .into_owned(),
-                bytes: 0,
+                bytes: metadata.as_ref().map_or(0, fs::Metadata::len),
                 permissions: Vec::new(),
                 metadata: Default::default(),
             },
@@ -523,10 +536,22 @@ fn include_active(entries: &mut Vec<(InstalledMod, PathBuf)>, current: &[selecti
 
 /// Builds card metadata, permissions and statuses from each component's declarations and the
 /// host's canonical registration and grants.
+#[cfg(test)]
 fn scan(mods: &Path, registration: &Path, message: String) -> Library {
+    scan_cached(mods, registration, message, &mut BTreeMap::new())
+}
+
+/// File identities invalidate cached declarations so unchanged large mods are not reread on polls.
+fn scan_cached(
+    mods: &Path,
+    registration: &Path,
+    message: String,
+    metadata: &mut BTreeMap<u64, (Option<mod_host::ModGrants>, ui::mod_metadata::ModMetadata)>,
+) -> Library {
     let mut installed = installed(mods);
     let current = registered(registration);
     include_active(&mut installed, &current);
+    metadata.retain(|id, _| installed.iter().any(|(item, _)| item.id == *id));
     let active = current
         .iter()
         .filter(|current| current.entry.enabled)
@@ -545,11 +570,14 @@ fn scan(mods: &Path, registration: &Path, message: String) -> Library {
             .iter()
             .find(|current| same_path(path, &current.entry.component))
             .map(|current| &current.entry.grants);
-        let (requested, metadata) = match mod_host::declarations(path) {
-            Ok(declared) => (declared.requested.ok().flatten(), declared.metadata),
-            Err(_) => (None, Default::default()),
-        };
-        item.metadata = metadata;
+        let (requested, declared_metadata) =
+            metadata
+                .entry(item.id)
+                .or_insert_with(|| match mod_host::declarations(path) {
+                    Ok(declared) => (declared.requested.ok().flatten(), declared.metadata),
+                    Err(_) => (None, Default::default()),
+                });
+        item.metadata = declared_metadata.clone();
         item.permissions = mod_host::ModGrants::CAPABILITIES
             .iter()
             .map(|capability| Permission {

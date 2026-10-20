@@ -68,7 +68,7 @@ sections! {
     StorageManagement => "storage_management_forced_index", 25, Some("menu.storageManagement"), Some("menu.storage.tab.title"), None;
     Language => "language_forced_index", 27, Some("options.language"), Some("menu.language.tab.title"), None;
     Creator => "creator_forced_index", 20, Some("options.creatorTitle"), Some("menu.creator.tab.title"), None;
-    Server => "server_forced_index", 1, None, None, None;
+    Server => "server_forced_index", 1, Some("Server Settings"), Some("Server Settings"), None;
     HowToPlay => "how_to_play_index", 3, None, None, None;
     Game => "game_forced_index", 4, None, None, None;
     Classroom => "classroom_forced_index", 5, None, None, None;

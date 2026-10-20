@@ -68,6 +68,7 @@ class RenderTests(unittest.TestCase):
         RENDER.build(self.repository, self.output)
         config = self.config_from_output()
         self.assertEqual(config["online_count_url"], "https://fixture-api.invalid/v1/presence/count")
+        self.assertEqual(config["online_history_url"], "https://fixture-api.invalid/v1/presence/history")
         self.assertEqual(config["assets"], self.config["assets"])
         release = urlsplit(config["release_url"])
         self.assertEqual(release.scheme, "https")
@@ -80,7 +81,7 @@ class RenderTests(unittest.TestCase):
                          f'https://github.com/{self.config["repository"]}/releases/download/nightly/')
         self.assertEqual(config["nightly_install_command"], config["install_command"] + " -s -- --channel nightly")
         self.assertEqual({path.name for path in self.output.iterdir()}, {
-            "index.html", "downloads.js", "app.js", "presence.js", "title.png", "texture.svg",
+            "index.html", "downloads.js", "app.js", "presence.js", "history.js", "title.png", "texture.svg",
         })
         self.assertFalse((self.output / self.config["install_script"]).exists())
 
@@ -92,7 +93,8 @@ class RenderTests(unittest.TestCase):
         page.feed(html)
         config = self.config_from_output()
         self.assertEqual(page.repository + "/releases/latest", config["release_url"])
-        self.assertEqual([script["src"] for script in page.scripts], ["/downloads.js", "/app.js", "/presence.js"])
+        self.assertEqual([script["src"] for script in page.scripts],
+                         ["/downloads.js", "/app.js", "/presence.js", "/history.js"])
         for script in page.scripts:
             self.assertIn("defer", script)
             self.assertTrue((self.output / script["src"].lstrip("/")).is_file())

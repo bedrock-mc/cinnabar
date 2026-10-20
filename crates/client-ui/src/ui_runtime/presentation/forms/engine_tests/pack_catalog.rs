@@ -18,6 +18,7 @@ mod large_animation;
 mod native_precedence;
 mod nested_titles;
 mod retained_titles;
+mod routed_forms;
 mod sliced_frames;
 mod title_layout;
 mod titles;

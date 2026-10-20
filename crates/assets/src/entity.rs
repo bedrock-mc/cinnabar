@@ -90,7 +90,6 @@ pub const MAX_ENTITY_IDENTIFIER_BYTES: usize = 512;
 pub const MAX_ENTITY_SOURCE_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_ENTITY_TOTAL_SOURCE_BYTES: usize = 512 * 1024 * 1024;
 pub const MAX_ENTITY_CATALOG_BYTES: usize = 512 * 1024 * 1024;
-pub const MAX_ENTITY_GEOMETRIES: usize = 4_096;
 pub const MAX_ENTITY_GEOMETRY_BONES: usize = 2_048;
 pub const MAX_ENTITY_GEOMETRY_CUBES: usize = 32_768;
 pub const MAX_ENTITY_GEOMETRY_NAME_BYTES: usize = 256;
@@ -431,9 +430,6 @@ fn validate_compiled(compiled: &CompiledEntityAssets) -> Result<Box<[Option<usiz
 fn validate_geometries(
     compiled: &CompiledEntityAssets,
 ) -> Result<Box<[Option<usize>]>, AssetError> {
-    if compiled.geometries.len() > MAX_ENTITY_GEOMETRIES {
-        return Err(invalid("entity geometry count exceeds bound"));
-    }
     let geometry_symbols = compiled
         .symbols
         .iter()
