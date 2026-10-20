@@ -215,13 +215,28 @@ fn configure_geometry(
     }
 }
 
+/// Whether native layers need the scene-copy path until the geometry host can compose them.
+fn needs_native_scene(
+    atmosphere: Option<&render_scene::AtmosphereFrame>,
+    particles: Option<&render_scene::ParticleGpuFrame>,
+    weather: Option<&render_scene::PrecipitationScene>,
+) -> bool {
+    atmosphere.is_some_and(|frame| frame.sky_kind() == render_scene::SkyKind::Overworld)
+        || particles.is_some_and(|frame| !frame.blend.is_empty() || !frame.add.is_empty())
+        || weather.is_some_and(|scene| !scene.layers.is_empty())
+}
+
 /// Replaces native queues only after every pack view and terrain category is ready.
+#[allow(clippy::too_many_arguments, reason = "one frame’s replacement inputs")]
 fn configure_replacement(
     pack: Option<Res<LoadedShaderPack>>,
     cameras: Query<Entity, With<ShaderPackRendering>>,
     geometry: Option<Res<ShaderpackGeometry>>,
     views: Res<ShaderPackViews>,
     mut drawn: ResMut<ShaderPackDrawnCategories>,
+    atmosphere: Option<Res<render_scene::AtmosphereFrame>>,
+    particles: Option<Res<render_scene::ParticleGpuFrame>>,
+    weather: Option<Res<render_scene::PrecipitationScene>>,
 ) {
     let states = views.states.lock().unwrap_or_else(|e| e.into_inner());
     let ready = pack
@@ -237,9 +252,14 @@ fn configure_replacement(
         });
     let draws = |kind| ready.is_some_and(|pack| pack.draws.iter().any(|draw| draw.kind == kind));
     drawn.set_if_neq(ShaderPackDrawnCategories {
-        terrain: geometry
-            .is_some_and(|geometry| geometry.supported() && geometry.all_sections_fit())
-            && super::draws::complete_terrain(draws),
+        terrain: geometry.is_some_and(|geometry| {
+            geometry.supported() && geometry.origin().is_some() && geometry.all_sections_fit()
+        }) && super::draws::complete_terrain(draws)
+            && !needs_native_scene(
+                atmosphere.as_deref(),
+                particles.as_deref(),
+                weather.as_deref(),
+            ),
     });
 }
 
@@ -618,15 +638,17 @@ pub(super) fn finish(app: &mut App) {
             Render,
             (
                 configure_geometry
-                    .in_set(RenderSystems::PrepareResources)
+                    .after(RenderSystems::PrepareViews)
+                    .before(RenderSystems::Queue)
                     .before(super::geometry::prepare_shaderpack_geometry),
                 prepare_views
-                    .in_set(RenderSystems::PrepareResources)
+                    .after(RenderSystems::PrepareViews)
+                    .before(RenderSystems::Queue)
                     .after(bevy::render::view::prepare_view_targets)
                     .after(super::geometry::prepare_shaderpack_geometry),
-                configure_replacement
-                    .in_set(RenderSystems::PrepareResources)
-                    .after(prepare_views),
+                crate::chunk::shaderpack_sources::before_native_terrain_queues(
+                    configure_replacement.after(prepare_views),
+                ),
                 super::lightmap::update_lightmap.in_set(RenderSystems::PrepareResources),
             ),
         );
@@ -637,6 +659,58 @@ pub(super) fn finish(app: &mut App) {
 mod camera_tests {
     use super::*;
     use bevy::render::view::Msaa;
+
+    #[test]
+    fn unresolved_native_layers_keep_the_scene_copy_path() {
+        assert!(!needs_native_scene(None, None, None));
+        assert!(needs_native_scene(
+            Some(&render_scene::AtmosphereFrame::default()),
+            None,
+            None
+        ));
+        for additive in [false, true] {
+            let mut particles = render_scene::ParticleGpuFrame::default();
+            let instances = std::sync::Arc::from([particles::ParticleInstance::default()]);
+            if additive {
+                particles.add = instances;
+            } else {
+                particles.blend = instances;
+            }
+            assert!(needs_native_scene(None, Some(&particles), None));
+        }
+    }
+
+    #[test]
+    fn replacement_is_published_before_native_queue_consumers() {
+        #[derive(Resource, Default)]
+        struct QueuedTerrain(bool);
+        /// Captures the replacement decision observed by a native queue.
+        fn native_queue(drawn: Res<ShaderPackDrawnCategories>, mut queued: ResMut<QueuedTerrain>) {
+            queued.0 = drawn.terrain;
+        }
+        let mut world = World::new();
+        world.init_resource::<ShaderPackViews>();
+        world.insert_resource(ShaderPackDrawnCategories {
+            terrain: true,
+            ..default()
+        });
+        world.init_resource::<QueuedTerrain>();
+        let mut schedule = bevy::ecs::schedule::Schedule::default();
+        schedule.configure_sets(
+            (
+                RenderSystems::PrepareViews,
+                RenderSystems::Queue,
+                RenderSystems::PrepareResources,
+            )
+                .chain(),
+        );
+        schedule.add_systems((
+            crate::chunk::shaderpack_sources::before_native_terrain_queues(configure_replacement),
+            native_queue.in_set(RenderSystems::Queue),
+        ));
+        schedule.run(&mut world);
+        assert!(!world.resource::<QueuedTerrain>().0);
+    }
 
     #[test]
     fn opted_in_cameras_admit_single_sample_depth_sampling() {
