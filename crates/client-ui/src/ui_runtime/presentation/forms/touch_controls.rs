@@ -40,6 +40,8 @@ pub(in super::super) struct TouchControls {
     /// a build that paints neither leaves none.
     frame: Option<EngineFrame>,
     pub(super) hud: Option<EngineFrame>,
+    /// Session that produced the retained HUD input geometry.
+    pub(super) hud_session: Option<u64>,
     /// The stick knob's drag key and size from the last overlay paint.
     knob: Option<(String, [f64; 2])>,
     /// Held contacts, which press their controls and move the stick's knob.
@@ -51,6 +53,7 @@ impl TouchControls {
     pub(super) fn begin_frame(&mut self) {
         self.frame = None;
         self.hud = None;
+        self.hud_session = None;
     }
 }
 
