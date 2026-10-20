@@ -184,10 +184,18 @@ impl CustomRenderer for Renderer<'_> {
             return Ok(true);
         };
         let source_size = [bounds.width(), bounds.height()];
-        let size = source_size.map(|axis| axis / entry.px * canvas.px() * scale);
+        let ratio = canvas.px() / entry.px * scale;
+        let size = source_size.map(|axis| axis * ratio);
+        let geometry =
+            crate::mod_widgets::template::dimensions(&source.content.cards[instance.card])
+                .map(|axis| axis as f32 * canvas.px() * scale);
         let origin = [
-            node.dest[0] + (node.dest[2] - node.dest[0] - size[0]) * alignment[0],
-            node.dest[1] + (node.dest[3] - node.dest[1] - size[1]) * alignment[1],
+            node.dest[0]
+                + (node.dest[2] - node.dest[0] - geometry[0]) * alignment[0]
+                + bounds.min().x() * ratio,
+            node.dest[1]
+                + (node.dest[3] - node.dest[1] - geometry[1]) * alignment[1]
+                + bounds.min().y() * ratio,
         ];
         let dest = [
             origin[0],

@@ -582,3 +582,18 @@ fn hud_card_preview_preserves_small_text_plate_glyph_and_shadow_overflow() {
         );
     }
 }
+
+#[test]
+fn hud_card_preview_aligns_the_card_geometry_and_clips_painted_overflow() {
+    let hud: Hud = serde_json::from_value(json!({"cards":[{
+        "id":"card_0","width":148,"background_opacity":0,"rows":[{"label":"","value":"0"}]
+    }]}))
+    .unwrap();
+    let mut ui = installed(&hud, &panel(false));
+    let mut harness = Harness::new();
+    harness.paint(&mut ui, true);
+    assert!(
+        harness.drawn().vertices.is_empty(),
+        "right-aligned value lies outside the narrow centered preview node"
+    );
+}
