@@ -13,6 +13,7 @@ use super::MenuRuntime;
 pub(super) struct ShaderOptions {
     actions: Vec<Action>,
     view: Option<Arc<View>>,
+    pending_section: Option<u8>,
 }
 
 impl MenuRuntime {
@@ -48,9 +49,14 @@ impl MenuRuntime {
         open
     }
 
-    /// Leaving the Video section closes the screen, applying its changes as Iris does.
-    pub(super) fn leave_shader_options(&mut self) {
-        if self.shader_options.view.is_some() {
+    /// Defers a section change until the option editor has closed successfully.
+    pub(super) fn activate_settings_section(&mut self, section: u8) {
+        let Some(view) = &self.shader_options.view else {
+            self.activate_settings(launcher::menu::MenuAction::SettingsSection(section));
+            return;
+        };
+        self.shader_options.pending_section = Some(section);
+        if view.status != launcher::shader_options::Status::Saving {
             self.shader_options.actions.push(Action::Done);
         }
     }
@@ -63,6 +69,18 @@ impl MenuRuntime {
     /// Publishes the open screen, or closes it with `None`.
     pub fn sync_shader_options(&mut self, view: Option<View>) {
         self.shader_options.view = view.map(Arc::new);
+        if let Some(section) = self.shader_options.pending_section {
+            match self.shader_options.view.as_deref().map(|view| &view.status) {
+                None => {
+                    self.shader_options.pending_section = None;
+                    self.activate_settings(launcher::menu::MenuAction::SettingsSection(section));
+                }
+                Some(launcher::shader_options::Status::Ready) => {
+                    self.shader_options.actions.push(Action::Done);
+                }
+                _ => {}
+            }
+        }
     }
 
     /// The screen for [`launcher::menu::MenuView`].
@@ -130,5 +148,78 @@ mod tests {
             menu.take_shader_option_actions(),
             [Action::Back, Action::Done]
         );
+    }
+    /// Opens a ready option editor in the Video section.
+    fn editing_menu() -> MenuRuntime {
+        let mut menu = menu();
+        menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+        menu.activate(MenuAction::SettingsSection(
+            launcher::menu::settings_sections::SettingSection::Video
+                .definition()
+                .index,
+        ));
+        menu.activate(MenuAction::SelectRenderer(RendererChoice::ShaderPack(0)));
+        menu.activate(MenuAction::ShaderOptions(Action::Open));
+        menu.take_shader_option_actions();
+        let mut view = View::loading("Dusk.zip");
+        view.status = launcher::shader_options::Status::Ready;
+        menu.sync_shader_options(Some(view));
+        menu
+    }
+
+    #[test]
+    fn section_navigation_waits_for_a_successful_option_close() {
+        if !render_model::SHADER_PACKS_ENABLED {
+            return;
+        }
+        let mut menu = editing_menu();
+        let video = menu.settings.section;
+        menu.activate(MenuAction::SettingsSection(0));
+        assert_eq!(menu.settings.section, video);
+        assert_eq!(menu.take_shader_option_actions(), [Action::Done]);
+        let mut view = View::loading("Dusk.zip");
+        view.status = launcher::shader_options::Status::SaveFailed("disk full".into());
+        menu.sync_shader_options(Some(view));
+        assert_eq!(menu.settings.section, video);
+        assert!(menu.take_shader_option_actions().is_empty());
+        menu.activate(MenuAction::SettingsSection(0));
+        assert_eq!(menu.take_shader_option_actions(), [Action::Done]);
+        menu.sync_shader_options(None);
+        assert_eq!(menu.settings.section, 0);
+        assert!(menu.view().shader_options.is_none());
+    }
+
+    #[test]
+    fn section_navigation_waits_for_an_existing_save_then_requests_close() {
+        if !render_model::SHADER_PACKS_ENABLED {
+            return;
+        }
+        let mut menu = editing_menu();
+        let video = menu.settings.section;
+        let mut view = View::loading("Dusk.zip");
+        view.status = launcher::shader_options::Status::Saving;
+        menu.sync_shader_options(Some(view.clone()));
+        menu.activate(MenuAction::SettingsSection(0));
+        assert_eq!(menu.settings.section, video);
+        assert!(menu.take_shader_option_actions().is_empty());
+        view.status = launcher::shader_options::Status::Ready;
+        menu.sync_shader_options(Some(view));
+        assert_eq!(menu.take_shader_option_actions(), [Action::Done]);
+        assert_eq!(menu.settings.section, video);
+        menu.sync_shader_options(None);
+        assert_eq!(menu.settings.section, 0);
+    }
+
+    #[test]
+    fn back_declines_a_join_popup_before_touching_shader_options() {
+        if !render_model::SHADER_PACKS_ENABLED {
+            return;
+        }
+        let mut menu = editing_menu();
+        menu.push_join_request(7, "Alex".into(), std::time::Duration::ZERO);
+        menu.activate(MenuAction::AddBack);
+        assert_eq!(menu.take_join_reply(), Some((7, false)));
+        assert!(menu.take_shader_option_actions().is_empty());
+        assert!(menu.view().shader_options.is_some());
     }
 }

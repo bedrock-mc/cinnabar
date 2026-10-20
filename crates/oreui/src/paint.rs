@@ -465,7 +465,8 @@ impl<'a> Canvas<'a> {
         self.layouts.layout(request).map_err(PaintError::Text)
     }
 
-    fn layout(
+    /// Wraps text to a width measured in 1/64 logical pixels.
+    pub(super) fn layout(
         &mut self,
         value: &str,
         width_64: u32,

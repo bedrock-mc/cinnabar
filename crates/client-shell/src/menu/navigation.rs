@@ -116,9 +116,6 @@ impl MenuRuntime {
 
     /// Returns to the screen below; an in-game root closes the menu.
     pub(super) fn go_back(&mut self) {
-        if self.shader_options_back() {
-            return;
-        }
         if self.dialog == Some(launcher::menu::MenuDialog::MinecraftImport) {
             let action =
                 if self.minecraft_import.phase == launcher::minecraft_import::Phase::Offered {
@@ -195,6 +192,9 @@ impl MenuRuntime {
         // Back on the join progress screen is its cancel button, where vanilla offers one.
         if self.is_connecting() {
             self.intents.disconnect |= self.feeds.join.cancellable();
+            return;
+        }
+        if self.shader_options_back() {
             return;
         }
         match self.screen {

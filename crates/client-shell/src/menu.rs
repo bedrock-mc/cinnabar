@@ -760,10 +760,7 @@ impl MenuRuntime {
             }
             MenuAction::SettingsStorage(action) => self.activate_storage(action),
             MenuAction::SettingsSupport(action) => self.activate_support(action),
-            MenuAction::SettingsSection(section) => {
-                self.leave_shader_options();
-                self.activate_settings(MenuAction::SettingsSection(section));
-            }
+            MenuAction::SettingsSection(section) => self.activate_settings_section(section),
             action @ (MenuAction::SettingsScale(_)
             | MenuAction::SettingsScalePicker
             | MenuAction::SettingsFullscreen(_)

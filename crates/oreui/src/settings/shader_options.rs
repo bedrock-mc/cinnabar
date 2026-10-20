@@ -344,15 +344,6 @@ pub(super) fn footer(
     let pad = canvas.r(PAD + 1.2);
     let [left, right] = [b[0] + pad, b[2] - pad];
     let width = (right - left).max(1.0);
-    let mut top = b[1] + canvas.r(PAD);
-    if let Some(element) = described.filter(|element| !element.label.is_empty()) {
-        top += canvas
-            .text_line(&element.label, [left, top], width, BODY, TEXT)?
-            .max(canvas.r(BODY.line));
-        if let Some(comment) = &element.comment {
-            canvas.text(comment, [left, top], width, CAPTION, TEXT_DIMMER, false)?;
-        }
-    }
     let height = canvas.r(button::ACTION_HEIGHT);
     let row = [
         left,
@@ -360,6 +351,35 @@ pub(super) fn footer(
         right,
         b[3] - canvas.r(PAD),
     ];
+    let mut top = b[1] + canvas.r(PAD);
+    if let Some(element) = described.filter(|element| !element.label.is_empty()) {
+        top += canvas
+            .text_line(&element.label, [left, top], width, BODY, TEXT)?
+            .max(canvas.r(BODY.line));
+        if let Some(comment) = &element.comment {
+            let bottom = (row[1] - canvas.r(PAD)).max(top + 1.0);
+            let key = format!(
+                "shader_option_comment/{}/{}/{}",
+                options.pack, options.screen, element.label
+            );
+            let layout = canvas.layout(
+                comment,
+                ((width - canvas.r(1.2)).max(1.0) * 64.0) as u32,
+                CAPTION,
+            )?;
+            let content = layout.size_64()[1] as f32 / 64.0;
+            let mut scroll = canvas.begin_scroll(&key, [left, top, right, bottom])?;
+            scroll.offset = scroll.offset.min((content - (bottom - top)).max(0.0));
+            canvas.place_text(
+                layout,
+                [left, top - scroll.offset],
+                width,
+                TEXT_DIMMER,
+                false,
+            )?;
+            canvas.end_scroll(scroll, content)?;
+        }
+    }
     let ready = matches!(options.status, Status::Ready | Status::SaveFailed(_));
     let available = options.status != Status::Saving;
     let buttons = [

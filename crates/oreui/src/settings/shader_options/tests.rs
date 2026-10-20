@@ -113,3 +113,47 @@ fn footer_buttons_leave_the_grid_scrolled_where_it_was() {
         assert_eq!(grid_offset(&scrolls), scrolled, "{action:?}");
     }
 }
+
+#[test]
+fn long_comments_scroll_above_the_footer_buttons() {
+    let view = settings_view("video_forced_index");
+    let element = Element {
+        label: "Lighting".into(),
+        comment: Some("Long option help. ".repeat(100)),
+        control: Control::Link,
+        modified: false,
+    };
+    let options = View::loading("Fixture");
+    let draw = |canvas: &mut crate::paint::Canvas<'_>| {
+        let height = super::footer_height(canvas);
+        super::footer(
+            canvas,
+            &view,
+            &options,
+            [300.0, SIZE[1] - height, 1200.0, SIZE[1]],
+            Some(&element),
+        )
+        .unwrap();
+    };
+    let (areas, hits, _) = crate::review_tests::paint(HashMap::new(), draw);
+    let area = areas
+        .iter()
+        .find(|area| area.max > 0.0)
+        .expect("long help needs a scroll viewport");
+    let button_top = hits
+        .iter()
+        .map(|(_, bounds)| bounds.min().y())
+        .reduce(f32::min)
+        .unwrap();
+    assert!(area.viewport.max().y() < button_top);
+    let (scrolled, _, _) =
+        crate::review_tests::paint(HashMap::from([(area.key.clone(), area.max)]), draw);
+    let scrolled = scrolled
+        .iter()
+        .find(|scrolled| scrolled.key == area.key)
+        .unwrap();
+    assert_eq!(
+        scrolled.offset, area.max,
+        "the last help lines can be revealed"
+    );
+}
