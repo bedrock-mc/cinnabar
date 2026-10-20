@@ -1188,3 +1188,56 @@ fn an_available_adapter_cannot_silently_skip_frame_fixtures() {
         Err(error) => panic!("fixture-device admission adapter: {error}"),
     }
 }
+
+/// Builds a validation-only device for preparation tests that do not inspect pixels.
+fn validation_gpu() -> GpuContext {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::NOOP,
+        backend_options: wgpu::BackendOptions {
+            noop: wgpu::NoopBackendOptions {
+                enable: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    let adapter = bevy::tasks::block_on(instance.request_adapter(&Default::default())).unwrap();
+    let (device, queue) =
+        bevy::tasks::block_on(adapter.request_device(&Default::default())).unwrap();
+    GpuContext {
+        device,
+        queue,
+        adapter,
+    }
+}
+
+#[test]
+fn shadow_colour_feedback_is_rejected_before_recording() {
+    let gpu = validation_gpu();
+    for output in [0, 1] {
+        let fragment = format!(
+            "#version 120\nuniform sampler2D shadowcolor0;\n/* DRAWBUFFERS:{output} */\nvoid main() {{ gl_FragData[0] = texture2D(shadowcolor0, vec2(0.5)); }}"
+        );
+        let source = pack(&[("shadow.vsh", PASS_VERTEX), ("shadow.fsh", &fragment)]);
+        let result = build(
+            &source,
+            "fixture",
+            JAVA_DIMENSIONS[0],
+            None,
+            &gpu,
+            &Default::default(),
+        );
+        if output == 0 {
+            let Err(error) = result else {
+                panic!("shadow colour feedback must fail preparation");
+            };
+            assert!(error.contains("shadowcolor0"), "{error}");
+        } else {
+            assert!(
+                result.is_ok(),
+                "sampling a different shadow attachment remains supported"
+            );
+        }
+    }
+}

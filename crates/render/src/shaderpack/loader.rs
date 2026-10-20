@@ -595,7 +595,10 @@ pub(crate) fn build(
         ) {
             if program.program.group == ProgramGroup::Shadow {
                 for buffer in reflection.color_outputs.iter().filter_map(|o| o.buffer) {
-                    constants.shadow_color(buffer)?;
+                    let (slot, _) = constants.shadow_color(buffer)?;
+                    if bindings.textures.iter().any(|source| matches!(source, TextureSource::Constant { index, .. } if *index == slot)) {
+                        return Err(format!("{} samples shadowcolor{buffer} while writing it", program.program.name));
+                    }
                 }
             }
             let vertex = modules
