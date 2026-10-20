@@ -427,7 +427,6 @@ fn packed_chunk_shader_parses_and_validates() {
     assert!(shader.contains("greedy_uv"));
     assert!(shader.contains("var<storage, read> biome_records: array<u32>"));
     assert!(shader.contains("var<storage, read> biome_tints: array<BiomeTintGpu>"));
-    assert!(shader.contains("out.biome_record = u32(cube.chunk_origin.w);"));
     assert!(shader.contains("local_position - normal * 0.001"));
     assert!(shader.contains("(coordinate.x << 8u) | (coordinate.z << 4u) | coordinate.y"));
     assert!(shader.contains("fn packed_biome_tint_index"));

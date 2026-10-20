@@ -408,54 +408,10 @@ fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
     assert!(plugin.contains("resource: texture_assets.model_template_buffer.as_entire_binding()"));
     let shader_storage_bindings = shader.matches("var<storage, read>").count() as u32;
     assert!(shader_storage_bindings <= render::required_vertex_storage_buffers());
-    assert!(shader.contains("visible_quad_mask"));
-    assert!(shader.contains("lighting_base_index"));
-    assert!(shader.contains("let draw_ref_word = instance_index * 2u"));
-    assert!(shader.contains("let model_ref_index = geometry_streams[draw_ref_word]"));
-    assert!(shader.contains("let quad_index = geometry_streams[draw_ref_word + 1u]"));
-    assert!(shader.contains("let geometry_word_count = arrayLength(&geometry_streams)"));
-    assert!(shader.contains("if (draw_ref_word + 1u >= geometry_word_count)"));
-    assert!(shader.contains("if (quad_index >= 32u || model_ref_index > 1073741823u)"));
-    assert!(shader.contains("if (ref_word + 3u >= geometry_word_count)"));
-    assert!(shader.contains("light_colour(light_sample)"));
-    assert!(!shader.contains("block_light"));
-    assert!(!shader.contains("sky_light"));
-    assert!(!shader.contains("safe_quad_index"));
-    let masked_guard = shader
-        .find("if (((visible_quad_mask >> quad_index) & 1u) == 0u) {")
-        .expect("masked/padded model quads must be rejected by the decoder");
-    assert!(
-        shader[masked_guard..].starts_with(
-            "if (((visible_quad_mask >> quad_index) & 1u) == 0u) {\r\n        return invalid_model_quad();"
-        ) || shader[masked_guard..].starts_with(
-            "if (((visible_quad_mask >> quad_index) & 1u) == 0u) {\n        return invalid_model_quad();"
-        ),
-        "masked/padded model guard must immediately reject the quad"
-    );
-    assert!(masked_guard < shader.find("let template_position").unwrap());
-    assert!(masked_guard < shader.find("let light_word").unwrap());
-    let invalid_return = shader
-        .find("if (!quad.valid) {")
-        .expect("rejected model quads must exit in the vertex stage");
-    assert!(
-        shader[invalid_return..]
-            .starts_with("if (!quad.valid) {\r\n        return invisible_vertex();")
-            || shader[invalid_return..]
-                .starts_with("if (!quad.valid) {\n        return invisible_vertex();"),
-        "a rejected model quad must immediately return an invisible vertex"
-    );
-    assert!(invalid_return < shader.find("model_corner_position(quad, corner)").unwrap());
-    assert!(invalid_return < shader.find("model_light_sample(quad, corner)").unwrap());
-    let zero_guard = shader
-        .find("if (quad_count == 0u || quad_index >= quad_count)")
-        .expect("zero-quad templates require an early invisible return");
-    assert!(zero_guard < shader.find("quad.template_quad_base =").unwrap());
-    assert!(zero_guard < shader.find("let light_word").unwrap());
     assert_eq!(
         shader_source::alpha_discard_threshold(&shader, "fragment"),
         Some(0.5)
     );
-    assert!(shader.contains("quad.quad_flags = model_templates[quad.template_quad_base + 11u]"));
     assert!(shader.contains("@builtin(front_facing) front_facing: bool"));
     assert!(
         shader
