@@ -1,6 +1,6 @@
 use super::super::*;
 
-const MAX_MESH_OUTPUT_BYTES: u64 = 64 * 1024 * 1024;
+pub(in crate::stream) const MAX_MESH_OUTPUT_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Reserves packed output before jobs enter Rayon; oversized work runs alone.
 pub(in crate::stream) struct MeshMemoryBudget {
