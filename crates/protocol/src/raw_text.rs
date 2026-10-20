@@ -1,6 +1,7 @@
 mod budget;
 mod fixed_float;
 
+pub use budget::{FormTextBudget, MAX_FORM_TEXT_EXPANSION_BYTES};
 use budget::{TranslationPrefix, push_bounded};
 use fixed_float::FixedFloatText;
 #[cfg(test)]
@@ -19,7 +20,7 @@ pub const MAX_RAW_TEXT_NODES: usize = 768;
 pub const MAX_RAW_TEXT_DEPTH: usize = 16;
 pub const MAX_RAW_TEXT_COMPONENTS: usize = 256;
 pub const MAX_RAW_TEXT_OUTPUT_BYTES: usize = 8_192;
-/// A full form packet's bytes (1 MiB) leave ample display text while bounding substitution growth.
+/// Bounds substitution growth for a standalone document resolution.
 pub const MAX_RAW_TEXT_EXPANSION_BYTES: usize = crate::ui::MAX_FORM_JSON_BYTES;
 // One extra scalar preserves the existing parent's exact truncation decision.
 const MAX_FORMATTED_PREFIX_BYTES: usize = MAX_RAW_TEXT_OUTPUT_BYTES + 4;
@@ -111,27 +112,29 @@ pub struct ResolvedRawText {
 }
 
 impl RawTextDocument {
-    /// Resolves presentable text using the document's byte budget. Chat keeps
-    /// [`MAX_RAW_TEXT_OUTPUT_BYTES`]; forms use [`MAX_RAW_TEXT_EXPANSION_BYTES`].
-    /// Output and nested arguments share one expansion allowance for this pass.
+    /// Resolves presentable text with a standalone expansion allowance. Chat keeps
+    /// [`MAX_RAW_TEXT_OUTPUT_BYTES`]; form builds share a [`FormTextBudget`] instead.
+    /// Output and nested arguments share the allowance for this pass.
     /// Components the resolver cannot answer
     /// degrade exactly like the vanilla client: unknown translation keys
     /// present the key itself, unresolvable scores and selectors present as
     /// empty text, and each degradation is counted for diagnostics.
     #[must_use]
     pub fn resolve(&self, resolver: &RawTextResolver<'_>) -> ResolvedRawText {
-        let mut resolved = ResolvedRawText::default();
-        let max_bytes = self.max_output_bytes.min(MAX_RAW_TEXT_EXPANSION_BYTES);
         let mut remaining = MAX_RAW_TEXT_EXPANSION_BYTES;
+        self.resolve_with_budget(resolver, &mut remaining)
+    }
+
+    /// Resolves output and nested arguments against the caller's remaining allowance.
+    fn resolve_with_budget(
+        &self,
+        resolver: &RawTextResolver<'_>,
+        remaining: &mut usize,
+    ) -> ResolvedRawText {
+        let mut resolved = ResolvedRawText::default();
+        let max_bytes = self.max_output_bytes.min(*remaining);
         for component in self.components.iter() {
-            if resolve_component(
-                component,
-                resolver,
-                &mut resolved,
-                0,
-                max_bytes,
-                &mut remaining,
-            ) {
+            if resolve_component(component, resolver, &mut resolved, 0, max_bytes, remaining) {
                 break;
             }
         }
@@ -288,18 +291,6 @@ fn resolve_component(
 /// bounded by [`MAX_RAW_TEXT_OUTPUT_BYTES`].
 pub fn format_translation(template: &str, arguments: &[String]) -> String {
     format_translation_chars(template.chars(), arguments)
-}
-
-/// Formats form labels within the expanded-string budget, retaining complete UTF-8 scalars.
-pub fn format_form_translation(template: &str, arguments: &[String]) -> String {
-    let template = template.chars();
-    let prefix = TranslationPrefix::new(template.size_hint().0, MAX_RAW_TEXT_EXPANSION_BYTES);
-    format_translation_chars_into(
-        template,
-        |index| arguments.get(index).map(|text| (text.as_str(), false)),
-        prefix,
-    )
-    .text
 }
 
 /// Formats a lazy template with the same substitutions and output budget as [`format_translation`].

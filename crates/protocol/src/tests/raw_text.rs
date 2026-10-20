@@ -753,18 +753,56 @@ fn clipped_numeric_translation_arguments_keep_the_template_and_following_suffixe
 }
 
 #[test]
+fn form_text_budget_charges_nested_arguments_and_later_literals_and_formats() {
+    let budget = protocol::FormTextBudget::default();
+    let padding = "p".repeat(protocol::MAX_FORM_TEXT_EXPANSION_BYTES - 64);
+    assert_eq!(budget.copy(&padding), padding);
+    let document = protocol::parse_raw_text(
+        r#"{"rawtext":[{"translate":"outer","with":[{"translate":"inner"}]}]}"#,
+    )
+    .unwrap();
+    let calls = std::cell::Cell::new(0);
+    let translate = |key: &str| {
+        calls.set(calls.get() + 1);
+        Some(Arc::from(if key == "outer" {
+            "%1"
+        } else {
+            "yyyyyyyyyyyyyyyyyyyy"
+        }))
+    };
+    let resolver = protocol::RawTextResolver {
+        reader_name: "",
+        translate: &translate,
+        score: &|_, _| None,
+        selector: &|_| None,
+    };
+    let text = protocol::FormText::Raw(document);
+    assert_eq!(budget.resolve(&text, &resolver), "y".repeat(20));
+    // Both the nested argument and its parent output consumed twenty bytes.
+    assert_eq!(
+        budget.format_translation("%1", &["z".repeat(100)]),
+        "z".repeat(24)
+    );
+    assert!(budget.copy("later literal").is_empty());
+    assert!(budget.format_translation("later format", &[]).is_empty());
+    assert!(budget.resolve(&text, &resolver).is_empty());
+    assert_eq!(calls.get(), 2);
+}
+
+#[test]
 fn form_translation_formatting_keeps_long_labels_and_bounds_substitution_growth() {
     let long = "界".repeat(10_000);
     let arguments = [long.clone(), "5".into()];
     assert_eq!(
-        protocol::format_form_translation("%1: %2", &arguments),
+        protocol::FormTextBudget::default().format_translation("%1: %2", &arguments),
         format!("{long}: 5")
     );
     assert!(protocol::format_translation("%1: %2", &arguments).len() < long.len());
     let template = "%1".repeat(1_000);
-    let (formatted, allocations) =
-        test_alloc::measure(|| protocol::format_form_translation(&template, &arguments));
-    let budget = protocol::MAX_RAW_TEXT_EXPANSION_BYTES;
+    let (formatted, allocations) = test_alloc::measure(|| {
+        protocol::FormTextBudget::default().format_translation(&template, &arguments)
+    });
+    let budget = protocol::MAX_FORM_TEXT_EXPANSION_BYTES;
     assert_eq!(formatted.len(), budget - budget % "界".len());
     assert!(formatted.chars().all(|character| character == '界'));
     assert!(formatted.capacity() <= budget);

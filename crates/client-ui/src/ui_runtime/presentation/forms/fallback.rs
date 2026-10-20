@@ -36,7 +36,8 @@ impl UiPresentationRuntime {
         let list_top = top + 64.0;
         let list_height = (panel_height - 80.0 - base_row).max(1.0);
         let list_bottom = list_top + list_height;
-        let resolve = |text: &protocol::FormText| runtime.resolve_form_text(text);
+        let budget = protocol::FormTextBudget::default();
+        let resolve = |text: &protocol::FormText| runtime.resolve_form_text(text, &budget);
         let (title, body_text, labels): (String, String, Vec<Arc<str>>) = match &entry.model {
             ServerFormModel::TextMenu(menu) => (
                 resolve(&menu.title),
