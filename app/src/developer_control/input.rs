@@ -11,7 +11,7 @@ use bevy::{
         mouse::{MouseButtonInput, MouseScrollUnit, MouseWheel},
     },
     prelude::*,
-    window::{CursorMoved, CursorOptions, PrimaryWindow, WindowEvent, WindowFocused},
+    window::{CursorMoved, CursorOptions, Ime, PrimaryWindow, WindowEvent, WindowFocused},
 };
 use developer_control::{
     input::{Control, InputPlan, MouseButton as ControlButton, yaw_difference},
@@ -320,6 +320,11 @@ fn inject(
         }
     }
     while let Some(text) = driver.text.pop_front() {
+        // Native fields accept explicit text commits; other editors retain their keyboard mirror.
+        ordered.write(WindowEvent::Ime(Ime::Commit {
+            window: entity,
+            value: text.clone(),
+        }));
         emit(
             KeyboardInput {
                 key_code: KeyCode::Unidentified(NativeKeyCode::Unidentified),
@@ -402,7 +407,7 @@ mod tests {
     use bevy::{
         input::{InputPlugin, keyboard::KeyboardFocusLost},
         prelude::*,
-        window::{CursorMoved, CursorOptions, PrimaryWindow, WindowEvent, WindowFocused},
+        window::{CursorMoved, CursorOptions, Ime, PrimaryWindow, WindowEvent, WindowFocused},
     };
 
     use super::{Driver, Physical, apply, inject};
@@ -525,6 +530,10 @@ mod tests {
             .filter_map(|event| event.text.as_deref())
             .collect();
         assert_eq!(typed, ["azalea"]);
+        let ordered = app.world().resource::<Messages<WindowEvent>>();
+        assert!(ordered.get_cursor().read(ordered).any(|event|
+            matches!(event, WindowEvent::Ime(Ime::Commit { window, value }) if *window == entity && value == "azalea")));
+
         app.update();
         assert!(app.world().resource::<Driver>().text.is_empty());
     }

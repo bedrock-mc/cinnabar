@@ -251,6 +251,12 @@ impl TextLayout {
         &self.key
     }
 
+    /// Checks complete text and geometry identity before reusing an externally retained layout.
+    pub fn matches_request(&self, mut request: TextLayoutRequest<'_>) -> bool {
+        request.text = text_prefix(request.text, crate::UiLimits::MAX_TEXT_BYTES);
+        self.key == layout_key(request, Sha256::digest(request.text.as_bytes()).into())
+    }
+
     pub fn glyphs(&self) -> &[GlyphQuad] {
         &self.glyphs
     }
