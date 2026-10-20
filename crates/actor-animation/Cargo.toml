@@ -25,6 +25,7 @@ world = { path = "../world" }
 [dev-dependencies]
 criterion.workspace = true
 test-alloc = { path = "../test-alloc" }
+test-time = { path = "../test-time" }
 cosmetics = { path = "../cosmetics", features = ["test-support"] }
 assets = { path = "../assets", features = ["test-support"] }
 
