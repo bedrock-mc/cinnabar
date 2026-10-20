@@ -192,7 +192,7 @@ impl<'a> Binder<'a> {
         };
         let capped = factory.max_children_size.is_some();
         let cap = factory.max_children_size.unwrap_or(roles.len());
-        let mut nodes = Vec::with_capacity(cap.min(roles.len()));
+        let mut nodes = Vec::with_capacity(cap.min(roles.len()).min(self.remaining_nodes()));
         let mut surviving = Vec::new();
         // Only successfully resolved creations count toward the insertion cap.
         for offset in 0..roles.len() {

@@ -20,7 +20,8 @@ pub enum GpuVendor {
 }
 
 /// The Iris release whose behaviour the translator and host follow, and whose
-/// `IRIS_VERSION` packs see.
+/// `IRIS_VERSION` packs see. It runs on the Java Edition named by the pinned GeyserMC mappings
+/// ([`assets::facts::java_mapping::java_edition`]), which packs see as `MC_VERSION`.
 pub const EMULATED_IRIS_VERSION: &str = "1.11.7";
 
 /// Iris's numeric form of a dotted version (`StandardMacros.formatVersionString`): the
@@ -39,7 +40,7 @@ pub fn iris_version_number(version: &str) -> Option<u32> {
 /// and Iris features; it does not detect host capabilities or activate rendering.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Environment {
-    /// `MC_VERSION`, e.g. 12111 for 1.21.11.
+    /// `MC_VERSION`, e.g. 260300 for 26.3.
     pub mc_version: u32,
     /// `MC_GL_VERSION` and `MC_GLSL_VERSION`.
     pub gl_version: u32,
@@ -67,7 +68,8 @@ impl Default for Environment {
     /// Provides the default compatibility environment for metadata inspection.
     fn default() -> Environment {
         Environment {
-            mc_version: 12111,
+            mc_version: iris_version_number(assets::facts::java_mapping::java_edition())
+                .unwrap_or_default(),
             gl_version: 460,
             iris_version: iris_version_number(EMULATED_IRIS_VERSION).unwrap_or_default(),
             os: HostOs::Windows,
@@ -224,6 +226,9 @@ impl Environment {
         if self.distant_horizons {
             add("DISTANT_HORIZONS", String::new());
         }
+        d.extend(crate::biomes::biome_defines(
+            assets::facts::java_mapping::JavaBlockMapping::pinned().ok(),
+        ));
         d
     }
 }
@@ -261,6 +266,9 @@ mod tests {
     #[test]
     fn default_macros_match_the_emulated_iris_release() {
         let d = Environment::default().standard_defines();
+        let java = iris_version_number(assets::facts::java_mapping::java_edition())
+            .expect("the pinned Java edition is a dotted version");
+        assert_eq!(define(&d, "MC_VERSION"), Some(java.to_string().as_str()));
         assert_eq!(define(&d, "IRIS_VERSION"), Some("11107"));
         assert_eq!(define(&d, "MC_GL_VERSION"), Some("460"));
         assert_eq!(define(&d, "MC_GLSL_VERSION"), Some("460"));

@@ -6,6 +6,9 @@ use bevy::{
 };
 use semantic_input::{DesktopEvent, DesktopEvents, MAX_PENDING_ACTION_EVENTS, PhysicalControl};
 
+#[cfg(test)]
+mod tests;
+
 /// Drains the backend batch even while capture is unavailable; missing order fails closed.
 pub(super) fn collect(
     inputs: &SemanticPhysicalInputs,
@@ -17,10 +20,22 @@ pub(super) fn collect(
     let mut batch = Vec::new();
     let mut output = DesktopEvents::default();
     let mut lost = false;
+    let reserved = |name: &str| {
+        inputs
+            .reserved
+            .as_ref()
+            .is_some_and(|reserved| reserved.0.iter().any(|key| key == name))
+    };
     for event in cursor.read(messages) {
         let relevant = match event {
-            WindowEvent::KeyboardInput(event) => event.window == window && !event.repeat,
-            WindowEvent::MouseButtonInput(event) => event.window == window,
+            WindowEvent::KeyboardInput(event) => {
+                event.window == window
+                    && !event.repeat
+                    && !reserved(&format!("{:?}", event.key_code))
+            }
+            WindowEvent::MouseButtonInput(event) => {
+                event.window == window && !reserved(&format!("Mouse{:?}", event.button))
+            }
             WindowEvent::MouseWheel(event) => event.window == window,
             WindowEvent::KeyboardFocusLost(_) => {
                 lost = true;

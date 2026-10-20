@@ -116,6 +116,16 @@ pub(super) fn apply(
     bag: &BTreeMap<String, Scalar>,
     native: &mut Native,
 ) {
+    if target == crate::position::BINDING {
+        if control.properties.contains_key(crate::position::PROPERTY)
+            && let Some(position) = crate::position::parse(value)
+        {
+            native
+                .props
+                .insert(crate::position::PROPERTY.to_owned(), json!(position));
+        }
+        return;
+    }
     let kind = control.control_type.as_deref().unwrap_or("");
     let grid = kind == "grid";
     if grid

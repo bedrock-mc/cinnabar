@@ -376,6 +376,12 @@ and read budget. Native integrations drain
 `ModUi::take_mod_panel_text_events(owner)` and call that owner's
 `ModHost::queue_text_events` before running its frame. Admission validates the
 entire batch against its current text controls before updating any retained value.
+Optional `show_gameplay_hud: true` retains the resource-pack gameplay HUD behind an
+open panel, for example while placing HUD elements. It defaults to false. Hide HUD
+and death-screen suppression still apply, and the crosshair stays hidden while a
+panel owns input. This does not enable other extensions' overlay cards. The value
+can change with a full panel update without replacing the retained document.
+
 Optional `motion: true` enables short native hover and toggle transitions and
 smooth discrete wheel scrolling. Pixel scrolling and scrollbar dragging remain
 immediate. Authored surfaces can bind `#row_N_hover` and
@@ -383,7 +389,8 @@ immediate. Authored surfaces can bind `#row_N_hover` and
 from 0 to 1), `#row_N_toggle_color` and
 `#row_N_knob_color` (RGBA arrays), and `#row_N_knob_offset` (logical coordinates
 from `[2, 2]` to `[12, 2]`). These values follow native input without waiting for a
-component update. Turning off the Screen animations setting makes them change at once. `ModUi::mod_panel_motion_active` reports unsettled feedback for
+component update. Mod feedback is independent of the built-in Screen animations
+setting; the mod chooses whether to enable `motion`. `ModUi::mod_panel_motion_active` reports unsettled feedback for
 callers that suspend idle drawing. Arbitrary authored animation graphs remain
 unsupported.
 
@@ -468,8 +475,10 @@ route change while open swaps surfaces at once, easing the new route in from its
 still in progress, and `ModUi::mod_panel_painting` reports a closed panel that is
 still drawing.
 
-When the player turns off the Screen animations setting, transitions, exits
-and `motion: true` feedback change at once, including values already moving.
+Surface transitions and exits are independent of the built-in Screen animations
+setting. Mods control their own motion through `motion` and their declared
+transitions. Omitting transitions and using `motion: false` makes panel updates
+immediate.
 
 A control may declare `cinnabar_transform` to scale and rotate how it and all its
 descendants are drawn, like CSS `transform`, without changing layout:
@@ -1387,3 +1396,6 @@ to the shorter play deadline after spawn. Ticks always use the play deadline.
 Developer launches may select a reactor with `CINNABAR_PACKET_MOD` and add WASI
 with `CINNABAR_PACKET_MOD_WASI=1`, or select a packet entry from
 `CINNABAR_MOD_SET`. Settings uses the same prepared-source and relay path.
+
+Native menus for trusted packet reactors use the optional callback and explicit
+Controls grant described in [the native menu contract](../crates/mod-api/native-menu.md).

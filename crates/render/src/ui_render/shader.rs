@@ -50,6 +50,17 @@ pub(crate) fn source(raw: &str) -> String {
     )
     .replace("FONT_STYLE_SDF", &format!("{}u", assets::FONT_STYLE_SDF))
     .replace(
+        "FONT_STYLE_OUTLINE_COVERAGE",
+        &format!("{}u", assets::FONT_STYLE_OUTLINE_COVERAGE),
+    )
+    .replace(
+        "OUTLINE_FILTER_MAX_SAMPLES",
+        &format!(
+            "{:?}",
+            render_model::font_shading::OUTLINE_FILTER_MAX_SAMPLES as f32
+        ),
+    )
+    .replace(
         "SDF_DISTANCE_SCALE",
         &format!("{:?}", render_model::font_shading::SDF_DISTANCE_SCALE),
     )
