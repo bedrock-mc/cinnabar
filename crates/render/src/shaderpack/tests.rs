@@ -138,6 +138,17 @@ fn render_frames(
     files: &[(&str, &str)],
     frames: usize,
 ) -> (Arc<super::loader::PackGpu>, Vec<u8>) {
+    render_frame_options(gpu, files, frames, [0, 0, SIZE[0], SIZE[1]], false)
+}
+
+/// Renders a viewport and optionally records a second camera before submitting the first.
+fn render_frame_options(
+    gpu: &GpuContext,
+    files: &[(&str, &str)],
+    frames: usize,
+    viewport: [u32; 4],
+    second_view: bool,
+) -> (Arc<super::loader::PackGpu>, Vec<u8>) {
     let pack = pack(files);
     let pack = Arc::new(
         build(
@@ -202,7 +213,8 @@ fn render_frames(
         format,
         wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
     );
-    let mut state = ViewState::new(&gpu.device, Arc::clone(&pack), size).unwrap();
+    let mut state =
+        ViewState::new(&gpu.device, Arc::clone(&pack), [viewport[2], viewport[3]]).unwrap();
     let game = ShaderPackFrameInputs::default();
     let frame = FrameUniforms::new(
         ViewCamera {
@@ -227,7 +239,7 @@ fn render_frames(
         depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
             view: &depth.create_view(&Default::default()),
             depth_ops: Some(wgpu::Operations {
-                load: wgpu::LoadOp::Clear(0.0),
+                load: wgpu::LoadOp::Clear(if second_view { 0.5 } else { 0.0 }),
                 store: wgpu::StoreOp::Store,
             }),
             stencil_ops: None,
@@ -238,6 +250,7 @@ fn render_frames(
     });
     drop(clear);
     let io = FrameIo {
+        viewport,
         scene_colour: &scene.create_view(&Default::default()),
         scene_depth: &depth.create_view(&Default::default()),
         scene_near: 0.1,
@@ -249,6 +262,18 @@ fn render_frames(
     };
     for _ in 0..frames {
         record_frame(&gpu.device, &gpu.queue, &mut encoder, &mut state, &io);
+    }
+    if second_view {
+        let mut other =
+            ViewState::new(&gpu.device, Arc::clone(&pack), [viewport[2], viewport[3]]).unwrap();
+        other.write_uniforms(&gpu.queue, &frame, 0.016);
+        let mut encoder = gpu.device.create_command_encoder(&Default::default());
+        let other_io = FrameIo {
+            scene_near: 10.0,
+            ..io
+        };
+        record_frame(&gpu.device, &gpu.queue, &mut encoder, &mut other, &other_io);
+        gpu.queue.submit([encoder.finish()]);
     }
     let readback = gpu.device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
@@ -721,4 +746,78 @@ fn sampler_classes_map_to_wrap_and_filter_modes() {
         };
         assert_eq!([d.mag_filter, d.min_filter], [filter; 2]);
     }
+}
+
+#[test]
+fn fallback_presentation_uses_the_exchanged_composite_output() {
+    let Some(gpu) = gpu() else {
+        eprintln!("missing fixture: native GPU adapter for the shader pack frame");
+        return;
+    };
+    let (pack, bytes) = render_frames(
+        &gpu,
+        &[
+            ("composite.vsh", PASS_VERTEX),
+            (
+                "composite.fsh",
+                "#version 120\nvoid main() { gl_FragData[0] = vec4(0.25, 0.5, 0.75, 1.0); }",
+            ),
+        ],
+        2,
+    );
+    assert!(pack.frame.exchange.contains(&0));
+    assert_pixels(&bytes, |_| [64, 128, 191]);
+}
+
+#[test]
+fn viewport_copies_crop_and_preserve_pixels_outside_the_view() {
+    let Some(gpu) = gpu() else {
+        eprintln!("missing fixture: native GPU adapter for the shader pack frame");
+        return;
+    };
+    let (_, bytes) = render_frame_options(
+        &gpu,
+        &[
+            ("composite.vsh", PASS_VERTEX),
+            ("composite.fsh", INVERT),
+            ("final.vsh", PASS_VERTEX),
+            ("final.fsh", FINAL),
+        ],
+        1,
+        [1, 1, 2, 2],
+        false,
+    );
+    for y in 0..4 {
+        for x in 0..4 {
+            let inside = (1..3).contains(&x) && (1..3).contains(&y);
+            let original = if y < 2 { [255u8, 0, 0] } else { [128u8; 3] };
+            let expected = original.map(|c| if inside { 255 - c } else { c });
+            let at = y * 256 + x * 4;
+            for c in 0..3 {
+                assert!(bytes[at + c].abs_diff(expected[c]) <= 1);
+            }
+        }
+    }
+}
+
+#[test]
+fn recorded_views_keep_their_own_depth_conversion_planes() {
+    let Some(gpu) = gpu() else {
+        eprintln!("missing fixture: native GPU adapter for the shader pack frame");
+        return;
+    };
+    let (_, bytes) = render_frame_options(
+        &gpu,
+        &[
+            ("final.vsh", PASS_VERTEX),
+            (
+                "final.fsh",
+                "#version 120\nuniform sampler2D depthtex0; varying vec2 texcoord; void main() { gl_FragColor = vec4(vec3(texture2D(depthtex0, texcoord).r), 1.0); }",
+            ),
+        ],
+        1,
+        [0, 0, 4, 4],
+        true,
+    );
+    assert_pixels(&bytes, |_| [191; 3]);
 }
