@@ -5,7 +5,35 @@ use super::*;
 pub(super) enum ReadItem {
     Core(Bytes),
     #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-    Native(Bytes),
+    Native(ServerBatch),
+}
+
+/// One original server body, with its selected relay transformation committed at most once.
+pub(super) struct ServerBatch {
+    pub(super) body: Bytes,
+    pub(super) relay_applied: bool,
+}
+
+impl ServerBatch {
+    /// Retains an unprocessed body on its existing startup or reader FIFO.
+    pub(super) fn new(body: Bytes) -> Self {
+        Self {
+            body,
+            relay_applied: false,
+        }
+    }
+
+    /// Replaces only this body before terminal inspection, preserving callback order on its owner.
+    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+    pub(super) fn apply_relay(&mut self, relay: Option<&RelayLink>, startup: bool) {
+        if self.relay_applied {
+            return;
+        }
+        if let Some(body) = relay.and_then(|relay| relay.inbound(&self.body, startup)) {
+            self.body = body;
+        }
+        self.relay_applied = true;
+    }
 }
 
 impl ReadItem {
@@ -14,7 +42,7 @@ impl ReadItem {
         match self {
             Self::Core(bytes) => bytes.len(),
             #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-            Self::Native(bytes) => bytes.len(),
+            Self::Native(batch) => batch.body.len(),
         }
     }
 
@@ -23,8 +51,10 @@ impl ReadItem {
         match self {
             Self::Core(frame) => crate::session_wire::batch_frame_body(frame).is_some(),
             #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-            Self::Native(body) => {
-                super::native_batch_terminal(body).is_ok_and(|terminal| terminal.is_none())
+            Self::Native(batch) => {
+                !batch.relay_applied
+                    || super::native_batch_terminal(&batch.body)
+                        .is_ok_and(|terminal| terminal.is_none())
             }
         }
     }
@@ -54,7 +84,7 @@ impl<R: bridge::FrameRead> Reader<R> {
             Self::Native(reader) => reader.poll_next(cx).map(|item| {
                 item.map(|result| {
                     result
-                        .map(ReadItem::Native)
+                        .map(|body| ReadItem::Native(ServerBatch::new(body)))
                         .map_err(|error| SessionFailure::NativeTransport(error).into())
                 })
             }),

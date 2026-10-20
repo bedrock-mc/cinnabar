@@ -18,7 +18,7 @@ use bridge::{BridgeError, FrameQueue, FramedReader};
 use bytes::{BufMut, Bytes, BytesMut};
 mod io;
 pub(crate) use io::{PacketSender, PacketWritten};
-use io::{ReadItem, Reader};
+use io::{ReadItem, Reader, ServerBatch};
 #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
 pub(crate) mod native;
 
@@ -68,11 +68,11 @@ pub(crate) struct SessionTransport<R = FramedReader> {
     relay: Option<RelayLink>,
     prefer_injected: bool,
     joining: bool,
-    startup: VecDeque<Bytes>, // startup batch bodies, read before any core frame
-    received: VecDeque<RawPacket>, // packets split from a batch but not yet read
-    ahead: VecDeque<ReadAhead>, // original reader items and their immutable admission metadata
-    ahead_bytes: usize,       // frame bytes held in `ahead`
-    ended: bool,              // a terminal message was delivered
+    startup: VecDeque<ServerBatch>, // startup bodies and relay state, read before later input
+    received: VecDeque<RawPacket>,  // packets split from a batch but not yet read
+    ahead: VecDeque<ReadAhead>,     // original reader items and their immutable admission metadata
+    ahead_bytes: usize,             // conservative admission bytes charged to `ahead`
+    ended: bool,                    // a terminal message was delivered
     sending: VecDeque<InFlightSend>,
     tap: Option<Arc<dyn PacketTap>>,
     current: Option<CurrentPacket>, // the tapped packet the session is processing
@@ -83,6 +83,7 @@ pub(crate) struct SessionTransport<R = FramedReader> {
 /// One original read-ahead FIFO entry, with native delay metadata on the SAME body/terminal.
 struct ReadAhead {
     item: Option<Result<ReadItem, SessionError>>,
+    charge: usize,
     #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
     delay: Option<native::delay::Deadline>,
 }
@@ -164,7 +165,10 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
             relay: None,
             prefer_injected: false,
             joining: true,
-            startup: startup_batches(startup).into(),
+            startup: startup_batches(startup)
+                .into_iter()
+                .map(ServerBatch::new)
+                .collect(),
             received: VecDeque::new(),
             ahead: VecDeque::new(),
             ahead_bytes: 0,
@@ -243,7 +247,7 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
                 return Ok(Inbound::Packet(packet));
             }
             if let Some(batch) = self.startup.pop_front() {
-                self.receive_server_batch(batch, 0)?;
+                self.receive_retained_batch(batch, 0)?;
                 continue;
             }
             if self.ended {
@@ -267,9 +271,9 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
             let frame = match frame {
                 ReadItem::Core(frame) => frame,
                 #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-                ReadItem::Native(body) => {
+                ReadItem::Native(batch) => {
                     self.split_frames += 1;
-                    self.receive_server_batch(body, self.split_frames)?;
+                    self.receive_retained_batch(batch, self.split_frames)?;
                     continue;
                 }
             };
@@ -343,11 +347,22 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
                     return Ok(Some(terminal));
                 }
             }
-            for entry in &self.ahead {
-                if let Some(Ok(ReadItem::Native(body))) = &entry.item
-                    && let Some(terminal) = native_batch_terminal(body)?
-                {
+            for batch in &self.startup {
+                if !batch.relay_applied {
+                    return Ok(None);
+                }
+                if let Some(terminal) = native_batch_terminal(&batch.body)? {
                     return Ok(Some(terminal));
+                }
+            }
+            for entry in &self.ahead {
+                if let Some(Ok(ReadItem::Native(batch))) = &entry.item {
+                    if !batch.relay_applied {
+                        return Ok(None);
+                    }
+                    if let Some(terminal) = native_batch_terminal(&batch.body)? {
+                        return Ok(Some(terminal));
+                    }
                 }
             }
             return Ok(None);
@@ -381,6 +396,21 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
         }
     }
 
+    /// Delivers a retained final body without applying the selected relay a second time.
+    fn receive_retained_batch(
+        &mut self,
+        batch: ServerBatch,
+        frame: u64,
+    ) -> Result<(), SessionError> {
+        if batch.relay_applied {
+            let packets = self.split_batch(batch.body, frame)?;
+            self.received.extend(packets);
+            Ok(())
+        } else {
+            self.receive_server_batch(batch.body, frame)
+        }
+    }
+
     /// Both actual upstream owners pass through the relay before decoding and observation.
     fn receive_server_batch(&mut self, body: Bytes, frame: u64) -> Result<(), SessionError> {
         let replaced = self
@@ -397,9 +427,9 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
         Ok(())
     }
 
-    /// Reads core frames ahead of [`Self::recv`], unparsed, until `max_bytes` are held or the core
-    /// ends the session, so short preparation or world-admission pauses do not block the core.
-    /// Cancelling the wait loses nothing.
+    /// Retains original input ahead of [`Self::recv`] until the byte bound or a terminal.
+    /// Native bodies pass through their selected relay before terminal metadata is inspected;
+    /// delayed callbacks remain behind the original delivery deadline. Cancellation loses nothing.
     pub(crate) async fn read_ahead(&mut self, max_bytes: usize) {
         #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
         if matches!(&self.reader, Reader::Native(_))
@@ -410,9 +440,9 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
         while poll_fn(|cx| self.poll_read_ahead_one(max_bytes, cx)).await {}
     }
 
-    /// Stages at most one unparsed reader item, retaining partial frames across cancellation.
-    /// Returns false at the shared byte bound or a terminal, error or EOF marker. As with
-    /// `read_ahead`, accepting a whole frame may cross the bound by that frame's size.
+    /// Stages at most one reader item, preserving partial I/O and native delay on cancellation.
+    /// Returns false at the shared byte bound or a terminal, error or EOF marker. Accepting or
+    /// replacing one whole body may cross the bound by that body's size.
     pub(crate) fn poll_read_ahead_one(
         &mut self,
         max_bytes: usize,
@@ -420,7 +450,11 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
     ) -> Poll<bool> {
         #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
         let delay = self.packet_delay();
-        poll_reader_ahead(
+        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+        if matches!(&self.reader, Reader::Native(_)) && !self.apply_native_read_ahead(max_bytes) {
+            return Poll::Ready(false);
+        }
+        let more = poll_reader_ahead(
             &mut self.reader,
             &mut self.ahead,
             &mut self.ahead_bytes,
@@ -428,7 +462,57 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
             delay,
             max_bytes,
             cx,
-        )
+        );
+        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+        if more.is_ready() && matches!(&self.reader, Reader::Native(_)) {
+            return more.map(|more| self.apply_native_read_ahead(max_bytes) && more);
+        }
+        more
+    }
+
+    /// Applies earlier startup and reader callbacks once, before inspecting their final bodies.
+    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+    fn apply_native_read_ahead(&mut self, max_bytes: usize) -> bool {
+        for packet in &self.received {
+            if !matches!(native_packet_terminal(packet), Ok(None)) {
+                return false;
+            }
+        }
+        for batch in &mut self.startup {
+            batch.apply_relay(self.relay.as_ref(), self.joining);
+            if !matches!(native_batch_terminal(&batch.body), Ok(None)) {
+                return false;
+            }
+        }
+        let delay = self.packet_delay();
+        for entry in &mut self.ahead {
+            let mut applied = false;
+            if let Some(Ok(ReadItem::Native(batch))) = &mut entry.item {
+                // Later callbacks cannot overtake an earlier body still awaiting its delivery time.
+                if !batch.relay_applied
+                    && entry.delay.is_some_and(|deadline| {
+                        delay.as_ref().is_some_and(|delay| {
+                            delay.remaining(deadline, native::delay::now()).is_some()
+                        })
+                    })
+                {
+                    return self.ahead_bytes < max_bytes;
+                }
+                applied = !batch.relay_applied;
+                batch.apply_relay(self.relay.as_ref(), self.joining);
+                // A dropped body still owns its original positive admission and trace position.
+                let charge = entry.charge.max(batch.body.len());
+                self.ahead_bytes += charge - entry.charge;
+                entry.charge = charge;
+                if !matches!(native_batch_terminal(&batch.body), Ok(None)) {
+                    return false;
+                }
+            }
+            if (applied && self.ahead_bytes >= max_bytes) || ends_session(&entry.item) {
+                return false;
+            }
+        }
+        self.ahead_bytes < max_bytes
     }
 
     /// Adopts previously unobserved startup packets ahead of unread input, preserving their bodies.
@@ -436,7 +520,8 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
     pub(crate) fn adopt_startup(&mut self, mut packets: Vec<RawPacket>) {
         if self.relay.is_some() {
             let bodies: Vec<_> = packets.iter().map(|packet| packet.body().clone()).collect();
-            self.startup.extend(startup_batches(&bodies));
+            self.startup
+                .extend(startup_batches(&bodies).into_iter().map(ServerBatch::new));
         } else {
             self.record_received(&mut packets, 0);
             self.prepend(packets);
@@ -604,6 +689,7 @@ async fn next_reader_item<R: bridge::FrameRead>(
                 ahead_bytes,
                 ReadAhead {
                     item: next,
+                    charge: 0,
                     delay: deadline,
                 },
             );
@@ -615,20 +701,21 @@ async fn next_reader_item<R: bridge::FrameRead>(
     }
 }
 
-/// Removes only the eligible original entry, releasing exactly its original byte charge.
+/// Removes only the eligible original entry, releasing its conservative admission charge.
 fn pop_read_ahead(ahead: &mut VecDeque<ReadAhead>, bytes: &mut usize) -> Option<ReadAhead> {
     let entry = ahead.pop_front()?;
-    if let Some(Ok(frame)) = &entry.item {
-        *bytes -= frame.len();
-    }
+    *bytes -= entry.charge;
     Some(entry)
 }
 
-/// Retains one original input or terminal with its admission metadata and original byte charge.
-fn retain_read_ahead(ahead: &mut VecDeque<ReadAhead>, bytes: &mut usize, entry: ReadAhead) {
-    if let Some(Ok(frame)) = &entry.item {
-        *bytes += frame.len();
-    }
+/// Retains one original input or terminal, charging its original body before any relay change.
+fn retain_read_ahead(ahead: &mut VecDeque<ReadAhead>, bytes: &mut usize, mut entry: ReadAhead) {
+    entry.charge = entry
+        .item
+        .as_ref()
+        .and_then(|item| item.as_ref().ok())
+        .map_or(0, ReadItem::len);
+    *bytes += entry.charge;
     ahead.push_back(entry);
 }
 
@@ -653,6 +740,7 @@ fn poll_reader_ahead<R: bridge::FrameRead>(
         ahead_bytes,
         ReadAhead {
             item: next,
+            charge: 0,
             #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
             delay: delay.and_then(|delay| delay.capture(native::delay::now())),
         },
