@@ -224,8 +224,8 @@ pub use permissions::{
 pub use raw_text::{
     MAX_RAW_TEXT_COMPONENTS, MAX_RAW_TEXT_DEPTH, MAX_RAW_TEXT_EXPANSION_BYTES,
     MAX_RAW_TEXT_INPUT_BYTES, MAX_RAW_TEXT_NODES, MAX_RAW_TEXT_OUTPUT_BYTES, RawTextComponent,
-    RawTextDocument, RawTextResolution, RawTextResolver, ResolvedRawText, format_translation,
-    format_translation_chars, parse_raw_text,
+    RawTextDocument, RawTextResolution, RawTextResolver, ResolvedRawText, format_form_translation,
+    format_translation, format_translation_chars, parse_raw_text,
 };
 pub use render_api::primitive_shapes::{
     PrimitiveShapeChange, PrimitiveShapeData, PrimitiveShapeKind, PrimitiveShapeUpdate,

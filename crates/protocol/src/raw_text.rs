@@ -1,3 +1,8 @@
+mod fixed_float;
+
+use fixed_float::FixedFloatText;
+#[cfg(test)]
+use fixed_float::MAX_FIXED_FLOAT_BYTES;
 use std::{borrow::Cow, cell::Cell, sync::Arc};
 
 use serde::{
@@ -16,8 +21,6 @@ pub const MAX_RAW_TEXT_OUTPUT_BYTES: usize = 8_192;
 pub const MAX_RAW_TEXT_EXPANSION_BYTES: usize = crate::ui::MAX_FORM_JSON_BYTES;
 // One extra scalar preserves the existing parent's exact truncation decision.
 const MAX_FORMATTED_PREFIX_BYTES: usize = MAX_RAW_TEXT_OUTPUT_BYTES + 4;
-// Sign + 309 integer digits + decimal point + precision 0..9 for finite f64.
-const MAX_FIXED_FLOAT_BYTES: usize = 320;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RawTextDocument {
@@ -251,6 +254,16 @@ pub fn format_translation(template: &str, arguments: &[String]) -> String {
     format_translation_chars(template.chars(), arguments)
 }
 
+/// Formats form labels within the expanded-string budget, retaining complete UTF-8 scalars.
+pub fn format_form_translation(template: &str, arguments: &[String]) -> String {
+    format_translation_chars_with_limit(
+        template.chars(),
+        |index| arguments.get(index).map(|text| (text.as_str(), false)),
+        MAX_RAW_TEXT_EXPANSION_BYTES,
+    )
+    .text
+}
+
 /// Formats a lazy template with the same substitutions and output budget as [`format_translation`].
 /// Stops consuming input once no later scalar can enter the retained output.
 pub fn format_translation_chars(
@@ -378,36 +391,6 @@ impl TranslationPrefix {
         if !self.sealed {
             self.sealed = append_prefix(&mut self.text, text, self.max_bytes);
         }
-    }
-}
-
-struct FixedFloatText {
-    bytes: [u8; MAX_FIXED_FLOAT_BYTES],
-    len: usize,
-}
-
-impl Default for FixedFloatText {
-    fn default() -> Self {
-        Self {
-            bytes: [0; MAX_FIXED_FLOAT_BYTES],
-            len: 0,
-        }
-    }
-}
-
-impl FixedFloatText {
-    fn as_str(&self) -> &str {
-        std::str::from_utf8(&self.bytes[..self.len]).expect("formatter writes valid UTF-8")
-    }
-}
-
-impl std::fmt::Write for FixedFloatText {
-    fn write_str(&mut self, text: &str) -> std::fmt::Result {
-        let end = self.len.checked_add(text.len()).ok_or(std::fmt::Error)?;
-        let destination = self.bytes.get_mut(self.len..end).ok_or(std::fmt::Error)?;
-        destination.copy_from_slice(text.as_bytes());
-        self.len = end;
-        Ok(())
     }
 }
 
@@ -991,7 +974,7 @@ mod formatting_tests {
             .write_str(&"a".repeat(MAX_FIXED_FLOAT_BYTES))
             .unwrap();
         assert!(number.write_str("b").is_err());
-        assert_eq!(number.len, MAX_FIXED_FLOAT_BYTES);
+        assert_eq!(number.as_str().len(), MAX_FIXED_FLOAT_BYTES);
         assert_eq!(number.as_str(), "a".repeat(MAX_FIXED_FLOAT_BYTES));
     }
 }

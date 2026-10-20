@@ -159,7 +159,7 @@ fn custom_element(
             };
             CustomElement::Slider {
                 enabled: control_locked.is_enabled(in_game),
-                text: protocol::format_translation(
+                text: protocol::format_form_translation(
                     slider_format,
                     &[resolve(text), number_text(current, step.get())],
                 ),
@@ -181,7 +181,7 @@ fn custom_element(
             };
             CustomElement::StepSlider {
                 enabled: control_locked.is_enabled(in_game),
-                text: protocol::format_translation(
+                text: protocol::format_form_translation(
                     slider_format,
                     &[
                         resolve(text),
@@ -261,6 +261,44 @@ mod control_locked_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn form_display_model_preserves_complete_long_slider_labels_and_steps() {
+        let long = "世界🙂".repeat(4_000);
+        let source = serde_json::json!({"type":"custom_form", "content":[
+            {"type":"slider", "text":long, "min":0, "max":10, "default":5},
+            {"type":"step_slider", "text":long, "steps":[long]}
+        ]})
+        .to_string();
+        let packet = protocol::test_support::packets::modal_form_request_packet(1, &source);
+        let Some(protocol::WorldEvent::Ui(protocol::UiEvent::Form(event))) =
+            protocol::into_world_event(packet, 0).unwrap()
+        else {
+            panic!("server form");
+        };
+        let state = FormEngineState::for_model(&event.model);
+        let Some(FormModel::Custom(form)) = engine_model(
+            &event.model,
+            &state,
+            true,
+            &|key| (key == "options.sliderLabelFormat").then(|| Arc::from("%s|%s")),
+            &|_| RemoteImage::Failed,
+            &|text| text.to_string(),
+        ) else {
+            panic!("custom form");
+        };
+        let [
+            CustomElement::Slider { text: slider, .. },
+            CustomElement::StepSlider { text: step, .. },
+        ] = form.elements.as_slice()
+        else {
+            panic!("sliders");
+        };
+        assert_eq!(slider.len(), long.len() + 2);
+        assert_eq!(slider, &format!("{long}|5"));
+        assert_eq!(step.len(), long.len() * 2 + 1);
+        assert_eq!(step, &format!("{long}|{long}"));
+    }
 
     #[test]
     fn form_display_model_preserves_complete_long_literal_and_translated_labels() {

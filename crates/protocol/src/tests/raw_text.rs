@@ -725,6 +725,25 @@ fn bounded_translation_keeps_parent_text_after_an_unused_argument_is_truncated()
 }
 
 #[test]
+fn form_translation_formatting_keeps_long_labels_and_bounds_substitution_growth() {
+    let long = "界".repeat(10_000);
+    let arguments = [long.clone(), "5".into()];
+    assert_eq!(
+        protocol::format_form_translation("%1: %2", &arguments),
+        format!("{long}: 5")
+    );
+    assert!(protocol::format_translation("%1: %2", &arguments).len() < long.len());
+    let template = "%1".repeat(1_000);
+    let (formatted, allocations) =
+        test_alloc::measure(|| protocol::format_form_translation(&template, &arguments));
+    let budget = protocol::MAX_RAW_TEXT_EXPANSION_BYTES;
+    assert_eq!(formatted.len(), budget - budget % "界".len());
+    assert!(formatted.chars().all(|character| character == '界'));
+    assert!(formatted.capacity() <= budget);
+    assert!(allocations.bytes <= budget * 4, "{allocations:?}");
+}
+
+#[test]
 fn death_translation_resolves_marked_entity_parameters_once() {
     let translate = |key: &str| match key {
         "death.attack.mob" => Some(Arc::from("%1$s was slain by %2$s")),
