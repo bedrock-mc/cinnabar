@@ -1,4 +1,4 @@
-//! Expression results and effects retained only in immutable endpoint scratch storage.
+//! Expression results and effects retained by a rig's isolated frame scratch.
 use super::*;
 use crate::render_frame::cache::Inputs;
 

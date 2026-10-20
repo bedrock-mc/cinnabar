@@ -7,7 +7,7 @@ mod state_time_tests;
 mod scratch;
 pub(super) use scratch::Controllers;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub(crate) struct ControllerJournal {
     events: Arc<Vec<ControllerEvent>>,
     retain_states: bool,
@@ -22,6 +22,18 @@ struct ControllerEvent {
     state: usize,
     runtime: ControllerState,
     effects: evaluation::MolangEffects,
+}
+
+impl Default for ControllerJournal {
+    /// Empty journals share storage until a tick records its first controller event.
+    fn default() -> Self {
+        static EMPTY: std::sync::LazyLock<Arc<Vec<ControllerEvent>>> =
+            std::sync::LazyLock::new(|| Arc::new(Vec::new()));
+        Self {
+            events: Arc::clone(&EMPTY),
+            retain_states: false,
+        }
+    }
 }
 
 impl ControllerJournal {

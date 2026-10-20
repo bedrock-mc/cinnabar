@@ -9,7 +9,7 @@ struct Layer {
     output: Option<LayerOutput>,
 }
 
-/// Retires with its frame, so tick state, controller state and asset identities are implicit.
+/// Keeps pure controller results; rebuilding the owning rig discards its immutable layer plans.
 #[derive(Debug, Default)]
 pub(crate) struct RenderCache {
     layers: Vec<Layer>,

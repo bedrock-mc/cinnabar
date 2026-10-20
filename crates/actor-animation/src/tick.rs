@@ -504,9 +504,7 @@ pub(super) fn evaluate_state(
         || (state.samples_swing_poses
             && (state.local_swing.is_some() || state.remote_swing().is_some())))
     .then(|| super::render_frame::FrameState {
-        layers: Default::default(),
-        compositions: Default::default(),
-        retained: Default::default(),
+        cache: Default::default(),
         previous_rotation: if context.is_local_first_person {
             input
         } else {
@@ -519,7 +517,6 @@ pub(super) fn evaluate_state(
         retained_pose_effects: evaluation::MolangEffects::default(),
         motion: super::render_frame::motion_endpoint::MotionEndpointState {
             variables: variables.clone(),
-            scratch: Default::default(),
             sampling: state.motion_sampling.clone(),
             queries: if samples_motion {
                 state

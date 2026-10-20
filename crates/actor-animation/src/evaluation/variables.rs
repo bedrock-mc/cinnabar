@@ -671,10 +671,10 @@ mod tests {
         for symbol in 0..3 {
             assert!(!variables.read_changed(&other, &layout, symbol));
         }
-        let pool = frame::FrameVariables::default();
+        let mut pool = frame::FrameVariables::default();
         let copy = pool.lease(&variables);
         drop(copy);
-        let pool = frame::FrameVariables::default();
+        let mut pool = frame::FrameVariables::default();
         let copy = pool.lease(&other);
         assert_eq!(copy.variable(0), other.variable(0));
         assert_eq!(copy.variable(2), other.variable(2));

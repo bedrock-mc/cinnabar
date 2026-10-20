@@ -130,7 +130,15 @@ impl ActorAnimationStore {
             stack: OperandStack::lease(),
             static_draw: None,
         };
-        let mut retained = frame.retained.lock().unwrap();
+        let mut scratch = frame.cache.lock().unwrap();
+        let FrameSamplingCache {
+            variables: variable_scratch,
+            previous: previous_scratch,
+            current: current_scratch,
+            layers: layer_cache,
+            compositions,
+            retained,
+        } = &mut *scratch;
         let retained = if cache::enabled()
             && (!state.complete_spear_variables || layout.engine.spear.is_empty())
         {
@@ -150,7 +158,7 @@ impl ActorAnimationStore {
         {
             return Some(layers);
         }
-        let mut variables = frame.motion.scratch.lease(&frame.motion.variables);
+        let mut variables = variable_scratch.lease(&frame.motion.variables);
         if let Some(swing) = swing {
             variables.set(layout.engine.attack_time, swing);
         }
@@ -204,6 +212,7 @@ impl ActorAnimationStore {
                     camera_resample.then_some(previous_context),
                     false,
                     &mut budget,
+                    previous_scratch,
                 ) else {
                     return Some(fallback());
                 };
@@ -214,6 +223,7 @@ impl ActorAnimationStore {
                     camera_resample.then_some(current_context),
                     true,
                     &mut budget,
+                    current_scratch,
                 ) else {
                     return Some(fallback());
                 };
@@ -354,13 +364,11 @@ impl ActorAnimationStore {
         };
         let motion_previous = match &sampled_previous_local {
             Some(local) => {
-                let Some(pose) = frame.compositions.lock().unwrap().compose(
-                    None,
-                    true,
-                    state.posed_bones().len(),
-                    local,
-                    || state.compose(local),
-                ) else {
+                let Some(pose) =
+                    compositions.compose(None, true, state.posed_bones().len(), local, || {
+                        state.compose(local)
+                    })
+                else {
                     return Some(fallback());
                 };
                 Some(pose)
@@ -369,13 +377,11 @@ impl ActorAnimationStore {
         };
         let pose = match &sampled_local {
             Some(local) => {
-                let Some(pose) = frame.compositions.lock().unwrap().compose(
-                    None,
-                    false,
-                    state.posed_bones().len(),
-                    local,
-                    || state.compose(local),
-                ) else {
+                let Some(pose) =
+                    compositions.compose(None, false, state.posed_bones().len(), local, || {
+                        state.compose(local)
+                    })
+                else {
                     return Some(fallback());
                 };
                 Some(pose)
@@ -403,7 +409,7 @@ impl ActorAnimationStore {
             &mut variables,
             render_rig,
             &mut budget,
-            Some(&mut frame.layers.lock().unwrap()),
+            Some(layer_cache),
         ) else {
             return Some(fallback());
         };
@@ -539,7 +545,7 @@ impl ActorAnimationStore {
                         } else {
                             None
                         };
-                        let Some(current) = frame.compositions.lock().unwrap().compose(
+                        let Some(current) = compositions.compose(
                             Some(geometry),
                             false,
                             skeleton.bones.len(),
@@ -550,7 +556,7 @@ impl ActorAnimationStore {
                         };
                         let previous = match previous_local {
                             Some(local) => {
-                                let Some(previous) = frame.compositions.lock().unwrap().compose(
+                                let Some(previous) = compositions.compose(
                                     Some(geometry),
                                     true,
                                     skeleton.bones.len(),

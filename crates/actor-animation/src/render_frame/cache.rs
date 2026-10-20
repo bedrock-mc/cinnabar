@@ -1,4 +1,4 @@
-//! Exact dependencies for read-only sampled work within one immutable tick endpoint.
+//! Exact dependencies for sampled work in one rig's immutable asset layout.
 use super::*;
 
 #[derive(Debug, PartialEq)]

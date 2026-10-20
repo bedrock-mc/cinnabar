@@ -4,7 +4,6 @@ use super::*;
 #[derive(Clone, Debug, Default)]
 pub(crate) struct MotionEndpointState {
     pub variables: MolangVariables,
-    pub scratch: evaluation::variables::frame::FrameVariables,
     pub sampling: Option<Arc<super::motion_sampling::MotionSampling>>,
     pub queries: Vec<(u32, MolangValue)>,
     pub actor: Option<Arc<dyn AnimatedActor>>,
@@ -29,6 +28,7 @@ pub(super) struct MotionEndpoint<'a> {
 impl MotionEndpointState {
     /// Replays an endpoint with frame rotation, swelling and swing, retaining its other inputs.
     /// A `camera` context replaces the tick's camera and resamples camera-weighted clips.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn sample<'a>(
         &'a self,
         base: evaluation::Evaluator<'a>,
@@ -37,6 +37,7 @@ impl MotionEndpointState {
         camera: Option<&'a ActorTickContext>,
         publish: bool,
         budget: &mut EvalBudget<'_>,
+        scratch: &'a mut evaluation::variables::frame::FrameVariables,
     ) -> Result<MotionEndpoint<'a>, EvalError> {
         let evaluator = evaluation::Evaluator {
             context: camera.unwrap_or(&self.context),
@@ -51,7 +52,7 @@ impl MotionEndpointState {
             },
             ..base
         };
-        let mut variables = self.scratch.lease(&self.variables);
+        let mut variables = scratch.lease(&self.variables);
         if let Some(swing) = swing {
             variables.set(evaluator.layout.engine.attack_time, swing);
         }

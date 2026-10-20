@@ -1,22 +1,14 @@
 //! Scratch copies retained by their immutable tick endpoint.
 use super::*;
-use std::sync::Mutex;
 
-/// Each concurrent borrower leases its own buffers; clones start with an empty pool.
+/// Scratch storage belongs to one actor's sampling cache and its outer frame lock.
 #[derive(Debug, Default)]
-pub(crate) struct FrameVariables(Mutex<Vec<MolangVariables>>);
-
-impl Clone for FrameVariables {
-    /// A cloned endpoint owns a separate pool tied to its own frozen variable inputs.
-    fn clone(&self) -> Self {
-        Self::default()
-    }
-}
+pub(crate) struct FrameVariables(Vec<MolangVariables>);
 
 impl FrameVariables {
     /// Replaces a tick baseline while retaining scratch allocations and expression plans.
     pub(crate) fn rebase(&mut self, source: &MolangVariables) {
-        for variables in self.0.get_mut().unwrap() {
+        for variables in &mut self.0 {
             let cache = variables.frame_cache.take();
             let undo = variables.rollback.take();
             variables.clone_from(source);
@@ -25,14 +17,9 @@ impl FrameVariables {
         }
     }
 
-    /// Copies the immutable baseline once, then restores only writes between samples.
-    pub(crate) fn lease<'a>(&'a self, source: &MolangVariables) -> FrameVariableLease<'a> {
-        let mut variables = self
-            .0
-            .lock()
-            .unwrap()
-            .pop()
-            .unwrap_or_else(|| source.clone());
+    /// Seeds storage from a tick baseline, then restores only writes between samples.
+    pub(crate) fn lease<'a>(&'a mut self, source: &MolangVariables) -> FrameVariableLease<'a> {
+        let mut variables = self.0.pop().unwrap_or_else(|| source.clone());
         variables.frame_cache.get_or_insert_with(Default::default);
         let random = (variables.random, variables.random_draws);
         let mut undo = variables.rollback.take().unwrap_or_default();
@@ -49,7 +36,7 @@ impl FrameVariables {
 /// Returns scratch storage and its original random stream on every exit path.
 pub(crate) struct FrameVariableLease<'a> {
     variables: MolangVariables,
-    pool: &'a FrameVariables,
+    pool: &'a mut FrameVariables,
     random: (u64, u64),
 }
 
@@ -79,7 +66,7 @@ impl Drop for FrameVariableLease<'_> {
         variables.writes.clear();
         variables.publication_random = None;
         variables.rollback = Some(undo);
-        self.pool.0.lock().unwrap().push(variables);
+        self.pool.0.push(variables);
     }
 }
 

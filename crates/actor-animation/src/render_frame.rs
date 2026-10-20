@@ -211,9 +211,7 @@ impl<'a> ActorRenderFrame<'a> {
 
 #[derive(Debug)]
 pub(super) struct FrameState {
-    pub layers: std::sync::Mutex<render::cache::RenderCache>,
-    pub compositions: std::sync::Mutex<composition::Compositions>,
-    pub retained: std::sync::Mutex<Option<retained::Sample>>,
+    pub cache: std::sync::Mutex<FrameSamplingCache>,
     pub motion: MotionEndpointState,
     /// Previous simulation tick, even when that tick did not evaluate a visual pose.
     pub previous_rotation: ActorTickInput,
@@ -230,6 +228,38 @@ pub(super) struct FrameState {
     pub motion_layers: BTreeMap<u32, MotionPoses>,
     /// Swell samples used by the retained motion endpoints.
     pub swelling: [f32; 2],
+}
+
+/// One frame lock protects the independent scratch streams and their sampled outputs.
+#[derive(Debug, Default)]
+pub(crate) struct FrameSamplingCache {
+    variables: evaluation::variables::frame::FrameVariables,
+    previous: evaluation::variables::frame::FrameVariables,
+    current: evaluation::variables::frame::FrameVariables,
+    layers: render::cache::RenderCache,
+    compositions: composition::Compositions,
+    retained: Option<retained::Sample>,
+}
+
+impl FrameSamplingCache {
+    /// A tick replaces frozen inputs while preserving storage and immutable expression plans.
+    fn rebase(
+        &mut self,
+        current: &MolangVariables,
+        previous: &MolangVariables,
+        sampling: Option<&motion_sampling::MotionSampling>,
+    ) {
+        self.variables.rebase(current);
+        self.current.rebase(current);
+        self.previous.rebase(previous);
+        if let Some(sampling) = sampling {
+            if let Some(retained) = &mut self.retained {
+                retained.rebase(sampling.frame_queries());
+            }
+        } else {
+            self.retained = None;
+        }
+    }
 }
 
 impl FrameState {
@@ -273,12 +303,17 @@ impl FrameState {
     }
 
     pub(super) fn hold_motion(&mut self) {
-        *self.retained.get_mut().unwrap() = None;
+        self.cache.get_mut().unwrap().retained = None;
         self.previous_rotation = self.motion.input;
         self.previous_walk = self.motion.input;
         self.swelling[0] = self.swelling[1];
         if let Some(previous) = self.previous_motion.as_mut() {
             previous.clone_from(&self.motion);
+            self.cache
+                .get_mut()
+                .unwrap()
+                .previous
+                .rebase(&previous.variables);
         }
         for poses in self
             .motion_poses
@@ -337,24 +372,7 @@ pub(super) fn carry_motion_history(
     }
     let mut previous = previous;
     if let Some(previous) = previous.as_deref_mut() {
-        next.motion.scratch = if advance && next.motion_poses.is_some() {
-            previous
-                .previous_motion
-                .as_mut()
-                .map(|motion| std::mem::take(&mut motion.scratch))
-                .unwrap_or_default()
-        } else {
-            std::mem::take(&mut previous.motion.scratch)
-        };
-        next.motion.scratch.rebase(&next.motion.variables);
-        next.layers = std::mem::take(&mut previous.layers);
-        next.compositions = std::mem::take(&mut previous.compositions);
-        if let Some(sampling) = &next.motion.sampling {
-            next.retained = std::mem::take(&mut previous.retained);
-            if let Some(retained) = next.retained.get_mut().unwrap() {
-                retained.rebase(sampling.frame_queries());
-            }
-        }
+        next.cache = std::mem::take(&mut previous.cache);
     }
     if next.motion_poses.is_some() {
         next.previous_motion = previous.as_deref_mut().map(|frame| {
@@ -386,6 +404,15 @@ pub(super) fn carry_motion_history(
             advance,
         );
     }
+    next.cache.get_mut().unwrap().rebase(
+        &next.motion.variables,
+        &next
+            .previous_motion
+            .as_ref()
+            .unwrap_or(&next.motion)
+            .variables,
+        next.motion.sampling.as_deref(),
+    );
 }
 
 impl MotionPoses {
