@@ -113,7 +113,7 @@ impl LauncherServices {
         mut worlds: Option<&mut LocalWorlds>,
         now: Instant,
     ) {
-        if !self.retirement_complete() {
+        if !self.retirement_complete(commands, menu) {
             return;
         }
         if let Some((status, authenticated)) = self
@@ -157,7 +157,7 @@ impl LauncherServices {
             if !menu.account_session_retired() {
                 return;
             }
-            if !self.retire_presence() {
+            if !self.retire_presence(commands, menu) {
                 return;
             }
             let job = menu.account_operation_job();
@@ -196,7 +196,7 @@ impl LauncherServices {
                 return;
             }
             if matches!(self.running, Some(Running::Native { .. })) {
-                if !self.retire_presence() {
+                if !self.retire_presence(commands, menu) {
                     return;
                 }
                 self.detach_clients(commands, menu, worlds.as_deref_mut());
@@ -214,7 +214,7 @@ impl LauncherServices {
                 .core()
                 .is_some_and(|core| core.auth_cache != auth_cache);
             if path_changed && self.core().is_some() && menu.accounts.pending_ready {
-                if !self.retire_presence() {
+                if !self.retire_presence(commands, menu) {
                     return;
                 }
                 let old = self.take_core();
@@ -238,7 +238,7 @@ impl LauncherServices {
                 && restart_due
             {
                 if self.core().is_some() {
-                    if !self.retire_presence() {
+                    if !self.retire_presence(commands, menu) {
                         return;
                     }
                     let old = self.take_core();
@@ -382,6 +382,9 @@ impl MenuRuntime {
 
 #[cfg(test)]
 mod dead_child_tests;
+
+#[cfg(all(test, feature = "native-networking", not(target_arch = "wasm32")))]
+mod retirement_tests;
 
 #[cfg(test)]
 mod tests {

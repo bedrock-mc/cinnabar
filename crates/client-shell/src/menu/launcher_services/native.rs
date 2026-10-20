@@ -32,7 +32,7 @@ impl LauncherServices {
             return;
         }
         if self.running.is_some() {
-            if !self.retire_presence() {
+            if !self.retire_presence(commands, menu) {
                 return;
             }
             self.detach_clients(commands, menu, worlds);

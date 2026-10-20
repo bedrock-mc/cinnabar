@@ -388,6 +388,17 @@ fn presence_policy_change_retires_the_actual_core_before_replacement() {
 #[test]
 fn unconfirmed_retirement_holds_replacement_even_after_policy_changes() {
     for outcome in [Some(CoreStopOutcome::Unreaped), None] {
+        let layout = launcher::test_support::scratch("unconfirmed-retirement");
+        let mut menu = MenuRuntime::new_with_layout(
+            true,
+            Some(2),
+            "Fixture".into(),
+            layout,
+            crate::player_skin::LocalPlayerSkin::generated_default("Fixture"),
+        );
+        let world = World::new();
+        let mut queue = CommandQueue::default();
+        let mut commands = Commands::new(&mut queue, &world);
         let mut slot = LauncherServices::default();
         let (done, retired) = crossbeam_channel::bounded(1);
         slot.retiring = Some(retired);
@@ -395,12 +406,12 @@ fn unconfirmed_retirement_holds_replacement_even_after_policy_changes() {
             done.send(outcome).unwrap();
         }
         drop(done);
-        assert!(!slot.retirement_complete());
+        assert!(!slot.retirement_complete(&mut commands, &mut menu));
         assert_eq!(slot.last_core_retirement(), outcome);
         slot.set_title_presence_owner(TitlePresenceOwner::Native);
-        assert!(!slot.retirement_complete());
+        assert!(!slot.retirement_complete(&mut commands, &mut menu));
         slot.set_title_presence_owner(TitlePresenceOwner::Core);
-        assert!(!slot.retirement_complete());
+        assert!(!slot.retirement_complete(&mut commands, &mut menu));
         assert!(slot.core().is_none());
     }
 }
