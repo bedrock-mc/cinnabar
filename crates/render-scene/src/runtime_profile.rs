@@ -85,6 +85,11 @@ pub enum RuntimeStage {
     GpuTonemapping,
     GpuFxaa,
     GpuBlit,
+    /// Owned GPU-cull passes, measured during per-pass profiling outside Metal.
+    GpuCullEarly,
+    GpuCullHiz,
+    GpuCullLate,
+    GpuTerrainLate,
     /// Draw categories timed inside passes; only with aggregate profiling on capable adapters.
     GpuTerrainOpaque,
     GpuTerrainTransparent,
@@ -114,7 +119,7 @@ pub enum RuntimeStage {
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 79] = [
+    pub const ALL: [Self; 83] = [
         Self::ActorSessionSetup,
         Self::PackReload,
         Self::WorldPoll,
@@ -172,6 +177,10 @@ impl RuntimeStage {
         Self::GpuTonemapping,
         Self::GpuFxaa,
         Self::GpuBlit,
+        Self::GpuCullEarly,
+        Self::GpuCullHiz,
+        Self::GpuCullLate,
+        Self::GpuTerrainLate,
         Self::GpuTerrainOpaque,
         Self::GpuTerrainTransparent,
         Self::GpuTerrainSolid,
@@ -197,7 +206,7 @@ impl RuntimeStage {
     ];
 
     /// GPU diagnostics, including labelled completion latency, in the tail of [`Self::ALL`].
-    pub const GPU: [Self; 37] = [
+    pub const GPU: [Self; 41] = [
         Self::GpuFrame,
         Self::GpuShadows,
         Self::GpuOpaque,
@@ -213,6 +222,10 @@ impl RuntimeStage {
         Self::GpuTonemapping,
         Self::GpuFxaa,
         Self::GpuBlit,
+        Self::GpuCullEarly,
+        Self::GpuCullHiz,
+        Self::GpuCullLate,
+        Self::GpuTerrainLate,
         Self::GpuTerrainOpaque,
         Self::GpuTerrainTransparent,
         Self::GpuTerrainSolid,
@@ -331,6 +344,10 @@ impl RuntimeStage {
             Self::GpuTonemapping => "gpu_tonemapping",
             Self::GpuFxaa => "gpu_fxaa",
             Self::GpuBlit => "gpu_blit",
+            Self::GpuCullEarly => "gpu_cull_early",
+            Self::GpuCullHiz => "gpu_cull_hiz",
+            Self::GpuCullLate => "gpu_cull_late",
+            Self::GpuTerrainLate => "gpu_terrain_late",
             Self::GpuTerrainOpaque => "gpu_terrain_opaque",
             Self::GpuTerrainTransparent => "gpu_terrain_transparent",
             Self::GpuTerrainSolid => "gpu_terrain_solid",
