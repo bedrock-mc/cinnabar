@@ -693,7 +693,7 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
     // Its held pointer must not transfer to the next page, even with the same ID.
     app.world_mut()
         .resource_mut::<UiRuntimeResource>()
-        .respond_to_server_form(identity, LocalFormAction::Dismiss)
+        .respond_to_server_form(identity, client_ui::ui_runtime::LocalFormAction::Dismiss)
         .unwrap();
     assert_eq!(
         take(&mut app),
