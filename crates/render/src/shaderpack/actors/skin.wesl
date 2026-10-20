@@ -103,13 +103,14 @@ fn skin_corner(job: SkinJob, vertex: u32) -> Corner {
     let raw_back_uv = vec2(rig_f32(base + 8u), rig_f32(base + 9u));
     // A one-sided plane's back keeps its sentinel.
     corner.back_uv = select(uv_offset + raw_back_uv * uv_scale, raw_back_uv, raw_back_uv.x < -1.0e8);
-    if ((job.flags & JOB_GLINT) != 0u && word_f32(instance_base + 35u) > 0.0) {
+    let glint_base = instance_base + ACTOR_GLINT_WORD;
+    let item_extent = word_f32(glint_base + 5u);
+    if ((job.flags & JOB_GLINT) != 0u && item_extent > 0.0) {
         let origin = uv_offset + vec2(
             rig_f32(base + ACTOR_RIG_VERTEX_WORDS - 2u),
             rig_f32(base + ACTOR_RIG_VERTEX_WORDS - 1u),
         ) * uv_scale;
-        let glint_scale = vec2(word_f32(instance_base + 33u), word_f32(instance_base + 34u))
-            / word_f32(instance_base + 35u);
+        let glint_scale = vec2(word_f32(glint_base + 3u), word_f32(glint_base + 4u)) / item_extent;
         corner.uv = (corner.uv - origin) * glint_scale;
         if (corner.back_uv.x >= -1.0e8) {
             corner.back_uv = (corner.back_uv - origin) * glint_scale;

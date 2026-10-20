@@ -65,8 +65,9 @@ fn skin_fixture(
         instance[20 + index] = value.to_bits();
     }
     let glint = render_model::ActorGlint::item(0.0, span).parameters();
+    let glint_base = std::mem::offset_of!(render_model::ActorGpuInstance, glint) / 4;
     for (index, value) in glint.into_iter().enumerate() {
-        instance[30 + index] = value.to_bits();
+        instance[glint_base + index] = value.to_bits();
     }
     let mut vertices = vec![0_u32; CORNERS.len() * ACTOR_RIG_VERTEX_WORDS];
     for (index, (position, uv, back_uv)) in CORNERS.into_iter().enumerate() {

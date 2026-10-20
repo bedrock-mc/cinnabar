@@ -74,6 +74,13 @@ pub(crate) fn skin_shader_source(source: &str) -> String {
         &crate::material_shader::source(source)
             .replace("JOB_GLINT_FLAG", &format!("{JOB_GLINT}u"))
             .replace(
+                "ACTOR_GLINT_WORD",
+                &format!(
+                    "{}u",
+                    std::mem::offset_of!(render_model::ActorGpuInstance, glint) / 4
+                ),
+            )
+            .replace(
                 "ACTOR_VERTEX_WORDS",
                 &format!("{}u", super::layout::ACTOR_VERTEX_WORDS),
             )
