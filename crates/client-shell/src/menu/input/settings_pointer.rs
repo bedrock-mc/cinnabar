@@ -88,7 +88,7 @@ fn update_shader_slider(
         let action = menu
             .shader_options_view()
             .filter(|view| view.screen == screen)
-            .and_then(|_| pointer)
+            .and(pointer)
             .and_then(|point| presentation.shader_option_slider_drag_action(screen, index, point));
         if let Some(action) = action {
             let MenuAction::ShaderOptions(Action::Element {
