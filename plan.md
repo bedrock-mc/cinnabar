@@ -259,6 +259,9 @@ Equipped cosmetic emitters also run in visible menu and HUD paper dolls using th
 shared particle engine and attachment poses. Catalog-wide, in-world interaction
 and performance qualification for these previews remains open.
 
+Player name tags use Java's standing player height before pose offsets, independent of
+server collision-box changes. Other actors retain their published label height.
+
 Remaining qualification includes attachables and custom item models, action/use timing,
 projectile interpolation and shake, sleep/mount poses, name tags (including over
 oversized server cosmetics), capes, shadows,
@@ -276,6 +279,9 @@ Implemented: [chat, HUD and scoreboard state](crates/ui/src/lib.rs),
 [inventory prediction and crafting](crates/inventory/src/lib.rs), and
 [menus and settings](crates/client-shell/src/menu.rs). The boxes track full acceptance
 across these existing features; they are not a list of missing screens or systems.
+Gameplay mouse capture resumes after focus or occlusion returns when it was active
+before switching away. Screen ownership and focus-loss input clearing remain in effect;
+OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
 
 - [ ] `P5.1-UI` — Close pack-driven UI, bounded text/draw work, formatting, scaling,
   safe areas, focus/navigation and keyboard/mouse/controller/touch acceptance. Prove
