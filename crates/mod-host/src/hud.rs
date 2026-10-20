@@ -9,6 +9,8 @@ pub(super) mod bounds;
 mod clock;
 #[path = "hud/compass.rs"]
 mod compass;
+#[path = "hud/days.rs"]
+mod days;
 #[path = "hud/sources.rs"]
 pub(super) mod sources;
 #[cfg(test)]
@@ -36,6 +38,7 @@ pub(super) struct HudState {
     source_world: Option<crate::WorldObservation>,
     source_motion: Option<crate::MotionObservation>,
     source_clock: Option<clock::LocalMinute>,
+    source_day: Option<crate::module_observations::WorldDay>,
     source_totem_uses: Option<u32>,
 }
 impl HudState {
@@ -95,6 +98,7 @@ pub(super) fn open_editor(state: &mut State, json: String) -> Result<Result<(), 
     }
     let minute = clock::observe(&preview);
     clock::hydrate(&mut preview, minute);
+    days::hydrate(&mut preview, days::observe(state));
     sources::hydrate_totems(
         &mut preview,
         state.player_state.observations.local_totem_uses,
