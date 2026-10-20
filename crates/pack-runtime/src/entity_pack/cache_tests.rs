@@ -1,6 +1,6 @@
 fn empty_view() -> resource_pack::LayeredPackView {
     resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
-        bedrock_packs::ResourcePackHandoff::from_archives(Vec::new()),
+        protocol::ResourcePackHandoff::from_archives(Vec::new()),
     ))
 }
 

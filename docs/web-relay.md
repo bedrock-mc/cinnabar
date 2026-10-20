@@ -5,10 +5,6 @@ through the existing core session handler. WebTransport over HTTP/3 is the prefe
 transport. HTTPS WebSocket connections provide control and play fallback channels.
 The relay does not serve the browser page or runtime assets.
 
-The opt-in [native Rust operator](../web/gateway/README.md) provides HTTPS/WebSocket and optional
-WebTransport paths on the same native gateway. Its coherent dependency, real-browser, deployment
-and live-account qualification remain open. The Go operator below remains available.
-
 Build `core/cmd/bedrock-web-relay` with the core's Go toolchain and run the resulting
 binary with operator configuration, for example:
 
@@ -75,13 +71,12 @@ Public-address checks apply after DNS resolution to every game connection,
 transfer hop, pack URL and
 pack redirect; environment proxies cannot bypass them.
 
-Gameplay uses reliable ordered play framing. WebTransport pack archives use the separate reliable
-stream described below; WebSocket keeps archive delivery on the play connection.
+All current gameplay batches and pack chunks use reliable ordered play framing.
 Inbound frame buffers grow with received data instead of allocating the full
 advertised payload from its header. The shared bridge frame limit still applies.
 WebSocket messages split larger bridge frames at the shared relay message limit;
 message boundaries do not change the bridge byte stream.
-Gameplay datagrams and deployment/browser acceptance remain future integration work.
+Separate pack streams, gameplay datagrams and deployment/browser acceptance remain future integration work.
 
 ## Browser entry preview
 

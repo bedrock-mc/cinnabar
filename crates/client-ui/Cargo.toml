@@ -22,7 +22,7 @@ web-time.workspace = true
 cosmetics = { path = "../cosmetics" }
 uuid.workspace = true
 protocol-ids = { path = "../protocol-ids" }
-bedrock-packs.workspace = true
+pack-json = { path = "../pack-json" }
 env-compat = { path = "../env-compat" }
 simulation-clock = { path = "../simulation-clock" }
 bridge = { path = "../bridge" }

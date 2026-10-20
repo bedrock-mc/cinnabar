@@ -77,7 +77,7 @@ pub struct SkinPackReader<T: AsRef<[u8]>> {
 impl<T: AsRef<[u8]>> SkinPackReader<T> {
     /// Validates archive framing and metadata before decompressing individual skins.
     pub fn new(bytes: T) -> Result<Self, SkinImportError> {
-        if bytes.as_ref().len() > resource_pack::MAX_LOCAL_ARCHIVE_BYTES {
+        if bytes.as_ref().len() > resource_pack::MAX_ARCHIVE_BYTES {
             return Err(SkinImportError::TooLarge);
         }
         let mut zip = ZipArchive::new(Cursor::new(bytes)).map_err(|_| SkinImportError::Archive)?;
@@ -213,7 +213,7 @@ impl<T: AsRef<[u8]>> SkinPackReader<T> {
             .retained
             .checked_add(png.len() + geometry.as_ref().map_or(0, |source| source.byte_len()))
             .ok_or(SkinImportError::TooLarge)?;
-        if self.retained > resource_pack::MAX_LOCAL_ARCHIVE_BYTES {
+        if self.retained > resource_pack::MAX_ARCHIVE_BYTES {
             return Err(SkinImportError::TooLarge);
         }
         Ok(SkinPackEntry {

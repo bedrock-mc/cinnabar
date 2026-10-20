@@ -3,7 +3,7 @@
 use std::{collections::HashSet, path::Path, sync::Mutex};
 
 use bridge::{self, BridgeError, FeaturedServer, Friend, Home, Realm};
-use crossbeam_channel::Receiver;
+use crossbeam_channel::{Receiver, Sender};
 
 use super::artwork::{self, FeedArt};
 use super::{FEED_INTERVAL, FEED_RETRY, Snapshot, publish_account, settle};
@@ -22,14 +22,13 @@ pub(super) trait FeedSource {
 /// The core's feeds; with `art`, Home and featured artwork already on disk is filled in and the
 /// rest is queued, so a slow image host never delays a publish.
 pub(super) struct CoreFeeds<'a> {
-    pub(super) socket_dir: Option<&'a Path>,
+    pub(super) socket_dir: &'a Path,
     pub(super) art: Option<&'a FeedArt>,
 }
 
 impl FeedSource for CoreFeeds<'_> {
     async fn home(&self) -> Result<Home, BridgeError> {
-        let mut home =
-            bridge::home(super::workers::require_core_directory(self.socket_dir)?).await?;
+        let mut home = bridge::home(self.socket_dir).await?;
         if let Some(art) = self.art {
             art.fill_cached(artwork::home_slots(&mut home));
         }
@@ -40,13 +39,9 @@ impl FeedSource for CoreFeeds<'_> {
         include_player_counts: bool,
     ) -> Result<Vec<FeaturedServer>, BridgeError> {
         let mut servers = if include_player_counts {
-            bridge::list_featured_servers_with_counts(super::workers::require_core_directory(
-                self.socket_dir,
-            )?)
-            .await
+            bridge::list_featured_servers_with_counts(self.socket_dir).await
         } else {
-            bridge::list_featured_servers(super::workers::require_core_directory(self.socket_dir)?)
-                .await
+            bridge::list_featured_servers(self.socket_dir).await
         }?;
         if let Some(art) = self.art {
             art.fill_cached(artwork::featured_slots(&mut servers));
@@ -54,31 +49,33 @@ impl FeedSource for CoreFeeds<'_> {
         Ok(servers)
     }
     async fn realms(&self) -> Result<Vec<Realm>, BridgeError> {
-        bridge::list_realms(super::workers::require_core_directory(self.socket_dir)?).await
+        bridge::list_realms(self.socket_dir).await
     }
     async fn friends(&self) -> Result<Vec<Friend>, BridgeError> {
-        bridge::list_friends(super::workers::require_core_directory(self.socket_dir)?).await
+        bridge::list_friends(self.socket_dir).await
     }
 }
 
 /// Polls featured data independently so opening details never waits for Home or its reports.
 pub(super) fn poll_featured(
-    socket_dir: Option<&Path>,
-    art: &FeedArt,
+    socket_dir: &Path,
+    artwork_dir: &Path,
+    wake: Sender<()>,
     shared: &Mutex<Snapshot>,
     stop: &Receiver<()>,
     changes: &Receiver<()>,
-    mut changed: tokio::sync::watch::Receiver<super::featured_feed::Wake>,
-    runtime: &tokio::runtime::Handle,
 ) {
+    let Some(runtime) = super::runtime() else {
+        return;
+    };
+    let art = FeedArt::start(artwork::feed_images(artwork_dir), wake);
     let feeds = CoreFeeds {
         socket_dir,
-        art: Some(art),
+        art: Some(&art),
     };
-    let mut feed = super::featured_feed::Feed::default();
     loop {
         while changes.try_recv().is_ok() {}
-        let failed = runtime.block_on(feed.round(&feeds, Some(art), shared, &mut changed));
+        let failed = runtime.block_on(featured_round(&feeds, shared));
         if !wait_changes(
             stop,
             changes,
@@ -91,25 +88,27 @@ pub(super) fn poll_featured(
 
 /// Polls Home and reports its impressions without blocking other screen feeds.
 pub(super) fn poll_home(
-    socket_dir: Option<&Path>,
-    art: &FeedArt,
+    socket_dir: &Path,
+    artwork_dir: &Path,
+    wake: Sender<()>,
     shared: &Mutex<Snapshot>,
     stop: &Receiver<()>,
     changes: &Receiver<()>,
-    mut changed: tokio::sync::watch::Receiver<super::home_feed::Wake>,
-    runtime: &tokio::runtime::Handle,
 ) {
+    let Some(runtime) = super::runtime() else {
+        return;
+    };
     let mut reported = HashSet::new();
-    let mut feed = super::home_feed::Feed::default();
+    let art = FeedArt::start(artwork::feed_images(artwork_dir), wake);
     let feeds = CoreFeeds {
         socket_dir,
-        art: Some(art),
+        art: Some(&art),
     };
     loop {
         while changes.try_recv().is_ok() {}
-        let (home, failed) = runtime.block_on(feed.round(&feeds, shared, &mut changed));
+        let (home, failed) = runtime.block_on(home_round(&feeds, shared));
         if let Some(home) = home {
-            super::report_impressions(runtime, socket_dir, &home, &mut reported);
+            super::report_impressions(&runtime, socket_dir, &home, &mut reported);
         }
         if !wait_changes(
             stop,
@@ -122,10 +121,7 @@ pub(super) fn poll_home(
 }
 
 /// Publishes Home under its requesting account and returns it for impression reporting.
-pub(super) async fn home_round(
-    source: &impl FeedSource,
-    shared: &Mutex<Snapshot>,
-) -> (Option<Home>, bool) {
+async fn home_round(source: &impl FeedSource, shared: &Mutex<Snapshot>) -> (Option<Home>, bool) {
     let generation = super::auth_generation(shared);
     let mut failed = false;
     let home = settle("home", source.home().await, &mut failed);
@@ -138,7 +134,7 @@ pub(super) async fn home_round(
 }
 
 /// Publishes featured details without allowing an older layout read to erase visible counts.
-pub(super) async fn featured_round(source: &impl FeedSource, shared: &Mutex<Snapshot>) -> bool {
+async fn featured_round(source: &impl FeedSource, shared: &Mutex<Snapshot>) -> bool {
     let (generation, include_player_counts) = {
         let snapshot = shared.lock().unwrap_or_else(|poison| poison.into_inner());
         (snapshot.auth_generation, snapshot.player_counts_visible)
@@ -178,32 +174,24 @@ pub(super) async fn catalog_round(
     shared: &Mutex<Snapshot>,
     generation: u64,
 ) {
-    let (revision, native_catalog) = {
-        let snapshot = shared.lock().unwrap_or_else(|poison| poison.into_inner());
-        (snapshot.realm_catalog_revision, snapshot.native_catalog)
-    };
+    let revision = shared
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .realm_catalog_revision;
     tokio::join!(
         async {
-            if native_catalog {
-                return;
-            }
             if let Ok(realms) = source.realms().await {
                 publish_account(shared, generation, |snapshot| {
-                    if !snapshot.native_catalog && snapshot.realm_catalog_revision == revision {
+                    if snapshot.realm_catalog_revision == revision {
                         snapshot.realms = Some(realms);
                     }
                 });
             }
         },
         async {
-            if native_catalog {
-                return;
-            }
             if let Ok(friends) = source.friends().await {
                 publish_account(shared, generation, |snapshot| {
-                    if !snapshot.native_catalog && snapshot.realm_catalog_revision == revision {
-                        snapshot.friends = Some(friends);
-                    }
+                    snapshot.friends = Some(friends)
                 });
             }
         },
@@ -266,30 +254,6 @@ mod tests {
         async fn friends(&self) -> Result<Vec<Friend>, BridgeError> {
             self.answer(&self.friends).await
         }
-    }
-
-    /// Native account unavailability cannot borrow the Core feed's unrelated signed-in account.
-    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-    #[tokio::test(start_paused = true)]
-    async fn native_featured_without_an_account_never_requests_the_core_source() {
-        let source = GatedFeeds::default();
-        let shared = Mutex::new(Snapshot {
-            featured_source: super::super::featured_feed::Source::Native(None),
-            ..Default::default()
-        });
-        let (_wake, mut changed) =
-            tokio::sync::watch::channel(super::super::featured_feed::Wake::Account);
-        let mut feed = super::super::featured_feed::Feed::default();
-        assert!(
-            tokio::time::timeout(
-                super::super::ARTWORK_BUDGET,
-                feed.round(&source, None, &shared, &mut changed),
-            )
-            .await
-            .expect("missing native owner completes locally")
-        );
-        assert_eq!(source.started.load(Ordering::SeqCst), 0);
-        assert!(shared.lock().unwrap().featured.is_none());
     }
 
     fn poll<F: Future>(future: std::pin::Pin<&mut F>) -> Poll<F::Output> {
@@ -435,26 +399,5 @@ mod tests {
         assert!(wait_changes(&stop, &changes, super::super::FEED_INTERVAL));
         drop(alive);
         assert!(!wait_changes(&stop, &changes, super::super::FEED_INTERVAL));
-    }
-    /// Native catalog ownership retires both in-flight Go lists and suppresses later requests.
-    #[test]
-    fn native_catalog_retires_go_realms_and_friend_world_results() {
-        let feeds = GatedFeeds::default();
-        let shared = Mutex::new(Snapshot::default());
-        let mut before = pin!(catalog_round(&feeds, &shared, 0));
-        assert!(poll(before.as_mut()).is_pending());
-        assert_eq!(feeds.started.load(Ordering::SeqCst), 2);
-        shared.lock().unwrap().native_catalog = true;
-        feeds.realms.notify_one();
-        feeds.friends.notify_one();
-        assert!(poll(before.as_mut()).is_ready());
-        assert_eq!(published(&shared), [false, false, false, false]);
-        let mut after = pin!(catalog_round(&feeds, &shared, 0));
-        assert!(poll(after.as_mut()).is_ready());
-        assert_eq!(
-            feeds.started.load(Ordering::SeqCst),
-            2,
-            "native mode requested another Go catalog list"
-        );
     }
 }

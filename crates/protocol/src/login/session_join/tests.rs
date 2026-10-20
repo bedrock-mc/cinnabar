@@ -1,4 +1,3 @@
-use bedrock_packs::ResourcePackHandoff;
 use std::path::{Path, PathBuf};
 
 use bedrock_protocol_1_26_51::enums::PlayStatusType;
@@ -634,7 +633,7 @@ async fn invalid_spawn_prerequisites_are_recorded_as_failed() {
             core,
         );
         assert!(matches!(result, Err(ProtocolError::Session(ref error))
-            if matches!(error.0, SessionFailure::ClientSpawn(_))));
+            if matches!(error.0, SessionFailure::UnexpectedStartup(_))));
         assert!(
             tap.events().iter().any(|event| matches!(event,
                 TapEvent::Reject(_, id, PacketOutcome::Failed, rejected)

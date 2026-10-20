@@ -5,26 +5,11 @@ use serde::{Deserialize, Serialize};
 /// Largest session frame payload in bytes.
 pub const MAX_FRAME_LEN: usize = 67108864;
 
-/// Largest decoded upstream batch after NetworkSettings enables compression.
-pub const MAX_UPSTREAM_DECOMPRESSED_BATCH_BYTES: usize = 268435456;
-
 /// Largest control request or response payload in bytes.
 pub(crate) const CONTROL_MAX_FRAME_LEN: usize = 65536;
 
 /// Most server addresses admitted in one ping request.
-pub const MAX_PING_TARGETS: usize = 64;
-
-/// Maximum concurrent server-row ping attempts.
-pub const PING_WORKERS: usize = 8;
-
-/// Original whole-attempt server-row ping deadline.
-pub const PING_TIMEOUT_MILLIS: u32 = 2000;
-
-/// Maximum opt-in delay of post-login application packets in either direction.
-pub const MAX_PACKET_DELAY_MS: u32 = 1000;
-
-/// Lifetime of one explicit packet-delay heartbeat.
-pub const PACKET_DELAY_LEASE_MILLIS: u32 = 3000;
+pub(crate) const MAX_PING_TARGETS: usize = 64;
 
 /// Client session setup carrying JSON login data.
 pub const KIND_CONNECT: u8 = 1;
@@ -44,21 +29,6 @@ pub const KIND_TRANSFER: u8 = 5;
 /// Terminal core disconnect message.
 pub const KIND_DISCONNECT: u8 = 6;
 
-/// Resource-pack wire type for an admitted addon archive.
-pub const RESOURCE_PACK_TYPE_ADDON: u8 = 1;
-
-/// Resource-pack wire type for an opaque behavior archive.
-pub const RESOURCE_PACK_TYPE_BEHAVIOR: u8 = 4;
-
-/// Resource-pack wire type for an admitted resource archive.
-pub const RESOURCE_PACK_TYPE_RESOURCES: u8 = 6;
-
-/// Resource-pack wire type for an opaque skin-fallback archive.
-pub const RESOURCE_PACK_TYPE_SKINS: u8 = 7;
-
-/// Resource-pack wire type for an admitted world-template archive.
-pub const RESOURCE_PACK_TYPE_WORLD_TEMPLATE: u8 = 8;
-
 /// Archive bytes in one resource-pack data frame.
 pub const PACK_CHUNK_BYTES: usize = 4194304;
 
@@ -67,54 +37,6 @@ pub const LATENCY_TRACE_ENV: &str = "CINNABAR_LATENCY_TRACE";
 
 /// Vanilla's player limit for a hosted local world, the host included.
 pub const HOSTED_WORLD_MAX_PLAYERS: u32 = 8;
-
-/// Maximum retained relay accounts and transport connections.
-pub const RELAY_MAX_SESSIONS: usize = 256;
-
-/// Maximum relay accounts or connections admitted per peer address.
-pub const RELAY_MAX_PER_IP: usize = 4;
-
-/// Original idle lifetime of a detached relay account.
-pub const RELAY_IDLE_SECONDS: u32 = 600;
-
-/// Original lifetime of each independently issued resume bearer.
-pub const RELAY_RESUME_SECONDS: u32 = 120;
-
-/// Original pre-Hello and control write budget.
-pub const RELAY_HELLO_SECONDS: u32 = 10;
-
-/// Interval between operator certificate file reload attempts.
-pub const RELAY_CERTIFICATE_RELOAD_SECONDS: u32 = 60;
-
-/// Random bytes in one relay resume capability.
-pub const RELAY_RESUME_BYTES: usize = 32;
-
-/// Control request token-bucket burst.
-pub const RELAY_CONTROL_REQUEST_BURST: u32 = 4;
-
-/// Time to replenish one per-peer admission action.
-pub const RELAY_ACTION_REFILL_MILLIS: u32 = 5000;
-
-/// Per-peer admission action token-bucket burst.
-pub const RELAY_ACTION_BURST: u32 = 6;
-
-/// Maximum remembered peer action limiters.
-pub const RELAY_MAX_ACTION_CLIENTS: usize = 1024;
-
-/// Original overall interactive sign-in budget.
-pub const RELAY_SIGN_IN_SECONDS: u32 = 900;
-
-/// Overall budget for completing the hosted Xbox profile page.
-pub const AUTH_XBOX_SIGNUP_SECONDS: u32 = 1200;
-
-/// Retry interval for the original hosted Xbox profile authorization.
-pub const AUTH_XBOX_SIGNUP_RETRY_SECONDS: u32 = 3;
-
-/// Original play upload pacing rate.
-pub const RELAY_UPLOAD_BYTES_PER_SECOND: u32 = 262144;
-
-/// Original delay coalescing control join progress.
-pub const RELAY_PROGRESS_COALESCE_MILLIS: u32 = 100;
 
 /// Browser relay protocol version.
 pub const RELAY_VERSION: u32 = 2;
@@ -125,13 +47,10 @@ pub const RELAY_CONTROL_BYTES: usize = 4096;
 /// Largest WebSocket play message in bytes.
 pub const RELAY_PLAY_MESSAGE_BYTES: usize = 8388608;
 
-/// Maximum resolved address candidates retained by native gateway egress.
-pub const GATEWAY_EGRESS_CANDIDATES: usize = 16;
-
 /// Maximum queued reliable frames or browser receive chunks.
 pub const QUEUED_FRAMES: usize = 16;
 
-/// Incoming frame queue budget; a larger frame is admitted alone.
+/// Ordinary browser frame queue budget; a larger bridge frame is admitted alone.
 pub const RELAY_QUEUED_FRAME_BYTES: usize = 8388608;
 
 /// Upload rate limiter burst, independent of message and queue limits.
@@ -139,12 +58,6 @@ pub const RELAY_UPLOAD_BURST_BYTES: usize = 8388608;
 
 /// Concurrent browser streams for control, active play and retiring play.
 pub const RELAY_BIDIRECTIONAL_STREAMS: usize = 3;
-
-/// QUIC bidirectional stream admission, including HTTP/3 request streams.
-pub const RELAY_QUIC_BIDIRECTIONAL_STREAMS: usize = 8;
-
-/// QUIC unidirectional stream admission, including HTTP/3 control streams.
-pub const RELAY_QUIC_UNIDIRECTIONAL_STREAMS: usize = 4;
 
 /// Interval between control keepalives.
 pub const RELAY_KEEPALIVE_SECONDS: u32 = 30;
@@ -193,33 +106,6 @@ pub const RELAY_EVENT_CONNECT: &str = "connect";
 
 /// Report a bounded public refusal code.
 pub const RELAY_EVENT_ERROR: &str = "error";
-
-/// Xbox authorization scope used to verify the signing-in account identity.
-pub const NATIVE_AUTH_RELYING_PARTY: &str = "http://xboxlive.com";
-
-/// Microsoft application used by native and gateway Android account owners.
-pub const NATIVE_AUTH_CLIENT_ID: &str = "0000000048183522";
-
-/// Android acquisition user agent shared with the configured Go owner.
-pub const NATIVE_AUTH_USER_AGENT: &str = "XAL Android 2025.11.20251111.000";
-
-/// Android Xbox device operating-system version.
-pub const NATIVE_AUTH_DEVICE_VERSION: &str = "13";
-
-/// Xbox account environment.
-pub const NATIVE_AUTH_SANDBOX: &str = "RETAIL";
-
-/// Bedrock device platform for an authenticated Android account.
-pub const NATIVE_ACCOUNT_DEVICE_OS: u32 = 1;
-
-/// Original Rust Android account profile model.
-pub const NATIVE_ACCOUNT_DEFAULT_MODEL: &str = "GOOGLE Pixel 8";
-
-/// Default input mode claimed by the Android account profile.
-pub const NATIVE_ACCOUNT_INPUT_MODE: u32 = 2;
-
-/// Platform claimed by Android when client metadata leaves it unset.
-pub const NATIVE_ACCOUNT_PLATFORM_TYPE: u32 = 1;
 
 /// Game version reported by the client.
 pub const GAME_VERSION: &str = "1.26.50";
@@ -284,12 +170,6 @@ pub const METHOD_FRIENDS_LIST: &str = "friends_list.v1";
 /// Control method for friends people.
 pub const METHOD_FRIENDS_PEOPLE: &str = "friends_people.v1";
 
-/// Most friends shown by the invite picker, with online friends retained first.
-pub const INVITE_MAX_PEOPLE: usize = 100;
-
-/// Requested square gamerpic size for an invite picker row.
-pub const INVITE_GAMERPIC_SIDE: usize = 128;
-
 /// Control method for connect.
 pub const METHOD_CONNECT: &str = "connect.v1";
 
@@ -323,9 +203,6 @@ pub const METHOD_PROFILE: &str = "profile.v1";
 /// Control method for realm membership.
 pub const METHOD_REALM_MEMBERSHIP: &str = "realm_membership.v1";
 
-/// Largest trimmed Realm invitation link or code input in bytes.
-pub const REALM_INVITE_INPUT_BYTES: usize = 255;
-
 /// Control method for packet delay.
 pub const METHOD_PACKET_DELAY: &str = "packet_delay.v1";
 
@@ -334,9 +211,6 @@ pub const METHOD_PRESENCE: &str = "presence.v1";
 
 /// Control method for local world.
 pub const METHOD_LOCAL_WORLD: &str = "local_world.v1";
-
-/// Original discovery budget for a selected local BDS LAN level.
-pub const LOCAL_LAN_DISCOVERY_TIMEOUT_MS: u32 = 8000;
 
 /// Control method for world invite.
 pub const METHOD_WORLD_INVITE: &str = "world_invite.v1";
@@ -389,26 +263,8 @@ pub const CINNABAR_API_BASE_URL: &str = "https://cinnabar-api.cinnabar-api.worke
 /// Most XUIDs in one Cinnabar player lookup.
 pub const CINNABAR_API_MAX_LOOKUP_XUIDS: usize = 128;
 
-/// Largest product API WebSocket message in bytes.
-pub const CINNABAR_API_MAX_FRAME_BYTES: usize = 65536;
-
 /// Fallback lifetime of a Cinnabar lookup answer.
 pub const CINNABAR_API_CACHE_TTL_MS: u32 = 120000;
-
-/// Fallback lookup budget in XUIDs.
-pub const CINNABAR_API_LOOKUP_BUCKET_CAPACITY: u32 = 1024;
-
-/// Fallback lookup refill in XUIDs per minute.
-pub const CINNABAR_API_LOOKUP_REFILL_PER_MIN: u32 = 512;
-
-/// Fallback keepalive interval.
-pub const CINNABAR_API_PING_INTERVAL_MS: u32 = 30000;
-
-/// Fallback reconnect backoff cap.
-pub const CINNABAR_API_RECONNECT_MAX_MS: u32 = 300000;
-
-/// Android authentication title used to derive the title presence service configuration.
-pub const PRESENCE_TITLE_ID: u32 = 1739947436;
 
 /// Xbox presence game mode for survival.
 pub const PRESENCE_GAME_MODE_SURVIVAL: i32 = 0;
@@ -454,18 +310,6 @@ pub const MESSAGE_EVENT_READ_ALL: &str = "ReadAll";
 
 /// Messaging event for delete.
 pub const MESSAGE_EVENT_DELETE: &str = "Delete";
-
-/// Existing successful featured layout refresh interval.
-pub const FEATURED_FEED_CACHE_SECONDS: u32 = 300;
-
-/// Existing successful Home service refresh interval.
-pub const HOME_FEED_CACHE_SECONDS: u32 = 900;
-
-/// Original complete Home/featured service refresh budget.
-pub const HOME_FEED_REFRESH_SECONDS: u32 = 40;
-
-/// Launcher service locale before a client supplies one.
-pub const DEFAULT_SERVICE_LANGUAGE: &str = "en-US";
 
 /// Messaging event for click.
 pub const MESSAGE_EVENT_CLICK: &str = "Click";

@@ -14,7 +14,7 @@ import (
 // RealmInviteCode extracts the final link segment and admits only an opaque code, never a URL path.
 func RealmInviteCode(input string) (string, error) {
 	code := strings.TrimSpace(input)
-	if len(code) > bridgecontract.RealmInviteInputBytes {
+	if len(code) > 255 {
 		return "", errors.New("catalog: invalid Realm invitation")
 	}
 	if i := strings.LastIndexByte(code, '/'); i >= 0 {

@@ -10,14 +10,13 @@ import (
 
 	"github.com/df-mc/go-nethernet"
 	"github.com/df-mc/go-nethernet/discovery"
-	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/p2p"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 )
 
-const localLANDiscoveryTimeout = time.Duration(bridgecontract.LocalLANDiscoveryTimeoutMS) * time.Millisecond
+const localLANDiscoveryTimeout = 8 * time.Second
 
 func resolveLocalLANTarget(ctx context.Context, target localworld.ConnectionTarget) (*resolvedUpstreamTarget, error) {
 	host, port, err := net.SplitHostPort(target.LANAddress)

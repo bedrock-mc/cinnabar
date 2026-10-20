@@ -15,7 +15,6 @@ const PRESENTATION_ACCOUNTS: [(&str, &str); 4] = [
 
 #[derive(Debug, Default)]
 pub(super) struct Manager {
-    session_core_exit: Option<launcher_host::core_process::CoreExitBarrier>,
     pub operation: Option<Operation>,
     remembered: Option<(String, Option<String>)>,
     pub pending_ready: bool,
@@ -23,56 +22,18 @@ pub(super) struct Manager {
     pub work: Option<crossbeam_channel::Receiver<(bool, bool)>>,
     pub(super) remember: Option<crossbeam_channel::Receiver<bool>>,
     remember_retry: Option<std::time::Instant>,
-    reload_pending: bool,
 }
 
 use launcher_host::accounts::{Operation, operation_job, remember};
 
 impl MenuRuntime {
-    /// Identity selected by the account picker, captured before an asynchronous native join.
-    pub fn selected_account_id(&self) -> Option<&str> {
-        self.feeds.account_active_id.as_deref()
-    }
-
-    /// Whether account storage is about to change, so a native acquisition must be cancelled first.
-    pub fn account_operation_pending(&self) -> bool {
-        self.sign_out_requested || self.accounts.operation.is_some() || self.accounts.work.is_some()
-    }
-
-    /// Retains exit evidence from the application's actual session Core owner before services run.
-    pub fn observe_session_core_exit(
-        &mut self,
-        exit: launcher_host::core_process::CoreExitBarrier,
-    ) {
-        self.accounts.session_core_exit = Some(exit);
-    }
-
-    /// A detached stop attempt is not authority to mutate the original credential cache.
-    pub(super) fn account_session_retired(&mut self) -> bool {
-        use launcher_host::core_process::CoreExitState;
-        match self
-            .accounts
-            .session_core_exit
-            .as_ref()
-            .map(|exit| exit.state())
-        {
-            None | Some(CoreExitState::Confirmed) => true,
-            Some(CoreExitState::Pending) => false,
-            Some(CoreExitState::Unconfirmed) => {
-                self.feeds.account_error = Some("The previous game process has not confirmed exit. Restart before changing accounts.".into());
-                false
-            }
-        }
-    }
-
     pub(super) fn account_change_pending(&self) -> bool {
         self.feeds.account_adding
-            || self.sign_out_requested
             || self.accounts.operation.is_some()
             || self.accounts.work.is_some()
     }
 
-    pub(super) fn account_store(&self) -> AccountStore {
+    fn account_store(&self) -> AccountStore {
         AccountStore::new(self.layout.auth_cache())
     }
 
@@ -194,24 +155,17 @@ impl MenuRuntime {
             return;
         }
         let store = self.account_store();
-        match store.try_snapshot() {
-            Ok((accounts, active)) => {
-                self.accounts.reload_pending = false;
+        match store.list() {
+            Ok(accounts) => {
                 self.feeds.accounts = accounts;
                 self.feeds.account_active_id = self
                     .layout
                     .auth_cache()
                     .is_file()
-                    .then_some(active)
+                    .then(|| store.active_id().ok().flatten())
                     .flatten();
             }
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                self.accounts.reload_pending = true
-            }
-            Err(_) => {
-                self.accounts.reload_pending = false;
-                self.feeds.account_error = Some("Could not load saved accounts.".into());
-            }
+            Err(_) => self.feeds.account_error = Some("Could not load saved accounts.".into()),
         }
     }
 
@@ -237,14 +191,11 @@ impl MenuRuntime {
             self.feeds.profile_refresh_requested = true;
             return;
         }
-        if self.account_store().try_discard_pending().is_err() {
-            self.feeds.account_error = Some("The saved account is busy. Try again.".into());
-            return;
-        }
         self.feeds.account_error = None;
         self.feeds.account_adding = true;
         self.accounts.pending_ready = false;
         // Each Add account starts a fresh device flow, even after an abandoned attempt.
+        let _ = self.account_store().discard_pending();
         self.start_sign_in();
     }
 
@@ -281,27 +232,13 @@ impl MenuRuntime {
     }
 
     pub(super) fn cancel_add_account(&mut self) {
-        #[cfg(feature = "native-networking")]
-        let native = self
-            .auth_process
-            .as_ref()
-            .and_then(|process| process.native_attempt_generation())
-            .map(str::to_owned);
         self.stop_sign_in();
-        #[cfg(feature = "native-networking")]
-        if let Some(generation) = native {
-            self.accounts.operation = Some(Operation::RestoreNative(generation));
-            return;
-        }
         self.accounts.operation = Some(Operation::Restore);
     }
 
     pub fn poll_accounts(&mut self) {
         if self.external.is_some() {
             return;
-        }
-        if self.accounts.reload_pending && !self.account_operation_pending() {
-            self.reload_accounts();
         }
         if let Some(receiver) = &self.accounts.work {
             match receiver.try_recv() {
@@ -368,11 +305,10 @@ impl MenuRuntime {
                         .then(|| profile.picture_path.clone()),
                 }));
             }
-        } else if !self.native_sign_in
-            && self
-                .accounts
-                .remember_retry
-                .is_none_or(|retry| std::time::Instant::now() >= retry)
+        } else if self
+            .accounts
+            .remember_retry
+            .is_none_or(|retry| std::time::Instant::now() >= retry)
             && self.accounts.remember.is_none()
             && self.accounts.remembered.as_ref() != Some(&identity)
             && let Some(receiver) = remember(self.account_store(), profile.clone())
@@ -437,31 +373,6 @@ mod tests {
         launcher::menu::auth::AuthState,
         launcher::menu::{MenuAction, MenuDialog},
     };
-
-    /// Storage work retains a held authenticated join; explicit signout revokes that old intent.
-    #[test]
-    fn account_storage_wait_retains_the_original_join_but_signout_cancels_it() {
-        let mut menu = MenuRuntime::new(true, 2, "Fixture".into());
-        let intent = client_state::JoinIntent {
-            address: "fixture.invalid:19132".into(),
-            auth_cache: None,
-            local_world: false,
-        };
-        menu.intents.join = Some(intent);
-        menu.accounts.operation = Some(Operation::Restore);
-        assert!(menu.take_join_intent().is_none());
-        assert!(menu.intents.join.is_some());
-        menu.accounts.operation = None;
-        let original = menu
-            .take_join_intent()
-            .expect("storage completion retains the held join");
-        assert_eq!(original.address, "fixture.invalid:19132");
-        menu.intents.join = Some(original);
-        menu.activate(MenuAction::SignOut);
-        assert!(menu.account_operation_pending());
-        assert!(menu.take_join_intent().is_none());
-        assert!(menu.intents.join.is_none());
-    }
 
     #[test]
     fn presentation_accounts_never_sign_in_or_queue_store_changes() {

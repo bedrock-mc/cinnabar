@@ -1,8 +1,8 @@
 //! Bounded source image and texture catalog preparation for pack subscribers.
 
 use assets::texture::policy::TexturePolicy;
-use bedrock_packs::jsonc::parse_jsonc;
 use image::{ImageFormat, ImageReader, Limits};
+use pack_json::parse_jsonc;
 use resource_pack::LayeredPackView;
 use serde_json::Value;
 use std::{collections::HashMap, io::Cursor};

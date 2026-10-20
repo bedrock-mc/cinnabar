@@ -74,19 +74,8 @@ pub(super) struct FeedArt {
 }
 
 impl FeedArt {
-    /// Borrows the same bounded decoder/cache for authenticated native persona bytes.
-    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-    pub(super) fn images(&self) -> &ImageDirectory {
-        &self.images
-    }
-
     /// Starts the worker; dropping this stops it without finishing queued downloads.
-    pub(super) fn start(
-        images: ImageDirectory,
-        wake: Sender<()>,
-        runtime: tokio::runtime::Handle,
-        tasks: tokio_util::task::TaskTracker,
-    ) -> Self {
+    pub(super) fn start(images: ImageDirectory, wake: Sender<()>) -> Self {
         let (batches, queue) = crossbeam_channel::bounded::<Vec<String>>(QUEUED_BATCHES);
         let (stop, mut stopped) = tokio::sync::oneshot::channel::<()>();
         let downloads = images.clone();
@@ -94,7 +83,10 @@ impl FeedArt {
         let fetched_at = Arc::clone(&recent);
         let spawned = std::thread::Builder::new()
             .name("feed-art".to_owned())
-            .spawn(crate::worker::tracked(move || {
+            .spawn(move || {
+                let Some(runtime) = super::runtime() else {
+                    return;
+                };
                 for urls in queue {
                     if stopped.try_recv() != Err(tokio::sync::oneshot::error::TryRecvError::Empty) {
                         return;
@@ -119,7 +111,7 @@ impl FeedArt {
                         let _ = wake.try_send(());
                     }
                 }
-            }, &tasks));
+            });
         let worker = spawned
             .inspect_err(|error| tracing::warn!("feed artwork worker unavailable: {error}"))
             .ok();
@@ -428,13 +420,7 @@ mod tests {
             ..LAUNCHER_ART
         };
         let (wake, woken) = crossbeam_channel::bounded(1);
-        let runtime = super::super::worker_runtime();
-        let feed = FeedArt::start(
-            ImageDirectory::new(dir.path().to_path_buf(), local),
-            wake,
-            runtime.handle().clone(),
-            tokio_util::task::TaskTracker::new(),
-        );
+        let feed = FeedArt::start(ImageDirectory::new(dir.path().to_path_buf(), local), wake);
         let mut home = Home {
             persona_head: art(&url, ""),
             ..Default::default()
@@ -507,13 +493,7 @@ mod tests {
             ..LAUNCHER_ART
         };
         let (wake, _woken) = crossbeam_channel::bounded(1);
-        let runtime = super::super::worker_runtime();
-        let feed = FeedArt::start(
-            ImageDirectory::new(dir.path().to_path_buf(), local),
-            wake,
-            runtime.handle().clone(),
-            tokio_util::task::TaskTracker::new(),
-        );
+        let feed = FeedArt::start(ImageDirectory::new(dir.path().to_path_buf(), local), wake);
         let mut home = Home {
             persona_head: art(&url, ""),
             ..Default::default()

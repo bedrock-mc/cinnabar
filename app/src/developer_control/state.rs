@@ -296,20 +296,10 @@ pub(super) fn snapshot(world: &World) -> Value {
         })
     });
     let local_mods = crate::modding::developer_state(world);
-    #[cfg(feature = "native-networking")]
-    let friend_cleanup = world
-        .get_resource::<crate::session::SessionController>()
-        .map(|session| {
-            let (reserved, pending) = session.native_friend_cleanup_observation();
-            json!({ "reserved": reserved, "pending": pending })
-        });
-    #[cfg(not(feature = "native-networking"))]
-    let friend_cleanup: Option<Value> = None;
 
     json!({
         "in_world": stream.is_some(),
         "sign_in": menu.map(|menu| menu.sign_in_status().as_str()),
-        "native_friend_cleanup": friend_cleanup,
         "immobile": world.get_resource::<client_state::PlayerRuntime>()
             .map(|player| player.facts.is_immobile()),
         "feet": view.map(|view| view.feet_translation().to_array()),

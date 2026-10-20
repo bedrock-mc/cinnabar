@@ -435,7 +435,7 @@ func loadDerived(path string) (*derivedState, error) {
 
 // loadDerivedBundle also returns the fingerprint of the exact bytes read.
 func loadDerivedBundle(path string) (*derivedState, string, error) {
-	b, err := loadPrivate(path, int64(maxCacheSize))
+	b, err := loadPrivate(path, maxCacheSize)
 	if err != nil {
 		return nil, "", err
 	}

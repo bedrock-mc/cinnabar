@@ -1,8 +1,5 @@
 //! Wire suites that need crate-private packet decoding or session transport.
 
-#[global_allocator]
-static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
-
 mod actors;
 mod audio_packets;
 mod available_commands;

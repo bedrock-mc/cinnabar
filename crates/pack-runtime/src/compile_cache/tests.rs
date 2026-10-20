@@ -5,7 +5,7 @@ use super::*;
 fn fresh_block_and_icon_caches_skip_compilation_and_restore_reads() {
     for subscriber in ["blocks", "icons"] {
         let dir = tempfile::tempdir().unwrap();
-        let stack = resource_pack::validate_handoff(bedrock_packs::ResourcePackHandoff::default());
+        let stack = resource_pack::validate_handoff(protocol::ResourcePackHandoff::default());
         let key: [u8; 32] = cache_key(subscriber).finalize().into();
         let mut compiles = 0;
         let mut reads = None;
@@ -59,7 +59,7 @@ fn old_format_is_rejected_even_with_a_valid_checksum() {
 #[test]
 fn damaged_and_undecodable_subscriber_entries_recompile() {
     let dir = tempfile::tempdir().unwrap();
-    let stack = resource_pack::validate_handoff(bedrock_packs::ResourcePackHandoff::default());
+    let stack = resource_pack::validate_handoff(protocol::ResourcePackHandoff::default());
     let cache = CompileCache::new(dir.path().into(), 1 << 20);
     for subscriber in ["blocks", "icons"] {
         let key: [u8; 32] = cache_key(subscriber).finalize().into();

@@ -1,8 +1,8 @@
 //! Bounded pack reads for the shared geometry compiler.
-use bedrock_packs::jsonc::normalize_jsonc;
 use pack_compiler::block_geometry::{
     BlockGeometryCatalog, Geometry, MAX_GEOMETRY_FILE_BYTES, MAX_GEOMETRY_FILES,
 };
+use pack_json::normalize_jsonc;
 use resource_pack::LayeredPackView;
 use std::collections::{HashMap, HashSet};
 
@@ -67,12 +67,12 @@ mod tests {
                 writer.start_file(path, zip::write::SimpleFileOptions::default()).unwrap();
                 writer.write_all(bytes).unwrap();
             }
-            bedrock_packs::ResourcePackArchive::unencrypted(
+            protocol::ResourcePackArchive::unencrypted(
                 id.parse().unwrap(), "1.0.0".into(), String::new(), writer.finish().unwrap().into_inner(),
             )
         }).collect();
         LayeredPackView::new(resource_pack::validate_handoff(
-            bedrock_packs::ResourcePackHandoff::from_archives(archives),
+            protocol::ResourcePackHandoff::from_archives(archives),
         ))
     }
 

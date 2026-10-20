@@ -75,14 +75,10 @@ impl MenuRuntime {
     /// the status overrides the auth supervisor's, events surface on screen, and
     /// a pending sign-out request is sent.
     pub fn sync_account_control(&mut self, control: &mut dyn AccountControl) {
-        if let Some(realms) = control.realms()
-            && !self.native_sign_in
-        {
+        if let Some(realms) = control.realms() {
             self.realms.replace(realms);
         }
-        if let Some(mut friends) = control.friends()
-            && !self.native_sign_in
-        {
+        if let Some(mut friends) = control.friends() {
             // The friends service can list one session twice; show each host's world once.
             let mut seen = std::collections::HashSet::new();
             friends.retain(|friend| seen.insert((friend.xuid.clone(), friend.world_name.clone())));
@@ -97,21 +93,10 @@ impl MenuRuntime {
             self.feeds.details.extend(
                 featured
                     .iter()
-                    .map(|row| (row.card.address.clone(), row.details.clone())),
+                    .map(|(card, details)| (card.address.clone(), details.clone())),
             );
-            #[cfg(feature = "native-networking")]
-            {
-                self.native_gatherings = featured
-                    .iter()
-                    .filter_map(|row| {
-                        row.gathering
-                            .clone()
-                            .map(|selection| (row.card.address.clone(), selection))
-                    })
-                    .collect();
-            }
             self.featured
-                .replace(featured.into_iter().map(|row| row.card).collect());
+                .replace(featured.into_iter().map(|(card, _)| card).collect());
             if let Some(address) = selected {
                 self.feeds.selected_featured = self
                     .featured
@@ -182,8 +167,7 @@ impl MenuRuntime {
                 }
             }
         }
-        if self.sign_out_requested && self.account_session_retired() {
-            self.sign_out_requested = false;
+        if std::mem::take(&mut self.sign_out_requested) {
             control.sign_out();
             self.finish_sign_out();
         }
@@ -191,10 +175,10 @@ impl MenuRuntime {
         self.sync_realm_membership(control);
     }
 
-    /// Queues sign-out without a launcher core; its storage worker owns every credential lease.
+    /// Sign out without a launcher core: the saved tokens are removed here.
     pub fn sign_out_locally(&mut self) {
-        if self.sign_out_requested && self.account_session_retired() {
-            self.sign_out_requested = false;
+        if std::mem::take(&mut self.sign_out_requested) {
+            let _ = std::fs::remove_file(self.layout.auth_cache());
             self.finish_sign_out();
         }
     }
@@ -203,7 +187,6 @@ impl MenuRuntime {
     /// launcher core then restarts offline and signing in again runs the
     /// device-code helper.
     fn finish_sign_out(&mut self) {
-        self.cancel_join();
         self.retry_target = None;
         self.accounts.operation = Some(launcher_host::accounts::Operation::SignOut);
         self.feeds.account_active_id = None;
@@ -275,10 +258,8 @@ mod tests {
         fn poll_event(&mut self) -> Option<AccountEvent> {
             None
         }
-        fn featured(&mut self) -> Option<Vec<launcher_host::account_control::FeaturedRow>> {
-            self.0
-                .take()
-                .map(|rows| rows.into_iter().map(Into::into).collect())
+        fn featured(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
+            self.0.take()
         }
     }
 

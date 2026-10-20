@@ -163,7 +163,6 @@ fn dispatch(world: &mut World) {
                 }
             }
             Command::GlobalPacks { action } => global_packs(world, action),
-            Command::NativeFriends { join } => native_friends(world, join),
             Command::LogFilterSet { spec } => log_filter_set(&spec),
             Command::LogFilterGet => log_filter_report(diagnostics::logging::filter()),
             Command::Crash { kind } => {
@@ -249,26 +248,6 @@ fn global_packs(
         "applied": snapshot.applied_selection.as_ref().map(Vec::len),
         "message": snapshot.message,
     }))
-}
-
-/// Uses the menu's original native catalog owner; display observations only reject stale choices.
-fn native_friends(
-    world: &mut World,
-    join: Option<developer_control::protocol::NativeFriendChoice>,
-) -> Result<Value, String> {
-    #[cfg(feature = "native-networking")]
-    {
-        let report = world
-            .get_resource_mut::<client_shell::menu::MenuRuntime>()
-            .ok_or("the launcher menu is unavailable")?
-            .developer_native_friends(join)?;
-        serde_json::to_value(report).map_err(|_| "could not report native friend rows".into())
-    }
-    #[cfg(not(feature = "native-networking"))]
-    {
-        let _ = (world, join);
-        Err("native networking is unavailable in this build".into())
-    }
 }
 
 fn disconnect(world: &mut World) -> Result<Value, String> {

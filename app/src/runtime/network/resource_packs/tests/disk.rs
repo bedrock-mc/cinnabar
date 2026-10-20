@@ -8,7 +8,7 @@ fn persistent_blocks_and_icons_preserve_compiled_output_and_skip_work() {
 
     let dir = tempfile::tempdir().unwrap();
     let keys = assets::material_keys::MaterialKeys::from_entries([(5, "fixture_key")]);
-    let stack = resource_pack::validate_handoff(bedrock_packs::ResourcePackHandoff::from_archives(
+    let stack = resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(
         vec![archive(
             53,
             &[

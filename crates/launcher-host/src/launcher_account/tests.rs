@@ -233,14 +233,13 @@ fn account_responses_from_before_sign_out_are_discarded() {
     let mut account = LauncherAccount {
         snapshot: Arc::clone(&snapshot),
         sign_out,
-        profile_refresh: profile_worker::channel().0,
+        profile_refresh: crossbeam_channel::bounded(1).0,
         _alive: alive,
-        socket_dir: Some(PathBuf::new()),
+        socket_dir: PathBuf::new(),
         message_reports: crossbeam_channel::unbounded().0,
-        invites: invites::Requests::disconnected(),
-        realm_membership: realm_membership::Requests::disconnected(),
+        invites: crossbeam_channel::unbounded().0,
+        realm_membership: tokio::sync::mpsc::unbounded_channel().0,
         cinnabar_rosters: crossbeam_channel::unbounded().0,
-        presence_lifetime: TitlePresenceLifetime::new(),
     };
     assert!(account.sign_out());
     publish_account(&snapshot, generation, |snapshot| {

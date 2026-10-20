@@ -14,7 +14,7 @@ pub fn import(
     {
         skin_import::parse_skin_pack(&read_bounded(
             source,
-            resource_pack::MAX_LOCAL_ARCHIVE_BYTES as u64,
+            resource_pack::MAX_ARCHIVE_BYTES as u64,
         )?)
         .map_err(|error| error.to_string())?
     } else {

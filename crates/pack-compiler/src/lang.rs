@@ -77,7 +77,7 @@ pub fn vanilla_language_codes(root: &Path) -> Result<Vec<String>, LangCompileErr
             source,
         })?;
     let list = (bytes.len() <= MAX_LANGUAGES_BYTES)
-        .then(|| bedrock_packs::jsonc::parse_jsonc::<Vec<String>>(&bytes).ok())
+        .then(|| pack_json::parse_jsonc::<Vec<String>>(&bytes).ok())
         .flatten()
         .ok_or_else(|| LangCompileError::LanguageList {
             path: path.into_boxed_path(),

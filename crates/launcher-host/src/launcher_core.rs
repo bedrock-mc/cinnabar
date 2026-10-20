@@ -12,36 +12,12 @@ use std::{
     process::{Command, Stdio},
 };
 
-/// Chooses the sole title presence publisher for one account-core incarnation.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum TitlePresenceOwner {
-    /// The existing Go account worker owns updates and cleanup.
-    #[default]
-    Core,
-    /// An application-owned native lifetime will own updates and cleanup.
-    /// The core starts no presence worker; this policy does not start a native publisher.
-    Native,
-}
-
-/// Explicit service and cache ownership for one account-core incarnation.
-#[derive(Clone, Copy, Default)]
-pub struct AccountCorePolicy {
-    /// Whether a verified client blob-cache resolver is active for upstream traffic.
-    pub upstream_client_cache: bool,
-    /// Whether this core owns the game resource-pack cache lease.
-    pub lease_game_cache: bool,
-    /// The sole title presence publisher selected before process startup.
-    pub title_presence_owner: TitlePresenceOwner,
-}
-
 pub struct LauncherCore {
     pub _guard: CoreProcessGuard,
     pub _directory: SessionDirectoryGuard,
     pub socket_dir: PathBuf,
     pub authenticated: bool,
     pub auth_cache: Option<PathBuf>,
-    /// The actual spawn policy, retained as part of this core's restart identity.
-    pub title_presence_owner: TitlePresenceOwner,
     /// Account and local-world clients are attached once the session endpoint is up.
     pub attached: bool,
 }
@@ -68,8 +44,9 @@ impl LauncherCore {
     pub fn spawn(
         layout: &InstallLayout,
         auth_cache: Option<&Path>,
+        upstream_client_cache: bool,
+        lease_game_cache: bool,
         language: &str,
-        policy: AccountCorePolicy,
     ) -> Result<Self> {
         let executable =
             core_executable(layout).ok_or_else(|| anyhow!("bedrock-core executable not found"))?;
@@ -83,8 +60,9 @@ impl LauncherCore {
                 &executable,
                 &socket_dir,
                 auth_cache,
+                upstream_client_cache,
                 Some(language),
-                policy,
+                lease_game_cache,
             ),
             crate::lifecycle::core_output::CoreRole::Account,
         )
@@ -97,7 +75,6 @@ impl LauncherCore {
             socket_dir,
             authenticated: auth_cache.is_some(),
             auth_cache: auth_cache.map(Path::to_path_buf),
-            title_presence_owner: policy.title_presence_owner,
             attached: false,
         })
     }
@@ -148,14 +125,16 @@ fn launcher_command(
     executable: &Path,
     socket_dir: &Path,
     auth_cache: Option<&Path>,
+    upstream_client_cache: bool,
     language: Option<&str>,
-    policy: AccountCorePolicy,
+    lease_game_cache: bool,
 ) -> Command {
     let mut command = Command::new(executable);
     command
         .arg("-socket-dir")
         .arg(socket_dir)
         .arg("-control-status")
+        .arg("-xbox-presence")
         .arg("-cinnabar-api")
         .arg("-server-trust-file")
         .arg(layout.server_trust_file())
@@ -163,16 +142,13 @@ fn launcher_command(
         .arg(layout.device_profile_file())
         .stdin(Stdio::piped())
         .stdout(Stdio::null());
-    if policy.title_presence_owner == TitlePresenceOwner::Core {
-        command.arg("-xbox-presence");
-    }
     // Direct-mode account cores run alongside game cores that own this exclusive lease.
-    if policy.lease_game_cache {
+    if lease_game_cache {
         command
             .arg("-resource-pack-cache-dir")
             .arg(layout.resource_pack_cache_dir());
     }
-    if policy.upstream_client_cache {
+    if upstream_client_cache {
         command.arg("-upstream-client-cache");
     }
     if let Some(auth_cache) = auth_cache {
@@ -288,8 +264,9 @@ mod tests {
             Path::new("/fixture/core"),
             Path::new("/fixture/socket"),
             None,
+            false,
             None,
-            AccountCorePolicy::default(),
+            false,
         );
         let args: Vec<_> = command.get_args().collect();
         assert!(args.windows(2).any(|pair| pair[0] == "-server-trust-file"
@@ -304,8 +281,9 @@ mod tests {
                 Path::new("/fixture/core"),
                 Path::new("/fixture/socket"),
                 auth,
+                false,
                 None,
-                AccountCorePolicy::default(),
+                false,
             );
             let account_args: Vec<_> = account.get_args().collect();
             assert!(
@@ -332,45 +310,15 @@ mod tests {
             Path::new("/fixture/core"),
             Path::new("/fixture/socket"),
             None,
+            false,
             None,
-            AccountCorePolicy {
-                lease_game_cache: true,
-                ..Default::default()
-            },
+            true,
         );
         assert!(
             launcher
                 .get_args()
                 .any(|arg| arg == "-resource-pack-cache-dir")
         );
-    }
-    #[test]
-    fn title_presence_has_one_explicit_process_owner() {
-        let layout = launcher::test_support::scratch("presence-owner");
-        for owner in [TitlePresenceOwner::Core, TitlePresenceOwner::Native] {
-            let command = launcher_command(
-                &layout,
-                Path::new("/fixture/core"),
-                Path::new("/fixture/socket"),
-                None,
-                None,
-                AccountCorePolicy {
-                    title_presence_owner: owner,
-                    ..Default::default()
-                },
-            );
-            assert_eq!(
-                command
-                    .get_args()
-                    .any(|argument| argument == "-xbox-presence"),
-                owner == TitlePresenceOwner::Core,
-            );
-            assert!(
-                command
-                    .get_args()
-                    .any(|argument| argument == "-control-status")
-            );
-        }
     }
     #[test]
     fn menu_addresses_map_to_connect_targets() {
@@ -421,11 +369,9 @@ mod tests {
                 Path::new("/opt/core"),
                 Path::new("/run/s"),
                 auth,
+                false,
                 Some("pt_BR"),
-                AccountCorePolicy {
-                    lease_game_cache: true,
-                    ..Default::default()
-                },
+                true,
             )
             .get_args()
             .map(|arg| arg.to_string_lossy().into_owned())
@@ -465,11 +411,9 @@ mod tests {
                 Path::new("/opt/core"),
                 Path::new("/run/s"),
                 auth,
+                false,
                 None,
-                AccountCorePolicy {
-                    lease_game_cache: true,
-                    ..Default::default()
-                },
+                true,
             );
             let direct = crate::core_process::core_command_for_address(
                 &layout,

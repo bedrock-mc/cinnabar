@@ -5,9 +5,7 @@ use uuid::Uuid;
 use zip::{ZipWriter, write::SimpleFileOptions};
 
 use super::*;
-use crate::{
-    MAX_FILE_BYTES, crypto::ContentKey, manifest::Purpose, parser::validate_archive_parts,
-};
+use crate::{MAX_FILE_BYTES, crypto::ContentKey, parser::validate_archive_parts};
 
 const PACK_ID: Uuid = Uuid::from_u128(0x0000_0000_0000_0000_0000_0000_0000_5a3e);
 const PACK_KEY: &[u8; 32] = b"0123456789abcdefghijklmnopqrstuv";
@@ -32,17 +30,9 @@ fn zip_files(files: &[(&str, &[u8])]) -> Vec<u8> {
 
 /// Validates an archive fixture with the chosen subpack and decryption key.
 fn admit(archive: Vec<u8>, subpack: &str, key: Option<ContentKey>) -> ValidatedPack {
-    validate_archive_parts(
-        PACK_ID,
-        "1.0.0",
-        subpack,
-        archive,
-        key,
-        None,
-        Purpose::Rendering,
-    )
-    .unwrap()
-    .0
+    validate_archive_parts(PACK_ID, "1.0.0", subpack, archive, key, None)
+        .unwrap()
+        .0
 }
 
 /// Creates a validated stack with the chosen layers and rejection metadata.
@@ -240,6 +230,7 @@ fn admission_preserves_the_archive_allocation() {
 }
 
 #[test]
+#[cfg(feature = "handoff")]
 fn stack_layers_and_composed_clones_share_the_admission_budget() {
     let files = [("a.txt".into(), b"fixture".to_vec())];
     let view = crate::test_support::layered_pack_view(&[&files, &files]);
@@ -336,6 +327,7 @@ fn a_different_file_key_makes_the_same_bytes_differ() {
 }
 
 #[test]
+#[cfg(feature = "handoff")]
 fn admission_hashes_each_archive_once_and_composition_reuses_the_digests() {
     use sha2::{Digest, Sha256};
     let layers = [
@@ -359,7 +351,7 @@ fn admission_hashes_each_archive_once_and_composition_reuses_the_digests() {
             )
         })
         .collect();
-    let empty = crate::validate_handoff(bedrock_packs::ResourcePackHandoff::default());
+    let empty = crate::validate_handoff(protocol::ResourcePackHandoff::default());
     for _ in 0..3 {
         let composed = ValidatedPackStack::compose(&empty, admitted).unwrap();
         assert!(admitted.same_contents(&composed));
@@ -408,8 +400,8 @@ fn keyed_jsonc_reads_keep_the_previous_plaintext_selection() {
             ContentKey::new(FILE_KEY.as_bytes())
                 .unwrap()
                 .decrypt(&mut decrypted);
-            let expected = if bedrock_packs::jsonc::normalize_jsonc(&decrypted).is_none()
-                && bedrock_packs::jsonc::normalize_jsonc(raw).is_some()
+            let expected = if pack_json::normalize_jsonc(&decrypted).is_none()
+                && pack_json::normalize_jsonc(raw).is_some()
             {
                 raw
             } else {

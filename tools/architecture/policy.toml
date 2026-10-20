@@ -54,9 +54,10 @@ ownership_record = "docs/architecture/workspace.md"
 path = "crates/assets/data/java-mapping-v2193.bin"
 ownership_record = "docs/architecture/workspace.md"
 
-# Generated packet models remain a direct dependency of `protocol` only.
-[[dependency_owners]]
-package = "bedrock-protocol-1-26-51"
+# The vendored contract codec (`bedrock-protocol-1-26-51`) is a dependency of `protocol` only.
+[[vendored]]
+path = "crates/protocol/vendor/"
+ownership_record = "crates/protocol/vendor/UPSTREAM.md"
 owner = "protocol"
 
 [[crates]]
@@ -70,12 +71,6 @@ name = "web-client"
 path = "web/client"
 allowed_dependencies = ["assets", "bridge", "web-transport", "semantic-input", "app", "launcher", "protocol", "client-session", "client-audio"]
 forbidden_dependencies = ["launcher-host", "bevy", "wgpu"]
-
-[[crates]]
-name = "web-gateway"
-path = "web/gateway"
-allowed_dependencies = ["bridge", "protocol", "test-time"]
-forbidden_dependencies = ["app", "launcher-host", "web-client", "web-transport", "bevy", "wgpu"]
 
 [[crates]]
 name = "web-transport"
@@ -92,16 +87,15 @@ dependency_free = true
 [[crates]]
 name = "protocol"
 path = "crates/protocol"
-# Native networking uses external cinnabar-mc/bedrock-net and nethernet libraries;
-# generated handshake, pack negotiation and spawn owners are external; adapters
-# retain account admission, I/O, raw FIFO bounds and presentation policy.
-# NetherNet's pure JWS/JWK owner supplies credential verification primitives.
-# Optional Player Messaging composes the SDK socket in the external networking edge.
-# Addressed HTTP uses the same native HTTP/Nether owners with explicit Rustls and WebPKI roots;
-# application first-use authorization enters through the protocol's verified-key callback.
-allowed_dependencies = ["simulation-clock", "block-transform", "bridge", "render-api", "test-time", "protocol-ids", "resource-pack"]
+allowed_dependencies = ["simulation-clock", "block-transform", "bridge", "render-api", "test-time", "protocol-ids"]
 forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 test_support_features = ["test-support"]
+
+[[crates]]
+name = "pack-json"
+path = "crates/pack-json"
+allowed_dependencies = []
+forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 
 [[crates]]
 name = "zip-footer"
@@ -118,7 +112,7 @@ forbidden_dependencies = ["bevy", "wgpu"]
 [[crates]]
 name = "resource-pack"
 path = "crates/resource-pack"
-allowed_dependencies = ["zip-footer"]
+allowed_dependencies = ["pack-json", "protocol", "zip-footer"]
 forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 test_support_features = ["test-support"]
 
@@ -146,7 +140,7 @@ forbidden_dependencies = ["bevy", "wgpu"]
 [[crates]]
 name = "json-ui"
 path = "crates/json-ui"
-allowed_dependencies = []
+allowed_dependencies = ["pack-json"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
@@ -181,21 +175,21 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "pack-
 [[crates]]
 name = "pack-compiler"
 path = "crates/pack-compiler"
-allowed_dependencies = ["pack-compile-input", "assets"]
+allowed_dependencies = ["pack-compile-input", "pack-json", "assets"]
 forbidden_dependencies = ["pack-entity-compiler", "pack-font-compiler", "asset-compiler", "clap", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap", "protocol", "client-world", "chunk-pipeline", "render", "bevy", "bevy_*", "wgpu*"]
 
 [[crates]]
 name = "pack-compile-input"
 path = "crates/pack-compiler/input"
-allowed_dependencies = ["assets"]
+allowed_dependencies = ["pack-json", "assets"]
 forbidden_dependencies = ["pack-compiler", "pack-entity-compiler", "pack-font-compiler", "asset-compiler", "clap", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap", "protocol", "client-world", "chunk-pipeline", "render", "bevy", "bevy_*", "wgpu*"]
 
 [[crates]]
 name = "pack-entity-compiler"
 path = "crates/pack-compiler/entity"
-allowed_dependencies = ["pack-compile-input", "simulation-clock", "assets"]
+allowed_dependencies = ["pack-compile-input", "pack-json", "simulation-clock", "assets"]
 forbidden_dependencies = ["pack-compiler", "pack-font-compiler", "asset-compiler", "clap", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap", "protocol", "client-world", "chunk-pipeline", "render", "bevy", "bevy_*", "wgpu*"]
 
@@ -210,7 +204,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap"
 name = "pack-runtime"
 path = "crates/pack-runtime"
 forbidden_dependencies = ["pack-compiler", "pack-font-compiler"]
-allowed_dependencies = ["bridge", "assets", "block-transform", "json-ui", "pack-compile-input", "pack-entity-compiler", "protocol", "resource-pack", "sim"]
+allowed_dependencies = ["bridge", "pack-json", "assets", "block-transform", "json-ui", "pack-compile-input", "pack-entity-compiler", "protocol", "resource-pack", "sim"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "client-session", "client-ui", "client-presentation", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
@@ -247,7 +241,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "client-session"
 path = "crates/client-session"
-allowed_dependencies = ["simulation-clock", "render-api", "bridge", "crash-report", "protocol", "resource-pack", "server-experience", "world", "protocol-ids"]
+allowed_dependencies = ["simulation-clock", "render-api", "bridge", "crash-report", "protocol", "server-experience", "world", "protocol-ids"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-presentation", "acceptance", "launcher", "client-ui", "client-world", "chunk-pipeline", "inventory", "player-state", "semantic-input", "ui", "json-ui", "render", "asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "pack-runtime", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
@@ -296,7 +290,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "client-runtime", "clien
 name = "client-ui"
 path = "crates/client-ui"
 # Extension edges support presentation adapters; render data comes from render-model, never render.
-allowed_dependencies = ["particles", "cosmetics", "env-compat", "simulation-clock", "actor-animation", "launcher-host", "bridge", "assets", "chunk-pipeline", "client-world", "player-state", "launcher", "inventory", "json-ui", "oreui", "protocol", "render-api", "render-model", "resource-pack", "semantic-input", "ui", "ui-engine", "ui-screens", "mod-ui", "world", "mod-host", "server-experience", "test-time", "protocol-ids"]
+allowed_dependencies = ["particles", "cosmetics", "pack-json", "env-compat", "simulation-clock", "actor-animation", "launcher-host", "bridge", "assets", "chunk-pipeline", "client-world", "player-state", "launcher", "inventory", "json-ui", "oreui", "protocol", "render-api", "render-model", "resource-pack", "semantic-input", "ui", "ui-engine", "ui-screens", "mod-ui", "world", "mod-host", "server-experience", "test-time", "protocol-ids"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-session", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
@@ -322,7 +316,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "client-audio"
 path = "crates/client-audio"
-allowed_dependencies = ["simulation-clock", "actor-animation", "assets", "chunk-pipeline", "client-ui", "client-world", "inventory", "particles", "player-state", "protocol", "resource-pack", "server-experience", "sim", "world", "test-time", "protocol-ids"]
+allowed_dependencies = ["pack-json", "simulation-clock", "actor-animation", "assets", "chunk-pipeline", "client-ui", "client-world", "inventory", "particles", "player-state", "protocol", "resource-pack", "server-experience", "sim", "world", "test-time", "protocol-ids"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "client-presentation", "render"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-session", "acceptance", "client-presentation", "render", "asset-compiler"]
 test_support_features = ["test-support"]
@@ -396,7 +390,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "render", "protocol", "c
 [[crates]]
 name = "particles"
 path = "crates/particles"
-allowed_dependencies = ["assets", "render-model"]
+allowed_dependencies = ["pack-json", "assets", "render-model"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "render", "protocol", "client-world", "chunk-pipeline", "bevy", "bevy_*", "wgpu*"]
 
@@ -420,7 +414,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["cosmetics", "test-alloc", "env-compat", "simulation-clock", "actor-animation", "render-scene", "client-shell", "client-interaction", "client-runtime", "client-extensions", "client-state", "first-run", "bootstrap-ui", "crash-monitor", "launcher-host", "bridge", "crash-report", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "far-terrain", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mimalloc", "mod-host", "objc2", "objc2-app-kit", "objc2-foundation", "objc2-quartz-core", "oreui", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-chrome", "tracing-tracy", "ui", "ui-engine", "ui-screens", "mod-ui", "update-manifest", "world", "test-time", "pack-runtime", "client-audio", "protocol-ids"]
+allowed_dependencies = ["cosmetics", "test-alloc", "pack-json", "env-compat", "simulation-clock", "actor-animation", "render-scene", "client-shell", "client-interaction", "client-runtime", "client-extensions", "client-state", "first-run", "bootstrap-ui", "crash-monitor", "launcher-host", "bridge", "crash-report", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "far-terrain", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mimalloc", "mod-host", "objc2", "objc2-app-kit", "objc2-foundation", "objc2-quartz-core", "oreui", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-chrome", "tracing-tracy", "ui", "ui-engine", "ui-screens", "mod-ui", "update-manifest", "world", "test-time", "pack-runtime", "client-audio", "protocol-ids"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
@@ -520,7 +514,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "ui-engine"
 path = "crates/ui-engine"
-allowed_dependencies = ["assets", "json-ui", "render-api", "render-model", "resource-pack", "ui"]
+allowed_dependencies = ["pack-json", "assets", "json-ui", "render-api", "render-model", "resource-pack", "ui"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu", "client-ui", "launcher-host"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "launcher-host", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
@@ -555,7 +549,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "bedrock-replay"
 path = "tools/bedrock-replay"
-allowed_dependencies = ["bridge", "protocol", "resource-pack"]
+allowed_dependencies = ["pack-json", "bridge", "protocol", "resource-pack"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
@@ -1133,6 +1127,7 @@ clock_free_crates = [
     "crates/input",
     "crates/inventory",
     "crates/json-ui",
+    "crates/pack-json",
     "crates/meshing",
     "crates/player-state",
     "crates/render-api",
@@ -1309,11 +1304,6 @@ exports = [
 [[crates]]
 name = "launcher-host"
 path = "crates/launcher-host"
-# Optional account services acquire protected messaging upgrades on this runtime/storage edge.
-# The external networking adapter owns socket/signaling composition; protocol owns native admission.
-# Native row pings drive canonical RakNet's configured sans-I/O endpoint on this existing edge.
-# The optional product API owns its verified WebSocket and borrows the selected NativeAccount mint.
-# Its socket future joins the existing event worker; domain policy and bridge records remain Bevy-free.
 allowed_dependencies = ["cosmetics", "bridge", "crash-report", "launcher", "protocol", "resource-pack", "server-experience", "test-time", "update-manifest", "update-installer"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
@@ -2087,8 +2077,3 @@ test_support_features = ["test-support"]
 path = "app/src/runtime/network/item_icons/tints.rs"
 literal = "grass_carried"
 reason = "Terrain-atlas carried-grass colour source; this selects authored inventory tint metadata, not a block identity."
-
-[[identifier_literal_exceptions]]
-path = "crates/launcher-host/src/native_account/hosted_world/approval.rs"
-literal = "active"
-reason = "Xbox MPSD member JSON property; this is a service field name rather than a game identifier."

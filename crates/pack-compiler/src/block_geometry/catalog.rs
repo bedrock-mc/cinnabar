@@ -196,7 +196,7 @@ fn parent_chain<'a>(
 
 /// Compiles the models in one normalized JSON document without requiring a pack reader.
 pub fn parse_geometry_file(bytes: &[u8]) -> Vec<(String, Geometry)> {
-    let Ok(root) = bedrock_packs::jsonc::parse_jsonc::<Value>(bytes) else {
+    let Ok(root) = pack_json::parse_jsonc::<Value>(bytes) else {
         return Vec::new();
     };
     let mut catalog = BlockGeometryCatalog::default();

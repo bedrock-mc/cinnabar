@@ -2,11 +2,9 @@ package authcache
 
 import (
 	"context"
-	_ "embed"
 	"encoding/hex"
 	"errors"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,11 +20,8 @@ const (
 	refreshRetryMax    = 15 * time.Minute
 )
 
-//go:embed service_device_namespace.txt
-var serviceDeviceNamespaceText string
-
 // serviceDeviceNamespace scopes the per-account Minecraft service device ID.
-var serviceDeviceNamespace = uuid.MustParse(strings.TrimSpace(serviceDeviceNamespaceText))
+var serviceDeviceNamespace = uuid.MustParse("52194710-c463-4fa4-98a9-334c1b905e01")
 
 // CompleteSignIn exchanges the signed-in account's service token and persists it next to the Microsoft
 // token at oauthPath, so a join only mints its key-bound token.

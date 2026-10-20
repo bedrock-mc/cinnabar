@@ -56,7 +56,7 @@ func (relay *Relay) Serve(ctx context.Context, cfg ListenConfig) error {
 	go func() { errs <- relay.serveQUIC(ctx, udpListener, wt) }()
 	var result error
 	received := 0
-	ticker := time.NewTicker(time.Duration(bridgecontract.RelayCertificateReloadSeconds) * time.Second)
+	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 listening:
 	for {
@@ -285,7 +285,7 @@ func (relay *Relay) transportServer(tlsConfig *tls.Config, address string) *webt
 	mux := http.NewServeMux()
 	wt := &webtransport.Server{H3: &http3.Server{Addr: address, TLSConfig: http3.ConfigureTLSConfig(tlsConfig.Clone()),
 		Handler: mux, MaxHeaderBytes: bridgecontract.RelayControlBytes, QUICConfig: &quic.Config{
-			MaxIncomingStreams: bridgecontract.RelayQuicBidirectionalStreams, MaxIncomingUniStreams: bridgecontract.RelayQuicUnidirectionalStreams, MaxStreamReceiveWindow: playMessageLimit, MaxConnectionReceiveWindow: 2 * playMessageLimit,
+			MaxIncomingStreams: 8, MaxIncomingUniStreams: 4, MaxStreamReceiveWindow: playMessageLimit, MaxConnectionReceiveWindow: 2 * playMessageLimit,
 			HandshakeIdleTimeout: helloTimeout, MaxIdleTimeout: 2 * keepAliveInterval}},
 		Config: &webtransport.Config{MaxIncomingStreams: bridgecontract.RelayBidirectionalStreams, MaxIncomingUniStreams: -1, MaxIncomingData: 2 * playMessageLimit}, CheckOrigin: relay.checkOrigin}
 	mux.HandleFunc(bridgecontract.RelayTransportPath, func(w http.ResponseWriter, r *http.Request) { relay.serveTransport(w, r, wt) })

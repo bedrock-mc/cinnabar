@@ -8,34 +8,19 @@ use std::ffi::OsStr;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
 
-#[cfg(feature = "native-networking")]
-pub(crate) mod friend;
-#[cfg(feature = "native-networking")]
-pub(crate) mod local_world;
 mod preparation;
 pub(crate) use preparation::Preparation;
 
 pub type NetworkControlEvent = client_session::NetworkControlEvent<PackApplication>;
 
 /// Startup snapshot supplied by application composition.
+#[derive(Debug, Clone)]
 #[cfg(not(target_arch = "wasm32"))]
 pub struct NetworkConfig {
     /// Immutable world and collision inputs captured for this join.
     pub(crate) registry_base: super::session_registries::RegistryBase,
     pub session_generation: simulation_clock::identity::SessionGeneration,
-    pub endpoint: protocol::SessionEndpoint,
-    /// Cached account owner for an explicitly authenticated native join.
-    #[cfg(feature = "native-networking")]
-    pub native_account: Option<std::sync::Arc<launcher_host::native_account::NativeAccount>>,
-    /// The original selected friend owner and bounded cleanup reservation.
-    #[cfg(feature = "native-networking")]
-    pub native_friend: Option<friend::FriendConnectionRequest>,
-    /// Original account-bound featured selection; allocation is explicit and never inferred from its card.
-    #[cfg(feature = "native-networking")]
-    pub native_gathering: Option<launcher_host::native_account::NativeGatheringSelection>,
-    /// Original local process selection and its optional selected account.
-    #[cfg(feature = "native-networking")]
-    pub native_local_world: Option<local_world::WorldConnectionRequest>,
+    pub socket_dir: PathBuf,
     pub display_name: String,
     /// The user storage owner's opaque persisted login identifier.
     pub client_random_id: protocol::ClientRandomId,
@@ -57,102 +42,12 @@ pub struct NetworkConfig {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn spawn_network(
     config: NetworkConfig,
-    runtime: tokio::runtime::Handle,
-    tasks: tokio_util::task::TaskTracker,
     packet_relay: Option<std::sync::Arc<dyn protocol::PacketRelay>>,
 ) -> Result<NetworkHandle<PackApplication>, std::io::Error> {
     if bridge::join_profile::JoinProfile::current().id().is_none() {
         bridge::join_profile::JoinProfile::begin();
     }
-    let socket_dir = config.endpoint.core_directory().map(Path::to_path_buf);
-    #[cfg(feature = "native-networking")]
-    if matches!(&config.endpoint, protocol::SessionEndpoint::Native(target)
-        if launcher_host::native_account::is_realm_target(&target.address)
-            || protocol::NativeRawTarget::recognizes(&target.address)
-            || matches!(launcher_host::launcher_core::target_for(&target.address), bridge::ConnectTarget::Gathering(_)))
-        && config.native_account.is_none()
-        && config.native_gathering.is_none()
-    {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::PermissionDenied,
-            "joining this service requires a verified native account",
-        ));
-    }
-    let player_skin = config.player_skin.to_client_skin();
-    #[cfg(feature = "native-networking")]
-    if usize::from(config.native_account.is_some())
-        + usize::from(config.native_friend.is_some())
-        + usize::from(config.native_gathering.is_some())
-        + usize::from(config.native_local_world.is_some())
-        > 1
-    {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "native connection has conflicting account owners",
-        ));
-    }
-    #[cfg(feature = "native-networking")]
-    let friend = config.native_friend.map(|request| {
-        request.into_companion(
-            protocol::login_client_data(
-                &config.display_name,
-                config.client_random_id,
-                Some(&player_skin),
-                &config.login_settings,
-            ),
-            config.client_random_id,
-        )
-    });
-    #[cfg(feature = "native-networking")]
-    let local_world = config.native_local_world.map(|request| {
-        request.into_companion(
-            protocol::login_client_data(
-                &config.display_name,
-                config.client_random_id,
-                Some(&player_skin),
-                &config.login_settings,
-            ),
-            config.client_random_id,
-        )
-    });
-    #[cfg(feature = "native-networking")]
-    let native_preparation = if config.native_account.is_some() || config.native_gathering.is_some()
-    {
-        if !matches!(&config.endpoint, protocol::SessionEndpoint::Native(target) if matches!(target.transport, protocol::NativeTransport::RakNet | protocol::NativeTransport::Addressed | protocol::NativeTransport::NetherNetLan))
-        {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "selected native transport does not support account preparation",
-            ));
-        }
-        let protocol::SessionEndpoint::Native(target) = &config.endpoint else {
-            unreachable!("checked native endpoint")
-        };
-        let target = target.clone();
-        let skin = player_skin.clone();
-        let settings = config.login_settings.clone();
-        let display_name = config.display_name.clone();
-        let client_random_id = config.client_random_id;
-        Some(Box::pin(async move {
-            let claims = protocol::login_client_data(
-                &display_name,
-                client_random_id,
-                Some(&skin),
-                &settings,
-            );
-            if let Some(selection) = config.native_gathering {
-                selection.prepare(claims, client_random_id).await
-            } else {
-                config
-                    .native_account
-                    .expect("selected account preparation")
-                    .prepare_connection(target, claims, client_random_id)
-                    .await
-            }
-        }) as client_session::NativeConnectionPreparation)
-    } else {
-        None
-    };
+    let socket_dir = config.socket_dir.clone();
     let preparation = Preparation {
         registry_base: config.registry_base,
         session_generation: config.session_generation,
@@ -160,65 +55,32 @@ pub fn spawn_network(
         ui_catalog: config.ui_catalog,
         physical_memory_bytes: launcher_host::memory::physical_bytes(),
     };
-    let mut domain = client_session::NetworkConfig::new(
-        config.session_generation,
-        config.endpoint,
-        config.display_name,
-        config.client_random_id,
-        config.client_blob_cache,
-        player_skin,
-        config.login_settings,
-    );
-    domain.packet_capture = packet_capture_request(
-        std::env::var_os(client_session::markers::PACKET_CAPTURE).as_deref(),
-        config.record_session,
-        &config.log_dir,
-        unix_time_ms(),
-    );
-    #[cfg(feature = "native-networking")]
-    let domain = domain.with_native_preparation(native_preparation);
-    let prepare =
-        move |handoff, game_data: &protocol::GameData, cancelled: &(dyn Fn() -> bool + Sync)| {
-            preparation.run(handoff, game_data, cancelled)
-        };
-    let trace = client_session::SessionTrace {
-        movement_line: gameplay::movement::pending_trace_line,
-        write_movement: gameplay::movement::write_trace_line,
-        packet_trace: emit_packet_trace,
-        fast_transfer_action_marker: Some(client_ui::diagnostic_markers::FAST_TRANSFER_ACTION),
-    };
-    #[cfg(feature = "native-networking")]
-    let result = match (friend, local_world) {
-        (Some(companion), None) => client_session::spawn_network_with_companion(
-            domain,
-            runtime,
-            tasks,
-            prepare,
-            trace,
-            packet_relay,
-            companion,
-        ),
-        (None, Some(companion)) => client_session::spawn_network_with_companion(
-            domain,
-            runtime,
-            tasks,
-            prepare,
-            trace,
-            packet_relay,
-            companion,
-        ),
-        (None, None) => {
-            client_session::spawn_network(domain, runtime, tasks, prepare, trace, packet_relay)
-        }
-        (Some(_), Some(_)) => unreachable!("checked exclusive native connection owners"),
-    };
-    #[cfg(not(feature = "native-networking"))]
-    let result =
-        client_session::spawn_network(domain, runtime, tasks, prepare, trace, packet_relay);
-    result.map(|inner| match socket_dir {
-        Some(directory) => NetworkHandle::connected(inner, directory),
-        None => NetworkHandle::native(inner),
-    })
+    client_session::spawn_network(
+        client_session::NetworkConfig {
+            session_generation: config.session_generation,
+            socket_dir: config.socket_dir,
+            display_name: config.display_name,
+            client_random_id: config.client_random_id,
+            client_blob_cache: config.client_blob_cache,
+            player_skin: config.player_skin.to_client_skin(),
+            login_settings: config.login_settings,
+            packet_capture: packet_capture_request(
+                std::env::var_os(client_session::markers::PACKET_CAPTURE).as_deref(),
+                config.record_session,
+                &config.log_dir,
+                unix_time_ms(),
+            ),
+        },
+        move |handoff, game_data, cancelled| preparation.run(handoff, game_data, cancelled),
+        client_session::SessionTrace {
+            movement_line: gameplay::movement::pending_trace_line,
+            write_movement: gameplay::movement::write_trace_line,
+            packet_trace: emit_packet_trace,
+            fast_transfer_action_marker: Some(client_ui::diagnostic_markers::FAST_TRANSFER_ACTION),
+        },
+        packet_relay,
+    )
+    .map(|inner| NetworkHandle::connected(inner, socket_dir))
 }
 
 /// The session's capture: [`client_session::markers::PACKET_CAPTURE`] decides when set

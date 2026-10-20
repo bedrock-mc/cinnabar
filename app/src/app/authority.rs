@@ -53,7 +53,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
             drive_inventory_ui_actions
                 .run_if(client_extensions::server_experiences::input::ordinary_input)
                 .after(client_state::ShellFrameSet::MenuInput),
-            crate::shell_adapters::menu_services(),
+            drive_menu_services,
             drive_session.in_set(client_state::ShellFrameSet::Session),
             crate::render_distance::apply_render_distance
                 .after(client_state::ShellFrameSet::WindowSettings),

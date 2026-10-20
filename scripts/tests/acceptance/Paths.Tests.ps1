@@ -398,7 +398,7 @@
     Assert-True ($source.Contains('Get-PinnedGophertunnelCommit')) 'gophertunnel metadata does not verify go list -m resolution'
     Assert-True ($source.Contains("'c4540512dc47833bb40363da7ad1161110d64b67'")) 'protocol metadata omitted the Axolotl Stack revision'
     Assert-True ($source.Contains("'62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'")) 'protocol metadata omitted the retained Jolyne license identity'
-    Assert-True ($source.Contains("protocol_dependency_resolution = 'git-revision'")) 'acceptance metadata does not identify pinned Git dependency resolution'
+    Assert-True ($source.Contains("protocol_dependency_resolution = 'vendored-path'")) 'acceptance metadata does not identify local vendored dependency resolution'
     Assert-True ($source.Contains('pinned_axolotl_stack_commit')) 'acceptance metadata omits the Axolotl Stack revision'
     Assert-True ($source.Contains('pinned_protocolgen_commit')) 'acceptance metadata omits the protocolgen revision'
     Assert-True ($source.Contains('Assert-ProtocolDependencyProvenance')) 'acceptance metadata does not detect Cargo/provenance drift'

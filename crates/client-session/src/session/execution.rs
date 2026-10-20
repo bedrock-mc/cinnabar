@@ -56,8 +56,7 @@ pub trait NetworkExecutor: Clone {
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Default)]
 pub(super) struct NativeNetworkExecutor {
-    pub(super) socket_dir: Option<PathBuf>,
-    pub(super) tasks: tokio_util::task::TaskTracker,
+    pub(super) socket_dir: PathBuf,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -68,7 +67,7 @@ impl NetworkExecutor for NativeNetworkExecutor {
         &self,
         work: impl Future<Output = ()> + Send + 'static,
     ) -> Self::OutboundTask {
-        NativeOutboundTask(tokio::spawn(self.tasks.track_future(work)))
+        NativeOutboundTask(tokio::spawn(work))
     }
 
     fn timers(&self) -> Timers {
@@ -76,14 +75,7 @@ impl NetworkExecutor for NativeNetworkExecutor {
     }
 
     async fn report_packs(&self, applied: bool) {
-        if let Some(directory) = &self.socket_dir {
-            // Reporting is best effort; an unresponsive core must not strand terminal cleanup.
-            let _ = tokio::time::timeout(
-                super::FINAL_CONTROL_FLUSH_TIMEOUT,
-                protocol::report_pack_application(directory, applied),
-            )
-            .await;
-        }
+        protocol::report_pack_application(&self.socket_dir, applied).await;
     }
 }
 

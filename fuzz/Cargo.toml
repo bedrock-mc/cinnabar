@@ -10,7 +10,7 @@ cargo-fuzz = true
 [dependencies]
 assets = { path = "../crates/assets" }
 libfuzzer-sys = "0.4"
-resource-pack = { path = "../crates/resource-pack" }
+resource-pack = { path = "../crates/resource-pack", default-features = false }
 world = { path = "../crates/world" }
 
 [[bin]]

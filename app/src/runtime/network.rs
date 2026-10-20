@@ -177,8 +177,6 @@ mod pack_reload_tests;
 mod pack_reload_world_witness;
 pub(crate) use entity_texture_reload::set_base_actor_artwork;
 pub(crate) mod block_entity_art;
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) mod io;
 pub(crate) mod reload_environment;
 pub(crate) mod resource_packs;
 pub(crate) mod session;

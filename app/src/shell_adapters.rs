@@ -4,20 +4,9 @@ use bevy::prelude::*;
 use client_runtime::{blob_cache::ClientBlobCacheOwner, network::NetworkHandle};
 use client_shell::ui_resources::UiRuntimeResource;
 use client_shell::{
-    menu::{LauncherServices, MenuRuntime, launcher_account},
+    menu::{LauncherCoreSlot, MenuRuntime, launcher_account},
     player_skin::LocalPlayerSkin,
 };
-
-/// Supplies the account service edge at the original authority-chain position.
-pub(crate) fn menu_services()
--> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
-    (
-        crate::session::account_retirement::before_menu_services,
-        drive_menu_services,
-    )
-        .chain()
-}
-
 /// Drives the launcher's own services: catalog, saves, settings, the account core and local worlds.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_menu_services(
@@ -27,7 +16,7 @@ pub(crate) fn drive_menu_services(
     player_runtime: Res<client_state::PlayerRuntime>,
     mut client_world: ResMut<ClientWorld>,
     mut runtime: ResMut<UiRuntimeResource>,
-    launcher: Option<ResMut<LauncherServices>>,
+    launcher: Option<ResMut<LauncherCoreSlot>>,
     launcher_account: Option<ResMut<launcher_account::LauncherAccount>>,
     mut local_worlds: Option<ResMut<client_shell::local_worlds::LocalWorlds>>,
     audio_settings: Option<ResMut<client_audio::audio::AudioSettings>>,

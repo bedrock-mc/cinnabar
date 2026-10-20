@@ -9,7 +9,6 @@ import tempfile
 import unittest
 
 from generate import ROOT, constant_value, declarations
-import egress
 
 
 class ContractTests(unittest.TestCase):
@@ -81,35 +80,6 @@ class ContractTests(unittest.TestCase):
                 row["value"] = value
                 with self.assertRaises(ValueError):
                     declarations(manifest)
-
-    def test_gateway_policy_rejects_ambiguous_or_incomplete_sources(self):
-        """Reject stale-class omissions, noncanonical/duplicate prefixes and unknown policy grammar."""
-        source = json.loads((ROOT / "crates/bridge/data/gateway-egress.json").read_text(encoding="utf-8"))
-        mutations = [
-            lambda policy: policy.update(schema=2),
-            lambda policy: policy.update(normalization="ipv4-compatible"),
-            lambda policy: policy.update(unrecognized=True),
-            lambda policy: policy["classes"].pop(),
-            lambda policy: policy["reserved"].append(copy.deepcopy(policy["reserved"][0])),
-            lambda policy: policy["reserved"][0].update(cidr="0.0.0.1/8"),
-            lambda policy: policy["reserved"][0].update(reason=""),
-        ]
-        for mutate in mutations:
-            with self.subTest(mutation=mutate):
-                policy = copy.deepcopy(source)
-                mutate(policy)
-                with self.assertRaises(ValueError):
-                    egress.declarations(policy, ROOT)
-
-    def test_gateway_policy_change_regenerates_both_consumers_and_common_boundaries(self):
-        """The one real source changes Go, Rust and the corpus instead of silently leaving one stale."""
-        source = json.loads((ROOT / "crates/bridge/data/gateway-egress.json").read_text(encoding="utf-8"))
-        original = egress.declarations(source, ROOT)
-        source["reserved"][0]["cidr"] = "0.0.0.0/9"
-        changed = egress.declarations(source, ROOT)
-        self.assertEqual(original.keys(), changed.keys())
-        for path in original:
-            self.assertNotEqual(original[path], changed[path], str(path))
 
 
 if __name__ == "__main__":

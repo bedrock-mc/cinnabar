@@ -1,7 +1,0 @@
-[
-  {"name":"explicit zero and opaque number", "client_data":{"ClientRandomId":0,"ThirdPartyName":"Fixture","Unknown":1e99999}, "random_id":0, "display_name":"Fixture", "self_signed_id":"", "opaque":"1e99999"},
-  {"name":"full negative id", "client_data":{"ClientRandomId":-9223372036854775808,"ThirdPartyName":"Fixture","Unknown":1.2300e+04}, "random_id":-9223372036854775808, "display_name":"Fixture", "self_signed_id":"", "opaque":"1.2300e+04"},
-  {"name":"full positive id", "client_data":{"ClientRandomId":9223372036854775807,"ThirdPartyName":"Fixture","Unknown":{" x ":1e99999}}, "random_id":9223372036854775807, "display_name":"Fixture", "self_signed_id":"", "opaque":"{\" x \":1e99999}"},
-  {"name":"case alias last value", "client_data":{"ClientRandomId":0,"ThirdPartyName":"earlier","thirdpartyname":"Fixture","Unknown":true}, "random_id":0, "display_name":"Fixture", "self_signed_id":"", "opaque":"true"},
-  {"name":"simple fold alias", "client_data":{"ClientRandomId":0,"ThirdPartyName":"Fixture","ſelfSignedId":"fixture-selfsigned","Unknown":"opaque"}, "random_id":0, "display_name":"Fixture", "self_signed_id":"fixture-selfsigned", "opaque":"\"opaque\""}
-]

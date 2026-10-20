@@ -23,7 +23,7 @@ fn captured_entity_stack_retains_animation_payloads() {
             let path = dir.join(entry.file);
             let stem = path.file_stem().unwrap().to_string_lossy();
             let (id, version) = stem.split_once('_').expect("<uuid>_<version> file name");
-            bedrock_packs::ResourcePackArchive::with_content_key(
+            protocol::ResourcePackArchive::with_content_key(
                 id.parse().unwrap(),
                 version.into(),
                 entry.subpack,
@@ -32,9 +32,8 @@ fn captured_entity_stack_retains_animation_payloads() {
             )
         })
         .collect();
-    let stack = resource_pack::validate_handoff(bedrock_packs::ResourcePackHandoff::from_archives(
-        archives,
-    ));
+    let stack =
+        resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(archives));
     assert!(stack.rejections().is_empty(), "offline stack was rejected");
     assert_eq!(stack.packs().len(), expected_packs);
     let Some(refs) = local_vanilla_refs() else {

@@ -190,69 +190,6 @@ pub enum GlobalPackAction {
     Apply,
 }
 
-/// A stale-menu guard selecting one already published native friend row.
-/// These display observations never supply membership or connection authority.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct NativeFriendChoice {
-    pub revision: u64,
-    pub index: usize,
-    pub expected_xuid: String,
-}
-
-impl<'de> Deserialize<'de> for NativeFriendChoice {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct Fields {
-            revision: u64,
-            index: usize,
-            expected_xuid: String,
-        }
-        struct Object;
-        impl<'de> serde::de::Visitor<'de> for Object {
-            type Value = NativeFriendChoice;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("a native friend choice object")
-            }
-
-            fn visit_map<A: serde::de::MapAccess<'de>>(
-                self,
-                map: A,
-            ) -> Result<Self::Value, A::Error> {
-                let Fields {
-                    revision,
-                    index,
-                    expected_xuid,
-                } = Fields::deserialize(serde::de::value::MapAccessDeserializer::new(map))?;
-                Ok(NativeFriendChoice {
-                    revision,
-                    index,
-                    expected_xuid,
-                })
-            }
-        }
-        deserializer.deserialize_map(Object)
-    }
-}
-
-/// Existing display fields for a native catalog row, without its private service selection.
-#[derive(Debug, Serialize)]
-pub struct NativeFriendRow {
-    pub index: usize,
-    pub xuid: String,
-    pub world_name: String,
-    pub selectable: bool,
-}
-
-/// The current native catalog observations and whether this command queued a join intent.
-#[derive(Debug, Serialize)]
-pub struct NativeFriendsReport {
-    pub revision: u64,
-    pub worlds: Vec<NativeFriendRow>,
-    pub queued: bool,
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Command {
@@ -294,10 +231,6 @@ pub enum Command {
     /// lists and worker status; without an action it only reports.
     GlobalPacks {
         action: Option<GlobalPackAction>,
-    },
-    /// Reports current native friend rows or queues their existing opaque selection.
-    NativeFriends {
-        join: Option<NativeFriendChoice>,
     },
     /// Replaces the runtime log filter spec layered over the defaults and `RUST_LOG`; the reply
     /// is the resulting `{spec, effective}` filter, or the error when `spec` does not parse.

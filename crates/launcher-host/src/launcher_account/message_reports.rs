@@ -1,45 +1,35 @@
 //! Ordered inbox reports run independently of authentication and join polling.
 
-#[cfg(test)]
-use super::MessageEvent;
-use super::{Duration, PathBuf, Receiver, Sender, Snapshot, home_feed, thread};
-use std::sync::{Arc, Mutex};
+use super::{Duration, MessageEvent, PathBuf, Receiver, Sender, thread};
 
 const RETRY_INTERVAL: Duration = Duration::from_secs(15);
 
 /// Starts a dedicated reporter; dropping the account link cancels queued retries.
-pub(super) fn start(
-    socket_dir: Option<PathBuf>,
-    shared: Arc<Mutex<Snapshot>>,
-    stop: Receiver<()>,
-    mut changed: tokio::sync::watch::Receiver<home_feed::Wake>,
-    runtime: tokio::runtime::Handle,
-    tasks: tokio_util::task::TaskTracker,
-) -> Sender<home_feed::Report> {
+pub(super) fn start(socket_dir: PathBuf, stop: Receiver<()>) -> Sender<MessageEvent> {
     let (sender, requests) = crossbeam_channel::unbounded();
-    thread::spawn(crate::worker::tracked(
-        move || {
-            run(
-                &requests,
-                &stop,
-                RETRY_INTERVAL,
-                |report: &home_feed::Report| {
-                    runtime.block_on(report.send(socket_dir.as_deref(), &shared, &mut changed))
-                        != home_feed::ReportOutcome::Retry
-                },
-            );
-        },
-        &tasks,
-    ));
+    thread::spawn(move || {
+        let Some(runtime) = super::runtime() else {
+            return;
+        };
+        run(&requests, &stop, RETRY_INTERVAL, |event| {
+            match runtime.block_on(bridge::report_message_event(&socket_dir, event)) {
+                Ok(()) => true,
+                Err(error) => {
+                    tracing::warn!(%error, "inbox event failed; retaining for retry");
+                    false
+                }
+            }
+        });
+    });
     sender
 }
 
-/// Retains a failed report until completion or retirement, preserving read/delete order without a hot loop.
-fn run<T>(
-    requests: &Receiver<T>,
+/// Retains a failed report until accepted, preserving read/delete order without a hot loop.
+fn run(
+    requests: &Receiver<MessageEvent>,
     stop: &Receiver<()>,
     retry: Duration,
-    mut report: impl FnMut(&T) -> bool,
+    mut report: impl FnMut(&MessageEvent) -> bool,
 ) {
     loop {
         let event = crossbeam_channel::select_biased! {

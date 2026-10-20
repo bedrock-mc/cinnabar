@@ -92,7 +92,7 @@ fn combined_selected_archives_remain_available_during_import() {
     let root = tempfile::tempdir().unwrap();
     let mut service = service(root.path());
     let mut library = library(root.path());
-    let size = resource_pack::MAX_LOCAL_STACK_ARCHIVE_BYTES / 3 + 1024;
+    let size = resource_pack::MAX_STACK_ARCHIVE_BYTES / 3 + 1024;
     for (name, id) in [
         ("first", "11111111-1111-1111-1111-111111111111"),
         ("second", "22222222-2222-2222-2222-222222222222"),

@@ -1,17 +1,29 @@
 package catalog
 
 import (
-	_ "embed"
 	"encoding/json"
 	"testing"
 
 	"github.com/sandertv/gophertunnel/minecraft/service/playermessaging"
 )
 
-// The original synthetic messaging fixture is shared with the native projection.
-//
-//go:embed native_home_session.json
-var messagingFixture string
+// Authored to the vanilla field names; not a captured payload.
+const messagingFixture = `{"result":{
+	"continuationToken":"c2",
+	"messages":[
+		{"id":"m1","instanceId":"i1","surface":"PlayButton","template":"ImageTile",
+		 "messageText":{"header":"New!"},"images":{"tile":{"url":"https://cdn.test/t.png"}},
+		 "buttons":{"go":{"text":"Play","link":"/play","action":"Internal"}}},
+		{"id":"","surface":"PlayButton","template":"x"},
+		{"id":"m2","surface":"ToastNotification"}
+	],
+	"inboxSummary":{"totalNumberOfMessages":3,"categories":[
+		{"totalNumberOfMessages":3,"totalNumberOfUnreadMessages":2,
+		 "categoryInfo":{"type":"News","name":"News"},
+		 "messages":[{"id":"m1","instanceId":"i1","surface":"PlayButton","template":"ImageTile"},
+		             {"id":"m3","instanceId":"i3","surface":"InboxMessage","template":"Text","status":"Unread"}]}
+	]}
+}}`
 
 func TestMessagesKeepWellFormedEntriesOnce(t *testing.T) {
 	var envelope struct {

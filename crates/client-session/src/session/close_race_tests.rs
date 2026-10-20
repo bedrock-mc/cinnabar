@@ -62,10 +62,7 @@ fn closed_command_predicate_catches_terminal_queued_after_precheck() {
         thread: None,
         readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
         experience_gate: Arc::default(),
-        connection_observation: Default::default(),
         unflushed: Default::default(),
-        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-        packet_delay: Default::default(),
     };
 
     assert!(!handle.closed_command_has_pending_control());

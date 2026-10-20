@@ -25,18 +25,17 @@ func (h *localPlayerHandler) HandleQuit(p *player.Player) {
 }
 
 // localPlayerProvider applies the launcher's mode when restoring the local host's data.
-// Actual native visitors retain the ordinary saved-player policy.
+// This loopback server only hosts the local player and overlapping reconnects.
 type localPlayerProvider struct {
 	player.Provider
-	mode   world.GameMode
-	remote func(uuid.UUID) bool
+	mode world.GameMode
 }
 
 // Load keeps the player's saved data, but the launcher's selection owns their login mode.
 // Missing records still use Dragonfly's world defaults.
 func (p localPlayerProvider) Load(id uuid.UUID, lookup func(world.Dimension) *world.World) (player.Config, *world.World, error) {
 	data, w, err := p.Provider.Load(id, lookup)
-	if err == nil && (p.remote == nil || !p.remote(id)) {
+	if err == nil {
 		data.GameMode = p.mode
 	}
 	return data, w, err
@@ -44,23 +43,10 @@ func (p localPlayerProvider) Load(id uuid.UUID, lookup func(world.Dimension) *wo
 
 // configureLocalPlayers makes the selected world mode apply to returning local hosts too.
 // Nil storage stays unset so Dragonfly can install its no-op provider.
-func (s settings) configureLocalPlayers(conf *server.Config, remote func(uuid.UUID) bool) {
+func (s settings) configureLocalPlayers(conf *server.Config) {
 	if conf.PlayerProvider == nil {
 		return
 	}
 	mode, _ := s.worldGameMode()
-	conf.PlayerProvider = localPlayerProvider{Provider: conf.PlayerProvider, mode: mode, remote: remote}
-}
-
-// visitorHandler retains ordinary Dragonfly movement policy and only the shared Experience quit cleanup.
-type visitorHandler struct {
-	player.NopHandler
-	host *experience.Host
-}
-
-// HandleQuit forgets only this actual visitor's Experience focus.
-func (h *visitorHandler) HandleQuit(p *player.Player) {
-	if h.host != nil {
-		h.host.PlayerLeft(p.UUID())
-	}
+	conf.PlayerProvider = localPlayerProvider{Provider: conf.PlayerProvider, mode: mode}
 }

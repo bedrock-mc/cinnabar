@@ -1,29 +1,90 @@
 //! Typed relay messages shared by transport selection and page presentation.
 use crate::{Channel, CloseReason};
-use bridge::contract::*;
+use bridge::{Account, ConnectProgress, contract::*};
+use serde::{Deserialize, Serialize};
 
-use bridge::relay_control::{Event, Hello};
-
-/// Builds the browser's declaration using its already-selected reliable channel.
-pub(crate) fn hello(channel: Channel, resume: &str, generation: u64) -> Hello {
-    Hello {
-        version: RELAY_VERSION,
-        channel: channel.name().into(),
-        channels: if matches!(channel, Channel::Control) {
-            [RELAY_CHANNEL_CONTROL, RELAY_CHANNEL_PLAY]
-                .map(str::to_owned)
-                .into()
-        } else {
-            Vec::new()
-        },
-        resume: resume.into(),
-        generation,
-        join: match channel {
-            Channel::Control => 0,
-            Channel::Play { join } => join,
-        },
+/// One channel prefix, with credentials carried only inside its bounded frame.
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub(crate) struct Hello {
+    pub version: u32,
+    pub channel: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub channels: Vec<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub resume: String,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub generation: u64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub join: u64,
+}
+impl Hello {
+    /// Builds the channel declaration from the authoritative bridge contract.
+    pub(crate) fn new(channel: Channel, resume: &str, generation: u64) -> Self {
+        Self {
+            version: RELAY_VERSION,
+            channel: channel.name().into(),
+            channels: if matches!(channel, Channel::Control) {
+                [RELAY_CHANNEL_CONTROL, RELAY_CHANNEL_PLAY]
+                    .map(str::to_owned)
+                    .into()
+            } else {
+                Vec::new()
+            },
+            resume: resume.into(),
+            generation,
+            join: match channel {
+                Channel::Control => 0,
+                Channel::Play { join } => join,
+            },
+        }
     }
 }
+
+/// A rotated capability and its control generation, observed after a bounded frame arrives.
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub(crate) struct Capability {
+    pub version: u32,
+    pub resume: String,
+    pub generation: u64,
+    pub expires_seconds: u64,
+}
+
+/// A bounded request with no replay queue or transport-specific interpretation.
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "op")]
+pub(crate) enum Request {
+    #[serde(rename = "sign_in")]
+    SignIn,
+    #[serde(rename = "sign_out")]
+    SignOut,
+    #[serde(rename = "pong")]
+    Pong { resume: String },
+}
+
+/// Known events require their typed payload; optional future event kinds are ignored.
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type")]
+pub(crate) enum Event {
+    #[serde(rename = "welcome")]
+    Welcome {
+        #[serde(flatten)]
+        capability: Capability,
+    },
+    #[serde(rename = "ping")]
+    Ping {
+        #[serde(flatten)]
+        capability: Capability,
+    },
+    #[serde(rename = "account")]
+    Account { account: Account },
+    #[serde(rename = "connect")]
+    Connect { connect: ConnectProgress },
+    #[serde(rename = "error")]
+    Error { error: RefusalCode },
+    #[serde(other)]
+    Unknown,
+}
+
 /// Parses one bounded frame, retaining optional-field forward compatibility.
 pub(crate) fn parse(frame: &[u8]) -> Result<Event, CloseReason> {
     serde_json::from_slice(frame).map_err(|_| CloseReason::Protocol)
@@ -45,10 +106,14 @@ pub fn connection_refusal_message(code: RefusalCode) -> &'static str {
     }
 }
 
+/// Omits unused numeric fields from a channel Hello.
+fn is_zero(value: &u64) -> bool {
+    *value == 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bridge::relay_control::Request;
     use serde_json::Value;
 
     #[test]

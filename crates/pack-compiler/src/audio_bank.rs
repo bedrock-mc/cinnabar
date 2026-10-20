@@ -72,7 +72,7 @@ fn read_json(path: &Path, required: bool) -> Result<Vec<u8>, AudioBankCompileErr
         ));
     }
     let bytes = fs::read(path).map_err(io_error(path))?;
-    bedrock_packs::jsonc::parse_jsonc::<serde::de::IgnoredAny>(&bytes).map_err(|source| {
+    pack_json::parse_jsonc::<serde::de::IgnoredAny>(&bytes).map_err(|source| {
         AudioBankCompileError::JsonFile {
             path: path.to_path_buf(),
             source,
@@ -83,7 +83,7 @@ fn read_json(path: &Path, required: bool) -> Result<Vec<u8>, AudioBankCompileErr
 
 /// Maps each `blocks.json` block to its sound material, dropping everything else.
 fn block_materials(blocks: &[u8]) -> Result<Vec<u8>, AudioBankCompileError> {
-    let root: Value = bedrock_packs::jsonc::parse_jsonc(blocks)?;
+    let root: Value = pack_json::parse_jsonc(blocks)?;
     let mut map = Map::new();
     for (name, value) in root.as_object().into_iter().flatten() {
         if let Some(material) = value.get("sound").and_then(Value::as_str) {

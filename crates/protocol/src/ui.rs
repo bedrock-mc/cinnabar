@@ -522,13 +522,8 @@ pub(crate) fn normalize_health(packet: SetHealth) -> UiEvent {
 }
 
 pub(crate) fn normalize_player_status(packet: PlayStatus) -> Result<UiEvent, UiPacketError> {
-    player_status(packet.status).map(|status| UiEvent::Hud(HudEvent::PlayerStatus(status)))
-}
-
-/// Classifies a known wire status for both startup admission and the HUD.
-pub(crate) fn player_status(status: PlayStatusType) -> Result<PlayerStatus, UiPacketError> {
     // Map the reserved edition-mismatch statuses to one neutral local state.
-    let status = match status {
+    let status = match packet.status {
         PlayStatusType::Loginsuccess => PlayerStatus::LoginSuccess,
         PlayStatusType::LoginfailedClientold => PlayerStatus::FailedClient,
         PlayStatusType::LoginfailedServerold => PlayerStatus::FailedSpawn,
@@ -552,7 +547,7 @@ pub(crate) fn player_status(status: PlayStatusType) -> Result<PlayerStatus, UiPa
             });
         }
     };
-    Ok(status)
+    Ok(UiEvent::Hud(HudEvent::PlayerStatus(status)))
 }
 
 pub(crate) fn normalize_display_objective(

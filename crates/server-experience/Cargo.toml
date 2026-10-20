@@ -22,8 +22,8 @@ anyhow.workspace = true
 protocol = { path = "../protocol" }
 reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-tls"], optional = true }
 ring = { version = "=0.17.14", optional = true }
-serde = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
+serde = { version = "=1.0.228", features = ["derive"], optional = true }
+serde_json = { version = "=1.0.150", optional = true }
 sha2 = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 url = { version = "=2.5.8", optional = true }

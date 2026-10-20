@@ -3,9 +3,8 @@
 use super::{JoinPreparation, SessionIo, SessionLogin};
 use crate::{
     ClientBlobCache, ClientRandomId, ClientSkin, GameData, LoginSequence, LoginSettings,
-    PlaySession, ProtocolError, packet_tap::PacketTap,
+    PlaySession, ProtocolError, ResourcePackHandoff, packet_tap::PacketTap,
 };
-use bedrock_packs::ResourcePackHandoff;
 use std::{future::Future, path::Path, pin::Pin, sync::Arc};
 
 /// Preserves native startup offloading and panic propagation on the Tokio runtime.
@@ -32,40 +31,6 @@ impl JoinPreparation for NativeJoinPreparation {
 }
 
 impl LoginSequence {
-    /// Selects the actual connection backend while retaining shared spawn and preparation.
-    pub async fn connect_endpoint<P: Send + 'static>(
-        endpoint: &crate::SessionEndpoint,
-        login: SessionLogin<'_>,
-        prepare: impl FnOnce(ResourcePackHandoff, GameData) -> P + Send + 'static,
-    ) -> Result<(PlaySession, P), ProtocolError> {
-        match endpoint {
-            crate::SessionEndpoint::Core(directory) => {
-                let profile = bridge::join_profile::JoinProfile::current();
-                let (reader, frames) = {
-                    let _endpoint = profile.stage("core_endpoint_connect");
-                    bridge::connect_session(directory)
-                        .await
-                        .map_err(ProtocolError::Bridge)?
-                };
-                Self::connect_prepared(
-                    SessionIo {
-                        reader,
-                        frames,
-                        timers: bridge::tasks::Timers::tokio(),
-                    },
-                    login,
-                    &NativeJoinPreparation,
-                    prepare,
-                )
-                .await
-            }
-            #[cfg(feature = "native-networking")]
-            crate::SessionEndpoint::Native(target) => {
-                Self::connect_native(target, login, prepare).await
-            }
-        }
-    }
-
     /// Opens the native core endpoint, offloads startup work and continues its only login.
     /// Pack preparation overlaps server input; loading ends when the caller presents the world.
     #[expect(
@@ -84,12 +49,11 @@ impl LoginSequence {
         prepare: impl FnOnce(ResourcePackHandoff, GameData) -> P + Send + 'static,
     ) -> Result<(PlaySession, P), ProtocolError> {
         let profile = bridge::join_profile::JoinProfile::current();
-        let (reader, frames) = {
-            let _endpoint = profile.stage("core_endpoint_connect");
-            bridge::connect_session(socket_dir)
-                .await
-                .map_err(ProtocolError::Bridge)?
-        };
+        let endpoint = profile.stage("core_endpoint_connect");
+        let (reader, frames) = bridge::connect_session(socket_dir)
+            .await
+            .map_err(ProtocolError::Bridge)?;
+        drop(endpoint);
         Self::connect_prepared(
             SessionIo {
                 reader,

@@ -29,29 +29,7 @@ const WORLD_FILES: Filter = Filter {
 /// Work kept on the local-world worker, including thumbnail persistence.
 enum Request {
     Effect(Effect),
-    SaveThumbnail {
-        id: String,
-        image: Arc<[u8]>,
-    },
-    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-    CloseNative(launcher_host::local_worlds::NativeLocalWorldSelection),
-}
-
-/// Enqueues retirement of one original opening when its session owner ends.
-/// Dropping this capability never writes the process pipe on the caller's thread.
-#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-pub struct NativeLocalWorldRetirement {
-    requests: Sender<Request>,
-    selection: Option<launcher_host::local_worlds::NativeLocalWorldSelection>,
-}
-
-#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-impl Drop for NativeLocalWorldRetirement {
-    fn drop(&mut self) {
-        if let Some(selection) = self.selection.take() {
-            let _ = self.requests.send(Request::CloseNative(selection));
-        }
-    }
+    SaveThumbnail { id: String, image: Arc<[u8]> },
 }
 
 /// A menu answer and newly loaded thumbnails, read together by the world worker.
@@ -99,9 +77,7 @@ pub struct WorldsClient {
     events: Receiver<Reply>,
     /// Set once the client is detached; an open in progress finishes before it is set.
     revoked: Arc<Mutex<bool>>,
-    _core: Option<CoreLink>,
-    #[cfg(all(test, feature = "native-networking", not(target_arch = "wasm32")))]
-    worker: Option<thread::JoinHandle<()>>,
+    _core: CoreLink,
 }
 
 impl WorldsClient {
@@ -116,48 +92,19 @@ impl WorldsClient {
         poll_delay: Duration,
     ) -> io::Result<Self> {
         let core = CoreLink::spawn(manager.clone(), socket_dir)?;
-        Self::spawn_worker(manager, Some(core), poll_delay)
-    }
-
-    /// Starts the same world worker without a Go connection route or an additional runtime.
-    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-    pub(super) fn spawn_native(manager: Manager) -> io::Result<Self> {
-        Self::spawn_worker(manager, None, POLL_DELAY)
-    }
-
-    /// Only the actual native constructor omits Core routing.
-    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-    pub(super) fn native(&self) -> bool {
-        self._core.is_none()
-    }
-
-    /// Runs the original effect queue and status loop with the selected concrete routing owner.
-    fn spawn_worker(
-        manager: Manager,
-        core: Option<CoreLink>,
-        poll_delay: Duration,
-    ) -> io::Result<Self> {
-        let route = core.as_ref().map(CoreLink::route);
-        let changes = manager.subscribe();
-        let routed = route
-            .as_ref()
-            .map_or_else(crossbeam_channel::never, CoreRoute::changes);
+        let route = core.route();
+        let (changes, routed) = (manager.subscribe(), route.changes());
         let revoked = Arc::new(Mutex::new(false));
         let worker_revoked = Arc::clone(&revoked);
         let (effects, effect_rx) = unbounded::<Request>();
         let (event_tx, events) = unbounded::<Reply>();
-        let _worker = thread::Builder::new()
+        thread::Builder::new()
             .name("local-worlds".to_owned())
             .spawn(move || {
                 manager.reclaim_abandoned_imports();
                 let mut loaded = HashSet::new();
                 while let Ok(request) = effect_rx.recv() {
                     let effect = match request {
-                        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-                        Request::CloseNative(selection) => {
-                            selection.request_close();
-                            continue;
-                        }
                         Request::Effect(effect) => effect,
                         Request::SaveThumbnail { id, image } => {
                             if let Err(error) = manager.save_thumbnail(&id, &image) {
@@ -182,19 +129,13 @@ impl WorldsClient {
                     );
                     let gate = lock(&worker_revoked);
                     if *gate {
-                        // An active native session may still own original-opening retirement.
-                        // Its final sender keeps only this existing worker alive for that request.
-                        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-                        if route.is_none() {
-                            continue;
-                        }
                         break;
                     }
                     // Only an open holds the gate, so a revoked client never starts a world
                     // while slow requests (a Docker probe) never delay a detach.
                     let gate = matches!(effect, Effect::Open(_)).then_some(gate);
                     let cancelled = || *lock(&worker_revoked);
-                    let event = execute(&manager, route.as_ref(), effect, &cancelled);
+                    let event = execute(&manager, &route, effect, &cancelled);
                     drop(gate);
                     let event = event.map(|event| match event {
                         Event::Failed(message) if preferences => Event::FailedPrefs(message),
@@ -203,13 +144,6 @@ impl WorldsClient {
                     if let Some(event) = event {
                         let thumbnails = read_thumbnails(&manager, &event, &mut loaded);
                         if event_tx.send(Reply { event, thumbnails }).is_err() {
-                            // Retained native retirement senders still own this request receiver.
-                            // Seal ordinary effects while the same queue finishes their cleanup.
-                            #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-                            if route.is_none() {
-                                *lock(&worker_revoked) = true;
-                                continue;
-                            }
                             break;
                         }
                     }
@@ -220,8 +154,6 @@ impl WorldsClient {
             events,
             revoked,
             _core: core,
-            #[cfg(all(test, feature = "native-networking", not(target_arch = "wasm32")))]
-            worker: Some(_worker),
         })
     }
 
@@ -233,27 +165,6 @@ impl WorldsClient {
 
     pub fn send(&self, effect: Effect) {
         let _ = self.effects.send(Request::Effect(effect));
-    }
-
-    /// Queues original-opening cleanup on the same process/effect worker.
-    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-    pub(super) fn close_native(
-        &self,
-        selection: launcher_host::local_worlds::NativeLocalWorldSelection,
-    ) {
-        let _ = self.effects.send(Request::CloseNative(selection));
-    }
-
-    /// Keeps the same request receiver available until the session releases its original opening.
-    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-    pub(super) fn native_retirement(
-        &self,
-        selection: launcher_host::local_worlds::NativeLocalWorldSelection,
-    ) -> NativeLocalWorldRetirement {
-        NativeLocalWorldRetirement {
-            requests: self.effects.clone(),
-            selection: Some(selection),
-        }
     }
 
     /// Queues a write without opening files or acquiring the world store's lock.
@@ -274,20 +185,17 @@ fn failed(error: WorldError) -> Event {
     Event::Failed(error.public_message())
 }
 
-fn prefs_event(manager: &Manager, route: Option<&CoreRoute>, update: PrefsUpdate) -> Event {
-    manager.prefs(update).map_or_else(failed, |prefs| {
-        Event::Prefs(
-            prefs,
-            route.map_or_else(|| manager.status(), |route| route.status(manager)),
-        )
-    })
+fn prefs_event(manager: &Manager, route: &CoreRoute, update: PrefsUpdate) -> Event {
+    manager
+        .prefs(update)
+        .map_or_else(failed, |prefs| Event::Prefs(prefs, route.status(manager)))
 }
 
 /// Runs one effect; reported statuses hold a running world at starting until the core routes it.
 /// `cancelled` reports a detach, which an import in progress obeys by publishing nothing.
 fn execute(
     manager: &Manager,
-    route: Option<&CoreRoute>,
+    route: &CoreRoute,
     effect: Effect,
     cancelled: &(dyn Fn() -> bool + Sync),
 ) -> Option<Event> {
@@ -302,9 +210,7 @@ fn execute(
             .update(&id, &update)
             .map_or_else(failed, Event::Updated),
         Effect::Open(id) => match manager.open(&id, None) {
-            Ok(()) => {
-                Event::Status(route.map_or_else(|| manager.status(), |route| route.status(manager)))
-            }
+            Ok(()) => Event::Status(route.status(manager)),
             Err(WorldError::EulaRequired) => Event::EulaRequired,
             Err(error) => failed(error),
         },
@@ -333,9 +239,7 @@ fn execute(
                 errors: vec![error],
             },
         },
-        Effect::PollStatus => {
-            Event::Status(route.map_or_else(|| manager.status(), |route| route.status(manager)))
-        }
+        Effect::PollStatus => Event::Status(route.status(manager)),
         Effect::Close => {
             manager.close();
             return None;
@@ -498,6 +402,3 @@ mod tests {
 
 #[cfg(test)]
 mod thumbnail_tests;
-
-#[cfg(all(test, feature = "native-networking", not(target_arch = "wasm32")))]
-mod native_retirement_tests;

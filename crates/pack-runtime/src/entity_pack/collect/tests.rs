@@ -233,7 +233,7 @@ fn changing_mob_geometry_keeps_both_owner_armour_variants() {
     }
 }
 
-fn archive(id: u128, material: serde_json::Value) -> bedrock_packs::ResourcePackArchive {
+fn archive(id: u128, material: serde_json::Value) -> protocol::ResourcePackArchive {
     let id = format!("00000000-0000-0000-0000-{id:012x}");
     let manifest = json!({"format_version":2,"header":{"uuid":id,"version":[1,0,0]},
         "modules":[{"type":"resources"}]});
@@ -246,7 +246,7 @@ fn archive(id: u128, material: serde_json::Value) -> bedrock_packs::ResourcePack
             .unwrap();
         zip.write_all(&serde_json::to_vec(&value).unwrap()).unwrap();
     }
-    bedrock_packs::ResourcePackArchive::unencrypted(
+    protocol::ResourcePackArchive::unencrypted(
         id.parse().unwrap(),
         "1.0.0".into(),
         String::new(),
@@ -272,7 +272,7 @@ fn actor_material_collector_retains_custom_inheritance_and_highest_layer_child()
         }}),
     );
     let view = resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
-        bedrock_packs::ResourcePackHandoff::from_archives(vec![upper, lower]),
+        protocol::ResourcePackHandoff::from_archives(vec![upper, lower]),
     ));
     let files = super::collect_files(&view, None, None);
     let definitions = files

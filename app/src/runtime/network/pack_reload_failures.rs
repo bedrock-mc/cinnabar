@@ -9,7 +9,7 @@ fn stale_worker_failure_does_not_consume_a_newer_request() {
     {
         let mut reload = app.world_mut().resource_mut::<PackReload>();
         reload.request_globals(resource_pack::validate_handoff(
-            bedrock_packs::ResourcePackHandoff::default(),
+            protocol::ResourcePackHandoff::default(),
         ));
         reload.pending = Some(Pending {
             revision: 0,

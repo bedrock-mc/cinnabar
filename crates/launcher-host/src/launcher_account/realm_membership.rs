@@ -1,123 +1,75 @@
-//! Selected-account Realm invitation requests on the existing application worker.
+//! One cancellable invitation request at a time, independent of catalog polling.
 
-use tokio::sync::watch;
 use {super::*, launcher::menu::view::MenuRealmCard};
 
-mod source;
-mod worker;
-pub(super) use source::Source;
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum Wake {
-    Account,
-    Stop,
-}
-
-/// The original queue and cancellation signal for its single retained operation.
-pub(super) struct Requests {
-    requests: tokio::sync::mpsc::UnboundedSender<Request>,
-    wake: watch::Sender<Wake>,
-}
-
-struct Selection {
-    generation: u64,
-    source: Source,
-    ticket: u64,
-}
-
-impl Selection {
-    /// Captures the concrete requesting owner before a later queued account change.
-    fn capture(snapshot: &Snapshot, ticket: u64) -> Self {
-        Self {
-            generation: snapshot.auth_generation,
-            source: snapshot.realm_source.clone(),
-            ticket,
-        }
-    }
-
-    /// Rejects replaced UI/account selections before dispatch and publication.
-    fn current(&self, snapshot: &Snapshot) -> bool {
-        self.generation == snapshot.auth_generation
-            && self.source.same_account(&snapshot.realm_source)
-            && snapshot.realm_ticket == Some(self.ticket)
-    }
-}
-
-enum Request {
+/// Commands from the launcher frame to its asynchronous membership worker.
+pub(super) enum Request {
     Run {
         ticket: u64,
         code: String,
         accept: bool,
-        selected: Selection,
     },
     Cancel,
 }
 
-impl Requests {
-    /// Queues the original selected account rather than choosing an owner on later dispatch.
-    fn run(&self, shared: &Mutex<Snapshot>, ticket: u64, code: String, accept: bool) -> bool {
-        let selected = {
-            let mut snapshot = shared.lock().unwrap_or_else(|p| p.into_inner());
-            snapshot.realm_ticket = Some(ticket);
-            Selection::capture(&snapshot, ticket)
-        };
-        self.requests
-            .send(Request::Run {
-                ticket,
-                code,
-                accept,
-                selected,
-            })
-            .is_ok()
-    }
-
-    /// Retires the visible intent; a possible native POST keeps its bounded observation.
-    fn cancel(&self, shared: &Mutex<Snapshot>) {
-        let mut snapshot = shared.lock().unwrap_or_else(|p| p.into_inner());
-        snapshot.realm_ticket = None;
-        snapshot.realm_membership = None;
-        let _ = self.requests.send(Request::Cancel);
-    }
-
-    /// Supplies account-state fixtures that never start a membership worker.
-    #[cfg(test)]
-    pub(super) fn disconnected() -> Self {
-        Self {
-            requests: tokio::sync::mpsc::unbounded_channel().0,
-            wake: watch::channel(Wake::Stop).0,
-        }
-    }
-}
-
-impl Drop for Requests {
-    /// Stops previews immediately and suppresses publication from an already submitted acceptance.
-    fn drop(&mut self) {
-        self.wake.send_replace(Wake::Stop);
-    }
-}
-
-/// Wakes the existing worker without reviving it after terminal shutdown.
-pub(super) fn retire(sender: &watch::Sender<Wake>) {
-    sender.send_if_modified(|wake| *wake != Wake::Stop);
-}
-
-/// Starts exactly the original tracked membership worker on the shared application reactor.
+/// Runs requests on a dedicated runtime; cancelling or dropping the sender closes the RPC stream.
 pub(super) fn start(
-    socket_dir: Option<PathBuf>,
+    socket_dir: PathBuf,
     shared: Arc<Mutex<Snapshot>>,
-    runtime: Handle,
-    tasks: TaskTracker,
-) -> Requests {
-    let (requests, receiver) = tokio::sync::mpsc::unbounded_channel();
-    let (wake, changed) = watch::channel(Wake::Account);
-    shared.lock().unwrap_or_else(|p| p.into_inner()).realm_wake = Some(wake.clone());
-    thread::spawn(crate::worker::tracked(
-        move || {
-            runtime.block_on(worker::run(socket_dir, shared, receiver, changed));
-        },
-        &tasks,
-    ));
-    Requests { requests, wake }
+) -> tokio::sync::mpsc::UnboundedSender<Request> {
+    let (sender, mut requests) = tokio::sync::mpsc::unbounded_channel();
+    thread::spawn(move || {
+        let Some(runtime) = runtime() else {
+            while let Some(request) = requests.blocking_recv() {
+                if let Request::Run { ticket, accept, .. } = request {
+                    publish(&shared, |snapshot| {
+                        snapshot.realm_membership = Some((ticket, accept, Err(())))
+                    });
+                }
+            }
+            return;
+        };
+        runtime.block_on(async {
+            let mut pending = None;
+            loop {
+                let request = match pending.take() {
+                    Some(request) => request,
+                    None => match requests.recv().await { Some(request) => request, None => return },
+                };
+                let Request::Run { ticket, code, accept } = request else { continue; };
+                let generation = auth_generation(&shared);
+                let result = tokio::select! {
+                    biased;
+                    command = requests.recv() => {
+                        match command { None => return, Some(Request::Cancel) => {}, Some(request) => pending = Some(request) }
+                        continue;
+                    }
+                    result = tokio::time::timeout(profile_worker::RESPONSE_TIMEOUT, bridge::realm_membership(&socket_dir, &code, accept)) => result,
+                };
+                let result = match result {
+                    Ok(Ok(result)) => Ok(result),
+                    _ => Err(()),
+                };
+                publish_account(&shared, generation, |snapshot| {
+                    let result = result.map(|result| {
+                        if accept {
+                            snapshot.realm_catalog_revision = snapshot.realm_catalog_revision.wrapping_add(1);
+                            let realms = snapshot.realms.get_or_insert_with(Vec::new);
+                            if let Some(existing) = realms.iter_mut().find(|old| old.target == result.realm.target) {
+                                *existing = result.realm.clone();
+                            } else {
+                                realms.push(result.realm.clone());
+                            }
+                            if let Some(wake) = &snapshot.catalog_wake { let _ = wake.try_send(()); }
+                        }
+                        (result.code, realm_card(&result.realm))
+                    });
+                    snapshot.realm_membership = Some((ticket, accept, result));
+                });
+            }
+        });
+    });
+    sender
 }
 
 /// Maps the core's verified catalog entry for the menu, without selecting a transport.
@@ -145,12 +97,20 @@ impl LauncherAccount {
         accept: bool,
     ) -> bool {
         self.realm_membership
-            .run(&self.snapshot, ticket, code, accept)
+            .send(realm_membership::Request::Run {
+                ticket,
+                code,
+                accept,
+            })
+            .is_ok()
     }
 
     /// Cancels the outstanding request and retires its unpublished response.
     pub(super) fn cancel_realm_membership_control(&mut self) {
-        self.realm_membership.cancel(&self.snapshot);
+        let _ = self
+            .realm_membership
+            .send(realm_membership::Request::Cancel);
+        self.with(|snapshot| snapshot.realm_membership = None);
     }
 
     /// Takes the latest response once, leaving stale-ticket rejection to the menu.
@@ -160,4 +120,90 @@ impl LauncherAccount {
 }
 
 #[cfg(all(test, unix))]
-mod tests;
+mod tests {
+    use super::*;
+    use std::{
+        io::{Read, Write},
+        os::unix::net::UnixListener,
+    };
+
+    /// Waits for an asynchronous answer, with a deadline only to bound fixture failures.
+    fn answer(shared: &Arc<Mutex<Snapshot>>) {
+        test_time::wait_until(Duration::from_secs(2), || {
+            shared.lock().unwrap().realm_membership.is_some()
+        });
+        assert!(shared.lock().unwrap().realm_membership.is_some());
+    }
+
+    #[test]
+    fn accepted_membership_survives_the_account_catalog_snapshot() {
+        let dir = std::env::temp_dir().join(format!("realm-worker-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let listener = UnixListener::bind(dir.join("control.sock")).unwrap();
+        let fixture = thread::spawn(move || {
+            for accept in [false, true] {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut size = [0; 4];
+                stream.read_exact(&mut size).unwrap();
+                let mut bytes = vec![0; u32::from_be_bytes(size) as usize];
+                stream.read_exact(&mut bytes).unwrap();
+                let request: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                assert_eq!(request["method"], "realm_membership.v1");
+                assert_eq!(request["params"]["accept"], accept);
+                let response = serde_json::to_vec(&serde_json::json!({
+                    "jsonrpc":"2.0", "id":request["id"], "result":{
+                        "schema_version":1, "code":"invitation", "realm":{
+                            "name":"Accepted Realm", "state":"OPEN", "target":"realm_id/7", "member":true
+                        }
+                    }
+                })).unwrap();
+                stream
+                    .write_all(&(response.len() as u32).to_be_bytes())
+                    .unwrap();
+                stream.write_all(&response).unwrap();
+            }
+        });
+        let shared = Arc::new(Mutex::new(Snapshot {
+            realms: Some(Vec::new()),
+            ..Default::default()
+        }));
+        let requests = start(dir.clone(), Arc::clone(&shared));
+        requests
+            .send(Request::Run {
+                ticket: 1,
+                code: "invitation".into(),
+                accept: false,
+            })
+            .unwrap();
+        answer(&shared);
+        {
+            let mut snapshot = shared.lock().unwrap();
+            assert!(
+                snapshot.realms.as_ref().unwrap().is_empty(),
+                "preview must not grant membership"
+            );
+            snapshot.realm_membership = None;
+        }
+        requests
+            .send(Request::Run {
+                ticket: 2,
+                code: "invitation".into(),
+                accept: true,
+            })
+            .unwrap();
+        answer(&shared);
+        {
+            let snapshot = shared.lock().unwrap();
+            let realms = snapshot.realms.as_ref().unwrap();
+            assert_eq!(
+                realms.len(),
+                1,
+                "catalog polling must retain the accepted Realm on subsequent frames"
+            );
+            assert_eq!(realms[0].target, "realm_id/7");
+        }
+        drop(requests);
+        fixture.join().unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

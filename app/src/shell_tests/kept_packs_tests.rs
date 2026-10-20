@@ -51,8 +51,8 @@ fn missing_core_layout(root: &Path) -> InstallLayout {
 /// Stacks of their own, keeping one admitted stack as a finished join would.
 fn kept_stacks() -> &'static CompiledStacks {
     let stack =
-        resource_pack::validate_handoff(bedrock_packs::ResourcePackHandoff::from_archives(vec![
-            bedrock_packs::ResourcePackArchive::unencrypted(
+        resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(vec![
+            protocol::ResourcePackArchive::unencrypted(
                 "00000000-0000-0000-0000-00000000ca7e".parse().unwrap(),
                 "1.0.0".into(),
                 String::new(),
