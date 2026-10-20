@@ -484,8 +484,16 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
                 return false;
             }
         }
+        // Only FIFO-ordered native bodies are marked: appends are unprocessed, a delayed body
+        // leaves every later body untouched, and an error/EOF ends that same pending suffix.
+        let pending = self.ahead.partition_point(|entry| {
+            matches!(entry.item.as_ref(), Some(Ok(ReadItem::Native(batch))) if batch.relay_applied)
+        });
+        if pending != 0 && ends_session(&self.ahead[pending - 1].item) {
+            return false;
+        }
         let delay = self.packet_delay();
-        for entry in &mut self.ahead {
+        for entry in self.ahead.range_mut(pending..) {
             let mut applied = false;
             if let Some(Ok(ReadItem::Native(batch))) = &mut entry.item {
                 // Later callbacks cannot overtake an earlier body still awaiting its delivery time.
