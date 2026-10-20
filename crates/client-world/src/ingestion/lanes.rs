@@ -201,6 +201,9 @@ fn classify_event(event: &WorldEvent, context: LaneContext) -> Footprint {
             retention: true,
             ..Footprint::session(C::CONTROLS)
         },
+        WorldEvent::MovePlayer(movement) if !local(movement.runtime_id) => {
+            Footprint::session(C::ACTORS)
+        }
         WorldEvent::MovePlayer(movement) if movement.mode.is_teleport() => Footprint {
             retention: true,
             ..Footprint::session(C::CONTROLS.with(C::ACTORS))

@@ -85,9 +85,8 @@ pub(super) fn complete_bindings(
             + geometry.1.len()
             + controller.as_ref().map_or(0, |(_, bytes)| bytes.len());
         if remaining_budget.is_some()
-            && (geometries.len() >= assets::MAX_ENTITY_GEOMETRIES
-                || symbols.len() + 2 + usize::from(controller.is_some())
-                    > assets::MAX_ENTITY_ASSET_SYMBOLS)
+            && symbols.len() + 2 + usize::from(controller.is_some())
+                > assets::MAX_ENTITY_ASSET_SYMBOLS
         {
             continue;
         }
@@ -303,8 +302,9 @@ mod tests {
     }
 
     #[test]
-    fn painting_completion_preserves_authored_geometry_at_catalog_capacity() {
-        let geometries = (0..assets::MAX_ENTITY_GEOMETRIES).map(|index| serde_json::json!({
+    fn painting_completion_preserves_large_authored_geometry_catalogs() {
+        let count = 4_097;
+        let geometries = (0..count).map(|index| serde_json::json!({
             "description":{"identifier":format!("geometry.fixture.{index}"),"texture_width":16,"texture_height":16},
             "bones":[{"name":"root","cubes":[{"origin":[0,0,0],"size":[16,16,16],"uv":[0,0]}]}]
         })).collect::<Vec<_>>();
@@ -325,16 +325,15 @@ mod tests {
         .unwrap();
         assert_eq!(compiled.skipped, super::super::EntityPackSkips::default());
         assert_eq!(
-            compiled.assets.geometries.len(),
-            assets::MAX_ENTITY_GEOMETRIES
-        );
-        assert!(
             compiled
                 .assets
                 .geometries
                 .iter()
-                .all(|geometry| geometry.identifier.starts_with("geometry.fixture."))
+                .filter(|geometry| geometry.identifier.starts_with("geometry.fixture."))
+                .count(),
+            count
         );
+        assert!(compiled.assets.geometries.len() > count);
         assert!(
             compiled
                 .assets

@@ -93,6 +93,7 @@ fn install(app: &mut App) {
         return;
     }
     app.add_plugins(ExtractResourcePlugin::<HandRigScene>::default());
+    crate::actor_render::load_rig_shader(app);
     load_internal_asset!(
         app,
         HAND_RIG_SHADER,

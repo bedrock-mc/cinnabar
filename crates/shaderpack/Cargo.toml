@@ -1,0 +1,19 @@
+[package]
+name = "shaderpack"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[package.metadata.cinnabar]
+platform-specific = ["macos"]
+
+[lib]
+doctest = false
+
+[dependencies]
+zip-footer = { path = "../zip-footer" }
+zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[lints]
+workspace = true

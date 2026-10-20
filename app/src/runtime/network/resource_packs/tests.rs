@@ -24,17 +24,34 @@ fn unchanged_icon_subscribers_reuse_outputs_without_baking_block_art() {
             ..Default::default()
         }
     };
-    let (reused, reads) =
-        super::compile_icons(&stack, &|| false, false, Some(previous.clone()), &[], bake).unwrap();
+    let (reused, reads) = super::compile_icons(
+        &stack,
+        &|| false,
+        false,
+        Some(previous.clone()),
+        &[],
+        None,
+        bake,
+    )
+    .unwrap();
     assert!(std::sync::Arc::ptr_eq(reused.as_ref().unwrap(), &previous));
     assert!(reads.is_none());
     assert_eq!(baked.get(), 0);
     assert!(
-        super::compile_icons(&stack, &|| true, true, Some(previous.clone()), &[], bake).is_none()
+        super::compile_icons(
+            &stack,
+            &|| true,
+            true,
+            Some(previous.clone()),
+            &[],
+            None,
+            bake
+        )
+        .is_none()
     );
     assert_eq!(baked.get(), 0);
     let (fresh, reads) =
-        super::compile_icons(&stack, &|| false, true, Some(previous), &[], bake).unwrap();
+        super::compile_icons(&stack, &|| false, true, Some(previous), &[], None, bake).unwrap();
     assert_eq!(baked.get(), 1);
     assert_eq!(fresh.unwrap().icons[0].identifier.as_ref(), "test:cube");
     assert!(reads.is_some());
@@ -855,3 +872,7 @@ fn block_entity_art_reads_texture_sets_and_tracks_missing_overrides() {
     .unwrap();
     assert_eq!(restored.atlas().texel(name, 0, 0), Some([10, 20, 30, 255]));
 }
+
+/// Exercises production subscriber output types through a fresh persistent cache.
+#[path = "tests/disk.rs"]
+mod disk;

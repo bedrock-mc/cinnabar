@@ -400,7 +400,7 @@ mod presentation_tests {
         assert_eq!(facts.book_editable("fixture:written_book"), None);
 
         let food_members: std::collections::BTreeSet<_> =
-            include_str!("../../../protocol/data/item_tags_dragonfly.tsv")
+            include_str!("../../../protocol/data/item_tags_native.tsv")
                 .lines()
                 .find_map(|row| {
                     row.split_once('\t')

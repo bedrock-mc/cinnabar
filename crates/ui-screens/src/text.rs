@@ -20,7 +20,7 @@ pub fn resolve_chat_line<'a>(
 ) -> Cow<'a, str> {
     match node.kind {
         ChatMessageKind::Translation => {
-            let template = json_ui::localize_text(&node.message, &translate);
+            let template = json_ui::localize_text_chars(&node.message, &translate);
             let arguments = node
                 .parameters
                 .iter()
@@ -29,7 +29,7 @@ pub fn resolve_chat_line<'a>(
                         .into_owned()
                 })
                 .collect::<Vec<_>>();
-            Cow::Owned(protocol::format_translation(&template, &arguments))
+            Cow::Owned(protocol::format_translation_chars(template, &arguments))
         }
         ChatMessageKind::Chat => match node.source.as_deref() {
             Some(source) if !source.is_empty() => {
@@ -169,6 +169,55 @@ mod tests {
         for kind in [ChatMessageKind::Chat, ChatMessageKind::System] {
             let literal = message(kind, None, "100%% complete", &[]);
             assert_eq!(resolve_chat_line(&literal, |_| None), "100%% complete");
+        }
+    }
+
+    #[test]
+    fn translation_expansion_stops_lookup_after_output_is_full() {
+        let expanded: Arc<str> = "a".repeat(protocol::MAX_RAW_TEXT_OUTPUT_BYTES * 2).into();
+        let calls = std::cell::Cell::new(0);
+        let node = message(ChatMessageKind::Translation, None, "%x %x %x", &[]);
+        let resolved = resolve_chat_line(&node, |key| {
+            calls.set(calls.get() + 1);
+            assert_eq!(calls.get(), 1, "the first value fills the formatted output");
+            (key == "x").then(|| Arc::clone(&expanded))
+        });
+        assert_eq!(resolved, protocol::format_translation(&expanded, &[]));
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn translation_streams_formatting_across_localization_chunks() {
+        for (text, value, arguments, expected) in [
+            ("%x$s", "%1", vec!["🌍"], "🌍".to_owned()),
+            ("%x%s", "%", vec!["unused"], "%s".to_owned()),
+            ("%x!", "%.2f", vec!["1.25"], "1.25!".to_owned()),
+            ("%x!", "%.2", vec![], "%.2!".to_owned()),
+            ("%x!", "§a🌍%%", vec![], "§a🌍%!".to_owned()),
+            ("%x!", "", vec![], "!".to_owned()),
+            ("%x%1$s", "", vec!["🌍"], "🌍".to_owned()),
+        ] {
+            let node = message(ChatMessageKind::Translation, None, text, &arguments);
+            assert_eq!(
+                resolve_chat_line(&node, |key| (key == "x").then(|| Arc::from(value))),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn translation_consumes_template_past_the_output_budget_when_formatting_shrinks_it() {
+        for value in [
+            format!("{}🌍", "%%".repeat(protocol::MAX_RAW_TEXT_OUTPUT_BYTES / 2)),
+            format!("{}🌍", "%s".repeat(protocol::MAX_RAW_TEXT_OUTPUT_BYTES)),
+        ] {
+            let node = message(ChatMessageKind::Translation, None, "%x!", &[]);
+            let expected = protocol::format_translation(&format!("{value}!"), &[]);
+            assert!(expected.ends_with("🌍!"));
+            assert_eq!(
+                resolve_chat_line(&node, |key| (key == "x").then(|| Arc::from(value.as_str()))),
+                expected
+            );
         }
     }
 

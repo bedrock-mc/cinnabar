@@ -17,7 +17,7 @@ fn badge_follows_roster_answers_expiry_and_display_setting() {
         assert_eq!(roster.rows()[0].badged, reported && show);
         assert_eq!(
             scene(std::slice::from_ref(&tag)).records.len(),
-            if reported && show { 5 } else { 3 }
+            if reported && show { 3 } else { 2 }
         );
     }
 }
@@ -41,7 +41,7 @@ fn badge_widens_only_the_name_plate_and_centers_beside_glyphs() {
     assert_eq!((gem.rect[1] + gem.rect[3]) / 2.0, size / 2.0);
     assert_eq!(text.rect[0] - gem.rect[2], 1.0);
     assert_eq!(gem.rect[0], badged.records[0].rect[0] + 1.0);
-    assert_eq!(badged.records.len(), plain.records.len() + 2);
+    assert_eq!(badged.records.len(), plain.records.len() + 1);
 }
 
 /// A shorter, lower glyph uses its actual bounds rather than the padded line cell's height.
@@ -88,7 +88,7 @@ fn badge_shares_text_visibility_and_opacity() {
             assert_eq!(pair[0].line_lift, pair[1].line_lift);
             assert_eq!(pair[0].rect[1], pair[1].rect[1]);
         }
-        assert_eq!(glyphs.len(), if sneaking { 2 } else { 4 });
+        assert_eq!(glyphs.len(), 2);
     }
 }
 
@@ -100,7 +100,7 @@ fn badge_records_fit_the_scene_budget() {
         tag.set_cinnabar_badge(true);
         tag.depth_tested = sneaking;
         let scene = scene(&vec![tag; MAX_NAMETAG_RECORDS]);
-        let per_tag = if sneaking { 3 } else { 5 };
+        let per_tag = 3;
         assert_eq!(scene.records.len(), MAX_NAMETAG_RECORDS / per_tag * per_tag);
     }
 }

@@ -9,9 +9,13 @@ publish = false
 test-support = []
 
 [dependencies]
+bridge = { path = "../bridge" }
 pack-json = { path = "../pack-json" }
 assets = { path = "../assets" }
 image.workspace = true
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+postcard = { version = "1", default-features = false, features = ["alloc"] }
+serde = { version = "1", features = ["derive"] }
 pack-compile-input = { path = "../pack-compiler/input" }
 pack-entity-compiler = { path = "../pack-compiler/entity" }
 protocol = { path = "../protocol" }
@@ -23,6 +27,7 @@ thiserror.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+resource-pack = { path = "../resource-pack", features = ["test-support"] }
 block-transform = { path = "../block-transform" }
 sim = { path = "../sim" }
 json-ui = { path = "../json-ui" }

@@ -275,6 +275,11 @@ impl MenuRuntime {
         self.screen
     }
 
+    /// Returns the selected settings section without building a presentation snapshot.
+    pub fn settings_section(&self) -> Option<launcher::menu::settings_sections::SettingSection> {
+        launcher::menu::settings_sections::SettingSection::from_index(self.settings.section)
+    }
+
     pub fn player_skin(&self) -> &crate::player_skin::LocalPlayerSkin {
         &self.player_skin
     }
@@ -923,6 +928,7 @@ impl MenuRuntime {
             self.message = Some("That server has no address.".to_owned());
             return;
         }
+        bridge::join_profile::JoinProfile::begin();
         self.remember_session_origin();
         self.stop_catalog();
         self.hold_join_for_sign_in();
@@ -936,6 +942,16 @@ impl MenuRuntime {
         });
         self.disconnect_message = None;
         self.show_connecting();
+    }
+
+    /// Supplies one authorized test join's private cache without changing the selected account.
+    #[cfg(feature = "developer-control")]
+    pub fn use_auth_cache_for_pending_join(&mut self, auth_cache: PathBuf) {
+        if let Some(join) = self.intents.join.as_mut() {
+            join.auth_cache = Some(auth_cache.clone());
+            let address = join.address.clone();
+            self.remember_retry_target(&address, Some(&auth_cache), false);
+        }
     }
 }
 

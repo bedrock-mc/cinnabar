@@ -46,10 +46,14 @@ pub struct RasterState {
     pub layout: Option<wgpu::PipelineLayout>,
     pub primitive: wgpu::PrimitiveState,
     pub depth_compare: wgpu::CompareFunction,
+    /// Optional depth comparison for each draw in a mixed-material fixture.
+    pub depth_compares: Vec<wgpu::CompareFunction>,
     pub write_mask: wgpu::ColorWrites,
     pub multisample: wgpu::MultisampleState,
     /// Optional per-draw polygon offsets, applied after clipping and rasterization.
     pub depth_biases: Vec<wgpu::DepthBiasState>,
+    /// Optional instance range for each draw; absent ranges draw the first instance.
+    pub instance_ranges: Vec<Range<u32>>,
 }
 
 pub struct DrawPipeline<'a> {
@@ -74,9 +78,11 @@ impl Default for RasterState {
             layout: None,
             primitive: Default::default(),
             depth_compare: wgpu::CompareFunction::GreaterEqual,
+            depth_compares: Vec::new(),
             write_mask: wgpu::ColorWrites::ALL,
             multisample: Default::default(),
             depth_biases: Vec::new(),
+            instance_ranges: Vec::new(),
         }
     }
 }
@@ -446,7 +452,13 @@ impl Gpu {
                     depth_stencil: Some(wgpu::DepthStencilState {
                         format: wgpu::TextureFormat::Depth32Float,
                         depth_write_enabled: Some(draw.write_depth),
-                        depth_compare: Some(state.depth_compare),
+                        depth_compare: Some(
+                            state
+                                .depth_compares
+                                .get(index)
+                                .copied()
+                                .unwrap_or(state.depth_compare),
+                        ),
                         stencil: Default::default(),
                         bias: state.depth_biases.get(index).copied().unwrap_or_default(),
                     }),
@@ -502,7 +514,10 @@ impl Gpu {
             });
             pass.set_pipeline(&pipeline);
             pass.set_bind_group(0, &group, &[]);
-            pass.draw(draw.vertices.clone(), 0..1);
+            pass.draw(
+                draw.vertices.clone(),
+                state.instance_ranges.get(index).cloned().unwrap_or(0..1),
+            );
         }
         let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,

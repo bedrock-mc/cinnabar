@@ -67,7 +67,7 @@ func joinFailureKey(err error) string {
 	var realm *realmJoinError
 	var admission *PackAdmissionError
 	switch {
-	case errors.Is(err, errResourcePackTransferTooLarge), errors.As(err, &admission):
+	case errors.Is(err, errResourcePackSizeUnsupported), errors.As(err, &admission):
 		return bridgecontract.DisconnectKeyResourcePack
 	case errors.Is(err, jwt.ErrIssuedInTheFuture), errors.Is(err, jwt.ErrNotValidYet):
 		return bridgecontract.DisconnectKeyDeviceClock

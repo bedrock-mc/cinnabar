@@ -1,5 +1,5 @@
-//! Draws [`render_model::NametagScene`] in the transparent 3D phase with a see-through pass
-//! and a depth-tested pass, using Java label depth and blending rules.
+//! Draws [`render_model::NametagScene`] in the transparent 3D phase, preserving each
+//! record's through-geometry or depth-tested visibility and alpha blending.
 
 use crate::queue_writes::ProfiledQueue as _;
 use bevy::prelude::DetectChanges;
@@ -60,6 +60,10 @@ const NAMETAG_BLEND: BlendState = BlendState {
 
 #[path = "nametag_render/shader.rs"]
 mod shader;
+
+#[cfg(test)]
+#[path = "nametag_render/cosmetics_tests.rs"]
+mod cosmetics_tests;
 
 #[derive(Debug, PartialEq)]
 struct NametagBatch {

@@ -42,8 +42,8 @@ const ACTOR_FLAG_ALWAYS_SHOW_NAME: u32 = 15;
 const SCORE_DISTANCE_SQUARED: f32 = 100.0;
 pub(super) const EXTRA_LINE_LIFT: f32 = 0.125;
 pub(super) const PLATE_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 0.25];
-/// Each line needs a background and text; ordinary labels add a second text pass.
-const NAMETAG_RECORDS_PER_LINE: usize = 2;
+/// Each line needs one background and one text record.
+pub(super) const NAMETAG_RECORDS_PER_LINE: usize = 2;
 /// Most lines one tag can consume in a scene, including its backing plates.
 const MAX_NAMETAG_LINES: usize = MAX_NAMETAG_RECORDS / NAMETAG_RECORDS_PER_LINE;
 
@@ -466,16 +466,17 @@ pub fn build_nametag_scene<'p>(
     let mut available_records = MAX_NAMETAG_RECORDS;
     // Any deferred atlas rebuild must finish before this frame captures its first cell UVs.
     atlas.begin_frame(ordered.iter().flat_map(|anchor| {
-        let records_per_line = NAMETAG_RECORDS_PER_LINE + usize::from(!anchor.depth_tested);
-        let badge_records = usize::from(anchor.cinnabar_badge) * (records_per_line - 1);
-        let counter_records = anchor.counter.as_ref().map_or(0, |counter| {
-            counter::record_budget(counter, anchor.depth_tested)
-        });
+        let badge_records = usize::from(anchor.cinnabar_badge);
+        let counter_records = anchor
+            .counter
+            .as_ref()
+            .map_or(0, |counter| counter::record_budget(counter));
         let count = anchor.lines.len().min(
-            available_records.saturating_sub(badge_records + counter_records) / records_per_line,
+            available_records.saturating_sub(badge_records + counter_records)
+                / NAMETAG_RECORDS_PER_LINE,
         );
-        available_records -=
-            count * records_per_line + usize::from(count != 0) * (badge_records + counter_records);
+        available_records -= count * NAMETAG_RECORDS_PER_LINE
+            + usize::from(count != 0) * (badge_records + counter_records);
         anchor.lines.iter().take(count).chain(
             anchor
                 .counter
@@ -496,15 +497,15 @@ pub fn build_nametag_scene<'p>(
     // One line buffer serves every label.
     let mut placed = Vec::new();
     for anchor in ordered {
-        let records_per_line = NAMETAG_RECORDS_PER_LINE + usize::from(!anchor.depth_tested);
         let badge = badge.filter(|_| anchor.cinnabar_badge);
-        let badge_records = usize::from(badge.is_some()) * (records_per_line - 1);
-        let counter_records = anchor.counter.as_ref().map_or(0, |counter| {
-            counter::record_budget(counter, anchor.depth_tested)
-        });
+        let badge_records = usize::from(badge.is_some());
+        let counter_records = anchor
+            .counter
+            .as_ref()
+            .map_or(0, |counter| counter::record_budget(counter));
         let remaining_lines = (MAX_NAMETAG_RECORDS - records.len())
             .saturating_sub(badge_records + counter_records)
-            / records_per_line;
+            / NAMETAG_RECORDS_PER_LINE;
         placed.clear();
         let mut name_placed = false;
         placed.extend(
@@ -542,6 +543,8 @@ pub fn build_nametag_scene<'p>(
         } else {
             0.0
         };
+        // Ordinary names draw at full opacity over geometry, including server cosmetics
+        // that extend above the published actor bounds. Sneaking names still test depth.
         let common = NametagRecord {
             anchor: anchor.position.to_array(),
             line_lift: EXTRA_LINE_LIFT
@@ -571,7 +574,6 @@ pub fn build_nametag_scene<'p>(
                 ..common
             }),
         );
-        let first_glyph = records.len();
         for (index, line) in placed.iter().enumerate() {
             let left = if index == 0 {
                 nametag_line_left(line.width_px + extra_width + inline_width)
@@ -635,16 +637,6 @@ pub fn build_nametag_scene<'p>(
             for record in &mut records[first..] {
                 record.rect[1] += drop;
                 record.rect[3] += drop;
-            }
-        } else {
-            let glyph_end = records.len();
-            for index in first_glyph..glyph_end {
-                let full = NametagRecord {
-                    depth_tested: 1,
-                    ..records[index]
-                };
-                records[index].color[3] *= DIM_TEXT_ALPHA;
-                records.push(full);
             }
         }
         let plane_depth =

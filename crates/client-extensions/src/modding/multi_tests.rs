@@ -648,7 +648,7 @@ fn merged_huds_admit_whole_cards_within_aggregate_row_and_cell_limits() {
             serde_json::json!({"id":"small","rows":[],"cells":[{"label":"cell"}]})
         });
         let lower = serde_json::json!({"cards":lower_cards}).to_string();
-        let runtime = ModHosts::new(
+        let mut runtime = ModHosts::new(
             hud_host(directory.path(), "a.wat", &higher),
             vec![hud_host(directory.path(), "b.wat", &lower)],
         );
@@ -687,7 +687,7 @@ fn merged_huds_keep_the_aggregate_compass_budget() {
     let last = serde_json::json!({"cards": [
         compass("also_excess".into()), {"id": "last_ordinary", "rows": []}
     ]});
-    let runtime = ModHosts::new(
+    let mut runtime = ModHosts::new(
         hud_host(directory.path(), "higher.wat", &higher.to_string()),
         vec![
             hud_host(directory.path(), "lower.wat", &lower.to_string()),

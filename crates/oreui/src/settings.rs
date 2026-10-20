@@ -12,6 +12,7 @@ mod resources;
 mod sections;
 mod services;
 mod sidebar;
+mod updates;
 
 #[cfg(test)]
 mod row_tests;
@@ -415,7 +416,7 @@ impl Content<'_, '_> {
         } else if id == SettingId::InstallUpdatesOnQuit {
             "Install a downloaded update and restart when you quit. Later defers it for this session.".to_owned()
         } else if id == SettingId::UpdateChannel {
-            "A slower channel waits until its version passes your installed build. Stable appears after its first signed release.".to_owned()
+            "Beta for regular releases. Nightly for the latest changes.".to_owned()
         } else if id == SettingId::ScreenAnimations {
             "Smooth highlights, button presses and screen transitions. Turn off for an instant interface.".to_owned()
         } else if id == SettingId::VerboseLogging {

@@ -159,6 +159,7 @@ impl MenuRuntime {
             self.external_error("That server has no address.");
             return;
         }
+        bridge::join_profile::JoinProfile::begin();
         self.remember_session_origin();
         self.remember_retry_target(&address, None, false);
         self.intents.join = Some(client_state::JoinIntent {
