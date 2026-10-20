@@ -217,6 +217,19 @@ fn transform_nodes(
                 color: opacity(color, alpha),
                 style,
             },
+            UiVisual::RepeatedSprite {
+                texture_page,
+                tile_uv,
+                source,
+                color,
+                style,
+            } => UiVisual::RepeatedSprite {
+                texture_page,
+                tile_uv,
+                source,
+                color: opacity(color, alpha),
+                style,
+            },
             visual => visual,
         };
         let moved = if node
