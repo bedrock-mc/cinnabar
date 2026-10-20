@@ -359,7 +359,7 @@ pub(super) fn catalog(hud: &Hud) -> Result<Catalog, String> {
                     Some("#offset" | "#visible")
                 )
             });
-        body["offset"] = json!([CANVAS_INSET; 2]);
+        body["offset"] = json!([CANVAS_INSET, CANVAS_INSET]);
         document[format!("card_{index}")] = body;
         controls.push(named(
             &format!("{}@cinnabar_personal_hud.card_{index}", source.id),

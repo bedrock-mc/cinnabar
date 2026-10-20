@@ -140,7 +140,7 @@ fn preserves_retained_paint_order_when_source_subtrees_are_interleaved() {
 }
 
 #[test]
-fn normalizes_actual_clipped_artwork_with_negative_child_offsets_and_root_overflow() {
+fn hud_card_preview_normalizes_original_painted_bounds_with_overflow() {
     let child = solid(2, Some(1), [-30.0, -70.0, 50.0, 20.0])
         .with_viewport_clip(rect(75.0, 35.0, 145.0, 115.0).unwrap());
     let mut source = [
@@ -156,7 +156,7 @@ fn normalizes_actual_clipped_artwork_with_negative_child_offsets_and_root_overfl
     let size = normalize_fragment(&mut source, [0.0, 0.0, 500.0, 500.0])
         .unwrap()
         .unwrap();
-    assert_eq!([size.width(), size.height()], [70.0, 80.0]);
+    assert_eq!(edges(size), [75.0, 35.0, 145.0, 115.0]);
     assert_eq!(edges(source[0].bounds()), [25.0, 65.0, 35.0, 75.0]);
     assert_eq!(
         source[1].bounds(),
