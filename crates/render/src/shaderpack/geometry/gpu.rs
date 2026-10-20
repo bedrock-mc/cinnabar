@@ -16,10 +16,10 @@ use bevy::render::render_resource::{
 };
 use bevy::render::renderer::{RenderAdapter, RenderContext, RenderDevice, RenderQueue};
 use bevy::render::view::{ExtractedView, RenderVisibleEntities};
-use render_scene::{ChunkRenderInstance, ChunkTextureAssets, RuntimeStage, RuntimeStageProfiler};
+use render_scene::{ChunkTextureAssets, RuntimeStage, RuntimeStageProfiler};
 
 use super::block_ids::{ShaderpackBlockIds, material_attribute_words};
-use super::draw::{ViewDraws, face_indices};
+use super::draw::{DrawInputs, ViewDraws, face_indices};
 use super::expansion_buffers::{ExpansionBuffers, PARAM_WORDS, frame_job_capacity};
 use super::jobs::{
     GeometryCategory, JOB_KINDS, JobKind, MaterialTables, SectionPlan, plan_section,
@@ -29,8 +29,8 @@ use super::pipelines::{
     storage_buffers_per_stage,
 };
 use super::residency::{
-    DEFAULT_GEOMETRY_BUDGET_BYTES, Eviction, Placement, Residency, ResidencyLog, ResidentFaces,
-    SECTION_RADIUS, section_distance,
+    DEFAULT_GEOMETRY_BUDGET_BYTES, Eviction, Placement, Residency, ResidencyLog, SECTION_RADIUS,
+    section_distance,
 };
 use super::shadow_cull::ShadowFrustum;
 use super::vertex::{CONSTANT_STREAM_WORDS, DRAW_ORIGIN_BYTES, TerrainLayout, draw_origin};
