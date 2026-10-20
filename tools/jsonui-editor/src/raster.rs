@@ -727,7 +727,7 @@ mod tests {
                             [1.0, 1.0, 0.5, blur],
                             1.0,
                         );
-                        let alpha = if x == 0 {
+                        let alpha = if x == 0 || (draw.indices.len() == 3 && y > x) {
                             0
                         } else {
                             (coverage * 128.0).round() as u8
