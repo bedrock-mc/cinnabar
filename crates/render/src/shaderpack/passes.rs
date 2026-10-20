@@ -241,13 +241,11 @@ impl ViewState {
             };
             pack_block(block, &lookup, &mut self.scratch, &mut self.unknown);
             queue.write_buffer(buffer, 0, &self.scratch);
-            binding.base.clone_from(&self.scratch);
-            binding.atlas_size = values.atlas_size;
             if let Some(audit) = &mut self.audit {
                 audit.block(&format!("program {}", program.name), block, &lookup);
             }
         }
-        for (draw, binding) in self.pack.draws.iter().zip(&self.bindings.draws) {
+        for (draw, binding) in self.pack.draws.iter().zip(&mut self.bindings.draws) {
             let program = &self.pack.programs[draw.program];
             let (Some(block), Some(buffer)) = (&program.reflection.uniforms, &binding.uniforms)
             else {
@@ -279,6 +277,8 @@ impl ViewState {
             let lookup = |name: &str| values.value(name).or_else(|| lookup(name));
             pack_block(block, &lookup, &mut self.scratch, &mut self.unknown);
             queue.write_buffer(buffer, 0, &self.scratch);
+            binding.base.clone_from(&self.scratch);
+            binding.atlas_size = values.atlas_size;
             if let Some(audit) = &mut self.audit {
                 audit.block(
                     &format!("draw {:?} with {}", draw.kind, program.name),
