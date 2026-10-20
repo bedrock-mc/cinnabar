@@ -2,6 +2,44 @@ use super::*;
 use protocol::{CustomBox, CustomSelection};
 
 #[test]
+fn custom_mining_discarded_data_stays_unresolved_after_physics_merge() {
+    let mut block = slab();
+    let visual = Arc::make_mut(&mut block.visual);
+    visual.mining_incomplete = true;
+    visual.components_incomplete = true;
+    visual.permutations = [protocol::CustomPermutation {
+        condition: "1".into(),
+        components: Default::default(),
+        physical: protocol::CustomPhysicalComponents {
+            mining: Some(Arc::new(protocol::CustomBlockMining {
+                seconds_to_destroy: 0.5,
+                ..Default::default()
+            })),
+            ..Default::default()
+        },
+    }]
+    .into();
+    let mut blocks = CustomBlocks {
+        blocks: [block].into(),
+        ..Default::default()
+    };
+    resolve(&mut blocks);
+    let block = &blocks.blocks[0];
+    assert!(!block.state_physics.is_empty());
+    assert!(!block.state_physics_complete);
+    assert!(
+        block
+            .state_physics
+            .iter()
+            .all(|state| state.mining.is_none())
+    );
+    for state in 0..block.state_count {
+        assert!(block.physics_for_state(state).mining.is_none());
+        assert!(block.mining_for_state(state).is_none());
+    }
+}
+
+#[test]
 fn custom_mining_permutations_replace_the_whole_component() {
     let mut block = slab();
     block.mining = Arc::new(protocol::CustomBlockMining {

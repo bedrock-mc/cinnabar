@@ -6809,6 +6809,7 @@ dependencies = [
  "sha2",
  "sim",
  "tempfile",
+ "test-alloc",
  "thiserror 2.0.18",
  "tracing",
  "zip",

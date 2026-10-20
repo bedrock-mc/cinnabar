@@ -76,6 +76,7 @@ pub(crate) fn observe_destroy_target(
         let builtin = assets::facts::ItemFacts::builtin().ok();
         destroy_facts = pack_runtime::custom_mining_seconds(
             mining,
+            &context.client_world.mining_filters,
             entry.map(|entry| entry.identifier.as_ref()),
             item.metadata(),
             &|tag| {

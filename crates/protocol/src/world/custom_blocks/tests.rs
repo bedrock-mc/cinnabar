@@ -7,24 +7,7 @@ fn parse_definition(bytes: &[u8]) -> Option<Definition> {
     super::parse_definition(&crate::nbt_tree::read_root(bytes)?)
 }
 
-#[test]
-fn custom_mining_unprepared_permutations_do_not_use_the_base_value() {
-    let root = compound(vec![(
-        "permutations",
-        Nbt::List(vec![compound(vec![
-            ("condition", text("return 1;")),
-            (
-                "components",
-                compound(vec![(
-                    "minecraft:destructible_by_mining",
-                    compound(vec![("value", Nbt::Float(-1.0))]),
-                )]),
-            ),
-        ])]),
-    )]);
-    let block = custom_block("test:unprepared_mining", &root);
-    assert!(block.physics_for_state(0).mining.is_none());
-}
+mod mining;
 
 // Every state appears once, in palette order, with a distinct hash.
 #[test]

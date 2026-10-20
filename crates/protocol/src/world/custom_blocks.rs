@@ -94,6 +94,8 @@ pub struct CustomBlockVisuals {
     pub permutations: Box<[CustomPermutation]>,
     /// Physical components or permutations were discarded while parsing the definition.
     pub components_incomplete: bool,
+    /// Discarded component data or permutations could change this block's mining value.
+    pub mining_incomplete: bool,
     /// Block states in palette order: placement trait states, then properties in list order.
     /// The first axis varies fastest across the block's palette run.
     pub state_axes: Box<[CustomStateAxis]>,
@@ -253,19 +255,26 @@ impl CustomBlock {
     /// Falls back to base shapes while keeping unprepared mining permutations unresolved.
     #[must_use]
     pub fn physics_for_state(&self, index: u32) -> CustomBlockPhysics {
-        self.state_physics
+        let mut physics = self
+            .state_physics
             .get(index as usize)
             .cloned()
             .unwrap_or_else(|| {
                 let mut physics = self.base_physics();
                 physics.mining = self.mining_for_state(index).cloned();
                 physics
-            })
+            });
+        if self.visual.mining_incomplete {
+            physics.mining = None;
+        }
+        physics
     }
 
     /// Borrows resolved mining data; an unprepared mining permutation cannot use the base value.
     pub fn mining_for_state(&self, index: u32) -> Option<&Arc<CustomBlockMining>> {
-        if let Some(physics) = self.state_physics.get(index as usize) {
+        if self.visual.mining_incomplete {
+            None
+        } else if let Some(physics) = self.state_physics.get(index as usize) {
             physics.mining.as_ref()
         } else if self
             .visual
@@ -282,7 +291,7 @@ impl CustomBlock {
     #[must_use]
     pub fn base_physics(&self) -> CustomBlockPhysics {
         CustomBlockPhysics {
-            mining: Some(Arc::clone(&self.mining)),
+            mining: (!self.visual.mining_incomplete).then(|| Arc::clone(&self.mining)),
             random_offset: self.visual.base.random_offset,
             transformation: self.visual.base.transformation,
             collides: self.collides,
@@ -656,22 +665,31 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
         selection_component(components.and_then(|set| set.field("minecraft:selection_box")));
     let (friction, friction_skips) =
         friction_component(components.and_then(|set| set.field("minecraft:friction")));
-    let mut permutation_skips = root
-        .list("permutations")
-        .len()
-        .saturating_sub(MAX_PERMUTATIONS);
+    let mut permutation_skips = 0;
+    let mut mining_incomplete = mining_skips > 0;
     let permutations = root
         .list("permutations")
         .iter()
-        .take(MAX_PERMUTATIONS)
-        .filter_map(|permutation| {
-            placement::components(&mut placement, permutation.field("components"));
+        .enumerate()
+        .filter_map(|(index, permutation)| {
+            let components = permutation.field("components");
+            let changes_mining = components
+                .and_then(|set| set.field("minecraft:destructible_by_mining"))
+                .is_some();
+            if index >= MAX_PERMUTATIONS {
+                permutation_skips += 1;
+                mining_incomplete |= changes_mining;
+                return None;
+            }
+            placement::components(&mut placement, components);
             let Some(Nbt::String(condition)) = permutation.field("condition") else {
                 permutation_skips += 1;
+                mining_incomplete |= changes_mining;
                 return None;
             };
-            let (physical, skipped) = physical_components(permutation.field("components"));
+            let (physical, skipped, mining_skips) = physical_components(components);
             permutation_skips += skipped;
+            mining_incomplete |= mining_skips > 0;
             Some(CustomPermutation {
                 condition: condition.as_str().into(),
                 components: visual_components(permutation.field("components")),
@@ -717,6 +735,7 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
                 }),
             permutations,
             components_incomplete: physical_skips > 0 || permutation_skips > 0,
+            mining_incomplete,
             state_axes: state_axes.into_boxed_slice(),
             state_identity_incomplete,
             materialization_disabled: false,

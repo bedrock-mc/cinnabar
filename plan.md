@@ -311,6 +311,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Native block requirements now cover every catalog identifier, including no-tool
   beds; recipe tags share the pinned native catalog. Custom block mining retains
   default, disabled and item-specific component values, including state overrides.
+  Discarded mining data stays unresolved, and item-tag filters compile during
+  session preparation for allocation-free evaluation.
   Complex item-tag scripts and live custom-block mining acceptance remain incomplete.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.

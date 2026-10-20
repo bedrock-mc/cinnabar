@@ -1,6 +1,29 @@
 use super::*;
 
 #[test]
+fn custom_mining_discarded_data_stays_unresolved_in_shared_materials() {
+    let mut incomplete = block("test:incomplete_mining", 1, CustomBlockVisuals::default());
+    Arc::make_mut(&mut incomplete.visual).mining_incomplete = true;
+    let blocks = CustomBlocks {
+        blocks: [
+            incomplete,
+            block("test:complete_mining", 1, CustomBlockVisuals::default()),
+        ]
+        .into(),
+        ..Default::default()
+    };
+    for hashed in [false, true] {
+        let compiled = compile_block_overlay(&view(), &blocks, hashed, None).unwrap();
+        assert!(sim::BlockDestroyInfo::from_facts(compiled.overlay.visuals[0].destroy).is_none());
+        let known = sim::BlockDestroyInfo::from_facts(compiled.overlay.visuals[1].destroy).unwrap();
+        assert_eq!(
+            sim::destroy_progress_per_tick(&known, &Default::default()),
+            Some(1.0)
+        );
+    }
+}
+
+#[test]
 fn custom_mining_unresolved_permutation_cannot_use_an_instant_base() {
     let block = block(
         "test:unknown_mining",

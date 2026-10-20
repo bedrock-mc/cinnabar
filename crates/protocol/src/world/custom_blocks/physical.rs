@@ -33,7 +33,10 @@ pub(super) fn selection_component(component: Option<&Nbt>) -> CustomSelection {
     }
 }
 
-pub(super) fn physical_components(components: Option<&Nbt>) -> (CustomPhysicalComponents, usize) {
+/// Retains physical overrides and reports total omissions and mining omissions separately.
+pub(super) fn physical_components(
+    components: Option<&Nbt>,
+) -> (CustomPhysicalComponents, usize, usize) {
     let (mining, mining_skips) =
         mining::component(components.and_then(|set| set.field("minecraft:destructible_by_mining")));
     let collision = components.and_then(|set| set.field("minecraft:collision_box"));
@@ -69,6 +72,7 @@ pub(super) fn physical_components(components: Option<&Nbt>) -> (CustomPhysicalCo
                     .and_then(|set| set.field("minecraft:transformation"))
                     .is_some_and(|_| transformation_component(components).is_none()),
             ),
+        mining_skips,
     )
 }
 

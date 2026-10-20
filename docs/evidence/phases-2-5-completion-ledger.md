@@ -453,6 +453,8 @@ tooltip controls. Native command-edit acceptance and broader JSON-UI parity rema
 
 Custom block mining retains component defaults, disabled values, ordered item
 overrides and resolved state permutations in both runtime identity spaces.
+Discarded mining data stays unresolved through state merging. Item-tag filters
+compile during session preparation and reuse those programs without allocating.
 Regression tests cover component decoding, progress rates and completion packets.
 Complex item-tag scripts and live custom-block acceptance remain incomplete;
 this does not advance the interaction completion gate.

@@ -94,6 +94,9 @@ fn evaluate(
             physics.mining = Some(Arc::clone(mining));
         }
     }
+    if block.visual.mining_incomplete {
+        physics.mining = None;
+    }
     Some(physics)
 }
 
