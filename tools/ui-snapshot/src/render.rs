@@ -7,6 +7,7 @@ mod cosmetic_particles;
 mod crafting;
 mod edit_selection;
 mod panorama;
+mod tiled_image;
 
 use std::{
     collections::HashMap,
@@ -70,6 +71,9 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
 /// Samples caller-owned UI and cosmetic animation time without reading the clock.
 pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error> {
     let fixture = (state.fixture)();
+    if matches!(&fixture, Fixture::TiledImage) {
+        return tiled_image::png(state.size);
+    }
     #[cfg(feature = "test-support")]
     if let Fixture::CosmeticParticles { view, emitting } = &fixture {
         return cosmetic_particles::png(state.size, *view, seconds, *emitting);
@@ -78,7 +82,10 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
     let show_panorama = match &fixture {
         Fixture::Menu(view) => view.out_of_game(),
         Fixture::Loading(stage) => stage.is_world_entry(),
-        Fixture::Chat { .. } | Fixture::TabList(_) | Fixture::EditSelection => false,
+        Fixture::Chat { .. }
+        | Fixture::TabList(_)
+        | Fixture::EditSelection
+        | Fixture::TiledImage => false,
         #[cfg(feature = "test-support")]
         Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
@@ -117,6 +124,7 @@ pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error>
         renderers: &mut [],
     };
     match fixture {
+        Fixture::TiledImage => unreachable!("tiled image capture returned above"),
         #[cfg(feature = "test-support")]
         Fixture::CosmeticParticles { .. } => unreachable!("particle capture returned above"),
         #[cfg(feature = "test-support")]

@@ -25,6 +25,8 @@ pub struct State {
 
 /// Inputs borrowed by the same screen painters the client uses.
 pub enum Fixture {
+    /// An original checker repeated beyond a small sprite's former draw cutoff.
+    TiledImage,
     /// An equipped original cosmetic rendered by the full production particle-preview path.
     #[cfg(feature = "test-support")]
     CosmeticParticles {
@@ -63,6 +65,12 @@ const TALL_SIZE: [u32; 2] = [1280, 900];
 const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 
 pub const STATES: &[State] = &[
+    State {
+        name: "jsonui-tiled-image",
+        size: [256, 128],
+        gui_scale: 1,
+        fixture: || Fixture::TiledImage,
+    },
     #[cfg(feature = "test-support")]
     State {
         name: "paper-doll-particles-before",

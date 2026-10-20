@@ -1,6 +1,22 @@
 use crate::{carriers, fixtures, render};
 
 #[test]
+fn tiled_image_capture_covers_the_viewport_with_the_original_checker() {
+    let state = fixtures::STATES
+        .iter()
+        .find(|state| state.name == "jsonui-tiled-image")
+        .unwrap();
+    let png = render::png(state, std::path::Path::new("unused")).unwrap();
+    let pixels = image::load_from_memory(&png).unwrap().to_rgba8();
+    let colors = [*pixels.get_pixel(0, 0), *pixels.get_pixel(1, 0)];
+    assert_ne!(colors[0], colors[1]);
+    assert!(colors.iter().all(|pixel| pixel[3] == 255));
+    for (x, y, pixel) in pixels.enumerate_pixels() {
+        assert_eq!(*pixel, colors[((x + y) % 2) as usize], "checker at {x},{y}");
+    }
+}
+
+#[test]
 fn every_registered_state_renders_identical_png_bytes() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/assets/compiled");
     let mut names = std::collections::HashSet::new();

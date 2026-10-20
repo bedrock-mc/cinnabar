@@ -10,9 +10,6 @@ use crate::sidecar::{NineSlice, TextureMeta};
 use crate::tree::ResolvedControl;
 use crate::widgets;
 
-/// Most tiles one sprite may emit, bounding a tiny tile over a huge rect.
-const MAX_TILES: usize = 4096;
-
 /// `clip_direction`: which side of the image stays when `clip_ratio` cuts it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ClipDirection {
@@ -264,27 +261,41 @@ fn cover(rect: Rect, [u, v, w, h]: [f64; 4]) -> [f64; 4] {
 /// Repeat `region` across `rect` from its top-left in `tiled_scale × uv_size`
 /// steps, cropping the last tile; an untiled axis stretches.
 fn tiles(rect: Rect, source: &Source, axes: Tiled) -> Vec<(Rect, UvRect)> {
-    tile_region(rect, source, source.region(), source.uv_size, axes)
+    let mut quads = Vec::new();
+    tile_region(
+        rect,
+        source,
+        source.region(),
+        source.uv_size,
+        axes,
+        &mut quads,
+    );
+    quads
 }
 
+/// Appends every tile to the sprite's shared batch, including cropped edge tiles.
 fn tile_region(
     rect: Rect,
     source: &Source,
     region: [f64; 4],
     tile: [f64; 2],
     axes: Tiled,
-) -> Vec<(Rect, UvRect)> {
+    quads: &mut Vec<(Rect, UvRect)>,
+) {
     if !rect.w.is_finite() || !rect.h.is_finite() || rect.w <= 0.0 || rect.h <= 0.0 {
-        return Vec::new();
+        return;
     }
-    // Repeating one texel equals stretching it, and a wide 1x1 fill stays under MAX_TILES.
+    // Repeating one texel equals stretching it.
     let along_x = matches!(axes, Tiled::X | Tiled::Both) && region[2] > 1.0;
     let along_y = matches!(axes, Tiled::Y | Tiled::Both) && region[3] > 1.0;
     let axes = match (along_x, along_y) {
         (true, true) => Tiled::Both,
         (true, false) => Tiled::X,
         (false, true) => Tiled::Y,
-        (false, false) => return vec![(rect, source.uv_rect(region))],
+        (false, false) => {
+            quads.push((rect, source.uv_rect(region)));
+            return;
+        }
     };
     let step = [
         tile[0] * source.tiled_scale[0],
@@ -296,16 +307,14 @@ fn tile_region(
         Tiled::Both => step,
     };
     if step[0] <= 0.0 || step[1] <= 0.0 {
-        return vec![(rect, source.uv_rect(region))];
+        quads.push((rect, source.uv_rect(region)));
+        return;
     }
-    let mut quads = Vec::new();
     let mut y = 0.0;
-    let mut rows = 0;
-    while y < rect.h && quads.len() < MAX_TILES && rows < MAX_TILES {
-        rows += 1;
+    while y < rect.h {
         let fy = ((rect.h - y) / step[1]).clamp(0.0, 1.0);
         let mut x = 0.0;
-        while x < rect.w && quads.len() < MAX_TILES {
+        while x < rect.w {
             let fx = ((rect.w - x) / step[0]).clamp(0.0, 1.0);
             quads.push((
                 Rect::new(rect.x + x, rect.y + y, step[0] * fx, step[1] * fy),
@@ -315,7 +324,6 @@ fn tile_region(
         }
         y += step[1];
     }
-    quads
 }
 
 /// Nine-slice `rect` over the source region: corners 1:1, edges stretched (or
@@ -392,7 +400,7 @@ fn nine_slice_region(
             .filter(|_| col == 1 || row == 1);
             match tiled {
                 Some(axes) => {
-                    quads.extend(tile_region(dest, source, piece, [piece[2], piece[3]], axes))
+                    tile_region(dest, source, piece, [piece[2], piece[3]], axes, &mut quads);
                 }
                 None => quads.push((dest, source.uv_rect(piece))),
             }
