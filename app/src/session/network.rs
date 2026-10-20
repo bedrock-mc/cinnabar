@@ -234,30 +234,25 @@ pub(super) fn attempt_connect(
     // provisioning the new endpoint fails before the connecting screen opens.
     menu.show_home();
     let generation = session.retire();
-    session.controller.trust = None;
     session
         .state
         .runtime
         .experiences
         .select_destination(&address);
     menu.begin_join_progress(&address, local_world);
-    let mut presence = presence_target(&address, local_world);
+    let presence = session.controller.select_remote_destination(&address);
     if local_world {
+        *presence = presence_target(&address, true);
         presence.join = menu.hosted_world_address();
         presence.max_players = menu.hosted_world_max_players();
     } else {
         presence.badge = menu.featured_badge(&address);
         presence.max_players = menu.destination_max_players(&address);
     }
-    session.controller.presence = Some(presence);
     session.controller.local_world = local_world;
-    session.controller.destination_identity = Some(
-        if let Some(id) = menu.local_world_identity().filter(|_| local_world) {
-            format!("local:{id}")
-        } else {
-            format!("remote:{}", address.trim().to_lowercase())
-        },
-    );
+    if let Some(id) = menu.local_world_identity().filter(|_| local_world) {
+        session.controller.destination_identity = Some(format!("local:{id}"));
+    }
     let launcher = session
         .launcher
         .as_deref()

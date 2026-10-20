@@ -201,3 +201,43 @@ fn unusable_legacy_fields_do_not_replace_the_joined_jsonrpc_route() {
         );
     }
 }
+
+/// Activity handles and reference spelling cannot split the selected world's presentation identity.
+#[test]
+fn friend_world_identity_tracks_the_validated_reference_without_exposing_its_locator() {
+    let (_directory, account) = super::super::profile::tests::account();
+    let selected = |name: &str, template: &str, handle| {
+        let activity = serde_json::from_value(json!({
+            "id": Uuid::from_u128(handle), "type": "activity", "ownerXuid": "456",
+            "sessionRef": {
+                "scid": bedrock_services::minecraft::SERVICE_CONFIG_ID,
+                "templateName": template, "name": name
+            },
+            "customProperties": {"ownerId": "456"}
+        }))
+        .unwrap();
+        NativeFriendSelection::capture(
+            Arc::clone(&account),
+            "original".into(),
+            "123".into(),
+            FriendSelection::activity(&activity).unwrap(),
+        )
+    };
+    let original = selected("private-fixture-world", "MinecraftLobby", 1);
+    let refreshed = selected("PRIVATE-FIXTURE-WORLD", "minecraftlobby", 2);
+    assert!(
+        original
+            .selection
+            .reference
+            .same(&refreshed.selection.reference)
+    );
+    let identity = original.world_identity();
+    assert_eq!(identity, refreshed.world_identity());
+    assert_ne!(
+        identity,
+        selected("another-private-fixture-world", "MinecraftLobby", 3).world_identity()
+    );
+    assert!(identity.starts_with("friend:"));
+    assert!(!identity.contains(original.selection.reference.name()));
+    assert!(!identity.chars().any(char::is_control));
+}

@@ -192,10 +192,19 @@ impl SessionController {
 
     /// Names a direct `--address` session's destination.
     pub(crate) fn with_address(mut self, address: Option<&str>) -> Self {
-        self.presence = address.map(|address| presence_target(address, false));
-        self.destination_identity =
-            address.map(|address| format!("remote:{}", address.trim().to_lowercase()));
+        if let Some(address) = address {
+            self.select_remote_destination(address);
+        } else {
+            self.presence = None;
+            self.destination_identity = None;
+        }
         self
+    }
+
+    /// Retains a host-selected destination independently of its later transport route.
+    fn select_remote_destination(&mut self, address: &str) -> &mut rich_presence::Target {
+        self.destination_identity = Some(format!("remote:{}", address.trim().to_lowercase()));
+        self.presence.insert(presence_target(address, false))
     }
 
     /// Retains a direct startup join's original trust source while the same network worker connects.
@@ -445,6 +454,7 @@ impl SessionResources<'_> {
             .core
             .stop_detached(move || drop((join, directory)));
         controller.connecting = false;
+        controller.trust = None;
         controller.presence = None;
         controller.destination_identity = None;
         controller.local_world = false;
@@ -464,6 +474,7 @@ impl SessionResources<'_> {
             far.retire_stream(stream);
         }
         self.state.retire(generation);
+        self.state.runtime.experiences.audience = None;
         generation
     }
 }

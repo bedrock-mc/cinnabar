@@ -16,6 +16,9 @@ pub(super) fn begin(
         return;
     }
     let target = selection.connection_target();
+    let presence = controller.select_remote_destination(&target.address);
+    presence.badge = menu.featured_badge(&target.address);
+    presence.max_players = menu.destination_max_players(&target.address);
     controller.native_gathering = Some(selection);
     controller.connecting = true;
     menu.begin_join_progress(&target.address, false);

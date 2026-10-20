@@ -9,12 +9,20 @@ pub(super) fn begin(
     selection: launcher_host::native_account::NativeFriendSelection,
 ) {
     let generation = session.retire();
+    menu.clear_retry_target();
     let controller = &mut *session.controller;
     controller.begin_fresh_transfer_chain();
     if let Err(error) = controller.prepare_client_random_id(menu.layout()) {
         controller.fail_join(menu, error);
         return;
     }
+    controller.destination_identity = Some(selection.world_identity());
+    controller.presence = Some(rich_presence::Target {
+        destination: rich_presence::Destination::FriendWorld,
+        join: None,
+        badge: None,
+        max_players: None,
+    });
     controller.native_friend = Some(selection);
     controller.native_friend_session = true;
     controller.connecting = true;

@@ -40,6 +40,19 @@ impl NativeFriendSelection {
         }
     }
 
+    /// Identifies the selected world without exposing its locator or granting membership.
+    pub fn world_identity(&self) -> String {
+        let reference = &self.selection.reference;
+        let mut digest = Sha256::new();
+        digest.update(reference.service_config_id().as_bytes());
+        for component in [reference.template_name(), reference.name()] {
+            // Reference validation excludes control characters, so each separator is unambiguous.
+            digest.update([0]);
+            digest.update(component.to_ascii_lowercase().as_bytes());
+        }
+        format!("friend:{:x}", digest.finalize())
+    }
+
     /// Starts this exact selected handle on its original account generation, on the caller's runtime.
     pub fn begin(self, deadline: Instant) -> io::Result<FriendJoin> {
         let mut join = self.account.friend_join(self.selection, deadline)?;
