@@ -31,6 +31,7 @@ mod size;
 mod stack;
 mod style;
 
+pub use grid::grid_template_columns;
 pub(crate) use grid::{
     CLIPPED_CELL_KEY as GRID_CLIPPED_CELL_KEY, PLACEHOLDER_KEY as GRID_PLACEHOLDER_KEY,
     TEMPLATE_KEY as GRID_TEMPLATE_KEY,

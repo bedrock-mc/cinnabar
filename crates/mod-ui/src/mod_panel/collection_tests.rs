@@ -85,7 +85,7 @@ impl TextureSource for Metrics {
 }
 
 /// Makes an independently actionable 99-item catalogue behind one small tile template.
-fn catalogue() -> Panel {
+pub(super) fn catalogue() -> Panel {
     let template = json!({"screen":"tile.root", "bindings":{}, "document":json!({
         "namespace":"tile","root":{"type":"button","size":[100,40],
             "button_mappings":[{"from_button_id":"button.menu_select","mapping_type":"pressed","to_button_id":"mod.item:open"}],

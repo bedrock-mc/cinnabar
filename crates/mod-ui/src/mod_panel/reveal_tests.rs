@@ -1,5 +1,5 @@
 use super::*;
-use collection_tests::{Metrics, four_column_catalogue};
+use collection_tests::{Metrics, catalogue, four_column_catalogue};
 use json_ui::{FormRender, LayoutEnv};
 use serde_json::json;
 
@@ -160,7 +160,9 @@ fn collection_reveal_moves_below_and_above_and_preserves_visible_items() {
 #[test]
 fn collection_reveal_wheel_then_repeat_cancels_easing_and_reuses_steady_frames() {
     let mut ui = grid(true);
+    let data = Arc::clone(&ui.mod_panel.as_ref().unwrap().data);
     reveal(&mut ui, 12);
+    assert!(Arc::ptr_eq(&data, &ui.mod_panel.as_ref().unwrap().data));
     let nodes = Arc::clone(&render(&mut ui).nodes);
     let passes = ui.mod_panel.as_ref().unwrap().screen.passes;
     let catalog = Arc::clone(ui.mod_panel.as_ref().unwrap().catalog.as_ref().unwrap());
@@ -244,4 +246,42 @@ fn collection_reveal_replacement_cancels_unpainted_requests() {
     render(&mut ui);
     assert_eq!(offset(&ui), 99.);
     visible(&ui, 12);
+}
+
+/// Reveal rows follow effective wrapping and cell sizes, including admitted extra width.
+#[test]
+fn collection_reveal_uses_effective_grid_geometry() {
+    for (size, expected) in [
+        (None, 80.),
+        (Some([150, 40]), 160.),
+        (Some([100, 60]), 180.),
+    ] {
+        let mut panel = catalogue();
+        let collection = panel
+            .surface
+            .as_mut()
+            .unwrap()
+            .collections
+            .get_mut("modules")
+            .unwrap();
+        let definition = Arc::make_mut(&mut collection.definition);
+        definition.columns = 1;
+        if let Some(size) = size {
+            let mut document: serde_json::Value =
+                serde_json::from_str(&definition.template.document).unwrap();
+            document["root"]["size"] = json!(size);
+            definition.template.document = document.to_string();
+        }
+        let mut ui = ModUi::default();
+        ui.set_mod_panel(OWNER, Some(&panel)).unwrap();
+        ui.set_mod_panel_open(true);
+        reveal(&mut ui, 12);
+        render(&mut ui);
+        assert_eq!(offset(&ui), expected);
+        visible(&ui, 12);
+        reveal(&mut ui, 0);
+        render(&mut ui);
+        assert_eq!(offset(&ui), 0.);
+        visible(&ui, 0);
+    }
 }

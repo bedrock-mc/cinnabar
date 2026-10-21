@@ -193,6 +193,7 @@ impl ModUi {
             self.cancel_mod_hud_editor();
         }
         if let Some(current) = self.mod_panel.as_mut() {
+            let data_changed = !same_shape || !data::same_values(&current.panel, panel);
             if current.owner != owner {
                 current.hud_previews = hud_cards::Previews::default();
             }
@@ -238,7 +239,9 @@ impl ModUi {
                 .collection_reveals
                 .publish(Some(&current.panel), panel);
             current.panel = panel.clone();
-            current.refresh_data();
+            if data_changed {
+                current.refresh_data();
+            }
         } else {
             self.mod_panel = Some(ModPanel {
                 owner,

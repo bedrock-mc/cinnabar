@@ -19,6 +19,7 @@ pub(super) struct CollectionReveals {
 struct Geometry {
     key: String,
     height: f64,
+    columns: usize,
 }
 
 impl CollectionReveals {
@@ -104,10 +105,26 @@ impl CollectionReveals {
                 else {
                     continue;
                 };
-                let height = json_ui::layout(&template, collection.definition.viewport, env)
-                    .rect
-                    .h;
-                self.geometry.insert(name.clone(), Geometry { key, height });
+                let Some(width) = grid
+                    .properties
+                    .get("size")
+                    .and_then(|v| v.as_array())
+                    .and_then(|size| size.first())
+                    .and_then(|v| v.as_f64())
+                else {
+                    continue;
+                };
+                let cell =
+                    json_ui::layout(&template, [width, collection.definition.viewport[1]], env)
+                        .rect;
+                self.geometry.insert(
+                    name.clone(),
+                    Geometry {
+                        key,
+                        height: cell.h,
+                        columns: json_ui::grid_template_columns(width, cell.w),
+                    },
+                );
             }
             let geometry = &self.geometry[&name];
             let rows = collection
@@ -120,8 +137,7 @@ impl CollectionReveals {
                 viewport: collection.definition.viewport[1],
                 ..Default::default()
             };
-            let top =
-                (index / collection.definition.columns) as f64 * geometry.height - metrics.offset;
+            let top = (index / geometry.columns) as f64 * geometry.height - metrics.offset;
             let offset = metrics.offset_revealing(top, top + geometry.height);
             motion.cancel_scroll(&geometry.key);
             if offset != metrics.offset {
