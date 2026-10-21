@@ -2,6 +2,7 @@
 
 use launcher::menu::{
     MenuAction, RendererChoice,
+    settings_options::SettingId,
     settings_sections::SettingSection,
     shader_pack_status::{
         LOADING_TOAST_DELAY, PackLoad, PackNotices, PackToast, failure_description,
@@ -88,13 +89,16 @@ pub(super) fn pack_picker() -> Fixture {
     Fixture::Menu(Box::new(view))
 }
 
-/// Scrolls Video to its shortcut to the selected pack in Shaders.
+/// Frames the Video shortcut above the graphics controls so its full row is visible.
 pub(super) fn video_shortcut() -> Fixture {
     let Fixture::Menu(mut view) = settings_shaders(false) else {
         unreachable!()
     };
     view.settings.section = SettingSection::Video.definition().index;
-    view.focused_action = Some(MenuAction::SettingsShaders);
+    view.focused_action = Some(MenuAction::SettingsOption(
+        SettingId::GraphicsMode.index() as u16,
+        0,
+    ));
     Fixture::Menu(view)
 }
 /// Shows an ordinary OreUI route without account, world or network services.
