@@ -73,15 +73,14 @@ fn renderer_choices(view: &MenuView) -> Vec<RendererChoice> {
 fn video_keeps_only_the_renderer_choice_and_shader_shortcut() {
     let mut view = settings_view(SettingSection::Video.definition().name);
     view.shader_packs = Arc::from(["Dusk.zip".to_owned()]);
+    view.render_mode = ui::RenderMode::ShaderPack;
     view.shader_pack = Some("Dusk.zip".to_owned());
     view.renderer = Some(RendererChoice::ShaderPack(0, view.shader_packs_revision));
     view.shader_options_available = true;
     Arc::make_mut(&mut view.storage).opens_folders = true;
     let mut expected = Vec::new();
-    if render_model::ENHANCED_RENDERING_ENABLED || render_model::SHADER_PACKS_ENABLED {
-        expected.push(RendererChoice::Vanilla);
-    }
     if render_model::ENHANCED_RENDERING_ENABLED {
+        expected.push(RendererChoice::Vanilla);
         expected.push(RendererChoice::Enhanced);
     }
     assert_eq!(renderer_choices(&view), expected);
@@ -90,6 +89,19 @@ fn video_keeps_only_the_renderer_choice_and_shader_shortcut() {
         labels.iter().any(|text| text == "Shaders: Dusk"),
         render_model::SHADER_PACKS_ENABLED
     );
+    if render_model::ENHANCED_RENDERING_ENABLED {
+        assert!(
+            labels
+                .iter()
+                .any(|text| text.contains("Shader pack active: Dusk"))
+        );
+    } else {
+        assert!(
+            !labels
+                .iter()
+                .any(|text| text == "Vanilla" || text == "Renderer")
+        );
+    }
     assert!(!actions.contains(&MenuAction::ReloadShaders));
     assert!(
         !actions
@@ -101,6 +113,40 @@ fn video_keeps_only_the_renderer_choice_and_shader_shortcut() {
             StorageFolder::ShaderPacks
         )))
     );
+}
+
+#[test]
+fn video_shader_shortcut_is_a_labelled_navigation_button() {
+    let view = settings_view(SettingSection::Video.definition().name);
+    let (actions, labels) = controls(&view);
+    assert_eq!(
+        actions.contains(&MenuAction::SettingsShaders),
+        render_model::SHADER_PACKS_ENABLED
+    );
+    assert_eq!(
+        labels.iter().any(|text| text == "Open"),
+        render_model::SHADER_PACKS_ENABLED
+    );
+    assert!(!labels.iter().any(|text| text == "›"));
+}
+
+#[test]
+fn video_hides_the_renderer_row_when_only_vanilla_is_available() {
+    let mut view = settings_view(SettingSection::Video.definition().name);
+    for mode in [ui::RenderMode::Vanilla, ui::RenderMode::ShaderPack] {
+        view.render_mode = mode;
+        let (actions, labels) = controls(&view);
+        assert_eq!(
+            actions.contains(&MenuAction::SelectRenderer(RendererChoice::Vanilla)),
+            render_model::ENHANCED_RENDERING_ENABLED,
+            "{mode:?}"
+        );
+        assert_eq!(
+            labels.iter().any(|text| text == "Renderer"),
+            render_model::ENHANCED_RENDERING_ENABLED,
+            "{mode:?}"
+        );
+    }
 }
 
 #[test]

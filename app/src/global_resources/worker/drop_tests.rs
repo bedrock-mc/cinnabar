@@ -86,12 +86,13 @@ fn shader_pack_drops_bypass_resource_import_only_in_the_shaders_tab() {
         app.world_mut()
             .resource_mut::<MenuRuntime>()
             .activate(MenuAction::SettingsSection(section.definition().index));
-        drop_files(&mut app, &["/drop/Dusk.zip"]);
+        let files = ["/drop/Dusk.zip", "/drop/Faithful.mcpack"];
+        drop_files(&mut app, &files);
         let expected: &[PathBuf] =
             if render_model::SHADER_PACKS_ENABLED && section == SettingSection::Shaders {
                 &[]
             } else {
-                &[PathBuf::from("/drop/Dusk.zip")]
+                &files.map(PathBuf::from)
             };
         assert_eq!(pack_imports(&incoming), expected, "{section:?}");
     }

@@ -15,19 +15,28 @@ mod tests;
 
 /// Keeps the renderer switch in Video and links to the selected shader pack.
 pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
-    if render_model::ENHANCED_RENDERING_ENABLED || render_model::SHADER_PACKS_ENABLED {
+    if render_model::ENHANCED_RENDERING_ENABLED {
+        let description = if content.view.render_mode == ui::RenderMode::ShaderPack {
+            format!(
+                "Shader pack active: {}. Select Vanilla or Enhanced to turn shaders off.",
+                content
+                    .view
+                    .shader_pack
+                    .as_deref()
+                    .map_or("Unknown", pack_label)
+            )
+        } else {
+            "Enhanced improves lighting, shadows, sky and reflections.".to_owned()
+        };
         picker(
             content,
             "Renderer",
-            if render_model::ENHANCED_RENDERING_ENABLED {
-                "Enhanced improves lighting, shadows, sky and reflections."
-            } else {
-                ""
-            },
-            std::iter::once((RendererChoice::Vanilla, "Vanilla")).chain(
-                render_model::ENHANCED_RENDERING_ENABLED
-                    .then_some((RendererChoice::Enhanced, "Enhanced")),
-            ),
+            &description,
+            [
+                (RendererChoice::Vanilla, "Vanilla"),
+                (RendererChoice::Enhanced, "Enhanced"),
+            ]
+            .into_iter(),
             content.view.renderer,
         )?;
     }
@@ -41,7 +50,7 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             content,
             &format!("Shaders: {selected}"),
             "",
-            "›",
+            "Open",
             Some(MenuAction::SettingsShaders),
         )?;
     }
