@@ -51,6 +51,7 @@ fn duplicate_active_colour_attachments_fail_view_admission() {
             &source,
             "attachments",
             "",
+            &Default::default(),
             None,
             &gpu,
             &Default::default(),
