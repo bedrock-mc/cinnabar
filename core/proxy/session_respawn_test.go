@@ -36,27 +36,39 @@ func sessionTestBatch(packets ...packet.Packet) []byte {
 	return batch
 }
 
-func TestSessionRespawnPreservesClientHandshake(t *testing.T) {
+func TestSessionRespawnBridgesClientHandshake(t *testing.T) {
 	request := &packet.Respawn{EntityRuntimeID: 12345, State: packet.RespawnStateClientReadyToSpawn}
 	completion := &packet.PlayerAction{EntityRuntimeID: 12345, ActionType: protocol.PlayerActionRespawn, BlockFace: -1}
-	for name, packets := range map[string][]packet.Packet{
-		"request waits for server readiness":  {request},
-		"completion does not restart respawn": {completion},
-		"complete pair stays unchanged":       {request, completion},
+	for name, test := range map[string]struct {
+		input []packet.Packet
+		want  []packet.Packet
+	}{
+		"request bridges player action": {
+			input: []packet.Packet{request},
+			want:  []packet.Packet{completion, request},
+		},
+		"completion bridges respawn state": {
+			input: []packet.Packet{completion},
+			want:  []packet.Packet{request, completion},
+		},
+		"complete pair bridges both": {
+			input: []packet.Packet{request, completion},
+			want:  []packet.Packet{completion, request, request, completion},
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			session, peer := newTestSessionConn(t)
-			if _, err := peer.Write(sessionTestBatch(packets...)); err != nil {
+			if _, err := peer.Write(sessionTestBatch(test.input...)); err != nil {
 				t.Fatal(err)
 			}
 			got, err := session.ReadBatchRaw(nil)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(got) != len(packets) {
-				t.Fatalf("forwarded %d packets, want %d", len(got), len(packets))
+			if len(got) != len(test.want) {
+				t.Fatalf("forwarded %d packets, want %d", len(got), len(test.want))
 			}
-			for i, pk := range packets {
+			for i, pk := range test.want {
 				if !bytes.Equal(got[i].Data, encodeTestPacket(pk)) {
 					t.Fatalf("packet %d changed", i)
 				}

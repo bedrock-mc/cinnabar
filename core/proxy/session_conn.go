@@ -13,6 +13,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/internal/latencytrace"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
@@ -156,6 +157,13 @@ func (session *sessionConn) watchPeer(cancel func(error)) (stop func()) {
 	})
 }
 
+func encodeSessionPacket(pk packet.Packet, shieldID int32) []byte {
+	buf := new(bytes.Buffer)
+	(&packet.Header{PacketID: pk.ID()}).Write(buf)
+	pk.Marshal(minecraft.DefaultProtocol.NewWriter(buf, shieldID))
+	return buf.Bytes()
+}
+
 // ReadBatchRaw returns the next client batch; only Batch frames may follow the handoff.
 func (session *sessionConn) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.RawPacket, error) {
 	select {
@@ -180,16 +188,58 @@ func (session *sessionConn) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.
 	if err != nil {
 		return nil, err
 	}
+	var batchPackets [][]byte
 	for _, raw := range packets {
-		if id, ok := sessionPacketID(raw); ok && id == packet.IDPlayerAuthInput {
-			if pk, ok := decodeSessionPacket(session.clientPool, raw, 0, false).(*packet.PlayerAuthInput); ok {
-				if pk.Tick != 0 {
-					session.lastClientTick.Store(pk.Tick)
+		if id, ok := sessionPacketID(raw); ok {
+			switch id {
+			case packet.IDPlayerAuthInput:
+				if pk, ok := decodeSessionPacket(session.clientPool, raw, 0, false).(*packet.PlayerAuthInput); ok {
+					if pk.Tick != 0 {
+						session.lastClientTick.Store(pk.Tick)
+					}
 				}
+				batchPackets = append(batchPackets, raw)
+			case packet.IDRespawn:
+				if pk, ok := decodeSessionPacket(session.clientPool, raw, 0, false).(*packet.Respawn); ok && pk.State == packet.RespawnStateClientReadyToSpawn {
+					runtimeID := pk.EntityRuntimeID
+					if runtimeID == 0 {
+						runtimeID = session.runtimeID.Load()
+					}
+					if runtimeID != 0 {
+						session.runtimeID.Store(runtimeID)
+						actionPk := encodeSessionPacket(&packet.PlayerAction{
+							EntityRuntimeID: runtimeID,
+							ActionType:      protocol.PlayerActionRespawn,
+							BlockFace:       -1,
+						}, session.shieldID.Load())
+						batchPackets = append(batchPackets, actionPk)
+					}
+				}
+				batchPackets = append(batchPackets, raw)
+			case packet.IDPlayerAction:
+				if pk, ok := decodeSessionPacket(session.clientPool, raw, 0, false).(*packet.PlayerAction); ok && pk.ActionType == protocol.PlayerActionRespawn {
+					runtimeID := pk.EntityRuntimeID
+					if runtimeID == 0 {
+						runtimeID = session.runtimeID.Load()
+					}
+					if runtimeID != 0 {
+						session.runtimeID.Store(runtimeID)
+						respawnPk := encodeSessionPacket(&packet.Respawn{
+							EntityRuntimeID: runtimeID,
+							State:           packet.RespawnStateClientReadyToSpawn,
+						}, session.shieldID.Load())
+						batchPackets = append(batchPackets, respawnPk)
+					}
+				}
+				batchPackets = append(batchPackets, raw)
+			default:
+				batchPackets = append(batchPackets, raw)
 			}
+		} else {
+			batchPackets = append(batchPackets, raw)
 		}
 	}
-	return rawSessionPackets(packets, decode, session.clientPool, session.shieldID.Load())
+	return rawSessionPackets(batchPackets, decode, session.clientPool, session.shieldID.Load())
 }
 
 // WritePacketRaw adds an upstream packet to the forming batch. A usable Transfer instead flushes
