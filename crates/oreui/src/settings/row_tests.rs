@@ -584,6 +584,16 @@ fn chat_section_draws_all_chat_panel_options_and_reset() {
             )));
         let labels = rendered_text(&nodes);
         assert!(labels.contains("ResetChatSettings"));
+        assert!(
+            labels.contains(
+                &assets::carriers::FONT
+                    .font_face
+                    .unwrap()
+                    .name
+                    .replace(' ', "")
+            )
+        );
+        assert!(!labels.contains("Mojangles"));
         assert!(labels.contains("100%"));
         assert!(!labels.contains("chat.settings."));
         assert!(!labels.contains("typeface."));

@@ -619,7 +619,10 @@ fn creator(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
 
 /// Exposes the existing chat preferences and their shared reset route in the launcher.
 fn chat(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
-    content.heading("options.chat.title", "options.chat.title.description")?;
+    content.heading(
+        SettingSection::Chat.title(),
+        "options.chat.title.description",
+    )?;
     options(content, SettingPanel::Chat)?;
     reset(content, SettingsGroup::Chat, "chat.settings.reset")
 }
@@ -678,7 +681,6 @@ pub(super) fn fallback(key: &str) -> &str {
         "options.notificationDuration.Chat.description" => {
             "How long chat notifications remain visible on the HUD"
         }
-        "typeface.mojangles" => "Mojangles",
         "typeface.notoSans" => "Noto Sans",
         "color.white" => "White",
         "color.green" => "Green",

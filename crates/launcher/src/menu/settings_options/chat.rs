@@ -23,7 +23,7 @@ pub const CHAT_POSITIONS: &[SettingChoice] = &[
 pub const TYPEFACES: &[SettingChoice] = &[
     SettingChoice {
         name: "typeface_radio_mojangles",
-        label: "typeface.mojangles",
+        label: assets::carriers::FONT.font_face.unwrap().name,
     },
     SettingChoice {
         name: "typeface_radio_notoSans",
