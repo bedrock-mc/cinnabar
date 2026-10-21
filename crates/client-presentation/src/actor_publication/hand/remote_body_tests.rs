@@ -393,7 +393,7 @@ fn cloth_contacts_include_the_rendered_emote_spine_and_limb_segments() {
         body.input.rig = mesh.id;
         let contacts = super::super::cloth_contacts::collect(
             &body,
-            rendered.bone_names,
+            &rendered,
             &[],
             &Default::default(),
             0.5,

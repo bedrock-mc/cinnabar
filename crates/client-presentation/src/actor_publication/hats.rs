@@ -294,7 +294,7 @@ impl HatState {
                 if hats::rig(item).has_cloth() {
                     attachment.contacts = Some(super::cloth_contacts::collect(
                         &body,
-                        rig.bone_names,
+                        &rig,
                         &batch.submissions,
                         scene,
                         partial_tick,

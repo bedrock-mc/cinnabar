@@ -244,10 +244,16 @@ pub fn prepare_actor_render_frame(
         && let (Some(body), Some(stream)) = (local.as_ref(), stream)
         && let Some(rig) = stream.authority().actor_rig(bodies.local_runtime_id)
     {
-        let rig = bodies
-            .local_emote_pose
-            .as_ref()
-            .map_or(rig, |pose| pose.snapshot(rig));
+        let rig = emote_geometry::skin_layer_snapshot(
+            rig,
+            bodies.local_emote_pose.as_ref(),
+            java::posed(&bodies.java_posed, bodies.local_runtime_id)
+                .map(|posed| posed.skin_layers.as_slice()),
+            bodies
+                .native_body_sampled
+                .then(|| state.java_hand.native_pose.skin_layers())
+                .flatten(),
+        );
         let contacts = cloth_contacts::hidden(
             &body.submission,
             &rig,
