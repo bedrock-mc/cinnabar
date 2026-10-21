@@ -72,6 +72,8 @@ and resource qualification; they do not imply these systems need to be written.
 
 - [ ] Close the opaque texture slice with matched native views, full-view remesh
   qualification, and fresh combined memory and steady-CPU measurements.
+  Furnace face slots follow cardinal direction and lit state; native visual comparison
+  and runtime replacement-pack acceptance remain open.
 - [ ] Close cutout-cube and leaf visual acceptance. Preserve independent geometry,
   occlusion and cave-connectivity semantics, packed quads and coverage-preserving mips.
 - [ ] `P2.5-NATIVE-BIOME` — Qualify existing biome palettes and grass/foliage/water tinting
@@ -84,6 +86,9 @@ and resource qualification; they do not imply these systems need to be written.
 
 - [ ] Qualify static/non-cube models, blend/water and flipbooks, including native
   presentation and animation. Identify unsupported states before adding implementation.
+  Beacon base/core/shell compilation remains provisional: the base's 0.1-pixel
+  bottom offset rounds to the model grid; matched world and replacement-pack
+  captures, carried-item presentation and finer coordinate precision remain open.
 - [ ] Qualify compact templates for slabs/stairs, thin attached faces, paired doors,
   trapdoors, connected panes/fences/gates and static chest/sign models. Check existing
   coverage before implementing a missing case. Keep conservative culling and connectivity
@@ -215,6 +220,11 @@ client-predicted vehicle behavior. Riding alone does not establish that capabili
 Correction-sync acceptance still includes predicted flag coverage, scaled/horizontal
 poses and bounds, history loss, replay authority, send phase and live-server behavior.
 Animation-only flags must remain separate from gameplay and correction authority.
+Snapped corrections and teleports keep the local input tick when the server stamp is
+unretained or ahead; acceptance on servers that stamp their own clock is outstanding.
+Server sneak updates preserve local hold/toggle intent, and the next completed input
+corrects a conflicting stance through start/stop actions retained across tickless frames
+and replay. Live-server pickup and remote-player stance acceptance remains outstanding.
 Near-contact collision fixes do not establish complete collision-engine parity.
 
 See [gameplay/session ownership](docs/architecture/gameplay-session.md),
@@ -249,6 +259,8 @@ performance qualification remains open.
   Keep visual eye height and the protocol movement offset as separate owned facts.
 - [ ] `P4.5-ITEM-ACTIONS` — Close held items, actions, dropped items and viewmodel behavior,
   including remote/local playback and session lifecycle.
+  Held heads reuse the placed-head meshes and textures; their native hand pose, scale,
+  inventory preview and resource-pack geometry acceptance remain incomplete.
 - [ ] Close pickup sound and copied-item flight across immediate server removal with
   a version-matched rendered comparison.
 - [ ] Close custom block-item texture resolution, non-cube shapes, tinting, animation
@@ -316,6 +328,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Client-owned panel collections support bounded four-column card grids with
   item-scoped expressions, vector artwork and one-time guest requests to reveal filtered
   items without rebuilding the catalog; hardware frame-work acceptance remains open.
+  The desktop mouse Back button uses existing cancellation in menus, containers,
+  chat popups, forms, signs and emotes; binding capture still accepts the button.
+  Cross-platform device acceptance remains incomplete.
   stable retained resources and correct supported DPI/aspect behavior. Tiled images
   retain full coverage with bounded repeat geometry across cropped regions and sliced
   borders; large collection admission and hardware frame-work acceptance remain incomplete.

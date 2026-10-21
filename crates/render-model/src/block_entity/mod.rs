@@ -19,6 +19,8 @@ mod dragon_death;
 pub mod draw_ranges;
 mod frame;
 
+#[cfg(test)]
+mod head_item_tests;
 mod heads;
 mod held;
 mod items;

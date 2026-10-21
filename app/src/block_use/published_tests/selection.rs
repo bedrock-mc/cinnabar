@@ -24,6 +24,7 @@ fn world_backing_recovery_allows_a_real_block_use_transaction() {
             },
             storage_item: None,
         }));
+        ledger.request_personal_close();
         assert!(
             ledger.poll_timeout(10 + inventory::inventory_ledger::INVENTORY_REQUEST_TIMEOUT_MILLIS)
         );

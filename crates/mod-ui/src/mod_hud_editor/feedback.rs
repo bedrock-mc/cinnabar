@@ -66,12 +66,14 @@ pub(super) fn measurements(
     data: &mut DataSource,
     viewport: [f64; 2],
     rect: Option<([f64; 2], [f64; 2])>,
+    obstacles: &[[f64; 4]],
 ) {
     for axis in 0..2 {
         let mut offset = [0.; 2];
         let mut size = [GUIDE_WIDTH; 2];
         let mut pill = [0.; 2];
         let mut distance = 0.;
+        let mut caption_visible = false;
         let mut label = String::new();
         let mut extent_of_pill = pill_size("");
         if let Some((at, extent)) = rect {
@@ -89,9 +91,15 @@ pub(super) fn measurements(
                 pill[axis] = (pill[axis] - extent_of_pill[axis] * 0.5)
                     .clamp(0., (viewport[axis] - extent_of_pill[axis]).max(0.));
             }
+            if let Some(at) =
+                caption_position(viewport, pill, extent_of_pill, at, extent, obstacles)
+            {
+                pill = at;
+                caption_visible = true;
+            }
         }
         for (suffix, value) in [
-            ("visible", Scalar::Bool(distance >= 12.)),
+            ("visible", Scalar::Bool(distance >= 12. && caption_visible)),
             ("offset", Scalar::Json(serde_json::json!(offset))),
             ("width", Scalar::Num(size[0])),
             ("height", Scalar::Num(size[1])),
@@ -101,5 +109,98 @@ pub(super) fn measurements(
         ] {
             data.set_global(format!("#measurement_{axis}_{suffix}"), value);
         }
+    }
+}
+
+/// Keeps a compact distance caption near its guide without painting over any widget.
+fn caption_position(
+    viewport: [f64; 2],
+    preferred: [f64; 2],
+    pill_size: [f64; 2],
+    at: [f64; 2],
+    size: [f64; 2],
+    obstacles: &[[f64; 4]],
+) -> Option<[f64; 2]> {
+    let [w, h] = pill_size;
+    let left = at[0] - w - 3.;
+    let right = at[0] + size[0] + 3.;
+    let top = at[1] - h - 3.;
+    let bottom = at[1] + size[1] + 3.;
+    [
+        preferred,
+        [preferred[0], top],
+        [preferred[0], bottom],
+        [left, preferred[1]],
+        [right, preferred[1]],
+        [left, top],
+        [right, top],
+        [left, bottom],
+        [right, bottom],
+    ]
+    .into_iter()
+    .map(|point| {
+        std::array::from_fn(|axis| {
+            point[axis].clamp(0., (viewport[axis] - pill_size[axis]).max(0.))
+        })
+    })
+    .find(|point| {
+        point[0] + w <= viewport[0]
+            && point[1] + h <= viewport[1]
+            && obstacles.iter().all(|rect| {
+                point[0] + w + 1. <= rect[0]
+                    || point[0] >= rect[0] + rect[2] + 1.
+                    || point[1] + h + 1. <= rect[1]
+                    || point[1] >= rect[1] + rect[3] + 1.
+            })
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Short edge gaps must not put their wider captions over the selected or adjacent widget.
+    #[test]
+    fn short_measurements_clear_neighboring_keystrokes_and_hide_when_no_space_remains() {
+        let selected = [12., 37., 56., 18.];
+        let keys = [0., 60., 70., 82.];
+        let mut data = DataSource::new();
+        measurements(
+            &mut data,
+            [400., 240.],
+            Some(([12., 37.], [56., 18.])),
+            &[selected, keys],
+        );
+        for axis in 0..2 {
+            assert_eq!(
+                data.global_value(&format!("#measurement_{axis}_visible")),
+                Some(&Scalar::Bool(true))
+            );
+            let Scalar::Json(value) = data
+                .global_value(&format!("#measurement_{axis}_pill"))
+                .unwrap()
+            else {
+                panic!("caption position")
+            };
+            let point: [f64; 2] = serde_json::from_value(value.clone()).unwrap();
+            for rect in [selected, keys] {
+                assert!(
+                    point[0] + pill_size(if axis == 0 { "12" } else { "37" })[0] <= rect[0]
+                        || point[0] >= rect[0] + rect[2]
+                        || point[1] + MEASUREMENT_PILL_HEIGHT <= rect[1]
+                        || point[1] >= rect[1] + rect[3]
+                );
+            }
+        }
+        measurements(
+            &mut data,
+            [400., 240.],
+            Some(([12., 37.], [56., 18.])),
+            &[[0., 0., 400., 240.]],
+        );
+        assert_eq!(
+            data.global_value("#measurement_0_visible"),
+            Some(&Scalar::Bool(false))
+        );
     }
 }

@@ -1951,6 +1951,11 @@ literal = "facing_direction"
 reason = "Custom-block placement-state schema names admitted from the wire."
 
 [[identifier_literal_exceptions]]
+path = "crates/protocol/src/world/custom_blocks.rs"
+literal = "minecraft:crafting_table"
+reason = "Custom-block component name admitted from the wire, not the vanilla block."
+
+[[identifier_literal_exceptions]]
 path = "crates/protocol/src/world/custom_blocks/states.rs"
 literal = "sixteen_way_rotation"
 reason = "Custom-block placement-state schema names admitted from the wire."

@@ -224,13 +224,17 @@ fn png_fixture(
             add_server_pages(&mut engine, &mut carriers.pages);
         }
         #[cfg(feature = "test-support")]
-        Fixture::CraftOverlap { selected } => {
+        Fixture::CraftOverlap {
+            selected,
+            block_identity,
+        } => {
             let mut engine = json_engine(&carriers)?;
             crafting::paint(
                 &engine,
                 &carriers.lang,
                 &craft_icons.unwrap(),
                 selected,
+                block_identity,
                 &mut frame,
             )?;
             add_server_pages(&mut engine, &mut carriers.pages);
