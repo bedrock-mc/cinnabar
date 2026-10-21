@@ -1,0 +1,17 @@
+{
+  "id": "12:1", "name": "Opacity Test", "type": "FRAME", "width": 100, "height": 50,
+  "fills": [{ "type": "SOLID", "color": [0, 0, 0] }],
+  "children": [
+    { "id": "12:2", "name": "Faded @button", "type": "INSTANCE", "x": 0, "y": 0, "width": 40, "height": 20,
+      "opacity": 0.5, "variant_properties": { "State": "Default" },
+      "fills": [{ "type": "SOLID", "color": [1, 1, 1] }],
+      "variants": [
+        { "id": "12:3", "name": "State=Default", "type": "INSTANCE", "width": 40, "height": 20, "opacity": 0.5,
+          "variant_properties": { "State": "Default" },
+          "fills": [{ "type": "SOLID", "color": [1, 1, 1] }] },
+        { "id": "12:4", "name": "State=Hover", "type": "INSTANCE", "width": 40, "height": 20, "opacity": 0.5,
+          "variant_properties": { "State": "Hover" },
+          "fills": [{ "type": "SOLID", "color": [1, 1, 0] }] }
+      ] }
+  ]
+}

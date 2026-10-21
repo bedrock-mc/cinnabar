@@ -1,6 +1,7 @@
 //! Validated render output of a personal mod: sandboxed post passes and world primitives.
 
 pub mod geometry;
+mod identity;
 pub mod masks;
 pub mod material;
 pub mod retained;

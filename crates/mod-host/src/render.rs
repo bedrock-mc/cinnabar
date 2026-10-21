@@ -44,7 +44,7 @@ pub(super) struct RenderState {
 impl RenderState {
     pub fn new() -> Self {
         Self {
-            masks: mod_render::masks::MaskStore::new(next_revision()),
+            masks: mod_render::masks::MaskStore::default(),
             committed: RenderOutput::default(),
             retained: Default::default(),
             generation: next_revision(),

@@ -12,6 +12,7 @@ reads = [
 ]
 
 [dependencies]
+render-api = { path = "../render-api" }
 wit-bindgen.workspace = true
 serde = { version = "=1.0.228", features = ["derive"] }
 

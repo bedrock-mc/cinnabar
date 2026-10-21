@@ -288,6 +288,30 @@ fn compatible(a: &mod_render::masks::Mask, b: &mod_render::masks::Mask) -> bool 
         && a.entities == b.entities
 }
 
+/// Keeps fitting coverage groups, offering each owner one group before its next.
+fn admit_groups(groups: &mut Vec<&mod_render::masks::Mask>, bytes: Option<u64>) -> u64 {
+    let Some(bytes) = bytes.filter(|bytes| *bytes != 0) else {
+        groups.clear();
+        return 0;
+    };
+    let capacity = (MAX_MASK_ATTACHMENT_BYTES / bytes) as usize;
+    if groups.len() > capacity {
+        let mut counts = BTreeMap::<u64, usize>::new();
+        let mut ordered: Vec<_> = groups
+            .drain(..)
+            .map(|mask| {
+                let round = counts.entry(mask.handle.owner).or_default();
+                let entry = (*round, mask);
+                *round += 1;
+                entry
+            })
+            .collect();
+        ordered.sort_by_key(|(round, mask)| (*round, mask.handle.owner, mask.handle.slot));
+        groups.extend(ordered.into_iter().take(capacity).map(|(_, mask)| mask));
+    }
+    bytes * groups.len() as u64
+}
+
 /// Selects only admitted draw spans, splitting shared spans at authorized entity boundaries.
 fn selection(
     mask: &mod_render::masks::Mask,
@@ -343,24 +367,16 @@ pub(crate) fn prepare(
             groups.push(mask);
         }
     }
-    // Admit a whole frame or none: load order cannot consume another owner's attachment budget.
+    // Charge one group's attachments across all views before admitting its coverage.
     let bytes = views.iter().try_fold(0u64, |sum, (_, _, depth)| {
         let size = depth.texture().size();
-        sum.checked_add(
-            mod_render::masks::attachment_bytes(
-                size.width,
-                size.height,
-                depth.texture().sample_count(),
-            )?
-            .checked_mul(groups.len() as u64)?,
-        )
+        sum.checked_add(mod_render::masks::attachment_bytes(
+            size.width,
+            size.height,
+            depth.texture().sample_count(),
+        )?)
     });
-    if bytes.is_none_or(|bytes| bytes > MAX_MASK_ATTACHMENT_BYTES) {
-        masks.targets.clear();
-        masks.attachment_bytes = 0;
-        return;
-    }
-    masks.attachment_bytes = bytes.unwrap_or(0);
+    masks.attachment_bytes = admit_groups(&mut groups, bytes);
     // A previous union can split into several groups. Keep each old attachment for
     // at most one representative before rebuilding this frame's shared aliases.
     let mut retained = std::collections::HashSet::new();
@@ -371,6 +387,10 @@ pub(crate) fn prepare(
     });
     for (entity, msaa, depth) in &views {
         for mask in &active {
+            if !groups.iter().any(|group| compatible(mask, group)) {
+                masks.targets.remove(&(entity, mask.handle));
+                continue;
+            }
             let key = (entity, mask.handle);
             if let Some(group) = groups
                 .iter()

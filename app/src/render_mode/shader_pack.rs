@@ -112,6 +112,7 @@ fn desired_request(config: &RenderModeConfig, video: &ui::VideoSettings) -> Shad
     ShaderPackRequest {
         pack,
         cache_dir: config.shader_packs.as_ref().map(|dirs| dirs.cache.clone()),
+        ..default()
     }
 }
 
@@ -124,8 +125,7 @@ pub(super) fn sync_shader_pack_request(
     if !config.is_changed() && !settings.is_changed() && !request.is_added() {
         return;
     }
-    request.set_if_neq(desired_request(
-        &config,
-        &settings.user_settings_update().1.video,
-    ));
+    let mut next = desired_request(&config, &settings.user_settings_update().1.video);
+    next.reload_generation = request.reload_generation;
+    request.set_if_neq(next);
 }

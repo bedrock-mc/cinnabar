@@ -11,6 +11,7 @@ mod input;
 mod macos;
 mod scoreboards;
 mod state;
+mod surface;
 
 use std::path::PathBuf;
 
@@ -86,6 +87,7 @@ fn window_options(mut window: Window, size: Option<[u32; 2]>, hidden: bool, scal
 /// Starts the endpoint when `CINNABAR_DEVELOPER_CONTROL` names its file.
 pub(crate) fn configure(app: &mut App) {
     cursor_isolation::configure(app, hidden_window_requested());
+    surface::configure(app, hidden_window_requested());
     #[cfg(target_os = "macos")]
     if hidden_window_requested() {
         macos::verify_after_launch(app);

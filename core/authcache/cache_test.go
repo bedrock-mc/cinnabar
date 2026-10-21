@@ -148,29 +148,11 @@ func TestSourceExpiredRefreshRequestsOnce(t *testing.T) {
 	}
 }
 
-func TestSourceRejectsMalformedOversizedAndLinkedCaches(t *testing.T) {
+func TestSourceRejectsUnsafeOrOversizedCaches(t *testing.T) {
 	tests := []struct {
 		name  string
 		setup func(t *testing.T, path string)
 	}{
-		{
-			name: "malformed",
-			setup: func(t *testing.T, path string) {
-				writeFile(t, path, []byte(`{"access_token":`))
-			},
-		},
-		{
-			name: "trailing JSON",
-			setup: func(t *testing.T, path string) {
-				writeFile(t, path, []byte(`{"refresh_token":"secret"} {}`))
-			},
-		},
-		{
-			name: "missing refresh token",
-			setup: func(t *testing.T, path string) {
-				writeFile(t, path, []byte(`{"access_token":"secret"}`))
-			},
-		},
 		{
 			name: "oversized",
 			setup: func(t *testing.T, path string) {

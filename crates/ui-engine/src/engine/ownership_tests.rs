@@ -24,6 +24,7 @@ fn native_replacement_omits_its_subtree_and_keeps_the_pack_backdrop() {
         layer: 0,
         alpha: 1.0,
         anim: None,
+        paint_region: None,
         draw: Draw::Solid { color: [255; 4] },
         gates: Vec::new(),
     };

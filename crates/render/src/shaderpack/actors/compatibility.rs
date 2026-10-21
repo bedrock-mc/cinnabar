@@ -4,7 +4,7 @@ use assets::{EntityRenderMaterial, EntityRenderMaterialState};
 use render_model::{ActorGpuInstance, BlockEntityFrame};
 use render_scene::{ActorRenderFrame, HandRigScene};
 
-/// Keeps native mask, emissive-alpha, multitexture and dissolve materials on their native path.
+/// Keeps materials on their native path when the pack cannot represent their texture or depth state.
 pub(crate) fn instance_supported(
     instance: &ActorGpuInstance,
     color_mask: bool,
@@ -16,8 +16,9 @@ pub(crate) fn instance_supported(
         && instance.material & render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG == 0
         && kind != EntityRenderMaterial::DissolveDepth as u32
         && kind != EntityRenderMaterial::DissolveColor as u32
-        && !crate::actor::material::state(instance.material)
-            .is_some_and(|state| state.emissive || state.depth_always || state.additive_alpha)
+        && !crate::actor::material::state(instance.material).is_some_and(|state| {
+            state.emissive || state.depth_always || state.additive_alpha || !state.depth_write
+        })
 }
 
 /// Checks the current frame before native queues can be suppressed.
@@ -58,6 +59,15 @@ pub(crate) fn frame_supported(
     let blocks_ok = blocks.is_none_or(|frame| {
         frame.additive.is_empty()
             && frame
+                .solid
+                .iter()
+                .chain(frame.overlay.iter())
+                .all(|vertex| {
+                    vertex.actor_light
+                        & render_model::block_entity::mesh::BLOCK_ENTITY_CULL_BACK_FACES
+                        == 0
+                })
+            && frame
                 .overlay
                 .iter()
                 .all(|vertex| vertex.actor_light != u32::MAX)
@@ -68,6 +78,41 @@ pub(crate) fn frame_supported(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn materials_without_depth_writes_keep_the_native_frame() {
+        for depth_write in [false, true] {
+            let instance = ActorGpuInstance {
+                material: EntityRenderMaterial::Default.word(Some(EntityRenderMaterialState {
+                    blend: true,
+                    depth_write,
+                    ..Default::default()
+                })),
+                ..Default::default()
+            };
+            assert_eq!(instance_supported(&instance, false, false), depth_write);
+            let mut frame = ActorRenderFrame::default();
+            frame.rig.instances = std::sync::Arc::from([instance]);
+            assert_eq!(frame_supported(Some(&frame), None, None), depth_write);
+        }
+    }
+
+    #[test]
+    fn geometrically_culled_block_entity_faces_keep_the_native_frame() {
+        for overlay in [false, true] {
+            let mut frame = BlockEntityFrame::default();
+            let vertices = std::sync::Arc::from([render_model::BlockEntityVertex {
+                actor_light: render_model::block_entity::mesh::BLOCK_ENTITY_CULL_BACK_FACES,
+                ..Default::default()
+            }]);
+            if overlay {
+                frame.overlay = vertices;
+            } else {
+                frame.solid = vertices;
+            }
+            assert!(!frame_supported(None, None, Some(&frame)));
+        }
+    }
 
     #[test]
     fn emissive_alpha_materials_keep_native_coverage_and_lighting() {

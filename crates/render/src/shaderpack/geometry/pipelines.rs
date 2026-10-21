@@ -9,7 +9,9 @@ use bevy::render::render_resource::{
     CachedComputePipelineId, ComputePipelineDescriptor, PipelineCache, ShaderStages,
 };
 
-use super::jobs::{JOB_BACK_ONLY, JOB_OVERLAY_FACE, JOB_REVERSE_FACE, JobKind};
+use super::jobs::{
+    JOB_BACK_ONLY, JOB_MODEL_QUAD_MASK, JOB_OVERLAY_FACE, JOB_REVERSE_FACE, JobKind,
+};
 use super::vertex;
 use crate::shaderpack::atlas;
 
@@ -53,6 +55,7 @@ pub(crate) fn expansion_shader_source(source: &str) -> String {
         .replace("JOB_OVERLAY_FACE", &format!("{JOB_OVERLAY_FACE}u"))
         .replace("JOB_REVERSE_FACE", &format!("{JOB_REVERSE_FACE}u"))
         .replace("JOB_BACK_ONLY", &format!("{JOB_BACK_ONLY}u"))
+        .replace("JOB_MODEL_QUAD_MASK", &format!("{JOB_MODEL_QUAD_MASK}u"))
         .replace(
             "MODEL_QUAD_TWO_SIDED_FLAG",
             &format!("{}u", assets::MODEL_QUAD_FLAG_TWO_SIDED),

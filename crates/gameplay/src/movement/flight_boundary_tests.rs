@@ -263,6 +263,7 @@ fn flight_frame(
         now: TICK * index as u32,
         active,
         input_authority_released: !active,
+        resolved_movement: false,
         movement: [0.0, forward],
         raw_movement: [0.0, forward],
         analogue_movement: [0.0, forward],

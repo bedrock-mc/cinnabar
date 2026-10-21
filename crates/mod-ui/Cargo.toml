@@ -23,6 +23,7 @@ ui = { path = "../ui" }
 ui-engine = { path = "../ui-engine" }
 
 [dev-dependencies]
+ui-engine = { path = "../ui-engine", features = ["test-support"] }
 test-alloc = { path = "../test-alloc" }
 
 [lints]

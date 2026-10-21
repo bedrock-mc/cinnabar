@@ -486,8 +486,10 @@ fn persistent_custom_states_decode_before_visual_overlay_is_ready() {
     let definitions = CustomBlocks {
         blocks: Arc::from([
             CustomBlock {
+                mining: Default::default(),
                 state_physics_complete: false,
                 state_physics: Default::default(),
+                state_mining: Default::default(),
                 player_interact: false,
                 name: "example:plain".into(),
                 tags: Default::default(),
@@ -499,8 +501,10 @@ fn persistent_custom_states_decode_before_visual_overlay_is_ready() {
                 visual: Arc::default(),
             },
             CustomBlock {
+                mining: Default::default(),
                 state_physics_complete: false,
                 state_physics: Default::default(),
+                state_mining: Default::default(),
                 player_interact: false,
                 name: "example:powered".into(),
                 tags: Default::default(),
@@ -630,8 +634,10 @@ fn custom_identity_authority(mode: NetworkIdMode) -> WorldAuthority {
 
 fn plain_identity_block(name: &str) -> CustomBlock {
     CustomBlock {
+        mining: Default::default(),
         state_physics_complete: false,
         state_physics: Default::default(),
+        state_mining: Default::default(),
         player_interact: false,
         name: name.into(),
         tags: Default::default(),
@@ -754,8 +760,10 @@ fn session_block_names_follow_replacement_and_range_reset_in_both_modes() {
                 collision_boxes: None,
                 selection: CustomSelection::Default,
                 friction: None,
+                mining: Default::default(),
                 state_physics_complete: false,
                 state_physics: Default::default(),
+                state_mining: Default::default(),
                 player_interact: false,
                 tags: Default::default(),
                 visual: Arc::default(),

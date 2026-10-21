@@ -85,3 +85,34 @@ mod tests {
         assert_eq!(scene.vertex_count(), 0);
     }
 }
+
+/// Packet-provided colours use exactly the finder geometry and coexist with its selection.
+#[test]
+fn drawn_blocks_share_finder_geometry_and_release_independently() {
+    use super::*;
+    use std::sync::Arc;
+    let mut scene = ModRenderScene::default();
+    let pink = [1., 0.12, 0.55, 1.];
+    let red = [1., 0., 0., 1.];
+    scene.set_block_highlights(&[[1, 2, 3]], pink);
+    scene.set_drawn_block_highlights(&[mod_api::native_render::BlockHighlight {
+        position: [4, 5, 6],
+        colour: red,
+    }]);
+    let expected: Vec<_> = mod_render::block_highlights::build(&[[1, 2, 3]], pink)
+        .into_iter()
+        .chain(mod_render::block_highlights::build(&[[4, 5, 6]], red))
+        .collect();
+    assert_eq!(scene.block_vertices.as_ref(), expected.as_slice());
+    let before = Arc::clone(&scene.block_vertices);
+    scene.set_drawn_block_highlights(&[mod_api::native_render::BlockHighlight {
+        position: [4, 5, 6],
+        colour: red,
+    }]);
+    assert!(Arc::ptr_eq(&before, &scene.block_vertices));
+    scene.set_drawn_block_highlights(&[]);
+    assert_eq!(
+        scene.block_vertices.as_ref(),
+        mod_render::block_highlights::build(&[[1, 2, 3]], pink)
+    );
+}
