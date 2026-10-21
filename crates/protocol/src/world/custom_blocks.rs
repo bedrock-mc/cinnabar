@@ -48,8 +48,8 @@ pub struct CustomBlock {
     /// `minecraft:friction` value; surface friction is one minus it, and `None` keeps the default.
     pub friction: Option<f32>,
     pub visual: Arc<CustomBlockVisuals>,
-    /// `minecraft:custom_components` declares a player-interact handler, so using the block
-    /// interacts with it rather than placing the held block against it.
+    /// Using the block interacts with it (a crafting table or a player-interact handler)
+    /// rather than placing the held block against it.
     pub player_interact: bool,
     /// Resolved mining components in palette order; an absent component is unknown.
     pub state_mining: Arc<[Option<Arc<CustomBlockMining>>]>,
@@ -714,7 +714,13 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
         collision_boxes,
         selection,
         friction,
-        player_interact: player_interact(components),
+        player_interact: std::iter::once(components)
+            .chain(
+                root.list("permutations")
+                    .iter()
+                    .map(|permutation| permutation.field("components")),
+            )
+            .any(player_interact),
         visual: CustomBlockVisuals {
             placement,
             base: visual_components(components),
@@ -738,12 +744,25 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
     })
 }
 
-/// Whether `minecraft:custom_components` declares a player-interact handler.
+/// Whether using a block with these components interacts with it: a crafting table, or custom
+/// components declaring a player-interact handler (version 1 components declare every handler).
+/// The client applies the handler flag to the whole type; a permutation's table is treated alike.
 fn player_interact(components: Option<&Nbt>) -> bool {
-    let flag = components
-        .and_then(|set| set.field("minecraft:custom_components"))
-        .and_then(|component| component.field("hasPlayerInteract"));
-    matches!(flag, Some(Nbt::Byte(value)) if *value != 0)
+    let Some(components) = components else {
+        return false;
+    };
+    let custom = components.field("minecraft:custom_components");
+    let flag = |name: &str| {
+        matches!(
+            custom.and_then(|component| component.field(name)),
+            Some(Nbt::Byte(value)) if *value != 0
+        )
+    };
+    matches!(
+        components.field("minecraft:crafting_table"),
+        Some(Nbt::Compound(_))
+    ) || flag("hasPlayerInteract")
+        || flag("isV1Component")
 }
 
 /// Reads geometry, material instances, and transformation; odd values are
