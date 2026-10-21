@@ -7,6 +7,7 @@ import (
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
+	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
@@ -90,5 +91,157 @@ func TestSessionRespawnServerControlsLeaveCompletionToClient(t *testing.T) {
 				t.Fatalf("server controls altered unrelated client traffic: %d packets", len(got))
 			}
 		})
+	}
+}
+
+func TestUntimedMovePlayerStampedWithLastClientTick(t *testing.T) {
+	session, peer := newTestSessionConn(t)
+
+	// Client sends PlayerAuthInput with Tick = 777
+	inputPk := &packet.PlayerAuthInput{
+		Tick: 777,
+	}
+	if _, err := peer.Write(sessionTestBatch(inputPk)); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := session.ReadBatchRaw(func(uint32) bool { return true })
+	if err != nil {
+		t.Fatalf("ReadBatchRaw failed: %v", err)
+	}
+
+	if session.lastClientTick.Load() != 777 {
+		t.Fatalf("expected lastClientTick to be 777, got %d", session.lastClientTick.Load())
+	}
+
+	// Server sends MovePlayer with Tick = 0
+	movePk := &packet.MovePlayer{
+		EntityRuntimeID: 12345,
+		Tick:            0,
+	}
+	buf := new(bytes.Buffer)
+	(&packet.Header{PacketID: movePk.ID()}).Write(buf)
+	movePk.Marshal(minecraft.DefaultProtocol.NewWriter(buf, 0))
+
+	if err := session.WritePacketRaw(buf.Bytes()); err != nil {
+		t.Fatalf("WritePacketRaw failed: %v", err)
+	}
+
+	// Verify forming batch pending data has rewritten Tick = 777
+	packets, err := splitSessionBatch(session.pending[1:])
+	if err != nil {
+		t.Fatalf("splitSessionBatch failed: %v", err)
+	}
+	raws, err := rawSessionPackets(packets, func(uint32) bool { return true }, session.serverPool, 0)
+	if err != nil {
+		t.Fatalf("rawSessionPackets failed: %v", err)
+	}
+	if len(raws) != 1 {
+		t.Fatalf("expected 1 packet, got %d", len(raws))
+	}
+	decodedMove, ok := raws[0].Decoded[0].(*packet.MovePlayer)
+	if !ok {
+		t.Fatalf("expected MovePlayer packet, got %T", raws[0].Decoded[0])
+	}
+	if decodedMove.Tick != 777 {
+		t.Fatalf("expected rewritten MovePlayer Tick to be 777, got %d", decodedMove.Tick)
+	}
+}
+
+func TestUntimedSetActorMotionStampedWithLastClientTick(t *testing.T) {
+	session, _ := newTestSessionConn(t)
+	session.lastClientTick.Store(888)
+
+	motionPk := &packet.SetActorMotion{
+		EntityRuntimeID: 12345,
+		Tick:            0,
+	}
+	buf := new(bytes.Buffer)
+	(&packet.Header{PacketID: motionPk.ID()}).Write(buf)
+	motionPk.Marshal(minecraft.DefaultProtocol.NewWriter(buf, 0))
+
+	if err := session.WritePacketRaw(buf.Bytes()); err != nil {
+		t.Fatalf("WritePacketRaw failed: %v", err)
+	}
+
+	packets, err := splitSessionBatch(session.pending[1:])
+	if err != nil {
+		t.Fatalf("splitSessionBatch failed: %v", err)
+	}
+	raws, err := rawSessionPackets(packets, func(uint32) bool { return true }, session.serverPool, 0)
+	if err != nil {
+		t.Fatalf("rawSessionPackets failed: %v", err)
+	}
+	decodedMotion, ok := raws[0].Decoded[0].(*packet.SetActorMotion)
+	if !ok {
+		t.Fatalf("expected SetActorMotion packet, got %T", raws[0].Decoded[0])
+	}
+	if decodedMotion.Tick != 888 {
+		t.Fatalf("expected rewritten SetActorMotion Tick to be 888, got %d", decodedMotion.Tick)
+	}
+}
+
+func TestUntimedCorrectPlayerMovePredictionStampedWithLastClientTick(t *testing.T) {
+	session, _ := newTestSessionConn(t)
+	session.lastClientTick.Store(999)
+
+	correctionPk := &packet.CorrectPlayerMovePrediction{
+		Tick: 0,
+	}
+	buf := new(bytes.Buffer)
+	(&packet.Header{PacketID: correctionPk.ID()}).Write(buf)
+	correctionPk.Marshal(minecraft.DefaultProtocol.NewWriter(buf, 0))
+
+	if err := session.WritePacketRaw(buf.Bytes()); err != nil {
+		t.Fatalf("WritePacketRaw failed: %v", err)
+	}
+
+	packets, err := splitSessionBatch(session.pending[1:])
+	if err != nil {
+		t.Fatalf("splitSessionBatch failed: %v", err)
+	}
+	raws, err := rawSessionPackets(packets, func(uint32) bool { return true }, session.serverPool, 0)
+	if err != nil {
+		t.Fatalf("rawSessionPackets failed: %v", err)
+	}
+	decodedCorrection, ok := raws[0].Decoded[0].(*packet.CorrectPlayerMovePrediction)
+	if !ok {
+		t.Fatalf("expected CorrectPlayerMovePrediction packet, got %T", raws[0].Decoded[0])
+	}
+	if decodedCorrection.Tick != 999 {
+		t.Fatalf("expected rewritten CorrectPlayerMovePrediction Tick to be 999, got %d", decodedCorrection.Tick)
+	}
+}
+
+func TestTimedMovePlayerPreserved(t *testing.T) {
+	session, _ := newTestSessionConn(t)
+	session.lastClientTick.Store(888)
+
+	movePk := &packet.MovePlayer{
+		EntityRuntimeID: 12345,
+		Tick:            450,
+	}
+	buf := new(bytes.Buffer)
+	(&packet.Header{PacketID: movePk.ID()}).Write(buf)
+	movePk.Marshal(minecraft.DefaultProtocol.NewWriter(buf, 0))
+
+	if err := session.WritePacketRaw(buf.Bytes()); err != nil {
+		t.Fatalf("WritePacketRaw failed: %v", err)
+	}
+
+	packets, err := splitSessionBatch(session.pending[1:])
+	if err != nil {
+		t.Fatalf("splitSessionBatch failed: %v", err)
+	}
+	raws, err := rawSessionPackets(packets, func(uint32) bool { return true }, session.serverPool, 0)
+	if err != nil {
+		t.Fatalf("rawSessionPackets failed: %v", err)
+	}
+	decodedMove, ok := raws[0].Decoded[0].(*packet.MovePlayer)
+	if !ok {
+		t.Fatalf("expected MovePlayer packet, got %T", raws[0].Decoded[0])
+	}
+	if decodedMove.Tick != 450 {
+		t.Fatalf("expected preserved MovePlayer Tick to be 450, got %d", decodedMove.Tick)
 	}
 }

@@ -18,6 +18,7 @@ github.com/hashimthearab/gophertunnel v1.25.3-0.20260811002754-9f42f3679a57 h1:e
 github.com/hashimthearab/gophertunnel v1.25.3-0.20260811002754-9f42f3679a57/go.mod h1:phe/9fHeFQ7rZb2lmTowOlA0HmkzpvdQl17rRjCf5VU=
 github.com/hashimthearab/gophertunnel v1.25.3-0.20261011201053-169f954bbe81 h1:LH+kRsaj9OQaA+pueHYMkPFVBAJiX1RCnsIMtoUnnxU=
 github.com/hashimthearab/gophertunnel v1.25.3-0.20261011201053-169f954bbe81/go.mod h1:IUEh1CfJyWrcEvD8z/Zsp4Lo/v6jG30iz4NXUijEI7M=
+github.com/jordanlewis/gcassert v0.0.0-20250430164644-389ef753e22e/go.mod h1:ZybsQk6DWyN5t7An1MuPm1gtSZ1xDaTXS9ZjIOxvQrk=
 github.com/klauspost/compress v1.18.1/go.mod h1:ZQFFVG+MdnR0P+l6wpXgIL4NTtwiKIdBnrBd8Nrxr+0=
 github.com/kr/pretty v0.1.0 h1:L/CwN0zerZDmRFUapSPitk6f+Q3+0za1rQkzVuMiMFI=
 github.com/kr/pretty v0.1.0/go.mod h1:dAy3ld7l9f0ibDNOQOHHMYYIIbhfbHSm3C4ZsoJORNo=

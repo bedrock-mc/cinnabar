@@ -37,6 +37,8 @@ type sessionConn struct {
 
 	terminalDelivered atomic.Bool // a complete terminal frame reached the local transport
 
+	lastClientTick atomic.Uint64
+
 	writeMu sync.Mutex
 	pending []byte // the Batch frame being formed, kind byte included
 	ended   bool   // a terminal message was written
@@ -178,6 +180,15 @@ func (session *sessionConn) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.
 	if err != nil {
 		return nil, err
 	}
+	for _, raw := range packets {
+		if id, ok := sessionPacketID(raw); ok && id == packet.IDPlayerAuthInput {
+			if pk, ok := decodeSessionPacket(session.clientPool, raw, 0, false).(*packet.PlayerAuthInput); ok {
+				if pk.Tick != 0 {
+					session.lastClientTick.Store(pk.Tick)
+				}
+			}
+		}
+	}
 	return rawSessionPackets(packets, decode, session.clientPool, session.shieldID.Load())
 }
 
@@ -199,6 +210,44 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 					return session.endLocked(bridgecontract.SessionKindTransfer, sessionTransfer{
 						Address: transfer.Address, Port: transfer.Port, ReloadWorld: transfer.ReloadWorld,
 					})
+				}
+			}
+		case packet.IDMovePlayer:
+			if pk, ok := decodeSessionPacket(session.serverPool, data, 0, false).(*packet.MovePlayer); ok {
+				ownID := session.runtimeID.Load()
+				if (ownID == 0 || pk.EntityRuntimeID == ownID) && pk.Tick == 0 {
+					if lastTick := session.lastClientTick.Load(); lastTick != 0 {
+						pk.Tick = lastTick
+						buf := new(bytes.Buffer)
+						(&packet.Header{PacketID: pk.ID()}).Write(buf)
+						pk.Marshal(minecraft.DefaultProtocol.NewWriter(buf, session.shieldID.Load()))
+						data = buf.Bytes()
+					}
+				}
+			}
+		case packet.IDSetActorMotion:
+			if pk, ok := decodeSessionPacket(session.serverPool, data, 0, false).(*packet.SetActorMotion); ok {
+				ownID := session.runtimeID.Load()
+				if (ownID == 0 || pk.EntityRuntimeID == ownID) && pk.Tick == 0 {
+					if lastTick := session.lastClientTick.Load(); lastTick != 0 {
+						pk.Tick = lastTick
+						buf := new(bytes.Buffer)
+						(&packet.Header{PacketID: pk.ID()}).Write(buf)
+						pk.Marshal(minecraft.DefaultProtocol.NewWriter(buf, session.shieldID.Load()))
+						data = buf.Bytes()
+					}
+				}
+			}
+		case packet.IDCorrectPlayerMovePrediction:
+			if pk, ok := decodeSessionPacket(session.serverPool, data, 0, false).(*packet.CorrectPlayerMovePrediction); ok {
+				if pk.Tick == 0 {
+					if lastTick := session.lastClientTick.Load(); lastTick != 0 {
+						pk.Tick = lastTick
+						buf := new(bytes.Buffer)
+						(&packet.Header{PacketID: pk.ID()}).Write(buf)
+						pk.Marshal(minecraft.DefaultProtocol.NewWriter(buf, session.shieldID.Load()))
+						data = buf.Bytes()
+					}
 				}
 			}
 		}
