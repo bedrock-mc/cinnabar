@@ -186,6 +186,20 @@ impl ViewState {
         }
     }
 
+    /// Refreshes atlas dimensions after native texture preparation and before recording draws.
+    pub(crate) fn sync_draw_atlas_sizes(&mut self, queue: &Queue, context: &DrawContext) {
+        for (draw, binding) in self.pack.draws.iter().zip(&mut self.bindings.draws) {
+            let Some(block) = &self.pack.programs[draw.program].reflection.uniforms else {
+                continue;
+            };
+            if binding.update_atlas_size(block, context.atlas_size(draw.kind))
+                && let Some(buffer) = &binding.uniforms
+            {
+                queue.write_buffer(buffer, 0, &binding.base);
+            }
+        }
+    }
+
     /// Whether both the presentation pipeline and its view bindings support this format.
     pub(crate) fn supports_presentation(&self, format: TextureFormat) -> bool {
         self.pack.host.present.iter().any(|(f, _)| *f == format)

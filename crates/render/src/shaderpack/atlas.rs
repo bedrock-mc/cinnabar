@@ -45,6 +45,8 @@ mod plan;
 mod tests;
 mod upload;
 
+pub(crate) use labpbr::{NEUTRAL_NORMAL, NEUTRAL_SPECULAR};
+
 use super::{geometry::ShaderpackGeometrySettings, plugin::LoadedShaderPack};
 use animate::AtlasAnimations;
 use bevy::{
