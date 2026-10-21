@@ -24,15 +24,15 @@ type fixtureLimits struct {
 	MaxClientSendBytes int    `json:"max_client_send_bytes"`
 	MaxValueDepth      int    `json:"max_value_depth"`
 	// The bounds on a block type, which the adapter checks again at registration.
-	MaxNameBytes         int `json:"max_name_bytes"`
-	MaxStateValues       int `json:"max_state_values"`
-	MaxStateCombinations int `json:"max_state_combinations"`
-	MaxBones             int `json:"max_bones"`
-	MaxPermutations      int `json:"max_permutations"`
-	MaxMaterials         int `json:"max_materials"`
-	MaxConditionTests    int `json:"max_condition_tests"`
-	MaxFlipbookFrames    int `json:"max_flipbook_frames"`
-	MaxGeometryBytes     int `json:"max_geometry_bytes"`
+	MaxNameBytes      int `json:"max_name_bytes"`
+	MaxStateValues    int `json:"max_state_values"`
+	MaxStateBits      int `json:"max_state_bits"`
+	MaxBones          int `json:"max_bones"`
+	MaxPermutations   int `json:"max_permutations"`
+	MaxMaterials      int `json:"max_materials"`
+	MaxConditionTests int `json:"max_condition_tests"`
+	MaxFlipbookFrames int `json:"max_flipbook_frames"`
+	MaxGeometryBytes  int `json:"max_geometry_bytes"`
 	// The network bounds, which the adapter's flood keeps.
 	MaxNetworkBlocks    int `json:"max_network_blocks"`
 	MaxNetworkDataBytes int `json:"max_network_data_bytes"`
@@ -370,7 +370,7 @@ func TestCommitLimitsMatchRust(t *testing.T) {
 		{"maxClientSends", maxClientSends, rust.MaxClientSends},
 		{"maxNameBytes", maxNameBytes, rust.MaxNameBytes},
 		{"maxStateValues", maxStateValues, rust.MaxStateValues},
-		{"maxStateCombinations", maxStateCombinations, rust.MaxStateCombinations},
+		{"maxStateBits", maxStateBits, rust.MaxStateBits},
 		{"maxBones", maxBones, rust.MaxBones},
 		{"maxPermutations", maxPermutations, rust.MaxPermutations},
 		{"maxMaterials", maxMaterials, rust.MaxMaterials},

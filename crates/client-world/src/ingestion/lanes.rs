@@ -197,9 +197,13 @@ fn classify_event(event: &WorldEvent, context: LaneContext) -> Footprint {
             retention: true,
             ..Footprint::session(C::NONE)
         },
-        WorldEvent::Respawn(_) => Footprint {
+        WorldEvent::Respawn(respawn) => Footprint {
             retention: true,
-            ..Footprint::session(C::CONTROLS)
+            ..Footprint::session(if respawn.ready_to_spawn() {
+                C::CONTROLS.with(C::UI)
+            } else {
+                C::CONTROLS
+            })
         },
         WorldEvent::MovePlayer(movement) if !local(movement.runtime_id) => {
             Footprint::session(C::ACTORS)
