@@ -134,12 +134,13 @@ fn scale_slider_without_a_visible_selection_changes_nothing_and_captures_no_card
 }
 
 #[test]
-fn scale_slider_bindings_report_fill_size_and_position() {
+fn scale_slider_bindings_report_fill_name_size_and_position() {
     let mut editor = editor(false);
     editor.draft.cards[0].offset = [37.4, 41.6];
     let data = editor.data();
     for (name, value) in [
         ("#hud_selected_scale_fill", Scalar::Num(0.)),
+        ("#hud_selected_name", Scalar::Text(String::new())),
         ("#hud_selected_size_text", Scalar::Text(String::new())),
         ("#hud_selected_position_text", Scalar::Text(String::new())),
     ] {
@@ -153,6 +154,10 @@ fn scale_slider_bindings_report_fill_size_and_position() {
     assert_eq!(
         data.global_value("#hud_selected_scale_fill"),
         Some(&Scalar::Num(at_scale(1.5)))
+    );
+    assert_eq!(
+        data.global_value("#hud_selected_name"),
+        Some(&Scalar::Text(editor.draft.cards[0].editor_name().into()))
     );
     assert_eq!(
         data.global_value("#hud_selected_size_text"),

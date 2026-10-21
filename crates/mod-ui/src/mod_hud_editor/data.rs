@@ -158,6 +158,10 @@ impl HudEditor {
         } else {
             Default::default()
         };
+        data.set_global(
+            "#hud_selected_name",
+            Scalar::Text(card.map_or_else(String::new, |card| card.editor_name().to_owned())),
+        );
         data.set_global("#hud_selected_size_text", Scalar::Text(size_text));
         data.set_global("#hud_selected_position_text", Scalar::Text(position_text));
         self.inspector.update(
