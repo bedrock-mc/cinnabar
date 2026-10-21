@@ -19,6 +19,9 @@ use ui_screens::recipe_book::BookEntry;
 
 type Outcome = Result<i32, InventoryGestureError>;
 
+/// The cartography table's map input slot.
+const CARTOGRAPHY_INPUT_SLOT: u8 = 12;
+
 /// The held stack and target stack a click starts from.
 struct PlaceSnapshot {
     target: InventoryTarget,
@@ -614,19 +617,33 @@ impl UiRuntime {
                 self.inventory_ledger_mut(player_runtime)
                     .begin_screen_output_into(&ScreenCraft::Loom { pattern }, sink)
             }
-            Some(WindowKind::Stonecutter | WindowKind::Smithing | WindowKind::Cartography) => {
+            Some(
+                kind @ (WindowKind::Stonecutter | WindowKind::Smithing | WindowKind::Cartography),
+            ) => {
                 let (recipe_network_id, output) = self
                     .active_screen_recipe(player_runtime)
                     .and_then(|recipe| Some((recipe.id, recipe.output?)))
                     .ok_or(InventoryGestureError::InvalidRequest)?;
+                let craft = if kind == WindowKind::Cartography {
+                    // Without a name box, restating the map's custom name keeps it.
+                    let name = self
+                        .inventory_ledger(player_runtime)
+                        .target_stack(InventoryTarget::Craft(CARTOGRAPHY_INPUT_SLOT))
+                        .and_then(|stack| protocol::item_custom_name(&stack.extra_data))
+                        .unwrap_or_else(|| std::sync::Arc::from(""));
+                    ScreenCraft::Cartography {
+                        recipe_network_id,
+                        output,
+                        name,
+                    }
+                } else {
+                    ScreenCraft::Predicted {
+                        recipe_network_id,
+                        output,
+                    }
+                };
                 self.inventory_ledger_mut(player_runtime)
-                    .begin_screen_output_into(
-                        &ScreenCraft::Predicted {
-                            recipe_network_id,
-                            output,
-                        },
-                        sink,
-                    )
+                    .begin_screen_output_into(&craft, sink)
             }
             Some(WindowKind::Trade { .. }) => self
                 .inventory_ledger_mut(player_runtime)
