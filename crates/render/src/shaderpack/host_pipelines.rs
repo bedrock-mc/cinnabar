@@ -1,5 +1,5 @@
 //! The host's own full-screen passes around a pack (`blit.wgsl`): scene copies, depth copies,
-//! the Vanilla overlay, presenting and mip downsampling.
+//! native overlay depth, presenting and mip downsampling.
 
 use super::plan::MAX_COLOR_BUFFERS;
 use wgpu::TextureFormat;
@@ -27,9 +27,6 @@ pub(crate) struct HostPipelines {
     pub scene_depth_attachment: Option<wgpu::RenderPipeline>,
     /// Copies geometry depth into float `depthtex`/`shadowtex`, per destination format.
     pub depth_copy: Vec<(TextureFormat, wgpu::RenderPipeline)>,
-    /// Overlays what the Vanilla scene draws in front of the pack's opaque geometry (actors,
-    /// particles, clouds) onto `colortex0` and the depth attachment.
-    pub vanilla_overlay: wgpu::RenderPipeline,
     /// `present` per view target format.
     pub present: Vec<(TextureFormat, wgpu::RenderPipeline)>,
     /// Copies pixels outside a camera viewport through the post-process target swap.
@@ -126,7 +123,6 @@ pub(super) fn host_pipelines(
         scene_depth_attachment: depth_targets
             .then(|| pipeline("scene_depth_attachment", &[], true)),
         depth_copy,
-        vanilla_overlay: pipeline("vanilla_overlay", &[target(colour0)], true),
         present: [
             render_scene::SCENE_COLOR_FORMAT,
             render_scene::SCENE_HDR_FORMAT,

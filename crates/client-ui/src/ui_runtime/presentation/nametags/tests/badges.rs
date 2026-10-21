@@ -118,7 +118,7 @@ fn badge_adds_no_frame_allocations_or_atlas_uploads() {
     let build = |tag: &NametagAnchor, layouts: &mut TextLayoutCache, atlas: &mut NametagAtlas| {
         build_nametag_scene(
             std::slice::from_ref(tag),
-            1.0,
+            None,
             &font,
             layouts,
             atlas,

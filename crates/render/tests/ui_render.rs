@@ -68,6 +68,17 @@ mod screen_overlay_render {
     }
 }
 
+mod shaderpack {
+    /// Standalone UI views use the ordinary scene boundary without a shader pack.
+    pub(crate) fn native_pass_enabled(
+        _: &bevy::prelude::World,
+        _: bevy::prelude::Entity,
+        after_pack: bool,
+    ) -> bool {
+        !after_pack
+    }
+}
+
 mod gpu_timing {
     /// Runs the UI fixture's draw system with profiling disabled.
     pub(crate) fn profiled<S, M>(

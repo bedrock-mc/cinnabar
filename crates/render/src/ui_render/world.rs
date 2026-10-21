@@ -12,11 +12,14 @@ pub(crate) type UiViewQuery = (
 );
 
 /// Draws projected UI in authored order after world filtering.
-pub(super) fn ui_world(
+pub(crate) fn ui_world<const AFTER_PACK: bool>(
     world: &World,
     view: bevy::render::renderer::ViewQuery<UiViewQuery>,
     mut context: RenderContext,
 ) -> bevy::ecs::error::Result {
+    if !crate::shaderpack::native_pass_enabled(world, view.entity(), AFTER_PACK) {
+        return Ok(());
+    }
     let Some(gpu) = world.get_resource::<UiGpu>() else {
         return Ok(());
     };

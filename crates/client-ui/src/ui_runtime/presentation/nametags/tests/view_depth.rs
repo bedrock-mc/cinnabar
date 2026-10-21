@@ -194,15 +194,15 @@ fn nearer_plates_attenuate_farther_text_in_every_sneak_combination() {
 /// Builds and styles a scene with the same lift scale used for sorting its planes.
 fn scaled_scene(anchors: &[NametagAnchor], scale: f32) -> NametagScene {
     let font = ui_engine::test_support::fixture_font();
+    let style = serde_json::from_value(serde_json::json!({"scale": scale})).unwrap();
     let mut scene = build_nametag_scene(
         anchors,
-        scale,
+        Some(&style),
         &font,
         &mut TextLayoutCache::new(8, 1 << 20),
         &mut NametagAtlas::default(),
         &|page| super::super::super::nametag_atlas::font_page(&font, page),
     );
-    let style = serde_json::from_value(serde_json::json!({"scale": scale})).unwrap();
     style_scene(&mut scene, &style, None);
     scene
 }
@@ -288,27 +288,28 @@ fn pitched_camera_sorts_lifted_multiline_planes_and_keeps_label_passes_together(
 
 #[test]
 fn lifted_sorting_uses_the_line_count_that_fits_the_record_budget() {
-    let forward = Vec3::new(0.0, 1.0, -1.0).normalize();
+    let forward = Vec3::new(0.0, -1.0, -1.0).normalize();
     let mut single = anchor("A");
     let placed_lines = (MAX_NAMETAG_RECORDS - NAMETAG_RECORDS_PER_LINE) / NAMETAG_RECORDS_PER_LINE;
-    let full_depth = 5.0 + forward.y * EXTRA_LINE_LIFT * (MAX_NAMETAG_LINES - 1) as f32;
-    let truncated_depth = 5.0 + forward.y * EXTRA_LINE_LIFT * (placed_lines - 1) as f32;
+    let head_depth = MAX_NAMETAG_LINES as f32 * EXTRA_LINE_LIFT;
+    let full_depth = head_depth + forward.y * EXTRA_LINE_LIFT * (MAX_NAMETAG_LINES - 1) as f32;
+    let truncated_depth = head_depth + forward.y * EXTRA_LINE_LIFT * (placed_lines - 1) as f32;
     single.view_depth = (full_depth + truncated_depth) * 0.5;
     single.position = forward * single.view_depth;
     let single_depth = single.view_depth;
     single.camera_forward_y = forward.y;
     let mut multiline = anchor(&vec!["A"; MAX_NAMETAG_LINES].join("\n"));
     multiline.runtime_id = 2;
-    multiline.position = forward * 5.0;
-    multiline.view_depth = 5.0;
+    multiline.position = forward * head_depth;
+    multiline.view_depth = head_depth;
     multiline.camera_forward_y = forward.y;
     let far_anchor = single.position.to_array();
     let near_anchor = multiline.position.to_array();
     let scene = scene(&[multiline, single]);
-    // The requested lift would put the multiline label beyond the single-line plane.
-    // Its budget-truncated lift leaves it nearer, so the single label still draws first.
+    // The full lift would put the multiline plane nearer than the already admitted single line.
+    // Its shorter prefix remains farther away and must draw first.
     assert!(
-        scene.records[..NAMETAG_RECORDS_PER_LINE]
+        scene.records[placed_lines * NAMETAG_RECORDS_PER_LINE..]
             .iter()
             .all(|record| record.anchor == far_anchor)
     );
@@ -316,7 +317,7 @@ fn lifted_sorting_uses_the_line_count_that_fits_the_record_budget() {
         scene.records.len(),
         NAMETAG_RECORDS_PER_LINE + placed_lines * NAMETAG_RECORDS_PER_LINE
     );
-    for record in &scene.records[NAMETAG_RECORDS_PER_LINE..] {
+    for record in &scene.records[..placed_lines * NAMETAG_RECORDS_PER_LINE] {
         assert_eq!(record.anchor, near_anchor);
         assert_eq!(
             record.line_lift,
@@ -324,7 +325,7 @@ fn lifted_sorting_uses_the_line_count_that_fits_the_record_budget() {
         );
         assert!(
             forward.dot(Vec3::from_array(record.anchor) + Vec3::Y * record.line_lift)
-                < single_depth
+                > single_depth
         );
     }
 }

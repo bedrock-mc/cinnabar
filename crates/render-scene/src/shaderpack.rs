@@ -134,8 +134,8 @@ pub struct ShaderPackRendering;
 pub const SKY_BIOME_SLOTS: usize = 4;
 /// The Vanilla categories the loaded pack draws itself on [`ShaderPackRendering`] cameras.
 /// Written in the render world by the shader-pack host each frame; the Vanilla terrain,
-/// far-terrain, actor, block-entity and hand passes skip those cameras for what is set, so
-/// the pack's Vanilla overlay never carries a second, Vanilla-lit copy.
+/// far-terrain passes skip those cameras for what is set. Native actor and hand commands
+/// retain only geometry the pack cannot replace and draw it over the completed pack.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ShaderPackDrawnCategories {
     /// Terrain: a section the pack has not expanded yet shows nothing, as Iris draws no

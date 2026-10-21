@@ -215,7 +215,7 @@ fn enhanced_lobby_replay_on_native_gpu() {
                 .insert_resource(render_scene::NametagSceneResource(
                     nametags::build_nametag_scene(
                         &anchors,
-                        1.0,
+                        None,
                         &font,
                         &mut layouts,
                         &mut atlas,
