@@ -92,7 +92,9 @@ impl TextPlate {
                 source.limit != 1
                     || source.brackets
                     || match &source.kind {
-                        NativeRows::Clock { .. } | NativeRows::TotemUses { .. } => false,
+                        NativeRows::Clock { .. }
+                        | NativeRows::TotemUses { .. }
+                        | NativeRows::WorldDays => false,
                         NativeRows::ItemCount { label, .. } => !label.is_empty(),
                         _ => true,
                     }

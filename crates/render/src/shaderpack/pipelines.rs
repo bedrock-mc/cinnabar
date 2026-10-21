@@ -78,8 +78,7 @@ fn effective_format_features(
 /// Device features that decide which pack buffer formats need a fallback.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct FormatSupport {
-    /// `FLOAT32_FILTERABLE`: 32-bit float buffers can be sampled with the shared filtering
-    /// sampler; without it they fall back to 16-bit floats.
+    /// `FLOAT32_FILTERABLE`: 32-bit float textures can use filtering samplers.
     pub float32_filterable: bool,
     /// `RG11B10UFLOAT_RENDERABLE`.
     pub rg11b10_renderable: bool,
@@ -135,7 +134,8 @@ impl FormatSupport {
 
 /// The renderable, sampleable wgpu format holding a pack buffer format. RGB formats gain
 /// an alpha channel; formats wgpu cannot render (snorm, shared exponent, packed 16-bit)
-/// widen to a float format with at least their range and precision.
+/// widen to a float format with at least their range and precision. Declared 32-bit float
+/// formats retain their storage-image format even when sampling cannot filter them.
 pub(crate) fn texture_format(format: BufferFormat, support: FormatSupport) -> TextureFormat {
     use BufferFormat as B;
     use TextureFormat as T;
@@ -161,9 +161,9 @@ pub(crate) fn texture_format(format: BufferFormat, support: FormatSupport) -> Te
         B::R16Snorm => support.float32(T::R32Float, T::R16Float),
         B::Rg16Snorm => support.float32(T::Rg32Float, T::Rg16Float),
         B::Rgb16Snorm | B::Rgba16Snorm => support.float32(T::Rgba32Float, T::Rgba16Float),
-        B::R32f => support.float32(T::R32Float, T::R16Float),
-        B::Rg32f => support.float32(T::Rg32Float, T::Rg16Float),
-        B::Rgb32f | B::Rgba32f => support.float32(T::Rgba32Float, T::Rgba16Float),
+        B::R32f => T::R32Float,
+        B::Rg32f => T::Rg32Float,
+        B::Rgb32f | B::Rgba32f => T::Rgba32Float,
         B::R8i => T::R8Sint,
         B::Rg8i => T::Rg8Sint,
         B::Rgb8i | B::Rgba8i => T::Rgba8Sint,

@@ -55,6 +55,9 @@ The Go core and local stream boundary are implemented. Keep authentication,
 encryption and upstream transports with the core, and client behavior with Rust.
 Changes still need current protocol conformance, bounded framing and lifecycle coverage.
 The pinned target comes from [the target manifest](assets/bedrock-target.json).
+Invalid saved-token contents recover through device sign-in, preserving the cache
+until authentication succeeds. Filesystem failures retain credential-free operation
+and numeric OS diagnostics. Live Windows recovery acceptance remains open.
 
 ## Phase 2 — World rendering
 
@@ -285,14 +288,26 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
 
 - [ ] `P5.1-UI` — Close pack-driven UI, bounded text/draw work, formatting, scaling,
   safe areas, focus/navigation and keyboard/mouse/controller/touch acceptance. Prove
+  stable retained resources and correct supported DPI/aspect behavior. Labels share primary/backup
+  face selection across measurement and painting; broader text acceptance remains open.
+  Rounded JSON-UI chrome supports bounded analytic box shadows with cached geometry;
+  full menu visual and hardware frame-work acceptance remains open.
+  Client-owned panel collections support bounded four-column card grids with
+  item-scoped expressions and vector artwork; hardware frame-work acceptance remains open.
   stable retained resources and correct supported DPI/aspect behavior. Tiled images
   retain full coverage with bounded repeat geometry across cropped regions and sliced
   borders; large collection admission and hardware frame-work acceptance remain incomplete.
   stable retained resources and correct supported DPI/aspect behavior. Form JSON
   container parsing and cleanup use heap stacks and accept line/block comments.
-  Structured text keeps its separate
-  container parsing and cleanup use heap stacks; structured text keeps its separate
-  validation limits. Extreme structured-text and rendered-form acceptance remain open.
+  Form display strings retain ordinary long literal and translated text separately
+  from chat byte budgets. Structured text keeps its component/depth validation limits;
+  extreme structured-text and live rendered-form acceptance remain open.
+  The per-form expansion budget (`MAX_FORM_TEXT_EXPANSION_BYTES`), shared by all display strings
+  and their nested arguments, is an unverified parity bound.
+  Rendering text beyond `MAX_TEXT_BYTES` remains an unverified parity gap.
+  Tiled images retain full coverage with bounded repeat geometry across cropped
+  regions and sliced borders; large collection admission and hardware frame-work
+  acceptance remain incomplete.
 - [ ] `P5.2-HUD` — Close received text, titles, actionbar, toasts, survival/status HUD
   and lifecycle behavior without leaking UI-owned input into movement.
 - [ ] `P5.3-CHAT` — Close history/autocomplete, formatting, bounded UTF-8 editing,
@@ -304,7 +319,14 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   combat, hotbar selection, stack/network-ID reconciliation and container/crafting
   prediction, acknowledgements, rollback and stale-session behavior.
   Native block requirements now cover every catalog identifier, including no-tool
-  beds; recipe tags share the pinned native catalog. Sword/shears speed rules,
+  beds; recipe tags share the pinned native catalog. Custom block mining retains
+  default, disabled and item-specific component values, including state overrides.
+  Discarded mining data stays unresolved, and item-tag filters compile during
+  session preparation for allocation-free evaluation.
+  Mining uncertainty leaves known physics and local placement prediction usable.
+  Mining states use separate storage and admission, preserving the physical state budget.
+  Complex item-tag scripts and live custom-block mining acceptance remain incomplete.
+  Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
 - [ ] `P5.6-FORMS` — Close modal/menu/custom form navigation, validation, cancellation
   and responses, including server-pack definitions, structured text, custom controls,
@@ -313,8 +335,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Busy cancellations retain every request through transport backpressure.
   Custom forms retain control locks and publish enabled bindings for the current
   game phase without removing locked response values; device acceptance remains open.
-  Server settings replies are cached until their tab is selected; embedding their
-  controls within the settings panel instead of a separate form remains incomplete.
+  Server settings retain drafts across tabs and submit their final values when
+  settings close. Embedding their controls within the settings panel instead of a
+  separate form remains incomplete.
   URL images use the UI texture-file allowance; aggregate encoded-image cache bounds
   and remaining image admission and download-deadline parity remain incomplete.
 - [ ] `P5.7-PARITY-PERF` — Qualify combined chat, scoreboard, boss bars, inventory and
@@ -415,7 +438,31 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   blur, element blur, route exits and current-world visual integration remain incomplete.
 - Native extension UI and HUD APIs (retained modules, profile fields, text plates,
   compass markers, totem annotations and bounded camera overrides) still need
+  displayed-frame pacing and complete rendering acceptance. Packet extensions now
+  negotiate bounded detached-view and passive camera effects through the shared
+  camera owners; interactive movement, perspective release, teleport and hurt-view
+  acceptance remain unverified in a displayed client. Panel previews now
+  select owner-scoped HUD cards, including preview-only cards, and share retained
+  gameplay artwork. Focused rendering and cache regressions cover visible previews;
+  populated-world and displayed-frame acceptance remain pending.
+  Personal panels and HUD editor surfaces can bind the host local player's name
+  and skin head, with neutral artwork when the identity is unavailable. Skin and
+  session changes retire the previous portrait; full in-world acceptance remains pending.
+  populated-world and displayed-frame acceptance remain pending. Panel motion
+  preferences now settle feedback, wheel scrolling and surface transitions
+  immediately, retain prepared routes and apply across route changes.
   displayed-frame pacing and complete rendering acceptance.
+  HUD layout editing stores nine anchors and GUI-pixel offsets after completed
+  moves, resizes and nudges, with an additive anchored-layout read and normalized
+  compatibility reads. Editor drags snap to neighboring cards, stacking gaps and
+  host-supplied native HUD bounds, with edge distances and Shift snap bypass.
+  Displayed-frame pacing acceptance remains pending.
+  Backdrop and element blur now limit downsampling to referenced mip levels and
+  cache the admitted maximum blur. Pixel-equivalence regressions are included;
+  executed GPU checks and measured frame-budget acceptance remain pending.
+  Server-day HUD rows now consume scoped native clock observations and leave missing
+  or stale clocks unknown. Clock/host regressions are included; executed checks and
+  populated-world acceptance remain pending.
 - Enhanced rendering remains restricted until its GPU faults and freezes are resolved.
   Diagnostics or bounded fixtures do not establish safe general gameplay use. Java
   shader-pack source loading and configuration metadata are implemented in

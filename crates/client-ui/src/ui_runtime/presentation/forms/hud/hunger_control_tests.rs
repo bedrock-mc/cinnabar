@@ -127,6 +127,7 @@ fn draw_with_factory(
                 renderers: &mut [&mut HudRenderer {
                     hud: &paint,
                     hunger_update: Some(&advance_hunger),
+                    bounds: None,
                 }],
             },
             |env, root| {

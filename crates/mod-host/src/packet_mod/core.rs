@@ -51,6 +51,7 @@ struct State {
 pub(super) struct Program {
     pre: InstancePre<State>,
     native_capabilities: u32,
+    camera_players: bool,
 }
 
 impl Program {
@@ -88,6 +89,7 @@ impl Program {
             Self {
                 pre,
                 native_capabilities,
+                camera_players: grants.players,
             },
             image_bytes,
         ))
@@ -138,6 +140,7 @@ impl Program {
             post(TICK)?,
             post(FRAME)?,
             post(MENU)?,
+            post(super::native_capabilities::CAMERA_FRAME)?,
         ];
         let frame = if self.native_capabilities & mod_api::native_frame::CAMERA_PLAYERS != 0 {
             Some(instance.get_typed_func(&mut store, FRAME)?)
@@ -149,6 +152,11 @@ impl Program {
         } else {
             None
         };
+        let camera_frame = if self.native_capabilities & mod_api::native_camera::CAPABILITY != 0 {
+            Some(instance.get_typed_func(&mut store, super::native_capabilities::CAMERA_FRAME)?)
+        } else {
+            None
+        };
         let calls = Calls {
             realloc: instance.get_typed_func(&mut store, REALLOC)?,
             start: instance.get_typed_func(&mut store, START)?,
@@ -156,6 +164,7 @@ impl Program {
             tick: instance.get_typed_func(&mut store, TICK)?,
             stop: instance.get_typed_func(&mut store, STOP)?,
             frame,
+            camera_frame,
             menu,
             posts,
         };
@@ -164,6 +173,7 @@ impl Program {
             memory,
             calls,
             deadline,
+            camera_players: self.camera_players,
         }))
     }
 }
@@ -176,9 +186,10 @@ struct Calls {
     tick: TypedFunc<(), i32>,
     stop: TypedFunc<(), ()>,
     frame: Option<TypedFunc<(i32, i32), i32>>,
+    camera_frame: Option<TypedFunc<(i32, i32), i32>>,
     menu: Option<TypedFunc<(i32, i32), i32>>,
     /// Post-return functions of `start`, `on-batch`, `tick` and optional `frame` and `menu`.
-    posts: [Option<TypedFunc<i32, ()>>; 5],
+    posts: [Option<TypedFunc<i32, ()>>; 6],
 }
 
 struct CoreGuest {
@@ -186,6 +197,7 @@ struct CoreGuest {
     memory: Memory,
     calls: Calls,
     deadline: wasi::CallDeadline,
+    camera_players: bool,
 }
 
 impl CoreGuest {
@@ -323,6 +335,25 @@ impl Guest for CoreGuest {
             .deadline
             .run(frame.call_async(&mut self.store, input))?;
         self.lift_bounded(3, result, mod_api::native_frame::MAX_BYTES, |reader, at| {
+            reader.result(at, |reader, at| reader.list(at).map(Some))
+        })
+    }
+
+    fn has_native_camera(&self) -> bool {
+        self.calls.camera_frame.is_some()
+    }
+    fn native_camera_players(&self) -> bool {
+        self.camera_players
+    }
+    fn camera_frame(&mut self, json: &[u8]) -> Result<Result<Option<Vec<u8>>, String>> {
+        let Some(frame) = self.calls.camera_frame.clone() else {
+            return Ok(Ok(None));
+        };
+        let input = self.lower(json)?;
+        let result = self
+            .deadline
+            .run(frame.call_async(&mut self.store, input))?;
+        self.lift_bounded(5, result, mod_api::native_frame::MAX_BYTES, |reader, at| {
             reader.result(at, |reader, at| reader.list(at).map(Some))
         })
     }

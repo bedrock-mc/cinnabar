@@ -63,6 +63,18 @@ trait Guest: Send {
     fn frame(&mut self, _json: &[u8]) -> Result<Result<Option<Vec<u8>>, String>> {
         Ok(Ok(None))
     }
+    /// Whether the optional general camera callback was negotiated.
+    fn has_native_camera(&self) -> bool {
+        false
+    }
+    /// Whether frame observations may include remote player positions.
+    fn native_camera_players(&self) -> bool {
+        self.has_native_frame()
+    }
+    /// Exchanges bounded generic camera effects, independently of legacy rotation support.
+    fn camera_frame(&mut self, _json: &[u8]) -> Result<Result<Option<Vec<u8>>, String>> {
+        Ok(Ok(None))
+    }
     /// Whether startup negotiated the optional focused menu capability.
     fn has_native_menu(&self) -> bool {
         false

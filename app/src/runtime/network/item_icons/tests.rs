@@ -325,8 +325,10 @@ fn custom_block_sheet_material_flags_survive_session_icon_compilation() {
         };
         let blocks = protocol::CustomBlocks {
             blocks: vec![protocol::CustomBlock {
+                mining: Default::default(),
                 state_physics_complete: false,
                 state_physics: Default::default(),
+                state_mining: Default::default(),
                 player_interact: false,
                 name: Arc::from("test:custom_cube"),
                 tags: Default::default(),
@@ -360,8 +362,10 @@ fn registry_items_named_after_custom_blocks_are_block_items() {
     items.identifiers = ["t:crate", "t:sword"].map(Arc::<str>::from).into();
     let blocks = protocol::CustomBlocks {
         blocks: vec![protocol::CustomBlock {
+            mining: Default::default(),
             state_physics_complete: false,
             state_physics: Default::default(),
+            state_mining: Default::default(),
             player_interact: false,
             name: "t:crate".into(),
             tags: Default::default(),

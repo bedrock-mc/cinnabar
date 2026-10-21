@@ -244,5 +244,10 @@ pub(super) fn paths<'a>(
     paths
 }
 
+/// Captures the same texture dependencies as ordinary screens for one retained fragment.
+pub(super) fn retained_paths(nodes: &[DrawNode]) -> Box<[Box<str>]> {
+    owned(Collected::new(nodes, ScreenArt::default()).paths)
+}
+
 #[cfg(test)]
 mod tests;

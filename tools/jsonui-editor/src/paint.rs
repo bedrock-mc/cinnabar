@@ -384,6 +384,7 @@ mod tests {
             layer: 0,
             alpha: 0.5,
             anim: None,
+            paint_region: None,
             draw,
             gates: Vec::new(),
         }

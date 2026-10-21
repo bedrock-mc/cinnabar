@@ -262,6 +262,9 @@ fn shaderpack_post(
     let device = world.resource::<RenderDevice>().wgpu_device().clone();
     let queue: wgpu::Queue = (**world.resource::<RenderQueue>()).clone();
     let destination_format = target.main_texture_format();
+    if !state.supports_presentation(destination_format) {
+        return Ok(());
+    }
     let (_, rotation, position) = view.world_from_view.to_scale_rotation_translation();
     let colours = super::uniforms::sky_fog(&inputs, rotation, position);
     let post = target.post_process_write();
@@ -370,6 +373,10 @@ pub(super) fn finish(app: &mut App) {
     );
     install_graph(render_app.world_mut());
 }
+
+#[cfg(test)]
+#[path = "plugin_tests.rs"]
+mod post_tests;
 
 #[cfg(test)]
 mod camera_tests {
