@@ -122,14 +122,15 @@ fn both_buttons_craft_from_engine_and_fallback_recipe_books() {
                     },
                 );
                 let ledger = player.inventory.ledger();
-                let cursor = ledger.cursor_stack().expect("recipe click must craft");
-                assert_eq!(cursor.network_id, output.network_id);
-                assert_eq!(cursor.count, u16::from(output.count));
+                // The consumed ingredient's slot is the first free one and takes the output.
+                let crafted = ledger.displayed_stack(0).expect("recipe click must craft");
+                assert_eq!(crafted.network_id, output.network_id);
+                assert_eq!(crafted.count, u16::from(output.count));
                 assert_eq!(
-                    u32::from_ne_bytes(cursor.block_runtime_id.to_ne_bytes()),
+                    u32::from_ne_bytes(crafted.block_runtime_id.to_ne_bytes()),
                     output.block_runtime_id
                 );
-                assert!(ledger.displayed_stack(0).is_none());
+                assert!(ledger.cursor_stack().is_none());
                 assert_eq!(ledger.pending_request_count(), 1);
                 assert!(ledger.pending_batch().unwrap().is_some());
             }

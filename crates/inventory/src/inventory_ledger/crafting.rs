@@ -64,7 +64,7 @@ pub enum CraftSink {
 }
 
 /// `(cell, amount, occupied destination stack id and count)`.
-type OutputPlacement = (Cell, u16, Option<(i32, u16)>);
+pub(super) type OutputPlacement = (Cell, u16, Option<(i32, u16)>);
 
 /// One presented grid cell resolved through the session item registry.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -423,7 +423,7 @@ impl PlayerInventoryLedger {
             }
             None => {
                 let plan = self
-                    .spread_plan(&created, capacity)
+                    .spread_plan(&created, capacity, &[])
                     .ok_or(InventoryGestureError::InvalidRequest)?;
                 for (cell, amount, into) in plan {
                     registry_bound_merge |= into.is_some();
@@ -459,14 +459,16 @@ impl PlayerInventoryLedger {
     }
 
     /// Splits `created` over player cells: compatible partial stacks first,
-    /// then empty cells, both in hotbar-first player slot order.
-    /// Each entry is `(cell, amount, occupied destination
-    /// stack id and count)`; `None` when the inventory cannot hold it all.
-    fn spread_plan(
+    /// then empty cells, both in hotbar-first player slot order, after the
+    /// same request's earlier `consumed` amounts. Each entry is `(cell, amount,
+    /// occupied destination stack id and count)`. The plan stops short when
+    /// the inventory cannot hold the whole stack.
+    pub(super) fn spread_plan_partial(
         &self,
         created: &NetworkItemStack,
         capacity: u8,
-    ) -> Option<Vec<OutputPlacement>> {
+        consumed: &[(Cell, u16)],
+    ) -> Vec<OutputPlacement> {
         let capacity = u16::from(capacity);
         let mut remaining = created.count;
         let mut plan = Vec::new();
@@ -476,8 +478,16 @@ impl PlayerInventoryLedger {
             })
             .map(Cell::Inventory)
             .collect();
+        let left = |cell: Cell, held: &Held| {
+            let used: u16 = consumed
+                .iter()
+                .filter(|(consumed, _)| *consumed == cell)
+                .map(|(_, amount)| *amount)
+                .sum();
+            held.stack.count.saturating_sub(used)
+        };
         for cell in &cells {
-            let Some(into) = self.view().get(*cell) else {
+            let Some(into) = self.view().get(*cell).filter(|held| left(*cell, held) > 0) else {
                 continue;
             };
             if remaining == 0 {
@@ -491,27 +501,40 @@ impl PlayerInventoryLedger {
             if !same || self.awaiting_identity(into) {
                 continue;
             }
-            let amount = remaining.min(capacity.saturating_sub(into.stack.count));
+            let count = left(*cell, into);
+            let amount = remaining.min(capacity.saturating_sub(count));
             if amount > 0 {
                 remaining -= amount;
-                plan.push((
-                    *cell,
-                    amount,
-                    Some((into.stack.stack_network_id, into.stack.count)),
-                ));
+                plan.push((*cell, amount, Some((into.stack.stack_network_id, count))));
             }
         }
         for cell in &cells {
             if remaining == 0 {
                 break;
             }
-            if self.view().get(*cell).is_none() {
+            if self
+                .view()
+                .get(*cell)
+                .is_none_or(|held| left(*cell, held) == 0)
+            {
                 let amount = remaining.min(capacity);
                 remaining -= amount;
                 plan.push((*cell, amount, None));
             }
         }
-        (remaining == 0).then_some(plan)
+        plan
+    }
+
+    /// The whole-stack [`Self::spread_plan_partial`], or `None` when it cannot all fit.
+    fn spread_plan(
+        &self,
+        created: &NetworkItemStack,
+        capacity: u8,
+        consumed: &[(Cell, u16)],
+    ) -> Option<Vec<OutputPlacement>> {
+        let plan = self.spread_plan_partial(created, capacity, consumed);
+        let placed: u16 = plan.iter().map(|(_, amount, _)| *amount).sum();
+        (placed == created.count).then_some(plan)
     }
 
     /// The server's current creative catalog.

@@ -803,7 +803,9 @@ impl UiRuntime {
                     .into_iter()
                     .next()
                     .ok_or(InventoryGestureError::InvalidRequest)?;
-                player_runtime.inventory.begin_book_craft(&recipe.recipe)
+                player_runtime
+                    .inventory
+                    .begin_book_craft(&recipe.recipe, false)
             }
             Widget::FurnaceClearRecipe => self
                 .inventory_ledger_mut(player_runtime)
@@ -811,8 +813,8 @@ impl UiRuntime {
         }
     }
 
-    /// A click on a recipe book entry: a creative item as on the catalog grid,
-    /// else auto-crafting the recipe into the cursor.
+    /// A click on a recipe book entry: a creative item as on the catalog grid, else
+    /// auto-crafting the recipe into the inventory; `into_inventory` (shift) crafts a stack.
     fn recipe_book_click(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
@@ -856,7 +858,9 @@ impl UiRuntime {
                 }
                 Ok(0)
             }
-            Some(Clicked::Recipe(recipe)) => player_runtime.inventory.begin_book_craft(&recipe),
+            Some(Clicked::Recipe(recipe)) => player_runtime
+                .inventory
+                .begin_book_craft(&recipe, into_inventory),
             Some(Clicked::Furnace(recipe)) => self
                 .inventory_ledger_mut(player_runtime)
                 .begin_furnace_recipe(&recipe),
