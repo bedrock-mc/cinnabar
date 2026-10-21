@@ -809,9 +809,8 @@ pub(crate) fn drive_chat_keyboard_input(
                         dismissed |= !runtime.inventory_open();
                     }
                 }
-                // A screen opened this frame takes its presses now; its opening suppresses the
-                // buttons.
-                PressRoute::Screen { opening } if opening > 0 => {
+                // Apply screen presses in arrival order before a later press can close it.
+                PressRoute::Screen { .. } => {
                     consumed.push(button);
                     inventory::apply_screen_presses(
                         &[button],
@@ -824,8 +823,7 @@ pub(crate) fn drive_chat_keyboard_input(
                         &time,
                     );
                 }
-                // Gameplay, and the screen open all frame, read the edge later.
-                PressRoute::Gameplay | PressRoute::Screen { .. } => kept.push(button),
+                PressRoute::Gameplay => kept.push(button),
             }
         }
         // A press a screen consumed cannot be replayed; gameplay presses keep their edge.

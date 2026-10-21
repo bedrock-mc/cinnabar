@@ -14,6 +14,103 @@ use ui_screens::container_actions::ReaderButton;
 const SIZE: [u32; 2] = [800, 600];
 
 #[test]
+fn mouse_back_preserves_an_earlier_inventory_click_in_the_same_frame() {
+    use super::super::{drive_chat_keyboard_input, drive_inventory_ui_actions};
+    use bevy::input::{keyboard::KeyboardInput, mouse::MouseButtonInput};
+    use client_ui::ui_runtime::presentation::screens;
+    use inventory::inventory_ledger::PLAYER_INVENTORY_SLOT_COUNT;
+    use protocol::{ContainerIdentity, InventoryContentEvent, InventoryEvent, NetworkItemStack};
+
+    let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
+    let mut runtime = client_ui::test_support::inventory_session(&mut player);
+    let ledger = runtime.inventory_ledger_mut(&mut player);
+    let entries = protocol::vanilla_item_registry();
+    let network_id = entries
+        .iter()
+        .find(|entry| entry.identifier.as_ref() == "minecraft:stone")
+        .unwrap()
+        .network_id;
+    ledger.apply_registry(&protocol::ItemRegistryEvent { entries });
+    let mut slots = vec![NetworkItemStack::empty(); PLAYER_INVENTORY_SLOT_COUNT];
+    slots[0] = NetworkItemStack {
+        network_id,
+        stack_network_id: 7,
+        count: 2,
+        ..NetworkItemStack::empty()
+    };
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity::window(0),
+        slots: slots.into(),
+        storage_item: NetworkItemStack::empty(),
+    }));
+    runtime.toggle_inventory(&mut player, None);
+    let ledger = runtime.inventory_ledger_mut(&mut player);
+    assert!(ledger.mark_transport_enqueued(0));
+    ledger.apply(&InventoryEvent::Open(protocol::ContainerOpenEvent {
+        container: ContainerIdentity::window(2),
+        window_type: inventory::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE,
+        position: [0, 0, 0],
+        runtime_entity_id: -1,
+    }));
+    let presentation = UiPresentationRuntime::with_hud(
+        ui_engine::test_support::fixture_font(),
+        client_ui::test_support::fixture_hud(),
+    )
+    .unwrap();
+    let gui_size = presentation
+        .inventory_gui_point(
+            UiPoint::new(SIZE[0] as f32, SIZE[1] as f32).unwrap(),
+            SIZE,
+            1.0,
+        )
+        .unwrap();
+    let origin = screens::panel_origin(InventoryScreen::Personal, gui_size);
+    let slot = screens::screen_slots(InventoryScreen::Personal)
+        .into_iter()
+        .find(|slot| slot.hit == InventoryCellHit::Player(0))
+        .unwrap();
+    let at = window_point(
+        &presentation,
+        [origin[0] + slot.pos[0] + 1.0, origin[1] + slot.pos[1] + 1.0],
+    );
+    let mut app = App::new();
+    app.add_message::<KeyboardInput>()
+        .add_message::<WindowEvent>()
+        .init_resource::<Time<Real>>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<AccumulatedMouseMotion>()
+        .insert_resource(player)
+        .insert_resource(UiRuntimeResource(runtime))
+        .insert_resource(UiPresentationResource(presentation))
+        .add_systems(
+            Update,
+            (drive_chat_keyboard_input, drive_inventory_ui_actions).chain(),
+        );
+    let window = app
+        .world_mut()
+        .spawn((window(at), CursorOptions::default(), PrimaryWindow))
+        .id();
+    for button in [MouseButton::Left, MouseButton::Back] {
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(button);
+        app.world_mut()
+            .write_message(WindowEvent::MouseButtonInput(MouseButtonInput {
+                button,
+                state: ButtonState::Pressed,
+                window,
+            }));
+    }
+    app.update();
+    assert!(!app.world().resource::<UiRuntimeResource>().inventory_open());
+    let player = app.world().resource::<client_state::PlayerRuntime>();
+    // The pickup survives closing, followed by the usual cursor return request.
+    assert_eq!(player.inventory.ledger().pending_request_count(), 2);
+    assert!(player.inventory.ledger().cursor_stack().is_none());
+}
+
+#[test]
 fn mouse_back_closes_inventory_with_or_without_ordered_pointer_events() {
     use super::super::{drive_chat_keyboard_input, drive_inventory_ui_actions};
     use bevy::input::{keyboard::KeyboardInput, mouse::MouseButtonInput};

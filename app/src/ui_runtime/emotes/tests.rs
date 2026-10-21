@@ -8,6 +8,45 @@ mod controller_inventory;
 mod network;
 
 #[test]
+fn mouse_back_bound_to_emote_toggles_the_wheel_once_per_press() {
+    let _catalog = cosmetics::test_support::playback_catalog();
+    let mut h = Harness::new();
+    let mut menu = MenuRuntime::new(false, 2, "Bindings".into());
+    let row = launcher::menu::settings_options::KEY_BINDINGS.len()
+        + launcher::menu::settings_options::EXTRA_KEYS
+            .iter()
+            .position(|(name, _)| *name == BindingId::Emote.name())
+            .unwrap();
+    assert!(client_shell::menu::test_support::remap_control(
+        &mut menu,
+        row,
+        semantic_input::PhysicalControl::MouseButton(
+            client_shell::physical_input::mouse_button_code(MouseButton::Back).unwrap()
+        )
+    ));
+    h.app.insert_resource(menu);
+    for open in [true, false] {
+        h.app
+            .world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Back);
+        h.app.update();
+        assert_eq!(h.runtime().emotes().is_open(), open);
+        assert!(
+            !h.app
+                .world()
+                .resource::<ButtonInput<MouseButton>>()
+                .just_pressed(MouseButton::Back)
+        );
+        h.app
+            .world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .reset_all();
+        h.app.update();
+    }
+}
+
+#[test]
 fn mouse_back_dismisses_the_emote_wheel_and_consumes_its_press() {
     let _catalog = cosmetics::test_support::playback_catalog();
     let mut h = Harness::new();

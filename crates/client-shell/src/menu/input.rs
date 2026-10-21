@@ -525,8 +525,10 @@ pub fn drive_menu_input(
     if mouse_buttons.just_pressed(MouseButton::Back) {
         menu.go_back_from_input();
         gui_scale_drag.cancel_pointer(&mut menu, &mut presentation);
-        *modifiers = MenuModifiers::default();
-        keyboard_messages.clear();
+        modifiers.capture_pressed(&keys);
+        for input in keyboard_messages.read() {
+            modifiers.observe(input);
+        }
         keys.reset_all();
         mouse_buttons.reset_all();
         if !menu.is_visible()

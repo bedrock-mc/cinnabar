@@ -281,7 +281,14 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
             });
         }
         input.observed.pointer = pointer;
-        if input.mouse.just_pressed(MouseButton::Back) {
+        if input.mouse.just_pressed(MouseButton::Back)
+            && !(mouse_toggled
+                && client_shell::menu::settings_options::control_bindings::binding_mouse_button(
+                    input.menu.as_deref(),
+                    BindingId::Emote,
+                    MouseButton::Back,
+                ))
+        {
             input
                 .runtime
                 .emotes_mut()
