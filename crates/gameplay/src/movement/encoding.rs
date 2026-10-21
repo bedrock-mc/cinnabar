@@ -82,7 +82,8 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
         )
         .with_mask(PlayerInputFlags::SPRINT_DOWN, sample.input.sprint_down)
         .with_mask(PlayerInputFlags::SPRINTING, sample.input.sprint_down);
-    if sample.processed.sneaking != previous.sneaking {
+    let previous_sneaking = sample.input.server_sneaking.unwrap_or(previous.sneaking);
+    if sample.processed.sneaking != previous_sneaking {
         flags |= if sample.processed.sneaking {
             PlayerInputFlags::START_SNEAKING
         } else {

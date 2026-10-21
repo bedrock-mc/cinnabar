@@ -215,6 +215,9 @@ client-predicted vehicle behavior. Riding alone does not establish that capabili
 Correction-sync acceptance still includes predicted flag coverage, scaled/horizontal
 poses and bounds, history loss, replay authority, send phase and live-server behavior.
 Animation-only flags must remain separate from gameplay and correction authority.
+Server sneak updates preserve local hold/toggle intent, and the next completed input
+corrects a conflicting stance through start/stop actions retained across tickless frames
+and replay. Live-server pickup and remote-player stance acceptance remains outstanding.
 Near-contact collision fixes do not establish complete collision-engine parity.
 
 See [gameplay/session ownership](docs/architecture/gameplay-session.md),
