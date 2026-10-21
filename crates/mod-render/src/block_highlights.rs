@@ -107,7 +107,7 @@ mod tests {
         );
         let edges = &vertices[VERTICES_PER_BLOCK..];
         let mut segments = std::collections::BTreeSet::new();
-        for quad in edges.chunks_exact(6) {
+        for quad in edges.as_chunks::<6>().0 {
             let a = quad[0].anchor[..3]
                 .iter()
                 .map(|v| *v as i32)
