@@ -110,7 +110,6 @@ pub(in crate::ui_runtime::presentation) fn anchor(name: &str) -> NametagAnchor {
             .into(),
         depth_tested: false,
         sneaking: false,
-        sneaking: false,
         text_alpha: 1.0,
         view_depth: 5.0,
         camera_forward_y: 0.0,
