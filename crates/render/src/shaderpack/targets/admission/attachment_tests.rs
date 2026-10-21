@@ -47,7 +47,16 @@ fn duplicate_active_colour_attachments_fail_view_admission() {
             ),
             ("composite.fsh", &fragment),
         ]));
-        let pack = build(&source, "attachments", "", None, &gpu, &Default::default()).unwrap();
+        let pack = build(
+            &source,
+            "attachments",
+            "",
+            None,
+            &gpu,
+            &Default::default(),
+            &Default::default(),
+        )
+        .unwrap();
         let state = ViewState::new(&gpu.device, Arc::new(pack), [4, 4]);
         assert_eq!(state.is_ok(), accepted, "{destinations}: {:?}", state.err());
     }
