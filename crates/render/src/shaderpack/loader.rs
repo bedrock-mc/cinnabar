@@ -813,6 +813,10 @@ pub(crate) fn build(
 }
 
 #[cfg(test)]
+#[path = "loader_validation_tests.rs"]
+mod validation_tests;
+
+#[cfg(test)]
 mod option_tests {
     use super::*;
 
