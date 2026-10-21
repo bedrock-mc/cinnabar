@@ -215,6 +215,8 @@ client-predicted vehicle behavior. Riding alone does not establish that capabili
 Correction-sync acceptance still includes predicted flag coverage, scaled/horizontal
 poses and bounds, history loss, replay authority, send phase and live-server behavior.
 Animation-only flags must remain separate from gameplay and correction authority.
+Snapped corrections and teleports keep the local input tick when the server stamp is
+unretained or ahead; acceptance on servers that stamp their own clock is outstanding.
 Near-contact collision fixes do not establish complete collision-engine parity.
 
 See [gameplay/session ownership](docs/architecture/gameplay-session.md),
