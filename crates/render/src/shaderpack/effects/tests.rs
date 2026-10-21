@@ -21,6 +21,42 @@ use std::sync::Arc;
 
 const WORDS: usize = (IRIS_VERTEX_STRIDE / 4) as usize;
 
+/// Reads a scalar or vector float constant from the compiled production shader.
+fn shader_constant(source: &str, name: &str) -> Vec<f32> {
+    let source = crate::shader_source::standalone(source, &[]);
+    let module = naga::front::wgsl::parse_str(&source).expect("effect shader parses");
+    let (_, constant) = module
+        .constants
+        .iter()
+        .find(|(_, constant)| constant.name.as_deref() == Some(name))
+        .expect("effect shader constant exists");
+    let value = |handle| match module.global_expressions[handle] {
+        naga::Expression::Literal(naga::Literal::F32(value)) => value,
+        _ => panic!("effect shader constant component is f32"),
+    };
+    match &module.global_expressions[constant.init] {
+        naga::Expression::Compose { components, .. } => {
+            components.iter().map(|&handle| value(handle)).collect()
+        }
+        _ => vec![value(constant.init)],
+    }
+}
+
+#[test]
+fn effect_constants_match_the_native_shaders() {
+    assert_eq!(
+        shader_constant(include_str!("../../lightning.wesl"), "BOLT_COLOUR"),
+        lines::BOLT_COLOUR,
+    );
+    assert_eq!(
+        shader_constant(
+            include_str!("../../weather.wesl"),
+            "REFERENCE_PROJECTION_SCALE",
+        ),
+        [weather::REFERENCE_PROJECTION_SCALE],
+    );
+}
+
 fn resolve(effect: Effect, provided: &[&str]) -> Option<&'static str> {
     resolve_program(DrawKind::Effect(effect).program(), |n| {
         provided.contains(&n)
@@ -455,6 +491,69 @@ fn snow_streaks_stop_at_the_column_surface() {
         Vec3::ZERO,
     );
     assert!(rain_streaks.indices.is_empty(), "rain draws as columns");
+}
+
+#[test]
+fn rain_columns_preserve_the_selected_sprite_u_coordinates() {
+    let mut grid = OcclusionGrid::default();
+    grid.origin = [-32, -32];
+    grid.heights.fill(render_model::OCCLUSION_OPEN);
+    for sheet in [
+        render_model::RAIN_PARAMS.uv_rect,
+        [0.5, 0.125, 0.125, 0.5],
+        [0.625, 0.125, -0.125, 0.5],
+    ] {
+        let mut mesh = Mesh::default();
+        rain_columns(
+            &mut mesh,
+            &grid,
+            sheet,
+            Vec3::new(0.5, 70.5, 0.5),
+            1.0,
+            37.25,
+        );
+        assert!(!mesh.indices.is_empty());
+        for quad in uvs(&mesh).as_chunks::<4>().0 {
+            for (uv, u) in
+                quad.iter()
+                    .zip([sheet[0], sheet[0] + sheet[2], sheet[0] + sheet[2], sheet[0]])
+            {
+                assert!((uv[0] - u).abs() < 1e-4, "{uv:?} must sample U {u}");
+            }
+        }
+        for vertex in mesh.words.as_chunks::<WORDS>().0 {
+            let mid_u = (vertex[5] & 0xffff) as f32 / 65535.0;
+            assert!((mid_u - (sheet[0] + 0.5 * sheet[2])).abs() < 1e-4);
+        }
+    }
+}
+
+#[test]
+fn rain_columns_keep_non_degenerate_repeats_at_large_camera_heights() {
+    let mut grid = OcclusionGrid::default();
+    grid.origin = [-32, -32];
+    grid.heights.fill(render_model::OCCLUSION_OPEN);
+    for height in [134_217_728.0, -134_217_728.0] {
+        let mut mesh = Mesh::default();
+        rain_columns(
+            &mut mesh,
+            &grid,
+            render_model::RAIN_PARAMS.uv_rect,
+            Vec3::new(0.5, height, 0.5),
+            1.0,
+            37.25,
+        );
+        let corners = positions(&mesh);
+        assert!(!corners.is_empty());
+        let lowest = corners.iter().map(|p| p.y).fold(f32::MAX, f32::min);
+        let highest = corners.iter().map(|p| p.y).fold(f32::MIN, f32::max);
+        assert!((lowest + 10.0).abs() < 1e-4, "{lowest}");
+        assert!((highest - 10.0).abs() < 1e-4, "{highest}");
+        for quad in corners.as_chunks::<4>().0 {
+            let height = quad[0].y - quad[3].y;
+            assert!(height > 0.0 && height <= 4.0 + 1e-4, "{height}");
+        }
+    }
 }
 
 #[test]
