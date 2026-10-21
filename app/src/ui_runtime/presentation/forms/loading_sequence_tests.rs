@@ -162,7 +162,6 @@ fn vanilla_loading_before_pack_arrival_survives_static_page_insertion() {
             sprites: Default::default(),
             loading_frames: Default::default(),
             animations: Default::default(),
-            source: None,
         })
         .unwrap();
     // Only the in-session dimension change keeps the pack's JSON-UI backdrop.
