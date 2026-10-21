@@ -47,6 +47,7 @@ fn unsupported_presentation_keeps_the_native_target() {
             None,
             &gpu,
             &default(),
+            &default(),
         )
         .unwrap(),
     );
