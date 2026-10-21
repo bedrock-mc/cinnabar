@@ -156,3 +156,31 @@ fn shadow_depth_copy_matches_unfilterable_float_targets() {
         assert_eq!(loaded.host.depth_copy_for(format), expected);
     }
 }
+
+#[test]
+fn full_screen_packs_keep_held_item_mappings() {
+    let gpu = validation_gpu();
+    let source = pack(&[
+        (
+            "item.properties",
+            "item.421=cinnabar:fixture_main\nitem.422=cinnabar:fixture_off\n",
+        ),
+        ("final.vsh", PASS_VERTEX),
+        ("final.fsh", FINAL),
+    ]);
+    let loaded = build(
+        &source,
+        "fixture",
+        JAVA_DIMENSIONS[0],
+        None,
+        &gpu,
+        &Default::default(),
+    )
+    .unwrap();
+    assert!(loaded.draws.is_empty());
+    assert!(loaded.block_ids.is_none());
+    let published = loaded.actor_ids.lookups(1);
+    assert_eq!(published.item_id("cinnabar:fixture_main"), Some(421));
+    assert_eq!(published.item_id("cinnabar:fixture_off"), Some(422));
+    assert_eq!(published.item_id("cinnabar:fixture_missing"), None);
+}
