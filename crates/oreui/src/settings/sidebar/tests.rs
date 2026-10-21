@@ -331,7 +331,8 @@ fn focused_category_outline_stays_clipped_to_its_sidebar_viewport() {
 #[test]
 fn account_is_followed_by_resources_without_an_empty_category_row() {
     use crate::review_tests::paint;
-    let view = MenuView::new(true, "Player".into());
+    let mut view = MenuView::new(true, "Player".into());
+    view.over_world = true;
     let (_, hits, _) = paint(HashMap::new(), |canvas| {
         draw(canvas, &view, [20.0, 20.0, 420.0, 1100.0], &|_| None, None).unwrap();
     });

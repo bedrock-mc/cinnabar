@@ -48,18 +48,16 @@ mod tests {
             String::new(),
             Default::default(),
         );
-        let json = r#"{"cards":[{"id":"days","source":{"kind":{"kind":"world_days"},"limit":1},"text_plate":{}}]}"#;
+        let json = r#"{"cards":[{"id":"days","rows":[],"source":{"kind":{"kind":"world_days"},"limit":1},"text_plate":{}}]}"#;
         assert!(
             super::super::set_content(&mut state, json.into())
                 .unwrap()
                 .is_err()
         );
         state.grants.player_state = true;
-        assert!(
-            super::super::set_content(&mut state, json.into())
-                .unwrap()
-                .is_ok()
-        );
+        super::super::set_content(&mut state, json.into())
+            .unwrap()
+            .unwrap();
         state.hud.commit();
         state.player_state.world = Some(crate::WorldObservation {
             session: 7,
