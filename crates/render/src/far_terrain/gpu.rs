@@ -794,7 +794,9 @@ type FarViews<'w, 's> = Query<
     With<Camera3d>,
 >;
 
-/// Culls tiles to each view's frustum and keeps its pipeline and bind group current.
+/// Culls tiles to each view's frustum and keeps its pipeline and bind group current. Shader
+/// pack cameras whose pack draws terrain get no tiles: the pack shows its own sky and fog
+/// beyond its terrain.
 pub(super) fn prepare_far_terrain_views(
     mut commands: Commands,
     device: Res<RenderDevice>,
@@ -802,6 +804,7 @@ pub(super) fn prepare_far_terrain_views(
     view_uniforms: Res<ViewUniforms>,
     mut gpu: ResMut<FarTerrainGpu>,
     mut views: FarViews,
+    pack: render_scene::shaderpack::ShaderPackDrawnViews,
 ) {
     // With nothing to draw no pipeline is compiled and no bind group is made.
     if gpu.draws.is_empty() {
@@ -846,6 +849,9 @@ pub(super) fn prepare_far_terrain_views(
             &clip_from_world,
         ));
         state.visible.clear();
+        if pack.replaces(entity, |drawn| drawn.terrain) {
+            continue;
+        }
         state.visible.extend(
             gpu.draws
                 .iter()

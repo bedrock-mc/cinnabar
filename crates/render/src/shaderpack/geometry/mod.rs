@@ -56,18 +56,11 @@ mod allocator;
 mod block_ids;
 mod draw;
 mod expansion_buffers;
-#[expect(dead_code, reason = "consumed by the shader-pack frame host")]
 mod gpu;
 pub(crate) mod jobs;
 mod pipelines;
-#[expect(dead_code, reason = "consumed by the shader-pack frame host")]
 mod residency;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "consumed by the shader-pack frame host")
-)]
 pub(super) mod shadow_cull;
-#[expect(dead_code, reason = "consumed by the shader-pack frame host")]
 mod vertex;
 
 use bevy::math::Mat4;
@@ -75,10 +68,12 @@ use bevy::prelude::{App, IntoScheduleConfigs, Plugin, World};
 use bevy::render::{Render, RenderApp, RenderSystems};
 
 pub use block_ids::{BlockEntityIdFn, ShaderpackBlockIds, UNASSIGNED_BLOCK_ID};
+pub(crate) use gpu::prepare_shaderpack_geometry;
 pub use gpu::{FRAME_EXPANSION_FACES, ShaderpackGeometry, ShaderpackGeometrySettings};
 pub use jobs::GeometryCategory;
-pub use residency::DEFAULT_GEOMETRY_BUDGET_BYTES;
-pub(crate) use vertex::f32_to_half;
+pub use residency::{DEFAULT_GEOMETRY_BUDGET_BYTES, device_geometry_budget};
+pub(crate) use shadow_cull::{ShadowCulling, ShadowFrustum};
+pub(crate) use vertex::{CONSTANT_STREAM_WORDS, f32_to_half, host_vertex};
 pub use vertex::{
     CONSTANT_VERTEX_BUFFER, DRAW_ORIGIN_VERTEX_BUFFER, GEOMETRY_VERTEX_BUFFER, IRIS_VERTEX_STRIDE,
     TerrainLayout, VertexLayoutError, vertex_buffer_layouts,
@@ -119,7 +114,9 @@ impl Plugin for ShaderpackGeometryPlugin {
             .add_systems(
                 Render,
                 crate::chunk::shaderpack_sources::after_packed_chunk_upload(
-                    gpu::prepare_shaderpack_geometry.in_set(RenderSystems::PrepareResources),
+                    gpu::prepare_shaderpack_geometry
+                        .after(RenderSystems::PrepareViews)
+                        .before(RenderSystems::Queue),
                 ),
             )
             .add_systems(bevy::render::RenderStartup, install_expansion_recording);

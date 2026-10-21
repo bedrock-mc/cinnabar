@@ -29,26 +29,51 @@ fn gpu() -> GpuContext {
 #[test]
 fn duplicate_active_colour_attachments_fail_view_admission() {
     let gpu = gpu();
-    for (destinations, second_output, accepted) in
-        [("00", true, false), ("01", true, true), ("00", false, true)]
-    {
-        let fragment = format!(
-            "#version 120\n/* DRAWBUFFERS:{destinations} */\nvoid main() {{ gl_FragData[0] = vec4(1.0); {} }}",
-            if second_output {
-                "gl_FragData[1] = vec4(0.5);"
-            } else {
-                ""
+    for program in ["composite", "gbuffers_terrain", "shadow"] {
+        for (destinations, second_output, accepted) in
+            [("00", true, false), ("01", true, true), ("00", false, true)]
+        {
+            let fragment = format!(
+                "#version 120\n/* DRAWBUFFERS:{destinations} */\nvoid main() {{ gl_FragData[0] = vec4(1.0); {} }}",
+                if second_output {
+                    "gl_FragData[1] = vec4(0.5);"
+                } else {
+                    ""
+                }
+            );
+            let vertex_name = format!("{program}.vsh");
+            let fragment_name = format!("{program}.fsh");
+            let vertex = "#version 120\nvoid main() { gl_Position = ftransform(); }";
+            let mut files = vec![
+                (vertex_name.as_str(), vertex),
+                (fragment_name.as_str(), fragment.as_str()),
+            ];
+            if program == "shadow" {
+                files.extend([
+                    ("gbuffers_basic.vsh", vertex),
+                    (
+                        "gbuffers_basic.fsh",
+                        "#version 120\nvoid main() { gl_FragColor = vec4(1.0); }",
+                    ),
+                ]);
             }
-        );
-        let source = shaderpack::ShaderPack::new(shaderpack::PackSource::from_files([
-            (
-                "composite.vsh",
-                "#version 120\nvoid main() { gl_Position = ftransform(); }",
-            ),
-            ("composite.fsh", &fragment),
-        ]));
-        let pack = build(&source, "attachments", "", None, &gpu, &Default::default()).unwrap();
-        let state = ViewState::new(&gpu.device, Arc::new(pack), [4, 4]);
-        assert_eq!(state.is_ok(), accepted, "{destinations}: {:?}", state.err());
+            let source = shaderpack::ShaderPack::new(shaderpack::PackSource::from_files(files));
+            let pack = build(&source, "attachments", "", None, &gpu, &Default::default()).unwrap();
+            if program != "composite" {
+                assert!(
+                    pack.draws
+                        .iter()
+                        .any(|draw| pack.programs[draw.program].name == program),
+                    "{program} must produce a draw"
+                );
+            }
+            let state = ViewState::new(&gpu.device, Arc::new(pack), [4, 4]);
+            assert_eq!(
+                state.is_ok(),
+                accepted,
+                "{program} {destinations}: {:?}",
+                state.err()
+            );
+        }
     }
 }

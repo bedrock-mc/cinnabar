@@ -114,7 +114,7 @@ fn prepare(
     gpu: Option<ResMut<LightmapGpu>>,
     atmosphere: Option<Res<crate::atmosphere_render::AtmosphereGpu>>,
 ) {
-    let inputs = (!fullbright.0).then_some(input.0);
+    let inputs = world_lightmap_inputs(&input, &fullbright);
     if let Some(mut gpu) = gpu {
         if gpu.inputs != inputs {
             queue.profiled_write_buffer(
@@ -153,8 +153,18 @@ fn prepare(
     });
 }
 
-/// Returns the current raw environment, or an unlit override for every table entry.
-fn light_table(inputs: Option<LightmapInputs>) -> [[f32; 4]; 256] {
+/// The lightmap inputs ordinary world passes light with this frame; `None` while a personal
+/// mod forces full brightness.
+pub(crate) fn world_lightmap_inputs(
+    lighting: &WorldLighting,
+    fullbright: &WorldFullbright,
+) -> Option<LightmapInputs> {
+    (!fullbright.0).then_some(lighting.0)
+}
+
+/// Every sky/block pair's light colour, indexed `sky << 4 | block`; all white under full
+/// brightness.
+pub(crate) fn light_table(inputs: Option<LightmapInputs>) -> [[f32; 4]; 256] {
     inputs.map_or([[1.0; 4]; 256], LightmapInputs::build)
 }
 

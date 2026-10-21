@@ -156,6 +156,17 @@ pub(crate) fn after_packed_chunk_upload<M>(
     systems.after(prepare_gpu_chunks)
 }
 
+/// Publishes a replacement decision before opaque and translucent terrain consume it.
+pub(crate) fn before_native_terrain_queues<M>(
+    systems: impl IntoScheduleConfigs<ScheduleSystem, M>,
+) -> ScheduleConfigs<ScheduleSystem> {
+    systems
+        .after(bevy::render::RenderSystems::PrepareViews)
+        .before(prepare_transparent_sorts)
+        .before(prepare_transparent_model_sorts)
+        .before(bevy::render::RenderSystems::Queue)
+}
+
 /// Whether terrain may draw through multi-draw-indirect on this device, by the packed chunk
 /// renderer's own policy; `None` when terrain cannot draw at all.
 pub(crate) fn terrain_multi_draw_indirect(

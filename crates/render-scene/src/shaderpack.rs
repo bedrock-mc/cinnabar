@@ -6,7 +6,8 @@
 use std::{collections::HashMap, fmt, path::PathBuf, sync::Arc};
 
 use bevy::{
-    prelude::{Component, Resource},
+    ecs::system::SystemParam,
+    prelude::{Component, Entity, Query, Res, Resource, With},
     render::{extract_component::ExtractComponent, extract_resource::ExtractResource},
 };
 
@@ -53,6 +54,36 @@ pub struct ShaderPackRendering;
 /// The most biomes [`ShaderPackFrameInputs::sky_biomes`] carries; the Gaussian blend's
 /// lighter biomes beyond these are dropped.
 pub const SKY_BIOME_SLOTS: usize = 4;
+/// The Vanilla categories the loaded pack draws itself on [`ShaderPackRendering`] cameras.
+/// Written in the render world by the shader-pack host each frame; the Vanilla terrain and
+/// far-terrain passes skip those cameras for what is set, so the pack's Vanilla overlay never
+/// carries a second, Vanilla-lit copy.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ShaderPackDrawnCategories {
+    /// Terrain: a section the pack has not expanded yet shows nothing, as Iris draws no
+    /// unbuilt section, rather than Vanilla-lit terrain or far-terrain tiles.
+    pub terrain: bool,
+}
+
+/// Which render-world views the pack draws a Vanilla category for, for the Vanilla
+/// renderers' queue systems.
+#[derive(SystemParam)]
+pub struct ShaderPackDrawnViews<'w, 's> {
+    drawn: Option<Res<'w, ShaderPackDrawnCategories>>,
+    cameras: Query<'w, 's, (), With<ShaderPackRendering>>,
+}
+
+impl ShaderPackDrawnViews<'_, '_> {
+    /// Whether the pack draws the category `which` picks on render-world view `view`.
+    #[must_use]
+    pub fn replaces(
+        &self,
+        view: Entity,
+        which: impl Fn(&ShaderPackDrawnCategories) -> bool,
+    ) -> bool {
+        self.drawn.as_deref().is_some_and(which) && self.cameras.contains(view)
+    }
+}
 
 /// Game state behind the standard Iris uniforms that the render world cannot derive from
 /// the view. Published each frame by the app; camera matrices, positions, screen size and
@@ -237,5 +268,34 @@ impl ShaderPackActorIds {
     #[must_use]
     pub fn entity_id(&self, runtime_id: u64) -> i32 {
         self.by_runtime_id.get(&runtime_id).copied().unwrap_or(-1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::{system::RunSystemOnce, world::World};
+
+    #[test]
+    fn only_pack_cameras_skip_the_terrain_the_pack_draws() {
+        let mut world = World::new();
+        let pack_view = world.spawn(ShaderPackRendering).id();
+        let vanilla_view = world.spawn_empty().id();
+        let skips = |world: &mut World| {
+            world
+                .run_system_once(move |pack: ShaderPackDrawnViews| {
+                    [pack_view, vanilla_view].map(|view| pack.replaces(view, |d| d.terrain))
+                })
+                .unwrap()
+        };
+        assert_eq!(skips(&mut world), [false, false], "no pack loaded");
+        world.insert_resource(ShaderPackDrawnCategories { terrain: true });
+        assert_eq!(skips(&mut world), [true, false]);
+        world.insert_resource(ShaderPackDrawnCategories::default());
+        assert_eq!(
+            skips(&mut world),
+            [false, false],
+            "a pack without terrain keeps the Vanilla terrain it composites"
+        );
     }
 }

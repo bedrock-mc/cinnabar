@@ -68,29 +68,82 @@ fn storage_size(size: u64, limits: &Limits) -> Result<(), String> {
     Ok(())
 }
 
+/// Rejects repeated active buffer attachments before a render pass can use them.
+fn validate_attachments(
+    program: &str,
+    kind: &str,
+    buffers: impl IntoIterator<Item = u32>,
+) -> Result<(), String> {
+    let mut seen = std::collections::BTreeSet::new();
+    for buffer in buffers {
+        if !seen.insert(buffer) {
+            return Err(format!("{program} attaches {kind}{buffer} more than once"));
+        }
+    }
+    Ok(())
+}
+
 /// Checks every view-sized request before any resources are created.
 pub(super) fn validate(pack: &PackGpu, screen: [u32; 2], limits: &Limits) -> Result<(), String> {
     texture_extent(TextureDimension::D2, [screen[0], screen[1], 1], limits)?;
     for program in &pack.programs {
-        let mut attachments = std::collections::BTreeSet::new();
-        for output in &program.reflection.color_outputs {
-            if program
-                .color_targets
-                .get(output.location as usize)
-                .copied()
-                .unwrap_or(false)
-                && let Some(buffer) = output.buffer
-                && !attachments.insert(buffer)
+        validate_attachments(
+            &program.name,
+            "colortex",
+            program
+                .reflection
+                .color_outputs
+                .iter()
+                .filter_map(|output| {
+                    program
+                        .color_targets
+                        .get(output.location as usize)
+                        .copied()
+                        .unwrap_or(false)
+                        .then_some(output.buffer)
+                        .flatten()
+                }),
+        )?;
+        if let Some(dispatch) = &program.reflection.compute {
+            let size = super::super::dispatch::extent(
+                program.group,
+                screen,
+                pack.shadow.as_ref().map(|shadow| shadow.slots.resolution),
+            );
+            super::super::dispatch::validate(dispatch, size, limits)
+                .map_err(|error| format!("{}: {error}", program.name))?;
+        }
+    }
+    for draw in &pack.draws {
+        let program = &pack.programs[draw.program];
+        validate_attachments(
+            &program.name,
+            if draw.kind.shadow() {
+                "shadowcolor"
+            } else {
+                "colortex"
+            },
+            draw.outputs.iter().flatten().copied(),
+        )?;
+        if draw.kind.shadow() {
+            continue;
+        }
+        let read_alt = super::draw_reads(pack, draw).alt;
+        let write_alt = if draw.kind.after_deferred() {
+            pack.frame.translucent_alt
+        } else {
+            pack.frame.scene_alt
+        };
+        for source in &program.images {
+            if let crate::shaderpack::resources::ImageSource::Buffer(buffer) = source
+                && draw.outputs.contains(&Some(*buffer))
+                && (read_alt ^ write_alt) & (1 << buffer) == 0
             {
                 return Err(format!(
-                    "{} attaches colortex{buffer} more than once",
+                    "{} binds colortex{buffer} as both storage image and attachment",
                     program.name
                 ));
             }
-        }
-        if let Some(dispatch) = &program.reflection.compute {
-            super::super::dispatch::validate(dispatch, screen, limits)
-                .map_err(|error| format!("{}: {error}", program.name))?;
         }
     }
     for buffer in &pack.buffers {

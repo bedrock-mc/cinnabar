@@ -6,6 +6,7 @@
 //! dominates the load, so the cache keeps the backend pipeline cache (Vulkan) in a private
 //! directory, keyed by the pack's content hash, the translation settings and the adapter.
 
+use super::draws::{GeometryDraw, GeometryStage, geometry_draws, select_draws};
 use super::host_pipelines::{HostPipelines, host_pipelines};
 use super::pipeline_cache::PipelineCacheFile;
 use super::pipelines::{
@@ -14,14 +15,15 @@ use super::pipelines::{
     texture_format,
 };
 use super::plan::{
-    BufferPlan, FramePlan, MAX_COLOR_BUFFERS, PlannedProgram, color_buffer_of, exchange_swap_back,
-    plan_buffers, plan_frame, skip_cleared_swap_back,
+    BufferPlan, FramePlan, MAX_COLOR_BUFFERS, PassStep, PlannedProgram, color_buffer_of,
+    exchange_swap_back, plan_buffers, plan_frame, skip_cleared_swap_back,
 };
 use super::resources::bindings::resolve_bindings;
 use super::resources::vanilla::VanillaTextures;
 use super::resources::{
     ATLAS_FORMAT, ConstantBuilder, ConstantTextures, ImageSource, TextureSource, image_formats,
 };
+use super::shadow_maps::{ShadowMaps, shadow_maps};
 use super::uniforms::PackSettings;
 use sha2::{Digest, Sha256};
 use shaderpack::{
@@ -48,6 +50,8 @@ pub(crate) enum ProgramPipeline {
     /// has no pipeline.
     Inert,
     Compute(wgpu::ComputePipeline),
+    /// A geometry program: its pipelines are per draw, in [`PackGpu::draws`].
+    Geometry,
 }
 
 /// One runnable program with its pipeline and resolved bindings.
@@ -132,10 +136,31 @@ pub(crate) struct PackGpu {
     pub zero_uniforms: wgpu::Buffer,
     pub quad: wgpu::Buffer,
     pub host: HostPipelines,
-    /// `entityId` and item ids per Bedrock identifier.
+    /// Geometry draws in recording order; empty when the pack has no terrain program, in
+    /// which case the Vanilla scene stands in for the gbuffers.
+    pub draws: Vec<GeometryDraw>,
+    /// The expanded vertex the pack's terrain draws read.
+    pub terrain_layout: super::geometry::TerrainLayout,
+    /// `shadowcomp*` compute passes after the shadow pass.
+    pub shadowcomp: Vec<PassStep>,
+    /// Present when some shadow draw resolved.
+    pub shadow: Option<ShadowMaps>,
+    /// `shadowTerrain` and `shadowTranslucent`: whether the shadow pass draws opaque and
+    /// translucent terrain (both by default).
+    pub shadow_terrain: bool,
+    pub shadow_translucent: bool,
+    /// `mc_Entity` id per Bedrock block state (by sequential id) from `block.properties`.
+    pub block_ids: Option<Arc<Vec<i32>>>,
+    /// `entityId` and item ids per Bedrock identifier, including full-screen-only packs.
     pub actor_ids: Arc<super::ids::ActorIdMaps>,
-    /// Pack-wide placeholder bound for the block atlas, which full-screen programs do not see.
+    /// `separateAo` and `oldLighting` from `shaders.properties`.
+    pub separate_ao: bool,
+    pub old_lighting: bool,
+    /// Pack-wide placeholder bound for the atlas until Cinnabar's atlas is built.
     pub atlas_placeholder: usize,
+    /// Pack-wide `lightmap` texture some geometry program samples; rewritten each frame the
+    /// world lightmap changes.
+    pub lightmap: Option<usize>,
 }
 
 impl PackGpu {
@@ -149,8 +174,8 @@ impl PackGpu {
 }
 
 /// Full-screen groups whose programs must all translate for the pack to load. Geometry
-/// programs (`gbuffers_*`, `shadow*`, `shadowcomp*`) are not run: the Vanilla scene stands in
-/// for them.
+/// programs (`gbuffers_*`, `shadow*`) fall back along Iris's chains instead, and
+/// `shadowcomp*` compute passes are optional.
 fn runs(group: ProgramGroup) -> bool {
     matches!(
         group,
@@ -161,9 +186,18 @@ fn runs(group: ProgramGroup) -> bool {
     )
 }
 
+/// Groups the host draws or dispatches, whose diagnostics are warnings.
+fn drawn(group: ProgramGroup) -> bool {
+    runs(group)
+        || matches!(
+            group,
+            ProgramGroup::Gbuffers | ProgramGroup::Shadow | ProgramGroup::ShadowComposite
+        )
+}
+
 /// Logs a program's diagnostics; failures of programs this host runs are warnings.
 fn log_program(pack: &str, program: &ProgramTranslation) {
-    let required = program.enabled && runs(program.program.group);
+    let required = program.enabled && drawn(program.program.group);
     for diagnostic in program.all_diagnostics() {
         let location = diagnostic
             .location
@@ -399,28 +433,63 @@ pub(crate) fn build(
                 .map_err(|error| format!("{}: {error}", program.program.name))?;
         }
     }
-    let (_, actor_ids) =
+    let (block_ids, actor_ids) =
         super::ids::id_tables(pack.id_maps(&config.environment, &config.options), name);
+    let (geometry, selected_draws) = select_draws(&translation.programs);
+    let shadowcomp: Vec<&ProgramTranslation> = translation
+        .programs
+        .iter()
+        .filter(|p| p.enabled && p.program.group == ProgramGroup::ShadowComposite)
+        .filter(|p| {
+            let compute = p.program.kind == ProgramKind::Compute && p.reflection.is_some();
+            if !compute {
+                bevy::log::warn!(
+                    target: "cinnabar::shaderpack",
+                    pack = name, program = %p.program.name,
+                    "skipped: only translated shadowcomp compute programs run"
+                );
+            }
+            compute
+        })
+        .collect();
     bevy::log::info!(
         target: "cinnabar::shaderpack",
         pack = name, folder = %config.folder,
         programs = translation.programs.len(), runnable = runnable.len(),
+        geometry = ?selected_draws
+            .iter()
+            .map(|(kind, i)| format!("{kind:?}={}", geometry[*i].program.name))
+            .collect::<Vec<_>>(),
         "translated in {:.0?}", started.elapsed()
     );
-    let reflections: Vec<&ProgramReflection> = runnable
+    // Full-screen programs first (frame-plan indices), then geometry, then shadowcomp.
+    let all: Vec<&ProgramTranslation> = runnable
         .iter()
-        .filter_map(|p| p.reflection.as_ref())
+        .chain(&geometry)
+        .chain(&shadowcomp)
+        .copied()
         .collect();
+    let reflections: Vec<&ProgramReflection> =
+        all.iter().filter_map(|p| p.reflection.as_ref()).collect();
+    let geometry_plans: Vec<PlannedProgram> = geometry
+        .iter()
+        .filter(|p| p.program.group == ProgramGroup::Gbuffers)
+        .filter_map(|p| {
+            p.reflection
+                .as_ref()
+                .map(|r| planned(p, r, &translation.properties))
+        })
+        .collect::<Result<_, _>>()?;
     let mut frame = plan_frame(&plans, &translation.properties.flips)?;
     let buffers = plan_buffers(
         &plans,
-        &[],
+        &geometry_plans,
         &frame,
         &translation.buffers,
         &translation.properties.buffer_sizes,
     )?;
     skip_cleared_swap_back(&mut frame, &buffers, &plans);
-    exchange_swap_back(&mut frame, &plans, &[])?;
+    exchange_swap_back(&mut frame, &plans, &geometry_plans)?;
     let support = gpu.support();
     let mut buffer_formats = [None; MAX_COLOR_BUFFERS as usize];
     for buffer in &buffers {
@@ -443,7 +512,20 @@ pub(crate) fn build(
         }
     }
     let depth_format = TextureFormat::R32Float;
-    let settings = pack_settings(&translation.programs);
+    let mut settings = pack_settings(&translation.programs);
+    settings.shadow.culling = translation
+        .properties
+        .get("shadow.culling")
+        .and_then(super::geometry::ShadowCulling::parse)
+        .unwrap_or_default();
+    // Iris takes a geometry stage on `shadow` for voxelization.
+    settings.shadow.voxelizes = translation.programs.iter().any(|p| {
+        p.enabled
+            && p.program.name == "shadow"
+            && p.stages
+                .iter()
+                .any(|s| s.stage == shaderpack::StageKind::Geometry)
+    });
 
     let scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
     let render_device = bevy::render::renderer::RenderDevice::from(gpu.device.clone());
@@ -467,8 +549,10 @@ pub(crate) fn build(
         let mut constants = ConstantBuilder::new(gpu, pack, &translation, vanilla, support);
         let mut depth_compare = [false; 3];
         let mut depth_sampled = [false; 3];
-        let mut programs = Vec::with_capacity(runnable.len());
-        for (program, reflection) in runnable.iter().zip(&reflections) {
+        let mut programs = Vec::with_capacity(all.len());
+        // Per geometry program: its pipeline layout, vertex module and fragment stage.
+        let mut geometry_stages = vec![];
+        for (program, reflection) in all.iter().zip(&reflections) {
             let bindings = resolve_bindings(
                 &mut constants,
                 program.program.group,
@@ -509,6 +593,51 @@ pub(crate) fn build(
                 .map(|c| (c.stage, c.module.clone()))
                 .collect();
             let modules = shader_modules(&gpu.device, &program.program.name, &stages);
+            if matches!(
+                program.program.group,
+                ProgramGroup::Gbuffers | ProgramGroup::Shadow
+            ) {
+                if program.program.group == ProgramGroup::Shadow {
+                    for buffer in reflection.color_outputs.iter().filter_map(|o| o.buffer) {
+                        let (slot, _) = constants.shadow_color(buffer)?;
+                        if bindings.textures.iter().any(|source| matches!(source, TextureSource::Constant { index, .. } if *index == slot)) {
+                            return Err(format!("{} samples shadowcolor{buffer} while writing it", program.program.name));
+                        }
+                    }
+                }
+                let vertex = modules
+                    .into_iter()
+                    .find(|(s, _)| *s == StageKind::Vertex)
+                    .map(|(_, m)| m);
+                let fragment = stages
+                    .into_iter()
+                    .find(|(s, _)| *s == StageKind::Fragment)
+                    .map(|(_, m)| m);
+                let (Some(vertex), Some(fragment)) = (vertex, fragment) else {
+                    return Err(format!(
+                        "{} needs a vertex and a fragment stage",
+                        program.program.name
+                    ));
+                };
+                geometry_stages.push(GeometryStage {
+                    program: programs.len(),
+                    layout: pipeline_layout,
+                    vertex,
+                    fragment,
+                });
+                programs.push(GpuProgram {
+                    name: program.program.name.clone(),
+                    group: program.program.group,
+                    reflection: (*reflection).clone(),
+                    pipeline: ProgramPipeline::Geometry,
+                    layouts,
+                    textures: bindings.textures,
+                    images: bindings.images,
+                    color_targets: vec![],
+                    scale: None,
+                });
+                continue;
+            }
             let module =
                 |stage: StageKind| modules.iter().find(|(s, _)| *s == stage).map(|(_, m)| m);
             let entry = |stage: StageKind| {
@@ -613,22 +742,66 @@ pub(crate) fn build(
                     .cloned(),
             });
         }
+        let shadow_slots = constants.shadow_slots();
+        let draws = geometry_draws(
+            gpu,
+            pipeline_cache.as_ref().map(|c| &c.cache),
+            &selected_draws,
+            &geometry_stages,
+            &programs,
+            &translation.properties,
+            &buffer_formats,
+            &shadow_slots,
+        );
+        // `shadowtex0` can be the attachment itself unless a shadow program samples it while
+        // the pass draws.
+        let shadowtex0 = shadow_slots.depth[0]
+            .filter(|slot| {
+                !draws.iter().filter(|d| d.kind.shadow()).any(|d| {
+                    programs[d.program].textures.iter().any(
+                        |source| matches!(source, TextureSource::Constant { index, .. } if index == slot),
+                    )
+                })
+            })
+            .map(|slot| (slot, constants.constant(slot)));
+        let shadow = draws
+            .iter()
+            .any(|d| d.kind.shadow())
+            .then(|| shadow_maps(gpu, shadow_slots, &translation.buffers, shadowtex0));
+        let shadowcomp = (runnable.len() + geometry.len()..programs.len())
+            .map(|program| PassStep {
+                program,
+                read_alt: 0,
+                writes: vec![],
+                mipmaps: vec![],
+                mipmapped: 0,
+            })
+            .collect();
+        let block_ids = block_ids.filter(|_| !draws.is_empty());
         let atlas_placeholder = constants
             .placeholder(ATLAS_FORMAT, shaderpack::TextureDimension::D2, false)?
             .0;
+        let flag = |key: &str| translation.properties.get(key) == Some("true");
         let mipmap_formats: Vec<TextureFormat> = buffers
             .iter()
             .filter(|b| b.mipmapped)
             .filter_map(|b| buffer_formats[b.index as usize])
             .filter(|f| format_kind(*f) == Kind::Float)
             .collect();
+        let shadow_depth_formats: Vec<_> = shadow
+            .as_ref()
+            .into_iter()
+            .flat_map(|shadow| shadow.slots.float.iter().flatten())
+            .map(|slot| constants.constant(*slot).texture.format())
+            .collect();
         let host = host_pipelines(
             &gpu.device,
             &buffer_formats,
             depth_format,
-            depth_compare.contains(&true),
-            super::targets::float_depths(depth_sampled),
+            depth_compare.contains(&true) || !draws.is_empty(),
+            super::targets::float_depths(draws.is_empty(), depth_sampled),
             &mipmap_formats,
+            &shadow_depth_formats,
         );
         let shader_storage = storage_sizes(&reflections, &translation.properties)?;
         let max_uniform = reflections
@@ -661,6 +834,7 @@ pub(crate) fn build(
             compare: Some(wgpu::CompareFunction::LessEqual),
             ..Default::default()
         });
+        let lightmap = constants.lightmap_slot();
         let constants = constants.finish();
         let loaded = PackGpu {
             name: name.to_string(),
@@ -685,8 +859,21 @@ pub(crate) fn build(
             zero_uniforms,
             quad,
             host,
+            terrain_layout: draws
+                .iter()
+                .find_map(|d| d.layout)
+                .unwrap_or(super::geometry::TerrainLayout::WIDE),
+            draws,
+            shadowcomp,
+            shadow,
+            shadow_terrain: translation.properties.get("shadowTerrain") != Some("false"),
+            shadow_translucent: translation.properties.get("shadowTranslucent") != Some("false"),
+            block_ids,
             actor_ids,
+            separate_ao: flag("separateAo"),
+            old_lighting: flag("oldLighting"),
             atlas_placeholder,
+            lightmap,
         };
         Ok((loaded, pipeline_cache))
     });
@@ -747,6 +934,10 @@ fn storage_binding_size(minimum: u32, declared: u64) -> Result<u64, String> {
 }
 
 #[cfg(test)]
+#[path = "loader_validation_tests.rs"]
+mod validation_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -782,39 +973,6 @@ mod tests {
             setting_program(ProgramGroup::Composite, false, "90.0"),
         ];
         assert_eq!(pack_settings(&programs).sun_path_rotation, 45.0);
-    }
-
-    #[test]
-    fn unsupported_outputs_fail_before_partial_write_masks() {
-        for index in [MAX_COLOR_BUFFERS - 1, MAX_COLOR_BUFFERS, 32] {
-            for (fragment, properties) in [
-                ("if (gl_FragCoord.x < 0.0) discard;", ""),
-                ("", "scale.composite=0.5\n"),
-            ] {
-                let fragment = format!(
-                    "#version 330 compatibility\n/* RENDERTARGETS:{index} */\n\
-                     void main() {{ {fragment} gl_FragData[0] = vec4(1.0); }}"
-                );
-                let pack = ShaderPack::new(shaderpack::PackSource::from_files([
-                    (
-                        "composite.vsh",
-                        "#version 330 compatibility\nvoid main() { gl_Position = gl_Vertex; }",
-                    ),
-                    ("composite.fsh", fragment.as_str()),
-                    ("shaders.properties", properties),
-                ]));
-                let translation = pack.translate(&Default::default());
-                let reflection = translation.programs[0]
-                    .reflection
-                    .as_ref()
-                    .expect("translated output fixture");
-                assert_eq!(reflection.color_outputs[0].buffer, Some(index));
-                assert_eq!(
-                    runnable_programs(&translation).is_ok(),
-                    index < MAX_COLOR_BUFFERS
-                );
-            }
-        }
     }
 
     #[test]

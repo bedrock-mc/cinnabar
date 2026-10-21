@@ -1,6 +1,8 @@
 //! The render-world geometry resource: preparing expansion work and draw lists each frame, and
 //! recording the expansion before any camera draws.
 
+mod views;
+
 use std::collections::HashMap;
 
 use bevy::log::{debug, warn};
@@ -15,7 +17,7 @@ use bevy::render::render_resource::{
 use bevy::render::renderer::{RenderAdapter, RenderContext, RenderDevice, RenderQueue};
 use bevy::render::view::{ExtractedView, RenderVisibleEntities};
 use meshing::ChunkBiomeTintIdentity;
-use render_scene::{ChunkRenderInstance, ChunkTextureAssets};
+use render_scene::{ChunkTextureAssets, RuntimeStage, RuntimeStageProfiler};
 
 use super::block_ids::{ShaderpackBlockIds, material_attribute_words};
 use super::draw::{DrawInputs, ViewDraws, face_indices};
@@ -501,10 +503,13 @@ pub(crate) struct GeometryInputs<'w> {
     textures: Option<Res<'w, ChunkTextureAssets>>,
     atlas: Option<Res<'w, ShaderpackAtlas>>,
     block_ids: Option<Res<'w, ShaderpackBlockIds>>,
+    /// The pack's `far`, the client render distance in blocks.
+    frame: Option<Res<'w, render_scene::shaderpack::ShaderPackFrameInputs>>,
     pipelines: Res<'w, ExpansionPipelines>,
     cache: Res<'w, PipelineCache>,
     device: Res<'w, RenderDevice>,
     queue: Res<'w, RenderQueue>,
+    profiler: Option<Res<'w, RuntimeStageProfiler>>,
 }
 
 type GeometryViews<'w, 's> = Query<
@@ -526,6 +531,10 @@ pub(crate) fn prepare_shaderpack_geometry(
     mut sections: ResidentSections,
     views: GeometryViews,
 ) {
+    let _timer = inputs
+        .profiler
+        .as_deref()
+        .map(|profiler| profiler.time(RuntimeStage::ShaderpackGeometry));
     geometry.prepared = PreparedExpansion::default();
     let settings = inputs.settings.as_deref().cloned().unwrap_or_default();
     if !settings.enabled || !geometry.supported {
@@ -672,7 +681,19 @@ pub(crate) fn prepare_shaderpack_geometry(
     if geometry.residency.pending_len() == 0 {
         geometry.budget_horizon = None;
     }
-    build_draws(geometry, &inputs.device, &inputs.queue, &sources, &views);
+    let far = inputs
+        .frame
+        .as_deref()
+        .map(|frame| frame.render_distance)
+        .filter(|far| *far > 0.0);
+    views::build_draws(
+        geometry,
+        &inputs.device,
+        &inputs.queue,
+        &sources,
+        &views,
+        far,
+    );
 }
 
 impl ShaderpackGeometry {
@@ -891,92 +912,45 @@ fn expand_params(
     params
 }
 
-/// Draw lists per camera view of its visible resident sections, leaving out faces the camera
-/// sees only from behind. A view's list is rebuilt only when the sections it lists, the
-/// camera's section or the facing groups it sees change.
-fn build_draws(
-    geometry: &mut ShaderpackGeometry,
-    device: &RenderDevice,
-    queue: &RenderQueue,
-    sources: &PackedChunkSources,
-    views: &GeometryViews,
-) {
-    let epoch = geometry.residency.epoch;
-    let mut max_faces = 0;
-    geometry
-        .views
-        .retain(|entity, _| views.get(*entity).is_ok());
-    for (entity, view, visible, _) in views.iter() {
-        let eye = view.world_from_view.translation().as_dvec3();
-        let inputs = DrawInputs::new(
-            visible
-                .get::<ChunkRenderInstance>()
-                .into_iter()
-                .flat_map(|class| class.iter_visible())
-                .map(|(entity, _)| *entity)
-                .filter(|entity| !sources.is_hidden(*entity))
-                .filter_map(|entity| geometry.residency.sections.get(&entity)),
-            Some(eye),
-            epoch,
-            geometry.residency.generation,
-            Some(eye),
-        );
-        let key = inputs.key();
-        if geometry
-            .views
-            .get(&entity)
-            .is_some_and(|draws| draws.is_current(key))
-        {
-            continue;
-        }
-        let built = ViewDraws::build(&inputs);
-        max_faces = max_faces.max(built.max_faces());
-        geometry.views.entry(entity).or_default().replace(
-            built,
-            key,
-            device,
-            queue,
-            geometry.multi_draw,
-        );
-    }
-    if max_faces > 0 {
-        geometry.ensure_index_buffer(device, max_faces);
-    }
-}
-
 /// Records this frame's expansion dispatches ahead of camera passes.
 pub(crate) fn record_geometry_expansion(
     mut geometry: ResMut<ShaderpackGeometry>,
     pipelines: Res<ExpansionPipelines>,
     cache: Res<PipelineCache>,
+    timestamps: Option<Res<crate::gpu_timing::GpuTimestamps>>,
     mut context: RenderContext,
 ) {
     let prepared = std::mem::take(&mut geometry.prepared);
     if prepared.dispatches.is_empty() {
         return;
     }
-    let mut pass = context
-        .command_encoder()
-        .begin_compute_pass(&ComputePassDescriptor {
-            label: Some("shader-pack terrain expansion"),
-            ..default()
-        });
-    for dispatch in &prepared.dispatches {
-        let Some(pipeline) =
-            cache.get_compute_pipeline(pipelines.pipelines[dispatch.kind as usize])
-        else {
-            continue;
-        };
-        let groups = dispatch.jobs.div_ceil(EXPAND_WORKGROUP_SIZE);
-        if groups == 0 {
-            continue;
-        }
-        let x = groups.min(u16::MAX as u32);
-        pass.set_pipeline(pipeline);
-        pass.set_bind_group(0, &dispatch.sources, &[]);
-        pass.set_bind_group(1, &dispatch.output, &[]);
-        pass.dispatch_workgroups(x, groups.div_ceil(x), 1);
-    }
+    crate::gpu_timing::within_stage(
+        timestamps.as_deref(),
+        RuntimeStage::GpuShaderpackExpansion,
+        context.command_encoder(),
+        |encoder| {
+            let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                label: Some("shader-pack terrain expansion"),
+                ..default()
+            });
+            for dispatch in &prepared.dispatches {
+                let Some(pipeline) =
+                    cache.get_compute_pipeline(pipelines.pipelines[dispatch.kind as usize])
+                else {
+                    continue;
+                };
+                let groups = dispatch.jobs.div_ceil(EXPAND_WORKGROUP_SIZE);
+                if groups == 0 {
+                    continue;
+                }
+                let x = groups.min(u16::MAX as u32);
+                pass.set_pipeline(pipeline);
+                pass.set_bind_group(0, &dispatch.sources, &[]);
+                pass.set_bind_group(1, &dispatch.output, &[]);
+                pass.dispatch_workgroups(x, groups.div_ceil(x), 1);
+            }
+        },
+    );
 }
 
 /// Requires the atlas and packed tables to represent the selected texture source.

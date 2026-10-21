@@ -113,6 +113,20 @@ pub(crate) struct ConstantTexture {
     dimension: TextureDimension,
 }
 
+/// The shadow maps some program binds, as indices of pack-wide textures. The shadow pass
+/// renders into them each frame.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ShadowSlots {
+    /// Side of every shadow map.
+    pub resolution: u32,
+    /// `shadowtex0`/`shadowtex1` read through the comparison sampler (depth formats).
+    pub depth: [Option<usize>; 2],
+    /// `shadowtex0`/`shadowtex1` read as floats.
+    pub float: [Option<usize>; 2],
+    /// `shadowcolorN` by N, with its format.
+    pub color: Vec<(u32, usize, TextureFormat)>,
+}
+
 /// Pack-wide textures, indexed by [`TextureSource::Constant`] and [`ImageSource::Constant`].
 #[derive(Default)]
 pub(crate) struct ConstantTextures {
@@ -126,6 +140,7 @@ enum Key {
     ShadowDepth(u32),
     ShadowFloat(u32),
     ShadowColor(u32),
+    Lightmap,
     Placeholder(TextureFormat, TextureDimension, bool),
 }
 
@@ -189,6 +204,11 @@ impl<'a> ConstantBuilder<'a> {
         self.out.textures.push(texture);
         self.keys.insert(key, (index, format));
         (index, format)
+    }
+
+    /// The pack-wide texture at `index`.
+    pub(crate) fn constant(&self, index: usize) -> &ConstantTexture {
+        &self.out.textures[index]
     }
 
     /// Creates a texture and retains the exact dimension of its bound view.
@@ -588,6 +608,52 @@ impl<'a> ConstantBuilder<'a> {
         let found = self.push(Key::ShadowColor(index), texture);
         self.clears.push((found.0, wgpu::LoadOp::Clear(1.0), false));
         Ok(found)
+    }
+
+    /// The shadow maps created so far: call after every program is resolved.
+    pub(crate) fn shadow_slots(&self) -> ShadowSlots {
+        let found = |key: Key| self.keys.get(&key).map(|(index, _)| *index);
+        let mut color: Vec<_> = self
+            .keys
+            .iter()
+            .filter_map(|(key, (index, format))| match key {
+                Key::ShadowColor(i) => Some((*i, *index, *format)),
+                _ => None,
+            })
+            .collect();
+        color.sort_unstable_by_key(|(i, ..)| *i);
+        ShadowSlots {
+            resolution: self.shadow_resolution,
+            depth: [0, 1].map(|i| found(Key::ShadowDepth(i))),
+            float: [0, 1].map(|i| found(Key::ShadowFloat(i))),
+            color,
+        }
+    }
+
+    /// The 16×16 `lightmap` geometry programs sample with `gl_TextureMatrix[1]` coordinates,
+    /// block light along U and sky light along V. It starts as the daylight table;
+    /// [`super::lightmap::update_lightmap`] keeps it equal to the world lightmap.
+    fn lightmap(&mut self) -> Result<(usize, TextureFormat), String> {
+        if let Some(found) = self.keys.get(&Key::Lightmap) {
+            return Ok(*found);
+        }
+        let side = super::lightmap::LIGHTMAP_SIDE;
+        let texture = self.texture(
+            "shader pack lightmap",
+            TextureFormat::Rgba8Unorm,
+            [side, side, 1],
+            TextureDimension::D2,
+            TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+        )?;
+        let texels =
+            super::lightmap::lightmap_texels(Some(render_model::LightmapInputs::default()));
+        self.upload(&texture.texture, &texels, side * 4, [side, side, 1]);
+        Ok(self.push(Key::Lightmap, texture))
+    }
+
+    /// The `lightmap` texture, when some program samples it.
+    pub(crate) fn lightmap_slot(&self) -> Option<usize> {
+        self.keys.get(&Key::Lightmap).map(|(index, _)| *index)
     }
 
     /// Whether pack-wide texture `index` has the shape a sampler of `dimension` reads.
