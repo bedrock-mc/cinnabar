@@ -15,6 +15,7 @@ reads = [
 
 [dependencies]
 anyhow.workspace = true
+arc-swap = "1.9"
 assets = { path = "../assets" }
 bevy.workspace = true
 client-state = { path = "../client-state" }

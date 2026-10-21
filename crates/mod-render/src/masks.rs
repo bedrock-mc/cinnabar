@@ -45,9 +45,16 @@ pub struct MaskStore {
     staged: Option<Vec<Mask>>,
 }
 
+impl Default for MaskStore {
+    /// Every mask producer shares the same namespace as retained resources.
+    fn default() -> Self {
+        Self::new(crate::identity::next_owner())
+    }
+}
+
 impl MaskStore {
     /// Starts with no session authority and no allocated attachments.
-    pub fn new(owner: u64) -> Self {
+    fn new(owner: u64) -> Self {
         Self {
             owner,
             next_slot: 0,

@@ -13,6 +13,7 @@ use protocol::{
 use super::*;
 
 mod input_locks;
+mod native_frames;
 mod world_days;
 
 #[test]

@@ -78,6 +78,7 @@ pub use block_ids::{BlockEntityIdFn, ShaderpackBlockIds, UNASSIGNED_BLOCK_ID};
 pub use gpu::{FRAME_EXPANSION_FACES, ShaderpackGeometry, ShaderpackGeometrySettings};
 pub use jobs::GeometryCategory;
 pub use residency::DEFAULT_GEOMETRY_BUDGET_BYTES;
+pub(crate) use vertex::f32_to_half;
 pub use vertex::{
     CONSTANT_VERTEX_BUFFER, DRAW_ORIGIN_VERTEX_BUFFER, GEOMETRY_VERTEX_BUFFER, IRIS_VERTEX_STRIDE,
     TerrainLayout, VertexLayoutError, vertex_buffer_layouts,
