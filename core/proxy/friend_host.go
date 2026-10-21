@@ -72,7 +72,7 @@ type FriendHost struct {
 
 	mu       sync.Mutex
 	endpoint *friendEndpoint
-	stale    []*friendEndpoint // retired endpoints whose session withdrawal failed
+	retries  sync.WaitGroup // withdrawals retried after failing; Close waits for them
 }
 
 // friendEndpoint is one signaling connection, the session it advertises and its listener.
@@ -95,12 +95,14 @@ type friendDirectory interface {
 	Close() error
 }
 
-// friendReconnectBase and friendReconnectMax bound the wait between failed signaling reconnects;
-// friendReconnectTimeout bounds one attempt.
+// friendReconnectBase and friendReconnectMax bound the wait between failed signaling reconnects,
+// friendReconnectTimeout one attempt, and the withdraw bounds the wait between session withdrawals.
 const (
 	friendReconnectBase    = 5 * time.Second
 	friendReconnectMax     = 2 * time.Minute
 	friendReconnectTimeout = time.Minute
+	friendWithdrawBase     = time.Second
+	friendWithdrawMax      = 30 * time.Second
 )
 
 // StartFriendHost signals, publishes and listens; Close undoes all three.
@@ -292,9 +294,6 @@ func (h *FriendHost) serve() {
 		if !h.reconnect() {
 			return
 		}
-		if err := h.withdrawStale(); err != nil {
-			h.log.Debug("friends: withdraw retired sessions", "error", redact.Error(err))
-		}
 	}
 }
 
@@ -332,37 +331,33 @@ func (h *FriendHost) reconnect() bool {
 	}
 }
 
-// retire stops endpoint and keeps it for another withdrawal attempt when that fails.
+// retire stops endpoint and keeps retrying its session withdrawal until it succeeds.
 func (h *FriendHost) retire(endpoint *friendEndpoint) {
 	if err := endpoint.stop(); err != nil {
 		h.log.Debug("friends: stop endpoint", "error", redact.Error(err))
 	}
-	if err := endpoint.withdraw(); err != nil {
-		h.log.Debug("friends: withdraw session", "error", redact.Error(err))
-		h.mu.Lock()
-		h.stale = append(h.stale, endpoint)
-		h.mu.Unlock()
+	if endpoint.withdraw() == nil {
+		return
 	}
-}
-
-// withdrawStale retries withdrawing sessions that failed to close, keeping those that fail again.
-func (h *FriendHost) withdrawStale() error {
-	h.mu.Lock()
-	stale := h.stale
-	h.stale = nil
-	h.mu.Unlock()
-	var failed []*friendEndpoint
-	var errs error
-	for _, endpoint := range stale {
-		if err := endpoint.withdraw(); err != nil {
-			failed = append(failed, endpoint)
-			errs = errors.Join(errs, err)
+	h.retries.Add(1)
+	go func() {
+		defer h.retries.Done()
+		delay := friendWithdrawBase
+		for {
+			select {
+			case <-h.ctx.Done():
+				_ = endpoint.withdraw() // one last attempt while the host closes
+				return
+			case <-time.After(delay):
+			}
+			err := endpoint.withdraw()
+			if err == nil {
+				return
+			}
+			h.log.Debug("friends: withdraw session", "error", redact.Error(err), "retry_in", delay)
+			delay = min(delay*2, friendWithdrawMax)
 		}
-	}
-	h.mu.Lock()
-	h.stale = append(h.stale, failed...)
-	h.mu.Unlock()
-	return errs
+	}()
 }
 
 // current is the endpoint friends are admitted through.
@@ -428,8 +423,8 @@ func (h *FriendHost) Close() error {
 	h.mu.Unlock()
 	retireErr := endpoint.retire()
 	<-h.done
-	staleErr := h.withdrawStale()
+	h.retries.Wait()
 	stopErr := h.prepared.shutdown()
 	h.sessions.Wait()
-	return errors.Join(retireErr, staleErr, stopErr)
+	return errors.Join(retireErr, stopErr)
 }

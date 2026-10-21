@@ -134,19 +134,16 @@ func (f *friendHostFixture) serveWorld(server *minecraft.Listener) {
 	}
 }
 
-// endpoints is how many signaling connections the host has opened.
-func (f *friendHostFixture) endpoints() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return len(f.opened)
-}
-
-// loseSignaling ends the host's newest signaling connection as a service drop would.
-func (f *friendHostFixture) loseSignaling() {
+// loseSignaling ends the host's signaling connection and waits until its replacement is
+// installed and listening.
+func (f *friendHostFixture) loseSignaling(t *testing.T) {
+	t.Helper()
+	lost := f.host.current()
 	f.mu.Lock()
 	signaling := f.opened[len(f.opened)-1]
 	f.mu.Unlock()
 	_ = signaling.Close()
+	testwait.Eventually(t, 10*time.Second, "replacement endpoint", func() bool { return f.host.current() != lost })
 }
 
 // join spawns a friend through the host's newest signaling connection.
@@ -202,8 +199,7 @@ func TestFriendHostKeepsFriendsAcrossSignalingLoss(t *testing.T) {
 	first := f.join(t)
 	f.say(t, first, "before")
 
-	f.loseSignaling()
-	testwait.Eventually(t, 10*time.Second, "replacement signaling", func() bool { return f.endpoints() == 2 })
+	f.loseSignaling(t)
 	select {
 	case <-f.host.Done():
 		t.Fatal("host stopped after losing signaling")
@@ -213,11 +209,10 @@ func TestFriendHostKeepsFriendsAcrossSignalingLoss(t *testing.T) {
 	f.say(t, f.join(t), "joined")
 }
 
-// A session whose withdrawal failed during the outage is withdrawn once signaling returns.
+// A session whose withdrawal keeps failing is retried until it is withdrawn.
 func TestFriendHostWithdrawsSessionsThatFailedToClose(t *testing.T) {
-	f := startFriendHostFixture(t, 1)
-	f.loseSignaling()
-	testwait.Eventually(t, 10*time.Second, "replacement signaling", func() bool { return f.endpoints() == 2 })
+	f := startFriendHostFixture(t, 2)
+	f.loseSignaling(t)
 	f.mu.Lock()
 	lost := f.directories[0]
 	f.mu.Unlock()
