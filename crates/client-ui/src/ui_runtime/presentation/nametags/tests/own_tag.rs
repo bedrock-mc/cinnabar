@@ -92,6 +92,7 @@ fn own_tag_eligibility_uses_server_metadata_and_local_pose() {
             None,
             1.0,
             true,
+            |_| true
         )
         .is_empty()
     );

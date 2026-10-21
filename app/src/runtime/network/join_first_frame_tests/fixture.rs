@@ -62,6 +62,7 @@ pub(super) fn bootstrap(
     custom_blocks: protocol::CustomBlocks,
 ) -> session::NetworkControlEvent {
     session::NetworkControlEvent::Bootstrap {
+        identity: Default::default(),
         session_generation: simulation_clock::identity::SessionGeneration::new(1),
         world: protocol::WorldBootstrap {
             dimension: 0,

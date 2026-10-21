@@ -82,18 +82,25 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
             {"binding_name":format!("#measurement_{axis}_width"), "binding_name_override":"#size_binding_x_absolute"},
             {"binding_name":format!("#measurement_{axis}_height"), "binding_name_override":"#size_binding_y_absolute"}]);
         controls.push(named(&format!("measurement_{axis}"), line));
-        let mut text = label(
-            &format!("#measurement_{axis}_label"),
-            MEASUREMENT_PILL,
-            [0.; 2],
-        );
+        // The pill width follows its label; the label is centred in it at its natural height.
+        let widest = feedback::pill_size("00000");
+        let width = json!({"binding_name":format!("#measurement_{axis}_pill_width"),
+            "binding_name_override":"#size_binding_x_absolute"});
+        let mut text = label(&format!("#measurement_{axis}_label"), widest, [0.; 2]);
+        text["size"][1] = json!("default");
+        text["max_size"] = json!(widest);
+        text["anchor_from"] = json!("center");
+        text["anchor_to"] = json!("center");
+        text["font_scale_factor"] = json!(MEASUREMENT_FONT_SCALE);
+        text["clip_children"] = json!(false);
         text["text_alignment"] = json!("center");
         text["bindings"] = json!([{"binding_name":format!("#measurement_{axis}_label")}]);
-        let mut background = rect(MEASUREMENT_PILL, [0.; 2], color(style.measurement));
-        background["radius"] = json!(MEASUREMENT_PILL[1] * 0.5);
+        let mut background = rect(widest, [0.; 2], color(style.measurement));
+        background["radius"] = json!(MEASUREMENT_PILL_HEIGHT * 0.5);
+        background["bindings"] = json!([width.clone()]);
         controls.push(named(&format!("measurement_{axis}_pill"), json!({
-            "type":"panel", "size":MEASUREMENT_PILL, "anchor_from":"top_left", "anchor_to":"top_left", "layer":11,
-            "bindings":[visible, {"binding_name":format!("#measurement_{axis}_pill"),"binding_name_override":"#offset"}],
+            "type":"panel", "size":widest, "anchor_from":"top_left", "anchor_to":"top_left", "layer":11,
+            "bindings":[visible, width, {"binding_name":format!("#measurement_{axis}_pill"),"binding_name_override":"#offset"}],
             "controls":[named("background",background),named("label",text)]
         })));
     }

@@ -99,6 +99,22 @@ const CRUMBLING_BLEND: BlendMode = BlendMode::Factors {
 };
 
 impl Effect {
+    /// Keeps pack draws consistent with the native queues' decision for this frame.
+    /// Celestial draws have no native counterpart while the pack owns the sky.
+    pub(crate) fn covered_by(self, coverage: render_scene::shaderpack::ShaderPackEffects) -> bool {
+        match self {
+            Self::Sun | Self::Moon | Self::Stars => true,
+            Self::Lightning => coverage.lightning,
+            Self::DamagedBlock => coverage.cracks,
+            Self::Outline => coverage.selection,
+            Self::Particles => coverage.particles_opaque,
+            Self::ParticlesTranslucent => coverage.particles_translucent,
+            Self::ParticlesAdditive => coverage.particles_additive,
+            Self::Clouds => coverage.clouds,
+            Self::Weather => coverage.weather,
+        }
+    }
+
     #[cfg(test)]
     pub(crate) const ALL: [Effect; 11] = [
         Effect::Sun,

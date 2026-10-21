@@ -99,6 +99,10 @@ cargo run -p devtool --locked -- verify-affected --base origin/dev
 
 Contributor rules are in [AGENTS.md](AGENTS.md) and [docs/agents/](docs/agents/).
 
+## Star history
+
+[![Star history chart](https://api.star-history.com/svg?repos=cinnabar-mc/cinnabar&type=Date)](https://star-history.com/#cinnabar-mc/cinnabar&Date)
+
 ## License
 
 [PolyForm Noncommercial 1.0.0](LICENSE). Contact the maintainers for a commercial license.

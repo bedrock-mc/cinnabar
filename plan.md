@@ -269,6 +269,10 @@ and performance qualification for these previews remains open.
 
 Player name tags use Java's standing player height before pose offsets, independent of
 server collision-box changes. Other actors retain their published label height.
+Name-tag budgets admit on-screen bounds before their caps, favor nearer labels and
+keep cosmetic labels complete. Atlas text
+retains formatting and line slots, with guarded cell edges and
+repacking before UV publication. In-world visual qualification remains open.
 Name tag colours compose after Enhanced and shader-pack world effects with the scene's
 depth, and translucent plates use over-compositing for scene alpha. Coplanar shadows
 and glyphs share the anchor depth to avoid rounding speckle. Local cosmetic
@@ -297,6 +301,8 @@ Implemented: [chat, HUD and scoreboard state](crates/ui/src/lib.rs),
 [inventory prediction and crafting](crates/inventory/src/lib.rs), and
 [menus and settings](crates/client-shell/src/menu.rs). The boxes track full acceptance
 across these existing features; they are not a list of missing screens or systems.
+Outgoing chat uses the session's login name and XUID. Server-authored actor names
+remain available for local presentation and text resolution.
 Gameplay mouse capture resumes after focus or occlusion returns when it was active
 before switching away. Screen ownership and focus-loss input clearing remain in effect;
 OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
@@ -374,6 +380,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Offline rendered fixtures cover the panel, values, palettes and reset confirmation;
   live input acceptance remains incomplete. Font size 5–20/default 10 and spacing
   0–100/default 0 remain provisional host ranges, without confirmed native defaults.
+  Social → Discord now exposes the Rich Presence master switch plus persisted privacy,
+  party-size, elapsed-time and join-request controls; each is applied to the Discord
+  activity payload and the panel has its own reset. Live Discord desktop acceptance and
+  native settings parity remain incomplete.
 
 The inherited interaction acceptance scope also includes full item identity and use phases,
 replacement/deferred releases, mounted inventory, sign filtering/length/structured text,
@@ -532,6 +542,14 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   entities and the hand, deferred, composite and final passes, compute, custom textures and
   images) plus the pack-drawn sky, particles, clouds, weather, lightning, cracks and selection.
   Block, item, entity and biome ids and Java sky and fog colours come from the pinned
+  Bedrock→Java mappings. Settings offers pack import, a reload key, load status and a Shader
+  Pack Settings screen. Incomplete: in-game acceptance across packs and platforms (Metal is
+  unverified); stage pre-flips (`flip.<stage>_pre.<buffer>`) and Iris's explicit-flip
+  ordering; drawing the solid hand's glint before deferred passes; pack replacements
+  for uncovered celestial layers (the pack sky stands), actor colour masks, multitexture
+  materials, dissolve pairs, beacon beams and additive rays (these retain native
+  composition over the pack); native layers behind pack-rendered glass or water, whose
+  final depth can hide those layers; autofocus on cutout
   Bedrock→Java mappings. The Shaders settings tab offers pack import, reload, load status
   and a Shader Pack Settings screen. Video links to Shaders and shows its renderer switch
   only when Enhanced is available.

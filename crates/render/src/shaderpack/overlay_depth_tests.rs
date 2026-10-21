@@ -97,9 +97,8 @@ fn nametag_depth_restores_pack_projection_and_flips_only_the_viewport() {
     let scene_near = 0.1;
     let pack_near = 0.05;
     let far = 100.0;
-    let parameters: super::super::passes::SceneDepthParameters = [
-        scene_near, pack_near, far, far, 1., 1., 0., 0., 1., 1., 2., 2.,
-    ];
+    let parameters: super::super::passes::SceneDepthParameters =
+        [scene_near, pack_near, far, 0., 1., 1., 2., 2.];
     let uniform = gpu
         .device
         .create_buffer_init(&wgpu::util::BufferInitDescriptor {

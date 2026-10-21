@@ -107,7 +107,7 @@ pub(super) fn control(card: &Card, n: usize) -> Value {
     let plate = card.text_plate.as_ref().expect("text plate");
     let prefix = format!("#plate_{n}");
     let mut controls = vec![
-        json!({"background":{"type":"custom","renderer":"cinnabar_rounded_rectangle","radius":0,
+        json!({"background":{"type":"custom","renderer":"cinnabar_rounded_rectangle","radius":plate.style.radius*card.scale,
         "size":[1,1],"border_width":plate.style.border_width*card.scale,"border_color":plate.style.border_color,
         "anchor_from":"top_left","anchor_to":"top_left","bindings":[
             {"binding_name":format!("{prefix}_background_width"),"binding_name_override":"#size_binding_x_absolute"},
@@ -355,5 +355,41 @@ mod tests {
                 .iter()
                 .any(|node| matches!(&node.draw,Draw::Text{text,..} if text=="1:06 PM"))
         );
+    }
+    /// The plate background is painted with its scaled radius, and a radius change rebuilds.
+    #[test]
+    fn plate_background_radius_scales_with_the_card_and_invalidates_the_template() {
+        let mut hud = fixture();
+        hud.cards[0].scale = 2.;
+        hud.cards[0].text_plate.as_mut().unwrap().style.radius = 4.5;
+        hud.validate().unwrap();
+        measure(&mut hud, &Metrics);
+        let catalog = super::super::template::catalog(&hud).unwrap();
+        let nodes = CachedScreen::default()
+            .render_shared_with(
+                "cinnabar_personal_hud.cards",
+                &std::sync::Arc::new(catalog),
+                &Context::default(),
+                std::sync::Arc::new(super::super::template::data(&hud, [400., 200.])),
+                ([400., 200.], 1., [0; 3]),
+                &LayoutEnv {
+                    text: &Metrics,
+                    textures: &Metrics,
+                },
+                &ViewState::default(),
+            )
+            .unwrap()
+            .nodes
+            .clone();
+        assert!(
+            nodes
+                .iter()
+                .any(|node| matches!(&node.draw, Draw::Custom { data, .. }
+            if data.get("border_width").is_some()
+                && data.get("radius").and_then(Value::as_f64) == Some(9.)))
+        );
+        let before = hud.clone();
+        hud.cards[0].text_plate.as_mut().unwrap().style.radius = 0.;
+        assert!(!super::super::template::same_shape(&before, &hud));
     }
 }

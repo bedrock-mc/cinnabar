@@ -51,11 +51,11 @@ pub(super) fn configure_graph(world: &mut World, enabled: bool) {
             if enabled {
                 schedule.add_systems(
                     (
-                        crate::gpu_timing::profiled(motion_blur, None, "MotionBlurLabel")
+                        crate::gpu_timing::profiled(motion_blur::<false>, None, "MotionBlurLabel")
                             .in_set(MotionBlurLabel)
                             .before(crate::depth_smaa::DepthSmaaLabel),
                         crate::gpu_timing::profiled(
-                            crate::chunk::transparent::gamma_pass::gamma_transparent::<true>,
+                            crate::chunk::transparent::gamma_pass::gamma_transparent::<true, false>,
                             None,
                             "SharpNametagsLabel",
                         )
@@ -88,11 +88,14 @@ type MotionBlurQuery = (
 );
 
 /// Applies camera exposure to scene colour before sharp text and hands.
-pub(super) fn motion_blur(
+pub(crate) fn motion_blur<const AFTER_PACK: bool>(
     world: &World,
     query: bevy::render::renderer::ViewQuery<MotionBlurQuery>,
     mut context: RenderContext,
 ) -> bevy::ecs::error::Result {
+    if !crate::shaderpack::native_pass_enabled(world, query.entity(), AFTER_PACK) {
+        return Ok(());
+    }
     let (entity, _, state, target, scene, depth) = query.into_inner();
     let context = &mut context;
     if !state.active {

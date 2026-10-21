@@ -527,13 +527,6 @@ type BlockEntityView = (
     bevy::ecs::query::Has<render_scene::shaderpack::ShaderPackRendering>,
 );
 
-/// Whether the loaded shader pack draws block entities itself on its cameras.
-fn pack_draws_block_entities(
-    drawn: Option<&render_scene::shaderpack::ShaderPackDrawnCategories>,
-) -> bool {
-    drawn.is_some_and(|drawn| drawn.block_entities)
-}
-
 fn queue_solid(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<BlockEntityPipeline>,
@@ -541,12 +534,10 @@ fn queue_solid(
     mut phases: ResMut<ViewBinnedRenderPhases<Opaque3d>>,
     draw_functions: Res<DrawFunctions<Opaque3d>>,
     views: Query<BlockEntityView>,
-    drawn: Option<Res<render_scene::shaderpack::ShaderPackDrawnCategories>>,
 ) {
     if gpu.solid.count == 0 && gpu.portal.count == 0 {
         return;
     }
-    let skip_pack_views = pack_draws_block_entities(drawn.as_deref());
     let functions = draw_functions.read();
     for (list, mode, draw_function) in [
         (
@@ -563,11 +554,7 @@ fn queue_solid(
         if list.count == 0 || list.bind_group.is_none() {
             continue;
         }
-        for (view_entity, main_entity, view, extracted_camera, msaa, pack_view) in &views {
-            // Portals stay Vanilla: the pack does not draw their encoded planes.
-            if pack_view && skip_pack_views && mode == PipelineMode::Solid {
-                continue;
-            }
+        for (view_entity, main_entity, view, extracted_camera, msaa, _pack_view) in &views {
             let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
                 continue;
             };
@@ -608,7 +595,6 @@ fn queue_overlay(
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
     views: Query<BlockEntityView>,
-    drawn: Option<Res<render_scene::shaderpack::ShaderPackDrawnCategories>>,
 ) {
     let draw_function = draw_functions.read().id::<DrawOverlayCommands>();
     queue_blended(
@@ -619,7 +605,7 @@ fn queue_overlay(
         &mut pipeline,
         &mut phases,
         &views,
-        |_, pack_view| pack_view && pack_draws_block_entities(drawn.as_deref()),
+        |_, _| false,
     );
 }
 
@@ -821,8 +807,11 @@ fn crack_vertices(count: u32, damage: u32, highlight: bool) -> Range<u32> {
 struct DrawList<const LIST: u8>;
 
 impl<P: PhaseItem, const LIST: u8> RenderCommand<P> for DrawList<LIST> {
-    type Param = SRes<BlockEntityGpu>;
-    type ViewQuery = (Read<ViewUniformOffset>, Read<ExtractedView>);
+    type Param = (
+        SRes<BlockEntityGpu>,
+        crate::shaderpack::native_actors::NativeActorCoverage<'static>,
+    );
+    type ViewQuery = (Read<ViewUniformOffset>, Read<ExtractedView>, Entity);
     type ItemQuery = ();
 
     fn render<'w>(
@@ -832,6 +821,10 @@ impl<P: PhaseItem, const LIST: u8> RenderCommand<P> for DrawList<LIST> {
         gpu: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
+        let (gpu, coverage) = gpu;
+        if matches!(LIST, SOLID | OVERLAY) && coverage.blocks(view.2) {
+            return RenderCommandResult::Skip;
+        }
         let gpu = gpu.into_inner();
         let list = match LIST {
             OVERLAY => &gpu.overlay,
@@ -847,7 +840,7 @@ impl<P: PhaseItem, const LIST: u8> RenderCommand<P> for DrawList<LIST> {
         if list.count == 0 {
             return RenderCommandResult::Skip;
         }
-        let (view_offset, view) = view;
+        let (view_offset, view, _) = view;
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
         let count = if LIST == OUTLINE {
             list.count / 2 * BLOCK_SELECTION_VERTICES_PER_EDGE

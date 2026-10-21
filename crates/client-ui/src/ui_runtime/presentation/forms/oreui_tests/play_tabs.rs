@@ -11,7 +11,7 @@ use ui_engine::text_metrics::TextMetrics;
 fn installed_play_tabs_use_native_faces_and_keep_fixed_targets_while_pressed() {
     let Some(images) = load_optional_oreui_images(&checkout_compiled_dir()) else {
         eprintln!(
-            "skipping installed_play_tabs_use_native_faces_and_keep_fixed_targets_while_pressed: installed OreUI bundle unavailable"
+            "skipping installed_play_tabs_use_native_faces_and_keep_fixed_targets_while_pressed: compiled OreUI artwork carrier unavailable"
         );
         return;
     };

@@ -18,16 +18,20 @@ impl NametagAtlas {
             return Some(cell.line);
         }
         let (width, height, pixels) = &*GEM;
-        let mut placement = self.allocate(*width, *height);
-        if placement.is_none() && self.reclaim_shelf(Some([*width, *height])) {
-            placement = self.allocate(*width, *height);
+        if *width > NAMETAG_ATLAS_SIDE || *height > NAMETAG_ATLAS_SIDE {
+            return None;
+        }
+        let (size, inset) = padded_cell([*width, *height]);
+        let mut placement = self.allocate(size[0], size[1]);
+        if placement.is_none() && self.reclaim_shelf(Some(size)) {
+            placement = self.allocate(size[0], size[1]);
         }
         let Some((shelf, [x, y])) = placement else {
             self.rebuild_pending |= self.frame_active;
             return None;
         };
         let line = AtlasLine {
-            cell: [x, y, *width, *height],
+            cell: [x + inset[0], y + inset[1], *width, *height],
             width_px: *width as f32 / FONT_DESIGN_PIXEL_TEXELS as f32,
             top_px: 0.0,
             ink_y_px: [0.0, *height as f32 / FONT_DESIGN_PIXEL_TEXELS as f32],
@@ -41,8 +45,10 @@ impl NametagAtlas {
             AtlasCell {
                 text: None,
                 line,
-                rgba8: Arc::clone(pixels),
+                allocation: [x, y, size[0], size[1]],
+                rgba8: padded_pixels(pixels, [*width, *height]).into(),
                 shelf,
+                animation: None,
             },
         );
         self.reclamation = None;
@@ -78,7 +84,7 @@ mod tests {
     fn gem_survives_text_reclamation_without_upload() {
         let mut atlas = NametagAtlas::default();
         let gem = atlas.badge().unwrap();
-        let width = NAMETAG_ATLAS_SIDE - gem.cell[2];
+        let width = NAMETAG_ATLAS_SIDE - atlas.cells[0].allocation[2];
         let height = NAMETAG_ATLAS_SIDE;
         let (shelf, [x, y]) = atlas.allocate(width, height).unwrap();
         let text: Arc<str> = "unused".into();
@@ -91,8 +97,10 @@ mod tests {
                 top_px: 0.0,
                 ink_y_px: [0.0, height as f32 / FONT_DESIGN_PIXEL_TEXELS as f32],
             },
+            allocation: [x, y, width, height],
             rgba8: Arc::from([255; 4]),
             shelf,
+            animation: None,
         });
         let (previous, _) = atlas.publish();
         atlas.requested.insert("new name".into());

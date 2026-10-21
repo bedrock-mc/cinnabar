@@ -254,14 +254,8 @@ impl ShaderpackGeometry {
             .map(|origin| (origin.as_dvec3() - camera).as_vec3())
     }
 
-    /// Eye distance within which every section the camera may see is expanded, or `None`
-    /// when nothing waits. Beyond it terrain may be missing from the pack's geometry.
-    pub fn complete_radius(&self) -> Option<f32> {
-        self.complete_radius
-    }
-
     /// Eye distance past which the vertex budget leaves terrain undrawn, `None` while every
-    /// section fits. Unlike [`Self::complete_radius`] it ignores sections merely queued for
+    /// section fits. It ignores sections merely queued for
     /// this frame's expansion, so it holds steady while terrain streams in.
     pub fn budget_horizon(&self) -> Option<f32> {
         self.budget_horizon
@@ -974,6 +968,8 @@ pub(crate) fn record_geometry_expansion(
 }
 
 mod camera_lists;
+#[cfg(test)]
+mod fixture;
 /// Requires the atlas and packed tables to represent the selected texture source.
 fn expansion_sources_match(
     selected: &ChunkTextureAssets,

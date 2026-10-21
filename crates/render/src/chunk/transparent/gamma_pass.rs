@@ -46,7 +46,7 @@ pub(crate) fn install_graph(world: &mut World) {
                 .expect("replace the stock transparent pass");
             schedule.add_systems(
                 crate::gpu_timing::profiled(
-                    gamma_transparent::<false>,
+                    gamma_transparent::<false, false>,
                     Some(render_scene::RuntimeStage::GpuTransparent),
                     "MainTransparentPass",
                 )
@@ -78,12 +78,15 @@ type GammaView = (
 type GammaTransparentQuery = GammaView;
 
 /// Keeps sorted transparency in its native blend colour space.
-pub(crate) fn gamma_transparent<const NAMETAGS_ONLY: bool>(
+pub(crate) fn gamma_transparent<const NAMETAGS_ONLY: bool, const AFTER_PACK: bool>(
     world: &World,
     query: bevy::render::renderer::ViewQuery<GammaTransparentQuery>,
     mut render_context: RenderContext,
 ) -> bevy::ecs::error::Result {
     let view_entity = query.entity();
+    if !crate::shaderpack::native_pass_enabled(world, view_entity, AFTER_PACK) {
+        return Ok(());
+    }
     let (camera, view, target, depth, resolution, msaa, enhanced, scene, smaa, pack) =
         query.into_inner();
     let overlay = crate::nametag_render::overlay::enabled(enhanced.is_some(), pack.is_some());

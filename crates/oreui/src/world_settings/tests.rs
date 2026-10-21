@@ -156,6 +156,7 @@ fn retained_world_form_draws_controls_above_their_panel_backgrounds() {
     }
 }
 
+/// Every catalog option is reachable on its tab, and no tab offers a Dragonfly backend.
 #[test]
 fn advanced_world_form_exposes_terrain_and_catalog_options() {
     use launcher::local_worlds::options::{Control, WorldOption as O};
@@ -187,6 +188,11 @@ fn advanced_world_form_exposes_terrain_and_catalog_options() {
             );
             assert!(hits.iter().any(|(found, _)| *found == local(A::Flat(true))));
         }
+        assert!(
+            !hits
+                .iter()
+                .any(|(found, _)| *found == local(A::Backend(bridge::Backend::Dragonfly)))
+        );
     }
 }
 

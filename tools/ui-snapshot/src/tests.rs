@@ -177,29 +177,27 @@ fn snapshot_settings_painter_samples_the_attached_original_artwork() {
 
 /// Optional bundle failures must remain visible when the standalone tool falls back.
 #[test]
-fn optional_bundle_failures_reach_stderr() {
+fn missing_artwork_carrier_warning_reaches_stderr() {
     const CHILD: &str = "CINNABAR_SNAPSHOT_LOG_TEST";
-    if std::env::var_os(CHILD).is_some() {
+    if let Some(dir) = std::env::var_os(CHILD) {
         super::init_logging();
-        oreui::images::load_optional_oreui_images(std::path::Path::new("."));
+        oreui::images::load_optional_oreui_images(std::path::Path::new(&dir));
         return;
     }
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("atlas.json"), b"invalid bundle").unwrap();
     let output = std::process::Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
-            "tests::optional_bundle_failures_reach_stderr",
+            "tests::missing_artwork_carrier_warning_reaches_stderr",
             "--nocapture",
         ])
-        .env(CHILD, "1")
-        .env(oreui::images::BUNDLE_OVERRIDE_ENV, dir.path())
+        .env(CHILD, dir.path())
         .output()
         .unwrap();
     assert!(output.status.success(), "child test failed: {output:?}");
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("unusable"),
-        "the optional bundle warning was lost: {output:?}"
+        String::from_utf8_lossy(&output.stderr).contains("shipped artwork unavailable"),
+        "the missing carrier warning was lost: {output:?}"
     );
 }
 

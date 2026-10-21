@@ -2,7 +2,7 @@
 
 use super::super::motion::{Kind, opacity};
 use super::super::theme::{BODY, BORDER, EDGE, NEUTRAL80, OUTLINE, TEXT, TEXT_DIMMEST};
-use crate::images::{SETTINGS_ICON_HIGHLIGHT_IMAGE, WORLD_CATEGORY_ICONS, WORLD_PREVIEW};
+use crate::images::{SETTINGS_ICON_HIGHLIGHT_IMAGE, WORLD_CATEGORY_ICONS};
 use launcher::local_worlds::world::thumbnail_key;
 use {
     super::*,
@@ -50,7 +50,7 @@ pub(super) fn draw(
     let top = bounds[1] + edge + pad - scroll.offset;
     let preview = [inner[0], top, inner[1], top + preview_height];
     canvas.fill(preview, NEUTRAL80.fill)?;
-    // An edited world shows its own last view; a new one, the install's default preview.
+    // An edited world shows its own last view; a new one keeps the plain panel.
     let thumbnail = view
         .local
         .edited
@@ -59,8 +59,6 @@ pub(super) fn draw(
         .and_then(|world| canvas.artwork?.get(&thumbnail_key(&world.id)).copied());
     if let Some(icon) = thumbnail {
         canvas.icon_ref_cover(icon, preview)?;
-    } else {
-        canvas.cover_sprite(WORLD_PREVIEW, preview)?;
     }
     canvas.frame(preview, EDGE, BORDER)?;
     let mut y = preview[3] + canvas.r(0.8);

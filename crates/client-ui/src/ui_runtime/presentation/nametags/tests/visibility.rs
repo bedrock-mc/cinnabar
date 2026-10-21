@@ -125,6 +125,7 @@ fn projected_player_tags_follow_always_show_metadata_updates() {
             None,
             1.0,
             true,
+            |_| true,
         );
         assert_eq!(tags.len(), usize::from(expected_lines != 0));
         if let Some(tag) = tags.first() {

@@ -131,6 +131,10 @@ pub(crate) struct ViewActors {
     pub(super) frame: u64,
     /// A failed stream disables replacement until this view is rebuilt.
     pub(crate) allocation_failed: bool,
+    /// Sources successfully prepared for this view's pack draws in the current frame.
+    pub(crate) replaces_actors: bool,
+    pub(crate) replaces_hand: bool,
+    pub(crate) replaces_blocks: bool,
     pub(super) scratch: Vec<u8>,
 }
 
@@ -194,6 +198,9 @@ fn layer_view(texture: &Texture, layer: u32) -> TextureView {
 impl ViewActors {
     /// Drops this frame's work, keeping allocations.
     pub(super) fn begin(&mut self) {
+        self.replaces_actors = false;
+        self.replaces_hand = false;
+        self.replaces_blocks = false;
         self.draws.clear();
         self.slot_of.clear();
         self.jobs.clear();
