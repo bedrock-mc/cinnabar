@@ -73,6 +73,9 @@ pub(crate) fn prepare(
         actors.dispatches.clear();
         return;
     }
+    actors.replaces_actors = sources.actors.is_some();
+    actors.replaces_hand = sources.hand.is_some();
+    actors.replaces_blocks = sources.block_entities.is_some();
     let neutral = actors
         .neutral
         .get_or_insert_with(|| NeutralTextures::new(device, queue));

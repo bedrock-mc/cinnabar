@@ -783,7 +783,7 @@ fn actor_kernel_workgroup_sizes_match_host_dispatch() {
 }
 
 #[test]
-fn actor_stream_failure_disables_native_queue_replacement() {
+fn actor_stream_failure_keeps_world_replacement_and_native_actors() {
     let (device, queue) = wgpu::Device::noop(&Default::default());
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
@@ -889,12 +889,14 @@ fn actor_stream_failure_disables_native_queue_replacement() {
     super::prepare(&device, &queue, &mut encoder, &mut state, &sources);
     assert!(state.actors.draws.is_empty());
     assert!(
-        !state.geometry_targets_ready(),
-        "native queues must resume after allocation failure"
+        state.geometry_targets_ready() && !state.actors.replaces_actors,
+        "actor allocation failure must keep terrain replacement and native actors"
     );
     super::prepare(&device, &queue, &mut encoder, &mut state, &sources);
     assert!(
-        !state.geometry_targets_ready(),
-        "failure stays latched until view reconstruction"
+        state.geometry_targets_ready()
+            && state.actors.allocation_failed
+            && !state.actors.replaces_actors,
+        "actor failure stays native until view reconstruction"
     );
 }

@@ -444,11 +444,11 @@ fn snapping_highlight_and_measurements_update_through_bindings() {
     );
     assert_eq!(
         data.global_value("#measurement_0_label"),
-        Some(&Scalar::Text("37 px".into()))
+        Some(&Scalar::Text("37".into()))
     );
     assert_eq!(
         data.global_value("#measurement_1_label"),
-        Some(&Scalar::Text("41 px".into()))
+        Some(&Scalar::Text("41".into()))
     );
     assert_eq!(
         data.global_value("#measurement_0_visible"),
@@ -466,7 +466,7 @@ fn snapping_highlight_and_measurements_update_through_bindings() {
     let data = editor.data();
     assert_eq!(
         data.global_value("#measurement_0_label"),
-        Some(&Scalar::Text("20 px".into()))
+        Some(&Scalar::Text("20".into()))
     );
     assert_eq!(
         data.global_value("#measurement_1_visible"),
@@ -474,9 +474,8 @@ fn snapping_highlight_and_measurements_update_through_bindings() {
     );
     assert_eq!(
         data.global_value("#bounds_1_color"),
-        Some(&Scalar::Json(serde_json::json!(
-            editor.draft.editor_style.unwrap_or_default().outline
-        )))
+        Some(&Scalar::Json(serde_json::json!([0.0, 0.0, 0.0, 0.0]))),
+        "a released snap target returns to the idle, outline-free state"
     );
 }
 

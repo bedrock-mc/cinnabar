@@ -53,6 +53,14 @@ impl CustomRenderer for KeepOutRenderer<'_> {
     }
 }
 
+/// Pill size that fits `label` at the measurement font scale.
+pub(super) fn pill_size(label: &str) -> [f64; 2] {
+    [
+        label.chars().count() as f64 * MEASUREMENT_DIGIT_ADVANCE + 2. * MEASUREMENT_PILL_PADDING,
+        MEASUREMENT_PILL_HEIGHT,
+    ]
+}
+
 /// Writes two nearest-edge measurements in GUI pixels, hidden when less than 12 px long.
 pub(super) fn measurements(
     data: &mut DataSource,
@@ -64,6 +72,8 @@ pub(super) fn measurements(
         let mut size = [GUIDE_WIDTH; 2];
         let mut pill = [0.; 2];
         let mut distance = 0.;
+        let mut label = String::new();
+        let mut extent_of_pill = pill_size("");
         if let Some((at, extent)) = rect {
             let far = (viewport[axis] - at[axis] - extent[axis]).max(0.);
             let near = at[axis] <= far;
@@ -71,11 +81,13 @@ pub(super) fn measurements(
             offset[axis] = if near { 0. } else { at[axis] + extent[axis] };
             offset[1 - axis] = at[1 - axis] + extent[1 - axis] * 0.5;
             size[axis] = distance;
+            label = format!("{distance:.0}");
+            extent_of_pill = pill_size(&label);
             pill = offset;
             pill[axis] += distance * 0.5;
             for axis in 0..2 {
-                pill[axis] = (pill[axis] - MEASUREMENT_PILL[axis] * 0.5)
-                    .clamp(0., (viewport[axis] - MEASUREMENT_PILL[axis]).max(0.));
+                pill[axis] = (pill[axis] - extent_of_pill[axis] * 0.5)
+                    .clamp(0., (viewport[axis] - extent_of_pill[axis]).max(0.));
             }
         }
         for (suffix, value) in [
@@ -84,7 +96,8 @@ pub(super) fn measurements(
             ("width", Scalar::Num(size[0])),
             ("height", Scalar::Num(size[1])),
             ("pill", Scalar::Json(serde_json::json!(pill))),
-            ("label", Scalar::Text(format!("{distance:.0} px"))),
+            ("pill_width", Scalar::Num(extent_of_pill[0])),
+            ("label", Scalar::Text(label)),
         ] {
             data.set_global(format!("#measurement_{axis}_{suffix}"), value);
         }

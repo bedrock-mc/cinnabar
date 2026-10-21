@@ -13,7 +13,7 @@ use crate::shaderpack::loader::PackGpu;
 use assets::AtmosphereRole;
 use bevy::math::{Mat4, Vec3};
 use render_model::{BlockEntityFrame, BlockSelectionFrame};
-use render_scene::shaderpack::ShaderPackFrameInputs;
+use render_scene::shaderpack::{ShaderPackEffects, ShaderPackFrameInputs};
 use render_scene::{
     AtmosphereFrame, AtmosphereTextureAssets, AtmosphereViewInputs, LightningScene,
     ParticleGpuFrame, PrecipitationScene,
@@ -36,6 +36,8 @@ pub(crate) struct EffectCamera {
 /// The render-world data a view's effects are built from this frame; each source is absent
 /// when its renderer is not installed.
 pub(crate) struct EffectInputs<'a> {
+    /// The replacement decision already used by this frame's native queues.
+    pub coverage: ShaderPackEffects,
     pub camera: EffectCamera,
     pub frame: ShaderPackFrameInputs,
     pub atmosphere: Option<&'a AtmosphereFrame>,
@@ -210,6 +212,9 @@ pub(crate) fn prepare_effects(
         let DrawKind::Effect(effect) = draw.kind else {
             continue;
         };
+        if !effect.covered_by(inputs.coverage) {
+            continue;
+        }
         let start = mesh.index_count();
         build(
             mesh,

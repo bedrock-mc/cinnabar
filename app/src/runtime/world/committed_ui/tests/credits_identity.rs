@@ -1,8 +1,11 @@
 use super::*;
 
 #[test]
-fn committed_ui_uses_the_current_local_players_name_for_credits() {
+fn committed_actor_names_preserve_login_chat_identity_and_credits_name() {
     let (mut app, _) = fixture_app();
+    app.world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .set_chat_identity("Account Player".into(), "2535".into());
     let mut feed = client_world::LocalPlayerFeed {
         game_mode: None,
         uuid: [7; 16],
@@ -60,5 +63,17 @@ fn committed_ui_uses_the_current_local_players_name_for_credits() {
             name,
             "the production drain must refresh identity even without a UI packet"
         );
+        let mut ui = app.world_mut().resource_mut::<UiRuntimeResource>();
+        ui.queue_chat_message("hello", 0).unwrap();
+        let (sequence, packet) = ui.next_chat_packet().unwrap().unwrap();
+        assert_eq!(
+            protocol::encode(&packet).unwrap(),
+            protocol::encode(
+                &protocol::chat_text_packet("Account Player", "2535", "hello").unwrap()
+            )
+            .unwrap(),
+            "actor display names must not replace the login chat identity"
+        );
+        assert!(ui.confirm_chat_send(sequence));
     }
 }

@@ -47,9 +47,6 @@ pub(crate) struct FrameGeometry<'a> {
     pub sky: SkyInputs,
     /// What the effects are built from.
     pub effects: EffectInputs<'a>,
-    /// Eye distance within which every section is expanded (`f32::MAX` when all are); the
-    /// Vanilla overlay passes nothing beyond it.
-    pub overlay_radius: f32,
     /// Actors, block entities and the hand the pack draws.
     pub actors: ActorSources<'a>,
 }
@@ -509,7 +506,7 @@ pub(crate) fn record_opaque(
     copy_view_depth(device, encoder, state, &[1], &[0, 1]);
 }
 
-/// What Vanilla drew in front of the pack's opaque geometry, then translucent terrain,
+/// Draws translucent terrain,
 /// actors and block entities after the deferred passes, the effects Iris draws after them
 /// (particles by the pack's ordering, clouds, weather) and the translucent hand, all into
 /// the geometry depth `depthtex0` reads.
@@ -518,14 +515,12 @@ pub(crate) fn record_translucent(
     encoder: &mut CommandEncoder,
     state: &mut ViewState,
     geometry: &FrameGeometry<'_>,
-    vanilla: (&TextureView, &TextureView),
 ) {
     let Some(depth) = state.targets.geometry_depth.as_ref() else {
         return;
     };
     let view = depth.view.clone();
     let size = state.targets.screen_size;
-    record_vanilla_overlay(device, encoder, state, vanilla, &view);
     copy_view_depth(device, encoder, state, &[1], &[0, 1]);
     let translucent_alt = state.pack.frame.translucent_alt;
     record_kind(
@@ -567,61 +562,6 @@ pub(crate) fn record_translucent(
         super::actors::record(encoder, state, kind, translucent_alt, Some((&view, size)));
     }
     copy_view_depth(device, encoder, state, &[], &[0]);
-}
-
-/// Composites the Vanilla scene where it is clearly nearer than the pack's opaque geometry
-/// into `colortex0` (gamma-encoded, on the side composite passes read) and the depth
-/// attachment, before translucent geometry draws over it.
-/// What the pack does not draw itself (block-entity portals) reaches the pack this way,
-/// already lit by Vanilla and without gbuffer data; Vanilla leaves out the categories and
-/// effects the pack draws (`ShaderPackDrawnCategories`, `ShaderPackEffects`).
-fn record_vanilla_overlay(
-    device: &Device,
-    encoder: &mut CommandEncoder,
-    state: &ViewState,
-    (colour, depth): (&TextureView, &TextureView),
-    attachment: &TextureView,
-) {
-    let pack = &state.pack;
-    let targets = &state.targets;
-    let Some(buffer) = targets.buffers[0].as_ref() else {
-        return;
-    };
-    if buffer.size != targets.screen_size {
-        return;
-    }
-    let target = &buffer.attachment[buffer.side(pack.frame.translucent_alt & 1 != 0)];
-    let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("shader pack vanilla overlay"),
-        layout: &pack.host.vanilla_overlay.get_bind_group_layout(0),
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(colour),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::TextureView(depth),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: state.depth_parameters.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 5,
-                resource: wgpu::BindingResource::TextureView(targets.depth_view(1)),
-            },
-        ],
-    });
-    let mut render = pass(
-        encoder,
-        "shader pack vanilla overlay",
-        &[load_attachment(target)],
-        depth_attachment(attachment, false),
-    );
-    render.set_pipeline(&pack.host.vanilla_overlay);
-    render.set_bind_group(0, &group, &[]);
-    render.draw(0..3, 0..1);
 }
 
 #[cfg(test)]

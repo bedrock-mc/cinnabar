@@ -1,4 +1,4 @@
-//! World creation through the menu adapter: installed art and its scroll views.
+//! World creation through the menu adapter: shipped art and its scroll views.
 
 use super::super::super::UiPresentationRuntime;
 use launcher::local_worlds::Screen;
@@ -12,26 +12,14 @@ fn local(action: A) -> MenuAction {
 }
 
 #[test]
-fn installed_create_world_draws_its_preview_and_native_category_art() {
-    use oreui::images::{
-        WORLD_CATEGORY_ICONS, WORLD_PREVIEW, checkout_compiled_dir, load_optional_oreui_images,
-    };
+fn create_world_draws_its_shipped_category_art() {
+    use oreui::images::{WORLD_CATEGORY_ICONS, checkout_compiled_dir, load_optional_oreui_images};
     let Some(images) = load_optional_oreui_images(&checkout_compiled_dir()) else {
         eprintln!(
-            "skipping installed_create_world_draws_its_preview_and_native_category_art: installed OreUI bundle unavailable"
+            "skipping create_world_draws_its_shipped_category_art: compiled OreUI artwork carrier unavailable"
         );
         return;
     };
-    if !images.contains(WORLD_PREVIEW) {
-        eprintln!(
-            "skipping installed_create_world_draws_its_preview_and_native_category_art: native world preview unavailable"
-        );
-        return;
-    }
-    assert!(
-        images.sprites.contains_key(WORLD_PREVIEW),
-        "the preview must be resident before opening a menu"
-    );
     let mut runtime = UiPresentationRuntime::new(fixture_font()).unwrap();
     runtime.enable_oreui_originals(images).unwrap();
     let mut view = MenuView::new(true, "Fixture".into());
@@ -51,9 +39,9 @@ fn installed_create_world_draws_its_preview_and_native_category_art() {
         )
         .unwrap();
     let originals = runtime.screens.oreui.originals.as_ref().unwrap();
-    for key in [WORLD_PREVIEW].into_iter().chain(WORLD_CATEGORY_ICONS) {
+    for key in WORLD_CATEGORY_ICONS {
         let sprite = originals.sprite(key).unwrap();
-        assert!(nodes.iter().any(|node| matches!(node.visual(), ui::UiVisual::Sprite {texture_page, uv, ..} if *texture_page == originals.page() + sprite.page && *uv == sprite.bounds)), "missing installed world art {key}");
+        assert!(nodes.iter().any(|node| matches!(node.visual(), ui::UiVisual::Sprite {texture_page, uv, ..} if *texture_page == originals.page() + sprite.page && *uv == sprite.bounds)), "missing world category art {key}");
     }
 }
 

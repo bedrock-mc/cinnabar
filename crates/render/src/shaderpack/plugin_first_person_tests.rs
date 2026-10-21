@@ -1,31 +1,14 @@
-//! First-person scenes retain native composition even without other fallback layers.
+//! First-person scenes retain native composition without interrupting pack terrain.
 
 use super::*;
-use bevy::ecs::system::RunSystemOnce;
 use render_scene::{HandRigScene, ViewmodelScene};
 
-/// Creates a scene with neither a native sky nor active first-person rendering.
-fn native_world() -> World {
-    let mut world = World::new();
-    world.insert_resource(
-        render_scene::AtmosphereFrame::default().with_sky_kind(render_scene::SkyKind::Nether),
-    );
+#[test]
+fn active_hand_rig_keeps_pack_categories_drawn() {
+    let mut world = super::native_tests::ready_world();
     world.init_resource::<HandRigScene>();
     world.init_resource::<ViewmodelScene>();
-    world
-}
-
-/// Reads the same extracted resources that control replacement and view uniforms.
-fn scene_needs_copy(world: &mut World) -> bool {
-    world
-        .run_system_once(|native: NativeSceneLayers| native.first_person_native())
-        .unwrap()
-}
-
-#[test]
-fn active_hand_rig_preserves_native_scene() {
-    let mut world = native_world();
-    assert!(!scene_needs_copy(&mut world));
+    super::native_tests::assert_replacement(&mut world);
     let rig = render_model::ActorRigRenderFrame {
         instances: Arc::from([render_model::ActorGpuInstance::default()]),
         previous_bones: Arc::from([[[0.0; 4]; 3]]),
@@ -40,15 +23,18 @@ fn active_hand_rig_preserves_native_scene() {
         1.0,
         1,
     ));
-    assert!(scene_needs_copy(&mut world));
+    world.remove_resource::<ActorSkinPipelines>();
+    super::native_tests::assert_replacement(&mut world);
     world.resource_mut::<HandRigScene>().clear();
-    assert!(!scene_needs_copy(&mut world));
+    super::native_tests::assert_replacement(&mut world);
 }
 
 #[test]
-fn active_static_viewmodel_preserves_native_scene() {
-    let mut world = native_world();
-    assert!(!scene_needs_copy(&mut world));
+fn active_static_viewmodel_keeps_pack_categories_drawn() {
+    let mut world = super::native_tests::ready_world();
+    world.init_resource::<HandRigScene>();
+    world.init_resource::<ViewmodelScene>();
+    super::native_tests::assert_replacement(&mut world);
     let token = render_scene::ViewmodelToken {
         session: 1,
         actor_session: 1,
@@ -80,7 +66,7 @@ fn active_static_viewmodel_preserves_native_scene() {
             .resource_mut::<ViewmodelScene>()
             .publish(token, &skin, &geometry, &gate)
     );
-    assert!(scene_needs_copy(&mut world));
+    super::native_tests::assert_replacement(&mut world);
     world.resource_mut::<ViewmodelScene>().clear(&gate);
-    assert!(!scene_needs_copy(&mut world));
+    super::native_tests::assert_replacement(&mut world);
 }
