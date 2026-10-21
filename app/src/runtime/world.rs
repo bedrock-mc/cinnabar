@@ -126,6 +126,8 @@ pub(crate) struct ClientWorld {
         Option<Arc<client_presentation::prepared_actor_artwork::PreparedActorArtwork>>,
     /// The session's custom item facts and pack icons for held and worn items.
     pub(crate) session_items: Option<Arc<client_presentation::session_assets::SessionItems>>,
+    /// Item tag programs compiled with this session's block registries.
+    pub(crate) mining_filters: Arc<pack_runtime::CustomMiningFilters>,
     pub(crate) pending_surface_spawn: Option<[i32; 2]>,
     pub(crate) dimension_transfer: dimension::DimensionTransfer,
     pub(crate) respawn: respawn::RespawnLifecycle,
@@ -154,6 +156,7 @@ impl ClientWorld {
             terrain_resource_identity: [0; 32],
             prepared_actor_artwork: None,
             session_items: None,
+            mining_filters: Arc::default(),
             pending_surface_spawn: None,
             dimension_transfer: dimension::DimensionTransfer::default(),
             respawn: respawn::RespawnLifecycle::default(),
@@ -687,6 +690,17 @@ pub(crate) fn drive_world_stream(
         frame_poll.report.mesh_results += report.mesh_results;
         frame_poll.report.mesh_jobs_dispatched += report.mesh_jobs_dispatched;
     }
+    let profile = bridge::join_profile::JoinProfile::current();
+    use bridge::join_profile::Milestone;
+    if frame_poll.report.decoded_results > 0 {
+        profile.mark_once(Milestone::ChunkDecoded);
+    }
+    if frame_poll.report.light_results > 0 {
+        profile.mark_once(Milestone::LightingReady);
+    }
+    if frame_poll.report.mesh_results > 0 {
+        profile.mark_once(Milestone::MeshReady);
+    }
     local_retention::retain_completed_player_terrain(
         stream,
         &local_physics,
@@ -700,6 +714,7 @@ pub(crate) fn drive_world_stream(
     #[cfg(feature = "acceptance")]
     let mutation_cohort = frame_poll.cohort;
     for acknowledgement in acknowledgements.drain() {
+        profile.mark_once(Milestone::MeshUploaded);
         block_use.prediction_frames.uploaded(
             frame.0,
             acknowledgement.key,

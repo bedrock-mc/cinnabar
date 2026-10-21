@@ -1,6 +1,7 @@
 //! Bounded owner-only actor coverage, using the scene's exact meshes, poses and cutouts.
 
 use super::*;
+use bevy::render::render_resource::BufferInitDescriptor;
 use bevy::{
     camera::{MainPassResolutionOverride, Viewport},
     core_pipeline::{Core3d, Core3dSystems},
@@ -32,7 +33,24 @@ impl SpecializerKey for Key {
 
 struct MaskSpecializer;
 
-/// Binds only the private companion depth, with the view's exact sample count.
+/// The placement group never includes the private writable depth attachment.
+fn placement_layout() -> BindGroupLayoutDescriptor {
+    BindGroupLayoutDescriptor::new(
+        "mask placement",
+        &[BindGroupLayoutEntry {
+            binding: 0,
+            visibility: ShaderStages::VERTEX,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: BufferSize::new(16),
+            },
+            count: None,
+        }],
+    )
+}
+
+/// Sampled companion depth is present only in the later dissolve-colour pass.
 fn dissolve_layout(multisampled: bool) -> BindGroupLayoutDescriptor {
     BindGroupLayoutDescriptor::new(
         "mask dissolve depth",
@@ -49,7 +67,7 @@ fn dissolve_layout(multisampled: bool) -> BindGroupLayoutDescriptor {
     )
 }
 
-/// Identifies the depth-only companion independently of authored material flags.
+/// Identifies the private companion independently of authored material flags.
 fn dissolve_depth(material: u32) -> bool {
     material & assets::EntityRenderMaterialState::KIND_MASK
         == assets::EntityRenderMaterial::DissolveDepth as u32
@@ -65,6 +83,11 @@ impl Specializer<RenderPipeline> for MaskSpecializer {
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Key>, BevyError> {
         let contract = ActorPipelineSpecializer.specialize(key.actor, descriptor)?;
+        descriptor.layout.push(placement_layout());
+        descriptor
+            .vertex
+            .shader_defs
+            .push(bevy::shader::ShaderDefVal::Bool("ACTOR_MASK".into(), true));
         if dissolve_depth(key.actor.material) {
             descriptor
                 .depth_stencil
@@ -128,6 +151,8 @@ pub(crate) struct MaskTarget {
     pub(crate) view: TextureView,
     dissolve_view: TextureView,
     dissolve_binding: Option<BindGroup>,
+    placement: Buffer,
+    placement_binding: BindGroup,
     draws: Vec<Vec<(crate::actor::gpu::ActorDrawSpan, CachedRenderPipelineId)>>,
     frame_generation: u64,
     ready: bool,
@@ -136,7 +161,11 @@ pub(crate) struct MaskTarget {
 
 impl MaskTarget {
     /// Accounts for all samples and the resolve attachment before allocating either texture.
-    fn new(device: &RenderDevice, depth: &ViewDepthStencilTexture) -> Option<Self> {
+    fn new(
+        device: &RenderDevice,
+        cache: &PipelineCache,
+        depth: &ViewDepthStencilTexture,
+    ) -> Option<Self> {
         let size = depth.texture().size();
         let samples = depth.texture().sample_count();
         let bytes = mod_render::masks::attachment_bytes(size.width, size.height, samples)?;
@@ -174,6 +203,19 @@ impl MaskTarget {
             || render_view.clone(),
             |texture| texture.create_view(&default()),
         );
+        let placement = device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("mask placement"),
+            contents: bytemuck::cast_slice(&[0.0f32; 4]),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+        });
+        let placement_binding = device.create_bind_group(
+            "mask placement",
+            &cache.get_bind_group_layout(&placement_layout()),
+            &[BindGroupEntry {
+                binding: 0,
+                resource: placement.as_entire_binding(),
+            }],
+        );
         Some(Self {
             texture,
             render_view,
@@ -181,6 +223,8 @@ impl MaskTarget {
             view,
             dissolve_view: dissolve.create_view(&default()),
             dissolve_binding: None,
+            placement,
+            placement_binding,
             draws: Vec::new(),
             frame_generation: 0,
             ready: false,
@@ -286,6 +330,31 @@ fn compatible(a: &mod_render::masks::Mask, b: &mod_render::masks::Mask) -> bool 
         && a.session.dimension == b.session.dimension
         && a.depth == b.depth
         && a.entities == b.entities
+        && a.position == b.position
+}
+
+/// Keeps fitting coverage groups, offering each owner one group before its next.
+fn admit_groups(groups: &mut Vec<&mod_render::masks::Mask>, bytes: Option<u64>) -> u64 {
+    let Some(bytes) = bytes.filter(|bytes| *bytes != 0) else {
+        groups.clear();
+        return 0;
+    };
+    let capacity = (MAX_MASK_ATTACHMENT_BYTES / bytes) as usize;
+    if groups.len() > capacity {
+        let mut counts = BTreeMap::<u64, usize>::new();
+        let mut ordered: Vec<_> = groups
+            .drain(..)
+            .map(|mask| {
+                let round = counts.entry(mask.handle.owner).or_default();
+                let entry = (*round, mask);
+                *round += 1;
+                entry
+            })
+            .collect();
+        ordered.sort_by_key(|(round, mask)| (*round, mask.handle.owner, mask.handle.slot));
+        groups.extend(ordered.into_iter().take(capacity).map(|(_, mask)| mask));
+    }
+    bytes * groups.len() as u64
 }
 
 /// Selects only admitted draw spans, splitting shared spans at authorized entity boundaries.
@@ -298,7 +367,11 @@ fn selection(
     }
     let mut draws = Vec::new();
     let mut vertices = 0u64;
-    for span in &gpu.spans {
+    for span in if gpu.mask_spans.is_empty() {
+        &gpu.spans
+    } else {
+        &gpu.mask_spans
+    } {
         for first in span.first..span.first.checked_add(span.count)? {
             let entry = gpu.manifest.get(first as usize)?;
             if !selected(mask, &entry.identity) {
@@ -318,12 +391,35 @@ fn selection(
     Some(draws)
 }
 
+/// Reuses the body's final render root for every layer of a translated mask.
+fn displacement(mask: &mod_render::masks::Mask, gpu: &ActorGpu) -> [f32; 4] {
+    let Some(position) = mask.position else {
+        return [0.; 4];
+    };
+    gpu.manifest
+        .iter()
+        .zip(gpu.instances.iter())
+        .find(|(entry, _)| {
+            entry.identity.layer == render_model::ACTOR_LAYER_BODY
+                && selected(mask, &entry.identity)
+        })
+        .map_or([0.; 4], |(_, instance)| {
+            [
+                position[0] - instance.world_from_actor[0][3],
+                position[1] - instance.world_from_actor[1][3],
+                position[2] - instance.world_from_actor[2][3],
+                0.,
+            ]
+        })
+}
+
 /// Reclaims revoked owners/views before charging a complete frame's attachments.
 pub(crate) fn prepare(
     scene: Option<Res<render_scene::ModRenderScene>>,
     gpu: Option<Res<ActorGpu>>,
     mut masks: ResMut<MaskGpu>,
     device: Res<RenderDevice>,
+    queue: Res<RenderQueue>,
     cache: Res<PipelineCache>,
     views: Query<(Entity, &Msaa, &ViewDepthStencilTexture)>,
 ) {
@@ -343,24 +439,16 @@ pub(crate) fn prepare(
             groups.push(mask);
         }
     }
-    // Admit a whole frame or none: load order cannot consume another owner's attachment budget.
+    // Charge one group's attachments across all views before admitting its coverage.
     let bytes = views.iter().try_fold(0u64, |sum, (_, _, depth)| {
         let size = depth.texture().size();
-        sum.checked_add(
-            mod_render::masks::attachment_bytes(
-                size.width,
-                size.height,
-                depth.texture().sample_count(),
-            )?
-            .checked_mul(groups.len() as u64)?,
-        )
+        sum.checked_add(mod_render::masks::attachment_bytes(
+            size.width,
+            size.height,
+            depth.texture().sample_count(),
+        )?)
     });
-    if bytes.is_none_or(|bytes| bytes > MAX_MASK_ATTACHMENT_BYTES) {
-        masks.targets.clear();
-        masks.attachment_bytes = 0;
-        return;
-    }
-    masks.attachment_bytes = bytes.unwrap_or(0);
+    masks.attachment_bytes = admit_groups(&mut groups, bytes);
     // A previous union can split into several groups. Keep each old attachment for
     // at most one representative before rebuilding this frame's shared aliases.
     let mut retained = std::collections::HashSet::new();
@@ -371,6 +459,10 @@ pub(crate) fn prepare(
     });
     for (entity, msaa, depth) in &views {
         for mask in &active {
+            if !groups.iter().any(|group| compatible(mask, group)) {
+                masks.targets.remove(&(entity, mask.handle));
+                continue;
+            }
             let key = (entity, mask.handle);
             if let Some(group) = groups
                 .iter()
@@ -386,7 +478,7 @@ pub(crate) fn prepare(
                 .is_none_or(|target| !target.matches(depth))
             {
                 masks.targets.remove(&key);
-                let Some(target) = MaskTarget::new(&device, depth) else {
+                let Some(target) = MaskTarget::new(&device, &cache, depth) else {
                     continue;
                 };
                 masks.targets.insert(key, target);
@@ -418,8 +510,7 @@ pub(crate) fn prepare(
                     gpu.artwork_current
                         && gpu
                             .artwork
-                            .pages
-                            .get(usize::from(span.page) - 1)
+                            .page(usize::from(span.page) - 1)
                             .is_some_and(|page| page.bind_group.is_some())
                 };
                 let kind = span.material & assets::EntityRenderMaterialState::KIND_MASK;
@@ -432,6 +523,8 @@ pub(crate) fn prepare(
                 draws.entry(owner).or_default().push((span, id));
             }
             let target = masks.targets.get_mut(&key).unwrap();
+            let displacement = displacement(mask, &gpu);
+            queue.write_buffer(&target.placement, 0, bytemuck::cast_slice(&displacement));
             if target.dissolve_binding.is_none() {
                 target.dissolve_binding =
                     gpu_allocation::checked(&device, "mask dissolve binding", 0, || {
@@ -590,8 +683,7 @@ fn draw(
                         gpu.bind_group.as_ref()
                     } else {
                         gpu.artwork
-                            .pages
-                            .get(usize::from(span.page) - 1)
+                            .page(usize::from(span.page) - 1)
                             .and_then(|page| page.bind_group.as_ref())
                     };
                     let Some(binding) = binding else {
@@ -599,8 +691,9 @@ fn draw(
                     };
                     pass.set_render_pipeline(pipeline);
                     pass.set_bind_group(0, binding, &[offset.offset]);
+                    pass.set_bind_group(2, &target.placement_binding, &[]);
                     if !prepass && paired {
-                        pass.set_bind_group(2, target.dissolve_binding.as_ref().unwrap(), &[]);
+                        pass.set_bind_group(3, target.dissolve_binding.as_ref().unwrap(), &[]);
                     }
                     pass.draw(0..span.vertex_count, span.first..span.first + span.count);
                 }

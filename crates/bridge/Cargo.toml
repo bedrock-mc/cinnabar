@@ -12,6 +12,9 @@ reads = [
     "core",
 ]
 
+[features]
+join-profile = []
+
 [dependencies]
 web-time.workspace = true
 anyhow.workspace = true

@@ -68,6 +68,7 @@ pub(crate) fn receive_network_events(
     mut local_player: NetworkLocalPlayerState,
     profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
+    let _join_profile = network.enter_join_profile();
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::NetworkIngestion));
@@ -85,6 +86,7 @@ pub(crate) fn receive_network_events(
         NETWORK_CONTROL_BUDGET_PER_FRAME,
     ) {
         if matches!(control, NetworkControlEvent::Bootstrap { .. }) {
+            bridge::join_profile::JoinProfile::current().mark("bootstrap_received");
             bootstrap::apply(
                 control,
                 &mut state,
@@ -158,7 +160,7 @@ mod bootstrap_timing;
 mod compile_execution;
 pub(crate) mod entity_pack;
 mod entity_texture_reload;
-mod glyph_sheets;
+pub(crate) mod glyph_sheets;
 mod item_icons;
 mod server_animation;
 pub(crate) use item_icons::install_vanilla_item_assets;

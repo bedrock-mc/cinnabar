@@ -269,10 +269,14 @@ On PowerShell, set the corresponding `$env:CINNABAR_MOD_*` variables before
 launching the client. Only the exact value `1` grants access. These grants apply
 only to the explicitly selected personal component, not to server bundles.
 
-The user-consented `players` and `camera` grants remain available in multiplayer
-independently of drawing-session negotiation. They do not grant entity,
-terrain, highlighting or drawing permissions; those retain their separate
-consent and session limits.
+Personal-mod capabilities use explicit user consent in both local and remote worlds.
+Servers do not grant or restrict those permissions. Drawing, entity observation,
+terrain reads, block highlights, materials and post effects each retain their own
+permission controls and component-declared requests. Drawing resources and observations
+remain scoped to the live connection and dimension; disconnects, transfers, reloads,
+traps and revocation clear the previous instance's output. Mod updates retain this
+user-consent policy independently of server negotiation, mod digest allowlists and
+server-grant expiry.
 
 `read-frame` returns an error without the players or terrain grant, or `ok(none)` outside
 active gameplay; the terrain grant alone omits remote players. Terrain reads
@@ -364,22 +368,46 @@ A `text` control has `id`, `label`, `value`, optional `min_chars` (default 0) an
 Its native editor supports selection, character-safe navigation and cancellation.
 Command/Ctrl-A, C, X and V select, copy, cut and paste only while a native field
 has focus. Paste remains subject to the field's single-line and character bounds.
+Optional `live: true` emits the complete value on every edit, coalesced per field
+between frame callbacks. Enter submits and keeps a live field focused. The additive
+`input.read-field-events()` API returns `change({id, value})`, `submit({id, value})`
+and `key({id, key, shift, control, alt, super-key})` variants. Changes may temporarily
+fall below `min_chars`; submitting still requires the full bounds. Omitting `live`
+preserves Enter-to-commit behavior. The legacy text-event API receives commits only.
+
+Optional `navigation_keys: true` forwards Up/Down, Left at the start, Right at the
+end, and Enter/Shift+Enter through field key events while the field has focus.
+Horizontal arrows first collapse any selection. Other horizontal movement,
+Home/End, Shift selection, and Ctrl/Option word movement and deletion stay native.
+IME preedit appears inline with an underline and remains local until commit.
+Its transient spelling may exceed the field's committed character limit.
+The caret uses the painted glyph positions and the caller's animation time.
+
 Committed text arrives through `input.read-text-events()` as `{id, value}` entries,
 separately from the unchanged numeric events in `input.read-controls()`.
 The batch is visible only during its regular frame callback, remains stable across
 reads and stays queued when the callback is deferred. It shares the controls grant
-and read budget. Native integrations drain
-`ModUi::take_mod_panel_text_events(owner)` and call that owner's
-`ModHost::queue_text_events` before running its frame. Admission validates the
-entire batch against its current text controls before updating any retained value.
-Optional `motion: true` enables short native hover and toggle transitions and
-smooth discrete wheel scrolling. Pixel scrolling and scrollbar dragging remain
-immediate. Authored surfaces can bind `#row_N_hover` and
+and read budget. Before running a frame, native integrations first drain
+`ModUi::take_mod_panel_text_events(owner)` into `ModHost::queue_text_events`, then
+`ModUi::take_mod_panel_field_events(owner)` into `ModHost::queue_field_events`.
+Draining field events retains the same valid, coalesced values that the host
+admits. Below-minimum drafts remain editable without changing the retained value.
+Admission validates each complete batch before updating any retained value.
+Optional `show_gameplay_hud: true` retains the resource-pack gameplay HUD behind an
+open panel, for example while placing HUD elements. It defaults to false. Hide HUD
+and death-screen suppression still apply, and the crosshair stays hidden while a
+panel owns input. This does not enable other extensions' overlay cards. The value
+can change with a full panel update without replacing the retained document.
+
+Optional `motion: true` enables authored surface transitions, short native hover
+and toggle easing, and smooth discrete wheel scrolling. Pixel scrolling and
+scrollbar dragging remain immediate. Authored surfaces can bind `#row_N_hover` and
 `#row_N_toggle_progress` and `#row_N_toggle_inverse_progress` (complementary numbers
 from 0 to 1), `#row_N_toggle_color` and
 `#row_N_knob_color` (RGBA arrays), and `#row_N_knob_offset` (logical coordinates
 from `[2, 2]` to `[12, 2]`). These values follow native input without waiting for a
-component update. Turning off the Screen animations setting makes them change at once. `ModUi::mod_panel_motion_active` reports unsettled feedback for
+component update. Mod feedback is independent of the built-in Screen animations
+setting; the mod chooses whether to enable `motion`. `ModUi::mod_panel_motion_active` reports unsettled feedback for
 callers that suspend idle drawing. Arbitrary authored animation graphs remain
 unsupported.
 
@@ -464,8 +492,12 @@ route change while open swaps surfaces at once, easing the new route in from its
 still in progress, and `ModUi::mod_panel_painting` reports a closed panel that is
 still drawing.
 
-When the player turns off the Screen animations setting, transitions, exits
-and `motion: true` feedback change at once, including values already moving.
+Surface transitions and exits require `motion: true` and remain independent of
+the built-in Screen animations setting. Setting `motion: false` settles active
+feedback, wheel scrolling and surface transitions immediately and removes a
+pending exit. Re-enabling motion affects future changes without replaying the
+entrance. The host can also disable all panel motion with
+`ModUi::configure_motion(false)`; a panel cannot override that preference.
 
 A control may declare `cinnabar_transform` to scale and rotate how it and all its
 descendants are drawn, like CSS `transform`, without changing layout:
@@ -579,12 +611,23 @@ unbounded artwork, nested collections and tiles escaping their cell clip are
 rejected before publication. Templates cannot contain surface bindings or
 transitions of their own. Collections are currently supported on personal panels.
 
+Use `"collection_reveal": { "collection": "modules", "item": 8 }` to reveal an
+immutable item index through the current filtered order. The host scrolls by the
+minimum distance needed to show its whole cell, including the template's card
+padding, before preparing the visible grid window. Reveals are instant, including
+under reduced motion, and cancel pending wheel easing. Each request is consumed
+once; wheel scrolling then stays under pointer control. Sending the same request
+again reveals the item again. Unknown collections and out-of-range item indexes
+reject the patch atomically. An admitted item excluded by the current filter is
+ignored and counted in one warning for that request.
+
 ```json
 {
   "controls": [{ "id": "enabled", "value": true }],
   "surface": "main",
   "bindings": { "#filter": "" },
-  "capture_key": false
+  "capture_key": false,
+  "motion": true
 }
 ```
 
@@ -594,7 +637,10 @@ take a Boolean `value`, sliders a finite in-range `value`, keybinds `key` and/or
 `control_values` provides compact `[control_index, value]` pairs: Boolean toggles,
 numeric sliders, unsigned choice indexes and string text values. Indexes refer to the selected route's
 validated control order. A control cannot appear twice across either edit list.
-Omitted controls retain their values. `surface` selects a prepared route;
+Omitted controls retain their values. `motion` changes the retained animation
+preference without replacing the prepared route or resetting scroll and input.
+Omitting it, or supplying `null`, preserves the preference across route changes.
+`surface` selects a prepared route;
 `bindings`, when supplied, fully replaces custom scalars and starts any declared
 transitions toward the new values, while the host continues
 to generate `#row_N` facts from the controls. Invalid batches change nothing, and
@@ -1080,7 +1126,9 @@ rendered frame yet; see `plan.md`.
 ## Loaded block highlights
 
 The separate `block_highlights` grant (`CINNABAR_MOD_BLOCK_HIGHLIGHTS=1`) permits
-`render.set-block-highlights`. A retained specification names up to
+`render.set-block-highlights`. User consent is sufficient in local and remote
+sessions, including servers without drawing negotiation.
+A retained specification names up to
 `mod_api::MAX_BLOCK_HIGHLIGHT_IDENTIFIERS` canonical block identifiers, a bounded
 camera-relative range, and linear RGBA colour. The host scans only loaded primary
 block layers, caches palettes and subchunk identities, and draws full unit cubes
@@ -1088,6 +1136,29 @@ through terrain without changing world or packet state. Results share the
 `mod_api::MAX_BLOCK_HIGHLIGHTS` nearest-block budget; the earliest active mod wins.
 `none`, unload, reload, or a trap clears the overlay. Output commits only after a
 successful callback; repeated unchanged input rebuilds no geometry.
+Packet `render-frame` scenes also accept an optional `outline` on each block:
+`{"position":[1,64,2],"colour":[0,1,1,0.3],"outline":{"colour":[0,1,1,0.85],"width":1.5}}`.
+The width is in physical pixels, greater than zero and at most 8. Both colours use
+independent linear RGBA; a zero fill alpha gives an outline-only block. These
+edges share the block-highlight budget and do not consume retained box slots.
+Guests must negotiate `native_render::BLOCK_OUTLINES` before sending `outline`;
+older hosts accept only the existing position and colour fields. The optional
+bit requires the same `block_highlights` consent, not another permission.
+Face-adjacent highlights form a continuous surface. Shared faces and coplanar
+outline seams are removed; isolated blocks and exterior creases retain their edges.
+
+Packet guests negotiating `native_render::ACTOR_ANCHORS` may set a line's
+`camera_start: true` and `entity_end: {"runtime_id":42,"offset":[0,1.62,0]}`.
+The host resolves these from the same interpolated actor body and camera used
+for rendering, dropping the line when its target is unavailable. Offsets use
+world axes. This bit requires entity observation and highlight consent in
+addition to the existing world drawing grants.
+An entity group selecting exactly one actor may also supply `position:[x,y,z]`
+to place its current animated mesh at those feet. `style.fill:[r,g,b,a]` adds
+translucent silhouette coverage independently of the outline and halo. A hidden
+local body is prepared only for requested coverage and stays out of main passes.
+Omit all these optional fields when the host does not advertise the bit.
+
 ## Fullbright
 
 The separate `fullbright` grant (`CINNABAR_MOD_FULLBRIGHT=1`) permits
@@ -1172,7 +1243,7 @@ they do not establish reference-client parity. Annotations retain native
 visibility, depth, font-atlas and record limits and leave server name text intact.
 
 A single plain-value card may set `text_plate` with `brackets`, `bracket_color`,
-`background`, `border_color`, and `border_width` (0–8). Colors are straight RGBA.
+`background`, `border_color`, `border_width` (0–8), and `radius` (0–16, default 0). Colors are straight RGBA.
 Optional `width` (1–512) and `height` (1–128) fix the background's size; omitting
 either fits that dimension to native font measurements and padding. Text stays
 centered and retains its row color and the card's shadow. Brackets have their
@@ -1196,9 +1267,14 @@ the player's effects. It remains active with empty `cards`; clearing the HUD,
 omitting the flag or setting it to false restores the ordinary icons.
 
 Card data contains `cards`, each with a unique `id`, `rows`, and optional
-`title`, `anchor`, `offset`, `scale`, `position`, and `background_opacity`. Anchors are `top_left`, `top_center`, `top_right`, `bottom_left`,
-and `bottom_right`; offsets are GUI pixels from that anchor. Negative offsets
-move inward from right/bottom anchors. Scale is 0.25–5 and scales card text, icons,
+`title`, `anchor`, `offset`, `scale`, `position`, `background_opacity`, and
+`background_radius` (0–16 GUI pixels, default 3). Background radii scale with the card. Anchors are
+`top_left`, `top_center`, `top_right`, `left`, `center`, `right`, `bottom_left`,
+`bottom_center`, and `bottom_right`. Offsets are finite GUI pixels measured inward
+from anchored edges; centered axes use signed offsets toward the right or bottom.
+Anchored cards clamp to the available viewport without changing their saved offsets.
+An explicit `position` keeps its existing normalized-travel behavior and takes precedence.
+Scale is 0.25–5 and scales card text, icons,
 and geometry together. Each row has `label`, `value`, and optional `item`
 (resource identifier), `metadata`, `effect_id` (canonical Bedrock effect icon),
 `progress` (0–1), and `color` (RGBA 0–1). Item and effect icons are mutually exclusive;
@@ -1276,8 +1352,8 @@ and `reset_scale` supply factory layout without changing the current preview.
 These fields affect only the layout editor.
 Optional `editor_style` recolors the host-owned chrome: `outline` and `selected`
 card outlines, resize `handle`, `handle_hover` and `handle_pressed` colors, the
-`handle_radius` of the five-pixel handle mark (0–4), alignment `guide`, and the
-built-in `grid`. Colors are RGBA from zero to one; omitted fields keep the
+`handle_radius` of the five-pixel handle mark (0–4), alignment `guide`, the
+built-in `grid`, and the distance `measurement` pills. Colors are RGBA from zero to one; omitted fields keep the
 built-in appearance.
 
 The editor captures native pointer dragging, clamps cards to the available
@@ -1296,6 +1372,14 @@ opposite corner fixed when space permits, and clamps its placement to the viewpo
 Use `hud.read-editor-layout()` to read `saved`, `reset`, and `placements` containing
 ID, normalized position, and scale. It shares result consumption with the existing
 `hud.read-editor-result()`; the legacy position-only API remains unchanged.
+
+Completed moves, resizes, and arrow nudges choose one of nine anchors from the
+viewport third containing the card's center. The stored GUI-pixel offset preserves
+the current origin and its distance from that anchor on later viewports and GUI scales.
+Use `hud.read-editor-anchored-layout()` for `saved`, `reset`, and placements with
+`id`, `anchor`, `offset`, and `scale`. Republish these cards without `position` to
+retain anchoring. Both older reads still return normalized positions at the current
+viewport and share the same callback lifetime and result consumption.
 
 An editor request may opt into `autosave: true`. Completed pointer drags and resizes, arrow
 nudges, and Reset then return incremental saved results while the editor stays
@@ -1353,3 +1437,34 @@ Each bounded result contains the existing `actor` record and optional `max-healt
 from the replicated health attribute. Missing attributes remain absent; no default
 maximum is inferred. The original `read-actors` import and actor record stay compatible
 with previously built components.
+
+## Trusted packet mods
+
+Settings → Mods → Import mod accepts raw WASI packet reactors up to the packet
+host's 256 MiB source limit. Ordinary component mods retain their existing limits.
+Import validates the packet ABI without starting the guest; permissions stay off
+by default. The `packet-mod` world in `crates/mod-api/wit/extension.wit` owns the
+session identity, startup packs, batch replacement and timed output contract.
+
+Grant Session packets and, for WASI reactors, WASI runtime before enabling the
+mod. One packet mod can be selected at a time. The prepared source starts in a
+fresh instance on the next server join. Disabling it or revoking grants retires
+the current authority immediately; reloads select the next session's source.
+Compilation and guest execution run off the frame thread. Traps, invalid output
+and expired deadlines quarantine the instance into ordinary packet forwarding.
+
+The host retains one admitted compiled program in memory, keyed by the source
+and exact grants. Its native image is bounded by the source byte limit; compiled
+native artifacts are never read from disk. WASI provides clocks, randomness and
+bounded captured output, without files, inherited environment or network access.
+
+Server batches through spawn use the join deadline, including startup registries
+that arrive after the StartGame handoff. The login owner switches later batches
+to the shorter play deadline after spawn. Ticks always use the play deadline.
+
+Developer launches may select a reactor with `CINNABAR_PACKET_MOD` and add WASI
+with `CINNABAR_PACKET_MOD_WASI=1`, or select a packet entry from
+`CINNABAR_MOD_SET`. Settings uses the same prepared-source and relay path.
+
+Native menus for trusted packet reactors use the optional callback and explicit
+Controls grant described in [the native menu contract](../crates/mod-api/native-menu.md).

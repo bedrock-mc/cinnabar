@@ -47,6 +47,49 @@ fn private_font_page(marker: u8, side: u32, coverage: bool) -> Arc<RuntimeFontCa
     ))
 }
 
+/// Text and icons share one atlas and must fit the same limit used by rasterization.
+#[test]
+fn expanded_private_font_installs_without_reallocating_and_rejects_overflow() {
+    let source = private_font_page(41, UI_LOCAL_ICON_FONT_PAGE_SIDE, true);
+    let metrics = *source.glyph('A').unwrap();
+    let font = |count| {
+        let glyphs: Vec<_> = (0..count)
+            .map(|index| SheetGlyph {
+                metrics: GlyphMetrics {
+                    codepoint: char::from_u32(0x20 + index as u32).unwrap(),
+                    ..metrics
+                },
+                draw_size_64: [2 * 64, 4 * 64],
+            })
+            .collect();
+        Arc::new(source.with_glyphs(&glyphs, |_| true))
+    };
+    let mut runtime = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let budget = runtime.textures.plan().bytes();
+    let source = font(ui::mod_panel::MAX_FONT_GLYPHS);
+    runtime
+        .set_mod_panel_font(Some(Arc::clone(&source)))
+        .unwrap();
+    assert_eq!(runtime.textures.plan().bytes(), budget);
+    assert_eq!(
+        runtime
+            .font
+            .font_named(ui::mod_panel::FONT_NAME)
+            .glyphs()
+            .len(),
+        ui::mod_panel::MAX_FONT_GLYPHS
+    );
+    let installed = Arc::clone(&runtime.textures);
+    runtime.set_mod_panel_font(Some(source)).unwrap();
+    assert!(Arc::ptr_eq(&runtime.textures, &installed));
+    assert!(
+        runtime
+            .set_mod_panel_font(Some(font(ui::mod_panel::MAX_FONT_GLYPHS + 1)))
+            .is_err()
+    );
+    assert!(Arc::ptr_eq(&runtime.textures, &installed));
+}
+
 /// Dense coverage can replace and unload from the same slot without moving game or server pages.
 #[test]
 fn dense_private_coverage_replaces_one_slot_with_the_same_byte_budget() {
@@ -91,6 +134,7 @@ fn late_font_replaces_one_page_without_reallocating_static_or_server_slots() {
     let base = fixture_font();
     let mut runtime = UiPresentationRuntime::new(Arc::clone(&base)).unwrap();
     let textures = runtime.textures.clone();
+    let built_in = Arc::clone(&runtime.base_font);
     let font = private_font(19);
     runtime.set_mod_panel_font(Some(font.clone())).unwrap();
     let target = textures.dynamic_start() + UI_LOCAL_FONT_PAGE_OFFSET;
@@ -122,8 +166,8 @@ fn late_font_replaces_one_page_without_reallocating_static_or_server_slots() {
     assert!(Arc::ptr_eq(&runtime.textures, &installed));
     runtime.set_mod_panel_font(None).unwrap();
     assert_eq!(runtime.textures.identity(), textures.identity());
-    assert_eq!(runtime.font.identity(), base.identity());
-    assert!(Arc::ptr_eq(&runtime.base_font, &base));
+    assert_eq!(runtime.font.identity(), built_in.identity());
+    assert!(Arc::ptr_eq(&runtime.base_font, &built_in));
 }
 
 #[test]

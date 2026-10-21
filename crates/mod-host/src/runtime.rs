@@ -203,6 +203,18 @@ impl cinnabar::extension::hud::Host for State {
     ) -> Result<Result<Option<cinnabar::extension::hud::LayoutResult>, String>> {
         hud::read_editor_layout(self)
     }
+    /// Reads anchored placements under the same authority and callback lifetime as legacy reads.
+    fn read_editor_anchored_layout(
+        &mut self,
+    ) -> Result<Result<Option<cinnabar::extension::hud::AnchoredLayoutResult>, String>> {
+        hud::read_editor_anchored_layout(self)
+    }
+    /// Reads draft visibility under the same authority and transaction as placement output.
+    fn read_editor_visibility(
+        &mut self,
+    ) -> Result<Result<Option<cinnabar::extension::hud::VisibilityResult>, String>> {
+        hud::read_editor_visibility(self)
+    }
     fn set_content(&mut self, json: String) -> Result<Result<(), String>> {
         hud::set_content(self, json)
     }
@@ -715,6 +727,11 @@ impl Instance {
         self.store.data().label.as_deref()
     }
 
+    /// Identifies the committed authored or natively resolved HUD without copying it.
+    pub(super) fn hud_revision(&self) -> u64 {
+        self.store.data().hud.revision
+    }
+
     pub(super) fn hud(&self) -> Option<&ui::mod_hud::Hud> {
         let hud = &self.store.data().hud;
         hud.resolved.as_ref().or(hud.content.as_ref())
@@ -732,7 +749,7 @@ impl Instance {
 
     /// Makes one host result available to this instance's next callback.
     pub(super) fn deliver_hud_editor_result(&mut self, result: ui::mod_hud::EditorResult) {
-        self.store.data_mut().hud.editor_result = Some(result);
+        self.store.data_mut().hud.deliver_editor_result(result);
     }
 
     pub(super) fn crosshair(&self) -> Option<&ui::mod_hud::Crosshair> {

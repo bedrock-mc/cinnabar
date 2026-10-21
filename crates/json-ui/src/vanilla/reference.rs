@@ -68,5 +68,7 @@ names! {
         StonecutterStonecutterScreen = "stonecutter.stonecutter_screen",
         ToastScreenToastScreen = "toast_screen.toast_screen",
         XblConsoleSigninXblConsoleSignin = "xbl_console_signin.xbl_console_signin",
+        TradeTradeScreen = "trade.trade_screen",
+        Trade2TradeScreen = "trade2.trade_screen",
     }
 }

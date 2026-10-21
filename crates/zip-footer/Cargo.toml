@@ -1,0 +1,18 @@
+[package]
+name = "zip-footer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+thiserror.workspace = true
+
+[dev-dependencies]
+zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[lints]
+workspace = true

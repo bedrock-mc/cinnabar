@@ -1,5 +1,6 @@
 //! Explicit local environment grants for a selected personal component.
 
+use super::packet_relay::PacketModSelection;
 use mod_host::ModGrants;
 
 const PLAYERS_ENV: &str = "CINNABAR_MOD_PLAYERS";
@@ -23,10 +24,35 @@ const COMMANDS_ENV: &str = "CINNABAR_MOD_COMMANDS";
 const PACKET_DELAY_ENV: &str = "CINNABAR_MOD_PACKET_DELAY";
 const PACKET_DELAY_VISUAL_ENV: &str = "CINNABAR_MOD_PACKET_DELAY_VISUAL";
 
+/// A packet mod component or core module selected on its own; it gets the packets grant.
+pub const PACKET_MOD_ENV: &str = "CINNABAR_PACKET_MOD";
+/// Also links WASI into the packet mod selected on its own.
+const PACKET_MOD_WASI_ENV: &str = "CINNABAR_PACKET_MOD_WASI";
+
+/// The packet mod selected on its own through the environment.
+pub fn environment_packet_mod() -> Option<PacketModSelection> {
+    let path = std::env::var_os(PACKET_MOD_ENV)?;
+    Some(PacketModSelection {
+        path: path.into(),
+        grants: ModGrants {
+            packets: true,
+            wasi: std::env::var(PACKET_MOD_WASI_ENV).is_ok_and(|value| value == "1"),
+            ..environment_grants()
+        },
+    })
+}
+
 /// The grants a component or package selected on its own gets from the environment.
 pub fn environment_grants() -> ModGrants {
     ModGrants {
         environment: true,
+        world_draw: std::env::var("CINNABAR_MOD_WORLD_DRAW").is_ok_and(|value| value == "1"),
+        render_through_walls: std::env::var("CINNABAR_MOD_RENDER_THROUGH_WALLS")
+            .is_ok_and(|value| value == "1"),
+        entity_observe: std::env::var("CINNABAR_MOD_ENTITY_OBSERVE")
+            .is_ok_and(|value| value == "1"),
+        entity_highlight: std::env::var("CINNABAR_MOD_ENTITY_HIGHLIGHT")
+            .is_ok_and(|value| value == "1"),
         terrain: std::env::var("CINNABAR_MOD_TERRAIN").is_ok_and(|value| value == "1"),
         players: std::env::var(PLAYERS_ENV).is_ok_and(|value| value == "1"),
         player_state: std::env::var(PLAYER_STATE_ENV).is_ok_and(|value| value == "1"),

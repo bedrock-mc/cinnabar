@@ -64,6 +64,7 @@ pub struct IconEntry {
 
 /// Decoded, validated icon catalog with binary-search lookup.
 pub struct RuntimeIconCatalog {
+    carrier_identity: [u8; 32],
     source_manifest_sha256: [u8; 32],
     sprites: Arc<[IconSprite]>,
     entries: Arc<[IconEntry]>,
@@ -122,7 +123,8 @@ impl RuntimeIconCatalog {
         {
             return Err(invalid("noncanonical icon carrier layout"));
         }
-        if Sha256::digest(&bytes[..payload_end]).as_slice() != &bytes[payload_end..] {
+        let carrier_identity: [u8; 32] = Sha256::digest(&bytes[..payload_end]).into();
+        if carrier_identity[..] != bytes[payload_end..] {
             return Err(invalid("icon carrier envelope hash mismatch"));
         }
 
@@ -219,6 +221,7 @@ impl RuntimeIconCatalog {
             return Err(invalid("trailing icon carrier payload"));
         }
         Ok(Self {
+            carrier_identity,
             source_manifest_sha256,
             sprites: sprites.into(),
             entries: entries.into(),
@@ -226,6 +229,11 @@ impl RuntimeIconCatalog {
             block_models: block_models.into(),
             sources,
         })
+    }
+
+    /// Identifies all decoded routes, sheets, models and pixels for persistent subscribers.
+    pub const fn carrier_identity(&self) -> [u8; 32] {
+        self.carrier_identity
     }
 
     #[must_use]

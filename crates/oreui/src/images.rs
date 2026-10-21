@@ -1,32 +1,20 @@
-//! OreUI artwork is decoded once at runtime: shipped original images, plus install-only art
-//! from an installed bundle.
+//! OreUI artwork is decoded once at runtime from the shipped original images.
 
-mod catalog;
 pub mod dimensions;
 mod packing;
 mod shipped;
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fs::File,
-    io::{Cursor, Read},
-    path::{Path, PathBuf},
+    io::Read,
+    path::Path,
     sync::{Arc, OnceLock},
 };
 
-use image::{AnimationDecoder, ImageDecoder, ImageReader, Limits};
-use serde::Deserialize;
-
 /// Side of the packed OreUI page.
 pub const OREUI_PAGE_SIDE: u32 = 3072;
-const MAX_ATLAS_JSON_BYTES: u64 = 1024 * 1024;
-const MAX_IMAGE_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_IMAGE_SIDE: u32 = render_model::MAX_UI_TEXTURE_SIDE;
-const MAX_ANIMATION_FRAMES: usize = 256;
-const MAX_ANIMATION_PIXELS_BYTES: usize = 64 * 1024 * 1024;
-const MAX_BUNDLE_FILES: usize = 4096;
-/// Create-world artwork resolves from the installed native bundle.
-pub const WORLD_PREVIEW: &str = "assets/world-preview-default-d0210bba13d939ca9e72.jpg";
 pub const WORLD_CATEGORY_ICONS: [&str; 7] = [
     "assets/general-icon-8ce31666e00cf3491940.png",
     "assets/advanced-icon-1b6c5b572a777772a78e.png",
@@ -68,7 +56,7 @@ pub const PLAY_TAB_ICONS: [&str; 3] = [
     "assets/UI_Menu_RealmsTab-c7419af9abd527149fcc.png",
     "assets/UI_Menu_ServerTab-e7c3c035b7d6ba5a414b.png",
 ];
-/// Standalone category images from the installed OreUI bundle, in sidebar order.
+/// Inbox category images, in sidebar order.
 pub const INBOX_ICONS: [&str; 4] = [
     "assets/News-f81489154ff3c38f5b5f.png",
     "assets/Realms-c7419af9abd527149fcc.png",
@@ -87,7 +75,7 @@ pub const INBOX_EMPTY_IMAGES: [&str; 4] = [
 const _: () = assert!(INBOX_ICONS.len() == launcher::menu::inbox::CATEGORIES.len());
 const _: () = assert!(INBOX_EMPTY_IMAGES.len() == INBOX_ICONS.len());
 
-/// Settings category art, read only from the optional installed bundle.
+/// Settings category art.
 pub(crate) const SETTINGS_ICONS: [&str; 13] = [
     "assets/accessibility-41a033eee6f8f8726f5e.png",
     "assets/keyboard-mouse-58d767999df54b704830.png",
@@ -111,18 +99,7 @@ pub(crate) const PROFILE_STAT_ICONS: [&str; 4] = [
     "assets/IconSwordGrey-9087f66e9056b3b959aa.png",
     "assets/IconBootsGrey-142a375cbe9eecc3879d.png",
 ];
-/// The deterministic fallback banner choices used by OreUI `mZ`.
-pub(crate) const PROFILE_BANNERS: [&str; 8] = [
-    "assets/screenshot_1-48404d5a8f0097356091.jpg",
-    "assets/screenshot_2-7c721593cd419875cf29.jpg",
-    "assets/screenshot_3-9dd41022b2ee8d8c2c08.jpg",
-    "assets/screenshot_4-72ff980d133dc323944c.jpg",
-    "assets/screenshot_5-5636d6b539bf7f23759d.jpg",
-    "assets/screenshot_6-380c0205af54e86438ac.jpg",
-    "assets/screenshot_7-6cfec1e1e1009ea73447.jpg",
-    "assets/screenshot_8-b5f240429090c0ddd613.jpg",
-];
-/// Profile error art, loaded only from an install at runtime.
+/// Art for empty and failed profile views.
 pub(crate) const PROFILE_ERRORS: [&str; 3] = [
     "assets/nothing_to_see-1107fc6902173eb98f28.png",
     "assets/generic_error-aa90619c4c1746eb7ac0.png",
@@ -191,12 +168,13 @@ pub(crate) const EXTERNAL_LINK_ICON: &str =
     "assets/external-link@0.5x.icon-28016636e9d767b57dffe6e45fa749aa.png";
 /// Settings binding reset mask.
 pub(crate) const RESET_ICON: &str = "assets/reset@0.5x.icon-4fc2a8ff6f440b4d14293bb8e833a1bc.png";
-/// Sleep animations use a hashed bundle name after this stable prefix.
+/// Sleep animations use a hashed name after this stable prefix.
+#[cfg(test)]
 pub(crate) const SLEEP_ANIMATION_PREFIX: &str = "assets/sleep_";
 
+#[cfg(test)]
 const REFERENCED_KEY_GROUPS: &[&[&str]] = &[
     &[
-        WORLD_PREVIEW,
         HARDCORE_ICON,
         LOADING_ANIMATION,
         SWITCH_ON_IMAGE,
@@ -222,7 +200,6 @@ const REFERENCED_KEY_GROUPS: &[&[&str]] = &[
     &INBOX_EMPTY_IMAGES,
     &SETTINGS_ICONS,
     &PROFILE_STAT_ICONS,
-    &PROFILE_BANNERS,
     &PROFILE_ERRORS,
     &PROFILE_SUMMARY_ICONS,
     &ACTION_ICONS,
@@ -233,10 +210,8 @@ const REFERENCED_KEY_GROUPS: &[&[&str]] = &[
     &PLAY_TAB_IMAGES,
 ];
 
-/// Photographic art that is not shipped and still loads from an installed bundle.
-const INSTALL_ONLY_KEY_GROUPS: &[&[&str]] = &[&[WORLD_PREVIEW], &PROFILE_BANNERS];
-
 /// Lists exact native artwork keys used by screens; hashed sleep names match the prefix above.
+#[cfg(test)]
 pub(crate) fn referenced_keys() -> impl Iterator<Item = &'static str> {
     REFERENCED_KEY_GROUPS
         .iter()
@@ -250,7 +225,7 @@ pub struct OreUiSprite {
     pub bounds: [u16; 4],
 }
 
-/// Original pixels and bundle paths are shared by every presentation instance.
+/// Original pixels shared by every presentation instance.
 #[derive(Clone)]
 pub struct OreUiImages {
     pub pages: Vec<OreUiPage>,
@@ -258,7 +233,6 @@ pub struct OreUiImages {
     /// Sprite keys and frame durations in milliseconds, in playback order.
     pub loading_frames: Arc<Vec<(String, u32)>>,
     pub animations: Arc<HashMap<String, Vec<(String, u32)>>>,
-    pub source: Option<Arc<catalog::SourceCatalog>>,
 }
 
 #[derive(Clone)]
@@ -267,174 +241,23 @@ pub struct OreUiPage {
     pub pixels: Arc<[u8]>,
 }
 
-impl OreUiImages {
-    /// Finds both prepared artwork and every discoverable native raster.
-    pub fn contains(&self, key: &str) -> bool {
-        self.sprites.contains_key(key)
-            || self
-                .source
-                .as_ref()
-                .is_some_and(|source| source.contains(key))
-    }
-
-    /// Prepares a screen's additional artwork without changing source resolution.
-    pub fn with_artwork(&self, keys: &[&str]) -> Result<Self, String> {
-        self.with_artwork_budget(keys, render_model::MAX_UI_FIXED_TEXTURE_BYTES)
-    }
-
-    /// Prepares `keys` as [`Self::with_artwork`] does, within `byte_limit` resident bytes.
-    pub fn with_artwork_budget(&self, keys: &[&str], byte_limit: usize) -> Result<Self, String> {
-        let mut missing: Vec<_> = keys
-            .iter()
-            .filter(|key| !self.sprites.contains_key(**key))
-            .map(|key| (*key).to_owned())
-            .collect();
-        missing.sort_unstable();
-        missing.dedup();
-        if missing.is_empty() {
-            return Ok(self.clone());
-        }
-        let source = self
-            .source
-            .as_ref()
-            .ok_or("OreUI source artwork is unavailable")?;
-        let resident = self
-            .pages
-            .iter()
-            .map(|page| page.pixels.len())
-            .sum::<usize>();
-        let available = byte_limit
-            .checked_sub(resident)
-            .ok_or("OreUI resident artwork exceeds the texture budget")?;
-        let prepared = source.prepare(&missing, available)?;
-        let offset = u16::try_from(self.pages.len()).map_err(|_| "OreUI texture page overflow")?;
-        let mut sprites = (*self.sprites).clone();
-        for (key, sprite) in &prepared.sprites {
-            let mut sprite = *sprite;
-            sprite.page = sprite
-                .page
-                .checked_add(offset)
-                .ok_or("OreUI texture page overflow")?;
-            sprites.insert(key.clone(), sprite);
-        }
-        let mut pages = self.pages.clone();
-        pages.extend(prepared.pages.iter().cloned());
-        let mut animations = (*self.animations).clone();
-        animations.extend(prepared.animations.clone());
-        Ok(Self {
-            pages,
-            sprites: Arc::new(sprites),
-            animations: Arc::new(animations),
-            loading_frames: self.loading_frames.clone(),
-            source: self.source.clone(),
-        })
-    }
-}
-
-#[derive(Deserialize)]
-struct AtlasFile {
-    name: String,
-    width: u32,
-    height: u32,
-    coordinates: HashMap<String, AtlasRect>,
-}
-
-#[derive(Deserialize)]
-struct AtlasRect {
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
-}
-
-/// Finds the installed bundle, with an explicit path taking precedence.
-pub fn bundle_dir() -> Option<PathBuf> {
-    if let Some(root) = std::env::var_os(BUNDLE_OVERRIDE_ENV) {
-        return bundle_at(Path::new(&root));
-    }
-    let mut roots = Vec::new();
-    if let Some(home) = std::env::var_os("HOME") {
-        let home = PathBuf::from(home);
-        roots.push(home.join(
-            "Library/Containers/io.playcover.PlayCover/Applications/com.mojang.minecraftpe.app",
-        ));
-        roots.push(home.join("Applications/Minecraft.app"));
-    }
-    roots.push(PathBuf::from("/Applications/Minecraft.app"));
-    roots.push(PathBuf::from(".local/assets/oreui"));
-    if let Some(program_files) = std::env::var_os("ProgramFiles") {
-        let packages = PathBuf::from(program_files).join("WindowsApps");
-        if let Ok(entries) = std::fs::read_dir(packages) {
-            roots.extend(entries.take(256).flatten().filter_map(|entry| {
-                entry
-                    .file_name()
-                    .to_str()
-                    .filter(|name| name.starts_with("Microsoft.MinecraftUWP_"))
-                    .map(|_| entry.path())
-            }));
-        }
-    }
-    roots.into_iter().find_map(|root| bundle_at(&root))
-}
-
-fn bundle_at(root: &Path) -> Option<PathBuf> {
-    [
-        root.to_path_buf(),
-        root.join("data/gui/dist/hbui"),
-        root.join("gui/dist/hbui"),
-    ]
-    .into_iter()
-    .find(|dir| dir.join("atlas.json").is_file())
-}
-
-/// Selects the installed bundle for every referenced key; comparison captures only.
-pub const BUNDLE_OVERRIDE_ENV: &str = "CINNABAR_OREUI_LOCAL_ASSETS";
-
 static IMAGES: OnceLock<Option<OreUiImages>> = OnceLock::new();
 
-/// Decodes OreUI artwork once: shipped art from `compiled_dir`, plus the install-only keys from an
-/// installed bundle. [`BUNDLE_OVERRIDE_ENV`] replaces shipped art with the bundle's.
+/// Decodes the shipped OreUI artwork in `compiled_dir` once.
 pub fn load_optional_oreui_images(compiled_dir: &Path) -> Option<OreUiImages> {
     IMAGES
         .get_or_init(|| {
-            let comparison = std::env::var_os(BUNDLE_OVERRIDE_ENV).is_some();
-            let shipped = if comparison {
+            let art = shipped::read(compiled_dir).unwrap_or_else(|reason| {
+                tracing::warn!("{reason}");
                 Vec::new()
-            } else {
-                shipped::read(compiled_dir).unwrap_or_else(|reason| {
-                    tracing::warn!("{reason}");
-                    Vec::new()
-                })
-            };
-            let wanted = if comparison {
-                is_referenced
-            } else {
-                is_install_only
-            };
-            let (mut art, source) = match bundle_dir().map(|dir| (read_bundle(&dir, wanted), dir)) {
-                Some((Ok((art, source)), dir)) => {
-                    tracing::info!(
-                        "OreUI installed assets: {} ({} images)",
-                        dir.display(),
-                        art.len()
-                    );
-                    (art, Some(source))
-                }
-                Some((Err(reason), dir)) => {
-                    tracing::warn!("OreUI bundle at {} unusable ({reason})", dir.display());
-                    (Vec::new(), None)
-                }
-                None => (Vec::new(), None),
-            };
-            art.extend(shipped);
-            let mut images = pack(art, source).unwrap_or_else(|reason| {
+            });
+            let mut images = pack(art).unwrap_or_else(|reason| {
                 tracing::warn!("OreUI artwork unusable ({reason})");
                 OreUiImages {
                     pages: Vec::new(),
                     sprites: Default::default(),
                     loading_frames: Default::default(),
                     animations: Default::default(),
-                    source: None,
                 }
             });
             dimensions::install(&mut images);
@@ -443,28 +266,16 @@ pub fn load_optional_oreui_images(compiled_dir: &Path) -> Option<OreUiImages> {
         .clone()
 }
 
-/// The artwork decoded at startup, if any.
-pub fn loaded_oreui_images() -> Option<OreUiImages> {
-    IMAGES.get().cloned().flatten()
-}
-
 /// The checkout's compiled carriers, for tests that draw shipped artwork.
 #[cfg(any(test, feature = "test-support"))]
-pub fn checkout_compiled_dir() -> PathBuf {
+pub fn checkout_compiled_dir() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .join(assets::carriers::COMPILED_DIR)
 }
 
-fn is_referenced(key: &str) -> bool {
-    key.starts_with(SLEEP_ANIMATION_PREFIX) || referenced_keys().any(|known| known == key)
-}
-
-fn is_install_only(key: &str) -> bool {
-    INSTALL_ONLY_KEY_GROUPS
-        .iter()
-        .any(|group| group.contains(&key))
-}
+/// A decoded GIF frame: width, height, straight RGBA8 pixels and duration in milliseconds.
+type AnimationFrame = (u32, u32, Vec<u8>, u32);
 
 /// A decoded image: a still, or animation frames with their own durations.
 enum Art {
@@ -473,10 +284,7 @@ enum Art {
 }
 
 /// Packs every image at its original resolution, adding role masks and per-frame keys.
-fn pack(
-    art: Vec<(String, Art)>,
-    source: Option<Arc<catalog::SourceCatalog>>,
-) -> Result<OreUiImages, String> {
+fn pack(art: Vec<(String, Art)>) -> Result<OreUiImages, String> {
     let mut pack = packing::Pages::default();
     let mut sprites = HashMap::new();
     let mut animations = HashMap::new();
@@ -515,150 +323,7 @@ fn pack(
         sprites: Arc::new(sprites),
         loading_frames: Arc::new(loading_frames),
         animations: Arc::new(animations),
-        source,
     })
-}
-
-/// Named crops and rasters with the catalog of the files they came from.
-type BundleArt = (Vec<(String, Art)>, Arc<catalog::SourceCatalog>);
-
-/// Decodes the bundle's `wanted` atlas crops and standalone rasters, largest standalone first.
-fn read_bundle(dir: &Path, wanted: fn(&str) -> bool) -> Result<BundleArt, String> {
-    let json = read_bounded(&dir.join("atlas.json"), MAX_ATLAS_JSON_BYTES)?;
-    let atlases: Vec<AtlasFile> =
-        serde_json::from_slice(&json).map_err(|error| format!("atlas.json: {error}"))?;
-    let mut art = Vec::new();
-    let mut cropped_keys = HashSet::new();
-    for atlas in &atlases {
-        let mut coordinates: Vec<_> = atlas
-            .coordinates
-            .iter()
-            .filter(|(key, _)| wanted(key))
-            .collect();
-        if coordinates.is_empty() {
-            continue;
-        }
-        let (width, height, pixels) = decode(&bundle_path(dir, &atlas.name)?)?;
-        if width != atlas.width || height != atlas.height {
-            return Err(format!("{} does not match atlas.json", atlas.name));
-        }
-        coordinates.sort_unstable_by(|a, b| a.0.cmp(b.0));
-        for (path, rect) in coordinates {
-            if rect
-                .x
-                .checked_add(rect.width)
-                .is_none_or(|right| right > width)
-                || rect
-                    .y
-                    .checked_add(rect.height)
-                    .is_none_or(|bottom| bottom > height)
-                || rect.width == 0
-                || rect.height == 0
-            {
-                continue;
-            }
-            let mut cropped = Vec::with_capacity((rect.width * rect.height * 4) as usize);
-            for y in rect.y..rect.y + rect.height {
-                let start = ((y * width + rect.x) * 4) as usize;
-                cropped.extend_from_slice(&pixels[start..start + rect.width as usize * 4]);
-            }
-            cropped_keys.insert(path.clone());
-            art.push((path.clone(), Art::Still(rect.width, rect.height, cropped)));
-        }
-    }
-    let mut files = Vec::new();
-    collect_rasters(dir, &dir.join("assets"), &mut files)?;
-    let source = Arc::new(catalog::SourceCatalog::new(files.iter().cloned().collect()));
-    let mut dimensions = Vec::new();
-    for (key, path) in files {
-        if !wanted(&key) || cropped_keys.contains(&key) {
-            continue;
-        }
-        let reader = image_reader(&path)?;
-        let (width, height) = reader
-            .into_dimensions()
-            .map_err(|error| format!("{}: {error}", path.display()))?;
-        dimensions.push((width, height, key, path));
-    }
-    dimensions.sort_by(|a, b| b.1.cmp(&a.1).then(b.0.cmp(&a.0)).then(a.2.cmp(&b.2)));
-    for (_, _, key, path) in dimensions {
-        if path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("gif"))
-        {
-            let frames = decode_animation(&read_bounded(&path, MAX_IMAGE_BYTES)?)?;
-            art.push((key, Art::Animation(frames)));
-        } else {
-            let (width, height, pixels) = decode(&path)?;
-            art.push((key, Art::Still(width, height, pixels)));
-        }
-    }
-    Ok((art, source))
-}
-
-fn bundle_path(dir: &Path, key: &str) -> Result<PathBuf, String> {
-    let path = Path::new(key);
-    if path
-        .components()
-        .any(|part| !matches!(part, std::path::Component::Normal(_)))
-    {
-        return Err(format!("invalid OreUI asset path: {key}"));
-    }
-    Ok(dir.join(path))
-}
-
-fn collect_rasters(
-    dir: &Path,
-    at: &Path,
-    files: &mut Vec<(String, PathBuf)>,
-) -> Result<(), String> {
-    let Ok(entries) = std::fs::read_dir(at) else {
-        return Ok(());
-    };
-    for entry in entries {
-        let entry = entry.map_err(|error| error.to_string())?;
-        let kind = entry.file_type().map_err(|error| error.to_string())?;
-        if kind.is_dir() {
-            collect_rasters(dir, &entry.path(), files)?;
-        } else if kind.is_file()
-            && entry
-                .path()
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .is_some_and(|ext| {
-                    matches!(
-                        ext.to_ascii_lowercase().as_str(),
-                        "png" | "jpg" | "jpeg" | "gif" | "webp"
-                    )
-                })
-        {
-            if files.len() >= MAX_BUNDLE_FILES {
-                return Err("OreUI bundle has too many raster assets".into());
-            }
-            let path = entry.path();
-            let key = path
-                .strip_prefix(dir)
-                .map_err(|error| error.to_string())?
-                .to_string_lossy()
-                .replace('\\', "/");
-            files.push((key, path));
-        }
-    }
-    Ok(())
-}
-
-fn image_reader(path: &Path) -> Result<ImageReader<Cursor<Vec<u8>>>, String> {
-    let bytes = read_bounded(path, MAX_IMAGE_BYTES)?;
-    let mut reader = ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .map_err(|error| error.to_string())?;
-    let mut limits = Limits::default();
-    limits.max_image_width = Some(MAX_IMAGE_SIDE);
-    limits.max_image_height = Some(MAX_IMAGE_SIDE);
-    limits.max_alloc = Some(64 * 1024 * 1024);
-    reader.limits(limits);
-    Ok(reader)
 }
 
 fn is_mask(key: &str) -> bool {
@@ -674,41 +339,6 @@ fn alpha_mask(pixels: &[u8]) -> Vec<u8> {
         .collect()
 }
 
-/// A decoded GIF frame: width, height, straight RGBA8 pixels and duration in milliseconds.
-type AnimationFrame = (u32, u32, Vec<u8>, u32);
-
-/// Decodes bounded GIF frames with their own timing and original pixels.
-fn decode_animation(bytes: &[u8]) -> Result<Vec<AnimationFrame>, String> {
-    let mut decoder = image::codecs::gif::GifDecoder::new(Cursor::new(bytes))
-        .map_err(|error| error.to_string())?;
-    let mut limits = Limits::default();
-    limits.max_image_width = Some(MAX_IMAGE_SIDE);
-    limits.max_image_height = Some(MAX_IMAGE_SIDE);
-    limits.max_alloc = Some(MAX_ANIMATION_PIXELS_BYTES as u64);
-    decoder
-        .set_limits(limits)
-        .map_err(|error| error.to_string())?;
-    let mut frames = Vec::new();
-    let mut decoded_bytes = 0;
-    for frame in decoder.into_frames() {
-        if frames.len() == MAX_ANIMATION_FRAMES {
-            return Err("OreUI animation has too many frames".into());
-        }
-        let frame = frame.map_err(|error| error.to_string())?;
-        let (numerator, denominator) = frame.delay().numer_denom_ms();
-        let millis = numerator.div_ceil(denominator).max(1);
-        let buffer = frame.into_buffer();
-        let (width, height) = buffer.dimensions();
-        let pixels = buffer.into_raw();
-        decoded_bytes += pixels.len();
-        if decoded_bytes > MAX_ANIMATION_PIXELS_BYTES {
-            return Err("OreUI animation pixels are too large".into());
-        }
-        frames.push((width, height, pixels, millis));
-    }
-    Ok(frames)
-}
-
 fn read_bounded(path: &Path, max: u64) -> Result<Vec<u8>, String> {
     let file = File::open(path).map_err(|error| format!("{}: {error}", path.display()))?;
     let mut bytes = Vec::new();
@@ -719,17 +349,6 @@ fn read_bounded(path: &Path, max: u64) -> Result<Vec<u8>, String> {
         return Err(format!("{} is too large", path.display()));
     }
     Ok(bytes)
-}
-
-/// The shader applies alpha, so uploaded pixels retain straight source RGB.
-fn decode(path: &Path) -> Result<(u32, u32, Vec<u8>), String> {
-    let reader = image_reader(path)?;
-    let image = reader
-        .decode()
-        .map_err(|error| format!("{}: {error}", path.display()))?
-        .into_rgba8();
-    let (width, height) = image.dimensions();
-    Ok((width, height, image.into_raw()))
 }
 
 #[cfg(test)]

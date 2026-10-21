@@ -8,6 +8,7 @@ publish = false
 [package.metadata.cinnabar]
 platform-specific = ["macos", "windows"]
 reads = [
+    "crates/mod-api/native-render-v1.json",
     "assets/cinnangles-sans-source.json",
     "assets/vanilla-source.json",
     "crates/assets/data/*",
@@ -15,8 +16,10 @@ reads = [
     "crates/mod-api/wit/extension.wit",
     "crates/mod-host/src/tests/gameplay.wat",
     "crates/mod-host/src/tests/guest.wat",
+    "crates/mod-host/src/packet_mod/tests/guest.wat",
     "crates/mod-host/src/tests/render.wat",
     "crates/protocol/fixtures/crafting_data_manual_named_1x1.bin",
+    "crates/protocol/fixtures/start_game.bin",
     "crates/render/src/atmosphere.wesl",
     "crates/render/src/cloud.wesl",
     "examples/mods/screen-probe",
@@ -37,9 +40,11 @@ test = false
 alloc-stats = ["dep:test-alloc", "test-alloc/global-stats", "render/alloc-stats", "render-scene/alloc-stats"]
 # Developer runs and client MCP keep acceptance; packaging opts out with --no-default-features.
 default = ["acceptance"]
-acceptance = ["dep:acceptance"]
+acceptance = ["dep:acceptance", "bridge/join-profile"]
 enhanced = ["render/enhanced"]
 enhanced-diagnostics = ["enhanced", "developer-control", "acceptance", "render/enhanced-diagnostics"]
+# Experimental Java (OptiFine/Iris) shader packs as a third Video renderer.
+shaderpacks = ["render/shaderpacks", "dep:shaderpack", "launcher/shaderpacks"]
 # Loopback control endpoint for scripted driving and recording; never in release builds.
 developer-control = ["dep:developer-control", "dep:sadness-generator", "client-shell/developer-control"]
 # Records Bevy schedules, systems, render graph, submission and presentation spans as a
@@ -125,7 +130,6 @@ bootstrap-ui = { path = "../crates/bootstrap-ui" }
 crash-monitor = { path = "../crates/crash-monitor" }
 first-run = { path = "../crates/first-run" }
 launcher-host = { path = "../crates/launcher-host" }
-update-installer = { path = "../crates/update-installer" }
 experience-sdk = { path = "../crates/experience-sdk", default-features = false, features = ["declarations"] }
 mod-api = { path = "../crates/mod-api" }
 mod-render = { path = "../crates/mod-render" }
@@ -141,6 +145,7 @@ update-manifest = { path = "../crates/update-manifest" }
 rich-presence = { path = "../crates/rich-presence" }
 mod-host = { path = "../crates/mod-host" }
 server-experience = { path = "../crates/server-experience" }
+shaderpack = { path = "../crates/shaderpack", optional = true }
 rayon.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
@@ -169,6 +174,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+resource-pack = { path = "../crates/resource-pack", features = ["test-support"] }
 mimalloc.workspace = true
 render-model = { path = "../crates/render-model", features = ["test-support"] }
 wat = "1"

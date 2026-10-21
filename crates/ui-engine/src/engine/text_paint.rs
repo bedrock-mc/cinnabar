@@ -4,7 +4,7 @@
 
 use std::{borrow::Cow, cell::RefCell, sync::Arc};
 
-use assets::{FontRendering, RuntimeFontCatalog};
+use assets::RuntimeFontCatalog;
 use json_ui::{LabelShape, TextAlign, TextMeasure, TextOptions};
 use ui::{
     FONT_DESIGN_PIXEL_TEXELS, TextLayoutCache, TextLayoutRequest, TextLineAlign, TextShadow,
@@ -19,6 +19,18 @@ pub const UNWRAPPED_LOGICAL: f64 = 65_536.0;
 
 /// Normal outline labels occupy twelve GUI pixels of ascent and descent.
 const OUTLINE_LABEL_HEIGHT_GUI: f32 = 12.0;
+
+/// Selects one installed face for measurement, painting, positioning and edit metadata.
+pub(super) fn label_font<'a>(
+    font: &'a RuntimeFontCatalog,
+    options: &TextOptions,
+) -> &'a RuntimeFontCatalog {
+    let name = font.resolve_font_name(
+        options.font_type.as_deref().unwrap_or("default"),
+        options.backup_font_type.as_deref(),
+    );
+    font.font_named(name)
+}
 
 /// Resolved face geometry shared by label measurement, painting and edit metadata.
 #[derive(Clone, Copy)]
@@ -76,7 +88,7 @@ pub fn label_origin(
     [dest[0], dest[1] + px]
 }
 
-/// Distance-field labels retain fractional placement; pixel faces use the physical grid.
+/// Filtered outline labels retain fractional placement; pixel faces use the physical grid.
 pub(super) fn label_positioned(
     dest: [f64; 4],
     font: &RuntimeFontCatalog,
@@ -84,8 +96,8 @@ pub(super) fn label_positioned(
     gui_scale: f32,
     px: f32,
 ) -> [f32; 4] {
-    let selected = font.font_named(options.font_type.as_deref().unwrap_or("default"));
-    if !std::ptr::eq(font, selected) && selected.rendering() == FontRendering::NativeSdf {
+    let selected = label_font(font, options);
+    if selected.linear_sampling() {
         let [x, y, w, h] = dest.map(|value| value as f32 * px);
         [x, y, x + w, y + h]
     } else {
@@ -198,8 +210,11 @@ impl<'a> LabelMetrics<'a> {
             TextAlign::Center => TextLineAlign::Center,
             TextAlign::Right => TextLineAlign::Right,
         };
-        request.wrap.align_grid_65536 =
-            super::pixel_snap::align_grid_65536(self.authored_factor, self.metrics.gui_scale, px);
+        request.wrap.align_grid_65536 = if self.font.linear_sampling() {
+            0
+        } else {
+            super::pixel_snap::align_grid_65536(self.authored_factor, self.metrics.gui_scale, px)
+        };
         request
     }
 }
@@ -286,10 +301,12 @@ impl TextMeasure for Measure<'_, '_> {
         &self,
         text: &str,
         font: &str,
+        backup: Option<&str>,
         width: Option<f64>,
         shape: LabelShape,
     ) -> [f64; 2] {
-        self.font_label(text, width, shape, self.font.font_named(font))
+        let name = self.font.resolve_font_name(font, backup);
+        self.font_label(text, width, shape, self.font.font_named(name))
     }
 
     fn localize<'t>(&self, text: &'t str) -> Cow<'t, str> {
@@ -309,7 +326,7 @@ pub fn painted_label_request<'a>(
     align: TextAlign,
     px: f32,
 ) -> TextLayoutRequest<'a> {
-    let selected = font.font_named(options.font_type.as_deref().unwrap_or("default"));
+    let selected = label_font(font, options);
     label_metrics(metrics, font, selected, scale).painted_request(text, dest, options, align, px)
 }
 
@@ -331,9 +348,7 @@ impl Canvas<'_> {
         if text.is_empty() {
             return Ok(());
         }
-        let selected = self
-            .font
-            .font_named(style.options.font_type.as_deref().unwrap_or("default"));
+        let selected = label_font(self.font, style.options);
         let metrics = label_metrics(self.metrics, self.font, selected, style.scale);
         let request = metrics.painted_request(&text, dest, style.options, style.align, self.px);
         let Ok(layout) = self.layouts.layout(request) else {
@@ -342,6 +357,26 @@ impl Canvas<'_> {
         let [width, height] = layout.size_64().map(|size| size as f32 / 64.0);
         let [left, top] = label_origin(dest, self.font, style.options, self.px);
         let parent = self.group(clip)?;
+        let shadow = metrics.shadow(style.shadow);
+        if self.paint_bounds.is_some()
+            && let Some(ink) = glyph_ink(layout.glyphs())
+        {
+            let padding = match shadow {
+                TextShadow::None => 0.,
+                TextShadow::Offset64(offset) => {
+                    layout.key().scale_1024 as f32 / 1024. * offset as f32 / 64.
+                }
+            };
+            self.observe_paint_bounds(
+                [
+                    left + ink[0],
+                    top + ink[1],
+                    left + ink[2] + padding,
+                    top + ink[3] + padding,
+                ],
+                clip,
+            );
+        }
         let id = self.id();
         self.nodes.push(
             UiNode::new(
@@ -357,7 +392,7 @@ impl Canvas<'_> {
             .with_visual(UiVisual::Text {
                 layout,
                 color: style.color,
-                shadow: metrics.shadow(style.shadow),
+                shadow,
             }),
         );
         if let Some(selection) = style.edit.and_then(|edit| edit.selection) {
@@ -461,6 +496,22 @@ pub fn active_codes(text: &str) -> String {
         }
     }
     codes
+}
+
+/// The union of positioned glyph quads relative to the label origin, excluding alignment space;
+/// none when no glyph paints.
+fn glyph_ink(glyphs: &[ui::GlyphQuad]) -> Option<[f32; 4]> {
+    glyphs
+        .iter()
+        .map(|glyph| glyph.bounds_64.map(|edge| edge as f32 / 64.0))
+        .reduce(|a, b| {
+            [
+                a[0].min(b[0]),
+                a[1].min(b[1]),
+                a[2].max(b[2]),
+                a[3].max(b[3]),
+            ]
+        })
 }
 
 #[cfg(test)]

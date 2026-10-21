@@ -149,6 +149,7 @@ pub(crate) fn station_controls(
         WindowKind::Loom => loom_controls(source, data),
         WindowKind::Cartography => data.set_global("#is_none_mode", Scalar::Bool(true)),
         WindowKind::Crafter => crafter_controls(data, source, frame),
+        WindowKind::Trade { .. } => crate::trading::data(source, data),
         _ => {}
     }
 }
@@ -161,6 +162,7 @@ pub fn id_aux_icons(
     icon: impl Fn(&str) -> Option<IconRef>,
 ) -> Vec<(i64, IconRef)> {
     match source.player().inventory.ledger().window_kind() {
+        Some(WindowKind::Trade { .. }) => crate::trading::icons(frame),
         Some(WindowKind::Beacon) => beacon_payment_icons(icon),
         Some(WindowKind::Crafter) => frame
             .recipe_output
@@ -275,6 +277,9 @@ fn stone_key(index: usize) -> i64 {
 
 /// The station widget a hit region presses, for regions that are not item cells.
 pub(crate) fn widget_hit(screen: &str, region: &HitRegion) -> Option<Widget> {
+    if let Some(widget) = crate::trading::hit(screen, region) {
+        return Some(widget);
+    }
     let index = region.collection_index.unwrap_or(0);
     let collection = region.collection.as_deref();
     Some(match (screen, collection) {
@@ -616,6 +621,13 @@ pub(crate) fn decorate(
     empty: bool,
     item: CollectionItem,
 ) -> CollectionItem {
+    if let Some(valid) = crate::trading::slot_valid(source.player().inventory.ledger(), collection)
+    {
+        return item.with(
+            json_ui::vanilla::Binding::ItemValid.as_str(),
+            Scalar::Bool(valid),
+        );
+    }
     let crafter = source.player().inventory.ledger().window_kind() == Some(WindowKind::Crafter);
     match collection {
         // An empty crafter slot offers to disable itself.

@@ -83,6 +83,41 @@ fn world_switch_drops_the_previous_visibility_mask() {
     );
 }
 
+/// A loaded shader pack turns far terrain off at once, without draining, and gives every
+/// loaded column back to full-detail meshing; a pack still loading leaves it on.
+#[test]
+fn a_ready_shader_pack_turns_far_terrain_off_and_meshes_every_column() {
+    use std::path::PathBuf;
+    let mut app = far_terrain_app(64);
+    app.world_mut()
+        .insert_resource(ShaderPackStatus::Loading(PathBuf::from("Photon.zip")));
+    app.update();
+    let stream = |app: &App| {
+        let stream = app
+            .world()
+            .resource::<ClientWorld>()
+            .stream
+            .as_ref()
+            .unwrap();
+        (stream.far_terrain_enabled(), stream.full_detail_radius())
+    };
+    assert_eq!(
+        stream(&app),
+        (
+            true,
+            Some(render_api::far_terrain::MIN_FULL_DETAIL_CHUNKS as i32)
+        )
+    );
+    app.world_mut().resource_mut::<FarTerrain>().published = Some(1);
+    app.world_mut()
+        .insert_resource(ShaderPackStatus::Ready(PathBuf::from("Photon.zip")));
+    app.update();
+    assert_eq!(stream(&app), (false, None));
+    let far = app.world().resource::<FarTerrain>();
+    assert!(far.published.is_none() && far.drain_since.is_none());
+    assert!(app.world().resource::<FarTerrainScene>().tiles.is_empty());
+}
+
 /// Distant delivered air hides old terrain without refining unrelated far tiles.
 #[test]
 fn distant_air_does_not_refine_the_far_ring() {

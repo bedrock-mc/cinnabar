@@ -45,8 +45,8 @@ pub mod sign_editor;
 pub mod use_on_identity_evidence;
 
 pub use forms::{
-    FormRespondError, FormTransportError, LocalFormAction, MAX_RETAINED_SERVER_FORMS,
-    ServerFormEntry, ServerFormIdentity, ServerFormStore, flush_form_response,
+    FormRespondError, FormTransportError, LocalFormAction, ServerFormEntry, ServerFormIdentity,
+    ServerFormStore, flush_form_response,
 };
 
 pub use gameplay_authority::Translator;
@@ -152,6 +152,8 @@ pub struct UiRuntime {
     death_reason: Arc<str>,
     death_rules: protocol::DeathRules,
     toast_display_millis: u64,
+    /// Developer captures never draw toasts.
+    hide_toasts: bool,
     chat: ChatStore,
     scoreboards: ScoreboardStore,
     boss_bars: BossBarStore,
@@ -172,6 +174,7 @@ pub struct UiRuntime {
     in_flight_chat_sends: usize,
     chat_source_name: Arc<str>,
     chat_xuid: Arc<str>,
+    local_player_display_name: Arc<str>,
     dropped_unsent_chat_messages: u64,
     block_cracks: crate::block_cracks::BlockCracks,
     gameplay_hud: GameplayHudState,
@@ -253,6 +256,7 @@ impl UiRuntime {
             death_reason: Arc::from(""),
             death_rules: protocol::DeathRules::default(),
             toast_display_millis: ui::TOAST_DISPLAY_MILLIS,
+            hide_toasts: false,
             chat: ChatStore::default(),
             scoreboards: ScoreboardStore::default(),
             boss_bars: BossBarStore::default(),
@@ -279,6 +283,7 @@ impl UiRuntime {
             in_flight_chat_sends: 0,
             chat_source_name: Arc::from(""),
             chat_xuid: Arc::from(""),
+            local_player_display_name: Arc::from(""),
             dropped_unsent_chat_messages: 0,
             block_cracks: crate::block_cracks::BlockCracks::default(),
             gameplay_hud: GameplayHudState::default(),
@@ -655,6 +660,7 @@ impl UiRuntime {
         self.presentation_tick_anchor = None;
         self.chat_source_name = Arc::from("");
         self.chat_xuid = Arc::from("");
+        self.local_player_display_name = Arc::from("");
         self.chat_focused = false;
         self.inventory_open = false;
         self.score_owner_names.clear();
@@ -926,6 +932,16 @@ impl UiRuntime {
     /// Applies the toast preference even when this frame cannot publish a viewport.
     pub fn set_toast_lifetime(&mut self, lifetime: u64) {
         self.toast_display_millis = lifetime;
+    }
+
+    /// Stops drawing toasts for the session (developer `--hide-toasts`); they still queue
+    /// and expire as usual, so nothing else changes.
+    pub fn set_hide_toasts(&mut self, hide: bool) {
+        self.hide_toasts = hide;
+    }
+
+    pub fn hides_toasts(&self) -> bool {
+        self.hide_toasts
     }
 
     /// Expires retained HUD output when the app has admitted a valid viewport.

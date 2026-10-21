@@ -9,7 +9,7 @@ use super::Canvas;
 
 /// Custom renderers whose antialiasing is baked into geometry built for one size.
 const COVERAGE_RENDERERS: [&str; 4] = [
-    "cinnabar_rounded_rectangle",
+    json_ui::rounded::RENDERER,
     ui::mod_panel::backdrop::GLASS_RENDERER,
     "cinnabar_vector_icon",
     json_ui::vector_path::RENDERER,
@@ -62,6 +62,25 @@ fn moves(transform: &Affine) -> bool {
     *transform != Affine::IDENTITY
 }
 
+/// Applies a canvas map after a renderer's node-local map, about the node's absolute origin.
+fn composed(residual: Affine, origin: [f64; 2], previous: Option<&UiTransform>) -> UiTransform {
+    let moved = residual.apply(origin);
+    let outer = Affine {
+        linear: residual.linear,
+        translation: [moved[0] - origin[0], moved[1] - origin[1]],
+    };
+    let transform = previous.map_or(outer, |previous| {
+        outer.then(&Affine {
+            linear: previous.linear.map(f64::from),
+            translation: previous.translation.map(f64::from),
+        })
+    });
+    UiTransform {
+        linear: transform.linear.map(|value| value as f32),
+        translation: transform.translation.map(|value| value as f32),
+    }
+}
+
 impl Canvas<'_> {
     /// Gives each leaf node painted since `start` the canvas's pending residual transform,
     /// expressed relative to that node's own logical top-left. Clip groups stay in place.
@@ -87,11 +106,7 @@ impl Canvas<'_> {
                 f64::from(group.min().x() + bounds.min().x()),
                 f64::from(group.min().y() + bounds.min().y()),
             ];
-            let moved = residual.apply(origin);
-            let transform = UiTransform {
-                linear: residual.linear.map(|value| value as f32),
-                translation: [(moved[0] - origin[0]) as f32, (moved[1] - origin[1]) as f32],
-            };
+            let transform = composed(residual, origin, node.transform());
             self.nodes[index] = self.nodes[index].clone().with_transform(transform);
         }
     }
@@ -147,5 +162,29 @@ mod tests {
                 .residual
                 .is_none()
         );
+    }
+
+    #[test]
+    fn outer_canvas_motion_composes_with_an_existing_fragment_transform() {
+        let outer = scaled(2.0, 90.0);
+        let previous = UiTransform {
+            linear: [0.5, 0.0, 0.0, 0.5],
+            translation: [3.0, 4.0],
+        };
+        let origin = [20.0, 30.0];
+        let combined = composed(outer, origin, Some(&previous));
+        let point = [5.0, 7.0];
+        let expected = outer.apply([
+            origin[0] + point[0] * 0.5 + 3.0,
+            origin[1] + point[1] * 0.5 + 4.0,
+        ]);
+        let actual = Affine {
+            linear: combined.linear.map(f64::from),
+            translation: combined.translation.map(f64::from),
+        }
+        .apply(point);
+        for axis in 0..2 {
+            assert!((origin[axis] + actual[axis] - expected[axis]).abs() < 1e-5);
+        }
     }
 }

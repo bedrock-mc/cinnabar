@@ -277,6 +277,7 @@ impl PlayerInventoryLedger {
         };
         let request: PendingRequest = self.queue.remove(index).expect("index observed");
         if self.request_is_current(&request) {
+            self.accept_trade_purchase(&request);
             for prediction in &request.predicted {
                 self.confirmed.set(prediction.cell, prediction.held.clone());
                 self.rebase_predictions(
@@ -291,6 +292,7 @@ impl PlayerInventoryLedger {
         self.finish_request_retirement(request.request_id, false);
         self.refold();
         self.finish_closing();
+        self.reconcile_personal();
         true
     }
 }

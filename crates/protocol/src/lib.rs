@@ -22,7 +22,9 @@ mod login;
 mod movement;
 mod nbt_tree;
 mod packet;
+mod packet_relay;
 pub mod packet_tap;
+pub use packet_relay::{PacketRelay, RELAY_TICK, RelayOutput, RelayPack};
 mod particle;
 mod permissions;
 mod primitive_shapes;
@@ -120,8 +122,9 @@ pub use inventory::recipes::{
 pub use inventory::{
     ARMOR_SLOTS, ARMOR_WINDOW_ID, AutoCraftIngredient, CONTAINER_NAME_CREATED_OUTPUT,
     CONTAINER_NAME_HOTBAR, CRAFTING_INPUT_SLOTS, CREATED_OUTPUT_SLOT, ContainerWindow, CraftResult,
-    LAST_CONTAINER_NAME, MAX_STACK_REQUEST_ACTIONS, NO_CONTAINER_WINDOW_TYPE, StackItemDescriptor,
-    container_window, is_personal_ui_inventory,
+    LAST_CONTAINER_NAME, LEGACY_TRADE_SLOTS, MAX_STACK_REQUEST_ACTIONS, MODERN_TRADE_SLOTS,
+    NO_CONTAINER_WINDOW_TYPE, StackItemDescriptor, TradeEvent, TradeItem, TradeOffer,
+    WINDOW_TYPE_TRADE, container_window, is_personal_ui_inventory,
 };
 pub use inventory::{
     BookEdit, MAX_BOOK_PAGE_BYTES, actor_pick_request_packet, block_pick_request_packet,
@@ -169,10 +172,9 @@ pub use inventory::{
     IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
 };
 pub use inventory::{
-    InventoryLayout, InventoryOptions, InventoryRightTab, InventoryTab, inventory_options_packet,
+    InventoryLayout, InventoryOptions, InventoryRightTab, InventoryTab, MineBlockRequest,
+    MineBlockRequestError, RecipeRegistryError, RecipeRegistrySnapshot, inventory_options_packet,
 };
-pub use inventory::{MineBlockRequest, MineBlockRequestError};
-pub use inventory::{RecipeRegistryError, RecipeRegistrySnapshot};
 pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, EquipmentEvent,
     FoodProperties, HOTBAR_SLOT_COUNT, ItemActorEvent, ItemAttackCooldown, ItemAttackTiming,
@@ -220,9 +222,10 @@ pub use permissions::{
     decode_abilities_update,
 };
 pub use raw_text::{
-    MAX_RAW_TEXT_COMPONENTS, MAX_RAW_TEXT_DEPTH, MAX_RAW_TEXT_INPUT_BYTES, MAX_RAW_TEXT_NODES,
+    FormTextBudget, MAX_FORM_TEXT_EXPANSION_BYTES, MAX_RAW_TEXT_COMPONENTS, MAX_RAW_TEXT_DEPTH,
+    MAX_RAW_TEXT_EXPANSION_BYTES, MAX_RAW_TEXT_INPUT_BYTES, MAX_RAW_TEXT_NODES,
     MAX_RAW_TEXT_OUTPUT_BYTES, RawTextComponent, RawTextDocument, RawTextResolution,
-    RawTextResolver, ResolvedRawText, format_translation, parse_raw_text,
+    RawTextResolver, ResolvedRawText, format_translation, format_translation_chars, parse_raw_text,
 };
 pub use render_api::primitive_shapes::{
     PrimitiveShapeChange, PrimitiveShapeData, PrimitiveShapeKind, PrimitiveShapeUpdate,
@@ -239,26 +242,27 @@ pub use ui::{
     ChatAutocompleteCompletion, ChatAutocompleteEvent, ChatPacketError, CommandOutputEvent,
     CommandOutputMessage, CommandParam, CommandParamKind, CommandSpec, CommandTreeEvent,
     CompletionContext, CustomForm, CustomFormElement, CustomFormValue, DeathInfoEvent, DeathRules,
-    ElementMenuForm, FormButtonImage, FormKind, FormNumber, FormRequestEvent, FormText,
-    GameModeEvent, GameModeUpdate, HudEvent, HudRules, MAX_BOSS_EVENTS, MAX_CHAT_AUTOCOMPLETE,
-    MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_PARAMETERS, MAX_COMMAND_OUTPUT_MESSAGES,
-    MAX_CUSTOM_FORM_ITEMS, MAX_FORM_JSON_BYTES, MAX_FORM_JSON_DEPTH, MAX_OUTBOUND_CHAT_BYTES,
-    MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, MenuElement, ModalDialogForm,
-    ModalFormResponseSelection, NPC_DIALOGUE_FORM_ID, NpcButton, NpcDialogueForm, NpcRequestKind,
-    ObjectiveEvent, PlayerStatus, RawTextEvent, ScoreAction, ScoreEntry, ScoreEvent, ScoreIdentity,
-    ServerFormModel, SleepStatusEvent, TextCategory, TextEvent, TextKind, TextMenuForm,
-    TitleAction, TitleEvent, UiEvent, UiPacketError, UnsupportedForm, chat_input_packet,
-    chat_text_packet, command_request_packet, custom_form_submit_response,
+    ElementMenuForm, FormButtonImage, FormControlLock, FormKind, FormNumber, FormRequestEvent,
+    FormText, GameModeEvent, GameModeUpdate, HudEvent, HudRules, MAX_BOSS_EVENTS,
+    MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_PARAMETERS,
+    MAX_COMMAND_OUTPUT_MESSAGES, MAX_CUSTOM_FORM_ITEMS, MAX_FORM_JSON_BYTES,
+    MAX_OUTBOUND_CHAT_BYTES, MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, MenuElement,
+    ModalDialogForm, ModalFormResponseSelection, NPC_DIALOGUE_FORM_ID, NpcButton, NpcDialogueForm,
+    NpcRequestKind, ObjectiveEvent, PlayerStatus, RawTextEvent, ScoreAction, ScoreEntry,
+    ScoreEvent, ScoreIdentity, ServerFormModel, SleepStatusEvent, TextCategory, TextEvent,
+    TextKind, TextMenuForm, TitleAction, TitleEvent, UiEvent, UiPacketError, UnsupportedForm,
+    chat_input_packet, chat_text_packet, command_request_packet, custom_form_submit_response,
     modal_form_busy_response, modal_form_cancel_response, modal_form_submit_response,
     npc_request_packet, server_settings_request_packet,
 };
 pub use world::{
     ActorBlockSyncMessage, ActorMotionEvent, ActorPropertySyncEvent, BiomeDefinitionEvent,
     BiomeDefinitionsEvent, BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent,
-    ChangeDimensionEvent, ChunkResyncEvent, CustomBlock, CustomBlockPhysics, CustomBlockVisuals,
-    CustomBlocks, CustomBox, CustomCollision, CustomHashedState, CustomMaterialInstance,
-    CustomPermutation, CustomPhysicalComponents, CustomPlacement, CustomSelection, CustomStateAxis,
-    CustomStateValue, CustomTransformation, CustomVisualComponents, DaylightCycleUpdateEvent,
+    ChangeDimensionEvent, ChunkResyncEvent, CustomBlock, CustomBlockMining, CustomBlockPhysics,
+    CustomBlockVisuals, CustomBlocks, CustomBox, CustomCollision, CustomHashedState,
+    CustomMaterialInstance, CustomMiningItem, CustomMiningSpeed, CustomPermutation,
+    CustomPhysicalComponents, CustomPlacement, CustomSelection, CustomStateAxis, CustomStateValue,
+    CustomTransformation, CustomVisualComponents, DaylightCycleUpdateEvent,
     DimensionHeightDiagnostic, DimensionRange, GameRulesEvent, HeightmapDiagnostic,
     LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,
     MAX_DIMENSION_DEFINITIONS, MapDataEvent, MovePlayerEvent, MovePlayerMode,

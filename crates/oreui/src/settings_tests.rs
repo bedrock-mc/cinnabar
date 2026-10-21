@@ -16,7 +16,7 @@ struct Frame {
 
 fn paint(view: &MenuView, size: [f32; 2], offsets: HashMap<String, f32>) -> Frame {
     let (areas, hits, _) = super::review_tests::paint(offsets, |canvas| {
-        settings::draw(canvas, view, size, &|_| None, None).unwrap();
+        settings::draw(canvas, view, size, &|_| None, None, &mut Default::default()).unwrap();
     });
     Frame { areas, hits }
 }
@@ -254,7 +254,15 @@ fn settings_wrapped_inline_choice_labels_fit_their_selectable_controls() {
             .map(|choice| std::sync::Arc::<str>::from(labels[choice]))
     };
     let (_, hits, nodes) = super::review_tests::paint(HashMap::new(), |canvas| {
-        settings::draw(canvas, &view, [1280.0, 720.0], &translate, None).unwrap();
+        settings::draw(
+            canvas,
+            &view,
+            [1280.0, 720.0],
+            &translate,
+            None,
+            &mut Default::default(),
+        )
+        .unwrap();
     });
     let mut wrapped = false;
     for choice in 0..choices.len() {
@@ -302,7 +310,15 @@ fn settings_long_choice_picker_owns_pointer_input_and_scroll_views() {
         })
     };
     let (areas, hits, _) = super::review_tests::paint(HashMap::new(), |canvas| {
-        settings::draw(canvas, &view, [1280.0, 720.0], &translate, None).unwrap();
+        settings::draw(
+            canvas,
+            &view,
+            [1280.0, 720.0],
+            &translate,
+            None,
+            &mut Default::default(),
+        )
+        .unwrap();
     });
     assert_eq!(
         areas.len(),
@@ -760,7 +776,15 @@ fn settings_header_reads_the_active_pack_language() {
     let translate =
         |key: &str| (key == "menu.settings.caps").then(|| std::sync::Arc::<str>::from(title));
     let (_, _, nodes) = super::review_tests::paint(HashMap::new(), |canvas| {
-        settings::draw(canvas, &view, [1280.0, 720.0], &translate, None).unwrap();
+        settings::draw(
+            canvas,
+            &view,
+            [1280.0, 720.0],
+            &translate,
+            None,
+            &mut Default::default(),
+        )
+        .unwrap();
     });
     assert!(
         nodes.iter().any(
@@ -777,7 +801,15 @@ fn graphics_api_shows_only_platform_backends_and_explains_restart() {
     let view = settings_view("video_forced_index");
     let index = option_index(graphics_api::OPTION.name) as u16;
     let (_, hits, nodes) = super::review_tests::paint(HashMap::new(), |canvas| {
-        settings::draw(canvas, &view, [1280.0, 720.0], &|_| None, None).unwrap();
+        settings::draw(
+            canvas,
+            &view,
+            [1280.0, 720.0],
+            &|_| None,
+            None,
+            &mut Default::default(),
+        )
+        .unwrap();
     });
     let actions: Vec<_> = hits
         .iter()
@@ -800,5 +832,20 @@ fn graphics_api_shows_only_platform_backends_and_explains_restart() {
             );
         }
         assert!(nodes.iter().any(|node| matches!(node.visual(), ui::UiVisual::Text { layout, .. } if layout.glyphs().iter().map(|glyph| glyph.codepoint).collect::<String>().contains("Restart required"))));
+    }
+}
+
+#[test]
+fn server_settings_tab_is_available_only_over_a_session() {
+    let mut view = settings_view("video_forced_index");
+    let action = MenuAction::SettingsSection(
+        launcher::menu::settings_sections::SettingSection::Server
+            .definition()
+            .index,
+    );
+    for over_world in [false, true] {
+        view.over_world = over_world;
+        let frame = paint(&view, [1280.0, 1600.0], HashMap::new());
+        assert_eq!(frame.hits.iter().any(|(hit, _)| *hit == action), over_world);
     }
 }

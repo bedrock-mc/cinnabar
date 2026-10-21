@@ -47,6 +47,7 @@ pub use gpu_timing::{DetailedGpuTiming, GpuTimingPlugin};
 mod dropped_item_render;
 mod frame_boundary;
 mod hand_rig_render;
+pub use device_poll::FrameSubmissions;
 pub use frame_boundary::{FrameEnd, FrameStart};
 #[cfg(not(target_arch = "wasm32"))]
 mod input_pacing;
@@ -94,9 +95,21 @@ mod scene_target;
 mod queue_writes;
 mod screen_overlay_render;
 mod shader_safety;
+#[cfg(feature = "shaderpacks")]
+pub use self::shaderpack::atlas::{ShaderpackAtlas, ShaderpackAtlasPlugin};
+#[cfg(feature = "shaderpacks")]
+pub use self::shaderpack::geometry::{
+    BlockEntityIdFn, CONSTANT_VERTEX_BUFFER, DEFAULT_GEOMETRY_BUDGET_BYTES,
+    DRAW_ORIGIN_VERTEX_BUFFER, FRAME_EXPANSION_FACES, GEOMETRY_VERTEX_BUFFER, GeometryCategory,
+    IRIS_VERTEX_STRIDE, LIGHTMAP_TEXTURE_MATRIX, ShaderpackBlockIds, ShaderpackGeometry,
+    ShaderpackGeometryPlugin, ShaderpackGeometrySettings, TerrainLayout, UNASSIGNED_BLOCK_ID,
+    VertexLayoutError, vertex_buffer_layouts,
+};
 #[cfg(test)]
 #[path = "../tests/it/support/shader_source.rs"]
 mod shader_source;
+mod shaderpack;
+pub use self::shaderpack::ShaderPackRenderPlugin;
 mod surface_capabilities;
 mod surface_lifecycle;
 mod transparent_phase;
@@ -127,7 +140,7 @@ pub use actor_render::equipment_test_support::{
 };
 #[cfg(feature = "publication-test-support")]
 pub use actor_render::publication_test_support::{
-    PublicationActorPreparation, publication_actor_preparation,
+    ActorArtworkBenchmark, PublicationActorPreparation, publication_actor_preparation,
 };
 
 pub use atmosphere_render::AtmospherePlugin;

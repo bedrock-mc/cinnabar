@@ -69,6 +69,7 @@ pub struct Outputs {
 }
 
 pub const MAX_SPAWN_DEPTH: u8 = 4;
+const MAX_INSTANT_PARTICLES: f32 = 1000.0;
 const MAX_PARTICLES_PER_BURST: f32 = 512.0;
 
 pub struct Emitter {
@@ -240,7 +241,7 @@ impl Emitter {
         match &def.emitter.rate {
             Rate::Instant { count } => {
                 if starting {
-                    to_spawn = self.eval(count).clamp(0.0, MAX_PARTICLES_PER_BURST);
+                    to_spawn = self.eval(count).clamp(0.0, MAX_INSTANT_PARTICLES);
                 }
             }
             Rate::Steady { per_second, max } => {
@@ -525,6 +526,71 @@ mod tests {
         assert_eq!(e.particles.len(), 5);
         e.advance(0.05, &mut out, 1000);
         assert_eq!(e.particles.len(), 5);
+    }
+
+    /// Checks the first burst and that its count is consumed only once.
+    fn assert_instant_burst_count(requested: usize, expected: usize) {
+        let json = INSTANT.replace(
+            r#""num_particles":5"#,
+            &format!(r#""num_particles":{requested}"#),
+        );
+        let mut e = emitter(&json, 3);
+        let mut out = Outputs::default();
+        e.advance(0.05, &mut out, 2000);
+        assert_eq!(e.particles.len(), expected);
+        e.advance(0.05, &mut out, 2000);
+        assert_eq!(e.particles.len(), expected);
+    }
+
+    #[test]
+    fn instant_rate_emits_513_particles() {
+        assert_instant_burst_count(513, 513);
+    }
+
+    #[test]
+    fn instant_rate_emits_600_particles() {
+        assert_instant_burst_count(600, 600);
+    }
+
+    #[test]
+    fn instant_rate_emits_1000_particles() {
+        assert_instant_burst_count(1000, 1000);
+    }
+
+    #[test]
+    fn instant_rate_caps_1001_particles_at_1000() {
+        assert_instant_burst_count(1001, 1000);
+    }
+
+    #[test]
+    fn instant_rate_still_obeys_the_live_budget() {
+        let json = INSTANT.replace(r#""num_particles":5"#, r#""num_particles":1000"#);
+        let mut e = emitter(&json, 3);
+        e.advance(0.05, &mut Outputs::default(), 600);
+        assert_eq!(e.particles.len(), 600);
+    }
+
+    #[test]
+    fn steady_rate_retains_its_existing_particle_limit() {
+        let json = INSTANT.replace(
+            r#""minecraft:emitter_rate_instant":{"num_particles":5}"#,
+            r#""minecraft:emitter_rate_steady":{"spawn_rate":20000,"max_particles":1000}"#,
+        );
+        let mut e = emitter(&json, 3);
+        e.advance(0.05, &mut Outputs::default(), 2000);
+        assert_eq!(e.particles.len(), MAX_PARTICLES_PER_BURST as usize);
+    }
+
+    #[test]
+    fn manual_rate_retains_its_existing_particle_limit() {
+        let json = INSTANT.replace(
+            r#""minecraft:emitter_rate_instant":{"num_particles":5}"#,
+            r#""minecraft:emitter_rate_manual":{"max_particles":1000}"#,
+        );
+        let mut e = emitter(&json, 3);
+        e.manual_pending = 1000;
+        e.advance(0.05, &mut Outputs::default(), 2000);
+        assert_eq!(e.particles.len(), MAX_PARTICLES_PER_BURST as usize);
     }
 
     #[test]

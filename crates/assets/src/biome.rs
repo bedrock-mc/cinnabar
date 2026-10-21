@@ -141,7 +141,7 @@ pub fn read_biome_registry(bytes: &[u8]) -> Result<Box<[BiomeRegistryRecord]>, A
 }
 
 /// Compact direct-colour or colormap reference stored in a biome rule.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TintSource(u32);
 
 impl TintSource {
@@ -189,7 +189,7 @@ impl TintSource {
 }
 
 /// One v3 biome colour rule keyed by stable palette ID and canonical name.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BiomeRule {
     pub id: u32,
     pub name: Box<str>,
@@ -228,7 +228,7 @@ impl BiomeRule {
 }
 
 /// Runtime-independent biome payload serialized in `MCBEAS03`.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CompiledBiomeAssets {
     pub tint_maps_rgb8: Box<[u8]>,
     pub rules: Box<[BiomeRule]>,

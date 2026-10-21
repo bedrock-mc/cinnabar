@@ -23,6 +23,7 @@ fn mesh_snapshot_bakes_solved_halo_channels_into_cube_sidecars() {
         column: None,
         center_y: key.y,
         light_halo,
+        java_meshing: None,
     };
 
     let mesh = snapshot.mesh(
@@ -185,7 +186,7 @@ fn light_level_at_obeys_admitted_height_instead_of_builtin_height() {
             name: "minecraft:overworld".into(),
             dimension: 0,
             minimum_y: -128,
-            height_range: 512,
+            maximum_y: 384,
             generator: 0,
         }]);
     for y in [-8, -5, 20, 23, -9, 24] {

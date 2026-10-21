@@ -278,7 +278,13 @@ fn section_membership_stamps_track_insert_remove_replace_and_retire() {
         assert_ne!(next.1, stamp.1);
         stamp = next;
         let target = stream.terrain_publication_target(32);
-        assert_eq!(*target.retained, expected.iter().copied().collect());
+        assert_eq!(
+            *target.retained,
+            expected
+                .iter()
+                .copied()
+                .collect::<std::collections::HashSet<_>>()
+        );
         assert_eq!(
             target
                 .near

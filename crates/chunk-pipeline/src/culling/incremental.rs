@@ -9,7 +9,11 @@ pub(crate) fn update_visible(
     replacement: &mut CaveVisibleSet,
 ) -> bool {
     let checkpoint = grid.checkpoint();
-    if scratch.checkpoint.0 != checkpoint.0
+    // Under Sodium's rule the reached set depends on the camera's section itself, so only
+    // graph additions seen from the same section extend it.
+    if scratch.outward_only != scratch.built_outward_only
+        || (scratch.outward_only && scratch.camera != Some(camera))
+        || scratch.checkpoint.0 != checkpoint.0
         || scratch.checkpoint.1 != checkpoint.1
         || !grid.retains_additions(scratch.checkpoint.2)
         || scratch.camera_present != grid.contains_key(&camera)
@@ -48,6 +52,9 @@ pub(crate) fn update_visible(
     for index in previously_reached..scratch.touched.len() {
         let (key, _) = scratch.describe(grid, scratch.touched[index]);
         insert_visible(key, scratch, visible);
+        if scratch.built_outward_only {
+            continue;
+        }
         for face in Face::ALL {
             if let Some(neighbour) = adjacent(key, face)
                 && grid.contains_key(&neighbour)
@@ -70,15 +77,13 @@ fn seed_addition(key: SubChunkKey, grid: &ConnectivityGrid, scratch: &mut CaveVi
             continue;
         };
         let state = reached_state(neighbour, grid, scratch);
-        if state & REACHED != 0 {
+        if state & REACHED != 0 && !scratch.built_outward_only {
+            // Next to a reached node: part of its shell.
             scratch.added_visible.push(key);
         }
         if state & (1 << opposite(face) as u8) != 0 {
-            scratch.reach(
-                grid.cell_count() as u32,
-                node,
-                (bits >> (face as u64 * 6)) & FACE_MASK,
-            );
+            let exits = (bits >> (face as u64 * 6)) & FACE_MASK & scratch.allowed_exits(key);
+            scratch.reach(grid.cell_count() as u32, node, exits);
         }
     }
 }

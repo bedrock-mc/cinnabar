@@ -13,72 +13,78 @@ fn value(card: &Card) -> &str {
 pub(in super::super) fn measure(hud: &mut Hud, text: &dyn TextMeasure) -> bool {
     let mut changed = false;
     for card in &mut hud.cards {
-        let Some(plate) = &card.text_plate else {
-            continue;
-        };
-        let k = f64::from(card.scale);
-        let shape = LabelShape {
-            scale: 0.8 * k * f64::from(card.text_scale),
-            line_padding: 0.,
-            hide_hyphen: true,
-        };
-        let words = [
-            if plate.style.brackets { "[" } else { "" },
-            value(card),
-            if plate.style.brackets { "]" } else { "" },
-        ];
-        let mut extents = words.map(|word| {
-            text.label(word, None, shape)
-                .map(|v| if v.is_finite() { v.max(0.) } else { 0. })
-        });
-        let mut remaining = f64::from(ui::mod_hud::MAX_CARD_WIDTH) * k;
-        // Reserve both brackets before fitting the value into the shared width limit.
-        for index in [0, 2, 1] {
-            extents[index][0] = extents[index][0].min(remaining);
-            remaining -= extents[index][0];
-        }
-        let width = extents.iter().map(|v| v[0]).sum::<f64>();
-        let height = extents
-            .iter()
-            .map(|v| v[1])
-            .fold(0_f64, f64::max)
-            .min(f64::from(ui::mod_hud::MAX_TEXT_PLATE_HEIGHT) * k);
-        let background = [
-            plate
-                .style
-                .width
-                .map_or(width + 8. * k, |v| f64::from(v) * k),
-            plate
-                .style
-                .height
-                .map_or(height + 4. * k, |v| f64::from(v) * k),
-        ];
-        let size = [background[0].max(width), background[1].max(height)];
-        let mut x = (size[0] - width) * 0.5;
-        let spans = std::array::from_fn(|index| {
-            let w = extents[index][0];
-            let rect = [x, (size[1] - height) * 0.5, w, height];
-            x += w;
-            rect
-        });
-        let layout = TextPlateLayout {
-            scale: card.scale,
-            size,
-            background: [
-                (size[0] - background[0]) * 0.5,
-                (size[1] - background[1]) * 0.5,
-                background[0],
-                background[1],
-            ],
-            spans,
-        };
-        let plate = card.text_plate.as_mut().expect("measured plate");
-        if plate.layout.as_ref() != Some(&layout) {
-            plate.layout = Some(layout);
-            changed = true;
-        }
+        changed |= measure_card(card, text);
     }
     changed
+}
+
+/// Measures a single requested card so hidden preview cards do no layout work.
+pub(super) fn measure_card(card: &mut Card, text: &dyn TextMeasure) -> bool {
+    let Some(plate) = &card.text_plate else {
+        return false;
+    };
+    let k = f64::from(card.scale);
+    let shape = LabelShape {
+        scale: 0.8 * k * f64::from(card.text_scale),
+        line_padding: 0.,
+        hide_hyphen: true,
+    };
+    let words = [
+        if plate.style.brackets { "[" } else { "" },
+        value(card),
+        if plate.style.brackets { "]" } else { "" },
+    ];
+    let mut extents = words.map(|word| {
+        text.named_label(word, card.font.name(), None, None, shape)
+            .map(|v| if v.is_finite() { v.max(0.) } else { 0. })
+    });
+    let mut remaining = f64::from(ui::mod_hud::MAX_CARD_WIDTH) * k;
+    // Reserve both brackets before fitting the value into the shared width limit.
+    for index in [0, 2, 1] {
+        extents[index][0] = extents[index][0].min(remaining);
+        remaining -= extents[index][0];
+    }
+    let width = extents.iter().map(|v| v[0]).sum::<f64>();
+    let height = extents
+        .iter()
+        .map(|v| v[1])
+        .fold(0_f64, f64::max)
+        .min(f64::from(ui::mod_hud::MAX_TEXT_PLATE_HEIGHT) * k);
+    let background = [
+        plate
+            .style
+            .width
+            .map_or(width + 8. * k, |v| f64::from(v) * k),
+        plate
+            .style
+            .height
+            .map_or(height + 4. * k, |v| f64::from(v) * k),
+    ];
+    let size = [background[0].max(width), background[1].max(height)];
+    let mut x = (size[0] - width) * 0.5;
+    let spans = std::array::from_fn(|index| {
+        let w = extents[index][0];
+        let rect = [x, (size[1] - height) * 0.5, w, height];
+        x += w;
+        rect
+    });
+    let layout = TextPlateLayout {
+        scale: card.scale,
+        size,
+        background: [
+            (size[0] - background[0]) * 0.5,
+            (size[1] - background[1]) * 0.5,
+            background[0],
+            background[1],
+        ],
+        spans,
+    };
+    let plate = card.text_plate.as_mut().expect("measured plate");
+    if plate.layout.as_ref() != Some(&layout) {
+        plate.layout = Some(layout);
+        return true;
+    }
+    false
 }
 
 /// Keeps native corner resizing coherent before the next font measurement is painted.
@@ -101,7 +107,7 @@ pub(super) fn control(card: &Card, n: usize) -> Value {
     let plate = card.text_plate.as_ref().expect("text plate");
     let prefix = format!("#plate_{n}");
     let mut controls = vec![
-        json!({"background":{"type":"custom","renderer":"cinnabar_rounded_rectangle","radius":0,
+        json!({"background":{"type":"custom","renderer":"cinnabar_rounded_rectangle","radius":plate.style.radius*card.scale,
         "size":[1,1],"border_width":plate.style.border_width*card.scale,"border_color":plate.style.border_color,
         "anchor_from":"top_left","anchor_to":"top_left","bindings":[
             {"binding_name":format!("{prefix}_background_width"),"binding_name_override":"#size_binding_x_absolute"},
@@ -349,5 +355,41 @@ mod tests {
                 .iter()
                 .any(|node| matches!(&node.draw,Draw::Text{text,..} if text=="1:06 PM"))
         );
+    }
+    /// The plate background is painted with its scaled radius, and a radius change rebuilds.
+    #[test]
+    fn plate_background_radius_scales_with_the_card_and_invalidates_the_template() {
+        let mut hud = fixture();
+        hud.cards[0].scale = 2.;
+        hud.cards[0].text_plate.as_mut().unwrap().style.radius = 4.5;
+        hud.validate().unwrap();
+        measure(&mut hud, &Metrics);
+        let catalog = super::super::template::catalog(&hud).unwrap();
+        let nodes = CachedScreen::default()
+            .render_shared_with(
+                "cinnabar_personal_hud.cards",
+                &std::sync::Arc::new(catalog),
+                &Context::default(),
+                std::sync::Arc::new(super::super::template::data(&hud, [400., 200.])),
+                ([400., 200.], 1., [0; 3]),
+                &LayoutEnv {
+                    text: &Metrics,
+                    textures: &Metrics,
+                },
+                &ViewState::default(),
+            )
+            .unwrap()
+            .nodes
+            .clone();
+        assert!(
+            nodes
+                .iter()
+                .any(|node| matches!(&node.draw, Draw::Custom { data, .. }
+            if data.get("border_width").is_some()
+                && data.get("radius").and_then(Value::as_f64) == Some(9.)))
+        );
+        let before = hud.clone();
+        hud.cards[0].text_plate.as_mut().unwrap().style.radius = 0.;
+        assert!(!super::super::template::same_shape(&before, &hud));
     }
 }

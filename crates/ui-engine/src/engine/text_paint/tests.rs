@@ -125,7 +125,7 @@ fn minecraftten_alias_normalizes_outline_line_height_across_rasters() {
                     px,
                     translate: &|_| None,
                 }
-                .named_label("0\n0", alias, None, shape);
+                .named_label("0\n0", alias, None, None, shape);
                 assert_eq!(
                     measured,
                     native
@@ -203,6 +203,7 @@ fn named_labels_paint_all_lines_at_their_measured_height() {
                     .named_label(
                         &text,
                         alias,
+                        None,
                         None,
                         LabelShape {
                             scale: f64::from(factor),
@@ -295,6 +296,31 @@ fn paint_fixture(
     json: &str,
 ) -> (EngineFrame, Vec<UiNode>) {
     paint_fixture_selection(font, metrics, json, None)
+}
+
+#[test]
+fn long_form_label_paints_a_visible_prefix() {
+    let text = "0".repeat(ui::UiLimits::MAX_TEXT_BYTES + 4_096);
+    let json = serde_json::json!({"namespace":"fixture", "screen":{
+        "type":"screen", "controls":[{"form_label":{
+            "type":"label", "text":text, "localize":false, "size":[300,100],
+            "anchor_from":"top_left", "anchor_to":"top_left"
+        }}]
+    }})
+    .to_string();
+    let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(1.0).unwrap(), Some(2));
+    let (_, nodes) = paint_fixture(&fixture_font(), metrics, &json);
+    assert!(nodes.iter().any(|node| matches!(node.visual(),
+        UiVisual::Text { layout, .. } if layout.glyphs().iter().any(|glyph| glyph.codepoint == '0')
+    )), "the form label must paint part of its text");
+    let mut tree = UiTree::new(nodes).unwrap();
+    tree.layout(
+        rect(0.0, 0.0, 1280.0, 720.0).unwrap(),
+        UiScale::default(),
+        SafeArea::ZERO,
+    )
+    .unwrap();
+    assert!(!tree.build_draw_list().unwrap().vertices.is_empty());
 }
 
 /// Paints a focused root edit box with the host's actual selection feedback.
@@ -745,4 +771,161 @@ fn named_descender_selection_covers_the_painted_glyph() {
             selection.max().y()
         );
     }
+}
+
+/// Smooth outline faces retain fractional placement; pixel faces keep their physical grid.
+#[test]
+fn filtered_outline_labels_preserve_fractional_positions() {
+    for (rendering, smooth) in [
+        (FontRendering::NativeCoverage, false),
+        (FontRendering::OutlineCoverage, true),
+        (FontRendering::NativeSdf, true),
+    ] {
+        let face = native_font(26)
+            .with_rendering(rendering)
+            .with_linear_sampling();
+        let font = fixture_font()
+            .with_named_font("fixture_outline", &face)
+            .unwrap();
+        for dpi in [1., 1.5] {
+            let metrics =
+                TextMetrics::for_viewport([1280, 720], DpiScale::new(dpi).unwrap(), Some(2));
+            let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+            let options = TextOptions {
+                font_type: Some("fixture_outline".into()),
+                ..Default::default()
+            };
+            let first = label_positioned(
+                [8.125, 8.125, 100., 20.],
+                &font,
+                &options,
+                metrics.gui_scale,
+                px,
+            );
+            let next = label_positioned(
+                [8.375, 8.375, 100., 20.],
+                &font,
+                &options,
+                metrics.gui_scale,
+                px,
+            );
+            let delta = next[0] - first[0];
+            if smooth {
+                assert!(
+                    (delta - 0.25 * px).abs() < 0.0001,
+                    "{rendering:?}, DPI {dpi}: {delta}"
+                );
+            } else {
+                assert_eq!(delta, 0.);
+            }
+        }
+    }
+}
+
+#[test]
+fn unavailable_primary_uses_backup_for_label_measurement_and_paint() {
+    let face = assets::carriers::FONT_TEN.font_face.unwrap();
+    let alias = face.json_ui_alias.unwrap();
+    let font = fixture_font()
+        .with_named_font(face.name, &native_font(26))
+        .unwrap();
+    let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(1.0).unwrap(), Some(2));
+    let screen = |primary: &str, backup: &str| {
+        serde_json::json!({
+            "namespace": "fixture",
+            "screen": {"type":"button", "size":["100%c","100%c"], "controls":[
+                {"caption":{"type":"label", "text":"00\n00", "localize":false,
+                    "font_type":primary, "backup_font_type":backup}}
+            ]}
+        })
+        .to_string()
+    };
+    let (expected, expected_nodes) = paint_fixture(&font, metrics, &screen(alias, "unavailable"));
+    let expected_size = expected.hits[0].rect;
+    let expected_layout = expected_nodes
+        .iter()
+        .find_map(|node| match node.visual() {
+            UiVisual::Text { layout, .. } => Some(layout),
+            _ => None,
+        })
+        .unwrap();
+    let (fallback, fallback_nodes) = paint_fixture(&font, metrics, &screen("unavailable", alias));
+    assert_eq!(
+        fallback.hits[0].rect, expected_size,
+        "backup must determine content size"
+    );
+    let fallback_layout = fallback_nodes
+        .iter()
+        .find_map(|node| match node.visual() {
+            UiVisual::Text { layout, .. } => Some(layout),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        fallback_layout.glyphs(),
+        expected_layout.glyphs(),
+        "backup must supply painted glyphs"
+    );
+    assert_eq!(fallback_layout.size_64(), expected_layout.size_64());
+    let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+    let options = TextOptions {
+        font_type: Some("unavailable".into()),
+        backup_font_type: Some(alias.into()),
+        ..Default::default()
+    };
+    let request = painted_label_request(
+        metrics,
+        "00\n00",
+        [0.0, 0.0, 800.0, 800.0],
+        &font,
+        1.0,
+        &options,
+        TextAlign::Left,
+        px,
+    );
+    assert_eq!(request.font.identity(), font.font_named(alias).identity());
+}
+
+#[test]
+fn backup_selection_preserves_available_primary_and_open_default() {
+    let face = assets::carriers::FONT_TEN.font_face.unwrap();
+    let alias = face.json_ui_alias.unwrap();
+    let font = fixture_font()
+        .with_named_font(face.name, &native_font(26))
+        .unwrap();
+    for (primary, backup, expected) in [
+        (alias, Some("default"), alias),
+        (face.name, Some("default"), face.name),
+        ("default", Some(alias), "default"),
+        ("unavailable", Some("also-unavailable"), "default"),
+        ("unavailable", None, "default"),
+        ("unavailable", Some(face.name), face.name),
+    ] {
+        assert_eq!(font.resolve_font_name(primary, backup), expected);
+    }
+}
+
+/// Keep-out bounds of an aligned label cover its glyphs, not the alignment space before them.
+#[test]
+fn right_aligned_label_ink_excludes_leading_alignment_space() {
+    let json = serde_json::json!({"namespace":"fixture", "screen":{
+        "type":"screen", "controls":[{"aligned":{
+            "type":"label", "text":"ab", "localize":false, "size":[300,20],
+            "text_alignment":"right", "anchor_from":"top_left", "anchor_to":"top_left"
+        }}]
+    }})
+    .to_string();
+    let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(1.0).unwrap(), Some(2));
+    let (_, nodes) = paint_fixture(&fixture_font(), metrics, &json);
+    let layout = nodes
+        .iter()
+        .find_map(|node| match node.visual() {
+            UiVisual::Text { layout, .. } => Some(layout),
+            _ => None,
+        })
+        .expect("the label paints");
+    let full = layout.size_64()[0] as f32 / 64.0;
+    let ink = glyph_ink(layout.glyphs()).expect("two glyphs paint");
+    assert!(ink[0] > full / 2.0, "ink starts at {} of {full}", ink[0]);
+    assert!(ink[2] <= full + 1.0 / 64.0);
 }

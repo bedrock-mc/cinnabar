@@ -14,10 +14,10 @@ impl UiPresentationRuntime {
     pub(in super::super) fn clear_player_list(&mut self) {
         self.screens.player_list = None;
         if let Some(engine) = self.engine.as_deref() {
-            engine
-                .textures
-                .lock()
-                .set_client_rasters(&Default::default());
+            engine.textures.lock().set_client_rasters(
+                ui_screens::player_list::PORTRAIT_RASTER_NAMESPACE,
+                &Default::default(),
+            );
         }
     }
 

@@ -1,4 +1,5 @@
 use super::*;
+use ui::mod_hud::Anchor;
 
 /// Center anchoring follows viewport and scale changes until a saved drag position overrides it.
 #[test]
@@ -7,10 +8,119 @@ fn centered_compass_follows_viewport_and_saved_placement() {
     assert_eq!(origin(&card, [800., 500.]), [260., 8.]);
     assert_eq!(origin(&card, [400., 200.]), [60., 8.]);
     card.scale = 2.;
-    assert_eq!(origin(&card, [400., 200.]), [-80., 8.]);
+    assert_eq!(origin(&card, [400., 200.]), [0., 8.]);
     card.scale = 1.;
     card.position = Some([0.25, 0.5]);
     assert_eq!(origin(&card, [400., 200.]), [30., 84.]);
+}
+
+/// Authored offsets keep fitting widgets reachable for every supported anchor after a resize.
+#[test]
+fn anchored_cards_remain_reachable_in_a_smaller_viewport() {
+    for anchor in [
+        Anchor::TopLeft,
+        Anchor::TopCenter,
+        Anchor::TopRight,
+        Anchor::Left,
+        Anchor::Center,
+        Anchor::Right,
+        Anchor::BottomLeft,
+        Anchor::BottomCenter,
+        Anchor::BottomRight,
+    ] {
+        for offset in [[600., 400.], [-600., -400.]] {
+            let card = Card {
+                anchor,
+                offset,
+                width: 100.,
+                cells: vec![ui::mod_hud::Cell {
+                    rect: [0., 0., 100., 60.],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            };
+            for viewport in [[800., 500.], [220., 120.]] {
+                let at = origin(&card, viewport);
+                let size = dimensions(&card);
+                for axis in 0..2 {
+                    assert!(at[axis] >= 0.);
+                    assert!(at[axis] + size[axis] <= viewport[axis]);
+                }
+                assert_eq!(
+                    card.offset, offset,
+                    "bounds correction must preserve authored offsets"
+                );
+            }
+        }
+    }
+}
+
+/// All nine anchor references use inward edge distances and signed center offsets.
+#[test]
+fn all_anchor_references_keep_their_authored_offsets() {
+    for (anchor, expected) in [
+        (Anchor::TopLeft, [13., 17.]),
+        (Anchor::TopCenter, [283., 17.]),
+        (Anchor::TopRight, [527., 17.]),
+        (Anchor::Left, [13., 167.]),
+        (Anchor::Center, [283., 167.]),
+        (Anchor::Right, [527., 167.]),
+        (Anchor::BottomLeft, [13., 283.]),
+        (Anchor::BottomCenter, [283., 283.]),
+        (Anchor::BottomRight, [527., 283.]),
+    ] {
+        let card = Card {
+            anchor,
+            offset: [13., 17.],
+            width: 100.,
+            cells: vec![ui::mod_hud::Cell {
+                rect: [0., 0., 100., 60.],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(origin(&card, [640., 360.]), expected, "{anchor:?}");
+        assert_eq!(origin(&card, [100., 60.]), [0.; 2]);
+        assert_eq!(origin(&card, [640., 360.]), expected, "restored {anchor:?}");
+        assert_eq!(card.offset, [13., 17.]);
+        assert_eq!(card.position, None);
+    }
+}
+
+/// Effective bounds correction does not replace the default layout saved in the card.
+#[test]
+fn factory_offsets_return_when_the_viewport_grows() {
+    let card = Card {
+        offset: [8., 176.],
+        width: 130.,
+        cells: vec![ui::mod_hud::Cell {
+            rect: [0., 0., 130., 18.],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    assert_eq!(origin(&card, [320., 160.]), [8., 142.]);
+    assert_eq!(origin(&card, [800., 500.]), [8., 176.]);
+    assert_eq!(card.position, None);
+}
+
+/// Oversized anchored and normalized axes both collapse to zero available travel.
+#[test]
+fn oversized_and_normalized_placement_keep_their_existing_contracts() {
+    let mut card = Card {
+        anchor: Anchor::TopRight,
+        offset: [-8., 180.],
+        width: 300.,
+        cells: vec![ui::mod_hud::Cell {
+            rect: [0., 0., 300., 60.],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    assert_eq!(origin(&card, [220., 120.]), [0., 60.]);
+    card.position = Some([0.75, 0.25]);
+    assert_eq!(origin(&card, [220., 120.]), [0., 15.]);
+    assert_eq!(origin(&card, [700., 300.]), [300., 60.]);
 }
 
 /// An inventory has nine columns and retains all 36 slots, including empty ones.
@@ -166,4 +276,101 @@ fn grid_count_labels_follow_live_row_tint_and_alpha() {
             .collect::<Vec<_>>();
         assert_eq!(colors, vec![json_ui::color_value(&json!(color)).unwrap()]);
     }
+}
+
+/// A selected card face reaches every label and changing it invalidates retained typography.
+#[test]
+fn card_font_selects_smooth_cell_labels_and_invalidates_geometry() {
+    let native: Hud = serde_json::from_str(
+        r#"{"cards":[{"id":"keys","rows":[],"cells":[{"rect":[0,0,22,22],"label":"W"}]}]}"#,
+    )
+    .unwrap();
+    let mut sans = native.clone();
+    sans.cards[0].font = ui::mod_hud::CardFont::Sans;
+    assert!(!same_shape(&native, &sans));
+    let mut index = 0;
+    let root = card(&sans.cards[0], 0, &mut index);
+    fn check(node: &Value, count: &mut usize) {
+        match node {
+            Value::Object(object) => {
+                if object.get("type").and_then(Value::as_str) == Some("label") {
+                    assert_eq!(
+                        object.get("font_type").and_then(Value::as_str),
+                        Some(ui::mod_panel::SANS_FONT_NAME)
+                    );
+                    *count += 1;
+                }
+                for value in object.values() {
+                    check(value, count);
+                }
+            }
+            Value::Array(values) => {
+                for value in values {
+                    check(value, count);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut count = 0;
+    check(&root, &mut count);
+    assert_eq!(count, 1);
+    assert!(
+        serde_json::from_str::<Hud>(r#"{"cards":[{"id":"bad","rows":[],"font":"unknown"}]}"#)
+            .is_err()
+    );
+}
+/// Positive edge offsets remain inward after a viewport resize.
+#[test]
+fn anchored_edge_offset_survives_viewport_change() {
+    let card = ui::mod_hud::Card {
+        anchor: ui::mod_hud::Anchor::BottomRight,
+        offset: [13., 17.],
+        ..Default::default()
+    };
+    let size = super::dimensions(&card);
+    for viewport in [[640., 360.], [960., 540.]] {
+        let at = super::origin(&card, viewport);
+        for axis in 0..2 {
+            assert!(
+                (viewport[axis] - at[axis] - size[axis] - f64::from(card.offset[axis])).abs()
+                    < 0.001
+            );
+        }
+    }
+}
+
+/// The painted card background carries its scaled radius, and a radius change rebuilds.
+#[test]
+fn card_background_radius_scales_with_the_card_and_invalidates_the_template() {
+    let env = json_ui::LayoutEnv {
+        text: &CountArt,
+        textures: &CountArt,
+    };
+    let mut hud: Hud = serde_json::from_value(json!({"cards": [{
+        "id": "chip", "scale": 2, "background_radius": 6, "rows": [{"label": "A", "value": "1"}]
+    }]}))
+    .unwrap();
+    hud.validate().unwrap();
+    let catalog = catalog(&hud).unwrap();
+    let root = json_ui::resolve(
+        &catalog,
+        "cinnabar_personal_hud.cards",
+        &json_ui::Context::default(),
+    )
+    .control
+    .unwrap();
+    let bound = json_ui::bind(&root, &data(&hud, [800., 450.]), &json_ui::EmptyLibrary);
+    let laid = json_ui::layout(&bound, [800., 450.], &env);
+    let radii: Vec<_> = json_ui::emit(&laid, &env)
+        .into_iter()
+        .filter_map(|node| match node.draw {
+            json_ui::Draw::Custom { data, .. } => data.get("radius").and_then(Value::as_f64),
+            _ => None,
+        })
+        .collect();
+    assert!(radii.contains(&12.), "radii {radii:?}");
+    let before = hud.clone();
+    hud.cards[0].background_radius = 0.;
+    assert!(!same_shape(&before, &hud));
 }

@@ -324,11 +324,16 @@ fn pick_prediction_reuses_its_buffer_across_frames() {
     assert_eq!(test_alloc::thread_allocations() - before, 0);
 }
 
-/// Live prediction and actor interpolation must consume the same completed local tick step.
+/// Remote picks and publication share elapsed frame time even when local ticks have another phase.
 #[test]
-fn remote_actor_motion_uses_completed_local_ticks() {
+fn remote_actor_motion_keeps_its_clock_when_local_ticks_differ() {
     let mut app = App::new();
+    app.add_systems(
+        Update,
+        capture_predicted_box.in_set(client_state::ClientFrameSet::NetworkSend),
+    );
     let (mut schedule, mut world) = production(&mut app);
+    world.init_resource::<PredictedBox>();
     let anchor = world
         .resource::<ClientWorld>()
         .stream
@@ -348,29 +353,40 @@ fn remote_actor_motion_uses_completed_local_ticks() {
             .unwrap();
         stream.poll([0.0, 64.0, 0.0], 0);
     }
-    {
-        let mut effects =
-            world.resource_mut::<client_interaction::movement::LocalMovementEffectTimeline>();
-        effects.begin_frame();
-        effects.commit_successful_tick();
+    for (millis, local_ticks, expected_z, expected_alpha) in [
+        (25, 0, 0.0, 0.5),
+        (75, 1, 6.0, 0.0),
+        (25, 0, 6.0, 0.5),
+        (25, 0, 9.0, 0.0),
+    ] {
+        {
+            let mut effects =
+                world.resource_mut::<client_interaction::movement::LocalMovementEffectTimeline>();
+            effects.begin_frame();
+            for _ in 0..local_ticks {
+                effects.commit_successful_tick();
+            }
+        }
+        world
+            .resource_mut::<Time<Real>>()
+            .advance_by(Duration::from_millis(millis));
+        schedule.run(&mut world);
+        let client = world.resource::<ClientWorld>();
+        let actor = client
+            .stream
+            .as_ref()
+            .unwrap()
+            .authority()
+            .actor(2)
+            .unwrap();
+        assert!(
+            (actor.position[2] - expected_z).abs() < 1e-4,
+            "remote position {:?} after {millis} ms and {local_ticks} local ticks",
+            actor.position
+        );
+        assert_eq!(world.resource::<PredictedBox>().0, actor.hit_boxes().next());
+        assert_eq!(world.resource::<ActorFramePartialTick>().0, expected_alpha);
     }
-    world
-        .resource_mut::<Time<Real>>()
-        .advance_by(simulation_clock::MAX_FRAME_ELAPSED);
-    schedule.run(&mut world);
-    let client = world.resource::<ClientWorld>();
-    let actor = client
-        .stream
-        .as_ref()
-        .unwrap()
-        .authority()
-        .actor(2)
-        .unwrap();
-    assert!(
-        (actor.position[2] - 3.0).abs() < 1e-4,
-        "one completed local tick must advance one interpolation step: {:?}",
-        actor.position
-    );
 }
 
 /// Without local prediction, actor time still uses the client's admitted frame interval.

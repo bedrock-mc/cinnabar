@@ -46,12 +46,17 @@ mod font_atlas;
 mod font_atlas_tests;
 #[path = "ui_render/item_glint.rs"]
 mod item_glint;
+#[cfg(test)]
+#[path = "ui_render/page_uniform_tests.rs"]
+mod page_uniform_tests;
 #[path = "ui_render/textures.rs"]
 mod textures;
 pub(crate) use textures::DeviceObservation;
 use textures::{UiGpuTextures, prepare_ui_bind_group};
 #[path = "ui_render/backdrop.rs"]
 pub(crate) mod backdrop;
+#[path = "ui_render/backdrop_levels.rs"]
+mod backdrop_levels;
 #[path = "ui_render/batches.rs"]
 mod batches;
 #[path = "ui_render/composite.rs"]
@@ -217,6 +222,8 @@ pub(crate) struct UiGpu {
     accepted_revision: Option<u64>,
     /// The accepted revision draws glint, which animates without a new revision.
     animated: bool,
+    /// Maximum physical-pixel blur in the accepted backdrop geometry.
+    backdrop_blur: f32,
     /// Conservative glint coverage prepared once per accepted publication batch.
     animation_damage: Arc<[damage::UiDamage]>,
     // Admission watermark survives every draw rejection, even after payload drop.

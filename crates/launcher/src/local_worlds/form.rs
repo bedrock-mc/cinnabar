@@ -25,7 +25,7 @@ impl Default for CreateForm {
             name: DEFAULT_WORLD_NAME.to_owned(),
             game_mode: GameMode::Survival,
             generator: Generator::Normal,
-            backend: Backend::Dragonfly,
+            backend: Backend::Bds,
             difficulty: Difficulty::Normal,
             seed_text: String::new(),
         }
@@ -197,15 +197,12 @@ mod tests {
         assert_eq!(world.name, "My World");
         assert_eq!(world.game_mode, GameMode::Survival);
         assert_eq!(world.seed, None);
-        assert_eq!(world.backend, Some(Backend::Dragonfly));
+        assert_eq!(world.backend, Some(Backend::Bds));
         let flat = CreateForm {
             generator: Generator::Flat,
             ..CreateForm::default()
         };
-        assert_eq!(
-            flat.build().map(|w| w.backend),
-            Ok(Some(Backend::Dragonfly))
-        );
+        assert_eq!(flat.build().map(|w| w.backend), Ok(Some(Backend::Bds)));
     }
 
     #[test]

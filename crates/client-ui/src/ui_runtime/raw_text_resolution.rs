@@ -39,12 +39,13 @@ impl UiRuntime {
         self.player_list_held
     }
 
-    /// Resolves a form label without treating literal strings as rawtext documents.
-    pub(super) fn resolve_form_text(&self, text: &protocol::FormText) -> String {
-        match text {
-            protocol::FormText::Literal(text) => text.to_string(),
-            protocol::FormText::Raw(document) => self.resolve_raw_text(document).text.to_string(),
-        }
+    /// Resolves a form label against the allowance shared by its entire form build.
+    pub(super) fn resolve_form_text(
+        &self,
+        text: &protocol::FormText,
+        budget: &protocol::FormTextBudget,
+    ) -> String {
+        self.with_raw_text_resolver(|resolver| budget.resolve(text, resolver))
     }
 
     /// Resolves one typed rawtext document against the retained scoreboard
@@ -58,6 +59,14 @@ impl UiRuntime {
         &self,
         document: &protocol::RawTextDocument,
     ) -> protocol::ResolvedRawText {
+        self.with_raw_text_resolver(|resolver| document.resolve(resolver))
+    }
+
+    /// Lends the current authoritative identities and catalog to a text resolution pass.
+    fn with_raw_text_resolver<T>(
+        &self,
+        resolve: impl FnOnce(&protocol::RawTextResolver<'_>) -> T,
+    ) -> T {
         let translate = |key: &str| -> Option<Arc<str>> { self.translation(key) };
         let scoreboards = &self.scoreboards;
         let owner_names = &self.score_owner_names;
@@ -66,7 +75,7 @@ impl UiRuntime {
                 owner_names.get(&unique_id).cloned()
             })
         };
-        let reader_name = &self.chat_source_name;
+        let reader_name = &self.local_player_display_name;
         let known_player_names = &self.known_player_names;
         let selector = |selector: &str| -> Option<Arc<str>> {
             match selector.trim() {
@@ -86,7 +95,7 @@ impl UiRuntime {
                 _ => None,
             }
         };
-        document.resolve(&protocol::RawTextResolver {
+        resolve(&protocol::RawTextResolver {
             reader_name,
             translate: &translate,
             score: &score,

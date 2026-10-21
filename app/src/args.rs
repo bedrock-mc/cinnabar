@@ -31,7 +31,11 @@ Options:
   --vsync                      Force FIFO presentation and disable driver workarounds
   --no-vsync                   Allow tearing and disable display-rate synchronization
   --frame-cap <FPS>            Cap acceptance updates to 1-1000 FPS
-  --render-mode <MODE>         vanilla or enhanced; CINNABAR_RENDER_MODE is the fallback
+  --render-mode <MODE>         vanilla, enhanced or shaderpack; CINNABAR_RENDER_MODE is the fallback
+  --shader-pack <PATH>         Draw this Java shader pack (zip or folder) for the session only
+  --hide-toasts                Developer builds: never draw toasts (join requests, achievements) in captures
+  --fixed-time <TICKS>         Developer builds: draw at this time of day (0 = sunrise), ignoring the server clock
+  --frame-time-counter <SECONDS>  Developer builds: freeze shader packs' frameTimeCounter (0 to <3600)
   --gui-scale <1-4|auto>       Fix the GUI scale (default: auto, the Bedrock desktop rule)
   --dev-debug-overlay          Compatibility alias; F3 debug controls are always available
   --language <ll_CC>           UI language (default: from LC_ALL/LC_MESSAGES/LANG, else en_US)
@@ -119,6 +123,17 @@ pub struct ClientArgs {
     pub gui_scale: Option<u8>,
     /// Session-only override of the saved rendering mode.
     pub render_mode: Option<RenderMode>,
+    /// Session-only shader pack, opened from this path instead of the saved selection;
+    /// implies `render_mode == Some(RenderMode::ShaderPack)`.
+    pub shader_pack: Option<PathBuf>,
+    /// Toasts are never drawn (developer-control builds only), so an account's join requests
+    /// or achievements cannot land in a capture.
+    pub hide_toasts: bool,
+    /// Rendered time of day pinned for the whole session (developer-control builds only).
+    pub fixed_time: Option<u32>,
+    /// Shader packs' `frameTimeCounter` frozen at this many milliseconds (developer-control
+    /// builds only), for captures that match a reference's animation phase.
+    pub frame_time_counter_ms: Option<u32>,
     /// Enables F3 debug controls; the overlay starts hidden until F3 is pressed.
     /// `--dev-debug-overlay` remains accepted for older launch commands.
     pub dev_debug_overlay: bool,
@@ -152,6 +167,10 @@ impl Default for ClientArgs {
             frame_cap: None,
             gui_scale: None,
             render_mode: None,
+            shader_pack: None,
+            hide_toasts: false,
+            fixed_time: None,
+            frame_time_counter_ms: None,
             dev_debug_overlay: true,
             language: None,
             full_view_teleport_gate: false,
@@ -177,6 +196,9 @@ pub enum ArgsError {
     )]
     AcceptanceFeatureRequired,
 
+    #[error("{0} needs a developer-control build; rebuild with --features developer-control")]
+    DeveloperControlFeatureRequired(&'static str),
+
     #[error("unknown argument {0:?}\n\n{HELP}")]
     Unknown(OsString),
 
@@ -201,8 +223,20 @@ pub enum ArgsError {
     #[error("--gui-scale must be an integer from 1 through 4, got {0:?}")]
     InvalidGuiScale(String),
 
-    #[error("--render-mode must be vanilla or enhanced, got {0:?}")]
+    #[error("--render-mode must be vanilla, enhanced or shaderpack, got {0:?}")]
     InvalidRenderMode(String),
+
+    #[error("--shader-pack requires a non-empty path")]
+    EmptyShaderPack,
+
+    #[error("--fixed-time must be a nonnegative integer tick count, got {0:?}")]
+    InvalidFixedTime(String),
+
+    #[error("--frame-time-counter must be seconds from 0 up to 3600, got {0:?}")]
+    InvalidFrameTimeCounter(String),
+
+    #[error("--shader-pack selects the shaderpack render mode, but --render-mode is {0:?}")]
+    ConflictingShaderPackRenderMode(&'static str),
 
     #[error("--language must be a code like de_DE, got {0:?}")]
     InvalidLanguage(String),
@@ -240,6 +274,22 @@ impl ClientArgs {
             || self.movement_candidate_physics;
         if !available && requested {
             return Err(ArgsError::AcceptanceFeatureRequired);
+        }
+        Ok(())
+    }
+
+    /// Rejects developer-only options when this build omits the developer-control feature.
+    pub(crate) fn validate_developer_support(&self, available: bool) -> Result<(), ArgsError> {
+        if !available && self.fixed_time.is_some() {
+            return Err(ArgsError::DeveloperControlFeatureRequired("--fixed-time"));
+        }
+        if !available && self.frame_time_counter_ms.is_some() {
+            return Err(ArgsError::DeveloperControlFeatureRequired(
+                "--frame-time-counter",
+            ));
+        }
+        if !available && self.hide_toasts {
+            return Err(ArgsError::DeveloperControlFeatureRequired("--hide-toasts"));
         }
         Ok(())
     }
@@ -414,6 +464,39 @@ impl ClientArgs {
                     parsed.render_mode =
                         Some(RenderMode::parse(&value).ok_or(ArgsError::InvalidRenderMode(value))?);
                 }
+                Some("--shader-pack") => {
+                    let value = next_value(&mut arguments, "--shader-pack")?;
+                    if value.is_empty() {
+                        return Err(ArgsError::EmptyShaderPack);
+                    }
+                    parsed.shader_pack = Some(PathBuf::from(value));
+                }
+                Some("--hide-toasts") => parsed.hide_toasts = true,
+                Some("--fixed-time") => {
+                    let value = next_value(&mut arguments, "--fixed-time")?
+                        .into_string()
+                        .map_err(|_| ArgsError::InvalidUtf8 {
+                            flag: "--fixed-time",
+                        })?;
+                    parsed.fixed_time = Some(
+                        value
+                            .parse::<u32>()
+                            .map_err(|_| ArgsError::InvalidFixedTime(value.clone()))?,
+                    );
+                }
+                Some("--frame-time-counter") => {
+                    let value = next_value(&mut arguments, "--frame-time-counter")?
+                        .into_string()
+                        .map_err(|_| ArgsError::InvalidUtf8 {
+                            flag: "--frame-time-counter",
+                        })?;
+                    let seconds = value
+                        .parse::<f64>()
+                        .ok()
+                        .filter(|seconds| (0.0..3600.0).contains(seconds))
+                        .ok_or_else(|| ArgsError::InvalidFrameTimeCounter(value.clone()))?;
+                    parsed.frame_time_counter_ms = Some((seconds * 1000.0).round() as u32);
+                }
                 _ if resource_pack::is_pack_import_path(std::path::Path::new(&argument)) => {
                     parsed.import_packs.push(PathBuf::from(argument));
                 }
@@ -422,6 +505,16 @@ impl ClientArgs {
         }
         if parsed.movement_candidate_physics && parsed.movement_evidence_target.is_none() {
             return Err(ArgsError::MovementCandidateRequiresEvidence);
+        }
+        if parsed.shader_pack.is_some() {
+            match parsed.render_mode {
+                None | Some(RenderMode::ShaderPack) => {
+                    parsed.render_mode = Some(RenderMode::ShaderPack);
+                }
+                Some(mode) => {
+                    return Err(ArgsError::ConflictingShaderPackRenderMode(mode.as_str()));
+                }
+            }
         }
         if parsed.force_vsync && parsed.no_vsync {
             return Err(ArgsError::ConflictingVsyncFlags);
@@ -432,6 +525,7 @@ impl ClientArgs {
             return Err(ArgsError::MovementEvidenceRequiresAttributableRun);
         }
         parsed.validate_acceptance_support(cfg!(feature = "acceptance"))?;
+        parsed.validate_developer_support(cfg!(feature = "developer-control"))?;
         Ok(ParseOutcome::Run(Box::new(parsed)))
     }
 
@@ -641,6 +735,151 @@ mod tests {
             ClientArgs::parse_from(["client", "--render-mode", "ultra"]),
             Err(ArgsError::InvalidRenderMode("ultra".to_owned()))
         );
+    }
+
+    #[test]
+    fn shader_pack_is_a_validated_session_override_of_the_shaderpack_mode() {
+        let ParseOutcome::Run(args) =
+            ClientArgs::parse_from(["client", "--render-mode", "ShaderPack"]).unwrap()
+        else {
+            panic!("expected run");
+        };
+        assert_eq!(args.render_mode, Some(ui::RenderMode::ShaderPack));
+        assert_eq!(args.shader_pack, None);
+        for arguments in [
+            &["client", "--shader-pack", "packs/Dusk.zip"][..],
+            &[
+                "client",
+                "--render-mode",
+                "shaderpack",
+                "--shader-pack",
+                "packs/Dusk.zip",
+            ][..],
+        ] {
+            let ParseOutcome::Run(args) = ClientArgs::parse_from(arguments).unwrap() else {
+                panic!("expected run");
+            };
+            assert_eq!(args.render_mode, Some(ui::RenderMode::ShaderPack));
+            assert_eq!(args.shader_pack, Some(PathBuf::from("packs/Dusk.zip")));
+        }
+        assert_eq!(
+            ClientArgs::parse_from([
+                "client",
+                "--shader-pack",
+                "Dusk",
+                "--render-mode",
+                "enhanced"
+            ]),
+            Err(ArgsError::ConflictingShaderPackRenderMode("enhanced"))
+        );
+        assert_eq!(
+            ClientArgs::parse_from(["client", "--shader-pack", ""]),
+            Err(ArgsError::EmptyShaderPack)
+        );
+        assert_eq!(
+            ClientArgs::parse_from(["client", "--shader-pack"]),
+            Err(ArgsError::MissingValue {
+                flag: "--shader-pack"
+            })
+        );
+        assert!(HELP.contains("--shader-pack <PATH>"));
+        assert!(HELP.contains("shaderpack"));
+    }
+
+    #[test]
+    fn hide_toasts_is_a_developer_only_flag() {
+        let args = ClientArgs {
+            hide_toasts: true,
+            ..ClientArgs::default()
+        };
+        assert_eq!(args.validate_developer_support(true), Ok(()));
+        assert_eq!(
+            args.validate_developer_support(false),
+            Err(ArgsError::DeveloperControlFeatureRequired("--hide-toasts"))
+        );
+        assert_eq!(
+            ClientArgs::default().validate_developer_support(false),
+            Ok(())
+        );
+        let parsed = ClientArgs::parse_from(["client", "--hide-toasts"]);
+        if cfg!(feature = "developer-control") {
+            let Ok(ParseOutcome::Run(args)) = parsed else {
+                panic!("expected run args, got {parsed:?}");
+            };
+            assert!(args.hide_toasts);
+        } else {
+            assert_eq!(
+                parsed,
+                Err(ArgsError::DeveloperControlFeatureRequired("--hide-toasts"))
+            );
+        }
+        assert!(HELP.contains("--hide-toasts"));
+    }
+
+    #[test]
+    fn fixed_time_is_a_validated_developer_only_pin() {
+        let args = ClientArgs {
+            fixed_time: Some(6_000),
+            ..ClientArgs::default()
+        };
+        assert_eq!(args.validate_developer_support(true), Ok(()));
+        assert_eq!(
+            args.validate_developer_support(false),
+            Err(ArgsError::DeveloperControlFeatureRequired("--fixed-time"))
+        );
+        let parsed = ClientArgs::parse_from(["client", "--fixed-time", "13013"]);
+        if cfg!(feature = "developer-control") {
+            let Ok(ParseOutcome::Run(args)) = parsed else {
+                panic!("expected run args, got {parsed:?}");
+            };
+            assert_eq!(args.fixed_time, Some(13_013));
+        } else {
+            assert_eq!(
+                parsed,
+                Err(ArgsError::DeveloperControlFeatureRequired("--fixed-time"))
+            );
+        }
+        assert_eq!(
+            ClientArgs::parse_from(["client", "--fixed-time", "-1"]),
+            Err(ArgsError::InvalidFixedTime("-1".to_owned()))
+        );
+        assert!(HELP.contains("--fixed-time <TICKS>"));
+    }
+
+    #[test]
+    fn frame_time_counter_is_a_validated_developer_only_pin() {
+        let args = ClientArgs {
+            frame_time_counter_ms: Some(12_500),
+            ..ClientArgs::default()
+        };
+        assert_eq!(args.validate_developer_support(true), Ok(()));
+        assert_eq!(
+            args.validate_developer_support(false),
+            Err(ArgsError::DeveloperControlFeatureRequired(
+                "--frame-time-counter"
+            ))
+        );
+        let parsed = ClientArgs::parse_from(["client", "--frame-time-counter", "12.5"]);
+        if cfg!(feature = "developer-control") {
+            let Ok(ParseOutcome::Run(args)) = parsed else {
+                panic!("expected run args, got {parsed:?}");
+            };
+            assert_eq!(args.frame_time_counter_ms, Some(12_500));
+        } else {
+            assert_eq!(
+                parsed,
+                Err(ArgsError::DeveloperControlFeatureRequired(
+                    "--frame-time-counter"
+                ))
+            );
+        }
+        for bad in ["-1", "3600", "NaN", "soon"] {
+            assert_eq!(
+                ClientArgs::parse_from(["client", "--frame-time-counter", bad]),
+                Err(ArgsError::InvalidFrameTimeCounter(bad.to_owned()))
+            );
+        }
+        assert!(HELP.contains("--frame-time-counter <SECONDS>"));
     }
 
     #[test]

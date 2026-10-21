@@ -715,7 +715,11 @@ fn anchored_card_bounds_and_icons_scale_together_across_viewports() {
             Anchor::TopLeft,
             Anchor::TopCenter,
             Anchor::TopRight,
+            Anchor::Left,
+            Anchor::Center,
+            Anchor::Right,
             Anchor::BottomLeft,
+            Anchor::BottomCenter,
             Anchor::BottomRight,
         ] {
             let mut p = presentation(false);
@@ -725,9 +729,13 @@ fn anchored_card_bounds_and_icons_scale_together_across_viewports() {
             hud.cards[0].offset = match anchor {
                 Anchor::TopLeft => [6., 6.],
                 Anchor::TopCenter => [0., 6.],
-                Anchor::TopRight => [-6., 6.],
-                Anchor::BottomLeft => [6., -6.],
-                Anchor::BottomRight => [-6., -6.],
+                Anchor::TopRight => [6., 6.],
+                Anchor::Left => [6., 0.],
+                Anchor::Center => [0., 0.],
+                Anchor::Right => [6., 0.],
+                Anchor::BottomLeft => [6., 6.],
+                Anchor::BottomCenter => [0., 6.],
+                Anchor::BottomRight => [6., 6.],
             };
             p.set_mod_hud(Some(&hud)).unwrap();
             frame(&mut p, &UiRuntime::new(1), size, dpi);
@@ -1064,52 +1072,4 @@ fn rectangular_cells_center_text_resize_and_update_without_rebuilding() {
     assert_eq!(card_dimensions(&hud.cards[0]), [112., 74.]);
     let scaled = frame(&mut p, &runtime, [1280, 720], 1.);
     assert_ne!(snapshot::rasterize(&after), snapshot::rasterize(&scaled));
-}
-
-/// Personal settings suppress the base HUD, while the layout editor keeps it for alignment.
-#[test]
-fn personal_settings_hide_base_hud_and_restore_it_for_layout_and_close() {
-    use ui_engine::text_metrics::TextMetrics;
-    let mut p = presentation(false);
-    let runtime = UiRuntime::new(1);
-    let player = player_state::PlayerState::new(1);
-    let paint = |p: &mut UiPresentationRuntime| {
-        let mut nodes = Vec::new();
-        p.append_engine_hud(
-            &player,
-            &runtime,
-            &mut nodes,
-            &mut 0,
-            TextMetrics::for_viewport([1280, 720], DpiScale::new(1.).unwrap(), None),
-            [1280., 720.],
-            0,
-            false,
-        )
-        .unwrap();
-        nodes.len()
-    };
-    let base = paint(&mut p);
-    assert!(base > 0, "the base HUD fixture must actually render");
-    let panel = super::mod_hud_editor::panel();
-    p.mod_ui_mut()
-        .set_mod_panel(mod_ui::PanelUiOwner::Environment(0), Some(&panel))
-        .unwrap();
-    p.mod_ui_mut().set_mod_panel_open(true);
-    assert_eq!(
-        paint(&mut p),
-        0,
-        "settings must not have sharp HUD controls underneath"
-    );
-    p.mod_ui_mut().open_mod_hud_editor(&content()).unwrap();
-    assert_eq!(
-        paint(&mut p),
-        base,
-        "the layout editor needs the base HUD as a placement reference"
-    );
-    p.mod_ui_mut().set_mod_panel_open(false);
-    assert_eq!(
-        paint(&mut p),
-        base,
-        "closing settings must immediately restore the base HUD"
-    );
 }

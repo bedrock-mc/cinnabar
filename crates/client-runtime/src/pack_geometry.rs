@@ -341,6 +341,38 @@ mod tests {
     }
 
     #[test]
+    fn java_mode_round_trip_drops_pending_resource_snapshot_without_waiting() {
+        let (mut stream, _) = changed_biomes();
+        let current = ChunkTextureAssets::default();
+        let candidate = ChunkTextureAssets::with_revision(Arc::clone(current.assets()), 1);
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let mut preparation = GeometryPreparation {
+            pending: Some((
+                (
+                    candidate.identity(),
+                    0,
+                    Some(stream.biome_tint_identity()),
+                    Some(stream.mesh_render_revision()),
+                ),
+                Mutex::new(receiver),
+            )),
+        };
+        let now = std::time::Instant::now();
+        stream.set_java_meshing(Some(Arc::from([1_u32])), now);
+        stream.set_java_meshing(None, now);
+        let mut world = World::new();
+        let mut state =
+            bevy::ecs::system::SystemState::<Query<&mut ChunkRenderInstance>>::new(&mut world);
+        let chunks = state.get_mut(&mut world).unwrap();
+        let gpu = ChunkTextureReload::default();
+        preparation
+            .request(&candidate, &current, Some(&stream), &chunks, &gpu)
+            .unwrap();
+        assert!(sender.send(Arc::from([])).is_err());
+        assert!(gpu.geometry().is_some());
+    }
+
+    #[test]
     fn superseded_geometry_drops_the_existing_worker() {
         let current = ChunkTextureAssets::default();
         let candidate = ChunkTextureAssets::with_revision(Arc::clone(current.assets()), 1);

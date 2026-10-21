@@ -420,8 +420,12 @@ impl ActorSnapshot {
         }
         let (key, bit) = if bit < 64 {
             (ActorDataKey::Flags.wire_value(), bit)
-        } else {
+        } else if bit < 128 {
             (ActorDataKey::FlagsTwo.wire_value(), bit - 64)
+        } else if bit < 192 {
+            (ActorDataKey::FlagsThird.wire_value(), bit - 128)
+        } else {
+            return false;
         };
         match self.metadata.get(&key) {
             Some(ActorMetadataValue::Flags(flags) | ActorMetadataValue::FlagsExtended(flags)) => {
@@ -499,6 +503,12 @@ impl ActorSnapshot {
             .then(|| self.falling_block_network_offset());
         let mut rejected = false;
         for metadata in metadata {
+            // The sentinel preserves the last effective always-show value.
+            if metadata.key == ActorDataKey::AlwaysShowNameTag.wire_value()
+                && matches!(metadata.value, ActorMetadataValue::Byte(-1))
+            {
+                continue;
+            }
             if self.metadata.len() >= MAX_ACTOR_METADATA_ENTRIES
                 && !self.metadata.contains_key(&metadata.key)
             {

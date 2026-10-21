@@ -67,6 +67,22 @@ pub const ANIMATION_CHOICES: &[SettingChoice] = &[
 /// Bedrock animation is the default; Java 1.7 stays selectable.
 pub const ANIMATIONS_OPTION: SettingDefinition = SettingId::Animations.definition();
 
+/// Bobbing choices retain the saved toggle values and append the hand-only mode.
+pub const VIEW_BOBBING_CHOICES: &[SettingChoice] = &[
+    SettingChoice {
+        name: "view_bobbing_radio_off",
+        label: ui::ViewBobbing::Off.label(),
+    },
+    SettingChoice {
+        name: "view_bobbing_radio_full",
+        label: ui::ViewBobbing::Full.label(),
+    },
+    SettingChoice {
+        name: "view_bobbing_radio_minimal",
+        label: ui::ViewBobbing::Minimal.label(),
+    },
+];
+
 /// Native placement is enabled; disabling it centers the authored cube.
 pub const NATIVE_SKYBOX_OFFSET_OPTION: SettingDefinition =
     SettingId::NativeSkyboxOffset.definition();
@@ -136,6 +152,19 @@ pub const CINNABAR_VISIBILITY_OPTION: SettingDefinition = SettingId::CinnabarVis
 
 /// Publishes the client's state to Discord Rich Presence.
 pub const DISCORD_PRESENCE_OPTION: SettingDefinition = SettingId::DiscordPresence.definition();
+
+/// Controls whether the activity card names the current server or world.
+pub const DISCORD_SERVER_DETAILS_OPTION: SettingDefinition =
+    SettingId::DiscordServerDetails.definition();
+
+/// Controls whether Discord receives the current and maximum player count.
+pub const DISCORD_PARTY_SIZE_OPTION: SettingDefinition = SettingId::DiscordPartySize.definition();
+
+/// Controls Discord join secrets and incoming join requests.
+pub const DISCORD_ALLOW_JOINS_OPTION: SettingDefinition = SettingId::DiscordAllowJoins.definition();
+
+/// Controls the elapsed-time timestamp on the activity card.
+pub const DISCORD_TIMESTAMP_OPTION: SettingDefinition = SettingId::DiscordTimestamp.definition();
 
 /// Optional crosshair visibility in both third-person camera views.
 pub const THIRD_PERSON_CROSSHAIR_OPTION: SettingDefinition =
@@ -325,13 +354,13 @@ settings! {
     MacroModifier => "macro_modifier", dropdown("Macro Modifier", super::macro_modifier::MacroModifier::CHOICES, super::macro_modifier::MacroModifier::Alt as i32),
         [(SettingPanel::Keyboard, 6)], [], None, None;
     CinnabarChatPosition => "cinnabar_chat_position", dropdown("Chat Position", super::chat::CHAT_POSITIONS, 0),
-        [(SettingPanel::VideoGeneral, 2)], [SettingsGroup::Video], None, None;
+        [(SettingPanel::VideoGeneral, 2), (SettingPanel::Chat, 5)], [SettingsGroup::Video, SettingsGroup::Chat], None, None;
     ContentLogGuiLevel => "content_log_gui_level", dropdown("options.content_log_gui.level", CONTENT_LEVELS, 0),
         [(SettingPanel::CreatorContentLog, 3)], [], None, None;
     ToastNotificationDuration => "toast_notification_duration", dropdown("options.notificationDuration.Toast", TOAST_DURATIONS, 0),
         [(SettingPanel::AccessibilityUi, 4)], [SettingsGroup::Accessibility], None, None;
     ChatMessageDuration => "chat_message_duration", dropdown("options.notificationDuration.Chat", CHAT_DURATIONS, 1),
-        [(SettingPanel::AccessibilityUi, 3)], [SettingsGroup::Accessibility], None, None;
+        [(SettingPanel::AccessibilityUi, 3), (SettingPanel::Chat, 4)], [SettingsGroup::Accessibility, SettingsGroup::Chat], None, None;
     ControllerSensitivity => "controller_sensitivity", slider("options.sensitivity", 0, 100, 50),
         [(SettingPanel::Controller, 0)], [], None, Some("options.controller.sensitivity.name");
     SpyglassGamepadDampening => "spyglass_gamepad_dampening", slider("options.spyglassdampen", 0, 100, 50),
@@ -341,7 +370,7 @@ settings! {
     HudTextBackgroundOpacity => "hud_text_background_opacity", slider("options.hudTextBackgroundOpacity", 0, 100, 50),
         [(SettingPanel::AccessibilityUi, 2)], [SettingsGroup::Accessibility], None, None;
     ChatBackgroundOpacity => "chat_background_opacity", slider("options.chatBackgroundOpacity", 0, 100, 50),
-        [(SettingPanel::AccessibilityUi, 1)], [SettingsGroup::Accessibility], None, None;
+        [(SettingPanel::AccessibilityUi, 1), (SettingPanel::Chat, 1)], [SettingsGroup::Accessibility, SettingsGroup::Chat], None, None;
     ActionbarTextBackgroundOpacity => "actionbar_text_background_opacity", slider("options.actionBarTextBackgroundOpacity", 0, 100, 50),
         [(SettingPanel::AccessibilityUi, 0)], [SettingsGroup::Accessibility], None, None;
     Darkness => "darkness", slider("options.darknessEffectModifier", 0, 100, 100),
@@ -394,7 +423,7 @@ settings! {
         [(SettingPanel::VideoCustomization, 6)], [SettingsGroup::Video], None, None;
     IngamePlayerNames => "ingame_player_names", toggle("options.ingamePlayerNames", true),
         [(SettingPanel::VideoCustomization, 7)], [SettingsGroup::Video], None, Some("options.ingamePlayerNames.name");
-    ViewBobbing => "view_bobbing", toggle("options.viewBobbing", true),
+    ViewBobbing => "view_bobbing", dropdown("options.viewBobbing", VIEW_BOBBING_CHOICES, ui::ViewBobbing::Full as i32),
         [(SettingPanel::VideoAccessibility, 4)], [SettingsGroup::Video], None, None;
     Animations => "animations", dropdown("Animations", ANIMATION_CHOICES, 1),
         [(SettingPanel::VideoAccessibility, 5)], [SettingsGroup::Video], None, None;
@@ -470,12 +499,12 @@ settings! {
         [(SettingPanel::GeneralNetwork, 2)], [], None, None;
     CinnabarBadges => "show_cinnabar_badges", toggle("Show Cinnabar badges", true),
         [(SettingPanel::GeneralNetwork, 3)], [], None, None;
-    AutoUpdateEnabled => "auto_update_enabled", toggle("Check for updates", super::super::updates::Preferences::DEFAULT.checks),
-        [(SettingPanel::GeneralUpdates, 0)], [], None, None;
+    AutoUpdateEnabled => "auto_update_enabled", toggle("Check for updates automatically", super::super::updates::Preferences::DEFAULT.checks),
+        [(SettingPanel::Updates, 1)], [], None, None;
     InstallUpdatesOnQuit => "install_updates_on_quit", toggle("Install updates when I quit", super::super::updates::Preferences::DEFAULT.install_on_quit),
-        [(SettingPanel::GeneralUpdates, 1)], [], None, None;
+        [(SettingPanel::Updates, 2)], [], None, None;
     UpdateChannel => "update_channel", dropdown("Update channel", UPDATE_CHANNEL_CHOICES, 0),
-        [(SettingPanel::GeneralUpdates, 2)], [], None, None;
+        [(SettingPanel::Updates, 0)], [], None, None;
     ModUpdateChecks => "mod_update_checks", toggle("Check for mod updates", true),
         [(SettingPanel::GeneralNetwork, 4)], [], None, None;
     ModAutoUpdate => "mod_auto_update", toggle("Install mod updates automatically", true),
@@ -537,19 +566,17 @@ settings! {
     HideChat => "hide_chat", toggle("chat.settings.muteAll", false),
         [(SettingPanel::Chat, 0)], [SettingsGroup::Chat], None, None;
     ToggleEmoteChat => "toggle_emote_chat", toggle("chat.settings.muteEmotes", false),
-        [(SettingPanel::Chat, 1)], [SettingsGroup::Chat], None, None;
+        [(SettingPanel::Chat, 8)], [SettingsGroup::Chat], None, None;
     ToggleTts => "toggle_tts", toggle("chat.settings.tts", false),
-        [(SettingPanel::Chat, 2)], [SettingsGroup::Chat], None, None;
-    ChatTypeface => "chat_typeface", dropdown("chat.settings.typeface", super::chat::TYPEFACES, 0),
-        [(SettingPanel::Chat, 3)], [SettingsGroup::Chat], None, None;
+        [(SettingPanel::Chat, 9)], [SettingsGroup::Chat], None, None;
     ChatColor => "chat_color", dropdown("chat.settings.chatColor", super::chat::CHAT_COLORS, 0),
         [(SettingPanel::Chat, 6)], [SettingsGroup::Chat], None, None;
     MentionsColor => "mentions_color", dropdown("chat.settings.mentionsColor", super::chat::MENTIONS_COLORS, 5),
         [(SettingPanel::Chat, 7)], [SettingsGroup::Chat], None, None;
     ChatFontSize => "chat_font_size", slider("chat.settings.fontSize", 5, 20, 10),
-        [(SettingPanel::Chat, 4)], [SettingsGroup::Chat], None, None;
+        [(SettingPanel::Chat, 2)], [SettingsGroup::Chat], None, None;
     ChatLineSpacing => "chat_line_spacing", slider("chat.settings.lineSpacing", 0, 100, 0),
-        [(SettingPanel::Chat, 5)], [SettingsGroup::Chat], None, None;
+        [(SettingPanel::Chat, 3)], [SettingsGroup::Chat], None, None;
     AlwaysSprint => "always_sprint", toggle("Always Sprint", false),
         [(SettingPanel::Keyboard, 4)], [], None, None;
     ShowExactServerPing => "show_exact_server_ping", toggle("options.showExactServerPing", false),
@@ -557,7 +584,15 @@ settings! {
     OreuiDarkMode => "oreui_dark_mode", toggle("options.oreuiDarkMode", false),
         [(SettingPanel::VideoCustomization, 11)], [SettingsGroup::Video], None, None;
     DiscordPresence => "discord_presence", toggle("Discord Rich Presence", true),
-        [], [], None, None;
+        [(SettingPanel::Discord, 0)], [SettingsGroup::Discord], None, Some("discord.settings.enabled");
+    DiscordServerDetails => "discord_server_details", toggle("discord.settings.serverDetails", true),
+        [(SettingPanel::DiscordDetails, 0)], [SettingsGroup::Discord], None, None;
+    DiscordPartySize => "discord_party_size", toggle("discord.settings.partySize", true),
+        [(SettingPanel::DiscordDetails, 1)], [SettingsGroup::Discord], None, None;
+    DiscordAllowJoins => "discord_allow_joins", toggle("discord.settings.allowJoins", true),
+        [(SettingPanel::DiscordDetails, 2)], [SettingsGroup::Discord], None, None;
+    DiscordTimestamp => "discord_timestamp", toggle("discord.settings.timestamp", true),
+        [(SettingPanel::DiscordDetails, 3)], [SettingsGroup::Discord], None, None;
     NativeSkyboxOffset => "native_skybox_offset", toggle("Bedrock Skybox Vertical Offset", assets::DEFAULT_NATIVE_SKYBOX_OFFSET),
         [(SettingPanel::VideoGraphics, 9)], [SettingsGroup::Video], None, None;
     FullScreen => "full_screen", host("options.fullscreen"),

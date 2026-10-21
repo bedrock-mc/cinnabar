@@ -526,6 +526,7 @@ impl PlayerInventoryLedger {
             storage_generation: self.storage.as_ref().map(|storage| storage.generation),
             personal_generation: submission.personal_generation,
             storage_identity: self.storage_identity(),
+            trade_purchase: None,
             requires_distinct_stack_ids: submission.requires_distinct_stack_ids,
             registry_bound_merge: submission.registry_bound_merge,
             quick_move_route: None,

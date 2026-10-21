@@ -28,6 +28,8 @@ impl UiPresentationRuntime {
         hud: Option<Arc<RuntimeHudCatalog>>,
         icons: Option<Arc<RuntimeIconCatalog>>,
     ) -> Result<Self, UiPresentationError> {
+        let font =
+            mod_ui::fonts::install(font).map_err(|_| UiPresentationError::InvalidFontTexture)?;
         let (textures, solid_texture_page, hud_textures, icon_refs) =
             match (hud.as_deref(), icons.as_deref()) {
                 (Some(hud), None) => {
@@ -46,6 +48,7 @@ impl UiPresentationRuntime {
             obfuscation: ObfuscationGlyphs::from_catalog(&font),
             base_font: Arc::clone(&font),
             mod_panel_font: None,
+            local_player_identity: Default::default(),
             font,
             blank_dynamic_page: textures.pages()[textures.dynamic_start()].clone(),
             textures,
@@ -78,10 +81,13 @@ impl UiPresentationRuntime {
             hud_frame: HudFrame::default(),
             inventory_cache: Some(Box::default()),
             hud_cache: Default::default(),
+            mod_hud_bindings: Default::default(),
+            control_previews: Default::default(),
             last_hud_diagnostics: Default::default(),
             nametag_anchors: Vec::new(),
             nametag_local_actor: None,
             nametag_atlas: nametag_atlas::NametagAtlas::default(),
+            nametag_bounds: Default::default(),
             primitive_text: primitive_shapes::PrimitiveTextRasterizer::default(),
             paper_doll: Default::default(),
             player_preview_page: None,

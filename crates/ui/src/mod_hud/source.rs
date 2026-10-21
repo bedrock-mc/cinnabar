@@ -18,6 +18,8 @@ pub struct RowSource {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NativeRows {
+    /// Displays the current server-clock day, independently of cosmetic time overrides.
+    WorldDays,
     /// Displays native local wall-clock time; no game clock or guest polling is involved.
     Clock {
         military: bool,
@@ -35,9 +37,22 @@ pub enum NativeRows {
         held: bool,
         percent: bool,
         empty: bool,
+        /// Uses a held-first equipment stack with unlabelled remaining durability.
+        #[serde(default)]
+        compact: bool,
+        #[serde(default)]
+        offhand: bool,
+        /// Remaining durability percentage at which values receive warning ink; zero disables it.
+        #[serde(default)]
+        warning: f32,
     },
     Effects {
         icons: bool,
+        /// Separates the localized name and Roman level from a rounded, padded timer.
+        #[serde(default)]
+        stacked: bool,
+        #[serde(default)]
+        warnings: bool,
     },
     Sidebar {
         scores: bool,
@@ -102,7 +117,7 @@ impl RowSource {
         }
         if matches!(
             self.kind,
-            NativeRows::Clock { .. } | NativeRows::TotemUses { .. }
+            NativeRows::Clock { .. } | NativeRows::TotemUses { .. } | NativeRows::WorldDays
         ) && (self.limit != 1 || self.brackets)
         {
             return Err(
@@ -126,6 +141,11 @@ impl RowSource {
             {
                 return Err("native item count requires a known potion effect".into());
             }
+        }
+        if let NativeRows::Armor { warning, .. } = self.kind
+            && (!warning.is_finite() || !(0.0..=100.0).contains(&warning))
+        {
+            return Err("equipment durability warning must be a percentage".into());
         }
         super::color(self.color)
     }

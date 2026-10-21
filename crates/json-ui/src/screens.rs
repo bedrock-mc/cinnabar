@@ -14,6 +14,8 @@ pub type ScreenRender = FormRender;
 
 /// Every `namespace.name` screen the engine renders.
 pub const ENGINE_SCREENS: &[&str] = &[
+    Reference::TradeTradeScreen.as_str(),
+    Reference::Trade2TradeScreen.as_str(),
     crate::vanilla::Reference::HudHudScreen.as_str(),
     crate::vanilla::Reference::HudCrosshairHudCrosshairScreen.as_str(),
     Reference::ServerFormThirdPartyServerScreen.as_str(),

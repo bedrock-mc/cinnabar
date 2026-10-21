@@ -19,6 +19,7 @@ pub(super) struct Raster {
     pub(super) viewport: wgpu::Buffer,
     pub(super) materials: [wgpu::RenderPipeline; 4],
     pub(super) clear: wgpu::RenderPipeline,
+    pub(super) invert: wgpu::RenderPipeline,
 }
 
 /// Builds the real UI vertex layout, shader and gamma-space premultiplied blend.
@@ -28,6 +29,7 @@ fn pipeline(
     layout: &wgpu::PipelineLayout,
     depth: (bool, bool),
     clear: bool,
+    invert: bool,
 ) -> wgpu::RenderPipeline {
     let base = ui_pipeline_descriptor(ui_bind_group_layout());
     let descriptor = if clear {
@@ -39,7 +41,7 @@ fn pipeline(
                 UiPipelineKey {
                     msaa: ui::Msaa::Off,
                     hdr: false,
-                    invert_blend: false,
+                    invert_blend: invert,
                     layer: true,
                     depth_test: depth.0,
                     depth_write: depth.1,
@@ -177,14 +179,22 @@ impl Raster {
             .iter()
             .flat_map(|page| page.pixels().iter().copied())
             .collect();
+        let dimensions = input.textures.pages()[0].dimensions();
+        assert!(
+            input
+                .textures
+                .pages()
+                .iter()
+                .all(|page| page.dimensions() == dimensions)
+        );
         let texture = gpu.device.create_texture_with_data(
             &gpu.queue,
             &wgpu::TextureDescriptor {
                 label: None,
                 size: wgpu::Extent3d {
-                    width: 2,
-                    height: 2,
-                    depth_or_array_layers: 2,
+                    width: dimensions[0],
+                    height: dimensions[1],
+                    depth_or_array_layers: input.textures.pages().len() as u32,
                 },
                 mip_level_count: 1,
                 sample_count: 1,
@@ -205,9 +215,19 @@ impl Raster {
             bytemuck::cast_slice(&[SIDE as f32, SIDE as f32, 0.0, strength]),
             wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         );
+        let mut page_info = render_model::ui_page_uniform::words(false);
+        for (layer, page) in input.textures.pages().iter().enumerate() {
+            let offset = render_model::ui_page_uniform::offset(layer as u32) as usize / 4;
+            for (dst, src) in page_info[offset..]
+                .iter_mut()
+                .zip(render_model::ui_page_uniform::region(page))
+            {
+                *dst = src.to_bits();
+            }
+        }
         let format = buffer(
             &gpu,
-            bytemuck::cast_slice(&[0_u32; 4]),
+            bytemuck::cast_slice(&page_info),
             wgpu::BufferUsages::UNIFORM,
         );
         let sampler = gpu
@@ -281,8 +301,9 @@ impl Raster {
         });
         Some(Self {
             materials: [(false, false), (false, true), (true, false), (true, true)]
-                .map(|depth| pipeline(&gpu, &shader, &layout, depth, false)),
-            clear: pipeline(&gpu, &clear_shader, &layout, (false, false), true),
+                .map(|depth| pipeline(&gpu, &shader, &layout, depth, false, false)),
+            clear: pipeline(&gpu, &clear_shader, &layout, (false, false), true, false),
+            invert: pipeline(&gpu, &shader, &layout, (false, false), false, true),
             gpu,
             binding,
             item_glint,

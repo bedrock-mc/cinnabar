@@ -13,9 +13,12 @@ pub mod primitive_shapes;
 mod publication;
 pub use pose_generation::PoseGeneration;
 mod skin;
+pub mod sprite_mask;
 pub mod sub_chunk_requests;
 mod ui_backdrop;
 mod ui_coverage_paint;
+pub mod ui_repeat;
+pub mod ui_shadow;
 mod vrr;
 
 pub use ui_backdrop::{UI_BACKDROP_MAX_BLUR_PIXELS, UI_BACKDROP_MAX_FACTOR, UiBackdropPaint};
@@ -49,3 +52,6 @@ pub const CAMERA_NEAR_PLANE_BLOCKS: f32 = 0.025;
 
 /// Separation that keeps block selection and destroy overlays in front of their surfaces.
 pub const BLOCK_OVERLAY_FACE_OFFSET: f32 = 0.002;
+
+/// Vertex style bit selecting linear filtering for UI sprites.
+pub const UI_STYLE_BILINEAR: u8 = 1 << 3;

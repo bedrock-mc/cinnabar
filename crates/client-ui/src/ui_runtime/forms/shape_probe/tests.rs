@@ -134,21 +134,25 @@ fn structural_summary_does_not_contain_payload_text_names_urls_or_ids() {
 }
 
 #[test]
-fn hostile_documents_obey_packet_depth_and_fixed_summary_bounds() {
+fn hostile_documents_obey_probe_depth_and_fixed_summary_bounds() {
     let oversized = "x".repeat(protocol::MAX_FORM_JSON_BYTES + 1);
     assert_eq!(
         inspect(true, &AtomicBool::new(false), &event(&oversized)),
         Some(Summary::BoundsRejected)
     );
-    let nested = format!(
-        "{}0{}",
-        "[".repeat(protocol::MAX_FORM_JSON_DEPTH + 1),
-        "]".repeat(protocol::MAX_FORM_JSON_DEPTH + 1)
-    );
-    assert_eq!(
-        inspect(true, &AtomicBool::new(false), &event(&nested)),
-        Some(Summary::BoundsRejected)
-    );
+    for depth in [MAX_PROBE_JSON_DEPTH, MAX_PROBE_JSON_DEPTH + 1] {
+        let nested = format!(
+            r#"{{"metadata":{}0{}}}"#,
+            "[".repeat(depth - 1),
+            "]".repeat(depth - 1)
+        );
+        let summary = inspect(true, &AtomicBool::new(false), &event(&nested));
+        if depth == MAX_PROBE_JSON_DEPTH {
+            assert!(matches!(summary, Some(Summary::Parsed { .. })));
+        } else {
+            assert_eq!(summary, Some(Summary::BoundsRejected));
+        }
+    }
     let buttons = format!(
         r#"{{"buttons":[{}]}}"#,
         vec![r#"{"text":"x"}"#; 300].join(",")

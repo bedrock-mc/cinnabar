@@ -15,9 +15,14 @@ use ui::{
 
 mod badge;
 mod packing;
+mod raster;
+use raster::{measure_line, rasterize_line};
 
 /// Widest line laid out before it would wrap, in font texels.
 const MAX_LINE_TEXELS: u32 = NAMETAG_ATLAS_SIDE;
+/// Transparent texels on each side of a sampled cell.
+const CELL_GUTTER_TEXELS: u32 = 1;
+const CELL_PADDING_TEXELS: u32 = CELL_GUTTER_TEXELS * 2;
 
 /// Texels of one UI texture page a glyph samples.
 #[derive(Clone, Copy)]
@@ -83,17 +88,25 @@ pub struct NametagAtlas {
     /// Suppresses repeated rebuilds for an order that has already tried fresh packing.
     rebuilt_lines: Option<Vec<Arc<str>>>,
     rebuild_pending: bool,
+    rebuilt_this_frame: bool,
+    prepared_texts: Vec<Arc<str>>,
+    prepared_badge: bool,
     published: Option<Arc<[NametagAtlasRect]>>,
     revision: u64,
     palette: ui::FormattingPalette,
+    obfuscation: Option<ui::ObfuscationGlyphs>,
+    animation_seed: u64,
 }
 
 struct AtlasCell {
     /// `None` pins the shared gem; text cells participate in normal line eviction.
     text: Option<Arc<str>>,
     line: AtlasLine,
+    /// Padded upload and packing bounds around the sampled line cell.
+    allocation: [u32; 4],
     rgba8: Arc<[u8]>,
     shelf: usize,
+    animation: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -113,6 +126,45 @@ struct AtlasShelf {
 }
 
 impl NametagAtlas {
+    /// Resolves the predicted budget before any records capture UVs, retrying fragmentation once.
+    pub(super) fn prepare_frame<'p>(
+        &mut self,
+        texts: &[Arc<str>],
+        badge: bool,
+        font: &RuntimeFontCatalog,
+        layouts: &mut TextLayoutCache,
+        pages: &impl Fn(usize) -> Option<GlyphPage<'p>>,
+    ) {
+        if texts != self.prepared_texts || badge != self.prepared_badge {
+            self.rebuilt_lines = None;
+        }
+        self.begin_frame(texts.iter());
+        for retry in [false, true] {
+            if retry {
+                if !self.rebuild_pending || self.rebuilt_lines.is_some() {
+                    break;
+                }
+                self.reset();
+                self.begin_frame(texts.iter());
+                self.rebuilt_this_frame = true;
+            }
+            if badge {
+                self.badge();
+            }
+            for text in texts {
+                self.line(text, font, layouts, pages);
+            }
+        }
+        self.frame_lines.clear();
+        self.prepared_texts.clear();
+        self.prepared_texts.extend_from_slice(texts);
+        self.prepared_badge = badge;
+    }
+
+    /// Uses the UI frame's seed for same-width animated glyph substitutions.
+    pub(super) fn set_animation_seed(&mut self, seed: u64) {
+        self.animation_seed = seed;
+    }
     /// Retires cached line pixels when the active formatting colors change.
     pub(super) fn set_palette(&mut self, palette: ui::FormattingPalette) {
         if self.palette != palette {
@@ -136,6 +188,7 @@ impl NametagAtlas {
             let lines = std::mem::take(&mut self.frame_lines);
             self.reset();
             self.rebuilt_lines = Some(lines);
+            self.rebuilt_this_frame = true;
         }
         self.frame_lines.clear();
         self.frame_active = true;
@@ -162,10 +215,41 @@ impl NametagAtlas {
             }
         }
         if let Some(&index) = self.lines.get(text) {
+            if self.cells[index]
+                .animation
+                .is_some_and(|seed| seed != self.animation_seed)
+            {
+                let measured = measure_line(text, font, layouts)?;
+                let pixels = rasterize_line(
+                    &measured,
+                    pages,
+                    &self.palette,
+                    ui::TextEffects {
+                        obfuscation: self.obfuscation.as_ref(),
+                        obfuscation_seed: self.animation_seed,
+                        ..Default::default()
+                    },
+                );
+                let pixels = padded_pixels(&pixels, measured.size);
+                let cell = &mut self.cells[index];
+                if cell.rgba8.as_ref() != pixels {
+                    cell.rgba8 = pixels.into();
+                    self.published = None;
+                }
+                cell.animation = Some(self.animation_seed);
+            }
             return Some(self.cells[index].line);
         }
         let measured = measure_line(text, font, layouts)?;
-        let [width, height] = measured.size;
+        let animated = measured
+            .layout
+            .glyphs()
+            .iter()
+            .any(|glyph| glyph.style.obfuscated);
+        if animated && self.obfuscation.is_none() {
+            self.obfuscation = Some(ui::ObfuscationGlyphs::from_catalog(font));
+        }
+        let ([width, height], inset) = padded_cell(measured.size);
         // Pixel exhaustion signals a later caller rebuild; smaller misses still try to fit.
         if self.lines.len() >= MAX_ATLAS_LINES && !self.reclaim_shelf(None) {
             self.rebuild_pending |= self.frame_active;
@@ -180,9 +264,24 @@ impl NametagAtlas {
             self.rebuild_pending |= self.frame_active;
             return None;
         };
-        let rgba8 = rasterize_line(&measured, pages, &self.palette);
+        let pixels = rasterize_line(
+            &measured,
+            pages,
+            &self.palette,
+            ui::TextEffects {
+                obfuscation: self.obfuscation.as_ref(),
+                obfuscation_seed: self.animation_seed,
+                ..Default::default()
+            },
+        );
+        let rgba8 = padded_pixels(&pixels, measured.size);
         let line = AtlasLine {
-            cell: [origin[0], origin[1], width, height],
+            cell: [
+                origin[0] + inset[0],
+                origin[1] + inset[1],
+                measured.size[0],
+                measured.size[1],
+            ],
             width_px: measured.advance as f32 / FONT_DESIGN_PIXEL_TEXELS as f32,
             top_px: measured.top as f32 / FONT_DESIGN_PIXEL_TEXELS as f32,
             ink_y_px: measured
@@ -194,8 +293,10 @@ impl NametagAtlas {
         self.cells.push(AtlasCell {
             text: Some(Arc::clone(text)),
             line,
+            allocation: [origin[0], origin[1], width, height],
             rgba8: rgba8.into(),
             shelf,
+            animation: animated.then_some(self.animation_seed),
         });
         self.published = None;
         Some(line)
@@ -214,6 +315,10 @@ impl NametagAtlas {
         self.rebuilt_lines = None;
         self.rebuild_pending = false;
         self.published = None;
+        self.obfuscation = None;
+        self.rebuilt_this_frame = false;
+        self.prepared_texts.clear();
+        self.prepared_badge = false;
     }
 
     /// Checks capacity for uncached lines only; callers must exclude their hits.
@@ -225,13 +330,17 @@ impl NametagAtlas {
 
     /// Retains immutable line pixels so skipped extractions can recover every update.
     pub(super) fn publish(&mut self) -> (Arc<[NametagAtlasRect]>, u64) {
+        if self.rebuilt_this_frame {
+            self.rebuilt_lines = Some(self.frame_lines.clone());
+            self.rebuilt_this_frame = false;
+        }
         if self.published.is_none() {
             self.revision += 1;
             self.published = Some(
                 self.cells
                     .iter()
                     .map(|cell| NametagAtlasRect {
-                        cell: cell.line.cell,
+                        cell: cell.allocation,
                         rgba8: Arc::clone(&cell.rgba8),
                     })
                     .collect(),
@@ -244,210 +353,62 @@ impl NametagAtlas {
     }
 }
 
-/// Retained line bound, far above any frame's visible tags.
-const MAX_ATLAS_LINES: usize = 4096;
-
-struct LineLayout {
-    layout: Arc<TextLayout>,
-    size: [u32; 2],
-    top: i32,
-    advance: u32,
-    ink_y: [i32; 2],
+/// Pads bounded inner dimensions; full-span edges use the atlas sampler's existing clamp.
+fn padded_cell(size: [u32; 2]) -> ([u32; 2], [u32; 2]) {
+    let outer = size.map(|value| {
+        value
+            .saturating_add(CELL_PADDING_TEXELS)
+            .min(NAMETAG_ATLAS_SIDE)
+    });
+    let inset = std::array::from_fn(|axis| (outer[axis] - size[axis]) / 2);
+    (outer, inset)
 }
 
-/// Measures width-bounded ink before any atlas placement or pixel allocation.
-fn measure_line(
+/// Clears every allocated gutter while retaining the entire admitted inner raster.
+fn padded_pixels(pixels: &[u8], size @ [width, _]: [u32; 2]) -> Vec<u8> {
+    let ([outer_width, outer_height], [left, top]) = padded_cell(size);
+    let stride = outer_width as usize * 4;
+    let mut padded = vec![0; stride * outer_height as usize];
+    for (row, source) in pixels.chunks_exact(width as usize * 4).enumerate() {
+        let start = (row + top as usize) * stride + left as usize * 4;
+        padded[start..start + source.len()].copy_from_slice(source);
+    }
+    padded
+}
+
+/// Measured pen width and glyph bounds without reserving atlas pixels.
+pub(super) struct LineMetrics {
+    pub width_px: f32,
+    pub rect: [f32; 4],
+    pub ink_y_px: [f32; 2],
+}
+
+/// Measures a slot independently of whether its pixels fit this frame.
+pub(super) fn line_metrics(
     text: &str,
     font: &RuntimeFontCatalog,
     layouts: &mut TextLayoutCache,
-) -> Option<LineLayout> {
-    let layout = layouts
-        .layout(TextLayoutRequest {
-            text,
-            style: TextStyle::default(),
-            width_64: MAX_LINE_TEXELS * 64,
-            line_height_64: TEXT_LINE_HEIGHT_64,
-            baseline_64: TEXT_BASELINE_64,
-            scale: UiScale::default(),
-            font,
-            wrap: TextWrap {
-                max_lines: Some(1),
-                allow_visual_overflow: true,
-                ..Default::default()
-            },
-        })
-        .ok()?;
-    let advance = layout.size_64()[0].div_ceil(64).clamp(1, MAX_LINE_TEXELS);
-    let glyphs = || layout.glyphs().iter().filter(|glyph| glyph.line == 0);
-    let ink = || {
-        glyphs().filter(|glyph| {
-            glyph.bounds_64[2] > glyph.bounds_64[0] && glyph.bounds_64[3] > glyph.bounds_64[1]
-        })
-    };
-    let ink_top = ink()
-        .map(|glyph| glyph.bounds_64[1].div_euclid(64))
-        .min()
-        .unwrap_or(0);
-    let ink_bottom = ink()
-        .map(|glyph| (glyph.bounds_64[3] + 63).div_euclid(64))
-        .max()
-        .unwrap_or(0);
-    let top = glyphs()
-        .map(|glyph| glyph.bounds_64[1].div_euclid(64))
-        .min()
-        .unwrap_or(0)
-        .min(0);
-    let bottom = glyphs()
-        .map(|glyph| (glyph.bounds_64[3] + 63).div_euclid(64))
-        .max()
-        .unwrap_or(0)
-        .max(TEXT_LINE_HEIGHT_64.div_ceil(64) as i32);
-    let right = glyphs()
-        .map(|glyph| {
-            let extra = if glyph.style.bold
-                && glyph.bounds_64[2] > glyph.bounds_64[0]
-                && glyph.bounds_64[3] > glyph.bounds_64[1]
-            {
-                TEXT_BOLD_OFFSET_64 as i32
-            } else {
-                0
-            };
-            (glyph.bounds_64[2] + extra + 63).div_euclid(64)
-        })
-        .max()
-        .unwrap_or(0)
-        .max(advance as i32);
-    // Clip oversized ink to one atlas cell before allocating its pixels.
-    let (width, height) = (
-        (right as u32).min(MAX_LINE_TEXELS),
-        ((bottom - top) as u32).min(NAMETAG_ATLAS_SIDE),
-    );
-    Some(LineLayout {
-        layout,
-        size: [width, height],
-        top,
-        advance,
-        ink_y: [ink_top, ink_bottom],
+) -> Option<LineMetrics> {
+    let measured = measure_line(text, font, layouts)?;
+    let texels = FONT_DESIGN_PIXEL_TEXELS as f32;
+    Some(LineMetrics {
+        width_px: measured.advance as f32 / texels,
+        rect: [
+            0.0,
+            measured.top as f32 / texels,
+            measured.size[0] as f32 / texels,
+            (measured.top as f32 + measured.size[1] as f32) / texels,
+        ],
+        ink_y_px: measured.ink_y.map(|v| v as f32 / texels),
     })
 }
 
-/// Rasterizes admitted ink with the glyph colors and active formatting palette.
-fn rasterize_line<'p>(
-    measured: &LineLayout,
-    pages: &impl Fn(usize) -> Option<GlyphPage<'p>>,
-    palette: &ui::FormattingPalette,
-) -> Vec<u8> {
-    let [width, height] = measured.size;
-    let top = measured.top;
-    let glyphs = || {
-        measured
-            .layout
-            .glyphs()
-            .iter()
-            .filter(|glyph| glyph.line == 0)
-    };
-    let mut canvas = vec![0u8; (width * height * 4) as usize];
-    for glyph in glyphs() {
-        let Some(page) = pages(usize::from(glyph.page)) else {
-            continue;
-        };
-        let tint = palette.rgb(glyph.style.color).unwrap_or([255; 3]);
-        // Sheet glyphs are drawn scaled into their bounds, so sample the source nearest-texel.
-        let mut bounds = glyph.bounds_64.map(|value| value as f32 / 64.0);
-        bounds[1] -= top as f32;
-        bounds[3] -= top as f32;
-        rasterize_glyph(
-            &mut canvas,
-            [width, height],
-            page,
-            bounds,
-            glyph.uv,
-            tint,
-            false,
-        );
-        if glyph.style.bold {
-            let offset = TEXT_BOLD_OFFSET_64 as f32 / 64.0;
-            bounds[0] += offset;
-            bounds[2] += offset;
-            rasterize_glyph(
-                &mut canvas,
-                [width, height],
-                page,
-                bounds,
-                glyph.uv,
-                tint,
-                true,
-            );
-        }
-    }
-    canvas
-}
-
-/// Samples one glyph into its clipped destination bounds.
-fn rasterize_glyph(
-    canvas: &mut [u8],
-    [width, height]: [u32; 2],
-    page: GlyphPage<'_>,
-    bounds: [f32; 4],
-    uv: [u16; 4],
-    tint: [u8; 3],
-    composite: bool,
-) {
-    let [u0, v0, u1, v1] = uv.map(f32::from);
-    let (source_width, source_height) = (u1 - u0, v1 - v0);
-    let (dest_width, dest_height) = (bounds[2] - bounds[0], bounds[3] - bounds[1]);
-    if source_width <= 0.0 || source_height <= 0.0 || dest_width <= 0.0 || dest_height <= 0.0 {
-        return;
-    }
-    for dy in bounds[1].floor().max(0.0) as u32..(bounds[3].ceil() as u32).min(height) {
-        for dx in bounds[0].floor().max(0.0) as u32..(bounds[2].ceil() as u32).min(width) {
-            let fx = (dx as f32 + 0.5 - bounds[0]) / dest_width;
-            let fy = (dy as f32 + 0.5 - bounds[1]) / dest_height;
-            if !(0.0..1.0).contains(&fx) || !(0.0..1.0).contains(&fy) {
-                continue;
-            }
-            let sx = (u0 + fx * source_width) as u32;
-            let sy = (v0 + fy * source_height) as u32;
-            if sx >= page.width || sy >= page.height {
-                continue;
-            }
-            let Some(texel) = page.texel((sy * page.width + sx) as usize) else {
-                continue;
-            };
-            if texel[3] == 0 {
-                continue;
-            }
-            let target = ((dy * width + dx) * 4) as usize;
-            if composite {
-                blend_glyph_texel(&mut canvas[target..target + 4], texel, tint);
-            } else {
-                for channel in 0..3 {
-                    canvas[target + channel] =
-                        (u16::from(texel[channel]) * u16::from(tint[channel]) / 255) as u8;
-                }
-                canvas[target + 3] = texel[3];
-            }
-        }
-    }
-}
-
-/// Composites straight-alpha glyph coverage without losing partially covered ink.
-fn blend_glyph_texel(target: &mut [u8], texel: [u8; 4], tint: [u8; 3]) {
-    let source_alpha = u32::from(texel[3]);
-    let target_alpha = u32::from(target[3]);
-    let remaining = 255 - source_alpha;
-    let alpha = source_alpha * 255 + target_alpha * remaining;
-    for channel in 0..3 {
-        let source = u32::from(texel[channel]) * u32::from(tint[channel]) / 255;
-        let color =
-            source * source_alpha * 255 + u32::from(target[channel]) * target_alpha * remaining;
-        target[channel] = ((color + alpha / 2) / alpha) as u8;
-    }
-    target[3] = ((alpha + 127) / 255) as u8;
-}
+/// Retained line bound, far above any frame's visible tags.
+const MAX_ATLAS_LINES: usize = 4096;
 
 #[cfg(test)]
 mod tests {
+    mod formatting;
     use super::*;
     use sha2::{Digest, Sha256};
 
@@ -460,7 +421,16 @@ mod tests {
         palette: &ui::FormattingPalette,
     ) -> Option<(u32, u32, i32, Vec<u8>, u32)> {
         let measured = measure_line(text, font, layouts)?;
-        let pixels = rasterize_line(&measured, pages, palette);
+        let pool = ui::ObfuscationGlyphs::from_catalog(font);
+        let pixels = rasterize_line(
+            &measured,
+            pages,
+            palette,
+            ui::TextEffects {
+                obfuscation: Some(&pool),
+                ..Default::default()
+            },
+        );
         Some((
             measured.size[0],
             measured.size[1],
@@ -621,7 +591,7 @@ mod tests {
         let build = |name: &str| {
             super::super::nametags::build_nametag_scene(
                 &[super::super::nametags::tests::anchor(name)],
-                1.0,
+                None,
                 &font,
                 &mut TextLayoutCache::new(4, 1 << 20),
                 &mut NametagAtlas::default(),
@@ -630,31 +600,21 @@ mod tests {
         };
         let plain = build("AB\nA");
         let bold = build("§lAB\n§rA");
-        assert_eq!(plain.records.len(), 6);
-        assert_eq!(bold.records.len(), 6);
+        assert_eq!(plain.records.len(), 4);
+        assert_eq!(bold.records.len(), 4);
         assert_eq!(bold.records[0].rect[0], plain.records[0].rect[0] - 1.0);
         assert_eq!(bold.records[0].rect[2], plain.records[0].rect[2] + 1.0);
         assert_eq!(bold.records[0].color, plain.records[0].color);
         assert_eq!(bold.records[1].rect, plain.records[1].rect);
         assert_eq!(bold.records[3].rect, plain.records[3].rect);
         for scene in [&plain, &bold] {
+            assert!(scene.records.iter().all(|record| record.depth_tested == 0));
             assert!(
-                scene.records[..4]
+                scene.records[2..]
                     .iter()
-                    .all(|record| record.depth_tested == 0)
+                    .all(|record| record.color == [1.0; 4])
             );
-            assert!(
-                scene.records[4..]
-                    .iter()
-                    .all(|record| record.depth_tested != 0)
-            );
-            for (dim, full) in scene.records[2..4].iter().zip(&scene.records[4..]) {
-                assert_eq!(full.rect, dim.rect);
-                assert_eq!(full.uv, dim.uv);
-                assert_eq!(full.color, [1.0; 4]);
-            }
         }
-        assert_eq!(bold.records[5].rect, plain.records[5].rect);
     }
 
     /// Builds the labels used by the original full-atlas timing fixture.
@@ -698,18 +658,13 @@ mod tests {
         for rectangle in atlas.publish().0.iter() {
             let row_bytes = rectangle.cell[2] as usize * 4;
             for (row, pixels) in rectangle.rgba8.chunks_exact(row_bytes).enumerate() {
-                let expected = if row < ui::FONT_INK_TEXELS as usize {
-                    [255; 4]
-                } else {
-                    [0; 4]
-                };
-                assert!(
-                    pixels
-                        .as_chunks::<4>()
-                        .0
-                        .iter()
-                        .all(|pixel| *pixel == expected)
-                );
+                for (column, pixel) in pixels.as_chunks::<4>().0.iter().enumerate() {
+                    let ink = row > 0
+                        && row <= ui::FONT_INK_TEXELS as usize
+                        && column > 0
+                        && column + 1 < rectangle.cell[2] as usize;
+                    assert_eq!(*pixel, if ink { [255; 4] } else { [0; 4] });
+                }
             }
         }
     }
@@ -832,3 +787,7 @@ mod review_tests {
 #[cfg(test)]
 #[path = "nametag_atlas/eviction_tests.rs"]
 mod eviction_tests;
+
+#[cfg(test)]
+#[path = "nametag_atlas/churn_tests.rs"]
+mod churn_tests;

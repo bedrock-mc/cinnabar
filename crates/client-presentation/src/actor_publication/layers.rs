@@ -15,6 +15,7 @@ pub(super) struct LayerPoses<'a> {
     pub remote_emote_poses:
         &'a bevy::platform::collections::HashMap<u64, actor_animation::CustomEmotePose>,
     pub native_body_sampled: bool,
+    pub local_coverage: bool,
     pub remote_skin_layers: &'a super::bodies::RemoteSkinLayers,
     pub native_pose: &'a hand::NativePoseCache,
 }
@@ -61,6 +62,7 @@ pub(super) fn attach(
         local_emote_pose: _,
         remote_emote_poses: _,
         native_body_sampled,
+        local_coverage,
         remote_skin_layers,
         native_pose,
     } = poses;
@@ -85,6 +87,8 @@ pub(super) fn attach(
                 let render_frame = render_frame?;
                 let layers = if let Some(pose) = poses.emote(runtime_id) {
                     std::borrow::Cow::Borrowed(pose.render.as_slice())
+                } else if local_coverage && runtime_id == local_runtime_id {
+                    stream.authority().actor_ui_layers(runtime_id)?.render
                 } else {
                     render_frame.layers_with_skin(runtime_id)?.render
                 };
@@ -104,6 +108,11 @@ pub(super) fn attach(
         let render_frame = render_frame.as_mut()?;
         if let Some(pose) = poses.emote(runtime_id) {
             Some(std::borrow::Cow::Borrowed(pose.render.as_slice()))
+        } else if local_coverage && runtime_id == local_runtime_id {
+            stream?
+                .authority()
+                .actor_ui_layers(runtime_id)
+                .map(|layers| layers.render)
         } else {
             render_frame
                 .layers_with_skin(runtime_id)
@@ -126,7 +135,14 @@ pub(super) fn attach(
             cape,
             preparation,
             |runtime_id| {
-                stream.authority().actor_rig(runtime_id).map(|rig| {
+                stream.authority().actor_rig(runtime_id).map(|mut rig| {
+                    if local_coverage
+                        && runtime_id == local_runtime_id
+                        && let Some(pose) = stream.authority().actor_ui_pose(runtime_id)
+                    {
+                        rig.previous = pose;
+                        rig.current = pose;
+                    }
                     if let Some(pose) = poses.emote(runtime_id) {
                         pose.snapshot(rig)
                     } else {
@@ -145,11 +161,23 @@ pub(super) fn attach(
             batch,
             artwork,
             |runtime_id| {
-                let rig = stream.authority().actor_rig(runtime_id)?;
+                let mut rig = stream.authority().actor_rig(runtime_id)?;
+                if local_coverage && runtime_id == local_runtime_id {
+                    let pose = stream.authority().actor_ui_pose(runtime_id)?;
+                    rig.previous = pose;
+                    rig.current = pose;
+                    let layers = stream.authority().actor_ui_layers(runtime_id)?;
+                    // UI layers are retained by the animation owner; no frame-owned copy.
+                    if let std::borrow::Cow::Borrowed(skin) = layers.skin {
+                        rig.skin_layers = skin;
+                    }
+                }
                 let emote = poses.emote(runtime_id);
                 let java_layers =
                     java::posed(java_posed, runtime_id).map(|posed| posed.skin_layers.as_slice());
-                let native_layers = if runtime_id == local_runtime_id && native_body_sampled {
+                let native_layers = if local_coverage && runtime_id == local_runtime_id {
+                    None
+                } else if runtime_id == local_runtime_id && native_body_sampled {
                     native_pose.skin_layers()
                 } else {
                     remote_skin_layers.get(&runtime_id).map(AsRef::as_ref)

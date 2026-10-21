@@ -14,6 +14,8 @@ mod invisible;
 mod layout;
 mod line_metrics;
 mod palette;
+/// Design-pixel lean of an italic glyph's top edge.
+pub const TEXT_ITALIC_SHEAR_PX: f32 = 1.0;
 mod parse;
 mod single_line;
 mod units;
@@ -251,6 +253,12 @@ impl TextLayout {
         &self.key
     }
 
+    /// Checks complete text and geometry identity before reusing an externally retained layout.
+    pub fn matches_request(&self, mut request: TextLayoutRequest<'_>) -> bool {
+        request.text = text_prefix(request.text, crate::UiLimits::MAX_TEXT_BYTES);
+        self.key == layout_key(request, Sha256::digest(request.text.as_bytes()).into())
+    }
+
     pub fn glyphs(&self) -> &[GlyphQuad] {
         &self.glyphs
     }
@@ -448,7 +456,12 @@ impl fmt::Display for TextError {
 
 impl std::error::Error for TextError {}
 
-/// Rejects malformed requests before lookup or single-line normalization allocates.
+/// Borrows the longest complete UTF-8 prefix within the supplied byte allowance.
+fn text_prefix(text: &str, max_bytes: usize) -> &str {
+    &text[..text.floor_char_boundary(max_bytes.min(text.len()))]
+}
+
+/// Rejects invalid geometry before lookup or single-line normalization allocates.
 fn validate_request(request: TextLayoutRequest<'_>) -> Result<(), TextError> {
     if request.width_64 == 0 {
         return Err(TextError::ZeroWrapWidth);
@@ -460,12 +473,6 @@ fn validate_request(request: TextLayoutRequest<'_>) -> Result<(), TextError> {
         return Err(TextError::BaselineOutsideLine {
             baseline_64: request.baseline_64,
             line_height_64: request.line_height_64,
-        });
-    }
-    if request.text.len() > crate::UiLimits::MAX_TEXT_BYTES {
-        return Err(TextError::TextBytesExceeded {
-            actual: request.text.len(),
-            limit: crate::UiLimits::MAX_TEXT_BYTES,
         });
     }
     Ok(())

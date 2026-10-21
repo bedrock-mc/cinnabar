@@ -60,6 +60,7 @@ fn mask_selection_keeps_the_dissolve_companion() {
     draw_frame(&mut app, &frame);
     let identity = frame.rig.manifest[0].identity;
     let mask = mod_render::masks::Mask {
+        position: None,
         handle: DrawingHandle {
             owner: 1,
             generation: 1,
@@ -145,6 +146,7 @@ fn mask_selection_suppresses_failed_actor_uploads_and_recovers() {
     assert_eq!(draw_frame(&mut app, &control).len(), 1);
     let identity = &control.rig.manifest[0].identity;
     let mut mask = mod_render::masks::Mask {
+        position: None,
         handle: DrawingHandle {
             owner: 1,
             generation: 1,
@@ -180,7 +182,7 @@ fn mask_selection_suppresses_failed_actor_uploads_and_recovers() {
     let gpu = app.sub_app(RenderApp).world().resource::<ActorGpu>();
     assert_eq!(gpu.instance_count, 0);
     assert!(!gpu.spans.is_empty() && !gpu.manifest.is_empty());
-    assert!(gpu.artwork_current && gpu.artwork.pages[0].bind_group.is_some());
+    assert!(gpu.artwork_current && gpu.artwork.page(0).unwrap().bind_group.is_some());
     for depth in [MaskDepth::Test, MaskDepth::Always] {
         mask.depth = depth;
         assert!(selection(&mask, gpu).is_none(), "{depth:?}");
@@ -453,11 +455,21 @@ fn mask_attachments_reject_stale_resolution_and_sample_counts() {
     let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let device = RenderDevice::from(device);
     let original = test_depth(&device, 64, 1);
-    let mask = MaskTarget::new(&device, &original).unwrap();
+    let mask = MaskTarget::new(
+        &device,
+        &PipelineCache::new(device.clone(), true),
+        &original,
+    )
+    .unwrap();
     assert!(mask.matches(&original));
     assert!(!mask.matches(&test_depth(&device, 127, 1)));
     assert!(!mask.matches(&test_depth(&device, 64, 4)));
-    let multisampled = MaskTarget::new(&device, &test_depth(&device, 127, 4)).unwrap();
+    let multisampled = MaskTarget::new(
+        &device,
+        &PipelineCache::new(device.clone(), true),
+        &test_depth(&device, 127, 4),
+    )
+    .unwrap();
     assert!(multisampled.matches(&test_depth(&device, 127, 4)));
     assert_eq!(multisampled.view.texture().sample_count(), 1);
     assert_eq!(multisampled.render_view.texture().sample_count(), 4);
@@ -505,6 +517,7 @@ fn masks_split_shared_coverage_after_membership_changes() {
         })
         .collect();
     let mut first = mod_render::masks::Mask {
+        position: None,
         handle: DrawingHandle {
             owner: 1,
             generation: 1,
@@ -574,4 +587,89 @@ fn masks_split_shared_coverage_after_membership_changes() {
         masks.attachment_bytes,
         mod_render::masks::attachment_bytes(64, 64, 1).unwrap()
     );
+}
+
+#[test]
+fn attachment_pressure_preserves_fitting_groups_and_shares_owner_turns() {
+    let masks: Vec<_> = [1, 1, 1, 1, 1, 1, 2, 3]
+        .into_iter()
+        .enumerate()
+        .map(|(i, owner)| mod_render::masks::Mask {
+            position: None,
+            handle: DrawingHandle {
+                owner,
+                generation: owner,
+                slot: i as u64 + 1,
+            },
+            session: mod_api::drawing::DrawingSession::default(),
+            depth: MaskDepth::Always,
+            entities: Vec::new(),
+            style: None,
+        })
+        .collect();
+    for (width, height, expected) in [(1920, 1080, 6), (2560, 1440, 3), (3840, 2160, 1)] {
+        let mut groups: Vec<_> = masks.iter().collect();
+        let bytes = mod_render::masks::attachment_bytes(width, height, 2);
+        let charged = admit_groups(&mut groups, bytes);
+        assert_eq!(groups.len(), expected);
+        assert!(charged <= MAX_MASK_ATTACHMENT_BYTES);
+        if expected >= 3 {
+            assert_eq!(
+                groups
+                    .iter()
+                    .take(3)
+                    .map(|mask| mask.handle.owner)
+                    .collect::<Vec<_>>(),
+                [1, 2, 3]
+            );
+        }
+    }
+    let mut groups: Vec<_> = masks.iter().collect();
+    assert_eq!(admit_groups(&mut groups, None), 0);
+    assert!(groups.is_empty());
+}
+
+#[test]
+fn hidden_local_body_is_available_to_translated_masks_without_main_pass_draws() {
+    let mut app = fixture();
+    let mut frame = publication(1, &[20], 1);
+    let identity = frame.rig.manifest[0].identity;
+    frame.mask_only_runtime_ids = std::sync::Arc::from([identity.runtime_id]);
+    draw_frame(&mut app, &frame);
+    let gpu = app.sub_app(RenderApp).world().resource::<ActorGpu>();
+    assert!(gpu.spans.is_empty());
+    assert!(!gpu.mask_spans.is_empty());
+    let mask = mod_render::masks::Mask {
+        handle: DrawingHandle {
+            owner: 1,
+            generation: 1,
+            slot: 1,
+        },
+        position: Some([5., 64., 3.]),
+        style: None,
+        depth: MaskDepth::Always,
+        session: mod_api::drawing::DrawingSession {
+            connection: identity.session_id,
+            dimension: identity.dimension,
+            local: true,
+            permissions: mod_api::drawing::DrawingPermissions::ALL,
+        },
+        entities: vec![MaskEntity {
+            connection: identity.session_id,
+            dimension: identity.dimension,
+            runtime_id: identity.runtime_id,
+            spawn_revision: identity.spawn_revision,
+        }],
+    };
+    assert!(!selection(&mask, gpu).unwrap().is_empty());
+    let root = &gpu.instances[0].world_from_actor;
+    assert_eq!(
+        displacement(&mask, gpu),
+        [5. - root[0][3], 64. - root[1][3], 3. - root[2][3], 0.]
+    );
+    let ordinary = mod_render::masks::Mask {
+        position: None,
+        ..mask.clone()
+    };
+    assert!(!compatible(&mask, &ordinary));
 }

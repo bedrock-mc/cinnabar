@@ -6,6 +6,8 @@
 mod scene_policy;
 pub mod tooltip;
 
+pub(crate) mod masks;
+
 use std::{
     borrow::{Borrow, Cow},
     sync::Arc,
@@ -25,12 +27,16 @@ mod dependencies;
 mod fill_renderers;
 mod filter;
 mod formatting_colors;
+mod fragment;
+pub use fragment::{CachedFragment, CachedFragmentTextures, normalize_fragment};
 pub mod glass;
 pub mod host_edit;
 pub mod item_renderer;
 #[cfg(test)]
 mod ownership_tests;
 pub mod pack_catalog;
+mod paint_bounds;
+pub use paint_bounds::{PaintBounds, PaintObserver};
 mod paint_transform;
 pub mod pixel_snap;
 mod render;
@@ -503,6 +509,11 @@ pub type TextColor<'a> = &'a dyn Fn(&DrawNode) -> Option<char>;
 pub struct ScreenArt<'a> {
     /// Keeps this screen's sprites on the shared nearest sampler, including pack overrides.
     pub nearest_sampling: bool,
+    /// Optional bounds observation of selected screen artwork, across renderer types.
+    pub paint_bounds: Option<PaintObserver<'a>>,
+    /// GUI offset into the source coordinate system used for physical-pixel snapping.
+    /// Cached artwork adds this before snapping each control and removes it afterward.
+    pub pixel_snap_offset: [f64; 2],
     /// Native replacements retain the pack's backdrop while omitting the replaced controls.
     pub omit_controls: &'a [&'a str],
     /// The interaction state gated nodes ([`json_ui::render_bound_gated`]) paint under.
@@ -533,6 +544,7 @@ impl ScreenArt<'_> {
 /// Turns draw nodes into retained UI nodes, opening a clip group per clip change to keep
 /// order; custom renderers draw through it.
 pub struct Canvas<'a> {
+    prepared: masks::PreparedRasters,
     edit: Option<host_edit::Target<'a>>,
     textures: Textures<'a>,
     solid_page: u16,
@@ -553,6 +565,8 @@ pub struct Canvas<'a> {
     length_scale: f32,
     /// The paint transform left for the current draw's nodes, in logical px.
     residual: Option<json_ui::transform::Affine>,
+    /// An optional scoped observer of clipped, transformed logical paint bounds.
+    paint_bounds: Option<Option<[f32; 4]>>,
     /// The filter group receiving the current draws.
     filter: Option<filter::OpenFilter>,
 }
@@ -613,20 +627,22 @@ impl Canvas<'_> {
     /// `rect` as logical bounds on whole physical pixels, where vanilla places
     /// an image ([`pixel_snap`]).
     fn snapped(&self, rect: &RectOut) -> [f32; 4] {
-        pixel_snap::snapped(
+        pixel_snap::translated(
             [rect.x, rect.y, rect.w, rect.h],
-            self.metrics.gui_scale,
+            self.art.pixel_snap_offset,
             self.px,
+            |rect| pixel_snap::snapped(rect, self.metrics.gui_scale, self.px),
         )
     }
 
     /// `rect` as logical bounds moved to a whole physical pixel, where vanilla
     /// places text ([`pixel_snap`]).
     fn positioned(&self, rect: &RectOut) -> [f32; 4] {
-        pixel_snap::positioned(
+        pixel_snap::translated(
             [rect.x, rect.y, rect.w, rect.h],
-            self.metrics.gui_scale,
+            self.art.pixel_snap_offset,
             self.px,
+            |rect| pixel_snap::positioned(rect, self.metrics.gui_scale, self.px),
         )
     }
 
@@ -674,9 +690,11 @@ impl Canvas<'_> {
             json_ui::vector_path::RENDERER => self
                 .vector_path(data, dest, &alpha)
                 .map(|visual| (visual, dest)),
-            "cinnabar_rounded_rectangle" => self
-                .rounded_rectangle(data, dest, &alpha)
-                .map(|visual| (visual, dest)),
+            json_ui::rounded::RENDERER => {
+                self.rounded_shadow(data, dest, &alpha)?;
+                self.rounded_rectangle(data, dest, &alpha)
+                    .map(|visual| (visual, dest))
+            }
             "progress_bar_renderer" => {
                 self.progress_bar(data, dest, &alpha);
                 None
@@ -702,11 +720,16 @@ impl Canvas<'_> {
         let Some((clip, parent)) = self.clip else {
             return Ok(());
         };
-        if self.art.nearest_sampling
-            && let UiVisual::StyledSprite { style, .. } = &mut visual
-        {
-            *style &= !ui::UI_STYLE_BILINEAR;
+        if self.art.nearest_sampling {
+            match &mut visual {
+                UiVisual::StyledSprite { style, .. } => *style &= !ui::UI_STYLE_BILINEAR,
+                UiVisual::RepeatedSprite { style, .. } => {
+                    *style &= !u16::from(ui::UI_STYLE_BILINEAR)
+                }
+                _ => {}
+            }
         }
+        self.observe_paint_bounds(bounds, clip);
         let id = self.id();
         self.nodes.push(
             UiNode::new(
@@ -783,12 +806,19 @@ impl Canvas<'_> {
             self.logical(&drawn.clip)
         };
         let dest = if let Draw::Text { options, .. } = &node.draw {
-            text_paint::label_positioned(
+            pixel_snap::translated(
                 [drawn.dest.x, drawn.dest.y, drawn.dest.w, drawn.dest.h],
-                self.font,
-                options,
-                self.metrics.gui_scale,
+                self.art.pixel_snap_offset,
                 self.px,
+                |rect| {
+                    text_paint::label_positioned(
+                        rect,
+                        self.font,
+                        options,
+                        self.metrics.gui_scale,
+                        self.px,
+                    )
+                },
             )
         } else {
             self.snapped(&drawn.dest)
@@ -879,13 +909,23 @@ impl Canvas<'_> {
                 uv,
                 color,
                 filter,
+                ..
             } => {
                 let uv = drawn.uv.unwrap_or(*uv);
                 let color = drawn.color.unwrap_or(*color);
-                if self.paint_native_sprite(texture, uv, alpha(color), *filter, dest)? {
+                if self.paint_native_sprite(
+                    texture,
+                    uv,
+                    alpha(color),
+                    *filter,
+                    dest,
+                    drawn.repeat,
+                )? {
                     return Ok(());
                 }
-                let Some(visual) = self.sprite(texture, uv, alpha(color), *filter) else {
+                let Some(visual) =
+                    self.sprite_with_repeat(texture, uv, alpha(color), *filter, drawn.repeat)
+                else {
                     return Ok(());
                 };
                 (visual, dest)

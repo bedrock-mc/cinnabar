@@ -46,10 +46,14 @@ pub struct RasterState {
     pub layout: Option<wgpu::PipelineLayout>,
     pub primitive: wgpu::PrimitiveState,
     pub depth_compare: wgpu::CompareFunction,
+    /// Optional depth comparison for each draw in a mixed-material fixture.
+    pub depth_compares: Vec<wgpu::CompareFunction>,
     pub write_mask: wgpu::ColorWrites,
     pub multisample: wgpu::MultisampleState,
     /// Optional per-draw polygon offsets, applied after clipping and rasterization.
     pub depth_biases: Vec<wgpu::DepthBiasState>,
+    /// Optional instance range for each draw; absent ranges draw the first instance.
+    pub instance_ranges: Vec<Range<u32>>,
 }
 
 pub struct DrawPipeline<'a> {
@@ -74,9 +78,11 @@ impl Default for RasterState {
             layout: None,
             primitive: Default::default(),
             depth_compare: wgpu::CompareFunction::GreaterEqual,
+            depth_compares: Vec::new(),
             write_mask: wgpu::ColorWrites::ALL,
             multisample: Default::default(),
             depth_biases: Vec::new(),
+            instance_ranges: Vec::new(),
         }
     }
 }
@@ -179,6 +185,67 @@ impl Gpu {
                 contents: bytemuck::cast_slice(data),
                 usage,
             })
+    }
+
+    /// Executes a compute witness and reads its output binding as four-word records.
+    pub fn compute_readback(
+        &self,
+        source: &str,
+        bindings: &[wgpu::BindGroupEntry<'_>],
+        output_binding: u32,
+        records: usize,
+        invocations: u32,
+    ) -> Vec<[u32; 4]> {
+        let module = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: None,
+                source: wgpu::ShaderSource::Wgsl(source.into()),
+            });
+        let pipeline = self
+            .device
+            .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: None,
+                layout: None,
+                module: &module,
+                entry_point: Some("witness"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
+        let output = self.words(
+            &vec![0; records * 4],
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        );
+        let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: output.size(),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut entries = bindings.to_vec();
+        entries.push(wgpu::BindGroupEntry {
+            binding: output_binding,
+            resource: output.as_entire_binding(),
+        });
+        let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &entries,
+        });
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &group, &[]);
+            pass.dispatch_workgroups(invocations, 1, 1);
+        }
+        encoder.copy_buffer_to_buffer(&output, 0, &readback, 0, output.size());
+        self.queue.submit([encoder.finish()]);
+        readback.slice(..).map_async(wgpu::MapMode::Read, |_| {});
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
+        bytemuck::cast_slice(&readback.slice(..).get_mapped_range().unwrap()).to_vec()
     }
 
     /// Uploads the packed production uniform or vertex words used by a fixture.
@@ -446,7 +513,13 @@ impl Gpu {
                     depth_stencil: Some(wgpu::DepthStencilState {
                         format: wgpu::TextureFormat::Depth32Float,
                         depth_write_enabled: Some(draw.write_depth),
-                        depth_compare: Some(state.depth_compare),
+                        depth_compare: Some(
+                            state
+                                .depth_compares
+                                .get(index)
+                                .copied()
+                                .unwrap_or(state.depth_compare),
+                        ),
                         stencil: Default::default(),
                         bias: state.depth_biases.get(index).copied().unwrap_or_default(),
                     }),
@@ -502,7 +575,10 @@ impl Gpu {
             });
             pass.set_pipeline(&pipeline);
             pass.set_bind_group(0, &group, &[]);
-            pass.draw(draw.vertices.clone(), 0..1);
+            pass.draw(
+                draw.vertices.clone(),
+                state.instance_ranges.get(index).cloned().unwrap_or(0..1),
+            );
         }
         let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,

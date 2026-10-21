@@ -49,7 +49,7 @@ impl Binder<'_> {
         let window = (self.state.virtualizes(collection) && count >= initial)
             .then(|| self.grid_window(scope.parent_key, &resolved, initial, clipped))
             .flatten();
-        let mut cells = Vec::with_capacity(count);
+        let mut cells = Vec::with_capacity(count.min(self.remaining_nodes()));
         for index in 0..count {
             if !self.can_create() {
                 break;
@@ -294,7 +294,10 @@ pub(super) fn grid_cell_index(control: &ResolvedControl, columns: u64) -> Option
     if control.properties.contains_key("collection_index") {
         return None;
     }
-    let position = control.properties.get("grid_position")?.as_array()?;
+    let Some(position) = control.properties.get("grid_position") else {
+        return Some(0);
+    };
+    let position = position.as_array()?;
     let (column, row) = (position.first()?.as_u64()?, position.get(1)?.as_u64()?);
     usize::try_from(row.checked_mul(columns)?.checked_add(column)?).ok()
 }

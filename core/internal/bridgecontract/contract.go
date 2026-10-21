@@ -21,12 +21,6 @@ const (
 	SessionKindTransfer = 5
 	// SessionKindDisconnect: Terminal core disconnect message.
 	SessionKindDisconnect = 6
-	// MaxSelectedPacks: Most selected server pack archives admitted for one join.
-	MaxSelectedPacks = 32
-	// MaxPackArchiveBytes: Largest admitted server pack archive in bytes.
-	MaxPackArchiveBytes = 67108864
-	// MaxSelectedPackBytes: Largest total selected server pack archives in bytes.
-	MaxSelectedPackBytes = 134217728
 	// SessionPackChunkBytes: Archive bytes in one resource-pack data frame.
 	SessionPackChunkBytes = 4194304
 	// LatencyTraceEnv: Names the directory both processes write packet latency traces to; unset disables tracing.
@@ -180,7 +174,7 @@ const (
 	// MethodCinnabarLookup: Control method for a Cinnabar player lookup.
 	MethodCinnabarLookup = "cinnabar_lookup.v1"
 	// CinnabarAPIBaseURL: Cinnabar API origin; the package workflow reads it from this manifest.
-	CinnabarAPIBaseURL = "https://cinnabar-api.cinnabar-api.workers.dev"
+	CinnabarAPIBaseURL = "https://api.cinnabar.gg"
 	// CinnabarAPIMaxLookupXUIDs: Most XUIDs in one Cinnabar player lookup.
 	CinnabarAPIMaxLookupXUIDs = 128
 	// CinnabarAPICacheTTLMS: Fallback lifetime of a Cinnabar lookup answer.
@@ -427,6 +421,10 @@ type CinnabarPlayerUpdates struct {
 	Emotes []CinnabarRemoteEmote `json:"emotes"`
 	// Loadouts: Nearby authenticated loadouts.
 	Loadouts []CinnabarRemoteLoadout `json:"loadouts"`
+	// OwnershipXUID: Verified local account identity, empty while disconnected.
+	OwnershipXUID string `json:"ownership_xuid"`
+	// OwnedCosmetics: Paid grants supplied by the account API database.
+	OwnedCosmetics []string `json:"owned_cosmetics"`
 }
 
 // InboxCategories: Inbox category names in display order.

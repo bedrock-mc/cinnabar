@@ -10,7 +10,7 @@ use assets::{
 use serde_json::{Map, Value};
 
 use super::{
-    super::{SourcePayloads, invalid, molang::MolangCompiler},
+    super::{SourceDocuments, invalid, molang::MolangCompiler},
     ClipIndices,
     clip::{read_json, required_object},
     environment::{EntityEnvironment, GeometrySelection, GeometrySelections, selection_for},
@@ -61,7 +61,7 @@ pub(super) struct PendingControllers {
 
 pub(super) fn compile_pending_controllers(
     root: &Path,
-    payloads: &SourcePayloads,
+    payloads: &SourceDocuments<'_>,
     sources: &[EntityAssetSource],
     inputs: ControllerInputs<'_>,
     molang: &mut MolangCompiler,
@@ -81,7 +81,7 @@ pub(super) fn compile_pending_controllers(
     {
         let source_index = super::SourceIndex::source_path_index(source, sources)?;
         let value = read_json(root, payloads, source)?;
-        for (identifier, definition) in required_object(&value, "animation_controllers")? {
+        for (identifier, definition) in required_object(value, "animation_controllers")? {
             let symbol = *symbol_indices
                 .get(&(
                     EntityAssetKind::AnimationController,

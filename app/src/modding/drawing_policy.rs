@@ -1,14 +1,10 @@
 //! Installs the current connection fence before any gameplay observation is delivered.
 
-use client_extensions::modding::{drawing_policy::remote_permissions, multi::ModHosts};
-use mod_api::drawing::{DrawingPermissions, DrawingSession};
+use client_extensions::modding::{drawing_policy::session_permissions, multi::ModHosts};
+use mod_api::drawing::DrawingSession;
 
-/// Uses trusted session state, never a loopback address, to select local authority.
-pub(super) fn bind(
-    hosts: &mut ModHosts,
-    gameplay: &super::gameplay::GameplayContext<'_>,
-    ui: &client_ui::ui_runtime::UiRuntime,
-) -> bool {
+/// Fences user-consented capabilities to the live world independently of server negotiation.
+pub(super) fn bind(hosts: &mut ModHosts, gameplay: &super::gameplay::GameplayContext<'_>) -> bool {
     let mut changed = false;
     let fence = gameplay
         .world
@@ -18,10 +14,6 @@ pub(super) fn bind(
             let authority = stream.authority();
             (authority.actor_session_id(), authority.current_dimension())
         });
-    let grant = match &ui.experiences.session.state {
-        server_experience::session::State::Granted(grant) => Some(grant),
-        _ => None,
-    };
     for index in 0..hosts.host_count() {
         let host = hosts.host_mut(index);
         let (connection, dimension) = fence.unwrap_or_default();
@@ -29,22 +21,11 @@ pub(super) fn bind(
             .session
             .as_ref()
             .is_some_and(|session| session.is_local_world());
-        let permissions = if connection == 0 {
-            DrawingPermissions::default()
-        } else if local {
-            DrawingPermissions::ALL
-        } else {
-            remote_permissions(
-                grant,
-                &host.source_digest(),
-                client_ui::experience_session::unix_seconds(),
-            )
-        };
         changed |= host.bind_drawing_session(DrawingSession {
             connection,
             dimension,
             local,
-            permissions,
+            permissions: session_permissions(connection),
         });
     }
     changed
@@ -77,7 +58,7 @@ pub(super) fn publish_frame(
 }
 
 /// Adds one retained snapshot's live owner and authoritative block anchors to the frame.
-fn publish_retained(
+pub(super) fn publish_retained(
     resources: &mod_render::retained::Resources,
     terrain: &world::ChunkStore,
     frame: &mut render_scene::mod_scene::retained::DrawingFrame,

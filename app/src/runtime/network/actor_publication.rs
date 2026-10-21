@@ -65,35 +65,16 @@ pub(crate) struct ActorObservations<'w> {
     account: Option<Res<'w, client_shell::menu::launcher_account::LauncherAccount>>,
 }
 
-/// Predicts remote actors from the completed local step, or the admitted frame interval.
+/// Predicts remote actors from elapsed frame time, independently of local transport pauses.
 pub(crate) fn advance_actor_motion(
     mut world: ResMut<ClientWorld>,
     mut state: ResMut<client_presentation::actor_publication::ActorFrameState>,
     time: Res<Time<Real>>,
-    physics: Option<Res<client_interaction::movement::LocalPhysicsController>>,
-    effects: Option<Res<client_interaction::movement::LocalMovementEffectTimeline>>,
-    movement: Option<Res<MovementTicker>>,
 ) {
-    let local_step = physics
-        .as_ref()
-        .zip(effects.as_ref())
-        .filter(|(physics, _)| {
-            physics.state().is_some()
-                && movement
-                    .as_ref()
-                    .is_some_and(|movement| movement.physics_is_authorized())
-        })
-        .map(
-            |(physics, effects)| client_presentation::actor_clock::ActorFrameStep {
-                ticks: effects.recent_tick_count() as u32,
-                partial_tick: physics.tick_alpha(),
-            },
-        );
     client_presentation::actor_publication::advance_actor_motion(
         &mut state,
         world.stream.as_mut(),
         time.delta().min(simulation_clock::MAX_FRAME_ELAPSED),
-        local_step,
     );
 }
 

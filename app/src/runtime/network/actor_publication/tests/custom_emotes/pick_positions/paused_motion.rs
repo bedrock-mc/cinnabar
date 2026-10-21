@@ -5,8 +5,8 @@ use client_interaction::movement::{
 };
 use gameplay::test_support::survival_mining::ticker_with_ticks;
 
-/// Checks that a completed actor step is not repeated while local simulation is paused.
-fn assert_remote_actor_motion_pauses(ticker: gameplay::movement::MovementTicker) {
+/// Remote interpolation keeps advancing while transport pauses the local simulation.
+fn assert_remote_actor_motion_advances(ticker: gameplay::movement::MovementTicker) {
     let mut movement = MovementTicker::default();
     *movement = ticker;
     assert!(movement.physics_is_authorized());
@@ -67,20 +67,30 @@ fn assert_remote_actor_motion_pauses(ticker: gameplay::movement::MovementTicker)
     let predicted = world.resource::<PredictedBox>().0;
     assert!(predicted.is_some());
 
-    for millis in [16, 25, 50] {
+    for (index, expected_z) in [6.0, 9.0, 9.0].into_iter().enumerate() {
         world
             .resource_mut::<Time<Real>>()
-            .advance_by(Duration::from_millis(millis));
+            .advance_by(simulation_clock::TICK_DURATION);
         world
             .run_system_cached(crate::movement::advance_local_physics)
             .unwrap();
         schedule.run(&mut world);
 
-        assert_eq!(world.resource::<PredictedBox>().0, predicted);
+        let expected_box = predicted.map(|(mut low, mut high)| {
+            low[2] += expected_z - position[2];
+            high[2] += expected_z - position[2];
+            (low, high)
+        });
+        assert_eq!(world.resource::<PredictedBox>().0, expected_box);
         let client = world.resource::<ClientWorld>();
         let authority = client.stream.as_ref().unwrap().authority();
-        assert_eq!(authority.actor(2).unwrap().position, position);
-        assert_eq!(authority.actor_rig(2).unwrap().completed_tick, actor_tick);
+        let mut expected_position = position;
+        expected_position[2] = expected_z;
+        assert_eq!(authority.actor(2).unwrap().position, expected_position);
+        assert_eq!(
+            authority.actor_rig(2).unwrap().completed_tick,
+            actor_tick + index as u64 + 1
+        );
         assert_eq!(
             world
                 .resource::<LocalPhysicsController>()
@@ -103,14 +113,14 @@ fn assert_remote_actor_motion_pauses(ticker: gameplay::movement::MovementTicker)
 }
 
 #[test]
-fn remote_actor_motion_pauses_for_control_fence() {
+fn remote_actor_motion_advances_through_local_control_fence() {
     let mut movement = ticker_with_ticks(1);
     movement.set_control_fence_pending(true);
-    assert_remote_actor_motion_pauses(movement);
+    assert_remote_actor_motion_advances(movement);
 }
 
 #[test]
-fn remote_actor_motion_pauses_for_movement_backpressure() {
+fn remote_actor_motion_advances_through_local_movement_backpressure() {
     let movement = ticker_with_ticks(gameplay::movement::OUTBOX_CAPACITY as u64);
-    assert_remote_actor_motion_pauses(movement);
+    assert_remote_actor_motion_advances(movement);
 }

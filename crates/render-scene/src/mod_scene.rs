@@ -3,6 +3,14 @@ use mod_api::MAX_BLOCK_HIGHLIGHTS;
 use mod_render::{RenderOutput, block_highlights, geometry::ModVertex, position_box};
 use std::sync::Arc;
 
+/// Requests host-owned skin preparation for a selected actor even when its main body is hidden.
+#[derive(Resource, Default)]
+pub struct ActorCoverageRequests {
+    pub connection: u64,
+    pub dimension: i32,
+    pub runtime_ids: Vec<u64>,
+}
+
 /// Publishes incarnation keys and the admitted body/equipment cost without model or pose data.
 pub fn mask_targets(frame: &crate::ActorRenderFrame) -> Vec<(mod_api::drawing::MaskEntity, u64)> {
     let mut targets = std::collections::BTreeMap::<_, u64>::new();
@@ -37,6 +45,7 @@ pub struct ModRenderScene {
     pub block_vertices: Arc<[ModVertex]>,
     block_positions: Arc<[[i32; 3]]>,
     block_color: [f32; 4],
+    drawn_blocks: Arc<[mod_api::native_render::BlockHighlight]>,
 }
 
 impl ExtractResource<bevy::render::RenderApp> for ModRenderScene {
@@ -92,7 +101,36 @@ impl ModRenderScene {
         }
         self.block_positions = Arc::from(positions);
         self.block_color = color;
-        self.block_vertices = block_highlights::build(positions, color).into();
+        self.rebuild_block_highlights();
+    }
+
+    /// Adopts validated drawing highlights alongside host-discovered loaded-block selections.
+    pub fn set_drawn_block_highlights(
+        &mut self,
+        blocks: &[mod_api::native_render::BlockHighlight],
+    ) {
+        let blocks = &blocks[..blocks.len().min(MAX_BLOCK_HIGHLIGHTS)];
+        if self.drawn_blocks.as_ref() == blocks {
+            return;
+        }
+        self.drawn_blocks = Arc::from(blocks);
+        self.rebuild_block_highlights();
+    }
+
+    /// Both producers share geometry, depth and the existing combined vertex budget.
+    fn rebuild_block_highlights(&mut self) {
+        self.block_vertices = block_highlights::build_styled(
+            self.block_positions
+                .iter()
+                .map(|position| (*position, self.block_color, None))
+                .chain(
+                    self.drawn_blocks
+                        .iter()
+                        .map(|block| (block.position, block.colour, block.outline.as_ref())),
+                )
+                .take(MAX_BLOCK_HIGHLIGHTS),
+        )
+        .into();
     }
 
     /// Drops every pass and primitive, as when a mod traps, reloads or is revoked.

@@ -1,4 +1,4 @@
-//! Timed loading art from the optional version-matched OreUI bundle.
+//! Timed loading art from the shipped OreUI artwork.
 
 use super::paint::{Bounds, Canvas};
 use ui_engine::engine::screen::PaintError;

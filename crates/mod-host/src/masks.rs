@@ -124,6 +124,7 @@ impl wit::Host for State {
         self.render.mask_budget()?;
         let rgba = |value: wit::Rgba| [value.r, value.g, value.b, value.a];
         let style = appearance.map(|value| mod_api::drawing::MaskStyle {
+            fill: None,
             outline: rgba(value.outline),
             outline_radius: value.outline_radius,
             glow: rgba(value.glow),

@@ -269,7 +269,6 @@ impl Session {
         let anchor = nametags::extract_nametag(
             actor,
             nametags::NametagView {
-                viewer_position: Vec3::new(0.0, 64.0, -12.0),
                 camera_position: Vec3::new(0.0, 66.0, -12.0),
                 camera_forward: Vec3::Z,
             },
@@ -282,7 +281,7 @@ impl Session {
         let font = ui_engine::test_support::fixture_font();
         let scene = nametags::build_nametag_scene(
             &[anchor],
-            1.0,
+            None,
             &font,
             &mut ui::TextLayoutCache::new(8, 1 << 20),
             &mut nametag_atlas::NametagAtlas::default(),

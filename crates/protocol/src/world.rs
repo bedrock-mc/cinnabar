@@ -53,9 +53,10 @@ pub use self::clocks::{
     WorldClockUpdateEvent,
 };
 pub use self::custom_blocks::{
-    CustomBlock, CustomBlockPhysics, CustomBlockVisuals, CustomBlocks, CustomBox, CustomCollision,
-    CustomHashedState, CustomMaterialInstance, CustomPermutation, CustomPhysicalComponents,
-    CustomPlacement, CustomSelection, CustomStateAxis, CustomStateValue, CustomTransformation,
+    CustomBlock, CustomBlockMining, CustomBlockPhysics, CustomBlockVisuals, CustomBlocks,
+    CustomBox, CustomCollision, CustomHashedState, CustomMaterialInstance, CustomMiningItem,
+    CustomMiningSpeed, CustomPermutation, CustomPhysicalComponents, CustomPlacement,
+    CustomSelection, CustomStateAxis, CustomStateValue, CustomTransformation,
     CustomVisualComponents, block_name_sort_key, block_state_network_hash,
 };
 pub use self::diagnostics::{DimensionHeightDiagnostic, HeightmapDiagnostic, SubChunkDiagnostic};
@@ -447,6 +448,10 @@ world_packets! {
     PlayerHotbar(packet) => WorldEvent::Inventory(normalize_hotbar(packet)?),
     ItemStackResponse(packet) => WorldEvent::Inventory(normalize_response(packet)?),
     ContainerOpen(packet) => WorldEvent::Inventory(normalize_container_open(packet)?),
+    UpdateTrade(packet) => {
+        let Some(event) = crate::inventory::normalize_trade(&packet) else { return Ok(None); };
+        WorldEvent::Inventory(crate::InventoryEvent::Trade(event))
+    },
     ContainerClose(packet) => WorldEvent::Inventory(normalize_container_close(packet)?),
     ContainerRegistryCleanup(packet) => {
         WorldEvent::Inventory(crate::inventory::normalize_container_registry_cleanup(packet)?)
@@ -523,7 +528,13 @@ world_packets! {
     BlockEvent(packet) => {
         WorldEvent::BlockEvent(block_side::normalize_block_event(&packet, current_dimension))
     },
-    ChunkRadiusUpdated(packet) => WorldEvent::ChunkRadiusUpdated(packet.chunk_radius.0),
+    ChunkRadiusUpdated(packet) => {
+        if packet.chunk_radius.0 > 0 {
+            bridge::join_profile::JoinProfile::current()
+                .mark_once(bridge::join_profile::Milestone::ChunkRadiusReply);
+        }
+        WorldEvent::ChunkRadiusUpdated(packet.chunk_radius.0)
+    },
     NetworkChunkPublisherUpdate(packet) => {
         let center = &packet.new_position_for_view;
         WorldEvent::PublisherUpdate(PublisherUpdateEvent {

@@ -9,7 +9,7 @@ publish = false
 platform-specific = ["macos", "windows"]
 reads = [
     "assets/fonts/CinnanglesSans.ttf",
-    "website/index.html.in",
+    "assets/branding/discord.path",
 ]
 
 [dependencies]
@@ -19,7 +19,6 @@ diagnostics = { path = "../diagnostics" }
 gilrs = "0.11.2"
 launcher = { path = "../launcher" }
 launcher-host = { path = "../launcher-host" }
-update-installer = { path = "../update-installer" }
 minidump = "0.26"
 minidumper = "0.11"
 render-model = { path = "../render-model" }

@@ -26,9 +26,11 @@ pub(crate) mod fitted;
 mod frame_sidecars;
 pub mod jobs;
 mod local_sources;
+mod outlines;
 mod oversized;
 pub use oversized::OversizedTextures;
 mod client_rasters;
+pub use client_rasters::LOCAL_PLAYER_HEAD;
 pub mod native_sheets;
 pub mod preread;
 mod source_reads;
@@ -44,7 +46,7 @@ pub const VANILLA_IN_PACKAGE: &str = "resource_packs/vanilla/";
 pub type BuiltinImages = &'static [(&'static str, &'static [u8])];
 
 /// Side of a dynamic UI page, which also bounds one server texture.
-const PAGE_SIDE: u32 = 256;
+pub(crate) const PAGE_SIDE: u32 = 256;
 const GUTTER: u32 = 1;
 
 /// Largest texture file read from the pack stack.
@@ -307,6 +309,7 @@ pub struct ServerAtlas {
     decodes: Decodes,
     native_enabled: bool,
     native: native_sheets::NativeSheets,
+    outlines: outlines::Outlines,
     work: ImageWork,
 }
 
@@ -501,6 +504,37 @@ impl ServerAtlas {
             }
     }
 
+    /// Requests draw-sized source coverage independently of GPU sheets, outside painting.
+    pub(crate) fn prepare_outline(&mut self, key: &str, size: [u32; 2]) {
+        if !self.outlines.needs(key, size) {
+            return;
+        }
+        let carrier = (!self.has_image(key))
+            .then(|| {
+                let carrier = self.carrier.as_ref()?;
+                let slot = carrier.texture(key)?;
+                Some(outlines::Input::Carrier {
+                    page: carrier.atlas_pages().get(usize::from(slot.page))?.clone(),
+                    bounds: [slot.x, slot.y, slot.width, slot.height].map(u32::from),
+                })
+            })
+            .flatten();
+        if let Some(input) =
+            carrier.or_else(|| self.native_source(key).map(outlines::Input::Encoded))
+        {
+            self.outlines.request(key, size, input, self.work.workers);
+        }
+    }
+
+    /// Reads a ready draw-sized mask without doing source work during paint.
+    pub(crate) fn original_outline(
+        &self,
+        key: &str,
+        size: [u32; 2],
+    ) -> Option<Arc<render_api::sprite_mask::SpriteMask>> {
+        self.outlines.get(key, size)
+    }
+
     /// Whether an original virtual image has finished its one-time decode.
     pub fn native_sheet_ready(&self, key: &str) -> bool {
         self.native.get(key).is_some()
@@ -533,7 +567,7 @@ impl ServerAtlas {
             self.metadata_revision = self.metadata_revision.wrapping_add(1);
             self.metadata_dirty = true;
         }
-        ready | self.native.collect()
+        ready | self.native.collect() | self.outlines.collect()
     }
 
     /// Changes to image dimensions must rebuild normalized UVs, aspect ratios and slice geometry.
@@ -687,6 +721,11 @@ impl ServerAtlas {
     /// that fits nowhere without evicting one drawn this frame is left out.
     pub fn require<'a>(&mut self, keys: impl IntoIterator<Item = &'a str>) {
         self.clock += 1;
+        self.require_current(keys);
+    }
+
+    /// Adds prepared artwork without making earlier draws in this paint eligible for eviction.
+    pub(crate) fn require_current<'a>(&mut self, keys: impl IntoIterator<Item = &'a str>) {
         self.decodes.collect();
         self.poll_native_images();
         // Mark what is already resident first, so a miss never evicts a page

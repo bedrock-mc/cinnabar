@@ -35,6 +35,33 @@ pub struct CosmeticEmitterPlacement {
 #[derive(Resource, Default)]
 pub struct CosmeticEmitterPlacements(pub Vec<CosmeticEmitterPlacement>);
 
+/// Geometry and render-only skeletons sampled for the current attachment frame.
+#[derive(Default)]
+pub(super) struct AttachmentFrame<'a> {
+    pub geometries: &'a [render_model::ActorRigGeometry],
+    pub equipment: Option<&'a crate::presentation::equipment::EquipmentRuntime>,
+    pub local_emote: Option<&'a actor_animation::CustomEmotePose>,
+    pub remote_emotes:
+        Option<&'a bevy::platform::collections::HashMap<u64, actor_animation::CustomEmotePose>>,
+}
+
+impl<'a> AttachmentFrame<'a> {
+    /// Uses the same articulated skeleton as the submitted body during custom playback.
+    pub(super) fn rig(
+        &'a self,
+        rig: actor_animation::ActorRigSnapshot<'a>,
+        local: bool,
+    ) -> actor_animation::ActorRigSnapshot<'a> {
+        let emote = if local {
+            self.local_emote
+        } else {
+            self.remote_emotes
+                .and_then(|poses| poses.get(&rig.actor.runtime_id))
+        };
+        emote.map_or(rig, |pose| pose.snapshot(rig))
+    }
+}
+
 /// Bedrock's emissive-alpha state for fullbright catalog items. Other material fields, culling
 /// and overlay suppression follow the body, so player cosmetics stay two-sided as before.
 fn emissive_material(body: ActorMaterial) -> ActorMaterial {
@@ -54,10 +81,88 @@ fn emissive_material(body: ActorMaterial) -> ActorMaterial {
 
 #[derive(Default)]
 struct Attachment {
+    cloth: hats::cloth::ClothState,
+    contacts: Option<Vec<hats::cloth::Collider>>,
     wind: hats::EarWind,
     motion: hats::Motion,
     poses: [HatPoseCache; 2],
     seen: u64,
+    visible: Option<bool>,
+    pose_reset: Option<u64>,
+}
+
+impl Attachment {
+    /// Transfer cloth history between the hand-context body and the visible world body on F5.
+    fn set_visible(&mut self, visible: bool) {
+        if self.visible.is_some_and(|old| old != visible) {
+            self.cloth.reanchor();
+        }
+        self.visible = Some(visible);
+    }
+
+    /// Samples attachment bones and advances fabric against the owning avatar's body proxies.
+    fn pose(
+        &mut self,
+        item: Item,
+        body: &render_model::ActorRigSubmission,
+        (names, bindings): (
+            &[Box<str>],
+            Option<&Arc<render_model::ActorAttachmentBindings>>,
+        ),
+        timing: (f32, f32),
+    ) -> Option<hats::cloth::ClothPose> {
+        let bone = self.poses[1].anchor(item, bindings, names)?;
+        let previous = *body.input.previous_bones.get(bone)?;
+        let current = *body.input.current_bones.get(bone)?;
+        let current_pose = self.poses[1].pose(item, current, self.motion);
+        let previous_pose = if previous == current {
+            Arc::clone(&current_pose)
+        } else {
+            self.poses[0].pose(item, previous, self.motion)
+        };
+        if !hats::rig(item).has_cloth() {
+            return Some((previous_pose, current_pose));
+        }
+        if self
+            .pose_reset
+            .replace(body.input.reset_generation)
+            .is_some_and(|old| old != body.input.reset_generation)
+        {
+            // The authority's first-person context can arrive after the visibility change.
+            self.cloth.reanchor();
+        }
+        if self.visible == Some(false) && self.contacts.is_none() {
+            self.cloth.retain_fitting();
+        }
+        let colliders: Vec<_> = self.contacts.take().unwrap_or_else(|| {
+            names
+                .iter()
+                .zip(body.input.current_bones.iter())
+                .filter_map(|(name, bone)| {
+                    hats::cloth::Collider::biped(
+                        name,
+                        *bone,
+                        hats::cloth::placement(body.world_from_actor),
+                    )
+                })
+                .collect()
+        });
+        let bases = [previous_pose, current_pose];
+        Some(
+            self.cloth
+                .pose(
+                    item,
+                    bases.clone(),
+                    body.world_from_actor,
+                    timing,
+                    &colliders,
+                )
+                .unwrap_or_else(|| {
+                    let [previous, current] = bases;
+                    (previous, current)
+                }),
+        )
+    }
 }
 #[derive(Default)]
 pub(super) struct HatState {
@@ -70,6 +175,11 @@ pub(super) struct HatState {
     frame: u64,
 }
 impl HatState {
+    /// Whether hidden local cloth needs the wearer's current body and equipment contacts.
+    pub(super) fn has_local_cloth(&self) -> bool {
+        self.local.iter().any(|item| hats::rig(*item).has_cloth())
+    }
+
     /// Captures local slot selections and caller-owned motion for this frame.
     pub(super) fn advance(&mut self, items: &[Item], speed: f32, seconds: f32) {
         self.local.clear();
@@ -97,6 +207,26 @@ impl HatState {
             .collect()
     }
 
+    /// Keeps equipped fabric current while first-person visibility omits the local body draw.
+    pub(super) fn advance_hidden_local(
+        &mut self,
+        body: &render_model::ActorRigSubmission,
+        names: &[Box<str>],
+        bindings: Option<&Arc<render_model::ActorAttachmentBindings>>,
+        partial_tick: f32,
+        contacts: Option<&[hats::cloth::Collider]>,
+    ) {
+        for item in &self.local {
+            if hats::rig(*item).has_cloth() {
+                let attachment = self.local_attachments.entry(*item).or_default();
+                attachment.set_visible(false);
+                attachment.contacts = contacts.map(<[hats::cloth::Collider]>::to_vec);
+                let _ =
+                    attachment.pose(*item, body, (names, bindings), (self.seconds, partial_tick));
+            }
+        }
+    }
+
     /// Submits each slot at its catalog bone, sharing immutable geometry and one texture per item.
     pub(super) fn attach(
         &mut self,
@@ -104,6 +234,8 @@ impl HatState {
         stream: Option<&chunk_pipeline::WorldStream>,
         items: &[RemoteHat],
         scene: &mut render_scene::ActorRenderScene,
+        partial_tick: f32,
+        frame: AttachmentFrame<'_>,
     ) {
         self.drawn.clear();
         let Some(stream) = stream else {
@@ -135,21 +267,14 @@ impl HatState {
                     .collect()
             };
             for item in selected {
-                let Some(bone) = stream.authority().actor_rig(id).and_then(|rig| {
-                    rig.bone_names.iter().position(|bone| {
-                        bone.eq_ignore_ascii_case(&item.descriptor().attachment_bone)
-                    })
-                }) else {
+                let Some(rig) = stream.authority().actor_rig(id) else {
                     continue;
                 };
-                let (Some(previous), Some(current)) = (
-                    body.input.previous_bones.get(bone),
-                    body.input.current_bones.get(bone),
-                ) else {
-                    continue;
-                };
+                let rig = frame.rig(rig, local);
                 let attachment = if local {
-                    self.local_attachments.entry(item).or_default()
+                    let attachment = self.local_attachments.entry(item).or_default();
+                    attachment.set_visible(true);
+                    attachment
                 } else {
                     let attachment = self
                         .attachments
@@ -165,6 +290,24 @@ impl HatState {
                     attachment.motion.advance(item, self.seconds);
                     attachment.seen = self.frame;
                     attachment
+                };
+                if hats::rig(item).has_cloth() {
+                    attachment.contacts = Some(super::cloth_contacts::collect(
+                        &body,
+                        &rig,
+                        &batch.submissions,
+                        scene,
+                        partial_tick,
+                        (frame.geometries, frame.equipment),
+                    ));
+                }
+                let Some((previous, current)) = attachment.pose(
+                    item,
+                    &body,
+                    (rig.bone_names, rig.attachments),
+                    (self.seconds, partial_tick),
+                ) else {
+                    continue;
                 };
                 let model = hats::rig(item);
                 let texture_layer = if let Some(layer) = textures.get(&item) {
@@ -183,16 +326,17 @@ impl HatState {
                 }
                 let mut submission = body.clone();
                 // The catalog slot index keeps layers unique for multiple attachments on one actor.
+                if model.has_cloth() {
+                    submission.world_from_actor = attachment
+                        .cloth
+                        .fitted_placement()
+                        .unwrap_or(body.world_from_actor);
+                }
                 submission.input.identity.layer = hats::ACTOR_LAYER_HAT
                     + cosmetics::slot_index(&item.descriptor().slot).unwrap_or(0) as u8;
                 submission.input.rig = model.geometry.id;
-                submission.input.current_bones =
-                    attachment.poses[1].pose(item, *current, attachment.motion);
-                submission.input.previous_bones = if previous == current {
-                    Arc::clone(&submission.input.current_bones)
-                } else {
-                    attachment.poses[0].pose(item, *previous, attachment.motion)
-                };
+                submission.input.previous_bones = previous;
+                submission.input.current_bones = current;
                 submission.texture_layer = texture_layer;
                 submission.tint = 0;
                 if model.emissive() {
@@ -307,5 +451,233 @@ mod tests {
                 .seconds,
             0.1
         );
+    }
+
+    #[test]
+    fn hidden_armored_cloth_reveals_without_waiting_for_a_fixed_step() {
+        use bevy::math::{Mat4, Vec3};
+        let item = render_model::hats::fixture::cloth();
+        let root = render_model::RenderBoneTransform {
+            rotation: bevy::math::Quat::IDENTITY.to_array(),
+            translation_scale: [0.0, 1.5, 0.0, 1.0],
+            axis_scale: render_model::UNIT_AXIS_SCALE,
+        };
+        let armor = render_model::ActorRigGeometry::synthetic_cuboid(
+            render_model::EntityRigId(1),
+            [-0.25, -0.75, -3.0 / 16.0],
+            [0.25, 0.0, 3.0 / 16.0],
+            1,
+        )
+        .unwrap();
+        let mut body = crate::presentation::actors::local_diagnostic_presentation(
+            1,
+            0,
+            1,
+            render_api::PoseGeneration::new(1),
+            [0.0; 3],
+            0.0,
+            0.0,
+        )
+        .unwrap()
+        .submission;
+        body.input.previous_bones = vec![root].into();
+        body.input.current_bones = vec![root].into();
+        let names = vec![Box::<str>::from("body")];
+        let mut state = HatState::default();
+        for frame in 0..240 {
+            body.world_from_actor[2][3] = frame as f32 / 60.0;
+            let world = hats::cloth::placement(body.world_from_actor);
+            let contacts = [
+                hats::cloth::Collider::biped("body", root, world).unwrap(),
+                hats::cloth::Collider::geometry("body", &armor, 0, root, world).unwrap(),
+            ];
+            state.advance(&[item], 0.0, 1.0 / 120.0);
+            state.advance_hidden_local(&body, &names, None, 0.5, Some(&contacts));
+        }
+        let world = hats::cloth::placement(body.world_from_actor);
+        let attachment = state.local_attachments.get_mut(&item).unwrap();
+        attachment.contacts = Some(vec![
+            hats::cloth::Collider::geometry("body", &armor, 0, root, world).unwrap(),
+        ]);
+        attachment.set_visible(true);
+        let (_, pose) = attachment
+            .pose(item, &body, (&names, None), (0.0, 0.5))
+            .unwrap();
+        let placed = hats::cloth::placement(attachment.cloth.fitted_placement().unwrap());
+        let local_from_world: Mat4 = world.inverse();
+        let mut checked = 0;
+        // The synthetic surface owns one particle bone per distinct rest point.
+        for particle in pose.iter().skip(2) {
+            let point = local_from_world.transform_point3(
+                placed.transform_point3(Vec3::from_slice(&particle.translation_scale[..3])),
+            );
+            if point.x.abs() < 0.25 && point.y > 0.75 && point.y < 1.5 {
+                assert!(
+                    point.z > 3.0 / 16.0,
+                    "revealed fabric entered the chestplate: {point}"
+                );
+                checked += 1;
+            }
+        }
+        assert!(
+            checked > 0,
+            "fixture must exercise cloth over the chestplate"
+        );
+    }
+
+    #[test]
+    fn hidden_local_cloth_reappears_at_the_continuously_simulated_pose() {
+        let item = render_model::hats::fixture::cloth();
+        let root = render_model::RenderBoneTransform {
+            rotation: bevy::math::Quat::IDENTITY.to_array(),
+            translation_scale: [0.0, 1.5, 0.0, 1.0],
+            axis_scale: render_model::UNIT_AXIS_SCALE,
+        };
+        let mut body = crate::presentation::actors::local_diagnostic_presentation(
+            1,
+            0,
+            1,
+            render_api::PoseGeneration::new(1),
+            [0.0; 3],
+            0.0,
+            0.0,
+        )
+        .unwrap()
+        .submission;
+        body.input.previous_bones = vec![root].into();
+        body.input.current_bones = vec![root].into();
+        let names = vec![Box::<str>::from("body")];
+        let mut hidden = HatState::default();
+        let mut visible = Attachment::default();
+        let mut frozen = Attachment::default();
+        for frame in 0..240 {
+            let seconds = frame as f32 / 120.0;
+            body.world_from_actor[1][3] = (seconds * 3.0).sin().max(0.0) * 0.8;
+            body.world_from_actor[2][3] = seconds * 2.0;
+            hidden.advance(&[item], 0.0, 1.0 / 120.0);
+            let expected = visible
+                .pose(item, &body, (&names, None), (1.0 / 120.0, 0.5))
+                .unwrap();
+            if frame == 0 {
+                let _ = frozen.pose(item, &body, (&names, None), (1.0 / 120.0, 0.5));
+            }
+            if frame < 239 {
+                hidden.advance_hidden_local(&body, &names, None, 0.5, None);
+            } else {
+                let revealed = hidden
+                    .local_attachments
+                    .get_mut(&item)
+                    .unwrap()
+                    .pose(item, &body, (&names, None), (1.0 / 120.0, 0.5))
+                    .unwrap();
+                assert_eq!(
+                    revealed, expected,
+                    "perspective reveal must retain the moving cloth history"
+                );
+                let stale = frozen
+                    .pose(item, &body, (&names, None), (1.0 / 120.0, 0.5))
+                    .unwrap();
+                assert_ne!(
+                    stale, expected,
+                    "the fixture must expose frozen first-person history"
+                );
+            }
+        }
+        hidden.advance(&[], 0.0, 1.0 / 120.0);
+        assert!(
+            hidden.local_attachments.is_empty(),
+            "unequipping must retire hidden cloth too"
+        );
+    }
+
+    #[test]
+    fn perspective_changes_rebase_between_distinct_body_postures() {
+        use bevy::math::{Mat4, Quat, Vec3};
+        let item = render_model::hats::fixture::cloth();
+        let root = render_model::RenderBoneTransform {
+            rotation: Quat::IDENTITY.to_array(),
+            translation_scale: [0.0, 1.5, 0.0, 1.0],
+            axis_scale: render_model::UNIT_AXIS_SCALE,
+        };
+        let mut body = crate::presentation::actors::local_diagnostic_presentation(
+            1,
+            0,
+            1,
+            render_api::PoseGeneration::new(1),
+            [0.0; 3],
+            0.0,
+            0.0,
+        )
+        .unwrap()
+        .submission;
+        body.input.previous_bones = vec![root].into();
+        body.input.current_bones = vec![root].into();
+        let names = vec![Box::<str>::from("body")];
+        let mut attachment = Attachment::default();
+        attachment.set_visible(false);
+        let mut before = None;
+        for _ in 0..120 {
+            before = Some(
+                attachment
+                    .pose(item, &body, (&names, None), (1.0 / 120.0, 1.0))
+                    .unwrap()
+                    .1,
+            );
+        }
+        let first = hats::rig(item)
+            .geometry
+            .vertices
+            .iter()
+            .map(|v| v.bone_index)
+            .min()
+            .unwrap() as usize;
+        let source = Mat4::from_translation(Vec3::new(0.0, 1.5, 0.0));
+        let local: Vec<_> = before.unwrap()[first..]
+            .iter()
+            .map(|bone| {
+                source
+                    .inverse()
+                    .transform_point3(Vec3::from_slice(&bone.translation_scale[..3]))
+            })
+            .collect();
+        for (visible, delayed_context) in [(true, false), (false, true), (true, true)] {
+            attachment.set_visible(visible);
+            if delayed_context {
+                let _ = attachment
+                    .pose(item, &body, (&names, None), (0.0, 1.0))
+                    .unwrap();
+            }
+            let rotation = if visible {
+                Quat::from_rotation_y(0.8) * Quat::from_rotation_x(0.45)
+            } else {
+                Quat::IDENTITY
+            };
+            let position = if visible {
+                Vec3::new(0.0, 1.38, -0.06)
+            } else {
+                Vec3::new(0.0, 1.5, 0.0)
+            };
+            let target = render_model::RenderBoneTransform {
+                rotation: rotation.to_array(),
+                translation_scale: [position.x, position.y, position.z, 1.0],
+                ..root
+            };
+            body.input.previous_bones = vec![target].into();
+            body.input.current_bones = vec![target].into();
+            body.input.reset_generation += 1;
+            let pose = attachment
+                .pose(item, &body, (&names, None), (0.0, 1.0))
+                .unwrap()
+                .1;
+            let inverse = Mat4::from_rotation_translation(rotation, position).inverse();
+            for (bone, expected) in pose[first..].iter().zip(&local) {
+                let point =
+                    inverse.transform_point3(Vec3::from_slice(&bone.translation_scale[..3]));
+                assert!(
+                    point.abs_diff_eq(*expected, 1e-5),
+                    "perspective switch left cloth on the old posture: {point} vs {expected}"
+                );
+            }
+        }
     }
 }

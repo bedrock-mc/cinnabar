@@ -18,6 +18,7 @@ pub enum MaskError {
 /// One admitted selection. Coverage is the union of the body's admitted equipment layers.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Mask {
+    pub position: Option<[f32; 3]>,
     pub handle: DrawingHandle,
     pub session: DrawingSession,
     pub depth: MaskDepth,
@@ -45,9 +46,16 @@ pub struct MaskStore {
     staged: Option<Vec<Mask>>,
 }
 
+impl Default for MaskStore {
+    /// Every mask producer shares the same namespace as retained resources.
+    fn default() -> Self {
+        Self::new(crate::identity::next_owner())
+    }
+}
+
 impl MaskStore {
     /// Starts with no session authority and no allocated attachments.
-    pub fn new(owner: u64) -> Self {
+    fn new(owner: u64) -> Self {
         Self {
             owner,
             next_slot: 0,
@@ -117,6 +125,7 @@ impl MaskStore {
         let handle = self.allocate();
         let session = self.session;
         self.staged().push(Mask {
+            position: None,
             handle,
             session,
             depth,
@@ -150,6 +159,25 @@ impl MaskStore {
             return Err(MaskError::BudgetExceeded);
         }
         self.staged()[index].entities = selected.into_keys().collect();
+        Ok(())
+    }
+
+    /// Repositions a single admitted actor without changing membership or lifecycle fences.
+    pub fn set_position(
+        &mut self,
+        handle: DrawingHandle,
+        position: Option<[f32; 3]>,
+    ) -> Result<(), MaskError> {
+        let index = self.index(handle)?;
+        self.admit(self.current()[index].depth)?;
+        if position.is_some_and(|p| {
+            self.current()[index].entities.len() > 1
+                || p.iter()
+                    .any(|v| !v.is_finite() || v.abs() > mod_api::MAX_PRIMITIVE_COORDINATE)
+        }) {
+            return Err(MaskError::Invalid);
+        }
+        self.staged()[index].position = position;
         Ok(())
     }
 

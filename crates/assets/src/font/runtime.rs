@@ -103,21 +103,32 @@ impl CompiledFontCatalog {
         &self.named
     }
 
+    /// Resolves the primary face, then an available backup, then the open default face.
+    pub fn resolve_font_name<'a>(&self, primary: &'a str, backup: Option<&'a str>) -> &'a str {
+        [Some(primary), backup]
+            .into_iter()
+            .flatten()
+            .find(|name| *name == "default" || self.find_font_named(name).is_some())
+            .unwrap_or("default")
+    }
+
     /// Selects installed faces by their family or supported pack name; unknown names use default.
     pub fn font_named(&self, name: &str) -> &Self {
-        self.named
-            .get(name)
-            .or_else(|| {
-                if name == "default" {
-                    return None;
-                }
-                crate::carriers::CARRIERS
-                    .iter()
-                    .filter_map(|carrier| carrier.font_face)
-                    .find(|face| face.json_ui_alias == Some(name))
-                    .and_then(|face| self.named.get(face.name))
-            })
-            .unwrap_or(self)
+        self.find_font_named(name).unwrap_or(self)
+    }
+
+    /// Finds an installed face without replacing an unavailable name with the default.
+    fn find_font_named(&self, name: &str) -> Option<&Self> {
+        self.named.get(name).or_else(|| {
+            if name == "default" {
+                return None;
+            }
+            crate::carriers::CARRIERS
+                .iter()
+                .filter_map(|carrier| carrier.font_face)
+                .find(|face| face.json_ui_alias == Some(name))
+                .and_then(|face| self.named.get(face.name))
+        })
     }
 
     /// Selects the exact requested raster size without allocating during layout.

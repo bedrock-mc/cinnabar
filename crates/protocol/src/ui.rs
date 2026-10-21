@@ -27,8 +27,8 @@ pub(crate) use death::normalize_death_info;
 pub use death::{DeathInfoEvent, DeathRules};
 
 pub use forms::{
-    CustomForm, CustomFormElement, CustomFormValue, ElementMenuForm, FormButtonImage, FormKind,
-    FormNumber, FormRequestEvent, FormText, MAX_CUSTOM_FORM_ITEMS, MAX_FORM_JSON_DEPTH,
+    CustomForm, CustomFormElement, CustomFormValue, ElementMenuForm, FormButtonImage,
+    FormControlLock, FormKind, FormNumber, FormRequestEvent, FormText, MAX_CUSTOM_FORM_ITEMS,
     MenuElement, ModalDialogForm, ModalFormResponseSelection, NPC_DIALOGUE_FORM_ID, NpcButton,
     NpcDialogueForm, NpcRequestKind, ServerFormModel, TextMenuForm, UnsupportedForm,
     custom_form_submit_response, modal_form_busy_response, modal_form_cancel_response,
@@ -39,6 +39,8 @@ pub use text::{RawTextEvent, TextCategory, TextEvent, TextKind, TitleAction, Tit
 pub(crate) use text::{normalize_text, normalize_title};
 
 pub const MAX_UI_TEXT_BYTES: usize = 16_384;
+/// Text message and filtered-message schema bound, checked against the generated codec in tests.
+pub(crate) const MAX_TEXT_MESSAGE_BYTES: usize = 65_536;
 pub const MAX_CHAT_PARAMETERS: usize = 128;
 pub const MAX_COMMAND_OUTPUT_MESSAGES: usize = 128;
 pub const MAX_CHAT_AUTOCOMPLETE: usize = 256;
@@ -432,8 +434,6 @@ pub enum UiPacketError {
     FormTooLarge { bytes: usize, max: usize },
     #[error("server form JSON is malformed or is not a top-level object")]
     InvalidFormJson,
-    #[error("server form JSON nests {depth} levels, exceeding the maximum depth {max}")]
-    FormJsonDepthExceeded { depth: usize, max: usize },
     #[error("autocomplete update has {count} suggestions, exceeding the {max}-suggestion limit")]
     TooManyAutocompleteSuggestions { count: usize, max: usize },
     #[error("autocomplete update retains {bytes} UTF-8 bytes, exceeding the {max}-byte limit")]

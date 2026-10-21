@@ -72,6 +72,8 @@ impl ClientRandomId {
 /// Player settings captured once for login claims and the spawn sequence.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LoginSettings {
+    /// The selected server address reported by the client at this join.
+    pub server_address: String,
     /// The active UI language, in the `en_US` form of its lang file.
     pub language_code: String,
     /// The input the player is using now.
@@ -93,6 +95,7 @@ pub struct LoginSettings {
 impl Default for LoginSettings {
     fn default() -> Self {
         Self {
+            server_address: String::new(),
             language_code: "en_US".to_owned(),
             input_mode: PlayerInputMode::Mouse,
             gui_scale_offset: 0,
@@ -161,7 +164,7 @@ pub(crate) fn login_client_data(
         "PlatformOnlineId": "",
         "PlatformType": 0,
         "PlayFabId": "",
-        "ServerAddress": "",
+        "ServerAddress": settings.server_address,
         "ThirdPartyName": display_name,
         "UIProfile": 0,
     });
@@ -330,6 +333,7 @@ mod tests {
             for name in ["First", "Second"] {
                 let claims = login_client_data(name, id, None, &LoginSettings::default());
                 let request = crate::session_wire::ConnectRequest {
+                    join_profile_id: None,
                     protocol: crate::PROTOCOL_VERSION,
                     target: None,
                     client_cache: false,
@@ -380,6 +384,7 @@ mod tests {
             ..Default::default()
         };
         let request = crate::session_wire::ConnectRequest {
+            join_profile_id: None,
             protocol: crate::PROTOCOL_VERSION,
             target: None,
             client_cache: false,
@@ -536,6 +541,7 @@ mod tests {
                 ..Default::default()
             };
             let request = crate::session_wire::ConnectRequest {
+                join_profile_id: None,
                 protocol: crate::PROTOCOL_VERSION,
                 target: None,
                 client_cache: false,

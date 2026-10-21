@@ -10,7 +10,9 @@ use crate::{TextLayout, UiAction, UiLimits, UiPoint, UiRect, UiScale};
 mod budget;
 mod draw;
 mod mesh;
+mod painted_bounds;
 mod projection;
+mod repeat;
 mod retained;
 
 use budget::DrawCounts;
@@ -59,6 +61,11 @@ pub enum UiVisual {
     None,
     /// Direct geometry at this control's authored draw position; depth-using materials get private depth.
     Mesh(Arc<UiMesh>),
+    /// Shared geometry with a uniform replacement color, without copying the retained vertices.
+    TintedMesh {
+        mesh: Arc<UiMesh>,
+        color: [u8; 4],
+    },
     Solid {
         texture_page: u16,
         color: [u8; 4],
@@ -91,6 +98,14 @@ pub enum UiVisual {
         uv: [f32; 4],
         color: [u8; 4],
         style: u8,
+    },
+    /// A source region addressed by tile coordinates, with no geometry per repeat.
+    RepeatedSprite {
+        texture_page: u16,
+        tile_uv: [f32; 4],
+        source: [f32; 4],
+        color: [u8; 4],
+        style: u16,
     },
     /// A solid rect blending `colors[0]` into `colors[1]` top to bottom (or left
     /// to right when `horizontal`).
@@ -215,6 +230,11 @@ impl UiNode {
     pub fn with_viewport_clip(mut self, clip: UiRect) -> Self {
         self.viewport_clip = Some(clip);
         self
+    }
+
+    /// The absolute viewport clip, when this node overrides its inherited clip.
+    pub const fn viewport_clip(&self) -> Option<UiRect> {
+        self.viewport_clip
     }
 
     pub fn with_visual(mut self, visual: UiVisual) -> Self {
@@ -360,7 +380,7 @@ pub const UI_STYLE_GLINT: u8 = 1 << 1;
 /// Vertex style bit for JSON-UI `grayscale` sprites.
 pub const UI_STYLE_GRAYSCALE: u8 = 1 << 2;
 /// Vertex style bit for JSON-UI `bilinear` sprites.
-pub const UI_STYLE_BILINEAR: u8 = 1 << 3;
+pub const UI_STYLE_BILINEAR: u8 = render_api::UI_STYLE_BILINEAR;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -372,13 +392,13 @@ pub struct UiVertex {
     pub clip_w: f32,
     pub uv: [f32; 2],
     pub color: [u8; 4],
-    /// Interpolated linear lighting, or border area for coverage paint.
+    /// Linear lighting or coverage border area.
     pub model_light: f32,
     /// Entity overlay RGB and mix amount, or the coverage paint's packed constant colors.
     pub overlay_color: [f32; 4],
     pub style_flags: u16,
     pub alpha_test: bool,
-    /// Explicit sampled-texture cutoff; negative disables this material override.
+    /// Sampled-texture cutoff (negative disables it).
     pub alpha_cutoff: f32,
 }
 
@@ -423,6 +443,7 @@ pub enum UiError {
     MissingParent { node: UiNodeId, parent: UiNodeId },
     ParentCycle { node: UiNodeId },
     InvalidSafeViewport,
+    InvalidSpriteCoordinates,
     LayoutRevisionOverflow,
     MissingLayoutBounds { node: UiNodeId },
     StaleFrame { expected: u64, actual: u64 },
@@ -472,7 +493,9 @@ impl UiTree {
         let mut by_id = BTreeMap::new();
         for node in nodes {
             let id = node.id;
-            if node.world_projection.is_some() && matches!(node.visual, UiVisual::Mesh(_)) {
+            if node.world_projection.is_some()
+                && matches!(node.visual, UiVisual::Mesh(_) | UiVisual::TintedMesh { .. })
+            {
                 return Err(UiError::MeshWorldProjectionConflict { node: id });
             }
             if node
@@ -535,6 +558,18 @@ impl UiTree {
 
     pub fn focus_mut(&mut self) -> &mut FocusState {
         &mut self.focus
+    }
+
+    /// Visits roots and sibling subtrees in the same ID order used by retained painting.
+    pub fn paint_order(&self) -> impl Iterator<Item = &UiNode> {
+        let mut pending = self.roots.iter().rev().copied().collect::<Vec<_>>();
+        std::iter::from_fn(move || {
+            let id = pending.pop()?;
+            if let Some(children) = self.children.get(&id) {
+                pending.extend(children.iter().rev().copied());
+            }
+            Some(&self.nodes[&id])
+        })
     }
 
     pub fn layout(

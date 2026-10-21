@@ -85,7 +85,7 @@ pub struct DrawingSession {
 }
 
 /// Retained union selections per component, including empty selections.
-pub const MAX_MASKS: usize = 2;
+pub const MAX_MASKS: usize = 8;
 /// Distinct actors selected by one mask.
 pub const MAX_MASK_ENTITIES: usize = 32;
 /// Actor vertices admitted to one selection, including equipment.
@@ -102,8 +102,11 @@ pub const MASK_BLUR_LEVELS: usize = 4;
 pub const MAX_MASK_GLOW_RADIUS: f32 = (1 << MASK_BLUR_LEVELS) as f32;
 
 /// Bounded host composition; colour components use the display's sRGB encoding.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MaskStyle {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill: Option<[f32; 4]>,
     pub outline: [f32; 4],
     pub outline_radius: f32,
     pub glow: [f32; 4],
@@ -113,7 +116,11 @@ pub struct MaskStyle {
 impl MaskStyle {
     /// Rejects non-finite colours, coverage or radii before retaining presentation state.
     pub fn valid(self) -> bool {
-        self.outline
+        self.fill.is_none_or(|fill| {
+            fill.iter()
+                .all(|v| v.is_finite() && (0.0..=1.0).contains(v))
+        }) && self
+            .outline
             .iter()
             .chain(&self.glow)
             .all(|value| value.is_finite() && (0.0..=1.0).contains(value))

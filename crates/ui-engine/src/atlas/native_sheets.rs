@@ -99,6 +99,8 @@ pub struct Quad {
     pub page: usize,
     pub uv: [f32; 4],
     pub dest: [f32; 4],
+    /// The complete authored source bounds in this page's texels, before page clipping.
+    pub repeat_source: [f32; 4],
 }
 
 /// Two endpoints plus each possible source and tile edge bound the sampling work.
@@ -175,6 +177,7 @@ pub struct Quads<'a> {
     y: usize,
     dest: [f32; 4],
     first: usize,
+    source: [f32; 4],
 }
 
 impl Quads<'_> {
@@ -224,6 +227,12 @@ impl Iterator for Quads<'_> {
                     self.dest[0] + x.dest[1] * (self.dest[2] - self.dest[0]),
                     self.dest[1] + y.dest[1] * (self.dest[3] - self.dest[1]),
                 ],
+                repeat_source: [
+                    self.source[0] - left,
+                    self.source[1] - top,
+                    self.source[2] - left,
+                    self.source[3] - top,
+                ],
             });
         }
         None
@@ -242,6 +251,7 @@ impl Sheet {
             y: 0,
             dest,
             first,
+            source: [uv.u0 * width, uv.v0 * height, uv.u1 * width, uv.v1 * height],
         }
     }
 }
@@ -310,7 +320,15 @@ fn decode(bytes: &[u8], plan: &Plan, cancelled: &AtomicBool) -> Option<Sheet> {
         .into_raw();
         tiles.push(Tile {
             spec: *spec,
-            page: UiTexturePage::owned(spec.size, pixels.into()).ok()?,
+            page: UiTexturePage::owned(spec.size, pixels.into())
+                .ok()?
+                .with_repeat_content([
+                    spec.content[0] - spec.origin[0],
+                    spec.content[1] - spec.origin[1],
+                    spec.content[2] - spec.origin[0],
+                    spec.content[3] - spec.origin[1],
+                ])
+                .ok()?,
         });
     }
     Some(Sheet {

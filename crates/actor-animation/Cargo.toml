@@ -23,8 +23,16 @@ tracing.workspace = true
 world = { path = "../world" }
 
 [dev-dependencies]
+criterion.workspace = true
+test-alloc = { path = "../test-alloc" }
+test-time = { path = "../test-time" }
 cosmetics = { path = "../cosmetics", features = ["test-support"] }
 assets = { path = "../assets", features = ["test-support"] }
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "actor_costs"
+harness = false
+required-features = ["test-support"]

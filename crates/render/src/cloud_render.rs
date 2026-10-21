@@ -501,6 +501,10 @@ fn prepare_cloud_bind_group(
     }
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "a queue system's render-world inputs"
+)]
 fn queue_clouds(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<CloudPipeline>,
@@ -515,12 +519,16 @@ fn queue_clouds(
         &bevy::render::camera::ExtractedCamera,
         &Msaa,
     )>,
+    pack: render_scene::shaderpack::ShaderPackDrawnEffects,
 ) {
     if !visibility.0 || !atmosphere.sky_kind().has_clouds() {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawCloudCommands>();
     for (view_entity, main_entity, view, extracted_camera, msaa) in &views {
+        if pack.replaces(view_entity, |drawn| drawn.clouds) {
+            continue;
+        }
         let Some(prepared) = gpu.views.get(&view_entity) else {
             continue;
         };

@@ -20,6 +20,7 @@ pub fn capture_hud_frame(
     now_millis: u64,
     icon_frames: ItemIconFrames,
 ) -> (Option<IconRef>, Option<IconRef>) {
+    presentation.capture_local_player_identity(stream, runtime.session_id());
     runtime.sync_anvil_name(player_runtime);
     // Inventory capture precedes lectern opening and screen selection. Selected-item
     // and sleep observations run after item capture, immediately before publication.
@@ -183,6 +184,14 @@ pub fn hovered_stack(
                     .anvil_output(player_runtime)
                     .map(|stack| (stack, None));
             }
+            Hit::CraftOutput
+                if matches!(
+                    ledger.window_kind(),
+                    Some(protocol::WindowKind::Trade { .. })
+                ) =>
+            {
+                (ledger.trade_output(), None)
+            }
             Hit::CraftOutput => (ledger.created_output_stack(), None),
             Hit::CreativeGrid(index) => {
                 let position = runtime.screen_state().creative_row * super::screens::GRID_COLUMNS
@@ -210,6 +219,14 @@ pub fn hovered_stack(
                     };
                     (stack, None)
                 });
+            }
+            Hit::Widget(ui_screens::container_actions::Widget::TradeOffer {
+                tier,
+                row,
+                item: Some(column),
+            }) => {
+                let trade = ledger.trading()?;
+                (trade.preview(trade.row_index(tier, row)?, column), None)
             }
             Hit::RecipeBook(index) => {
                 return super::forms::recipe_book_hover(player_runtime, runtime, index);

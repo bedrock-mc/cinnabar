@@ -521,7 +521,7 @@ fn play_tabs_draw_the_installed_native_icons() {
     use oreui::images::{PLAY_TAB_ICONS, checkout_compiled_dir, load_optional_oreui_images};
     let Some(images) = load_optional_oreui_images(&checkout_compiled_dir()) else {
         eprintln!(
-            "skipping play_tabs_draw_the_installed_native_icons: installed OreUI bundle unavailable"
+            "skipping play_tabs_draw_the_installed_native_icons: compiled OreUI artwork carrier unavailable"
         );
         return;
     };

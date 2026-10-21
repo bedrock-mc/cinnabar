@@ -1028,3 +1028,39 @@ fn brightness_sample_uses_interpolated_feet_and_body_height() {
 mod bounds;
 mod local_server_swings;
 mod player_list;
+
+#[test]
+fn always_show_name_tag_sentinel_preserves_the_previous_effective_value() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, player_spawn(7, 70, 0.0));
+    let key = ActorDataKey::AlwaysShowNameTag.wire_value();
+    for (index, (value, expected)) in [
+        (-1, None),
+        (1, Some(1)),
+        (-1, Some(1)),
+        (0, Some(0)),
+        (-1, Some(0)),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        store.apply(
+            1,
+            index as u64 + 2,
+            ActorEvent::Metadata(ActorMetadataUpdateEvent {
+                dimension: 0,
+                runtime_id: 7,
+                metadata: Arc::from([ActorMetadata {
+                    key,
+                    value: ActorMetadataValue::Byte(value),
+                }]),
+                properties: Arc::from([]),
+                tick: 0,
+            }),
+        );
+        assert_eq!(
+            store.snapshot_by_unique(70).unwrap().metadata.get(&key),
+            expected.map(ActorMetadataValue::Byte).as_ref()
+        );
+    }
+}

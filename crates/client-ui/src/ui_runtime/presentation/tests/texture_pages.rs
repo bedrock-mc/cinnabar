@@ -127,12 +127,8 @@ fn projected_nametag_glyphs_keep_logical_page_order_without_shadow() {
         .unwrap();
     // The world glyphs now rasterize into the retained GPU line atlas, not HUD vertices.
     let scene = presentation.nametag_scene();
-    assert_eq!(scene.records.len(), 3);
-    assert_eq!(
-        scene.records[1].color,
-        [1.0, 1.0, 1.0, render_model::NAMETAG_DIM_TEXT_ALPHA]
-    );
-    assert_eq!(scene.records[2].color, [1.0; 4]);
+    assert_eq!(scene.records.len(), 2);
+    assert_eq!(scene.records[1].color, [1.0; 4]);
     assert_eq!(scene.atlas.len(), 1);
     assert!(
         scene.atlas[0]
@@ -157,7 +153,7 @@ fn projected_nametag_glyphs_keep_logical_page_order_without_shadow() {
 fn mixed_native_font_pages_keep_source_pixels_with_bounded_gpu_residency() {
     let font = independent_font(&[1024, 2048, 2048, 2048]);
     let presentation = UiPresentationRuntime::new(Arc::clone(&font)).unwrap();
-    let font_bytes: usize = presentation.textures.pages()[..font.pages().len()]
+    let font_bytes: usize = presentation.textures.pages()[..presentation.base_font.pages().len()]
         .iter()
         .map(|page| {
             let [width, height] = page.resident_dimensions();
@@ -166,7 +162,7 @@ fn mixed_native_font_pages_keep_source_pixels_with_bounded_gpu_residency() {
         .sum();
     let page_bytes = |side: u32| side as usize * side as usize * 4;
     let small_page_bytes = page_bytes(render_model::UI_DYNAMIC_PAGE_SIDE);
-    let dynamic_bytes = render_model::UI_LOCAL_FONT_PAGE_OFFSET * small_page_bytes
+    let dynamic_bytes = (render_model::MAX_UI_DYNAMIC_PAGES - 1) * small_page_bytes
         + page_bytes(render_model::UI_LOCAL_FONT_PAGE_SIDE);
     assert_eq!(
         presentation.textures.plan().bytes(),
@@ -183,17 +179,31 @@ fn mixed_native_font_pages_keep_source_pixels_with_bounded_gpu_residency() {
     }
 }
 
-/// A font without coverage pages leaves no blank coverage layers resident on the GPU.
+/// An RGBA default adds only the authored sans coverage page, with no blank coverage layers.
 #[test]
-fn rgba_font_reserves_no_coverage_texture_layers() {
-    let presentation = UiPresentationRuntime::new(independent_font(&[256])).unwrap();
-    let buckets = presentation.textures.plan().buckets();
+fn rgba_font_reserves_only_the_authored_sans_coverage_layers() {
+    let font = independent_font(&[256]);
+    let presentation = UiPresentationRuntime::new(Arc::clone(&font)).unwrap();
+    for (source, page) in font.pages().iter().zip(presentation.textures.pages()) {
+        assert_eq!(page.format(), render_model::UiTextureFormat::Rgba8);
+        assert_eq!(page.pixels().as_ptr(), source.pixels.bytes().as_ptr());
+    }
+    let authored_pages = &presentation.base_font.pages()[font.pages().len()..];
+    assert!(!authored_pages.is_empty());
     assert!(
-        buckets
+        authored_pages
             .iter()
-            .all(|bucket| bucket.format != render_model::UiTextureFormat::Coverage),
-        "{buckets:?}"
+            .all(|page| matches!(page.pixels, FontPixels::Coverage(_)))
     );
+    let coverage_layers: usize = presentation
+        .textures
+        .plan()
+        .buckets()
+        .iter()
+        .filter(|bucket| bucket.format == render_model::UiTextureFormat::Coverage)
+        .map(|bucket| bucket.layers as usize)
+        .sum();
+    assert_eq!(coverage_layers, authored_pages.len());
 }
 
 #[test]
@@ -547,6 +557,7 @@ fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
         position: glam::Vec3::new(0.0, 2.0, 0.0),
         lines: vec![Arc::from("\u{e005}")].into(),
         depth_tested: false,
+        sneaking: false,
         text_alpha: 1.0,
         view_depth: 5.0,
         camera_forward_y: 0.0,
@@ -610,7 +621,8 @@ fn startup_named_font_survives_session_alias_updates_without_changing_default_me
         base.with_named_font(ui::mod_panel::FONT_NAME, &private)
             .unwrap(),
     );
-    let mut presentation = UiPresentationRuntime::new(Arc::clone(&startup)).unwrap();
+    let mut presentation = UiPresentationRuntime::new(startup).unwrap();
+    let startup = Arc::clone(&presentation.base_font);
     let original = *presentation.font.glyph('A').unwrap();
     let alias = *presentation
         .font
@@ -820,7 +832,7 @@ fn coverage_font_pages_fit_the_bucket_budget_with_every_reserved_slot() {
     let plan = presentation.textures.plan();
     assert!(plan.buckets().len() <= render_model::MAX_UI_TEXTURE_BUCKETS);
     for (index, page) in presentation.textures.pages().iter().enumerate() {
-        let expected = if index < font.pages().len() {
+        let expected = if index < presentation.base_font.pages().len() {
             render_model::UiTextureFormat::Coverage
         } else {
             render_model::UiTextureFormat::Rgba8

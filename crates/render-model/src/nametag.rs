@@ -1,12 +1,12 @@
 //! World-space actor name tags: screen-aligned billboards of backing plates and rasterized text,
 //! laid out in font pixels as the vanilla name-tag renderer does.
-use std::sync::Arc;
+use std::{ops::Range, sync::Arc};
 
 /// Java label scale in blocks per font design pixel; debug text shares this scale.
 pub const NAMETAG_BLOCKS_PER_FONT_PIXEL: f32 = 1.6 * (1.0 / 60.0);
 /// Atlas coverage must exceed this value before label opacity is applied.
 pub const NAMETAG_ALPHA_CUTOFF: f32 = 0.1;
-/// Native opacity for sneaking text and the ordinary through-wall text pass.
+/// Opacity for depth-tested sneaking text.
 pub const NAMETAG_DIM_TEXT_ALPHA: f32 = 32.0 / 255.0;
 pub const NAMETAG_TEXT_REVERSE_Z_BIAS: i32 = 32;
 /// Side of the square RGBA8 text atlas.
@@ -18,10 +18,10 @@ pub const NAMETAG_LINE_PITCH_PX: f32 = 10.0;
 /// Background margin left, right and above a line's centred text, in font pixels.
 const NAMETAG_BACKGROUND_PADDING_PX: f32 = 1.0;
 
-/// Left edge of a line centred on the anchor: its width halved with integer truncation, negated.
+/// Left edge of a centred line, rounding fractional widths up before halving with integer truncation.
 #[must_use]
 pub fn nametag_line_left(width_px: f32) -> f32 {
-    -((width_px as u32 / 2) as f32)
+    -((width_px.ceil() as u32 / 2) as f32)
 }
 
 /// One `[x0, y0, x1, y1]` background per line, each padded around its own centred width and
@@ -77,7 +77,8 @@ pub struct NametagRecord {
     pub line_lift: f32,
     /// Nonzero when this quad tests world depth; tested glyphs also write depth.
     pub depth_tested: u32,
-    pub padding: [u32; 2],
+    /// Actor identity retained for local-player cosmetic styling; unused by the shader.
+    pub runtime_id: u64,
 }
 
 impl NametagRecord {
@@ -151,9 +152,18 @@ impl NametagAtlasRect {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct NametagScene {
     pub records: Vec<NametagRecord>,
+    /// Whole-label boundaries and admission priority, independent of draw order.
+    pub labels: Vec<NametagLabel>,
     /// All live cells, sharing unchanged pixels across publications.
     pub atlas: Arc<[NametagAtlasRect]>,
     pub atlas_revision: u64,
+}
+
+/// A complete label's contiguous records and unlifted camera depth.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NametagLabel {
+    pub records: Range<usize>,
+    pub view_depth: f32,
 }
 
 #[cfg(test)]
@@ -280,6 +290,20 @@ mod tests {
         assert_eq!(single, [[-21.0, -1.0, 21.0, 9.0]]);
         assert_eq!(nametag_line_backgrounds([1.0].into_iter()).count(), 0);
         assert_eq!(nametag_line_backgrounds([1.0, 1.0].into_iter()).count(), 2);
+    }
+
+    #[test]
+    fn fractional_line_widths_keep_the_full_right_padding() {
+        for width in [2.5, 3.5, 40.5, 41.5] {
+            let [plate] = java_nametag_line_backgrounds([width].into_iter())
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap();
+            let left = nametag_line_left(width);
+            assert_eq!(plate[0], left - 1.0);
+            assert!(plate[2] >= left + width);
+            assert!(plate[2] - (left + width) >= 0.5);
+        }
     }
 
     #[test]

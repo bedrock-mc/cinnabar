@@ -19,6 +19,7 @@ mod death_screen;
 mod effects;
 mod experience_spacing;
 mod geometry;
+mod menu_crosshair;
 mod offhand;
 mod pack_snapshots;
 
@@ -256,66 +257,6 @@ fn crosshair_aligns_to_pixels_across_scales_dpi_and_insets() {
             assert!((edge - edge.round()).abs() < 1e-3, "{physical:?}");
         }
     }
-}
-
-// First person only, kept while chatting, and gone in spectator.
-#[test]
-fn crosshair_is_first_person_only_and_mode_gated() {
-    let mut player_runtime = player_state::PlayerState::new(1);
-
-    let Some(mut presentation) = engine_presentation() else {
-        eprintln!(
-            "skipping crosshair_is_first_person_only_and_mode_gated: fixture unavailable; requires installed local carriers (make assets)"
-        );
-        return;
-    };
-    let mut runtime = UiRuntime::new(1);
-    player_runtime
-        .facts
-        .publish_player_game_mode(PlayerGameMode::Survival);
-    let paint = |player_runtime: &player_state::PlayerState,
-                 presentation: &UiPresentationRuntime,
-                 runtime: &UiRuntime| {
-        hud_layout::capture_hud_paint(
-            player_runtime,
-            runtime,
-            presentation.hud_frame(),
-            presentation.hud_textures.as_ref(),
-            &Default::default(),
-        )
-    };
-    assert!(
-        paint(&player_runtime, &presentation, &runtime)
-            .crosshair
-            .is_none(),
-        "third person"
-    );
-    *presentation.hud_frame_mut() = first_person();
-    assert!(
-        crosshair(
-            &build(&player_runtime, &mut presentation, &runtime, 0),
-            30.0
-        )
-        .is_some()
-    );
-    runtime.open_chat(&mut player_runtime);
-    assert!(
-        crosshair(
-            &build(&player_runtime, &mut presentation, &runtime, 0),
-            30.0
-        )
-        .is_some()
-    );
-    runtime.close_chat();
-    player_runtime
-        .facts
-        .publish_player_game_mode(PlayerGameMode::Spectator);
-    assert!(
-        paint(&player_runtime, &presentation, &runtime)
-            .crosshair
-            .is_none(),
-        "spectator"
-    );
 }
 
 // Hotbar, status rows, and effects follow the authoritative game mode.

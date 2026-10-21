@@ -102,7 +102,7 @@ fn locate<'a>(
     let mut parent = rect;
     for &index in path {
         let child = node.children.get(index)?;
-        let placed = measure::placed_children(node, at, env, None);
+        let placed = measure::placed_children(node, at, env, None, None);
         let (_, child_rect) = placed
             .into_iter()
             .find(|(placed, _)| std::ptr::eq(*placed, child))?;

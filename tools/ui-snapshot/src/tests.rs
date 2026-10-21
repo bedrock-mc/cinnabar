@@ -1,10 +1,35 @@
 use crate::{carriers, fixtures, render};
 
 #[test]
+fn tiled_image_capture_covers_the_viewport_with_the_original_checker() {
+    let state = fixtures::states()
+        .find(|state| state.name == "jsonui-tiled-image")
+        .unwrap();
+    let png = render::png(state, std::path::Path::new("unused")).unwrap();
+    let pixels = image::load_from_memory(&png).unwrap().to_rgba8();
+    let colors = [*pixels.get_pixel(0, 0), *pixels.get_pixel(1, 0)];
+    assert_ne!(colors[0], colors[1]);
+    assert!(colors.iter().all(|pixel| pixel[3] == 255));
+    for (x, y, pixel) in pixels.enumerate_pixels() {
+        assert_eq!(*pixel, colors[((x + y) % 2) as usize], "checker at {x},{y}");
+    }
+}
+
+#[test]
+fn extreme_tiled_image_capture_covers_every_pixel() {
+    let state = fixtures::states()
+        .find(|state| state.name == "jsonui-tiled-image-extreme")
+        .unwrap();
+    let png = render::png(state, std::path::Path::new("unused")).unwrap();
+    let pixels = image::load_from_memory(&png).unwrap().to_rgba8();
+    assert!(pixels.pixels().all(|pixel| pixel[3] == 255));
+}
+
+#[test]
 fn every_registered_state_renders_identical_png_bytes() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/assets/compiled");
     let mut names = std::collections::HashSet::new();
-    for state in fixtures::STATES {
+    for state in fixtures::states() {
         assert!(names.insert(state.name), "duplicate fixture {}", state.name);
         let first = match render::png(state, &dir) {
             Ok(png) => png,
@@ -152,28 +177,26 @@ fn snapshot_settings_painter_samples_the_attached_original_artwork() {
 
 /// Optional bundle failures must remain visible when the standalone tool falls back.
 #[test]
-fn optional_bundle_failures_reach_stderr() {
+fn missing_artwork_carrier_warning_reaches_stderr() {
     const CHILD: &str = "CINNABAR_SNAPSHOT_LOG_TEST";
-    if std::env::var_os(CHILD).is_some() {
+    if let Some(dir) = std::env::var_os(CHILD) {
         super::init_logging();
-        oreui::images::load_optional_oreui_images(std::path::Path::new("."));
+        oreui::images::load_optional_oreui_images(std::path::Path::new(&dir));
         return;
     }
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("atlas.json"), b"invalid bundle").unwrap();
     let output = std::process::Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
-            "tests::optional_bundle_failures_reach_stderr",
+            "tests::missing_artwork_carrier_warning_reaches_stderr",
             "--nocapture",
         ])
-        .env(CHILD, "1")
-        .env(oreui::images::BUNDLE_OVERRIDE_ENV, dir.path())
+        .env(CHILD, dir.path())
         .output()
         .unwrap();
     assert!(output.status.success(), "child test failed: {output:?}");
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("unusable"),
-        "the optional bundle warning was lost: {output:?}"
+        String::from_utf8_lossy(&output.stderr).contains("shipped artwork unavailable"),
+        "the missing carrier warning was lost: {output:?}"
     );
 }

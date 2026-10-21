@@ -52,6 +52,7 @@ pub(crate) struct SemanticPhysicalInputs<'w, 's> {
     touch_targets: ResMut<'w, SemanticTouchTargets>,
     focus: Option<Res<'w, client_state::CursorFocus>>,
     driven: Option<Res<'w, client_state::DrivenInput>>,
+    reserved: Option<Res<'w, crate::semantic_controls::ReservedControls>>,
 }
 
 pub(crate) fn collect_raw_input(
@@ -184,6 +185,7 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> TranslatedDeviceFra
         mut touch_targets,
         focus,
         driven,
+        reserved: _,
     } = inputs;
     let (_, window, cursor) = window.into_inner();
     let focused = driven.is_some()

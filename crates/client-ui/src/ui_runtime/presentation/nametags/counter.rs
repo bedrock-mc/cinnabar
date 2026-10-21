@@ -13,9 +13,12 @@ pub(super) fn texts(counter: &CounterAnnotation) -> [&Arc<str>; 3] {
 }
 
 /// Reserves colored text and an optional separate backing plate.
-pub(super) fn record_budget(counter: &CounterAnnotation, depth_tested: bool) -> usize {
-    (1 + usize::from(!counter.prefix.is_empty())) * (1 + usize::from(!depth_tested))
-        + usize::from(counter.separate)
+pub(super) fn record_budget(
+    counter: &CounterAnnotation,
+    style: Option<&ui::mod_hud::NametagStyle>,
+) -> usize {
+    (1 + usize::from(!counter.prefix.is_empty())) * style::record_cost(style, false)
+        + usize::from(counter.separate) * style::record_cost(style, true)
 }
 
 pub(super) struct Layout {

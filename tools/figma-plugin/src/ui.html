@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 12px/1.4 Inter, system-ui, sans-serif;
+    color: var(--figma-color-text, #222);
+    background: var(--figma-color-bg, #fff);
+    display: grid;
+    grid-template-rows: auto 1fr;
+    height: 100vh;
+  }
+  header {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--figma-color-border, #e5e5e5);
+  }
+  header p { margin: 0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  label { white-space: nowrap; }
+  select, button {
+    font: inherit;
+    color: inherit;
+    background: var(--figma-color-bg-secondary, #f5f5f5);
+    border: 1px solid var(--figma-color-border, #e5e5e5);
+    border-radius: 4px;
+    padding: 4px 8px;
+  }
+  button.primary { background: var(--figma-color-bg-brand, #0d99ff); color: var(--figma-color-text-onbrand, #fff); border: 0; }
+  button:disabled { opacity: 0.5; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; min-height: 0; }
+  #stage { display: grid; place-items: center; padding: 12px; background: #1e1e1e; min-height: 0; overflow: hidden; }
+  #preview { max-width: 100%; max-height: 100%; image-rendering: pixelated; }
+  aside { display: grid; grid-template-rows: auto 1fr auto 1fr; min-height: 0; border-left: 1px solid var(--figma-color-border, #e5e5e5); }
+  h2 { margin: 0; padding: 8px 12px; font-size: 11px; font-weight: 600; }
+  ul { margin: 0; padding: 0 12px 8px; list-style: none; overflow: auto; }
+  li { padding: 4px 0; border-bottom: 1px solid var(--figma-color-border, #eee); }
+  li.error { color: var(--figma-color-text-danger, #c00); }
+  .layer { display: block; padding: 0; border: 0; background: none; font-weight: 600; text-align: left; cursor: pointer; }
+  pre { margin: 0; padding: 0 12px 12px; overflow: auto; font: 11px/1.4 ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<header>
+  <p id="status">Loading the converter…</p>
+  <label>Scale <select id="scale"><option>1</option><option selected>2</option><option>3</option><option>4</option></select></label>
+  <button id="refresh" title="Convert the same frame again">Refresh</button>
+  <button id="adopt" title="Convert the selected layer as the screen">Convert selection</button>
+  <select id="format"><option value="mcpack">.mcpack</option><option value="zip">.zip</option></select>
+  <button id="export" class="primary" disabled>Export pack</button>
+</header>
+<main>
+  <div id="stage"><canvas id="preview" width="1" height="1"></canvas></div>
+  <aside>
+    <h2>Warnings: <span id="warning-count">none</span></h2>
+    <ul id="warnings"></ul>
+    <h2>JSON-UI</h2>
+    <pre id="source"></pre>
+  </aside>
+</main>
+<!-- script -->
+</body>
+</html>

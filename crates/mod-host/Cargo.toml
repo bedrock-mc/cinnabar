@@ -8,6 +8,7 @@ publish = false
 [package.metadata.cinnabar]
 platform-specific = ["windows"]
 reads = [
+    "crates/mod-api/native-render-v1.json",
     "crates/experience-sdk/wit/client",
     "crates/experience-sdk/wit/session",
     "crates/mod-api/wit",
@@ -42,8 +43,14 @@ serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.150"
 server-experience = { path = "../server-experience" }
 wasmtime = { workspace = true }
+wasmtime-wasi = { workspace = true }
+wasi-preview1-component-adapter-provider = { workspace = true }
+tracing.workspace = true
+bytes.workspace = true
+tokio.workspace = true
 wit-component = { workspace = true }
 wasmparser = { version = "=0.247.0" }
+wit-parser = "=0.247.0"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_System_Threading", "Win32_Storage_FileSystem"] }

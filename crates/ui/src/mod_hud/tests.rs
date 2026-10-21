@@ -144,15 +144,22 @@ mod tests {
     fn editor_results_are_bounded_and_cancellation_carries_no_changes() {
         assert!(EditorResult::default().validate().is_ok());
         let saved = EditorResult {
+            hidden_cards: Vec::new(),
+            replace_pending_reset: false,
             saved: true,
             reset: false,
             placements: vec![Placement {
                 id: "equipment".into(),
+                anchor: Anchor::Center,
+                offset: [0.; 2],
                 scale: 1.,
                 position: Some([0.5, 0.5]),
             }],
         };
         assert!(saved.validate().is_ok());
+        let mut malformed_offset = saved.clone();
+        malformed_offset.placements[0].offset = [f32::NAN, 0.];
+        assert!(malformed_offset.validate().is_err());
         for scale in [f32::NAN, 0.24, 5.01] {
             let mut malformed = saved.clone();
             malformed.placements[0].scale = scale;
@@ -192,6 +199,7 @@ mod tests {
             ("button.resume_game", false),
         ] {
             hud.surface = Some(crate::mod_panel::Surface {
+                previews: Default::default(),
                 collections: Default::default(),
                 transitions: Default::default(),
                 screen: "fixture.editor".into(),
@@ -399,10 +407,14 @@ fn uniform_card_scale_supports_quarter_to_five_without_widening_text_scale() {
         };
         hud.validate().unwrap();
         super::EditorResult {
+            hidden_cards: Vec::new(),
+            replace_pending_reset: false,
             saved: true,
             reset: false,
             placements: vec![super::Placement {
                 id: "clock".into(),
+                anchor: super::Anchor::TopLeft,
+                offset: [0.; 2],
                 position: None,
                 scale,
             }],
@@ -410,4 +422,261 @@ fn uniform_card_scale_supports_quarter_to_five_without_widening_text_scale() {
         .validate()
         .unwrap();
     }
+}
+
+/// Studio's fixed action names use the same bounds as cards, controls and anchor choices.
+#[test]
+fn studio_surface_actions_accept_exact_names_and_reject_out_of_range_indices() {
+    use crate::mod_panel::{MAX_PANEL_CONTROLS, Surface};
+    let check = |action: &str| {
+        let hud = super::Hud {
+            surface: Some(Surface {
+                screen: "studio.root".into(),
+                document: serde_json::json!({"namespace":"studio","root":{"type":"screen","controls":[{"action":{
+                    "type":"button", "size":[20,20], "button_mappings":[{"from_button_id":"button.menu_select","to_button_id":action,"mapping_type":"pressed"}]
+                }}]}}).to_string(),
+                bindings: Default::default(), transitions: Default::default(), collections: Default::default(), previews: Default::default(),
+            }),
+            ..Default::default()
+        };
+        hud.validate()
+    };
+    for action in [
+        "hud.undo",
+        "hud.redo",
+        "hud.scale",
+        "hud.scale_down",
+        "hud.scale_up",
+        "hud.save",
+        "hud.cancel",
+        "hud.close",
+        "hud.reset",
+        "hud.grid",
+        "hud.snap",
+    ] {
+        check(action).unwrap();
+    }
+    for (prefix, bound) in [
+        ("hud.visibility:", super::MAX_HUD_CARDS),
+        ("hud.select:", super::MAX_HUD_CARDS),
+        ("hud.card:", super::MAX_HUD_CARDS),
+        ("hud.anchor:", 9),
+        ("hud.control:", MAX_PANEL_CONTROLS),
+        ("hud.done:", MAX_PANEL_CONTROLS),
+    ] {
+        for index in [0, bound - 1] {
+            check(&format!("{prefix}{index}")).unwrap();
+        }
+        for suffix in [
+            bound.to_string(),
+            "-1".into(),
+            "1.5".into(),
+            "".into(),
+            "99999999999999999999999999999".into(),
+        ] {
+            assert!(check(&format!("{prefix}{suffix}")).is_err());
+        }
+    }
+    assert!(check("hud.toggle:0").is_err());
+}
+
+#[test]
+fn amendment_visibility_and_inspector_fields_are_additive_and_validated() {
+    let legacy: super::Hud = serde_json::from_value(serde_json::json!({
+        "cards":[{"id":"fps","rows":[]}]
+    }))
+    .unwrap();
+    assert!(legacy.cards[0].visible);
+    assert!(super::Card::default().visible);
+    assert_eq!(legacy.inspector_size, None);
+    let mut hud: super::Hud = serde_json::from_value(serde_json::json!({
+        "cards":[{"id":"fps","visible":false,"rows":[]}],
+        "inspector_size":[180,240]
+    }))
+    .unwrap();
+    hud.validate().unwrap();
+    assert!(!hud.cards[0].visible);
+    assert_eq!(
+        serde_json::from_value::<super::Hud>(serde_json::to_value(&hud).unwrap()).unwrap(),
+        hud
+    );
+    for value in [0., -1., f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        for axis in 0..2 {
+            let mut size = [180., 240.];
+            size[axis] = value;
+            hud.inspector_size = Some(size);
+            assert!(hud.validate().unwrap_err().contains("inspector size"));
+        }
+    }
+    for value in [
+        serde_json::json!([12]),
+        serde_json::json!([12, 24, 36]),
+        serde_json::json!([12, "24"]),
+    ] {
+        assert!(
+            serde_json::from_value::<super::Hud>(
+                serde_json::json!({"cards":[],"inspector_size":value})
+            )
+            .is_err()
+        );
+    }
+    assert!(
+        serde_json::from_value::<super::Hud>(
+            serde_json::json!({"cards":[{"id":"fps","rows":[],"visible":0}]})
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn studio_hidden_results_require_unique_saved_placement_ids() {
+    let mut result = super::EditorResult {
+        saved: true,
+        placements: vec![super::Placement {
+            id: "fps".into(),
+            anchor: super::Anchor::TopLeft,
+            offset: [0.; 2],
+            scale: 1.,
+            position: None,
+        }],
+        hidden_cards: vec!["fps".into()],
+        ..Default::default()
+    };
+    result.validate().unwrap();
+    result.hidden_cards.push("fps".into());
+    assert!(result.validate().is_err());
+    result.hidden_cards = vec!["unknown".into()];
+    assert!(result.validate().is_err());
+    result.hidden_cards = vec!["fps".into()];
+    result.saved = false;
+    assert!(result.validate().is_err());
+}
+
+#[test]
+fn studio_native_placeholder_identity_survives_materialization_and_stays_out_of_json() {
+    let mut card = super::Card {
+        id: "effects_preview".into(),
+        editor_label: "Effects".into(),
+        source: Some(super::RowSource {
+            kind: super::NativeRows::Effects {
+                icons: true,
+                stacked: false,
+                warnings: false,
+            },
+            limit: 4,
+            color: [1.; 4],
+            brackets: false,
+        }),
+        ..Default::default()
+    };
+    card.ensure_editor_placeholder();
+    assert_eq!(card.title, "Effects");
+    card.source = None;
+    card.title.clear();
+    card.ensure_editor_placeholder();
+    assert_eq!(card.title, "Effects");
+    let mut json = serde_json::to_value(&card).unwrap();
+    assert!(json.get("editor_native").is_none());
+    json["editor_native"] = serde_json::json!(true);
+    assert!(serde_json::from_value::<super::Card>(json).is_err());
+    card.rows
+        .push(serde_json::from_value(serde_json::json!({"label":"","value":"1"})).unwrap());
+    card.title.clear();
+    card.ensure_editor_placeholder();
+    assert!(card.title.is_empty());
+}
+
+#[test]
+fn studio_cancellation_cannot_replace_pending_reset_intent() {
+    let result = super::EditorResult {
+        replace_pending_reset: true,
+        ..Default::default()
+    };
+    assert!(result.validate().is_err());
+}
+
+/// Background radii default to the original look and reject non-finite or out-of-range values.
+#[test]
+fn background_radii_default_to_the_original_look_and_are_bounded() {
+    let mut hud: super::Hud = serde_json::from_value(serde_json::json!({
+        "cards":[{"id":"fps","rows":[{"label":"","value":"60"}],"text_plate":{}}]
+    }))
+    .unwrap();
+    assert_eq!(
+        hud.cards[0].background_radius,
+        super::DEFAULT_CARD_BACKGROUND_RADIUS
+    );
+    assert_eq!(hud.cards[0].text_plate.as_ref().unwrap().style.radius, 0.);
+    hud.validate().unwrap();
+    for radius in [0., 8., super::MAX_CARD_BACKGROUND_RADIUS] {
+        hud.cards[0].background_radius = radius;
+        hud.cards[0].text_plate.as_mut().unwrap().style.radius = radius;
+        hud.validate().unwrap();
+    }
+    for radius in [
+        -0.5,
+        super::MAX_CARD_BACKGROUND_RADIUS + 0.5,
+        f32::NAN,
+        f32::INFINITY,
+    ] {
+        let mut card = hud.clone();
+        card.cards[0].background_radius = radius;
+        assert!(card.validate().is_err(), "card radius {radius}");
+        let mut plate = hud.clone();
+        plate.cards[0].text_plate.as_mut().unwrap().style.radius = radius;
+        assert!(plate.validate().is_err(), "plate radius {radius}");
+    }
+}
+
+/// Representative facts cannot be admitted as a real gameplay card.
+#[test]
+fn samples_require_preview_only_and_crosshairs_require_isolation() {
+    use super::{Crosshair, Hud};
+    let mut hud: Hud =
+        serde_json::from_str(r#"{"cards":[{"id":"sample","sample":true,"rows":[]}] }"#).unwrap();
+    assert!(hud.validate().is_err());
+    hud.cards[0].preview_only = true;
+    hud.validate().unwrap();
+    hud.cards[0].crosshair = Some(Crosshair::default());
+    hud.validate().unwrap();
+    hud.cards[0].preview_only = false;
+    assert!(hud.validate().is_err());
+    hud.cards[0].preview_only = true;
+    hud.cards[0]
+        .rows
+        .push(serde_json::from_value(serde_json::json!({"label":"","value":"1"})).unwrap());
+    assert!(hud.validate().is_err());
+}
+
+/// Aliases reserve their complete native output and cannot collide or recursively expand.
+#[test]
+fn native_sample_aliases_reserve_rows_and_unique_card_identities() {
+    use super::{Card, Hud, MAX_HUD_CARDS, MAX_HUD_ROWS};
+    let mut hud:Hud=serde_json::from_str(r#"{"cards":[{"id":"inventory","preview_id":"inventory_sample","rows":[],"source":{"kind":{"kind":"inventory","hotbar":true},"limit":36}}]}"#).unwrap();
+    hud.validate().unwrap();
+    hud.cards[0].preview_id = Some("inventory".into());
+    assert!(hud.validate().is_err());
+    hud.cards[0].preview_id = Some("preview".into());
+    hud.cards[0].sample = true;
+    hud.cards[0].preview_only = true;
+    assert!(hud.validate().is_err());
+    hud.cards[0].sample = false;
+    let template = hud.cards[0].clone();
+    hud.cards = (0..MAX_HUD_CARDS / 2 + 1)
+        .map(|index| Card {
+            id: format!("card_{index}"),
+            preview_id: Some(format!("sample_{index}")),
+            ..template.clone()
+        })
+        .collect();
+    assert!(hud.validate().is_err());
+    hud.cards.truncate(MAX_HUD_CARDS / 2);
+    assert!(
+        hud.cards
+            .iter()
+            .map(|card| usize::from(card.source.as_ref().unwrap().limit) * 2)
+            .sum::<usize>()
+            > MAX_HUD_ROWS
+    );
+    assert!(hud.validate().is_err());
 }

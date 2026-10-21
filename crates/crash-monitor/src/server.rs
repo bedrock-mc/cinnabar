@@ -13,6 +13,7 @@ use std::{
 };
 
 use crash_report::report::Kind;
+use launcher_host::lifecycle::crash::heartbeat::Heartbeat;
 #[cfg(windows)]
 use launcher_host::lifecycle::crash::protocol::DumpContext;
 use launcher_host::lifecycle::crash::protocol::{self, Hello, Panic, State, Token};
@@ -111,6 +112,8 @@ pub(crate) struct Handler {
     dumps: AtomicU32,
     /// The pending file of the dump being written.
     writing: Mutex<Option<PathBuf>>,
+    /// Receipts shared with the client, so a crash never waits on a socket read.
+    heartbeat: Option<Heartbeat>,
 }
 
 impl Handler {
@@ -131,7 +134,15 @@ impl Handler {
             liveness,
             dumps: AtomicU32::new(0),
             writing: Mutex::new(None),
+            heartbeat: None,
         }
+    }
+
+    /// Enables receipt of authenticated dump announcements through the client's shared region.
+    #[cfg(any(target_os = "macos", test))]
+    pub(crate) fn with_dump_receipts(mut self, heartbeat: Option<Heartbeat>) -> Self {
+        self.heartbeat = heartbeat;
+        self
     }
 
     fn observed(&self) -> MutexGuard<'_, Observed> {
@@ -263,6 +274,13 @@ impl ServerHandler for Handler {
             }
             protocol::DUMP_REQUEST => {
                 observed.dump_requested = true;
+                if let Some(heartbeat) = &self.heartbeat
+                    && let Ok(request) = <[u8; 8]>::try_from(payload)
+                {
+                    heartbeat
+                        .region()
+                        .acknowledge_dump(u64::from_le_bytes(request));
+                }
                 #[cfg(windows)]
                 {
                     observed.dump_context = DumpContext::from_bytes(payload);
@@ -409,6 +427,31 @@ mod tests {
         let observed = observed.lock().unwrap();
         assert_eq!(observed.dumped_panics.len(), 1);
         assert!(observed.panic.is_none());
+    }
+
+    /// Only this launch's authenticated request may publish its exact shared receipt.
+    #[test]
+    fn dump_receipts_require_the_launch_token() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("heartbeat");
+        let client = Heartbeat::create(&path).unwrap();
+        let (handler, observed, _) = handler();
+        let handler = handler.with_dump_receipts(Some(Heartbeat::open(&path).unwrap()));
+        let request = 42_u64.to_le_bytes();
+        handler.on_message(protocol::DUMP_REQUEST, request.to_vec());
+        handler.on_message(
+            protocol::DUMP_REQUEST,
+            signed(&[9; protocol::TOKEN_BYTES], &request),
+        );
+        assert!(!client.region().dump_acknowledged(42));
+        assert!(!observed.lock().unwrap().dump_requested);
+        handler.on_message(protocol::PANIC, signed(&TOKEN, &panic()));
+        handler.on_message(protocol::DUMP_REQUEST, signed(&TOKEN, &request));
+        assert!(client.region().dump_acknowledged(42));
+        assert!(!client.region().dump_acknowledged(43));
+        let observed = observed.lock().unwrap();
+        assert!(observed.dump_requested);
+        assert!(observed.panic.is_some());
     }
 
     #[test]

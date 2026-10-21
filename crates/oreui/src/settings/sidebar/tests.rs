@@ -12,7 +12,7 @@ use {
 fn installed_settings_categories_use_their_full_native_icon_cells() {
     let Some(images) = load_optional_oreui_images(&checkout_compiled_dir()) else {
         eprintln!(
-            "skipping installed_settings_categories_use_their_full_native_icon_cells: installed OreUI bundle unavailable"
+            "skipping installed_settings_categories_use_their_full_native_icon_cells: compiled OreUI artwork carrier unavailable"
         );
         return;
     };
@@ -31,7 +31,10 @@ fn mods_follow_resource_packs_in_the_same_group() {
     let position = |section: &str| TABS.iter().position(|tab| tab.section == section).unwrap();
     let packs = position("global_texture_pack_forced_index");
     let mods = position(launcher::mods::SECTION);
-    assert_eq!(mods, packs + 1);
+    assert_eq!(
+        mods,
+        packs + 1 + usize::from(launcher::menu::settings_options::SHADER_PACK_BINDINGS)
+    );
     assert!(TABS[mods].group.is_none());
     assert_ne!(section_index(launcher::mods::SECTION), 0);
 }
@@ -331,7 +334,8 @@ fn focused_category_outline_stays_clipped_to_its_sidebar_viewport() {
 #[test]
 fn account_is_followed_by_resources_without_an_empty_category_row() {
     use crate::review_tests::paint;
-    let view = MenuView::new(true, "Player".into());
+    let mut view = MenuView::new(true, "Player".into());
+    view.over_world = true;
     let (_, hits, _) = paint(HashMap::new(), |canvas| {
         draw(canvas, &view, [20.0, 20.0, 420.0, 1100.0], &|_| None, None).unwrap();
     });
@@ -358,4 +362,48 @@ fn account_is_followed_by_resources_without_an_empty_category_row() {
             .map(|tab| section_index(tab.section))
             .collect::<Vec<_>>()
     );
+}
+
+/// Updates is visible immediately below Accessibility without scrolling.
+#[test]
+fn updates_is_visible_below_accessibility() {
+    use launcher::menu::settings_sections::SettingSection;
+    let view = MenuView::new(true, "Player".into());
+    let (_, hits, _) = crate::review_tests::paint(HashMap::new(), |canvas| {
+        draw(canvas, &view, [20.0, 20.0, 420.0, 400.0], &|_| None, None).unwrap();
+    });
+    let updates = SettingSection::Updates.definition().index;
+    assert_ne!(updates, SettingSection::General.definition().index);
+    assert_eq!(
+        hits[0].0,
+        MenuAction::SettingsSection(SettingSection::Accessibility.definition().index)
+    );
+    assert_eq!(hits[1].0, MenuAction::SettingsSection(updates));
+    assert_eq!(hits[0].1.max().y(), hits[1].1.min().y());
+}
+
+/// The final tab remains fully clickable after scrolling to the sidebar's end.
+#[test]
+fn creator_remains_reachable_at_the_bottom() {
+    use launcher::menu::settings_sections::SettingSection;
+    let view = MenuView::new(true, "Player".into());
+    let creator = MenuAction::SettingsSection(SettingSection::Creator.definition().index);
+    let mut row_height = 0.0;
+    let (scrolls, hits, _) = crate::review_tests::paint(
+        HashMap::from([("oreui_settings_sidebar".into(), 1_000_000.0)]),
+        |canvas| {
+            row_height = canvas.r(4.8);
+            draw(canvas, &view, [20.0, 20.0, 420.0, 400.0], &|_| None, None).unwrap();
+        },
+    );
+    let row = hits
+        .iter()
+        .find(|(action, _)| *action == creator)
+        .expect("Creator must be reachable at the end of the sidebar")
+        .1;
+    assert_eq!(hits.last().unwrap().0, creator);
+    let viewport = scrolls[0].viewport;
+    assert!(row.min().y() >= viewport.min().y());
+    assert!(row.max().y() <= viewport.max().y());
+    assert!(row.max().y() - row.min().y() >= row_height);
 }

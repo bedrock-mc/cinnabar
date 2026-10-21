@@ -52,6 +52,8 @@ members = [
     "crates/protocol-ids",
     "crates/resource-pack",
     "crates/server-experience",
+    "crates/shaderpack",
+    "crates/zip-footer",
     "crates/render",
     "crates/render-api",
     "crates/cosmetics",
@@ -95,7 +97,7 @@ exclude = ["crates/protocol/vendor/bedrock-protocol-1-26-51"]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.20"
+version = "0.1.23"
 edition = "2024"
 rust-version = "1.99.0"
 
@@ -131,6 +133,10 @@ bevy = { version = "=0.20.0", default-features = false, features = [
 # The noop backend only runs when an instance explicitly enables it (render tests).
 # `std` keeps error scopes per thread; without it, concurrent pipeline compiles share one stack.
 wgpu = { version = "30.0.1", default-features = false, features = ["noop", "std", "wgsl"] }
+# Every crate that names naga uses this one feature set, so `-p cinnabar` and `--workspace`
+# builds agree on naga and nothing above it (wgpu, bevy_render) builds twice. `glsl-in` is the
+# Java shader-pack frontend; it adds only naga's GLSL parser and pp-rs.
+naga = { version = "30.0.1", features = ["glsl-in", "wgsl-in"] }
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tga"] }
 # Native bridge and session composition add OS I/O and the multithreaded runtime.
 tokio = { version = "1.52", features = ["io-util", "macros", "rt", "sync", "time"] }
@@ -152,18 +158,27 @@ sha2 = "=0.10.9"
 uuid = "1"
 wasmtime = { version = "=36.0.16", default-features = false, features = ["component-model", "cranelift", "runtime", "std", "wat"] }
 wit-bindgen = "=0.57.1"
+# WASI for trusted packet mods only, pinned with wasmtime.
+wasmtime-wasi = { version = "=36.0.16", default-features = false, features = ["preview1"] }
+wasi-preview1-component-adapter-provider = "=36.0.16"
 wit-component = "=0.247.0"
 
 
-# Keep Metal display-link delivery, bounded submissions and indirect validation on wgpu 30.0.1.
+# Keep Metal display-link delivery, bounded submissions and indirect validation on wgpu 30.0.1,
+# plus naga GLSL frontend fixes for Java shader packs: constant `?:` and indexing,
+# missing returns, scalar swizzles, atomics and barriers, SPIR-V `fma` NoContraction.
+# Every wgpu crate comes from the same rev so wgpu and the shaderpack crate share one naga.
 [patch.crates-io]
-naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1c86cda04099890ab157b1ae5035" }
-wgpu = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1c86cda04099890ab157b1ae5035" }
-wgpu-core = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1c86cda04099890ab157b1ae5035" }
-wgpu-hal = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1c86cda04099890ab157b1ae5035" }
-wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1c86cda04099890ab157b1ae5035" }
+naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "241cdd04a413ce5dc8547d7f4693297e403d40f3" }
+wgpu = { git = "https://github.com/cinnabar-mc/wgpu", rev = "241cdd04a413ce5dc8547d7f4693297e403d40f3" }
+wgpu-core = { git = "https://github.com/cinnabar-mc/wgpu", rev = "241cdd04a413ce5dc8547d7f4693297e403d40f3" }
+wgpu-hal = { git = "https://github.com/cinnabar-mc/wgpu", rev = "241cdd04a413ce5dc8547d7f4693297e403d40f3" }
+wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "241cdd04a413ce5dc8547d7f4693297e403d40f3" }
 
-wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "b9611d40466b1c86cda04099890ab157b1ae5035" }
+wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "241cdd04a413ce5dc8547d7f4693297e403d40f3" }
+
+# Iris conditions allow float option values and conditional expressions.
+pp-rs = { git = "https://github.com/cinnabar-mc/glslpp-rs", rev = "2032a88999c95c6ca0b397758dc97930089a6608" }
 
 [profile.dev]
 opt-level = 1

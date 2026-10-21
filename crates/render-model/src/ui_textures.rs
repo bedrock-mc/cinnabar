@@ -12,8 +12,8 @@ use crate::ui::{
 
 /// Buckets bind independently; page count and byte limits bound their residency.
 pub const MAX_UI_TEXTURE_BUCKETS: usize = MAX_UI_TEXTURE_LAYERS as usize;
-/// Replaceable pages after static UI: models, session glyphs, server UI, then a local font.
-pub const MAX_UI_DYNAMIC_PAGES: usize = UI_LOCAL_FONT_PAGE_OFFSET + 1;
+/// Replaceable pages after static UI: models, session glyphs, server UI, local font and particles.
+pub const MAX_UI_DYNAMIC_PAGES: usize = UI_PARTICLE_PAGE_OFFSET + 1;
 /// Side length shared by general dynamic UI pages outside original-resolution model slots.
 pub const UI_DYNAMIC_PAGE_SIDE: u32 = 256;
 /// Fixed dynamic slot carrying the original player skin, not a projected thumbnail.
@@ -22,9 +22,15 @@ pub const UI_MODEL_ATLAS_PAGE_OFFSET: usize = UI_PLAYER_SKIN_PAGE_OFFSET + 1;
 pub const MAX_UI_MODEL_ATLAS_PAGES: usize = 7;
 pub const UI_SESSION_ICON_PAGE_OFFSET: usize =
     UI_MODEL_ATLAS_PAGE_OFFSET + MAX_UI_MODEL_ATLAS_PAGES;
+/// Bounded session-font allocation, shared by the default and named bitmap fonts.
+pub const UI_SESSION_GLYPH_PAGE_OFFSET: usize = UI_SESSION_ICON_PAGE_OFFSET + 1;
+pub const UI_SESSION_GLYPH_PAGES: usize = 8;
+pub const UI_SESSION_GLYPH_PAGE_SIDE: u32 = 512;
 pub const UI_MODEL_ATLAS_SIDE: u32 = 512;
 /// Dedicated bounded local-font slot, outside the server glyph and UI allocations.
 pub const UI_LOCAL_FONT_PAGE_OFFSET: usize = 34;
+/// Dedicated original-resolution atlas for particles in player previews.
+pub const UI_PARTICLE_PAGE_OFFSET: usize = UI_LOCAL_FONT_PAGE_OFFSET + 1;
 pub const UI_LOCAL_FONT_PAGE_SIDE: u32 = 512;
 /// Dense local icon fonts use coverage texels, keeping the ordinary RGBA page's byte budget.
 pub const UI_LOCAL_ICON_FONT_PAGE_SIDE: u32 = UI_LOCAL_FONT_PAGE_SIDE * 2;
@@ -43,11 +49,17 @@ pub const MAX_UI_NATIVE_TEXTURE_GROWTH_BYTES: usize = (render_api::MAX_STANDARD_
     * render_api::MAX_STANDARD_SKIN_SIDE as usize
     + MAX_UI_MODEL_ATLAS_PAGES * UI_MODEL_ATLAS_SIDE as usize * UI_MODEL_ATLAS_SIDE as usize
     + MAX_UI_TEXTURE_SIDE as usize * MAX_UI_TEXTURE_SIDE as usize
-    - (MAX_UI_MODEL_ATLAS_PAGES + 2)
+    + UI_SESSION_GLYPH_PAGES
+        * UI_SESSION_GLYPH_PAGE_SIDE as usize
+        * UI_SESSION_GLYPH_PAGE_SIDE as usize
+    - (MAX_UI_MODEL_ATLAS_PAGES + UI_SESSION_GLYPH_PAGES + 2)
         * UI_DYNAMIC_PAGE_SIDE as usize
         * UI_DYNAMIC_PAGE_SIDE as usize)
     * UiTextureFormat::Rgba8.bytes_per_texel()
-    + MAX_UI_NATIVE_SHEET_BYTES;
+    + MAX_UI_NATIVE_SHEET_BYTES
+    + (MAX_UI_TEXTURE_SIDE as usize * MAX_UI_TEXTURE_SIDE as usize
+        - UI_DYNAMIC_PAGE_SIDE as usize * UI_DYNAMIC_PAGE_SIDE as usize)
+        * UiTextureFormat::Rgba8.bytes_per_texel();
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Pixels {
@@ -82,6 +94,9 @@ pub struct UiTexturePage {
     identity: [u8; 32],
     format: UiTextureFormat,
     pixels: Pixels,
+    /// Every texel is zero, as in an unused reserved slot.
+    blank: bool,
+    repeat_content: Option<[u32; 4]>,
 }
 
 impl UiTexturePage {
@@ -98,7 +113,9 @@ impl UiTexturePage {
             dimensions,
             identity: Sha256::digest(&pixels).into(),
             format: UiTextureFormat::Coverage,
+            blank: pixels.iter().all(|&byte| byte == 0),
             pixels: Pixels::Owned(pixels),
+            repeat_content: None,
         })
     }
     pub fn owned(dimensions: [u32; 2], pixels: Arc<[u8]>) -> Result<Self, UiRenderRejectReason> {
@@ -113,7 +130,9 @@ impl UiTexturePage {
             dimensions,
             identity: Sha256::digest(&pixels).into(),
             format: UiTextureFormat::Rgba8,
+            blank: pixels.iter().all(|&byte| byte == 0),
             pixels: Pixels::Owned(pixels),
+            repeat_content: None,
         })
     }
 
@@ -145,7 +164,33 @@ impl UiTexturePage {
             identity: identity.finalize().into(),
             format,
             pixels: Pixels::Font { catalog, page },
+            blank: false,
+            repeat_content: None,
         })
+    }
+
+    /// Records the non-overlapping content of an original-image page, excluding its filter halo.
+    pub fn with_repeat_content(mut self, bounds: [u32; 4]) -> Result<Self, UiRenderRejectReason> {
+        if bounds[0] >= bounds[2]
+            || bounds[1] >= bounds[3]
+            || bounds[2] > self.dimensions[0]
+            || bounds[3] > self.dimensions[1]
+        {
+            return Err(UiRenderRejectReason::InvalidTextureExtent);
+        }
+        let mut identity = Sha256::new();
+        identity.update(self.identity);
+        for value in bounds {
+            identity.update(value.to_le_bytes());
+        }
+        self.identity = identity.finalize().into();
+        self.repeat_content = Some(bounds);
+        Ok(self)
+    }
+
+    /// The source texels this page owns, separate from overlapping linear-filter neighbors.
+    pub fn repeat_content(&self) -> Option<[u32; 4]> {
+        self.repeat_content
     }
 
     /// Font pages reserve a bounded demand atlas; source texels remain in catalog coordinates.
@@ -179,6 +224,10 @@ impl UiTexturePage {
     }
     pub const fn identity(&self) -> [u8; 32] {
         self.identity
+    }
+    /// Whether every texel is zero. Font pages fill on demand and never count as blank.
+    pub const fn is_blank(&self) -> bool {
+        self.blank
     }
 }
 
@@ -301,12 +350,67 @@ impl UiTexturePlan {
     pub const fn bytes(&self) -> usize {
         self.bytes
     }
+
+    /// The storage this plan needs when the pages `blank` marks hold only zeros: in each
+    /// bucket, the blank pages after its last non-blank page share one layer after it, so
+    /// unused reserved slots cost one layer per bucket instead of one each. Earlier pages
+    /// keep their layers, so filling a slot or emptying one moves no other page.
+    fn sharing_blank(&self, blank: impl Fn(usize) -> bool) -> Self {
+        let mut used = vec![0_u32; self.buckets.len()];
+        for (page, location) in self.locations.iter().enumerate() {
+            if !blank(page) {
+                used[location.bucket] = used[location.bucket].max(location.layer + 1);
+            }
+        }
+        let mut shared = vec![false; self.buckets.len()];
+        let locations: Box<[UiTextureLocation]> = self
+            .locations
+            .iter()
+            .map(|location| {
+                let used = used[location.bucket];
+                if location.layer < used {
+                    *location
+                } else {
+                    shared[location.bucket] = true;
+                    UiTextureLocation {
+                        bucket: location.bucket,
+                        layer: used,
+                    }
+                }
+            })
+            .collect();
+        let buckets: Box<[UiTextureBucket]> = self
+            .buckets
+            .iter()
+            .zip(used.iter().zip(&shared))
+            .map(|(bucket, (&used, &shared))| UiTextureBucket {
+                layers: used + u32::from(shared),
+                ..*bucket
+            })
+            .collect();
+        let bytes = buckets
+            .iter()
+            .map(|bucket| {
+                bucket.dimensions[0] as usize
+                    * bucket.dimensions[1] as usize
+                    * bucket.layers as usize
+                    * bucket.format.bytes_per_texel()
+            })
+            .sum();
+        Self {
+            buckets,
+            locations,
+            bytes,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
 pub struct UiTextureCatalog {
     pages: Arc<[UiTexturePage]>,
     plan: UiTexturePlan,
+    /// `plan` with blank trailing pages sharing a layer: what the GPU allocates.
+    resident: UiTexturePlan,
     dynamic_start: usize,
     identity: [u8; 32],
     static_identity: [u8; 32],
@@ -410,9 +514,11 @@ impl UiTextureCatalog {
                 static_pages.update(page.identity);
             }
         }
+        let resident = plan.sharing_blank(|page| pages[page].is_blank());
         Ok(Self {
             pages: pages.into(),
             plan,
+            resident,
             dynamic_start,
             identity: all.finalize().into(),
             static_identity: static_pages.finalize().into(),
@@ -442,6 +548,11 @@ impl UiTextureCatalog {
     }
     pub fn plan(&self) -> &UiTexturePlan {
         &self.plan
+    }
+    /// The layout the GPU holds the pages in: [`Self::plan`] with each bucket's trailing
+    /// blank pages sharing one layer.
+    pub fn resident_plan(&self) -> &UiTexturePlan {
+        &self.resident
     }
     /// Native slots are charged at their blank extent; only their growth uses reserved capacity.
     pub fn fixed_budget_bytes(&self) -> usize {
@@ -481,7 +592,10 @@ fn fixed_budget_bytes(pages: &[UiTexturePage], dynamic_start: usize) -> usize {
 /// Original sources can resize within reserved capacity without changing logical slots.
 fn is_resizable_slot(offset: usize) -> bool {
     offset == UI_LOCAL_FONT_PAGE_OFFSET
+        || offset == UI_PARTICLE_PAGE_OFFSET
         || (UI_PLAYER_SKIN_PAGE_OFFSET..=UI_SESSION_ICON_PAGE_OFFSET).contains(&offset)
+        || (UI_SESSION_GLYPH_PAGE_OFFSET..UI_SESSION_GLYPH_PAGE_OFFSET + UI_SESSION_GLYPH_PAGES)
+            .contains(&offset)
         || (UI_NATIVE_SHEET_PAGE_OFFSET..UI_NATIVE_SHEET_PAGE_OFFSET + MAX_UI_NATIVE_SHEET_PAGES)
             .contains(&offset)
 }
@@ -508,6 +622,11 @@ fn valid_dynamic_dimensions(
     if [width, height] == [UI_DYNAMIC_PAGE_SIDE; 2] {
         return true;
     }
+    if (UI_SESSION_GLYPH_PAGE_OFFSET..UI_SESSION_GLYPH_PAGE_OFFSET + UI_SESSION_GLYPH_PAGES)
+        .contains(&offset)
+    {
+        return [width, height] == [UI_SESSION_GLYPH_PAGE_SIDE; 2];
+    }
     if offset == UI_PLAYER_SKIN_PAGE_OFFSET {
         let classic = render_api::CLASSIC_SKIN_SIDE as u32;
         return (width == classic && height == classic / 2)
@@ -518,7 +637,7 @@ fn valid_dynamic_dimensions(
     if (UI_MODEL_ATLAS_PAGE_OFFSET..UI_SESSION_ICON_PAGE_OFFSET).contains(&offset) {
         return [width, height] == [UI_MODEL_ATLAS_SIDE; 2];
     }
-    if offset == UI_SESSION_ICON_PAGE_OFFSET {
+    if offset == UI_SESSION_ICON_PAGE_OFFSET || offset == UI_PARTICLE_PAGE_OFFSET {
         return width == height
             && width.is_power_of_two()
             && (UI_DYNAMIC_PAGE_SIDE..=MAX_UI_TEXTURE_SIDE).contains(&width);
@@ -532,6 +651,18 @@ mod budget_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repeated_page_ownership_is_validated_and_changes_content_identity() {
+        let page = UiTexturePage::owned([2, 2], Arc::from([255; 16])).unwrap();
+        let left = page.clone().with_repeat_content([0, 0, 1, 2]).unwrap();
+        let right = page.clone().with_repeat_content([1, 0, 2, 2]).unwrap();
+        assert_ne!(left.identity(), right.identity());
+        assert_eq!(left.repeat_content(), Some([0, 0, 1, 2]));
+        for bounds in [[0, 0, 3, 2], [2, 0, 1, 2], [0, 1, 2, 1]] {
+            assert!(page.clone().with_repeat_content(bounds).is_err());
+        }
+    }
 
     /// Dense icon coverage fits the old local-font byte budget; RGBA cannot use the larger extent.
     #[test]
@@ -599,5 +730,51 @@ mod tests {
             }
         );
         assert_eq!(plan.bytes(), 64 * 64 * (1 + 4 + 1));
+    }
+
+    /// Blank pages after a bucket's last used page share one layer; earlier ones keep theirs.
+    #[test]
+    fn trailing_blank_pages_share_one_resident_layer() {
+        let side = UI_DYNAMIC_PAGE_SIDE;
+        let page = |value: u8| {
+            UiTexturePage::owned([side; 2], vec![value; (side * side * 4) as usize].into()).unwrap()
+        };
+        let art = || {
+            let side = UI_ART_PAGE_SIDE as usize;
+            UiTexturePage::owned([UI_ART_PAGE_SIDE; 2], vec![0; side * side * 4].into()).unwrap()
+        };
+        // Bucket 0: used, blank, used, blank, blank. Bucket 1: blank, blank.
+        let pages = [page(1), page(0), page(2), art(), page(0), art(), page(0)];
+        let plan = UiTexturePlan::with_formats(
+            &pages
+                .iter()
+                .map(|page| (page.dimensions(), page.format()))
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        let resident = plan.sharing_blank(|index| pages[index].is_blank());
+        let layers: Vec<_> = resident
+            .locations()
+            .iter()
+            .map(|location| (location.bucket, location.layer))
+            .collect();
+        assert_eq!(
+            layers,
+            [(0, 0), (0, 1), (0, 2), (1, 0), (0, 3), (1, 0), (0, 3)]
+        );
+        assert_eq!(
+            resident
+                .buckets()
+                .iter()
+                .map(|b| b.layers)
+                .collect::<Vec<_>>(),
+            [4, 1]
+        );
+        let rgba = |side: u32| side as usize * side as usize * 4;
+        assert_eq!(
+            resident.bytes(),
+            4 * rgba(side) + rgba(UI_ART_PAGE_SIDE),
+            "one of five small layers and one of two art layers saved"
+        );
     }
 }

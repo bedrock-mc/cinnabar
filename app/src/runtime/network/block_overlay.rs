@@ -14,6 +14,7 @@ mod storage;
 mod texture_admission;
 mod textures;
 use texture_admission::TextureSlots;
+pub(super) use textures::SharedTextures;
 mod vanilla;
 
 use std::{
@@ -51,7 +52,7 @@ const MAX_OVERLAY_SHARDS: usize = assets::MAX_TEXTURE_PAGES - 1;
 const DIAGNOSTIC_MATERIAL: u32 = 0;
 
 /// Counted reasons some server block visuals are incomplete this session.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct OverlayGaps {
     pub(crate) missing_textures: u32,
     pub(crate) missing_geometry: u32,
@@ -65,15 +66,16 @@ pub(crate) struct OverlayGaps {
     pub(crate) saturated_textures: u32,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct CompiledBlockOverlay {
+    #[serde(with = "super::resource_packs::disk_cache::blocks::BlockOverlay")]
     pub(crate) overlay: BlockOverlay,
     pub(crate) gaps: OverlayGaps,
     pub(crate) vanilla_carried: Vec<CarriedBlock>,
 }
 
 /// Carried textures for one eligible vanilla full cube.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct CarriedBlock {
     pub(crate) visual: u32,
     pub(crate) faces: [u32; 6],
@@ -84,6 +86,7 @@ pub(crate) struct CarriedBlock {
 /// `base_assets` supplies the base carrier so faces naming
 /// vanilla textures the server stack does not ship can reuse the base page
 /// instead of degrading; server rasters still win whenever they decode.
+#[cfg(test)]
 pub(super) fn compile_block_overlay(
     view: &LayeredPackView,
     blocks: &CustomBlocks,
@@ -91,6 +94,27 @@ pub(super) fn compile_block_overlay(
     vanilla_keys: Option<&MaterialKeys>,
     max_texture_array_layers: u32,
     base_assets: Option<&assets::RuntimeAssets>,
+) -> Option<CompiledBlockOverlay> {
+    compile_block_overlay_with_textures(
+        view,
+        blocks,
+        hashed,
+        vanilla_keys,
+        max_texture_array_layers,
+        base_assets,
+        None,
+    )
+}
+
+/// Compiles world or inventory visuals using the same parsed terrain tables when available.
+pub(super) fn compile_block_overlay_with_textures(
+    view: &LayeredPackView,
+    blocks: &CustomBlocks,
+    hashed: bool,
+    vanilla_keys: Option<&MaterialKeys>,
+    max_texture_array_layers: u32,
+    base_assets: Option<&assets::RuntimeAssets>,
+    shared: Option<&SharedTextures>,
 ) -> Option<CompiledBlockOverlay> {
     if max_texture_array_layers == 0
         || base_assets.is_some_and(|base| base.materials().len() >= assets::MAX_MATERIALS)
@@ -115,7 +139,7 @@ pub(super) fn compile_block_overlay(
         .collect::<HashSet<_>>();
     let max_layers = (max_texture_array_layers as usize).min(MAX_OVERLAY_LAYERS);
     let texture_policy = terrain_texture_policy();
-    let mut catalog = TextureCatalog::new(view, vanilla_keys);
+    let mut catalog = TextureCatalog::reusing(view, vanilla_keys, shared);
     catalog.texture_policy = texture_policy;
     let geometries = geometry_catalog(view, &wanted);
     let mut builder = Builder {
@@ -171,10 +195,17 @@ pub(super) fn compile_block_overlay(
                     Some(&state.values),
                     &mut builder.gaps,
                 );
-                visual.components.random_offset =
-                    block.physics_for_state(index as u32).random_offset;
+                let physics = block.physics_for_state(index as u32);
+                visual.components.random_offset = physics.random_offset;
                 legacy.apply(&block.name, &mut visual.components);
-                builder.push_state(&visual, &geometries);
+                builder.push_state(
+                    &visual,
+                    &geometries,
+                    block,
+                    block
+                        .mining_for_state(index as u32)
+                        .map(|mining| mining.seconds_to_destroy),
+                );
                 builder.overlay.hashes.push(Some(state.hash));
             }
             continue;
@@ -183,9 +214,17 @@ pub(super) fn compile_block_overlay(
             let values = block.state_values(state);
             let mut visual =
                 condition::state_visual(block, &expressions, values.as_deref(), &mut builder.gaps);
-            visual.components.random_offset = block.physics_for_state(state).random_offset;
+            let physics = block.physics_for_state(state);
+            visual.components.random_offset = physics.random_offset;
             legacy.apply(&block.name, &mut visual.components);
-            builder.push_state(&visual, &geometries);
+            builder.push_state(
+                &visual,
+                &geometries,
+                block,
+                block
+                    .mining_for_state(state)
+                    .map(|mining| mining.seconds_to_destroy),
+            );
             builder
                 .overlay
                 .hashes
@@ -274,10 +313,25 @@ struct Builder<'a> {
 }
 
 impl Builder<'_> {
-    /// Appends one state while borrowing the immutable geometry catalog across visual variants.
-    fn push_state(&mut self, state: &StateVisual, geometries: &HashMap<String, Geometry>) {
+    /// Appends a state's mining value after reusing equivalent visual geometry.
+    fn push_state(
+        &mut self,
+        state: &StateVisual,
+        geometries: &HashMap<String, Geometry>,
+        block: &protocol::CustomBlock,
+        seconds_to_destroy: Option<f32>,
+    ) {
         let light = state_light(&state.components);
-        let visual = self.visual(state, geometries);
+        let mut visual = self.visual(state, geometries);
+        visual.destroy = seconds_to_destroy.map_or(
+            assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
+            |seconds| assets::compiled::block_destroy::BlockDestroyFacts::Custom {
+                seconds_to_destroy_bits: seconds.to_bits(),
+                effective_tools: assets::facts::block::custom_block_effective_tools(
+                    block.tags.iter().map(AsRef::as_ref),
+                ),
+            },
+        );
         if state.components.random_offset.is_some()
             && matches!(
                 state.components.geometry.as_deref(),

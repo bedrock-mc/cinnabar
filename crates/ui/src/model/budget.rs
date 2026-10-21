@@ -19,7 +19,7 @@ impl DrawCounts {
     pub(super) fn of(visual: &UiVisual) -> Result<Self, UiError> {
         let quads = match visual {
             UiVisual::None => 0,
-            UiVisual::Mesh(mesh) => {
+            UiVisual::Mesh(mesh) | UiVisual::TintedMesh { mesh, .. } => {
                 return Ok(Self {
                     quads: 0,
                     mesh_vertices: mesh.draw_vertex_count(),
@@ -31,6 +31,7 @@ impl DrawCounts {
             | UiVisual::Sprite { .. }
             | UiVisual::GlintSprite { .. }
             | UiVisual::StyledSprite { .. }
+            | UiVisual::RepeatedSprite { .. }
             | UiVisual::Gradient { .. }
             | UiVisual::RotatedSprite { .. }
             | UiVisual::InvertedSprite { .. } => 1,

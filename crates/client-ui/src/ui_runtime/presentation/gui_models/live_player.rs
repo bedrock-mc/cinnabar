@@ -18,6 +18,8 @@ pub(super) struct LivePlayer {
     hat_pose: std::collections::HashMap<cosmetics::Item, render_model::hats::HatPoseCache>,
     pub(super) hat_motion: std::collections::HashMap<cosmetics::Item, render_model::hats::Motion>,
     bones: Vec<RenderBoneTransform>,
+    pub(super) emitter_owner: Option<(u64, u64, u64)>,
+    pub(super) emitters: Vec<(cosmetics::Item, usize, render_model::ActorEmitterTransform)>,
     pub(super) parts: [Option<Affine3A>; 6],
     pub(super) fire_size: Option<[f32; 2]>,
     pub(super) outer_y: f32,
@@ -61,6 +63,8 @@ impl UiPresentationRuntime {
         live.vertices.clear();
         live.cape_vertices.clear();
         live.hat_vertices.clear();
+        live.emitters.clear();
+        live.emitter_owner = None;
         live.parts = [None; 6];
         live.fire_size = None;
         live.outer_y = if swimming {
@@ -75,6 +79,13 @@ impl UiPresentationRuntime {
             return;
         };
         let id = stream.local_player_runtime_id();
+        live.emitter_owner = stream.authority().actor(id).map(|actor| {
+            (
+                stream.authority().actor_session_id(),
+                id,
+                actor.spawn_revision,
+            )
+        });
         live.fire_size = stream.authority().actor(id).and_then(|actor| {
             live.fire.observe(
                 (
@@ -154,21 +165,35 @@ impl UiPresentationRuntime {
         live.hat_pose
             .retain(|item, _| self.menu_preview_model.cosmetics.contains(item));
         for &hat in &self.menu_preview_model.cosmetics {
-            let Some(index) = rig
-                .bone_names
-                .iter()
-                .position(|bone| bone.eq_ignore_ascii_case(&hat.descriptor().attachment_bone))
-            else {
+            let cache = live.hat_pose.entry(hat).or_default();
+            let Some(index) = cache.anchor(hat, rig.attachments, rig.bone_names) else {
                 continue;
             };
             let Some(head) = live.bones.get(index) else {
                 continue;
             };
-            let pose = live.hat_pose.entry(hat).or_default().pose(
+            let pose = cache.pose(
                 hat,
                 *head,
                 live.hat_motion.get(&hat).copied().unwrap_or_default(),
             );
+            let world = frame.matrix3.to_cols_array_2d();
+            let translation = frame.translation.to_array();
+            let world = std::array::from_fn(|row| {
+                [
+                    world[0][row],
+                    world[1][row],
+                    world[2][row],
+                    translation[row],
+                ]
+            });
+            for index in 0..render_model::hats::rig(hat).emitters().len() {
+                if let Some(transform) =
+                    render_model::hats::rig(hat).emitter_transform(index, &pose, &pose, world, 1.0)
+                {
+                    live.emitters.push((hat, index, transform));
+                }
+            }
             let vertices = live.hat_vertices.entry(hat).or_default();
             project_vertices(
                 &render_model::hats::rig(hat).geometry,
@@ -179,8 +204,15 @@ impl UiPresentationRuntime {
             discard_collapsed_faces(vertices);
         }
         if draw_cape && let Some(cape) = &self.gui_models.cape {
-            let pose = cape.pose(
-                rig.bone_names,
+            let bindings = rig
+                .attachments
+                .and_then(|bindings| bindings.cape_for(cape))
+                .map_or_else(
+                    || std::borrow::Cow::Owned(cape.bind(rig.bone_names)),
+                    std::borrow::Cow::Borrowed,
+                );
+            let pose = cape.pose_bound(
+                &bindings,
                 |index| rig.rest.get(index).and_then(render_bone),
                 &live.bones,
                 None,

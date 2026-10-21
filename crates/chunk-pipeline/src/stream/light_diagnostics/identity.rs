@@ -1,8 +1,8 @@
 //! Bounded block identities for lighting observations.
 
-use std::{collections::BTreeMap, fmt::Write, sync::OnceLock};
+use std::{collections::BTreeMap, fmt::Write};
 
-use assets::{NetworkIdMode, RegistryRecord};
+use assets::NetworkIdMode;
 use client_world::ingestion::{CustomBlocks, CustomStateValue, DecodeIds};
 
 use crate::stream::WorldStream;
@@ -132,26 +132,12 @@ fn pinned_identity(provenance: &assets::BlobProvenance, sequential_id: u32) -> O
     if provenance.block_registry_sha256 != assets::pinned_world_provenance().block_registry_sha256 {
         return None;
     }
-    let state = pinned_states().get(sequential_id as usize)?;
-    (state.sequential_id == sequential_id).then(|| {
-        format!(
-            "name={} states={}",
-            bounded_text(&state.name, MAX_IDENTITY_TEXT / 2),
-            bounded_text(&state.canonical_state, MAX_IDENTITY_TEXT / 2)
-        )
-    })
-}
-
-/// Loads identities once from the same pinned registry used to validate the carrier.
-fn pinned_states() -> &'static [RegistryRecord] {
-    static STATES: OnceLock<Box<[RegistryRecord]>> = OnceLock::new();
-    STATES.get_or_init(|| {
-        assets::read_registry_for_protocol(
-            assets::pinned_block_registry_bytes(),
-            assets::active_content_registry_protocol(),
-        )
-        .unwrap_or_default()
-    })
+    let (name, state) = assets::pinned_block_identity(sequential_id)?;
+    Some(format!(
+        "name={} states={}",
+        bounded_text(name, MAX_IDENTITY_TEXT / 2),
+        bounded_text(state, MAX_IDENTITY_TEXT / 2)
+    ))
 }
 
 /// Keeps server-provided text on one line and caps its UTF-8 output size.
@@ -180,6 +166,15 @@ mod tests {
     };
     use std::sync::Arc;
 
+    /// Decodes the complete pinned records only as an independent identity oracle for tests.
+    fn pinned_states() -> Box<[assets::RegistryRecord]> {
+        assets::read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .unwrap()
+    }
+
     /// Creates a diagnostic world whose custom palette has one two-valued state axis.
     fn custom_stream(hashed: bool) -> WorldStream {
         let mut stream = WorldStream::new(WorldBootstrap {
@@ -195,8 +190,10 @@ mod tests {
         stream.set_sequential_id_remap(assets::SequentialIdRemap::new([(3, 2, 10)]));
         stream.set_light_diagnostic_custom_blocks(CustomBlocks {
             blocks: Arc::from([CustomBlock {
+                mining: Default::default(),
                 state_physics_complete: false,
                 state_physics: Default::default(),
+                state_mining: Default::default(),
                 player_interact: false,
                 name: Arc::from("test:roof"),
                 tags: Default::default(),
@@ -223,6 +220,21 @@ mod tests {
     }
 
     #[test]
+    fn first_pinned_identity_lookup_avoids_registry_materialization() {
+        let _ = assets::active_content_registry_protocol();
+        let provenance = assets::pinned_world_provenance();
+        let id = protocol_ids::SEQUENTIAL_AIR_NETWORK_ID;
+        let (cold, cold_allocations) = test_alloc::count(|| pinned_identity(provenance, id));
+        let (warm, warm_allocations) = test_alloc::count(|| pinned_identity(provenance, id));
+        assert_eq!(cold, warm);
+        assert!(cold.is_some());
+        assert!(
+            cold_allocations <= warm_allocations + 1,
+            "cold identity lookup allocated {cold_allocations} times versus {warm_allocations} for formatting; only one borrowed index allocation is needed"
+        );
+    }
+
+    #[test]
     fn identities_use_the_pinned_palette_and_bound_untrusted_text() {
         assert!(
             pinned_states()
@@ -237,7 +249,8 @@ mod tests {
 
     #[test]
     fn vanilla_identity_formats_pinned_state_and_rejects_mismatched_carrier() {
-        let state = pinned_states()
+        let records = pinned_states();
+        let state = records
             .iter()
             .find(|state| state.name.as_ref() == "minecraft:oak_stairs")
             .expect("pinned oak stairs state");

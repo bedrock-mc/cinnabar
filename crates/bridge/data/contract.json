@@ -10,9 +10,6 @@
     {"rust_name": "KIND_PACK_DATA", "go_name": "SessionKindPackData", "value": 4, "rust_type": "u8", "doc": "Core resource-pack index followed by archive bytes."},
     {"rust_name": "KIND_TRANSFER", "go_name": "SessionKindTransfer", "value": 5, "rust_type": "u8", "doc": "Terminal core transfer message."},
     {"rust_name": "KIND_DISCONNECT", "go_name": "SessionKindDisconnect", "value": 6, "rust_type": "u8", "doc": "Terminal core disconnect message."},
-    {"rust_name": "MAX_SELECTED_PACKS", "go_name": "MaxSelectedPacks", "value": 32, "rust_type": "usize", "doc": "Most selected server pack archives admitted for one join."},
-    {"rust_name": "MAX_PACK_ARCHIVE_BYTES", "go_name": "MaxPackArchiveBytes", "value": 67108864, "rust_type": "usize", "doc": "Largest admitted server pack archive in bytes."},
-    {"rust_name": "MAX_SELECTED_PACK_BYTES", "go_name": "MaxSelectedPackBytes", "value": 134217728, "rust_type": "usize", "doc": "Largest total selected server pack archives in bytes."},
     {"rust_name": "PACK_CHUNK_BYTES", "go_name": "SessionPackChunkBytes", "value": 4194304, "rust_type": "usize", "doc": "Archive bytes in one resource-pack data frame."},
     {"rust_name": "LATENCY_TRACE_ENV", "go_name": "LatencyTraceEnv", "value": "CINNABAR_LATENCY_TRACE", "rust_type": "str", "doc": "Names the directory both processes write packet latency traces to; unset disables tracing."},
     {"rust_name": "HOSTED_WORLD_MAX_PLAYERS", "go_name": "HostedWorldMaxPlayers", "value": 8, "rust_type": "u32", "doc": "Vanilla's player limit for a hosted local world, the host included."},
@@ -92,7 +89,7 @@
     {
       "rust_name": "CINNABAR_API_BASE_URL",
       "go_name": "CinnabarAPIBaseURL",
-      "value": "https://cinnabar-api.cinnabar-api.workers.dev",
+      "value": "https://api.cinnabar.gg",
       "rust_type": "str",
       "doc": "Cinnabar API origin; the package workflow reads it from this manifest."
     },
@@ -514,6 +511,20 @@
           "go_name": "Loadouts",
           "type": "list:CinnabarRemoteLoadout",
           "doc": "Nearby authenticated loadouts."
+        },
+        {
+          "name": "ownership_xuid",
+          "go_name": "OwnershipXUID",
+          "type": "string",
+          "default": true,
+          "doc": "Verified local account identity, empty while disconnected."
+        },
+        {
+          "name": "owned_cosmetics",
+          "go_name": "OwnedCosmetics",
+          "type": "strings",
+          "default": true,
+          "doc": "Paid grants supplied by the account API database."
         }
       ]
     }

@@ -13,7 +13,7 @@ and friends' worlds with vanilla behaviour, and it's built to run much faster th
 client.
 
 [![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/MeEz7BEHcM)
-[![Website](https://img.shields.io/badge/Website-cinnabar.restartfu.com-B22222)](https://cinnabar.restartfu.com/)
+[![Website](https://img.shields.io/badge/Website-cinnabar.gg-B22222)](https://cinnabar.gg/)
 
 <img width="1282" height="752" alt="Cinnabar in game" src="https://github.com/user-attachments/assets/ca040799-e00e-4a6e-85f8-a0e28af6ea72" />
 
@@ -31,10 +31,9 @@ No Mojang assets are bundled. The release notes explain how to open unsigned bui
 make play
 ```
 
-This fetches and compiles the vanilla assets, builds the Go core, and opens the launcher. Sign-in
-uses a Microsoft device code. The token is cached in `.local/auth/`, so never share or commit
-that folder. `make play PROFILE=release` builds the fully optimised binary, and `make help` lists
-every target.
+This fetches the vanilla assets, builds the Go core and opens the launcher. Sign in with the
+Microsoft device code; the token stays in `.local/auth/`, so never share or commit it. Use
+`make play PROFILE=release` for an optimised build, and `make help` for every target.
 
 On Debian/Ubuntu, install `libwayland-dev` and `libudev-dev` first.
 
@@ -52,7 +51,8 @@ Vanilla behaviour is the default. Everything below is extra:
 | **Discord** | Rich presence, plus joining and inviting friends through Discord. See [docs/discord.md](docs/discord.md). |
 | **Cinnabar players** | A badge on other Cinnabar players in the tab list, and update notices as soon as a release ships. See [docs/cinnabar-api.md](docs/cinnabar-api.md). |
 | **Mods** *(preview)* | Sandboxed WebAssembly mods that hot-reload, for your own client and for servers. Servers can use it as a Roblox-style game engine, shipping client code that replaces the UI, rendering, input and game logic (in-world video included) to turn a server into an entirely different game. See [docs/modding-spike.md](docs/modding-spike.md) and [docs/server-experiences.md](docs/server-experiences.md). |
-| **JSON-UI editor** | Preview and edit pack UI exactly as Cinnabar renders it, at [cinnabar-mc.github.io/cinnabar](https://cinnabar-mc.github.io/cinnabar/). |
+| **JSON-UI editor** | Preview and edit pack UI exactly as Cinnabar renders it, at [jsonui.cinnabar.gg](https://jsonui.cinnabar.gg/). |
+| **Figma to JSON-UI** | A Figma plugin that turns a frame into a JSON-UI screen and resource pack. [Download it](https://jsonui.cinnabar.gg/figma-plugin.zip), or see [tools/figma-plugin](tools/figma-plugin/README.md). |
 
 ## How it works
 
@@ -92,6 +92,10 @@ cargo run -p devtool --locked -- verify-affected --base origin/dev
 ```
 
 Contributor rules are in [AGENTS.md](AGENTS.md) and [docs/agents/](docs/agents/).
+
+## Star history
+
+[![Star history chart](https://api.star-history.com/svg?repos=cinnabar-mc/cinnabar&type=Date)](https://star-history.com/#cinnabar-mc/cinnabar&Date)
 
 ## License
 

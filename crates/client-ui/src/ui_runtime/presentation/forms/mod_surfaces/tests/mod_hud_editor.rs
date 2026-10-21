@@ -47,18 +47,19 @@ fn editor_drag_uses_real_scaled_hit_regions_and_retains_its_catalog() {
         ([2560, 1440], 2., 3),
     ] {
         let mut p = presentation(false);
+        let runtime = UiRuntime::new(1);
         p.set_gui_scale_preference(Some(gui));
         let mut hud = content();
         hud.cards[0].title.clear();
         editor(&mut p, &hud);
-        frame(&mut p, &UiRuntime::new(1), size, dpi);
+        frame(&mut p, &runtime, size, dpi);
         let at = point(&p, "hud.card:0");
         let catalog = Arc::clone(p.mod_ui().mod_hud_editor_state().unwrap().catalog.unwrap());
         p.mod_ui_mut().mod_panel_events(at, true, true);
         // Pointer capture persists outside the hit region, clamps at both screen edges.
         p.mod_ui_mut()
             .mod_panel_events([10000., 10000.], false, true);
-        frame(&mut p, &UiRuntime::new(1), size, dpi);
+        frame(&mut p, &runtime, size, dpi);
         let draft = p.mod_ui().mod_hud_editor_state().unwrap().draft;
         assert_eq!(draft.cards[0].position, Some([1., 1.]));
         assert!(Arc::ptr_eq(
@@ -69,7 +70,21 @@ fn editor_drag_uses_real_scaled_hit_regions_and_retains_its_catalog() {
             .mod_panel_events([-1000., -1000.], false, false);
         assert_eq!(
             p.mod_ui().mod_hud_editor_state().unwrap().draft.cards[0].position,
-            Some([0., 0.])
+            None
+        );
+        let draft = &p.mod_ui().mod_hud_editor_state().unwrap().draft.cards[0];
+        assert_eq!(draft.anchor, Anchor::TopLeft);
+        assert_eq!(draft.offset, [0.; 2]);
+        frame(&mut p, &runtime, size, dpi);
+        let passes = p.mod_ui().mod_hud_editor_state().unwrap().passes;
+        frame(&mut p, &runtime, size, dpi);
+        assert_eq!(p.mod_ui().mod_hud_editor_state().unwrap().passes, passes);
+        assert!(
+            Arc::ptr_eq(
+                &catalog,
+                p.mod_ui().mod_hud_editor_state().unwrap().catalog.unwrap()
+            ),
+            "completed anchoring and steady frames retain the catalog"
         );
         p.mod_ui_mut().mod_panel_key("Enter", None);
         let result = p.mod_ui_mut().take_mod_hud_editor_result().unwrap();
@@ -133,7 +148,11 @@ fn custom_row_layout_drag_bounds_match_the_rendered_card_surface() {
             p.mod_ui_mut().mod_panel_events([10000.; 2], false, false);
             assert_eq!(
                 p.mod_ui().mod_hud_editor_state().unwrap().draft.cards[0].position,
-                Some([1., 1.])
+                None
+            );
+            assert_eq!(
+                p.mod_ui().mod_hud_editor_state().unwrap().draft.cards[0].anchor,
+                Anchor::BottomRight
             );
         }
     }
@@ -144,7 +163,7 @@ fn editor_selection_preserves_legacy_placement_and_reset_is_a_draft() {
     let mut hud = content();
     hud.cards[0].title.clear();
     hud.cards[0].anchor = Anchor::BottomRight;
-    hud.cards[0].offset = [-6., -40.];
+    hud.cards[0].offset = [6., 40.];
     hud.cards[0].reset_anchor = Some(Anchor::TopLeft);
     hud.cards[0].reset_offset = Some([6., 6.]);
     editor(&mut p, &hud);
@@ -169,7 +188,9 @@ fn editor_selection_preserves_legacy_placement_and_reset_is_a_draft() {
     p.mod_ui_mut().mod_panel_key("Enter", None);
     let result = p.mod_ui_mut().take_mod_hud_editor_result().unwrap();
     assert!(result.saved && result.reset);
-    assert_eq!(result.placements[0].position, None);
+    assert_eq!(result.placements[0].anchor, Anchor::TopLeft);
+    assert_eq!(result.placements[0].offset, [6., 6.]);
+    assert!(result.placements[0].position.is_some());
     assert!(p.mod_ui().mod_panel_open());
 }
 #[test]
@@ -180,6 +201,9 @@ fn editor_grid_is_optional_and_nudging_stays_inside_available_travel() {
     editor(&mut p, &hud);
     frame(&mut p, &UiRuntime::new(1), [1920, 1080], 1.);
     click(&mut p, "hud.grid");
+    assert!(p.mod_ui().mod_hud_editor_state().unwrap().grid);
+    assert!(!p.mod_ui().mod_hud_editor_state().unwrap().snap);
+    click(&mut p, "hud.snap");
     assert!(p.mod_ui().mod_hud_editor_state().unwrap().snap);
     let at = point(&p, "hud.card:0");
     p.mod_ui_mut().mod_panel_events(at, true, true);
@@ -193,6 +217,77 @@ fn editor_grid_is_optional_and_nudging_stays_inside_available_travel() {
     let e = p.mod_ui().mod_hud_editor_state().unwrap();
     let moved = card_origin(&e.draft.cards[0], e.viewport);
     assert!((moved[0] - origin[0] - 8.).abs() < 0.001);
+}
+
+/// Real pointer releases in all nine regions retain their GUI placement after a window resize.
+#[test]
+fn anchored_editor_drops_keep_offsets_across_window_and_gui_scale_changes() {
+    for (row, anchors) in [
+        [Anchor::TopLeft, Anchor::TopCenter, Anchor::TopRight],
+        [Anchor::Left, Anchor::Center, Anchor::Right],
+        [
+            Anchor::BottomLeft,
+            Anchor::BottomCenter,
+            Anchor::BottomRight,
+        ],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        for (column, expected) in anchors.into_iter().enumerate() {
+            let mut p = presentation(false);
+            p.set_gui_scale_preference(Some(1));
+            let mut hud = content();
+            hud.autosave = true;
+            hud.cards[0].width = 100.;
+            hud.cards[0].title.clear();
+            editor(&mut p, &hud);
+            frame(&mut p, &UiRuntime::new(1), [1920, 1080], 1.);
+            let e = p.mod_ui().mod_hud_editor_state().unwrap();
+            let size = card_dimensions(&e.draft.cards[0]);
+            let before = card_origin(&e.draft.cards[0], e.viewport);
+            let target: [f64; 2] = std::array::from_fn(|axis| {
+                e.viewport[axis] * ([column, row][axis] as f64 + 0.5) / 3. - size[axis] * 0.5
+            });
+            let px = e.frame.unwrap().scale;
+            let at = point(&p, "hud.card:0");
+            let destination =
+                std::array::from_fn(|axis| at[axis] + ((target[axis] - before[axis]) as f32 * px));
+            p.mod_ui_mut().mod_panel_events(at, true, true);
+            p.mod_ui_mut().mod_panel_events(destination, false, false);
+            let saved = p.mod_ui_mut().take_mod_hud_editor_result().unwrap();
+            let placement = &saved.placements[0];
+            assert_eq!(placement.anchor, expected);
+            assert!(
+                p.mod_ui().mod_hud_editor_state().unwrap().draft.cards[0]
+                    .position
+                    .is_none()
+            );
+            let e = p.mod_ui().mod_hud_editor_state().unwrap();
+            let dropped = card_origin(&e.draft.cards[0], e.viewport);
+            for axis in 0..2 {
+                assert!((dropped[axis] - target[axis]).abs() < 0.001);
+            }
+            for (window, gui) in [([2560, 1440], 1), ([2560, 1440], 2)] {
+                p.set_gui_scale_preference(Some(gui));
+                frame(&mut p, &UiRuntime::new(1), window, 1.);
+                let e = p.mod_ui().mod_hud_editor_state().unwrap();
+                let card = &e.draft.cards[0];
+                assert_eq!(card.anchor, expected);
+                assert_eq!(card.offset, placement.offset);
+                let origin = card_origin(card, e.viewport);
+                for axis in 0..2 {
+                    let fraction = [column, row][axis] as f64 * 0.5;
+                    let distance =
+                        origin[axis] + size[axis] * fraction - e.viewport[axis] * fraction;
+                    let direction = if fraction == 1. { -1. } else { 1. };
+                    assert!(
+                        (distance * direction - f64::from(placement.offset[axis])).abs() < 0.001
+                    );
+                }
+            }
+        }
+    }
 }
 #[test]
 fn large_editor_viewport_draws_a_bounded_subset_of_the_same_eight_pixel_grid() {
@@ -287,8 +382,12 @@ fn editor_style_recolors_outlines_and_resize_handles() {
     editor(&mut p, &hud);
     let runtime = UiRuntime::new(1);
     frame(&mut p, &runtime, [1280, 720], 1.);
-    assert!(emits(&p, [0, 0, 255, 255]), "unselected outline");
+    assert!(!emits(&p, [0, 0, 255, 255]), "idle cards draw no outline");
     assert!(emits(&p, [255, 255, 0, 255]), "resize handle");
+    let at = point(&p, "hud.card:0");
+    p.mod_ui_mut().mod_panel_events(at, false, false);
+    frame(&mut p, &runtime, [1280, 720], 1.);
+    assert!(emits(&p, [0, 0, 255, 255]), "hovered outline");
     assert!(
         !emits(&p, [76, 217, 255, 255]),
         "built-in handle color is replaced"
@@ -382,7 +481,7 @@ fn hud_grid_editor_snapshot_with_real_carrier() {
         id: "effects".into(),
         title: "Effects".into(),
         anchor: Anchor::TopRight,
-        offset: [-8., 30.],
+        offset: [8., 30.],
         rows: vec![ui::mod_hud::Row {
             localized: false,
             formatted: false,
@@ -430,16 +529,20 @@ fn hud_grid_editor_snapshot_with_real_carrier() {
     p.mod_ui_mut().mod_panel_key("Enter", None);
     let result = p.mod_ui_mut().take_mod_hud_editor_result().unwrap();
     for placement in result.placements {
-        hud.cards
-            .iter_mut()
-            .find(|c| c.id == placement.id)
-            .unwrap()
-            .position = placement.position;
+        let card = hud.cards.iter_mut().find(|c| c.id == placement.id).unwrap();
+        card.anchor = placement.anchor;
+        card.offset = placement.offset;
+        card.scale = placement.scale;
+        card.position = None;
     }
     p.mod_ui_mut().set_mod_panel_open(false);
     p.set_mod_hud(Some(&hud)).unwrap();
     snapshot::write(
         &frame(&mut p, &runtime, [1920, 1080], 1.),
         "hud-layout-saved",
+    );
+    snapshot::write(
+        &frame(&mut p, &runtime, [2560, 1440], 1.),
+        "hud-layout-resized",
     );
 }

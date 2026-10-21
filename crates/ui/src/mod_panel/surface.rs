@@ -6,7 +6,11 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 pub mod backdrop;
 mod collection;
+pub mod hud_card;
+pub mod local_player_head;
 mod paint_transform;
+pub mod preview;
+mod shadow;
 mod static_templates;
 mod transition;
 pub use collection::{CollectionArt, CollectionDefinition, CollectionItem, SurfaceCollection};
@@ -17,14 +21,18 @@ pub use transition::{MAX_TRANSITION_SECONDS, SurfaceTransition, TransitionEasing
 pub const SCROLL_TRACK_ACTION: &str = "mod.scroll_track";
 
 pub const MAX_SURFACE_BYTES: usize = 96 * 1024;
-pub const MAX_SURFACE_NODES: usize = 1024;
+pub const MAX_SURFACE_NODES: usize = 4096;
 pub const MAX_SURFACE_BINDINGS: usize = 128;
+pub(crate) const MAX_BINDING_NAME_BYTES: usize = 96;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Surface {
     pub screen: String,
     pub document: String,
+    /// Independently bound, inert pack controls fitted inside authored preview nodes.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub previews: BTreeMap<String, preview::ControlPreview>,
     #[serde(default)]
     pub bindings: BTreeMap<String, SurfaceValue>,
     /// Numeric bindings that ease toward each new value, keyed by binding name.
@@ -45,6 +53,23 @@ pub enum SurfaceValue {
 }
 
 impl SurfaceValue {
+    /// Rejects unbounded scalar values before a host retains extension bindings.
+    pub fn validate(&self) -> Result<(), String> {
+        let valid = match self {
+            Self::Bool(_) => true,
+            Self::Number(number) => bounded(number),
+            Self::Text(text) => text.len() <= 256 && !text.chars().any(char::is_control),
+            Self::Vector(numbers) => {
+                (2..=4).contains(&numbers.len()) && numbers.iter().all(bounded)
+            }
+        };
+        if valid {
+            Ok(())
+        } else {
+            Err("surface binding value exceeds its bounds".into())
+        }
+    }
+
     /// The components a transition eases: one for a number, each element of a 2–4-number
     /// array, and none for other values.
     pub fn numbers(&self) -> Option<&[f64]> {
@@ -59,6 +84,7 @@ impl SurfaceValue {
 impl Surface {
     /// Rejects oversized trees and dynamic factories before the host retains them.
     pub fn validate(&self) -> Result<(), String> {
+        preview::validate(&self.previews)?;
         let _ = self.walk()?;
         self.validate_bindings()
     }
@@ -73,19 +99,7 @@ impl Surface {
             if !binding_name(name) {
                 return Err("surface binding name is invalid".into());
             }
-            let valid = match value {
-                SurfaceValue::Bool(_) => true,
-                SurfaceValue::Number(number) => bounded(number),
-                SurfaceValue::Text(text) => {
-                    text.len() <= 256 && !text.chars().any(char::is_control)
-                }
-                SurfaceValue::Vector(numbers) => {
-                    (2..=4).contains(&numbers.len()) && numbers.iter().all(bounded)
-                }
-            };
-            if !valid {
-                return Err("surface binding value exceeds its bounds".into());
-            }
+            value.validate()?;
             backdrop::validate_world_binding(name, value)?;
         }
         if self.transitions.len() > MAX_SURFACE_BINDINGS {
@@ -159,6 +173,7 @@ impl Surface {
     /// Collects capability-routed actions from the fully validated static tree.
     fn walk(&self) -> Result<Vec<String>, String> {
         let root = self.resolved_root()?;
+        preview::node(&root, &self.previews)?;
         let mut count = 0;
         let mut actions = Vec::new();
         node(&root, 0, &mut count, &mut actions, false, false)?;
@@ -209,10 +224,11 @@ impl Surface {
         Ok(actions)
     }
 
-    /// Compares immutable route artwork and data while excluding filtered item order.
+    /// Compares immutable route artwork and data, excluding filtered order and reveal requests.
     pub fn same_definition(&self, other: &Self) -> bool {
         self.screen == other.screen
             && self.document == other.document
+            && self.previews == other.previews
             && self.collections.len() == other.collections.len()
             && self.collections.iter().all(|(name, collection)| {
                 other.collections.get(name).is_some_and(|other| {
@@ -311,14 +327,14 @@ fn bounded(number: &f64) -> bool {
 }
 
 /// Matches the names accepted by a local scalar data source.
-fn binding_name(name: &str) -> bool {
+pub(crate) fn binding_name(name: &str) -> bool {
     name.strip_prefix('#').is_some_and(identifier)
 }
 
 /// Restricts names to an unambiguous local identifier.
-fn identifier(name: &str) -> bool {
+pub(crate) fn identifier(name: &str) -> bool {
     !name.is_empty()
-        && name.len() <= 96
+        && name.len() <= MAX_BINDING_NAME_BYTES
         && name
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || b"_-.".contains(&byte))
@@ -349,8 +365,10 @@ fn node(
         kind,
         "screen"
             | "panel"
+            | "input_panel"
             | "button"
             | "label"
+            | "image"
             | "custom"
             | "stack_panel"
             | "scroll_view"
@@ -359,6 +377,9 @@ fn node(
     ) || (kind == "screen" && depth != 0)
     {
         return Err("surface control type is unsupported".into());
+    }
+    if kind == "image" {
+        local_player_head::validate(object)?;
     }
     for (name, value) in object {
         if name.starts_with('$') {
@@ -414,11 +435,13 @@ fn node(
             .is_some_and(|name| {
                 matches!(
                     name,
-                    "cinnabar_rounded_rectangle"
+                    json_ui::rounded::RENDERER
                         | backdrop::GLASS_RENDERER
                         | "cinnabar_vector_icon"
                         | "cinnabar_vector_path"
                         | "gradient_renderer"
+                        | preview::RENDERER
+                        | hud_card::RENDERER
                 )
             })
     {
@@ -426,6 +449,12 @@ fn node(
     }
     if object.get("renderer").and_then(Value::as_str) == Some(backdrop::GLASS_RENDERER) {
         backdrop::validate_glass(object)?;
+    }
+    if object.get("renderer").and_then(Value::as_str) == Some(hud_card::RENDERER) {
+        hud_card::validate(object)?;
+    }
+    if object.get("renderer").and_then(Value::as_str) == Some(json_ui::rounded::RENDERER) {
+        shadow::validate(object)?;
     }
     if let Some(mappings) = object.get("button_mappings") {
         let mappings = mappings

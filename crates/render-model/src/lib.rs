@@ -10,6 +10,7 @@ mod entity_shadow;
 pub mod equipment;
 mod font_atlas;
 pub mod font_shading;
+mod frame_latency;
 mod frame_pacing;
 pub mod hats;
 pub use font_atlas::{
@@ -24,6 +25,7 @@ mod presentation;
 pub mod primitive_shapes;
 pub mod terrain_units;
 mod ui;
+pub mod ui_page_uniform;
 mod ui_textures;
 mod visibility;
 pub mod visibility_bounds;
@@ -57,6 +59,7 @@ pub use entity_shadow::{
     SHADOW_VOLUME_TOP_RADIUS, SHADOW_VOLUME_TOP_Y, SHADOW_VOLUME_VERTICES, entity_shadow_colour,
     shadow_screen_rect, shadow_volume_mesh, unit_volume_contains,
 };
+pub use frame_latency::{FrameLatencyPolicy, FrameWorkSample};
 pub use frame_pacing::{
     Cadence, FrameRate, OCCLUDED_FRAME_RATE, UNFOCUSED_FRAME_RATE, WindowActivity,
     effective_frame_rate,
@@ -65,8 +68,8 @@ pub use item_geometry::{extruded_sprite_vertices, held_sprite_vertices, textured
 pub use nametag::{
     MAX_NAMETAG_RECORDS, NAMETAG_ALPHA_CUTOFF, NAMETAG_ATLAS_SIDE, NAMETAG_BLOCKS_PER_FONT_PIXEL,
     NAMETAG_DIM_TEXT_ALPHA, NAMETAG_LINE_PITCH_PX, NAMETAG_TEXT_REVERSE_Z_BIAS, NametagAtlasRect,
-    NametagRecord, NametagScene, java_nametag_line_backgrounds, nametag_line_backgrounds,
-    nametag_line_left,
+    NametagLabel, NametagRecord, NametagScene, java_nametag_line_backgrounds,
+    nametag_line_backgrounds, nametag_line_left,
 };
 pub use panorama::{MAX_PANORAMA_FACE_SIDE, PanoramaFaces, PanoramaView};
 pub use presentation::{
@@ -77,19 +80,21 @@ pub use presentation::{
 pub use ui::{
     MAX_UI_BATCHES, MAX_UI_DRAW_BYTES, MAX_UI_FIXED_TEXTURE_BYTES, MAX_UI_INDICES,
     MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS, MAX_UI_TEXTURE_SIDE, MAX_UI_VERTICES,
-    UI_BLEND_ALPHA, UI_BLEND_BACKDROP, UI_BLEND_FILTER, UI_BLEND_INVERT, UI_STYLE_ALPHA_TEST,
-    UI_STYLE_COLOR_MASK, UI_STYLE_GLINT, UI_STYLE_RADIAL_GRADIENT, UiRenderBatch, UiRenderInput,
-    UiRenderReject, UiRenderRejectReason, UiRenderScene, UiRenderStats, UiRenderStatsSnapshot,
-    UiRenderTextureArray, UiRenderVertex, UiScissor,
+    UI_BLEND_ALPHA, UI_BLEND_BACKDROP, UI_BLEND_FILTER, UI_BLEND_INVERT, UI_STYLE_ADDITIVE,
+    UI_STYLE_ALPHA_TEST, UI_STYLE_COLOR_MASK, UI_STYLE_GLINT, UI_STYLE_PARTICLE,
+    UI_STYLE_RADIAL_GRADIENT, UiRenderBatch, UiRenderInput, UiRenderReject, UiRenderRejectReason,
+    UiRenderScene, UiRenderStats, UiRenderStatsSnapshot, UiRenderTextureArray, UiRenderVertex,
+    UiScissor, ui_particle_uv,
 };
 pub use ui_textures::{
     MAX_UI_ART_PAGES, MAX_UI_DYNAMIC_PAGES, MAX_UI_MODEL_ATLAS_PAGES, MAX_UI_NATIVE_SHEET_BYTES,
     MAX_UI_NATIVE_SHEET_PAGES, MAX_UI_NATIVE_SHEET_SIDE, MAX_UI_NATIVE_TEXTURE_GROWTH_BYTES,
     MAX_UI_TEXTURE_BUCKETS, UI_ART_PAGE_SIDE, UI_DYNAMIC_PAGE_SIDE, UI_LOCAL_FONT_PAGE_OFFSET,
     UI_LOCAL_FONT_PAGE_SIDE, UI_LOCAL_ICON_FONT_PAGE_SIDE, UI_MODEL_ATLAS_PAGE_OFFSET,
-    UI_MODEL_ATLAS_SIDE, UI_NATIVE_SHEET_PAGE_OFFSET, UI_PLAYER_SKIN_PAGE_OFFSET,
-    UI_SESSION_ICON_PAGE_OFFSET, UiTextureBucket, UiTextureCatalog, UiTextureFormat,
-    UiTextureLocation, UiTexturePage, UiTexturePlan,
+    UI_MODEL_ATLAS_SIDE, UI_NATIVE_SHEET_PAGE_OFFSET, UI_PARTICLE_PAGE_OFFSET,
+    UI_PLAYER_SKIN_PAGE_OFFSET, UI_SESSION_GLYPH_PAGE_OFFSET, UI_SESSION_GLYPH_PAGE_SIDE,
+    UI_SESSION_GLYPH_PAGES, UI_SESSION_ICON_PAGE_OFFSET, UiTextureBucket, UiTextureCatalog,
+    UiTextureFormat, UiTextureLocation, UiTexturePage, UiTexturePlan,
 };
 pub use visibility::{
     ExtractedCameraIdentity, GraphicsAdapterMetadata, OpaqueDrawMode, VisibilityDiagnosticSnapshot,
@@ -99,6 +104,10 @@ pub use visibility::{
 /// Enhanced is disabled until the GPU faults and system freezes are resolved.
 /// Ordinary settings, launch flags and camera components cannot override this switch.
 pub const ENHANCED_RENDERING_ENABLED: bool = false;
+
+/// The Java shader-pack render mode is opt-in at build time while it is experimental.
+/// Default builds keep settings, launch flags and cameras off it.
+pub const SHADER_PACKS_ENABLED: bool = cfg!(feature = "shaderpacks");
 
 #[cfg(feature = "enhanced-diagnostics")]
 static ENHANCED_DIAGNOSTIC: std::sync::atomic::AtomicBool =
@@ -238,3 +247,6 @@ pub use weather::{
 
 pub use block_entity::block_matrix;
 pub use weather::ColumnSampler;
+
+mod actor_bindings;
+pub use actor_bindings::{ActorAttachmentBindings, CapeBoneBinding};

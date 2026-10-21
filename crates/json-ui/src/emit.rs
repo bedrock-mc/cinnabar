@@ -39,6 +39,13 @@ pub struct SpriteQuad {
     pub uv: UvRect,
 }
 
+/// Tile coordinates across one sprite region. Untiled axes keep their 0..1 span.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SpriteRepeat {
+    pub uv: UvRect,
+    pub axes: [bool; 2],
+}
+
 /// A serialisable rect; layout's [`Rect`] is copied into it for emit output.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RectOut {
@@ -83,6 +90,8 @@ pub enum Draw {
     Sprite {
         texture: String,
         uv: UvRect,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        repeat: Option<SpriteRepeat>,
         color: [u8; 4],
         #[serde(default)]
         filter: SpriteFilter,
@@ -118,6 +127,9 @@ pub struct DrawNode {
     pub clip: RectOut,
     pub layer: i32,
     pub alpha: f32,
+    /// The inherited application-owned paint region, if one was declared.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paint_region: Option<std::num::NonZeroU64>,
     /// Animations reaching this draw; see [`DrawNode::animate`].
     #[serde(skip)]
     pub anim: Option<std::sync::Arc<crate::anim::NodeAnim>>,
@@ -254,6 +266,14 @@ pub(crate) fn emit_own(
         // A primitive wholly outside its clip (a scrolled-away cell) draws nothing;
         // a hover tooltip draws beside the pointer instead of in its rect.
         let paint = match &draw {
+            Draw::Custom { renderer, data } if renderer == crate::rounded::RENDERER => {
+                crate::rounded::paint_bounds(
+                    data,
+                    env.text.paint_rect(dest),
+                    env.text.physical_pixel_size(),
+                    node.paint.transform,
+                )
+            }
             Draw::Custom { renderer, data } if renderer == crate::vector_path::RENDERER => {
                 crate::vector_path::bounds(data).map_or(dest, |bounds| {
                     bounds.at(env.text.paint_rect(dest), env.text.physical_pixel_size())
@@ -292,6 +312,7 @@ pub(crate) fn emit_own(
                 clip: clip.into(),
                 layer: node.layer,
                 alpha: node.alpha,
+                paint_region: node.paint.region,
                 anim: node.anim.clone(),
                 draw,
                 gates: Vec::new(),
@@ -357,12 +378,13 @@ fn sprite_draws(
     }
     crate::sprite::quads(control, rect, meta.as_ref(), clip_ratio)
         .into_iter()
-        .map(|(dest, uv)| {
+        .map(|(dest, uv, repeat)| {
             (
                 dest,
                 Draw::Sprite {
                     texture: path.to_owned(),
                     uv,
+                    repeat,
                     color,
                     filter,
                 },
@@ -398,7 +420,7 @@ fn text_draw(control: &ResolvedControl, enabled: bool) -> Draw {
 
 /// Layout and tree keys a custom renderer never reads; every other property
 /// is renderer configuration and travels with the draw.
-const STRUCTURAL: [&str; 13] = [
+const STRUCTURAL: [&str; 14] = [
     "controls",
     "bindings",
     "anims",
@@ -411,6 +433,7 @@ const STRUCTURAL: [&str; 13] = [
     "button_mappings",
     "type",
     crate::transform::TRANSFORM_PROPERTY,
+    crate::position::PROPERTY,
     crate::filter::FILTER_PROPERTY,
 ];
 

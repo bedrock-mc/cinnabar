@@ -46,6 +46,8 @@ pub(super) enum Data {
     Feed,
     /// The cells a virtualized grid builds.
     Window,
+    /// Global callback answers selected by a collection instance.
+    ControllerAnswers,
 }
 
 fn data_hash(kind: Data, name: &str, index: Option<usize>) -> u64 {
@@ -231,6 +233,11 @@ pub(super) fn changes(old: &DataSource, new: &DataSource) -> Option<Changes> {
             let (before, after) = (old.get(index), new.get(index));
             if before != after {
                 reads.add(Data::Item, key, Some(index));
+                if before.map(|item| &item.controller_values)
+                    != after.map(|item| &item.controller_values)
+                {
+                    reads.add(Data::ControllerAnswers, key, Some(index));
+                }
                 if before.map(|item| &item.role) != after.map(|item| &item.role) {
                     reads.add(Data::Roles, key, None);
                 }
@@ -320,7 +327,7 @@ impl Binder<'_> {
             && previous.scope.same(scope)
             // A factory's creations are hoisted to its parent, which rebuilds them.
             && !track.hoisted
-            && self.created + track.count <= crate::resolve::MAX_NODES
+            && self.created + track.count <= self.state.node_limit()
     }
 
     /// Move `previous` over unchanged, as rebuilding it would leave it.
@@ -396,15 +403,28 @@ impl Binder<'_> {
                     for property in source.properties() {
                         reads.add(Data::Global, property, None);
                     }
+                    if matches!(&binding.kind, Kind::Global { .. }) {
+                        for (collection, index) in &scope.cursor.items {
+                            let key = scope
+                                .cursor
+                                .keys
+                                .get(collection)
+                                .map_or(collection.as_str(), String::as_str);
+                            if let Ok(index) = usize::try_from(*index) {
+                                reads.add(Data::ControllerAnswers, key, Some(index));
+                            }
+                        }
+                    }
                 }
                 Kind::Collection {
                     source, collection, ..
                 } => {
+                    let fallback = self.collection_key(collection, scope);
                     let key = scope
                         .cursor
                         .keys
                         .get(collection)
-                        .map_or(collection.as_str(), String::as_str);
+                        .map_or(fallback.as_str(), String::as_str);
                     let index = scope.cursor.indices.get(collection).copied().unwrap_or(0);
                     if let Ok(index) = usize::try_from(index) {
                         reads.add(Data::Item, key, Some(index));

@@ -29,15 +29,6 @@ pub const KIND_TRANSFER: u8 = 5;
 /// Terminal core disconnect message.
 pub const KIND_DISCONNECT: u8 = 6;
 
-/// Most selected server pack archives admitted for one join.
-pub const MAX_SELECTED_PACKS: usize = 32;
-
-/// Largest admitted server pack archive in bytes.
-pub const MAX_PACK_ARCHIVE_BYTES: usize = 67108864;
-
-/// Largest total selected server pack archives in bytes.
-pub const MAX_SELECTED_PACK_BYTES: usize = 134217728;
-
 /// Archive bytes in one resource-pack data frame.
 pub const PACK_CHUNK_BYTES: usize = 4194304;
 
@@ -267,7 +258,7 @@ pub const METHOD_CINNABAR_PLAYERS: &str = "cinnabar_players.v1";
 pub const METHOD_CINNABAR_LOOKUP: &str = "cinnabar_lookup.v1";
 
 /// Cinnabar API origin; the package workflow reads it from this manifest.
-pub const CINNABAR_API_BASE_URL: &str = "https://cinnabar-api.cinnabar-api.workers.dev";
+pub const CINNABAR_API_BASE_URL: &str = "https://api.cinnabar.gg";
 
 /// Most XUIDs in one Cinnabar player lookup.
 pub const CINNABAR_API_MAX_LOOKUP_XUIDS: usize = 128;
@@ -660,4 +651,10 @@ pub struct CinnabarPlayerUpdates {
     pub emotes: Vec<CinnabarRemoteEmote>,
     /// Nearby authenticated loadouts.
     pub loadouts: Vec<CinnabarRemoteLoadout>,
+    /// Verified local account identity, empty while disconnected.
+    #[serde(default)]
+    pub ownership_xuid: String,
+    /// Paid grants supplied by the account API database.
+    #[serde(default)]
+    pub owned_cosmetics: Vec<String>,
 }

@@ -50,22 +50,13 @@ var (
 )
 
 func main() {
-	code := runAtUserLevel(normalUser, os.Stderr, runMain)
+	code := runMain()
 	if code != 0 {
 		os.Exit(code)
 	}
 }
 
-// runAtUserLevel refuses elevated or unknown permissions before starting any core work.
-func runAtUserLevel(check func() error, stderr io.Writer, run func() int) int {
-	if err := check(); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	return run()
-}
-
-// runMain owns the core's runtime settings, lifeline and services after the permission check.
+// runMain owns the core's runtime settings, lifeline and services.
 func runMain() int {
 	configureRuntime(os.Getenv)
 	args := os.Args[1:]
@@ -266,7 +257,7 @@ func runWithResourcePackCacheFactory(
 			return errors.New("auth-events mode cannot be combined with proxy or catalog options")
 		}
 		return authflow.Run(ctx, authflow.Config{
-			Path: opts.authCache, Writer: stdout,
+			Path: opts.authCache, Writer: stdout, Logger: logger,
 			CompleteSignIn: func(ctx context.Context, path string, source oauth2.TokenSource) error {
 				return authcache.CompleteSignIn(ctx, path, source, logger)
 			},

@@ -43,7 +43,7 @@ fn skin_array(device: &RenderDevice, side: u32, layers: u32) -> Option<Texture> 
                 usage: TextureUsages::TEXTURE_BINDING
                     | TextureUsages::COPY_DST
                     | TextureUsages::COPY_SRC,
-                view_formats: &[],
+                view_formats: crate::actor::gpu::ARTWORK_VIEW_FORMATS,
             })
         },
     )
@@ -80,6 +80,12 @@ impl GpuSkinArrays {
 
     pub fn view(&self, class: usize) -> &TextureView {
         &self.classes[class].view
+    }
+
+    #[cfg(feature = "shaderpacks")]
+    /// The array texture of resolution class `class`, once allocated.
+    pub fn texture(&self, class: usize) -> Option<&Texture> {
+        self.classes.get(class)?.texture.as_ref()
     }
 
     pub fn is_synced(&self, residency: &Arc<ActorSkinResidency>) -> bool {

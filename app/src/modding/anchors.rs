@@ -2,7 +2,6 @@
 use super::{ModRuntime, gameplay::GameplayContext};
 use bevy::prelude::*;
 use client_extensions::modding::multi::ModHosts;
-use client_shell::ui_resources::UiRuntimeResource;
 use mod_render::retained::EntityKey;
 use render_scene::mod_scene::retained::{DrawingFrame, RootPose};
 use std::collections::BinaryHeap;
@@ -80,22 +79,57 @@ pub(super) fn reconcile(hosts: &mut ModHosts, context: &GameplayContext<'_>) {
 /// Publishes only exact, still-live body roots after the actor renderer's same-frame commit.
 pub(super) fn publish(
     runtime: Option<ResMut<ModRuntime>>,
+    packet_drawing: Option<ResMut<super::packet_render::Drawing>>,
     context: GameplayContext,
     mut scene: ResMut<render_scene::ModRenderScene>,
     actors: Option<Res<render_scene::ActorRenderFrame>>,
-    ui: Res<UiRuntimeResource>,
     mut drawing: ResMut<DrawingFrame>,
-    cameras: Query<&GlobalTransform, With<client_presentation::camera::FlyCamera>>,
+    cameras: Query<&Transform, With<client_presentation::camera::FlyCamera>>,
 ) {
-    let Some(mut runtime) = runtime else { return };
-    let changed = super::drawing_policy::bind(&mut runtime.hosts, &context, &ui);
+    let mut packet_drawing = packet_drawing;
+    if let (Some(drawing), Some(actors), Ok(camera)) = (
+        packet_drawing.as_deref_mut(),
+        actors.as_deref(),
+        cameras.single(),
+    ) {
+        drawing.follow_anchors(
+            actors,
+            &GlobalTransform::from(*camera),
+            |session, dimension, runtime_id| {
+                let authority = context.world.as_ref()?.stream.as_ref()?.authority();
+                if authority.actor_session_id() != session
+                    || authority.current_dimension() != dimension
+                {
+                    return None;
+                }
+                authority.actor(runtime_id)?.interpolated_position(
+                    context
+                        .actor_partial
+                        .as_deref()
+                        .map_or(0., |partial| partial.0),
+                )
+            },
+        );
+    }
+    let Some(mut runtime) = runtime else {
+        *drawing = Default::default();
+        if let Some(packet_drawing) = packet_drawing.as_deref() {
+            super::packet_render::publish_frame(packet_drawing, &context, &mut drawing);
+            super::packet_render::publish_alone(&mut scene, packet_drawing);
+        }
+        return;
+    };
+    let changed = super::drawing_policy::bind(&mut runtime.hosts, &context);
     if changed {
         scene.clear();
         runtime.render_sources.clear();
     }
     reconcile(&mut runtime.hosts, &context);
     super::drawing_policy::publish_frame(&runtime.hosts, &context, &mut drawing);
-    super::render::publish(Some(scene), &mut runtime);
+    if let Some(packet_drawing) = packet_drawing.as_deref() {
+        super::packet_render::publish_frame(packet_drawing, &context, &mut drawing);
+    }
+    super::render::publish(Some(scene), &mut runtime, packet_drawing.as_deref());
     let Some(actors) = actors else { return };
     let Some(world) = context
         .world
@@ -112,7 +146,7 @@ pub(super) fn publish(
         return;
     }
     let Ok(camera) = cameras.single() else { return };
-    let origin = camera.translation();
+    let origin = camera.translation;
     for (output, _) in runtime.hosts.render_outputs() {
         for resources in &output.retained {
             for (handle, key) in &resources.entities {

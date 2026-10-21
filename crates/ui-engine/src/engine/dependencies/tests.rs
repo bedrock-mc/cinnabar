@@ -25,6 +25,7 @@ fn node(key: &str, draw: Draw) -> DrawNode {
         layer: 0,
         alpha: 1.0,
         anim: None,
+        paint_region: None,
         draw,
         gates: Vec::new(),
     }
@@ -39,6 +40,7 @@ fn sprite(key: &str, path: &str) -> DrawNode {
             uv: json_ui::UvRect::full(),
             color: [255; 4],
             filter: Default::default(),
+            repeat: None,
         },
     )
 }

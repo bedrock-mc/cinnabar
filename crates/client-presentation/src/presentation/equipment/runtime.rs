@@ -33,6 +33,7 @@ mod modern;
 pub(crate) use modern::HeldSelection;
 mod native;
 mod pack;
+mod placement_cache;
 mod push;
 mod readiness;
 mod routing;
@@ -135,6 +136,7 @@ pub struct EquipmentRuntime {
     /// `(identifier, reason)` pairs already logged as drawing no layer.
     logged_misses: std::collections::HashSet<(Box<str>, &'static str)>,
     poses: PoseMemo,
+    attachment_poses: placement_cache::PlacementCache,
     /// Reused output storage for one actor, bounded by held and worn layer counts.
     layers: Vec<EquipmentPresentation>,
     attachables: actor_animation::AttachablesRuntime,
@@ -152,6 +154,7 @@ impl EquipmentRuntime {
     /// Releases memoized poses of layers no recent frame drew.
     pub fn begin_frame(&mut self) {
         self.poses.begin_frame();
+        self.attachment_poses.retain(self.poses.frame);
     }
 
     /// Places the item atlas and attachable textures on new artwork pages. Returns the runtime,
@@ -315,6 +318,7 @@ impl EquipmentRuntime {
             pack: None,
             logged_misses: Default::default(),
             poses: PoseMemo::default(),
+            attachment_poses: placement_cache::PlacementCache::default(),
             layers: Vec::new(),
         };
         (runtime, artwork, geometries)
@@ -529,6 +533,20 @@ impl EquipmentRuntime {
             }
         }
         wearing_elytra
+    }
+
+    /// Bone identities of an armor rig already selected for rendering this frame.
+    pub(crate) fn armor_bone_names(&self, rig: EntityRigId) -> Option<&[Box<str>]> {
+        self.armor_geometry
+            .values()
+            .chain(
+                self.pack
+                    .iter()
+                    .flat_map(|pack| pack.armor_geometry.values()),
+            )
+            .filter_map(Option::as_ref)
+            .find(|geometry| geometry.rig == rig)
+            .map(|geometry| geometry.names.as_slice())
     }
 
     /// Records the bones of a skin model registered under `rig`, replacing any earlier model.

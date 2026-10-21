@@ -212,9 +212,11 @@ jobs:
           affected() { [ "$FULL" = true ] || [[ " $AFFECTED " == *" $1 "* ]]; }
           if affected render; then
             cargo clippy -p render --features enhanced --all-targets --locked -- -D warnings
+            cargo clippy -p render --features shaderpacks --all-targets --locked -- -D warnings
           fi
           if affected cinnabar; then
             cargo clippy -p cinnabar --features enhanced,developer-control,tracy --locked -- -D warnings
+            cargo clippy -p cinnabar --features shaderpacks --locked -- -D warnings
             cargo clippy -p cinnabar --features reports --tests --locked -- -D warnings
           fi
       - name: Test developer control adapters
