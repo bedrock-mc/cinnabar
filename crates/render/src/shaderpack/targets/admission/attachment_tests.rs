@@ -146,7 +146,7 @@ fn after_deferred_effect_storage_alias_fails_admission() {
     ] {
         for (sample, accepted) in [(false, false), (true, true)] {
             let fragment = format!(
-                "#version 430 compatibility\n/* DRAWBUFFERS:0 */\nlayout(rgba8) uniform image2D colorimg0;\nuniform sampler2D colortex0;\nvoid main() {{ imageStore(colorimg0, ivec2(0), vec4(1.0)); gl_FragData[0] = {}; }}",
+                "#version 430 compatibility\n/* DRAWBUFFERS:0 */\nlayout(rgba8) writeonly uniform image2D colorimg0;\nuniform sampler2D colortex0;\nvoid main() {{ imageStore(colorimg0, ivec2(0), vec4(1.0)); gl_FragData[0] = {}; }}",
                 if sample {
                     "texture(colortex0, vec2(0.5))"
                 } else {
