@@ -177,7 +177,7 @@ func TestFriendHostingWithdrawsSinglePlayerWorlds(t *testing.T) {
 			open: func(_ context.Context, session localworld.Session) (hostedFriends, io.Closer, error) {
 				host := &fakeFriendHost{session: session, events: &events, done: make(chan struct{})}
 				hosts = append(hosts, host)
-				return host, nil, nil
+				return host, hostingCloser(func() error { return nil }), nil
 			},
 		}
 		done := make(chan struct{})
