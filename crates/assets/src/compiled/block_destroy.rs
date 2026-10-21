@@ -71,11 +71,25 @@ pub enum BlockDestroyFacts {
     Unresolved,
     ProvisionalIndestructible,
     Provisional(ProvisionalDestroy),
+    /// A resolved server component value, including negative and instant values.
+    Custom {
+        seconds_to_destroy_bits: u32,
+        effective_tools: u8,
+    },
 }
 
 impl BlockDestroyFacts {
     /// Rejects non-finite values and unsupported tool or harvest encodings.
     pub(crate) fn validate(self) -> Result<(), crate::AssetError> {
+        if let Self::Custom {
+            seconds_to_destroy_bits,
+            effective_tools,
+        } = self
+            && (!f32::from_bits(seconds_to_destroy_bits).is_finite()
+                || effective_tools & !TOOL_MASK != 0)
+        {
+            return Err(invalid());
+        }
         if let Self::Provisional(facts) = self {
             let hardness = f32::from_bits(facts.hardness_bits);
             let speed = f32::from_bits(facts.sword_speed_bits);
@@ -96,6 +110,15 @@ impl BlockDestroyFacts {
     /// Appends the canonical twelve-byte representation after validation.
     pub(crate) fn write(self, bytes: &mut Vec<u8>) {
         match self {
+            Self::Custom {
+                seconds_to_destroy_bits,
+                effective_tools,
+            } => {
+                bytes.extend_from_slice(&seconds_to_destroy_bits.to_le_bytes());
+                bytes.push(effective_tools);
+                bytes.extend_from_slice(&[0; 6]);
+                bytes.push(3);
+            }
             Self::Unresolved | Self::ProvisionalIndestructible => {
                 bytes.extend_from_slice(&[0; 11]);
                 bytes.push(u8::from(matches!(self, Self::ProvisionalIndestructible)) * 2);
@@ -121,6 +144,10 @@ impl BlockDestroyFacts {
             return Err(invalid());
         }
         let facts = match bytes[11] {
+            3 if bytes[5..11] == [0; 6] => Self::Custom {
+                seconds_to_destroy_bits: u32::from_le_bytes(bytes[..4].try_into().unwrap()),
+                effective_tools: bytes[4],
+            },
             0 | 2 if bytes[..11] == [0; 11] => {
                 if bytes[11] == 0 {
                     Self::Unresolved
@@ -242,6 +269,14 @@ mod tests {
     #[test]
     fn destroy_records_keep_unknown_distinct_and_reject_invalid_facts() {
         for facts in [
+            BlockDestroyFacts::Custom {
+                seconds_to_destroy_bits: 2.0_f32.to_bits(),
+                effective_tools: ToolKind::Pickaxe.bit(),
+            },
+            BlockDestroyFacts::Custom {
+                seconds_to_destroy_bits: (-1.0_f32).to_bits(),
+                effective_tools: 0,
+            },
             BlockDestroyFacts::Unresolved,
             builtin_destroy_facts("minecraft:stone"),
             builtin_destroy_facts("minecraft:bedrock"),

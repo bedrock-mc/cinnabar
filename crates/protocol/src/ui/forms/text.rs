@@ -1,6 +1,7 @@
 //! Display text retains its wire shape until the presentation resolves it.
 
-use super::{MAX_UI_TEXT_BYTES, UnsupportedForm};
+use super::UnsupportedForm;
+use crate::ui::MAX_UI_TEXT_BYTES;
 use serde_json::{Map, Value};
 use std::{ops::Deref, sync::Arc};
 
@@ -23,7 +24,7 @@ impl Deref for FormText {
 }
 
 impl From<Arc<str>> for FormText {
-    /// Retains an already bounded literal label.
+    /// Retains a literal label without changing its contents.
     fn from(text: Arc<str>) -> Self {
         Self::Literal(text)
     }
@@ -57,7 +58,7 @@ pub(super) fn optional_text(
 /// Reads strings, boolean labels and structured text; other values display empty text.
 pub(super) fn text_value(value: &Value) -> Result<FormText, UnsupportedForm> {
     match value {
-        Value::String(_) => return literal_value(value).map(FormText::from),
+        Value::String(text) => return Ok(FormText::Literal(Arc::from(text.as_str()))),
         Value::Bool(value) => return Ok(if *value { "true" } else { "false" }.into()),
         Value::Object(_) => {}
         _ => return Ok("".into()),
@@ -66,10 +67,7 @@ pub(super) fn text_value(value: &Value) -> Result<FormText, UnsupportedForm> {
         return Ok("".into());
     };
     let json = form_text_document(rawtext, 0)?.to_string();
-    if json.len() > MAX_UI_TEXT_BYTES {
-        return Err(UnsupportedForm::Limit);
-    }
-    match crate::parse_raw_text(&json) {
+    match crate::raw_text::parse_form_raw_text(&json) {
         Ok(document) => Ok(FormText::Raw(document)),
         Err(crate::UiPacketError::InvalidRawText) => Ok("".into()),
         Err(_) => Err(UnsupportedForm::Limit),

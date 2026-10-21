@@ -1,0 +1,8 @@
+{
+  "id": "14:1", "name": "Raster Opacity", "type": "FRAME", "width": 40, "height": 20,
+  "fills": [{ "type": "SOLID", "color": [0, 0, 0] }],
+  "children": [
+    { "id": "14:2", "name": "Glyph @image", "type": "VECTOR", "raster": "node:14:2",
+      "x": 0, "y": 0, "width": 20, "height": 20, "opacity": 0.5 }
+  ]
+}

@@ -18,6 +18,7 @@ const STYLE_ADDITIVE: u32 = UI_STYLE_ADDITIVE;
 const STYLE_PARTICLE: u32 = UI_STYLE_PARTICLE;
 const STYLE_RADIAL_GRADIENT: u32 = UI_STYLE_RADIAL_GRADIENT;
 const STYLE_COVERAGE_PAINT: u32 = UI_STYLE_COVERAGE_PAINT;
+const STYLE_SHADOW: u32 = UI_STYLE_SHADOW;
 const STYLE_REPEAT_X: u32 = UI_STYLE_REPEAT_X;
 const STYLE_REPEAT_Y: u32 = UI_STYLE_REPEAT_Y;
 
@@ -33,6 +34,7 @@ struct PageFormat {
 };
 
 UI_REPEAT_DECODER
+UI_SHADOW_DECODER
 
 // Sample the shared decoder's source coordinates with the requested filter.
 fn sample_repeat(input: UiVertexOutput, dimensions: vec2<f32>) -> vec4<f32> {
@@ -137,6 +139,12 @@ fn sample_outline(uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>, dimensions: vec2<
 fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
     let uv_dx = dpdx(input.uv);
     let uv_dy = dpdy(input.uv);
+    if (input.style_flags & STYLE_SHADOW) != 0u {
+        let pixel = max(length(uv_dx), length(uv_dy));
+        let alpha = input.color.a * ui_shadow_coverage(input.uv, input.overlay_color, pixel);
+        let rgb = select(input.color.rgb, srgb_to_linear(input.color.rgb), direct);
+        return vec4<f32>(rgb * alpha, alpha);
+    }
     if (input.style_flags & STYLE_COVERAGE_PAINT) != 0u {
         let packed = vec4<u32>(round(input.overlay_color));
         let end_color = vec4<f32>(packed & vec4<u32>(255u)) / 255.0;

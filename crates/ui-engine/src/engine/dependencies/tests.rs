@@ -25,6 +25,7 @@ fn node(key: &str, draw: Draw) -> DrawNode {
         layer: 0,
         alpha: 1.0,
         anim: None,
+        paint_region: None,
         draw,
         gates: Vec::new(),
     }

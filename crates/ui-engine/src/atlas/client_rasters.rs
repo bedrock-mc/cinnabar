@@ -2,11 +2,54 @@
 
 use super::*;
 
+/// Reserved texture for the host local player portrait, including its hat layer.
+pub const LOCAL_PLAYER_HEAD: &str = "client-raster:local-player-head";
+
 impl ServerAtlas {
-    /// Replaces the client raster set. Keys use the reserved `client-raster:` prefix;
-    /// images must fit an atlas page and the shared decoded-image budget. Unchanged
+    /// Replaces surface rasters while retaining the host local head. Keys use the
+    /// reserved `client-raster:` prefix and fit an atlas page and decoded-image budget. Unchanged
     /// content does no work; changed residents keep their slot when dimensions match.
     pub fn set_client_rasters(&mut self, images: &BTreeMap<String, UiTexturePage>) {
+        let surface_images = images
+            .iter()
+            .filter(|(key, _)| key.as_str() != LOCAL_PLAYER_HEAD);
+        if self.client_rasters.len()
+            == surface_images.clone().count()
+                + usize::from(self.client_rasters.contains_key(LOCAL_PLAYER_HEAD))
+            && surface_images.clone().all(|(key, image)| {
+                self.client_rasters.get(key).is_some_and(|old| {
+                    old.identity() == image.identity() && old.dimensions() == image.dimensions()
+                })
+            })
+        {
+            return;
+        }
+        let mut images = images.clone();
+        images.remove(LOCAL_PLAYER_HEAD);
+        if let Some(head) = self.client_rasters.get(LOCAL_PLAYER_HEAD) {
+            images.insert(LOCAL_PLAYER_HEAD.into(), head.clone());
+        }
+        self.replace_client_rasters(&images);
+    }
+
+    /// Updates the single host-owned local head without replacing roster portraits.
+    pub fn set_local_player_head(&mut self, image: Option<&UiTexturePage>) {
+        let previous = self.client_rasters.get(LOCAL_PLAYER_HEAD);
+        if previous.map(|p| (p.identity(), p.dimensions()))
+            == image.map(|p| (p.identity(), p.dimensions()))
+        {
+            return;
+        }
+        let mut images = self.client_rasters.clone();
+        images.remove(LOCAL_PLAYER_HEAD);
+        if let Some(image) = image {
+            images.insert(LOCAL_PLAYER_HEAD.into(), image.clone());
+        }
+        self.replace_client_rasters(&images);
+    }
+
+    /// Replaces admitted host rasters after each owning surface has contributed its images.
+    fn replace_client_rasters(&mut self, images: &BTreeMap<String, UiTexturePage>) {
         if images.len() > MAX_EXTRA
             || images.values().map(|p| p.pixels().len()).sum::<usize>() > MAX_DECODED_BYTES
             || images.iter().any(|(key, image)| {
@@ -87,6 +130,47 @@ mod tests {
             "client-raster:test".into(),
             UiTexturePage::owned([8; 2], vec![color; 8 * 8 * 4].into()).unwrap(),
         )])
+    }
+
+    #[test]
+    fn local_player_head_survives_roster_replacement_and_clears_independently() {
+        let mut atlas = ServerAtlas::new(&[], None, 1);
+        let portrait = images(50).remove("client-raster:test").unwrap();
+        atlas.set_local_player_head(Some(&portrait));
+        atlas.set_client_rasters(&images(20));
+        atlas.set_client_rasters(
+            &[
+                (
+                    LOCAL_PLAYER_HEAD.into(),
+                    images(90).remove("client-raster:test").unwrap(),
+                ),
+                (
+                    "client-raster:test".into(),
+                    images(20).remove("client-raster:test").unwrap(),
+                ),
+            ]
+            .into(),
+        );
+        atlas.require([LOCAL_PLAYER_HEAD, "client-raster:test"]);
+        assert_eq!(
+            atlas.client_rasters[LOCAL_PLAYER_HEAD].identity(),
+            portrait.identity()
+        );
+        assert!(atlas.placement(LOCAL_PLAYER_HEAD).is_some());
+        assert!(atlas.placement("client-raster:test").is_some());
+        let roster = images(20);
+        atlas.take_dirty();
+        let (_, allocation) = test_alloc::measure(|| {
+            atlas.set_local_player_head(Some(&portrait));
+            atlas.set_client_rasters(&roster);
+        });
+        assert_eq!(allocation.calls, 0);
+        assert!(!atlas.take_dirty());
+        atlas.set_client_rasters(&BTreeMap::new());
+        assert!(atlas.placement(LOCAL_PLAYER_HEAD).is_some());
+        assert!(atlas.placement("client-raster:test").is_none());
+        atlas.set_local_player_head(None);
+        assert!(atlas.placement(LOCAL_PLAYER_HEAD).is_none());
     }
 
     #[test]

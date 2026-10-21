@@ -1,0 +1,8 @@
+{
+  "capabilities": 4,
+  "effects": {
+    "detached": {"kind": "fly", "horizontal_speed": 100.0, "vertical_speed": 40.0},
+    "hurt_intensity": 0.0,
+    "preserve_teleport_rotation": true
+  }
+}

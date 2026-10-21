@@ -113,6 +113,41 @@ fn an_unchanged_request_is_not_rewritten() {
 
 #[cfg(feature = "shaderpacks")]
 #[test]
+fn reselecting_a_failed_pack_requests_another_load() {
+    use launcher::menu::{MenuAction, RendererChoice};
+    use render_scene::shaderpack::ShaderPackStatus;
+
+    let mut app = app(config(None));
+    app.insert_resource(MenuRuntime::new(true, 2, "Steve".into()))
+        .add_systems(
+            Update,
+            super::super::apply_menu_render_mode.before(sync_shader_pack_request),
+        );
+    select(&mut app, RenderMode::ShaderPack, Some("Dusk.zip"));
+    app.update();
+    let path = requested(&app).unwrap();
+    let previous = app.world().resource::<ShaderPackRequest>().clone();
+    app.insert_resource(ShaderPackStatus::Failed {
+        pack: path.clone(),
+        reason: "pack was missing".into(),
+    });
+    app.world_mut().clear_trackers();
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu.sync_shader_packs(vec!["Dusk.zip".to_owned()]);
+        menu.activate(MenuAction::SelectRenderer(RendererChoice::ShaderPack(0)));
+    }
+    app.update();
+    assert_eq!(requested(&app), Some(path));
+    let reselected = app.world().resource::<ShaderPackRequest>().clone();
+    assert_ne!(reselected, previous);
+    app.world_mut().clear_trackers();
+    app.update();
+    assert_eq!(app.world().resource::<ShaderPackRequest>(), &reselected);
+}
+
+#[cfg(feature = "shaderpacks")]
+#[test]
 fn a_menu_pick_replaces_the_launch_pack_and_saves_only_its_name() {
     use launcher::menu::{MenuAction, RendererChoice};
 

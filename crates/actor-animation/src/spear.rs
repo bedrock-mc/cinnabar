@@ -278,7 +278,7 @@ impl SpearPose {
 fn progress(start: f32, end: f32, value: f32) -> f32 {
     assets::molang_call(
         MolangFunction::InverseLerp,
-        &[start, end, value],
+        [start, end, value],
         &mut || 0.0,
     )
     .clamp(0.0, 1.0)
@@ -288,7 +288,7 @@ fn progress(start: f32, end: f32, value: f32) -> f32 {
 fn ease(curve: Curve, mode: Mode, progress: f32) -> f32 {
     assets::molang_call(
         MolangFunction::Ease(curve, mode),
-        &[0.0, 1.0, progress],
+        [0.0, 1.0, progress],
         &mut || 0.0,
     )
 }

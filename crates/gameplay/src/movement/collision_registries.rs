@@ -12,6 +12,7 @@ use sim::{
 };
 use thiserror::Error;
 
+mod mining;
 mod multipart;
 mod placement;
 mod selection;

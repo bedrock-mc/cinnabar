@@ -8,6 +8,7 @@ on:
     paths:
       - crates/**
       - tools/jsonui-editor/**
+      - tools/figma-plugin/**
       - assets/**
       - Cargo.toml
       - Cargo.lock
@@ -27,7 +28,7 @@ concurrency:
 
 jobs:
   # Builds when devtool's CI plan selects the editor or the font compiler the site runs (both
-  # select on their declared reads), or when the Makefile target that drives the build changes.
+  # select on their declared reads), or when the Makefile or the Figma plugin shell changes.
   plan:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -51,7 +52,7 @@ jobs:
             for name in jsonui-editor asset-compiler; do
               if [[ " $names " == *" $name "* ]]; then build=true; fi
             done
-            if ! git diff --quiet "$BEFORE" HEAD -- Makefile; then build=true; fi
+            if ! git diff --quiet "$BEFORE" HEAD -- Makefile tools/figma-plugin; then build=true; fi
           fi
           echo "build=$build" | tee -a "$GITHUB_OUTPUT"
 
@@ -91,6 +92,17 @@ jobs:
           echo "$RUNNER_TEMP/$name" >> "$GITHUB_PATH"
       - name: Build the site
         run: make jsonui-editor JSONUI_EDITOR_OUT=_site
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      # Reuses the wasm build above; the zip lets designers import the plugin without a toolchain.
+      - name: Bundle the Figma plugin into the site
+        run: |
+          make figma-plugin
+          stage="$RUNNER_TEMP/figma-to-jsonui"
+          mkdir -p "$stage"
+          cp -R tools/figma-plugin/manifest.json tools/figma-plugin/README.md tools/figma-plugin/dist "$stage/"
+          (cd "$RUNNER_TEMP" && zip -qr "$GITHUB_WORKSPACE/_site/figma-plugin.zip" figma-to-jsonui)
       - name: Fail on any file outside the editor's own set
         run: bash tools/jsonui-editor/check-site.sh _site
       - uses: actions/configure-pages@v6

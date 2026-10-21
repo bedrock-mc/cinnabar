@@ -36,7 +36,8 @@ impl UiPresentationRuntime {
         let list_top = top + 64.0;
         let list_height = (panel_height - 80.0 - base_row).max(1.0);
         let list_bottom = list_top + list_height;
-        let resolve = |text: &protocol::FormText| runtime.resolve_form_text(text);
+        let budget = protocol::FormTextBudget::default();
+        let resolve = |text: &protocol::FormText| runtime.resolve_form_text(text, &budget);
         let (title, body_text, labels): (String, String, Vec<Arc<str>>) = match &entry.model {
             ServerFormModel::TextMenu(menu) => (
                 resolve(&menu.title),
@@ -307,6 +308,9 @@ pub(super) fn fit_line(
     value: &str,
     width: f32,
 ) -> Result<Arc<TextLayout>, UiPresentationError> {
+    // Layout never shows more than its byte limit, so only that prefix is worth fitting.
+    let full = value.len();
+    let value = &value[..value.floor_char_boundary(ui::UiLimits::MAX_TEXT_BYTES.min(full))];
     let ends = value
         .char_indices()
         .map(|(index, _)| index)
@@ -322,7 +326,7 @@ pub(super) fn fit_line(
     while low < high {
         let middle = low + (high - low) / 2;
         let end = ends[middle];
-        let text = if end < value.len() {
+        let text = if end < full {
             format!("{}…", &value[..end])
         } else {
             value.to_owned()

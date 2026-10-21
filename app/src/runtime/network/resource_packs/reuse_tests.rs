@@ -245,8 +245,10 @@ fn different_custom_blocks_recompile_only_blocks_and_icons() {
     let with_block = Arc::new(PackInputs {
         blocks: protocol::CustomBlocks {
             blocks: vec![protocol::CustomBlock {
+                mining: Default::default(),
                 state_physics_complete: false,
                 state_physics: Default::default(),
+                state_mining: Default::default(),
                 player_interact: false,
                 name: "reuse:block".into(),
                 tags: Default::default(),

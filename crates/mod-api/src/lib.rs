@@ -19,8 +19,10 @@ pub const MAX_TERRAIN_METADATA_BYTES: usize = 256 * 1024;
 pub const MAX_TERRAIN_RESPONSE_BYTES: usize = 512 * 1024;
 
 mod guest;
+pub mod native_camera;
 pub mod native_frame;
 pub mod native_menu;
+pub mod native_render;
 
 /// Converts observed actor YXZ degrees (forward -Z, pitch up) to Bedrock view degrees.
 pub fn bedrock_view_angles(yaw: f32, pitch: f32) -> [f32; 2] {
@@ -28,6 +30,9 @@ pub fn bedrock_view_angles(yaw: f32, pitch: f32) -> [f32; 2] {
 }
 
 pub use guest::PlayerMod;
+
+/// Native tick rate used when recording elapsed playtime; the app checks the simulation clock.
+pub const BEDROCK_TICKS_PER_SECOND: u32 = 20;
 
 /// Exclusive bound for guest time overrides: ticks in one Bedrock day.
 pub const BEDROCK_DAY_TICKS: u32 = 24_000;

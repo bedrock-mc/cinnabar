@@ -414,11 +414,7 @@ fn authored_maps_fill_carrier_slots_and_leave_others_neutral() {
     let mut refs = vec![u32::MAX; STATIC_SPRITE_SLOTS as usize];
     let flags = PBR_REF_NORMAL | PBR_REF_HEIGHT | PBR_REF_MATERIAL | PBR_REF_LABPBR;
     refs[(static_sprite_slot(0, 0) - ATLAS_HEADER_SLOTS) as usize] = flags;
-    let authored = AuthoredPbr {
-        normal_pages: [&normals, &normals],
-        mer_pages: [&materials, &materials],
-        refs: &refs,
-    };
+    let authored = AuthoredPbr::new([&normals, &normals], [&materials, &materials], &refs);
     let (plan, images) = fixture.with_inputs(Some(authored), |inputs| {
         let plan = plan_atlas(inputs, 4096).unwrap();
         let images = build_images(inputs, &plan);
@@ -454,6 +450,102 @@ fn authored_maps_fill_carrier_slots_and_leave_others_neutral() {
             .iter()
             .all(|&t| t == NEUTRAL_SPECULAR)
     );
+}
+
+#[test]
+fn authored_material_overrides_fill_static_opaque_and_animated_sprites() {
+    let fixture = fixture();
+    let flags = PBR_REF_NORMAL | PBR_REF_HEIGHT | PBR_REF_MATERIAL | PBR_REF_LABPBR;
+    let authored_ref = (1 << 31) | flags | 1;
+    let entries = std::collections::BTreeMap::from([
+        ((0, reference(0, 0).raw()), authored_ref),
+        ((1, reference(0, 1).raw()), authored_ref),
+        ((4, reference(0, 3).raw()), authored_ref),
+        ((4, reference(0, 4).raw()), flags),
+        ((4, reference(0, 5).raw()), authored_ref),
+        ((5, reference(0, 3).raw()), authored_ref),
+    ]);
+    let enhanced = render_scene::EnhancedTextureAssets::new(
+        [page(0, 32, 2), page(1, 32, 2)],
+        [page(7, 32, 2), page(9, 32, 2)],
+        [page(8, 32, 2), page(10, 32, 2)],
+        render_scene::EnhancedTextureAssets::material_references(entries),
+    )
+    .unwrap();
+    let authored = AuthoredPbr::new(
+        enhanced.normal_pages.each_ref(),
+        enhanced.mer_pages.each_ref(),
+        &enhanced.texture_refs,
+    );
+    let (plan, images) = fixture.with_inputs(Some(authored), |inputs| {
+        let plan = plan_atlas(inputs, 4096).unwrap();
+        let images = build_images(inputs, &plan);
+        (plan, images)
+    });
+    let check = |layers: &pixels::LayerImages, rect: SpriteRect, page, layer, authored_ref| {
+        let [normal, specular] = layers.pbr.as_ref().unwrap();
+        for level in 0..plan.mip_levels {
+            let side = rect.side >> level;
+            for (image, source_page, convert) in [
+                (normal, page, labpbr_normal as fn([u8; 4], u32) -> [u8; 4]),
+                (specular, page + 1, labpbr_specular),
+            ] {
+                let expected = expected(source_page, layer, level + 1, side)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .flat_map(|&texel| convert(texel, authored_ref))
+                    .collect::<Vec<_>>();
+                assert_eq!(image.read(level, rect), expected);
+            }
+        }
+    };
+    for slot in [
+        static_sprite_slot(0, 0),
+        opaque_sprite_slot(0, 1),
+        animation_sprite_slot(0),
+        animation_sprite_slot(1),
+    ] {
+        check(&images.atlas, slot_rect(&plan, slot), 9, 1, authored_ref);
+    }
+    for &(texture, rect) in &plan.animations[0].as_ref().unwrap().frames {
+        let (page, layer, authored_ref) = if texture == reference(0, 4) {
+            (7, 0, flags)
+        } else {
+            (9, 1, authored_ref)
+        };
+        check(
+            images.frames.as_ref().unwrap(),
+            rect,
+            page,
+            layer,
+            authored_ref,
+        );
+    }
+}
+
+#[test]
+fn conflicting_authored_material_overrides_stay_neutral() {
+    let normal = page(7, 1, 2);
+    let material = page(8, 1, 2);
+    let flags = PBR_REF_NORMAL | PBR_REF_MATERIAL;
+    for values in [[flags, flags | 1, flags], [flags, u32::MAX, flags]] {
+        let entries = values
+            .into_iter()
+            .enumerate()
+            .map(|(id, authored)| ((id as u32, reference(0, 0).raw()), authored))
+            .collect();
+        let refs = render_scene::EnhancedTextureAssets::material_references(entries);
+        let authored = AuthoredPbr::new([&normal, &normal], [&material, &material], &refs);
+        let content = plan::SpriteContent::Layer {
+            reference: reference(0, 0),
+            opaque: false,
+        };
+        assert_eq!(
+            pixels::pbr_texels(&authored, content, 1),
+            [NEUTRAL_NORMAL.to_vec(), NEUTRAL_SPECULAR.to_vec()]
+        );
+    }
 }
 
 #[test]
@@ -624,11 +716,11 @@ fn malformed_pbr_pages_keep_neutral_texels() {
         layers: 1,
         mips: Box::new([]),
     };
-    let authored = AuthoredPbr {
-        normal_pages: [&empty, &empty],
-        mer_pages: [&empty, &empty],
-        refs: &[PBR_REF_NORMAL | PBR_REF_MATERIAL],
-    };
+    let authored = AuthoredPbr::new(
+        [&empty, &empty],
+        [&empty, &empty],
+        &[PBR_REF_NORMAL | PBR_REF_MATERIAL],
+    );
     let content = plan::SpriteContent::Layer {
         reference: reference(0, 0),
         opaque: false,

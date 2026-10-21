@@ -3,6 +3,7 @@
 #[path = "raster_fixture.rs"]
 mod fixture;
 mod repeat_tests;
+mod shadow_tests;
 
 use super::*;
 use fixture::{Raster, SIDE, buffer, target};
