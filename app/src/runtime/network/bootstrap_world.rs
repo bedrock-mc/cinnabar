@@ -135,6 +135,13 @@ pub(super) fn build(
             icons: packs.item_icons.clone(),
         },
     ));
+    let digger_filters = Arc::new(pack_runtime::DiggerFilters::new(
+        item_registry
+            .iter()
+            .flat_map(|registry| registry.entries.iter()),
+    ));
+    let old = std::mem::replace(&mut client_world.digger_filters, digger_filters);
+    client_runtime::session::release_off_frame(old);
     if let Some(registry) = item_registry
         && !stream.seed_item_registry(registry)
     {

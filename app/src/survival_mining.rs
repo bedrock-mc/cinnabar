@@ -12,7 +12,7 @@ use gameplay::{
     },
 };
 use semantic_input::identity::{InputAuthorityGeneration, InputSequence};
-use sim::{DestroyConditions, HeldTool, PaletteWorld};
+use sim::{ComponentDigger, DestroyConditions, HeldTool, PaletteWorld};
 use simulation_clock::identity::PositionAuthorityGeneration;
 
 /// Reads the destroy facts used for this frame's block press.
@@ -57,22 +57,23 @@ pub(crate) fn observe_destroy_target(
     }
     let stream = context.client_world.stream.as_ref()?;
     let mode = stream.network_id_mode();
-    let mut destroy_facts = stream
+    let native_destroy_facts = stream
         .runtime_assets()
         .resolve(mode, observed.target.runtime_id)
         .destroy();
+    let mut destroy_facts = native_destroy_facts;
     let item = &observed.selection.item;
     let fact = ui
         .inventory_ledger(player_runtime)
         .item_facts()
         .get(item.network_id());
+    let entry = ui
+        .inventory_ledger(player_runtime)
+        .negotiated_item_entry(item.network_id());
     if let Some((mining, effective_tools)) = context
         .collisions
         .custom_block_mining(mode, observed.target.runtime_id)
     {
-        let entry = ui
-            .inventory_ledger(player_runtime)
-            .negotiated_item_entry(item.network_id());
         let builtin = assets::facts::ItemFacts::builtin().ok();
         destroy_facts = pack_runtime::custom_mining_seconds(
             mining,
@@ -101,6 +102,27 @@ pub(crate) fn observe_destroy_target(
         return None;
     }
     let tool = HeldTool::from_facts(fact);
+    let block_tags = context
+        .collisions
+        .block_tags(mode, observed.target.runtime_id);
+    let has_block_tag = |tag: &str| {
+        block_tags.iter().any(|value| value.as_ref() == tag)
+            || native_destroy_facts.has_native_tool_tag(tag)
+    };
+    let component_digger = entry
+        .and_then(|entry| entry.components.as_ref()?.digger.as_deref())
+        .and_then(|digger| {
+            component_digger(
+                digger,
+                &context.client_world.digger_filters,
+                context
+                    .collisions
+                    .block_identifier(mode, observed.target.runtime_id)?,
+                &has_block_tag,
+                protocol::item_enchantment_level(item.extra_data(), EFFICIENCY_ENCHANTMENT_ID)
+                    .unwrap_or(0),
+            )
+        });
     let world = PaletteWorld::new(
         stream.collision_store(),
         context.collisions.registry(mode),
@@ -140,6 +162,7 @@ pub(crate) fn observe_destroy_target(
         block,
         conditions: DestroyConditions {
             tool,
+            component_digger,
             efficiency_level: protocol::item_enchantment_level(
                 item.extra_data(),
                 EFFICIENCY_ENCHANTMENT_ID,
@@ -164,6 +187,37 @@ pub(crate) fn observe_destroy_target(
         wear,
         instant,
     })
+}
+
+/// Resolves a component item's digger speed for one block; `None` keeps the hand rules when the
+/// matching entry cannot be decided.
+fn component_digger(
+    digger: &protocol::ItemDigger,
+    filters: &pack_runtime::DiggerFilters,
+    block: &str,
+    has_tag: &dyn Fn(&str) -> bool,
+    efficiency_level: u8,
+) -> Option<ComponentDigger> {
+    match pack_runtime::digger_match(digger, filters, block, has_tag) {
+        pack_runtime::DiggerMatch::Speed(speed) => {
+            let level = f32::from(efficiency_level);
+            // The Efficiency bonus applies only when the digger opts in and the item is enchanted.
+            let bonus = if digger.use_efficiency && efficiency_level > 0 {
+                level * level + 1.0
+            } else {
+                0.0
+            };
+            Some(ComponentDigger {
+                speed: speed as f32 + bonus,
+                matched: true,
+            })
+        }
+        pack_runtime::DiggerMatch::None => Some(ComponentDigger {
+            speed: 1.0,
+            matched: false,
+        }),
+        pack_runtime::DiggerMatch::Unresolved => None,
+    }
 }
 
 const AQUA_AFFINITY_ENCHANTMENT_ID: i16 = 8;

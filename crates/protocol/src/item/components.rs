@@ -85,6 +85,8 @@ pub struct ItemComponents {
     pub rarity: Option<Arc<str>>,
     /// `minecraft:hover_text_color` format-code name, e.g. `gold`.
     pub hover_text_color: Option<Arc<str>>,
+    /// `minecraft:digger` destroy speeds, when declared.
+    pub digger: Option<Arc<super::ItemDigger>>,
 }
 
 /// One authored use cooldown with bounded owned category text.
@@ -118,6 +120,9 @@ impl ItemComponents {
         .flatten()
         {
             bytes = bytes.saturating_add(text.len()).saturating_add(32);
+        }
+        if let Some(digger) = &self.digger {
+            bytes = bytes.saturating_add(digger.retained_bytes());
         }
         bytes
     }
@@ -336,6 +341,7 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
         hover_text_color: text(
             component("minecraft:hover_text_color").and_then(|color| color.field("value")),
         ),
+        digger: super::digger::parse_digger(component("minecraft:digger")).map(Arc::new),
     })
 }
 

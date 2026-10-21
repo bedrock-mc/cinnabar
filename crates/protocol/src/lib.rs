@@ -189,6 +189,7 @@ pub use item::{
     item_has_enchantment_list, item_stack_damage, item_use_progress_packet,
     offhand_equipment_packet, select_hotbar_slot_packet, vanilla_item_registry,
 };
+pub use item::{DiggerBlock, DiggerSpeed, ItemDigger};
 pub use item::{
     ItemAnvilData, ItemNbtEdit, book_init_extra, book_needs_init, edit_item_extra, item_anvil_data,
     item_custom_name, item_extra_lock, item_extra_slot_locked, item_filtered_custom_name,

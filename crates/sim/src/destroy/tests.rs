@@ -408,3 +408,27 @@ fn held_tool(identifier: &str) -> Option<HeldTool> {
             .by_identifier(identifier)?,
     )
 }
+
+#[test]
+fn component_digger_speed_and_match_replace_vanilla_tool_rules() {
+    let hand = ticks("minecraft:red_concrete", grounded(None));
+    let matched = DestroyConditions {
+        component_digger: Some(ComponentDigger {
+            speed: 30.0,
+            matched: true,
+        }),
+        ..grounded(None)
+    };
+    // A matched entry harvests the pickaxe-only block, so its rate uses the harvest divisor.
+    assert_eq!(hand, Some(180));
+    assert_eq!(ticks("minecraft:red_concrete", matched), Some(2));
+    let unmatched = DestroyConditions {
+        component_digger: Some(ComponentDigger {
+            speed: 1.0,
+            matched: false,
+        }),
+        efficiency_level: 5,
+        ..grounded(Some("minecraft:diamond_pickaxe"))
+    };
+    assert_eq!(ticks("minecraft:red_concrete", unmatched), hand);
+}

@@ -21,12 +21,13 @@ pub const RESERVED_BLOCK_NAME: &str = "cinnabar:reserved";
 pub fn custom_block_effective_tools<'a>(tags: impl IntoIterator<Item = &'a str>) -> u8 {
     use crate::compiled::block_destroy::ToolKind;
     tags.into_iter().fold(0, |mask, tag| {
-        mask | match tag {
-            "minecraft:is_pickaxe_item_destructible" => ToolKind::Pickaxe.bit(),
-            "minecraft:is_hatchet_item_destructible" => ToolKind::Axe.bit(),
-            "minecraft:is_shovel_item_destructible" => ToolKind::Shovel.bit(),
-            "minecraft:is_hoe_item_destructible" => ToolKind::Hoe.bit(),
-            _ => 0,
+        let shared = [ToolKind::Pickaxe, ToolKind::Shovel, ToolKind::Hoe]
+            .into_iter()
+            .find(|kind| kind.native_destructible_tag() == Some(tag));
+        mask | match shared {
+            Some(kind) => kind.bit(),
+            None if tag == "minecraft:is_hatchet_item_destructible" => ToolKind::Axe.bit(),
+            None => 0,
         }
     })
 }
