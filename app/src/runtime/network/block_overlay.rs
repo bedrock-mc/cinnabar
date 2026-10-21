@@ -946,9 +946,17 @@ fn quantize(
         .position(|&component| component != 0)
         .unwrap_or(0);
     let boundary = if normal[axis] < 0 { 0 } else { 256 };
-    let on_boundary = positions
-        .iter()
-        .all(|corner| i32::from(corner[axis]) == boundary);
+    // Only a quad lying wholly within the neighbour's face can be hidden by that neighbour.
+    let on_boundary = positions.iter().all(|corner| {
+        (0..3).all(|other| {
+            let value = i32::from(corner[other]);
+            if other == axis {
+                value == boundary
+            } else {
+                (0..=256).contains(&value)
+            }
+        })
+    });
     let face_flag = MODEL_FACE_FLAGS[face];
     // Displaced surfaces can be exposed beside an undisplaced neighbour.
     let mut flags = face_flag

@@ -957,3 +957,69 @@ fn scaled_and_translated_full_blocks_draw_their_transformed_bounds() {
         "half a block in 1/256 units"
     );
 }
+
+// A translated full block above an opaque cube still shows the underside that overhangs it.
+#[test]
+fn translated_full_block_keeps_its_overhanging_underside_above_an_opaque_cube() {
+    let shifted = CustomVisualComponents {
+        materials: materials("lucky"),
+        transformation: Some(CustomTransformation {
+            rotation: [0; 3],
+            scale: [1.0; 3],
+            translation: [0.25, 0.0, 0.0],
+        }),
+        ..CustomVisualComponents::default()
+    };
+    let blocks = CustomBlocks {
+        blocks: vec![
+            block(
+                "test:shifted",
+                1,
+                CustomBlockVisuals {
+                    base: shifted,
+                    ..CustomBlockVisuals::default()
+                },
+            ),
+            block(
+                "test:stone",
+                1,
+                CustomBlockVisuals {
+                    base: CustomVisualComponents {
+                        materials: materials("lucky"),
+                        ..CustomVisualComponents::default()
+                    },
+                    ..CustomBlockVisuals::default()
+                },
+            ),
+        ]
+        .into(),
+        ..Default::default()
+    };
+    let compiled = compile_block_overlay(&view(), &blocks, false, None).unwrap();
+    let assets = RuntimeAssets::diagnostic()
+        .with_block_overlay(1, &compiled.overlay)
+        .unwrap();
+    let visible_mask = |stone_below: bool| {
+        let key = world::SubChunkKey::new(0, 0, 0, 0);
+        let mut store = world::ChunkStore::new();
+        store.mark_sub_chunk_loaded(key).unwrap();
+        store
+            .update_block(key, world::BlockUpdate::new(1, 8, 0, 0, 1), 0)
+            .unwrap();
+        if stone_below {
+            store
+                .update_block(key, world::BlockUpdate::new(1, 7, 0, 0, 2), 0)
+                .unwrap();
+        }
+        let chunk = store.sub_chunk(key).unwrap();
+        let mesh = meshing::mesh_sub_chunk(
+            &meshing::BlockClassifier::new(0),
+            &assets,
+            NetworkIdMode::Sequential,
+            &meshing::Neighbourhood::empty(),
+            &chunk,
+        );
+        mesh.model_refs()[0].words()[3]
+    };
+    assert_eq!(visible_mask(true), visible_mask(false));
+}
