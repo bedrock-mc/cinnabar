@@ -73,6 +73,15 @@ domain!(TextureSelector {
     Torchflower
 });
 
+/// Identifies the built-in furnace pair and whether its front uses lit artwork.
+pub fn furnace_lit(identifier: &str) -> Option<bool> {
+    match identifier {
+        "minecraft:furnace" => Some(false),
+        "minecraft:lit_furnace" => Some(true),
+        _ => None,
+    }
+}
+
 /// Native material aliases whose names overlap actor and item identifiers.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 pub enum MaterialKind {
