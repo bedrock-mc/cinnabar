@@ -12,6 +12,8 @@ mod anvil;
 mod authored_models;
 #[path = "tests/barrel.rs"]
 pub(crate) mod barrel;
+#[path = "tests/beacon.rs"]
+mod beacon;
 #[path = "tests/brewing_stand.rs"]
 mod brewing_stand;
 #[path = "tests/bubble_column.rs"]

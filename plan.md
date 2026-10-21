@@ -84,6 +84,9 @@ and resource qualification; they do not imply these systems need to be written.
 
 - [ ] Qualify static/non-cube models, blend/water and flipbooks, including native
   presentation and animation. Identify unsupported states before adding implementation.
+  Beacon base/core/shell compilation remains provisional: the base's 0.1-pixel
+  bottom offset rounds to the model grid; matched world and replacement-pack
+  captures, carried-item presentation and finer coordinate precision remain open.
 - [ ] Qualify compact templates for slabs/stairs, thin attached faces, paired doors,
   trapdoors, connected panes/fences/gates and static chest/sign models. Check existing
   coverage before implementing a missing case. Keep conservative culling and connectivity

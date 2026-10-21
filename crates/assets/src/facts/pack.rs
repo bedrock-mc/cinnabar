@@ -49,6 +49,9 @@ domain!(PackTexture {
     PowderSnow
 });
 domain!(PackBlock {
+    Beacon,
+    Obsidian,
+    Glass,
     BeeNest,
     Beehive,
     ChiseledBookshelf,
