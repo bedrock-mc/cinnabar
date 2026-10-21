@@ -375,10 +375,14 @@ fn actor_move_then_same_frame_deferred_correction(destination_loaded: bool) {
     assert_eq!(physics.state().unwrap().tick, boundary);
     assert_eq!(physics.network_position(), Some(actor_position));
     let anchor = &samples[0];
+    let mut rewind_position = anchor.position;
+    if !destination_loaded {
+        rewind_position[0] = 48.0;
+    }
     let outcome = crate::movement::reconcile_prediction_correction(
         &mut ticker,
         &mut physics,
-        anchor.position,
+        rewind_position,
         anchor.tick,
         anchor.grounded_after_tick,
         anchor.velocity,
