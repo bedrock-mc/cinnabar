@@ -10,6 +10,9 @@ mod anchored_tests;
 pub(super) mod bounds;
 #[path = "hud/clock.rs"]
 mod clock;
+#[path = "hud/visibility.rs"]
+mod visibility;
+pub(super) use visibility::read_editor_visibility;
 #[path = "hud/compass.rs"]
 mod compass;
 #[path = "hud/days.rs"]
@@ -45,9 +48,9 @@ pub(super) struct HudState {
     source_totem_uses: Option<u32>,
 }
 impl HudState {
-    /// Coalesces unread reset metadata into the newest saved placements until callback commit.
+    /// Coalesces unread resets for ordinary edits and replaces them for history restores.
     pub(super) fn deliver_editor_result(&mut self, mut result: EditorResult) {
-        if result.saved {
+        if result.saved && !result.replace_pending_reset {
             result.reset |= self
                 .editor_result
                 .as_ref()
@@ -604,6 +607,8 @@ mod tests {
             Default::default(),
         );
         state.hud.editor_result = Some(EditorResult {
+            hidden_cards: Vec::new(),
+            replace_pending_reset: false,
             saved: true,
             reset: true,
             placements: vec![ui::mod_hud::Placement {
@@ -641,6 +646,8 @@ mod tests {
             Default::default(),
         );
         state.hud.deliver_editor_result(EditorResult {
+            hidden_cards: Vec::new(),
+            replace_pending_reset: false,
             saved: true,
             reset: true,
             placements: vec![ui::mod_hud::Placement {
@@ -652,6 +659,8 @@ mod tests {
             }],
         });
         let newest = EditorResult {
+            hidden_cards: Vec::new(),
+            replace_pending_reset: false,
             saved: true,
             reset: false,
             placements: vec![ui::mod_hud::Placement {
@@ -684,6 +693,8 @@ mod tests {
         assert!(following.saved && !following.reset);
         state.hud.commit();
         state.hud.deliver_editor_result(EditorResult {
+            hidden_cards: Vec::new(),
+            replace_pending_reset: false,
             saved: true,
             reset: true,
             placements: Vec::new(),

@@ -209,6 +209,12 @@ impl cinnabar::extension::hud::Host for State {
     ) -> Result<Result<Option<cinnabar::extension::hud::AnchoredLayoutResult>, String>> {
         hud::read_editor_anchored_layout(self)
     }
+    /// Reads draft visibility under the same authority and transaction as placement output.
+    fn read_editor_visibility(
+        &mut self,
+    ) -> Result<Result<Option<cinnabar::extension::hud::VisibilityResult>, String>> {
+        hud::read_editor_visibility(self)
+    }
     fn set_content(&mut self, json: String) -> Result<Result<(), String>> {
         hud::set_content(self, json)
     }

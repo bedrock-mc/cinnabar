@@ -12,8 +12,13 @@ mod tests;
 /// Rebuilds only when card geometry, row font or icon topology changes.
 pub(super) fn same_shape(a: &Hud, b: &Hud) -> bool {
     super::world_labels::same_shape(&a.world_labels, &b.world_labels)
-        && a.cards.len() == b.cards.len()
-        && a.cards.iter().zip(&b.cards).all(|(left, right)| {
+        && same_cards_shape(&a.cards, &b.cards)
+}
+
+/// Compares only card template inputs, without cloning unrelated HUD presentation data.
+pub(in super::super) fn same_cards_shape(a: &[Card], b: &[Card]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(left, right)| {
             left.id == right.id
                 && left.scale == right.scale
                 && left.row_layout == right.row_layout

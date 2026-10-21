@@ -1,8 +1,12 @@
 //! Native layout editing of bounded HUD previews. Pointer data never enters a guest.
 
+mod actions;
 mod data;
 mod feedback;
+mod history;
 mod input;
+mod motion;
+mod publication;
 mod snapping;
 mod template;
 
@@ -33,12 +37,19 @@ const SCREEN: &str = "cinnabar_hud_editor.layout";
 const GUIDE_WIDTH: f64 = 0.75;
 const MEASUREMENT_PILL: [f64; 2] = [36., 12.];
 const AXIS_SNAP_DISTANCE: f64 = 6.;
+const GEOMETRY_EPSILON: f64 = 0.001;
 
 pub(super) struct HudEditor {
     draft: Hud,
     committed: Hud,
+    hidden: std::collections::HashSet<String>,
+    committed_hidden: std::collections::HashSet<String>,
+    history: history::History,
+    toast: motion::Toast,
+    anchor_motion: Option<motion::AnchorMotion>,
     pub(super) autosave: bool,
     pub(super) close_requested: bool,
+    /// Reset intent for the next result; autosave clears it after publication.
     reset: bool,
     snap: bool,
     bypass_snap: bool,
@@ -80,12 +91,16 @@ impl ModUi {
         self.cancel_mod_panel_edit();
         let mut preview = preview.clone();
         for card in &mut preview.cards {
-            card.reset_anchor.get_or_insert(card.anchor);
-            card.reset_offset.get_or_insert(card.offset);
+            publication::prepare_card(card);
         }
         self.mod_hud_editor = Some(HudEditor {
             autosave: preview.autosave,
             draft: preview.clone(),
+            history: history::History::new(&preview),
+            hidden: Default::default(),
+            committed_hidden: Default::default(),
+            toast: Default::default(),
+            anchor_motion: None,
             committed: preview,
             close_requested: false,
             reset: false,
@@ -167,7 +182,11 @@ impl ModUi {
     /// Whether editor surface bindings need another frame to finish opening or closing.
     pub(super) fn mod_hud_editor_motion_active(&self) -> bool {
         self.mod_hud_editor.as_ref().is_some_and(|editor| {
-            editor.transitions.exiting() || editor.open && editor.transitions.active()
+            editor.transitions.exiting()
+                || editor.open
+                    && (editor.transitions.active()
+                        || editor.anchor_motion.is_some()
+                        || !editor.toast.text.is_empty())
         })
     }
 
@@ -231,8 +250,10 @@ impl ModUi {
             editor.catalog = None;
             editor.frame = None;
             editor.cancel_pointer_input();
+            editor.anchor_motion = None;
         }
         editor.advance_transitions(paint_frame.now, !self.reduced_motion);
+        editor.advance_feedback(paint_frame.now, !self.reduced_motion);
         if !editor.painting() {
             return;
         }
@@ -277,15 +298,14 @@ impl ModUi {
             self.set_mod_panel_open(false);
             return;
         }
+        let icons = std::mem::take(&mut editor.icons);
+        let keep_out = std::mem::take(&mut editor.keep_out);
         let mut items = ItemRenderer {
-            icons: &editor.icons,
+            icons: &icons,
             id_aux: &[],
         };
         let mut glass = GlassRenderer::new(world);
-        let mut zones = feedback::KeepOutRenderer {
-            rects: &editor.keep_out,
-            dragging: editor.drag.is_some(),
-        };
+        let mut zones = feedback::KeepOutRenderer { rects: &keep_out };
         let mut renderers: [&mut dyn CustomRenderer; 3] = [&mut items, &mut glass, &mut zones];
         // Keep pointer feedback outside the editor borrow while measuring native hit bounds.
         let view = std::mem::take(&mut editor.view);
@@ -297,14 +317,18 @@ impl ModUi {
             art,
             &mut paint_frame.with_renderers(&mut renderers),
             |env, root| {
-                if crate::mod_widgets::text_plate::measure(&mut editor.draft, env.text) {
+                let previous = editor.pending_measurement_size();
+                let measured = crate::mod_widgets::text_plate::measure(&mut editor.draft, env.text);
+                editor.finish_measurement(previous);
+                if measured {
                     editor.catalog = None;
-                    let data = Arc::make_mut(&mut editor.data);
+                    let mut data = Arc::clone(&editor.data);
+                    let values = Arc::make_mut(&mut data);
                     for (n, card) in editor.draft.cards.iter().enumerate() {
-                        crate::mod_widgets::text_plate::data(data, card, n, viewport);
+                        crate::mod_widgets::text_plate::data(values, card, n, viewport);
                     }
-                    data::write_bounds(data, &editor.draft, viewport, editor.selected);
-                    feedback::measurements(data, &editor.draft, viewport, editor.selected);
+                    editor.write_geometry(values);
+                    editor.data = data;
                 }
                 if editor.catalog.is_none() {
                     let catalog = match template::catalog(&editor.draft, viewport) {
@@ -329,6 +353,8 @@ impl ModUi {
             },
         );
         editor.view = view;
+        editor.icons = icons;
+        editor.keep_out = keep_out;
         match result {
             Ok(Some(frame)) => editor.frame = Some(frame),
             result => {

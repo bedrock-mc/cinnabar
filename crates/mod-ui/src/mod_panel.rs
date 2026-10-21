@@ -49,7 +49,7 @@ const ROW_HEIGHT: f64 = 26.0;
 const CHROME_HEIGHT: f64 = 88.0;
 
 pub(super) struct ModPanel {
-    owner: PanelUiOwner,
+    pub(super) owner: PanelUiOwner,
     hud_previews: hud_cards::Previews,
     panel: Panel,
     open: bool,
@@ -365,10 +365,16 @@ impl ModUi {
     ) -> Vec<Event> {
         let controls = self
             .mod_panel
-            .as_ref()
-            .map_or(&[][..], |panel| panel.panel.controls.as_slice());
+            .as_mut()
+            .map_or(&mut [][..], |panel| panel.panel.controls.as_mut_slice());
         if let Some(editor) = self.mod_hud_editor.as_mut().filter(|e| e.open) {
             let events = editor.pointer(position, pressed, held, controls);
+            if !events.is_empty()
+                && let Some(panel) = self.mod_panel.as_mut()
+            {
+                panel.refresh_data();
+            }
+            let editor = self.mod_hud_editor.as_ref().expect("retained editor");
             if editor.close_requested {
                 self.set_mod_panel_open(false);
             }

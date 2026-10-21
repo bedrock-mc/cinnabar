@@ -217,6 +217,9 @@ pub struct Card {
     pub title: String,
     #[serde(default)]
     pub editor_label: String,
+    /// Retains native preview identity after its row policy is materialized. JSON cannot set it.
+    #[serde(skip)]
+    pub editor_native: bool,
     #[serde(default)]
     pub anchor: Anchor,
     /// GUI pixels inward from edge anchors, or right/down from centered axes.
@@ -279,6 +282,7 @@ impl Default for Card {
             preview_only: false,
             title: String::new(),
             editor_label: String::new(),
+            editor_native: false,
             anchor: Anchor::default(),
             offset: [0.; 2],
             scale: unit(),
@@ -299,6 +303,25 @@ impl Default for Card {
             compass: None,
             text_plate: None,
             cells: Vec::new(),
+        }
+    }
+}
+
+impl Card {
+    /// Names editor rows and feedback consistently, falling back to the stable card ID.
+    pub fn editor_name(&self) -> &str {
+        if self.editor_label.is_empty() {
+            &self.id
+        } else {
+            &self.editor_label
+        }
+    }
+
+    /// Keeps an empty native card named and selectable after its source policy is consumed.
+    pub fn ensure_editor_placeholder(&mut self) {
+        self.editor_native |= self.source.is_some();
+        if self.editor_native && self.rows.is_empty() && self.title.is_empty() {
+            self.title = self.editor_name().to_owned();
         }
     }
 }
@@ -339,11 +362,36 @@ pub struct Placement {
     pub position: Option<[f32; 2]>,
 }
 
+impl Placement {
+    /// Captures authored placement without card artwork, text or runtime layout caches.
+    pub fn capture(card: &Card) -> Self {
+        Self {
+            id: card.id.clone(),
+            anchor: card.anchor,
+            offset: card.offset,
+            scale: card.scale,
+            position: card.position,
+        }
+    }
+
+    /// Restores placement onto a card already matched by ID, leaving its content intact.
+    pub fn apply_to(&self, card: &mut Card) {
+        card.anchor = self.anchor;
+        card.offset = self.offset;
+        card.scale = self.scale;
+        card.position = self.position;
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct EditorResult {
     pub saved: bool,
     pub reset: bool,
     pub placements: Vec<Placement>,
+    /// IDs hidden in this saved draft; every ID also has a placement.
+    pub hidden_cards: Vec<String>,
+    /// A history restore replaces unread reset intent instead of coalescing it.
+    pub replace_pending_reset: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -503,8 +551,20 @@ impl Hud {
                 };
                 if !matches!(
                     action.as_str(),
-                    "hud.save" | "hud.cancel" | "hud.close" | "hud.reset" | "hud.grid"
+                    "hud.save"
+                        | "hud.cancel"
+                        | "hud.close"
+                        | "hud.reset"
+                        | "hud.grid"
+                        | "hud.undo"
+                        | "hud.redo"
+                        | "hud.scale_down"
+                        | "hud.scale_up"
                 ) && !indexed("hud.card:", MAX_HUD_CARDS)
+                    && !indexed("hud.select:", MAX_HUD_CARDS)
+                    && !indexed("hud.visibility:", MAX_HUD_CARDS)
+                    && !indexed("hud.anchor:", Anchor::ALL.len())
+                    && !indexed("hud.control:", crate::mod_panel::MAX_PANEL_CONTROLS)
                     && !indexed("hud.done:", crate::mod_panel::MAX_PANEL_CONTROLS)
                 {
                     return Err("HUD editor surface action is unsupported".into());
@@ -672,7 +732,12 @@ impl Hud {
 impl EditorResult {
     /// Rejects malformed placement output and changes attached to cancellation.
     pub fn validate(&self) -> Result<(), String> {
-        if !self.saved && (self.reset || !self.placements.is_empty()) {
+        if !self.saved
+            && (self.reset
+                || !self.placements.is_empty()
+                || !self.hidden_cards.is_empty()
+                || self.replace_pending_reset)
+        {
             return Err("cancelled HUD editor cannot carry changes".into());
         }
         let hud = Hud {
@@ -690,7 +755,14 @@ impl EditorResult {
                 .collect(),
             ..Default::default()
         };
-        hud.validate()
+        hud.validate()?;
+        let mut hidden = HashSet::new();
+        if self.hidden_cards.iter().any(|id| {
+            !hidden.insert(id) || !self.placements.iter().any(|placement| &placement.id == id)
+        }) {
+            return Err("hidden HUD cards require unique placement IDs".into());
+        }
+        Ok(())
     }
 }
 impl Crosshair {
