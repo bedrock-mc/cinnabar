@@ -499,6 +499,36 @@ fn hud_card_preview_only_keeps_artwork_in_explicit_editor_previews() {
 }
 
 #[test]
+fn amendment_hidden_gameplay_cards_keep_explicit_previews_and_live_visibility() {
+    let mut hud = hud(1);
+    hud.cards[0].visible = false;
+    let mut ui = installed(&hud, &panel(false));
+    let mut harness = Harness::new();
+    harness.paint(&mut ui, false);
+    assert!(harness.drawn().vertices.is_empty());
+    assert_eq!(ui.hud_sources.get_mut(OWNER).unwrap().cards[0].paints, 0);
+    harness.paint(&mut ui, true);
+    assert!(!harness.drawn().vertices.is_empty());
+    let catalog = Arc::clone(&ui.hud_sources.get_mut(OWNER).unwrap().catalog);
+    hud.cards[0].visible = true;
+    ui.set_mod_hud_sources([(OWNER, 2, &hud)].into_iter())
+        .unwrap();
+    ui.set_mod_hud(Some(&hud)).unwrap();
+    harness.paint(&mut ui, false);
+    assert!(!harness.drawn().vertices.is_empty());
+    assert!(Arc::ptr_eq(
+        &catalog,
+        &ui.hud_sources.get_mut(OWNER).unwrap().catalog
+    ));
+    hud.cards[0].visible = false;
+    ui.set_mod_hud_sources([(OWNER, 3, &hud)].into_iter())
+        .unwrap();
+    ui.set_mod_hud(Some(&hud)).unwrap();
+    harness.paint(&mut ui, false);
+    assert!(harness.drawn().vertices.is_empty());
+}
+
+#[test]
 fn hud_card_preview_centers_every_anchored_card_without_its_screen_offset() {
     let mut anchors = std::collections::BTreeSet::new();
     for row in 0..3 {

@@ -3,6 +3,8 @@
 use super::*;
 use ui::mod_panel::{Control, FieldModifiers};
 
+mod amendment;
+
 struct Art;
 impl json_ui::TextMeasure for Art {
     /// Geometry tests need no glyph metrics.
