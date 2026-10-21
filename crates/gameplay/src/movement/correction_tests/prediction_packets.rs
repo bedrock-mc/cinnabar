@@ -246,6 +246,101 @@ fn prediction_before_unavailable_destination(
     (physics, ticker, frame.samples)
 }
 
+#[test]
+fn actor_move_replay_fallback_preserves_pending_and_recorded_positions_and_later_motion() {
+    for recorded in [false, true] {
+        let world = DeferredDestinationWorld {
+            destination_loaded: false,
+        };
+        let (mut physics, mut ticker, samples) = prediction_before_unavailable_destination(&world);
+        let mut destination = samples[2].position;
+        destination[0] = 4.0;
+        destination[1] += 0.5;
+        let motion = [0.5, 0.1, 0.0];
+        physics.queue_server_motion(motion, samples[2].tick);
+        physics.apply_server_actor_position(destination, Some(true));
+        if recorded {
+            let frame = physics.advance(
+                Duration::from_millis(50),
+                sim::MovementInput {
+                    immobile: true,
+                    ..Default::default()
+                },
+                &world,
+            );
+            assert_eq!(frame.samples.len(), 1);
+            ticker
+                .enqueue_completed_physics(frame.samples[0].clone())
+                .unwrap();
+        }
+        let current_tick = physics.state().unwrap().tick;
+        let anchor = &samples[0];
+        let mut unavailable = anchor.position;
+        unavailable[0] = 32.0;
+        let outcome = crate::movement::reconcile_prediction_correction(
+            &mut ticker,
+            &mut physics,
+            unavailable,
+            anchor.tick,
+            anchor.grounded_after_tick,
+            anchor.velocity,
+            &world,
+        )
+        .unwrap();
+        assert!(matches!(
+            outcome,
+            Some(PhysicsCorrectionOutcome::Snapped { .. })
+        ));
+        assert_eq!(
+            physics.network_position(),
+            Some(destination),
+            "recorded={recorded}"
+        );
+        assert_eq!(physics.state().unwrap().tick, current_tick);
+        assert_eq!(
+            physics.state().unwrap().velocity,
+            sim::Vec3::new(
+                f64::from(motion[0]),
+                f64::from(motion[1]),
+                f64::from(motion[2])
+            )
+        );
+        assert!(ticker.physics_is_authorized());
+    }
+}
+
+#[test]
+fn actor_move_explicit_teleport_supersedes_pending_and_recorded_positions() {
+    for recorded in [false, true] {
+        let world = DeferredDestinationWorld {
+            destination_loaded: false,
+        };
+        let (mut physics, mut ticker, samples) = prediction_before_unavailable_destination(&world);
+        let mut destination = samples[2].position;
+        destination[0] = 4.0;
+        physics.apply_server_actor_position(destination, Some(true));
+        if recorded {
+            for sample in physics
+                .advance(Duration::from_millis(50), Default::default(), &world)
+                .samples
+            {
+                ticker.enqueue_completed_physics(sample).unwrap();
+            }
+        }
+        destination[0] = 8.0;
+        crate::movement::reconcile_move_player_teleport(
+            &mut ticker,
+            &mut physics,
+            destination,
+            samples[0].tick,
+            true,
+            &world,
+        )
+        .unwrap();
+        assert_eq!(physics.network_position(), Some(destination));
+    }
+}
+
 /// A replay fallback retains the most recent later-frame spatial authority while terrain loads.
 #[test]
 fn unavailable_replay_keeps_the_latest_deferred_destination() {

@@ -110,3 +110,41 @@ fn queued_actor_movement_from_an_old_dimension_cannot_reanchor_the_new_one() {
     assert_eq!(physics.network_position(), initial);
     assert_eq!(movement.completed_tick(), 100);
 }
+
+#[test]
+fn dimension_anchor_supersedes_a_pending_actor_move() {
+    let (mut movement, mut physics, mut effects, mut speed) = owners();
+    physics.apply_server_actor_position([4.0, 5.0, 6.0], Some(true));
+    let position = [8.0, 80.0, 9.0];
+    let disposition = CommittedGameplayState {
+        movement: &mut movement,
+        physics: &mut physics,
+        effects: &mut effects,
+        speed: &mut speed,
+        session_generation: 7,
+        dimension: 1,
+        dimension_transfer_active: true,
+    }
+    .apply(
+        CommittedControlEvent::ChangeDimension {
+            sequence: 2,
+            change: protocol::ChangeDimensionEvent {
+                dimension: 1,
+                position,
+                ..Default::default()
+            },
+            resolved: ResolvedServerPosition {
+                position,
+                surface_anchor: None,
+            },
+        },
+        &NoQueries,
+        |_| {},
+    );
+    assert_eq!(
+        disposition,
+        ControlDisposition::Spatial(SpatialReset::Dimension)
+    );
+    assert_eq!(physics.network_position(), Some(position));
+    assert_eq!(movement.completed_tick(), 100);
+}
