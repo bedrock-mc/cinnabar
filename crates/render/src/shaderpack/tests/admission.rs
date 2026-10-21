@@ -110,3 +110,49 @@ fn geometry_storage_attachment_aliases_fail_view_admission() {
         );
     }
 }
+
+#[test]
+fn shadow_depth_copy_matches_unfilterable_float_targets() {
+    let gpu = validation_gpu();
+    assert!(!gpu.support().float32_filterable);
+    let source = pack(&[
+        ("gbuffers_basic.vsh", PASS_VERTEX),
+        ("gbuffers_basic.fsh", FILL),
+        ("gbuffers_terrain.vsh", PASS_VERTEX),
+        ("gbuffers_terrain.fsh", FILL),
+        ("shadow.vsh", PASS_VERTEX),
+        (
+            "shadow.fsh",
+            "#version 120\nconst int shadowMapResolution = 4;\nvoid main() { gl_FragColor = vec4(1.0); }",
+        ),
+        ("final.vsh", PASS_VERTEX),
+        (
+            "final.fsh",
+            "#version 120\nuniform sampler2D shadowtex0; uniform sampler2D shadowtex1;\nvoid main() { gl_FragColor = texture2D(shadowtex0, vec2(0.5)) + texture2D(shadowtex1, vec2(0.5)); }",
+        ),
+    ]);
+    let loaded = build(
+        &source,
+        "fixture",
+        JAVA_DIMENSIONS[0],
+        None,
+        &gpu,
+        &Default::default(),
+    )
+    .unwrap();
+    assert_eq!(loaded.depth_format, wgpu::TextureFormat::R32Float);
+    let shadow = loaded.shadow.as_ref().expect("active shadow draws");
+    for slot in shadow.slots.float {
+        let target = &loaded.constants.textures[slot.expect("sampled shadow depth")];
+        let format = target.texture.format();
+        assert_eq!(format, wgpu::TextureFormat::R16Float);
+        let expected = &loaded
+            .host
+            .depth_copy
+            .iter()
+            .find(|(key, _)| *key == format)
+            .expect("copy pipeline for the allocated shadow format")
+            .1;
+        assert_eq!(loaded.host.depth_copy_for(format), expected);
+    }
+}

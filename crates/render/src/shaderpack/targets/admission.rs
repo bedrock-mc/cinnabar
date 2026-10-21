@@ -129,7 +129,7 @@ pub(super) fn validate(pack: &PackGpu, screen: [u32; 2], limits: &Limits) -> Res
             continue;
         }
         let read_alt = super::draw_reads(pack, draw).alt;
-        let write_alt = if draw.kind.after_deferred() {
+        let write_alt = if draw.kind.after_deferred(&pack.effects) {
             pack.frame.translucent_alt
         } else {
             pack.frame.scene_alt

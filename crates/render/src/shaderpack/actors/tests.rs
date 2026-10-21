@@ -197,8 +197,8 @@ fn glint_keeps_base_coverage_and_first_person_matrices() {
         assert_eq!(kind.depth_compare(), wgpu::CompareFunction::Equal);
         assert!(!kind.depth_write(&Default::default()));
     }
-    assert!(DrawKind::HandGlint.hand() && DrawKind::HandGlint.after_deferred());
-    assert!(DrawKind::ArmorGlintTranslucent.after_deferred());
+    assert!(DrawKind::HandGlint.hand() && DrawKind::HandGlint.after_deferred(&Default::default()));
+    assert!(DrawKind::ArmorGlintTranslucent.after_deferred(&Default::default()));
 }
 
 #[test]

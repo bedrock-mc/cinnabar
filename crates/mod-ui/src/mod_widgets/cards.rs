@@ -290,7 +290,7 @@ impl ModUi {
             );
         }
         for index in 0..widgets.content.cards.len() {
-            if widgets.content.cards[index].preview_only {
+            if !widgets.content.cards[index].gameplay_visible() {
                 continue;
             }
             let merged_start = widgets.cards[index].row_start;
@@ -372,7 +372,7 @@ impl ui_engine::engine::screen::CustomRenderer for Gameplay<'_> {
         else {
             return Ok(true);
         };
-        if self.widgets.content.cards[index].preview_only {
+        if !self.widgets.content.cards[index].gameplay_visible() {
             return Ok(true);
         }
         let source_ref = self.widgets.cards[index].source;
@@ -414,7 +414,7 @@ impl ui_engine::engine::screen::CustomRenderer for Gameplay<'_> {
     /// Keeps all visible cards' textures resident together before their cached artwork is replayed.
     fn textures<'s>(&'s self, _: &dyn Fn(&str) -> bool, texture: &mut dyn FnMut(&'s str)) {
         for (index, card) in self.widgets.content.cards.iter().enumerate() {
-            if card.preview_only {
+            if !card.gameplay_visible() {
                 continue;
             }
             let entry = if let Some((owner, source_index)) = self.widgets.cards[index].source {
