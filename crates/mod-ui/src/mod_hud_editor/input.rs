@@ -399,12 +399,6 @@ impl HudEditor {
                 self.reset_layout();
                 return Vec::new();
             }
-            Some("hud.grid") => {
-                self.data_dirty = true;
-                self.snap = !self.snap;
-                self.cancel_drag();
-                return Vec::new();
-            }
             _ => {}
         }
         if pressed {
@@ -477,7 +471,7 @@ impl HudEditor {
                         at,
                         self.viewport,
                         &self.keep_out,
-                        self.bypass_snap,
+                        !self.snap || self.bypass_snap,
                         &self.hidden,
                     );
                     let mut aligned = at;

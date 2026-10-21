@@ -451,6 +451,7 @@ fn studio_surface_actions_accept_exact_names_and_reject_out_of_range_indices() {
         "hud.close",
         "hud.reset",
         "hud.grid",
+        "hud.snap",
     ] {
         check(action).unwrap();
     }
@@ -476,6 +477,54 @@ fn studio_surface_actions_accept_exact_names_and_reject_out_of_range_indices() {
         }
     }
     assert!(check("hud.toggle:0").is_err());
+}
+
+#[test]
+fn amendment_visibility_and_inspector_fields_are_additive_and_validated() {
+    let legacy: super::Hud = serde_json::from_value(serde_json::json!({
+        "cards":[{"id":"fps","rows":[]}]
+    }))
+    .unwrap();
+    assert!(legacy.cards[0].visible);
+    assert!(super::Card::default().visible);
+    assert_eq!(legacy.inspector_size, None);
+    let mut hud: super::Hud = serde_json::from_value(serde_json::json!({
+        "cards":[{"id":"fps","visible":false,"rows":[]}],
+        "inspector_size":[180,240]
+    }))
+    .unwrap();
+    hud.validate().unwrap();
+    assert!(!hud.cards[0].visible);
+    assert_eq!(
+        serde_json::from_value::<super::Hud>(serde_json::to_value(&hud).unwrap()).unwrap(),
+        hud
+    );
+    for value in [0., -1., f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        for axis in 0..2 {
+            let mut size = [180., 240.];
+            size[axis] = value;
+            hud.inspector_size = Some(size);
+            assert!(hud.validate().unwrap_err().contains("inspector size"));
+        }
+    }
+    for value in [
+        serde_json::json!([12]),
+        serde_json::json!([12, 24, 36]),
+        serde_json::json!([12, "24"]),
+    ] {
+        assert!(
+            serde_json::from_value::<super::Hud>(
+                serde_json::json!({"cards":[],"inspector_size":value})
+            )
+            .is_err()
+        );
+    }
+    assert!(
+        serde_json::from_value::<super::Hud>(
+            serde_json::json!({"cards":[{"id":"fps","rows":[],"visible":0}]})
+        )
+        .is_err()
+    );
 }
 
 #[test]

@@ -34,7 +34,7 @@ struct SkinParams {
     counts: vec4<u32>,
 }
 
-const SKIN_WORKGROUP_SIZE: u32 = 64u;
+const SKIN_WORKGROUP_SIZE: u32 = GENERATED_SKIN_WORKGROUP_SIZE;
 // The job's positions are already in view space (the first-person hand).
 const JOB_VIEW_SPACE: u32 = JOB_VIEW_SPACE_FLAG;
 // The instance's material culls back faces even where the rig authors them.
@@ -80,8 +80,6 @@ fn skin_corner(job: SkinJob, vertex: u32) -> Corner {
     let current_bone_base = instance_words[instance_base + 13u];
     let span = geometry_spans[instance_words[instance_base + 14u]];
     let partial_tick = clamp(word_f32(instance_base + 16u), 0.0, 1.0);
-    let uv_offset = vec2(word_f32(instance_base + 20u), word_f32(instance_base + 21u));
-    let uv_scale = vec2(word_f32(instance_base + 22u), word_f32(instance_base + 23u));
     let base = (span.first_vertex + vertex) * ACTOR_RIG_VERTEX_WORDS;
     let local = vec3(rig_f32(base), rig_f32(base + 1u), rig_f32(base + 2u));
     let local_normal = vec3(rig_f32(base + 3u), rig_f32(base + 4u), rig_f32(base + 5u));
@@ -99,6 +97,21 @@ fn skin_corner(job: SkinJob, vertex: u32) -> Corner {
         corner.position -= params.camera.xyz;
     }
     corner.normal = placed_normal(placement, posed_normal(previous_bone, current_bone, local_normal, partial_tick));
+    let textured = skin_texture_corner(job, vertex);
+    corner.uv = textured.uv;
+    corner.back_uv = textured.back_uv;
+    return corner;
+}
+
+// Quad matching needs local positions and texture coordinates without repeating bone skinning.
+fn skin_texture_corner(job: SkinJob, vertex: u32) -> Corner {
+    let instance_base = job.instance * ACTOR_GPU_INSTANCE_WORDS;
+    let span = geometry_spans[instance_words[instance_base + 14u]];
+    let base = (span.first_vertex + vertex) * ACTOR_RIG_VERTEX_WORDS;
+    let uv_offset = vec2(word_f32(instance_base + 20u), word_f32(instance_base + 21u));
+    let uv_scale = vec2(word_f32(instance_base + 22u), word_f32(instance_base + 23u));
+    var corner: Corner;
+    corner.position = vec3(rig_f32(base), rig_f32(base + 1u), rig_f32(base + 2u));
     corner.uv = uv_offset + vec2(rig_f32(base + 6u), rig_f32(base + 7u)) * uv_scale;
     let raw_back_uv = vec2(rig_f32(base + 8u), rig_f32(base + 9u));
     // A one-sided plane's back keeps its sentinel.
@@ -117,6 +130,28 @@ fn skin_corner(job: SkinJob, vertex: u32) -> Corner {
         }
     }
     return corner;
+}
+
+// Native quads are two consecutive triangles. Remove their two shared corners once
+// before averaging so both triangles retain the authored four-corner texture centre.
+// Independent triangles keep their own centre, including a final unpaired triangle.
+fn quad_midpoints(corners: array<Corner, 6>, fallback: vec4<f32>) -> vec4<f32> {
+    var total = vec4(0.0);
+    for (var i = 0u; i < 6u; i++) {
+        total += vec4(corners[i].uv, corners[i].back_uv);
+    }
+    var shared = 0u;
+    for (var i = 0u; i < 3u; i++) {
+        for (var j = 3u; j < 6u; j++) {
+            if (all(corners[i].position == corners[j].position)
+                && all(corners[i].uv == corners[j].uv)
+                && all(corners[i].back_uv == corners[j].back_uv)) {
+                total -= vec4(corners[i].uv, corners[i].back_uv);
+                shared++;
+            }
+        }
+    }
+    return select(fallback, total / 4.0, shared == 2u);
 }
 
 // Tangent with handedness in `w`, from the triangle's position and texture gradients.
@@ -193,14 +228,24 @@ fn skin_rig(
     let corner = corners[corner_index];
     let positions = array(corners[0].position, corners[1].position, corners[2].position);
     let uvs = array(corners[0].uv, corners[1].uv, corners[2].uv);
-    let mid_uv = (uvs[0] + uvs[1] + uvs[2]) / 3.0;
+    var midpoints = vec4(
+        (uvs[0] + uvs[1] + uvs[2]) / 3.0,
+        (corners[0].back_uv + corners[1].back_uv + corners[2].back_uv) / 3.0,
+    );
+    let quad = vertex - vertex % 6u;
+    if (quad + 6u <= job.vertex_count) {
+        midpoints = quad_midpoints(array(
+            skin_texture_corner(job, quad), skin_texture_corner(job, quad + 1u), skin_texture_corner(job, quad + 2u),
+            skin_texture_corner(job, quad + 3u), skin_texture_corner(job, quad + 4u), skin_texture_corner(job, quad + 5u),
+        ), midpoints);
+    }
     let light = vec2(f32(job.light & 15u), f32((job.light >> 4u) & 15u));
     write_vertex(
         job.first_output + vertex,
         corner.position,
         job.colour,
         corner.uv,
-        mid_uv,
+        midpoints.xy,
         light,
         corner.normal,
         triangle_tangent(positions, uvs, corner.normal),
@@ -217,13 +262,12 @@ fn skin_rig(
     }
     let back_uvs = array(corners[0].back_uv, corners[2].back_uv, corners[1].back_uv);
     let back_positions = array(positions[0], positions[2], positions[1]);
-    let back_mid = (back_uvs[0] + back_uvs[1] + back_uvs[2]) / 3.0;
     write_vertex(
         back_index,
         corner.position,
         job.colour,
         corner.back_uv,
-        back_mid,
+        midpoints.zw,
         light,
         -corner.normal,
         triangle_tangent(back_positions, back_uvs, -corner.normal),
@@ -248,6 +292,12 @@ fn block_corner(vertex: u32) -> BlockCorner {
     );
 }
 
+// Reads the same quad representation for block-entity conversion.
+fn block_midpoint_corner(vertex: u32) -> Corner {
+    let corner = block_corner(vertex);
+    return Corner(corner.position, vec3(0.0), corner.uv, corner.uv);
+}
+
 // Block-entity vertex x (continuing in y past the dispatch limit): world-space triangles
 // with atlas UVs, a gamma tint and packed actor light.
 @compute @workgroup_size(SKIN_WORKGROUP_SIZE)
@@ -270,6 +320,14 @@ fn convert_block_entities(
     var normal = vec3(block_f32(base + 9u), block_f32(base + 10u), block_f32(base + 11u));
     let positions = array(corners[0].position, corners[1].position, corners[2].position);
     let uvs = array(corners[0].uv, corners[1].uv, corners[2].uv);
+    var midpoint = (uvs[0] + uvs[1] + uvs[2]) / 3.0;
+    let quad = vertex - vertex % 6u;
+    if (quad + 6u <= params.counts.x) {
+        midpoint = quad_midpoints(array(
+            block_midpoint_corner(quad), block_midpoint_corner(quad + 1u), block_midpoint_corner(quad + 2u),
+            block_midpoint_corner(quad + 3u), block_midpoint_corner(quad + 4u), block_midpoint_corner(quad + 5u),
+        ), vec4(midpoint, midpoint)).xy;
+    }
     let face = cross(positions[2] - positions[0], positions[1] - positions[0]);
     if (beam || dot(normal, normal) < 1e-6) {
         normal = select(vec3(0.0, 1.0, 0.0), normalize(face), dot(face, face) > 1e-12);
@@ -283,7 +341,7 @@ fn convert_block_entities(
         corner.position,
         pack4x8unorm(clamp(colour, vec4(0.0), vec4(1.0))),
         corner.uv,
-        (uvs[0] + uvs[1] + uvs[2]) / 3.0,
+        midpoint,
         light,
         normal,
         triangle_tangent(positions, uvs, normal),

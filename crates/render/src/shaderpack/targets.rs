@@ -690,11 +690,10 @@ fn uniform_buffer(device: &Device, name: &str, block: &shaderpack::UniformBlock)
 pub(crate) fn draw_reads(pack: &PackGpu, draw: &GeometryDraw) -> BufferReads {
     let frame = &pack.frame;
     let (base, mips) = match draw.kind {
-        DrawKind::Effect(effect) if pack.effects.after_deferred(effect) => {
+        kind if kind.shadow() => return BufferReads::default(),
+        kind if kind.after_deferred(&pack.effects) => {
             (frame.translucent_alt, frame.translucent_mips)
         }
-        kind if kind.shadow() => return BufferReads::default(),
-        kind if kind.after_deferred() => (frame.translucent_alt, frame.translucent_mips),
         _ => (frame.scene_alt, frame.scene_mips),
     };
     let program = &pack.programs[draw.program];

@@ -5,6 +5,7 @@ use serde_json::json;
 
 /// Builds a small original Studio surface that consumes the host's public bindings.
 pub(super) fn fixture(edited: bool) -> Fixture {
+    let inspector_size = [180, 112];
     let label = |text: &str, offset: [u32; 2], binding: bool| {
         let mut node = json!({"type":"label","text":text,"size":[160,14],"offset":offset,
             "anchor_from":"top_left","anchor_to":"top_left","localize":false,"font_type":ui::mod_panel::SANS_FONT_NAME,"font_scale_factor":0.8,"color":[0.9,0.93,1]});
@@ -20,6 +21,8 @@ pub(super) fn fixture(edited: bool) -> Fixture {
         ("Center", "hud.anchor:4"),
         ("Scale +", "hud.scale_up"),
         ("Hide clock", "hud.visibility:1"),
+        ("Grid", "hud.grid"),
+        ("Snap", "hud.snap"),
     ]
     .into_iter()
     .enumerate()
@@ -35,8 +38,29 @@ pub(super) fn fixture(edited: bool) -> Fixture {
         json!({"scale":label("#hud_selected_scale_text",[24,277],true)}),
         json!({"toast":label("#hud_toast",[240,300],true)}),
     ]);
+    if edited {
+        let background = json!({"type":"custom","renderer":"cinnabar_rounded_rectangle",
+            "radius":10,"size":inspector_size,"color":[0.06,0.075,0.1,0.98]});
+        controls.push(json!({"inspector_column":{
+            "type":"stack_panel","orientation":"horizontal","size":["100%","100%"],
+            "anchor_from":"top_left","anchor_to":"top_left","controls":[
+                {"x":{"type":"panel","size":[0,1],"bindings":[{"binding_name":"#hud_inspector_x","binding_name_override":"#size_binding_x_absolute"}]}},
+                {"column":{"type":"stack_panel","size":[inspector_size[0],"100%"],"controls":[
+                    {"y":{"type":"panel","size":[inspector_size[0],0],"bindings":[{"binding_name":"#hud_inspector_y","binding_name_override":"#size_binding_y_absolute"}]}},
+                    {"settings":{"type":"panel","size":inspector_size,"controls":[
+                        {"background":background},
+                        {"heading":label("Frame rate settings",[12,12],false)},
+                        {"scale":label("#hud_selected_scale_text",[12,38],true)},
+                        {"hint":label("Anchor · Center",[12,64],false)},
+                        {"hint2":label("Grid and snap are separate",[12,88],false)}
+                    ]}}
+                ]}}
+            ]
+        }}));
+    }
     let hud: ui::mod_hud::Hud = serde_json::from_value(json!({
         "resizable":true, "hide_editor_labels":true,
+        "inspector_size":if edited {Some(inspector_size)} else {None},
         "surface":{"screen":"studio.root","document":json!({"namespace":"studio","root":{
             "type":"screen","size":["100%","100%"],"controls":controls
         }}).to_string(),"bindings":{}},

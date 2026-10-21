@@ -1,6 +1,7 @@
 //! Named, anonymous screen fixtures. Add a state here when a PR needs a new capture.
 
 mod chat;
+mod collection_reveal;
 #[cfg(feature = "test-support")]
 mod cosmetics;
 mod hud_cards;
@@ -103,6 +104,18 @@ const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 const SHADER_PACK_ROW_SIZE: [u32; 2] = [SIZE[0], 1600];
 
 pub const STATES: &[State] = &[
+    State {
+        name: "collection-reveal-before",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || collection_reveal::fixture(false),
+    },
+    State {
+        name: "collection-reveal-after",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || collection_reveal::fixture(true),
+    },
     State {
         name: "hud-editor-before",
         size: SIZE,
