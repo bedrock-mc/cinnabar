@@ -25,10 +25,10 @@ type fakeFriendDirectory struct {
 	mu         sync.Mutex
 	failCloses int
 	withdrawn  bool
+	members    int
 }
 
 func (*fakeFriendDirectory) nonce(string) (string, bool)          { return "nonce", true }
-func (*fakeFriendDirectory) setMembers(int)                       {}
 func (*fakeFriendDirectory) invite(context.Context, string) error { return nil }
 
 func (d *fakeFriendDirectory) Close() error {
@@ -40,6 +40,19 @@ func (d *fakeFriendDirectory) Close() error {
 	}
 	d.withdrawn = true
 	return nil
+}
+
+func (d *fakeFriendDirectory) setMembers(count int) {
+	d.mu.Lock()
+	d.members = count
+	d.mu.Unlock()
+}
+
+// memberCount is the last member count published.
+func (d *fakeFriendDirectory) memberCount() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.members
 }
 
 // isWithdrawn reports whether a close has succeeded.
@@ -58,7 +71,9 @@ type friendHostFixture struct {
 	mu          sync.Mutex
 	opened      []*memorySignaling
 	directories []*fakeFriendDirectory
-	failCloses  int // failed closes for each new directory
+	failCloses  int           // failed closes for each new directory
+	reopening   chan struct{} // when set, a replacement open signals here and waits for resume
+	resume      chan struct{}
 	joined      int
 }
 
@@ -78,6 +93,13 @@ func startFriendHostFixture(t *testing.T, failCloses int) *friendHostFixture {
 	f.api = webrtc.NewAPI(webrtc.WithSettingEngine(settings))
 	f.host = newFriendHost("host", log, func(context.Context) (*friendEndpoint, error) {
 		f.mu.Lock()
+		if f.reopening != nil && len(f.opened) > 0 {
+			reopening, resume := f.reopening, f.resume
+			f.mu.Unlock()
+			reopening <- struct{}{}
+			<-resume
+			f.mu.Lock()
+		}
 		signaling := f.hub.peer(fmt.Sprintf("host-%d", len(f.opened)))
 		f.opened = append(f.opened, signaling)
 		directory := &fakeFriendDirectory{failCloses: f.failCloses}
@@ -139,11 +161,23 @@ func (f *friendHostFixture) serveWorld(server *minecraft.Listener) {
 func (f *friendHostFixture) loseSignaling(t *testing.T) {
 	t.Helper()
 	lost := f.host.current()
+	f.dropSignaling()
+	testwait.Eventually(t, 10*time.Second, "replacement endpoint", func() bool { return f.host.current() != lost })
+}
+
+// dropSignaling ends the host's newest signaling connection.
+func (f *friendHostFixture) dropSignaling() {
 	f.mu.Lock()
 	signaling := f.opened[len(f.opened)-1]
 	f.mu.Unlock()
 	_ = signaling.Close()
-	testwait.Eventually(t, 10*time.Second, "replacement endpoint", func() bool { return f.host.current() != lost })
+}
+
+// players is the host's count of friends in the world.
+func (f *friendHostFixture) players() int {
+	f.host.mu.Lock()
+	defer f.host.mu.Unlock()
+	return f.host.players
 }
 
 // join spawns a friend through the host's newest signaling connection.
@@ -227,5 +261,29 @@ func TestFriendAdmissionUsesItsOwnSession(t *testing.T) {
 	allow := host.config(&fakeFriendDirectory{}).Allow
 	if reason, ok := allow(nil, login.IdentityData{XUID: "friend"}, login.ClientData{Nonce: "nonce"}); !ok {
 		t.Fatalf("friend with its session's nonce refused: %s", reason)
+	}
+}
+
+// A friend leaving while signaling reconnects is not counted by the replacement session.
+func TestFriendHostCountsDeparturesDuringReconnect(t *testing.T) {
+	f := startFriendHostFixture(t, 0)
+	f.mu.Lock()
+	f.reopening, f.resume = make(chan struct{}), make(chan struct{})
+	f.mu.Unlock()
+	leaving := f.join(t)
+	f.say(t, leaving, "joined")
+	lost := f.host.current()
+
+	f.dropSignaling()
+	<-f.reopening
+	_ = leaving.Close()
+	testwait.Eventually(t, 10*time.Second, "departure counted", func() bool { return f.players() == 0 })
+	close(f.resume)
+	testwait.Eventually(t, 10*time.Second, "replacement endpoint", func() bool { return f.host.current() != lost })
+	f.mu.Lock()
+	replacement := f.directories[len(f.directories)-1]
+	f.mu.Unlock()
+	if got := replacement.memberCount(); got != 1 {
+		t.Fatalf("replacement session advertises %d members, want only the host", got)
 	}
 }

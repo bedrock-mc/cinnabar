@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/df-mc/go-nethernet"
@@ -64,7 +63,6 @@ type FriendHost struct {
 	config   func(friendDirectory) minecraft.ListenConfig
 	prepared *preparedConnections
 	log      *slog.Logger
-	players  atomic.Int32
 	sessions sync.WaitGroup
 	ctx      context.Context // ends every friend's relay; only Close cancels it
 	cancel   context.CancelFunc
@@ -72,6 +70,7 @@ type FriendHost struct {
 
 	mu       sync.Mutex
 	endpoint *friendEndpoint
+	players  int            // friends in the world; published to endpoint with mu held
 	retries  sync.WaitGroup // withdrawals retried after failing; Close waits for them
 }
 
@@ -309,13 +308,13 @@ func (h *FriendHost) reconnect() bool {
 			closed := h.ctx.Err() != nil
 			if !closed {
 				h.endpoint = endpoint
+				endpoint.directory.setMembers(h.players + 1)
 			}
 			h.mu.Unlock()
 			if closed {
 				_ = endpoint.retire()
 				return false
 			}
-			endpoint.directory.setMembers(int(h.players.Load()) + 1)
 			return true
 		}
 		if h.ctx.Err() != nil {
@@ -360,6 +359,15 @@ func (h *FriendHost) retire(endpoint *friendEndpoint) {
 	}()
 }
 
+// addPlayers counts friends joining or leaving and publishes the total with the host to the
+// current endpoint, under the lock that replacing the endpoint holds.
+func (h *FriendHost) addPlayers(delta int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.players += delta
+	h.endpoint.directory.setMembers(h.players + 1)
+}
+
 // current is the endpoint friends are admitted through.
 func (h *FriendHost) current() *friendEndpoint {
 	h.mu.Lock()
@@ -387,10 +395,10 @@ func (h *FriendHost) accept(listener *minecraft.Listener) {
 			continue
 		}
 		h.sessions.Add(1)
-		h.current().directory.setMembers(int(h.players.Add(1)) + 1)
+		h.addPlayers(1)
 		go func() {
 			defer h.sessions.Done()
-			defer func() { h.current().directory.setMembers(int(h.players.Add(-1)) + 1) }()
+			defer h.addPlayers(-1)
 			// A friend's session ending never stops the host.
 			if err := servePreparedConnection(h.ctx, downstream, prepared); err != nil && h.ctx.Err() == nil {
 				logFriendSessionEnded(h.log, downstream.IdentityData().XUID, err)
