@@ -19,6 +19,7 @@ in a fresh file, and the newest 10 archives up to 64 MiB are kept.
 | macOS `.app` + DMG | `make package-macos` | `CODESIGN_IDENTITY`, `NOTARY_PROFILE` or `APPLE_ID`/`APPLE_TEAM_ID`/`APPLE_APP_PASSWORD` |
 | Windows setup EXE + MSI (WiX v5) | `make package-windows` | `WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD` |
 | Linux AppImage | `make package-linux` | none |
+| Linux Flatpak (x86-64) | See [Flatpak](flatpak/README.md) | none |
 
 All native builds include the local mod host and Settings › Mods. Release targets use
 `--no-default-features` to exclude the acceptance harness. Developer defaults stay enabled for `make play`, live

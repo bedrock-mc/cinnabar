@@ -1,0 +1,40 @@
+{
+    "app-id": "io.github.cinnabar_mc.cinnabar",
+    "runtime": "org.freedesktop.Platform",
+    "runtime-version": "26.08",
+    "sdk": "org.freedesktop.Sdk",
+    "sdk-extensions": ["org.freedesktop.Sdk.Extension.golang"],
+    "command": "cinnabar",
+    "finish-args": [
+        "--share=ipc",
+        "--share=network",
+        "--socket=wayland",
+        "--socket=fallback-x11",
+        "--socket=pulseaudio",
+        "--device=dri",
+        "--device=input"
+    ],
+    "build-options": {
+        "append-path": "/usr/lib/sdk/golang/bin",
+        "prepend-path": "/app/rust-toolchain/bin",
+        "env": {
+            "CARGO_BUILD_BUILD_DIR": "target",
+            "CARGO_INCREMENTAL": "0",
+            "GOTOOLCHAIN": "local",
+            "GOWORK": "off",
+            "GOPROXY": "off",
+            "GOFLAGS": "-mod=vendor"
+        }
+    },
+    "cleanup": ["/rust-toolchain"],
+    "modules": [
+        {
+            "name": "cinnabar",
+            "buildsystem": "simple",
+            "build-commands": ["bash packaging/flatpak/build.sh"],
+            "sources": [
+                {"type": "archive", "path": "cinnabar-sources.tar.gz"}
+            ]
+        }
+    ]
+}

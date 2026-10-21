@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.cinnabar_mc.cinnabar</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>PolyForm-Noncommercial-1.0.0</project_license>
+  <name>Cinnabar</name>
+  <summary>Play Minecraft Bedrock servers with a native client</summary>
+  <description>
+    <p>Cinnabar is an independent Minecraft Bedrock client with a native renderer,
+    multiplayer server connections, and local worlds.</p>
+    <p>Game resources are downloaded and prepared on first launch with your consent.
+    Cinnabar is not affiliated with Mojang or Microsoft.</p>
+  </description>
+  <launchable type="desktop-id">io.github.cinnabar_mc.cinnabar.desktop</launchable>
+  <url type="homepage">https://github.com/cinnabar-mc/cinnabar</url>
+  <url type="bugtracker">https://github.com/cinnabar-mc/cinnabar/issues</url>
+  <url type="vcs-browser">https://github.com/cinnabar-mc/cinnabar</url>
+  <developer id="io.github.cinnabar_mc">
+    <name>Cinnabar contributors</name>
+  </developer>
+  <categories>
+    <category>Game</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+</component>

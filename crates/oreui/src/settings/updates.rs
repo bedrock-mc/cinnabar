@@ -12,6 +12,12 @@ use ui_engine::engine::screen::PaintError;
 pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     let view = content.view;
     content.heading("Updates", "")?;
+    if view.updates.managed {
+        return content.label(
+            &installed_version(),
+            "Updates are managed by Flatpak. Use your software store or run flatpak update.",
+        );
+    }
     if !view.updates.active {
         return content.label(
             &installed_version(),

@@ -467,6 +467,10 @@ validation; retain only the explicitly permitted diagnostic/optional fallbacks.
 Windows runtime executables use `asInvoker` manifests and allow both normal and elevated
 launches. Native Windows startup, update and crash-restart acceptance remains incomplete.
 
+Linux x86-64 Flatpak packaging prepares locked offline sources and delegates application
+updates to Flatpak. Clean-install, login, rendering, local-world, import and update acceptance
+inside the sandbox, and a stable-release Flathub submission remain incomplete.
+
 ## Experimental hosts and extensions
 
 - Browser/Android implementation and CI checks do not close their complete join, pack,

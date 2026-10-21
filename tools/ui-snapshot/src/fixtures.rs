@@ -782,6 +782,20 @@ const STATES: &[State] = &[
         fixture: || updates::settings(launcher::menu::updates::Status::UpToDate),
     },
     State {
+        name: "settings-updates-flatpak",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            let Fixture::Menu(mut view) = updates::settings(launcher::menu::updates::Status::Idle)
+            else {
+                unreachable!()
+            };
+            view.updates.managed = true;
+            view.updates.active = false;
+            Fixture::Menu(view)
+        },
+    },
+    State {
         name: "settings-updates-downloading",
         size: SIZE,
         gui_scale: GUI_SCALE,

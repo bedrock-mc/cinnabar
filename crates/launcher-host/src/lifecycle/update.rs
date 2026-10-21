@@ -325,7 +325,7 @@ impl State {
 
 /// Configures installed clients; stage and network checks begin after startup acknowledgement.
 pub fn check_in_background(layout: &InstallLayout) {
-    if !layout.is_installed() {
+    if managed_install() || !layout.is_installed() {
         return;
     }
     let _ = LAYOUT.set(layout.clone());
@@ -358,6 +358,13 @@ pub fn configure(mut preferences: Preferences) {
 
 /// Presents a verified ready stage and channel availability through the launcher data contract.
 pub fn view() -> View {
+    if managed_install() {
+        return View {
+            managed: true,
+            active: false,
+            ..View::default()
+        };
+    }
     let now = OffsetDateTime::now_utc();
     tick(now);
     let Ok(state) = STATE.lock() else {
@@ -388,6 +395,14 @@ pub fn view() -> View {
         message: state.message.clone(),
         ..View::default()
     }
+}
+
+/// Flatpak exposes its installation marker independently of the app's environment variables.
+fn managed_install() -> bool {
+    static MANAGED: OnceLock<bool> = OnceLock::new();
+    *MANAGED.get_or_init(|| {
+        cfg!(target_os = "linux") && std::path::Path::new("/.flatpak-info").is_file()
+    })
 }
 
 /// Raises the wording after a protocol refusal; it never changes update consent.

@@ -1,0 +1,53 @@
+name: Flatpak
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/flatpak.yml
+      - packaging/flatpak/**
+      - packaging/common/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flatpak-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          rustup toolchain install
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          cache: false
+      - name: Prepare offline sources
+        run: python3 packaging/flatpak/prepare.py
+      - name: Build the package
+        run: |
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          manifest=$(find .local/dist/flatpak -maxdepth 1 -name '*.json')
+          flatpak-builder --user --install --install-deps-from=flathub --force-clean \
+            --repo=.local/dist/flatpak/repo .local/dist/flatpak/build "$manifest"
+          app_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["app-id"])' "$manifest")
+          flatpak run --user "$app_id" --help
+          flatpak build-bundle .local/dist/flatpak/repo .local/dist/flatpak/Cinnabar-x86_64.flatpak "$app_id"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: flatpak-x86_64
+          path: |
+            .local/dist/flatpak/*.flatpak
+            .local/dist/flatpak/*.json
+            .local/dist/flatpak/cinnabar-sources.tar.gz
+          if-no-files-found: error

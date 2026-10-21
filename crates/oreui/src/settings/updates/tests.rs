@@ -98,3 +98,19 @@ fn updates_controls_belong_to_their_own_settings_tab() {
         _ => false,
     }));
 }
+
+/// Package-managed installs explain how to update without offering direct-install controls.
+#[test]
+fn flatpak_updates_show_the_package_manager_without_update_actions() {
+    let mut view = MenuView::new(true, "Player".into());
+    view.settings.section = SettingSection::Updates.definition().index;
+    view.updates.managed = true;
+    view.updates.active = false;
+    for width in [320.0, 800.0] {
+        let (actions, text) = render(&view, width);
+        assert!(actions.is_empty());
+        assert!(text.contains("UpdatesaremanagedbyFlatpak"));
+        assert!(text.contains(&installed_version().replace(' ', "")));
+        assert!(!text.contains("Beta") && !text.contains("Nightly"));
+    }
+}

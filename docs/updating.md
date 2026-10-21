@@ -42,7 +42,8 @@ work has completed. Main-world updates alone cannot confirm startup or discard t
   signature and notarization ticket. The previous bundle remains beside it until the new client
   completes startup. A failed new start restores the previous bundle.
 - **Linux:** the same swap and startup rollback apply to AppImages. Unpacked installations use
-  the manual download action.
+  the manual download action. Flatpak installations use their software store or `flatpak update`;
+  they do not check for direct-install updates or offer application channel switching.
 - **Windows:** the helper runs the verified MSI passively with existing rights and relaunches
   the client. The previous downloaded MSI remains in the update directory for manual repair.
 
