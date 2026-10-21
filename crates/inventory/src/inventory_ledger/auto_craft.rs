@@ -189,6 +189,28 @@ impl PlayerInventoryLedger {
         let capacity = entry_capacity(entry)
             .filter(|capacity| output.count != 0 && output.count <= *capacity)
             .ok_or(InventoryGestureError::InvalidRequest)?;
+        let user_data: Arc<[u8]> = if output.empty_envelope {
+            Arc::from([0; 10])
+        } else {
+            Arc::from([])
+        };
+        let one_craft = NetworkItemStack {
+            network_id: output.network_id,
+            metadata: u32::from(output.aux),
+            stack_network_id: 0,
+            count: u16::from(output.count),
+            nbt_digest: Sha256::digest(&user_data).into(),
+            block_runtime_id: i32::from_ne_bytes(output.block_runtime_id.to_ne_bytes()),
+            extra_data: Arc::clone(&user_data),
+        };
+        // Before anything is consumed, one craft's output must fit an empty cell or a partial stack.
+        if !self
+            .spread_plan_partial(&one_craft, capacity, &[])
+            .iter()
+            .any(|(_, amount, _)| *amount == one_craft.count)
+        {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
         let crafts = if all {
             self.max_auto_crafts(recipe, capacity)
         } else {
@@ -202,19 +224,10 @@ impl PlayerInventoryLedger {
             .ok_or(InventoryGestureError::InvalidRequest)?;
         let total = output.count * crafts;
         let request_id = self.peek_request_id()?;
-        let user_data: Arc<[u8]> = if output.empty_envelope {
-            Arc::from([0; 10])
-        } else {
-            Arc::from([])
-        };
         let created = NetworkItemStack {
-            network_id: output.network_id,
-            metadata: u32::from(output.aux),
             stack_network_id: request_id,
             count: u16::from(total),
-            nbt_digest: Sha256::digest(&user_data).into(),
-            block_runtime_id: i32::from_ne_bytes(output.block_runtime_id.to_ne_bytes()),
-            extra_data: Arc::clone(&user_data),
+            ..one_craft
         };
         // Each ingredient is listed once with count 1 and empty grid cells are skipped;
         // the sources above still consume every ingredient's full count per craft.

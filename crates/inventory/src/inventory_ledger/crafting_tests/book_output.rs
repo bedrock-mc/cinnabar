@@ -96,30 +96,31 @@ fn crafting_all_from_the_book_repeats_until_ingredients_or_one_stack_run_out() {
 }
 
 #[test]
-fn a_full_inventory_takes_the_book_craft_remainder_on_an_empty_cursor_only() {
+fn a_book_craft_needs_room_before_consuming_anything() {
     let mut full: Vec<_> = (0..35)
         .map(|slot| (slot, COBBLE, 100 + i32::from(slot), 64))
         .collect();
     full.push((35, LOG, 200, 1));
+    // The log's slot would only free up once consumed, so there is no room to start.
     let mut ledger = stocked(&full);
-    // The consumed log frees its slot, which receives the output.
-    ledger.begin_auto_craft(&planks(), false).unwrap();
-    assert_eq!(placed_outputs(&ledger)[0].0, 35);
-
-    full.last_mut().unwrap().3 = 2;
-    let mut ledger = stocked(&full);
-    ledger.begin_auto_craft(&planks(), false).unwrap();
-    assert!(placed_outputs(&ledger).is_empty());
-    assert_eq!(ledger.cursor_stack().unwrap().network_id, PLANKS);
-
-    let mut ledger = stocked(&full);
-    ledger.apply(&cursor_content(stack(COBBLE, 300, 1)));
     let pending = ledger.pending_request_count();
     assert_eq!(
         ledger.begin_auto_craft(&planks(), false),
         Err(InventoryGestureError::InvalidRequest)
     );
     assert_eq!(ledger.pending_request_count(), pending);
+
+    // A partial stack with room for one craft is enough; consumed slots then take the rest.
+    full[0] = (0, PLANKS, 100, 63);
+    full[35].3 = 3;
+    let mut ledger = stocked(&full);
+    ledger.begin_auto_craft(&planks(), true).unwrap();
+    let placed: Vec<_> = placed_outputs(&ledger)
+        .into_iter()
+        .map(|(slot, stack)| (slot, stack.count))
+        .collect();
+    assert_eq!(placed, [(0, 64), (35, 2)]);
+    assert!(ledger.cursor_stack().is_none());
 }
 
 #[test]
