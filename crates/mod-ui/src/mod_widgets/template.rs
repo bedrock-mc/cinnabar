@@ -30,6 +30,7 @@ pub(in super::super) fn same_cards_shape(a: &[Card], b: &[Card]) -> bool {
                 && left.shadow == right.shadow
                 && left.title.is_empty() == right.title.is_empty()
                 && left.compass.is_some() == right.compass.is_some()
+                && left.crosshair == right.crosshair
                 && left.text_plate.is_some() == right.text_plate.is_some()
                 && left.text_plate.as_ref().map(|p| p.style.border_width)
                     == right.text_plate.as_ref().map(|p| p.style.border_width)
@@ -100,6 +101,22 @@ fn apply_font(node: &mut Value, font: &str) {
 
 /// Builds card geometry before applying its selected typography.
 fn card_content(card: &Card, card_index: usize, row_index: &mut usize) -> Value {
+    if let Some(spec) = &card.crosshair {
+        let mut spec = spec.clone();
+        spec.size *= card.scale;
+        spec.gap *= card.scale;
+        spec.thickness *= card.scale;
+        spec.outline *= card.scale;
+        return panel_for_card(
+            card_index,
+            dimensions(card),
+            vec![named(
+                "crosshair",
+                json!({"type":"custom","renderer":"cinnabar_crosshair_preview",
+                "size":dimensions(card),"anchor_from":"top_left","anchor_to":"top_left","crosshair":spec}),
+            )],
+        );
+    }
     if card.text_plate.is_some() {
         *row_index += card.rows.len();
         return super::text_plate::control(card, card_index);
@@ -452,6 +469,9 @@ pub(super) fn card_data(
 
 /// Shared card geometry for gameplay publication and native layout editing.
 pub(in super::super) fn dimensions(card: &Card) -> [f64; 2] {
+    if card.crosshair.is_some() {
+        return [f64::from(card.width * card.scale); 2];
+    }
     if card.text_plate.is_some() {
         return super::text_plate::dimensions(card);
     }

@@ -47,6 +47,28 @@ impl CustomRenderer for CrosshairRenderer<'_> {
     }
 }
 
+/// Uses the identical cached coverage mesh for a declarative, noninteractive card sample.
+pub(crate) struct PreviewRenderer;
+
+impl CustomRenderer for PreviewRenderer {
+    fn paint(
+        &mut self,
+        node: &CustomDraw<'_>,
+        canvas: &mut Canvas<'_>,
+    ) -> Result<bool, PaintError> {
+        if node.renderer != "cinnabar_crosshair_preview" {
+            return Ok(false);
+        }
+        if let Some(value) = node.data.get("crosshair")
+            && let Ok(spec) = serde_json::from_value::<Crosshair>(value.clone())
+            && spec.validate().is_ok()
+        {
+            paint(canvas, &spec, node.dest);
+        }
+        Ok(true)
+    }
+}
+
 /// Returns false if the replacement cannot draw, so ordinary cursor art survives.
 fn paint(canvas: &mut Canvas<'_>, spec: &Crosshair, dest: [f32; 4]) -> bool {
     let rgba = |color: [f32; 4]| color.map(|v| (v * 255.).round() as u8);

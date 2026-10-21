@@ -129,6 +129,7 @@ pub(super) fn refresh_with_clock(state: &mut State, clock: Option<super::clock::
     }
     let mut resolved = if facts_changed || state.hud.source_clock != clock {
         let mut hud = state.hud.content.clone().expect("bound content");
+        super::samples::expand(&mut hud);
         super::clock::hydrate(&mut hud, clock);
         super::days::hydrate(&mut hud, world_day);
         hydrate_totems(&mut hud, totem_uses);
@@ -233,6 +234,11 @@ fn bind_rows(
 ) {
     for card in &mut hud.cards {
         let Some(source) = &card.source else { continue };
+        let sample = card.sample.then(|| super::samples::snapshot(&source.kind));
+        let sample_sidebar = (card.sample && matches!(source.kind, NativeRows::Sidebar { .. }))
+            .then(super::samples::sidebar);
+        let snapshot = sample.as_ref().or(snapshot);
+        let sidebar = sample_sidebar.as_ref().or(sidebar);
         let mut rows = Vec::new();
         match &source.kind {
             NativeRows::Clock { .. } | NativeRows::WorldDays => {
@@ -347,6 +353,7 @@ pub(super) fn hydrate_totems(hud: &mut Hud, count: Option<u32>) {
         let NativeRows::TotemUses { flip, count_color } = source.kind else {
             continue;
         };
+        let count = if card.sample { Some(3) } else { count };
         let style = ui::mod_hud::TotemCounterStyle {
             flip,
             count_color,

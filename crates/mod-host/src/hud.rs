@@ -17,6 +17,8 @@ pub(super) use visibility::read_editor_visibility;
 mod compass;
 #[path = "hud/days.rs"]
 mod days;
+#[path = "hud/samples.rs"]
+mod samples;
 #[path = "hud/sources.rs"]
 pub(super) mod sources;
 #[cfg(test)]
@@ -115,6 +117,7 @@ pub(super) fn open_editor(state: &mut State, json: String) -> Result<Result<(), 
     if let Err(error) = sources::admit(state, &preview) {
         return Ok(Err(error));
     }
+    samples::expand(&mut preview);
     let minute = clock::observe(&preview);
     clock::hydrate(&mut preview, minute);
     days::hydrate(&mut preview, days::observe(state));

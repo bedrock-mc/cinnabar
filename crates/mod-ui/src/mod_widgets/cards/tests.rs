@@ -175,6 +175,69 @@ fn installed(hud: &Hud, panel: &ui::mod_panel::Panel) -> ModUi {
     ui
 }
 
+/// A crosshair sample emits native coverage meshes and follows shape, size and color edits.
+#[test]
+fn crosshair_samples_use_native_coverage_and_refresh_the_cached_card() {
+    let mut previous = None;
+    for shape in [
+        ui::mod_hud::CrosshairShape::Cross,
+        ui::mod_hud::CrosshairShape::Dot,
+        ui::mod_hud::CrosshairShape::Circle,
+    ] {
+        let mut hud = Hud {
+            cards: vec![ui::mod_hud::Card {
+                id: "card_0".into(),
+                preview_only: true,
+                width: 64.,
+                background_opacity: 0.,
+                crosshair: Some(ui::mod_hud::Crosshair {
+                    shape,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        hud.validate().unwrap();
+        let mut ui = installed(&hud, &panel(false));
+        let mut harness = Harness::new();
+        harness.paint(&mut ui, true);
+        let drawn = harness.drawn();
+        assert!(
+            !drawn.indices.is_empty(),
+            "crosshair sample emitted no mesh"
+        );
+        let signature: Vec<_> = drawn
+            .vertices
+            .iter()
+            .map(|v| (v.position, v.color))
+            .collect();
+        if let Some(previous) = previous {
+            assert_ne!(
+                signature, previous,
+                "shape change left stale preview coverage"
+            );
+        }
+        previous = Some(signature);
+        let spec = hud.cards[0].crosshair.as_mut().unwrap();
+        spec.size = 9.;
+        spec.gap = 5.;
+        spec.color = [0., 1., 0., 1.];
+        spec.outline = 0.;
+        ui.set_mod_hud_sources([(OWNER, 2, &hud)].into_iter())
+            .unwrap();
+        harness.paint(&mut ui, true);
+        let changed = harness.drawn();
+        assert!(
+            changed
+                .vertices
+                .iter()
+                .any(|v| v.color[1] > 200 && v.color[0] == 0)
+        );
+        assert_ne!(changed.vertices.len(), drawn.vertices.len());
+    }
+}
+
 #[test]
 fn hud_card_preview_centers_scales_clips_and_reuses_gameplay_output() {
     let hud = hud(1);
