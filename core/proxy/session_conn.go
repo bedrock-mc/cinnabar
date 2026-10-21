@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -200,6 +201,7 @@ func (session *sessionConn) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.
 				}
 				batchPackets = append(batchPackets, raw)
 			case packet.IDRespawn:
+				slog.Info("RESPAWN_TRACE downstream->upstream IDRespawn", "runtime_id", session.runtimeID.Load())
 				if pk, ok := decodeSessionPacket(session.clientPool, raw, 0, false).(*packet.Respawn); ok && pk.State == packet.RespawnStateClientReadyToSpawn {
 					runtimeID := pk.EntityRuntimeID
 					if runtimeID == 0 {
@@ -218,6 +220,7 @@ func (session *sessionConn) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.
 				batchPackets = append(batchPackets, raw)
 			case packet.IDPlayerAction:
 				if pk, ok := decodeSessionPacket(session.clientPool, raw, 0, false).(*packet.PlayerAction); ok && pk.ActionType == protocol.PlayerActionRespawn {
+					slog.Info("RESPAWN_TRACE downstream->upstream PlayerActionRespawn", "runtime_id", session.runtimeID.Load())
 					runtimeID := pk.EntityRuntimeID
 					if runtimeID == 0 {
 						runtimeID = session.runtimeID.Load()
@@ -260,6 +263,16 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 					return session.endLocked(bridgecontract.SessionKindTransfer, sessionTransfer{
 						Address: transfer.Address, Port: transfer.Port, ReloadWorld: transfer.ReloadWorld,
 					})
+				}
+			}
+		case packet.IDRespawn:
+			slog.Info("RESPAWN_TRACE upstream->downstream IDRespawn")
+		case packet.IDUpdateAttributes:
+			if pk, ok := decodeSessionPacket(session.serverPool, data, 0, false).(*packet.UpdateAttributes); ok {
+				for _, attr := range pk.Attributes {
+					if attr.Name == "minecraft:health" {
+						slog.Info("RESPAWN_TRACE upstream->downstream health", "value", attr.Value, "runtime_id", pk.EntityRuntimeID)
+					}
 				}
 			}
 		case packet.IDMovePlayer:
