@@ -189,6 +189,15 @@ impl PlayerInventoryLedger {
         let capacity = entry_capacity(entry)
             .filter(|capacity| output.count != 0 && output.count <= *capacity)
             .ok_or(InventoryGestureError::InvalidRequest)?;
+        let one_craft = created_stack(output, u16::from(output.count), 0);
+        // Before anything is consumed, one craft's output must fit an empty cell or a partial stack.
+        if !self
+            .spread_plan_partial(&one_craft, capacity, &[])
+            .iter()
+            .any(|(_, amount, _)| *amount == one_craft.count)
+        {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
         let crafts = if all {
             self.max_auto_crafts(recipe, capacity)
         } else {

@@ -814,7 +814,8 @@ impl UiRuntime {
     }
 
     /// A click on a recipe book entry: a creative item as on the catalog grid, else
-    /// auto-crafting the recipe into the inventory; `into_inventory` (shift) crafts a stack.
+    /// auto-crafting the recipe into the inventory; `into_inventory` (shift) crafts a stack
+    /// and `requested` marks a secondary click.
     fn recipe_book_click(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
@@ -857,6 +858,13 @@ impl UiRuntime {
                     expanded.insert(index);
                 }
                 Ok(0)
+            }
+            // A secondary click crafts once only with an empty cursor.
+            Some(Clicked::Recipe(_))
+                if requested.is_some()
+                    && player_runtime.inventory.ledger().cursor_stack().is_some() =>
+            {
+                Err(InventoryGestureError::InvalidRequest)
             }
             Some(Clicked::Recipe(recipe)) => player_runtime
                 .inventory
