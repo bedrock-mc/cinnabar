@@ -239,8 +239,7 @@ impl PlayerInventoryLedger {
                     stack_network_id: request_id,
                     count: u16::from(output.count),
                     nbt_digest: Sha256::digest(&user_data).into(),
-                    block_runtime_id: i32::try_from(output.block_runtime_id)
-                        .map_err(|_| InventoryGestureError::InvalidRequest)?,
+                    block_runtime_id: i32::from_ne_bytes(output.block_runtime_id.to_ne_bytes()),
                     extra_data: user_data,
                 };
                 let held = Held {
@@ -313,7 +312,7 @@ impl PlayerInventoryLedger {
             identifier: Arc::clone(&entry.identifier),
             aux: i32::try_from(preview.stack.metadata).unwrap_or(0),
             count: preview.stack.count,
-            block_runtime_id: u32::try_from(preview.stack.block_runtime_id).unwrap_or(0),
+            block_runtime_id: u32::from_ne_bytes(preview.stack.block_runtime_id.to_ne_bytes()),
             user_data: Arc::clone(&preview.stack.extra_data),
         }]);
         let (first, filter_strings) = match craft {

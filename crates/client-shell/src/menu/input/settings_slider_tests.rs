@@ -18,6 +18,96 @@ use {
 
 const PHYSICAL: [u32; 2] = [1920, 1080];
 
+/// Swiping a toggle row scrolls its content and never toggles the row on release.
+#[test]
+fn settings_swipe_moves_content_without_activating_the_pressed_row() {
+    let (mut app, window, option, value, bounds) = accessibility_fixture();
+    let start = Vec2::new(
+        (bounds.min().x() + bounds.max().x()) * 0.5,
+        (bounds.min().y() + bounds.max().y()) * 0.5,
+    );
+    touch(&mut app, window, start, TouchPhase::Started);
+    touch(&mut app, window, start - Vec2::Y * 150.0, TouchPhase::Moved);
+    touch(&mut app, window, start - Vec2::Y * 150.0, TouchPhase::Ended);
+    build(&mut app);
+    let menu = app.world().resource::<MenuRuntime>();
+    assert_eq!(menu.settings_options.value(option), value);
+    let moved = app
+        .world()
+        .resource::<UiPresentationResource>()
+        .menu_action_bounds(MenuAction::SettingsOption(option.index() as u16, 1 - value))
+        .unwrap();
+    assert!(moved.min().y() < bounds.min().y());
+}
+
+/// Opens a static settings column with an actionable row and overflowing content.
+fn accessibility_fixture() -> (App, Entity, SettingId, i32, ui::UiRect) {
+    let (mut app, window) = shader_fixture();
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .sync_shader_options(None);
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .set_named_option(SettingId::ScreenAnimations, 0);
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .activate(MenuAction::SettingsSection(
+            launcher::menu::settings_sections::SettingSection::Accessibility
+                .definition()
+                .index,
+        ));
+    build(&mut app);
+    let option = SettingId::EnableUiTextToSpeech;
+    let value = app
+        .world()
+        .resource::<MenuRuntime>()
+        .settings_options
+        .value(option);
+    let bounds = app
+        .world()
+        .resource::<UiPresentationResource>()
+        .menu_action_bounds(MenuAction::SettingsOption(option.index() as u16, 1 - value))
+        .unwrap();
+    (app, window, option, value, bounds)
+}
+
+/// Retained focus can reject input even while the window remains focused.
+#[test]
+fn occlusion_cancels_a_settings_swipe_until_the_finger_is_lifted() {
+    let (mut app, window, option, value, bounds) = accessibility_fixture();
+    app.init_resource::<client_state::CursorFocus>();
+    let start = Vec2::new(
+        (bounds.min().x() + bounds.max().x()) * 0.5,
+        (bounds.min().y() + bounds.max().y()) * 0.5,
+    );
+    touch(&mut app, window, start, TouchPhase::Started);
+    touch(&mut app, window, start - Vec2::Y * 30.0, TouchPhase::Moved);
+    build(&mut app);
+    let before = app
+        .world()
+        .resource::<UiPresentationResource>()
+        .menu_action_bounds(MenuAction::SettingsOption(option.index() as u16, 1 - value))
+        .unwrap();
+    assert!(before.min().y() < bounds.min().y());
+    app.world_mut()
+        .resource_mut::<client_state::CursorFocus>()
+        .occlusion_changed(true);
+    touch(&mut app, window, start - Vec2::Y * 60.0, TouchPhase::Moved);
+    {
+        let mut focus = app.world_mut().resource_mut::<client_state::CursorFocus>();
+        focus.occlusion_changed(false);
+        focus.begin_frame(true);
+    }
+    touch(&mut app, window, start - Vec2::Y * 90.0, TouchPhase::Moved);
+    build(&mut app);
+    let after = app
+        .world()
+        .resource::<UiPresentationResource>()
+        .menu_action_bounds(MenuAction::SettingsOption(option.index() as u16, 1 - value))
+        .unwrap();
+    assert_eq!(after.min().y(), before.min().y());
+}
+
 /// Opens a shader slider using the redistributable font fixture and native menu painter.
 fn shader_fixture() -> (App, Entity) {
     use launcher::shader_options::{Control, Element, Status, View};

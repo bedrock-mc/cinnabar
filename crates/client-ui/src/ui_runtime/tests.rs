@@ -79,6 +79,7 @@ fn block_crack_stops_consume_without_retaining_a_history() {
 
 mod chat_tests;
 mod container_address_tests;
+mod death_tests;
 mod furnace_options_tests;
 mod gameplay_hud_tests;
 mod inventory_open_tests;
@@ -86,5 +87,6 @@ mod inventory_options_tests;
 mod inventory_overlay_tests;
 mod inventory_timeout_tests;
 mod localized_text_tests;
+mod quick_craft_tests;
 mod retained_bounds_tests;
 mod trading_tests;

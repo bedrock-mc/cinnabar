@@ -46,11 +46,29 @@ pub(crate) struct Manifest {
     pub(crate) subpacks: Vec<Subpack>,
 }
 
-/// Validates a manifest against the server-selected identity.
+/// Local selections must match their archive; server selections use negotiated transport IDs.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(crate) enum IdentityPolicy {
+    Manifest,
+    #[cfg(feature = "handoff")]
+    ServerAdvertisement,
+}
+
+/// Validates a manifest against a locally selected identity.
 pub(crate) fn read_manifest(
     bytes: &[u8],
     pack_id: Uuid,
     version: &str,
+) -> Result<Manifest, AdmissionError> {
+    read_manifest_with_policy(bytes, pack_id, version, IdentityPolicy::Manifest)
+}
+
+/// Validates manifest structure while keeping server transfer identity separate from authored metadata.
+pub(crate) fn read_manifest_with_policy(
+    bytes: &[u8],
+    pack_id: Uuid,
+    version: &str,
+    identity: IdentityPolicy,
 ) -> Result<Manifest, AdmissionError> {
     let root: Value = parse_jsonc(bytes).map_err(|_| AdmissionError::MalformedManifest)?;
     // Vanilla reads the format as a version written as a number, string or triple.
@@ -73,7 +91,9 @@ pub(crate) fn read_manifest(
     let manifest_version =
         Version::from_value(&header["version"]).ok_or(AdmissionError::InvalidVersion)?;
     let selected_version = Version::parse(version).ok_or(AdmissionError::InvalidVersion)?;
-    if uuid != pack_id || manifest_version != selected_version {
+    if identity == IdentityPolicy::Manifest
+        && (uuid != pack_id || manifest_version != selected_version)
+    {
         return Err(AdmissionError::ManifestIdentityMismatch);
     }
     let has_resources = root["modules"].as_array().is_some_and(|modules| {
@@ -105,6 +125,37 @@ mod tests {
     use super::*;
 
     const ID: Uuid = Uuid::from_u128(1);
+
+    #[test]
+    #[cfg(feature = "handoff")]
+    fn server_identity_policy_still_validates_manifest_and_selected_metadata() {
+        let valid = manifest("2", "[1, 2, 3]", r#"{"type":"resources"}"#);
+        let check = |text: &str, version: &str| {
+            read_manifest_with_policy(
+                text.as_bytes(),
+                Uuid::from_u128(2),
+                version,
+                IdentityPolicy::ServerAdvertisement,
+            )
+        };
+        assert!(check(&valid, "9.8.7").is_ok());
+        assert_eq!(
+            check(&valid, "invalid").err(),
+            Some(AdmissionError::InvalidVersion)
+        );
+        assert_eq!(
+            check(&valid.replace(&ID.to_string(), "invalid"), "9.8.7").err(),
+            Some(AdmissionError::MalformedManifest),
+        );
+        assert_eq!(
+            check(&manifest("2", "[1, 2]", r#"{"type":"resources"}"#), "9.8.7").err(),
+            Some(AdmissionError::InvalidVersion),
+        );
+        assert_eq!(
+            check(&manifest("2", "[1, 2, 3]", r#"{"type":"data"}"#), "9.8.7").err(),
+            Some(AdmissionError::InvalidModules),
+        );
+    }
 
     fn manifest(format: &str, version: &str, modules: &str) -> String {
         format!(

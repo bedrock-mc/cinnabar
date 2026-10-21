@@ -80,7 +80,7 @@ impl BookEntry<'_> {
                     network_id: output.network_id,
                     metadata: u32::from(output.aux),
                     count: u16::from(output.count),
-                    block_runtime_id: i32::try_from(output.block_runtime_id).unwrap_or(0),
+                    block_runtime_id: i32::from_ne_bytes(output.block_runtime_id.to_ne_bytes()),
                     ..NetworkItemStack::empty()
                 }
             }
