@@ -113,6 +113,33 @@ fn furnace_cells_are_addressed_by_role() {
 }
 
 #[test]
+fn station_cells_return_into_the_hotbar_before_the_main_inventory() {
+    let mut ledger = ledger_with(&[(0, stack(10, 1))]);
+    open(&mut ledger, 3, WINDOW_TYPE_FURNACE);
+    ledger.apply(&content(
+        ContainerIdentity::window(3),
+        vec![
+            NetworkItemStack::default(),
+            NetworkItemStack::default(),
+            stack(22, 5),
+        ],
+    ));
+    ledger
+        .begin_quick_move(InventoryTarget::Storage(2))
+        .unwrap();
+    let Some(StackRequestAction::Place { destination, .. }) = ledger.newest_action() else {
+        panic!("a place from the result cell");
+    };
+    assert_eq!(destination.slot, 1);
+    assert_eq!(ledger.displayed_stack(1).unwrap().count, 5);
+    assert!(
+        ledger
+            .displayed_stack(protocol::HOTBAR_SLOT_COUNT)
+            .is_none()
+    );
+}
+
+#[test]
 fn named_window_refreshes_keep_taken_slots_empty_after_rejection() {
     for admission in 0..3 {
         let mut ledger = ledger_with(&[]);
