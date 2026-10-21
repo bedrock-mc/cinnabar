@@ -58,7 +58,7 @@ pub enum StorageAction {
 pub enum StorageFolder {
     Worlds,
     ResourcePacks,
-    /// Java shader packs, offered beside the Video renderer picker.
+    /// Java shader packs, offered in the Shaders tab.
     ShaderPacks,
 }
 

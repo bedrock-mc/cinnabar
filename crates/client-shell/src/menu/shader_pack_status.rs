@@ -1,5 +1,5 @@
 //! Shows the render host's shader-pack load state: a pressless standing toast while a slow
-//! load runs, an ordinary toast with the outcome, and the failure in the Video Renderer row
+//! load runs, an ordinary toast with the outcome, and the failure in the Shaders tab
 //! while the failed pack is selected.
 
 use std::{ops::DerefMut, sync::Arc, time::Duration};

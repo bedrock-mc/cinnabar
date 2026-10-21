@@ -1,4 +1,4 @@
-//! The Shader pack renderer's inputs: the packs listed in the Video picker and the
+//! The Shader pack renderer's inputs: the packs listed in the Shaders tab and the
 //! [`ShaderPackRequest`] the render host loads from.
 
 use std::path::{Component, Path, PathBuf};

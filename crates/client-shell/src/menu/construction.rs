@@ -69,7 +69,7 @@ impl MenuRuntime {
         let language_pending = settings_options.language().is_some();
         let language_choices = SettingsOptions::language_choices(&layout.resource_root);
         let mut initial = MenuView::new(visible, display_name);
-        // Folder buttons outside Storage (the Video shader-pack folder) need this before
+        // Folder buttons outside Storage (the Shaders tab folder) need this before
         // Storage is first measured.
         std::sync::Arc::make_mut(&mut initial.storage).opens_folders =
             launcher_host::desktop::opens_folders();

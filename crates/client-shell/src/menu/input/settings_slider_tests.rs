@@ -24,7 +24,7 @@ fn shader_fixture() -> (App, Entity) {
     let mut menu = MenuRuntime::new(true, 2, "Player".into());
     menu.activate(MenuAction::Navigate(MenuScreen::Settings));
     menu.activate(MenuAction::SettingsSection(
-        launcher::menu::settings_sections::SettingSection::Video
+        launcher::menu::settings_sections::SettingSection::Shaders
             .definition()
             .index,
     ));
