@@ -13,8 +13,10 @@ mod edit_selection;
 mod form_overlap;
 mod hud_editor;
 mod panorama;
+mod saturation_overlap;
 #[cfg(feature = "test-support")]
 mod settings_draft;
+mod sprite_outline;
 mod tiled_image;
 
 use std::{
@@ -114,6 +116,15 @@ fn png_fixture(
     seconds: f64,
     resource_pack: Option<&Path>,
 ) -> Result<Vec<u8>, Error> {
+    if let Fixture::MaskRegression = &fixture {
+        return saturation_overlap::regression_png(state.size);
+    }
+    if let Fixture::SpriteOutline { outline } = &fixture {
+        return sprite_outline::png(state.size, *outline);
+    }
+    if let Fixture::SaturationOverlap { crop, source_alpha } = &fixture {
+        return saturation_overlap::png(state.size, *crop, *source_alpha);
+    }
     if let Fixture::TiledImage { scale } = &fixture {
         return tiled_image::png(state.size, *scale);
     }
@@ -140,6 +151,9 @@ fn png_fixture(
         Fixture::Chat { .. }
         | Fixture::TabList(_)
         | Fixture::EditSelection
+        | Fixture::MaskRegression
+        | Fixture::SaturationOverlap { .. }
+        | Fixture::SpriteOutline { .. }
         | Fixture::Toast { .. }
         | Fixture::BackupFont
         | Fixture::TiledImage { .. }
@@ -190,7 +204,12 @@ fn png_fixture(
             let engine = json_engine(&carriers)?;
             backup_font::paint(&engine, &mut frame)?;
         }
-        Fixture::TiledImage { .. } => unreachable!("tiled image capture returned above"),
+        Fixture::SpriteOutline { .. }
+        | Fixture::MaskRegression
+        | Fixture::SaturationOverlap { .. }
+        | Fixture::TiledImage { .. } => {
+            unreachable!("asset-free capture returned above")
+        }
         #[cfg(feature = "test-support")]
         Fixture::CosmeticParticles { .. }
         | Fixture::FormOverlap

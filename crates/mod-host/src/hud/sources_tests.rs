@@ -3,6 +3,99 @@
 use super::*;
 use crate::{ModGrants, PlayerStateItem, PlayerStateSlot, PlayerStateSnapshot};
 
+/// Compact equipment includes both hands and preserves only observed, remaining durability.
+#[test]
+fn compact_equipment_has_right_icon_values_without_labels_or_progress() {
+    let policy: Hud = serde_json::from_value(serde_json::json!({"cards":[{
+        "id":"armor","row_layout":"icon_right","rows":[],
+        "source":{"kind":{"kind":"armor","held":true,"percent":false,"empty":false,"compact":true,"offhand":true,"warning":20},"limit":6}
+    }]})).unwrap();
+    let mut snapshot = snapshot();
+    snapshot.inventory[0].item.as_mut().unwrap().identifier = Some("minecraft:clock".into());
+    let mut gear = snapshot.inventory[0].clone();
+    let item = gear.item.as_mut().unwrap();
+    item.identifier = Some("minecraft:diamond_helmet".into());
+    item.damage = Some(10);
+    item.max_durability = Some(363);
+    snapshot.armor[0] = gear.clone();
+    let item = gear.item.as_mut().unwrap();
+    item.identifier = Some("minecraft:shield".into());
+    item.damage = Some(320);
+    item.max_durability = Some(336);
+    snapshot.offhand = gear;
+    let mut hud = policy.clone();
+    sources::hydrate(&mut hud, Some(&snapshot), None);
+    let rows = &hud.cards[0].rows;
+    assert_eq!(
+        rows.iter()
+            .map(|row| row.item.as_deref())
+            .collect::<Vec<_>>(),
+        [
+            Some("minecraft:clock"),
+            Some("minecraft:diamond_helmet"),
+            Some("minecraft:shield")
+        ]
+    );
+    assert_eq!(
+        rows.iter()
+            .map(|row| row.value.as_str())
+            .collect::<Vec<_>>(),
+        ["", "353", "16"]
+    );
+    assert!(
+        rows.iter()
+            .all(|row| row.label.is_empty() && row.progress.is_none())
+    );
+    assert_eq!(rows[2].color, super::status_rows::WARNING_RED);
+    hud.validate().unwrap();
+    hud = policy;
+    sources::hydrate(&mut hud, None, None);
+    assert!(
+        hud.cards[0].rows.is_empty(),
+        "session loss must not leave synthetic or stale equipment"
+    );
+}
+
+/// Stacked effects keep level suffixes localizable and ceil timers without stale expired rows.
+#[test]
+fn stacked_effects_sort_names_levels_and_countdowns() {
+    let policy: Hud = serde_json::from_value(serde_json::json!({"cards":[{
+        "id":"effects","row_layout":"stacked_text","rows":[],
+        "source":{"kind":{"kind":"effects","icons":true,"stacked":true,"warnings":true},"limit":16}
+    }]}))
+    .unwrap();
+    let mut snapshot = snapshot();
+    let mut effect = snapshot.effects[0];
+    effect.effect_id = 5;
+    effect.amplifier = 3;
+    effect.remaining_ticks = Some(1);
+    snapshot.effects.insert(0, effect);
+    effect.effect_id = 2;
+    effect.amplifier = 0;
+    effect.remaining_ticks = Some(0);
+    snapshot.effects.push(effect);
+    snapshot.effects[1].amplifier = 3;
+    snapshot.effects[1].remaining_ticks = Some(1200);
+    let mut hud = policy.clone();
+    sources::hydrate(&mut hud, Some(&snapshot), None);
+    let rows = &hud.cards[0].rows;
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].label, "%potion.moveSpeed IV");
+    assert!(rows[0].localized);
+    assert_eq!(rows[0].value, "01:00");
+    assert_eq!(rows[1].effect_id, Some(5));
+    assert_eq!(rows[1].value, "00:01");
+    assert_eq!(rows[1].color, super::status_rows::WARNING_RED);
+    hud.validate().unwrap();
+    snapshot.effects.clear();
+    hud = policy.clone();
+    sources::hydrate(&mut hud, Some(&snapshot), None);
+    assert!(hud.cards[0].rows.is_empty());
+    hud = policy;
+    sources::hydrate(&mut hud, None, None);
+    assert!(hud.cards[0].rows.is_empty());
+}
+
 /// A native-source update invalidates a merge even when the guest publishes nothing new.
 #[test]
 fn output_revisions_follow_native_bindings_and_ignore_identical_publications() {

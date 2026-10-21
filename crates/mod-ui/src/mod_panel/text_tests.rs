@@ -152,6 +152,36 @@ fn native_text_editing_survives_a_guest_capture_flag_refresh() {
     );
 }
 
+/// Compact authored fields retain their bounds while long drafts scroll to the caret.
+#[test]
+fn compact_text_editor_preserves_its_authored_width() {
+    let engine = field_engine();
+    let font = ui_engine::test_support::fixture_font();
+    let mut layouts = ui::TextLayoutCache::new(64, 1 << 24);
+    let mut ui = live_field("00000000000000000000000000000000", false);
+    paint_field(&mut ui, &engine, &font, &mut layouts, 0.);
+    let rect = [471., 23., 116., 20.];
+    ui.mod_panel.as_mut().unwrap().open_editor(0, rect);
+    ui.mod_panel_key("End", None);
+    paint_field(&mut ui, &engine, &font, &mut layouts, 1.);
+    let panel = ui.mod_panel.as_ref().unwrap();
+    let frame = panel.frame.as_ref().unwrap();
+    let editor = frame
+        .hits
+        .iter()
+        .find(|hit| hit.pressed.as_deref() == Some("mod.editor"))
+        .unwrap();
+    assert_eq!(editor.rect.x, rect[0]);
+    assert_eq!(editor.rect.w, rect[2]);
+    assert!(
+        field_state(&ui).scroll > 0.,
+        "long drafts scroll inside the field"
+    );
+    let caret = field_state(&ui).ime_position[0];
+    assert!(caret >= frame.origin[0] + rect[0] as f32 * frame.scale);
+    assert!(caret <= frame.origin[0] + (rect[0] + rect[2]) as f32 * frame.scale);
+}
+
 /// Clipboard access requires a focused native field and exposes only its actual selection.
 #[test]
 fn native_clipboard_selection_follows_caret_and_focus() {

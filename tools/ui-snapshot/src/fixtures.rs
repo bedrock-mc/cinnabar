@@ -34,6 +34,17 @@ pub struct State {
 
 /// Inputs borrowed by the same screen painters the client uses.
 pub enum Fixture {
+    /// Unequal mask edges and high-resolution sprite minification.
+    MaskRegression,
+    /// Original sprite samples before and after alpha-only outline shading.
+    SpriteOutline {
+        outline: bool,
+    },
+    /// Adjacent sparse saturation masks before and after overlap-aware exclusion.
+    SaturationOverlap {
+        crop: bool,
+        source_alpha: u8,
+    },
     /// A label whose unavailable primary face selects its installed backup.
     BackupFont,
     /// An original checker repeated beyond a small sprite's former draw cutoff.
@@ -104,7 +115,44 @@ const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 /// Reaches the Video pane's Renderer row below the general options.
 const SHADER_PACK_ROW_SIZE: [u32; 2] = [SIZE[0], 1600];
 
+/// A capture at GUI scale 1 that needs no game assets.
+const fn asset_free(name: &'static str, size: [u32; 2], fixture: fn() -> Fixture) -> State {
+    State {
+        name,
+        size,
+        gui_scale: 1,
+        fixture,
+    }
+}
+
 pub const STATES: &[State] = &[
+    asset_free("sprite-outline-before", [800, 240], || {
+        Fixture::SpriteOutline { outline: false }
+    }),
+    asset_free("sprite-outline", [800, 240], || Fixture::SpriteOutline {
+        outline: true,
+    }),
+    asset_free("saturation-overlap-before", [640, 240], || {
+        Fixture::SaturationOverlap {
+            crop: true,
+            source_alpha: 255,
+        }
+    }),
+    asset_free("saturation-overlap", [640, 240], || {
+        Fixture::SaturationOverlap {
+            crop: false,
+            source_alpha: 255,
+        }
+    }),
+    asset_free("saturation-mask-regressions", [640, 240], || {
+        Fixture::MaskRegression
+    }),
+    asset_free("saturation-translucent-overlap", [640, 240], || {
+        Fixture::SaturationOverlap {
+            crop: false,
+            source_alpha: 64,
+        }
+    }),
     State {
         name: "mod-hud-card-fit-before",
         size: SIZE,

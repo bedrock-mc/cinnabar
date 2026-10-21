@@ -89,6 +89,37 @@ pub(super) fn screen_outputs(
 ) {
     let runtime = items.runtime;
     if let Some(kind) = runtime.inventory_ledger(player_runtime).window_kind() {
+        if let Some(trade) = runtime.inventory_ledger(player_runtime).trading() {
+            window_icons.recipe = trade
+                .offers
+                .iter()
+                .flat_map(|offer| {
+                    offer
+                        .inputs
+                        .iter()
+                        .chain(std::iter::once(&offer.output))
+                        .map(|stack| {
+                            stack.as_ref().and_then(|stack| {
+                                if stack.metadata == u32::from(protocol::RECIPE_ANY_AUX) {
+                                    let mut preview = stack.clone();
+                                    preview.metadata = 0;
+                                    items.icon(&preview, None)
+                                } else {
+                                    items.icon(stack, None)
+                                }
+                            })
+                        })
+                })
+                .collect();
+            if let Some(stack) = runtime.inventory_ledger(player_runtime).trade_output() {
+                window_icons.recipe_output = Some(ui_screens::container_source::StationOutput {
+                    stack: stack.clone(),
+                    icon: items.icon(stack, None),
+                    durability: items.durability(stack, None),
+                });
+            }
+            return;
+        }
         let output_stack = |output: protocol::RecipeOutput| protocol::NetworkItemStack {
             network_id: output.network_id,
             metadata: u32::from(output.aux),

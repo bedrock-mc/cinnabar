@@ -163,9 +163,10 @@ fn repeated_draw_lists_reuse_shared_gpu_resources_and_preserve_batch_order() {
 }
 
 #[test]
-fn shader_parses_and_declares_premultiplied_texture_sampling() {
+fn shader_validates_all_entry_points() {
     let source = ui_render::shader::source(include_str!("../src/ui.wgsl"));
-    let module = naga::front::wgsl::parse_str(&source).unwrap();
+    let module = naga::front::wgsl::parse_str(&source)
+        .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&source)));
     naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
         naga::valid::Capabilities::all(),
@@ -180,7 +181,7 @@ fn shader_parses_and_declares_premultiplied_texture_sampling() {
         render_model::UI_STYLE_ALPHA_TEST
     )));
     assert!(source.contains("sample.a < 0.5"));
-    assert!(source.find("discard;").unwrap() < source.find("let alpha =").unwrap());
+    assert_eq!(module.entry_points.len(), 3);
     let (_, viewport) = module
         .types
         .iter()

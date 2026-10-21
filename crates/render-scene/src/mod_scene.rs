@@ -111,14 +111,14 @@ impl ModRenderScene {
 
     /// Both producers share geometry, depth and the existing combined vertex budget.
     fn rebuild_block_highlights(&mut self) {
-        self.block_vertices = block_highlights::build_coloured(
+        self.block_vertices = block_highlights::build_styled(
             self.block_positions
                 .iter()
-                .map(|position| (*position, self.block_color))
+                .map(|position| (*position, self.block_color, None))
                 .chain(
                     self.drawn_blocks
                         .iter()
-                        .map(|block| (block.position, block.colour)),
+                        .map(|block| (block.position, block.colour, block.outline.as_ref())),
                 )
                 .take(MAX_BLOCK_HIGHLIGHTS),
         )

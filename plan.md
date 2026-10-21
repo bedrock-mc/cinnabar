@@ -232,7 +232,7 @@ qualification remain open.
 
 Pure numeric Molang expressions use bound f32 lane programs with load fusion;
 mixed values and effects retain the generic evaluator, including exact budget tails.
-Full rig history and rendered qualification remain part of `P4.3-RIGS`.
+Full rig history and rendered qualification remain part of the rig item below.
 Body and custom-skin composition use shared parent-first programs and caller-owned
 output, including attachable root modes and legacy attacks. Alternate render
 geometries and skin layers retain recursive composition. Rendered and live
@@ -329,6 +329,11 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Complex item-tag scripts and live custom-block mining acceptance remain incomplete.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
+  Trading screens admit server offers and support purchases with manually placed inputs.
+  Automatic ingredient filling, trader experience, restock and demand-price transitions,
+  classic preview rich tooltips, and full item/container acceptance across trading layouts
+  remain incomplete.
+  Block-item purchases await an authoritative result preview to retain its block identity.
 - [ ] `P5.6-FORMS` — Close modal/menu/custom form navigation, validation, cancellation
   and responses, including server-pack definitions, structured text, custom controls,
   scaling and image/layout behavior against matched native views. Overlapping requests
@@ -458,6 +463,13 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   preferences now settle feedback, wheel scrolling and surface transitions
   immediately, retain prepared routes and apply across route changes.
   displayed-frame pacing and complete rendering acceptance.
+  Saturation overlays prepare source outlines on image workers independently of GPU-sheet
+  capacity and area-filter them to the requested draw size. Paint skips pending sources,
+  unions small masks within the visible viewport and atlas allocation budget, and draws
+  ordinary prepared sprites. A small LRU reuses clamped source grids across GUI scales. Current and held-food
+  coverage share one mask. CPU/GPU regressions cover tint, cropping, unequal translucent
+  edges, independent shake, inversion and high-resolution minification; complete in-game
+  and platform acceptance remain pending.
   HUD layout editing stores nine anchors and GUI-pixel offsets after completed
   moves, resizes and nudges, with an additive anchored-layout read and normalized
   compatibility reads. Editor drags snap to neighboring cards, stacking gaps and

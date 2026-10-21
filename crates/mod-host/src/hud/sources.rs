@@ -298,82 +298,14 @@ fn bind_rows(
                     }
                 }
             }
-            NativeRows::Armor {
-                held,
-                percent,
-                empty,
-            } => {
+            NativeRows::Armor { .. } => {
                 if let Some(snapshot) = snapshot {
-                    let armor =
-                        snapshot
-                            .armor
-                            .iter()
-                            .zip(["Helmet", "Chestplate", "Leggings", "Boots"]);
-                    let selected = held
-                        .then(|| {
-                            snapshot
-                                .selected_slot
-                                .and_then(|i| snapshot.inventory.get(usize::from(i)))
-                        })
-                        .flatten();
-                    for (slot, label) in armor.chain(selected.map(|slot| (slot, "Held"))) {
-                        if let Some(item) = slot.item.as_ref().filter(|_| slot.known) {
-                            let durability = item
-                                .max_durability
-                                .zip(item.damage)
-                                .filter(|(max, _)| *max != 0)
-                                .map(|(max, damage)| (max.saturating_sub(damage), max));
-                            let value = durability.map_or_else(
-                                || item.count.to_string(),
-                                |(left, max)| {
-                                    if *percent {
-                                        format!("{:.0}%", left as f32 / max as f32 * 100.)
-                                    } else {
-                                        format!("{left}/{max}")
-                                    }
-                                },
-                            );
-                            let mut row = row(source, label, value);
-                            row.item = item.identifier.clone().filter(|id| valid_item_id(id));
-                            row.metadata = item.metadata;
-                            row.progress = durability.map(|(left, max)| left as f32 / max as f32);
-                            rows.push(row);
-                        } else if *empty {
-                            rows.push(row(
-                                source,
-                                label,
-                                if slot.known { "Empty" } else { "--" }.into(),
-                            ));
-                        }
-                    }
+                    rows = super::status_rows::equipment(source, snapshot);
                 }
             }
-            NativeRows::Effects { icons } => {
+            NativeRows::Effects { .. } => {
                 if let Some(snapshot) = snapshot {
-                    for effect in &snapshot.effects {
-                        let value = effect.remaining_ticks.map_or_else(
-                            || "∞".into(),
-                            |ticks| format!("{}:{:02}", ticks / 1200, ticks / 20 % 60),
-                        );
-                        let mut row = row(
-                            source,
-                            &format!(
-                                "Effect {} ({})",
-                                effect.effect_id,
-                                effect.amplifier.saturating_add(1)
-                            ),
-                            value,
-                        );
-                        row.effect_id = (*icons && (1..=255).contains(&effect.effect_id))
-                            .then_some(effect.effect_id);
-                        if let Some(effect_type) = assets::effect_descriptor(effect.effect_id) {
-                            row.label = effect_type.name_key.into();
-                            row.localized = true;
-                            row.value =
-                                format!("{} {}", effect.amplifier.saturating_add(1), row.value);
-                        }
-                        rows.push(row);
-                    }
+                    rows = super::status_rows::effects(source, snapshot);
                 }
             }
             NativeRows::Sidebar { scores } => {
@@ -488,7 +420,7 @@ fn clip(value: &str) -> String {
 }
 
 /// Filters unresolved item identities through the HUD's existing atlas identifier contract.
-fn valid_item_id(id: &str) -> bool {
+pub(super) fn valid_item_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 128
         && id

@@ -25,5 +25,13 @@ names! {
         TileBeaconName = "tile.beacon.name",
         TileBlastFurnaceName = "tile.blast_furnace.name",
         TileSmokerName = "tile.smoker.name",
+        TradeTrade = "trade.trade",
+    }
+}
+
+impl TextKey {
+    /// Returns the localized level name for a zero-based trading tier.
+    pub fn trade_level(tier: i32) -> String {
+        format!("trade.level.{}", i64::from(tier) + 1)
     }
 }

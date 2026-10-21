@@ -96,9 +96,10 @@ pub(super) fn render_with<R: Borrow<FormRender>>(
     };
     let render = render.borrow();
     let px = frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
-    let atlas = textures.set.lock();
+    let mut atlas = textures.set.lock();
     let layouts = &mut *frame.layouts;
     let mut canvas = Canvas {
+        prepared: Default::default(),
         textures: Textures {
             assets: textures.assets,
             set: textures.set,
@@ -159,6 +160,14 @@ pub(super) fn render_with<R: Borrow<FormRender>>(
         }
     }
     canvas.close_filter()?;
+    let prepared = std::mem::take(&mut canvas.prepared);
+    drop(canvas);
+    prepared.publish(
+        &mut atlas,
+        textures.set.server_page,
+        frame.nodes,
+        textures.set,
+    )?;
     let origin = [frame.safe_area.left(), frame.safe_area.top()];
     Ok(Some(EngineFrame {
         hits: render.hits.clone(),
