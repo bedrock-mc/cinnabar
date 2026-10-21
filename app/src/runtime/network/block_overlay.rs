@@ -369,7 +369,7 @@ impl Builder<'_> {
         }
         let checkpoint = self.texture_checkpoint();
         // Quarter turns keep a full cube; positive scale and translation move its faces. A
-        // reflecting or zero scale would turn model faces inside out, so it keeps the cube fallback.
+        // reflecting or zero scale would turn model faces inside out, so it stays a cube.
         let cube_transform = components.transformation.is_none_or(|transform| {
             (transform.scale == [1.0; 3] && transform.translation == [0.0; 3])
                 || transform.scale.iter().any(|&axis| axis <= 0.0)
