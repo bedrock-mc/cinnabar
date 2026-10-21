@@ -55,6 +55,7 @@ fn emissive_material(body: ActorMaterial) -> ActorMaterial {
 #[derive(Default)]
 struct Attachment {
     cloth: hats::cloth::ClothState,
+    contacts: Option<Vec<hats::cloth::Collider>>,
     wind: hats::EarWind,
     motion: hats::Motion,
     poses: [HatPoseCache; 2],
@@ -103,17 +104,22 @@ impl Attachment {
             // The authority's first-person context can arrive after the visibility change.
             self.cloth.reanchor();
         }
-        let colliders: Vec<_> = names
-            .iter()
-            .zip(body.input.current_bones.iter())
-            .filter_map(|(name, bone)| {
-                hats::cloth::Collider::biped(
-                    name,
-                    *bone,
-                    hats::cloth::placement(body.world_from_actor),
-                )
-            })
-            .collect();
+        if self.visible == Some(false) {
+            self.cloth.retain_fitting();
+        }
+        let colliders: Vec<_> = self.contacts.take().unwrap_or_else(|| {
+            names
+                .iter()
+                .zip(body.input.current_bones.iter())
+                .filter_map(|(name, bone)| {
+                    hats::cloth::Collider::biped(
+                        name,
+                        *bone,
+                        hats::cloth::placement(body.world_from_actor),
+                    )
+                })
+                .collect()
+        });
         let bases = [previous_pose, current_pose];
         Some(
             self.cloth
@@ -195,6 +201,10 @@ impl HatState {
         items: &[RemoteHat],
         scene: &mut render_scene::ActorRenderScene,
         partial_tick: f32,
+        geometry: (
+            &[render_model::ActorRigGeometry],
+            Option<&crate::presentation::equipment::EquipmentRuntime>,
+        ),
     ) {
         self.drawn.clear();
         let Some(stream) = stream else {
@@ -249,6 +259,16 @@ impl HatState {
                     attachment.seen = self.frame;
                     attachment
                 };
+                if hats::rig(item).has_cloth() {
+                    attachment.contacts = Some(super::cloth_contacts::collect(
+                        &body,
+                        rig.bone_names,
+                        &batch.submissions,
+                        scene,
+                        partial_tick,
+                        geometry,
+                    ));
+                }
                 let Some((previous, current)) = attachment.pose(
                     item,
                     &body,

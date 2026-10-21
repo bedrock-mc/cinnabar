@@ -502,7 +502,14 @@ fn shared_hats_follow_remote_heads_share_textures_and_reject_stale_spawns() {
         let body_count = batch.submissions.len();
         let textures = batch.skin_layers.len();
         hats.advance(&[], 0.0, 1.0 / 60.0);
-        hats.attach(&mut batch, Some(&stream), &selected, &mut scene, 0.5);
+        hats.attach(
+            &mut batch,
+            Some(&stream),
+            &selected,
+            &mut scene,
+            0.5,
+            (&[], None),
+        );
         let expected = selected
             .iter()
             .filter(|hat| {
@@ -576,7 +583,14 @@ fn shared_hats_render_multiple_catalog_slots_on_one_actor() {
     let mut state = super::super::hats::HatState::default();
     state.advance(&[], 0.0, 0.0);
     let mut scene = render_scene::ActorRenderScene::default();
-    state.attach(&mut batch, Some(&stream), &selections, &mut scene, 0.5);
+    state.attach(
+        &mut batch,
+        Some(&stream),
+        &selections,
+        &mut scene,
+        0.5,
+        (&[], None),
+    );
     assert_eq!(batch.submissions.len(), before + items.len());
     let layers: std::collections::HashSet<_> = batch.submissions[before..]
         .iter()
@@ -599,7 +613,14 @@ fn shared_hats_render_multiple_catalog_slots_on_one_actor() {
         crate::presentation::actors::select_actor_presentations(1, false, None, bodies.remotes);
     let bodies = next.submissions.len();
     state.advance(&[], 0.0, 0.7);
-    state.attach(&mut next, Some(&stream), &selections, &mut scene, 0.5);
+    state.attach(
+        &mut next,
+        Some(&stream),
+        &selections,
+        &mut scene,
+        0.5,
+        (&[], None),
+    );
     for item in items {
         let model = render_model::hats::rig(item);
         let draw = next.submissions[bodies..]
@@ -642,7 +663,14 @@ fn emissive_cosmetics_draw_their_world_raster_fullbright_and_place_emitters() {
     let mut state = super::super::hats::HatState::default();
     state.advance(&[], 0.0, 0.0);
     let mut scene = render_scene::ActorRenderScene::default();
-    state.attach(&mut batch, Some(&stream), &selections, &mut scene, 0.5);
+    state.attach(
+        &mut batch,
+        Some(&stream),
+        &selections,
+        &mut scene,
+        0.5,
+        (&[], None),
+    );
     let body = batch
         .submissions
         .iter()
@@ -711,7 +739,7 @@ fn emissive_cosmetics_draw_their_world_raster_fullbright_and_place_emitters() {
     batch.submissions[lit_index].route = render_model::ActorRigRoute::NoDraw;
     state.place_emitters(&batch, 0.25, &mut placements);
     assert!(placements.is_empty(), "hidden cosmetics stop emitting");
-    state.attach(&mut batch, None, &selections, &mut scene, 0.5);
+    state.attach(&mut batch, None, &selections, &mut scene, 0.5, (&[], None));
     state.place_emitters(&batch, 0.25, &mut placements);
     assert!(placements.is_empty(), "leaving the world clears placements");
 }

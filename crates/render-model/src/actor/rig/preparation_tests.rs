@@ -65,3 +65,26 @@ fn prepared_fingerprints_track_exact_vertex_allocations() {
     mesh.revalidate().unwrap();
     assert_ne!(mesh.vertex_fingerprint(), Some(fingerprint));
 }
+
+/// Contact queries must use the prepared mesh's pivot-relative bounds after public mutations.
+#[test]
+fn bone_bounds_follow_revalidated_vertices_and_pivots() {
+    let mut mesh = prepared_mesh();
+    let original = mesh.bone_bounds(0).unwrap();
+    assert_eq!(mesh.bone_bounds(1), None);
+    assert_eq!(mesh.bone_bounds(99), None);
+    for vertex in Arc::make_mut(&mut mesh.vertices) {
+        vertex.position[2] += 0.25;
+    }
+    assert_eq!(mesh.bone_bounds(0), None);
+    mesh.revalidate().unwrap();
+    let shifted = mesh.bone_bounds(0).unwrap();
+    assert_eq!(shifted.0[2], original.0[2] + 0.25);
+    assert_eq!(shifted.1[2], original.1[2] + 0.25);
+    Arc::make_mut(&mut mesh.bone_pivots)[0][2] += 0.125;
+    assert_eq!(mesh.bone_bounds(0), None);
+    mesh.revalidate().unwrap();
+    let rebased = mesh.bone_bounds(0).unwrap();
+    assert_eq!(rebased.0[2], shifted.0[2] - 0.125);
+    assert_eq!(rebased.1[2], shifted.1[2] - 0.125);
+}

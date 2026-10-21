@@ -237,6 +237,11 @@ impl ActorRenderScene {
         self.rig_builder.contains_geometry(id)
     }
 
+    /// Borrows the geometry that this scene currently draws, including pack replacements.
+    pub fn geometry(&self, id: EntityRigId) -> Option<&ActorRigGeometry> {
+        self.rig_builder.geometry(id)
+    }
+
     pub fn replace_runtime_entity_assets(
         &mut self,
         assets: &assets::RuntimeEntityAssets,

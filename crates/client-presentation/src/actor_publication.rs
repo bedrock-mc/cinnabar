@@ -3,6 +3,7 @@ mod armour_tests;
 mod bodies;
 #[cfg(test)]
 mod cape_tests;
+mod cloth_contacts;
 mod commit;
 mod flames;
 mod geometry;
@@ -300,12 +301,16 @@ pub fn prepare_actor_render_frame(
         ),
         &mut new_geometries,
     );
+    if let Some(equipment) = params.equipment.as_deref_mut() {
+        new_geometries.extend(equipment.take_pending_geometries());
+    }
     state.hat_state.attach(
         &mut batch,
         stream,
         &input.remote_hats,
         &mut params.scene,
         step.partial_tick,
+        (&new_geometries, params.equipment.as_deref()),
     );
     layers::apply_style_and_visibility(&mut batch, stream, params.actor_style.as_deref());
     if let Some(placements) = params.cosmetic_emitters.as_deref_mut() {
@@ -327,9 +332,6 @@ pub fn prepare_actor_render_frame(
             local_flame_feet,
             &mut batch,
         );
-    }
-    if let Some(equipment) = params.equipment.as_deref_mut() {
-        new_geometries.extend(equipment.take_pending_geometries());
     }
     drop(preparation);
     register_geometries(

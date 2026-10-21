@@ -188,4 +188,45 @@ fn hiding_a_player_torso_keeps_its_chestplate_visible() {
             .iter()
             .any(|bone| bone.translation_scale[3] > 0.0)
     );
+    let mut pending = equipment.take_pending_geometries();
+    pending.push(
+        render_model::equipment_geometry(
+            &entities,
+            render_model::find_geometry_index(&entities, "geometry.fixture").unwrap() as usize,
+            armour.input.rig,
+        )
+        .unwrap(),
+    );
+    let scene = ActorRenderScene::default();
+    let body = body.clone();
+    let contacts = cloth_contacts::collect(
+        &body,
+        &["body".into()],
+        &batch.submissions,
+        &scene,
+        1.0,
+        (&pending, Some(&equipment)),
+    );
+    assert_eq!(
+        contacts.len(),
+        1,
+        "hidden skin must still leave its drawn armor contact"
+    );
+    for draw in &mut batch.submissions {
+        if draw.input.identity.layer == crate::presentation::equipment::ELYTRA_LAYER {
+            draw.route = render_model::ActorRigRoute::NoDraw;
+        }
+    }
+    assert!(
+        cloth_contacts::collect(
+            &body,
+            &["body".into()],
+            &batch.submissions,
+            &scene,
+            1.0,
+            (&pending, Some(&equipment)),
+        )
+        .is_empty(),
+        "undrawn armor must not push cloth away from the body"
+    );
 }
