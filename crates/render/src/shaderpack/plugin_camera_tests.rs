@@ -32,54 +32,6 @@ fn particle_streams_keep_independent_replacement_coverage() {
     );
     assert!(!coverage.particles_opaque);
     assert!(coverage.particles_translucent && coverage.particles_additive);
-    let native = render_scene::AtmosphereFrame::default();
-    assert!(!needs_native_scene(
-        Some(&native),
-        None,
-        None,
-        None,
-        None,
-        |_| true
-    ));
-}
-
-#[test]
-fn depthless_native_layers_keep_the_scene_copy_path() {
-    let mut overlays = render_scene::ScreenOverlayScene::default();
-    let mut nametags = render_scene::NametagSceneResource::default();
-    assert!(!needs_native_scene(
-        None,
-        None,
-        None,
-        Some(&overlays),
-        Some(&nametags),
-        |_| true
-    ));
-    overlays.layers.push(render_scene::ScreenOverlayLayer {
-        kind: render_scene::ScreenOverlayKind::SpyglassScope,
-        rgb: [1.0; 3],
-        alpha: 1.0,
-    });
-    assert!(needs_native_scene(
-        None,
-        None,
-        None,
-        Some(&overlays),
-        None,
-        |_| true
-    ));
-    nametags
-        .0
-        .records
-        .push(render_model::NametagRecord::default());
-    assert!(needs_native_scene(
-        None,
-        None,
-        None,
-        None,
-        Some(&nametags),
-        |_| true
-    ));
 }
 
 #[test]
@@ -101,36 +53,6 @@ fn scene_copy_inputs_retain_the_native_far_plane() {
         pack_inputs(&inputs, None, true).render_distance,
         inputs.render_distance
     );
-}
-
-#[test]
-fn unresolved_native_layers_keep_the_scene_copy_path() {
-    assert!(!needs_native_scene(None, None, None, None, None, |_| false));
-    assert!(needs_native_scene(
-        Some(&render_scene::AtmosphereFrame::default()),
-        None,
-        None,
-        None,
-        None,
-        |_| false
-    ));
-    for additive in [false, true] {
-        let mut particles = render_scene::ParticleGpuFrame::default();
-        let instances = std::sync::Arc::from([particles::ParticleInstance::default()]);
-        if additive {
-            particles.add = instances;
-        } else {
-            particles.blend = instances;
-        }
-        assert!(needs_native_scene(
-            None,
-            Some(&particles),
-            None,
-            None,
-            None,
-            |_| false
-        ));
-    }
 }
 
 #[test]

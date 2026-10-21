@@ -80,6 +80,7 @@ fn every_reset_changes_only_its_registered_members_and_keeps_bindings() {
         SettingsGroup::Accessibility,
         SettingsGroup::Audio,
         SettingsGroup::Chat,
+        SettingsGroup::Discord,
     ] {
         let mut options = SettingsOptions::default();
         for row in SETTINGS_OPTIONS {
@@ -133,6 +134,14 @@ fn shared_section_metadata_drives_titles_tabs_and_reset_routes() {
     assert_eq!(
         SettingSection::Sound.definition().reset_group,
         Some(SettingsGroup::Audio)
+    );
+    assert_eq!(
+        SettingSection::Chat.definition().reset_group,
+        Some(SettingsGroup::Chat)
+    );
+    assert_eq!(
+        SettingSection::Discord.definition().reset_group,
+        Some(SettingsGroup::Discord)
     );
 }
 
@@ -232,7 +241,8 @@ fn chat_color_codes_and_swatch_choices_share_one_palette() {
 }
 
 #[test]
-fn saved_schema_snapshot_keeps_all_setting_and_binding_keys() {
+fn saved_schema_snapshot_keeps_active_setting_and_binding_keys() {
+    let retired = "chat_typeface";
     let fixture = include_bytes!("../../../tests/data/settings-v1.json");
     let stored: serde_json::Value = serde_json::from_slice(fixture).unwrap();
     let options = SettingsOptions::decode(fixture).unwrap();
@@ -247,10 +257,17 @@ fn saved_schema_snapshot_keeps_all_setting_and_binding_keys() {
             .as_object()
             .unwrap()
             .keys()
+            .filter(|name| name.as_str() != retired)
             .collect::<Vec<_>>()
     );
     assert_eq!(encoded["keys"], stored["keys"]);
-    for name in stored["values"].as_object().unwrap().keys() {
+    assert!(encoded["values"].get(retired).is_none());
+    for name in stored["values"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .filter(|name| name.as_str() != retired)
+    {
         let id = SettingId::from_name(name).expect("saved setting must remain registered");
         assert_eq!(
             options.value(id),
@@ -263,6 +280,90 @@ fn saved_schema_snapshot_keeps_all_setting_and_binding_keys() {
             .map_or((name.as_str(), false), |name| (name, true));
         let id = BindingId::from_name(name).expect("saved binding must remain registered");
         assert_eq!(options.key_control(id.row(gamepad).unwrap()), None);
+    }
+}
+
+/// The dedicated Chat reset includes every displayed preference and preserves other panels.
+#[test]
+fn chat_panel_reset_restores_shared_values_and_persists_defaults() {
+    let mut settings = SettingsOptions::default();
+    let chat: BTreeSet<_> = SettingPanel::Chat
+        .options()
+        .map(|option| option.name)
+        .collect();
+    let reset: BTreeSet<_> = SettingsGroup::Chat
+        .options()
+        .map(|option| option.name)
+        .collect();
+    assert_eq!(chat, reset);
+    for option in SettingPanel::Chat.options() {
+        let changed = if option.default == option.min {
+            option.max
+        } else {
+            option.min
+        };
+        assert!(settings.set(option.id.index(), changed));
+    }
+    let unrelated = SettingId::MainVolume;
+    settings.set(unrelated.index(), unrelated.definition().min);
+    let saved = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    for option in SettingPanel::Chat.options() {
+        assert_ne!(saved.value(option.id), option.default);
+    }
+    assert!(settings.reset_group(SettingsGroup::Chat));
+    let restored = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    for option in SettingPanel::Chat.options() {
+        assert_eq!(restored.value(option.id), option.default);
+    }
+    assert_eq!(restored.value(unrelated), unrelated.definition().min);
+}
+
+/// The Discord panel and its detailed rows share one reset group.
+#[test]
+fn discord_panel_reset_restores_all_presence_preferences() {
+    let mut settings = SettingsOptions::default();
+    let displayed: BTreeSet<_> = SettingPanel::Discord
+        .options()
+        .chain(SettingPanel::DiscordDetails.options())
+        .map(|option| option.name)
+        .collect();
+    let reset: BTreeSet<_> = SettingsGroup::Discord
+        .options()
+        .map(|option| option.name)
+        .collect();
+    assert_eq!(displayed, reset);
+    for option in SettingsGroup::Discord.options() {
+        let changed = if option.default == option.min {
+            option.max
+        } else {
+            option.min
+        };
+        assert!(settings.set(option.id.index(), changed));
+    }
+    assert!(settings.reset_group(SettingsGroup::Discord));
+    for option in SettingsGroup::Discord.options() {
+        assert_eq!(settings.value(option.id), option.default);
+    }
+}
+
+/// Old typeface values cannot suppress font sizing or reintroduce a removed selector.
+#[test]
+fn retired_chat_typeface_is_ignored_without_losing_font_size() {
+    let retired = "chat_typeface";
+    for legacy in [0, 1] {
+        let stored =
+            serde_json::json!({"schema": 2, "values": {(retired): legacy, "chat_font_size": 15}});
+        let options = SettingsOptions::decode(&serde_json::to_vec(&stored).unwrap()).unwrap();
+        assert_eq!(options.chat_font_scale(), 1.5);
+        assert!(SettingId::from_name(retired).is_none());
+        let saved = serde_json::to_value(&options).unwrap();
+        assert!(saved["values"].get(retired).is_none());
+        assert_eq!(
+            SettingsOptions::decode(&serde_json::to_vec(&saved).unwrap())
+                .unwrap()
+                .chat_font_scale(),
+            1.5
+        );
     }
 }
 

@@ -169,6 +169,7 @@ pub struct UiPresentationRuntime {
     nametag_anchors: Vec<nametags::NametagAnchor>,
     nametag_local_actor: Option<u64>,
     nametag_atlas: nametag_atlas::NametagAtlas,
+    nametag_bounds: nametags::bounds::BoundsCache,
     primitive_text: primitive_shapes::PrimitiveTextRasterizer,
     /// Stable reserved logical page for the optional preview raster.
     paper_doll: paper_doll::PaperDoll,

@@ -1,8 +1,11 @@
+use super::style::style_scene;
 use super::*;
 mod counter;
 use protocol_ids::ActorFlag;
 
 mod badges;
+mod budget;
+mod frustum;
 mod opacity;
 mod own_tag;
 mod view_depth;
@@ -123,7 +126,7 @@ fn scene(anchors: &[NametagAnchor]) -> NametagScene {
 fn scene_with_font(anchors: &[NametagAnchor], font: &RuntimeFontCatalog) -> NametagScene {
     build_nametag_scene(
         anchors,
-        1.0,
+        None,
         font,
         &mut TextLayoutCache::new(8, 1 << 20),
         &mut NametagAtlas::default(),
@@ -361,7 +364,16 @@ fn projected_tags_keep_mount_names_and_hide_only_their_score() {
     let mut cache = NametagTextCache::default();
     let boards = ui::ScoreboardStore::default();
     let project = |cache: &mut NametagTextCache, stream: &chunk_pipeline::WorldStream| {
-        project_nametags(cache, &boards, stream, view(Vec3::ZERO), None, 1.0, true)
+        project_nametags(
+            cache,
+            &boards,
+            stream,
+            view(Vec3::ZERO),
+            None,
+            1.0,
+            true,
+            |_| true,
+        )
     };
     let tags = project(&mut cache, &stream);
     assert_eq!(
@@ -475,10 +487,10 @@ fn oversized_tags_render_a_prefix_within_the_scene_budget() {
 }
 
 #[test]
-fn oversized_tags_use_the_budget_left_by_earlier_tags() {
+fn nearest_tags_take_the_budget_before_farther_tags() {
     let mut first = anchor("AB");
     first.position.x = 1.0;
-    first.view_depth = 8.0;
+    first.view_depth = 2.0;
     let first_records = NAMETAG_RECORDS_PER_LINE;
     let remaining_lines = (MAX_NAMETAG_RECORDS - first_records) / NAMETAG_RECORDS_PER_LINE;
     let mut oversized = anchor(&"A\n".repeat(remaining_lines + 2));
@@ -729,11 +741,13 @@ fn own_tag_color_and_border_width_preserve_other_tags() {
     };
     let glyph = NametagRecord {
         anchor: [1., 2., 3.],
+        runtime_id: 11,
         color: [1., 1., 1., 0.125],
         ..Default::default()
     };
     let remote = NametagRecord {
         anchor: [4., 5., 6.],
+        runtime_id: 12,
         ..glyph
     };
     let mut scene = NametagScene {
@@ -741,7 +755,7 @@ fn own_tag_color_and_border_width_preserve_other_tags() {
         ..Default::default()
     };
     let style: ui::mod_hud::NametagStyle = serde_json::from_value(serde_json::json!({"border_width":3.,"border_color":[1.,1.,1.,1.],"text_color":[0.,1.,0.,1.],"own_text_color":[1.,0.,0.,1.]})).unwrap();
-    style_scene(&mut scene, &style, Some([1., 2., 3.]));
+    style_scene(&mut scene, &style, Some(glyph.runtime_id));
     assert_eq!(scene.records[0].rect, [-5., -4., 5., -1.]);
     assert_eq!(scene.records[5].color, [1., 0., 0., 0.125]);
     assert_eq!(scene.records[6].color, [0., 1., 0., 0.125]);
@@ -814,6 +828,7 @@ fn projection_limits_extraction_to_the_nearest_tags_and_reuses_their_text() {
             None,
             0.5,
             show_players,
+            |_| true,
         )
     };
     let (first, cold_allocations) = test_alloc::count(|| project(&mut cache, true));

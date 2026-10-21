@@ -68,7 +68,7 @@ remains necessary to close the parity gate.
 Global Resources is an owner-requested design exception: expandable OreUI pack cards,
 an immutable Vanilla Textures base card, staged priority controls, and a variant picker.
 Apply compares the staged stack with the last runtime acknowledgement. Imported artwork
-uses the existing bounded artwork loader; vanilla artwork is read from the installed bundle.
+uses the existing bounded artwork loader.
 Expanded card details share equal interior gutters. Settings opened from a game keeps the
 world beneath its dimming overlay; launcher Settings keeps the title background.
 
@@ -125,9 +125,8 @@ their native artwork. Live animation review remains open.
   `assets/oreui-icons-source.json`; `make oreui-icons-assets` compiles the hash-checked carrier.
   Button faces keep the native state-specific nine-slice insets. Switches, sliders, segmented
   controls and radio diamonds use their native role fills and bevel geometry.
-- An installed bundle supplies only the profile banners and Create New World preview.
-  `CINNABAR_OREUI_LOCAL_ASSETS=<install root or its data/gui/dist/hbui>` instead loads all of its
-  artwork, for comparison captures only.
+- Nothing is read from an installed game. The profile banner and Create New World preview show
+  plain panels until they draw from the fetched resource pack's panorama.
 - Cinnangles Seven supplies body text and Cinnangles Ten supplies headings. The compiled
   carriers retain each face's em and vertical metrics for semantic sizes, line heights and
   letter spacing. The default HUD and JSON-UI font remains independently selectable.

@@ -359,4 +359,40 @@ mod tests {
                 .any(|node| matches!(&node.draw,Draw::Text{text,..} if text=="1:06 PM"))
         );
     }
+    /// The plate background is painted with its scaled radius, and a radius change rebuilds.
+    #[test]
+    fn plate_background_radius_scales_with_the_card_and_invalidates_the_template() {
+        let mut hud = fixture();
+        hud.cards[0].scale = 2.;
+        hud.cards[0].text_plate.as_mut().unwrap().style.radius = 4.5;
+        hud.validate().unwrap();
+        measure(&mut hud, &Metrics);
+        let catalog = super::super::template::catalog(&hud).unwrap();
+        let nodes = CachedScreen::default()
+            .render_shared_with(
+                "cinnabar_personal_hud.cards",
+                &std::sync::Arc::new(catalog),
+                &Context::default(),
+                std::sync::Arc::new(super::super::template::data(&hud, [400., 200.])),
+                ([400., 200.], 1., [0; 3]),
+                &LayoutEnv {
+                    text: &Metrics,
+                    textures: &Metrics,
+                },
+                &ViewState::default(),
+            )
+            .unwrap()
+            .nodes
+            .clone();
+        assert!(
+            nodes
+                .iter()
+                .any(|node| matches!(&node.draw, Draw::Custom { data, .. }
+            if data.get("border_width").is_some()
+                && data.get("radius").and_then(Value::as_f64) == Some(9.)))
+        );
+        let before = hud.clone();
+        hud.cards[0].text_plate.as_mut().unwrap().style.radius = 0.;
+        assert!(!super::super::template::same_shape(&before, &hud));
+    }
 }

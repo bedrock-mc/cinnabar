@@ -10,7 +10,7 @@ use semantic_input::PerspectiveMode;
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ActorCameraEffects;
 
-/// Shares hurt at the actor fraction and bob at the physics fraction without changing gameplay aim.
+/// Samples hurt and bob on their own clocks, applying movement bob to the selected views.
 #[allow(clippy::too_many_arguments)]
 pub fn apply_actor_damage_camera_rotation(
     settings: Res<CameraSettingsAuthority>,
@@ -39,23 +39,33 @@ pub fn apply_actor_damage_camera_rotation(
             })
             .and_then(|rig| rig.skin_geometry)
             .map(|geometry| geometry.as_ref());
-        let effect = sampled_legacy_effect(
-            actor,
-            legacy
-                .as_deref()
-                .map(|legacy| legacy.state.endpoints)
-                .unwrap_or_default(),
-            alpha,
-            physics_partial_tick,
-            settings.feel().view_bobbing,
-            settings.hurt_camera_style(),
-            geometry,
-        );
+        let endpoints = legacy
+            .as_deref()
+            .map(|legacy| legacy.state.endpoints)
+            .unwrap_or_default();
+        let sample = |bobbing| {
+            sampled_legacy_effect(
+                actor,
+                endpoints,
+                alpha,
+                physics_partial_tick,
+                bobbing,
+                settings.hurt_camera_style(),
+                geometry,
+            )
+        };
+        let mode = settings.feel().view_bobbing;
+        let effect = sample(mode.hand_enabled());
         hand.legacy_effect = Some(effect);
-        if effect.is_finite() {
+        let camera_effect = if mode.hand_enabled() == mode.camera_enabled() {
+            effect
+        } else {
+            sample(false)
+        };
+        if camera_effect.is_finite() {
             for mut camera in &mut cameras {
-                // Inverting the shared view effect gives Hurt × Bob × Vbase.
-                *camera = Transform::from_matrix(camera.to_matrix() * effect.inverse());
+                // Inverting the selected view effect gives Hurt × Bob × Vbase.
+                *camera = Transform::from_matrix(camera.to_matrix() * camera_effect.inverse());
             }
         }
         return;
@@ -86,7 +96,12 @@ pub fn apply_actor_damage_camera_rotation(
                 settings.hurt_camera_style().intensity(),
             )
         });
-    let effect = Mat4::from_quat(damage) * hand.bob.matrix().inverse();
+    let bob = if settings.feel().view_bobbing.camera_enabled() {
+        hand.bob.matrix().inverse()
+    } else {
+        Mat4::IDENTITY
+    };
+    let effect = Mat4::from_quat(damage) * bob;
     if effect == Mat4::IDENTITY || !effect.is_finite() {
         return;
     }

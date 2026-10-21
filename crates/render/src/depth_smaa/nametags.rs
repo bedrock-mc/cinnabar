@@ -24,6 +24,7 @@ type NametagsAfterSmaaQuery = (
     &'static crate::scene_target::SceneTarget,
     Option<&'static MainPassResolutionOverride>,
     Option<&'static render_scene::EnhancedRendering>,
+    Option<&'static render_scene::shaderpack::ShaderPackRendering>,
 );
 
 /// Draws world names after spatial filtering unless motion blur owns their final pass.
@@ -33,9 +34,12 @@ pub(crate) fn nametags_after_smaa(
     mut context: RenderContext,
 ) -> bevy::ecs::error::Result {
     let view_entity = query.entity();
-    let (_, camera, view, target, depth, msaa, scene, resolution, enhanced) = query.into_inner();
+    let (_, camera, view, target, depth, msaa, scene, resolution, enhanced, pack) =
+        query.into_inner();
     let context = &mut context;
-    if crate::motion_blur::applies(world, view_entity) {
+    if crate::motion_blur::applies(world, view_entity)
+        || crate::nametag_render::overlay::enabled(enhanced.is_some(), pack.is_some())
+    {
         return Ok(());
     }
     let Some(draw) = crate::nametag_render::draw_function(world) else {

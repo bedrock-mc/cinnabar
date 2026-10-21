@@ -23,7 +23,7 @@ pub struct EditorStyle {
     pub text_scale: f32,
     /// Top toolbar band, in GUI pixels, reserved from selection and distance captions.
     pub top_clearance: f32,
-    /// Outline of a card that is not selected.
+    /// Outline of a hovered card that is not selected.
     pub outline: [f32; 4],
     /// Outline of the selected card.
     pub selected: [f32; 4],

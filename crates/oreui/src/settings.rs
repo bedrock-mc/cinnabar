@@ -463,6 +463,8 @@ impl Content<'_, '_> {
             "Restart required. Auto checks driver stability before choosing an API. WGPU_BACKEND takes priority over this setting.".to_owned()
         } else if id == SettingId::Vrr {
             "Automatic uses display detection. Choose On if variable refresh is enabled in your display and system settings, or Off to disable the VRR frame cap.".to_owned()
+        } else if id == SettingId::ViewBobbing {
+            "Minimal bobs only the hand; Full also bobs the camera.".to_owned()
         } else if id == SettingId::CinnabarVisible {
             "Let other Cinnabar players see a Cinnabar badge next to your name.".to_owned()
         } else if id == SettingId::CinnabarBadges {
@@ -479,13 +481,13 @@ impl Content<'_, '_> {
             "Write detailed network, session, core and resource pack logs. Applies now and at launch. CINNABAR_LOG or RUST_LOG take priority when set.".to_owned()
         } else if id == SettingId::RecordNetworkSession {
             "Save each new server session's packets to the logs folder. The recording contains chat messages and player names. It stays on this device and is never uploaded.".to_owned()
-        } else if (id == SettingId::RenderClouds
-            || id == SettingId::MaxFramerate
-            || id == SettingId::ShowExactServerPing
-            || id == SettingId::OreuiDarkMode)
-            && description.is_empty()
-        {
-            sections::fallback(&description_key).to_owned()
+        } else if description.is_empty() {
+            let fallback = sections::fallback(&description_key);
+            if fallback == description_key {
+                String::new()
+            } else {
+                fallback.to_owned()
+            }
         } else {
             description
         };
@@ -522,7 +524,13 @@ impl Content<'_, '_> {
                         })
                     }
                     SettingId::Msaa => value.to_string(),
+                    SettingId::ChatFontSize => format!("{}%", value * 10),
                     _ => format!("{value}%"),
+                };
+                let (title, shown) = if id == SettingId::ChatFontSize && title.contains("%s") {
+                    (title.replace("%s", &shown), String::new())
+                } else {
+                    (title, shown)
                 };
                 let amount = self.canvas.measure(&shown, BODY)?;
                 let width = (right - left - amount - self.canvas.r(1.6)).max(1.0);

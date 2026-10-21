@@ -33,7 +33,7 @@ pub struct TextPlateStyle {
     pub background: [f32; 4],
     pub border_color: [f32; 4],
     pub border_width: f32,
-    /// Unscaled corner radius; the painter clamps it to the measured background.
+    /// Unscaled GUI-pixel background corner radius, 0 through 16; the card's own radius is unused.
     pub radius: f32,
     /// None fits the text and padding; Some reserves this exact background dimension.
     pub width: Option<f32>,
@@ -74,8 +74,7 @@ impl TextPlate {
         }
         if !s.border_width.is_finite()
             || !(0. ..=8.).contains(&s.border_width)
-            || !s.radius.is_finite()
-            || !(0. ..=MAX_TEXT_PLATE_HEIGHT / 2.).contains(&s.radius)
+            || !super::background_radius_valid(s.radius)
             || s.width
                 .is_some_and(|v| !v.is_finite() || !(1. ..=super::MAX_CARD_WIDTH).contains(&v))
             || s.height

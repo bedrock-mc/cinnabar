@@ -1,7 +1,7 @@
 //! Spatial SMAA detects world depth edges before text and first-person overlays draw.
 
 mod nametags;
-mod node;
+pub(crate) mod node;
 mod pipelines;
 #[cfg(test)]
 pub(crate) mod tests;
@@ -72,7 +72,7 @@ impl Plugin for DepthSmaaPlugin {
 }
 
 #[derive(Component)]
-struct DepthSmaaView {
+pub(crate) struct DepthSmaaView {
     source: TextureViewId,
     uniform: BufferId,
     depth: BindGroup,
@@ -189,7 +189,7 @@ fn configure_passes(world: &mut World, enabled: bool) {
             if enabled {
                 schedule.add_systems(
                     (
-                        crate::gpu_timing::profiled(node::depth_smaa, None, "Smaa")
+                        crate::gpu_timing::profiled(node::depth_smaa::<false>, None, "Smaa")
                             .in_set(DepthSmaaLabel)
                             .after(crate::motion_blur::graph::MotionBlurLabel),
                         crate::gpu_timing::profiled(

@@ -53,6 +53,14 @@ impl CustomRenderer for KeepOutRenderer<'_> {
     }
 }
 
+/// Pill size that fits `label` at the measurement font scale.
+pub(super) fn pill_size(label: &str) -> [f64; 2] {
+    [
+        label.chars().count() as f64 * MEASUREMENT_DIGIT_ADVANCE + 2. * MEASUREMENT_PILL_PADDING,
+        MEASUREMENT_PILL_HEIGHT,
+    ]
+}
+
 /// Writes two nearest-edge measurements in GUI pixels, hidden when less than 12 px long.
 pub(super) fn measurements(
     data: &mut DataSource,
@@ -66,6 +74,8 @@ pub(super) fn measurements(
         let mut pill = [0.; 2];
         let mut distance = 0.;
         let mut caption_visible = false;
+        let mut label = String::new();
+        let mut extent_of_pill = pill_size("");
         if let Some((at, extent)) = rect {
             let far = (viewport[axis] - at[axis] - extent[axis]).max(0.);
             let near = at[axis] <= far;
@@ -73,13 +83,17 @@ pub(super) fn measurements(
             offset[axis] = if near { 0. } else { at[axis] + extent[axis] };
             offset[1 - axis] = at[1 - axis] + extent[1 - axis] * 0.5;
             size[axis] = distance;
+            label = format!("{distance:.0}");
+            extent_of_pill = pill_size(&label);
             pill = offset;
             pill[axis] += distance * 0.5;
             for axis in 0..2 {
-                pill[axis] = (pill[axis] - MEASUREMENT_PILL[axis] * 0.5)
-                    .clamp(0., (viewport[axis] - MEASUREMENT_PILL[axis]).max(0.));
+                pill[axis] = (pill[axis] - extent_of_pill[axis] * 0.5)
+                    .clamp(0., (viewport[axis] - extent_of_pill[axis]).max(0.));
             }
-            if let Some(at) = caption_position(viewport, pill, at, extent, obstacles) {
+            if let Some(at) =
+                caption_position(viewport, pill, extent_of_pill, at, extent, obstacles)
+            {
                 pill = at;
                 caption_visible = true;
             }
@@ -90,7 +104,8 @@ pub(super) fn measurements(
             ("width", Scalar::Num(size[0])),
             ("height", Scalar::Num(size[1])),
             ("pill", Scalar::Json(serde_json::json!(pill))),
-            ("label", Scalar::Text(format!("{distance:.0} px"))),
+            ("pill_width", Scalar::Num(extent_of_pill[0])),
+            ("label", Scalar::Text(label)),
         ] {
             data.set_global(format!("#measurement_{axis}_{suffix}"), value);
         }
@@ -101,11 +116,12 @@ pub(super) fn measurements(
 fn caption_position(
     viewport: [f64; 2],
     preferred: [f64; 2],
+    pill_size: [f64; 2],
     at: [f64; 2],
     size: [f64; 2],
     obstacles: &[[f64; 4]],
 ) -> Option<[f64; 2]> {
-    let [w, h] = MEASUREMENT_PILL;
+    let [w, h] = pill_size;
     let left = at[0] - w - 3.;
     let right = at[0] + size[0] + 3.;
     let top = at[1] - h - 3.;
@@ -124,7 +140,7 @@ fn caption_position(
     .into_iter()
     .map(|point| {
         std::array::from_fn(|axis| {
-            point[axis].clamp(0., (viewport[axis] - MEASUREMENT_PILL[axis]).max(0.))
+            point[axis].clamp(0., (viewport[axis] - pill_size[axis]).max(0.))
         })
     })
     .find(|point| {
@@ -169,9 +185,9 @@ mod tests {
             let point: [f64; 2] = serde_json::from_value(value.clone()).unwrap();
             for rect in [selected, keys] {
                 assert!(
-                    point[0] + MEASUREMENT_PILL[0] <= rect[0]
+                    point[0] + pill_size(if axis == 0 { "12" } else { "37" })[0] <= rect[0]
                         || point[0] >= rect[0] + rect[2]
-                        || point[1] + MEASUREMENT_PILL[1] <= rect[1]
+                        || point[1] + MEASUREMENT_PILL_HEIGHT <= rect[1]
                         || point[1] >= rect[1] + rect[3]
                 );
             }

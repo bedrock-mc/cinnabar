@@ -41,7 +41,7 @@ use {
 
 pub(crate) mod bindings;
 mod gpu;
-mod node;
+pub(crate) mod node;
 #[cfg(feature = "shaderpacks")]
 pub(crate) mod shaderpack_source;
 use gpu::*;
@@ -119,7 +119,7 @@ pub(crate) fn enhanced_post_pass(
 ) -> Option<bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem>> {
     world.contains_resource::<Installed>().then(|| {
         crate::gpu_timing::profiled(
-            node::hand_rig,
+            node::hand_rig::<false>,
             Some(render_scene::RuntimeStage::GpuHand),
             "EnhancedHandRigLabel",
         )
@@ -135,7 +135,7 @@ pub(crate) fn install_graph(world: &mut World) {
         .try_schedule_scope(Core3d, |_, schedule| {
             schedule.add_systems(
                 crate::gpu_timing::profiled(
-                    node::hand_rig,
+                    node::hand_rig::<false>,
                     Some(render_scene::RuntimeStage::GpuHand),
                     "HandRigLabel",
                 )

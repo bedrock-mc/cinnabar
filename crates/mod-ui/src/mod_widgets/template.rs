@@ -32,10 +32,15 @@ pub(in super::super) fn same_cards_shape(a: &[Card], b: &[Card]) -> bool {
                 && left.compass.is_some() == right.compass.is_some()
                 && left.crosshair == right.crosshair
                 && left.text_plate.is_some() == right.text_plate.is_some()
-                && left.text_plate.as_ref().map(|p| p.style.border_width)
-                    == right.text_plate.as_ref().map(|p| p.style.border_width)
-                && left.text_plate.as_ref().map(|p| p.style.radius)
-                    == right.text_plate.as_ref().map(|p| p.style.radius)
+                && left.background_radius == right.background_radius
+                && left
+                    .text_plate
+                    .as_ref()
+                    .map(|p| (p.style.border_width, p.style.radius))
+                    == right
+                        .text_plate
+                        .as_ref()
+                        .map(|p| (p.style.border_width, p.style.radius))
                 && left.cells.len() == right.cells.len()
                 && left.cells.iter().zip(&right.cells).all(|(a, b)| {
                     a.rect == b.rect
@@ -131,7 +136,7 @@ fn card_content(card: &Card, card_index: usize, row_index: &mut usize) -> Value 
             rounded(
                 size,
                 [0.; 2],
-                3. * k,
+                f64::from(card.background_radius) * k,
                 [0.045, 0.05, 0.065, card.background_opacity],
             ),
         ),

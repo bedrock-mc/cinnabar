@@ -1,6 +1,10 @@
 use render_api::{FrameRateLimit, VrrPreference};
 use semantic_input::{ControlSettings, PerspectiveMode};
 
+#[path = "settings/view_bobbing.rs"]
+mod view_bobbing;
+pub use view_bobbing::ViewBobbing;
+
 pub const CURRENT_SETTINGS_SCHEMA: u32 = 2;
 pub const DEFAULT_OUTLINE_SELECTION: bool = true;
 /// Default and slider bounds for the field-of-view option, in degrees.
@@ -192,7 +196,7 @@ pub struct VideoSettings {
     pub fov_effects_scale: f32,
     /// Scales portal and nausea distortion, `0..=1`.
     pub distortion_scale: f32,
-    pub view_bobbing: bool,
+    pub view_bobbing: ViewBobbing,
     pub cinematic_camera: bool,
     pub camera_shake: bool,
     pub outline_selection: bool,
@@ -225,7 +229,7 @@ impl Default for VideoSettings {
             shader_pack: None,
             fov_effects_scale: 1.0,
             distortion_scale: 1.0,
-            view_bobbing: true,
+            view_bobbing: ViewBobbing::default(),
             cinematic_camera: false,
             camera_shake: true,
             outline_selection: DEFAULT_OUTLINE_SELECTION,

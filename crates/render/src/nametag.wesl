@@ -1,5 +1,5 @@
 import bevy_render::view::View;
-import render::lighting::tint_to_gamma;
+import render::lighting::{tint_to_gamma, tint_to_linear};
 
 struct Record {
     anchor: vec3<f32>,
@@ -48,10 +48,14 @@ fn nametag_vertex(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     let right = normalize(view.world_from_view[0].xyz);
     let up = normalize(view.world_from_view[1].xyz);
     let local = mix(record.rect.xy, record.rect.zw, at);
-    let world = record.anchor + vec3(0.0, record.line_lift, 0.0)
-        + (right * local.x - up * local.y) * BLOCKS_PER_FONT_PIXEL;
+    let anchor = record.anchor + vec3(0.0, record.line_lift, 0.0);
+    let world = anchor + (right * local.x - up * local.y) * BLOCKS_PER_FONT_PIXEL;
     var out: VertexOutput;
     out.position = view.clip_from_world * vec4(world, 1.0);
+    // A facing quad has one depth. Corner rounding must not pit shadows against glyphs.
+    let plane = view.clip_from_world * vec4(anchor, 1.0);
+    out.position.z = plane.z;
+    out.position.w = plane.w;
     out.uv = mix(record.uv.xy, record.uv.zw, at);
     out.color = record.color;
     out.textured = select(0u, 1u, record.uv.z >= 0.0);
@@ -61,6 +65,8 @@ fn nametag_vertex(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
 @fragment
 fn nametag_fragment(input: VertexOutput) -> @location(0) vec4<f32> {
     var color = input.color;
+    @if(!NAMETAG_GAMMA_BLEND)
+    color = tint_to_linear(color);
     var texel = textureSample(atlas, atlas_sampler, input.uv);
     if (input.textured != 0u) {
         @if(NAMETAG_GAMMA_BLEND)
@@ -71,8 +77,7 @@ fn nametag_fragment(input: VertexOutput) -> @location(0) vec4<f32> {
         }
         color = color * texel;
     }
-    // A cosmetic background or opacity can disable a quad. Alpha replacement must
-    // not punch a transparent rectangle into the scene behind it.
+    // Invisible glyphs must not write depth over later labels.
     if (color.a <= 0.0) {
         discard;
     }

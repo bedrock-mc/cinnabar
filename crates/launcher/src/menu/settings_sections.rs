@@ -59,6 +59,8 @@ sections! {
     ControllerAndSwitch => "controller_and_switch_forced_index", 15, Some("options.controllerSettings"), Some("menu.controller.tab.title"), None;
     Touch => "touch_forced_index", 16, None, Some("menu.touch.tab.title"), None;
     Party => "party_forced_index", 17, None, Some("options.party"), None;
+    Chat => "cinnabar_chat_index", 47, Some("Chat"), Some("Chat"), Some(SettingsGroup::Chat);
+    Discord => "cinnabar_discord_index", 48, Some("Discord"), Some("Discord"), Some(SettingsGroup::Discord);
     General => "general_forced_index", 18, Some("options.generalTitle"), Some("menu.general.tab.title"), None;
     Video => "video_forced_index", 21, Some("options.videoTitle"), Some("menu.video.tab.title"), Some(SettingsGroup::Video);
     Sound => "sound_forced_index", 23, Some("options.sounds.title"), Some("menu.audio.tab.title"), Some(SettingsGroup::Audio);

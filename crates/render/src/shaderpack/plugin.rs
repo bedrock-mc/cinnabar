@@ -208,8 +208,8 @@ fn drive_loader(
 
 /// Render-world state of every view drawing through the pack.
 #[derive(Resource, Default)]
-struct ShaderPackViews {
-    states: Mutex<HashMap<Entity, ViewState>>,
+pub(crate) struct ShaderPackViews {
+    pub(crate) states: Mutex<HashMap<Entity, ViewState>>,
     failed: HashMap<Entity, (Arc<PackGpu>, [u32; 2])>,
 }
 
@@ -258,15 +258,22 @@ fn configure_geometry(
 
 /// The Vanilla effects `pack` replaces: those it draws, and clouds and weather its
 /// directives turn off.
-fn replaced_effects(pack: &PackGpu) -> ShaderPackEffects {
-    effect_coverage(
+fn replaced_effects(
+    pack: &PackGpu,
+    textures: Option<&ShaderpackEffectTextures>,
+) -> ShaderPackEffects {
+    let mut coverage = effect_coverage(
         |effect| {
             pack.draws
                 .iter()
                 .any(|d| d.kind == DrawKind::Effect(effect))
+                && textures.is_some_and(|textures| textures.views(effect).is_some())
         },
         |effect| !pack.effects.draws(effect),
-    )
+    );
+    // Uncovered celestial layers leave the pack's sky intact.
+    coverage.clouds = true;
+    coverage
 }
 
 /// Keeps each native effect until that effect has a replacement or is explicitly disabled.
@@ -288,9 +295,7 @@ fn effect_coverage(
 
 #[path = "native_scene.rs"]
 mod native_scene;
-#[cfg(test)]
-use native_scene::needs_native_scene;
-use native_scene::{NativeSceneLayers, replacement_ready};
+use native_scene::replacement_ready;
 
 /// Hands out the revisions [`ShaderpackBlockIds`] are published under, each one no earlier
 /// table had. The geometry adapter keeps the revision it last derived terrain attributes from
@@ -317,16 +322,9 @@ impl BlockIdRevisions {
     }
 }
 
-/// Native actor frames checked before shader packs can replace their queues.
-type NativeActorFrames<'w> = (
-    Option<Res<'w, render_scene::ActorRenderFrame>>,
-    Option<Res<'w, render_scene::HandRigScene>>,
-    Option<Res<'w, render_scene::BlockEntityFrameResource>>,
-);
-
 /// Replaces native queues only after every pack view and terrain category is ready.
 #[allow(clippy::too_many_arguments, reason = "native queue replacement inputs")]
-fn configure_replacement(
+pub(super) fn configure_replacement(
     pack: Option<Res<LoadedShaderPack>>,
     cameras: Query<Entity, With<ShaderPackRendering>>,
     geometry: Option<Res<ShaderpackGeometry>>,
@@ -334,7 +332,6 @@ fn configure_replacement(
     mut drawn: ResMut<ShaderPackDrawnCategories>,
     mut replaced: ResMut<ShaderPackEffects>,
     textures: Option<Res<ShaderpackEffectTextures>>,
-    native: NativeSceneLayers,
 ) {
     let states = views.states.lock().unwrap_or_else(|e| e.into_inner());
     let ready = pack
@@ -348,15 +345,8 @@ fn configure_replacement(
                     })
                 })
         });
-    let replaces = ready.is_some_and(|pack| {
-        replacement_ready(
-            pack,
-            cameras.iter(),
-            geometry.as_deref(),
-            &states,
-            native.needed(pack, textures.as_deref()),
-        )
-    });
+    let replaces = ready
+        .is_some_and(|pack| replacement_ready(pack, cameras.iter(), geometry.as_deref(), &states));
     drawn.set_if_neq(ShaderPackDrawnCategories {
         terrain: replaces,
         actors: replaces,
@@ -366,7 +356,9 @@ fn configure_replacement(
     replaced.set_if_neq(
         ready
             .filter(|_| drawn.terrain)
-            .map_or_else(Default::default, |pack| replaced_effects(pack)),
+            .map_or_else(Default::default, |pack| {
+                replaced_effects(pack, textures.as_deref())
+            }),
     );
 }
 
@@ -402,7 +394,6 @@ fn prepare_views(
     effect_textures: Option<Res<ShaderpackEffectTextures>>,
     hand: Option<Res<render_scene::HandRigScene>>,
     profiler: Option<Res<RuntimeStageProfiler>>,
-    native: NativeSceneLayers,
 ) {
     let _timer = profiler
         .as_deref()
@@ -460,7 +451,6 @@ fn prepare_views(
         cameras.iter().map(|(entity, _)| entity),
         geometry.as_deref(),
         states,
-        native.needed(&pack, effect_textures.as_deref()),
     );
     let horizon = geometry
         .as_deref()
@@ -646,6 +636,10 @@ fn shaderpack_post(
     let (_, rotation, position) = view.world_from_view.to_scale_rotation_translation();
     let colours = super::uniforms::sky_fog(&inputs, rotation, position);
     let effects = EffectInputs {
+        coverage: world
+            .get_resource::<ShaderPackEffects>()
+            .copied()
+            .unwrap_or_default(),
         camera: EffectCamera {
             position: view.world_from_view.translation(),
             model_view: Mat4::from_quat(view.world_from_view.rotation().inverse()),
@@ -675,7 +669,9 @@ fn shaderpack_post(
             .map_or(0.0, |time| time.elapsed_secs()),
     };
     let actor_rig = crate::actor_render::shaderpack_source::shaderpack_actors(world);
-    let hand_rig = crate::hand_rig_render::shaderpack_source::shaderpack_hand(world);
+    let hand_rig = crate::hand_rig_render::shaderpack_source::shaderpack_hand(world).filter(|_| {
+        super::native_actors::hand_supported(world.get_resource(), world.get_resource())
+    });
     let kernels = world
         .get_resource::<ActorSkinPipelines>()
         .zip(world.get_resource::<PipelineCache>())
@@ -684,7 +680,15 @@ fn shaderpack_post(
         kernels,
         actors: actor_rig.as_ref().map(|rig| rig as &dyn RigSource),
         hand: hand_rig.as_ref().map(|rig| rig as &dyn RigSource),
-        block_entities: crate::block_entity::shaderpack_block_entities(world),
+        block_entities: crate::block_entity::shaderpack_block_entities(world).filter(|_| {
+            actors::compatibility::frame_supported(
+                None,
+                None,
+                world
+                    .get_resource::<render_scene::BlockEntityFrameResource>()
+                    .map(|frame| &frame.0),
+            )
+        }),
         entity_ids: world.get_resource::<ShaderPackActorIds>(),
         held_items: [inputs.held_item_id, inputs.held_item_id2],
         camera: view.world_from_view.translation(),
@@ -704,7 +708,6 @@ fn shaderpack_post(
             sunrise: inputs.dimension == 0,
         },
         effects,
-        overlay_radius: terrain.geometry.complete_radius().unwrap_or(f32::MAX),
         actors,
     });
     let post = target.post_process_write();
@@ -713,10 +716,6 @@ fn shaderpack_post(
         scene_colour: post.source,
         scene_depth: crate::scene_sampling::view_depth(depth),
         scene_near: view.clip_from_view.w_axis.z,
-        inverse_focal: [
-            view.clip_from_view.x_axis.x.recip(),
-            view.clip_from_view.y_axis.y.recip(),
-        ],
         render_distance: inputs.render_distance,
         fog_color: colours.fog,
         destination: post.destination,
@@ -728,6 +727,9 @@ fn shaderpack_post(
         .get_resource::<RuntimeStageProfiler>()
         .map(|profiler| profiler.time(RuntimeStage::ShaderpackRecord));
     record_frame(&device, &queue, context.command_encoder(), state, &io);
+    if io.geometry.is_some() {
+        super::overlay_depth::restore(&device, context.command_encoder(), state, &io);
+    }
     Ok(())
 }
 
@@ -753,6 +755,7 @@ fn install_graph(world: &mut World) {
                     .in_set(Core3dSystems::PostProcess),
             );
             schedule.add_systems(shaderpack_post.in_set(ShaderpackPass));
+            super::native_passes::install(schedule);
         })
         .is_ok();
     if installed {
@@ -860,3 +863,7 @@ mod first_person_tests;
 #[cfg(test)]
 #[path = "plugin_camera_tests.rs"]
 mod camera_tests;
+
+#[cfg(test)]
+#[path = "plugin_native_tests.rs"]
+mod native_tests;

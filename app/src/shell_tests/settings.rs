@@ -36,7 +36,7 @@ fn camera_input_and_window_settings_read_the_saved_values() {
     let mut authority = client_presentation::camera::CameraSettingsAuthority::default();
     authority.replace(1, &user).unwrap();
     assert_eq!(authority.horizontal_fov_degrees(), 82.0);
-    assert!(!authority.feel().view_bobbing);
+    assert_eq!(authority.feel().view_bobbing, ui::ViewBobbing::Off);
     assert!(!authority.feel().camera_shake);
     assert_eq!(authority.feel().damage_bob, 0.25);
     assert_eq!(authority.feel().fov_effects_scale, 0.0);

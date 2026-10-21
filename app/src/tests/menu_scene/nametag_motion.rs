@@ -261,7 +261,17 @@ fn prepare_local_frame_with_feet(
         .query_filtered::<Entity, With<FlyCamera>>()
         .single(world)
         .unwrap();
-    world.entity_mut(camera).insert(pose);
+    // The synthetic corrections can separate the subjects by hundreds of blocks. Keep both
+    // in the fixture's view so these tests exercise pose authority independently of admission.
+    world.entity_mut(camera).insert((
+        pose,
+        Projection::Orthographic(OrthographicProjection {
+            near: -1000.0,
+            far: 1000.0,
+            area: bevy::math::Rect::from_center_size(Vec2::ZERO, Vec2::splat(1000.0)),
+            ..OrthographicProjection::default_3d()
+        }),
+    ));
     let stale_eye = stale_feet + Vec3::Y * protocol::PLAYER_NETWORK_OFFSET;
     world
         .resource_mut::<LocalPlayerFrameCarrier>()

@@ -299,7 +299,6 @@ impl MenuRuntime {
                     A::Create,
                     A::Tab(Tab::General),
                     A::SeedField,
-                    A::Backend(bridge::Backend::Dragonfly),
                     A::Backend(bridge::Backend::Bds),
                     A::Flat(false),
                     A::Flat(true),
@@ -378,15 +377,11 @@ mod tests {
 
         let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
         for (kind, blocking, expected) in [
-            (
-                PromptKind::DockerMissing,
-                PromptFor::CreateBds,
-                &[PromptButton::UseDragonfly][..],
-            ),
+            (PromptKind::DockerMissing, PromptFor::CreateBds, &[][..]),
             (
                 PromptKind::DockerNotRunning,
                 PromptFor::CreateBds,
-                &[PromptButton::UseDragonfly, PromptButton::Retry][..],
+                &[PromptButton::Retry][..],
             ),
             (PromptKind::DockerMissing, PromptFor::Play, &[][..]),
             (

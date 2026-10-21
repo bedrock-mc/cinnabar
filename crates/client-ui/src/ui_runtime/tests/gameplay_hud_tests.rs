@@ -813,7 +813,7 @@ fn rawtext_scores_resolve_real_owners_and_selectors_use_known_state() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = UiRuntime::new(1);
-    runtime.set_chat_source_name(std::sync::Arc::from("Reader"));
+    runtime.set_local_player_display_name(std::sync::Arc::from("Reader"));
 
     // A sidebar objective with one real player owner (unique id 42), one
     // real entity owner (unique id 7), and the reader's own fake-player row.

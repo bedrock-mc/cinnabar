@@ -11,12 +11,15 @@ type HandViewQuery = (
 );
 
 /// Draws the accepted hand frame and records coverage only after encoding its draw.
-pub(crate) fn hand_view(
+pub(crate) fn hand_view<const AFTER_PACK: bool>(
     world: &World,
     query: bevy::render::renderer::ViewQuery<HandViewQuery>,
     mut context: RenderContext,
 ) -> bevy::ecs::error::Result {
     let view_entity = query.entity();
+    if !crate::shaderpack::native_pass_enabled(world, view_entity, AFTER_PACK) {
+        return Ok(());
+    }
     let (owner, view, camera, target, scene_target, msaa) = query.into_inner();
     let context = &mut context;
     let (Some(gpu), Some(gate), Some(drawn), Some(cache)) = (

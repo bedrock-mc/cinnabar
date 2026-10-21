@@ -3,7 +3,7 @@
 use super::*;
 
 #[test]
-fn native_overlay_refreshes_pre_translucent_depth() {
+fn native_depth_does_not_replace_pack_depth_before_translucent() {
     let Some(gpu) = gpu() else {
         eprintln!("missing fixture: native GPU adapter for the shader pack frame");
         return;
@@ -26,7 +26,7 @@ fn native_overlay_refreshes_pre_translucent_depth() {
         false,
         true,
     );
-    assert_pixels(&bytes, |_| [191; 3]);
+    assert_pixels(&bytes, |_| [255; 3]);
 }
 
 #[test]
@@ -162,7 +162,7 @@ fn geometry_draws_refresh_custom_image_feedback_before_opening_the_pass() {
 }
 
 #[test]
-fn geometry_overlay_crops_the_native_camera_viewport() {
+fn pack_final_replaces_only_its_camera_viewport() {
     let Some(gpu) = gpu() else {
         eprintln!("missing fixture: native GPU adapter for the shader pack frame");
         return;
@@ -175,12 +175,25 @@ fn geometry_overlay_crops_the_native_camera_viewport() {
             ("gbuffers_terrain.vsh", PASS_VERTEX),
             ("gbuffers_terrain.fsh", INVERT),
             ("final.vsh", PASS_VERTEX),
-            ("final.fsh", FINAL),
+            (
+                "final.fsh",
+                "#version 120\nconst vec4 colortex0ClearColor = vec4(0.0, 0.0, 1.0, 1.0);\nuniform sampler2D colortex0; varying vec2 texcoord; void main() { gl_FragColor = texture2D(colortex0, texcoord); }",
+            ),
         ],
         1,
         [1, 0, 2, 2],
         false,
         true,
     );
-    assert_pixels(&bytes, |row| if row < 2 { [255, 0, 0] } else { [128; 3] });
+    for (index, pixel) in bytes.as_chunks::<4>().0.iter().enumerate() {
+        let (x, y) = (index % SIZE[0] as usize, index / SIZE[0] as usize);
+        let expected = if y < 2 && (1..3).contains(&x) {
+            [0, 0, 255]
+        } else if y < 2 {
+            [255, 0, 0]
+        } else {
+            [128; 3]
+        };
+        assert_eq!(&pixel[..3], &expected, "pixel {x},{y}");
+    }
 }

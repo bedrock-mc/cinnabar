@@ -14,6 +14,7 @@ mod out_of_game;
 mod roster;
 mod shader_options;
 mod shader_pack;
+mod social_settings;
 mod updates;
 
 use std::sync::Arc;
@@ -125,7 +126,7 @@ const fn asset_free(name: &'static str, size: [u32; 2], fixture: fn() -> Fixture
     }
 }
 
-pub const STATES: &[State] = &[
+const STATES: &[State] = &[
     asset_free("sprite-outline-before", [800, 240], || {
         Fixture::SpriteOutline { outline: false }
     }),
@@ -760,7 +761,7 @@ pub const STATES: &[State] = &[
         name: "settings-storage",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: settings_storage,
+        fixture: out_of_game::settings_storage,
     },
     State {
         name: "settings-keyboard",
@@ -941,13 +942,6 @@ pub fn settings(section: &str) -> MenuView {
     view
 }
 
-/// Shows Storage as a desktop host fills it, with the folder buttons.
-fn settings_storage() -> Fixture {
-    let mut view = settings(SettingSection::StorageManagement.definition().name);
-    Arc::make_mut(&mut view.storage).opens_folders = true;
-    Fixture::Menu(Box::new(view))
-}
-
 /// Shows the keyboard options and command macro modifier without a live session.
 fn settings_keyboard() -> Fixture {
     Fixture::Menu(Box::new(settings("keyboard_and_mouse_forced_index")))
@@ -996,4 +990,9 @@ fn settings_keyboard_layout(observed: bool) -> Fixture {
         settings.set_key_label(0x14, "a");
     }
     Fixture::Menu(Box::new(view))
+}
+
+/// Enumerates every fixture, including the independently owned Social settings states.
+pub fn states() -> impl Iterator<Item = &'static State> {
+    STATES.iter().chain(social_settings::STATES)
 }

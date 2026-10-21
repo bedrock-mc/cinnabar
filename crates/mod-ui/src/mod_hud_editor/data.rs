@@ -55,6 +55,7 @@ impl HudEditor {
             );
         }
         let style = self.draft.editor_style.unwrap_or_default();
+        let hovered = self.hovered_card();
         for (index, card) in self.draft.cards.iter().enumerate() {
             let visible = !self.hidden.contains(&card.id);
             data.set_global(format!("#card_{index}_visible"), Scalar::Bool(visible));
@@ -85,8 +86,10 @@ impl HudEditor {
                 format!("#bounds_{index}_color"),
                 Scalar::Json(serde_json::json!(if self.selected == Some(index) {
                     style.selected
-                } else {
+                } else if hovered == Some(index) {
                     style.outline
+                } else {
+                    [0_f32; 4]
                 })),
             );
         }
@@ -207,29 +210,14 @@ impl HudEditor {
         }
     }
 
+    /// Hovered card index, independent of the retained frame so rebuilds keep the outline.
+    fn hovered_card(&self) -> Option<usize> {
+        self.hovered.filter(|index| *index < self.draft.cards.len())
+    }
+
     /// Names the hovered widget or current selection without placing labels over nearby cards.
     fn editor_label(&self) -> &str {
-        let hovered = self.frame.as_ref().and_then(|frame| {
-            let key = self.view.hovered.as_ref()?;
-            let action = frame
-                .hits
-                .iter()
-                .find(|hit| &hit.key == key)?
-                .pressed
-                .as_deref()?;
-            action
-                .strip_prefix("hud.card:")
-                .and_then(|index| index.parse().ok())
-                .or_else(|| {
-                    action
-                        .strip_prefix("hud.resize:")?
-                        .split_once(':')?
-                        .0
-                        .parse()
-                        .ok()
-                })
-        });
-        hovered
+        self.hovered_card()
             .or(self.selected)
             .and_then(|index| self.draft.cards.get(index))
             .map(ui::mod_hud::Card::editor_name)
