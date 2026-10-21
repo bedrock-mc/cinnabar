@@ -14,12 +14,29 @@ Each world records the backend that created it (`world.json`) and always reopens
 | `bds` container | macOS (or any host without a native build) with a Docker-compatible runtime | Linux BDS in the manifest's pinned `itzg/minecraft-bedrock-server` image, `--platform linux/amd64`. |
 | `dragonfly` | built-in local server on every supported host | Normal terrain through `bedrock-mc/vanilla-gen`, or Dragonfly's flat generator; mob behavior has parity gaps. |
 
-The create screen defaults to Dragonfly and Normal (Vanilla). Backend and generator are independent choices;
-both backends accept Normal or Flat. Selecting unavailable BDS shows its runtime warning. Creation then offers
-Get Docker / Retry or Dragonfly, preserving the chosen generator, name and seed.
-A world created without a backend takes the machine's default: BDS where it can run, else Dragonfly.
+New worlds use BDS and offer Infinite or Flat terrain. If BDS is unavailable, creation shows
+its runtime warning and the Docker setup prompt. Existing Dragonfly worlds keep their backend.
 Each Worlds-tab row tags its server (Dragonfly or BDS) after its game mode and generator.
 `docker_missing` / `docker_not_running` are reported as `backend_unavailable_reason` in status.
+
+## World options
+
+General settings select the name, game mode and difficulty. Advanced, Multiplayer and Cheats
+use the shared option catalog in `launcher::local_worlds::options`. The catalog owns the labels,
+defaults, bounds, cheat gating and BDS destinations. Changing a cheat setting enables cheats;
+turning cheats off restores the gated rules' defaults.
+
+World metadata stores the selected options. Before BDS starts, the host updates the owned fields
+in `level.dat` and preserves other tags. Game rules, starting map, bonus chest, sleep settings,
+respawn radius and daylight settings use level data. Server properties apply cheats, simulation
+distance and LAN discovery to both native and container servers. Turning multiplayer off limits
+the server to its host and disables discovery. Seed and terrain apply during creation; starting
+map and bonus chest are also fixed after creation. The edit screen exposes the remaining options.
+Older and imported worlds recover their options from level data.
+
+Resource packs, behaviour packs and experiments remain unavailable. Xbox Live, Realms and
+friends-broadcast settings are not exposed on the local BDS multiplayer page. Hardcore remains
+unavailable. Runtime acceptance of every option across supported BDS platforms remains open.
 
 ## BDS acquisition
 

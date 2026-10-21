@@ -92,6 +92,7 @@ struct Record<'a> {
     difficulty: Difficulty,
     backend: Backend,
     seed: i64,
+    options: &'a launcher::local_worlds::options::WorldOptions,
     created_unix: i64,
     last_played_unix: i64,
 }
@@ -112,6 +113,8 @@ struct Saved {
     backend: String,
     #[serde(default)]
     seed: i64,
+    #[serde(default)]
+    options: Option<launcher::local_worlds::options::WorldOptions>,
     #[serde(default)]
     created_unix: i64,
     #[serde(default)]
@@ -221,6 +224,11 @@ impl Store {
             difficulty: saved.difficulty,
             backend,
             seed: saved.seed,
+            options: saved.options.unwrap_or_else(|| {
+                super::level_dat::read_options(
+                    &self.root.join(id).join(LEVEL_DIR).join("level.dat"),
+                )
+            }),
             created_unix: saved.created_unix,
             last_played_unix: saved.last_played_unix,
             size_bytes: 0,
@@ -361,6 +369,9 @@ impl Store {
         if let Some(difficulty) = update.difficulty {
             world.difficulty = difficulty;
         }
+        if let Some(options) = &update.options {
+            world.options = options.clone();
+        }
         self.write(&world)?;
         Ok(world)
     }
@@ -432,6 +443,7 @@ fn write_record(dir: &Path, world: &World) -> Result<(), WorldError> {
         difficulty: world.difficulty,
         backend: world.backend,
         seed: world.seed,
+        options: &world.options,
         created_unix: world.created_unix,
         last_played_unix: world.last_played_unix,
     })
@@ -455,6 +467,7 @@ fn new_record(state: &StoreState, id: String, world: &NewWorld) -> Result<World,
         difficulty: world.difficulty,
         backend: world.backend.unwrap_or_else(|| state.default_backend()),
         seed,
+        options: world.options.clone(),
         created_unix: now,
         last_played_unix: now,
         size_bytes: 0,

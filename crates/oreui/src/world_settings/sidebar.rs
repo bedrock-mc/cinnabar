@@ -10,15 +10,7 @@ use {
     launcher::menu::{LocalWorldAction as A, MenuView},
 };
 
-const CATEGORIES: [&str; 7] = [
-    "General",
-    "Advanced",
-    "Multiplayer",
-    "Cheats",
-    "Resource packs",
-    "Behaviour packs",
-    "Experiments",
-];
+const _: [(); Tab::ALL.len()] = [(); WORLD_CATEGORY_ICONS.len()];
 
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
@@ -37,7 +29,7 @@ pub(super) fn draw(
         + preview_height
         + canvas.r(1.6)
         + actions_height
-        + row_height * CATEGORIES.len() as f32;
+        + row_height * Tab::ALL.len() as f32;
     let panel = [
         bounds[0],
         bounds[1],
@@ -94,23 +86,18 @@ pub(super) fn draw(
         y += canvas.r(4.4);
     }
     y += canvas.r(0.8);
-    let selected = if edit || view.local.tab == Tab::General {
-        0
-    } else {
-        1
-    };
+    let selected = Tab::ALL
+        .iter()
+        .position(|tab| *tab == view.local.tab)
+        .unwrap_or(0);
     if let Some(transitions) = canvas.transitions.as_deref_mut() {
-        transitions.begin_world(selected as u8 + if edit { 2 } else { 0 });
+        transitions.begin_world(selected as u8 + if edit { Tab::ALL.len() as u8 } else { 0 });
     }
     let side = super::super::icons::native_side(canvas);
     let mut focus = None;
-    for (index, label) in CATEGORIES.iter().enumerate() {
+    for (index, tab) in Tab::ALL.iter().enumerate() {
         let row = [panel[0] + edge, y, panel[2] - edge, y + row_height];
-        let action = match (edit, index) {
-            (_, 0) => Some(local(A::Tab(Tab::General))),
-            (false, 1) => Some(local(A::Tab(Tab::Advanced))),
-            _ => None,
-        };
+        let action = tab.supported().then_some(local(A::Tab(*tab)));
         let mut state = canvas.interaction(view, action);
         state.pressed &= state.hovered;
         let motion = canvas.feedback(state, action.is_some(), index == selected, Kind::Surface);
@@ -131,7 +118,7 @@ pub(super) fn draw(
         };
         canvas.sprite(WORLD_CATEGORY_ICONS[index], icon, color)?;
         if let Some(frame) = canvas.transitions.as_deref().and_then(|transitions| {
-            transitions.world_icon_frame(index as u8 + if edit { 2 } else { 0 })
+            transitions.world_icon_frame(index as u8 + if edit { Tab::ALL.len() as u8 } else { 0 })
         }) {
             canvas.sprite_frame(
                 SETTINGS_ICON_HIGHLIGHT_IMAGE,
@@ -142,7 +129,7 @@ pub(super) fn draw(
             )?;
         }
         canvas.text_line_vertically_centred(
-            label,
+            tab.label(),
             [icon[2] + canvas.r(0.8), row[1], row[2] - pad, row[3]],
             BODY,
             if action.is_some() { TEXT } else { TEXT_DIMMEST },

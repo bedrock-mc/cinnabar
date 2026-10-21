@@ -38,6 +38,7 @@ pub(crate) fn scratch() -> tempfile::TempDir {
 
 pub(crate) fn world() -> World {
     World {
+        options: Default::default(),
         id: "0123456789abcdef".to_owned(),
         name: "n".to_owned(),
         game_mode: GameMode::Survival,

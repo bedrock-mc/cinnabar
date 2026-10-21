@@ -11,7 +11,10 @@ use std::{
 
 use bridge::contract::HOSTED_WORLD_MAX_PLAYERS;
 use crossbeam_channel::Receiver;
-use launcher::local_worlds::world::Generator;
+use launcher::local_worlds::{
+    options::{Storage, WorldOption as O},
+    world::Generator,
+};
 
 use super::{
     Cancel, create_private_dir,
@@ -47,8 +50,6 @@ pub(crate) struct BdsRunner {
     pub max_players: u32,
     /// Zero selects an available loopback TCP and UDP window.
     pub host_port: u16,
-    /// Enables BDS's LAN discovery.
-    pub lan_visible: bool,
     /// Container-only discovery host port; zero uses the default discovery port.
     pub lan_host_port: u16,
     /// The Docker-compatible CLI of the container runtime.
@@ -65,7 +66,6 @@ impl BdsRunner {
             start_timeout: None,
             max_players: HOSTED_WORLD_MAX_PLAYERS,
             host_port: 0,
-            lan_visible: false,
             lan_host_port: 0,
             docker: DOCKER.to_owned(),
             image,
@@ -79,15 +79,17 @@ impl Runner for BdsRunner {
             return self.start_container(spec, cancel);
         }
         let binary = self.provisioner.ensure(cancel)?;
-        let max_players = self.max_players.max(1);
+        let max_players = world_player_limit(spec, self.max_players);
+        let lan_visible = spec.world.options.lan_visible();
         let port = free_bds_port(max_players, self.host_port)?;
         let install = install_dir(&binary)?;
         let world_dir = spec.dir.join(LEVEL_DIR);
         create_private_dir(&world_dir)
             .map_err(|error| failed(format!("create world folder: {error}")))?;
+        super::level_dat::configure(&spec.world, &world_dir)?;
         let link = install.join("worlds").join(&spec.world.id);
         link_world(&link, &world_dir)?;
-        let properties = server_properties(spec, port, max_players, self.lan_visible);
+        let properties = server_properties(spec, port, max_players, lan_visible);
         if let Err(error) = write_private(&install.join("server.properties"), properties.as_bytes())
         {
             unlink_world(&link);
@@ -120,7 +122,7 @@ impl Runner for BdsRunner {
             process,
             link,
             unlinked: Once::new(),
-            lan_address: self.lan_visible.then(|| lan_address(0)),
+            lan_address: lan_visible.then(|| lan_address(0)),
             max_players,
         });
         let watched = Arc::clone(&instance);
@@ -193,7 +195,7 @@ pub(crate) fn view_and_tick(spec: &StartSpec) -> (u32, u32) {
         .filter(|view| *view > 0)
         .unwrap_or(DEFAULT_BDS_VIEW)
         .clamp(5, 32);
-    (view, view.clamp(4, 12))
+    (view, spec.world.options.get(O::SimulationDistance) as u32)
 }
 
 /// BDS's `level-type` for a generator.
@@ -213,14 +215,13 @@ pub(crate) fn server_properties(
     lan_visible: bool,
 ) -> String {
     let world = &spec.world;
-    let (view, tick) = view_and_tick(spec);
+    let (view, _) = view_and_tick(spec);
     let mut properties = String::new();
     for (key, value) in [
         ("server-name", sanitize_property(&world.name)),
         ("gamemode", wire_name(world.game_mode)),
         ("force-gamemode", FORCE_GAME_MODE.to_string()),
         ("difficulty", wire_name(world.difficulty)),
-        ("allow-cheats", "false".to_owned()),
         ("max-players", max_players.to_string()),
         ("online-mode", "false".to_owned()),
         ("allow-list", "false".to_owned()),
@@ -231,16 +232,55 @@ pub(crate) fn server_properties(
         ("level-seed", world.seed.to_string()),
         ("level-type", level_type(world.generator).to_owned()),
         ("view-distance", view.to_string()),
-        ("tick-distance", tick.to_string()),
         ("player-idle-timeout", "0".to_owned()),
         ("transport", BDS_TRANSPORT.to_owned()),
-        ("enable-lan-visibility", lan_visible.to_string()),
         ("texturepack-required", "false".to_owned()),
         ("content-log-file-enabled", "false".to_owned()),
     ] {
         let _ = writeln!(properties, "{key}={value}");
     }
+    for (key, value) in option_properties(spec, lan_visible) {
+        let _ = writeln!(properties, "{key}={value}");
+    }
     properties
+}
+
+/// Limits a single-player world to its host while keeping multiplayer's configured capacity.
+pub(crate) fn world_player_limit(spec: &StartSpec, configured: u32) -> u32 {
+    if spec.world.options.enabled(O::Multiplayer) {
+        configured.max(1)
+    } else {
+        1
+    }
+}
+
+/// Generates the shared option properties used by native and container BDS.
+pub(crate) fn option_properties(
+    spec: &StartSpec,
+    lan_visible: bool,
+) -> Vec<(&'static str, String)> {
+    O::ALL
+        .iter()
+        .filter_map(|&id| {
+            let definition = id.definition();
+            let Storage::Property(key, _) = definition.storage else {
+                return None;
+            };
+            let options = &spec.world.options;
+            let value = match definition.control {
+                launcher::local_worlds::options::Control::Toggle => (if id == O::LanVisible {
+                    lan_visible && options.lan_visible()
+                } else {
+                    options.enabled(id)
+                })
+                .to_string(),
+                launcher::local_worlds::options::Control::Number { .. } => {
+                    options.get(id).to_string()
+                }
+            };
+            Some((key, value))
+        })
+        .collect()
 }
 
 /// Drops control characters and `#`, which would end or comment out a property line.

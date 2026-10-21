@@ -99,6 +99,7 @@ pub enum MenuField {
     /// The local-world create or edit screen's name field.
     WorldName,
     WorldSeed,
+    WorldOption(crate::local_worlds::options::WorldOption),
     SkinName,
     RealmCode,
     /// One command macro slot's command box.

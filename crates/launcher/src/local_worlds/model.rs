@@ -46,6 +46,8 @@ pub enum Input {
     /// Game mode of the create or edit form, whichever is up.
     SetGameMode(GameMode),
     SetDifficulty(Difficulty),
+    SetOption(super::options::WorldOption, i32),
+    InvalidOption,
     SetFlat(bool),
     SetBackend(Backend),
     SubmitCreate,
@@ -122,12 +124,32 @@ pub enum Event {
 
 pub const EULA_URL: &str = "https://www.minecraft.net/eula";
 
-/// The create and edit screens' side-menu tabs this build implements.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum Tab {
-    #[default]
-    General,
-    Advanced,
+macro_rules! world_tabs {
+    ($first:ident: $first_label:literal, $first_supported:literal; $($tab:ident: $label:literal, $supported:literal;)*) => {
+        /// Categories shown in the create and edit sidebar.
+        #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+        pub enum Tab { #[default] $first, $($tab,)* }
+        impl Tab {
+            pub const ALL: &'static [Self] = &[Self::$first, $(Self::$tab,)*];
+            /// The sidebar label for this tab.
+            pub const fn label(self) -> &'static str {
+                match self { Self::$first => $first_label, $(Self::$tab => $label,)* }
+            }
+            /// Whether this tab has configurable settings.
+            pub const fn supported(self) -> bool {
+                match self { Self::$first => $first_supported, $(Self::$tab => $supported,)* }
+            }
+        }
+    };
+}
+world_tabs! {
+    General: "General", true;
+    Advanced: "Advanced", true;
+    Multiplayer: "Multiplayer", true;
+    Cheats: "Cheats", true;
+    ResourcePacks: "Resource packs", false;
+    BehaviourPacks: "Behaviour packs", false;
+    Experiments: "Experiments", false;
 }
 
 /// What the create, edit and modal screens present, mirrored into the menu view each frame.
@@ -140,6 +162,7 @@ pub struct WorldsView {
     /// The saved world behind the edit form (its size and last-saved date).
     pub edited: Option<World>,
     pub form_error: Option<&'static str>,
+    pub option_text: std::collections::BTreeMap<super::options::WorldOption, String>,
     pub error: Option<String>,
     pub prompt: Option<Prompt>,
     pub progress: Option<Progress>,
@@ -210,6 +233,7 @@ impl WorldsMenu {
                 .and_then(|edit| self.worlds.iter().find(|w| w.id == edit.id))
                 .cloned(),
             form_error: self.form_error,
+            option_text: Default::default(),
             error: self.error.clone(),
             prompt: self.prompt(),
             progress: self.progress(),
@@ -437,9 +461,22 @@ impl WorldsMenu {
             }
             Input::SetGameMode(mode) => {
                 match (&mut self.edit, self.screen) {
-                    (Some(edit), Screen::Edit) => edit.game_mode = mode,
+                    (Some(edit), Screen::Edit) => {
+                        edit.game_mode = mode;
+                        if mode == GameMode::Creative {
+                            edit.options
+                                .set(super::options::WorldOption::ActivateCheats, 1);
+                        }
+                    }
                     // New worlds offer Survival and Creative; Adventure is for edits and templates.
-                    _ if mode != GameMode::Adventure => self.create.game_mode = mode,
+                    _ if mode != GameMode::Adventure => {
+                        self.create.game_mode = mode;
+                        if mode == GameMode::Creative {
+                            self.create
+                                .options
+                                .set(super::options::WorldOption::ActivateCheats, 1);
+                        }
+                    }
                     _ => {}
                 }
                 Vec::new()
@@ -449,6 +486,23 @@ impl WorldsMenu {
                     (Some(edit), Screen::Edit) => edit.difficulty = difficulty,
                     _ => self.create.difficulty = difficulty,
                 }
+                Vec::new()
+            }
+            Input::SetOption(id, value) if matches!(self.screen, Screen::Create | Screen::Edit) => {
+                self.form_error = None;
+                match (&mut self.edit, self.screen) {
+                    (Some(edit), Screen::Edit) if edit.options.editable(id, true) => {
+                        edit.options.set(id, value);
+                    }
+                    (_, Screen::Create) if self.create.options.editable(id, false) => {
+                        self.create.options.set(id, value);
+                    }
+                    _ => {}
+                }
+                Vec::new()
+            }
+            Input::InvalidOption => {
+                self.form_error = Some("Enter a valid number within the displayed range");
                 Vec::new()
             }
             Input::SetFlat(flat) => {
@@ -780,6 +834,7 @@ fn edit_changes(edit: &EditForm, saved: &World, name: String) -> WorldUpdate {
         name: (name != saved.name).then_some(name),
         game_mode: (edit.game_mode != saved.game_mode).then_some(edit.game_mode),
         difficulty: (edit.difficulty != saved.difficulty).then_some(edit.difficulty),
+        options: (edit.options != saved.options).then(|| edit.options.clone()),
     }
 }
 

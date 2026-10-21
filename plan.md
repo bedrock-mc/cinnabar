@@ -441,6 +441,9 @@ compatibility. Existing catalog content is owned by the API repository.
 Local worlds use the Go server integration. Qualify creation, offline play, reload,
 import, persistence and hosting/session teardown. The accepted local-world scope does
 not establish full vanilla world-generation parity.
+Create and edit forms persist BDS advanced, multiplayer and cheat options through a shared
+catalog and generated server properties and level data. Pack and experiment configuration,
+hardcore, and live acceptance of every option on supported platforms remain incomplete.
 
 See [local worlds](docs/local-worlds.md).
 

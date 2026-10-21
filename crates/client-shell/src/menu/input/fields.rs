@@ -19,7 +19,8 @@ fn max_bytes(field: MenuField) -> usize {
         MenuField::Address => MAX_SERVER_ADDRESS_BYTES,
         MenuField::Port => MAX_SERVER_PORT_BYTES,
         MenuField::WorldName => MAX_WORLD_NAME_CHARS * 4,
-        MenuField::WorldSeed => MAX_SEED_CHARS,
+        MenuField::WorldSeed => MAX_SEED_CHARS * 4,
+        MenuField::WorldOption(_) => i32::MAX.to_string().len(),
         MenuField::SkinName => launcher::dressing_room::MAX_SKIN_NAME_BYTES,
         MenuField::MacroCommand(_) => ui::MAX_CHAT_INPUT_BYTES,
     }

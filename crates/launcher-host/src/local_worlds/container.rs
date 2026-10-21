@@ -18,7 +18,8 @@ use launcher::local_worlds::world::{SetupState, UnavailableReason};
 use super::{
     Cancel,
     bds::{
-        BDS_READY_MARKER, BDS_TRANSPORT, BdsRunner, level_type, sanitize_property, view_and_tick,
+        BDS_READY_MARKER, BDS_TRANSPORT, BdsRunner, level_type, option_properties,
+        sanitize_property, view_and_tick, world_player_limit,
     },
     create_private_dir,
     docker::{PROBE_TIMEOUT, docker_command, finishes, succeeds},
@@ -65,7 +66,7 @@ pub(crate) struct ContainerArgs<'a> {
 /// server's worlds directory, and the EULA acknowledged (callers check acceptance first).
 pub(crate) fn container_args(args: &ContainerArgs<'_>) -> Vec<String> {
     let world = &args.spec.world;
-    let (view, tick) = view_and_tick(args.spec);
+    let (view, _) = view_and_tick(args.spec);
     let players = args.max_players;
     let mut run = vec![
         "run".to_owned(),
@@ -117,7 +118,6 @@ pub(crate) fn container_args(args: &ContainerArgs<'_>) -> Vec<String> {
         ("GAMEMODE", wire_name(world.game_mode)),
         ("FORCE_GAMEMODE", super::bds::FORCE_GAME_MODE.to_string()),
         ("DIFFICULTY", wire_name(world.difficulty)),
-        ("ALLOW_CHEATS", "false".to_owned()),
         ("MAX_PLAYERS", players.to_string()),
         ("ONLINE_MODE", "false".to_owned()),
         ("ALLOW_LIST", "false".to_owned()),
@@ -125,7 +125,6 @@ pub(crate) fn container_args(args: &ContainerArgs<'_>) -> Vec<String> {
         ("LEVEL_SEED", world.seed.to_string()),
         ("LEVEL_TYPE", level_type(world.generator).to_owned()),
         ("VIEW_DISTANCE", view.to_string()),
-        ("TICK_DISTANCE", tick.to_string()),
         ("PLAYER_IDLE_TIMEOUT", "0".to_owned()),
         ("TRANSPORT", BDS_TRANSPORT.to_owned()),
         ("SERVER_PORT", BDS_CONTAINER_HTTP_PORT.to_string()),
@@ -134,12 +133,18 @@ pub(crate) fn container_args(args: &ContainerArgs<'_>) -> Vec<String> {
             "SERVER_UDP_PORTS",
             bds_udp_mapping(args.host_port, BDS_CONTAINER_UDP_PORT, players),
         ),
-        ("ENABLE_LAN_VISIBILITY", args.lan_visible.to_string()),
         // The image's shim for IPv6 binds Docker cannot serve.
         ("ENABLE_BDS_V6BIND_FIX", "TRUE".to_owned()),
     ] {
         run.push("-e".to_owned());
         run.push(format!("{key}={value}"));
+    }
+    for (key, value) in option_properties(args.spec, args.lan_visible) {
+        run.push("-e".to_owned());
+        run.push(format!(
+            "{}={value}",
+            key.replace('-', "_").to_ascii_uppercase()
+        ));
     }
     run.push(args.image.to_owned());
     run
@@ -216,7 +221,8 @@ impl BdsRunner {
         if !self.image.contains("@sha256:") {
             return Err(WorldError::ImageNotPinned);
         }
-        let max_players = self.max_players.max(1);
+        let max_players = world_player_limit(spec, self.max_players);
+        let lan_visible = spec.world.options.lan_visible();
         self.check_docker(cancel)?;
         self.ensure_image(cancel)?;
         let binary = provisioner.ensure(cancel)?;
@@ -229,7 +235,7 @@ impl BdsRunner {
         create_private_dir(&spec.dir.join(LEVEL_DIR))
             .map_err(|error| failed(format!("create world folder: {error}")))?;
         let port = free_bds_port(max_players, self.host_port)?;
-        if self.lan_visible {
+        if lan_visible {
             let lan_port = if self.lan_host_port == 0 {
                 LAN_DISCOVERY_PORT
             } else {
@@ -237,6 +243,7 @@ impl BdsRunner {
             };
             check_bds_lan_port(port, max_players, lan_port)?;
         }
+        super::level_dat::configure(&spec.world, &spec.dir.join(LEVEL_DIR))?;
         let name = container_name(&spec.world.id);
         // A leftover of an earlier crash would hold the name.
         self.docker_until(&["rm", "-f", name.as_str()], DOCKER_TIMEOUT, cancel)?;
@@ -248,7 +255,7 @@ impl BdsRunner {
             install,
             host_port: port,
             max_players,
-            lan_visible: self.lan_visible,
+            lan_visible: lan_visible,
             lan_host_port: self.lan_host_port,
         }));
         let launched = launch(
@@ -276,7 +283,7 @@ impl BdsRunner {
             name,
             removed: Once::new(),
             max_players,
-            lan_address: self.lan_visible.then(|| lan_address(self.lan_host_port)),
+            lan_address: lan_visible.then(|| lan_address(self.lan_host_port)),
         });
         let watched = Arc::clone(&instance);
         thread::spawn(move || {

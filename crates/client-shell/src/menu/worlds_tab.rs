@@ -29,6 +29,8 @@ pub(super) struct LocalWorldsUi {
     actions: Vec<LocalWorldAction>,
     pub(super) name: ui::ChatEditor,
     pub(super) seed: ui::ChatEditor,
+    pub(super) options:
+        std::collections::BTreeMap<launcher::local_worlds::options::WorldOption, ui::ChatEditor>,
     /// The world being joined, for the loading screen's connect stage.
     joining: Option<String>,
     world_id: Option<String>,
@@ -54,6 +56,21 @@ impl Default for LocalWorldsUi {
             actions: Vec::new(),
             name: super::input::fields::field_editor(MenuField::WorldName),
             seed: super::input::fields::field_editor(MenuField::WorldSeed),
+            options: launcher::local_worlds::options::WorldOption::ALL
+                .iter()
+                .filter(|id| {
+                    matches!(
+                        id.definition().control,
+                        launcher::local_worlds::options::Control::Number { .. }
+                    )
+                })
+                .map(|&id| {
+                    (
+                        id,
+                        super::input::fields::field_editor(MenuField::WorldOption(id)),
+                    )
+                })
+                .collect(),
             joining: None,
             world_id: None,
             hosted: false,
@@ -117,6 +134,18 @@ impl MenuRuntime {
         }
         self.local_ui.prepared = on_worlds;
         for action in std::mem::take(&mut self.local_ui.actions) {
+            if matches!(
+                action,
+                LocalWorldAction::Create | LocalWorldAction::PlayFromEdit
+            ) && self.local_ui.options.iter().any(|(&id, editor)| {
+                !editor
+                    .as_str()
+                    .parse::<i32>()
+                    .is_ok_and(|value| id.accepts(value))
+            }) {
+                worlds.input(Input::InvalidOption);
+                continue;
+            }
             if let Some(input) = action.input() {
                 worlds.input(input);
             }
@@ -143,7 +172,12 @@ impl MenuRuntime {
         }
         if let Some(id) = worlds.take_ready() {
             let world = worlds.menu().worlds().iter().find(|world| world.id == id);
-            let hosted = world.is_some_and(|world| world.backend == Backend::Bds);
+            let hosted = world.is_some_and(|world| {
+                world.backend == Backend::Bds
+                    && world
+                        .options
+                        .enabled(launcher::local_worlds::options::WorldOption::Multiplayer)
+            });
             self.local_ui.world_id = Some(id.clone());
             let name = world.map_or(id, |world| world.name.clone());
             self.request_local_world_join(name, hosted);
@@ -154,6 +188,16 @@ impl MenuRuntime {
             view.progress = Some(Progress::connecting(name));
         }
         self.finish_storage_world(view.screen);
+        for (&id, editor) in &mut self.local_ui.options {
+            if self.field != Some(MenuField::WorldOption(id)) {
+                let options = view
+                    .edit
+                    .as_ref()
+                    .filter(|_| view.screen == Screen::Edit)
+                    .map_or(&view.create.options, |edit| &edit.options);
+                editor.set_text(&options.get(id).to_string());
+            }
+        }
         self.local_ui.view = view;
         let active = self.local_world_joined && (in_session || self.is_connecting());
         if active != self.local_world_active {
@@ -195,6 +239,12 @@ impl MenuRuntime {
             }
             _ => {}
         }
+        view.option_text = self
+            .local_ui
+            .options
+            .iter()
+            .map(|(&id, editor)| (id, editor.as_str().to_owned()))
+            .collect();
         view
     }
 
@@ -213,6 +263,24 @@ impl MenuRuntime {
     fn push_local_text(&mut self, worlds: &mut LocalWorlds) {
         let ui = &self.local_ui;
         let view = &ui.view;
+        if matches!(view.screen, Screen::Create | Screen::Edit) {
+            let options = view
+                .edit
+                .as_ref()
+                .filter(|_| view.screen == Screen::Edit)
+                .map_or(&view.create.options, |edit| &edit.options);
+            if let Some(MenuField::WorldOption(id)) = self.field {
+                if let Some(value) = ui
+                    .options
+                    .get(&id)
+                    .and_then(|editor| editor.as_str().parse::<i32>().ok())
+                {
+                    if value != options.get(id) && id.accepts(value) {
+                        worlds.input(Input::SetOption(id, value));
+                    }
+                }
+            }
+        }
         match view.screen {
             Screen::Create
                 if ui.name.as_str() != view.create.name
@@ -250,7 +318,7 @@ impl MenuRuntime {
         if !matches!(view.screen, Screen::Create | Screen::Edit)
             && matches!(
                 self.field,
-                Some(MenuField::WorldName | MenuField::WorldSeed)
+                Some(MenuField::WorldName | MenuField::WorldSeed | MenuField::WorldOption(_))
             )
         {
             self.field = None;
@@ -283,39 +351,67 @@ impl MenuRuntime {
             Screen::List | Screen::Opening | Screen::BackendPrompt => None,
             // The import modal has no buttons and the copy cannot be interrupted.
             Screen::Importing => Some(Vec::new()),
-            Screen::Create => match view.tab {
-                Tab::General => local(&[
-                    A::Create,
-                    A::Tab(Tab::Advanced),
-                    A::NameField,
-                    A::GameMode(GameMode::Survival),
-                    A::GameMode(GameMode::Creative),
-                    A::Difficulty(Difficulty::Peaceful),
-                    A::Difficulty(Difficulty::Easy),
-                    A::Difficulty(Difficulty::Normal),
-                    A::Difficulty(Difficulty::Hard),
-                ]),
-                Tab::Advanced => local(&[
-                    A::Create,
-                    A::Tab(Tab::General),
-                    A::SeedField,
-                    A::Backend(bridge::Backend::Bds),
-                    A::Flat(false),
-                    A::Flat(true),
-                ]),
-            },
-            Screen::Edit => local(&[
-                A::PlayFromEdit,
-                A::NameField,
-                A::GameMode(GameMode::Survival),
-                A::GameMode(GameMode::Creative),
-                A::GameMode(GameMode::Adventure),
-                A::Difficulty(Difficulty::Peaceful),
-                A::Difficulty(Difficulty::Easy),
-                A::Difficulty(Difficulty::Normal),
-                A::Difficulty(Difficulty::Hard),
-                A::Delete,
-            ]),
+            Screen::Create | Screen::Edit => {
+                let editing = view.screen == Screen::Edit;
+                let options = view
+                    .edit
+                    .as_ref()
+                    .filter(|_| editing)
+                    .map_or(&view.create.options, |edit| &edit.options);
+                let mut actions = vec![if editing { A::PlayFromEdit } else { A::Create }];
+                actions.extend(
+                    Tab::ALL
+                        .iter()
+                        .copied()
+                        .filter(|tab| tab.supported())
+                        .map(A::Tab),
+                );
+                match view.tab {
+                    Tab::General => {
+                        actions.push(A::NameField);
+                        actions.extend(
+                            [GameMode::Survival, GameMode::Creative]
+                                .into_iter()
+                                .map(A::GameMode),
+                        );
+                        if editing {
+                            actions.push(A::GameMode(GameMode::Adventure));
+                        }
+                        actions.extend(
+                            [
+                                Difficulty::Peaceful,
+                                Difficulty::Easy,
+                                Difficulty::Normal,
+                                Difficulty::Hard,
+                            ]
+                            .into_iter()
+                            .map(A::Difficulty),
+                        );
+                        if editing {
+                            actions.push(A::Delete);
+                        }
+                    }
+                    Tab::Advanced if !editing => {
+                        actions.extend([A::SeedField, A::Flat(false), A::Flat(true)])
+                    }
+                    _ => {}
+                }
+                for &id in launcher::local_worlds::options::WorldOption::ALL {
+                    let definition = id.definition();
+                    if definition.tab != view.tab || !options.editable(id, editing) {
+                        continue;
+                    }
+                    actions.push(match definition.control {
+                        launcher::local_worlds::options::Control::Toggle => {
+                            A::Option(id, 1 - options.get(id))
+                        }
+                        launcher::local_worlds::options::Control::Number { .. } => {
+                            A::OptionField(id)
+                        }
+                    });
+                }
+                local(&actions)
+            }
             Screen::Templates => Some(vec![MenuAction::LocalWorld(A::BeginCreate)]),
             Screen::ConfirmDelete => local(&[A::Back, A::ConfirmDelete]),
             Screen::Eula => local(&[A::AcceptEula, A::ViewEula, A::Back]),

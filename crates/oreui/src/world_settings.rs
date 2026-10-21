@@ -22,6 +22,7 @@ use launcher::menu::{LocalWorldAction as A, MenuAction, MenuField, MenuView};
 use ui_engine::engine::screen::PaintError;
 
 mod advanced;
+mod options;
 mod sections;
 mod sidebar;
 
@@ -106,21 +107,19 @@ pub(super) fn draw(
         route,
         grid.narrow,
     )?;
-    let key = match (route, view.local.tab) {
-        (Screen::Edit, _) => "world_edit_general",
-        (_, Tab::General) => "world_create_general",
-        (_, Tab::Advanced) => "world_create_advanced",
-    };
-    let scroll = canvas.begin_scroll(key, [content[0], top, content[1], bottom])?;
+    let key = format!("world_{route:?}_{:?}", view.local.tab);
+    let scroll = canvas.begin_scroll(&key, [content[0], top, content[1], bottom])?;
     let entrance = canvas.begin_entrance(super::motion::Surface::WorldTab(route, view.local.tab));
     let area = [content[0], top - scroll.offset, content[1], bottom];
-    let end = if route == Screen::Edit {
-        edit_general(canvas, view, &view.local, area)?
-    } else {
-        match view.local.tab {
-            Tab::General => create_general(canvas, view, &view.local, area)?,
-            Tab::Advanced => advanced::draw(canvas, view, &view.local, area)?,
-        }
+    let editing = route == Screen::Edit;
+    let end = match view.local.tab {
+        Tab::General if editing => edit_general(canvas, view, &view.local, area)?,
+        Tab::General => create_general(canvas, view, &view.local, area)?,
+        Tab::Advanced if !editing => advanced::draw(canvas, view, &view.local, area)?,
+        tab if tab.supported() => options::draw(canvas, view, &view.local, area, area[1], editing)?,
+        _ => sections::row(canvas, area, area[1], |canvas, inner| {
+            caption(canvas, "Not available yet", inner, inner[1])
+        })?,
     };
     canvas.frame([content[0], area[1], content[1], end], EDGE, BORDER)?;
     canvas.end_entrance(entrance, size)?;

@@ -210,6 +210,7 @@ pub(super) fn world_edit_after_delete_back() -> Fixture {
     use launcher::local_worlds::{Event, Input, WorldsMenu, world::World};
     let mut worlds = WorldsMenu::default();
     let _ = worlds.apply(Event::Listed(vec![World {
+        options: Default::default(),
         id: "original-fixture".into(),
         name: "Fixture World".into(),
         game_mode: Default::default(),
@@ -239,5 +240,14 @@ pub(super) fn world_edit_after_delete_back() -> Fixture {
 pub(super) fn settings_storage() -> Fixture {
     let mut view = settings(SettingSection::StorageManagement.definition().name);
     Arc::make_mut(&mut view.storage).opens_folders = true;
+    Fixture::Menu(Box::new(view))
+}
+
+/// Shows an anonymous Create World tab without starting a server.
+pub(super) fn world_create(tab: usize) -> Fixture {
+    let mut view = menu();
+    view.screen = MenuScreen::Play;
+    view.local.screen = launcher::local_worlds::Screen::Create;
+    view.local.tab = launcher::local_worlds::Tab::ALL[tab];
     Fixture::Menu(Box::new(view))
 }

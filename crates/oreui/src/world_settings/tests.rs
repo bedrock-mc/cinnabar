@@ -85,7 +85,7 @@ fn unsupported_world_settings_do_not_publish_inputs() {
         hits.iter()
             .filter(|(action, _)| matches!(action, MenuAction::LocalWorld(A::Tab(_))))
             .count(),
-        2
+        4
     );
 }
 
@@ -157,44 +157,34 @@ fn retained_world_form_draws_controls_above_their_panel_backgrounds() {
 }
 
 #[test]
-fn advanced_world_form_exposes_backend_and_generator_separately() {
-    use bridge::Backend;
-    use launcher::local_worlds::world::UnavailableReason;
+fn advanced_world_form_exposes_terrain_and_catalog_options() {
+    use launcher::local_worlds::options::{Control, WorldOption as O};
     let mut view = MenuView::new(true, "Fixture".into());
-    view.local.tab = Tab::Advanced;
-    view.local.bds_unavailable = Some(UnavailableReason::DockerMissing);
-    for backend in [Backend::Dragonfly, Backend::Bds] {
-        view.local.create.backend = backend;
-        let (_, hits, nodes) = paint(Default::default(), |canvas| {
-            draw(canvas, &view, [1280.0, 900.0], Screen::Create).unwrap();
+    for tab in [Tab::Advanced, Tab::Multiplayer, Tab::Cheats] {
+        view.local.tab = tab;
+        let (_, hits, _) = paint(Default::default(), |canvas| {
+            draw(canvas, &view, [1280.0, 4096.0], Screen::Create).unwrap();
         });
-        for action in [
-            A::Backend(Backend::Dragonfly),
-            A::Backend(Backend::Bds),
-            A::Flat(false),
-            A::Flat(true),
-        ] {
-            assert!(hits.iter().any(|(found, _)| *found == local(action)));
+        for &id in O::ALL {
+            let definition = id.definition();
+            if definition.tab != tab {
+                continue;
+            }
+            let expected = match definition.control {
+                Control::Toggle => A::Option(id, 1 - definition.default),
+                Control::Number { .. } => A::OptionField(id),
+            };
+            assert!(
+                hits.iter().any(|(found, _)| *found == local(expected)),
+                "{id:?}"
+            );
         }
-        let text: String = nodes
-            .iter()
-            .filter_map(|node| match node.visual() {
-                ui::UiVisual::Text { layout, .. } => Some(
-                    layout
-                        .glyphs()
-                        .iter()
-                        .map(|g| g.codepoint)
-                        .collect::<String>(),
-                ),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("")
-            .replace(' ', "");
-        assert!(text.contains("Worldgenerator"));
-        assert_eq!(
-            text.contains("BDSneedsDockeronMac"),
-            backend == Backend::Bds
-        );
+        if tab == Tab::Advanced {
+            assert!(
+                hits.iter()
+                    .any(|(found, _)| *found == local(A::Flat(false)))
+            );
+            assert!(hits.iter().any(|(found, _)| *found == local(A::Flat(true))));
+        }
     }
 }

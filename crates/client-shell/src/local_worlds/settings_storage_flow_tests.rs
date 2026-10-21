@@ -24,6 +24,7 @@ fn storage_world_delete_uses_catalog_identity_and_returns_to_settings() {
         MenuRuntime::new_with_layout(true, Some(2), "Steve".into(), layout.clone(), player_skin);
     let mut worlds = LocalWorlds::default();
     worlds.menu.apply(Event::Listed(vec![World {
+        options: Default::default(),
         id: "world-id".into(),
         name: "My Saved World".into(),
         game_mode: GameMode::Survival,

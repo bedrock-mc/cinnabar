@@ -74,6 +74,7 @@ pub(super) fn import(
         &staging,
         &level,
         &NewWorld {
+            options: super::level_dat::read_options(&level.join(LEVEL_DAT)),
             name,
             game_mode: settings.game_mode,
             generator: settings.generator,

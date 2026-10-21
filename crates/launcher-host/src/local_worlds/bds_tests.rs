@@ -38,7 +38,7 @@ fn server_properties_configure_local_play() {
         "level-seed=-5\n",
         "level-type=FLAT\n",
         "view-distance=32\n",
-        "tick-distance=12\n",
+        "tick-distance=4\n",
         "transport=nethernet\n",
         "server-ip=127.0.0.1\n",
         "enable-lan-visibility=false\n",
@@ -144,4 +144,52 @@ fn a_failed_start_removes_the_world_link() {
         fs::symlink_metadata(link).is_err(),
         "the link outlived the failed start"
     );
+}
+
+#[test]
+fn world_options_properties_match_native_and_container_configuration() {
+    use crate::local_worlds::container::{ContainerArgs, container_args};
+    use launcher::local_worlds::options::{Control, Storage};
+    let dir = scratch();
+    let mut spec = spec(dir.path());
+    for &id in O::ALL {
+        let definition = id.definition();
+        let Storage::Property(key, _) = definition.storage else {
+            continue;
+        };
+        let value = match definition.control {
+            Control::Toggle => 1 - definition.default,
+            Control::Number { max, .. } => max,
+        };
+        spec.world.options.set(id, value);
+        let text = match definition.control {
+            Control::Toggle => (value != 0).to_string(),
+            Control::Number { .. } => value.to_string(),
+        };
+        let native = server_properties(&spec, 5000, 8, true);
+        assert!(
+            native.lines().any(|line| line == format!("{key}={text}")),
+            "{id:?}: {native}"
+        );
+        let container = container_args(&ContainerArgs {
+            spec: &spec,
+            image: "fixture",
+            version: VERSION,
+            install: dir.path(),
+            host_port: 5000,
+            max_players: 8,
+            lan_visible: true,
+            lan_host_port: 0,
+        });
+        let environment = format!("{}={text}", key.replace('-', "_").to_ascii_uppercase());
+        assert!(
+            container.iter().any(|value| value == &environment),
+            "{id:?}"
+        );
+    }
+    spec.world.options.set(O::Multiplayer, 0);
+    assert_eq!(world_player_limit(&spec, 8), 1);
+    assert!(!spec.world.options.lan_visible());
+    spec.world.options.set(O::Multiplayer, 1);
+    assert_eq!(world_player_limit(&spec, 8), 8);
 }

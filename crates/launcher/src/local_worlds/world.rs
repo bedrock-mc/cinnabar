@@ -34,6 +34,7 @@ pub struct World {
     pub difficulty: Difficulty,
     pub backend: Backend,
     pub seed: i64,
+    pub options: super::options::WorldOptions,
     pub created_unix: i64,
     pub last_played_unix: i64,
     /// Bytes on disk.
@@ -83,6 +84,7 @@ pub struct WorldUpdate {
     pub name: Option<String>,
     pub game_mode: Option<GameMode>,
     pub difficulty: Option<Difficulty>,
+    pub options: Option<super::options::WorldOptions>,
 }
 
 /// Settings for a new world; a `None` seed is random.
@@ -95,6 +97,7 @@ pub struct NewWorld {
     /// `None` takes the default for this machine.
     pub backend: Option<Backend>,
     pub seed: Option<i64>,
+    pub options: super::options::WorldOptions,
 }
 
 /// Why the dedicated-server backend cannot run.

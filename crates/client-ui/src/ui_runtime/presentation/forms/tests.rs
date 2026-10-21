@@ -824,6 +824,7 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
     let mut runtime = launcher::menu::MenuView::new(true, "Steve".to_owned());
     runtime.screen = launcher::menu::MenuScreen::Play;
     let flat = World {
+        options: Default::default(),
         id: "0123456789abcdef".to_owned(),
         name: "Plains".to_owned(),
         game_mode: GameMode::Creative,

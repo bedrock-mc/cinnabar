@@ -2,7 +2,7 @@
 
 mod account_icon;
 mod button;
-mod controls;
+pub(super) mod controls;
 mod gui_scale;
 mod layout;
 mod mods;

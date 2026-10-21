@@ -351,6 +351,7 @@ fn snapshot_local_worlds() {
     let mut base = fixture_view(&dir);
     base.screen = MenuScreen::Play;
     let world = World {
+        options: Default::default(),
         id: "0123456789abcdef".to_owned(),
         name: "My World".to_owned(),
         game_mode: GameMode::Survival,

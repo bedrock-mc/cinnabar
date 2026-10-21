@@ -10,6 +10,7 @@ use super::*;
 
 fn world(id: &str, name: &str) -> World {
     World {
+        options: Default::default(),
         id: id.to_owned(),
         name: name.to_owned(),
         game_mode: GameMode::Survival,
@@ -249,6 +250,7 @@ fn edit_prefills_validates_and_sends_only_changes() {
         vec![Effect::Update {
             id: "id0".to_owned(),
             update: WorldUpdate {
+                options: None,
                 name: Some("New".to_owned()),
                 game_mode: None,
                 difficulty: Some(Difficulty::Hard),
@@ -799,4 +801,33 @@ fn dropped_files_import_only_from_the_list() {
     let files = vec![PathBuf::from("/w/a.mcworld")];
     assert!(menu.update(Input::ImportFiles(files)).is_empty());
     assert_eq!(menu.screen(), Screen::Create);
+}
+
+#[test]
+fn world_options_flow_through_create_and_edit_with_cheat_activation() {
+    use crate::local_worlds::options::WorldOption as O;
+    let mut menu = WorldsMenu::default();
+    menu.apply(Event::Listed(Vec::new()));
+    menu.update(Input::BeginCreate);
+    menu.update(Input::SetOption(O::KeepInventory, 1));
+    assert!(menu.create_form().options.enabled(O::ActivateCheats));
+    let effects = menu.update(Input::SubmitCreate);
+    let Effect::Create(spec) = &effects[0] else {
+        panic!("expected creation");
+    };
+    assert!(spec.options.enabled(O::KeepInventory));
+    let mut saved = world("fixture", "Options");
+    saved.backend = Backend::Bds;
+    saved.options = spec.options.clone();
+    let mut menu = WorldsMenu::default();
+    menu.apply(Event::Listed(vec![saved]));
+    menu.update(Input::BeginEdit(0));
+    assert!(menu.edit_form().unwrap().options.enabled(O::KeepInventory));
+    menu.update(Input::SelectTab(Tab::Cheats));
+    menu.update(Input::SetOption(O::ActivateCheats, 0));
+    let effects = menu.update(Input::SubmitEdit);
+    let Effect::Update { update, .. } = &effects[0] else {
+        panic!("expected update");
+    };
+    assert!(!update.options.as_ref().unwrap().enabled(O::KeepInventory));
 }

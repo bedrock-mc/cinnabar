@@ -159,6 +159,7 @@ impl MenuRuntime {
             MenuField::Port => &self.port,
             MenuField::WorldName => &self.local_ui.name,
             MenuField::WorldSeed => &self.local_ui.seed,
+            MenuField::WorldOption(id) => &self.local_ui.options[&id],
             MenuField::SkinName => &self.skin_name,
             MenuField::MacroCommand(slot) => &self.macro_commands[slot],
         }
@@ -172,6 +173,11 @@ impl MenuRuntime {
             MenuField::Port => &mut self.port,
             MenuField::WorldName => &mut self.local_ui.name,
             MenuField::WorldSeed => &mut self.local_ui.seed,
+            MenuField::WorldOption(id) => self
+                .local_ui
+                .options
+                .get_mut(&id)
+                .expect("numeric world option"),
             MenuField::SkinName => &mut self.skin_name,
             MenuField::MacroCommand(slot) => &mut self.macro_commands[slot],
         }

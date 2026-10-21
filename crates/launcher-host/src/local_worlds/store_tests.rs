@@ -41,6 +41,7 @@ fn create_keeps_an_explicit_seed_including_zero() {
     let store = store(&dir);
     let world = store
         .create(&NewWorld {
+            options: Default::default(),
             name: "a".into(),
             seed: Some(0),
             generator: Generator::Flat,
@@ -101,6 +102,7 @@ fn update_touch_and_delete() {
         .update(
             &world.id,
             &WorldUpdate {
+                options: None,
                 name: Some(" b ".into()),
                 game_mode: Some(GameMode::Creative),
                 difficulty: Some(Difficulty::Hard),
@@ -374,4 +376,43 @@ fn abandoned_import_folders_are_reclaimed_off_the_open() {
     let mut expected = vec![live.path().to_path_buf(), live.lock_path.clone()];
     expected.sort();
     assert_eq!(listing(), expected);
+}
+
+#[test]
+fn world_options_persist_every_value_through_create_and_edit() {
+    use launcher::local_worlds::options::{Control, WorldOption as O};
+    let dir = scratch();
+    let store = store(&dir);
+    for &id in O::ALL {
+        let definition = id.definition();
+        let value = match definition.control {
+            Control::Toggle => 1 - definition.default,
+            Control::Number { min, max, .. } => {
+                if min == definition.default {
+                    max
+                } else {
+                    min
+                }
+            }
+        };
+        let mut new = new_world("Options");
+        new.options.set(id, value);
+        let world = store.create(&new).unwrap();
+        let reopened = store.get(&world.id).unwrap();
+        assert_eq!(reopened.options, new.options, "{id:?}");
+        let edit = launcher::local_worlds::form::EditForm::of(&reopened);
+        assert_eq!(edit.options.get(id), value, "{id:?}");
+        let mut edited = edit.options;
+        edited.set(id, definition.default);
+        store
+            .update(
+                &world.id,
+                &WorldUpdate {
+                    options: Some(edited.clone()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(store.get(&world.id).unwrap().options, edited);
+    }
 }
