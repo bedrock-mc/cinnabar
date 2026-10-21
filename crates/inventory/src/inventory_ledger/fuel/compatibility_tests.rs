@@ -38,7 +38,7 @@ fn catalog() -> RuntimeEntityAssets {
         CompiledEntityAssets {
             item_use_profiles: Box::new([]),
             seat_layouts: Box::new([]),
-            source_manifest_sha256: [0; 32],
+            source_manifest_sha256: [1; 32],
             interaction_traits: Box::new([]),
             block_visual_count: 0,
             sources: sources.into(),
