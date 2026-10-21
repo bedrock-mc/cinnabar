@@ -61,7 +61,6 @@ use bevy::{
     },
     tasks::{AsyncComputeTaskPool, Task, block_on},
 };
-pub(crate) use labpbr::{NEUTRAL_NORMAL, NEUTRAL_SPECULAR};
 use plan::{AtlasInputs, AtlasPlan, LayerLayout};
 use render_scene::{ChunkAnimationClock, ChunkTextureAssets, shaderpack::ShaderPackRendering};
 use std::sync::Arc;
