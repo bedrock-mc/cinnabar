@@ -97,7 +97,8 @@ pub(super) fn draw(
     let mut focus = None;
     for (index, tab) in Tab::ALL.iter().enumerate() {
         let row = [panel[0] + edge, y, panel[2] - edge, y + row_height];
-        let action = tab.supported().then_some(local(A::Tab(*tab)));
+        let action = (tab.supported() && (*tab == Tab::General || view.local.options_available()))
+            .then_some(local(A::Tab(*tab)));
         let mut state = canvas.interaction(view, action);
         state.pressed &= state.hovered;
         let motion = canvas.feedback(state, action.is_some(), index == selected, Kind::Surface);

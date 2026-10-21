@@ -67,6 +67,7 @@ fn configured(world: &World, bytes: &[u8]) -> Option<Vec<u8>> {
         );
     }
     put(&mut fields, "LevelName", 8, &string(&world.name));
+    let was_always_day = scalar(&fields, "daylightCycle") == Some(1);
     let options = &world.options;
     for &id in O::ALL {
         let definition = id.definition();
@@ -86,7 +87,9 @@ fn configured(world: &World, bytes: &[u8]) -> Option<Vec<u8>> {
         };
         match definition.control {
             Control::Toggle => put(&mut fields, key, 1, &[value as u8]),
-            Control::Number { .. } => put(&mut fields, key, 3, &value.to_le_bytes()),
+            Control::Number { .. } | Control::Choice(_) => {
+                put(&mut fields, key, 3, &value.to_le_bytes())
+            }
         }
     }
     // Once used, cheats remain recorded even after the switch is turned off.
@@ -118,8 +121,13 @@ fn configured(world: &World, bytes: &[u8]) -> Option<Vec<u8>> {
         })
         .to_le_bytes(),
     );
-    if options.enabled(O::AlwaysDay) {
-        put(&mut fields, "Time", 4, &6000i64.to_le_bytes());
+    if options.enabled(O::AlwaysDay) && !was_always_day {
+        const DAY: i64 = 24_000;
+        let time = scalar(&fields, "Time").unwrap_or(0);
+        let noon = time
+            .saturating_sub(time.rem_euclid(DAY))
+            .saturating_add(6_000);
+        put(&mut fields, "Time", 4, &noon.to_le_bytes());
     }
     let mut body = vec![10, 0, 0];
     for (_, tag) in fields {
@@ -287,4 +295,16 @@ pub(super) fn read_options(path: &Path) -> launcher::local_worlds::options::Worl
         != 0;
     options.restore_cheats(enabled);
     options
+}
+
+/// Reads a scalar field without changing its encoded payload.
+fn scalar(fields: &Fields, key: &str) -> Option<i64> {
+    let (_, tag) = fields.iter().find(|(name, _)| name == key.as_bytes())?;
+    let data = tag.get(3 + key.len()..)?;
+    match tag[0] {
+        1 => Some(i64::from(*data.first()?)),
+        3 => Some(i64::from(i32::from_le_bytes(data.try_into().ok()?))),
+        4 => Some(i64::from_le_bytes(data.try_into().ok()?)),
+        _ => None,
+    }
 }

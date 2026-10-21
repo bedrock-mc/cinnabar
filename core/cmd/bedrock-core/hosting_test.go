@@ -161,3 +161,50 @@ func TestFriendHostingFollowsTheAdvertisedOpening(t *testing.T) {
 		})
 	}
 }
+
+// Turning multiplayer off withdraws hosting and invalidates admission through the old session.
+func TestFriendHostingWithdrawsSinglePlayerWorlds(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		account := authcache.NewAccount(ctx, "", oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "fixture-account"}), nil)
+		defer account.Close()
+		local := localworld.NewLocal()
+		world := localworld.World{ID: "private-world", Name: "Private", GameMode: localworld.GameModeSurvival, Backend: localworld.BackendBDS, MultiplayerDisabled: true}
+		reportHostedWorld(t, local, world, "5000")
+		var events []string
+		var hosts []*fakeFriendHost
+		h := &friendHosting{account: account, worlds: local, log: slog.New(slog.DiscardHandler),
+			open: func(_ context.Context, session localworld.Session) (hostedFriends, io.Closer, error) {
+				host := &fakeFriendHost{session: session, events: &events, done: make(chan struct{})}
+				hosts = append(hosts, host)
+				return host, nil, nil
+			},
+		}
+		done := make(chan struct{})
+		go func() { defer close(done); h.run(ctx) }()
+		defer func() { cancel(); synctest.Wait(); <-done }()
+		synctest.Wait()
+		if len(hosts) != 0 {
+			t.Fatal("single-player world was advertised")
+		}
+		world.MultiplayerDisabled = false
+		reportHostedWorld(t, local, world, "5000")
+		synctest.Wait()
+		if len(hosts) != 1 {
+			t.Fatalf("host count = %d", len(hosts))
+		}
+		previous := hosts[0].session
+		world.MultiplayerDisabled = true
+		reportHostedWorld(t, local, world, "5000")
+		if _, ok, err := previous.ConnectionTarget(ctx); ok || !errors.Is(err, localworld.ErrNotOpen) {
+			t.Fatalf("single-player admission = %v, %v", ok, err)
+		}
+		synctest.Wait()
+		if !hosts[0].closed {
+			t.Fatal("friend session was not withdrawn")
+		}
+		if err := h.Invite(ctx, "fixture-friend"); !errors.Is(err, localworld.ErrNotOpen) {
+			t.Fatalf("invite = %v", err)
+		}
+	})
+}

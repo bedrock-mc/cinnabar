@@ -173,6 +173,7 @@ fn advanced_world_form_exposes_terrain_and_catalog_options() {
             let expected = match definition.control {
                 Control::Toggle => A::Option(id, 1 - definition.default),
                 Control::Number { .. } => A::OptionField(id),
+                Control::Choice(choices) => A::Option(id, choices[0].value),
             };
             assert!(
                 hits.iter().any(|(found, _)| *found == local(expected)),

@@ -274,6 +274,12 @@ pub(crate) fn option_properties(
                     options.enabled(id)
                 })
                 .to_string(),
+                launcher::local_worlds::options::Control::Choice(choices) => choices
+                    .iter()
+                    .find(|choice| choice.value == options.get(id))
+                    .expect("validated world option")
+                    .wire
+                    .to_owned(),
                 launcher::local_worlds::options::Control::Number { .. } => {
                     options.get(id).to_string()
                 }

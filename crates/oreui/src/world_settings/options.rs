@@ -12,6 +12,9 @@ pub(super) fn draw(
     mut y: f32,
     editing: bool,
 ) -> Result<f32, PaintError> {
+    if !local_view.options_available() {
+        return Ok(y);
+    }
     let options = local_view
         .edit
         .as_ref()
@@ -61,6 +64,22 @@ pub(super) fn draw(
                         Ok(bottom)
                     }
                 }
+                Control::Choice(choices) => {
+                    let y = label(canvas, definition.label, inner, inner[1])?;
+                    let choices: Vec<_> = choices
+                        .iter()
+                        .map(|choice| {
+                            (
+                                choice.label,
+                                local(A::Option(id, choice.value)),
+                                options.get(id) == choice.value,
+                            )
+                        })
+                        .collect();
+                    let height = choice_height(canvas, inner, &choices)?;
+                    segmented(canvas, view, [inner[0], y, inner[2], y + height], &choices)?;
+                    Ok(y + height)
+                }
                 Control::Number { min, max, step } => {
                     let y = label(canvas, definition.label, inner, inner[1])?;
                     let bounds = [inner[0], y, inner[2], y + canvas.r(FIELD)];
@@ -79,7 +98,9 @@ pub(super) fn draw(
                         enabled.then_some(local(A::OptionField(id))),
                     )?;
                     let valid = value.parse().is_ok_and(|value| id.accepts(value));
-                    let range = if step > 1 {
+                    let range = if max == i32::MAX {
+                        format!("{min} or greater")
+                    } else if step > 1 {
                         format!("{min}–{max}, in steps of {step}")
                     } else {
                         format!("{min}–{max}")

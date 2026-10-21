@@ -825,3 +825,25 @@ fn a_create_refuses_the_fallback_when_its_server_is_missing() {
     }
     assert!(fixture.manager.list().expect("list").is_empty());
 }
+
+#[test]
+fn world_options_report_multiplayer_denial_to_the_core() {
+    use launcher::local_worlds::options::WorldOption as O;
+    let fixture = fixture(|_, _| {});
+    let manager = &fixture.manager;
+    {
+        let mut life = lock(&manager.inner.life);
+        let mut world = crate::local_worlds::test_support::world();
+        world.options.set(O::Multiplayer, 0);
+        life.world = Some(world);
+        life.state = WorldState::Starting;
+    }
+    assert!(manager.core_report().world.unwrap().multiplayer_disabled);
+    lock(&manager.inner.life)
+        .world
+        .as_mut()
+        .unwrap()
+        .options
+        .set(O::Multiplayer, 1);
+    assert!(!manager.core_report().world.unwrap().multiplayer_disabled);
+}

@@ -17,6 +17,13 @@ fn world_options_generate_every_level_setting_and_rule() {
         let definition = id.definition();
         let value = match definition.control {
             Control::Toggle => 1 - definition.default,
+            Control::Choice(choices) => {
+                choices
+                    .iter()
+                    .find(|choice| choice.value != definition.default)
+                    .unwrap()
+                    .value
+            }
             Control::Number { min, max, .. } => {
                 if definition.default == min {
                     max
@@ -32,7 +39,7 @@ fn world_options_generate_every_level_setting_and_rule() {
             let (kind, got) = payload(&fields, key);
             match definition.control {
                 Control::Toggle => assert_eq!((kind, got), (1, &[value as u8][..]), "{id:?}"),
-                Control::Number { .. } => {
+                Control::Number { .. } | Control::Choice(_) => {
                     assert_eq!((kind, got), (3, &value.to_le_bytes()[..]), "{id:?}")
                 }
             }
@@ -115,4 +122,41 @@ fn world_options_reload_and_preserve_deep_unknown_compounds() {
     deep.extend(body);
     assert!(configured(&world, &deep).is_some());
     assert!(configured(&world, &deep[..deep.len() - 1]).is_none());
+}
+
+/// Replaces a fixture's clock while preserving its other level settings.
+fn clock(bytes: &[u8], time: i64) -> Vec<u8> {
+    let mut fields = read_fields(&bytes[8..]).unwrap();
+    put(&mut fields, "Time", 4, &time.to_le_bytes());
+    let mut body = vec![10, 0, 0];
+    for (_, tag) in fields {
+        body.extend(tag);
+    }
+    body.push(0);
+    let mut bytes = bytes[..4].to_vec();
+    bytes.extend((body.len() as u32).to_le_bytes());
+    bytes.extend(body);
+    bytes
+}
+
+#[test]
+fn world_options_always_day_preserves_existing_days_and_saved_clock() {
+    let mut world = test_support::world();
+    world.options.set(O::AlwaysDay, 1);
+    let initial = configured(&world, &[]).unwrap();
+    let saved = clock(&initial, 246_100);
+    let reopened = configured(&world, &saved).unwrap();
+    assert_eq!(
+        scalar(&read_fields(&reopened[8..]).unwrap(), "Time"),
+        Some(246_100)
+    );
+    world.options.set(O::AlwaysDay, 0);
+    world.options.set(O::DaylightCycle, 1);
+    let cycling = configured(&world, &clock(&initial, 244_000)).unwrap();
+    world.options.set(O::AlwaysDay, 1);
+    let enabled = configured(&world, &cycling).unwrap();
+    assert_eq!(
+        scalar(&read_fields(&enabled[8..]).unwrap(), "Time"),
+        Some(246_000)
+    );
 }

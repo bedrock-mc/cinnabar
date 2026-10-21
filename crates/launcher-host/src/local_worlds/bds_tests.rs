@@ -159,12 +159,25 @@ fn world_options_properties_match_native_and_container_configuration() {
         };
         let value = match definition.control {
             Control::Toggle => 1 - definition.default,
+            Control::Choice(choices) => {
+                choices
+                    .iter()
+                    .find(|choice| choice.value != definition.default)
+                    .unwrap()
+                    .value
+            }
             Control::Number { max, .. } => max,
         };
         spec.world.options.set(id, value);
         let text = match definition.control {
             Control::Toggle => (value != 0).to_string(),
             Control::Number { .. } => value.to_string(),
+            Control::Choice(choices) => choices
+                .iter()
+                .find(|choice| choice.value == value)
+                .unwrap()
+                .wire
+                .to_owned(),
         };
         let native = server_properties(&spec, 5000, 8, true);
         assert!(

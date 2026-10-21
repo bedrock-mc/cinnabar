@@ -8,8 +8,46 @@ use std::collections::BTreeMap;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Control {
     Toggle,
+    Choice(&'static [Choice]),
     Number { min: i32, max: i32, step: i32 },
 }
+
+/// One supported value of a named world option.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Choice {
+    pub label: &'static str,
+    pub value: i32,
+    pub wire: &'static str,
+}
+const PERMISSIONS: &[Choice] = &[
+    Choice {
+        label: "Visitor",
+        value: 0,
+        wire: "visitor",
+    },
+    Choice {
+        label: "Member",
+        value: 1,
+        wire: "member",
+    },
+    Choice {
+        label: "Operator",
+        value: 2,
+        wire: "operator",
+    },
+];
+const WAYPOINTS: &[Choice] = &[
+    Choice {
+        label: "Off",
+        value: 0,
+        wire: "0",
+    },
+    Choice {
+        label: "On",
+        value: 1,
+        wire: "1",
+    },
+];
 
 /// Where BDS reads an option.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -75,6 +113,8 @@ options! {
     SimulationDistance: "Simulation distance", Advanced, 4, Number { min: 4, max: 12, step: 2 }, false, Property("tick-distance", "serverChunkTickRange"), false;
     Multiplayer: "Multiplayer game", Multiplayer, 1, Toggle, false, Level("MultiplayerGame"), false;
     LanVisible: "Visible to LAN players", Multiplayer, 1, Toggle, false, Property("enable-lan-visibility", "LANBroadcast"), false;
+    PlayerPermissions: "Default player permission", Multiplayer, 1, Control::Choice(PERMISSIONS), false, Property("default-player-permission-level", "permissionsLevel"), false;
+    PlayerWaypoints: "Player waypoints", Multiplayer, 1, Control::Choice(WAYPOINTS), false, Rule("playerwaypoints"), false;
     ActivateCheats: "Activate cheats", Cheats, 0, Toggle, false, Property("allow-cheats", "cheatsEnabled"), false;
     AlwaysDay: "Always day", Cheats, 0, Toggle, true, Combined, false;
     DaylightCycle: "Daylight cycle", Cheats, 1, Toggle, true, Rule("dodaylightcycle"), false;
@@ -88,7 +128,7 @@ options! {
 }
 
 /// Saved overrides; missing options inherit their defaults for older worlds.
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(transparent)]
 pub struct WorldOptions(BTreeMap<WorldOption, i32>);
 
@@ -155,6 +195,7 @@ impl WorldOption {
     pub fn accepts(self, value: i32) -> bool {
         match self.definition().control {
             Toggle => matches!(value, 0 | 1),
+            Control::Choice(choices) => choices.iter().any(|choice| choice.value == value),
             Number { min, max, step } => (min..=max).contains(&value) && (value - min) % step == 0,
         }
     }
@@ -162,3 +203,13 @@ impl WorldOption {
 
 #[cfg(test)]
 mod tests;
+
+impl PartialEq for WorldOptions {
+    /// Compares effective values, treating omitted overrides as their defaults.
+    fn eq(&self, other: &Self) -> bool {
+        WorldOption::ALL
+            .iter()
+            .all(|&id| self.get(id) == other.get(id))
+    }
+}
+impl Eq for WorldOptions {}

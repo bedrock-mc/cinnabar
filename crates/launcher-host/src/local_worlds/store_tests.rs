@@ -387,6 +387,13 @@ fn world_options_persist_every_value_through_create_and_edit() {
         let definition = id.definition();
         let value = match definition.control {
             Control::Toggle => 1 - definition.default,
+            Control::Choice(choices) => {
+                choices
+                    .iter()
+                    .find(|choice| choice.value != definition.default)
+                    .unwrap()
+                    .value
+            }
             Control::Number { min, max, .. } => {
                 if min == definition.default {
                     max
@@ -415,4 +422,56 @@ fn world_options_persist_every_value_through_create_and_edit() {
             .unwrap();
         assert_eq!(store.get(&world.id).unwrap().options, edited);
     }
+}
+
+#[test]
+fn world_options_reopen_server_saved_rules_and_keep_pending_menu_edits() {
+    use launcher::local_worlds::options::WorldOption as O;
+    let dir = scratch();
+    let store = store(&dir);
+    let mut new = new_world("Rules");
+    new.backend = Some(Backend::Bds);
+    new.options.set(O::KeepInventory, 1);
+    let original = store.create(&new).unwrap();
+    let level = store.dir(&original.id).unwrap().join(LEVEL_DIR);
+    fs::create_dir_all(&level).unwrap();
+    super::super::level_dat::configure(&original, &level).unwrap();
+    store.touch(&original.id).unwrap();
+    let mut played = original.clone();
+    played.options.set(O::RandomTickSpeed, 42);
+    super::super::level_dat::configure(&played, &level).unwrap();
+    let reopened = store.get(&original.id).unwrap();
+    assert_eq!(reopened.options.get(O::RandomTickSpeed), 42);
+    let mut edited = reopened.options;
+    edited.set(O::RandomTickSpeed, 7);
+    store
+        .update(
+            &original.id,
+            &WorldUpdate {
+                options: Some(edited),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    store
+        .update(
+            &original.id,
+            &WorldUpdate {
+                name: Some("Renamed".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let pending = store.get(&original.id).unwrap();
+    assert_eq!(pending.options.get(O::RandomTickSpeed), 7);
+    super::super::level_dat::configure(&pending, &level).unwrap();
+    store.touch(&original.id).unwrap();
+    assert_eq!(
+        store
+            .get(&original.id)
+            .unwrap()
+            .options
+            .get(O::RandomTickSpeed),
+        7
+    );
 }

@@ -831,3 +831,15 @@ fn world_options_flow_through_create_and_edit_with_cheat_activation() {
     };
     assert!(!update.options.as_ref().unwrap().enabled(O::KeepInventory));
 }
+
+#[test]
+fn world_options_reject_controls_for_existing_dragonfly_worlds() {
+    use crate::local_worlds::options::WorldOption as O;
+    let mut menu = loaded(&["Legacy"]);
+    menu.update(Input::BeginEdit(0));
+    assert!(!menu.view().options_available());
+    menu.update(Input::SelectTab(Tab::Cheats));
+    assert_eq!(menu.view().tab, Tab::General);
+    menu.update(Input::SetOption(O::KeepInventory, 1));
+    assert!(!menu.edit_form().unwrap().options.enabled(O::KeepInventory));
+}

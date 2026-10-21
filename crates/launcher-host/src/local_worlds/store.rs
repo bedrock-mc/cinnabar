@@ -93,6 +93,7 @@ struct Record<'a> {
     backend: Backend,
     seed: i64,
     options: &'a launcher::local_worlds::options::WorldOptions,
+    options_pending: bool,
     created_unix: i64,
     last_played_unix: i64,
 }
@@ -115,6 +116,8 @@ struct Saved {
     seed: i64,
     #[serde(default)]
     options: Option<launcher::local_worlds::options::WorldOptions>,
+    #[serde(default)]
+    options_pending: bool,
     #[serde(default)]
     created_unix: i64,
     #[serde(default)]
@@ -190,7 +193,8 @@ impl Store {
             .map_err(|error| failed(format!("save world thumbnail: {error}")))
     }
 
-    fn read(&self, id: &str) -> Result<World, WorldError> {
+    /// Reads and validates the saved metadata record.
+    fn saved(&self, id: &str) -> Result<Saved, WorldError> {
         let path = self.dir(id)?.join(META_FILE);
         let raw = match fs::read(path) {
             Ok(raw) => raw,
@@ -204,6 +208,13 @@ impl Store {
         if saved.id != id {
             return Err(corrupt());
         }
+        Ok(saved)
+    }
+
+    /// Combines metadata edits with the latest settings saved by BDS.
+    fn read(&self, id: &str) -> Result<World, WorldError> {
+        let saved = self.saved(id)?;
+        let corrupt = || failed(format!("corrupt world metadata for {id}"));
         let backend = match saved.backend.as_str() {
             "" | "dragonfly" => Backend::Dragonfly,
             "bds" => Backend::Bds,
@@ -224,22 +235,27 @@ impl Store {
             difficulty: saved.difficulty,
             backend,
             seed: saved.seed,
-            options: saved.options.unwrap_or_else(|| {
-                super::level_dat::read_options(
-                    &self.root.join(id).join(LEVEL_DIR).join("level.dat"),
-                )
-            }),
+            options: {
+                let path = self.root.join(id).join(LEVEL_DIR).join("level.dat");
+                if saved.options_pending || !path.is_file() {
+                    saved
+                        .options
+                        .unwrap_or_else(|| super::level_dat::read_options(&path))
+                } else {
+                    super::level_dat::read_options(&path)
+                }
+            },
             created_unix: saved.created_unix,
             last_played_unix: saved.last_played_unix,
             size_bytes: 0,
         })
     }
 
-    fn write(&self, world: &World) -> Result<(), WorldError> {
+    fn write(&self, world: &World, options_pending: bool) -> Result<(), WorldError> {
         let dir = self.dir(&world.id)?;
         create_private_dir(&dir)
             .map_err(|error| failed(format!("create world directory: {error}")))?;
-        write_record(&dir, world)
+        write_record(&dir, world, options_pending)
     }
 
     /// Validates `world` and saves it with a fresh id.
@@ -247,7 +263,7 @@ impl Store {
         let id = format!("{:016x}", u64::from_be_bytes(random_bytes()?));
         let state = self.lock();
         let world = new_record(&state, id, world)?;
-        self.write(&world)?;
+        self.write(&world, true)?;
         Ok(world)
     }
 
@@ -317,7 +333,7 @@ impl Store {
             id = format!("{:016x}", u64::from_be_bytes(random_bytes()?));
         }
         let mut world = new_record(&state, id, world)?;
-        write_record(&staging.dir, &world)?;
+        write_record(&staging.dir, &world, false)?;
         let dir = self.root.join(&world.id);
         fs::rename(&staging.dir, &dir)
             .map_err(|error| failed(format!("publish imported world: {error}")))?;
@@ -372,7 +388,8 @@ impl Store {
         if let Some(options) = &update.options {
             world.options = options.clone();
         }
-        self.write(&world)?;
+        let pending = update.options.is_some() || self.saved(id)?.options_pending;
+        self.write(&world, pending)?;
         Ok(world)
     }
 
@@ -381,7 +398,7 @@ impl Store {
         let state = self.lock();
         let mut world = self.read(id)?;
         world.last_played_unix = state.now();
-        self.write(&world)
+        self.write(&world, false)
     }
 
     /// Removes a world and all of its saved data.
@@ -434,7 +451,7 @@ fn valid_id(id: &str) -> bool {
 }
 
 /// Writes `world.json` for `world` into `dir`.
-fn write_record(dir: &Path, world: &World) -> Result<(), WorldError> {
+fn write_record(dir: &Path, world: &World, options_pending: bool) -> Result<(), WorldError> {
     let raw = serde_json::to_vec_pretty(&Record {
         id: &world.id,
         name: &world.name,
@@ -444,6 +461,7 @@ fn write_record(dir: &Path, world: &World) -> Result<(), WorldError> {
         backend: world.backend,
         seed: world.seed,
         options: &world.options,
+        options_pending,
         created_unix: world.created_unix,
         last_played_unix: world.last_played_unix,
     })

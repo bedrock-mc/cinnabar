@@ -27,6 +27,13 @@ fn world_options_gated_changes_enable_cheats_and_disabling_restores_defaults() {
         let mut options = WorldOptions::default();
         let changed = match definition.control {
             Toggle => 1 - definition.default,
+            Control::Choice(choices) => {
+                choices
+                    .iter()
+                    .find(|choice| choice.value != definition.default)
+                    .unwrap()
+                    .value
+            }
             Number { min, .. } => min,
         };
         assert!(options.set(id, changed));

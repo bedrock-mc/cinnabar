@@ -269,13 +269,12 @@ impl MenuRuntime {
                 .as_ref()
                 .filter(|_| view.screen == Screen::Edit)
                 .map_or(&view.create.options, |edit| &edit.options);
-            if let Some(MenuField::WorldOption(id)) = self.field {
-                if let Some(value) = ui
-                    .options
-                    .get(&id)
-                    .and_then(|editor| editor.as_str().parse::<i32>().ok())
-                {
-                    if value != options.get(id) && id.accepts(value) {
+            for (&id, editor) in &ui.options {
+                if let Ok(value) = editor.as_str().parse::<i32>() {
+                    if value != options.get(id)
+                        && id.accepts(value)
+                        && options.editable(id, view.screen == Screen::Edit)
+                    {
                         worlds.input(Input::SetOption(id, value));
                     }
                 }
@@ -363,7 +362,9 @@ impl MenuRuntime {
                     Tab::ALL
                         .iter()
                         .copied()
-                        .filter(|tab| tab.supported())
+                        .filter(|tab| {
+                            tab.supported() && (*tab == Tab::General || view.options_available())
+                        })
                         .map(A::Tab),
                 );
                 match view.tab {
@@ -398,17 +399,23 @@ impl MenuRuntime {
                 }
                 for &id in launcher::local_worlds::options::WorldOption::ALL {
                     let definition = id.definition();
-                    if definition.tab != view.tab || !options.editable(id, editing) {
+                    if !view.options_available()
+                        || definition.tab != view.tab
+                        || !options.editable(id, editing)
+                    {
                         continue;
                     }
-                    actions.push(match definition.control {
+                    match definition.control {
                         launcher::local_worlds::options::Control::Toggle => {
-                            A::Option(id, 1 - options.get(id))
+                            actions.push(A::Option(id, 1 - options.get(id)))
+                        }
+                        launcher::local_worlds::options::Control::Choice(choices) => {
+                            actions.extend(choices.iter().map(|choice| A::Option(id, choice.value)))
                         }
                         launcher::local_worlds::options::Control::Number { .. } => {
-                            A::OptionField(id)
+                            actions.push(A::OptionField(id))
                         }
-                    });
+                    }
                 }
                 local(&actions)
             }
@@ -624,5 +631,40 @@ mod tests {
         menu.sync_local_worlds(&mut worlds, false);
         assert_eq!(menu.view().local.screen, Screen::List);
         assert_eq!(menu.field, None, "leaving the form drops its field");
+    }
+    #[test]
+    fn world_options_numeric_edits_survive_losing_field_focus() {
+        use launcher::local_worlds::options::WorldOption as O;
+        let mut menu = MenuRuntime::new(true, 2, "Fixture".into());
+        let mut worlds = LocalWorlds::default();
+        menu.activate(MenuAction::Navigate(MenuScreen::Play));
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::BeginCreate));
+        menu.sync_local_worlds(&mut worlds, false);
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::Tab(Tab::Advanced)));
+        menu.sync_local_worlds(&mut worlds, false);
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::OptionField(
+            O::SleepPercentage,
+        )));
+        menu.local_ui
+            .options
+            .get_mut(&O::SleepPercentage)
+            .unwrap()
+            .set_text("35");
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::Tab(Tab::Cheats)));
+        assert_eq!(menu.field, None);
+        menu.sync_local_worlds(&mut worlds, false);
+        assert_eq!(
+            worlds.menu().create_form().options.get(O::SleepPercentage),
+            35
+        );
+        menu.local_ui
+            .options
+            .get_mut(&O::SleepPercentage)
+            .unwrap()
+            .set_text("999");
+        menu.activate(MenuAction::LocalWorld(LocalWorldAction::Create));
+        menu.sync_local_worlds(&mut worlds, false);
+        assert!(worlds.menu().form_error().is_some());
+        assert!(!worlds.menu().busy());
     }
 }

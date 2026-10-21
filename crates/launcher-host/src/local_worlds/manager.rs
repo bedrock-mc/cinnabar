@@ -626,6 +626,9 @@ impl Manager {
                 name: world.name.clone(),
                 game_mode: world.game_mode,
                 backend: world.backend,
+                multiplayer_disabled: !world
+                    .options
+                    .enabled(launcher::local_worlds::options::WorldOption::Multiplayer),
             }),
             target,
             error: life.failure.clone(),

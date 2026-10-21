@@ -172,6 +172,19 @@ pub struct WorldsView {
     pub bds_unavailable: Option<UnavailableReason>,
 }
 
+impl WorldsView {
+    /// Whether the active form uses the BDS backend that supports world options.
+    pub fn options_available(&self) -> bool {
+        if self.edit.is_some() {
+            self.edited
+                .as_ref()
+                .is_some_and(|world| world.backend == Backend::Bds)
+        } else {
+            self.create.backend == Backend::Bds
+        }
+    }
+}
+
 /// What a Docker modal or EULA gate resumes once cleared.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Pending {
@@ -456,7 +469,9 @@ impl WorldsMenu {
                 Vec::new()
             }
             Input::SelectTab(tab) => {
-                self.tab = tab;
+                if tab == Tab::General || self.view().options_available() {
+                    self.tab = tab;
+                }
                 Vec::new()
             }
             Input::SetGameMode(mode) => {
@@ -488,7 +503,10 @@ impl WorldsMenu {
                 }
                 Vec::new()
             }
-            Input::SetOption(id, value) if matches!(self.screen, Screen::Create | Screen::Edit) => {
+            Input::SetOption(id, value)
+                if matches!(self.screen, Screen::Create | Screen::Edit)
+                    && self.view().options_available() =>
+            {
                 self.form_error = None;
                 match (&mut self.edit, self.screen) {
                     (Some(edit), Screen::Edit) if edit.options.editable(id, true) => {
