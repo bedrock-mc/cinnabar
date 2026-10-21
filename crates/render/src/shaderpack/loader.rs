@@ -931,6 +931,10 @@ fn storage_binding_size(minimum: u32, declared: u64) -> Result<u64, String> {
 }
 
 #[cfg(test)]
+#[path = "loader_validation_tests.rs"]
+mod validation_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
