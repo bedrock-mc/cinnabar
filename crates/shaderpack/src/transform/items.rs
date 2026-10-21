@@ -108,22 +108,12 @@ pub(super) fn matching(toks: &[Tok], open_idx: usize, open: &str, close: &str) -
 
 /// Splits call arguments at top-level commas.
 pub(super) fn split_args(toks: &[Tok]) -> Vec<Vec<Tok>> {
-    let mut out: Vec<Vec<Tok>> = vec![];
-    let mut cur = vec![];
-    let mut depth = 0;
-    for t in toks {
-        if t.is("(") || t.is("[") || t.is("{") {
-            depth += 1;
-        } else if t.is(")") || t.is("]") || t.is("}") {
-            depth -= 1;
-        } else if t.is(",") && depth == 0 {
-            out.push(std::mem::take(&mut cur));
-            continue;
-        }
-        cur.push(t.clone());
-    }
-    if !cur.is_empty() {
-        out.push(cur);
+    let mut out = Vec::new();
+    let mut start = 0;
+    while start < toks.len() {
+        let end = assignment_end(toks, start);
+        out.push(toks[start..end].to_vec());
+        start = end + 1;
     }
     out
 }
@@ -264,19 +254,9 @@ pub(super) fn parse_decl(toks: &[Tok]) -> Option<Decl> {
         let mut init = vec![];
         if toks.get(i)?.is("=") {
             i += 1;
-            let mut depth = 0;
-            while i < last {
-                let t = &toks[i];
-                if t.is("(") || t.is("[") || t.is("{") {
-                    depth += 1;
-                } else if t.is(")") || t.is("]") || t.is("}") {
-                    depth -= 1;
-                } else if t.is(",") && depth == 0 {
-                    break;
-                }
-                init.push(t.clone());
-                i += 1;
-            }
+            let end = assignment_end(toks, i);
+            init.extend_from_slice(&toks[i..end]);
+            i = end;
         }
         decls.push((name, arr, init));
         match toks.get(i)? {
@@ -323,10 +303,14 @@ pub(super) fn sampler_info(ty: &str) -> Option<(&'static str, bool)> {
         "sampler2DShadow" => ("texture2D", true),
         "sampler2DArrayShadow" => ("texture2DArray", true),
         "samplerCubeShadow" => ("textureCube", true),
+        "isampler1D" => ("itexture1D", false),
+        "usampler1D" => ("utexture1D", false),
         "isampler2D" => ("itexture2D", false),
         "usampler2D" => ("utexture2D", false),
         "isampler3D" => ("itexture3D", false),
         "usampler3D" => ("utexture3D", false),
+        "isampler1DArray" => ("itexture1DArray", false),
+        "usampler1DArray" => ("utexture1DArray", false),
         "isampler2DArray" => ("itexture2DArray", false),
         "usampler2DArray" => ("utexture2DArray", false),
         _ => return None,
@@ -421,7 +405,21 @@ pub(super) fn strip_layout_keys(layout: &[Tok], keys: &[&str]) -> Vec<Tok> {
 /// Finds local variable declarators with the shared parser, excluding initializer uses
 /// and struct fields. Inline struct instances are variables in the enclosing scope.
 pub(super) fn local_declarators(toks: &[Tok]) -> HashSet<usize> {
-    let mut declarations = HashSet::new();
+    let mut names = HashSet::new();
+    for (_, end, declaration) in declarations(toks) {
+        let mut cursor = end;
+        for (_, array, initializer) in declaration.decls.iter().rev() {
+            cursor -= initializer.len() + usize::from(!initializer.is_empty()) + array.len() + 1;
+            names.insert(cursor);
+            cursor = cursor.saturating_sub(1);
+        }
+    }
+    names
+}
+
+/// Finds declaration statements and their inclusive token ranges with the shared parser.
+fn declarations(toks: &[Tok]) -> Vec<(usize, usize, Decl)> {
+    let mut declarations = Vec::new();
     let mut fields_end = 0;
     for start in 0..toks.len() {
         if start < fields_end {
@@ -435,6 +433,7 @@ pub(super) fn local_declarators(toks: &[Tok]) -> HashSet<usize> {
             && !toks[start - 1].is("{")
             && !toks[start - 1].is(";")
             && !toks[start - 1].is("}")
+            && !toks[start - 1].is(":")
             && !(toks[start - 1].is("(") && start > 1 && toks[start - 2].ident() == Some("for"))
         {
             continue;
@@ -447,7 +446,7 @@ pub(super) fn local_declarators(toks: &[Tok]) -> HashSet<usize> {
             } else if token.is(")") || token.is("]") {
                 depth -= 1;
             }
-            (token.is(";") || token.is("{") || token.is("}")) && depth == 0
+            depth < 0 || (token.is(";") || token.is("{") || token.is("}")) && depth == 0
         });
         let Some(end) = end.filter(|&end| toks[end].is(";")) else {
             continue;
@@ -467,14 +466,78 @@ pub(super) fn local_declarators(toks: &[Tok]) -> HashSet<usize> {
         if matches!(declaration.ty.as_str(), "return" | "else" | "do" | "case") {
             continue;
         }
-        let mut cursor = end;
-        for (_, array, initializer) in declaration.decls.iter().rev() {
-            cursor -= initializer.len() + usize::from(!initializer.is_empty()) + array.len() + 1;
-            declarations.insert(cursor);
-            cursor = cursor.saturating_sub(1);
-        }
+        declarations.push((start, end, declaration));
     }
     declarations
+}
+
+/// Marks declaration array bounds, constant initializers, and switch case expressions.
+pub(super) fn constant_contexts(tokens: &[Tok]) -> HashSet<usize> {
+    let mut constant = HashSet::new();
+    for (start, end, declaration) in declarations(tokens) {
+        if declaration.has("const") {
+            constant.extend(start..end);
+            continue;
+        }
+        // Initializer indexing is runtime; only brackets preceding each initializer are bounds.
+        let mut cursor = end;
+        for (_, array, initializer) in declaration.decls.iter().rev() {
+            cursor -= initializer.len() + usize::from(!initializer.is_empty()) + array.len();
+            constant.extend(cursor..cursor + array.len());
+            cursor = cursor.saturating_sub(2);
+        }
+        if !declaration.ty_arr.is_empty()
+            && let Some(open) = tokens[start..=end].iter().position(|token| token.is("["))
+        {
+            constant.extend(start + open..start + open + declaration.ty_arr.len());
+        }
+    }
+    let mut offset = 0;
+    for item in split_items(tokens) {
+        if parse_decl(&item).is_some() {
+            constant.extend(offset..offset + item.len());
+        }
+        offset += item.len();
+    }
+    for (i, token) in tokens.iter().enumerate() {
+        if token.ident() == Some("case") {
+            constant.extend(i..assignment_end(tokens, i + 1));
+        }
+    }
+    constant
+}
+
+/// Finds the end of an assignment's right operand, including nested conditional expressions.
+pub(super) fn assignment_end(tokens: &[Tok], start: usize) -> usize {
+    let mut conditional = 0;
+    let mut i = start;
+    while i < tokens.len() {
+        let token = &tokens[i];
+        if token.is("(") || token.is("[") || token.is("{") {
+            let close = match token.text() {
+                "(" => ")",
+                "[" => "]",
+                _ => "}",
+            };
+            i = matching(tokens, i, token.text(), close);
+        } else if token.is("?") {
+            conditional += 1;
+        } else if token.is(":") {
+            if conditional == 0 {
+                return i;
+            }
+            conditional -= 1;
+        } else if token.is(";")
+            || token.is(")")
+            || token.is("]")
+            || token.is("}")
+            || token.is(",") && conditional == 0
+        {
+            return i;
+        }
+        i += 1;
+    }
+    i
 }
 
 /// Returns the token after a struct body beginning at `start`, excluding its instances.

@@ -308,6 +308,43 @@ fn sampler_overloads_preserve_equal_arity_value_signatures() {
 }
 
 #[test]
+fn sampler_metadata_reads_flags_only_from_the_texture_object() {
+    let texture = shaderpack::CustomTexture {
+        stage: "composite".to_string(),
+        sampler: "colortex0".to_string(),
+        source: shaderpack::TextureSource::File("custom.png".to_string()),
+    };
+    for metadata in [
+        r#"{"other":{"blur":true,"clamp":true},"texture":{"blur":false,"clamp":false}}"#,
+        r#"{"blur":true,"clamp":true,"texture":{}}"#,
+        r#"{"texture":{"blur":"true","clamp":1}}"#,
+        r#"{"texture":{"blur":true,"clamp":true}} trailing"#,
+    ] {
+        let source = PackSource::from_files([("custom.png.mcmeta", metadata)]);
+        assert_eq!(
+            texture.sampler_class(&source),
+            shaderpack::SamplerClass::RepeatNearest
+        );
+    }
+}
+
+#[test]
+fn sampler_locals_cover_every_declarator_and_restore_outer_resources() {
+    success(
+        VERTEX,
+        "#version 450
+        uniform sampler2D specular;
+        out vec4 color;
+        void main() {
+            float value = 0.0;
+            { float unused = 0.0, specular = 1.0; value += unused + specular; }
+            { float a = 0.0, specular = texture(specular, vec2(0.5)).x, b = specular; value += a + b; }
+            color = texture(specular, vec2(0.5)) + vec4(value);
+        }",
+    );
+}
+
+#[test]
 fn unused_fragment_inputs_are_removed_from_the_compiled_interface() {
     let translated = success(
         VERTEX,
@@ -345,6 +382,56 @@ fn array_and_matrix_varyings_have_matching_compiled_locations() {
         .map(|(_, location)| location)
         .collect();
         assert_eq!(locations, (0..5).collect());
+    }
+}
+
+#[test]
+fn explicit_block_locations_link_distinct_block_and_member_names() {
+    let translated = success(
+        "#version 450
+        layout(location=2) out FIRST { vec2 uv; mat3 basis; } vertexData;
+        out vec2 automatic;
+        void main() { vertexData.uv = vec2(0.5); vertexData.basis = mat3(1.0);
+        automatic = vec2(0.25); gl_Position = vec4(0.0); }",
+        "#version 450
+        layout(location=2) in SECOND { vec2 renamed; mat3 transform; } fragmentData;
+        in vec2 automatic; out vec4 color;
+        void main() { color = vec4((fragmentData.transform * vec3(fragmentData.renamed, 1.0)).xy + automatic, 0.0, 1.0); }",
+    );
+    for stage in &program(&translated, "composite").stages {
+        let mut locations: Vec<_> = interface_locations(
+            &stage.result.as_ref().unwrap().module,
+            stage.stage == shaderpack::StageKind::Vertex,
+        )
+        .into_iter()
+        .map(|(_, location)| location)
+        .collect();
+        locations.sort_unstable();
+        assert_eq!(locations, [0, 2, 3, 4, 5]);
+    }
+}
+
+#[test]
+fn boolean_storage_writes_follow_array_and_swizzle_accesses() {
+    for declaration in ["bool flags[2];", "bvec2 flags;", "bvec2 flags[2];"] {
+        let (write, read) = match declaration {
+            "bool flags[2];" => ("flags[0] = true; flags[1] = flags[0];", "flags[1]"),
+            "bvec2 flags;" => ("flags.x = true; flags[1] = flags.x;", "flags.y"),
+            _ => (
+                "flags[0].x = true; flags[1].xy = bvec2(flags[0].x);",
+                "flags[1].y",
+            ),
+        };
+        let source = format!(
+            "#version 450
+            layout(local_size_x=1) in;
+            layout(std430, binding=0) buffer State {{ {declaration} }};
+            void main() {{ {write} if ({read}) {{ {write} }} }}"
+        );
+        let pack = ShaderPack::new(PackSource::from_files([("begin.csh", source)]));
+        let translated = pack.translate(&TranslateConfig::default());
+        let reflected = reflection(program(&translated, "begin"));
+        assert!(!reflected.storage_buffers[0].read_only);
     }
 }
 
@@ -649,4 +736,255 @@ fn atomic_access_is_merged_across_render_stages() {
     let image = &reflection(program(&translation, "composite")).storage_images[0];
     assert!(image.read && image.write && image.atomic);
     assert!(image.stages.vertex && image.stages.fragment);
+}
+
+/// Checks that every stage retains distinct global variable bindings.
+fn assert_unique_globals(translation: &PackTranslation) {
+    for stage in &program(translation, "composite").stages {
+        let module = &stage.result.as_ref().unwrap().module;
+        let names: Vec<_> = module
+            .global_variables
+            .iter()
+            .filter_map(|(_, variable)| variable.name.as_deref())
+            .collect();
+        let unique: std::collections::BTreeSet<_> = names.iter().copied().collect();
+        assert_eq!(
+            names.len(),
+            unique.len(),
+            "duplicate global bindings: {names:?}"
+        );
+    }
+}
+
+#[test]
+fn declaration_lists_preserve_alias_names_after_arrays_and_initializers() {
+    for declarations in [
+        "uniform mat4 view[2], projectionMatrix;",
+        "mat4 view[2], projectionMatrix = mat4(1.0);",
+    ] {
+        success(
+            &format!(
+                "#version 450\n{declarations} void main() {{ gl_Position = projectionMatrix * view[0][0]; }}"
+            ),
+            FRAGMENT,
+        );
+    }
+}
+
+#[test]
+fn declaration_aliases_respect_parameters_locals_and_members() {
+    success(
+        "#version 450\nstruct S { float projectionMatrix; }; float choose(float projectionMatrix) { return projectionMatrix; } void main() { S value; value.projectionMatrix = 1.0; float amount = choose(value.projectionMatrix); { float projectionMatrix = 2.0; amount += projectionMatrix; } gl_Position = projectionMatrix * vec4(amount); }",
+        FRAGMENT,
+    );
+}
+
+#[test]
+fn declaration_aliases_preserve_local_struct_fields() {
+    success(
+        "#version 450\nvoid main() { struct S { float projectionMatrix; }; S value; value.projectionMatrix = 0.5; gl_Position = projectionMatrix * vec4(value.projectionMatrix); }",
+        FRAGMENT,
+    );
+}
+
+#[test]
+fn declaration_aliases_preserve_block_fields() {
+    success(
+        "#version 450\nout Data { float projectionMatrix; } data; void main() { data.projectionMatrix = 0.5; gl_Position = projectionMatrix * vec4(data.projectionMatrix); }",
+        "#version 450\nin Data { float projectionMatrix; } data; out vec4 color; void main() { color = vec4(data.projectionMatrix); }",
+    );
+}
+
+#[test]
+fn declaration_block_members_with_underscores_keep_distinct_bindings() {
+    let translated = success(
+        "#version 450\nout A_B { vec4 c; } first; out A { vec4 B_c; } second; void main() { first.c = vec4(0.25); second.B_c = vec4(0.75); gl_Position = vec4(0.0); }",
+        "#version 450\nin A_B { vec4 c; } first; in A { vec4 B_c; } second; out vec4 color; void main() { color = first.c + second.B_c; }",
+    );
+    assert_unique_globals(&translated);
+}
+
+#[test]
+fn declaration_generated_interfaces_do_not_hide_pack_globals() {
+    let translated = success(
+        "#version 450\nvec4 iris_b_DATA_color_0; out DATA { vec4 color; } data; void main() { iris_b_DATA_color_0 = vec4(0.25); data.color = vec4(0.75); gl_Position = iris_b_DATA_color_0; }",
+        "#version 450\nvec4 iris_out_color; in DATA { vec4 color; } data; out vec3 color; void main() { iris_out_color = data.color; color = iris_out_color.rgb; }",
+    );
+    assert_unique_globals(&translated);
+}
+
+#[test]
+fn declaration_converted_inputs_do_not_hide_pack_globals() {
+    let translated = success(
+        "#version 450\nin vec4 vaPosition; vec3 iris_float_vaPosition = vec3(0.25); void main() { gl_Position = vaPosition + vec4(iris_float_vaPosition, 0.0); }",
+        FRAGMENT,
+    );
+    assert!(
+        reflection(program(&translated, "composite"))
+            .vertex_inputs
+            .iter()
+            .any(|input| input.attribute == shaderpack::VertexAttribute::Position)
+    );
+    assert_unique_globals(&translated);
+}
+
+#[test]
+fn numeric_returns_preserve_comma_expressions() {
+    success(
+        VERTEX,
+        "#version 450\nout vec4 color; float choose(float a, float b) { return a, b; } void main() { color = vec4(choose(1.0, 2.0)); }",
+    );
+}
+
+#[test]
+fn boolean_storage_assignments_keep_boolean_values_and_boundaries() {
+    for expression in [
+        "if (flag = true) { mask.x = false; }",
+        "bool result = true ? flag = true : false; mask.x = result;",
+        "bool result = true ? flag = false, flag = true : false; mask.x = result;",
+        "if (flag = mask.x = true) { mask.y = flag; }",
+        "if (mask[0] = flag = true) { mask.xy = bvec2(flag); }",
+        "if (all(mask.xy = bvec2(true))) { flag = mask.x; }",
+        "flag = true ? false : true;",
+    ] {
+        let source = format!(
+            "#version 450\nlayout(local_size_x=1) in; layout(std430, binding=0) buffer State {{ bool flag; bvec2 mask; }}; void main() {{ {expression} }}"
+        );
+        let translation = ShaderPack::new(PackSource::from_files([("begin.csh", source)]))
+            .translate(&TranslateConfig::default());
+        assert!(
+            program(&translation, "begin").is_ok(),
+            "{expression}: {:?}",
+            program(&translation, "begin")
+                .all_diagnostics()
+                .collect::<Vec<_>>()
+        );
+        reflection(program(&translation, "begin"));
+    }
+}
+
+#[test]
+fn dot_calls_preserve_required_constant_contexts() {
+    success(
+        VERTEX,
+        "#version 450\nconst float globalScale = dot(vec2(1.0), vec2(2.0)); out vec4 color; void main() { float values[int(dot(vec2(1.0), vec2(2.0)))]; const float scale = dot(vec2(1.0), vec2(2.0)); int n = 4; switch(n) { case int(dot(vec2(1.0), vec2(2.0))): values[0] = scale; break; default: values[0] = 0.0; } color = vec4(values[0]); }",
+    );
+}
+
+#[test]
+fn dot_calls_preserve_user_overloads() {
+    success(
+        VERTEX,
+        "#version 450\nout vec4 color; float dot(vec2 a) { return a.x; } float dot(float a, vec2 b) { return a + b.x; } void main() { vec2 p = vec2(0.5); color = vec4(dot(p) + dot(1.0, p) + dot(p, p)); }",
+    );
+}
+
+#[test]
+fn const_parameters_do_not_suppress_runtime_dot_rounding() {
+    let translation = success(
+        VERTEX,
+        "#version 450\nout vec4 color; float hash(const vec2 p) { return dot(p, p); } void main() { color = vec4(hash(gl_FragCoord.xy)); }",
+    );
+    let module = &program(&translation, "composite")
+        .stages
+        .iter()
+        .find(|stage| stage.stage == shaderpack::StageKind::Fragment)
+        .unwrap()
+        .result
+        .as_ref()
+        .unwrap()
+        .module;
+    assert!(
+        module
+            .functions
+            .iter()
+            .any(
+                |(_, function)| function.expressions.iter().any(|(_, expression)| matches!(
+                    expression,
+                    naga::Expression::Math {
+                        fun: naga::MathFunction::Fma,
+                        ..
+                    }
+                ))
+            )
+    );
+}
+
+#[test]
+fn integer_packing_preserves_constant_expressions() {
+    let translated = success(
+        VERTEX,
+        "#version 450\nout vec4 color; const uint packed = packUint2x16(u16vec2(1, 2)); const uvec2 unpacked = unpackUint2x16(packed); const int signedPacked = packInt2x16(i16vec2(-1, -2)); const ivec2 signedParts = unpackInt2x16(signedPacked); void main() { const uint local = packUint2x16(u16vec2(unpacked)); float values[int(unpackUint2x16(packed).x)]; values[0] = float(signedParts.x); color = vec4(values[0] + float(local)); }",
+    );
+    let module = &program(&translated, "composite")
+        .stages
+        .iter()
+        .find(|stage| stage.stage == shaderpack::StageKind::Fragment)
+        .unwrap()
+        .result
+        .as_ref()
+        .unwrap()
+        .module;
+    for (name, expected) in [
+        ("packed", naga::Literal::U32(131073)),
+        ("signedPacked", naga::Literal::I32(-65537)),
+    ] {
+        let (_, constant) = module
+            .constants
+            .iter()
+            .find(|(_, constant)| constant.name.as_deref() == Some(name))
+            .unwrap();
+        assert!(
+            matches!(module.global_expressions[constant.init], naga::Expression::Literal(value) if value == expected)
+        );
+    }
+}
+
+#[test]
+fn boolean_assignment_ternary_separator_keeps_both_operands_boolean() {
+    let source = "#version 450\nlayout(local_size_x=1) in; layout(std430, binding=0) buffer State { bool flag; }; void main() { bool result = true ? flag = true : false; flag = result; }";
+    let translation = ShaderPack::new(PackSource::from_files([("begin.csh", source)]))
+        .translate(&TranslateConfig::default());
+    reflection(program(&translation, "begin"));
+}
+
+#[test]
+fn numeric_helpers_do_not_hide_pack_functions() {
+    success(
+        VERTEX,
+        "#version 450\nout vec4 color; float iris_dot(vec2 a, vec2 b) { return a.x; } uint iris_packUint2x16(uvec2 v) { return v.x; } void main() { vec2 p = gl_FragCoord.xy; uvec2 bits = uvec2(p); color = vec4(dot(p, p) + iris_dot(p, p) + float(packUint2x16(bits)) + float(iris_packUint2x16(bits))); }",
+    );
+}
+
+#[test]
+fn dot_overloads_keep_prototypes_and_builtin_replacements() {
+    success(
+        VERTEX,
+        "#version 450\nout vec4 color; float dot(vec2); float dot(float, float); void main() { color = vec4(dot(vec2(1.0)) + dot(2.0, 3.0)); } float dot(vec2 a) { return a.x; } float dot(float a, float b) { return a - b; }",
+    );
+}
+
+#[test]
+fn numeric_calls_with_unmatched_delimiters_report_diagnostics() {
+    for body in [
+        "void main() { float x = dot(",
+        "void main() { uint x = packUint2x16(",
+    ] {
+        let translation = translate(&format!("#version 450\n{body}"), FRAGMENT);
+        assert!(!program(&translation, "composite").is_ok());
+        assert!(
+            program(&translation, "composite")
+                .all_diagnostics()
+                .next()
+                .is_some()
+        );
+    }
+}
+
+#[test]
+fn integer_packing_in_case_labels_is_not_a_function_declaration() {
+    success(
+        VERTEX,
+        "#version 450\nout vec4 color; void main() { switch(int(gl_FragCoord.x)) { case int(packUint2x16(uvec2(1u, 0u))): color = vec4(1.0); break; default: color = vec4(0.0); } }",
+    );
 }

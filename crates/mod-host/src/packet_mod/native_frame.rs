@@ -25,10 +25,10 @@ impl PacketMod {
         if !general && observation.as_ref().is_some_and(|frame| frame.suspended) {
             observation = None;
         }
-        if !self.guest.native_camera_players() {
-            if let Some(frame) = observation.as_mut() {
-                frame.players.clear();
-            }
+        if !self.guest.native_camera_players()
+            && let Some(frame) = observation.as_mut()
+        {
+            frame.players.clear();
         }
         let json = serde_json::to_vec(&observation)?;
         ensure!(

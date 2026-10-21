@@ -24,6 +24,9 @@ publication-test-support = []
 enhanced = []
 # Enables bounded development captures while the production switch stays disabled.
 enhanced-diagnostics = ["enhanced", "render-model/enhanced-diagnostics", "render-scene/enhanced-diagnostics"]
+# Compiles the experimental Java shader-pack render mode. Pack programs reach wgpu as
+# translated naga modules (`naga-ir`), bypassing Bevy's WGSL/WESL-only pipeline cache.
+shaderpacks = ["dep:shaderpack", "dep:naga", "dep:png", "wgpu/naga-ir"]
 
 [dependencies]
 web-time.workspace = true
@@ -47,6 +50,9 @@ serde_json = "1"
 sha2.workspace = true
 world = { path = "../world" }
 wgpu.workspace = true
+shaderpack = { path = "../shaderpack", optional = true }
+naga = { workspace = true, optional = true }
+png = { version = "0.18", optional = true }
 
 # ARM hardware dispatch keeps identical digests and falls back on CPUs without SHA2.
 [target.'cfg(target_arch = "aarch64")'.dependencies]

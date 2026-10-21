@@ -1,0 +1,17 @@
+{
+  "id": "3:1", "name": "Image Test", "type": "FRAME", "width": 100, "height": 100,
+  "fills": [{ "type": "IMAGE", "image": "backdrop", "scale_mode": "FIT" }],
+  "children": [
+    { "id": "3:2", "name": "Photo", "type": "RECTANGLE", "x": 0, "y": 0, "width": 50, "height": 50,
+      "fills": [{ "type": "IMAGE", "image": "photo", "scale_mode": "FILL", "opacity": 0.5 }] },
+    { "id": "3:3", "name": "Photo Copy", "type": "RECTANGLE", "x": 50, "y": 0, "width": 50, "height": 50,
+      "fills": [{ "type": "IMAGE", "image": "photo", "scale_mode": "CROP" }] },
+    { "id": "3:4", "name": "Icon @image", "type": "VECTOR", "raster": "node:3:4",
+      "x": 10, "y": 60, "width": 16, "height": 16,
+      "strokes": [{ "type": "SOLID", "color": [0, 0, 0] }] },
+    { "id": "3:5", "name": "Jpeg", "type": "RECTANGLE", "x": 50, "y": 50, "width": 20, "height": 20,
+      "fills": [{ "type": "IMAGE", "image": "jpeg", "scale_mode": "FILL" }] },
+    { "id": "3:6", "name": "Missing", "type": "RECTANGLE", "x": 70, "y": 70, "width": 20, "height": 20,
+      "fills": [{ "type": "IMAGE", "image": "absent", "scale_mode": "FILL" }] }
+  ]
+}

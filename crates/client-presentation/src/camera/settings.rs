@@ -104,6 +104,22 @@ impl Default for CameraSettingsAuthority {
 }
 
 impl CameraSettingsAuthority {
+    /// Applies detached ownership to the view through the shared camera authority.
+    /// The look pass has already resolved whether a held user action is admitted.
+    pub fn apply_detached_view(
+        &mut self,
+        view: &mut crate::local_player::LocalViewPose,
+        detached: Option<super::DetachedView>,
+        user_freelook: bool,
+    ) {
+        let previous = self.detached_view();
+        self.set_detached_view(detached);
+        if detached.is_some() || previous.is_some() {
+            view.set_freelook(detached.is_some() || user_freelook && self.freelook);
+        }
+        view.set_detached_translation(matches!(detached, Some(super::DetachedView::Fly { .. })));
+    }
+
     /// Atomically accepts newer settings after validating their FOV.
     pub fn replace(
         &mut self,

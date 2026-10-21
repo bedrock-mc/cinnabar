@@ -803,3 +803,135 @@ fn surface_definition_tracks_previews_but_not_scalar_bindings() {
     changed.previews.get_mut("sample").unwrap().reference = "fixture.second".into();
     assert!(!original.same_definition(&changed));
 }
+
+/// Live and navigation capabilities are additive defaults and part of immutable route schemas.
+#[test]
+fn text_field_capabilities_default_off_and_preserve_schema() {
+    let control: Control = serde_json::from_value(
+        serde_json::json!({"kind":"text", "id":"search", "label":"Search", "value":""}),
+    )
+    .unwrap();
+    assert!(matches!(
+        &control,
+        Control::Text {
+            live: false,
+            navigation_keys: false,
+            ..
+        }
+    ));
+    for flag in ["live", "navigation_keys"] {
+        let mut changed = serde_json::to_value(&control).unwrap();
+        changed[flag] = true.into();
+        let changed: Control = serde_json::from_value(changed).unwrap();
+        assert!(!control.same_schema(&changed));
+    }
+}
+
+/// Motion is an optional typed value; failed transactions cannot change the retained panel.
+#[test]
+fn motion_patches_are_optional_typed_and_atomic() {
+    for enabled in [false, true] {
+        let mut original = panel();
+        original.motion = enabled;
+        for json in ["{}", r#"{"motion":null}"#] {
+            let changed = PanelPatch::parse(json)
+                .unwrap()
+                .apply(&original, &Default::default())
+                .unwrap();
+            assert_eq!(changed, original);
+        }
+        for next in [false, true] {
+            let patch = serde_json::json!({"motion":next,"control_values":[[0,4]]});
+            let changed = PanelPatch::parse(&patch.to_string())
+                .unwrap()
+                .apply(&original, &Default::default())
+                .unwrap();
+            assert_eq!(changed.motion, next);
+            assert!(matches!(
+                changed.controls[0],
+                Control::Slider { value: 4., .. }
+            ));
+            for invalid in [
+                serde_json::json!({"motion":next,"control_values":[[0,8]]}),
+                serde_json::json!({"motion":next,"surface":"missing"}),
+                serde_json::json!({"motion":next,"control_values":[[0,4]],
+                    "collection_order":{"missing":[0]}}),
+            ] {
+                let retained = original.clone();
+                assert!(
+                    PanelPatch::parse(&invalid.to_string())
+                        .unwrap()
+                        .apply(&original, &Default::default())
+                        .is_err()
+                );
+                assert_eq!(original, retained);
+            }
+        }
+    }
+    for json in [
+        r#"{"motion":0}"#,
+        r#"{"motion":"false"}"#,
+        r#"{"motion":[]}"#,
+    ] {
+        assert!(PanelPatch::parse(json).is_err());
+    }
+}
+
+/// Route defaults and control schema switches cannot overwrite an existing motion preference.
+#[test]
+fn route_patches_retain_motion_until_explicitly_changed() {
+    let surface = serde_json::json!({"screen":"local.page","document":
+        serde_json::json!({"namespace":"local","page":{"type":"panel"}}).to_string()});
+    for default in [false, true] {
+        let mut initial = panel();
+        initial.motion = default;
+        let bundle = PanelBundle::parse(
+            &serde_json::json!({
+                "panel":initial,"surfaces":{"main":surface,"options":surface},
+                "control_schemas":{"options":[{"kind":"button","id":"back","label":"Back"}]}
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let mut current = PanelPatch::parse(&serde_json::json!({"motion":!default}).to_string())
+            .unwrap()
+            .apply_bundle(&bundle.panel, &bundle)
+            .unwrap();
+        for route in ["main", "options", "options", "main"] {
+            let patch = serde_json::json!({"surface":route});
+            current = PanelPatch::parse(&patch.to_string())
+                .unwrap()
+                .apply_bundle(&current, &bundle)
+                .unwrap();
+            assert_eq!(current.motion, !default);
+            let direct = PanelPatch::parse(&patch.to_string())
+                .unwrap()
+                .apply(&current, &bundle.surfaces)
+                .unwrap();
+            assert_eq!(direct.motion, !default);
+        }
+        let restored = PanelPatch::parse(
+            &serde_json::json!({
+                "surface":"options","motion":default
+            })
+            .to_string(),
+        )
+        .unwrap()
+        .apply_bundle(&current, &bundle)
+        .unwrap();
+        assert_eq!(restored.motion, default);
+        let retained = current.clone();
+        assert!(
+            PanelPatch::parse(
+                &serde_json::json!({
+                    "surface":"options","motion":default,"control_values":[[0,1]]
+                })
+                .to_string()
+            )
+            .unwrap()
+            .apply_bundle(&current, &bundle)
+            .is_err()
+        );
+        assert_eq!(current, retained);
+    }
+}

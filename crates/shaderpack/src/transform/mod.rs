@@ -7,21 +7,24 @@
 
 mod assemble;
 mod body;
+mod builtins;
 mod declare;
+mod dot;
 mod interface;
 mod items;
 mod legacy;
+mod narrow;
 mod specialize;
 
 use crate::preprocess::Preprocessed;
 use crate::programs::StageKind;
 use crate::reflection::{
-    LEGACY_UNIFORMS, SAMPLER_BINDING, SAMPLER_NAME, SHADOW_SAMPLER_BINDING, SHADOW_SAMPLER_NAME,
-    TEXTURE_GROUP, VertexAttribute,
+    LEGACY_UNIFORMS, SHADOW_SAMPLER_BINDING, SHADOW_SAMPLER_NAME, SamplerClass, TEXTURE_GROUP,
+    TextureDimension,
 };
 use crate::token::{Tok, lex};
 pub(crate) use assemble::{UboMember, assemble, merge_uniforms};
-use body::{BodyContext, SamplerUse, rewrite_body, rewrite_params};
+use body::{BodyContext, SamplerUse, convert_returns, return_type, rewrite_body, rewrite_params};
 pub(crate) use interface::ProgramInterface;
 use items::{Item, func_params, parse_decl, split_items};
 use std::collections::{HashMap, HashSet};
@@ -43,6 +46,13 @@ impl TransformError {
     }
 }
 
+/// Converts the vertex stage's OpenGL clip position to wgpu's: depth `[-w, w]` becomes
+/// `[0, w]`, so window depth keeps GL's `(z + 1) / 2`, and Y flips, so rows are stored
+/// bottom-up exactly as GL stores them. Texture coordinates, `gl_FragCoord` and
+/// `texelFetch` then agree with the pack's GL assumptions; hosts flip Y when copying
+/// images into or out of pack buffers, and triangle winding is mirrored.
+const GL_CLIP_TO_WGPU: &str = "gl_Position = vec4(gl_Position.x, -gl_Position.y, (gl_Position.z + gl_Position.w) * 0.5, gl_Position.w);";
+
 /// One translated stage, waiting for the program's merged uniform block.
 pub(crate) struct StageDraft {
     header: String,
@@ -62,15 +72,49 @@ pub(crate) struct StageDraft {
     pub resource_names: Vec<(u32, u32, String)>,
 }
 
-/// Transforms one preprocessed stage. `image_formats` maps image names to GLSL format
-/// qualifiers from `image.<name>` properties.
+/// Sampler name and shape (`None` for any shape) → class, where the program's custom
+/// textures and images override [`SamplerClass::for_name`].
+pub(crate) type SamplerClasses = HashMap<(String, Option<TextureDimension>), SamplerClass>;
+
+/// Pack-level facts about resource names, from `shaders.properties`.
+pub(crate) struct ResourceNames<'a> {
+    /// Image name → GLSL format qualifier from `image.<name>`.
+    pub image_formats: &'a HashMap<String, String>,
+    pub sampler_classes: &'a SamplerClasses,
+}
+
+/// Transforms one preprocessed stage.
 pub(crate) fn transform(
     pp: &Preprocessed,
     stage: StageKind,
     iface: &mut ProgramInterface,
-    image_formats: &HashMap<String, String>,
+    names: &ResourceNames<'_>,
 ) -> Result<StageDraft, TransformError> {
-    let lg = legacy::rewrite(&pp.tokens, stage, pp.version)?;
+    let mut delimiters = Vec::new();
+    for token in &pp.tokens {
+        if token.is("(") || token.is("[") || token.is("{") {
+            delimiters.push(token);
+        } else if token.is(")") || token.is("]") || token.is("}") {
+            let expected = match token.text() {
+                ")" => "(",
+                "]" => "[",
+                _ => "{",
+            };
+            if !delimiters.pop().is_some_and(|open| open.is(expected)) {
+                return Err(TransformError::new(
+                    "unmatched closing delimiter",
+                    token.line,
+                ));
+            }
+        }
+    }
+    if let Some(open) = delimiters.last() {
+        return Err(TransformError::new("unclosed delimiter", open.line));
+    }
+    let wide = narrow::lower(&pp.tokens);
+    let wide = wide.as_deref().unwrap_or(&pp.tokens);
+    let fused = dot::order(wide);
+    let lg = legacy::rewrite(fused.as_deref().unwrap_or(wide), stage, pp.version)?;
     let mut items: Vec<Item> = vec![];
     let mut user_funcs: HashSet<String> = HashSet::new();
     for it in split_items(&lg.toks) {
@@ -95,7 +139,10 @@ pub(crate) fn transform(
         }
     }
     let items = specialize::specialize_opaque_params(items);
-    let mut c = declare::collect(items, stage, iface, image_formats)?;
+    let mut c = declare::collect(items, stage, iface, names)?;
+    if stage == StageKind::Vertex {
+        c.after_main.push(GL_CLIP_TO_WGPU.to_string());
+    }
 
     let mut ubo: Vec<UboMember> = LEGACY_UNIFORMS
         .iter()
@@ -104,63 +151,7 @@ pub(crate) fn transform(
         .collect();
     ubo.append(&mut c.ubo);
 
-    let mut builtin_io = String::new();
-    if stage == StageKind::Vertex {
-        // Inputs Iris supplies without the pack declaring them.
-        for (n, ty) in [("mc_chunkFade", "float"), ("dhMaterialId", "int")] {
-            if !c.declared.contains(n) && lg.toks.iter().any(|t| t.ident() == Some(n)) {
-                vertex_input(&mut builtin_io, &mut c.vertex_inputs, n, ty);
-            }
-        }
-        for (g, n, ty) in [
-            ("gl_Vertex", "iris_Vertex", "vec4"),
-            ("gl_Color", "iris_Color", "vec4"),
-            ("gl_Normal", "iris_Normal", "vec3"),
-            ("gl_MultiTexCoord0", "iris_MultiTexCoord0", "vec4"),
-            ("gl_MultiTexCoord1", "iris_MultiTexCoord1", "vec4"),
-            ("gl_MultiTexCoord2", "iris_MultiTexCoord2", "vec4"),
-            ("gl_MultiTexCoord3", "iris_MultiTexCoord3", "vec4"),
-        ] {
-            if lg.builtins.contains(g) {
-                vertex_input(&mut builtin_io, &mut c.vertex_inputs, n, ty);
-            }
-        }
-    }
-    let varying_dir = match stage {
-        StageKind::Vertex => Some("out"),
-        StageKind::Fragment => Some("in"),
-        _ => None,
-    };
-    if let Some(dir) = varying_dir {
-        let front = (stage == StageKind::Vertex && lg.builtins.contains("gl_FrontColor"))
-            || (stage == StageKind::Fragment && lg.builtins.contains("gl_Color"));
-        let mut varying = |name: &str, ty: &str| {
-            let loc = iface.varying(stage, name, 1, None);
-            builtin_io.push_str(&format!("layout(location = {loc}) {dir} {ty} {name};\n"));
-        };
-        if front {
-            varying("iris_FrontColor", "vec4");
-        }
-        if lg.builtins.contains("gl_FogFragCoord") {
-            varying("iris_FogFragCoord", "float");
-        }
-        for t in &lg.tex_coords {
-            varying(&format!("iris_TexCoord{t}"), "vec4");
-        }
-    }
-    if stage == StageKind::Fragment {
-        for f in &lg.frag_data {
-            if c.frag_locations.contains(f) {
-                return Err(TransformError::new(
-                    format!("gl_FragData[{f}] collides with a declared output"),
-                    0,
-                ));
-            }
-            let name = format!("iris_FragData{f}");
-            builtin_io.push_str(&format!("layout(location = {f}) out vec4 {name};\n"));
-            c.frag_outputs.push((*f, name));
-        }
-    }
+    let builtin_io = builtins::declarations(stage, &lg, &mut c, iface)?;
 
     let mut used = SamplerUse::default();
     let mut out_body: Vec<Tok> = vec![];
@@ -179,6 +170,7 @@ pub(crate) fn transform(
                     }
                 }
                 let mut header = rewrite_params(&toks[..brace], &mut local);
+                let return_ty = return_type(&header);
                 if name == "main"
                     && wrapper
                     && let Some(lp) = header.iter().position(|t| t.is("("))
@@ -192,7 +184,10 @@ pub(crate) fn transform(
                     bools: &bools,
                     user_funcs: &user_funcs,
                 };
-                out_body.extend(rewrite_body(&toks[brace..], &cx, &mut used));
+                out_body.extend(convert_returns(
+                    rewrite_body(&toks[brace..], &cx, &mut used),
+                    &return_ty,
+                ));
             }
             Item::Other(toks)
                 if func_params(&toks).is_some()
@@ -240,8 +235,12 @@ pub(crate) fn transform(
         }
     }
     let mut resource_names = c.resource_names;
-    if used.filtering {
-        resource_names.push((TEXTURE_GROUP, SAMPLER_BINDING, SAMPLER_NAME.to_string()));
+    for class in &used.filtering {
+        resource_names.push((
+            TEXTURE_GROUP,
+            class.binding(),
+            class.glsl_name().to_string(),
+        ));
     }
     if used.comparison {
         resource_names.push((
@@ -264,14 +263,6 @@ pub(crate) fn transform(
         frag_outputs: c.frag_outputs,
         resource_names,
     })
-}
-
-/// Emits a supplied vertex input at its fixed host location.
-fn vertex_input(io: &mut String, inputs: &mut Vec<(u32, String)>, name: &str, ty: &str) {
-    if let Some(loc) = VertexAttribute::from_glsl_name(name).location() {
-        io.push_str(&format!("layout(location = {loc}) in {ty} {name};\n"));
-        inputs.push((loc, name.to_string()));
-    }
 }
 
 #[cfg(test)]

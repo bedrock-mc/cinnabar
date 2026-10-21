@@ -155,6 +155,20 @@ impl ModRuntime {
         self.metadata[host].owner
     }
 
+    /// Projects each live guest's HUD and native-binding revision with its stable UI owner.
+    fn hud_sources(
+        &self,
+    ) -> impl Iterator<Item = (mod_ui::PanelUiOwner, u64, &ui::mod_hud::Hud)> + Clone {
+        (0..self.hosts.host_count()).filter_map(|index| {
+            let host = self.hosts.host(index);
+            Some((
+                self.panel_ui_owner(index),
+                host.hud_revision()?,
+                host.hud()?,
+            ))
+        })
+    }
+
     /// Existing mod order chooses one active, explicitly authorized local menu brand.
     fn menu_branding(
         &self,
@@ -546,6 +560,11 @@ fn drive_mod(
         mut actor_style,
     } = observation;
     let (network, mut camera, cues, item_use) = outputs;
+    let user_freelook = gameplay
+        .input
+        .as_ref()
+        .and_then(|input| input.snapshot())
+        .is_some_and(|input| input.phases[semantic_input::Action::Freelook as usize].held);
     let focused = windows.single().is_ok_and(|(window, _)| window.focused);
     let absorbed = client_shell::screen_policy::absorbs_input(
         &player_runtime,
@@ -589,7 +608,12 @@ fn drive_mod(
         if let Some(camera) = camera.as_deref_mut() {
             camera.set_preserve_teleport_rotation(false);
             camera.set_hurt_camera_style(None);
-            native_camera::apply(camera, gameplay.view.as_deref_mut(), effects.as_ref());
+            native_camera::apply(
+                camera,
+                gameplay.view.as_deref_mut(),
+                user_freelook,
+                effects.as_ref(),
+            );
         }
         if let Some(delta) = effects.and_then(|effects| effects.rotation) {
             gameplay.apply(mod_host::CameraDelta {
@@ -612,7 +636,7 @@ fn drive_mod(
         if let Some(camera) = camera.as_deref_mut() {
             camera.set_preserve_teleport_rotation(false);
             camera.set_hurt_camera_style(None);
-            native_camera::apply(camera, gameplay.view.as_deref_mut(), None);
+            native_camera::apply(camera, gameplay.view.as_deref_mut(), user_freelook, None);
         }
         return;
     }
@@ -772,6 +796,7 @@ fn drive_mod(
         native_camera::apply(
             &mut camera,
             gameplay.view.as_deref_mut(),
+            user_freelook,
             native_effects.as_ref().filter(|_| !regular_camera),
         );
     }
@@ -784,6 +809,12 @@ fn drive_mod(
         .set_mod_label(extension.hosts.merged_label())
     {
         warn!("Cinnabar extension HUD rejected: {error}");
+    }
+    if let Err(error) = presentation
+        .mod_ui_mut()
+        .set_mod_hud_sources(extension.hud_sources())
+    {
+        warn!("Cinnabar extension HUD sources rejected: {error}");
     }
     let combined_hud = extension.hosts.merged_hud();
     let hud = combined_hud.as_deref();

@@ -48,6 +48,7 @@ impl UiPresentationRuntime {
             obfuscation: ObfuscationGlyphs::from_catalog(&font),
             base_font: Arc::clone(&font),
             mod_panel_font: None,
+            local_player_identity: Default::default(),
             font,
             blank_dynamic_page: textures.pages()[textures.dynamic_start()].clone(),
             textures,

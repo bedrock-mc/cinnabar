@@ -36,7 +36,25 @@ pub(super) struct GameplayContext<'w> {
     pub(super) session: Option<Res<'w, crate::session::SessionController>>,
 }
 
+const _: () = assert!(mod_api::BEDROCK_TICKS_PER_SECOND == simulation_clock::TICKS_PER_SECOND);
+
 impl GameplayContext<'_> {
+    /// Reads the real server clock in this scope; visual time overrides never enter this observation.
+    pub(super) fn world_day(
+        &self,
+        world: &mod_host::WorldObservation,
+    ) -> Option<mod_host::module_observations::WorldDay> {
+        let clock = self.clock.as_deref()?;
+        if world.session == 0 || clock.session_generation() != world.session {
+            return None;
+        }
+        Some(mod_host::module_observations::WorldDay {
+            session: world.session,
+            dimension: world.dimension,
+            day: clock.world_day(self.time.as_ref()?.elapsed_secs_f64())?,
+        })
+    }
+
     /// Native packet frames share the current input snapshot and connected-world fences.
     pub(super) fn native_frame(
         &self,
@@ -63,7 +81,7 @@ impl GameplayContext<'_> {
             let eye = self.view.as_ref()?.eye_translation().to_array();
             return Some(mod_api::native_frame::Frame {
                 version: mod_api::native_frame::VERSION,
-                session: ui.session_id(),
+                session: world.stream.as_ref()?.authority().actor_session_id(),
                 dimension: world.stream.as_ref()?.current_dimension(),
                 eye,
                 yaw: 0.0,
