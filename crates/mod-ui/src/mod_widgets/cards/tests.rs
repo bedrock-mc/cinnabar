@@ -744,3 +744,178 @@ fn sprite_positions(draw: &ui::UiDrawList, page: u16) -> Vec<[f32; 2]> {
         })
         .collect()
 }
+
+/// Clicks a production editor hit using its last painted window coordinate transform.
+fn studio_click(ui: &mut ModUi, action: &str) -> Vec<ui::mod_panel::Event> {
+    let frame = ui.mod_hud_editor_state().unwrap().frame.unwrap();
+    let hit = frame
+        .hits
+        .iter()
+        .find(|hit| hit.pressed.as_deref() == Some(action))
+        .unwrap();
+    let point = [
+        frame.origin[0] + (hit.rect.x + hit.rect.w * 0.5) as f32 * frame.scale,
+        frame.origin[1] + (hit.rect.y + hit.rect.h * 0.5) as f32 * frame.scale,
+    ];
+    let events = ui.mod_panel_events(point, true, true);
+    ui.mod_panel_events(point, false, false);
+    events
+}
+
+#[test]
+fn studio_live_owner_publication_keeps_placement_history_and_steady_catalog() {
+    let mut hud = hud(1);
+    let mut ui = installed(&hud, &panel(false));
+    ui.open_mod_hud_editor(&hud).unwrap();
+    let mut harness = Harness::new();
+    harness.paint(&mut ui, true);
+    studio_click(&mut ui, "hud.card:0");
+    ui.mod_panel_key("ArrowRight", None);
+    harness.paint(&mut ui, true);
+    let moved = ui.mod_hud_editor_state().unwrap().draft.cards[0].offset;
+    let catalog = Arc::clone(ui.mod_hud_editor_state().unwrap().catalog.unwrap());
+    hud.cards[0].cells[0].label = "Fresh".into();
+    hud.cards[0].offset = [100., 100.];
+    ui.set_mod_hud_sources([(OWNER, 2, &hud)].into_iter())
+        .unwrap();
+    harness.paint(&mut ui, true);
+    assert_eq!(
+        ui.mod_hud_editor_state().unwrap().draft.cards[0].offset,
+        moved
+    );
+    assert_eq!(
+        ui.mod_hud_editor_state().unwrap().draft.cards[0].cells[0].label,
+        "Fresh"
+    );
+    ui.mod_panel_field_key(
+        "KeyZ",
+        None,
+        ui::mod_panel::FieldModifiers {
+            control: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        ui.mod_hud_editor_state().unwrap().draft.cards[0].cells[0].label,
+        "Fresh"
+    );
+    ui.mod_panel_field_key(
+        "KeyZ",
+        None,
+        ui::mod_panel::FieldModifiers {
+            control: true,
+            shift: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        ui.mod_hud_editor_state().unwrap().draft.cards[0].offset,
+        moved
+    );
+    harness.paint(&mut ui, true);
+    let passes = ui.mod_hud_editor_state().unwrap().passes;
+    for _ in 0..4 {
+        ui.set_mod_hud_sources([(OWNER, 2, &hud)].into_iter())
+            .unwrap();
+        harness.paint(&mut ui, true);
+        let state = ui.mod_hud_editor_state().unwrap();
+        assert_eq!(state.passes, passes);
+        assert!(Arc::ptr_eq(state.catalog.unwrap(), &catalog));
+    }
+    let mut other = hud.clone();
+    other.cards[0].cells[0].label = "Foreign".into();
+    ui.set_mod_hud_sources(
+        [(OWNER, 2, &hud), (PanelUiOwner::Environment(1), 3, &other)].into_iter(),
+    )
+    .unwrap();
+    assert_eq!(
+        ui.mod_hud_editor_state().unwrap().draft.cards[0].cells[0].label,
+        "Fresh"
+    );
+}
+
+#[test]
+fn studio_hidden_card_has_no_artwork_or_hits_but_stays_in_the_result() {
+    let mut hud = hud(1);
+    hud.surface = Some(Surface {
+        screen: "studio.root".into(),
+        document: json!({"namespace":"studio","root":{"type":"screen","size":["100%","100%"],"controls":[{
+            "hide":{"type":"button","size":[50,20],"offset":[200,50],"anchor_from":"top_left","anchor_to":"top_left",
+            "button_mappings":[{"from_button_id":"button.menu_select","to_button_id":"hud.visibility:0","mapping_type":"pressed"}]}
+        }]}}).to_string(),
+        bindings: Default::default(), transitions: Default::default(), collections: Default::default(), previews: Default::default(),
+    });
+    let mut ui = installed(&hud, &panel(false));
+    ui.open_mod_hud_editor(&hud).unwrap();
+    let mut harness = Harness::new();
+    harness.paint(&mut ui, true);
+    assert!(
+        harness
+            .drawn()
+            .vertices
+            .iter()
+            .any(|v| v.color == [255, 0, 0, 255])
+    );
+    let catalog = Arc::clone(ui.mod_hud_editor_state().unwrap().catalog.unwrap());
+    studio_click(&mut ui, "hud.visibility:0");
+    harness.paint(&mut ui, true);
+    assert!(
+        !harness
+            .drawn()
+            .vertices
+            .iter()
+            .any(|v| v.color == [255, 0, 0, 255])
+    );
+    let state = ui.mod_hud_editor_state().unwrap();
+    assert_eq!(state.draft.cards.len(), 1);
+    assert!(
+        !state
+            .frame
+            .unwrap()
+            .hits
+            .iter()
+            .any(|hit| hit.pressed.as_deref().is_some_and(|action| action
+                .starts_with("hud.card:")
+                || action.starts_with("hud.resize:")))
+    );
+    assert!(Arc::ptr_eq(state.catalog.unwrap(), &catalog));
+    ui.mod_panel_key("Enter", None);
+    let result = ui.take_mod_hud_editor_result().unwrap();
+    assert_eq!(result.hidden_cards, ["card_0"]);
+    result.validate().unwrap();
+}
+
+#[test]
+fn studio_preview_binding_updates_retain_the_catalog_and_stable_frames() {
+    let mut hud = hud(1);
+    hud.surface = panel(false).surface;
+    // The fixture's panel preview renderer is not needed by the editor chrome.
+    let surface = hud.surface.as_mut().unwrap();
+    surface.document = json!({"namespace":"preview","screen":{"type":"screen","size":["100%","100%"],"controls":[{
+        "caption":{"type":"label","text":"#caption","size":[100,20],"bindings":[{"binding_name":"#caption"}]}
+    }]}}).to_string();
+    surface
+        .bindings
+        .insert("#caption".into(), SurfaceValue::Text("Before".into()));
+    let mut ui = installed(&hud, &panel(false));
+    ui.open_mod_hud_editor(&hud).unwrap();
+    let mut harness = Harness::new();
+    harness.paint(&mut ui, true);
+    let catalog = Arc::clone(ui.mod_hud_editor_state().unwrap().catalog.unwrap());
+    hud.surface
+        .as_mut()
+        .unwrap()
+        .bindings
+        .insert("#caption".into(), SurfaceValue::Text("After".into()));
+    ui.update_mod_hud_editor(&hud).unwrap();
+    harness.paint(&mut ui, true);
+    assert!(Arc::ptr_eq(
+        ui.mod_hud_editor_state().unwrap().catalog.unwrap(),
+        &catalog
+    ));
+    let passes = ui.mod_hud_editor_state().unwrap().passes;
+    harness.paint(&mut ui, true);
+    assert_eq!(ui.mod_hud_editor_state().unwrap().passes, passes);
+}
+
+mod studio;

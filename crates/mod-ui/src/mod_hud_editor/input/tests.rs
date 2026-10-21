@@ -307,7 +307,15 @@ fn snapping_neighbor_edges_stacking_and_keep_out_use_gui_pixels() {
     let size = cards::dimensions(&editor.draft.cards[0]);
     let neighbor = cards::dimensions(&editor.draft.cards[1]);
     let find = |at, zones: &[[f64; 4]]| {
-        snapping::targets(&editor.draft, 0, at, editor.viewport, zones, false)
+        snapping::targets(
+            &editor.draft,
+            0,
+            at,
+            editor.viewport,
+            zones,
+            false,
+            &editor.hidden,
+        )
     };
     let edge = find([220., 100.], &[])[0].unwrap();
     assert_eq!((edge.at, edge.guide, edge.card), (217., 217., Some(1)));
@@ -352,14 +360,30 @@ fn snapping_nearest_wins_across_viewport_cards_and_keep_out() {
         (449.5, vec![], 450.),
         (447.8, vec![[448., 100., 60., 80.]], 448.),
     ] {
-        let target = snapping::targets(&editor.draft, 0, [x, 250.], editor.viewport, &zones, false)
-            [0]
+        let target = snapping::targets(
+            &editor.draft,
+            0,
+            [x, 250.],
+            editor.viewport,
+            &zones,
+            false,
+            &editor.hidden,
+        )[0]
         .unwrap();
         assert_eq!(target.at, expected);
     }
     editor.draft.cards[1].offset[0] = 950.;
     assert!(
-        snapping::targets(&editor.draft, 0, [849., 250.], editor.viewport, &[], false)[0].is_none()
+        snapping::targets(
+            &editor.draft,
+            0,
+            [849., 250.],
+            editor.viewport,
+            &[],
+            false,
+            &editor.hidden
+        )[0]
+        .is_none()
     );
 }
 
@@ -376,7 +400,8 @@ fn snapping_shift_bypasses_guides_and_grid_without_disabling_the_grid_setting() 
             at,
             editor.viewport,
             &[[220., 210., 30., 30.]],
-            true
+            true,
+            &editor.hidden,
         ),
         [None; 2]
     );
@@ -400,6 +425,8 @@ fn snapping_highlight_and_measurements_update_through_bindings() {
     editor.move_card(0, [37., 41.]);
     editor.drag = Some(Drag {
         index: 0,
+        before: Placement::capture(&editor.draft.cards[0]),
+        measurement_pending: false,
         grab: [0.; 2],
         start: [0.; 2],
         last: [0.; 2],
@@ -465,8 +492,11 @@ fn snapping_candidate_search_allocates_nothing_during_steady_drag() {
                 editor.viewport,
                 &[[500., 350., 140., 80.]],
                 false,
+                &editor.hidden,
             ));
         }
     });
     assert_eq!(allocations.calls, 0);
 }
+
+mod studio;

@@ -3,7 +3,7 @@
 //! their standard uniforms. The renderer behind it compiles only with the `shaderpacks`
 //! feature; without it these types stay unused.
 
-use std::{fmt, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, fmt, path::PathBuf, sync::Arc};
 
 use bevy::{
     prelude::{Component, Resource},
@@ -11,13 +11,15 @@ use bevy::{
 };
 
 /// The pack the settings ask for. The render host loads it on a worker whenever `pack`
-/// changes and reports progress through [`ShaderPackStatus`].
+/// changes or is explicitly reselected, and reports progress through [`ShaderPackStatus`].
 #[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]
 pub struct ShaderPackRequest {
     /// Pack folder or zip; `None` unloads the current pack.
     pub pack: Option<PathBuf>,
     /// Private directory for cached translations; `None` disables the cache.
     pub cache_dir: Option<PathBuf>,
+    /// Explicit menu selections reload even when the pack path is unchanged.
+    pub reload_generation: u64,
 }
 
 /// Load state of the requested pack, written by the render host.
@@ -82,8 +84,9 @@ pub struct ShaderPackFrameInputs {
     /// Frozen `frameTimeCounter` in seconds for captures (developer `--frame-time-counter`);
     /// `None` counts real time.
     pub frame_time_counter: Option<f32>,
-    /// Blocks from the camera along its view direction to the first non-air block, `None`
-    /// when nothing is in range; `centerDepthSmooth` smooths its depth-buffer value.
+    /// Blocks along the camera ray to terrain geometry; models use their surfaces, while
+    /// cubes and liquids use cell boundaries. `None` when nothing is in range.
+    /// `centerDepthSmooth` smooths the corresponding depth-buffer value.
     pub center_distance: Option<f32>,
     /// Fog start and end distances in blocks (`fogStart`, `fogEnd`).
     pub fog_range: [f32; 2],
@@ -174,7 +177,7 @@ pub type ShaderPackIdLookup = Arc<dyn Fn(&str) -> Option<i32> + Send + Sync>;
 
 /// The loaded pack's `entity.properties` and `item.properties` ids by Bedrock identifier,
 /// through the pinned Java mapping. Published by the render host when a pack loads (empty
-/// without one).
+/// without one); the app reads it to fill [`ShaderPackActorIds`] and the held-item ids.
 #[derive(Resource, Clone, Default)]
 pub struct ShaderPackIdMaps {
     entity: Option<ShaderPackIdLookup>,
@@ -218,5 +221,21 @@ impl fmt::Debug for ShaderPackIdMaps {
             .field("loaded", &self.is_loaded())
             .field("revision", &self.revision)
             .finish()
+    }
+}
+
+/// The pack's `entityId` of every actor the rig renders, by runtime id; actors absent read
+/// Iris's -1. Published each frame by the app while a pack is loaded.
+#[derive(Resource, ExtractResource, Clone, Debug, Default, PartialEq, Eq)]
+#[extract_app(bevy::render::RenderApp)]
+pub struct ShaderPackActorIds {
+    pub by_runtime_id: HashMap<u64, i32>,
+}
+
+impl ShaderPackActorIds {
+    /// The `entityId` of the actor with `runtime_id`.
+    #[must_use]
+    pub fn entity_id(&self, runtime_id: u64) -> i32 {
+        self.by_runtime_id.get(&runtime_id).copied().unwrap_or(-1)
     }
 }

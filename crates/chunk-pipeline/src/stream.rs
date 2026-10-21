@@ -92,6 +92,7 @@ mod prediction;
 mod publication;
 #[cfg(feature = "publication-test-support")]
 mod publication_test_support;
+mod ray_queries;
 mod request_queue;
 mod requests;
 mod residency;

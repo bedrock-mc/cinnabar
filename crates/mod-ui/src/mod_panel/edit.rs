@@ -66,6 +66,13 @@ impl ModUi {
         modifiers: ui::mod_panel::FieldModifiers,
     ) -> Vec<Event> {
         if self.mod_hud_editor_open() {
+            if !matches!(key, "Escape" | "Enter" | "NumpadEnter") {
+                self.mod_hud_editor
+                    .as_mut()
+                    .expect("open editor")
+                    .key_with_modifiers(key, modifiers);
+                return Vec::new();
+            }
             return self.mod_panel_key(key, text);
         }
         self.mod_panel

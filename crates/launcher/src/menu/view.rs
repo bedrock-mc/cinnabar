@@ -444,6 +444,10 @@ pub struct MenuView {
     pub gui_scale_choices: Vec<ui::DesktopGuiScaleChoice>,
     pub fullscreen: bool,
     pub render_mode: ui::RenderMode,
+    /// Names of the discovered shader packs that [`super::RendererChoice::ShaderPack`] indexes.
+    pub shader_packs: std::sync::Arc<[String]>,
+    /// The highlighted Video renderer; `None` while the selected shader pack is missing.
+    pub renderer: Option<super::RendererChoice>,
     /// Session VSync forced by a launch flag; the saved toggle is shown locked to it.
     pub vsync_override: Option<bool>,
     pub display_name: String,
@@ -692,6 +696,8 @@ impl MenuView {
             gui_scale_choices: ui::DesktopGuiScale::for_window([1, 1]).choices().collect(),
             fullscreen: false,
             render_mode: ui::RenderMode::Vanilla,
+            shader_packs: std::sync::Arc::from([]),
+            renderer: Some(super::RendererChoice::Vanilla),
             vsync_override: None,
             display_name,
             servers: MenuList::default(),

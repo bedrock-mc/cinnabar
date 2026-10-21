@@ -8,6 +8,7 @@ mod layout;
 mod mods;
 mod picker;
 mod presets;
+mod renderer;
 mod resources;
 mod sections;
 mod services;

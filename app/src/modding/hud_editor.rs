@@ -95,15 +95,15 @@ pub(super) fn publish(
             && focused
             && index == panel_owner
             && runtime.hosts.host(index).panel_open()
-            && runtime.hud_editor_owner.is_none_or(|owner| {
-                owner.host == index
-                    && owner.session == session
-                    && !presentation.mod_ui().mod_hud_editor_open()
-            })
-            && presentation
-                .mod_ui_mut()
-                .open_mod_hud_editor(&preview)
-                .is_ok()
+            && runtime
+                .hud_editor_owner
+                .is_none_or(|owner| owner.host == index && owner.session == session)
+            && if presentation.mod_ui().mod_hud_editor_open() {
+                presentation.mod_ui_mut().update_mod_hud_editor(&preview)
+            } else {
+                presentation.mod_ui_mut().open_mod_hud_editor(&preview)
+            }
+            .is_ok()
         {
             runtime.hud_editor_owner = Some(Owner {
                 host: index,

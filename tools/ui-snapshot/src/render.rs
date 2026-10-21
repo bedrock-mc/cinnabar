@@ -11,6 +11,7 @@ mod crafting;
 mod edit_selection;
 #[cfg(feature = "test-support")]
 mod form_overlap;
+mod hud_editor;
 mod panorama;
 #[cfg(feature = "test-support")]
 mod settings_draft;
@@ -141,7 +142,8 @@ fn png_fixture(
         | Fixture::EditSelection
         | Fixture::BackupFont
         | Fixture::TiledImage { .. }
-        | Fixture::ModPanel(..) => false,
+        | Fixture::ModPanel(..)
+        | Fixture::HudEditor { .. } => false,
         #[cfg(feature = "test-support")]
         Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
@@ -211,6 +213,11 @@ fn png_fixture(
                 selected,
                 &mut frame,
             )?;
+            add_server_pages(&mut engine, &mut carriers.pages);
+        }
+        Fixture::HudEditor { hud, edited } => {
+            let mut engine = json_engine(&carriers)?;
+            hud_editor::paint(&engine, &mut frame, &hud, edited)?;
             add_server_pages(&mut engine, &mut carriers.pages);
         }
         Fixture::ModPanel(panel, hud, identity) => {

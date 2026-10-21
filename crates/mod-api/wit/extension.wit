@@ -21,6 +21,7 @@ interface hud {
     enum anchor { top-left, top-center, top-right, left, center, right, bottom-left, bottom-center, bottom-right }
     record anchored-placement { id: string, anchor: anchor, offset: point, scale: f32 }
     record anchored-layout-result { saved: bool, reset: bool, placements: list<anchored-placement> }
+    record visibility-result { saved: bool, hidden-cards: list<string> }
     /// Opens a host-owned layout editor from an input-owning panel. Requires hud and controls.
     /// JSON is bounded HUD preview data, including cards disabled during normal gameplay.
     open-editor: func(json: string) -> result<_, string>;
@@ -32,6 +33,8 @@ interface hud {
     /// Reads GUI-pixel offsets inward from edges, or right/down from centered axes.
     /// Shares stable callback lifetime and consumption with both normalized reads.
     read-editor-anchored-layout: func() -> result<option<anchored-layout-result>, string>;
+    /// Reads hidden card IDs; shares stable callback lifetime and consumption with layout reads.
+    read-editor-visibility: func() -> result<option<visibility-result>, string>;
 }
 
 /// Read-only, session-bound facts about the local player's presented inventory and effects.

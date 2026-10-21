@@ -56,6 +56,7 @@ pub mod session_audio;
 #[cfg(test)]
 #[cfg(not(target_arch = "wasm32"))]
 mod session_cleanup_tests;
+mod shader_pack_inputs;
 mod survival_mining;
 #[cfg(not(target_arch = "wasm32"))]
 mod thread_budget;

@@ -14,6 +14,8 @@ reads = [
 [features]
 test-support = []
 enhanced-diagnostics = []
+# Compiles the experimental Java shader-pack render mode.
+shaderpacks = []
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
