@@ -82,6 +82,7 @@ impl WorldAuthority {
             self.resolved_server_position.surface_anchor,
         );
         self.resolved_server_position = resolved;
+        self.local_actor_position = Some(resolved.position);
         resolved
     }
     /// Accepts correction ticks in their original nondecreasing order.

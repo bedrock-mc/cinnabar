@@ -409,6 +409,9 @@ impl LocalPhysicsController {
         };
 
         self.refresh_motion_ticks();
+        if let (Some(position), Some(state)) = (self.actor_position_pending, self.state.as_mut()) {
+            position.apply(state);
+        }
         let state = self
             .state
             .as_ref()

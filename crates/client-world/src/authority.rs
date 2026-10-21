@@ -38,6 +38,7 @@ mod actors;
 mod biomes;
 mod block_events;
 mod block_identities;
+mod local_actor_move;
 pub use block_identities::PreparedBlockIdentities;
 mod combat;
 mod commits;
@@ -126,6 +127,7 @@ pub struct WorldAuthority {
     form_dimension_epoch: u64,
     local_player_runtime_id: u64,
     local_player_unique_id: i64,
+    local_actor_position: Option<[f32; 3]>,
     local_movement_speed: Option<f64>,
     resolved_server_position: ResolvedServerPosition,
     latest_movement_correction_tick: Option<u64>,
@@ -206,6 +208,7 @@ impl WorldAuthority {
             form_dimension_epoch: 0,
             local_player_runtime_id: bootstrap.local_player_runtime_id,
             local_player_unique_id: bootstrap.local_player_unique_id,
+            local_actor_position: None,
             local_movement_speed: None,
             resolved_server_position,
             latest_movement_correction_tick: None,
@@ -224,6 +227,9 @@ impl WorldAuthority {
     }
     /// Applies an actor move before any local-player retention work.
     pub fn apply_player_move(&mut self, sequence: u64, movement: MovePlayerEvent) {
+        if movement.runtime_id == self.local_player_runtime_id {
+            self.local_actor_position = Some(movement.position);
+        }
         let _ = self.actors.apply_player_move(
             self.actor_session_id,
             sequence,
@@ -238,6 +244,7 @@ impl WorldAuthority {
             .actors
             .reset_dimension(self.actor_session_id, sequence, dimension);
         self.current_dimension = dimension;
+        self.local_actor_position = None;
         self.form_dimension_epoch = sequence;
         self.local_movement_speed = None;
         self.publish_local_mount_change(sequence, previous_mount);

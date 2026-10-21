@@ -820,6 +820,7 @@ fn player_spawn_move_player_and_absolute_move_share_feet_space() {
                 head_yaw: None,
                 on_ground: Some(true),
                 teleported: true,
+                force_local_move: false,
                 player_mode: None,
                 source_tick: None,
                 interpolation: Default::default(),

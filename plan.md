@@ -135,6 +135,9 @@ and resource qualification; they do not imply these systems need to be written.
   NBT variant and strict-final witness without deferrals.
 - [ ] Qualify the provisional block-entity carrier/render pass across its supported
   families, updates, animation and item contents; implementation alone closes no gate.
+  Shulker lids still need animated collision bounds and standing-on-open-lid acceptance;
+  accepting server actor displacement alone does not complete this behavior.
+  Local actor displacement also needs matched interpolation-timing acceptance.
 - [ ] Close protocol/content integration findings and required upstream fixes through
   the current PR, review and acceptance workflow. Follow the current branch policy.
 - [ ] Verify invisible-block presentation, including conditional camera-facing marker
