@@ -163,7 +163,7 @@ mod tests {
             .filter(|v| v.anchor[3] == KIND_GROUND)
             .collect();
         assert_eq!(faces.len(), 14 * 6); // two end faces and twelve exposed side faces
-        for triangle in faces.chunks_exact(3) {
+        for triangle in faces.as_chunks::<3>().0 {
             // No face lies on either internal x-plane.
             assert!(
                 ![0., 1.]
@@ -176,7 +176,7 @@ mod tests {
             .filter(|v| v.anchor[3] == KIND_STRIP)
             .collect();
         assert_eq!(edges.len(), 20 * 6); // four long edges (three segments each), eight end edges
-        for segment in edges.chunks_exact(6) {
+        for segment in edges.as_chunks::<6>().0 {
             if segment[0].anchor[0] == segment[2].anchor[0] {
                 assert!([-1., 2.].contains(&segment[0].anchor[0]));
             }
