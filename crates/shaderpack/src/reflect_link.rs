@@ -7,8 +7,9 @@ use crate::reflection::ValueType;
 use naga::{Binding, TypeInner};
 use std::collections::BTreeMap;
 
-/// Requires every fragment input to have a compatible vertex output at its location.
+/// Requires compatible live buffer layouts and vertex outputs for every fragment input.
 pub(crate) fn validate(stages: &[&CompiledStage]) -> Result<(), String> {
+    validate_buffers(stages)?;
     let Some(vertex) = stages.iter().find(|stage| stage.stage == StageKind::Vertex) else {
         return Ok(());
     };
@@ -56,6 +57,89 @@ pub(crate) fn validate(stages: &[&CompiledStage]) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Rejects different memory layouts at a buffer binding used by more than one stage.
+fn validate_buffers(stages: &[&CompiledStage]) -> Result<(), String> {
+    let mut buffers = BTreeMap::new();
+    for stage in stages {
+        if stage.module.entry_points.is_empty() {
+            continue;
+        }
+        let usage = stage.info.get_entry_point(0);
+        for (handle, variable) in stage.module.global_variables.iter() {
+            let Some(binding) = &variable.binding else {
+                continue;
+            };
+            if usage[handle].is_empty()
+                || !matches!(
+                    variable.space,
+                    naga::AddressSpace::Uniform | naga::AddressSpace::Storage { .. }
+                )
+            {
+                continue;
+            }
+            if let Some((module, ty)) = buffers.insert(binding, (&stage.module, variable.ty))
+                && !same_buffer_layout(module, ty, &stage.module, variable.ty)
+            {
+                return Err(format!(
+                    "stages disagree on the buffer layout at group {} binding {}",
+                    binding.group, binding.binding
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Compares validated buffer types by offsets, strides and value types, ignoring names.
+fn same_buffer_layout(
+    left: &naga::Module,
+    left_ty: naga::Handle<naga::Type>,
+    right: &naga::Module,
+    right_ty: naga::Handle<naga::Type>,
+) -> bool {
+    let mut pending = vec![(left_ty, right_ty)];
+    let mut visited = std::collections::HashSet::new();
+    while let Some((a, b)) = pending.pop() {
+        if !visited.insert((a, b)) {
+            continue;
+        }
+        match (&left.types[a].inner, &right.types[b].inner) {
+            (
+                TypeInner::Struct {
+                    members: a,
+                    span: a_span,
+                },
+                TypeInner::Struct {
+                    members: b,
+                    span: b_span,
+                },
+            ) if a_span == b_span && a.len() == b.len() => {
+                for (a, b) in a.iter().zip(b) {
+                    if a.offset != b.offset {
+                        return false;
+                    }
+                    pending.push((a.ty, b.ty));
+                }
+            }
+            (
+                TypeInner::Array {
+                    base: a,
+                    size: a_size,
+                    stride: a_stride,
+                },
+                TypeInner::Array {
+                    base: b,
+                    size: b_size,
+                    stride: b_stride,
+                },
+            ) if a_size == b_size && a_stride == b_stride => pending.push((*a, *b)),
+            (a, b) if a == b => {}
+            _ => return false,
+        }
+    }
+    true
 }
 
 /// Collects typed user locations from direct values or entry-point interface structs.
