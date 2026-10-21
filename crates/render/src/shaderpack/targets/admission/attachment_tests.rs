@@ -48,7 +48,7 @@ fn duplicate_active_colour_attachments_fail_view_admission() {
                 (vertex_name.as_str(), vertex),
                 (fragment_name.as_str(), fragment.as_str()),
             ];
-            if program == "shadow" {
+            if program != "composite" {
                 files.extend([
                     ("gbuffers_basic.vsh", vertex),
                     (
