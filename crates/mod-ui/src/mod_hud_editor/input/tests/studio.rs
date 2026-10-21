@@ -4,6 +4,7 @@ use super::*;
 use ui::mod_panel::{Control, FieldModifiers};
 
 mod amendment;
+mod slider;
 
 struct Art;
 impl json_ui::TextMeasure for Art {
@@ -545,6 +546,9 @@ fn studio_native_empty_preview_keeps_its_placeholder_across_gameplay_publication
             held: false,
             percent: true,
             empty: false,
+            compact: false,
+            offhand: false,
+            warning: 0.,
         },
         limit: 4,
         color: [1.; 4],

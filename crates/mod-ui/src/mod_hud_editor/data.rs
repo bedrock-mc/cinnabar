@@ -31,6 +31,9 @@ impl HudEditor {
         data.set_global("#hud_toast", Scalar::Text(self.toast.text.clone()));
         data.set_global("#hud_viewport_w", Scalar::Num(self.viewport[0]));
         data.set_global("#hud_viewport_h", Scalar::Num(self.viewport[1]));
+        for &(index, fill) in &self.control_fills {
+            data.set_global(format!("#row_{index}_fill"), Scalar::Num(fill));
+        }
         self.write_geometry(&mut data);
         data
     }
@@ -145,11 +148,30 @@ impl HudEditor {
                 card.map_or_else(String::new, |card| format!("{:.0}%", card.scale * 100.)),
             ),
         );
-        self.inspector.update(
-            selected.map(|_| [at[0], at[1], size[0], size[1]]),
-            self.viewport,
-            self.draft.inspector_size,
+        data.set_global(
+            "#hud_selected_scale_fill",
+            Scalar::Num(card.map_or(0., |card| slider::scale_fill(card.scale))),
         );
+        let [x, y, w, h] = [at[0], at[1], size[0], size[1]].map(|value| value.round() as i64);
+        let (size_text, position_text) = if card.is_some() {
+            (format!("{w}\u{d7}{h}"), format!("x {x} \u{b7} y {y}"))
+        } else {
+            Default::default()
+        };
+        data.set_global(
+            "#hud_selected_name",
+            Scalar::Text(card.map_or_else(String::new, |card| card.editor_name().to_owned())),
+        );
+        data.set_global("#hud_selected_size_text", Scalar::Text(size_text));
+        data.set_global("#hud_selected_position_text", Scalar::Text(position_text));
+        // Moving the inspector mid-gesture would move the slider under the pointer.
+        if !self.scaling() {
+            self.inspector.update(
+                selected.map(|_| [at[0], at[1], size[0], size[1]]),
+                self.viewport,
+                self.draft.inspector_size,
+            );
+        }
         for (name, value) in [
             ("#hud_inspector_x", self.inspector.at[0]),
             ("#hud_inspector_y", self.inspector.at[1]),

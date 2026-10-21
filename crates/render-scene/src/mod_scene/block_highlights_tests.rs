@@ -98,6 +98,7 @@ fn drawn_blocks_share_finder_geometry_and_release_independently() {
     scene.set_drawn_block_highlights(&[mod_api::native_render::BlockHighlight {
         position: [4, 5, 6],
         colour: red,
+        outline: None,
     }]);
     let expected: Vec<_> = mod_render::block_highlights::build(&[[1, 2, 3]], pink)
         .into_iter()
@@ -108,6 +109,7 @@ fn drawn_blocks_share_finder_geometry_and_release_independently() {
     scene.set_drawn_block_highlights(&[mod_api::native_render::BlockHighlight {
         position: [4, 5, 6],
         colour: red,
+        outline: None,
     }]);
     assert!(Arc::ptr_eq(&before, &scene.block_vertices));
     scene.set_drawn_block_highlights(&[]);

@@ -135,6 +135,9 @@ fn rasterize_at(bytes: &[u8], raster_scale: u32) -> Result<RuntimeFontCatalog, S
             draw_size_64: logical_size.map(|value| value * 64),
         });
     }
+    if cells.len() > ui::mod_panel::MAX_FONT_GLYPHS {
+        return Err("font exceeds local glyph limit".into());
+    }
     let atlas = pack_cells(&cells, 0, side, 1);
     if atlas.glyphs.len() != cells.len() || atlas.pages.len() != 1 {
         return Err("font exceeds local atlas bounds".into());

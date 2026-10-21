@@ -92,6 +92,7 @@ impl HudEditor {
             return;
         }
         self.data_dirty = true;
+        self.cancel_slider();
         if self.autosave {
             self.cancel_drag();
         }
@@ -206,8 +207,9 @@ impl HudEditor {
             self.reset = false;
         }
     }
-    /// Releases an unfinished drag without promoting it to a saved placement.
+    /// Releases an unfinished drag or slider without promoting it to a saved placement.
     pub(in super::super) fn cancel_drag(&mut self) {
+        self.cancel_slider();
         self.data_dirty |= self.drag.is_some();
         if let Some(drag) = self.drag.take() {
             let resized = self.draft.cards[drag.index].scale != drag.before.scale;
@@ -338,12 +340,13 @@ impl HudEditor {
             self.cancel_pointer_input();
             return Vec::new();
         }
+        if !pressed && self.slider.is_some() {
+            return self.drag_slider(position, held, controls);
+        }
         let Some(frame) = self.frame.as_ref() else {
             return Vec::new();
         };
-        let point = std::array::from_fn(|axis| {
-            f64::from((position[axis] - frame.origin[axis]) / frame.scale)
-        });
+        let point = slider::frame_point(frame, position);
         let hit = frame
             .hits
             .iter()
@@ -363,6 +366,15 @@ impl HudEditor {
         let action = pressed
             .then(|| hit.and_then(|hit| hit.pressed.clone()))
             .flatten();
+        if let Some(events) = action
+            .as_deref()
+            .and_then(|action| self.begin_slider(action, point, controls))
+        {
+            if !held {
+                self.drag_slider(position, false, controls);
+            }
+            return events;
+        }
         if let Some(events) = action
             .as_deref()
             .and_then(|action| self.action(action, controls))
@@ -505,7 +517,7 @@ impl HudEditor {
             "Escape" => self.finish(false),
             "Enter" | "NumpadEnter" => self.finish(true),
             "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown" => {
-                if self.drag.is_some() {
+                if self.drag.is_some() || self.slider.is_some() {
                     return;
                 }
                 self.settle_anchor_motion();

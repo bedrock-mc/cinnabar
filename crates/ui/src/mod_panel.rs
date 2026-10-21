@@ -35,6 +35,8 @@ pub const MAX_PANEL_CHOICES: usize = 8;
 pub const MAX_PANEL_SECTIONS: usize = 32;
 pub const MAX_PANEL_CATEGORIES: usize = 4;
 pub const FONT_NAME: &str = "mod_panel";
+/// Glyph records in one bounded private atlas, including text, punctuation and icons.
+pub const MAX_FONT_GLYPHS: usize = 512;
 /// A shipped, smoothly sampled sans face for authored native panels.
 pub const SANS_FONT_NAME: &str = "mod_panel_sans";
 /// Opens the selected personal panel when its authored hotkey is unavailable on a keyboard.

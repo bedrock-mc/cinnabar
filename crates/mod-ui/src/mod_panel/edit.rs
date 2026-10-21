@@ -574,10 +574,10 @@ fn format_number(value: f32) -> String {
     value.to_string()
 }
 
-/// Keeps editing width identical for clipping and overlay geometry across control kinds.
+/// Text scrolls inside its authored field; numeric entry retains a usable minimum width.
 fn field_width(spec: &Panel, control: usize, rect: &[f64; 4], viewport: [f64; 2]) -> f64 {
     let minimum = if matches!(spec.controls.get(control), Some(Control::Text { .. })) {
-        180.
+        8.
     } else {
         42.
     };

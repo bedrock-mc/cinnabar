@@ -22,6 +22,8 @@ pub(super) mod sources;
 #[cfg(test)]
 #[path = "hud/sources_tests.rs"]
 mod sources_tests;
+#[path = "hud/status_rows.rs"]
+mod status_rows;
 
 #[derive(Default)]
 pub(super) struct HudState {

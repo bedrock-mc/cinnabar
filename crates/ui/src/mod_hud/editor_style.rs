@@ -26,6 +26,8 @@ pub struct EditorStyle {
     pub guide: [f32; 4],
     /// Built-in snapping grid lines, drawn only without an extension surface.
     pub grid: [f32; 4],
+    /// Fill of the distance measurement pills around the selected card.
+    pub measurement: [f32; 4],
 }
 
 impl Default for EditorStyle {
@@ -39,6 +41,7 @@ impl Default for EditorStyle {
             handle_radius: 0.,
             guide: [0.2, 0.85, 1., 0.8],
             grid: [1., 1., 1., 0.09],
+            measurement: [0.055, 0.065, 0.08, 0.97],
         }
     }
 }
@@ -54,6 +57,7 @@ impl EditorStyle {
             self.handle_pressed,
             self.guide,
             self.grid,
+            self.measurement,
         ] {
             super::color(color)?;
         }
@@ -76,11 +80,13 @@ mod tests {
             serde_json::from_str(r#"{"selected":[1,0.5,0,1],"handle_radius":2.5}"#).unwrap();
         assert_eq!(style.selected, [1., 0.5, 0., 1.]);
         assert_eq!(style.outline, EditorStyle::default().outline);
+        assert_eq!(style.measurement, [0.055, 0.065, 0.08, 0.97]);
         assert!(style.validate().is_ok());
         for invalid in [
             r#"{"guide":[1,1,1,2]}"#,
             r#"{"grid":[-0.1,0,0,1]}"#,
             r#"{"handle_radius":5}"#,
+            r#"{"measurement":[0,0,0,1.5]}"#,
         ] {
             let style: EditorStyle = serde_json::from_str(invalid).unwrap();
             assert!(style.validate().is_err(), "{invalid}");
