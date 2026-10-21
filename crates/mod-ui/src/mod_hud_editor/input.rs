@@ -263,7 +263,7 @@ impl HudEditor {
         self.cancel_drag();
         self.anchor_motion = None;
         self.toast = Default::default();
-        self.hidden.clear();
+        // Reset restores placement only; which modules are shown is the player's choice.
         self.data_dirty = true;
         for card in &mut self.draft.cards {
             card.anchor = card.reset_anchor.unwrap_or(card.anchor);
