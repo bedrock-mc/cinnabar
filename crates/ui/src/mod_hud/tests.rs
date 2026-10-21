@@ -145,6 +145,7 @@ mod tests {
         assert!(EditorResult::default().validate().is_ok());
         let saved = EditorResult {
             hidden_cards: Vec::new(),
+            replace_pending_reset: false,
             saved: true,
             reset: false,
             placements: vec![Placement {
@@ -407,6 +408,7 @@ fn uniform_card_scale_supports_quarter_to_five_without_widening_text_scale() {
         hud.validate().unwrap();
         super::EditorResult {
             hidden_cards: Vec::new(),
+            replace_pending_reset: false,
             saved: true,
             reset: false,
             placements: vec![super::Placement {
@@ -528,4 +530,13 @@ fn studio_native_placeholder_identity_survives_materialization_and_stays_out_of_
     card.title.clear();
     card.ensure_editor_placeholder();
     assert!(card.title.is_empty());
+}
+
+#[test]
+fn studio_cancellation_cannot_replace_pending_reset_intent() {
+    let result = super::EditorResult {
+        replace_pending_reset: true,
+        ..Default::default()
+    };
+    assert!(result.validate().is_err());
 }

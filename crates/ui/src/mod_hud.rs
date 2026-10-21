@@ -390,6 +390,8 @@ pub struct EditorResult {
     pub placements: Vec<Placement>,
     /// IDs hidden in this saved draft; every ID also has a placement.
     pub hidden_cards: Vec<String>,
+    /// A history restore replaces unread reset intent instead of coalescing it.
+    pub replace_pending_reset: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -731,7 +733,10 @@ impl EditorResult {
     /// Rejects malformed placement output and changes attached to cancellation.
     pub fn validate(&self) -> Result<(), String> {
         if !self.saved
-            && (self.reset || !self.placements.is_empty() || !self.hidden_cards.is_empty())
+            && (self.reset
+                || !self.placements.is_empty()
+                || !self.hidden_cards.is_empty()
+                || self.replace_pending_reset)
         {
             return Err("cancelled HUD editor cannot carry changes".into());
         }

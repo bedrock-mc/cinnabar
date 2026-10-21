@@ -135,7 +135,7 @@ impl HudEditor {
             self.toast = Default::default();
             self.data_dirty = true;
             self.reset = reset;
-            self.persist();
+            self.persist(true);
         }
     }
 }

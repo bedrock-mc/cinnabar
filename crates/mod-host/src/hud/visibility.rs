@@ -72,3 +72,48 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod reset_tests {
+    use super::*;
+    use crate::{ModGrants, runtime::cinnabar::extension::hud::Host};
+
+    #[test]
+    fn studio_history_restore_replaces_unread_reset_through_guest_delivery() {
+        let mut state = State::new(
+            ModGrants {
+                hud: true,
+                controls: true,
+                ..Default::default()
+            },
+            String::new(),
+            Default::default(),
+        );
+        state.hud.deliver_editor_result(EditorResult {
+            saved: true,
+            reset: true,
+            ..Default::default()
+        });
+        state.hud.deliver_editor_result(EditorResult {
+            saved: true,
+            ..Default::default()
+        });
+        assert!(state.hud.editor_result.as_ref().unwrap().reset);
+        state.hud.deliver_editor_result(EditorResult {
+            saved: true,
+            replace_pending_reset: true,
+            ..Default::default()
+        });
+        state.hud.deliver_editor_result(EditorResult {
+            saved: true,
+            ..Default::default()
+        });
+        let result = Host::read_editor_layout(&mut state)
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(result.saved && !result.reset);
+        state.hud.commit();
+        assert!(state.hud.editor_result.is_none());
+    }
+}

@@ -127,6 +127,11 @@ impl HudEditor {
     fn snapshot(&self, saved: bool) -> EditorResult {
         EditorResult {
             saved,
+            replace_pending_reset: saved
+                && self
+                    .result
+                    .as_ref()
+                    .is_some_and(|result| result.replace_pending_reset),
             reset: saved
                 && (self.reset
                     || self
@@ -181,12 +186,21 @@ impl HudEditor {
     /// Persists completed opted-in gestures while retaining the live editor.
     pub(super) fn checkpoint(&mut self) {
         self.history.record(&self.draft, &self.hidden, self.reset);
-        self.persist();
+        self.persist(false);
     }
-    /// Coalesces autosaved output without adding an undo or redo restoration to history.
-    pub(super) fn persist(&mut self) {
-        if self.autosave && (self.draft != self.committed || self.hidden != self.committed_hidden) {
-            self.result = Some(self.snapshot(true));
+    /// Publishes completed edits, replacing unread reset intent for an explicit history restore.
+    pub(super) fn persist(&mut self, history_restore: bool) {
+        if self.autosave
+            && (history_restore
+                || self.draft != self.committed
+                || self.hidden != self.committed_hidden)
+        {
+            let mut result = self.snapshot(true);
+            if history_restore {
+                result.reset = self.reset;
+                result.replace_pending_reset = true;
+            }
+            self.result = Some(result);
             self.committed = self.draft.clone();
             self.committed_hidden.clone_from(&self.hidden);
             self.reset = false;

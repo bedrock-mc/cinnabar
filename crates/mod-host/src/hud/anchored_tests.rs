@@ -12,6 +12,7 @@ fn state(grants: ModGrants, anchor: Anchor) -> State {
     let mut state = State::new(grants, String::new(), Default::default());
     state.hud.editor_result = Some(EditorResult {
         hidden_cards: Vec::new(),
+        replace_pending_reset: false,
         saved: true,
         reset: true,
         placements: vec![Placement {

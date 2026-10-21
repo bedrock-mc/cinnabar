@@ -603,3 +603,24 @@ fn studio_reset_metadata_round_trips_through_undo_redo_and_save() {
         assert!(editor.result.take().unwrap().reset);
     }
 }
+
+#[test]
+fn studio_reset_metadata_autosave_undo_replaces_unread_reset_intent() {
+    let mut editor = editor(true);
+    editor.selected = Some(0);
+    editor.key("ArrowRight");
+    editor.reset_layout();
+    assert!(editor.result.as_ref().unwrap().reset);
+    editor.step_history(false);
+    assert!(!editor.result.as_ref().unwrap().reset);
+    editor.step_history(true);
+    assert!(editor.result.as_ref().unwrap().reset);
+    editor.step_history(false);
+    editor.key("ArrowDown");
+    let restored = editor.result.take().unwrap();
+    assert!(restored.saved && !restored.reset);
+    restored.validate().unwrap();
+    assert!(restored.replace_pending_reset);
+    editor.key("ArrowRight");
+    assert!(!editor.result.take().unwrap().replace_pending_reset);
+}
