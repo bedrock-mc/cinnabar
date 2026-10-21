@@ -37,7 +37,7 @@ use render_scene::viewmodel::hand_projection;
 use render_scene::{ViewmodelCompletionGate, ViewmodelScene};
 use std::{mem::size_of, sync::Mutex};
 mod gpu;
-mod node;
+pub(crate) mod node;
 use gpu::*;
 #[cfg(test)]
 mod tests;
@@ -100,7 +100,7 @@ pub(crate) fn enhanced_post_pass(
 ) -> Option<bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem>> {
     world.contains_resource::<Installed>().then(|| {
         crate::gpu_timing::profiled(
-            node::hand_view,
+            node::hand_view::<false>,
             Some(render_scene::RuntimeStage::GpuHand),
             "EnhancedHandLabel",
         )
@@ -116,7 +116,7 @@ pub(crate) fn install_hand_graph(world: &mut World) {
         .try_schedule_scope(Core3d, |_, schedule| {
             schedule.add_systems(
                 crate::gpu_timing::profiled(
-                    node::hand_view,
+                    node::hand_view::<false>,
                     Some(render_scene::RuntimeStage::GpuHand),
                     "HandLabel",
                 )

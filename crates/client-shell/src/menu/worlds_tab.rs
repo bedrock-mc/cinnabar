@@ -377,15 +377,11 @@ mod tests {
 
         let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
         for (kind, blocking, expected) in [
-            (
-                PromptKind::DockerMissing,
-                PromptFor::CreateBds,
-                &[PromptButton::UseDragonfly][..],
-            ),
+            (PromptKind::DockerMissing, PromptFor::CreateBds, &[][..]),
             (
                 PromptKind::DockerNotRunning,
                 PromptFor::CreateBds,
-                &[PromptButton::UseDragonfly, PromptButton::Retry][..],
+                &[PromptButton::Retry][..],
             ),
             (PromptKind::DockerMissing, PromptFor::Play, &[][..]),
             (

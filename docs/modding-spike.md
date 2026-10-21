@@ -1243,7 +1243,7 @@ they do not establish reference-client parity. Annotations retain native
 visibility, depth, font-atlas and record limits and leave server name text intact.
 
 A single plain-value card may set `text_plate` with `brackets`, `bracket_color`,
-`background`, `border_color`, and `border_width` (0–8). Colors are straight RGBA.
+`background`, `border_color`, `border_width` (0–8), and `radius` (0–16, default 0). Colors are straight RGBA.
 Optional `width` (1–512) and `height` (1–128) fix the background's size; omitting
 either fits that dimension to native font measurements and padding. Text stays
 centered and retains its row color and the card's shadow. Brackets have their
@@ -1267,7 +1267,8 @@ the player's effects. It remains active with empty `cards`; clearing the HUD,
 omitting the flag or setting it to false restores the ordinary icons.
 
 Card data contains `cards`, each with a unique `id`, `rows`, and optional
-`title`, `anchor`, `offset`, `scale`, `position`, and `background_opacity`. Anchors are
+`title`, `anchor`, `offset`, `scale`, `position`, `background_opacity`, and
+`background_radius` (0–16 GUI pixels, default 3). Background radii scale with the card. Anchors are
 `top_left`, `top_center`, `top_right`, `left`, `center`, `right`, `bottom_left`,
 `bottom_center`, and `bottom_right`. Offsets are finite GUI pixels measured inward
 from anchored edges; centered axes use signed offsets toward the right or bottom.

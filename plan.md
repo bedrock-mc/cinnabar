@@ -269,6 +269,10 @@ and performance qualification for these previews remains open.
 
 Player name tags use Java's standing player height before pose offsets, independent of
 server collision-box changes. Other actors retain their published label height.
+Name-tag budgets admit on-screen bounds before their caps, favor nearer labels and
+keep cosmetic labels complete. Atlas text
+retains formatting and line slots, with guarded cell edges and
+repacking before UV publication. In-world visual qualification remains open.
 Name tag colours compose after Enhanced and shader-pack world effects with the scene's
 depth, and translucent plates use over-compositing for scene alpha. Coplanar shadows
 and glyphs share the anchor depth to avoid rounding speckle. Local cosmetic
@@ -530,6 +534,14 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   entities and the hand, deferred, composite and final passes, compute, custom textures and
   images) plus the pack-drawn sky, particles, clouds, weather, lightning, cracks and selection.
   Block, item, entity and biome ids and Java sky and fog colours come from the pinned
+  Bedrock→Java mappings. Settings offers pack import, a reload key, load status and a Shader
+  Pack Settings screen. Incomplete: in-game acceptance across packs and platforms (Metal is
+  unverified); stage pre-flips (`flip.<stage>_pre.<buffer>`) and Iris's explicit-flip
+  ordering; drawing the solid hand's glint before deferred passes; pack replacements
+  for uncovered celestial layers (the pack sky stands), actor colour masks, multitexture
+  materials, dissolve pairs, beacon beams and additive rays (these retain native
+  composition over the pack); native layers behind pack-rendered glass or water, whose
+  final depth can hide those layers; autofocus on cutout
   Bedrock→Java mappings. The Shaders settings tab offers pack import, reload, load status
   and a Shader Pack Settings screen. Video links to Shaders and shows its renderer switch
   only when Enhanced is available.
