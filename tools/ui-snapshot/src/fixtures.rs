@@ -2,12 +2,15 @@
 
 #[cfg(feature = "test-support")]
 mod cosmetics;
+mod hud_cards;
+mod hud_editor;
+mod local_identity;
 mod minecraft_import;
 mod mods;
 mod out_of_game;
+mod roster;
 mod shader_options;
 mod shader_pack;
-mod tab_list;
 mod updates;
 
 use std::sync::Arc;
@@ -28,6 +31,8 @@ pub struct State {
 
 /// Inputs borrowed by the same screen painters the client uses.
 pub enum Fixture {
+    /// A label whose unavailable primary face selects its installed backup.
+    BackupFont,
     /// An original checker repeated beyond a small sprite's former draw cutoff.
     TiledImage {
         scale: f64,
@@ -55,10 +60,22 @@ pub enum Fixture {
     /// Two original custom-form inputs after selection moves from the first to the second.
     EditSelection,
     /// An externally supplied bounded native mod panel.
-    ModPanel(Box<ui::mod_panel::Panel>),
+    ModPanel(
+        Box<ui::mod_panel::Panel>,
+        Option<Box<ui::mod_hud::Hud>>,
+        Option<(&'static str, render_model::UiTexturePage)>,
+    ),
+    /// A selected HUD card before or after retained placement and visibility edits.
+    HudEditor {
+        hud: Box<ui::mod_hud::Hud>,
+        edited: bool,
+    },
     /// Two same-ID requests arriving while the first menu is still open.
     #[cfg(feature = "test-support")]
     FormOverlap,
+    /// An edited settings draft after switching away from and back to its tab.
+    #[cfg(feature = "test-support")]
+    SettingsDraft,
     /// A damaged stack picked up from the survival inventory.
     #[cfg(feature = "test-support")]
     CursorDurability,
@@ -86,6 +103,60 @@ const SHADER_PACK_ROW_SIZE: [u32; 2] = [SIZE[0], 1600];
 
 pub const STATES: &[State] = &[
     State {
+        name: "hud-editor-before",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || hud_editor::fixture(false),
+    },
+    State {
+        name: "hud-editor-after",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || hud_editor::fixture(true),
+    },
+    State {
+        name: "mod-local-player-neutral",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || local_identity::fixture(false),
+    },
+    State {
+        name: "mod-local-player-head",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || local_identity::fixture(true),
+    },
+    State {
+        name: "mod-hud-card-previews",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || hud_cards::fixture(true),
+    },
+    State {
+        name: "mod-hud-card-previews-empty",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || hud_cards::fixture(false),
+    },
+    State {
+        name: "sign-in-cache-error",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || out_of_game::sign_in_recovery(false),
+    },
+    State {
+        name: "sign-in-device-code",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || out_of_game::sign_in_recovery(true),
+    },
+    State {
+        name: "backup-font",
+        size: [640, 360],
+        gui_scale: 2,
+        fixture: || Fixture::BackupFont,
+    },
+    State {
         name: "jsonui-tiled-image",
         size: [256, 128],
         gui_scale: 1,
@@ -96,6 +167,13 @@ pub const STATES: &[State] = &[
         size: [256, 128],
         gui_scale: 1,
         fixture: || Fixture::TiledImage { scale: 0.001 },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "settings-draft-return",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::SettingsDraft,
     },
     #[cfg(feature = "test-support")]
     State {
@@ -555,25 +633,25 @@ pub const STATES: &[State] = &[
         name: "tab-list-badges",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || tab_list::badges(true),
+        fixture: || roster::badges(true),
     },
     State {
         name: "tab-list-heads",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: tab_list::heads,
+        fixture: roster::heads,
     },
     State {
         name: "tab-list-heads-columns",
         size: [640, 360],
         gui_scale: 3,
-        fixture: tab_list::head_columns,
+        fixture: roster::head_columns,
     },
     State {
         name: "tab-list-expired-badges",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || tab_list::badges(false),
+        fixture: || roster::badges(false),
     },
     State {
         name: "settings-session-navigation",

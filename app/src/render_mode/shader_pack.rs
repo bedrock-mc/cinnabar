@@ -172,8 +172,6 @@ pub(super) fn sync_shader_pack_request(
     if !config.is_changed() && !settings.is_changed() && !request.is_added() {
         return;
     }
-    request.set_if_neq(desired_request(
-        &config,
-        &settings.user_settings_update().1.video,
-    ));
+    let next = desired_request(&config, &settings.user_settings_update().1.video);
+    request.set_if_neq(next);
 }

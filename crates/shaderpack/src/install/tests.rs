@@ -214,3 +214,75 @@ fn a_destination_inside_the_source_is_rejected_before_creating_it() {
     ));
     assert!(!destination.exists());
 }
+
+#[cfg(unix)]
+#[test]
+fn imported_symlinked_shader_roots_remain_listed_and_readable() {
+    let scratch = Scratch::new();
+    let shaders = scratch.file("shader-source");
+    fs::create_dir(&shaders).unwrap();
+    fs::write(shaders.join("final.fsh"), b"// linked shader").unwrap();
+    fs::write(shaders.join("texture.bin"), b"linked asset").unwrap();
+    std::os::unix::fs::symlink(&shaders, shaders.join("loop")).unwrap();
+    for nested in [false, true] {
+        let source = scratch.file(if nested { "Nested" } else { "Direct" });
+        fs::create_dir(&source).unwrap();
+        let folder = if nested {
+            let wrapper = scratch.file("wrapper");
+            fs::create_dir(&wrapper).unwrap();
+            std::os::unix::fs::symlink(&wrapper, source.join("wrapper")).unwrap();
+            wrapper
+        } else {
+            source.clone()
+        };
+        std::os::unix::fs::symlink(&shaders, folder.join("shaders")).unwrap();
+
+        assert!(matches!(
+            add_dropped_packs(std::slice::from_ref(&source), &scratch.packs),
+            DropOutcome::Added(_)
+        ));
+        let name = source.file_name().unwrap().to_str().unwrap();
+        let pack = crate::discover_packs(&scratch.packs)
+            .into_iter()
+            .find(|pack| pack.name == name)
+            .expect("the imported pack remains discoverable");
+        let loaded = crate::PackSource::open(&pack.path).unwrap();
+        assert_eq!(loaded.text("final.fsh"), Some("// linked shader"));
+        assert_eq!(loaded.read_bytes("texture.bin").unwrap(), b"linked asset");
+        assert!(!pack.path.join("shaders/loop").exists());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_destination_inside_a_linked_shader_root_is_rejected_before_creating_it() {
+    let scratch = Scratch::new();
+    let source = scratch.file("Dusk");
+    let shaders = scratch.file("shader-source");
+    fs::create_dir(&source).unwrap();
+    fs::create_dir(&shaders).unwrap();
+    std::os::unix::fs::symlink(&shaders, source.join("shaders")).unwrap();
+    let destination = shaders.join("shaderpacks");
+    assert!(matches!(
+        add_dropped_packs(std::slice::from_ref(&source), &destination),
+        DropOutcome::CopyFailed { .. }
+    ));
+    assert!(!destination.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_destination_inside_a_linked_pack_wrapper_is_rejected_before_creating_it() {
+    let scratch = Scratch::new();
+    let source = scratch.file("Dusk");
+    let wrapper = scratch.file("wrapper");
+    fs::create_dir(&source).unwrap();
+    fs::create_dir_all(wrapper.join("shaders")).unwrap();
+    std::os::unix::fs::symlink(&wrapper, source.join("Dusk")).unwrap();
+    let destination = wrapper.join("shaderpacks");
+    assert!(matches!(
+        reject_overlap(&source, &destination.join("Dusk")),
+        Err(error) if error.kind() == io::ErrorKind::InvalidInput
+    ));
+    assert!(!destination.exists());
+}

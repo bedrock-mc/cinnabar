@@ -2,9 +2,18 @@
 use crate::{CombatObservation, MotionObservation, ObservedActor, VitalsObservation};
 use anyhow::{Result, ensure};
 
+/// One day of the server clock, fenced to the currently presented session and dimension.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WorldDay {
+    pub session: u64,
+    pub dimension: i32,
+    pub day: u64,
+}
+
 /// Callback-scoped read-only facts captured by native owning adapters.
 #[derive(Clone, Default)]
 pub struct ModuleObservations {
+    pub world_day: Option<WorldDay>,
     /// Confirmed activations in the current native counting interval; absent while tracking is disabled.
     pub local_totem_uses: Option<u32>,
     pub motion: Option<MotionObservation>,
@@ -21,6 +30,10 @@ fn finite(point: (f32, f32, f32)) -> bool {
 
 /// Rejects malformed or oversized native facts before any sandbox import can read them.
 pub(super) fn validate(facts: &ModuleObservations) -> Result<()> {
+    ensure!(
+        facts.world_day.is_none_or(|day| day.session != 0),
+        "invalid world day observation"
+    );
     ensure!(
         facts.motion.as_ref().is_none_or(|m| m.session != 0
             && m.yaw.is_finite()

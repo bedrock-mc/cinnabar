@@ -1,0 +1,10 @@
+{
+  "name": "Figma to JSON-UI",
+  "id": "figma-to-jsonui",
+  "api": "1.0.0",
+  "main": "dist/code.js",
+  "ui": "dist/ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page",
+  "networkAccess": { "allowedDomains": ["none"] }
+}

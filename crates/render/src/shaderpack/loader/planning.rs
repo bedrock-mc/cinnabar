@@ -41,12 +41,12 @@ fn discards(module: &naga::Module) -> bool {
         || module.entry_points.iter().any(|e| kills(&e.function.body))
 }
 
-/// Plans buffer reads, writes and preservation for one runnable program.
+/// Plans one translated program, rejecting unsupported destinations before building masks.
 pub(super) fn planned(
     program: &ProgramTranslation,
     reflection: &ProgramReflection,
     properties: &ShaderProperties,
-) -> PlannedProgram {
+) -> Result<PlannedProgram, String> {
     let name = program.program.name.as_str();
     let mipmaps = program
         .consts
@@ -63,6 +63,11 @@ pub(super) fn planned(
     } else {
         vec![]
     };
+    if let Some(index) = outputs.iter().flatten().find(|&&b| b >= MAX_COLOR_BUFFERS) {
+        return Err(format!(
+            "{name} writes unsupported color buffer {index}; expected an index below {MAX_COLOR_BUFFERS}"
+        ));
+    }
     let whole = properties.scales.iter().all(|s| s.program != name)
         && !program
             .stages
@@ -88,7 +93,7 @@ pub(super) fn planned(
         .flatten()
         .filter(|&&b| !whole || blends(b))
         .fold(0u32, |mask, b| mask | (1 << b));
-    PlannedProgram {
+    Ok(PlannedProgram {
         name: name.to_owned(),
         group: program.program.group,
         kind: program.program.kind,
@@ -102,7 +107,7 @@ pub(super) fn planned(
             .collect(),
         mipmaps,
         partial,
-    }
+    })
 }
 
 /// Storage bindings: the reflected minimum, raised to the pack's complete requested words.

@@ -462,6 +462,6 @@ fn call(func: Option<MolangFunction>, values: [f32; 4], rng: &mut Rng) -> f32 {
             let t = a.clamp(0.0, 1.0);
             3.0 * t * t - 2.0 * t * t * t
         }
-        _ => assets::entity::molang_call(func, &values, &mut || rng.unit()),
+        _ => assets::entity::molang_call(func, values, &mut || rng.unit()),
     }
 }

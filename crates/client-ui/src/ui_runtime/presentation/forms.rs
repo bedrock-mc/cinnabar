@@ -715,7 +715,7 @@ impl UiPresentationRuntime {
                     runtime.session_id() != 0,
                     &translate,
                     &images,
-                    &|text| runtime.resolve_form_text(text),
+                    &|text, budget| runtime.resolve_form_text(text, budget),
                 ) {
                     None => "form kind has no engine template".to_owned(),
                     Some(form) => {

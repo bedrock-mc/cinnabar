@@ -74,7 +74,7 @@ pub(super) struct Children {
     pub(super) maximum: [f64; 2],
 }
 
-type PlaceMemo = Memo<(usize, u64, u64, u64), Placements>;
+type PlaceMemo = Memo<(usize, u64, u64, u64), ([u64; 4], Placements)>;
 
 /// Stable target addresses and visibility masks, shared with the emit pass.
 pub(super) type Targets = std::sync::Arc<[(usize, u8)]>;
@@ -543,6 +543,7 @@ pub(super) fn placed_children<'a>(
     rect: Rect,
     env: &LayoutEnv,
     clip: Option<Rect>,
+    parent_transform: Option<crate::transform::Affine>,
 ) -> Vec<(&'a ResolvedControl, Rect)> {
     let key = (
         std::ptr::from_ref(parent).addr(),
@@ -550,6 +551,10 @@ pub(super) fn placed_children<'a>(
         rect.h.to_bits(),
         env.text.physical_pixel_size().to_bits(),
     );
+    let linear = parent_transform
+        .unwrap_or(crate::transform::Affine::IDENTITY)
+        .linear
+        .map(f64::to_bits);
     let shift = |(index, at): &(usize, Rect)| {
         let moved = Rect::new(at.x + rect.x, at.y + rect.y, at.w, at.h);
         (&parent.children[*index], moved)
@@ -557,7 +562,8 @@ pub(super) fn placed_children<'a>(
     let memoized = PLACED.with(|memo| {
         let memo = memo.borrow();
         memo.get(&key)
-            .map(|placed| placed.visible(clip, rect).iter().map(shift).collect())
+            .filter(|(cached, _)| *cached == linear)
+            .map(|(_, placed)| placed.visible(clip, rect).iter().map(shift).collect())
     });
     if let Some(placed) = memoized {
         return placed;
@@ -568,10 +574,10 @@ pub(super) fn placed_children<'a>(
             .map(|(child, at)| (child_index(parent, child), at))
             .collect();
     let relative = Placements::new(relative, grid::is_grid(parent), |index, rect| {
-        super::subtree_bounds(&parent.children[index], rect, env)
+        super::bounds::subtree(&parent.children[index], rect, env, parent_transform)
     });
     let placed = relative.visible(clip, rect).iter().map(shift).collect();
-    PLACED.with(|memo| memo.borrow_mut().insert(key, relative));
+    PLACED.with(|memo| memo.borrow_mut().insert(key, (linear, relative)));
     placed
 }
 

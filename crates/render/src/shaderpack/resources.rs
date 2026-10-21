@@ -109,6 +109,8 @@ pub(crate) struct ProgramBindings {
 pub(crate) struct ConstantTexture {
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
+    /// The exact view shape selected at creation, including arrays and cubes.
+    dimension: TextureDimension,
 }
 
 /// The shadow maps some program binds, as indices of pack-wide textures. The shadow pass
@@ -195,15 +197,11 @@ impl<'a> ConstantBuilder<'a> {
         }
     }
 
-    fn push(
-        &mut self,
-        key: Key,
-        texture: wgpu::Texture,
-        view: wgpu::TextureView,
-    ) -> (usize, TextureFormat) {
-        let format = texture.format();
+    /// Records a pack-wide texture together with its created view shape.
+    fn push(&mut self, key: Key, texture: ConstantTexture) -> (usize, TextureFormat) {
+        let format = texture.texture.format();
         let index = self.out.textures.len();
-        self.out.textures.push(ConstantTexture { texture, view });
+        self.out.textures.push(texture);
         self.keys.insert(key, (index, format));
         (index, format)
     }
@@ -213,6 +211,7 @@ impl<'a> ConstantBuilder<'a> {
         &self.out.textures[index]
     }
 
+    /// Creates a texture and retains the exact dimension of its bound view.
     fn texture(
         &self,
         label: &str,
@@ -220,7 +219,7 @@ impl<'a> ConstantBuilder<'a> {
         size: [u32; 3],
         dimension: TextureDimension,
         usage: TextureUsages,
-    ) -> Result<(wgpu::Texture, wgpu::TextureView), String> {
+    ) -> Result<ConstantTexture, String> {
         let (wgpu_dimension, layers, view_dimension) = match dimension {
             TextureDimension::D1Array => {
                 return Err("1D array textures are unsupported by wgpu".into());
@@ -278,7 +277,11 @@ impl<'a> ConstantBuilder<'a> {
             dimension: Some(view_dimension),
             ..Default::default()
         });
-        Ok((texture, view))
+        Ok(ConstantTexture {
+            texture,
+            view,
+            dimension,
+        })
     }
 
     /// A zero (depth: 1.0) texture of `format` and shape, shared by every unknown binding of
@@ -309,14 +312,14 @@ impl<'a> ConstantBuilder<'a> {
         if depth {
             usage |= TextureUsages::RENDER_ATTACHMENT;
         }
-        let (texture, view) = self.texture(
+        let texture = self.texture(
             "shader pack placeholder",
             format,
             [1, 1, 1],
             dimension,
             usage,
         )?;
-        let found = self.push(key, texture, view);
+        let found = self.push(key, texture);
         if depth {
             self.clears.push((found.0, wgpu::LoadOp::Clear(1.0), true));
         }
@@ -351,23 +354,23 @@ impl<'a> ConstantBuilder<'a> {
             .rev()
             .find(|t| t.stage == "noise")
             .and_then(|t| self.decode(&t.source));
-        let (texture, view) = match file {
+        let texture = match file {
             Some(decoded) => decoded,
             None => {
                 let side = self.noise_resolution;
                 let pixels = generated_noise(side, &self.gpu.device.limits())?;
-                let (texture, view) = self.texture(
+                let texture = self.texture(
                     "shader pack noisetex",
                     TextureFormat::Rgba8Unorm,
                     [side, side, 1],
                     TextureDimension::D2,
                     TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
                 )?;
-                self.upload(&texture, &pixels, 4 * side, [side, side, 1]);
-                (texture, view)
+                self.upload(&texture.texture, &pixels, 4 * side, [side, side, 1]);
+                texture
             }
         };
-        Ok(self.push(Key::Noise, texture, view))
+        Ok(self.push(Key::Noise, texture))
     }
 
     fn upload(&self, texture: &wgpu::Texture, bytes: &[u8], bytes_per_row: u32, size: [u32; 3]) {
@@ -389,7 +392,7 @@ impl<'a> ConstantBuilder<'a> {
 
     /// Decodes a PNG, raw or vanilla resource custom texture; `None` (logged) when it cannot
     /// be read.
-    fn decode(&self, source: &PackTexture) -> Option<(wgpu::Texture, wgpu::TextureView)> {
+    fn decode(&self, source: &PackTexture) -> Option<ConstantTexture> {
         let result = match source {
             PackTexture::File(path) => self.decode_png(path),
             PackTexture::Raw { path, spec } => self.decode_raw(path, spec),
@@ -404,7 +407,7 @@ impl<'a> ConstantBuilder<'a> {
             .ok()
     }
 
-    fn decode_png(&self, path: &str) -> Result<(wgpu::Texture, wgpu::TextureView), String> {
+    fn decode_png(&self, path: &str) -> Result<ConstantTexture, String> {
         let bytes = self
             .pack
             .source()
@@ -445,7 +448,7 @@ impl<'a> ConstantBuilder<'a> {
         width: u32,
         height: u32,
         rgba: &[u8],
-    ) -> Result<(wgpu::Texture, wgpu::TextureView), String> {
+    ) -> Result<ConstantTexture, String> {
         let expected = rgba_byte_len(
             width,
             height,
@@ -457,23 +460,19 @@ impl<'a> ConstantBuilder<'a> {
                 "{label}: {width}x{height} does not match its pixels"
             ));
         }
-        let (texture, view) = self.texture(
+        let texture = self.texture(
             label,
             TextureFormat::Rgba8Unorm,
             [width, height, 1],
             TextureDimension::D2,
             TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
         )?;
-        self.upload(&texture, rgba, 4 * width, [width, height, 1]);
-        Ok((texture, view))
+        self.upload(&texture.texture, rgba, 4 * width, [width, height, 1]);
+        Ok(texture)
     }
 
     /// `<TYPE> <internalFormat> <width> [<height> [<depth>]] <pixelFormat> <pixelType>`.
-    fn decode_raw(
-        &self,
-        path: &str,
-        spec: &[String],
-    ) -> Result<(wgpu::Texture, wgpu::TextureView), String> {
+    fn decode_raw(&self, path: &str, spec: &[String]) -> Result<ConstantTexture, String> {
         let raw = RawSpec::parse(spec)
             .ok_or_else(|| format!("{path}: unsupported raw texture {spec:?}"))?;
         super::targets::admission::texture_extent(
@@ -492,7 +491,7 @@ impl<'a> ConstantBuilder<'a> {
             .convert(&bytes, format)
             .ok_or_else(|| format!("{path}: data does not match {spec:?}"))?;
         let block = format.block_copy_size(None).unwrap_or(4);
-        let (texture, view) = self.texture(
+        let texture = self.texture(
             path,
             format,
             raw.size,
@@ -504,8 +503,8 @@ impl<'a> ConstantBuilder<'a> {
         } else {
             raw.size
         };
-        self.upload(&texture, &pixels, block * size[0], size);
-        Ok((texture, view))
+        self.upload(&texture.texture, &pixels, block * size[0], size);
+        Ok(texture)
     }
 
     /// The stage's custom texture for sampler `name` declared with `dimension`: OptiFine binds
@@ -536,8 +535,8 @@ impl<'a> ConstantBuilder<'a> {
             })?
             .source
             .clone();
-        let (texture, view) = self.decode(&source)?;
-        Some(self.push(key, texture, view))
+        let texture = self.decode(&source)?;
+        Some(self.push(key, texture))
     }
 
     /// Creates a requested shadow texture after checking its device extent.
@@ -563,7 +562,7 @@ impl<'a> ConstantBuilder<'a> {
         } else {
             TextureFormat::R16Float
         };
-        let (texture, view) = self.texture(
+        let texture = self.texture(
             "shader pack shadowtex",
             format,
             [side, side, 1],
@@ -573,7 +572,7 @@ impl<'a> ConstantBuilder<'a> {
                 | TextureUsages::COPY_SRC
                 | TextureUsages::COPY_DST,
         )?;
-        let found = self.push(key, texture, view);
+        let found = self.push(key, texture);
         self.clears.push((
             found.0,
             wgpu::LoadOp::Clear(1.0),
@@ -599,14 +598,14 @@ impl<'a> ConstantBuilder<'a> {
                 .format(BufferId::ShadowColor(index)),
             self.support,
         );
-        let (texture, view) = self.texture(
+        let texture = self.texture(
             "shader pack shadowcolor",
             format,
             [side, side, 1],
             TextureDimension::D2,
             TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
         )?;
-        let found = self.push(Key::ShadowColor(index), texture, view);
+        let found = self.push(Key::ShadowColor(index), texture);
         self.clears.push((found.0, wgpu::LoadOp::Clear(1.0), false));
         Ok(found)
     }
@@ -639,7 +638,7 @@ impl<'a> ConstantBuilder<'a> {
             return Ok(*found);
         }
         let side = super::lightmap::LIGHTMAP_SIDE;
-        let (texture, view) = self.texture(
+        let texture = self.texture(
             "shader pack lightmap",
             TextureFormat::Rgba8Unorm,
             [side, side, 1],
@@ -648,8 +647,8 @@ impl<'a> ConstantBuilder<'a> {
         )?;
         let texels =
             super::lightmap::lightmap_texels(Some(render_model::LightmapInputs::default()));
-        self.upload(&texture, &texels, side * 4, [side, side, 1]);
-        Ok(self.push(Key::Lightmap, texture, view))
+        self.upload(&texture.texture, &texels, side * 4, [side, side, 1]);
+        Ok(self.push(Key::Lightmap, texture))
     }
 
     /// The `lightmap` texture, when some program samples it.
@@ -659,7 +658,7 @@ impl<'a> ConstantBuilder<'a> {
 
     /// Whether pack-wide texture `index` has the shape a sampler of `dimension` reads.
     fn has_shape(&self, index: usize, dimension: TextureDimension) -> bool {
-        Ok(self.out.textures[index].texture.dimension()) == storage_shape(dimension)
+        self.out.textures[index].dimension == dimension
     }
 
     /// Clears the textures that start at a value other than zero and returns them.
