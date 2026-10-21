@@ -132,7 +132,7 @@ fn skin_texture_corner(job: SkinJob, vertex: u32) -> Corner {
     return corner;
 }
 
-// Native quads are two consecutive triangles. Remove their two shared corners once
+// Native quads are two consecutive triangles. Remove their two shared_corners corners once
 // before averaging so both triangles retain the authored four-corner texture centre.
 // Independent triangles keep their own centre, including a final unpaired triangle.
 fn quad_midpoints(corners: array<Corner, 6>, fallback: vec4<f32>) -> vec4<f32> {
@@ -140,18 +140,18 @@ fn quad_midpoints(corners: array<Corner, 6>, fallback: vec4<f32>) -> vec4<f32> {
     for (var i = 0u; i < 6u; i++) {
         total += vec4(corners[i].uv, corners[i].back_uv);
     }
-    var shared = 0u;
+    var shared_corners = 0u;
     for (var i = 0u; i < 3u; i++) {
         for (var j = 3u; j < 6u; j++) {
             if (all(corners[i].position == corners[j].position)
                 && all(corners[i].uv == corners[j].uv)
                 && all(corners[i].back_uv == corners[j].back_uv)) {
                 total -= vec4(corners[i].uv, corners[i].back_uv);
-                shared++;
+                shared_corners++;
             }
         }
     }
-    return select(fallback, total / 4.0, shared == 2u);
+    return select(fallback, total / 4.0, shared_corners == 2u);
 }
 
 // Tangent with handedness in `w`, from the triangle's position and texture gradients.
