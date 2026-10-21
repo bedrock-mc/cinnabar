@@ -174,6 +174,7 @@ fn full_screen_packs_keep_held_item_mappings() {
         &source,
         "fixture",
         JAVA_DIMENSIONS[0],
+        &Default::default(),
         None,
         &gpu,
         &Default::default(),
