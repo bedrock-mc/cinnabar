@@ -792,6 +792,12 @@ pub(crate) fn build(
             .filter_map(|b| buffer_formats[b.index as usize])
             .filter(|f| format_kind(*f) == Kind::Float)
             .collect();
+        let shadow_depth_formats: Vec<_> = shadow
+            .as_ref()
+            .into_iter()
+            .flat_map(|shadow| shadow.slots.float.iter().flatten())
+            .map(|slot| constants.constant(*slot).texture.format())
+            .collect();
         let host = host_pipelines(
             &gpu.device,
             &buffer_formats,
@@ -799,6 +805,7 @@ pub(crate) fn build(
             depth_compare.contains(&true) || !draws.is_empty(),
             super::targets::float_depths(draws.is_empty(), depth_sampled),
             &mipmap_formats,
+            &shadow_depth_formats,
         );
         let shader_storage = storage_sizes(&reflections, &translation.properties)?;
         let max_uniform = reflections

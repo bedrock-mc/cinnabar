@@ -205,22 +205,23 @@ fn copy_depth_to_floats(
     if targets.is_empty() {
         return;
     }
-    let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("shader pack depth copy"),
-        layout: &pack.host.depth_copy.get_bind_group_layout(0),
-        entries: &[wgpu::BindGroupEntry {
-            binding: 4,
-            resource: wgpu::BindingResource::TextureView(source),
-        }],
-    });
     for target in targets {
+        let pipeline = pack.host.depth_copy_for(target.texture().format());
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("shader pack depth copy"),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[wgpu::BindGroupEntry {
+                binding: 4,
+                resource: wgpu::BindingResource::TextureView(source),
+            }],
+        });
         let mut render = pass(
             encoder,
             "shader pack depth copy",
             &[load_attachment(target)],
             None,
         );
-        render.set_pipeline(&pack.host.depth_copy);
+        render.set_pipeline(pipeline);
         render.set_bind_group(0, &group, &[]);
         render.draw(0..3, 0..1);
     }
