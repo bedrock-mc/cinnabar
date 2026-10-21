@@ -82,20 +82,6 @@ pub(super) fn draw(
     ];
     if let Some(icon) = featured {
         canvas.icon_ref_cover(icon, banner_bounds)?;
-    } else {
-        let banners = &crate::images::PROFILE_BANNERS;
-        let banner_index =
-            launcher::menu::profile_banner_index(&profile.xuid, banners.len()).unwrap_or_default();
-        if let Some(originals) = canvas.originals
-            && let Some(sprite) = originals.sprites.get(banners[banner_index])
-        {
-            let icon = IconRef {
-                page: originals.page + sprite.page,
-                uv: sprite.bounds,
-                glint: false,
-            };
-            canvas.icon_ref_cover(icon, banner_bounds)?;
-        }
     }
     if let Some(icon) = character {
         let model_width = canvas.r(14.8);
