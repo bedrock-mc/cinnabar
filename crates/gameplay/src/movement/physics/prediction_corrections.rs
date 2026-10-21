@@ -94,21 +94,32 @@ impl LocalPhysicsController {
         let Some(superseded_boundary) = anchor.tick.checked_add(1) else {
             return anchor;
         };
-        let Some(mut latest) = self
+        let mut latest = self
             .deferred_corrections
             .frames
             .iter()
             .filter(|frame| frame.tick > superseded_boundary && self.retains_tick(frame.tick))
             .max_by_key(|frame| frame.tick)
             .copied()
-        else {
+            .unwrap_or(anchor);
+        let velocity_boundary = latest.tick;
+        let mut has_later_authority = latest.tick != anchor.tick;
+        if let Some((boundary, position)) = self.actor_position_after(anchor.tick)
+            && boundary >= latest.tick
+        {
+            position.replace_anchor_position(&mut latest);
+            // A pending next-frame placement must not advance the completed input clock.
+            latest.tick = boundary.min(self.state.as_ref().map_or(boundary, |state| state.tick));
+            has_later_authority = true;
+        }
+        if !has_later_authority {
             return anchor;
-        };
+        }
         // Same-frame motion was merged on arrival; later frames replace only velocity.
         if let Some(motion) = self
             .server_motions
             .iter()
-            .filter(|motion| motion.tick > latest.tick)
+            .filter(|motion| motion.tick > velocity_boundary)
             .max_by_key(|motion| motion.tick)
         {
             latest.velocity = Some([

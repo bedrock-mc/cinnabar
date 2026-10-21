@@ -192,6 +192,7 @@ pub fn reconcile_move_player_teleport(
         } else {
             PhysicsCorrectionMode::Snap
         };
+    physics.discard_server_actor_positions();
     let outcome = reconcile_physics_anchor(
         ticker,
         physics,

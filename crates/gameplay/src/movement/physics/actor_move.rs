@@ -14,9 +14,43 @@ impl ActorPositionUpdate {
         state.set_position(self.feet);
         state.on_ground = self.on_ground;
     }
+
+    /// Replaces spatial authority without replacing the correction's velocity authority.
+    pub(super) fn replace_anchor_position(self, anchor: &mut super::super::PhysicsAnchor) {
+        anchor.network_position = [
+            self.feet.x as f32,
+            self.feet.y as f32 + PLAYER_NETWORK_OFFSET,
+            self.feet.z as f32,
+        ];
+        anchor.on_ground = self.on_ground;
+    }
 }
 
 impl LocalPhysicsController {
+    /// Explicit teleports supersede prior placements while preserving the other replay controls.
+    pub(in crate::movement) fn discard_server_actor_positions(&mut self) {
+        self.actor_position_pending = None;
+        for frame in &mut self.controller_history {
+            frame.actor_position = None;
+        }
+    }
+
+    /// Finds the latest retained placement after a correction, including the unrecorded next frame.
+    pub(super) fn actor_position_after(&self, tick: u64) -> Option<(u64, ActorPositionUpdate)> {
+        if let (Some(position), Some(state)) = (self.actor_position_pending, self.state.as_ref()) {
+            let boundary = state.tick.saturating_add(1);
+            if boundary > tick {
+                return Some((boundary, position));
+            }
+        }
+        self.controller_history.iter().rev().find_map(|frame| {
+            (frame.tick > tick)
+                .then_some(frame.actor_position)
+                .flatten()
+                .map(|position| (frame.tick, position))
+        })
+    }
+
     /// Adopts a marked server actor position and retains its next-tick replay boundary.
     pub fn apply_server_actor_position(&mut self, position: [f32; 3], on_ground: Option<bool>) {
         if !position.into_iter().all(f32::is_finite) {
