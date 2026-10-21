@@ -273,7 +273,9 @@ Vertical follow and damping restrain jump and landing motion, and local cloth ke
 advancing while first-person visibility hides the body. View changes transfer the drape between
 body pose spaces. Self-collision and world collision remain open.
 Paid cosmetic selections use session ownership from the API database and withdraw
-on disconnect or revocation; production rollout qualification remains open.
+on disconnect or revocation. Unowned wardrobe tiles are dimmed with a lock badge
+and excluded from pointer and keyboard wear selection; production rollout
+qualification remains open.
 
 Equipped cosmetic emitters also run in visible menu and HUD paper dolls using the
 shared particle engine and attachment poses. Catalog-wide, in-world interaction
@@ -487,6 +489,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 - Browser/Android implementation and CI checks do not close their complete join, pack,
   transfer/reconnect, input/UI, audio, memory or hardware-performance acceptance matrices.
   Keep browser gesture activation and background work within the host's event-loop rules.
+  Touch-capable hosts expose persisted look sensitivity and control guidance. The sensitivity curve is provisional; native touch layouts, remapping and customization remain open.
+  Settings supports touch dragging of its content columns and scrollbars; swipes cancel pending row taps. Native gesture calibration and the remaining menu/form touch routes are still open.
+  Launcher text fields request platform IME input, and the People drawer filters the current friend list by gamertag. Global people lookup, gameplay text entry and full device IME acceptance remain open.
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
