@@ -142,11 +142,13 @@ const fn server_derives_result(kind: WindowKind) -> bool {
 }
 
 /// The order a result take consumes the screen's inputs in: the anvil uses up its
-/// second item before the target.
+/// second item before the target, and the smithing table its template first.
 fn consume_order(kind: WindowKind) -> Vec<u8> {
     let mut slots = input_slots(kind).to_vec();
-    if kind == WindowKind::Anvil {
-        slots.reverse();
+    match kind {
+        WindowKind::Anvil => slots.reverse(),
+        WindowKind::Smithing => slots.rotate_right(1),
+        _ => {}
     }
     slots
 }

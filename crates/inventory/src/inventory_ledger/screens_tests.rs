@@ -921,3 +921,41 @@ fn server_derived_screens_send_no_result_list() {
         }
     }
 }
+
+/// The smithing table consumes its template, then the item, then the material.
+#[test]
+fn smithing_takes_consume_the_template_first() {
+    let mut ledger = ledger_with(&[]);
+    open(&mut ledger, 7, protocol::WINDOW_TYPE_SMITHING_TABLE);
+    for (slot, id) in [(51, 61), (52, 62), (53, 63)] {
+        let name = protocol::ui_slot_container_name(slot).unwrap();
+        ledger.apply(&slot_update(
+            named(124, name),
+            u16::from(slot),
+            stack(id, 1),
+        ));
+    }
+    ledger
+        .begin_screen_output(&ScreenCraft::Predicted {
+            recipe_network_id: 9,
+            output: protocol::RecipeOutput {
+                network_id: 6,
+                aux: 0,
+                count: 1,
+                block_runtime_id: 0,
+                empty_envelope: false,
+            },
+        })
+        .unwrap();
+    let consumed: Vec<i32> = ledger
+        .newest_request()
+        .unwrap()
+        .actions
+        .iter()
+        .filter_map(|action| match action {
+            StackRequestAction::Consume { source, .. } => Some(source.stack_network_id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(consumed, [63, 61, 62]);
+}
