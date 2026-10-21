@@ -272,7 +272,7 @@ fn hud_card_preview_virtualized_tiles_retain_steady_state_card_output() {
 }
 
 #[test]
-fn hud_card_preview_twenty_four_visible_instances_do_not_rebuild_each_frame() {
+fn hud_card_preview_fit_twenty_four_visible_instances_do_not_rebuild_each_frame() {
     let hud = hud(32);
     let mut panel = panel(false);
     let surface = panel.surface.as_mut().unwrap();
@@ -280,6 +280,7 @@ fn hud_card_preview_twenty_four_visible_instances_do_not_rebuild_each_frame() {
     document["screen"]["controls"] = json!((0..24).map(|index|json!({format!("preview_{index}"):{
         "type":"custom","renderer":ui::mod_panel::hud_card::RENDERER,
         "card_id":format!("card_{index}"),"size":[80,40],"offset":[(index%6)*90,(index/6)*60],
+        "fit":0.78,"max_scale":2.4,
         "anchor_from":"top_left","anchor_to":"top_left"
     }})).collect::<Vec<_>>());
     surface.document = document.to_string();
@@ -949,4 +950,5 @@ fn studio_preview_binding_updates_retain_the_catalog_and_stable_frames() {
     assert_eq!(ui.mod_hud_editor_state().unwrap().passes, passes);
 }
 
+mod fit;
 mod studio;
