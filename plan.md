@@ -7758,7 +7758,13 @@ carries forward, with full remesh of view distance after teleport ≤ 2 seconds.
 The native chat gear now opens `chat_settings.chat_settings_popup` from the carrier.
 Persisted mute, color, typeface, font size, spacing, duration and opacity reach the chat
 presentation; emote mute, TTS and mentions color remain UI only because those systems
-are missing. The compiled open font remains the repository's accepted font deviation.
+are missing. The OreUI Social → Chat section exposes the same preferences, plus shared opacity,
+notification duration and position controls; its reset restores all Chat panel values.
+Emote mute, TTS and mentions color are labeled as saved preferences with unavailable
+behavior. The font-size slider is disabled when the selected typeface or locale cannot
+apply it. Offline screenshots cover the section, values, pickers and reset confirmation;
+live input acceptance remains incomplete.
+The compiled open font remains the repository's accepted font deviation.
 Font size 5–20/default 10 and spacing 0–100/default 0 are provisional host
 ranges, not confirmed vanilla defaults. The scale mapping is size / 10 and
 spacing is truncated to one decimal plus 0.001.

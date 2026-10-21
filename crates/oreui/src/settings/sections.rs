@@ -617,6 +617,7 @@ fn creator(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     Ok(())
 }
 
+/// Exposes the existing chat preferences and their shared reset route in the launcher.
 fn chat(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading("options.chat.title", "options.chat.title.description")?;
     options(content, SettingPanel::Chat)?;
@@ -650,23 +651,42 @@ pub(super) fn fallback(key: &str) -> &str {
         "chat.settings.muteAll" => "Mute All Chat",
         "chat.settings.muteAll.description" => "Hide all incoming chat messages",
         "chat.settings.muteEmotes" => "Mute Emotes",
-        "chat.settings.muteEmotes.description" => "Hide player emote announcements in chat",
+        "chat.settings.muteEmotes.description" => {
+            "Saved preference; emote chat filtering is not available yet"
+        }
         "chat.settings.tts" => "Text to Speech for Chat",
-        "chat.settings.tts.description" => "Read chat messages aloud using text-to-speech",
+        "chat.settings.tts.description" => "Saved preference; chat narration is not available yet",
         "chat.settings.typeface" => "Typeface",
         "chat.settings.typeface.description" => "Choose the font used to render chat messages",
         "chat.settings.fontSize" => "Font Size",
-        "chat.settings.fontSize.description" => "Adjust the scale of chat text",
+        "chat.settings.fontSize.description" => {
+            "Adjust the scale of chat text when Noto Sans is selected"
+        }
         "chat.settings.lineSpacing" => "Line Spacing",
         "chat.settings.lineSpacing.description" => "Set the spacing between lines in chat",
         "chat.settings.chatColor" => "Chat Color",
         "chat.settings.chatColor.description" => "Default color for chat text",
         "chat.settings.mentionsColor" => "Mentions Color",
-        "chat.settings.mentionsColor.description" => "Highlight color when your name is mentioned",
+        "chat.settings.mentionsColor.description" => {
+            "Saved preference; mention highlighting is not available yet"
+        }
         "options.chatBackgroundOpacity" => "Chat Background Opacity",
-        "options.chatBackgroundOpacity.description" => "Adjust the opacity of the chat background box",
+        "options.chatBackgroundOpacity.description" => {
+            "Adjust the opacity of the chat background box"
+        }
         "options.notificationDuration.Chat" => "Chat Notification Duration",
-        "options.notificationDuration.Chat.description" => "How long chat notifications remain visible on the HUD",
+        "options.notificationDuration.Chat.description" => {
+            "How long chat notifications remain visible on the HUD"
+        }
+        "typeface.mojangles" => "Mojangles",
+        "typeface.notoSans" => "Noto Sans",
+        "color.white" => "White",
+        "color.green" => "Green",
+        "color.aqua" => "Aqua",
+        "color.red" => "Red",
+        "color.light_purple" => "Light Purple",
+        "color.yellow" => "Yellow",
+        "color.gold" => "Gold",
         "Chat Position" => "Chat Position",
         "Chat Position.description" => "Position the chat HUD at the bottom or top of the screen",
         "hbui.Settings.category.general" => "General",

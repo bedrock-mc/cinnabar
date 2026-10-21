@@ -1,5 +1,6 @@
 //! Named, anonymous screen fixtures. Add a state here when a PR needs a new capture.
 
+mod chat_settings;
 mod minecraft_import;
 mod mods;
 mod out_of_game;
@@ -284,6 +285,60 @@ pub const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: || tab_list_badges(false),
+    },
+    State {
+        name: "settings-chat",
+        size: [1280, 1360],
+        gui_scale: GUI_SCALE,
+        fixture: || chat_settings::panel(false, None),
+    },
+    State {
+        name: "settings-chat-top",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || chat_settings::panel(false, None),
+    },
+    State {
+        name: "settings-chat-bottom",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || chat_settings::bottom(false),
+    },
+    State {
+        name: "settings-chat-changed",
+        size: [1280, 1360],
+        gui_scale: GUI_SCALE,
+        fixture: || chat_settings::panel(true, None),
+    },
+    State {
+        name: "settings-chat-minimum",
+        size: [1280, 1360],
+        gui_scale: GUI_SCALE,
+        fixture: chat_settings::minimum,
+    },
+    State {
+        name: "settings-chat-narrow",
+        size: [800, 720],
+        gui_scale: GUI_SCALE,
+        fixture: || chat_settings::panel(false, None),
+    },
+    State {
+        name: "settings-chat-reset",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: chat_settings::reset,
+    },
+    State {
+        name: "settings-chat-color",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || chat_settings::panel(false, Some(SettingId::ChatColor)),
+    },
+    State {
+        name: "settings-chat-mentions",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || chat_settings::panel(false, Some(SettingId::MentionsColor)),
     },
     State {
         name: "settings-video",

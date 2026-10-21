@@ -549,11 +549,13 @@ fn command_macro_invalid_draft_shows_a_chat_limit_error() {
     assert!(labels.contains(&format!("{}-bytechatlimit.", ui::MAX_CHAT_INPUT_BYTES)));
 }
 
+/// Every registered chat option exposes its real input action, including reset.
 #[test]
 fn chat_section_draws_all_chat_panel_options_and_reset() {
-    let view = MenuView::new(true, "Player".into());
+    let mut view = MenuView::new(true, "Player".into());
+    std::sync::Arc::make_mut(&mut view.settings_options).set(SettingId::ChatTypeface.index(), 1);
     for width in [400.0, 800.0] {
-        let (_, _, nodes) = paint(HashMap::new(), |canvas| {
+        let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
             let mut content = Content {
                 canvas,
                 view: &view,
@@ -563,13 +565,115 @@ fn chat_section_draws_all_chat_panel_options_and_reset() {
                 translate: &|_| None,
                 nested: false,
             };
-            sections::draw(
-                &mut content,
-                launcher::menu::settings_sections::SettingSection::Chat,
-            )
-            .unwrap();
+            sections::draw(&mut content, SettingSection::Chat).unwrap();
         });
-        assert!(!nodes.is_empty());
+        for option in SettingPanel::Chat.options() {
+            assert!(
+                hits.iter().any(|(action, _)| match action {
+                    MenuAction::SettingsOption(index, _) | MenuAction::SettingsDropdown(index) =>
+                        usize::from(*index) == option.id.index(),
+                    _ => false,
+                }),
+                "missing control for {:?}",
+                option.id
+            );
+        }
+        assert!(hits.iter().any(|(action, _)| *action
+            == MenuAction::SettingsResetGroup(
+                launcher::menu::settings_options::SettingsGroup::Chat
+            )));
+        let labels = rendered_text(&nodes);
+        assert!(labels.contains("ResetChatSettings"));
+        assert!(labels.contains("100%"));
+        assert!(!labels.contains("chat.settings."));
+        assert!(!labels.contains("typeface."));
+        assert!(!labels.contains("color."));
+        assert!(!labels.contains(".description"));
     }
 }
 
+/// Collects visible glyphs without depending on the painter's text-node splitting.
+fn rendered_text(nodes: &[ui::UiNode]) -> String {
+    nodes
+        .iter()
+        .filter_map(|node| match node.visual() {
+            ui::UiVisual::Text { layout, .. } => Some(
+                layout
+                    .glyphs()
+                    .iter()
+                    .map(|glyph| glyph.codepoint)
+                    .collect::<String>(),
+            ),
+            _ => None,
+        })
+        .collect::<String>()
+        .replace(' ', "")
+}
+
+/// Missing help text must remain absent; known fallbacks and translations still render.
+#[test]
+fn option_descriptions_do_not_expose_missing_translation_keys() {
+    let view = MenuView::new(true, "Player".into());
+    for translated in [false, true] {
+        let (_, _, nodes) = paint(HashMap::new(), |canvas| {
+            let translate = |key: &str| {
+                (translated && key == "options.vsync.description")
+                    .then_some("Translated help".into())
+            };
+            let mut content = Content {
+                canvas,
+                view: &view,
+                span: [100.0, 900.0],
+                column_width: 800.0,
+                y: 100.0,
+                translate: &translate,
+                nested: false,
+            };
+            content.option(SettingId::Vsync).unwrap();
+            content.option(SettingId::ChatBackgroundOpacity).unwrap();
+        });
+        let labels = rendered_text(&nodes);
+        assert!(!labels.contains(".description"), "{labels}");
+        assert_eq!(labels.contains("Translatedhelp"), translated);
+        assert!(labels.contains("Adjusttheopacityofthechatbackgroundbox"));
+    }
+}
+
+/// The pack's size template substitutes the percentage instead of printing its placeholder.
+#[test]
+fn chat_font_size_formats_translated_values_and_disables_unsupported_scaling() {
+    for (typeface, locale, enabled) in
+        [(0, "en_US", false), (1, "en_US", true), (1, "ja_JP", false)]
+    {
+        for value in [5, 10, 20] {
+            let mut view = MenuView::new(true, "Player".into());
+            let options = std::sync::Arc::make_mut(&mut view.settings_options);
+            options.set(SettingId::ChatTypeface.index(), typeface);
+            options.set(SettingId::ChatFontSize.index(), value);
+            options.set_language(locale);
+            let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
+                let translate =
+                    |key: &str| (key == "chat.settings.fontSize").then_some("Size: %s".into());
+                let mut content = Content {
+                    canvas,
+                    view: &view,
+                    span: [100.0, 900.0],
+                    column_width: 800.0,
+                    y: 100.0,
+                    translate: &translate,
+                    nested: false,
+                };
+                content.option(SettingId::ChatFontSize).unwrap();
+            });
+            let labels = rendered_text(&nodes);
+            assert!(
+                labels.contains(&format!("Size:{}%", value * 10)),
+                "{labels}"
+            );
+            assert!(!labels.contains("%s"));
+            assert_eq!(labels.matches(&format!("{}%", value * 10)).count(), 1);
+            assert_eq!(hits.iter().any(|(action, _)| matches!(action,
+                MenuAction::SettingsOption(index, _) if usize::from(*index) == SettingId::ChatFontSize.index())), enabled);
+        }
+    }
+}

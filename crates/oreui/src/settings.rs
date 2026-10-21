@@ -423,7 +423,12 @@ impl Content<'_, '_> {
         } else if id == SettingId::RecordNetworkSession {
             "Save each new server session's packets to the logs folder. The recording contains chat messages and player names. It stays on this device and is never uploaded.".to_owned()
         } else if description.is_empty() {
-            sections::fallback(&description_key).to_owned()
+            let fallback = sections::fallback(&description_key);
+            if fallback == description_key {
+                String::new()
+            } else {
+                fallback.to_owned()
+            }
         } else {
             description
         };
@@ -463,6 +468,11 @@ impl Content<'_, '_> {
                     SettingId::ChatFontSize => format!("{}%", value * 10),
                     _ => format!("{value}%"),
                 };
+                let (title, shown) = if id == SettingId::ChatFontSize && title.contains("%s") {
+                    (title.replace("%s", &shown), String::new())
+                } else {
+                    (title, shown)
+                };
                 let amount = self.canvas.measure(&shown, BODY)?;
                 let width = (right - left - amount - self.canvas.r(1.6)).max(1.0);
                 let b = self.row(&title, &description, width, None, self.canvas.r(4.0))?;
@@ -475,7 +485,12 @@ impl Content<'_, '_> {
                     TEXT,
                     false,
                 )?;
-                let actions: Vec<_> = if id == SettingId::Msaa {
+                let actions: Vec<_> = if id == SettingId::ChatFontSize
+                    && (!self.view.settings_options.chat_smooth_available()
+                        || self.view.settings_options.value(SettingId::ChatTypeface) == 0)
+                {
+                    vec![MenuAction::SettingsOption(index as u16, value)]
+                } else if id == SettingId::Msaa {
                     self.view
                         .settings_options
                         .anti_aliasing_support()

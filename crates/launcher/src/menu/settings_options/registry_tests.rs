@@ -245,3 +245,38 @@ fn saved_schema_snapshot_keeps_all_setting_and_binding_keys() {
         assert_eq!(options.key_control(id.row(gamepad).unwrap()), None);
     }
 }
+
+/// The dedicated Chat reset includes every displayed preference and preserves other panels.
+#[test]
+fn chat_panel_reset_restores_shared_values_and_persists_defaults() {
+    let mut settings = SettingsOptions::default();
+    let chat: BTreeSet<_> = SettingPanel::Chat
+        .options()
+        .map(|option| option.name)
+        .collect();
+    let reset: BTreeSet<_> = SettingsGroup::Chat
+        .options()
+        .map(|option| option.name)
+        .collect();
+    assert_eq!(chat, reset);
+    for option in SettingPanel::Chat.options() {
+        let changed = if option.default == option.min {
+            option.max
+        } else {
+            option.min
+        };
+        assert!(settings.set(option.id.index(), changed));
+    }
+    let unrelated = SettingId::MainVolume;
+    settings.set(unrelated.index(), unrelated.definition().min);
+    let saved = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    for option in SettingPanel::Chat.options() {
+        assert_ne!(saved.value(option.id), option.default);
+    }
+    assert!(settings.reset_group(SettingsGroup::Chat));
+    let restored = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    for option in SettingPanel::Chat.options() {
+        assert_eq!(restored.value(option.id), option.default);
+    }
+    assert_eq!(restored.value(unrelated), unrelated.definition().min);
+}

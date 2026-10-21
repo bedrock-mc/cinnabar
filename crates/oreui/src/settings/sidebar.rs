@@ -63,12 +63,7 @@ const fn tab(section: launcher::menu::settings_sections::SettingSection) -> Tab 
             Glyph::Grid,
             Some("options.social"),
         ),
-        Chat => (
-            None,
-            [74, 144, 226],
-            Glyph::Chat,
-            None,
-        ),
+        Chat => (None, [74, 144, 226], Glyph::Chat, None),
         General => (
             Some(SETTINGS_ICONS[5]),
             [152, 100, 50],
