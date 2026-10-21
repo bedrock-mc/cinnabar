@@ -135,3 +135,55 @@ fn amendment_hidden_artwork_and_steady_frames_retain_catalog_bindings_and_text()
             .unwrap()
     ));
 }
+
+#[test]
+fn guest_slider_fill_follows_panel_values_without_rebuilding_or_churning_data() {
+    let engine = engine();
+    let font = ui_engine::test_support::fixture_font();
+    let mut layouts = ui::TextLayoutCache::new(64, 1 << 24);
+    let mut ui = ModUi::default();
+    let mut panel = crate::test_support::sample_panel();
+    let index = panel
+        .controls
+        .iter()
+        .position(|c| matches!(c, ui::mod_panel::Control::Slider { .. }))
+        .unwrap();
+    let fill = format!("#row_{index}_fill");
+    ui.set_mod_panel(crate::PanelUiOwner::Environment(0), Some(&panel))
+        .unwrap();
+    ui.set_mod_panel_open(true);
+    ui.open_mod_hud_editor(&Hud::default()).unwrap();
+    paint(&mut ui, &engine, &font, &mut layouts, 1.);
+    let editor = ui.mod_hud_editor.as_ref().unwrap();
+    assert_eq!(
+        editor.data.global_value(&fill),
+        Some(&Scalar::Num(f64::from(0.35_f32)))
+    );
+    let catalog = Arc::clone(editor.catalog.as_ref().unwrap());
+    let data = Arc::clone(&editor.data);
+    paint(&mut ui, &engine, &font, &mut layouts, 2.);
+    assert!(Arc::ptr_eq(
+        &data,
+        &ui.mod_hud_editor.as_ref().unwrap().data
+    ));
+    if let ui::mod_panel::Control::Slider { value, .. } = &mut panel.controls[index] {
+        *value = 80.;
+    }
+    // A same-shape guest republish keeps the editor open and only moves the fill.
+    ui.set_mod_panel(crate::PanelUiOwner::Environment(0), Some(&panel))
+        .unwrap();
+    assert!(ui.mod_hud_editor_open());
+    paint(&mut ui, &engine, &font, &mut layouts, 3.);
+    let editor = ui.mod_hud_editor.as_ref().unwrap();
+    assert_eq!(
+        editor.data.global_value(&fill),
+        Some(&Scalar::Num(f64::from(0.8_f32)))
+    );
+    assert!(Arc::ptr_eq(&catalog, editor.catalog.as_ref().unwrap()));
+    let data = Arc::clone(&editor.data);
+    paint(&mut ui, &engine, &font, &mut layouts, 4.);
+    assert!(Arc::ptr_eq(
+        &data,
+        &ui.mod_hud_editor.as_ref().unwrap().data
+    ));
+}

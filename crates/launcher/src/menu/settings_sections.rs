@@ -64,6 +64,7 @@ sections! {
     Sound => "sound_forced_index", 23, Some("options.sounds.title"), Some("menu.audio.tab.title"), Some(SettingsGroup::Audio);
     Account => "account_forced_index", 19, Some("options.accountTitle"), Some("menu.account.tab.title"), None;
     GlobalTexturePack => "global_texture_pack_forced_index", 24, Some("menu.globalpacks"), Some("menu.globalpacks"), None;
+    Shaders => "cinnabar_shaders_index", 46, Some("Shaders"), if super::settings_options::SHADER_PACK_BINDINGS { Some("Shaders") } else { None }, None;
     Mods => "cinnabar_mods_index", 44, Some("Mods"), Some("Mods"), None;
     StorageManagement => "storage_management_forced_index", 25, Some("menu.storageManagement"), Some("menu.storage.tab.title"), None;
     Language => "language_forced_index", 27, Some("options.language"), Some("menu.language.tab.title"), None;

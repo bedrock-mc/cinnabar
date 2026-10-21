@@ -37,3 +37,8 @@ const ELYTRA_GROUP_LAYERS: std::ops::Range<u8> =
 pub(crate) fn is_elytra_layer(layer: u8) -> bool {
     layer == ELYTRA_LAYER || ELYTRA_GROUP_LAYERS.contains(&layer)
 }
+
+/// Whether a submission belongs to worn armor rather than a held item or cosmetic.
+pub(crate) fn is_armor_layer(layer: u8) -> bool {
+    (display::LAYER_HELMET..=display::LAYER_BOOTS).contains(&layer)
+}

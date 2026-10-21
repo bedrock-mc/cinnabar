@@ -287,6 +287,7 @@ mod tests {
         use ui::mod_panel::{Surface, SurfaceTransition, SurfaceValue};
 
         let mut panel = mod_ui::test_support::sample_panel();
+        panel.motion = true;
         panel.surface = Some(Surface {
             collections: Default::default(),
             previews: Default::default(),

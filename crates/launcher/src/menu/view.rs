@@ -448,11 +448,13 @@ pub struct MenuView {
     pub shader_packs: std::sync::Arc<[String]>,
     /// Revision of the discovered list carried by shader-pack picker actions.
     pub shader_packs_revision: u64,
-    /// The highlighted Video renderer; `None` while the selected shader pack is missing.
+    /// The requested pack while shader-pack mode is active, even if discovery no longer lists it.
+    pub shader_pack: Option<String>,
+    /// The highlighted renderer or shader-pack choice; `None` while the selected shader pack is missing.
     pub renderer: Option<super::RendererChoice>,
     /// The requested pack has an option screen, including a command-line pack not listed.
     pub shader_options_available: bool,
-    /// Why the selected shader pack failed to load, for the Renderer row; see
+    /// Why the selected shader pack failed to load, for the Shaders tab; see
     /// [`super::shader_pack_status::failure_description`].
     pub renderer_failure: Option<std::sync::Arc<str>>,
     /// Session VSync forced by a launch flag; the saved toggle is shown locked to it.
@@ -480,7 +482,7 @@ pub struct MenuView {
     pub player_skin_model: crate::dressing_room::SkinModel,
     pub global_resources: std::sync::Arc<crate::global_resources::Snapshot>,
     pub mods: std::sync::Arc<crate::mods::Snapshot>,
-    /// The Shader Pack Settings screen over Video settings, while open.
+    /// The Shader Pack Settings screen in the Shaders tab, while open.
     pub shader_options: Option<std::sync::Arc<crate::shader_options::View>>,
     pub minecraft_import: std::sync::Arc<crate::minecraft_import::Snapshot>,
     /// Why the last session ended, shown until acknowledged.
@@ -707,6 +709,7 @@ impl MenuView {
             render_mode: ui::RenderMode::Vanilla,
             shader_packs: std::sync::Arc::from([]),
             shader_packs_revision: 0,
+            shader_pack: None,
             renderer: Some(super::RendererChoice::Vanilla),
             shader_options_available: false,
             renderer_failure: None,

@@ -232,7 +232,7 @@ qualification remain open.
 
 Pure numeric Molang expressions use bound f32 lane programs with load fusion;
 mixed values and effects retain the generic evaluator, including exact budget tails.
-Full rig history and rendered qualification remain part of `P4.3-RIGS`.
+Full rig history and rendered qualification remain part of the rig item below.
 Body and custom-skin composition use shared parent-first programs and caller-owned
 output, including attachable root modes and legacy attacks. Alternate render
 geometries and skin layers retain recursive composition. Rendered and live
@@ -251,9 +251,10 @@ performance qualification remains open.
   and matched inventory/held-item presentation. Shared cube face sheets are bounded coverage.
 
 Continuous cosmetic cloth uses shared vertices, fixed-step constraints, world-space
-inertia and player-body contacts with standard-armor clearance. Vertical follow and
-damping restrain jump and landing motion, and local cloth keeps advancing while
-first-person visibility hides the body. View changes transfer the drape between
+inertia and contacts derived from the drawn body and worn armor. Cloth pins and
+mounts retract toward the bare torso and expand to clear equipped chest geometry.
+Vertical follow and damping restrain jump and landing motion, and local cloth keeps
+advancing while first-person visibility hides the body. View changes transfer the drape between
 body pose spaces. Self-collision and world collision remain open.
 Paid cosmetic selections use session ownership from the API database and withdraw
 on disconnect or revocation; production rollout qualification remains open.
@@ -507,9 +508,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   entities and the hand, deferred, composite and final passes, compute, custom textures and
   images) plus the pack-drawn sky, particles, clouds, weather, lightning, cracks and selection.
   Block, item, entity and biome ids and Java sky and fog colours come from the pinned
-  Bedrock→Java mappings. Settings offers pack import, a reload key, load status and a Shader
-  Pack Settings screen. Incomplete: in-game acceptance across packs and platforms (Metal is
-  unverified); stage pre-flips (`flip.<stage>_pre.<buffer>`) and Iris's explicit-flip
+  Bedrock→Java mappings. The Shaders settings tab offers pack import, reload, load status
+  and a Shader Pack Settings screen. Video links to Shaders and shows its renderer switch
+  only when Enhanced is available.
+  Incomplete: in-game acceptance across packs and platforms (Metal is unverified); stage pre-flips (`flip.<stage>_pre.<buffer>`) and Iris's explicit-flip
   ordering; drawing the solid hand's glint before deferred passes; geometry-host composition
   of celestial layers, effects without depth writes and private-depth first-person scenes,
   which keep the native scene copy; actor colour masks, multitexture materials, dissolve

@@ -140,6 +140,7 @@ fn hiding_a_player_torso_keeps_its_chestplate_visible() {
         ],
         ..Default::default()
     };
+    let unmasked = batch.submissions[0].clone();
     let mut frame = authority.actor_render_frame(1.0);
     let mut state = ActorFrameState::default();
     layers::attach(
@@ -187,5 +188,203 @@ fn hiding_a_player_torso_keeps_its_chestplate_visible() {
             .current_bones
             .iter()
             .any(|bone| bone.translation_scale[3] > 0.0)
+    );
+    let mut pending = equipment.take_pending_geometries();
+    pending.push(
+        render_model::equipment_geometry(
+            &entities,
+            render_model::find_geometry_index(&entities, "geometry.fixture").unwrap() as usize,
+            armour.input.rig,
+        )
+        .unwrap(),
+    );
+    let scene = ActorRenderScene::default();
+    let body = body.clone();
+    let contacts = cloth_contacts::collect(
+        &body,
+        &rig,
+        &batch.submissions,
+        &scene,
+        1.0,
+        (&pending, Some(&equipment)),
+    );
+    assert_eq!(
+        contacts.len(),
+        1,
+        "hidden skin must still leave its drawn armor contact"
+    );
+    let bare_contacts = cloth_contacts::hidden(
+        &unmasked,
+        &rig,
+        (
+            &stream,
+            &ActorEquipmentInput::default(),
+            state.combat_visuals,
+        ),
+        (&scene, &mut pending, Some(&mut equipment)),
+        (1.0, 0.05),
+    )
+    .len();
+    assert_eq!(
+        cloth_contacts::hidden(
+            &unmasked,
+            &rig,
+            (&stream, &input, state.combat_visuals),
+            (&scene, &mut pending, Some(&mut equipment)),
+            (1.0, 0.05),
+        )
+        .len(),
+        bare_contacts + 1,
+        "hidden cloth must still collide with the equipped chestplate"
+    );
+    assert_eq!(
+        cloth_contacts::hidden(
+            &unmasked,
+            &rig,
+            (
+                &stream,
+                &ActorEquipmentInput::default(),
+                state.combat_visuals
+            ),
+            (&scene, &mut pending, Some(&mut equipment)),
+            (1.0, 0.05),
+        )
+        .len(),
+        bare_contacts,
+        "removing armor while hidden must retire its contact immediately"
+    );
+    for draw in &mut batch.submissions {
+        if draw.input.identity.layer == crate::presentation::equipment::ELYTRA_LAYER {
+            draw.route = render_model::ActorRigRoute::NoDraw;
+        }
+    }
+    assert!(
+        cloth_contacts::collect(
+            &body,
+            &rig,
+            &batch.submissions,
+            &scene,
+            1.0,
+            (&pending, Some(&equipment)),
+        )
+        .is_empty(),
+        "undrawn armor must not push cloth away from the body"
+    );
+    let geometry = Arc::new(assets::parse_skin_geometry(
+        r#"{"geometry":{"default":"geometry.overlay"}}"#,
+        r#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{
+            "identifier":"geometry.overlay","texture_width":32,"texture_height":32},"bones":[
+            {"name":"body","pivot":[0,24,0],"cubes":[{"origin":[-4,12,-2.25],"size":[8,12,4.5],"uv":[0,0]}]}]}]}"#,
+    ).unwrap().unwrap());
+    let mesh = render_model::skin_geometry(&geometry, render_model::EntityRigId(9001)).unwrap();
+    let mut overlay = actor_animation::SkinRenderLayer {
+        image: render_api::SkinAnimation {
+            kind: render_api::SkinAnimationKind::Body32,
+            width: 32,
+            height: 32,
+            rgba8: vec![255; 32 * 32 * 4].into(),
+            frames: 1,
+            blinking: false,
+        },
+        geometry,
+        mesh: Some(mesh.clone()),
+        previous: rig.previous.into(),
+        current: rig.current.into(),
+        rest: rig.rest.into(),
+        hidden_bones: Arc::from([]),
+        uv_anim: [0.0, 0.0, 1.0, 1.0],
+    };
+    pending.push(mesh.clone());
+    let skins = [overlay.clone()];
+    let with_skin = actor_animation::ActorRigSnapshot {
+        skin_layers: &skins,
+        ..rig
+    };
+    let mut draw = unmasked.clone();
+    draw.input.identity.layer =
+        render_model::ACTOR_LAYER_SKIN_BASE + overlay.image.kind.slot() as u8;
+    draw.input.rig = mesh.id;
+    let visible = cloth_contacts::collect(
+        &unmasked,
+        &with_skin,
+        std::slice::from_ref(&draw),
+        &scene,
+        1.0,
+        (&pending, None),
+    );
+    let bare = cloth_contacts::collect(&unmasked, &with_skin, &[], &scene, 1.0, (&pending, None));
+    assert_eq!(
+        visible.len(),
+        bare.len() + 1,
+        "separate persona torso must supply a contact without equipment"
+    );
+    let hidden = cloth_contacts::hidden(
+        &unmasked,
+        &with_skin,
+        (
+            &stream,
+            &ActorEquipmentInput::default(),
+            state.combat_visuals,
+        ),
+        (&scene, &mut pending, None),
+        (1.0, 0.05),
+    );
+    let item = render_model::hats::fixture::cloth();
+    let base =
+        render_model::hats::rig(item).pose(unmasked.input.current_bones[0], Default::default());
+    let fit = |contacts: &[_]| {
+        let mut cloth = render_model::hats::cloth::ClothState::default();
+        cloth
+            .pose(
+                item,
+                [base.clone(), base.clone()],
+                unmasked.world_from_actor,
+                (0.0, 1.0),
+                contacts,
+            )
+            .unwrap();
+        cloth.fitted_placement().unwrap()
+    };
+    assert_ne!(
+        fit(&visible),
+        fit(&bare),
+        "raised persona torso must move the cloth pins outside its surface"
+    );
+    assert_eq!(
+        fit(&visible),
+        fit(&hidden),
+        "first-person hiding must retain the exact persona clearance"
+    );
+    draw.route = render_model::ActorRigRoute::NoDraw;
+    let invisible = cloth_contacts::collect(
+        &unmasked,
+        &with_skin,
+        &[draw],
+        &scene,
+        1.0,
+        (&pending, None),
+    );
+    assert_eq!(fit(&invisible), fit(&bare));
+    overlay.hidden_bones = Arc::from([0]);
+    let skins = [overlay];
+    let without_skin = actor_animation::ActorRigSnapshot {
+        skin_layers: &skins,
+        ..rig
+    };
+    let hidden = cloth_contacts::hidden(
+        &unmasked,
+        &without_skin,
+        (
+            &stream,
+            &ActorEquipmentInput::default(),
+            state.combat_visuals,
+        ),
+        (&scene, &mut pending, None),
+        (1.0, 0.05),
+    );
+    assert_eq!(
+        fit(&hidden),
+        fit(&bare),
+        "hidden persona bones must not reserve cloth clearance"
     );
 }

@@ -3,6 +3,7 @@ mod armour_tests;
 mod bodies;
 #[cfg(test)]
 mod cape_tests;
+mod cloth_contacts;
 mod commit;
 mod flames;
 mod geometry;
@@ -239,14 +240,37 @@ pub fn prepare_actor_render_frame(
     );
     let local_flame_feet = flames::LocalFlameFeet::capture(local.as_ref(), visibility);
     if !local_visible
+        && state.hat_state.has_local_cloth()
         && let (Some(body), Some(stream)) = (local.as_ref(), stream)
         && let Some(rig) = stream.authority().actor_rig(bodies.local_runtime_id)
     {
+        let rig = emote_geometry::skin_layer_snapshot(
+            rig,
+            bodies.local_emote_pose.as_ref(),
+            java::posed(&bodies.java_posed, bodies.local_runtime_id)
+                .map(|posed| posed.skin_layers.as_slice()),
+            bodies
+                .native_body_sampled
+                .then(|| state.java_hand.native_pose.skin_layers())
+                .flatten(),
+        );
+        let contacts = cloth_contacts::hidden(
+            &body.submission,
+            &rig,
+            (stream, &input.local_equipment, state.combat_visuals),
+            (
+                &params.scene,
+                &mut new_geometries,
+                params.equipment.as_deref_mut(),
+            ),
+            (step.partial_tick, params.time.delta_secs()),
+        );
         state.hat_state.advance_hidden_local(
             &body.submission,
             rig.bone_names,
             rig.attachments,
             step.partial_tick,
+            Some(&contacts),
         );
     }
     let camera_position = cull_view.map(|view| view.camera_position.to_array());
@@ -300,12 +324,21 @@ pub fn prepare_actor_render_frame(
         ),
         &mut new_geometries,
     );
+    if let Some(equipment) = params.equipment.as_deref_mut() {
+        new_geometries.extend(equipment.take_pending_geometries());
+    }
     state.hat_state.attach(
         &mut batch,
         stream,
         &input.remote_hats,
         &mut params.scene,
         step.partial_tick,
+        hats::AttachmentFrame {
+            geometries: &new_geometries,
+            equipment: params.equipment.as_deref(),
+            local_emote: bodies.local_emote_pose.as_ref(),
+            remote_emotes: Some(&bodies.remote_emote_poses),
+        },
     );
     layers::apply_style_and_visibility(&mut batch, stream, params.actor_style.as_deref());
     if let Some(placements) = params.cosmetic_emitters.as_deref_mut() {
@@ -327,9 +360,6 @@ pub fn prepare_actor_render_frame(
             local_flame_feet,
             &mut batch,
         );
-    }
-    if let Some(equipment) = params.equipment.as_deref_mut() {
-        new_geometries.extend(equipment.take_pending_geometries());
     }
     drop(preparation);
     register_geometries(

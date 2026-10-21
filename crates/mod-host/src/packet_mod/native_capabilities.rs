@@ -169,7 +169,8 @@ impl NativeExports {
                 bits |= mod_api::native_render::ENTITY_HIGHLIGHTS;
             }
             if granted.block_highlights {
-                bits |= mod_api::native_render::BLOCK_HIGHLIGHTS;
+                bits |= mod_api::native_render::BLOCK_HIGHLIGHTS
+                    | mod_api::native_render::BLOCK_OUTLINES;
             }
         }
         Ok(bits)

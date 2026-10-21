@@ -26,6 +26,7 @@ pub(super) fn draw(
     match section {
         SettingSection::Accessibility => accessibility(content),
         SettingSection::Video => video(content),
+        SettingSection::Shaders => super::renderer::shaders(content),
         SettingSection::Sound => audio(content),
         SettingSection::KeyboardAndMouse => keyboard(content),
         SettingSection::ControllerAndSwitch => controller(content),

@@ -1,26 +1,45 @@
-//! The Video renderer picker publishes only the renderers this build compiles.
+//! Renderer and pack controls stay in their own feature-gated settings sections.
 
 use crate::test_support::{centre, settings_view};
 use launcher::menu::{
     MenuAction, MenuView, RendererChoice,
+    settings_sections::SettingSection,
     settings_storage::{StorageAction, StorageFolder},
 };
 use std::sync::Arc;
 use ui_engine::menu_scroll::MenuScrolls;
 
-/// Every action the Video pane publishes while scrolling to its end, in first-seen order.
-fn video_actions(view: &MenuView) -> Vec<MenuAction> {
-    let size = [1280.0, 720.0];
+/// Collects the controls and labels exposed while scrolling the settings content to its end.
+fn controls(view: &MenuView) -> (Vec<MenuAction>, Vec<String>) {
     let mut scrolls = MenuScrolls::<MenuAction>::default();
-    let mut seen = Vec::new();
+    let (mut seen, mut labels) = (Vec::new(), Vec::new());
     for _ in 0..512 {
-        let (areas, hits, _) = crate::review_tests::paint(scrolls.offsets().clone(), |canvas| {
-            crate::settings::draw(canvas, view, size, &|_| None, None, &mut Default::default())
+        let (areas, hits, nodes) =
+            crate::review_tests::paint(scrolls.offsets().clone(), |canvas| {
+                crate::settings::draw(
+                    canvas,
+                    view,
+                    [1280.0, 720.0],
+                    &|_| None,
+                    None,
+                    &mut Default::default(),
+                )
                 .unwrap();
-        });
+            });
         for (action, _) in hits {
             if !seen.contains(&action) {
                 seen.push(action);
+            }
+        }
+        for node in nodes {
+            if let ui::UiVisual::Text { layout, .. } = node.visual() {
+                labels.push(
+                    layout
+                        .glyphs()
+                        .iter()
+                        .map(|glyph| glyph.codepoint)
+                        .collect(),
+                );
             }
         }
         let viewport = areas
@@ -35,12 +54,13 @@ fn video_actions(view: &MenuView) -> Vec<MenuAction> {
             break;
         }
     }
-    seen
+    (seen, labels)
 }
 
-/// Every renderer choice the Video pane publishes while scrolling to its end.
+/// Extracts the choices actually published by the section's painted controls.
 fn renderer_choices(view: &MenuView) -> Vec<RendererChoice> {
-    video_actions(view)
+    controls(view)
+        .0
         .into_iter()
         .filter_map(|action| match action {
             MenuAction::SelectRenderer(choice) => Some(choice),
@@ -50,51 +70,196 @@ fn renderer_choices(view: &MenuView) -> Vec<RendererChoice> {
 }
 
 #[test]
-fn shader_pack_builds_offer_the_pack_folder_when_the_host_opens_folders() {
+fn video_keeps_only_the_renderer_choice_and_shader_shortcut() {
+    let mut view = settings_view(SettingSection::Video.definition().name);
+    view.shader_packs = Arc::from(["Dusk.zip".to_owned()]);
+    view.render_mode = ui::RenderMode::ShaderPack;
+    view.shader_pack = Some("Dusk.zip".to_owned());
+    view.renderer = Some(RendererChoice::ShaderPack(0, view.shader_packs_revision));
+    view.shader_options_available = true;
+    Arc::make_mut(&mut view.storage).opens_folders = true;
+    let mut expected = Vec::new();
+    if render_model::ENHANCED_RENDERING_ENABLED {
+        expected.push(RendererChoice::Vanilla);
+        expected.push(RendererChoice::Enhanced);
+    }
+    assert_eq!(renderer_choices(&view), expected);
+    let (actions, labels) = controls(&view);
+    assert_eq!(
+        labels.iter().any(|text| text == "Shaders: Dusk"),
+        render_model::SHADER_PACKS_ENABLED
+    );
+    if render_model::ENHANCED_RENDERING_ENABLED {
+        assert!(
+            labels
+                .iter()
+                .any(|text| text.contains("Shader pack active: Dusk"))
+        );
+    } else {
+        assert!(
+            !labels
+                .iter()
+                .any(|text| text == "Vanilla" || text == "Renderer")
+        );
+    }
+    assert!(!actions.contains(&MenuAction::ReloadShaders));
+    assert!(
+        !actions
+            .iter()
+            .any(|action| matches!(action, MenuAction::ShaderOptions(_)))
+    );
+    assert!(
+        !actions.contains(&MenuAction::SettingsStorage(StorageAction::OpenFolder(
+            StorageFolder::ShaderPacks
+        )))
+    );
+}
+
+#[test]
+fn video_shader_shortcut_is_a_labelled_navigation_button() {
+    let view = settings_view(SettingSection::Video.definition().name);
+    let (actions, labels) = controls(&view);
+    assert_eq!(
+        actions.contains(&MenuAction::SettingsShaders),
+        render_model::SHADER_PACKS_ENABLED
+    );
+    assert_eq!(
+        labels.iter().any(|text| text == "Open"),
+        render_model::SHADER_PACKS_ENABLED
+    );
+    assert!(!labels.iter().any(|text| text == "›"));
+}
+
+#[test]
+fn video_hides_the_renderer_row_when_only_vanilla_is_available() {
+    let mut view = settings_view(SettingSection::Video.definition().name);
+    for mode in [ui::RenderMode::Vanilla, ui::RenderMode::ShaderPack] {
+        view.render_mode = mode;
+        let (actions, labels) = controls(&view);
+        assert_eq!(
+            actions.contains(&MenuAction::SelectRenderer(RendererChoice::Vanilla)),
+            render_model::ENHANCED_RENDERING_ENABLED,
+            "{mode:?}"
+        );
+        assert_eq!(
+            labels.iter().any(|text| text == "Renderer"),
+            render_model::ENHANCED_RENDERING_ENABLED,
+            "{mode:?}"
+        );
+    }
+}
+
+#[test]
+fn the_video_shortcut_names_a_selected_pack_missing_from_discovery() {
+    let mut view = settings_view(SettingSection::Video.definition().name);
+    view.render_mode = ui::RenderMode::ShaderPack;
+    view.renderer = None;
+    view.shader_pack = Some("Missing.zip".to_owned());
+    assert_eq!(
+        controls(&view)
+            .1
+            .iter()
+            .any(|text| text == "Shaders: Missing"),
+        render_model::SHADER_PACKS_ENABLED
+    );
+}
+
+#[test]
+fn shader_tab_and_video_shortcut_follow_the_shader_pack_feature() {
+    let mut view = settings_view(SettingSection::Video.definition().name);
+    let (actions, labels) = controls(&view);
+    assert_eq!(
+        labels.iter().any(|text| text == "Shaders: Off"),
+        render_model::SHADER_PACKS_ENABLED
+    );
+    assert_eq!(
+        actions.contains(&MenuAction::SettingsShaders),
+        render_model::SHADER_PACKS_ENABLED
+    );
+    let action = MenuAction::SettingsSection(SettingSection::Shaders.definition().index);
+    view.settings.section = SettingSection::Shaders.definition().index;
+    let (_, hits, _) = crate::review_tests::paint(Default::default(), |canvas| {
+        crate::settings::draw(
+            canvas,
+            &view,
+            [1280.0, 1600.0],
+            &|_| None,
+            None,
+            &mut Default::default(),
+        )
+        .unwrap();
+    });
+    assert_eq!(
+        hits.iter().any(|(hit, _)| *hit == action),
+        render_model::SHADER_PACKS_ENABLED
+    );
+}
+
+#[test]
+fn shaders_offer_off_and_packs_with_the_current_list_revision() {
+    let mut view = settings_view(SettingSection::Shaders.definition().name);
+    view.shader_packs_revision = 7;
+    view.shader_packs = Arc::from(["Dusk.zip".to_owned(), "Lumen".to_owned()]);
+    let expected = if render_model::SHADER_PACKS_ENABLED {
+        vec![
+            RendererChoice::Vanilla,
+            RendererChoice::ShaderPack(0, view.shader_packs_revision),
+            RendererChoice::ShaderPack(1, view.shader_packs_revision),
+        ]
+    } else {
+        Vec::new()
+    };
+    assert_eq!(renderer_choices(&view), expected);
+}
+
+#[test]
+fn shaders_offer_reload_and_folder_import_when_the_host_opens_folders() {
     let open = MenuAction::SettingsStorage(StorageAction::OpenFolder(StorageFolder::ShaderPacks));
-    let mut view = settings_view("video_forced_index");
+    let mut view = settings_view(SettingSection::Shaders.definition().name);
     for opens_folders in [false, true] {
         Arc::make_mut(&mut view.storage).opens_folders = opens_folders;
+        let actions = controls(&view).0;
         assert_eq!(
-            video_actions(&view).contains(&open),
-            opens_folders && render_model::SHADER_PACKS_ENABLED,
-            "opens folders: {opens_folders}"
+            actions.contains(&open),
+            opens_folders && render_model::SHADER_PACKS_ENABLED
+        );
+        assert_eq!(
+            actions.contains(&MenuAction::ReloadShaders),
+            render_model::SHADER_PACKS_ENABLED
         );
     }
 }
 
 #[test]
 fn a_requested_pack_without_a_picker_entry_offers_its_options() {
-    let mut view = settings_view("video_forced_index");
+    let mut view = settings_view(SettingSection::Shaders.definition().name);
     view.render_mode = ui::RenderMode::ShaderPack;
     view.renderer = None;
     view.shader_options_available = true;
     assert_eq!(
-        video_actions(&view).contains(&MenuAction::ShaderOptions(
+        controls(&view).0.contains(&MenuAction::ShaderOptions(
             launcher::shader_options::Action::Open
         )),
-        render_model::SHADER_PACKS_ENABLED,
+        render_model::SHADER_PACKS_ENABLED
     );
 }
 
 #[test]
-fn renderer_choices_follow_the_compiled_features() {
-    let mut view = settings_view("video_forced_index");
-    view.shader_packs = Arc::from(["Dusk.zip".to_owned(), "Lumen".to_owned()]);
-    let renderers = renderer_choices(&view);
-    let mut expected = Vec::new();
-    if render_model::ENHANCED_RENDERING_ENABLED || render_model::SHADER_PACKS_ENABLED {
-        expected.push(RendererChoice::Vanilla);
-    }
-    if render_model::ENHANCED_RENDERING_ENABLED {
-        expected.push(RendererChoice::Enhanced);
-    }
-    if render_model::SHADER_PACKS_ENABLED {
-        expected.extend([
-            RendererChoice::ShaderPack(0, view.shader_packs_revision),
-            RendererChoice::ShaderPack(1, view.shader_packs_revision),
-        ]);
-    }
-    assert_eq!(renderers.len(), expected.len(), "{renderers:?}");
-    assert!(expected.iter().all(|choice| renderers.contains(choice)));
+fn pack_failure_details_appear_only_in_shaders() {
+    let mut view = settings_view(SettingSection::Video.definition().name);
+    view.renderer_failure = Some("Pack failed: unknown bloomTint".into());
+    assert!(
+        !controls(&view)
+            .1
+            .iter()
+            .any(|text| text.contains("unknown bloomTint"))
+    );
+    view.settings.section = SettingSection::Shaders.definition().index;
+    assert_eq!(
+        controls(&view)
+            .1
+            .iter()
+            .any(|text| text.contains("unknown bloomTint")),
+        render_model::SHADER_PACKS_ENABLED
+    );
 }

@@ -54,7 +54,7 @@ pub struct PackEquipment {
     pub(super) catalog: Option<Arc<RuntimeEquipmentCatalog>>,
     pub(super) native_items: BTreeMap<Box<str>, super::native::NativeArtwork>,
     pub(super) texture_locations: BTreeMap<Box<str>, TextureArtwork>,
-    armor_geometry: BTreeMap<Box<str>, Option<Arc<ArmorGeometry>>>,
+    pub(super) armor_geometry: BTreeMap<Box<str>, Option<Arc<ArmorGeometry>>>,
     pub(super) attachables: actor_animation::AttachablesRuntime,
 }
 

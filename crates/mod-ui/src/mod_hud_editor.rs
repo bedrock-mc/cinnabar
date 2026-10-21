@@ -8,6 +8,7 @@ mod input;
 mod inspector;
 mod motion;
 mod publication;
+mod slider;
 mod snapping;
 mod template;
 
@@ -65,6 +66,9 @@ pub(super) struct HudEditor {
     keep_out: Vec<[f64; 4]>,
     selected: Option<usize>,
     pub(super) drag: Option<input::Drag>,
+    slider: Option<slider::Gesture>,
+    /// `(control index, fill)` for every guest slider, as last published.
+    control_fills: Vec<(usize, f64)>,
     pub(super) open: bool,
     result: Option<EditorResult>,
     viewport: [f64; 2],
@@ -126,6 +130,8 @@ impl ModUi {
             keep_out: Vec::new(),
             selected: None,
             drag: None,
+            slider: None,
+            control_fills: Vec::new(),
             open: true,
             result: None,
             viewport: [0.; 2],
@@ -271,6 +277,11 @@ impl ModUi {
         if !editor.painting() {
             return;
         }
+        let controls = self
+            .mod_panel
+            .as_ref()
+            .map_or(&[][..], crate::mod_panel::ModPanel::controls);
+        editor.data_dirty |= editor.sync_control_fills(controls);
         let icons_changed = editor.row_icons != resolved.as_slice();
         if editor.data_dirty || icons_changed {
             let mut data = editor.data();

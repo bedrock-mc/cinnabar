@@ -82,6 +82,7 @@ const fn tab(section: launcher::menu::settings_sections::SettingSection) -> Tab 
         Sound => (Some(SETTINGS_ICONS[7]), [141, 90, 59], Glyph::Grid, None),
         Account => (Some(SETTINGS_ICONS[8]), [121, 76, 45], Glyph::Face, None),
         GlobalTexturePack => (Some(SETTINGS_ICONS[9]), [159, 108, 44], Glyph::Chest, None),
+        Shaders => (None, [193, 142, 62], Glyph::Landscape, None),
         Mods => (None, [112, 76, 160], Glyph::Puzzle, None),
         StorageManagement => (
             Some(SETTINGS_ICONS[10]),

@@ -444,6 +444,7 @@ fn studio_surface_actions_accept_exact_names_and_reject_out_of_range_indices() {
     for action in [
         "hud.undo",
         "hud.redo",
+        "hud.scale",
         "hud.scale_down",
         "hud.scale_up",
         "hud.save",
@@ -557,7 +558,11 @@ fn studio_native_placeholder_identity_survives_materialization_and_stays_out_of_
         id: "effects_preview".into(),
         editor_label: "Effects".into(),
         source: Some(super::RowSource {
-            kind: super::NativeRows::Effects { icons: true },
+            kind: super::NativeRows::Effects {
+                icons: true,
+                stacked: false,
+                warnings: false,
+            },
             limit: 4,
             color: [1.; 4],
             brackets: false,

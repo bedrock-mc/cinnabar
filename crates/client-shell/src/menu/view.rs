@@ -55,6 +55,9 @@ impl MenuRuntime {
             render_mode: self.render_mode,
             shader_packs: std::sync::Arc::clone(&self.shader_packs),
             shader_packs_revision: self.shader_packs_revision,
+            shader_pack: (self.render_mode == ui::RenderMode::ShaderPack)
+                .then(|| self.shader_pack.clone())
+                .flatten(),
             renderer: self.renderer_choice(),
             shader_options_available: self.shader_options_available(),
             renderer_failure: self.renderer_failure(),

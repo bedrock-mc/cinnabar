@@ -1,4 +1,4 @@
-//! The Shader Pack Settings screen over Video settings: presses queue for the app, which owns
+//! The Shader Pack Settings screen in the Shaders tab: presses queue for the app, which owns
 //! the pack's options and publishes the screen back.
 
 use std::sync::Arc;
@@ -137,12 +137,13 @@ mod tests {
     }
 
     #[test]
-    fn back_and_leaving_video_go_to_the_open_screen() {
+    fn back_and_leaving_shaders_go_to_the_open_screen() {
         if !render_model::SHADER_PACKS_ENABLED {
             return;
         }
         let mut menu = menu();
         menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+        menu.activate(MenuAction::SettingsShaders);
         menu.activate(MenuAction::SelectRenderer(RendererChoice::ShaderPack(
             0,
             menu.shader_packs_revision,
@@ -161,12 +162,12 @@ mod tests {
             [Action::Back, Action::Done]
         );
     }
-    /// Opens a ready option editor in the Video section.
+    /// Opens a ready option editor in the Shaders tab.
     fn editing_menu() -> MenuRuntime {
         let mut menu = menu();
         menu.activate(MenuAction::Navigate(MenuScreen::Settings));
         menu.activate(MenuAction::SettingsSection(
-            launcher::menu::settings_sections::SettingSection::Video
+            launcher::menu::settings_sections::SettingSection::Shaders
                 .definition()
                 .index,
         ));
@@ -188,14 +189,14 @@ mod tests {
             return;
         }
         let mut menu = editing_menu();
-        let video = menu.settings.section;
+        let shaders = menu.settings.section;
         menu.activate(MenuAction::SettingsSection(0));
-        assert_eq!(menu.settings.section, video);
+        assert_eq!(menu.settings.section, shaders);
         assert_eq!(menu.take_shader_option_actions(), [Action::Done]);
         let mut view = View::loading("Dusk.zip");
         view.status = launcher::shader_options::Status::SaveFailed("disk full".into());
         menu.sync_shader_options(Some(view));
-        assert_eq!(menu.settings.section, video);
+        assert_eq!(menu.settings.section, shaders);
         assert!(menu.take_shader_option_actions().is_empty());
         menu.activate(MenuAction::SettingsSection(0));
         assert_eq!(menu.take_shader_option_actions(), [Action::Done]);
@@ -210,17 +211,17 @@ mod tests {
             return;
         }
         let mut menu = editing_menu();
-        let video = menu.settings.section;
+        let shaders = menu.settings.section;
         let mut view = View::loading("Dusk.zip");
         view.status = launcher::shader_options::Status::Saving;
         menu.sync_shader_options(Some(view.clone()));
         menu.activate(MenuAction::SettingsSection(0));
-        assert_eq!(menu.settings.section, video);
+        assert_eq!(menu.settings.section, shaders);
         assert!(menu.take_shader_option_actions().is_empty());
         view.status = launcher::shader_options::Status::Ready;
         menu.sync_shader_options(Some(view));
         assert_eq!(menu.take_shader_option_actions(), [Action::Done]);
-        assert_eq!(menu.settings.section, video);
+        assert_eq!(menu.settings.section, shaders);
         menu.sync_shader_options(None);
         assert_eq!(menu.settings.section, 0);
     }

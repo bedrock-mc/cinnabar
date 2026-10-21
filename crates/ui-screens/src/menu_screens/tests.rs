@@ -10,6 +10,14 @@ use {
 };
 
 #[test]
+fn settings_context_exposes_every_registered_section_selector() {
+    let context = settings_context(base_context());
+    for (name, index) in SETTINGS_SECTIONS {
+        assert_eq!(context.vars().get(*name), Some(&Value::from(*index)));
+    }
+}
+
+#[test]
 fn reconnect_regions_require_a_retryable_failure() {
     let mut shown = view(MenuScreen::Play);
     let button = region(HitKind::Button, Some("button.cinnabar_reconnect"));

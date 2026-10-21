@@ -2,6 +2,7 @@
 
 use launcher::menu::{
     MenuAction, RendererChoice,
+    settings_options::SettingId,
     settings_sections::SettingSection,
     shader_pack_status::{
         LOADING_TOAST_DELAY, PackLoad, PackNotices, PackToast, failure_description,
@@ -65,10 +66,11 @@ pub(super) fn failed() -> Fixture {
     ])
 }
 
-/// The Video pane with `PACK` chosen as the renderer, failed or not.
-pub(super) fn settings_video(failed: bool) -> Fixture {
-    let mut view = super::settings(SettingSection::Video.definition().name);
+/// The Shaders tab with `PACK` chosen as the renderer, failed or not.
+pub(super) fn settings_shaders(failed: bool) -> Fixture {
+    let mut view = super::settings(SettingSection::Shaders.definition().name);
     view.render_mode = ui::RenderMode::ShaderPack;
+    view.shader_pack = Some(PACK.to_owned());
     view.shader_packs = Arc::from([PACK.to_owned(), "Lumen".to_owned()]);
     view.renderer = Some(RendererChoice::ShaderPack(0, view.shader_packs_revision));
     view.shader_options_available = true;
@@ -76,17 +78,34 @@ pub(super) fn settings_video(failed: bool) -> Fixture {
     Fixture::Menu(Box::new(view))
 }
 
-/// Scrolls Video to the renderer picker of a `shaderpacks` build listing two packs, with the
-/// shader-pack folder's Open folder button a desktop host shows below it.
-pub(super) fn video_picker() -> Fixture {
-    use launcher::menu::settings_storage::{StorageAction, StorageFolder};
-    let mut view = super::settings(SettingSection::Video.definition().name);
+/// The Shaders tab with two packs and the folder import control.
+pub(super) fn pack_picker() -> Fixture {
+    let mut view = super::settings(SettingSection::Shaders.definition().name);
     view.shader_packs = Arc::from(["Dusk.zip".to_owned(), "Lumen".to_owned()]);
     Arc::make_mut(&mut view.storage).opens_folders = true;
-    view.focused_action = Some(MenuAction::SettingsStorage(StorageAction::OpenFolder(
-        StorageFolder::ShaderPacks,
-    )));
+    view.focused_action = Some(MenuAction::SettingsSection(
+        SettingSection::Shaders.definition().index,
+    ));
     Fixture::Menu(Box::new(view))
+}
+
+/// Frames the Video shortcut above the graphics controls so its full row is visible.
+pub(super) fn video_shortcut() -> Fixture {
+    let Fixture::Menu(mut view) = settings_shaders(false) else {
+        unreachable!()
+    };
+    view.settings.section = SettingSection::Video.definition().index;
+    view.focused_action = Some(MenuAction::SettingsOption(
+        SettingId::GraphicsMode.index() as u16,
+        0,
+    ));
+    Fixture::Menu(view)
+}
+/// Shows an ordinary OreUI route without account, world or network services.
+pub(super) fn settings_video() -> Fixture {
+    Fixture::Menu(Box::new(super::settings(
+        SettingSection::Video.definition().name,
+    )))
 }
 
 #[cfg(test)]

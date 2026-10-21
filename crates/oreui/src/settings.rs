@@ -83,11 +83,11 @@ pub(super) fn draw(
     canvas.frame(panel, EDGE, theme::BORDER)?;
     let section =
         SettingSection::from_index(view.settings.section).unwrap_or(SettingSection::Accessibility);
-    // The Shader Pack Settings screen replaces the Video panel and keeps a footer below it.
+    // The Shader Pack Settings screen keeps a footer below the option grid.
     let options = view
         .shader_options
         .as_deref()
-        .filter(|_| section == SettingSection::Video);
+        .filter(|_| render_model::SHADER_PACKS_ENABLED && section == SettingSection::Shaders);
     let footer = options.map_or(0.0, |_| shader_options::footer_height(canvas));
     let viewport = [
         panel[0] + canvas.r(EDGE),

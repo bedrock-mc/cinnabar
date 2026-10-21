@@ -54,6 +54,13 @@ pub const MAX_CROSSHAIR_BYTES: usize = 1024;
 /// Uniform HUD scales shared by admission and the native layout editor.
 pub const MIN_CARD_SCALE: f32 = 0.25;
 pub const MAX_CARD_SCALE: f32 = 5.;
+/// Scale span of the editor's continuous `hud.scale` slider, from its left to its right edge.
+pub const EDITOR_SCALE_SLIDER_RANGE: [f32; 2] = [0.5, 2.];
+const _: () = assert!(
+    EDITOR_SCALE_SLIDER_RANGE[0] >= MIN_CARD_SCALE
+        && EDITOR_SCALE_SLIDER_RANGE[0] < EDITOR_SCALE_SLIDER_RANGE[1]
+        && EDITOR_SCALE_SLIDER_RANGE[1] <= MAX_CARD_SCALE
+);
 pub const MAX_CARD_WIDTH: f32 = 512.;
 pub const DEFAULT_CARD_WIDTH: f32 = 148.;
 pub const DEFAULT_ROW_HEIGHT: f32 = 20.;
@@ -577,6 +584,7 @@ impl Hud {
                         | "hud.snap"
                         | "hud.undo"
                         | "hud.redo"
+                        | "hud.scale"
                         | "hud.scale_down"
                         | "hud.scale_up"
                 ) && !indexed("hud.card:", MAX_HUD_CARDS)

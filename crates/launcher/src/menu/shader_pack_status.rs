@@ -1,6 +1,6 @@
 //! Feedback while the selected shader pack loads: a toast stands as a slow load translates its
 //! programs, an outcome toast replaces it once the pack is ready or fails, and a failure
-//! explains itself in the Video Renderer row. Callers pass the render host's load state and
+//! explains itself in the Shaders tab. Callers pass the render host's load state and
 //! their monotonic clock each frame; each state change raises at most one toast.
 
 use std::{fmt::Write, time::Duration};
@@ -10,7 +10,7 @@ use std::{fmt::Write, time::Duration};
 pub const LOADING_TOAST_DELAY: Duration = Duration::from_millis(500);
 /// Characters of a failure's first line an outcome toast carries.
 const SUMMARY_CHARS: usize = 96;
-/// Failure lines the Renderer row lists before counting the rest.
+/// Failure lines the pack picker lists before counting the rest.
 const DESCRIBED_LINES: usize = 6;
 
 /// A pack's display name: its file or folder name without a `.zip` extension.
@@ -213,7 +213,7 @@ pub fn failure_summary(reason: &str) -> String {
     summary
 }
 
-/// The Renderer row's description while the selected pack has failed: the reason's lines,
+/// The pack picker's description while the selected pack has failed: the reason's lines,
 /// the first [`DESCRIBED_LINES`] of them, then a count of the rest.
 pub fn failure_description(reason: &str) -> String {
     let mut text = String::from("This pack failed to load, so Vanilla draws instead.");

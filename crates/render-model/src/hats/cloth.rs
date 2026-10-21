@@ -7,10 +7,9 @@ use std::sync::Arc;
 
 const STEP: f32 = 1.0 / 120.0;
 const ITERATIONS: usize = 9;
-/// One model pixel of breathing room behind the authored clasp plane.
-const REST_CLEARANCE: f32 = 1.0 / 16.0;
-/// Standard armor extends one pixel beyond the body; retain a small fabric margin too.
-const CONTACT_MARGIN: f32 = 1.0 / 16.0 + 0.018;
+/// Small fabric separation from the actual skin or worn geometry, in model blocks.
+const CONTACT_MARGIN: f32 = 0.0125;
+const CONTACT_SEPARATION: f32 = 0.001;
 /// Head contacts leave the neck open so the first free fabric row can meet its pins.
 const HEAD_MARGIN: f32 = 0.018;
 /// Keep most vertical avatar travel while retaining a small jump/landing response.
@@ -21,6 +20,9 @@ const HORIZONTAL_FOLLOW: f32 = 0.4;
 const WORLD_DRAG: f32 = 1.94;
 /// Extra settling opposes motion relative to the attachment rather than steady running speed.
 const SETTLING_DAMPING: f32 = 3.8 - WORLD_DRAG;
+
+mod fitting;
+use fitting::DepthFit;
 
 /// Previous and current tick endpoints with identically sampled fabric particles.
 pub type ClothPose = (Arc<[RenderBoneTransform]>, Arc<[RenderBoneTransform]>);
@@ -172,6 +174,7 @@ impl ClothRig {
 }
 
 /// A conservative animated body box in world coordinates; cloth cannot enter its interior.
+#[derive(Clone)]
 pub struct Collider {
     world: Mat4,
     inverse: Mat4,
@@ -191,6 +194,67 @@ pub fn placement(rows: [[f32; 4]; 3]) -> Mat4 {
 }
 
 impl Collider {
+    /// Uses the rendered bone's own geometry instead of assuming a standard armor thickness.
+    pub fn geometry(
+        name: &str,
+        geometry: &ActorRigGeometry,
+        index: usize,
+        bone: RenderBoneTransform,
+        actor: Mat4,
+    ) -> Option<Self> {
+        let (min, max) = geometry.bone_bounds(index)?;
+        let scale = Vec3::from_slice(&bone.axis_scale[..3]) * bone.translation_scale[3];
+        if scale.min_element() <= 1e-5 {
+            return None;
+        }
+        let world = actor
+            * Mat4::from_scale_rotation_translation(
+                scale,
+                Quat::from_array(bone.rotation),
+                Vec3::from_slice(&bone.translation_scale[..3]),
+            );
+        let margin = if name.eq_ignore_ascii_case("head") {
+            HEAD_MARGIN
+        } else {
+            CONTACT_MARGIN
+        };
+        Some(Self {
+            world,
+            inverse: world.inverse(),
+            min: Vec3::from_array(min) - Vec3::splat(margin),
+            max: Vec3::from_array(max) + Vec3::splat(margin),
+            back_only: name.split('.').next().is_some_and(|root| {
+                root.eq_ignore_ascii_case("body") || root.eq_ignore_ascii_case("jacket")
+            }),
+        })
+    }
+
+    /// Samples contacts with the renderer's endpoint interpolation, including rotating armor.
+    pub fn sampled_geometry(
+        name: &str,
+        geometry: &ActorRigGeometry,
+        index: usize,
+        bones: [RenderBoneTransform; 2],
+        actor: [[f32; 4]; 3],
+        alpha: f32,
+    ) -> Option<Self> {
+        let sampled =
+            crate::actor::sampled_bone_offset([0.0; 3], bones[0], bones[1], actor, alpha)?;
+        let world = Mat4::from_cols(
+            Vec3::from_array(sampled.basis[0]).extend(0.0),
+            Vec3::from_array(sampled.basis[1]).extend(0.0),
+            Vec3::from_array(sampled.basis[2]).extend(0.0),
+            Vec3::from_array(sampled.position).extend(1.0),
+        );
+        if world.determinant().abs() < 1e-8 {
+            return None;
+        }
+        let mut collider = Self::geometry(name, geometry, index, bones[1], Mat4::IDENTITY)?;
+        collider.world = world;
+        collider.inverse = world.inverse();
+        Some(collider)
+    }
+
     /// Build standard-avatar collision proxies from the evaluated head, body, arms and legs.
     pub fn biped(name: &str, bone: RenderBoneTransform, actor: Mat4) -> Option<Self> {
         let name = name.to_ascii_lowercase();
@@ -249,9 +313,9 @@ impl Collider {
             }
         }
         local[axis] = if positive {
-            self.max[axis] + 0.001
+            self.max[axis] + CONTACT_SEPARATION
         } else {
-            self.min[axis] - 0.001
+            self.min[axis] - CONTACT_SEPARATION
         };
         *point = self.world.transform_point3(local);
     }
@@ -271,9 +335,22 @@ pub struct ClothState {
     previous_scale: Option<Vec3>,
     previous_frame: Option<Mat4>,
     reanchor_pending: bool,
+    fitting: Option<DepthFit>,
+    fitted_actor: Option<[[f32; 4]; 3]>,
+    retain_fitting: bool,
 }
 
 impl ClothState {
+    /// Placement paired with the latest cloth pose; render its rigid and simulated bones together.
+    pub fn fitted_placement(&self) -> Option<[[f32; 4]; 3]> {
+        self.fitted_actor
+    }
+
+    /// Keeps the last drawn armor fit during one hidden-view update without freezing simulation.
+    pub fn retain_fitting(&mut self) {
+        self.retain_fitting = true;
+    }
+
     /// Preserve the drape and velocity in attachment space when a view changes its body pose.
     pub fn reanchor(&mut self) {
         self.reanchor_pending = true;
@@ -289,26 +366,56 @@ impl ClothState {
         timing: (f32, f32),
         colliders: &[Collider],
     ) -> Option<ClothPose> {
+        self.fitted_actor = None;
         let model: &HatRig = rig(item);
         let cloth = model.cloth.as_ref()?;
         let (delta, alpha) = timing;
-        let world = placement(actor);
-        if !world.is_finite() || world.determinant().abs() < 1e-8 {
+        let original_world = placement(actor);
+        if !original_world.is_finite() || original_world.determinant().abs() < 1e-8 {
             self.previous_center = None;
             return None;
         }
-        let inverse = world.inverse();
-        let roots = [bases[0][cloth.source], bases[1][cloth.source]];
-        let root_scales =
-            roots.map(|root| Vec3::from_slice(&root.axis_scale[..3]) * root.translation_scale[3]);
-        if roots.iter().any(|root| !root.is_finite())
+        let original_roots = [bases[0][cloth.source], bases[1][cloth.source]];
+        let root_scales = original_roots
+            .map(|root| Vec3::from_slice(&root.axis_scale[..3]) * root.translation_scale[3]);
+        if original_roots.iter().any(|root| !root.is_finite())
             || root_scales.iter().any(|scale| scale.min_element() <= 1e-5)
         {
             self.previous_center = None;
             return None;
         }
+        let retain = std::mem::take(&mut self.retain_fitting);
+        let mut fitting = if retain && self.fitting.is_some() {
+            self.fitting
+        } else {
+            DepthFit::resolve(model, &bases, actor, alpha, colliders)
+        };
+        if let (Some(old), Some(new)) = (self.fitting, fitting)
+            && !old.differs(new)
+        {
+            // World-to-torso roundoff must not change the fit during ordinary movement.
+            fitting = Some(old);
+        }
+        if match (self.fitting, fitting) {
+            (Some(old), Some(new)) => old.differs(new),
+            (None, None) => false,
+            _ => true,
+        } {
+            self.reanchor_pending = true;
+        }
+        self.fitting = fitting;
+        let world = match fitting {
+            Some(fit) => fit.placement(model, &bases, actor, alpha)?,
+            None => original_world,
+        };
+        let rows = world.transpose().to_cols_array_2d();
+        let fitted_actor = [rows[0], rows[1], rows[2]];
+        self.fitted_actor = Some(fitted_actor);
+        let inverse = world.inverse();
+        let mut poses = bases.map(|base| base.to_vec());
+        let roots = original_roots;
         let sampled =
-            crate::actor::sampled_bone_offset([0.0; 3], roots[0], roots[1], actor, alpha)?;
+            crate::actor::sampled_bone_offset([0.0; 3], roots[0], roots[1], fitted_actor, alpha)?;
         let transform = Mat4::from_cols(
             Vec3::from_array(sampled.basis[0]).extend(0.0),
             Vec3::from_array(sampled.basis[1]).extend(0.0),
@@ -317,12 +424,12 @@ impl ClothState {
         );
         let scale = root_scales[0].lerp(root_scales[1], alpha.clamp(0.0, 1.0))
             * Vec3::new(
-                world.x_axis.length(),
-                world.y_axis.length(),
-                world.z_axis.length(),
+                original_world.x_axis.length(),
+                original_world.y_axis.length(),
+                original_world.z_axis.length(),
             );
         let pivot = Vec3::from_array(model.geometry.bone_pivots[cloth.source]);
-        let center = world.w_axis.truncate();
+        let center = original_world.w_axis.truncate();
         let reset = self.points.len() != cloth.rest.len()
             || self
                 .previous_scale
@@ -335,7 +442,6 @@ impl ClothState {
             .map(|p| {
                 let mut offset = *p - pivot;
                 offset.x *= 0.89;
-                offset.z += REST_CLEARANCE;
                 transform.transform_point3(offset)
             })
             .collect();
@@ -343,7 +449,7 @@ impl ClothState {
             self.points = cloth
                 .rest
                 .iter()
-                .map(|p| transform.transform_point3(*p - pivot + Vec3::Z * REST_CLEARANCE))
+                .map(|p| transform.transform_point3(*p - pivot))
                 .collect();
             self.old = self.points.clone();
             self.normals = vec![Vec3::Z; self.points.len()];
@@ -415,7 +521,7 @@ impl ClothState {
                 cloth,
                 &current_pins,
                 colliders,
-                world.transform_vector3(Vec3::Z) * 0.35,
+                original_world.transform_vector3(Vec3::Z) * 0.35,
                 anchor_velocity,
             );
             self.accumulator -= STEP;
@@ -425,8 +531,20 @@ impl ClothState {
             self.old[i] = *pin;
         }
         self.last_pins = pins;
+        // A reveal or equipment change may draw before the next fixed simulation step.
+        for (point, old) in self
+            .points
+            .iter_mut()
+            .zip(&mut self.old)
+            .skip(cloth.columns + 1)
+        {
+            let before = *point;
+            for collider in colliders {
+                collider.project(point);
+            }
+            *old += *point - before;
+        }
         self.update_normals(cloth);
-        let mut poses = bases.map(|base| base.to_vec());
         for (i, point) in self.points.iter().enumerate() {
             let point = inverse.transform_point3(*point);
             let normal = inverse
