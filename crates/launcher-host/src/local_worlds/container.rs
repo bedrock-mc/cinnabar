@@ -255,7 +255,7 @@ impl BdsRunner {
             install,
             host_port: port,
             max_players,
-            lan_visible: lan_visible,
+            lan_visible,
             lan_host_port: self.lan_host_port,
         }));
         let launched = launch(
