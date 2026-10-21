@@ -71,15 +71,10 @@ fn actor_stream(
                 key: METADATA_ALWAYS_SHOW_NAMETAG,
                 value: ActorMetadataValue::Byte(1),
             })
-            .chain(
-                score
-                    .as_ref()
-                    .map(|score| protocol::ActorMetadata {
-                        key: METADATA_SCORE,
-                        value: ActorMetadataValue::String(Arc::clone(score)),
-                    })
-                    .into_iter(),
-            )
+            .chain(score.as_ref().map(|score| protocol::ActorMetadata {
+                key: METADATA_SCORE,
+                value: ActorMetadataValue::String(Arc::clone(score)),
+            }))
             .collect::<Vec<_>>()
             .into(),
             attributes: Arc::from([]),

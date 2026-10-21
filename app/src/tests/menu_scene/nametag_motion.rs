@@ -477,8 +477,8 @@ fn own_score_remains_visible_after_body_correction_with_stale_player_frame() {
         assert!(own.iter().all(|record| record.line_lift == 0.0));
         let remote = glyph_anchors(&mut world, REMOTE_COLOR);
         assert!(
-            !remote.is_empty(),
-            "remote range must keep using the player-frame viewer"
+            remote.is_empty(),
+            "remote range must use the current camera"
         );
 
         // The server's synced score text is the only additional line in this plain-name fixture.
