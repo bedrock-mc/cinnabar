@@ -77,7 +77,7 @@ impl HeldTool {
 /// One block's destroy facts from the generated table.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BlockDestroyInfo {
-    /// Negative means indestructible.
+    /// Provisional hardness or a server's destroy value; negative means indestructible.
     pub hardness: f32,
     effective: u8,
     harvest_tools: u8,
@@ -90,6 +90,16 @@ impl BlockDestroyInfo {
     /// Projects admitted carrier facts into the existing destroy calculation.
     pub fn from_facts(facts: BlockDestroyFacts) -> Option<Self> {
         match facts {
+            BlockDestroyFacts::Custom {
+                seconds_to_destroy_bits,
+                effective_tools,
+            } => Some(Self {
+                hardness: f32::from_bits(seconds_to_destroy_bits),
+                effective: effective_tools,
+                harvest_tools: 0,
+                harvest: HarvestRequirement::Hand,
+                sword_speed: None,
+            }),
             BlockDestroyFacts::Unresolved => None,
             BlockDestroyFacts::ProvisionalIndestructible => Some(Self {
                 hardness: -1.0,

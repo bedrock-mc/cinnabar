@@ -10,6 +10,12 @@ impl cinnabar::extension::input::Host for State {
     ) -> Result<Result<Vec<cinnabar::extension::input::TextEvent>, String>> {
         controls::read_text_events(self)
     }
+    /// Reads the same stable additive field batch throughout a frame callback.
+    fn read_field_events(
+        &mut self,
+    ) -> Result<Result<Vec<cinnabar::extension::input::FieldEvent>, String>> {
+        controls::read_field_events(self)
+    }
     /// Reads only the host's one-frame action edge, never raw keyboard state.
     fn demo_pressed(&mut self) -> Result<bool> {
         Ok(self.pressed)
@@ -42,5 +48,19 @@ impl Instance {
             "native text events require an active component"
         );
         controls::queue_text_events(self.store.data_mut(), events)
+    }
+}
+
+impl Instance {
+    /// Admits bounded live field input only for an active component.
+    pub(crate) fn queue_field_events(
+        &mut self,
+        events: Vec<ui::mod_panel::FieldEvent>,
+    ) -> Result<()> {
+        anyhow::ensure!(
+            self.is_active(),
+            "native field events require an active component"
+        );
+        controls::queue_field_events(self.store.data_mut(), events)
     }
 }

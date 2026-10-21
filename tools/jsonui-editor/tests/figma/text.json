@@ -1,0 +1,18 @@
+{
+  "id": "2:1", "name": "Text Test", "type": "FRAME", "width": 160, "height": 90,
+  "children": [
+    { "id": "2:2", "name": "Title", "type": "TEXT", "x": 0, "y": 4, "width": 160, "height": 18,
+      "constraints": { "horizontal": "STRETCH", "vertical": "MIN" },
+      "fills": [{ "type": "SOLID", "color": [1, 0.8, 0.2] }],
+      "text": { "characters": "Hello", "font_family": "Minecraft Ten", "font_size": 16,
+                "align_h": "CENTER", "auto_resize": "HEIGHT" } },
+    { "id": "2:3", "name": "Body", "type": "TEXT", "x": 10, "y": 40, "width": 60, "height": 30,
+      "fills": [{ "type": "SOLID", "color": [1, 1, 1], "opacity": 0.5 }],
+      "text": { "characters": "Centered", "font_family": "Minecraft", "font_size": 8,
+                "align_v": "CENTER", "auto_resize": "NONE" } },
+    { "id": "2:4", "name": "Fancy", "type": "TEXT", "x": 80, "y": 40, "width": 60, "height": 10,
+      "fills": [{ "type": "SOLID", "color": [0, 0, 0] }],
+      "text": { "characters": "Inter text", "font_family": "Inter", "font_style": "Bold",
+                "letter_spacing": 1, "mixed": ["fontSize"] } }
+  ]
+}

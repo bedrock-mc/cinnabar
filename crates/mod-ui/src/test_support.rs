@@ -20,11 +20,15 @@ pub struct ModWidgetsState<'a> {
 /// The HUD editor's draft, pointer state and last drawn frame.
 pub struct HudEditorState<'a> {
     pub draft: &'a Hud,
+    /// Bound and laid-out editor primitives, including non-interactive measurement lines.
+    pub nodes: &'a [json_ui::DrawNode],
     pub catalog: Option<&'a Arc<Catalog>>,
     pub frame: Option<&'a EngineFrame>,
     pub view: &'a ViewState,
     pub viewport: [f64; 2],
     pub snap: bool,
+    /// Bind and layout passes performed by the retained editor screen.
+    pub passes: usize,
     /// The captured drag's alignment guides per axis.
     pub drag: Option<[Option<f64>; 2]>,
 }

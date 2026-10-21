@@ -31,6 +31,9 @@ pub fn bedrock_view_angles(yaw: f32, pitch: f32) -> [f32; 2] {
 
 pub use guest::PlayerMod;
 
+/// Native tick rate used when recording elapsed playtime; the app checks the simulation clock.
+pub const BEDROCK_TICKS_PER_SECOND: u32 = 20;
+
 /// Exclusive bound for guest time overrides: ticks in one Bedrock day.
 pub const BEDROCK_DAY_TICKS: u32 = 24_000;
 /// Maximum remote players exposed by one local gameplay snapshot.
