@@ -178,6 +178,8 @@ pub struct WorldsMenu {
     setup: Option<Setup>,
     unavailable: Option<UnavailableReason>,
     pending: Option<Pending>,
+    /// A gated action waiting on a fresh Docker probe before the modal may show.
+    rechecking: Option<Pending>,
     eula_for: Option<String>,
 }
 
@@ -316,11 +318,19 @@ impl WorldsMenu {
                 .then_some(PromptFor::Play),
         };
         if blocking.is_some() && self.prompt_kind().is_some() {
-            self.pending = Some(pending);
-            self.screen = Screen::BackendPrompt;
-            return Vec::new();
+            // The verdict may predate installing or starting Docker, so probe again before asking.
+            self.rechecking = Some(pending);
+            return self.redetect();
         }
         self.proceed(pending)
+    }
+
+    fn redetect(&mut self) -> Vec<Effect> {
+        self.busy = true;
+        vec![Effect::SetPrefs {
+            dismiss_docker_prompt: false,
+            redetect: true,
+        }]
     }
 
     fn proceed(&mut self, pending: Pending) -> Vec<Effect> {
@@ -378,13 +388,7 @@ impl WorldsMenu {
                 _ => self.proceed(Pending::Create),
             },
             PromptButton::GetDocker => vec![Effect::OpenUrl(DOCKER_URL)],
-            PromptButton::Retry => {
-                self.busy = true;
-                vec![Effect::SetPrefs {
-                    dismiss_docker_prompt: false,
-                    redetect: true,
-                }]
-            }
+            PromptButton::Retry => self.redetect(),
             PromptButton::Cancel => self.back(),
         }
     }
@@ -568,6 +572,7 @@ impl WorldsMenu {
     }
 
     fn back(&mut self) -> Vec<Effect> {
+        self.rechecking = None;
         match self.screen {
             Screen::Edit => {
                 self.play_after_update = false;
@@ -681,7 +686,14 @@ impl WorldsMenu {
                     .as_ref()
                     .is_some_and(|setup| setup.state == SetupState::CheckingRuntime);
                 let mut effects = Vec::new();
-                if self.screen == Screen::BackendPrompt && self.prompt().is_none() {
+                if let Some(pending) = self.rechecking.take() {
+                    if self.prompt_kind().is_some() {
+                        self.pending = Some(pending);
+                        self.screen = Screen::BackendPrompt;
+                    } else {
+                        effects = self.proceed(pending);
+                    }
+                } else if self.screen == Screen::BackendPrompt && self.prompt().is_none() {
                     effects = match self.pending.take() {
                         Some(pending) => self.proceed(pending),
                         None => {

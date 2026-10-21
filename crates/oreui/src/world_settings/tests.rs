@@ -168,14 +168,11 @@ fn advanced_world_form_exposes_backend_and_generator_separately() {
         let (_, hits, nodes) = paint(Default::default(), |canvas| {
             draw(canvas, &view, [1280.0, 900.0], Screen::Create).unwrap();
         });
-        for action in [
-            A::Backend(Backend::Dragonfly),
-            A::Backend(Backend::Bds),
-            A::Flat(false),
-            A::Flat(true),
-        ] {
+        for action in [A::Backend(Backend::Bds), A::Flat(false), A::Flat(true)] {
             assert!(hits.iter().any(|(found, _)| *found == local(action)));
         }
+        let dragonfly = local(A::Backend(Backend::Dragonfly));
+        assert!(!hits.iter().any(|(found, _)| *found == dragonfly));
         let text: String = nodes
             .iter()
             .filter_map(|node| match node.visual() {

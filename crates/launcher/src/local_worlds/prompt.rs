@@ -43,29 +43,32 @@ impl Prompt {
     }
 
     pub fn text(self) -> String {
-        match (self.kind, self.blocking) {
-            (PromptKind::DockerMissing, PromptFor::Play) => {
-                "This world runs on the official Bedrock Dedicated Server, which needs Docker on Mac \
-                 (Docker Desktop, OrbStack or Colima). Install Docker, start it, then play again."
-                    .to_owned()
-            }
-            (PromptKind::DockerNotRunning, PromptFor::Play) => {
-                "This world runs on the official Bedrock Dedicated Server in Docker. Start Docker, \
+        let subject = match self.blocking {
+            PromptFor::Play => "This world runs",
+            PromptFor::CreateBds => "Worlds run",
+        };
+        let remedy = match self.kind {
+            PromptKind::DockerMissing => {
+                "Install a free Docker app such as Docker Desktop, OrbStack or Colima, start it, \
                  then choose Retry."
-                    .to_owned()
             }
-            (PromptKind::DockerMissing, _) => "BDS needs Docker on Mac (Docker Desktop, OrbStack or Colima). Install Docker, start it, then create the world again.".to_owned(),
-            (PromptKind::DockerNotRunning, _) => "BDS needs Docker to be running. Start Docker, then choose Retry.".to_owned(),
-        }
+            PromptKind::DockerNotRunning => {
+                "Docker is installed but not running. Start Docker Desktop, OrbStack or Colima, \
+                 then choose Retry."
+            }
+        };
+        format!(
+            "{subject} on Minecraft's official Bedrock Dedicated Server, which only runs on \
+             Windows and Linux, so on Mac it runs inside Docker. {remedy}"
+        )
     }
 
+    /// The first button is the modal's primary action.
     pub fn buttons(self) -> &'static [PromptButton] {
         use PromptButton::*;
-        match (self.kind, self.blocking) {
-            (PromptKind::DockerMissing, PromptFor::CreateBds) => &[GetDocker, Cancel],
-            (PromptKind::DockerMissing, PromptFor::Play) => &[GetDocker, Cancel],
-            (PromptKind::DockerNotRunning, PromptFor::Play) => &[Retry, Cancel],
-            (PromptKind::DockerNotRunning, _) => &[Retry, Cancel],
+        match self.kind {
+            PromptKind::DockerMissing => &[GetDocker, Retry, Cancel],
+            PromptKind::DockerNotRunning => &[Retry, Cancel],
         }
     }
 }
