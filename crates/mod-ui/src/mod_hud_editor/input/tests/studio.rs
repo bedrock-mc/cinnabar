@@ -4,6 +4,7 @@ use super::*;
 use ui::mod_panel::{Control, FieldModifiers};
 
 mod amendment;
+mod slider;
 
 struct Art;
 impl json_ui::TextMeasure for Art {

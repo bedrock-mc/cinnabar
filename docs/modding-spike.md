@@ -1328,8 +1328,8 @@ and `reset_scale` supply factory layout without changing the current preview.
 These fields affect only the layout editor.
 Optional `editor_style` recolors the host-owned chrome: `outline` and `selected`
 card outlines, resize `handle`, `handle_hover` and `handle_pressed` colors, the
-`handle_radius` of the five-pixel handle mark (0–4), alignment `guide`, and the
-built-in `grid`. Colors are RGBA from zero to one; omitted fields keep the
+`handle_radius` of the five-pixel handle mark (0–4), alignment `guide`, the
+built-in `grid`, and the distance `measurement` pills. Colors are RGBA from zero to one; omitted fields keep the
 built-in appearance.
 
 The editor captures native pointer dragging, clamps cards to the available

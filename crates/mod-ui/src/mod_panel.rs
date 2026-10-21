@@ -79,6 +79,13 @@ pub(super) struct ModPanel {
     collection_reveals: reveal::CollectionReveals,
 }
 
+impl ModPanel {
+    /// The guest's current controls, including values changed by host input.
+    pub(super) fn controls(&self) -> &[Control] {
+        &self.panel.controls
+    }
+}
+
 impl ModUi {
     /// Reports distinct unknown HUD selectors for rendering regressions.
     #[cfg(test)]

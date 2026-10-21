@@ -444,6 +444,7 @@ fn studio_surface_actions_accept_exact_names_and_reject_out_of_range_indices() {
     for action in [
         "hud.undo",
         "hud.redo",
+        "hud.scale",
         "hud.scale_down",
         "hud.scale_up",
         "hud.save",

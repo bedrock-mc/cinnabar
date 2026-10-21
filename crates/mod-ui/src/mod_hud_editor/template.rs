@@ -89,7 +89,7 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
         );
         text["text_alignment"] = json!("center");
         text["bindings"] = json!([{"binding_name":format!("#measurement_{axis}_label")}]);
-        let mut background = rect(MEASUREMENT_PILL, [0.; 2], [0.055, 0.065, 0.08, 0.97]);
+        let mut background = rect(MEASUREMENT_PILL, [0.; 2], color(style.measurement));
         background["radius"] = json!(MEASUREMENT_PILL[1] * 0.5);
         controls.push(named(&format!("measurement_{axis}_pill"), json!({
             "type":"panel", "size":MEASUREMENT_PILL, "anchor_from":"top_left", "anchor_to":"top_left", "layer":11,
