@@ -655,7 +655,10 @@ impl UiRuntime {
                     .and_then(|options| options.get(usize::from(index)))
                     .map(|option| option.network_id)
                     .ok_or(InventoryGestureError::InvalidRequest)?;
-                self.inventory_ledger_mut(player_runtime).begin_enchant(id)
+                let creative = player_runtime.facts.player_game_mode()
+                    == Some(protocol::PlayerGameMode::Creative);
+                self.inventory_ledger_mut(player_runtime)
+                    .begin_enchant(id, creative)
             }
             Widget::BeaconEffect { id, secondary } => {
                 let state = self.screen_state_mut();

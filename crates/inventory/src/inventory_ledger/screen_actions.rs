@@ -15,6 +15,7 @@ use super::overlay::DeltaGroup;
 use super::{InventoryGestureError, PlayerInventoryLedger};
 
 const ENCHANT_INPUT_SLOT: u8 = 14;
+const ENCHANT_LAPIS_SLOT: u8 = 15;
 const BEACON_PAYMENT_SLOT: u8 = 27;
 /// The anvil's first input, the item it works on.
 pub const ANVIL_TARGET_SLOT: u8 = 1;
@@ -94,7 +95,7 @@ pub(super) const fn input_layout(kind: WindowKind) -> Option<ScreenInputs> {
         // The template is returnable, but incoming ordinary traffic does not write it.
         WindowKind::Smithing => (&[51, 52, 53], true, 1),
         WindowKind::Cartography => (&[12, 13], true, 0),
-        WindowKind::Enchanting => (&[ENCHANT_INPUT_SLOT, ENCHANT_INPUT_SLOT + 1], false, 0),
+        WindowKind::Enchanting => (&[ENCHANT_INPUT_SLOT, ENCHANT_LAPIS_SLOT], false, 0),
         WindowKind::Beacon => (&[BEACON_PAYMENT_SLOT], false, 0),
         // Workbench cells use UI traffic; its ordinary manager has no writable cells.
         WindowKind::Workbench => (&[], false, 0),
@@ -128,35 +129,171 @@ const fn consume_amount(slot: u8, count: u16) -> u16 {
 }
 
 impl PlayerInventoryLedger {
-    /// Selects an offered enchanting option without predicting its item mutation.
-    pub fn begin_enchant(&mut self, option_network_id: u32) -> Result<i32, InventoryGestureError> {
+    /// Enchants the input with an offered option: the craft, the enchanted item as its result,
+    /// the input consumed and the result placed back, then one lapis per option rank. Creative
+    /// players pay no lapis.
+    pub fn begin_enchant(
+        &mut self,
+        option_network_id: u32,
+        creative: bool,
+    ) -> Result<i32, InventoryGestureError> {
         let personal_generation = self.gesture_preflight(true)?;
         if self.window_kind() != Some(WindowKind::Enchanting) {
             return Err(InventoryGestureError::InvalidRequest);
         }
-        self.check_surfaces([Cell::Craft(ENCHANT_INPUT_SLOT), Cell::CreatedOutput])?;
-        let offered = self
+        let input = Cell::Craft(ENCHANT_INPUT_SLOT);
+        let lapis = Cell::Craft(ENCHANT_LAPIS_SLOT);
+        self.check_surfaces([input, lapis, Cell::CreatedOutput])?;
+        let (rank, option) = self
             .enchant_options()
-            .is_some_and(|options| options.iter().any(|o| o.network_id == option_network_id));
-        if !offered || self.view().get(Cell::Craft(ENCHANT_INPUT_SLOT)).is_none() {
-            return Err(InventoryGestureError::InvalidRequest);
+            .and_then(|options| {
+                options
+                    .iter()
+                    .enumerate()
+                    .find(|(_, option)| option.network_id == option_network_id)
+            })
+            .map(|(index, option)| (index + 1, option.clone()))
+            .ok_or(InventoryGestureError::InvalidRequest)?;
+        let held = self
+            .view()
+            .get(input)
+            .cloned()
+            .ok_or(InventoryGestureError::InvalidRequest)?;
+        let payment = if creative {
+            None
+        } else {
+            let paid = self
+                .view()
+                .get(lapis)
+                .filter(|lapis| usize::from(lapis.stack.count) >= rank)
+                .cloned()
+                .ok_or(InventoryGestureError::InvalidRequest)?;
+            Some(paid)
+        };
+        if self.awaiting_identity(&held)
+            || payment
+                .as_ref()
+                .is_some_and(|paid| self.awaiting_identity(paid))
+        {
+            return Err(InventoryGestureError::AwaitingIdentity);
+        }
+        let request_id = self.peek_request_id()?;
+        let result = self
+            .enchanted(&held.stack, &option.enchants, request_id)
+            .ok_or(InventoryGestureError::InvalidRequest)?;
+        let entry = self
+            .negotiated_item_entry(result.network_id)
+            .ok_or(InventoryGestureError::InvalidRequest)?;
+        let results = Arc::from([CraftResult {
+            identifier: Arc::clone(&entry.identifier),
+            aux: i32::try_from(result.metadata).unwrap_or(0),
+            count: result.count,
+            block_runtime_id: u32::from_ne_bytes(result.block_runtime_id.to_ne_bytes()),
+            user_data: Arc::clone(&result.extra_data),
+        }]);
+        let count =
+            u8::try_from(held.stack.count).map_err(|_| InventoryGestureError::InvalidRequest)?;
+        let input_id = held.stack.stack_network_id;
+        let mut actions = vec![
+            StackRequestAction::CraftRecipe {
+                recipe_network_id: option_network_id,
+                crafts: 1,
+            },
+            StackRequestAction::CraftResultsDeprecated { results, crafts: 1 },
+            StackRequestAction::Consume {
+                amount: count,
+                source: request_slot(input, input_id, None)?,
+            },
+            StackRequestAction::Place {
+                amount: count,
+                source: request_slot(Cell::CreatedOutput, request_id, None)?,
+                destination: request_slot(input, 0, None)?,
+            },
+        ];
+        let mut groups = vec![
+            DeltaGroup::Shrink {
+                source: input,
+                amount: held.stack.count,
+                source_id: input_id,
+            },
+            DeltaGroup::Set {
+                cell: Cell::CreatedOutput,
+                held: Held {
+                    source_stack_id: Some(request_id),
+                    source_origin: None,
+                    stack: result,
+                    overlay: None,
+                    acknowledged_request_id: None,
+                },
+            },
+            DeltaGroup::Transfer {
+                source: Cell::CreatedOutput,
+                destination: input,
+                amount: held.stack.count,
+                source_id: request_id,
+                destination_id: None,
+                capacity: None,
+            },
+        ];
+        if let Some(paid) = payment {
+            let amount = u8::try_from(rank).map_err(|_| InventoryGestureError::InvalidRequest)?;
+            let id = paid.stack.stack_network_id;
+            actions.push(StackRequestAction::Consume {
+                amount,
+                source: request_slot(lapis, id, None)?,
+            });
+            groups.push(DeltaGroup::Shrink {
+                source: lapis,
+                amount: u16::from(amount),
+                source_id: id,
+            });
         }
         self.submit(Submission {
-            actions: vec![
-                StackRequestAction::CraftRecipe {
-                    recipe_network_id: option_network_id,
-                    crafts: 1,
-                },
-                StackRequestAction::CraftResultsDeprecated {
-                    results: Arc::from([]),
-                    crafts: 1,
-                },
-            ],
-            groups: Vec::new(),
+            actions,
+            groups,
             personal_generation,
-            requires_distinct_stack_ids: false,
+            requires_distinct_stack_ids: true,
             registry_bound_merge: false,
         })
+    }
+
+    /// `stack` with `enchants` added under the created-output id; a plain book becomes the
+    /// negotiated enchanted book.
+    fn enchanted(
+        &self,
+        stack: &protocol::NetworkItemStack,
+        enchants: &[(u8, u8)],
+        request_id: i32,
+    ) -> Option<protocol::NetworkItemStack> {
+        let mut enchantments = protocol::item_anvil_data(&stack.extra_data)?.enchantments;
+        for &(id, level) in enchants {
+            let (id, level) = (i16::from(id), i16::from(level));
+            if !enchantments.iter().any(|&(existing, _)| existing == id) {
+                enchantments.push((id, level));
+            }
+        }
+        let extra_data = protocol::edit_item_extra(
+            &stack.extra_data,
+            &protocol::ItemNbtEdit {
+                enchantments: Some(enchantments),
+                ..Default::default()
+            },
+        )?;
+        let mut result = stack.clone();
+        let fact = self.item_facts().get(stack.network_id);
+        if fact.traits.contains(assets::facts::ItemTraits::BOOK)
+            && !fact
+                .traits
+                .contains(assets::facts::ItemTraits::ENCHANTED_BOOK)
+        {
+            result.network_id = self.item_facts().enchanted_book_id()?;
+            result.metadata = 0;
+            result.block_runtime_id = 0;
+        }
+        result.stack_network_id = request_id;
+        result.nbt_digest = Sha256::digest(&extra_data).into();
+        result.extra_data = extra_data;
+        Some(result)
     }
 
     /// Pays the beacon's payment item for the chosen effects (`0` for none).

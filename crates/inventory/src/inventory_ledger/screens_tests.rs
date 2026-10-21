@@ -323,19 +323,15 @@ fn enchant_selection_needs_an_offered_option() {
     let mut ledger = ledger_with(&[]);
     open(&mut ledger, 7, WINDOW_TYPE_ENCHANTMENT);
     ledger.apply(&slot_update(named(124, 22), 14, stack(50, 1)));
+    ledger.apply(&slot_update(named(124, 23), 15, stack(51, 5)));
     assert_eq!(
-        ledger.begin_enchant(3),
+        ledger.begin_enchant(3, false),
         Err(InventoryGestureError::InvalidRequest)
     );
     ledger.apply(&InventoryEvent::EnchantOptions(EnchantOptionsEvent {
-        options: Arc::from([EnchantOption {
-            cost: 2,
-            name: Arc::from("abc"),
-            network_id: 3,
-            enchants: Arc::from([(15, 2)]),
-        }]),
+        options: Arc::from([offer(4, (9, 1)), offer(3, (15, 2))]),
     }));
-    ledger.begin_enchant(3).unwrap();
+    ledger.begin_enchant(3, false).unwrap();
     assert!(matches!(
         ledger.newest_action(),
         Some(StackRequestAction::CraftRecipe {
@@ -343,6 +339,115 @@ fn enchant_selection_needs_an_offered_option() {
             crafts: 1
         })
     ));
+}
+
+/// One enchanting option offering `enchant` under recipe `network_id`.
+fn offer(network_id: u32, enchant: (u8, u8)) -> EnchantOption {
+    EnchantOption {
+        cost: 2,
+        name: Arc::from("offer"),
+        network_id,
+        enchants: Arc::from([enchant]),
+    }
+}
+
+/// Enchanting sends the option craft, the enchanted result, the input's consume and the
+/// result placed back, then pays the option's rank in lapis; a rejection restores both cells.
+#[test]
+fn enchanting_sends_the_native_request_and_rolls_back_on_rejection() {
+    for creative in [false, true] {
+        let mut ledger = ledger_with(&[]);
+        open(&mut ledger, 7, WINDOW_TYPE_ENCHANTMENT);
+        ledger.apply(&slot_update(named(124, 22), 14, stack(50, 1)));
+        ledger.apply(&slot_update(named(124, 23), 15, stack(51, 5)));
+        ledger.apply(&InventoryEvent::EnchantOptions(EnchantOptionsEvent {
+            options: Arc::from([offer(4, (9, 1)), offer(3, (15, 2))]),
+        }));
+        let request_id = ledger.begin_enchant(3, creative).unwrap();
+        let enchanted = protocol::edit_item_extra(
+            &[],
+            &protocol::ItemNbtEdit {
+                enchantments: Some(vec![(15, 2)]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let slot = |name, slot, stack_network_id| protocol::StackRequestSlot {
+            container: StackRequestContainer::OpenWindow {
+                name,
+                dynamic_id: None,
+            },
+            slot,
+            stack_network_id,
+        };
+        let mut expected = vec![
+            StackRequestAction::CraftRecipe {
+                recipe_network_id: 3,
+                crafts: 1,
+            },
+            StackRequestAction::CraftResultsDeprecated {
+                results: Arc::from([protocol::CraftResult {
+                    identifier: Arc::from("minecraft:apple"),
+                    aux: 0,
+                    count: 1,
+                    block_runtime_id: 0,
+                    user_data: Arc::clone(&enchanted),
+                }]),
+                crafts: 1,
+            },
+            StackRequestAction::Consume {
+                amount: 1,
+                source: slot(22, 14, 50),
+            },
+            StackRequestAction::Place {
+                amount: 1,
+                source: protocol::StackRequestSlot {
+                    container: StackRequestContainer::CreatedOutput,
+                    slot: protocol::CREATED_OUTPUT_SLOT,
+                    stack_network_id: request_id,
+                },
+                destination: slot(22, 14, 0),
+            },
+        ];
+        if !creative {
+            expected.push(StackRequestAction::Consume {
+                amount: 2,
+                source: slot(23, 15, 51),
+            });
+        }
+        assert_eq!(ledger.newest_request().unwrap().actions, expected);
+        let input = ledger.target_stack(InventoryTarget::Craft(14)).unwrap();
+        assert_eq!(input.extra_data, enchanted);
+        assert_eq!(
+            ledger
+                .target_stack(InventoryTarget::Craft(15))
+                .unwrap()
+                .count,
+            if creative { 5 } else { 3 }
+        );
+        ledger.apply(&InventoryEvent::Response(
+            protocol::ItemStackResponseEvent {
+                responses: Arc::from([protocol::StackResponse {
+                    request_id,
+                    status: protocol::StackResponseStatus::Rejected,
+                    containers: Arc::from([]),
+                }]),
+            },
+        ));
+        assert_eq!(ledger.pending_request_count(), 0);
+        assert_eq!(
+            ledger.target_stack(InventoryTarget::Craft(14)),
+            Some(&stack(50, 1))
+        );
+        assert_eq!(
+            ledger.target_stack(InventoryTarget::Craft(15)),
+            Some(&stack(51, 5))
+        );
+        assert!(
+            ledger.begin_enchant(3, creative).is_ok(),
+            "the table works again"
+        );
+    }
 }
 
 fn personal_ledger(slots: &[(usize, NetworkItemStack)]) -> PlayerInventoryLedger {
@@ -620,7 +725,7 @@ fn enchanting_restatement_survives_a_later_count_response() {
             enchants: Arc::from([(15, 2)]),
         }]),
     }));
-    let request = ledger.begin_enchant(3).unwrap();
+    let request = ledger.begin_enchant(3, true).unwrap();
     assert!(ledger.mark_transport_enqueued(1));
     let extra = protocol::edit_item_extra(
         &[0; 10],
