@@ -301,6 +301,7 @@ mod tests {
         let font = crate::test_support::fixture_font();
         let animator = std::sync::Mutex::new(json_ui::Animator::default());
         let mut canvas = Canvas {
+            paint_bounds: None,
             prepared: Default::default(),
             edit: None,
             textures: Textures {

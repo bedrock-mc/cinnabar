@@ -422,6 +422,7 @@ fn prepared_saturation_masks_publish_once_and_reuse_texels_for_faded_inverse_row
                     renderers: &mut [&mut HudRenderer {
                         hud: paint,
                         hunger_update: None,
+                        bounds: None,
                     }],
                 },
                 |env, root| {
