@@ -136,7 +136,10 @@ fn reselecting_a_failed_pack_requests_another_load() {
     {
         let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
         menu.sync_shader_packs(vec!["Dusk.zip".to_owned()]);
-        menu.activate(MenuAction::SelectRenderer(RendererChoice::ShaderPack(0)));
+        menu.activate(MenuAction::SelectRenderer(RendererChoice::ShaderPack(
+            0,
+            menu.view().shader_packs_revision,
+        )));
     }
     app.update();
     assert_eq!(requested(&app), Some(path));
