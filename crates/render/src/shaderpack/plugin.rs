@@ -251,7 +251,9 @@ fn effect_coverage(
 
 #[path = "native_scene.rs"]
 mod native_scene;
-use native_scene::{NativeSceneLayers, needs_native_scene, replacement_ready};
+#[cfg(test)]
+use native_scene::needs_native_scene;
+use native_scene::{NativeSceneLayers, replacement_ready};
 
 /// Hands out the revisions [`ShaderpackBlockIds`] are published under, each one no earlier
 /// table had. The geometry adapter keeps the revision it last derived terrain attributes from
@@ -302,7 +304,6 @@ fn configure_replacement(
                     })
                 })
         });
-    let draws = |kind| ready.is_some_and(|pack| pack.draws.iter().any(|draw| draw.kind == kind));
     drawn.set_if_neq(ShaderPackDrawnCategories {
         terrain: ready.is_some_and(|pack| {
             replacement_ready(
