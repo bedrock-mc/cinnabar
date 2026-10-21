@@ -17,7 +17,7 @@ fn named(tag: u8, name: &str) -> Vec<u8> {
 }
 
 #[test]
-fn singleton_unnamed_properties_do_not_form_partial_state_identities() {
+fn nameless_properties_take_the_empty_state_name() {
     for with_named_property in [false, true] {
         let mut nbt = named(10, "");
         nbt.extend(named(9, "properties"));
@@ -42,13 +42,11 @@ fn singleton_unnamed_properties_do_not_form_partial_state_identities() {
         assert_eq!(block.state_count, 1);
         assert_eq!(
             block.visual.state_axes.len(),
-            usize::from(with_named_property)
+            1 + usize::from(with_named_property)
         );
+        assert_eq!(block.visual.state_axes.last().unwrap().name.as_ref(), "");
         assert!(block.collides);
-        assert!(
-            block.hashed_states().is_empty(),
-            "an unnamed singleton cannot create an identity; named_neighbor={with_named_property}"
-        );
+        assert_eq!(block.hashed_states().len(), 1);
     }
 }
 
@@ -89,7 +87,9 @@ fn placement_trait_and_enum_properties_multiply_states() {
     let mut nbt = named(10, "");
     nbt.extend(named(9, "properties"));
     nbt.extend([10, 4]);
-    for values in [2_u8, 3] {
+    for (name, values) in [("test:two", 2_u8), ("test:three", 3)] {
+        nbt.extend(named(8, "name"));
+        nbt.extend(string(name));
         nbt.extend(named(9, "enum"));
         nbt.extend([8, values * 2]);
         for index in 0..values {
@@ -111,8 +111,12 @@ fn placement_trait_and_enum_properties_multiply_states() {
         (2 * 3 * 4, false)
     );
     let axes = &definition.visual.state_axes;
-    assert_eq!(axes.len(), 1, "unnamed properties carry no axis");
-    assert_eq!(axes[0].name.as_ref(), "minecraft:cardinal_direction");
+    let names: Vec<_> = axes.iter().map(|axis| axis.name.as_ref()).collect();
+    assert_eq!(
+        names,
+        ["minecraft:cardinal_direction", "test:two", "test:three"],
+        "trait states lead the properties"
+    );
     assert_eq!(
         axes[0].values[0],
         super::CustomStateValue::String("south".into())

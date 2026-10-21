@@ -7,10 +7,11 @@ use render_model::block_entity::PreparedHeldBlockModels;
 /// Builds startup geometry and bindings from the immutable static atlas.
 pub(super) fn build(
     atlas: Option<&BlockEntityAtlas>,
+    entities: &RuntimeEntityAssets,
     location: Option<ActorArtworkLocation>,
     pages: &mut ActorArtworkPages,
 ) -> PreparedHeldBlockEntities {
-    let source = atlas.map(PreparedHeldBlockModels::new);
+    let source = atlas.map(|atlas| PreparedHeldBlockModels::from_entity_assets(atlas, entities));
     if let Some((source, location)) = source.as_ref().zip(location) {
         pages.register_equipment_artwork(source.identity(), location);
     }

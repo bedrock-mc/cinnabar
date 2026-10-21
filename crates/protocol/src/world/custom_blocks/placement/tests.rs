@@ -51,6 +51,55 @@ fn permutation_placing_overrides_apply_to_the_block_type() {
     assert!(definition.visual.placement.server_placing);
 }
 
+// Using a crafting table or a block whose permutation handles interaction must not place against it.
+#[test]
+fn crafting_tables_and_permutation_interact_handlers_consume_the_use() {
+    let permutation = |components: Nbt| {
+        compound([(
+            "permutations",
+            Nbt::List(vec![compound([
+                ("condition", Nbt::String("q.block_state('test:on')".into())),
+                ("components", components),
+            ])]),
+        )])
+    };
+    for root in [
+        compound([(
+            "components",
+            compound([(
+                "minecraft:crafting_table",
+                compound([("table_name", Nbt::String("Bench".into()))]),
+            )]),
+        )]),
+        permutation(compound([(
+            "minecraft:custom_components",
+            compound([("hasPlayerInteract", Nbt::Byte(1))]),
+        )])),
+        permutation(compound([("minecraft:crafting_table", compound([]))])),
+    ] {
+        assert!(parse_definition(&root).unwrap().player_interact);
+    }
+    let scalar = compound([(
+        "components",
+        compound([("minecraft:crafting_table", Nbt::Byte(1))]),
+    )]);
+    assert!(!parse_definition(&scalar).unwrap().player_interact);
+}
+
+#[test]
+fn version_one_custom_components_declare_every_handler() {
+    let definition = parse_definition(&compound([(
+        "components",
+        compound([(
+            "minecraft:custom_components",
+            compound([("isV1Component", Nbt::Byte(1))]),
+        )]),
+    )]))
+    .unwrap();
+    assert!(definition.player_interact);
+    assert!(definition.visual.placement.server_placing);
+}
+
 #[test]
 fn omitted_permutations_and_physical_components_are_marked_incomplete() {
     for permutations in [

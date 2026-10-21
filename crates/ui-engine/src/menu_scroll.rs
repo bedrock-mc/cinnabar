@@ -8,6 +8,7 @@ use ui::{UiPoint, UiRect};
 
 #[cfg(test)]
 mod smoothing_tests;
+mod touch;
 
 /// Scroll state for one menu; `F` names the focused control a reveal follows.
 pub struct MenuScrolls<F> {
@@ -22,6 +23,7 @@ pub struct MenuScrolls<F> {
     smooth: bool,
     seconds: f64,
     motion: HashMap<String, ScrollTween>,
+    touch: Option<touch::TouchScroll>,
 }
 
 impl<F> Default for MenuScrolls<F> {
@@ -36,6 +38,7 @@ impl<F> Default for MenuScrolls<F> {
             smooth: false,
             seconds: 0.0,
             motion: HashMap::new(),
+            touch: None,
         }
     }
 }
@@ -43,7 +46,7 @@ impl<F> Default for MenuScrolls<F> {
 impl<F: PartialEq> MenuScrolls<F> {
     /// Retention waits for wheel interpolation and captured scrollbar input.
     pub fn active(&self) -> bool {
-        self.drag.is_some() || !self.motion.is_empty()
+        self.drag.is_some() || self.touch.is_some() || !self.motion.is_empty()
     }
 
     /// Samples wheel motion once per rendered menu frame using the real menu clock.
@@ -72,6 +75,7 @@ impl<F: PartialEq> MenuScrolls<F> {
             self.offsets.clear();
             self.motion.clear();
             self.drag = None;
+            self.touch = None;
             self.screen = Some(screen);
             self.focused = None;
             self.focused_bounds = None;
