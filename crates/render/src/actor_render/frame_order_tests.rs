@@ -143,7 +143,13 @@ fn inspect_executed_frame(world: &mut World) {
         .flat_map(|span| span.first..span.first + span.count)
         .collect::<Vec<_>>();
     indices.sort_unstable();
-    assert_eq!(indices, (0..gpu.instance_count).collect::<Vec<_>>());
+    assert_eq!(
+        indices,
+        gpu.main_manifest
+            .iter()
+            .map(|entry| entry.instance_index)
+            .collect::<Vec<_>>()
+    );
     let tracker = world.resource::<ActorDrawTracker>();
     if let Some((old, spans)) = &world.resource::<PreviousReceipt>().0 {
         assert!(
@@ -158,7 +164,7 @@ fn inspect_executed_frame(world: &mut World) {
         .take_drawn()
         .expect("all current spans were executed");
     assert_eq!(drawn.frame_generation, frame.rig.frame_generation);
-    assert_eq!(drawn.manifest.as_ref(), gpu.manifest.as_ref());
+    assert_eq!(drawn.manifest.as_ref(), gpu.main_manifest.as_ref());
     assert!(drawn.is_exact());
     world.resource_mut::<PreviousReceipt>().0 = Some((batch, executed));
     world
@@ -582,4 +588,19 @@ fn actor_instances_and_both_bone_endpoints_take_one_pool_lock() {
     assert_eq!(after.staged_writes - before.staged_writes, 3);
     assert_eq!(after.batches - before.batches, 1);
     assert_eq!(after.fallback_writes, 0);
+}
+
+#[test]
+fn coverage_only_suffix_keeps_exact_receipts_for_only_the_visible_main_pass() {
+    let mut app = render_app();
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let mut source = frame(&[false, false, true]);
+    source.mask_only_runtime_ids = Arc::from([source.rig.manifest[2].identity.runtime_id]);
+    world.insert_resource(source.clone());
+    world.run_schedule(Render);
+    assert_eq!(world.resource::<ExecutedFrames>().0, [(1, vec![0, 1])]);
+    let gpu = world.resource::<ActorGpu>();
+    assert_eq!(gpu.main_manifest.as_ref(), &source.rig.manifest[..2]);
+    assert_eq!(gpu.manifest.len(), 3);
+    assert!(!gpu.mask_spans.is_empty());
 }

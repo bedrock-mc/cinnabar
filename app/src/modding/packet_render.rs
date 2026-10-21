@@ -88,6 +88,7 @@ impl Drawing {
         &mut self,
         actors: &render_scene::ActorRenderFrame,
         camera: &GlobalTransform,
+        position: impl Fn(u64, i32, u64) -> Option<[f32; 3]>,
     ) {
         if self.needs_targets() {
             self.targets(render_scene::mod_scene::mask_targets(actors));
@@ -105,7 +106,16 @@ impl Drawing {
         resolved.lines = source
             .lines
             .iter()
-            .filter_map(|line| resolve_line(line, source.session, source.dimension, actors, camera))
+            .filter_map(|line| {
+                resolve_line(
+                    line,
+                    source.session,
+                    source.dimension,
+                    actors,
+                    camera,
+                    &position,
+                )
+            })
             .collect();
         if self.resolved_lines == resolved.lines {
             return;
@@ -259,13 +269,14 @@ fn resolve_line(
     dimension: i32,
     actors: &render_scene::ActorRenderFrame,
     camera: &GlobalTransform,
+    position: &impl Fn(u64, i32, u64) -> Option<[f32; 3]>,
 ) -> Option<mod_api::native_render::Line> {
     let mut resolved = line.clone();
     if line.camera_start {
         resolved.start = (camera.translation() + camera.forward() * 0.1).to_array();
     }
     if let Some(anchor) = &line.entity_end {
-        let (instance, _) = actors
+        let root = actors
             .rig
             .instances
             .iter()
@@ -276,9 +287,12 @@ fn resolve_line(
                     && id.session_id == session
                     && id.dimension == dimension
                     && id.layer == render_model::ACTOR_LAYER_BODY
-            })?;
-        resolved.end =
-            std::array::from_fn(|axis| instance.world_from_actor[axis][3] + anchor.offset[axis]);
+            })
+            .map(|(instance, _)| {
+                std::array::from_fn::<_, 3, _>(|axis| instance.world_from_actor[axis][3])
+            })
+            .or_else(|| position(session, dimension, anchor.runtime_id))?;
+        resolved.end = std::array::from_fn(|axis| root[axis] + anchor.offset[axis]);
     }
     resolved.camera_start = false;
     resolved.entity_end = None;

@@ -185,6 +185,7 @@ pub(crate) struct ActorGpu {
     multitexture_material: Buffer,
     spans: Vec<crate::actor::gpu::ActorDrawSpan>,
     mask_spans: Vec<crate::actor::gpu::ActorDrawSpan>,
+    main_manifest: std::sync::Arc<[render_model::ActorDrawManifestEntry]>,
     sorted: dissolve::SortedDraws,
     instances: std::sync::Arc<[ActorGpuInstance]>,
     executed_instances: std::sync::atomic::AtomicU32,
@@ -283,6 +284,7 @@ fn create_actor_gpu(render_device: &RenderDevice, render_queue: &RenderQueue) ->
         )?,
         spans: Vec::new(),
         mask_spans: Vec::new(),
+        main_manifest: std::sync::Arc::from([]),
         sorted: dissolve::SortedDraws::default(),
         instances: std::sync::Arc::from([]),
         executed_instances: std::sync::atomic::AtomicU32::new(0),
@@ -505,12 +507,23 @@ fn prepare_actor_resources(
                 &rig.geometry_spans,
                 prepared.manifest.iter().map(|entry| entry.identity.layer),
             );
-            gpu.mask_spans = gpu.spans.clone();
-            gpu.spans = artwork::visible_spans(
-                &gpu.spans,
-                &prepared.manifest,
-                &frame.mask_only_runtime_ids,
-            );
+            gpu.mask_spans.clear();
+            if frame.mask_only_runtime_ids.is_empty() {
+                gpu.main_manifest = std::sync::Arc::clone(&prepared.manifest);
+            } else {
+                gpu.mask_spans = gpu.spans.clone();
+                gpu.spans = artwork::visible_spans(
+                    &gpu.spans,
+                    &prepared.manifest,
+                    &frame.mask_only_runtime_ids,
+                );
+                let main_count = gpu
+                    .spans
+                    .last()
+                    .map_or(0, |span| (span.first + span.count) as usize);
+                // Coverage-only submissions follow the contiguous visible prefix at publication.
+                gpu.main_manifest = std::sync::Arc::from(&prepared.manifest[..main_count]);
+            }
             gpu.manifest = prepared.manifest;
             gpu.instances = prepared.instances;
             let ActorGpu {
@@ -527,6 +540,7 @@ fn prepare_actor_resources(
             gpu.manifest = std::sync::Arc::from([]);
             gpu.spans.clear();
             gpu.mask_spans.clear();
+            gpu.main_manifest = std::sync::Arc::from([]);
             gpu.sorted.prepare(&[], &[]);
             gpu.instances = std::sync::Arc::from([]);
             gate.clear();

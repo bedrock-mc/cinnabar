@@ -455,11 +455,21 @@ fn mask_attachments_reject_stale_resolution_and_sample_counts() {
     let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let device = RenderDevice::from(device);
     let original = test_depth(&device, 64, 1);
-    let mask = MaskTarget::new(&device, &original).unwrap();
+    let mask = MaskTarget::new(
+        &device,
+        &PipelineCache::new(device.clone(), true),
+        &original,
+    )
+    .unwrap();
     assert!(mask.matches(&original));
     assert!(!mask.matches(&test_depth(&device, 127, 1)));
     assert!(!mask.matches(&test_depth(&device, 64, 4)));
-    let multisampled = MaskTarget::new(&device, &test_depth(&device, 127, 4)).unwrap();
+    let multisampled = MaskTarget::new(
+        &device,
+        &PipelineCache::new(device.clone(), true),
+        &test_depth(&device, 127, 4),
+    )
+    .unwrap();
     assert!(multisampled.matches(&test_depth(&device, 127, 4)));
     assert_eq!(multisampled.view.texture().sample_count(), 1);
     assert_eq!(multisampled.render_view.texture().sample_count(), 4);

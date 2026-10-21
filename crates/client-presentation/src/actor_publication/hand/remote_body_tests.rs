@@ -176,6 +176,7 @@ fn remote_body_and_persona_publish_sampled_clamps_and_preserve_java_overrides() 
                     ),
                     &artwork,
                     super::super::bodies::BodyCaches {
+                        coverage: &[],
                         poses: &mut poses,
                         java_poses: &mut java_poses,
                         native_pose: &mut native_pose,
@@ -459,6 +460,7 @@ fn sample_shared_bodies<'a>(
         ),
         artwork,
         super::super::bodies::BodyCaches {
+            coverage: &[],
             poses: &mut Default::default(),
             java_poses: &mut Default::default(),
             native_pose: &mut Default::default(),

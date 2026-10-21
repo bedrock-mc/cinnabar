@@ -414,9 +414,9 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
 }
 
 @if(MASK_DISSOLVE && !MASK_DISSOLVE_MSAA)
-@group(2) @binding(1) var mask_dissolve_depth: texture_depth_2d;
+@group(3) @binding(0) var mask_dissolve_depth: texture_depth_2d;
 @if(MASK_DISSOLVE_MSAA)
-@group(2) @binding(1) var mask_dissolve_depth: texture_depth_multisampled_2d;
+@group(3) @binding(0) var mask_dissolve_depth: texture_depth_multisampled_2d;
 
 @fragment
 fn actor_mask_fragment(input: VertexOutput, @builtin(front_facing) front: bool,

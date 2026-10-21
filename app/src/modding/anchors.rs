@@ -84,7 +84,7 @@ pub(super) fn publish(
     mut scene: ResMut<render_scene::ModRenderScene>,
     actors: Option<Res<render_scene::ActorRenderFrame>>,
     mut drawing: ResMut<DrawingFrame>,
-    cameras: Query<&GlobalTransform, With<client_presentation::camera::FlyCamera>>,
+    cameras: Query<&Transform, With<client_presentation::camera::FlyCamera>>,
 ) {
     let mut packet_drawing = packet_drawing;
     if let (Some(drawing), Some(actors), Ok(camera)) = (
@@ -92,7 +92,24 @@ pub(super) fn publish(
         actors.as_deref(),
         cameras.single(),
     ) {
-        drawing.follow_anchors(actors, camera);
+        drawing.follow_anchors(
+            actors,
+            &GlobalTransform::from(*camera),
+            |session, dimension, runtime_id| {
+                let authority = context.world.as_ref()?.stream.as_ref()?.authority();
+                if authority.actor_session_id() != session
+                    || authority.current_dimension() != dimension
+                {
+                    return None;
+                }
+                authority.actor(runtime_id)?.interpolated_position(
+                    context
+                        .actor_partial
+                        .as_deref()
+                        .map_or(0., |partial| partial.0),
+                )
+            },
+        );
     }
     let Some(mut runtime) = runtime else {
         *drawing = Default::default();
@@ -129,7 +146,7 @@ pub(super) fn publish(
         return;
     }
     let Ok(camera) = cameras.single() else { return };
-    let origin = camera.translation();
+    let origin = camera.translation;
     for (output, _) in runtime.hosts.render_outputs() {
         for resources in &output.retained {
             for (handle, key) in &resources.entities {

@@ -33,36 +33,41 @@ impl SpecializerKey for Key {
 
 struct MaskSpecializer;
 
-/// Binds only the private companion depth, with the view's exact sample count.
-fn dissolve_layout(multisampled: bool) -> BindGroupLayoutDescriptor {
+/// The placement group never includes the private writable depth attachment.
+fn placement_layout() -> BindGroupLayoutDescriptor {
     BindGroupLayoutDescriptor::new(
-        "mask dissolve depth",
-        &[
-            BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::VERTEX,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(16),
-                },
-                count: None,
+        "mask placement",
+        &[BindGroupLayoutEntry {
+            binding: 0,
+            visibility: ShaderStages::VERTEX,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: BufferSize::new(16),
             },
-            BindGroupLayoutEntry {
-                binding: 1,
-                visibility: ShaderStages::FRAGMENT,
-                ty: BindingType::Texture {
-                    sample_type: TextureSampleType::Depth,
-                    view_dimension: TextureViewDimension::D2,
-                    multisampled,
-                },
-                count: None,
-            },
-        ],
+            count: None,
+        }],
     )
 }
 
-/// Identifies the depth-only companion independently of authored material flags.
+/// Sampled companion depth is present only in the later dissolve-colour pass.
+fn dissolve_layout(multisampled: bool) -> BindGroupLayoutDescriptor {
+    BindGroupLayoutDescriptor::new(
+        "mask dissolve depth",
+        &[BindGroupLayoutEntry {
+            binding: 0,
+            visibility: ShaderStages::FRAGMENT,
+            ty: BindingType::Texture {
+                sample_type: TextureSampleType::Depth,
+                view_dimension: TextureViewDimension::D2,
+                multisampled,
+            },
+            count: None,
+        }],
+    )
+}
+
+/// Identifies the private companion independently of authored material flags.
 fn dissolve_depth(material: u32) -> bool {
     material & assets::EntityRenderMaterialState::KIND_MASK
         == assets::EntityRenderMaterial::DissolveDepth as u32
@@ -78,9 +83,7 @@ impl Specializer<RenderPipeline> for MaskSpecializer {
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Key>, BevyError> {
         let contract = ActorPipelineSpecializer.specialize(key.actor, descriptor)?;
-        descriptor
-            .layout
-            .push(dissolve_layout(key.actor.msaa.samples() > 1));
+        descriptor.layout.push(placement_layout());
         descriptor
             .vertex
             .shader_defs
@@ -106,6 +109,9 @@ impl Specializer<RenderPipeline> for MaskSpecializer {
         let dissolve = key.actor.material & assets::EntityRenderMaterialState::KIND_MASK
             == assets::EntityRenderMaterial::DissolveColor as u32;
         if dissolve {
+            descriptor
+                .layout
+                .push(dissolve_layout(key.actor.msaa.samples() > 1));
             fragment.shader_defs.push(bevy::shader::ShaderDefVal::Bool(
                 "MASK_DISSOLVE".into(),
                 true,
@@ -146,6 +152,7 @@ pub(crate) struct MaskTarget {
     dissolve_view: TextureView,
     dissolve_binding: Option<BindGroup>,
     placement: Buffer,
+    placement_binding: BindGroup,
     draws: Vec<Vec<(crate::actor::gpu::ActorDrawSpan, CachedRenderPipelineId)>>,
     frame_generation: u64,
     ready: bool,
@@ -154,7 +161,11 @@ pub(crate) struct MaskTarget {
 
 impl MaskTarget {
     /// Accounts for all samples and the resolve attachment before allocating either texture.
-    fn new(device: &RenderDevice, depth: &ViewDepthStencilTexture) -> Option<Self> {
+    fn new(
+        device: &RenderDevice,
+        cache: &PipelineCache,
+        depth: &ViewDepthStencilTexture,
+    ) -> Option<Self> {
         let size = depth.texture().size();
         let samples = depth.texture().sample_count();
         let bytes = mod_render::masks::attachment_bytes(size.width, size.height, samples)?;
@@ -192,6 +203,19 @@ impl MaskTarget {
             || render_view.clone(),
             |texture| texture.create_view(&default()),
         );
+        let placement = device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("mask placement"),
+            contents: bytemuck::cast_slice(&[0.0f32; 4]),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+        });
+        let placement_binding = device.create_bind_group(
+            "mask placement",
+            &cache.get_bind_group_layout(&placement_layout()),
+            &[BindGroupEntry {
+                binding: 0,
+                resource: placement.as_entire_binding(),
+            }],
+        );
         Some(Self {
             texture,
             render_view,
@@ -199,11 +223,8 @@ impl MaskTarget {
             view,
             dissolve_view: dissolve.create_view(&default()),
             dissolve_binding: None,
-            placement: device.create_buffer_with_data(&BufferInitDescriptor {
-                label: Some("mask placement"),
-                contents: bytemuck::cast_slice(&[0.0f32; 4]),
-                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-            }),
+            placement,
+            placement_binding,
             draws: Vec::new(),
             frame_generation: 0,
             ready: false,
@@ -346,7 +367,11 @@ fn selection(
     }
     let mut draws = Vec::new();
     let mut vertices = 0u64;
-    for span in &gpu.mask_spans {
+    for span in if gpu.mask_spans.is_empty() {
+        &gpu.spans
+    } else {
+        &gpu.mask_spans
+    } {
         for first in span.first..span.first.checked_add(span.count)? {
             let entry = gpu.manifest.get(first as usize)?;
             if !selected(mask, &entry.identity) {
@@ -453,7 +478,7 @@ pub(crate) fn prepare(
                 .is_none_or(|target| !target.matches(depth))
             {
                 masks.targets.remove(&key);
-                let Some(target) = MaskTarget::new(&device, depth) else {
+                let Some(target) = MaskTarget::new(&device, &cache, depth) else {
                     continue;
                 };
                 masks.targets.insert(key, target);
@@ -506,16 +531,10 @@ pub(crate) fn prepare(
                         device.create_bind_group(
                             "mask dissolve binding",
                             &cache.get_bind_group_layout(&dissolve_layout(msaa.samples() > 1)),
-                            &[
-                                BindGroupEntry {
-                                    binding: 0,
-                                    resource: target.placement.as_entire_binding(),
-                                },
-                                BindGroupEntry {
-                                    binding: 1,
-                                    resource: BindingResource::TextureView(&target.dissolve_view),
-                                },
-                            ],
+                            &[BindGroupEntry {
+                                binding: 0,
+                                resource: BindingResource::TextureView(&target.dissolve_view),
+                            }],
                         )
                     });
             }
@@ -672,7 +691,10 @@ fn draw(
                     };
                     pass.set_render_pipeline(pipeline);
                     pass.set_bind_group(0, binding, &[offset.offset]);
-                    pass.set_bind_group(2, target.dissolve_binding.as_ref().unwrap(), &[]);
+                    pass.set_bind_group(2, &target.placement_binding, &[]);
+                    if !prepass && paired {
+                        pass.set_bind_group(3, target.dissolve_binding.as_ref().unwrap(), &[]);
+                    }
                     pass.draw(0..span.vertex_count, span.first..span.first + span.count);
                 }
             }
