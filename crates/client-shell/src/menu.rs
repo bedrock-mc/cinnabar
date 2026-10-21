@@ -341,18 +341,6 @@ impl MenuRuntime {
         self.local_world_requested.take()
     }
 
-    pub fn open_pause(&mut self) {
-        if self.visible || self.is_connecting() {
-            return;
-        }
-        self.navigation_focus = navigation::NavigationFocus::default();
-        self.history.reset(MenuScreen::Pause);
-        self.screen = MenuScreen::Pause;
-        self.focused = 0;
-        self.message = None;
-        self.visible = true;
-    }
-
     /// The queued join, once the saved account's check has settled (bounded) and any
     /// sign-in helper the join does not outlive has finished cleaning up.
     pub fn take_join_intent(&mut self) -> Option<JoinIntent> {

@@ -10,6 +10,19 @@ use {
 };
 
 impl MenuRuntime {
+    /// Opens pause over gameplay when no other menu or connection screen is active.
+    pub fn open_pause(&mut self) {
+        if self.visible || self.is_connecting() {
+            return;
+        }
+        self.navigation_focus = NavigationFocus::default();
+        self.history.reset(MenuScreen::Pause);
+        self.screen = MenuScreen::Pause;
+        self.focused = 0;
+        self.message = None;
+        self.visible = true;
+    }
+
     pub(super) fn remember_session_origin(&mut self) {
         if self.over_world() || self.is_connecting() || self.disconnect_message.is_some() {
             return;
