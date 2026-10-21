@@ -96,7 +96,7 @@ fn source_with_definitions(gamma: bool, definitions: &[&str]) -> String {
     shader_source::standalone(&actor, &definitions)
         .replace("@group(1) @binding(0)", "@group(0) @binding(20)")
         .replace("@group(1) @binding(1)", "@group(0) @binding(21)")
-        .replace("@group(2) @binding(0)", "@group(0) @binding(22)")
+        .replace("@group(3) @binding(0)", "@group(0) @binding(22)")
 }
 
 pub(crate) fn raster(

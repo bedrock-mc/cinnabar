@@ -32,16 +32,19 @@ mod minecraft_import;
 mod navigation;
 mod presence_targets;
 mod reconnect;
+mod renderer;
 pub mod screen_focus;
 #[cfg(test)]
 mod server_input_tests;
 mod services;
+mod shader_options;
 pub use services::sync_cinnabar_players;
 pub mod settings_options;
 mod settings_paths;
 pub mod settings_storage;
 pub mod settings_support;
 mod settings_values;
+mod shader_pack_status;
 #[cfg(feature = "developer-control")]
 mod sign_in_fixture;
 pub mod video_settings;
@@ -127,6 +130,16 @@ pub struct MenuRuntime {
     failed_video_settings_save: Option<launcher_host::video_settings::SavedVideoSettings>,
     render_mode: RenderMode,
     render_mode_request: Option<RenderMode>,
+    /// Discovered shader-pack names synced by the app; renderer choices index it.
+    shader_packs: std::sync::Arc<[String]>,
+    /// Revision that rejects picker actions captured before the list changed.
+    shader_packs_revision: u64,
+    /// The applied pack name, retaining a pending menu choice until taken.
+    shader_pack: Option<String>,
+    shader_pack_request: Option<String>,
+    shader_pack_status: shader_pack_status::ShaderPackStatusUi,
+    /// Set by [`MenuRuntime::request_shader_pack_reload`] until the app takes it.
+    shader_pack_reload: bool,
     vsync_override: Option<bool>,
     display_name: String,
     launcher: bool,
@@ -188,6 +201,7 @@ pub struct MenuRuntime {
     /// Mods-tab work for the mod runtime; disclosure toggles apply in place.
     pub mod_actions: Vec<launcher::mods::Action>,
     pub mods: std::sync::Arc<launcher::mods::Snapshot>,
+    shader_options: shader_options::ShaderOptions,
     minecraft_import: std::sync::Arc<launcher::minecraft_import::Snapshot>,
     minecraft_import_requests: Vec<launcher_host::minecraft_import::Request>,
     settings: launcher::menu::view::SettingsInteraction,
@@ -714,6 +728,9 @@ impl MenuRuntime {
                 }
             }
             MenuAction::AddBack => self.go_back(),
+            MenuAction::SelectRenderer(choice) => self.select_renderer(choice),
+            MenuAction::ReloadShaders => self.activate_shader_reload(),
+            MenuAction::SettingsShaders => self.activate_shaders_tab(),
             MenuAction::ToggleRenderMode => {
                 if render_model::ENHANCED_RENDERING_ENABLED {
                     self.render_mode = self.render_mode.toggled();
@@ -747,10 +764,10 @@ impl MenuRuntime {
             }
             MenuAction::SettingsStorage(action) => self.activate_storage(action),
             MenuAction::SettingsSupport(action) => self.activate_support(action),
+            MenuAction::SettingsSection(section) => self.activate_settings_section(section),
             action @ (MenuAction::SettingsScale(_)
             | MenuAction::SettingsScalePicker
             | MenuAction::SettingsFullscreen(_)
-            | MenuAction::SettingsSection(_)
             | MenuAction::SettingsOption(..)
             | MenuAction::SettingsVideoPreset(_)
             | MenuAction::SettingsLanguage(_)
@@ -814,6 +831,7 @@ impl MenuRuntime {
             MenuAction::ServerTrust(trusted) => self.answer_server_trust(trusted),
             MenuAction::Invite(action) => self.activate_invite(action),
             MenuAction::JoinRequest(accept) => self.answer_join_request(accept),
+            MenuAction::ShaderOptions(action) => self.activate_shader_options(action),
         }
     }
 

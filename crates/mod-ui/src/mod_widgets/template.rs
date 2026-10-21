@@ -12,8 +12,13 @@ mod tests;
 /// Rebuilds only when card geometry, row font or icon topology changes.
 pub(super) fn same_shape(a: &Hud, b: &Hud) -> bool {
     super::world_labels::same_shape(&a.world_labels, &b.world_labels)
-        && a.cards.len() == b.cards.len()
-        && a.cards.iter().zip(&b.cards).all(|(left, right)| {
+        && same_cards_shape(&a.cards, &b.cards)
+}
+
+/// Compares only card template inputs, without cloning unrelated HUD presentation data.
+pub(in super::super) fn same_cards_shape(a: &[Card], b: &[Card]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(left, right)| {
             left.id == right.id
                 && left.scale == right.scale
                 && left.row_layout == right.row_layout
@@ -25,9 +30,17 @@ pub(super) fn same_shape(a: &Hud, b: &Hud) -> bool {
                 && left.shadow == right.shadow
                 && left.title.is_empty() == right.title.is_empty()
                 && left.compass.is_some() == right.compass.is_some()
+                && left.crosshair == right.crosshair
                 && left.text_plate.is_some() == right.text_plate.is_some()
-                && left.text_plate.as_ref().map(|p| p.style.border_width)
-                    == right.text_plate.as_ref().map(|p| p.style.border_width)
+                && left.background_radius == right.background_radius
+                && left
+                    .text_plate
+                    .as_ref()
+                    .map(|p| (p.style.border_width, p.style.radius))
+                    == right
+                        .text_plate
+                        .as_ref()
+                        .map(|p| (p.style.border_width, p.style.radius))
                 && left.cells.len() == right.cells.len()
                 && left.cells.iter().zip(&right.cells).all(|(a, b)| {
                     a.rect == b.rect
@@ -95,6 +108,17 @@ fn apply_font(node: &mut Value, font: &str) {
 
 /// Builds card geometry before applying its selected typography.
 fn card_content(card: &Card, card_index: usize, row_index: &mut usize) -> Value {
+    if let Some(spec) = &card.crosshair {
+        return panel_for_card(
+            card_index,
+            dimensions(card),
+            vec![named(
+                "crosshair",
+                json!({"type":"custom","renderer":"cinnabar_crosshair_preview",
+                "size":dimensions(card),"anchor_from":"top_left","anchor_to":"top_left","crosshair":spec,"crosshair_scale":card.scale}),
+            )],
+        );
+    }
     if card.text_plate.is_some() {
         *row_index += card.rows.len();
         return super::text_plate::control(card, card_index);
@@ -112,7 +136,7 @@ fn card_content(card: &Card, card_index: usize, row_index: &mut usize) -> Value 
             rounded(
                 size,
                 [0.; 2],
-                3. * k,
+                f64::from(card.background_radius) * k,
                 [0.045, 0.05, 0.065, card.background_opacity],
             ),
         ),
@@ -409,7 +433,7 @@ pub(super) fn card_data(
 ) {
     data.set_global(
         format!("#card_{n}_visible"),
-        Scalar::Bool(!card.preview_only),
+        Scalar::Bool(card.gameplay_visible()),
     );
     data.set_global(format!("#card_{n}_title"), Scalar::Text(card.title.clone()));
     data.set_global(
@@ -447,6 +471,9 @@ pub(super) fn card_data(
 
 /// Shared card geometry for gameplay publication and native layout editing.
 pub(in super::super) fn dimensions(card: &Card) -> [f64; 2] {
+    if card.crosshair.is_some() {
+        return [f64::from(card.width * card.scale); 2];
+    }
     if card.text_plate.is_some() {
         return super::text_plate::dimensions(card);
     }

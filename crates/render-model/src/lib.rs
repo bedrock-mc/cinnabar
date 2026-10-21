@@ -68,8 +68,8 @@ pub use item_geometry::{extruded_sprite_vertices, held_sprite_vertices, textured
 pub use nametag::{
     MAX_NAMETAG_RECORDS, NAMETAG_ALPHA_CUTOFF, NAMETAG_ATLAS_SIDE, NAMETAG_BLOCKS_PER_FONT_PIXEL,
     NAMETAG_DIM_TEXT_ALPHA, NAMETAG_LINE_PITCH_PX, NAMETAG_TEXT_REVERSE_Z_BIAS, NametagAtlasRect,
-    NametagRecord, NametagScene, java_nametag_line_backgrounds, nametag_line_backgrounds,
-    nametag_line_left,
+    NametagLabel, NametagRecord, NametagScene, java_nametag_line_backgrounds,
+    nametag_line_backgrounds, nametag_line_left,
 };
 pub use panorama::{MAX_PANORAMA_FACE_SIDE, PanoramaFaces, PanoramaView};
 pub use presentation::{
@@ -104,6 +104,10 @@ pub use visibility::{
 /// Enhanced is disabled until the GPU faults and system freezes are resolved.
 /// Ordinary settings, launch flags and camera components cannot override this switch.
 pub const ENHANCED_RENDERING_ENABLED: bool = false;
+
+/// The Java shader-pack render mode is opt-in at build time while it is experimental.
+/// Default builds keep settings, launch flags and cameras off it.
+pub const SHADER_PACKS_ENABLED: bool = cfg!(feature = "shaderpacks");
 
 #[cfg(feature = "enhanced-diagnostics")]
 static ENHANCED_DIAGNOSTIC: std::sync::atomic::AtomicBool =

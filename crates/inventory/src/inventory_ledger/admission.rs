@@ -64,6 +64,7 @@ impl PlayerInventoryLedger {
                 }
             }
             InventoryEvent::Open(open) => self.apply_open(*open),
+            InventoryEvent::Trade(trade) => self.apply_trade(trade),
             InventoryEvent::Close(close) => self.apply_close(*close),
             InventoryEvent::RegistryCleanup(removed) => self.apply_bundle_cleanup(removed),
             InventoryEvent::Content(content) => self.apply_content(content),
@@ -350,7 +351,7 @@ impl PlayerInventoryLedger {
         self.skipped_unknown_containers = self.skipped_unknown_containers.saturating_add(1);
     }
 
-    fn apply_open(&mut self, open: protocol::ContainerOpenEvent) {
+    pub(super) fn apply_open(&mut self, open: protocol::ContainerOpenEvent) {
         if open.window_type == super::PERSONAL_INVENTORY_WINDOW_TYPE {
             self.apply_personal_open(open);
             return;
@@ -400,6 +401,7 @@ impl PlayerInventoryLedger {
         });
         self.controls.storage.desired_open = true;
         self.storage = Some(StorageWindow {
+            trade: None,
             window_id,
             window_type: open.window_type,
             kind,

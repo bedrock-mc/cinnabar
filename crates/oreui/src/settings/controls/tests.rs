@@ -159,7 +159,7 @@ fn slider_drag_geometry_retains_full_endpoints_and_clips_only_its_animated_thumb
         )
         .unwrap();
         let (index, track, thumb) = canvas.slider_tracks[0];
-        assert_eq!(index, 7);
+        assert_eq!(index, MenuAction::SettingsOption(7, 0));
         assert!((track.min().x() - 100.0 - half).abs() < 0.001);
         assert!((track.max().x() - 300.0 + half).abs() < 0.001);
         let thumb = thumb.unwrap();

@@ -24,6 +24,11 @@ pub const ANVIL_MATERIAL_SLOT: u8 = 2;
 /// The craft action a screen's result take is announced with.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ScreenCraft {
+    Trade {
+        recipe_network_id: u32,
+        output: protocol::NetworkItemStack,
+        consumed: [u16; 2],
+    },
     /// Anvil result; `rename` is the typed item name, if any. `output` supplies a prediction
     /// when no server result exists; `material_used` is its second-input consumption.
     Anvil {
@@ -53,6 +58,10 @@ pub enum ScreenCraft {
 impl ScreenCraft {
     const fn kinds(&self) -> &'static [WindowKind] {
         match self {
+            Self::Trade { .. } => &[
+                WindowKind::Trade { modern: true },
+                WindowKind::Trade { modern: false },
+            ],
             Self::Anvil { .. } => &[WindowKind::Anvil],
             Self::Grindstone { .. } => &[WindowKind::Grindstone],
             Self::Loom { .. } => &[WindowKind::Loom],
@@ -76,6 +85,8 @@ pub(super) struct ScreenInputs {
 /// Declares each screen's inputs once, including ignored ordinary network cells.
 pub(super) const fn input_layout(kind: WindowKind) -> Option<ScreenInputs> {
     let (slots, preview, ignored_tail): (&'static [u8], bool, usize) = match kind {
+        WindowKind::Trade { modern: true } => (&protocol::MODERN_TRADE_SLOTS, true, 0),
+        WindowKind::Trade { modern: false } => (&protocol::LEGACY_TRADE_SLOTS, true, 0),
         WindowKind::Anvil => (&[ANVIL_TARGET_SLOT, ANVIL_MATERIAL_SLOT], true, 0),
         WindowKind::Grindstone => (&[16, 17], true, 0),
         WindowKind::Loom => (&[9, 10, 11], true, 0),
@@ -204,7 +215,8 @@ impl PlayerInventoryLedger {
         let request_id = self.peek_request_id()?;
         let predicted_distinct = matches!(
             craft,
-            ScreenCraft::Predicted { .. }
+            ScreenCraft::Trade { .. }
+                | ScreenCraft::Predicted { .. }
                 | ScreenCraft::Loom { .. }
                 | ScreenCraft::Anvil {
                     output: Some(_),
@@ -242,7 +254,8 @@ impl PlayerInventoryLedger {
             ScreenCraft::Anvil {
                 output: Some(output),
                 ..
-            } => {
+            }
+            | ScreenCraft::Trade { output, .. } => {
                 let mut stack = output.clone();
                 stack.stack_network_id = request_id;
                 stack.nbt_digest = Sha256::digest(&stack.extra_data).into();
@@ -336,6 +349,9 @@ impl PlayerInventoryLedger {
                 Vec::new(),
             ),
             ScreenCraft::Recipe { recipe_network_id }
+            | ScreenCraft::Trade {
+                recipe_network_id, ..
+            }
             | ScreenCraft::Predicted {
                 recipe_network_id, ..
             } => (
@@ -357,6 +373,12 @@ impl PlayerInventoryLedger {
                 continue;
             };
             let amount = match craft {
+                ScreenCraft::Trade { consumed, .. } => {
+                    consumed[input_slots(kind)
+                        .iter()
+                        .position(|input| input == slot)
+                        .expect("trade input")]
+                }
                 ScreenCraft::Anvil {
                     output: Some(_),
                     material_used,

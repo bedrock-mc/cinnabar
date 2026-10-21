@@ -200,6 +200,10 @@ is a broader claim than the presence of these features.
   Touch remains open even when an owner-deprioritized touch witness does not gate a
   narrower scenario verdict.
 
+View Bobbing offers Off, Full and Minimal. Minimal retains first-person hand bobbing
+with a steady movement camera in both animation modes; hurt and death effects remain
+independent. In-world rendered acceptance evidence for this client option remains outstanding.
+
 Historical movement acceptance scope includes sprint/double-tap/toggle timing, forced
 sneak/crawl, mode entry/exit, flight, swimming/gliding, liquid correction and scaffolding
 descent. Reconcile each case with current code and evidence before calling it a missing
@@ -232,7 +236,7 @@ qualification remain open.
 
 Pure numeric Molang expressions use bound f32 lane programs with load fusion;
 mixed values and effects retain the generic evaluator, including exact budget tails.
-Full rig history and rendered qualification remain part of `P4.3-RIGS`.
+Full rig history and rendered qualification remain part of the rig item below.
 Body and custom-skin composition use shared parent-first programs and caller-owned
 output, including attachable root modes and legacy attacks. Alternate render
 geometries and skin layers retain recursive composition. Rendered and live
@@ -251,9 +255,10 @@ performance qualification remains open.
   and matched inventory/held-item presentation. Shared cube face sheets are bounded coverage.
 
 Continuous cosmetic cloth uses shared vertices, fixed-step constraints, world-space
-inertia and player-body contacts with standard-armor clearance. Vertical follow and
-damping restrain jump and landing motion, and local cloth keeps advancing while
-first-person visibility hides the body. View changes transfer the drape between
+inertia and contacts derived from the drawn body and worn armor. Cloth pins and
+mounts retract toward the bare torso and expand to clear equipped chest geometry.
+Vertical follow and damping restrain jump and landing motion, and local cloth keeps
+advancing while first-person visibility hides the body. View changes transfer the drape between
 body pose spaces. Self-collision and world collision remain open.
 Paid cosmetic selections use session ownership from the API database and withdraw
 on disconnect or revocation; production rollout qualification remains open.
@@ -264,6 +269,20 @@ and performance qualification for these previews remains open.
 
 Player name tags use Java's standing player height before pose offsets, independent of
 server collision-box changes. Other actors retain their published label height.
+Name-tag budgets admit on-screen bounds before their caps, favor nearer labels and
+keep cosmetic labels complete. Atlas text
+retains formatting and line slots, with guarded cell edges and
+repacking before UV publication. In-world visual qualification remains open.
+Name tag colours compose after Enhanced and shader-pack world effects with the scene's
+depth, and translucent plates use over-compositing for scene alpha. Coplanar shadows
+and glyphs share the anchor depth to avoid rounding speckle. Local cosmetic
+colour selection uses actor identity. In-world visual qualification remains open.
+Upright player name tags keep Java's standing height before pose offsets; swimming,
+crawling and gliding players use their live height. Other actors retain their published
+label height. Tag eligibility uses always-show metadata or the shared crosshair pick.
+Camera distance controls server render limits and score range; passenger mounts keep
+their name without a score line. Depth testing honors sneaking and the nameplate flag.
+Matched rendered-frame qualification remains open.
 
 Remaining qualification includes attachables and custom item models, action/use timing,
 projectile interpolation and shake, sleep/mount poses, name tags (including over
@@ -282,6 +301,8 @@ Implemented: [chat, HUD and scoreboard state](crates/ui/src/lib.rs),
 [inventory prediction and crafting](crates/inventory/src/lib.rs), and
 [menus and settings](crates/client-shell/src/menu.rs). The boxes track full acceptance
 across these existing features; they are not a list of missing screens or systems.
+Outgoing chat uses the session's login name and XUID. Server-authored actor names
+remain available for local presentation and text resolution.
 Gameplay mouse capture resumes after focus or occlusion returns when it was active
 before switching away. Screen ownership and focus-loss input clearing remain in effect;
 OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
@@ -293,7 +314,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Rounded JSON-UI chrome supports bounded analytic box shadows with cached geometry;
   full menu visual and hardware frame-work acceptance remains open.
   Client-owned panel collections support bounded four-column card grids with
-  item-scoped expressions and vector artwork; hardware frame-work acceptance remains open.
+  item-scoped expressions, vector artwork and one-time guest requests to reveal filtered
+  items without rebuilding the catalog; hardware frame-work acceptance remains open.
   stable retained resources and correct supported DPI/aspect behavior. Tiled images
   retain full coverage with bounded repeat geometry across cropped regions and sliced
   borders; large collection admission and hardware frame-work acceptance remain incomplete.
@@ -328,6 +350,11 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Complex item-tag scripts and live custom-block mining acceptance remain incomplete.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
+  Trading screens admit server offers and support purchases with manually placed inputs.
+  Automatic ingredient filling, trader experience, restock and demand-price transitions,
+  classic preview rich tooltips, and full item/container acceptance across trading layouts
+  remain incomplete.
+  Block-item purchases await an authoritative result preview to retain its block identity.
 - [ ] `P5.6-FORMS` — Close modal/menu/custom form navigation, validation, cancellation
   and responses, including server-pack definitions, structured text, custom controls,
   scaling and image/layout behavior against matched native views. Overlapping requests
@@ -345,6 +372,18 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
 - [ ] `P5.8-SETTINGS` — Close menu, control, video and persistence acceptance. Desktop
   wiring alone does not establish native parity; language-specific scale dialogs,
   safe-zone handling, service-controlled spacing and touch/console behavior remain open.
+  Social → Chat exposes the existing chat preferences, shared opacity, duration and
+  position controls, and one reset for all displayed Chat settings. Chat uses the bundled
+  Cinnangles Sans font without a typeface selector; font sizing applies directly and
+  obsolete saved typeface values are ignored. Emote filtering, narration and mention
+  highlighting remain unavailable and their controls say they store preferences only.
+  Offline rendered fixtures cover the panel, values, palettes and reset confirmation;
+  live input acceptance remains incomplete. Font size 5–20/default 10 and spacing
+  0–100/default 0 remain provisional host ranges, without confirmed native defaults.
+  Social → Discord now exposes the Rich Presence master switch plus persisted privacy,
+  party-size, elapsed-time and join-request controls; each is applied to the Discord
+  activity payload and the panel has its own reset. Live Discord desktop acceptance and
+  native settings parity remain incomplete.
 
 The inherited interaction acceptance scope also includes full item identity and use phases,
 replacement/deferred releases, mounted inventory, sign filtering/length/structured text,
@@ -443,20 +482,39 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   camera owners; interactive movement, perspective release, teleport and hurt-view
   acceptance remain unverified in a displayed client. Panel previews now
   select owner-scoped HUD cards, including preview-only cards, and share retained
-  gameplay artwork. Focused rendering and cache regressions cover visible previews;
+  gameplay artwork. Optional measured fitting sizes and aligns their painted bounds
+  within tiles and sheet stages, retaining each visible instance's multiplier.
+  Focused rendering and cache regressions cover visible previews;
   populated-world and displayed-frame acceptance remain pending.
   Personal panels and HUD editor surfaces can bind the host local player's name
   and skin head, with neutral artwork when the identity is unavailable. Skin and
   session changes retire the previous portrait; full in-world acceptance remains pending.
+  Embedded panel fonts admit covered Latin-1 and General Punctuation glyphs within
+  the existing atlas bounds. Active native fields retain an accent focus border;
+  focused regressions cover glyph fallback and steady-frame geometry reuse.
   populated-world and displayed-frame acceptance remain pending. Panel motion
   preferences now settle feedback, wheel scrolling and surface transitions
   immediately, retain prepared routes and apply across route changes.
   displayed-frame pacing and complete rendering acceptance.
+  Saturation overlays prepare source outlines on image workers independently of GPU-sheet
+  capacity and area-filter them to the requested draw size. Paint skips pending sources,
+  unions small masks within the visible viewport and atlas allocation budget, and draws
+  ordinary prepared sprites. A small LRU reuses clamped source grids across GUI scales. Current and held-food
+  coverage share one mask. CPU/GPU regressions cover tint, cropping, unequal translucent
+  edges, independent shake, inversion and high-resolution minification; complete in-game
+  and platform acceptance remain pending.
   HUD layout editing stores nine anchors and GUI-pixel offsets after completed
   moves, resizes and nudges, with an additive anchored-layout read and normalized
   compatibility reads. Editor drags snap to neighboring cards, stacking gaps and
   host-supplied native HUD bounds, with edge distances and Shift snap bypass.
-  Displayed-frame pacing acceptance remains pending.
+  The editor also retains bounded undo/redo history, per-card draft visibility,
+  anchor and scale actions, live owner-scoped card updates and inspector bindings.
+  Grid display and snapping have independent controls. Published cards can start
+  hidden, and optional inspector dimensions place settings beside the selected
+  card with viewport clamping and retained geometry bindings.
+  Hidden card IDs have an additive result read; toast and anchor motion use the
+  presentation clock. Displayed-frame pacing and populated-world Studio acceptance
+  remain pending.
   Backdrop and element blur now limit downsampling to referenced mip levels and
   cache the admitted maximum blur. Pixel-equivalence regressions are included;
   executed GPU checks and measured frame-budget acceptance remain pending.
@@ -469,44 +527,42 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   exist; actor silhouettes, coloured full-block highlights and broad platform /
   hardware-performance acceptance still require validation.
 - Enhanced rendering remains restricted until its GPU faults and freezes are resolved.
-  Diagnostics or bounded fixtures do not establish safe general gameplay use. Java
-  shader-pack source loading and configuration metadata are implemented in
-  `shaderpack`, including options, dimensions, parsed properties, program discovery
-  and enable rules, and its programs translate to validated naga modules with a binding
-  contract. Behind the render crate's `shaderpacks` feature, the host builds the Java-style
-  block atlas packs sample. Pack-specific translation fixes, the rest of the render-host
-  integration and in-game acceptance remain incomplete.
-  contract. Pack-specific translation fixes, render-host integration and in-game
-  acceptance remain incomplete; parsed custom uniform expressions are not executed or
-  rendered.
-  and enable rules. Translation, render-host integration and in-game acceptance
-  remain incomplete; parsed custom uniform expressions are not executed or rendered.
-  Pack block, item and entity ids, Java biome values and Java sky and fog colours are
-  computed from the pinned Bedrock→Java mappings but not yet uploaded to shaders.
-  and enable rules, and custom uniform expressions evaluate per frame. Translation,
-  render-host integration and in-game acceptance remain incomplete; evaluated custom
-  uniforms are not uploaded or rendered.
-  rendered. Constant folding for half-float packing and bit casts remains incomplete.
-  acceptance remain incomplete.
-  and enable rules. Translation, render-host integration and in-game acceptance
-  remain incomplete.
-  shader-pack source loading is implemented in `shaderpack`; configuration parsing,
-  translation, render-host integration and in-game acceptance remain incomplete.
-  remain incomplete; parsed custom uniform expressions are not executed or rendered.
-  Pack block, item and entity ids, Java biome values and Java sky and fog colours are
-  computed from the pinned Bedrock→Java mappings but not yet uploaded to shaders.
-  Sky/fog time curves and sunrise colours remain provisional; lightning, status effects,
-  underwater colour easing and the water-vision ramp are not implemented.
-  and enable rules. Custom uniform expressions evaluate per frame, including numeric
-  operations and smoothing. Complete Iris type checking and target-dependent function
-  return overloads remain incomplete, as do translation, render-host integration and
-  in-game acceptance; evaluated custom uniforms are not uploaded or rendered.
+  Diagnostics or bounded fixtures do not establish safe general gameplay use.
+  Its MSAA nametag composite blends against resolved scene colour, so labels partly
+  occluded by world silhouettes get a dark edge fringe; per-sample composition is incomplete.
+- Java shader packs (Iris/OptiFine format) run behind the off-by-default `shaderpacks`
+  feature. `shaderpack` loads packs, parses `shaders.properties`, options, Iris option
+  menus, profiles and option files, evaluates custom uniforms and translates programs to
+  validated naga modules, with calls ordered after forward declarations and generated
+  helpers. The render host runs Iris's frame (shadow, gbuffers for terrain, actors, block
+  entities and the hand, deferred, composite and final passes, compute, custom textures and
+  images) plus the pack-drawn sky, particles, clouds, weather, lightning, cracks and selection.
+  Block, item, entity and biome ids and Java sky and fog colours come from the pinned
+  Bedrock→Java mappings. Settings offers pack import, a reload key, load status and a Shader
+  Pack Settings screen. Incomplete: in-game acceptance across packs and platforms (Metal is
+  unverified); stage pre-flips (`flip.<stage>_pre.<buffer>`) and Iris's explicit-flip
+  ordering; drawing the solid hand's glint before deferred passes; pack replacements
+  for uncovered celestial layers (the pack sky stands), actor colour masks, multitexture
+  materials, dissolve pairs, beacon beams and additive rays (these retain native
+  composition over the pack); native layers behind pack-rendered glass or water, whose
+  final depth can hide those layers; autofocus on cutout
+  Bedrock→Java mappings. The Shaders settings tab offers pack import, reload, load status
+  and a Shader Pack Settings screen. Video links to Shaders and shows its renderer switch
+  only when Enhanced is available.
+  Incomplete: in-game acceptance across packs and platforms (Metal is unverified); stage pre-flips (`flip.<stage>_pre.<buffer>`) and Iris's explicit-flip
+  ordering; drawing the solid hand's glint before deferred passes; geometry-host composition
+  of celestial layers, effects without depth writes and private-depth first-person scenes,
+  which keep the native scene copy; actor colour masks, multitexture materials, dissolve
+  pairs, beacon beams and additive rays, which keep native composition; autofocus on cutout
+  pixels, liquids and entities; complete Iris type checking and target-dependent return
+  overloads; constant folding for half-float packing and bit casts. Java sky and fog time
+  curves and sunrise colours remain provisional.
 - `registryc --kind java-mapping` generates `crates/assets/data/java-mapping-v2193.bin` from
   the GeyserMC data pinned in `assets/geyser-mappings-source.json`: Java block states, block
   tags, biomes and their colours, entity types and items for every Bedrock id Geyser maps.
   States Geyser never produces take the closest same-block state and are flagged approximate;
-  Bedrock-only biomes and blocks stay unmapped. Nothing reads the carrier yet; Java shader
-  packs' ids, biome uniforms and sky colours are its first consumers.
+  Bedrock-only biomes and blocks stay unmapped. Java shader packs read it for their ids,
+  biome uniforms and sky colours.
 - Runtime pack compatibility still includes custom texture inheritance/tints, authored
   geometry and block/item component behavior beyond the currently supported cases.
 

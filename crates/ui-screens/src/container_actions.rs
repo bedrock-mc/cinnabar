@@ -24,6 +24,9 @@ pub enum InventoryCellHit {
 impl InventoryCellHit {
     /// Whether the hit is a cell holding an item (not a control or tab).
     pub const fn is_item_cell(self) -> bool {
+        if matches!(self, Self::Widget(Widget::TradeOffer { item: Some(_), .. })) {
+            return true;
+        }
         !matches!(
             self,
             Self::Widget(_) | Self::CreativeTab(_) | Self::CreativeSearch
@@ -34,6 +37,16 @@ impl InventoryCellHit {
 /// A clickable control that is not an item cell.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Widget {
+    TradeOffer {
+        tier: usize,
+        row: usize,
+        /// The hovered input/input/output preview, when the hit is on an item.
+        item: Option<u8>,
+    },
+    TradeCycle {
+        next: bool,
+    },
+    Trade,
     EnchantOption(u8),
     BeaconEffect {
         id: i32,

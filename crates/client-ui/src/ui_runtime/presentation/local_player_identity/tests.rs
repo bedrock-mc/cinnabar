@@ -294,7 +294,10 @@ fn local_player_identity_hud_editor_overrides_forged_raster_name_and_transitions
         .unwrap()
         .textures
         .lock()
-        .set_client_rasters(&[("client-raster:test".into(), guest_raster)].into());
+        .set_client_rasters(
+            "client-raster:test",
+            &[("client-raster:test".into(), guest_raster)].into(),
+        );
 
     // No skin must clear every forged value, while the guest raster remains available.
     presentation.capture_local_player_identity(None, 1);

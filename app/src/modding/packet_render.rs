@@ -20,6 +20,7 @@ pub(super) struct Drawing {
     output: RenderOutput,
     generation: u64,
     highlights: super::packet_highlights::Highlights,
+    resolved_lines: Vec<mod_api::native_render::Line>,
 }
 impl Default for Drawing {
     /// Allocates independent host-owned resources for geometry and actor masks.
@@ -35,6 +36,7 @@ impl Default for Drawing {
             instances: Vec::new(),
             output: Default::default(),
             generation: 0,
+            resolved_lines: Vec::new(),
         }
     }
 }
@@ -52,6 +54,7 @@ impl Drawing {
         let changed_scope = self.session != session;
         self.session = session;
         self.source = scene.clone();
+        self.resolved_lines.clear();
         self.generation = self.generation.wrapping_add(1);
         if changed_scope {
             self.store
@@ -78,6 +81,63 @@ impl Drawing {
         } else {
             vec![Arc::clone(self.store.snapshot())]
         };
+    }
+
+    /// Resolves selected line endpoints against the exact actor and camera render publication.
+    pub(super) fn follow_anchors(
+        &mut self,
+        actors: &render_scene::ActorRenderFrame,
+        camera: &GlobalTransform,
+        position: impl Fn(u64, i32, u64) -> Option<[f32; 3]>,
+    ) {
+        if self.needs_targets() {
+            self.targets(render_scene::mod_scene::mask_targets(actors));
+            self.update(self.source.clone(), self.session);
+        }
+        let Some(source) = self.source.as_ref().filter(|source| {
+            source
+                .lines
+                .iter()
+                .any(|line| line.camera_start || line.entity_end.is_some())
+        }) else {
+            return;
+        };
+        let mut resolved = (**source).clone();
+        resolved.lines = source
+            .lines
+            .iter()
+            .filter_map(|line| {
+                resolve_line(
+                    line,
+                    source.session,
+                    source.dimension,
+                    actors,
+                    camera,
+                    &position,
+                )
+            })
+            .collect();
+        if self.resolved_lines == resolved.lines {
+            return;
+        }
+        self.resolved_lines.clone_from(&resolved.lines);
+        self.store.begin();
+        if self.stage(Some(&resolved)).is_err() {
+            self.store.rollback();
+            self.store.revoke();
+            self.store
+                .bind_session(self.session.connection, self.session.dimension);
+            self.geometry.clear();
+            self.instances.clear();
+        } else {
+            self.store.commit();
+        }
+        self.output.retained = if self.store.snapshot().instances.is_empty() {
+            Vec::new()
+        } else {
+            vec![Arc::clone(self.store.snapshot())]
+        };
+        self.generation = self.generation.wrapping_add(1);
     }
 
     /// Avoids actor observation work when the packet scene selects no meshes.
@@ -149,7 +209,11 @@ impl Drawing {
                 ));
             }
         }
-        for line in &scene.lines {
+        for line in scene
+            .lines
+            .iter()
+            .filter(|line| !line.camera_start && line.entity_end.is_none())
+        {
             let start = Vec3::from_array(line.start);
             let delta = Vec3::from_array(line.end) - start;
             let Some(direction) = delta.try_normalize() else {
@@ -195,6 +259,66 @@ impl Drawing {
     /// Supplies the shared renderer's generation cache and immutable resources.
     pub(super) fn output(&self) -> (&RenderOutput, u64) {
         (&self.output, self.generation)
+    }
+}
+
+/// Missing or retired actors remove their anchored line instead of leaving a stale endpoint.
+fn resolve_line(
+    line: &mod_api::native_render::Line,
+    session: u64,
+    dimension: i32,
+    actors: &render_scene::ActorRenderFrame,
+    camera: &GlobalTransform,
+    position: &impl Fn(u64, i32, u64) -> Option<[f32; 3]>,
+) -> Option<mod_api::native_render::Line> {
+    let mut resolved = line.clone();
+    if line.camera_start {
+        resolved.start = (camera.translation() + camera.forward() * 0.1).to_array();
+    }
+    if let Some(anchor) = &line.entity_end {
+        let root = actors
+            .rig
+            .instances
+            .iter()
+            .zip(actors.rig.manifest.iter())
+            .find(|(_, entry)| {
+                let id = entry.identity;
+                id.runtime_id == anchor.runtime_id
+                    && id.session_id == session
+                    && id.dimension == dimension
+                    && id.layer == render_model::ACTOR_LAYER_BODY
+            })
+            .map(|(instance, _)| {
+                std::array::from_fn::<_, 3, _>(|axis| instance.world_from_actor[axis][3])
+            })
+            .or_else(|| position(session, dimension, anchor.runtime_id))?;
+        resolved.end = std::array::from_fn(|axis| root[axis] + anchor.offset[axis]);
+    }
+    resolved.camera_start = false;
+    resolved.entity_end = None;
+    Some(resolved)
+}
+
+/// Prepares hidden source bodies only while a consented scene requests translated coverage.
+pub(super) fn coverage_requests(
+    drawing: Res<Drawing>,
+    mut requests: ResMut<render_scene::mod_scene::ActorCoverageRequests>,
+) {
+    requests.connection = drawing.session.connection;
+    requests.dimension = drawing.session.dimension;
+    requests.runtime_ids.clear();
+    if drawing.session.permissions.entity_observe
+        && drawing.session.permissions.entity_highlight
+        && drawing.session.permissions.render_through_walls
+        && let Some(scene) = &drawing.source
+    {
+        requests.runtime_ids.extend(
+            scene
+                .entities
+                .iter()
+                .filter(|e| e.position.is_some())
+                .flat_map(|e| e.runtime_ids.iter().copied()),
+        );
     }
 }
 
@@ -392,3 +516,7 @@ mod tests {
         assert_eq!(scene.generation(), generation);
     }
 }
+
+#[cfg(test)]
+#[path = "packet_render_anchors_tests.rs"]
+mod anchors_tests;

@@ -813,7 +813,7 @@ fn rawtext_scores_resolve_real_owners_and_selectors_use_known_state() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = UiRuntime::new(1);
-    runtime.set_chat_source_name(std::sync::Arc::from("Reader"));
+    runtime.set_local_player_display_name(std::sync::Arc::from("Reader"));
 
     // A sidebar objective with one real player owner (unique id 42), one
     // real entity owner (unique id 7), and the reader's own fake-player row.
@@ -1043,6 +1043,40 @@ fn toast_duration_setting_reaches_the_notification_queue() {
     );
     assert_eq!(toasts[1].started_millis, toasts[0].expires_millis);
     assert!(toasts[0].visible_at(toasts[0].started_millis + ui::TOAST_DISPLAY_MILLIS));
+}
+
+/// Client toasts take the player's duration and wait their turn behind server toasts.
+#[test]
+fn client_toasts_queue_with_the_configured_duration() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_toast_lifetime(ui::TOAST_DISPLAY_MILLIS * 2);
+    runtime
+        .apply(
+            &mut player_runtime,
+            envelope(
+                1,
+                1,
+                UiEvent::Hud(HudEvent::Toast {
+                    title: Arc::from("Server"),
+                    message: Arc::from(""),
+                }),
+            ),
+        )
+        .unwrap();
+    let server = runtime.hud().toasts()[0].clone();
+    runtime.push_client_toast(
+        Arc::from("Client"),
+        Arc::from("Message"),
+        server.started_millis,
+    );
+    let client = &runtime.hud().toasts()[1];
+    assert_eq!(&*client.title, "Client");
+    assert_eq!(client.started_millis, server.expires_millis);
+    assert_eq!(
+        client.expires_millis - client.started_millis,
+        ui::TOAST_DISPLAY_MILLIS * 2 + ui::TOAST_SLIDE_OUT_MILLIS
+    );
 }
 
 #[test]

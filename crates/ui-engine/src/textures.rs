@@ -25,6 +25,7 @@ pub const MOD_MENU_TITLE_KEY: &str = "local-mod:menu-title";
 
 /// Texture sources a form engine owns across frames.
 pub struct TextureSet {
+    pub(crate) masks: Mutex<crate::engine::masks::MaskCache>,
     /// A lock only because renders borrow the engine shared.
     atlas: Mutex<ServerAtlas>,
     /// Preserves metadata revision changes across atlas replacement.
@@ -56,6 +57,7 @@ impl TextureSet {
     pub fn new(first_page: u16, remote: Arc<dyn RemoteSource>, work: ImageWork) -> Self {
         let pages = crate::pages::SERVER_UI_PAGES;
         Self {
+            masks: Default::default(),
             atlas: Mutex::new(
                 ServerAtlas::new(&[], None, pages)
                     .with_native_sheets(true)
@@ -119,6 +121,7 @@ impl TextureSet {
             .with_builtin_images(self.builtin)
             .with_image_work(self.work.clone());
         Self {
+            masks: Default::default(),
             atlas: Mutex::new(atlas),
             metadata_base: self.metadata_revision().wrapping_add(1),
             icons: self.icons.clone(),
@@ -141,6 +144,10 @@ impl TextureSet {
 
     /// Install a server atlas, wired to the vanilla and remote fallbacks.
     pub fn set_atlas(&mut self, atlas: ServerAtlas, server_page: u16) {
+        *self
+            .masks
+            .get_mut()
+            .unwrap_or_else(|poison| poison.into_inner()) = Default::default();
         self.metadata_base = self.metadata_revision().wrapping_add(1);
         let atlas = atlas
             .with_native_sheets(!self.confined)
@@ -192,7 +199,7 @@ impl<'a> Textures<'a> {
     }
 
     /// A confined set reads only portable `textures/` paths: no URL, no `..`, no other root.
-    fn admits(&self, path: &str) -> bool {
+    pub(crate) fn admits(&self, path: &str) -> bool {
         !self.set.confined
             || path.strip_prefix("textures/").is_some_and(|rest| {
                 rest.split('/').all(|part| {
@@ -470,6 +477,236 @@ mod animation_tests;
 #[cfg(test)]
 mod review_tests {
     use {super::*, ui::IconRef};
+    #[test]
+    fn outline_cache_reuses_source_alpha_when_unrelated_atlas_art_changes() {
+        let path = "textures/ui/mask_source";
+        let mut png = Vec::new();
+        image::RgbaImage::from_pixel(9, 9, image::Rgba([30, 50, 70, 128]))
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        let assets = test_carrier();
+        let set = TextureSet::new(0, Arc::new(NoDownloads), ImageWork::inline());
+        let mut atlas = ServerAtlas::new(&[(format!("{path}.png"), png)], None, 1)
+            .with_image_work(ImageWork::inline());
+        atlas.require([path]);
+        atlas.prepare_outline(path, [9, 9]);
+        let first = Textures {
+            assets: &assets,
+            set: &set,
+            atlas: &atlas,
+            images: None,
+        }
+        .outline_mask(path, [9, 9])
+        .unwrap();
+        let other = "client-raster:other/test";
+        atlas.set_client_rasters(
+            "client-raster:other/",
+            &std::collections::BTreeMap::from([(
+                other.into(),
+                render_model::UiTexturePage::owned([8; 2], vec![255; 8 * 8 * 4].into()).unwrap(),
+            )]),
+        );
+        atlas.require([path, other]);
+        let second = Textures {
+            assets: &assets,
+            set: &set,
+            atlas: &atlas,
+            images: None,
+        }
+        .outline_mask(path, [9, 9])
+        .unwrap();
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "unchanged source alpha must not be derived again"
+        );
+    }
+
+    #[test]
+    fn outline_uses_original_pixels_when_the_drawn_sprite_is_a_fitted_preview() {
+        use render_api::sprite_mask::{MaskLayout, MaskPatch};
+        let path = "textures/ui/large_mask";
+        let mut png = Vec::new();
+        image::RgbaImage::from_pixel(512, 512, image::Rgba([255; 4]))
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        let assets = test_carrier();
+        let set = TextureSet::new(0, Arc::new(NoDownloads), ImageWork::inline());
+        let mut atlas = ServerAtlas::new(&[(format!("{path}.png"), png)], None, 1)
+            .with_image_work(ImageWork::inline());
+        atlas.require([path]);
+        assert_eq!(atlas.placement(path).unwrap().rect[2..], [256, 256]);
+        atlas.prepare_outline(path, [512, 512]);
+        let view = Textures {
+            assets: &assets,
+            set: &set,
+            atlas: &atlas,
+            images: None,
+        };
+        let source = view.outline_mask(path, [512, 512]).unwrap();
+        assert!(Arc::ptr_eq(
+            &source,
+            &view.outline_mask(path, [512, 512]).unwrap()
+        ));
+        let pixels = MaskLayout {
+            source,
+            extent: [512.; 2],
+            size: [512; 2],
+            patches: vec![MaskPatch {
+                bounds: [0., 0., 512., 512.],
+                uv: [0., 0., 1., 1.],
+                opacity: 255,
+            }],
+        }
+        .rasterize()
+        .unwrap();
+        assert_eq!(pixels[(10 * 512) * 4 + 3], 255);
+        assert_eq!(
+            pixels[(10 * 512 + 1) * 4 + 3],
+            0,
+            "a fitted preview would incorrectly double the border width"
+        );
+    }
+
+    #[test]
+    fn outline_paint_waits_for_worker_completion_without_generating_source_pixels() {
+        use render_api::sprite_mask::{MaskLayout, MaskPatch};
+        let path = "textures/ui/worker_mask";
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(4096, 9, image::Rgba([255; 4]))
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let assets = test_carrier();
+        let set = TextureSet::new(0, Arc::new(NoDownloads), ImageWork::default());
+        let mut atlas = ServerAtlas::new(&[(format!("{path}.png"), png.into_inner())], None, 1)
+            .with_native_sheets(true)
+            .with_image_work(ImageWork::inline());
+        atlas.require([path]);
+        assert!(atlas.native_sheet_ready(path));
+        atlas = atlas.with_image_work(ImageWork::default());
+        atlas.prepare_outline(path, [4096, 9]);
+        let paint = |atlas: &ServerAtlas| {
+            Textures {
+                assets: &assets,
+                set: &set,
+                atlas,
+                images: None,
+            }
+            .outline_mask(path, [4096, 9])
+        };
+        for _ in 0..3 {
+            assert!(
+                paint(&atlas).is_none(),
+                "paint must skip a source whose worker result has not been collected"
+            );
+        }
+        test_time::eventually("source outline worker", || {
+            atlas.poll_native_images();
+            paint(&atlas).is_some()
+        });
+        let pixels = MaskLayout {
+            source: paint(&atlas).unwrap(),
+            extent: [4096., 9.],
+            size: [4096, 9],
+            patches: vec![MaskPatch {
+                bounds: [0., 0., 4096., 9.],
+                uv: [0., 0., 1., 1.],
+                opacity: 255,
+            }],
+        }
+        .rasterize()
+        .unwrap();
+        assert_eq!(pixels[(4 * 4096) * 4 + 3], 255);
+        assert_eq!(pixels[(4 * 4096 + 1) * 4 + 3], 0);
+        let boundary = render_model::MAX_UI_TEXTURE_SIDE - 2;
+        for x in [boundary - 1, boundary] {
+            assert_eq!(pixels[((4 * 4096 + x) * 4 + 3) as usize], 0);
+        }
+    }
+
+    #[test]
+    fn outline_preparation_reads_carrier_bounds_and_retires_replaced_sources() {
+        use render_api::sprite_mask::{MaskLayout, MaskPatch};
+        let path = "textures/ui/carrier_mask";
+        let make_carrier = |alpha| {
+            let page = assets::UiAtlasPage {
+                width: 8,
+                height: 8,
+                rgba8: [10, 20, 30, alpha].repeat(64).into(),
+            };
+            let slot = assets::UiTexturePlacement {
+                path: path.into(),
+                page: 0,
+                x: 2,
+                y: 3,
+                width: 3,
+                height: 3,
+            };
+            let bytes = assets::encode_ui_catalog([alpha; 32], &[page], &[slot], &[], &[]).unwrap();
+            Arc::new(RuntimeUiAssets::decode(&bytes).unwrap())
+        };
+        let assets = make_carrier(128);
+        let mut atlas = ServerAtlas::new(&[], None, 1)
+            .with_carrier(Some(assets.clone()))
+            .with_image_work(ImageWork::inline());
+        assert!(atlas.original_outline(path, [3, 3]).is_none());
+        atlas.prepare_outline(path, [3, 3]);
+        let source = atlas.original_outline(path, [3, 3]).unwrap();
+        let pixels = MaskLayout {
+            source: source.clone(),
+            extent: [3.; 2],
+            size: [3; 2],
+            patches: vec![MaskPatch {
+                bounds: [0., 0., 3., 3.],
+                uv: [0., 0., 1., 1.],
+                opacity: 255,
+            }],
+        }
+        .rasterize()
+        .unwrap();
+        assert_eq!(pixels[3], 128, "the crop edge is a source edge");
+        assert_eq!(pixels[4 * 4 + 3], 0);
+        atlas = atlas.with_carrier(Some(assets));
+        assert!(Arc::ptr_eq(
+            &source,
+            &atlas.original_outline(path, [3, 3]).unwrap()
+        ));
+        atlas = atlas.with_carrier(Some(make_carrier(255)));
+        assert!(atlas.original_outline(path, [3, 3]).is_none());
+        atlas.prepare_outline(path, [3, 3]);
+        assert!(!Arc::ptr_eq(
+            &source,
+            &atlas.original_outline(path, [3, 3]).unwrap()
+        ));
+    }
+
+    #[test]
+    fn outline_draw_size_changes_wait_for_their_own_prepared_coverage() {
+        let path = "textures/ui/resized_mask";
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(72, 72, image::Rgba([255; 4]))
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let mut atlas = ServerAtlas::new(&[(format!("{path}.png"), png.into_inner())], None, 1)
+            .with_image_work(ImageWork::inline());
+        atlas.prepare_outline(path, [18; 2]);
+        let first = atlas.original_outline(path, [18; 2]).unwrap();
+        assert!(atlas.original_outline(path, [36; 2]).is_none());
+        assert!(
+            atlas.poll_native_images(),
+            "inline completion must also invalidate retained frames"
+        );
+        assert!(!atlas.poll_native_images());
+        atlas.prepare_outline(path, [36; 2]);
+        assert!(!Arc::ptr_eq(
+            &first,
+            &atlas.original_outline(path, [36; 2]).unwrap()
+        ));
+        assert!(Arc::ptr_eq(
+            &first,
+            &atlas.original_outline(path, [18; 2]).unwrap()
+        ));
+    }
+
     #[test]
     fn review_texture_metadata_uses_the_drawn_artwork_dimensions() {
         let mut png = Vec::new();

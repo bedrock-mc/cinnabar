@@ -135,6 +135,38 @@ fn packed_faces_stay_current_across_a_rebase() {
     assert_eq!(residency.pending_len(), 0, "nothing re-expands");
 }
 
+/// Draw lists skip walking the sections while the revision holds, so every change to what
+/// they list moves it and nothing else does.
+#[test]
+fn the_revision_moves_exactly_when_sections_or_the_epoch_change() {
+    let mut residency = Residency::new(100 * FACE_BYTES, 100 * FACE_BYTES, STRIDE);
+    let mut last = residency.revision();
+    let mut moved = |residency: &Residency| {
+        let changed = residency.revision() != last;
+        last = residency.revision();
+        changed
+    };
+    residency.follow_camera(DVec3::ZERO);
+    assert!(moved(&residency), "a new origin starts an epoch");
+    let placement = residency.place(entity(1), &plan(10)).unwrap();
+    residency.commit(entity(1), &placement, &plan(10), [0; 3]);
+    assert!(moved(&residency), "a commit adds a section");
+    residency.enqueue(entity(2));
+    residency.observe_frame(false);
+    assert!(!residency.follow_camera(DVec3::ONE));
+    assert!(
+        !moved(&residency),
+        "queueing and a camera within range list nothing new"
+    );
+    residency.remove(entity(3));
+    assert!(
+        !moved(&residency),
+        "removing a section that is not resident"
+    );
+    residency.evict(entity(1));
+    assert!(moved(&residency), "an eviction drops a section");
+}
+
 #[test]
 fn the_queue_holds_each_section_once_and_forgets_removed_ones() {
     let mut residency = Residency::new(1 << 20, 1 << 20, STRIDE);

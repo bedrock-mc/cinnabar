@@ -188,7 +188,7 @@ fn mixed_ranges_share_one_command_buffer_and_keep_draw_order() {
     ] {
         let (mut world, _, items) = fixture(modes);
         world
-            .run_system_once::<_, (), _>(gamma_transparent::<false>)
+            .run_system_once::<_, (), _>(gamma_transparent::<false, false>)
             .unwrap();
         let buffers = world
             .resource_mut::<PendingCommandBuffers>()
@@ -208,7 +208,7 @@ fn outside_viewport_clears_once_without_drawing_items() {
         ..Default::default()
     });
     world
-        .run_system_once::<_, (), _>(gamma_transparent::<false>)
+        .run_system_once::<_, (), _>(gamma_transparent::<false, false>)
         .unwrap();
     assert_eq!(
         world
@@ -239,7 +239,7 @@ fn smaa_deferral_does_not_split_compatible_colour_passes() {
             .entity_mut(camera)
             .insert(bevy::anti_alias::smaa::Smaa::default());
         world
-            .run_system_once::<_, (), _>(gamma_transparent::<false>)
+            .run_system_once::<_, (), _>(gamma_transparent::<false, false>)
             .unwrap();
         let expected: Vec<_> = items
             .into_iter()
@@ -262,7 +262,7 @@ fn smaa_deferral_does_not_split_compatible_colour_passes() {
 fn empty_phase_submits_no_commands() {
     let (mut world, _, _) = fixture(&[]);
     world
-        .run_system_once::<_, (), _>(gamma_transparent::<false>)
+        .run_system_once::<_, (), _>(gamma_transparent::<false, false>)
         .unwrap();
     assert_eq!(
         world

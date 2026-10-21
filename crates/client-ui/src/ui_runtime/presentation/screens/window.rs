@@ -81,7 +81,10 @@ pub fn window_layout(kind: WindowKind, cells: usize) -> Option<WindowLayout> {
             .collect()
     };
     Some(match kind {
-        WindowKind::Storage | WindowKind::Workbench | WindowKind::Lectern => return None,
+        WindowKind::Storage
+        | WindowKind::Workbench
+        | WindowKind::Lectern
+        | WindowKind::Trade { .. } => return None,
         WindowKind::Dispenser | WindowKind::Dropper => WindowLayout {
             title_centered: true,
             ..standard(grid(0, 9, 3, 62.0, 17.0))

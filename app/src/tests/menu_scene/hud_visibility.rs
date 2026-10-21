@@ -66,7 +66,10 @@ pub(super) fn fixture_world() -> World {
                 head_yaw: 0.,
                 body_yaw: 0.,
                 held_item: Default::default(),
-                metadata: Arc::from([]),
+                metadata: Arc::from([protocol::ActorMetadata {
+                    key: protocol_ids::ActorDataKey::AlwaysShowNameTag.wire_value(),
+                    value: protocol::ActorMetadataValue::Byte(1),
+                }]),
                 attributes: Arc::from([]),
                 properties: Arc::from([]),
                 links: Arc::from([]),

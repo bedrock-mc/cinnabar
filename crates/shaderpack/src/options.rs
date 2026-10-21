@@ -98,15 +98,73 @@ impl PackOption {
     /// Effective value given overrides: "true"/"false" for Bool, else the value string.
     /// An override is returned as given, even when it is not an allowed value.
     pub fn value<'a>(&'a self, values: &'a OptionValues) -> &'a str {
-        if let Some(value) = values.get(&self.name) {
-            return value;
-        }
+        values
+            .get(&self.name)
+            .map_or_else(|| self.default_value(), String::as_str)
+    }
+
+    /// The value written in the source: "true"/"false" for Bool.
+    pub fn default_value(&self) -> &str {
         match &self.kind {
             OptionKind::Bool { default: true } => "true",
             OptionKind::Bool { default: false } => "false",
             OptionKind::Value { default, .. } | OptionKind::Const { default, .. } => default,
         }
     }
+
+    /// Whether the option is an on/off switch: a boolean `#define` or a `const bool`. Iris
+    /// treats a `const bool` as a switch even when its comment lists values.
+    pub fn is_boolean(&self) -> bool {
+        match &self.kind {
+            OptionKind::Bool { .. } => true,
+            OptionKind::Value { .. } => false,
+            OptionKind::Const { ty, .. } => ty == "bool",
+        }
+    }
+
+    /// The values a menu steps through: the allowed list, then the default when the list
+    /// lacks it (as Iris appends it). Empty for switches.
+    pub fn choices(&self) -> Vec<&str> {
+        if self.is_boolean() {
+            return Vec::new();
+        }
+        let (OptionKind::Value { default, allowed }
+        | OptionKind::Const {
+            default, allowed, ..
+        }) = &self.kind
+        else {
+            return Vec::new();
+        };
+        let mut choices: Vec<&str> = allowed.iter().map(String::as_str).collect();
+        if !allowed.contains(default) {
+            choices.push(default);
+        }
+        choices
+    }
+}
+
+/// The option named `name` in `options` sorted by name, as [`discover_options`] returns them.
+pub(crate) fn find_option<'a>(options: &'a [PackOption], name: &str) -> Option<&'a PackOption> {
+    options
+        .binary_search_by(|option| option.name.as_str().cmp(name))
+        .ok()
+        .map(|index| &options[index])
+}
+
+/// Keeps only the overrides Iris keeps when it loads values: those naming a known option and
+/// differing from its default. A switch accepts only `true` or `false`; any other value
+/// leaves it at its default. Other options take any value, allowed or not.
+pub fn normalize_values(options: &[PackOption], values: &OptionValues) -> OptionValues {
+    values
+        .iter()
+        .filter(|(name, value)| {
+            find_option(options, name).is_some_and(|option| {
+                (!option.is_boolean() || value.as_str() == "true" || value.as_str() == "false")
+                    && value.as_str() != option.default_value()
+            })
+        })
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect()
 }
 
 /// Macros the options define for the preprocessor and for `program.*.enabled` rules:

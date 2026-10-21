@@ -3,6 +3,7 @@
 
 @group(0) @binding(0) var ui_layer: texture_2d<f32>;
 @group(0) @binding(1) var scene: texture_2d<f32>;
+@group(0) @binding(2) var nametag_samples: texture_multisampled_2d<f32>;
 
 @vertex
 fn composite_vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
@@ -23,24 +24,64 @@ fn linear_to_srgb(linear: vec3<f32>) -> vec3<f32> {
     return select(high, low, clamped <= vec3<f32>(0.0031308));
 }
 
-@fragment
-fn composite_fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
-    let pixel = vec2<i32>(position.xy);
-    let ui = textureLoad(ui_layer, pixel, 0);
+// Composes one encoded sample; world overlays preserve empty HDR scene pixels.
+fn composite_sample(ui: vec4<f32>, under: vec4<f32>, preserve_empty: bool) -> vec4<f32> {
     if ui.a == 1.0 {
         return vec4<f32>(srgb_to_linear(ui.rgb), 1.0);
     }
-    let under = textureLoad(scene, pixel, 0);
     // Empty pixels share the scene clamp without a full-screen color round trip.
     if all(ui == vec4<f32>(0.0)) {
+        if preserve_empty {
+            return under;
+        }
         return vec4<f32>(clamp(under.rgb, vec3<f32>(0.0), vec3<f32>(1.0)), under.a);
     }
     let gamma = ui.rgb + linear_to_srgb(under.rgb) * (1.0 - ui.a);
     return vec4<f32>(srgb_to_linear(gamma), ui.a + under.a * (1.0 - ui.a));
 }
 
+// Opaque UI does not need to fetch the covered scene pixel.
+fn composite_pixel(position: vec4<f32>, preserve_empty: bool) -> vec4<f32> {
+    let pixel = vec2<i32>(position.xy);
+    let ui = textureLoad(ui_layer, pixel, 0);
+    var under = vec4<f32>(0.0);
+    if ui.a != 1.0 {
+        under = textureLoad(scene, pixel, 0);
+    }
+    return composite_sample(ui, under, preserve_empty);
+}
+
 // The damage rectangle is selected by the render pass scissor.
 @fragment
 fn clear_fragment() -> @location(0) vec4<f32> {
     return vec4<f32>(0.0);
+}
+
+@fragment
+fn composite_fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+    return composite_pixel(position, false);
+}
+
+@fragment
+fn nametag_composite_fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+    return composite_pixel(position, true);
+}
+
+// Gamma-blend each coverage sample before resolving the linear colour, as the main pass does.
+@fragment
+fn nametag_multisample_composite_fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+    let pixel = vec2<i32>(position.xy);
+    let under = textureLoad(scene, pixel, 0);
+    let count = textureNumSamples(nametag_samples);
+    var colour = vec4<f32>(0.0);
+    var covered = false;
+    for (var sample = 0u; sample < count; sample += 1u) {
+        let ui = textureLoad(nametag_samples, pixel, i32(sample));
+        covered = covered || any(ui != vec4<f32>(0.0));
+        colour += composite_sample(ui, under, true);
+    }
+    if !covered {
+        return under;
+    }
+    return colour / f32(count);
 }

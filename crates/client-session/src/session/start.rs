@@ -149,6 +149,7 @@ impl<P: Send + 'static> NetworkChannels<P> {
             &mut shutdown_rx,
             NetworkControlEvent::Bootstrap {
                 session_generation,
+                identity: session.identity().clone(),
                 world: bootstrap,
                 environment: game_data.environment,
                 custom_blocks,

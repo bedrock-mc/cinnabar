@@ -316,11 +316,7 @@ impl UiRuntime {
     ) -> Result<(), UiRuntimeError> {
         match event {
             HudEvent::Toast { title, message } => {
-                let mut toast = Toast::new(title, message, fifo_sequence, event_millis);
-                toast.expires_millis = event_millis
-                    .saturating_add(self.toast_display_millis)
-                    .saturating_add(ui::TOAST_SLIDE_OUT_MILLIS);
-                self.hud.push_toast(toast);
+                self.queue_toast(title, message, fifo_sequence, event_millis);
             }
             HudEvent::Health { health } => {
                 // A negative or overflowing SetHealth is semantically odd but
@@ -340,6 +336,27 @@ impl UiRuntime {
             }
         }
         Ok(())
+    }
+
+    /// Queues a client-raised toast at `now_millis`; it shows for the player's toast
+    /// duration in turn with server toasts.
+    pub fn push_client_toast(&mut self, title: Arc<str>, message: Arc<str>, now_millis: u64) {
+        self.queue_toast(title, message, 0, now_millis);
+    }
+
+    /// Queues a toast received at `received_millis` for the configured duration.
+    fn queue_toast(
+        &mut self,
+        title: Arc<str>,
+        message: Arc<str>,
+        fifo_sequence: u64,
+        received_millis: u64,
+    ) {
+        let mut toast = Toast::new(title, message, fifo_sequence, received_millis);
+        toast.expires_millis = received_millis
+            .saturating_add(self.toast_display_millis)
+            .saturating_add(ui::TOAST_SLIDE_OUT_MILLIS);
+        self.hud.push_toast(toast);
     }
 
     /// Stands a client toast that stays while its cause lasts.

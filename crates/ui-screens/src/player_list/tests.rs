@@ -154,7 +154,7 @@ fn totem_counts_render_separate_tints_before_or_after_a_clipped_name() {
             .iter()
             .find(|node| {
                 matches!(&node.draw, Draw::Sprite { texture, .. }
-            if texture.starts_with("client-raster:tab-head/"))
+            if texture.starts_with(super::PORTRAIT_RASTER_NAMESPACE))
             })
             .unwrap();
         assert!(
@@ -196,7 +196,9 @@ fn heads_precede_names_and_padding_has_no_head() {
     let heads: Vec<_> = nodes
         .iter()
         .filter_map(|node| match &node.draw {
-            Draw::Sprite { texture, .. } if texture.starts_with("client-raster:tab-head/") => {
+            Draw::Sprite { texture, .. }
+                if texture.starts_with(super::PORTRAIT_RASTER_NAMESPACE) =>
+            {
                 Some(node.dest)
             }
             _ => None,

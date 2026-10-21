@@ -154,6 +154,7 @@ fn panel(collection: bool) -> ui::mod_panel::Panel {
         panel.surface.as_mut().unwrap().collections.insert(
             "cards".into(),
             ui::mod_panel::SurfaceCollection {
+                reveal: None,
                 definition: Arc::new(definition),
                 order: (0..32).collect(),
             },
@@ -172,6 +173,87 @@ fn installed(hud: &Hud, panel: &ui::mod_panel::Panel) -> ModUi {
     ui.set_mod_panel(OWNER, Some(panel)).unwrap();
     ui.set_mod_panel_open(true);
     ui
+}
+
+/// A crosshair sample emits native coverage meshes and follows shape, size and color edits.
+#[test]
+fn crosshair_samples_use_native_coverage_and_refresh_the_cached_card() {
+    let mut previous = None;
+    for shape in [
+        ui::mod_hud::CrosshairShape::Cross,
+        ui::mod_hud::CrosshairShape::Dot,
+        ui::mod_hud::CrosshairShape::Circle,
+    ] {
+        let mut hud = Hud {
+            cards: vec![ui::mod_hud::Card {
+                id: "card_0".into(),
+                preview_only: true,
+                width: 64.,
+                background_opacity: 0.,
+                crosshair: Some(ui::mod_hud::Crosshair {
+                    shape,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        hud.validate().unwrap();
+        let mut ui = installed(&hud, &panel(false));
+        let mut harness = Harness::new();
+        harness.paint(&mut ui, true);
+        let drawn = harness.drawn();
+        assert!(
+            !drawn.indices.is_empty(),
+            "crosshair sample emitted no mesh"
+        );
+        let signature: Vec<_> = drawn
+            .vertices
+            .iter()
+            .map(|v| (v.position, v.color))
+            .collect();
+        if let Some(previous) = previous {
+            assert_ne!(
+                signature, previous,
+                "shape change left stale preview coverage"
+            );
+        }
+        previous = Some(signature);
+        let spec = hud.cards[0].crosshair.as_mut().unwrap();
+        spec.size = 9.;
+        spec.gap = 5.;
+        spec.color = [0., 1., 0., 1.];
+        spec.outline = 0.;
+        ui.set_mod_hud_sources([(OWNER, 2, &hud)].into_iter())
+            .unwrap();
+        harness.paint(&mut ui, true);
+        let changed = harness.drawn();
+        assert!(
+            changed
+                .vertices
+                .iter()
+                .any(|v| v.color[1] > 200 && v.color[0] == 0)
+        );
+        assert_ne!(changed.vertices.len(), drawn.vertices.len());
+        for (revision, scale) in [ui::mod_hud::MIN_CARD_SCALE, ui::mod_hud::MAX_CARD_SCALE]
+            .into_iter()
+            .enumerate()
+        {
+            hud.cards[0].scale = scale;
+            hud.validate().unwrap();
+            ui.set_mod_hud_sources([(OWNER, revision as u64 + 3, &hud)].into_iter())
+                .unwrap();
+            harness.paint(&mut ui, true);
+            assert!(
+                harness
+                    .drawn()
+                    .vertices
+                    .iter()
+                    .any(|v| v.color[1] > 200 && v.color[0] == 0),
+                "valid {shape:?} sample disappeared at scale {scale}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -271,7 +353,7 @@ fn hud_card_preview_virtualized_tiles_retain_steady_state_card_output() {
 }
 
 #[test]
-fn hud_card_preview_twenty_four_visible_instances_do_not_rebuild_each_frame() {
+fn hud_card_preview_fit_twenty_four_visible_instances_do_not_rebuild_each_frame() {
     let hud = hud(32);
     let mut panel = panel(false);
     let surface = panel.surface.as_mut().unwrap();
@@ -279,6 +361,7 @@ fn hud_card_preview_twenty_four_visible_instances_do_not_rebuild_each_frame() {
     document["screen"]["controls"] = json!((0..24).map(|index|json!({format!("preview_{index}"):{
         "type":"custom","renderer":ui::mod_panel::hud_card::RENDERER,
         "card_id":format!("card_{index}"),"size":[80,40],"offset":[(index%6)*90,(index/6)*60],
+        "fit":0.78,"max_scale":2.4,
         "anchor_from":"top_left","anchor_to":"top_left"
     }})).collect::<Vec<_>>());
     surface.document = document.to_string();
@@ -496,6 +579,36 @@ fn hud_card_preview_only_keeps_artwork_in_explicit_editor_previews() {
             .iter()
             .any(|vertex| vertex.color == [255, 0, 0, 255])
     );
+}
+
+#[test]
+fn amendment_hidden_gameplay_cards_keep_explicit_previews_and_live_visibility() {
+    let mut hud = hud(1);
+    hud.cards[0].visible = false;
+    let mut ui = installed(&hud, &panel(false));
+    let mut harness = Harness::new();
+    harness.paint(&mut ui, false);
+    assert!(harness.drawn().vertices.is_empty());
+    assert_eq!(ui.hud_sources.get_mut(OWNER).unwrap().cards[0].paints, 0);
+    harness.paint(&mut ui, true);
+    assert!(!harness.drawn().vertices.is_empty());
+    let catalog = Arc::clone(&ui.hud_sources.get_mut(OWNER).unwrap().catalog);
+    hud.cards[0].visible = true;
+    ui.set_mod_hud_sources([(OWNER, 2, &hud)].into_iter())
+        .unwrap();
+    ui.set_mod_hud(Some(&hud)).unwrap();
+    harness.paint(&mut ui, false);
+    assert!(!harness.drawn().vertices.is_empty());
+    assert!(Arc::ptr_eq(
+        &catalog,
+        &ui.hud_sources.get_mut(OWNER).unwrap().catalog
+    ));
+    hud.cards[0].visible = false;
+    ui.set_mod_hud_sources([(OWNER, 3, &hud)].into_iter())
+        .unwrap();
+    ui.set_mod_hud(Some(&hud)).unwrap();
+    harness.paint(&mut ui, false);
+    assert!(harness.drawn().vertices.is_empty());
 }
 
 #[test]
@@ -744,3 +857,179 @@ fn sprite_positions(draw: &ui::UiDrawList, page: u16) -> Vec<[f32; 2]> {
         })
         .collect()
 }
+
+/// Clicks a production editor hit using its last painted window coordinate transform.
+fn studio_click(ui: &mut ModUi, action: &str) -> Vec<ui::mod_panel::Event> {
+    let frame = ui.mod_hud_editor_state().unwrap().frame.unwrap();
+    let hit = frame
+        .hits
+        .iter()
+        .find(|hit| hit.pressed.as_deref() == Some(action))
+        .unwrap();
+    let point = [
+        frame.origin[0] + (hit.rect.x + hit.rect.w * 0.5) as f32 * frame.scale,
+        frame.origin[1] + (hit.rect.y + hit.rect.h * 0.5) as f32 * frame.scale,
+    ];
+    let events = ui.mod_panel_events(point, true, true);
+    ui.mod_panel_events(point, false, false);
+    events
+}
+
+#[test]
+fn studio_live_owner_publication_keeps_placement_history_and_steady_catalog() {
+    let mut hud = hud(1);
+    let mut ui = installed(&hud, &panel(false));
+    ui.open_mod_hud_editor(&hud).unwrap();
+    let mut harness = Harness::new();
+    harness.paint(&mut ui, true);
+    studio_click(&mut ui, "hud.card:0");
+    ui.mod_panel_key("ArrowRight", None);
+    harness.paint(&mut ui, true);
+    let moved = ui.mod_hud_editor_state().unwrap().draft.cards[0].offset;
+    let catalog = Arc::clone(ui.mod_hud_editor_state().unwrap().catalog.unwrap());
+    hud.cards[0].cells[0].label = "Fresh".into();
+    hud.cards[0].offset = [100., 100.];
+    ui.set_mod_hud_sources([(OWNER, 2, &hud)].into_iter())
+        .unwrap();
+    harness.paint(&mut ui, true);
+    assert_eq!(
+        ui.mod_hud_editor_state().unwrap().draft.cards[0].offset,
+        moved
+    );
+    assert_eq!(
+        ui.mod_hud_editor_state().unwrap().draft.cards[0].cells[0].label,
+        "Fresh"
+    );
+    ui.mod_panel_field_key(
+        "KeyZ",
+        None,
+        ui::mod_panel::FieldModifiers {
+            control: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        ui.mod_hud_editor_state().unwrap().draft.cards[0].cells[0].label,
+        "Fresh"
+    );
+    ui.mod_panel_field_key(
+        "KeyZ",
+        None,
+        ui::mod_panel::FieldModifiers {
+            control: true,
+            shift: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        ui.mod_hud_editor_state().unwrap().draft.cards[0].offset,
+        moved
+    );
+    harness.paint(&mut ui, true);
+    let passes = ui.mod_hud_editor_state().unwrap().passes;
+    for _ in 0..4 {
+        ui.set_mod_hud_sources([(OWNER, 2, &hud)].into_iter())
+            .unwrap();
+        harness.paint(&mut ui, true);
+        let state = ui.mod_hud_editor_state().unwrap();
+        assert_eq!(state.passes, passes);
+        assert!(Arc::ptr_eq(state.catalog.unwrap(), &catalog));
+    }
+    let mut other = hud.clone();
+    other.cards[0].cells[0].label = "Foreign".into();
+    ui.set_mod_hud_sources(
+        [(OWNER, 2, &hud), (PanelUiOwner::Environment(1), 3, &other)].into_iter(),
+    )
+    .unwrap();
+    assert_eq!(
+        ui.mod_hud_editor_state().unwrap().draft.cards[0].cells[0].label,
+        "Fresh"
+    );
+}
+
+#[test]
+fn studio_hidden_card_has_no_artwork_or_hits_but_stays_in_the_result() {
+    let mut hud = hud(1);
+    hud.surface = Some(Surface {
+        screen: "studio.root".into(),
+        document: json!({"namespace":"studio","root":{"type":"screen","size":["100%","100%"],"controls":[{
+            "hide":{"type":"button","size":[50,20],"offset":[200,50],"anchor_from":"top_left","anchor_to":"top_left",
+            "button_mappings":[{"from_button_id":"button.menu_select","to_button_id":"hud.visibility:0","mapping_type":"pressed"}]}
+        }]}}).to_string(),
+        bindings: Default::default(), transitions: Default::default(), collections: Default::default(), previews: Default::default(),
+    });
+    let mut ui = installed(&hud, &panel(false));
+    ui.open_mod_hud_editor(&hud).unwrap();
+    let mut harness = Harness::new();
+    harness.paint(&mut ui, true);
+    assert!(
+        harness
+            .drawn()
+            .vertices
+            .iter()
+            .any(|v| v.color == [255, 0, 0, 255])
+    );
+    let catalog = Arc::clone(ui.mod_hud_editor_state().unwrap().catalog.unwrap());
+    studio_click(&mut ui, "hud.visibility:0");
+    harness.paint(&mut ui, true);
+    assert!(
+        !harness
+            .drawn()
+            .vertices
+            .iter()
+            .any(|v| v.color == [255, 0, 0, 255])
+    );
+    let state = ui.mod_hud_editor_state().unwrap();
+    assert_eq!(state.draft.cards.len(), 1);
+    assert!(
+        !state
+            .frame
+            .unwrap()
+            .hits
+            .iter()
+            .any(|hit| hit.pressed.as_deref().is_some_and(|action| action
+                .starts_with("hud.card:")
+                || action.starts_with("hud.resize:")))
+    );
+    assert!(Arc::ptr_eq(state.catalog.unwrap(), &catalog));
+    ui.mod_panel_key("Enter", None);
+    let result = ui.take_mod_hud_editor_result().unwrap();
+    assert_eq!(result.hidden_cards, ["card_0"]);
+    result.validate().unwrap();
+}
+
+#[test]
+fn studio_preview_binding_updates_retain_the_catalog_and_stable_frames() {
+    let mut hud = hud(1);
+    hud.surface = panel(false).surface;
+    // The fixture's panel preview renderer is not needed by the editor chrome.
+    let surface = hud.surface.as_mut().unwrap();
+    surface.document = json!({"namespace":"preview","screen":{"type":"screen","size":["100%","100%"],"controls":[{
+        "caption":{"type":"label","text":"#caption","size":[100,20],"bindings":[{"binding_name":"#caption"}]}
+    }]}}).to_string();
+    surface
+        .bindings
+        .insert("#caption".into(), SurfaceValue::Text("Before".into()));
+    let mut ui = installed(&hud, &panel(false));
+    ui.open_mod_hud_editor(&hud).unwrap();
+    let mut harness = Harness::new();
+    harness.paint(&mut ui, true);
+    let catalog = Arc::clone(ui.mod_hud_editor_state().unwrap().catalog.unwrap());
+    hud.surface
+        .as_mut()
+        .unwrap()
+        .bindings
+        .insert("#caption".into(), SurfaceValue::Text("After".into()));
+    ui.update_mod_hud_editor(&hud).unwrap();
+    harness.paint(&mut ui, true);
+    assert!(Arc::ptr_eq(
+        ui.mod_hud_editor_state().unwrap().catalog.unwrap(),
+        &catalog
+    ));
+    let passes = ui.mod_hud_editor_state().unwrap().passes;
+    harness.paint(&mut ui, true);
+    assert_eq!(ui.mod_hud_editor_state().unwrap().passes, passes);
+}
+
+mod fit;
+mod studio;

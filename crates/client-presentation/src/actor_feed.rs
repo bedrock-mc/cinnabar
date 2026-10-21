@@ -111,7 +111,7 @@ pub fn prepare_local_player_feed(
         physics,
         view.rotation(),
         false,
-        settings.feel().view_bobbing,
+        settings.feel().view_bobbing.hand_enabled(),
         local_uuid,
         skin,
         local_use,

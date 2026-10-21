@@ -51,6 +51,11 @@ impl ModUi {
             source.live = false;
         }
         for (owner, revision, hud) in sources {
+            let revised = self
+                .hud_sources
+                .entries
+                .get(&owner)
+                .is_none_or(|source| source.revision != revision);
             if let Some(source) = self.hud_sources.entries.get_mut(&owner) {
                 source.live = true;
                 if source.revision != revision {
@@ -68,6 +73,15 @@ impl ModUi {
                         widgets: ModWidgets::new(Arc::new(hud.clone()))?,
                     },
                 );
+            }
+            if revised
+                && self
+                    .mod_panel
+                    .as_ref()
+                    .is_some_and(|panel| panel.owner == owner)
+                && let Some(editor) = self.mod_hud_editor.as_mut().filter(|editor| editor.open)
+            {
+                editor.republish_cards(&hud.cards, false);
             }
         }
         changed |= self.hud_sources.entries.values().any(|source| !source.live);

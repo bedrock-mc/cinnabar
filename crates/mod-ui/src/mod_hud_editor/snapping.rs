@@ -19,6 +19,7 @@ pub(super) fn targets(
     viewport: [f64; 2],
     keep_out: &[[f64; 4]],
     bypass: bool,
+    hidden: &std::collections::HashSet<String>,
 ) -> [Option<Target>; 2] {
     let mut best: [Option<Target>; 2] = [None; 2];
     if bypass {
@@ -53,7 +54,7 @@ pub(super) fn targets(
         .cards
         .iter()
         .enumerate()
-        .filter(|(other, _)| *other != index)
+        .filter(|(other, card)| *other != index && !hidden.contains(&card.id))
     {
         let origin = cards::origin(card, viewport);
         let extent = cards::dimensions(card);

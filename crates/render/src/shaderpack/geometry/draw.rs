@@ -41,6 +41,10 @@ pub(crate) struct ViewDraws {
     translucent_buffer: Option<Buffer>,
     /// Fingerprint of the inputs the lists were built from.
     key: Option<u64>,
+    /// Fingerprint of what the inputs were last gathered from (residency revision, camera
+    /// cell, visible set or shadow frustum): while it holds, gathering them again would give
+    /// the same `key`, so the per-section walk is skipped.
+    source: Option<u64>,
 }
 
 /// The facing groups of the section at block `origin` whose faces `eye` may see from the
@@ -68,6 +72,15 @@ fn facing_visible(origin: [i32; 3], eye: DVec3) -> [bool; FACING_GROUPS] {
 /// depend on the camera only through this point stay valid while it moves within a section.
 pub(crate) fn eye_section_centre(eye: DVec3) -> DVec3 {
     (eye / SECTION_SIZE).floor() * SECTION_SIZE + DVec3::splat(SECTION_SIZE / 2.0)
+}
+
+/// The 16-block grid cells the eye lies on, per axis (two when it lies on a boundary):
+/// [`facing_visible`] compares the eye with section bounds on that grid, so these cells
+/// decide every comparison, and they fix [`eye_section_centre`].
+pub(crate) fn eye_cells(eye: DVec3) -> [(i64, i64); 3] {
+    (eye / SECTION_SIZE)
+        .to_array()
+        .map(|cell| (cell.floor() as i64, cell.ceil() as i64))
 }
 
 /// The sections one view's lists are built from and the camera they are seen from, reduced
@@ -124,15 +137,7 @@ impl<'a> DrawInputs<'a> {
         self.eye
             .map(|eye| eye.to_array().map(f64::to_bits))
             .hash(&mut hasher);
-        // `facing_visible` compares the eye with section bounds, which lie on the 16-block
-        // grid, so the grid cells the eye lies on decide every comparison.
-        self.facing
-            .map(|eye| {
-                (eye / SECTION_SIZE)
-                    .to_array()
-                    .map(|cell| (cell.floor() as i64, cell.ceil() as i64))
-            })
-            .hash(&mut hasher);
+        self.facing.map(eye_cells).hash(&mut hasher);
         hasher.finish()
     }
 }
@@ -288,6 +293,16 @@ impl ViewDraws {
     /// Whether the lists were built from inputs with fingerprint `key`.
     pub(crate) fn is_current(&self, key: u64) -> bool {
         self.key == Some(key)
+    }
+
+    /// Whether the lists' inputs were last gathered from a source with fingerprint `source`.
+    pub(crate) fn is_from(&self, source: u64) -> bool {
+        self.source == Some(source)
+    }
+
+    /// Records that the current lists hold for inputs gathered from `source`.
+    pub(crate) fn set_source(&mut self, source: u64) {
+        self.source = Some(source);
     }
 
     /// Takes `built`'s lists as the ones for inputs `key`, writing them into the retained

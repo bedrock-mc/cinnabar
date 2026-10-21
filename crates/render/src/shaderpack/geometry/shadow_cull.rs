@@ -168,6 +168,19 @@ impl ShadowFrustum {
             plane.xyz().dot(farthest) + plane.w >= 0.0
         })
     }
+
+    /// Feeds every value [`Self::visible`] reads into `hasher`: equal fingerprints keep the
+    /// same sections.
+    pub(crate) fn hash_into(&self, hasher: &mut impl std::hash::Hasher) {
+        use std::hash::Hash;
+        self.eye.to_array().map(f64::to_bits).hash(hasher);
+        self.distance.map(f64::to_bits).hash(hasher);
+        self.keep.map(f64::to_bits).hash(hasher);
+        self.planes.as_ref().map(Vec::len).hash(hasher);
+        for plane in self.planes.iter().flatten() {
+            plane.to_array().map(f32::to_bits).hash(hasher);
+        }
+    }
 }
 
 /// The camera frustum's six planes from `view_projection` (inside-positive), in the order

@@ -36,7 +36,7 @@ impl UiPresentationRuntime {
             .projections
             .oreui_slider_tracks
             .iter()
-            .find(|(at, _, _)| *at == index)?;
+            .find(|(action, _, _)| matches!(action, launcher::menu::MenuAction::SettingsOption(at, _) if *at == index))?;
         let width = track.max().x() - track.min().x();
         (width > 0.0 && point.x().is_finite())
             .then(|| ((point.x() - track.min().x()) / width).clamp(0.0, 1.0))
@@ -47,7 +47,10 @@ impl UiPresentationRuntime {
         self.projections
             .oreui_slider_tracks
             .iter()
-            .any(|(at, _, thumb)| *at == index && thumb.is_some_and(|thumb| thumb.contains(point)))
+            .any(|(action, _, thumb)| {
+                matches!(action, launcher::menu::MenuAction::SettingsOption(at, _) if *at == index)
+                    && thumb.is_some_and(|thumb| thumb.contains(point))
+            })
     }
 
     /// Visible animated thumbs take precedence over the stationary track while dragging.
@@ -56,7 +59,10 @@ impl UiPresentationRuntime {
             .oreui_slider_tracks
             .iter()
             .rev()
-            .find_map(|(index, _, thumb)| {
+            .find_map(|(action, _, thumb)| {
+                let launcher::menu::MenuAction::SettingsOption(index, _) = action else {
+                    return None;
+                };
                 thumb
                     .is_some_and(|thumb| thumb.contains(point))
                     .then_some(*index)
@@ -135,6 +141,43 @@ impl UiPresentationRuntime {
             }),
             point,
         )
+    }
+
+    /// A captured shader option follows its full track, clamping to the pack's choice range.
+    pub fn shader_option_slider_drag_action(
+        &self,
+        screen: u32,
+        index: u16,
+        point: ui::UiPoint,
+    ) -> Option<launcher::menu::MenuAction> {
+        use launcher::menu::MenuAction;
+        use launcher::shader_options::{Action, Control, Input};
+        let view = self.menu_view.as_ref()?.shader_options.as_ref()?;
+        if view.screen != screen {
+            return None;
+        }
+        let Control::Slider { count, .. } = view.elements.get(usize::from(index))?.control else {
+            return None;
+        };
+        let (_, track, _) =
+            self.projections
+                .oreui_slider_tracks
+                .iter()
+                .find(|(action, _, _)| {
+                    matches!(action, MenuAction::ShaderOptions(Action::Element {
+                screen: at, index: element, input: Input::Select(_),
+            }) if *at == screen && *element == index)
+                })?;
+        let width = track.width();
+        if count <= 1 || width <= 0.0 {
+            return None;
+        }
+        let fraction = ((point.x() - track.min().x()) / width).clamp(0.0, 1.0);
+        Some(MenuAction::ShaderOptions(Action::Element {
+            screen,
+            index,
+            input: Input::Select((fraction * f32::from(count - 1)).round() as u16),
+        }))
     }
 }
 

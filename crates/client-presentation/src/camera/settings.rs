@@ -45,7 +45,7 @@ pub struct CameraRig {
 pub struct CameraFeelSettings {
     pub fov_effects_scale: f32,
     pub distortion_scale: f32,
-    pub view_bobbing: bool,
+    pub view_bobbing: ui::ViewBobbing,
     pub cinematic_camera: bool,
     pub camera_shake: bool,
     pub damage_bob: f32,

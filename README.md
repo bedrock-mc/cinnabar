@@ -13,7 +13,7 @@ and friends' worlds with vanilla behaviour, and it's built to run much faster th
 client.
 
 [![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/MeEz7BEHcM)
-[![Website](https://img.shields.io/badge/Website-cinnabar.restartfu.com-B22222)](https://cinnabar.restartfu.com/)
+[![Website](https://img.shields.io/badge/Website-cinnabar.gg-B22222)](https://cinnabar.gg/)
 
 <img width="1282" height="752" alt="Cinnabar in game" src="https://github.com/user-attachments/assets/ca040799-e00e-4a6e-85f8-a0e28af6ea72" />
 
@@ -31,10 +31,9 @@ No Mojang assets are bundled. The release notes explain how to open unsigned bui
 make play
 ```
 
-This fetches and compiles the vanilla assets, builds the Go core, and opens the launcher. Sign-in
-uses a Microsoft device code. The token is cached in `.local/auth/`, so never share or commit
-that folder. `make play PROFILE=release` builds the fully optimised binary, and `make help` lists
-every target.
+This fetches the vanilla assets, builds the Go core and opens the launcher. Sign in with the
+Microsoft device code; the token stays in `.local/auth/`, so never share or commit it. Use
+`make play PROFILE=release` for an optimised build, and `make help` for every target.
 
 On Debian/Ubuntu, install `libwayland-dev` and `libudev-dev` first.
 
@@ -93,6 +92,10 @@ cargo run -p devtool --locked -- verify-affected --base origin/dev
 ```
 
 Contributor rules are in [AGENTS.md](AGENTS.md) and [docs/agents/](docs/agents/).
+
+## Star history
+
+[![Star history chart](https://api.star-history.com/svg?repos=cinnabar-mc/cinnabar&type=Date)](https://star-history.com/#cinnabar-mc/cinnabar&Date)
 
 ## License
 

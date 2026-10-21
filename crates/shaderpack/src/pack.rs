@@ -4,7 +4,11 @@ use crate::buffers::{BufferDirectives, BufferFormat, canonical_sampler_name};
 use crate::dimensions::DimensionSelector;
 use crate::environment::Environment;
 use crate::ids::{BLOCK_FILE, ENTITY_FILE, ITEM_FILE, IdMaps};
-use crate::options::{OptionValues, PackOption, discover_options, property_defines};
+use crate::lang::PackLang;
+use crate::option_menu::OptionMenu;
+use crate::options::{
+    OptionValues, PackOption, discover_options, normalize_values, property_defines,
+};
 use crate::programs::{ProgramGroup, ProgramSource, enumerate_programs};
 use crate::properties::ShaderProperties;
 use crate::reflect::output_buffer;
@@ -89,6 +93,19 @@ impl ShaderPack {
         &self.options
     }
 
+    /// The option menu `shaders.properties` declares; see [`OptionMenu`].
+    pub fn option_menu(&self) -> OptionMenu {
+        OptionMenu::new(
+            self.source.text("shaders.properties").unwrap_or(""),
+            &self.options,
+        )
+    }
+
+    /// The pack's menu text in language `code` (such as `en_us`); see [`PackLang`].
+    pub fn lang(&self, code: &str) -> PackLang {
+        PackLang::from_source(&self.source, code)
+    }
+
     /// The folder used for a dimension id such as `minecraft:overworld`; `dimension.properties`
     /// conditions see the environment's macros.
     pub fn dimension_folder(&self, dimension: &str, environment: &Environment) -> String {
@@ -148,11 +165,31 @@ impl ShaderPack {
     /// Translates every program of the configured folder, in parallel. Failures are per
     /// program; buffer formats in each reflection come from the whole pack's directives.
     pub fn translate(&self, config: &TranslateConfig) -> PackTranslation {
+        self.translate_reporting(config, |_, _| {})
+    }
+
+    /// [`Self::translate`], calling `progress(translated, programs)` once before any program
+    /// translates and again, from the worker that finished it, after each program.
+    pub fn translate_reporting(
+        &self,
+        config: &TranslateConfig,
+        progress: impl Fn(usize, usize) + Sync,
+    ) -> PackTranslation {
         let properties = self.properties(&config.environment, &config.options);
         let programs = self.programs(&config.folder, &config.environment);
+        let profile_disabled = self.profile_disabled_programs(&config.options);
+        progress(0, programs.len());
+        let completed = std::sync::Mutex::new(0);
         let mut programs: Vec<ProgramTranslation> = programs
             .par_iter()
-            .map(|program| self.translate_one(program, config, &properties))
+            .map(|program| {
+                let translated =
+                    self.translate_one(program, config, &properties, &profile_disabled);
+                let mut done = completed.lock().unwrap_or_else(|error| error.into_inner());
+                *done += 1;
+                progress(*done, programs.len());
+                translated
+            })
             .collect();
         let mut buffers = BufferDirectives::default();
         for c in programs
@@ -180,16 +217,35 @@ impl ShaderPack {
         }
     }
 
-    /// Translates one program, honouring its enable rule from the folder it came from.
+    /// Programs (`[<folder>/]<name>`) the profile matching `options` disables with
+    /// `!program.<name>`, as Iris skips them.
+    fn profile_disabled_programs(&self, options: &OptionValues) -> Vec<String> {
+        let menu = self.option_menu();
+        let values = normalize_values(&self.options, options);
+        menu.scan_profiles(&self.options, &values)
+            .and_then(|scan| scan.current)
+            .map(|index| menu.profiles()[index].disabled_programs.clone())
+            .unwrap_or_default()
+    }
+
+    /// Translates one program, honouring its enable rule from the folder it came from and
+    /// the current profile's disabled programs.
     fn translate_one(
         &self,
         program: &ProgramSource,
         config: &TranslateConfig,
         properties: &ShaderProperties,
+        profile_disabled: &[String],
     ) -> ProgramTranslation {
         let defines = self.defines(&config.environment, &config.options);
         let rule = properties.program_rule(&program.folder, &program.name);
-        let enabled = rule.is_none_or(|r| r.is_enabled(&defines));
+        let path = if program.folder.is_empty() {
+            program.name.clone()
+        } else {
+            format!("{}/{}", program.folder, program.name)
+        };
+        let enabled =
+            rule.is_none_or(|r| r.is_enabled(&defines)) && !profile_disabled.contains(&path);
         let mut values = config.options.clone();
         let mut pp_defines = config.environment.standard_defines();
         let mut forced = vec![];

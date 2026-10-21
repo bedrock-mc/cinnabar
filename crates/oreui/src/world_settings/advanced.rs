@@ -51,7 +51,7 @@ pub(super) fn draw(
     })?;
     let y = sections::row(canvas, area, y, |canvas, area| {
         let y = label(canvas, "Backend", area, area[1])?;
-        let options: Vec<_> = [Backend::Dragonfly, Backend::Bds]
+        let options: Vec<_> = [Backend::Bds]
             .into_iter()
             .map(|backend| {
                 (
@@ -66,14 +66,12 @@ pub(super) fn draw(
         let description = match (form.backend, local_view.bds_unavailable) {
             (Backend::Dragonfly, _) => "Built-in local server. No Docker required.",
             (Backend::Bds, Some(UnavailableReason::DockerMissing)) => {
-                "BDS needs Docker on Mac. Install Docker, or select Dragonfly to continue without it."
+                "BDS needs Docker on Mac. Install Docker to create worlds."
             }
             (Backend::Bds, Some(UnavailableReason::DockerNotRunning)) => {
-                "Docker is not running. Start Docker before creating a BDS world, or select Dragonfly."
+                "Docker is not running. Start Docker before creating a world."
             }
-            (Backend::Bds, _) if !local_view.bds_can_run => {
-                "BDS is unavailable on this computer. Select Dragonfly to continue."
-            }
+            (Backend::Bds, _) if !local_view.bds_can_run => "BDS is unavailable on this computer.",
             (Backend::Bds, _) => "Official Bedrock Dedicated Server.",
         };
         caption(canvas, description, area, y + height + space(canvas, 2))

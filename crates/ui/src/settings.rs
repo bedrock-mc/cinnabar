@@ -1,6 +1,10 @@
 use render_api::{FrameRateLimit, VrrPreference};
 use semantic_input::{ControlSettings, PerspectiveMode};
 
+#[path = "settings/view_bobbing.rs"]
+mod view_bobbing;
+pub use view_bobbing::ViewBobbing;
+
 pub const CURRENT_SETTINGS_SCHEMA: u32 = 2;
 pub const DEFAULT_OUTLINE_SELECTION: bool = true;
 /// Default and slider bounds for the field-of-view option, in degrees.
@@ -171,7 +175,7 @@ impl Default for UserSettings {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct VideoSettings {
     pub horizontal_fov_degrees: f32,
     pub fullscreen: bool,
@@ -185,11 +189,14 @@ pub struct VideoSettings {
     pub render_distance_chunks: u8,
     pub brightness: f32,
     pub render_mode: RenderMode,
+    /// File or folder name of the selected Java shader pack inside the shader-pack
+    /// directory; drawn only while `render_mode` is [`RenderMode::ShaderPack`].
+    pub shader_pack: Option<String>,
     /// Scales speed-driven FOV changes, `0..=1`.
     pub fov_effects_scale: f32,
     /// Scales portal and nausea distortion, `0..=1`.
     pub distortion_scale: f32,
-    pub view_bobbing: bool,
+    pub view_bobbing: ViewBobbing,
     pub cinematic_camera: bool,
     pub camera_shake: bool,
     pub outline_selection: bool,
@@ -219,9 +226,10 @@ impl Default for VideoSettings {
             render_distance_chunks: MIN_RENDER_DISTANCE_CHUNKS,
             brightness: 0.5,
             render_mode: RenderMode::Vanilla,
+            shader_pack: None,
             fov_effects_scale: 1.0,
             distortion_scale: 1.0,
-            view_bobbing: true,
+            view_bobbing: ViewBobbing::default(),
             cinematic_camera: false,
             camera_shake: true,
             outline_selection: DEFAULT_OUTLINE_SELECTION,
@@ -246,38 +254,44 @@ pub struct GameplaySettings {
     pub toggle_sneak: bool,
 }
 
-/// World rendering path. `Enhanced` is an opt-in custom look that never counts
-/// toward vanilla parity.
+/// World rendering path. `Enhanced` and `ShaderPack` are opt-in custom looks that never
+/// count toward vanilla parity.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
 pub enum RenderMode {
     #[default]
     Vanilla,
     Enhanced,
+    /// The selected Java (OptiFine/Iris) shader pack.
+    ShaderPack,
 }
 
 impl RenderMode {
+    /// Every mode, in settings order.
+    pub const ALL: [Self; 3] = [Self::Vanilla, Self::Enhanced, Self::ShaderPack];
+
     #[must_use]
     /// Stable persisted spelling of this mode.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Vanilla => "vanilla",
             Self::Enhanced => "enhanced",
+            Self::ShaderPack => "shaderpack",
         }
     }
 
     /// Case-insensitive inverse of [`Self::as_str`].
     #[must_use]
     pub fn parse(value: &str) -> Option<Self> {
-        [Self::Vanilla, Self::Enhanced]
+        Self::ALL
             .into_iter()
             .find(|mode| value.trim().eq_ignore_ascii_case(mode.as_str()))
     }
 
     #[must_use]
-    /// Switch between the two supported modes.
+    /// The Enhanced switch: Enhanced turns it off to Vanilla; any other mode turns it on.
     pub const fn toggled(self) -> Self {
         match self {
-            Self::Vanilla => Self::Enhanced,
+            Self::Vanilla | Self::ShaderPack => Self::Enhanced,
             Self::Enhanced => Self::Vanilla,
         }
     }
@@ -303,11 +317,18 @@ mod tests {
     #[test]
     fn render_mode_defaults_to_vanilla_and_round_trips_its_text() {
         assert_eq!(RenderMode::default(), RenderMode::Vanilla);
-        for mode in [RenderMode::Vanilla, RenderMode::Enhanced] {
+        for mode in RenderMode::ALL {
             assert_eq!(RenderMode::parse(mode.as_str()), Some(mode));
+        }
+        for mode in [RenderMode::Vanilla, RenderMode::Enhanced] {
             assert_eq!(mode.toggled().toggled(), mode);
         }
+        assert_eq!(RenderMode::ShaderPack.toggled(), RenderMode::Enhanced);
         assert_eq!(RenderMode::parse(" ENHANCED "), Some(RenderMode::Enhanced));
+        assert_eq!(
+            RenderMode::parse("ShaderPack"),
+            Some(RenderMode::ShaderPack)
+        );
         assert_eq!(RenderMode::parse("shaders"), None);
     }
 }

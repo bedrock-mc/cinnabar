@@ -2,6 +2,9 @@
 //! triangles with sprite filtering and font coverage, clipped per batch, alpha or invert blended.
 //! Axis-aligned quads (nearly everything) take a direct span fill.
 
+#[cfg(test)]
+mod mask_tests;
+
 use std::sync::Arc;
 
 use ui::{UiBlendMode, UiDrawBatch, UiDrawList, UiVertex};

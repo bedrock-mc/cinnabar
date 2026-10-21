@@ -597,6 +597,9 @@ impl<'a> Binder<'a> {
         cursor.indices.insert(collection.clone(), index);
         // Falling back to the shared list drops a key inherited from an outer item's own list.
         if let Some(key) = key {
+            if let Ok(index) = usize::try_from(index) {
+                cursor.path.push((key.clone(), index));
+            }
             cursor.keys.insert(collection.clone(), key);
         }
         cursor.items.push((collection, index));

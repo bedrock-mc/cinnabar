@@ -1,13 +1,12 @@
 //! Optional Discord desktop activity, with all IPC owned by the RPC worker.
 
+mod activity;
 mod join;
 mod launch;
 mod presence;
 
 pub use join::join_address;
 pub use presence::{JoinRequest, Presence};
-
-use discord_presence::models::Activity;
 
 pub const APPLICATION_ID_ENV: &str = "CINNABAR_DISCORD_APPLICATION_ID";
 
@@ -91,123 +90,50 @@ pub const MINECRAFT_VERSION: &str = "Minecraft 26.52";
 /// Classic Minecraft 3D grass block icon for unknown servers and singleplayer worlds.
 pub const GRASS_BLOCK_ICON_URL: &str = "https://minecraft.wiki/images/Invicon_Grass_Block.png";
 
-impl State {
-    /// `players` is how many are in the session now, for the party size.
-    pub fn activity(
-        self,
-        started_at: u64,
-        target: Option<&Target>,
-        players: Option<u32>,
-    ) -> Activity {
-        let destination = target.map(|target| &target.destination);
-        let mut state = match (self, destination) {
-            (Self::Menus, _) => "In the menus".to_owned(),
-            (Self::Joining, _) => "Joining a world".to_owned(),
-            (Self::Playing, None) => "In a world".to_owned(),
-            (Self::Playing, Some(Destination::Server(endpoint))) => {
-                if let Some(badge) = target.and_then(|t| t.badge.as_ref()) {
-                    let badge_name = badge.name.trim();
-                    if !badge_name.is_empty()
-                        && badge_name != "Minecraft Bedrock"
-                        && !badge_name.contains(':')
-                    {
-                        format!("Playing on {badge_name}")
-                    } else {
-                        format!("Playing on {endpoint}")
-                    }
-                } else {
-                    format!("Playing on {endpoint}")
-                }
-            }
-            (Self::Playing, Some(Destination::Realm)) => "Playing on a Realm".to_owned(),
-            (Self::Playing, Some(Destination::FriendWorld)) => {
-                "Playing in a friend's world".to_owned()
-            }
-            (Self::Playing, Some(Destination::Experience)) => "Playing an experience".to_owned(),
-            (Self::Playing, Some(Destination::LocalWorld(name))) => {
-                format!("Singleplayer: {}", name.trim())
-            }
-        };
-        state.truncate(state.floor_char_boundary(MAX_STATE_BYTES));
-        let badge = (self == Self::Playing)
-            .then(|| target?.badge.as_ref())
-            .flatten()
-            .filter(|badge| {
-                badge.image_url.starts_with("https://") && badge.image_url.len() <= MAX_IMAGE_BYTES
-            });
-        let activity = Activity::new()
-            .details(MINECRAFT_VERSION)
-            .state(state)
-            .assets(|assets| {
-                let assets = assets
-                    .large_image(LARGE_IMAGE_URL.as_str())
-                    .large_text(launcher::PRODUCT_NAME);
-                match badge {
-                    Some(badge) => {
-                        let mut name = badge.name.trim().to_owned();
-                        name.truncate(name.floor_char_boundary(MAX_STATE_BYTES));
-                        let assets = assets.small_image(badge.image_url.as_str());
-                        // Discord rejects hover text under two characters.
-                        if name.chars().count() >= 2 {
-                            assets.small_text(name)
-                        } else {
-                            assets
-                        }
-                    }
-                    None => {
-                        if self == Self::Playing {
-                            assets
-                                .small_image(GRASS_BLOCK_ICON_URL)
-                                .small_text("Minecraft Bedrock")
-                        } else {
-                            assets
-                        }
-                    }
-                }
-            })
-            .timestamps(|timestamps| timestamps.start(started_at));
-        let target = target.filter(|_| self == Self::Playing);
-        let (party, secret) = target
-            .and_then(|target| target.join.as_deref())
-            .and_then(|address| Some((join::party_id(address), join::secret(address)?)))
-            .unzip();
-        // Discord shows "(current of max)" and rejects a current above max.
-        let size = target
-            .and_then(|target| target.max_players)
-            .filter(|max| *max > 0)
-            .zip(players)
-            .map(|(max, current)| (current.clamp(1, max), max));
-        let activity = if party.is_some() || size.is_some() {
-            activity.party(|joined| {
-                let joined = match party {
-                    Some(party) => joined.id(party),
-                    None => joined,
-                };
-                match size {
-                    Some(size) => joined.size(size),
-                    None => joined,
-                }
-            })
-        } else {
-            activity
-        };
-        match secret {
-            Some(secret) => activity.secrets(|secrets| secrets.join(secret)),
-            None => activity,
+/// Optional information and interaction exposed by the Discord activity card.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PresenceSettings {
+    /// Show a server address or local world name in the activity state.
+    pub show_server_details: bool,
+    /// Show the current and maximum player count when the destination supplies a limit.
+    pub show_party_size: bool,
+    /// Include join secrets and accept Discord join requests.
+    pub allow_joins: bool,
+    /// Include the activity start timestamp.
+    pub show_timestamp: bool,
+}
+
+impl Default for PresenceSettings {
+    fn default() -> Self {
+        Self {
+            show_server_details: true,
+            show_party_size: true,
+            allow_joins: true,
+            show_timestamp: true,
         }
     }
 }
 
 const MAX_STATE_BYTES: usize = 128;
 
+/// The state and preferences used to publish the last activity.
+struct PublishedActivity {
+    state: State,
+    connection: u64,
+    target: Option<Target>,
+    players: Option<u32>,
+    settings: PresenceSettings,
+}
+
 #[derive(Default)]
 struct Publication {
-    last: Option<(State, u64, Option<Target>, Option<u32>)>,
+    last: Option<PublishedActivity>,
     /// When the current target went live, so the in-game timer counts the session.
     playing_since: Option<u64>,
 }
 
 impl Publication {
+    #[cfg(test)]
     fn changed(
         &mut self,
         state: State,
@@ -216,6 +142,25 @@ impl Publication {
         players: Option<u32>,
         now: u64,
     ) -> bool {
+        self.changed_with_settings(
+            state,
+            connection,
+            target,
+            players,
+            now,
+            PresenceSettings::default(),
+        )
+    }
+
+    fn changed_with_settings(
+        &mut self,
+        state: State,
+        connection: u64,
+        target: Option<&Target>,
+        players: Option<u32>,
+        now: u64,
+        settings: PresenceSettings,
+    ) -> bool {
         // The library sends one update per 15 s, so a join's brief loading card would hold the
         // in-world card back; the previous card stays up while joining instead.
         if state == State::Joining {
@@ -223,24 +168,31 @@ impl Publication {
         }
         let target = target.filter(|_| state == State::Playing);
         let players = players.filter(|_| state == State::Playing);
-        if let Some((last_state, last_connection, last_target, last_players)) = &self.last
-            && *last_state == state
-            && *last_connection == connection
-            && last_target.as_ref() == target
-            && *last_players == players
+        if let Some(last) = &self.last
+            && last.state == state
+            && last.connection == connection
+            && last.target.as_ref() == target
+            && last.players == players
+            && last.settings == settings
         {
             return false;
         }
-        let same_session = matches!(
-            &self.last,
-            Some((State::Playing, _, last, _)) if last.as_ref() == target
-        );
+        let same_session = self
+            .last
+            .as_ref()
+            .is_some_and(|last| last.state == State::Playing && last.target.as_ref() == target);
         if state != State::Playing {
             self.playing_since = None;
         } else if !same_session {
             self.playing_since = Some(now);
         }
-        self.last = Some((state, connection, target.cloned(), players));
+        self.last = Some(PublishedActivity {
+            state,
+            connection,
+            target: target.cloned(),
+            players,
+            settings,
+        });
         true
     }
 }

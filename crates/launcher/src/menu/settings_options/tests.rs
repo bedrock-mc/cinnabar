@@ -335,7 +335,6 @@ fn reset_restores_a_shared_default_without_changing_other_actions() {
 fn chat_settings_survive_reload_and_feed_the_chat_renderer() {
     let mut settings = SettingsOptions::default();
     for (name, value) in [
-        ("chat_typeface", 1),
         ("chat_font_size", 15),
         ("chat_line_spacing", 25),
         ("chat_color", 3),
@@ -635,6 +634,36 @@ fn animations_default_to_bedrock_and_persist_both_choices() {
     settings.set(index, 0);
     settings.reset_group(super::SettingsGroup::Video);
     assert!(!settings.user_settings().video.java_animations);
+}
+
+/// Old toggle values retain their meaning, Minimal persists and Video reset restores Full.
+#[test]
+fn view_bobbing_preserves_toggle_values_and_persists_minimal() {
+    let mut settings = SettingsOptions::default();
+    let id = SettingId::ViewBobbing;
+    assert_eq!(
+        settings.user_settings().video.view_bobbing,
+        ui::ViewBobbing::Full
+    );
+    assert_eq!(VIEW_BOBBING_CHOICES.len(), ui::ViewBobbing::ALL.len());
+    for (value, mode) in ui::ViewBobbing::ALL.into_iter().enumerate() {
+        assert_eq!(mode as usize, value);
+        assert_eq!(VIEW_BOBBING_CHOICES[value].label, mode.label());
+        settings.set(id.index(), mode as i32);
+        let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(loaded.value(id), mode as i32);
+        assert_eq!(loaded.user_settings().video.view_bobbing, mode);
+    }
+    for (toggle, expected) in [(0, ui::ViewBobbing::Off), (1, ui::ViewBobbing::Full)] {
+        let legacy = serde_json::json!({ "schema": 1, "values": { id.name(): toggle } });
+        let loaded = SettingsOptions::decode(&serde_json::to_vec(&legacy).unwrap()).unwrap();
+        assert_eq!(loaded.user_settings().video.view_bobbing, expected);
+    }
+    settings.reset_group(SettingsGroup::Video);
+    assert_eq!(
+        settings.user_settings().video.view_bobbing,
+        ui::ViewBobbing::Full
+    );
 }
 
 #[test]

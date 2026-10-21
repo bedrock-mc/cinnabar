@@ -77,3 +77,23 @@ fn world_files_dropped_elsewhere_are_not_imported_as_packs() {
         Screen::List
     );
 }
+
+#[test]
+fn shader_pack_drops_bypass_resource_import_only_in_the_shaders_tab() {
+    use launcher::menu::settings_sections::SettingSection;
+    for section in [SettingSection::Video, SettingSection::Shaders] {
+        let (mut app, incoming) = fixture(MenuScreen::Settings);
+        app.world_mut()
+            .resource_mut::<MenuRuntime>()
+            .activate(MenuAction::SettingsSection(section.definition().index));
+        let files = ["/drop/Dusk.zip", "/drop/Faithful.mcpack"];
+        drop_files(&mut app, &files);
+        let expected: &[PathBuf] =
+            if render_model::SHADER_PACKS_ENABLED && section == SettingSection::Shaders {
+                &[]
+            } else {
+                &files.map(PathBuf::from)
+            };
+        assert_eq!(pack_imports(&incoming), expected, "{section:?}");
+    }
+}

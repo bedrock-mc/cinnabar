@@ -68,7 +68,24 @@ impl Binder<'_> {
                 let data = self.data;
                 let index = controller_index(own);
                 self.query(control, source, rename, own, native, |name| {
-                    data.global(index, name).cloned()
+                    scope
+                        .cursor
+                        .items
+                        .iter()
+                        .rev()
+                        .find_map(|(collection, index)| {
+                            let key = scope
+                                .cursor
+                                .keys
+                                .get(collection)
+                                .map_or(collection.as_str(), String::as_str);
+                            let item = data
+                                .collections
+                                .get(key)?
+                                .get(usize::try_from(*index).ok()?)?;
+                            item.controller_values.get(name).cloned()
+                        })
+                        .or_else(|| data.global(index, name).cloned())
                 });
             }
             Kind::Collection {
@@ -84,11 +101,12 @@ impl Binder<'_> {
                 if index < 0 {
                     return;
                 }
+                let fallback = self.collection_key(collection, scope);
                 let key = scope
                     .cursor
                     .keys
                     .get(collection)
-                    .map_or(collection.as_str(), String::as_str);
+                    .map_or(fallback.as_str(), String::as_str);
                 let items = self.data.collections.get(key);
                 let item = items.and_then(|items| items.get(index as usize));
                 self.query(control, source, rename, own, native, |name| {

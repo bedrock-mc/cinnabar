@@ -14,8 +14,8 @@ pub struct DiscoveredPack {
 
 /// Entries of `dir` that look like shader packs: `.zip` files (not opened here) and folders
 /// with a `shaders` folder directly or inside their single sub-folder. Sorted by name,
-/// ignoring case; a missing or unreadable directory, and unreadable or non-UTF-8 entries,
-/// yield nothing.
+/// ignoring case; a missing or unreadable directory, unreadable or non-UTF-8 entries and
+/// copies still being added (see [`crate::add_dropped_packs`]) yield nothing.
 pub fn discover_packs(dir: &Path) -> Vec<DiscoveredPack> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
@@ -24,13 +24,13 @@ pub fn discover_packs(dir: &Path) -> Vec<DiscoveredPack> {
         .filter_map(Result::ok)
         .filter_map(|entry| {
             let name = entry.file_name().into_string().ok()?;
+            if name.ends_with(crate::install::STAGING_SUFFIX) {
+                return None;
+            }
             let path = entry.path();
             let path = if path.is_dir() {
                 pack_folder(path)?
-            } else if path
-                .extension()
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
-            {
+            } else if is_zip_name(&path) {
                 path
             } else {
                 return None;
@@ -42,8 +42,14 @@ pub fn discover_packs(dir: &Path) -> Vec<DiscoveredPack> {
     packs
 }
 
+/// Whether `path` names a `.zip` file, ignoring case.
+pub(crate) fn is_zip_name(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
+}
+
 /// The folder holding `shaders/`: `folder` itself, or its only sub-folder when that holds it.
-fn pack_folder(folder: PathBuf) -> Option<PathBuf> {
+pub(crate) fn pack_folder(folder: PathBuf) -> Option<PathBuf> {
     if folder.join("shaders").is_dir() {
         return Some(folder);
     }

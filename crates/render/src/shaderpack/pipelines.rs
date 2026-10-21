@@ -736,13 +736,24 @@ pub(crate) fn shader_modules(
         .map(|(stage, module)| {
             (
                 *stage,
-                device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                    label: Some(&format!("shader pack {name} {}", stage.extension())),
-                    source: wgpu::ShaderSource::Naga(Cow::Owned(module.clone())),
-                }),
+                pack_shader_module(
+                    device,
+                    wgpu::ShaderModuleDescriptor {
+                        label: Some(&format!("shader pack {name} {}", stage.extension())),
+                        source: wgpu::ShaderSource::Naga(Cow::Owned(module.clone())),
+                    },
+                ),
             )
         })
         .collect()
+}
+
+/// Creates an installed pack module with wgpu's complete runtime checks, including loop bounding.
+pub(crate) fn pack_shader_module(
+    device: &Device,
+    desc: wgpu::ShaderModuleDescriptor<'_>,
+) -> wgpu::ShaderModule {
+    device.create_shader_module(desc)
 }
 
 #[cfg(test)]

@@ -42,7 +42,8 @@ pub enum CloudFace {
 }
 
 impl CloudFace {
-    const fn from_u32(value: u32) -> Option<Self> {
+    /// Decodes the face stored by cloud mesh buffers.
+    pub const fn from_u32(value: u32) -> Option<Self> {
         match value {
             0 => Some(Self::Down),
             1 => Some(Self::Up),

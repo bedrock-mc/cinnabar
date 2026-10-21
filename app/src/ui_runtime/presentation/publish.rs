@@ -2,7 +2,7 @@
 use std::sync::Arc;
 
 use crate::runtime::network::resource_packs::PackApplication;
-use bevy::prelude::{Local, Transform, Vec3};
+use bevy::prelude::{Local, Projection, Transform};
 use client_runtime::network::NetworkHandle;
 use inventory::inventory_ledger::PlayerInventorySlot;
 use {super::*, client_presentation::camera::CameraSettingsAuthority};
@@ -54,6 +54,7 @@ pub(crate) struct PublishExtras<'w, 's> {
     actor_pipelines: Option<Res<'w, render_scene::ActorPipelineReadiness>>,
     warmed_pipelines: Option<Res<'w, render_scene::PipelineWarmupReadiness>>,
     server_camera: Option<Res<'w, client_presentation::camera::ServerCameraView>>,
+    picked_actor: Option<Res<'w, crate::block_selection::CrosshairActor>>,
     nametag_cache: Local<'s, nametags::NametagTextCache>,
     fatal_error: ResMut<'w, crate::runtime::shutdown::FatalError>,
     actor_partial: Res<'w, client_presentation::actor_publication::ActorFramePartialTick>,
@@ -85,7 +86,7 @@ pub(crate) fn prepare_ui_runtime(
     mut client_world: ResMut<ClientWorld>,
     camera_settings: Res<CameraSettingsAuthority>,
     // The camera's Transform is this frame's; its GlobalTransform is propagated after Update.
-    cameras: Query<(&Camera, &Transform), With<Camera3d>>,
+    cameras: Query<(&Camera, &Transform, &Projection), With<Camera3d>>,
     time: Res<Time<Real>>,
     extras: PublishExtras,
     mut hand: crate::presentation::viewmodel::ViewmodelPublish,
@@ -104,6 +105,7 @@ pub(crate) fn prepare_ui_runtime(
         actor_pipelines,
         warmed_pipelines,
         server_camera,
+        picked_actor,
         mut nametag_cache,
         mut fatal_error,
         actor_partial,
@@ -427,10 +429,13 @@ pub(crate) fn prepare_ui_runtime(
         .player_roster
         .set_show_badges(settings.value(SettingId::CinnabarBadges) != 0);
     let show_names = settings.value(SettingId::IngamePlayerNames) != 0;
-    let tag_style = presentation
+    presentation.prepare_nametag_layout(&runtime);
+    let tag_style_owned = presentation
         .mod_ui()
         .mod_actor_style()
-        .and_then(|style| style.nametags.as_ref());
+        .and_then(|style| style.nametags.as_ref())
+        .cloned();
+    let tag_style = tag_style_owned.as_ref();
     let show_counter_self = totem_style
         .as_ref()
         .is_some_and(|style| style.show_self && style.show_nametag)
@@ -453,37 +458,46 @@ pub(crate) fn prepare_ui_runtime(
                     && settings.value(SettingId::HideHud) != 0
                     && !menu_visible)
         })
-        .zip(
-            cameras
-                .single()
-                .ok()
-                .map(|(_, transform)| GlobalTransform::from(*transform)),
-        )
-        .map(|(stream, transform)| {
+        .zip(cameras.single().ok().map(|(_, transform, projection)| {
+            (
+                GlobalTransform::from(*transform),
+                projection.get_clip_from_view(),
+            )
+        }))
+        .map(|(stream, (transform, clip_from_view))| {
             let authority = stream.authority();
-            let viewer_position = local_frame
-                .snapshot()
-                .map(|frame| frame.feet())
-                .or_else(|| {
-                    authority
-                        .actor(authority.local_player_runtime_id())
-                        .and_then(|actor| actor.interpolated_position(actor_partial.0))
-                        .map(Vec3::from_array)
-                })
-                .unwrap_or_else(|| transform.translation());
             let nametag_view = nametags::NametagView {
-                viewer_position,
                 camera_position: transform.translation(),
                 camera_forward: *transform.forward(),
+            };
+            let clip_from_world = clip_from_view * transform.to_matrix().inverse();
+            let rotation = transform.rotation();
+            let mut admit = |tag: &mut nametags::NametagAnchor| {
+                tag.set_cinnabar_badge(
+                    authority
+                        .actor_player_roster_identity(tag.runtime_id())
+                        .is_some_and(|(xuid, uuid)| runtime.player_roster.has_badge(xuid, uuid)),
+                );
+                if totem_style.as_ref().is_some_and(|style| style.show_nametag)
+                    && let Some(actor) = authority.actor(tag.runtime_id())
+                    && let protocol::ActorKind::Player { uuid, .. } = &actor.kind
+                {
+                    tag.set_counter_annotation(
+                        runtime.player_roster.totem_annotation(uuid).cloned(),
+                    );
+                }
+
+                presentation.nametag_intersects_view(tag, clip_from_world, rotation)
             };
             let mut tags = nametags::project_nametags(
                 &mut nametag_cache,
                 runtime.scoreboards(),
                 stream,
                 nametag_view,
-                picked_nametag_actor(stream, &transform, collisions.as_deref(), &player_runtime),
+                picked_actor.as_deref().and_then(|picked| picked.0),
                 actor_partial.0,
                 show_names && !tag_style.is_some_and(|style| style.hide_players),
+                &mut admit,
             );
             if tag_style.is_some_and(|style| style.hide_passengers) {
                 let authority = stream.authority();
@@ -505,39 +519,24 @@ pub(crate) fn prepare_ui_runtime(
                         !tag_style.is_some_and(|style| style.hide_passengers)
                             || authority.ridden_unique_id(actor.unique_id).is_none()
                     })
-                    && let Some(name) = authority
-                        .actor_name_tag(actor.unique_id)
-                        .or_else(|| authority.actor_display_name(actor.unique_id))
-                    && let Some(tag) = nametags::extract_nametag_at_feet(
+                    && let Some(name) = authority.actor_name_tag(actor.unique_id)
+                    && let Some(mut tag) = nametags::extract_nametag_at_feet(
                         actor,
-                        nametags::NametagView {
-                            viewer_position: visibility.feet(),
-                            ..nametag_view
-                        },
+                        nametag_view,
                         None,
                         name,
-                        runtime.scoreboards(),
+                        (!authority.remote_actors().any(|rider| {
+                            authority.ridden_unique_id(rider.unique_id) == Some(actor.unique_id)
+                        }))
+                        .then_some(runtime.scoreboards()),
                         visibility.feet(),
                     )
+                    && admit(&mut tag)
                 {
                     tags.push(tag);
                 }
             }
-            for tag in &mut tags {
-                tag.set_cinnabar_badge(
-                    authority
-                        .actor_player_roster_identity(tag.runtime_id())
-                        .is_some_and(|(xuid, uuid)| runtime.player_roster.has_badge(xuid, uuid)),
-                );
-                if totem_style.as_ref().is_some_and(|style| style.show_nametag)
-                    && let Some(actor) = authority.actor(tag.runtime_id())
-                    && let protocol::ActorKind::Player { uuid, .. } = &actor.kind
-                {
-                    tag.set_counter_annotation(
-                        runtime.player_roster.totem_annotation(uuid).cloned(),
-                    );
-                }
-            }
+
             tags
         })
         .unwrap_or_default();
@@ -547,7 +546,7 @@ pub(crate) fn prepare_ui_runtime(
             .as_ref()
             .map(|stream| stream.authority().local_player_runtime_id()),
     );
-    presentation.set_nametag_anchors(nametags);
+    nametag_cache.recycle_anchors(presentation.set_nametag_anchors(nametags));
     presentation.set_chat_settings_snapshot(settings_snapshot);
     #[cfg(not(target_arch = "wasm32"))]
     let menu_view = menu_visible.then(|| {
@@ -625,47 +624,6 @@ fn station_triggered(
     assets::block_presentation_state::pinned_block_presentation_states()
         .get(mode, runtime_id)
         .crafter_triggered
-}
-
-/// Captures nametag picking with gameplay's reach and collision policy before UI projection.
-fn picked_nametag_actor(
-    stream: &chunk_pipeline::WorldStream,
-    camera_transform: &GlobalTransform,
-    collisions: Option<&client_interaction::movement::PhysicsCollisionRegistries>,
-    player: &client_state::PlayerRuntime,
-) -> Option<u64> {
-    let eye = camera_transform.translation();
-    let direction = *camera_transform.forward();
-    gameplay::melee::pick_actor(
-        stream.authority().remote_actors(),
-        None,
-        eye.to_array(),
-        direction.to_array(),
-        gameplay::mining::survival_reach(protocol::PlayerInputMode::Mouse),
-    )
-    .filter(|hit| {
-        let Some(collisions) = collisions else {
-            return true;
-        };
-        let world = sim::PaletteWorld::new(
-            stream.collision_store(),
-            collisions.registry(stream.network_id_mode()),
-            stream.current_dimension(),
-            crate::interaction_authority::pick_context(
-                stream,
-                collisions,
-                player.facts.player_game_mode(),
-                player.selected_stack().map(|item| item.block_runtime_id),
-            ),
-        );
-        let vector =
-            |v: bevy::math::Vec3| sim::Vec3::new(f64::from(v.x), f64::from(v.y), f64::from(v.z));
-        !matches!(
-            world.block_interaction_ray_current(vector(eye), vector(direction), hit.distance),
-            Ok(Some(_))
-        )
-    })
-    .map(|hit| hit.runtime_id)
 }
 
 #[cfg(test)]

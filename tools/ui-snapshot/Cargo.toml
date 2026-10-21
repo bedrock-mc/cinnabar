@@ -7,6 +7,8 @@ publish = false
 
 [features]
 test-support = ["dep:client-ui", "client-ui/test-support", "protocol/test-support", "render-model/test-support", "ui-screens/test-support"]
+# Captures the Shaders settings tab a `shaderpacks` client build shows.
+shaderpacks = ["render-model/shaderpacks", "launcher/shaderpacks"]
 
 [dependencies]
 client-ui = { path = "../../crates/client-ui", optional = true }
@@ -17,7 +19,7 @@ inventory = { path = "../../crates/inventory" }
 json-ui = { path = "../../crates/json-ui" }
 jsonui-editor = { path = "../jsonui-editor" }
 bridge = { path = "../../crates/bridge" }
-launcher = { path = "../../crates/launcher" }
+launcher = { path = "../../crates/launcher", features = ["shader-pack-options"] }
 mod-ui = { path = "../../crates/mod-ui" }
 oreui = { path = "../../crates/oreui" }
 player-state = { path = "../../crates/player-state" }
@@ -25,6 +27,7 @@ protocol = { path = "../../crates/protocol" }
 render-api = { path = "../../crates/render-api" }
 render-model = { path = "../../crates/render-model" }
 resource-pack = { path = "../../crates/resource-pack" }
+shaderpack = { path = "../../crates/shaderpack" }
 serde_json = "1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
 ui = { path = "../../crates/ui" }

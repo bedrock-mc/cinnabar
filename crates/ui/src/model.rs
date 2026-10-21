@@ -392,13 +392,13 @@ pub struct UiVertex {
     pub clip_w: f32,
     pub uv: [f32; 2],
     pub color: [u8; 4],
-    /// Interpolated linear lighting, or border area for coverage paint.
+    /// Linear lighting or coverage border area.
     pub model_light: f32,
     /// Entity overlay RGB and mix amount, or the coverage paint's packed constant colors.
     pub overlay_color: [f32; 4],
     pub style_flags: u16,
     pub alpha_test: bool,
-    /// Explicit sampled-texture cutoff; negative disables this material override.
+    /// Sampled-texture cutoff (negative disables it).
     pub alpha_cutoff: f32,
 }
 

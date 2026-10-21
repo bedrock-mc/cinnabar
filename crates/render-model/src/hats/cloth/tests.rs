@@ -73,7 +73,6 @@ fn scaled_rest_lengths_and_frame_poses_preserve_attachment_endpoints() {
             let pivot = Vec3::from_array(model.geometry.bone_pivots[cloth.source]);
             let mut offset = cloth.rest[0] - pivot;
             offset.x *= 0.89;
-            offset.z += REST_CLEARANCE;
             let pin = crate::actor::sampled_bone_offset(
                 offset.to_array(),
                 previous[cloth.source],
@@ -233,6 +232,43 @@ fn torso_contact_exits_through_the_back_after_rotation() {
 }
 
 #[test]
+fn unarmored_fabric_hugs_the_torso_instead_of_reserving_armor_space() {
+    let item = crate::hats::fixture::cloth();
+    let model = rig(item);
+    let root = RenderBoneTransform {
+        rotation: Quat::IDENTITY.to_array(),
+        translation_scale: [0.0, 1.5, 0.0, 1.0],
+        axis_scale: UNIT_AXIS_SCALE,
+    };
+    let base = model.pose(root, super::super::Motion::default());
+    let actor = Mat4::IDENTITY.to_cols_array_2d();
+    let actor = [
+        [actor[0][0], actor[1][0], actor[2][0], actor[3][0]],
+        [actor[0][1], actor[1][1], actor[2][1], actor[3][1]],
+        [actor[0][2], actor[1][2], actor[2][2], actor[3][2]],
+    ];
+    let collider = Collider::biped("body", root, Mat4::IDENTITY).unwrap();
+    let mut state = ClothState::default();
+    for _ in 0..240 {
+        state
+            .pose(
+                item,
+                [base.clone(), base.clone()],
+                actor,
+                (STEP, 1.0),
+                std::slice::from_ref(&collider),
+            )
+            .unwrap();
+    }
+    for point in &state.points[..=model.cloth.as_ref().unwrap().columns] {
+        assert!(
+            point.z > 2.0 / 16.0 && point.z < 2.4 / 16.0,
+            "unarmored cloth must sit just behind the torso: {point}"
+        );
+    }
+}
+
+#[test]
 fn idle_fabric_clears_standard_chest_armor() {
     let item = crate::hats::fixture::cloth();
     let model = rig(item);
@@ -242,7 +278,9 @@ fn idle_fabric_clears_standard_chest_armor() {
         axis_scale: UNIT_AXIS_SCALE,
     };
     let base = model.pose(root, super::super::Motion::default());
-    let collider = Collider::biped("body", root, Mat4::IDENTITY).unwrap();
+    let mut collider = Collider::biped("body", root, Mat4::IDENTITY).unwrap();
+    collider.min -= Vec3::splat(1.0 / 16.0);
+    collider.max += Vec3::splat(1.0 / 16.0);
     let actor = [
         [1.0, 0.0, 0.0, 0.0],
         [0.0, 1.0, 0.0, 0.0],
@@ -262,10 +300,7 @@ fn idle_fabric_clears_standard_chest_armor() {
     }
     // Standard chest armor ends three pixels behind the torso, including its inflation.
     for point in state.points.iter().filter(|p| p.y > 0.75 && p.y < 1.5) {
-        assert!(
-            point.z > 3.0 / 16.0 + 0.015,
-            "fabric entered the armor: {point}"
-        );
+        assert!(point.z > 3.0 / 16.0, "fabric entered the armor: {point}");
     }
 }
 

@@ -29,6 +29,9 @@ const MIN_CAPACITY: u32 = 1024;
 pub(in crate::chunk) struct ChunkHiddenEntities {
     pub(super) hidden: HashSet<Entity>,
     pub(super) changed: Vec<Entity>,
+    /// Moves whenever `hidden` changes; shader-pack draw lists rebuild only then.
+    #[cfg_attr(not(feature = "shaderpacks"), allow(dead_code))]
+    revision: u64,
 }
 
 #[cfg_attr(
@@ -39,6 +42,11 @@ impl ChunkHiddenEntities {
     /// Whether the cave culler hides render entity `entity`.
     pub(in crate::chunk) fn contains(&self, entity: Entity) -> bool {
         self.hidden.contains(&entity)
+    }
+
+    /// Moves whenever the hidden set changes.
+    pub(in crate::chunk) fn revision(&self) -> u64 {
+        self.revision
     }
 }
 
@@ -132,6 +140,7 @@ pub(super) fn extract_hidden_chunks(
         };
         if changed {
             hidden.changed.push(entity);
+            hidden.revision += 1;
         }
     }
 }

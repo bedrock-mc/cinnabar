@@ -133,6 +133,9 @@ pub(crate) struct Residency {
     draining: Option<usize>,
     /// Frames in a row in which no section arrived, changed or left.
     settled_frames: u32,
+    /// Counts changes to `sections` or the epoch: draw lists built at one revision stay
+    /// valid until it moves.
+    revision: u64,
     /// A drain returned to its source page; only a changed free layout may retry it.
     failed_drain: Option<usize>,
 }
@@ -170,6 +173,7 @@ impl Residency {
             slot_count: 0,
             draining: None,
             settled_frames: 0,
+            revision: 0,
             failed_drain: None,
         }
     }
@@ -177,6 +181,11 @@ impl Residency {
     /// Draw-origin slots handed out so far, free or not.
     pub(crate) fn slot_count(&self) -> u32 {
         self.slot_count
+    }
+
+    /// Moves whenever `sections` or `epoch` change.
+    pub(crate) fn revision(&self) -> u64 {
+        self.revision
     }
 
     fn release(&mut self, resident: &ResidentFaces) {
@@ -285,6 +294,7 @@ impl Residency {
     pub(crate) fn remove(&mut self, entity: Entity) {
         if let Some(resident) = self.sections.remove(&entity) {
             self.release(&resident);
+            self.revision += 1;
         }
         self.waiting.remove(&entity);
         self.unplaceable.remove(&entity);
@@ -298,6 +308,7 @@ impl Residency {
         if let Some(resident) = self.sections.remove(&entity) {
             self.release(&resident);
             self.wait(entity);
+            self.revision += 1;
         }
     }
 
@@ -312,6 +323,7 @@ impl Residency {
             _ => {
                 self.origin = Some(snapped);
                 self.epoch += 1;
+                self.revision += 1;
                 true
             }
         }
@@ -324,6 +336,7 @@ impl Residency {
         for faces in self.sections.values_mut() {
             faces.epoch = epoch;
         }
+        self.revision += 1;
     }
 
     /// Places `plan` for `entity`, replacing its previous faces, growing a page or adding one
@@ -341,6 +354,7 @@ impl Residency {
             self.pages[previous.page]
                 .faces
                 .release(previous.faces.clone());
+            self.revision += 1;
         }
         let placement = self.allocate(plan.faces);
         let changed_space = placement.as_ref().is_some_and(|placed| {
@@ -549,6 +563,7 @@ impl Residency {
                 resident.page -= 1;
             }
         }
+        self.revision += 1;
         Some(page)
     }
 
@@ -580,6 +595,7 @@ impl Residency {
             },
         );
         self.next_stamp += 1;
+        self.revision += 1;
         slot
     }
 
@@ -595,6 +611,7 @@ impl Residency {
         self.free_slots.clear();
         self.slot_count = 0;
         self.draining = None;
+        self.revision += 1;
         self.failed_drain = None;
     }
 }

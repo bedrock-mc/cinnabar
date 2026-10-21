@@ -18,6 +18,201 @@ use {
 
 const PHYSICAL: [u32; 2] = [1920, 1080];
 
+/// Opens a shader slider using the redistributable font fixture and native menu painter.
+fn shader_fixture() -> (App, Entity) {
+    use launcher::shader_options::{Control, Element, Status, View};
+    let mut menu = MenuRuntime::new(true, 2, "Player".into());
+    menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+    menu.activate(MenuAction::SettingsSection(
+        launcher::menu::settings_sections::SettingSection::Shaders
+            .definition()
+            .index,
+    ));
+    let mut view = View::loading("Fixture");
+    view.screen = 7;
+    view.status = Status::Ready;
+    view.elements = vec![Element {
+        label: "Quality".into(),
+        comment: None,
+        control: Control::Slider {
+            value: "2".into(),
+            index: 1,
+            count: 4,
+        },
+        modified: false,
+    }];
+    menu.sync_shader_options(Some(view));
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .add_message::<KeyboardInput>()
+        .add_message::<MouseButtonInput>()
+        .add_message::<TouchInput>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<Touches>()
+        .init_resource::<MenuClipboard>()
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
+        .insert_resource(menu)
+        .insert_resource(UiPresentationResource(
+            UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap(),
+        ))
+        .add_systems(PreUpdate, touch_screen_input_system)
+        .add_systems(Update, drive_menu_input);
+    let window = app
+        .world_mut()
+        .spawn((
+            Window {
+                focused: true,
+                resolution: WindowResolution::new(PHYSICAL[0], PHYSICAL[1]),
+                ..Default::default()
+            },
+            CursorOptions::default(),
+            PrimaryWindow,
+        ))
+        .id();
+    app.update();
+    build(&mut app);
+    (app, window)
+}
+
+#[test]
+fn shader_slider_drag_changes_steps_outside_the_track_and_releases_capture() {
+    use launcher::shader_options::{Action, Input};
+    if !render_model::SHADER_PACKS_ENABLED {
+        return;
+    }
+    let (mut app, window) = shader_fixture();
+    let action = |step| {
+        MenuAction::ShaderOptions(Action::Element {
+            screen: 7,
+            index: 0,
+            input: Input::Select(step),
+        })
+    };
+    let bounds = |step| {
+        app.world()
+            .resource::<UiPresentationResource>()
+            .menu_action_bounds(action(step))
+            .unwrap()
+    };
+    let first = bounds(0);
+    let last = bounds(3);
+    let start = Vec2::new(
+        (first.min().x() + first.max().x()) * 0.5,
+        (first.min().y() + first.max().y()) * 0.5,
+    );
+    let end = Vec2::new(last.max().x() + 100.0, last.max().y() + 100.0);
+    mouse(&mut app, window, start, Some(ButtonState::Pressed));
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .take_shader_option_actions();
+    mouse(&mut app, window, end, None);
+    assert_eq!(
+        app.world_mut()
+            .resource_mut::<MenuRuntime>()
+            .take_shader_option_actions(),
+        [Action::Element {
+            screen: 7,
+            index: 0,
+            input: Input::Select(3)
+        }]
+    );
+    mouse(&mut app, window, end, None);
+    assert!(
+        app.world_mut()
+            .resource_mut::<MenuRuntime>()
+            .take_shader_option_actions()
+            .is_empty()
+    );
+    mouse(&mut app, window, end, Some(ButtonState::Released));
+    mouse(&mut app, window, start, None);
+    assert!(
+        app.world_mut()
+            .resource_mut::<MenuRuntime>()
+            .take_shader_option_actions()
+            .is_empty()
+    );
+}
+
+#[test]
+fn shader_slider_touch_drag_updates_steps_and_mouse_capture_rejects_new_screens() {
+    use launcher::shader_options::{Action, Input};
+    if !render_model::SHADER_PACKS_ENABLED {
+        return;
+    }
+    let (mut app, window) = shader_fixture();
+    let action = |step| {
+        MenuAction::ShaderOptions(Action::Element {
+            screen: 7,
+            index: 0,
+            input: Input::Select(step),
+        })
+    };
+    let bounds = app
+        .world()
+        .resource::<UiPresentationResource>()
+        .menu_action_bounds(action(1))
+        .unwrap();
+    let start = Vec2::new(
+        (bounds.min().x() + bounds.max().x()) * 0.5,
+        (bounds.min().y() + bounds.max().y()) * 0.5,
+    );
+    let end = Vec2::new(PHYSICAL[0] as f32, PHYSICAL[1] as f32);
+    touch(&mut app, window, start, TouchPhase::Started);
+    touch(&mut app, window, end, TouchPhase::Moved);
+    assert_eq!(
+        app.world_mut()
+            .resource_mut::<MenuRuntime>()
+            .take_shader_option_actions(),
+        [Action::Element {
+            screen: 7,
+            index: 0,
+            input: Input::Select(3)
+        }]
+    );
+    touch(&mut app, window, end, TouchPhase::Moved);
+    assert!(
+        app.world_mut()
+            .resource_mut::<MenuRuntime>()
+            .take_shader_option_actions()
+            .is_empty()
+    );
+    touch(&mut app, window, end, TouchPhase::Ended);
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .take_shader_option_actions();
+    mouse(&mut app, window, start, Some(ButtonState::Pressed));
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu.take_shader_option_actions();
+        let mut next = (*menu.shader_options_view().unwrap()).clone();
+        next.screen += 1;
+        menu.sync_shader_options(Some(next));
+    }
+    build(&mut app);
+    mouse(&mut app, window, end, None);
+    let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+    assert!(menu.take_shader_option_actions().is_empty());
+    assert!(menu.settings_input.shader_slider_drag.is_none());
+    assert_eq!(
+        native_release_action(action(0), Some(action(3))),
+        Some(action(3))
+    );
+    assert_eq!(
+        native_release_action(
+            action(0),
+            Some(MenuAction::ShaderOptions(Action::Element {
+                screen: 8,
+                index: 0,
+                input: Input::Select(3),
+            }))
+        ),
+        None
+    );
+}
+
 struct Rail {
     left: f32,
     right: f32,

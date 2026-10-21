@@ -69,7 +69,8 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
         "keep_out",
         json!({
             "type":"custom", "renderer":"cinnabar_hud_keep_out", "size":viewport,
-            "anchor_from":"top_left", "anchor_to":"top_left", "layer":1
+            "anchor_from":"top_left", "anchor_to":"top_left", "layer":1,
+            "bindings":[{"binding_name":"#hud_dragging","binding_name_override":"#visible"}]
         }),
     ));
     for axis in 0..2 {
@@ -81,27 +82,37 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
             {"binding_name":format!("#measurement_{axis}_width"), "binding_name_override":"#size_binding_x_absolute"},
             {"binding_name":format!("#measurement_{axis}_height"), "binding_name_override":"#size_binding_y_absolute"}]);
         controls.push(named(&format!("measurement_{axis}"), line));
-        let mut text = label(
-            &format!("#measurement_{axis}_label"),
-            MEASUREMENT_PILL,
-            [0.; 2],
-        );
+        // The pill width follows its label; the label is centred in it at its natural height.
+        let widest = feedback::pill_size("00000");
+        let width = json!({"binding_name":format!("#measurement_{axis}_pill_width"),
+            "binding_name_override":"#size_binding_x_absolute"});
+        let mut text = label(&format!("#measurement_{axis}_label"), widest, [0.; 2]);
+        text["size"][1] = json!("default");
+        text["max_size"] = json!(widest);
+        text["anchor_from"] = json!("center");
+        text["anchor_to"] = json!("center");
+        text["font_scale_factor"] = json!(MEASUREMENT_FONT_SCALE);
+        text["clip_children"] = json!(false);
         text["text_alignment"] = json!("center");
         text["bindings"] = json!([{"binding_name":format!("#measurement_{axis}_label")}]);
-        let mut background = rect(MEASUREMENT_PILL, [0.; 2], [0.055, 0.065, 0.08, 0.97]);
-        background["radius"] = json!(MEASUREMENT_PILL[1] * 0.5);
+        let mut background = rect(widest, [0.; 2], color(style.measurement));
+        background["radius"] = json!(MEASUREMENT_PILL_HEIGHT * 0.5);
+        background["bindings"] = json!([width.clone()]);
         controls.push(named(&format!("measurement_{axis}_pill"), json!({
-            "type":"panel", "size":MEASUREMENT_PILL, "anchor_from":"top_left", "anchor_to":"top_left", "layer":11,
-            "bindings":[visible, {"binding_name":format!("#measurement_{axis}_pill"),"binding_name_override":"#offset"}],
+            "type":"panel", "size":widest, "anchor_from":"top_left", "anchor_to":"top_left", "layer":11,
+            "bindings":[visible, width, {"binding_name":format!("#measurement_{axis}_pill"),"binding_name_override":"#offset"}],
             "controls":[named("background",background),named("label",text)]
         })));
     }
     let mut row = 0;
     for (index, card) in hud.cards.iter().enumerate() {
-        controls.push(named(
-            &format!("card_{index}"),
-            cards::card(card, index, &mut row),
-        ));
+        let visible = json!({"binding_name":format!("#hud_card_{index}_visible"), "binding_name_override":"#visible"});
+        let mut artwork = cards::card(card, index, &mut row);
+        artwork["bindings"]
+            .as_array_mut()
+            .expect("card bindings")
+            .push(visible.clone());
+        controls.push(named(&format!("card_{index}"), artwork));
         let size = cards::dimensions(card);
         let edges = [
             ([size[0], 0.5], [0., 0.]),
@@ -115,7 +126,7 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
             named(&format!("edge_{n}"),node)
         }).collect();
         let mut bounds = button(&format!("hud.card:{index}"), size, [0.; 2], border);
-        bounds["bindings"] = json!([{"binding_name":format!("#card_{index}_offset"),"binding_name_override":"#offset"}]);
+        bounds["bindings"] = json!([{"binding_name":format!("#card_{index}_offset"),"binding_name_override":"#offset"}, visible.clone()]);
         controls.push(named(&format!("bounds_{index}"), bounds));
         if hud.resizable {
             for corner in 0..4 {
@@ -149,18 +160,14 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
                     named("pressed", feedback(style.handle_pressed)),
                 ]);
                 let mut group = json!({"type":"panel","size":size,"controls":[named("handle",handle)],"anchor_from":"top_left","anchor_to":"top_left","layer":20});
-                group["bindings"] = json!([{"binding_name":format!("#card_{index}_offset"),"binding_name_override":"#offset"}]);
+                group["bindings"] = json!([{"binding_name":format!("#card_{index}_offset"),"binding_name_override":"#offset"}, visible.clone()]);
                 controls.push(named(&format!("resize_{index}_{corner}"), group));
             }
         }
         if !hud.hide_editor_labels && hud.surface.is_some() {
-            let text = if card.editor_label.is_empty() {
-                &card.id
-            } else {
-                &card.editor_label
-            };
-            let mut text = label(text, [size[0], 12.], [0.; 2]);
-            text["bindings"] = json!([{"binding_name":format!("#bounds_{index}_label_offset"),"binding_name_override":"#offset"}]);
+            let name = format!("#hud_card_{index}_name");
+            let mut text = label(&name, [size[0], 12.], [0.; 2]);
+            text["bindings"] = json!([{"binding_name":format!("#bounds_{index}_label_offset"),"binding_name_override":"#offset"}, {"binding_name":name}, visible]);
             controls.push(named(&format!("name_{index}"), text));
         }
     }
@@ -172,6 +179,7 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
                 ("close", "Done"),
                 ("reset", "Reset"),
                 ("grid", "#grid_label"),
+                ("snap", "#snap_label"),
             ]
         } else {
             &[
@@ -179,9 +187,11 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
                 ("cancel", "Cancel"),
                 ("reset", "Reset"),
                 ("grid", "#grid_label"),
+                ("snap", "#snap_label"),
             ]
         };
-        let width = actions.len() as f64 * 53. + 8.;
+        let slot = 53_f64.min((viewport[0] - 8.).max(0.) / actions.len() as f64);
+        let width = actions.len() as f64 * slot + 8.;
         let x = ((viewport[0] - width) * 0.5).max(0.);
         let y = viewport[1] - 32.;
         let mut toolbar = vec![named(
@@ -189,16 +199,16 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
             rect([width, 28.], [0.; 2], [0.055, 0.065, 0.08, 0.97]),
         )];
         for (index, &(action, text)) in actions.iter().enumerate() {
-            let mut textnode = label(text, [49., 12.], [4., 7.]);
-            if action == "grid" {
-                textnode["bindings"] = json!([{"binding_name":"#grid_label"}]);
+            let mut textnode = label(text, [(slot - 4.).max(0.), 12.], [4., 7.]);
+            if matches!(action, "grid" | "snap") {
+                textnode["bindings"] = json!([{"binding_name":text}]);
             }
             toolbar.push(named(
                 action,
                 button(
                     &format!("hud.{action}"),
-                    [53., 24.],
-                    [4. + index as f64 * 53., 2.],
+                    [slot, 24.],
+                    [4. + index as f64 * slot, 2.],
                     vec![named("text", textnode)],
                 ),
             ));

@@ -623,6 +623,9 @@ impl UiRuntime {
                         output,
                     })
             }
+            Some(WindowKind::Trade { .. }) => {
+                self.inventory_ledger_mut(player_runtime).begin_trade()
+            }
             Some(_) => Err(InventoryGestureError::InvalidRequest),
         }
     }
@@ -633,6 +636,17 @@ impl UiRuntime {
         widget: Widget,
     ) -> Outcome {
         match widget {
+            Widget::TradeOffer { tier, row, .. } => {
+                self.inventory_ledger_mut(player_runtime)
+                    .select_trade_row(tier, row)?;
+                Ok(0)
+            }
+            Widget::TradeCycle { next } => {
+                self.inventory_ledger_mut(player_runtime)
+                    .cycle_trade(next)?;
+                Ok(0)
+            }
+            Widget::Trade => self.inventory_ledger_mut(player_runtime).begin_trade(),
             Widget::EnchantOption(index) => {
                 let id = player_runtime
                     .inventory

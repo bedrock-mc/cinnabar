@@ -456,6 +456,11 @@ impl ActorRigFrameBuilder {
         self.catalog.geometries.contains_key(&id)
     }
 
+    /// Borrows the currently registered, validated geometry for contact and attachment queries.
+    pub fn geometry(&self, id: EntityRigId) -> Option<&ActorRigGeometry> {
+        self.catalog.geometries.get(&id)
+    }
+
     #[must_use]
     pub const fn geometry_vertices(&self) -> &ActorRigVertexSegments {
         &self.catalog.vertices

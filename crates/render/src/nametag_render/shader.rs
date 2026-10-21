@@ -1,3 +1,6 @@
+/// Labels use straight-alpha over-compositing for both colour and scene alpha.
+pub(crate) const NAMETAG_BLEND: wgpu::BlendState = wgpu::BlendState::ALPHA_BLENDING;
+
 use bevy::prelude::Shader;
 use render_model::{NAMETAG_ALPHA_CUTOFF, NAMETAG_BLOCKS_PER_FONT_PIXEL};
 

@@ -37,9 +37,22 @@ pub enum NativeRows {
         held: bool,
         percent: bool,
         empty: bool,
+        /// Uses a held-first equipment stack with unlabelled remaining durability.
+        #[serde(default)]
+        compact: bool,
+        #[serde(default)]
+        offhand: bool,
+        /// Remaining durability percentage at which values receive warning ink; zero disables it.
+        #[serde(default)]
+        warning: f32,
     },
     Effects {
         icons: bool,
+        /// Separates the localized name and Roman level from a rounded, padded timer.
+        #[serde(default)]
+        stacked: bool,
+        #[serde(default)]
+        warnings: bool,
     },
     Sidebar {
         scores: bool,
@@ -128,6 +141,11 @@ impl RowSource {
             {
                 return Err("native item count requires a known potion effect".into());
             }
+        }
+        if let NativeRows::Armor { warning, .. } = self.kind
+            && (!warning.is_finite() || !(0.0..=100.0).contains(&warning))
+        {
+            return Err("equipment durability warning must be a percentage".into());
         }
         super::color(self.color)
     }

@@ -61,6 +61,7 @@ impl UiPresentationRuntime {
             && !runtime.forms.owns_input()
             && !runtime.credits.owns_input()
             && runtime.hud.toasts().is_empty()
+            && runtime.hud.standing_toast().is_none()
             && !self.screens.mod_ui.mod_panel_painting()
             && !self.screens.mod_ui.experience_modal_open())
         .then_some(view)
@@ -161,5 +162,32 @@ mod mod_update_tests {
             presentation.retainable_menu(&runtime).is_some(),
             "completed mod updates restore frame retention"
         );
+    }
+
+    #[test]
+    fn a_standing_toast_keeps_menu_frames_live_until_it_leaves() {
+        let mut presentation =
+            UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+        let mut runtime = UiRuntime::new(0);
+        let mut view = MenuView::new(true, "Fixture".into());
+        view.screen = MenuScreen::Settings;
+        view.settings.section = SettingSection::General.definition().index;
+        presentation.set_menu_view(Some(view));
+        assert!(presentation.retainable_menu(&runtime).is_some());
+        runtime.stand_toast(ui::StandingToast {
+            id: 0,
+            title: Arc::from("Loading shader pack Dusk…"),
+            message: Arc::from(""),
+            press: None,
+            since_millis: 0,
+            until_millis: u64::MAX,
+        });
+        assert!(
+            presentation.retainable_menu(&runtime).is_none(),
+            "the toast slides in and updates over the menu"
+        );
+        runtime.retire_standing_toast(1_000);
+        runtime.hud.expire(1_000 + ui::TOAST_SLIDE_OUT_MILLIS);
+        assert!(presentation.retainable_menu(&runtime).is_some());
     }
 }

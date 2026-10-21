@@ -19,6 +19,7 @@ pub mod settings_options;
 pub mod settings_sections;
 pub mod settings_storage;
 pub mod settings_support;
+pub mod shader_pack_status;
 pub mod sign_in;
 pub mod updates;
 pub mod view;
@@ -104,6 +105,16 @@ pub enum MenuField {
     MacroCommand(usize),
 }
 
+/// One renderer or shader-pack choice. Shader packs carry their list revision so an old
+/// picker action cannot select a different pack after discovery changes.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum RendererChoice {
+    /// The vanilla renderer ("Off").
+    Vanilla,
+    Enhanced,
+    ShaderPack(u16, u64),
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MenuAction {
     MinecraftImport(crate::minecraft_import::Action),
@@ -166,7 +177,14 @@ pub enum MenuAction {
     SettingsConfirmResetGroup(settings_options::SettingsGroup),
     SettingsResetChat,
     SettingsAdvancedGraphics,
+    /// The JSON-UI Enhanced switch: Vanilla and Enhanced flip; a shader pack turns into Enhanced.
     ToggleRenderMode,
+    /// The OreUI renderer and shader-pack pickers.
+    SelectRenderer(RendererChoice),
+    /// Opens the Shaders settings tab from Video.
+    SettingsShaders,
+    /// Re-lists shader packs and reloads the selected pack with its saved options.
+    ReloadShaders,
     PauseResume,
     PauseDisconnect,
     OpenDeathQuit,
@@ -203,6 +221,8 @@ pub enum MenuAction {
     Invite(invite::Action),
     /// Answers the oldest Discord join request: Accept (true) or Decline.
     JoinRequest(bool),
+    /// A press on the Shader Pack Settings screen or its Shaders-tab button.
+    ShaderOptions(crate::shader_options::Action),
 }
 
 impl MenuAction {

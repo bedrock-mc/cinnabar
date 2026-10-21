@@ -201,6 +201,9 @@ fn editor_grid_is_optional_and_nudging_stays_inside_available_travel() {
     editor(&mut p, &hud);
     frame(&mut p, &UiRuntime::new(1), [1920, 1080], 1.);
     click(&mut p, "hud.grid");
+    assert!(p.mod_ui().mod_hud_editor_state().unwrap().grid);
+    assert!(!p.mod_ui().mod_hud_editor_state().unwrap().snap);
+    click(&mut p, "hud.snap");
     assert!(p.mod_ui().mod_hud_editor_state().unwrap().snap);
     let at = point(&p, "hud.card:0");
     p.mod_ui_mut().mod_panel_events(at, true, true);
@@ -379,8 +382,12 @@ fn editor_style_recolors_outlines_and_resize_handles() {
     editor(&mut p, &hud);
     let runtime = UiRuntime::new(1);
     frame(&mut p, &runtime, [1280, 720], 1.);
-    assert!(emits(&p, [0, 0, 255, 255]), "unselected outline");
+    assert!(!emits(&p, [0, 0, 255, 255]), "idle cards draw no outline");
     assert!(emits(&p, [255, 255, 0, 255]), "resize handle");
+    let at = point(&p, "hud.card:0");
+    p.mod_ui_mut().mod_panel_events(at, false, false);
+    frame(&mut p, &runtime, [1280, 720], 1.);
+    assert!(emits(&p, [0, 0, 255, 255]), "hovered outline");
     assert!(
         !emits(&p, [76, 217, 255, 255]),
         "built-in handle color is replaced"

@@ -15,11 +15,14 @@ type DepthSmaaQuery = (
 );
 
 /// Filters scene edges directly into the shared samples before sharp world text.
-pub(crate) fn depth_smaa(
+pub(crate) fn depth_smaa<const AFTER_PACK: bool>(
     world: &World,
     query: bevy::render::renderer::ViewQuery<DepthSmaaQuery>,
     mut context: RenderContext,
 ) -> bevy::ecs::error::Result {
+    if !crate::shaderpack::native_pass_enabled(world, query.entity(), AFTER_PACK) {
+        return Ok(());
+    }
     let (_, target, scene, view, textures, groups, offset) = query.into_inner();
     let context = &mut context;
     let cache = world.resource::<PipelineCache>();

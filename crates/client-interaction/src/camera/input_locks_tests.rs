@@ -257,6 +257,7 @@ fn server_input_locks_gate_non_physics_fly_movement() {
     .insert_resource(AutoFly::new(false))
     .insert_resource(time)
     .insert_resource(input)
+    .init_resource::<CameraSettingsAuthority>()
     .add_systems(Update, update_movement);
     app.world_mut().spawn(FlyCamera::default());
     for (bits, blocked) in [(ClientInputLock::Movement as u32, true), (0, false)] {

@@ -21,6 +21,10 @@
 //! blocks, entities and items; [`BiomeUniforms`] and the `BIOME_*`/`CAT_*`/`PPT_*` macros
 //! describe Java biomes; [`sky_fog`] gives Java's sky and fog colours.
 //!
+//! The player's settings follow Iris: [`OptionSession`] edits values through the pack's
+//! [`OptionMenu`] with [`PackLang`] text, and [`write_option_file`] / [`read_option_file`]
+//! keep them in `<pack>.txt` beside the pack ([`option_file`]).
+//!
 //! Render-host integration and in-game acceptance remain incomplete.
 //! [`CustomUniforms`] evaluates a pack's custom uniform and variable expressions each frame;
 //! nothing uploads or renders them yet.
@@ -34,7 +38,12 @@ mod discover;
 mod environment;
 mod expr;
 mod ids;
+mod install;
 mod java_sky;
+mod lang;
+mod option_file;
+mod option_menu;
+mod option_session;
 mod options;
 mod pack;
 mod preprocess;
@@ -59,8 +68,15 @@ pub use discover::{DiscoveredPack, discover_packs};
 pub use environment::{Environment, GpuVendor, HostOs};
 pub use expr::{BinaryOp, Expr, ExprError, UnaryOp};
 pub use ids::{BlockIdMap, IdMaps, NamedIdMap, RenderLayer, UNMAPPED_BLOCK_ID};
+pub use install::{DropOutcome, add_dropped_packs};
 pub use java_sky::{BiomeColors, FogMedium, SkyFogColors, SkyFogInputs, sky_fog, sunrise_color};
-pub use options::{OptionKind, OptionValues, PackOption};
+pub use lang::{DEFAULT_LANGUAGE, PackLang};
+pub use option_file::{
+    format_option_file, option_file, parse_option_file, read_option_file, write_option_file,
+};
+pub use option_menu::{MenuElement, MenuScreen, OptionMenu, Profile, ProfileScan};
+pub use option_session::OptionSession;
+pub use options::{OptionKind, OptionValues, PackOption, normalize_values};
 pub use pack::{PackTranslation, ShaderPack, TranslateConfig};
 pub use preprocess::ConstDirective;
 pub use programs::{
