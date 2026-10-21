@@ -157,9 +157,11 @@ impl PlayerInventoryLedger {
         Some(sources)
     }
 
-    /// How many times the inventory can craft `recipe` at once, capped at one output stack.
+    /// How many times the inventory can craft `recipe` at once, capped at one output stack
+    /// that one action can move.
     fn max_auto_crafts(&self, recipe: &RecipeHandle, capacity: u8) -> u8 {
-        let per_stack = capacity / recipe.output().count.max(1);
+        let per_stack =
+            super::crafting::output_stack_limit(capacity) / recipe.output().count.max(1);
         let (mut low, mut high) = (0u8, per_stack);
         while low < high {
             let middle = low + (high - low).div_ceil(2);
@@ -263,18 +265,22 @@ impl PlayerInventoryLedger {
         ];
         let mut groups = Vec::new();
         let mut consumed = Vec::new();
-        for (slot, amount, id) in sources {
+        for (slot, total, id) in sources {
             let cell = Cell::Inventory(slot);
-            // Crafting accepts ingredients only from the combined inventory name.
-            actions.push(StackRequestAction::Consume {
-                amount: u8::try_from(amount).map_err(|_| InventoryGestureError::InvalidRequest)?,
-                source: combined_request_slot(slot, id)?,
-            });
-            groups.push(DeltaGroup::Shrink {
-                source: cell,
-                amount,
-                source_id: id,
-            });
+            // Crafting accepts ingredients only from the combined inventory name, and each
+            // consume carries at most one action's amount.
+            for amount in super::crafting::action_amounts(total) {
+                actions.push(StackRequestAction::Consume {
+                    amount: u8::try_from(amount)
+                        .map_err(|_| InventoryGestureError::InvalidRequest)?,
+                    source: combined_request_slot(slot, id)?,
+                });
+                groups.push(DeltaGroup::Shrink {
+                    source: cell,
+                    amount,
+                    source_id: id,
+                });
+            }
             consumed.push(cell);
         }
         // Never into a cell this request empties: a queued earlier request may still rename it.

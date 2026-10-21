@@ -150,7 +150,7 @@ fn a_rejected_book_craft_restores_ingredients_and_removes_the_placed_output() {
 fn book_crafts_consume_and_place_under_the_combined_inventory_name() {
     // Vanilla servers refuse crafting ingredients consumed from the hotbar or inventory names.
     let mut ledger = stocked(&[(0, LOG, 101, 2), (20, LOG, 102, 2)]);
-    ledger.begin_auto_craft(&planks(), true).unwrap();
+    let request = ledger.begin_auto_craft(&planks(), true).unwrap();
     let actions = &ledger.newest_request().unwrap().actions;
     let mut named = 0;
     for action in actions.iter() {
@@ -170,7 +170,7 @@ fn book_crafts_consume_and_place_under_the_combined_inventory_name() {
         }
     }
     assert_eq!(named, 3);
-    assert!(protocol::item_stack_request_packet(-1, actions).is_ok());
+    assert!(protocol::item_stack_request_packet(request, actions).is_ok());
 }
 
 /// A one-log recipe making four planks.
@@ -241,4 +241,54 @@ fn output_never_goes_into_a_slot_the_same_request_empties() {
         .collect();
     assert_eq!(placed, [1]);
     assert!(ledger.displayed_stack(0).is_none());
+}
+
+#[test]
+fn stacks_above_one_action_consume_and_place_in_encodable_amounts() {
+    use protocol::test_support::recipes::{
+        CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture,
+    };
+    let mut fixture = RecipeFixture::shapeless(
+        "test:two_logs",
+        vec![IngredientFixture {
+            count: 2,
+            ..IngredientFixture::named("minecraft:oak_log", 0)
+        }],
+        vec![OutputFixture::new(PLANKS, 1)],
+    );
+    fixture.net_id = 81;
+    let mut catalog = RecipeCatalog::default();
+    catalog.begin_session(1);
+    assert!(catalog.apply(1, 1, &CraftingDataFixture::clearing(vec![fixture]).update()));
+    let recipe = catalog.recipe(81).unwrap();
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    let mut entries = registry().entries.to_vec();
+    for entry in &mut entries {
+        entry.negotiated_max_stack_size = Some(128);
+    }
+    ledger.apply_registry(&ItemRegistryEvent {
+        entries: entries.into(),
+    });
+    let mut slots = vec![NetworkItemStack::default(); PLAYER_INVENTORY_SLOT_COUNT];
+    slots[12] = stack(LOG, 101, 128);
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity::window(0),
+        slots: slots.into(),
+        storage_item: NetworkItemStack::default(),
+    }));
+    ledger.begin_auto_craft(&recipe, true).unwrap();
+    let amounts: Vec<_> = ledger
+        .newest_request()
+        .unwrap()
+        .actions
+        .iter()
+        .filter_map(|action| match action {
+            StackRequestAction::Consume { amount, .. } => Some(("consume", *amount)),
+            StackRequestAction::Place { amount, .. } => Some(("place", *amount)),
+            _ => None,
+        })
+        .collect();
+    // 64 crafts of two logs each: 128 logs in two consumes, 64 planks in one placement.
+    assert_eq!(amounts, [("consume", 64), ("consume", 64), ("place", 64)]);
+    assert!(ledger.pending_batch().unwrap().is_some());
 }

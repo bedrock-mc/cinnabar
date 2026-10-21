@@ -201,7 +201,8 @@ impl PlayerInventoryLedger {
             .negotiated_item_entry(output.network_id)
             .and_then(entry_capacity)
             .ok_or(InventoryGestureError::InvalidRequest)?;
-        let per_scope = capacity
+        // One scope's output moves in a single action, so it stays within one action's amount.
+        let per_scope = output_stack_limit(capacity)
             .checked_div(output.count)
             .filter(|limit| *limit != 0)
             .ok_or(InventoryGestureError::InvalidRequest)?;
@@ -356,16 +357,19 @@ impl PlayerInventoryLedger {
             },
         ];
         let mut groups = Vec::new();
-        for (cell, amount, id) in consumed {
-            actions.push(StackRequestAction::Consume {
-                amount,
-                source: helpers::request_slot(cell, id, None)?,
-            });
-            groups.push(DeltaGroup::Shrink {
-                source: cell,
-                amount: u16::from(amount),
-                source_id: id,
-            });
+        for (cell, total, id) in consumed {
+            for amount in action_amounts(u16::from(total)) {
+                actions.push(StackRequestAction::Consume {
+                    amount: u8::try_from(amount)
+                        .map_err(|_| InventoryGestureError::InvalidRequest)?,
+                    source: helpers::request_slot(cell, id, None)?,
+                });
+                groups.push(DeltaGroup::Shrink {
+                    source: cell,
+                    amount,
+                    source_id: id,
+                });
+            }
         }
         let output_slot = helpers::request_slot(Cell::CreatedOutput, request_id, None)?;
         groups.push(DeltaGroup::Set {
@@ -678,6 +682,17 @@ impl PlayerInventoryLedger {
 /// The most one placement or drop moves: a whole stack, bounded by what one action encodes.
 pub(super) fn action_amount_limit(capacity: u16) -> u16 {
     capacity.min(u16::from(protocol::MAX_STACK_REQUEST_AMOUNT))
+}
+
+/// The most output one craft request creates: one stack, within one action's amount.
+pub(super) fn output_stack_limit(capacity: u8) -> u8 {
+    u8::try_from(action_amount_limit(u16::from(capacity))).unwrap_or(u8::MAX)
+}
+
+/// Splits `total` into the amounts of consecutive actions, each one action's encodable most.
+pub(super) fn action_amounts(total: u16) -> impl Iterator<Item = u16> {
+    let limit = action_amount_limit(u16::MAX);
+    (0..total.div_ceil(limit)).map(move |index| (total - index * limit).min(limit))
 }
 
 /// Finds a complete ingredient assignment, allowing broad matches to move for specific ones.
