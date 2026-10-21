@@ -86,5 +86,6 @@ mod inventory_options_tests;
 mod inventory_overlay_tests;
 mod inventory_timeout_tests;
 mod localized_text_tests;
+mod quick_craft_tests;
 mod retained_bounds_tests;
 mod trading_tests;

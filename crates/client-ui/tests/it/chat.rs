@@ -16,6 +16,34 @@ mod mentions;
 mod submission;
 
 #[test]
+fn actor_display_names_leave_login_chat_identity_intact() {
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_chat_identity("Account Player".into(), "2535".into());
+    for name in ["Ranked Nickname", "Renamed Player"] {
+        runtime.set_local_player_display_name(name.into());
+        assert_eq!(runtime.credits_player_name(), name);
+        runtime.queue_chat_message("hello", 0).unwrap();
+        let (sequence, packet) = runtime.next_chat_packet().unwrap().unwrap();
+        assert_eq!(
+            protocol::encode(&packet).unwrap(),
+            protocol::encode(
+                &protocol::chat_text_packet("Account Player", "2535", "hello").unwrap()
+            )
+            .unwrap()
+        );
+        assert!(runtime.confirm_chat_send(sequence));
+    }
+    runtime.begin_session(2);
+    runtime.set_chat_identity("Next Account".into(), "".into());
+    runtime.queue_chat_message("next", 1).unwrap();
+    let (_, packet) = runtime.next_chat_packet().unwrap().unwrap();
+    assert_eq!(
+        protocol::encode(&packet).unwrap(),
+        protocol::encode(&protocol::chat_text_packet("Next Account", "", "next").unwrap()).unwrap()
+    );
+}
+
+#[test]
 fn accepted_chat_send_clears_editor_and_session_replacement_attributes_drops() {
     let mut player_runtime = player_state::PlayerState::new(11);
 

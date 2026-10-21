@@ -4,6 +4,28 @@ use super::*;
 use oreui::BedHit;
 use ui_screens::chat_screen::ChatHit;
 
+/// Sends Back to the top chat popup before dismissing the chat itself.
+pub(super) fn cancel_from_mouse_back(
+    runtime: &mut UiRuntime,
+    presentation: Option<&mut UiPresentationRuntime>,
+) -> bool {
+    if !runtime.chat_focused() {
+        return false;
+    }
+    if let Some(presentation) = presentation {
+        if presentation.chat_link_confirmation_open() {
+            presentation.cancel_chat_link();
+            return true;
+        }
+        if presentation.chat_settings_open() {
+            presentation.set_chat_settings_open(false);
+            return true;
+        }
+    }
+    runtime.close_chat();
+    true
+}
+
 /// Routes chat pointer actions while a settings modal owns its underlying controls.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_chat_ui_actions(
@@ -11,7 +33,7 @@ pub(crate) fn drive_chat_ui_actions(
     time: Res<Time<Real>>,
     window: Single<&Window, With<PrimaryWindow>>,
     mut menu: Option<ResMut<client_shell::menu::MenuRuntime>>,
-    mouse_buttons: Res<ButtonInput<MouseButton>>,
+    mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
     wheel: Option<Res<AccumulatedMouseScroll>>,
     touches: Res<Touches>,
     gamepads: Query<&Gamepad>,
@@ -33,6 +55,14 @@ pub(crate) fn drive_chat_ui_actions(
     let bed =
         !menu_visible && input_available && runtime.local_sleeping() && !runtime.chat_focused();
     presentation.set_bed_pointer(pointer.filter(|_| bed));
+    if bed && mouse_buttons.just_pressed(MouseButton::Back) {
+        mouse_buttons.reset(MouseButton::Back);
+        runtime.request_wake();
+        if let Some(focus) = focus.as_deref_mut() {
+            focus.authorize_screen_return();
+        }
+        return;
+    }
     if bed && mouse_buttons.just_pressed(MouseButton::Left) {
         match pointer.and_then(|position| presentation.hit_test_bed(position)) {
             Some(BedHit::LeaveBed) => {

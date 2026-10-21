@@ -5,14 +5,17 @@ use std::time::Duration;
 use crate::menu::MenuRuntime;
 use crate::ui_resources::UiRuntimeResource;
 use bevy::prelude::*;
-use launcher::menu::settings_options::DISCORD_PRESENCE_OPTION;
-use rich_presence::{Presence, State};
+use launcher::menu::settings_options::{
+    DISCORD_ALLOW_JOINS_OPTION, DISCORD_PARTY_SIZE_OPTION, DISCORD_PRESENCE_OPTION,
+    DISCORD_SERVER_DETAILS_OPTION, DISCORD_TIMESTAMP_OPTION,
+};
+use rich_presence::{Presence, PresenceSettings, State};
 use ui::LoadingStage;
 
 #[derive(Resource)]
 struct DiscordPresence {
     application_id: u64,
-    /// Dropped while the Video setting is off, which closes the pipe and clears the activity.
+    /// Dropped while the Discord setting is off, which closes the pipe and clears the activity.
     presence: Option<Presence>,
 }
 
@@ -78,7 +81,8 @@ fn update(
     ui: Res<crate::ui_resources::UiPresentationResource>,
 ) {
     let now = time.elapsed();
-    if menu.settings_snapshot().0.value(DISCORD_PRESENCE_OPTION.id) == 0 {
+    let settings = menu.settings_snapshot().0;
+    if settings.value(DISCORD_PRESENCE_OPTION.id) == 0 {
         // Nothing new arrives while presence is off, so its requests go with it.
         if discord.presence.is_some() {
             discord.presence = None;
@@ -93,11 +97,25 @@ fn update(
         menu.is_launcher(),
         world.failed,
     );
+    let presence_settings = PresenceSettings {
+        show_server_details: settings.value(DISCORD_SERVER_DETAILS_OPTION.id) != 0,
+        show_party_size: settings.value(DISCORD_PARTY_SIZE_OPTION.id) != 0,
+        allow_joins: settings.value(DISCORD_ALLOW_JOINS_OPTION.id) != 0,
+        show_timestamp: settings.value(DISCORD_TIMESTAMP_OPTION.id) != 0,
+    };
     let application_id = discord.application_id;
     let presence = discord
         .presence
         .get_or_insert_with(|| Presence::start(application_id));
-    presence.update(state, world.target.as_ref(), world.players);
+    presence.update_with_settings(
+        state,
+        world.target.as_ref(),
+        world.players,
+        presence_settings,
+    );
+    if !presence_settings.allow_joins {
+        menu.clear_join_requests();
+    }
     relay_join_requests(presence, &mut menu, now);
     menu.sync_join_toast(&mut runtime, now);
     // A direct `--address` session has no launcher to join through.

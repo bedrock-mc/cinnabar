@@ -139,9 +139,9 @@ fn the_vsync_setting_applies_the_surface_latency_policy() {
     );
 }
 
-/// Presentation updates retain measured queue choices instead of restoring the startup default.
+/// Published adaptive depths never reach the window: the queue depth stays fixed.
 #[test]
-fn repeated_presentation_updates_preserve_adaptive_frame_latency() {
+fn presentation_updates_keep_the_fixed_frame_latency() {
     let mut app = vsync_app(PresentModeRuntime::from_startup(false, false, false, false));
     publish_vsync(&mut app, true);
     let policy = app.world().resource::<PresentModeRuntime>().policy();
@@ -156,7 +156,7 @@ fn repeated_presentation_updates_preserve_adaptive_frame_latency() {
                 .unwrap();
             assert_eq!(
                 window.desired_maximum_frame_latency,
-                Some(policy.frame_latency_for_vsync(true))
+                Some(render::frame_latency_for_vsync(true))
             );
         }
     }

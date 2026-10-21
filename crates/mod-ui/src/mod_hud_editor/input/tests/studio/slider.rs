@@ -86,6 +86,33 @@ fn scale_slider_gesture_ending_at_its_start_records_nothing() {
     }
 }
 
+/// Captions keep their bindings while an active slider freezes inspector placement.
+#[test]
+fn selection_caption_remains_bound_during_scale_slider_drag() {
+    let mut editor = scale_editor(true);
+    editor.draft.editor_style = Some(ui::mod_hud::EditorStyle {
+        selection_caption: true,
+        ..Default::default()
+    });
+    editor.data();
+    let inspector = editor.inspector.at;
+    let at = slider(&mut editor, "hud.scale");
+    editor.pointer(at(at_scale(1.)), true, true, &mut []);
+    editor.pointer(at(at_scale(1.5)), false, true, &mut []);
+    assert!(editor.scaling());
+    let data = editor.data();
+    assert_eq!(
+        data.global_value("#hud_caption_visible"),
+        Some(&Scalar::Bool(true))
+    );
+    assert_eq!(
+        data.global_value("#hud_selected_scale_text"),
+        Some(&Scalar::Text("150%".into()))
+    );
+    assert!(data.global_value("#hud_caption_offset").is_some());
+    assert_eq!(editor.inspector.at, inspector);
+}
+
 #[test]
 fn scale_slider_cancellation_restores_the_pre_gesture_scale() {
     for cancel in ["pointer", "Escape", "undo", "ownership"] {

@@ -294,6 +294,44 @@ fn block_expressions_read_block_states() {
     assert_eq!(evaluate("math.random(0, 1) > 0.5"), None);
 }
 
+// Scripted conditions must evaluate, or their permutations never apply.
+#[test]
+fn block_scripts_assign_branch_and_return() {
+    let state = |name: &str| match name {
+        "minecraft:cardinal_direction" => Some(BlockStateValue::String("north")),
+        "test:level" => Some(BlockStateValue::Number(3.0)),
+        _ => None,
+    };
+    let evaluate = |source| BlockMolang::parse(source)?.evaluate(&state);
+    assert_eq!(
+        evaluate("t.level = q.block_state('test:level'); return t.level > 2;"),
+        Some(1.0)
+    );
+    assert_eq!(
+        evaluate(
+            "temp.facing = q.block_state('minecraft:cardinal_direction'); \
+             return temp.facing == 'north';"
+        ),
+        Some(1.0)
+    );
+    assert_eq!(
+        evaluate("q.block_state('test:level') > 1 ? { return 2; }; return 5;"),
+        Some(2.0)
+    );
+    assert_eq!(evaluate("{ v.x = 4; }; return v.x + t.unset;"), Some(4.0));
+    assert_eq!(
+        evaluate("t.x = 1;"),
+        Some(0.0),
+        "a script without return reads zero"
+    );
+    assert_eq!(evaluate("return;"), Some(0.0));
+    assert_eq!(evaluate("loop(2, { t.x = 1; }); return t.x;"), None);
+    assert_eq!(
+        evaluate("t.x = q.block_state('test:missing'); return 1;"),
+        None
+    );
+}
+
 #[test]
 fn block_property_alias_reads_the_same_named_state() {
     let state = |name: &str| match name {

@@ -305,6 +305,9 @@ func newUpstreamDialerForAdmission(
 		TokenSource:       tokenSource,
 		ResourcePackCache: resourcePackCache,
 	}
+	// Let the dialer fill this from its final login identity, including the token's
+	// name. Offline listeners parse this field as DisplayName even for signed-in clients.
+	dialer.ClientData.ThirdPartyName = ""
 	if tokenSource == nil {
 		identity := downstream.IdentityData()
 		dialer.IdentityData = login.IdentityData{
