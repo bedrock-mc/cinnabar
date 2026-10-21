@@ -125,8 +125,9 @@ pub struct ShaderPackFrameInputs {
     /// Frozen `frameTimeCounter` in seconds for captures (developer `--frame-time-counter`);
     /// `None` counts real time.
     pub frame_time_counter: Option<f32>,
-    /// Blocks from the camera along its view direction to the first non-air block, `None`
-    /// when nothing is in range; `centerDepthSmooth` smooths its depth-buffer value.
+    /// Blocks along the camera ray to terrain geometry; models use their surfaces, while
+    /// cubes and liquids use cell boundaries. `None` when nothing is in range.
+    /// `centerDepthSmooth` smooths the corresponding depth-buffer value.
     pub center_distance: Option<f32>,
     /// Fog start and end distances in blocks (`fogStart`, `fogEnd`).
     pub fog_range: [f32; 2],

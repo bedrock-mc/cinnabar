@@ -36,9 +36,9 @@ struct SkinParams {
 
 const SKIN_WORKGROUP_SIZE: u32 = 64u;
 // The job's positions are already in view space (the first-person hand).
-const JOB_VIEW_SPACE: u32 = 1u;
+const JOB_VIEW_SPACE: u32 = JOB_VIEW_SPACE_FLAG;
 // The instance's material culls back faces even where the rig authors them.
-const JOB_ONE_SIDED: u32 = 2u;
+const JOB_ONE_SIDED: u32 = JOB_ONE_SIDED_FLAG;
 // Glint jobs have separate vertex colours and sprite-local UVs.
 const JOB_GLINT: u32 = JOB_GLINT_FLAG;
 
@@ -270,7 +270,7 @@ fn convert_block_entities(
     var normal = vec3(block_f32(base + 9u), block_f32(base + 10u), block_f32(base + 11u));
     let positions = array(corners[0].position, corners[1].position, corners[2].position);
     let uvs = array(corners[0].uv, corners[1].uv, corners[2].uv);
-    let face = cross(positions[1] - positions[0], positions[2] - positions[0]);
+    let face = cross(positions[2] - positions[0], positions[1] - positions[0]);
     if (beam || dot(normal, normal) < 1e-6) {
         normal = select(vec3(0.0, 1.0, 0.0), normalize(face), dot(face, face) > 1e-12);
     }

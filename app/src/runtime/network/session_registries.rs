@@ -84,6 +84,7 @@ impl RegistryBase {
             overlay_ids.as_ref(),
             packs.block_overlay.as_ref(),
         );
+        let mining_filters = Arc::new(pack_runtime::CustomMiningFilters::new(custom));
         (!cancelled()).then_some(PreparedSessionRegistries {
             generation,
             hashed,
@@ -93,6 +94,7 @@ impl RegistryBase {
             registration,
             identities,
             assets,
+            mining_filters,
         })
     }
 }
@@ -108,6 +110,7 @@ pub(super) struct PreparedSessionRegistries {
     pub(super) registration: SessionBlockRegistration,
     pub(super) identities: client_world::PreparedBlockIdentities,
     pub(super) assets: Arc<assets::RuntimeAssets>,
+    pub(super) mining_filters: Arc<pack_runtime::CustomMiningFilters>,
 }
 
 impl std::fmt::Debug for PreparedSessionRegistries {

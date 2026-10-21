@@ -9,6 +9,8 @@ use wasmparser::{
 use wasmtime::{ExternType, Module};
 
 pub(super) const NATIVE_INIT: &str = "native-init";
+pub(super) const RENDER_FRAME: &str = "render-frame";
+pub(super) const CAMERA_FRAME: &str = "camera-frame";
 pub(super) const FRAME: &str = "frame";
 pub(super) const MENU: &str = "menu";
 
@@ -21,7 +23,7 @@ struct Export {
 }
 
 /// Every native export's ABI and authority live together; discovery never grants authority.
-const EXPORTS: [Export; 3] = [
+const EXPORTS: [Export; 5] = [
     Export {
         name: NATIVE_INIT,
         params: 1,
@@ -37,6 +39,28 @@ const EXPORTS: [Export; 3] = [
         required: || ModGrants {
             players: true,
             camera: true,
+            ..Default::default()
+        },
+    },
+    Export {
+        name: CAMERA_FRAME,
+        params: 2,
+        results: 1,
+        capability: mod_api::native_camera::CAPABILITY,
+        required: || ModGrants {
+            camera: true,
+            movement: true,
+            ..Default::default()
+        },
+    },
+    Export {
+        name: RENDER_FRAME,
+        params: 2,
+        results: 1,
+        capability: mod_api::native_render::CAPABILITY,
+        required: || ModGrants {
+            world_draw: true,
+            render_through_walls: true,
             ..Default::default()
         },
     },
@@ -126,7 +150,7 @@ impl NativeExports {
     /// Computes callback bits only where the caller explicitly granted every required field.
     pub(super) fn negotiate(&self, granted: &ModGrants) -> Result<u32> {
         self.validate()?;
-        Ok(EXPORTS
+        let mut bits = EXPORTS
             .iter()
             .zip(&self.signatures)
             .filter(|(_, signature)| **signature == Some(true))
@@ -136,7 +160,19 @@ impl NativeExports {
                     .iter()
                     .all(|grant| (grant.requested_allowed)(granted, &required))
             })
-            .fold(0, |bits, (export, _)| bits | export.capability))
+            .fold(0, |bits, (export, _)| bits | export.capability);
+        if bits & mod_api::native_camera::CAPABILITY != 0 {
+            bits |= mod_api::native_camera::INPUT_INTENTS;
+        }
+        if bits & mod_api::native_render::CAPABILITY != 0 {
+            if granted.entity_observe && granted.entity_highlight {
+                bits |= mod_api::native_render::ENTITY_HIGHLIGHTS;
+            }
+            if granted.block_highlights {
+                bits |= mod_api::native_render::BLOCK_HIGHLIGHTS;
+            }
+        }
+        Ok(bits)
     }
 
     /// Synthesizes permission requests for a valid ABI without changing any stored grants.
@@ -155,6 +191,11 @@ impl NativeExports {
                     (grant.set)(&mut requested, true, Some(&required));
                 }
             }
+        }
+        if requested.world_draw {
+            requested.entity_observe = true;
+            requested.entity_highlight = true;
+            requested.block_highlights = true;
         }
         requested
     }

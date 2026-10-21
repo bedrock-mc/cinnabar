@@ -336,14 +336,14 @@ impl ViewActors {
                     };
                     let texture_matrix = glint_texture_matrix(data.glint, scale);
                     let strength = data.glint[2];
+                    let [red, green, blue] =
+                        render_model::ActorGlint::TINT_RGB.map(|value| value * strength);
                     let glint_first = *output;
                     self.jobs.push(SkinJob {
                         first_output: glint_first as u32,
                         first_output_high: (glint_first >> 32) as u32,
                         flags: job.flags | JOB_GLINT,
-                        colour: render_model::pack_overlay_rgba8([
-                            strength, strength, strength, 1.0,
-                        ]),
+                        colour: render_model::pack_overlay_rgba8([red, green, blue, 1.0]),
                         ..job
                     });
                     *output += u64::from(job.output_vertices());

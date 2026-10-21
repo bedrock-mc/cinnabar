@@ -217,6 +217,7 @@ fn crosshair_menu_panel_close_restores_cursor_while_exit_is_still_painted() {
         .facts
         .publish_player_game_mode(PlayerGameMode::Survival);
     let mut panel = mod_ui::test_support::sample_panel();
+    panel.motion = true;
     panel.surface = Some(Surface {
         collections: Default::default(),
         previews: Default::default(),

@@ -135,9 +135,11 @@ impl Control {
                 Self::Text {
                     min_chars,
                     max_chars,
+                    live,
+                    navigation_keys,
                     ..
                 } => {
-                    matches!(other,Self::Text {min_chars:b_min,max_chars:b_max,..} if (min_chars,max_chars)==(b_min,b_max))
+                    matches!(other,Self::Text {min_chars:b_min,max_chars:b_max,live:b_live,navigation_keys:b_keys,..} if (min_chars,max_chars,live,navigation_keys)==(b_min,b_max,b_live,b_keys))
                 }
             }
     }
@@ -164,6 +166,9 @@ pub struct PanelPatch {
     collection_order: BTreeMap<String, Vec<usize>>,
     #[serde(default)]
     capture_key: Option<bool>,
+    /// Changes the retained animation preference without replacing the panel schema.
+    #[serde(default)]
+    motion: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -291,6 +296,9 @@ impl PanelPatch {
         }
         if let Some(capture) = self.capture_key {
             panel.capture_key = capture;
+        }
+        if let Some(motion) = self.motion {
+            panel.motion = motion;
         }
         for (name, order) in self.collection_order {
             let collection = panel

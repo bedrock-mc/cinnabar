@@ -82,7 +82,7 @@ fn enabled_full_screen_programs_run_in_frame_order() {
     let (runnable, plans) = runnable_programs(&translation).expect("fixture programs translate");
     let names: Vec<&str> = runnable.iter().map(|p| p.program.name.as_str()).collect();
     assert_eq!(names, ["deferred", "composite", "composite2", "final"]);
-    let frame = plan_frame(&plans, &translation.properties.flips);
+    let frame = plan_frame(&plans, &translation.properties.flips).unwrap();
     let writes: Vec<_> = frame.post.iter().map(|s| s.writes.clone()).collect();
     assert_eq!(
         writes,
@@ -767,21 +767,36 @@ fn programs_without_colour_outputs_load_and_keep_their_stores() {
 
 #[test]
 fn a_rejected_required_actor_pipeline_keeps_native_world_rendering() {
-    let Some(gpu) = gpu() else {
-        eprintln!("missing fixture: native GPU adapter for the shader pack frame");
-        return;
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::NOOP,
+        backend_options: wgpu::BackendOptions {
+            noop: wgpu::NoopBackendOptions {
+                enable: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    let adapter = bevy::tasks::block_on(instance.request_adapter(&Default::default())).unwrap();
+    let (device, queue) =
+        bevy::tasks::block_on(adapter.request_device(&Default::default())).unwrap();
+    let gpu = GpuContext {
+        device,
+        queue,
+        adapter,
     };
-    // Integer fragment output cannot bind the default normalized color target.
+    // Integer tangents cannot bind the actor vertex stream.
     let pack = pack(&[
         ("gbuffers_basic.vsh", PASS_VERTEX),
         ("gbuffers_basic.fsh", FILL),
         ("gbuffers_terrain.vsh", PASS_VERTEX),
         ("gbuffers_terrain.fsh", FILL),
-        ("gbuffers_entities.vsh", PASS_VERTEX),
         (
-            "gbuffers_entities.fsh",
-            "#version 430\nlayout(location=0) out uvec4 colour; void main() { colour = uvec4(1); }",
+            "gbuffers_entities.vsh",
+            "#version 130\nin ivec4 at_tangent; void main() { gl_Position = vec4(at_tangent); }",
         ),
+        ("gbuffers_entities.fsh", FILL),
     ]);
     let pack = build(
         &pack,
@@ -797,6 +812,10 @@ fn a_rejected_required_actor_pipeline_keeps_native_world_rendering() {
         .iter()
         .position(|p| p.name == "gbuffers_entities")
         .expect("gbuffers_entities translated");
+    assert!(
+        super::actors::layout::vertex_layouts(&pack.programs[entities].reflection.vertex_inputs)
+            .is_err()
+    );
     assert!(
         pack.draws.is_empty(),
         "a rejected required draw retains the native world path"
@@ -1084,3 +1103,5 @@ fn an_available_adapter_cannot_silently_skip_frame_fixtures() {
         Err(error) => panic!("fixture-device admission adapter: {error}"),
     }
 }
+
+mod admission;
