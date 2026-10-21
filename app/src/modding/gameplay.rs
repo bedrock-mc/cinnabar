@@ -81,7 +81,7 @@ impl GameplayContext<'_> {
             let eye = self.view.as_ref()?.eye_translation().to_array();
             return Some(mod_api::native_frame::Frame {
                 version: mod_api::native_frame::VERSION,
-                session: ui.session_id(),
+                session: world.stream.as_ref()?.authority().actor_session_id(),
                 dimension: world.stream.as_ref()?.current_dimension(),
                 eye,
                 yaw: 0.0,
