@@ -27,14 +27,15 @@ defaults, bounds, cheat gating and BDS destinations. Changing a cheat setting en
 turning cheats off restores the gated rules' defaults.
 
 World metadata stores individual pending edits and inactive preferences. After a successful open,
-the world file supplies the current
-rules, including changes saved during play. Before BDS starts, the host updates the owned fields
-in `level.dat` and preserves other tags. Game rules, starting map, bonus chest, sleep settings,
+the world file supplies the current rules, including changes saved during play. Before BDS starts,
+the host updates the owned fields in `level.dat` and preserves other tags. Game rules, starting map,
+bonus chest, sleep settings,
 respawn radius and daylight settings use level data. Server properties apply cheats, simulation
-distance, default player permissions and LAN discovery to both native and container servers. Turning multiplayer off limits
-the server to its host, withdraws friend hosting and disables discovery. Reopening waits for the prior
-server to finish saving before it reloads rules and applies pending edits. Seed and terrain apply during creation; starting
-map and bonus chest are also fixed after creation. The edit screen exposes the remaining options.
+distance, default player permissions and LAN discovery to both native and container servers.
+Turning multiplayer off limits the server to its host, withdraws friend hosting and disables discovery.
+Reopening waits for the prior server to finish saving before it reloads rules and applies pending edits.
+Seed and terrain apply during creation; starting map and bonus chest are also fixed after creation.
+The edit screen exposes the remaining options.
 Older and imported worlds recover their options from level data.
 
 Resource packs, behaviour packs and experiments remain unavailable. Xbox Live, Realms and
@@ -64,17 +65,17 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
   BDS sees `db/` through a directory link at `worlds/<id>` (junction on Windows) or a bind mount, so one world
   runs at a time. Worlds move between backends only where formats allow; dragonfly-written `level.dat` files may
   not satisfy BDS and vice versa, so do not share one folder across backends.
-- **server.properties / env:** name, gamemode, difficulty, seed, level type, `online-mode=false`, `max-players=1`,
-  view and tick distance from the client's `view_distance` (5-32), `transport=raknet` (1.26.5x defaults to NetherNet,
-  which the core cannot dial) and `enable-lan-visibility=false`. Seed and level type apply at creation only.
+- **server.properties / env:** name, gamemode, difficulty, seed, level type, `online-mode=false`,
+  the multiplayer player limit, client view distance (5–32), independent simulation distance (4–12),
+  `transport=nethernet` and the world's LAN visibility preference. Seed and level type apply at creation only.
 - **Dragonfly terrain:** the core forwards the saved generator and signed seed to the local server. Normal uses
   the pinned `bedrock-mc/vanilla-gen` generators for Overworld, Nether and End. Its initial spawn comes from the
   generator; reopening preserves the saved spawn and chunks. Flat retains Dragonfly's default generators.
 - **Dragonfly animals:** Passive animal simulation and natural population are unsupported. Previously saved
   unsupported actors retain their stored data when their chunks are saved, but are not loaded as live entities.
 - **Downloads** name the agent `Cinnabar-local-worlds`; minecraft.net resets unnamed downloaders.
-- **Exposure:** BDS cannot bind loopback only; it listens on all interfaces on a random port, offline, one slot.
-  The container maps its port to `127.0.0.1` only.
+- **Exposure:** native BDS listens on a random port with offline authentication and the configured player limit.
+  The container publishes its transport and enabled discovery ports on `127.0.0.1` only.
 - **Lifecycle:** ready on "Server started."; stop is `docker stop` (container) or `stop` on stdin, then kill after 30 s.
   Server processes are tracked children: on exit the client asks the open world's server to stop its
   own way (`stop`, or `docker stop`), cancels a start in progress, and gives the server its 30 s save
@@ -102,7 +103,8 @@ The launcher reports the open world to the core with `local_world.v1`: `state` (
 (`address`, `transport` = `raknet` | `nethernet` | `nethernet-lan`, `lan_address`, `level_name`) and a path-free
 `error` while failed. The menu treats a world as ready only once the core has acknowledged the running server's exact route. A session waits while the world starts, fails while it stops or has failed, and falls
 through to other routes only when idle. A world that begins opening clears any `connect.v1` selection and
-pending transfer. The core hosts a running BDS world to Xbox friends and serves `world_invite.v1` for it.
+pending transfer. When multiplayer is enabled, the core hosts a running BDS world to Xbox friends
+and serves `world_invite.v1` for it.
 
 ## Client
 
