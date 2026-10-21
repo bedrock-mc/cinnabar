@@ -17,7 +17,7 @@ fn named(tag: u8, name: &str) -> Vec<u8> {
 }
 
 #[test]
-fn singleton_unnamed_properties_do_not_form_partial_state_identities() {
+fn nameless_properties_take_the_empty_state_name() {
     for with_named_property in [false, true] {
         let mut nbt = named(10, "");
         nbt.extend(named(9, "properties"));
@@ -42,13 +42,11 @@ fn singleton_unnamed_properties_do_not_form_partial_state_identities() {
         assert_eq!(block.state_count, 1);
         assert_eq!(
             block.visual.state_axes.len(),
-            usize::from(with_named_property)
+            1 + usize::from(with_named_property)
         );
+        assert_eq!(block.visual.state_axes.last().unwrap().name.as_ref(), "");
         assert!(block.collides);
-        assert!(
-            block.hashed_states().is_empty(),
-            "an unnamed singleton cannot create an identity; named_neighbor={with_named_property}"
-        );
+        assert_eq!(block.hashed_states().len(), 1);
     }
 }
 

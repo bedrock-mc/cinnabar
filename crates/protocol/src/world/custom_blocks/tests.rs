@@ -345,9 +345,9 @@ fn hashed_states_follow_palette_order() {
     }
 }
 
-// Unnamed properties still count toward the palette but cannot be decoded.
+// A nameless property is the client's empty-named state.
 #[test]
-fn states_the_axes_cannot_account_for_are_not_decoded() {
+fn nameless_properties_decode_under_the_empty_name() {
     let block = custom_block(
         "ns:b",
         &compound(vec![(
@@ -358,7 +358,11 @@ fn states_the_axes_cannot_account_for_are_not_decoded() {
             )])]),
         )]),
     );
-    assert_eq!((block.state_count, block.state_values(0)), (2, None));
+    assert_eq!(block.state_count, 2);
+    assert_eq!(
+        block.state_values(1).as_deref(),
+        Some([CustomStateValue::Int(1)].as_slice())
+    );
 }
 
 #[test]
