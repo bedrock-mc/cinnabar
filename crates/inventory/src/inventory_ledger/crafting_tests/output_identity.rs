@@ -86,15 +86,13 @@ fn station_crafting_preserves_high_bit_block_output_identities() {
     let mut ledger = ledger(WORKBENCH_WINDOW_TYPE);
     ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
         container: ContainerIdentity::window(7),
-        window_type: protocol::WINDOW_TYPE_STONECUTTER,
+        window_type: protocol::WINDOW_TYPE_SMITHING_TABLE,
         position: [0, 64, 0],
         runtime_entity_id: -1,
     }));
-    assert_eq!(
-        ledger.window_kind(),
-        Some(protocol::WindowKind::Stonecutter)
-    );
-    ledger.apply(&craft_slot(3, stack(LOG, 101, 1)));
+    // The smithing table declares its result; the stonecutter's server derives it.
+    assert_eq!(ledger.window_kind(), Some(protocol::WindowKind::Smithing));
+    ledger.apply(&craft_slot(51, stack(LOG, 101, 1)));
     ledger
         .begin_screen_output(&ScreenCraft::Predicted {
             recipe_network_id: recipe.network_id(),
