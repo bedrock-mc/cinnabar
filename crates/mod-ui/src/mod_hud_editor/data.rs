@@ -4,31 +4,39 @@ use super::*;
 
 impl HudEditor {
     /// Binds changing values without regenerating the catalog.
-    pub(super) fn data(&self) -> DataSource {
+    pub(super) fn data(&mut self) -> DataSource {
         let mut data = cards::data(&self.draft, self.viewport);
         if let Some(surface) = &self.draft.surface {
             crate::mod_panel::surface::bind(surface, &mut data);
             crate::mod_panel::surface::viewport(&mut data, self.viewport);
         }
         data.set_global("#editor_label", Scalar::Text(self.editor_label().into()));
-        data.set_global("#grid_visible", Scalar::Bool(self.snap));
+        data.set_global("#grid_visible", Scalar::Bool(self.grid));
         data.set_global(
             "#grid_label",
-            Scalar::Text(if self.snap { "Grid: ON" } else { "Grid: OFF" }.into()),
+            Scalar::Text(if self.grid { "Grid: ON" } else { "Grid: OFF" }.into()),
+        );
+        data.set_global(
+            "#snap_label",
+            Scalar::Text(if self.snap { "Snap: ON" } else { "Snap: OFF" }.into()),
         );
         for (name, value) in [
+            ("#hud_grid_on", self.grid),
+            ("#hud_snap_on", self.snap),
             ("#hud_can_undo", self.history.available()[0]),
             ("#hud_can_redo", self.history.available()[1]),
         ] {
             data.set_global(name, Scalar::Bool(value));
         }
         data.set_global("#hud_toast", Scalar::Text(self.toast.text.clone()));
+        data.set_global("#hud_viewport_w", Scalar::Num(self.viewport[0]));
+        data.set_global("#hud_viewport_h", Scalar::Num(self.viewport[1]));
         self.write_geometry(&mut data);
         data
     }
 
     /// Shares displayed geometry and hidden-card filtering between paint and text measurement.
-    pub(super) fn write_geometry(&self, data: &mut DataSource) {
+    pub(super) fn write_geometry(&mut self, data: &mut DataSource) {
         data.set_global("#hud_dragging", Scalar::Bool(self.drag.is_some()));
         for axis in 0..2 {
             let guide = self.drag.as_ref().and_then(|drag| drag.guides[axis]);
@@ -46,6 +54,7 @@ impl HudEditor {
         let style = self.draft.editor_style.unwrap_or_default();
         for (index, card) in self.draft.cards.iter().enumerate() {
             let visible = !self.hidden.contains(&card.id);
+            data.set_global(format!("#card_{index}_visible"), Scalar::Bool(visible));
             data.set_global(format!("#hud_card_{index}_visible"), Scalar::Bool(visible));
             data.set_global(
                 format!("#hud_card_{index}_name"),
@@ -100,7 +109,7 @@ impl HudEditor {
     }
 
     /// Publishes inspector values from the same displayed rectangle used by pointer bounds.
-    fn write_selection(&self, data: &mut DataSource) {
+    fn write_selection(&mut self, data: &mut DataSource) {
         let selected = self
             .selected
             .filter(|index| *index < self.draft.cards.len());
@@ -136,6 +145,17 @@ impl HudEditor {
                 card.map_or_else(String::new, |card| format!("{:.0}%", card.scale * 100.)),
             ),
         );
+        self.inspector.update(
+            selected.map(|_| [at[0], at[1], size[0], size[1]]),
+            self.viewport,
+            self.draft.inspector_size,
+        );
+        for (name, value) in [
+            ("#hud_inspector_x", self.inspector.at[0]),
+            ("#hud_inspector_y", self.inspector.at[1]),
+        ] {
+            data.set_global(name, Scalar::Num(value));
+        }
     }
 
     /// Names the hovered widget or current selection without placing labels over nearby cards.

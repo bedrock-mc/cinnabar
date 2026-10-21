@@ -128,8 +128,11 @@ impl DrawKind {
     }
 
     /// Drawn after the deferred passes, on the side composite passes read.
-    pub(crate) fn after_deferred(self) -> bool {
-        self == DrawKind::Translucent
+    pub(crate) fn after_deferred(self, settings: &EffectSettings) -> bool {
+        match self {
+            DrawKind::Effect(effect) => settings.after_deferred(effect),
+            _ => self == DrawKind::Translucent,
+        }
     }
 
     /// Tests depth: everything but the sky and the sky effects, which draw behind everything.

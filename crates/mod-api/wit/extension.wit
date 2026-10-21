@@ -175,6 +175,9 @@ interface panel {
     set-content: func(json: string) -> result<_, string>;
     /// Applies a bounded sparse control patch and registered surface route atomically.
     /// Omitting controls preserves them; bindings, when present, replace custom scalars.
+    /// The JSON record optionally accepts collection_reveal: {collection: string, item: u32}.
+    /// The item is its immutable published index, resolved through the accepted collection_order.
+    /// Each request is consumed once; a filtered-out item is ignored.
     update-content: func(json: string) -> result<_, string>;
 }
 

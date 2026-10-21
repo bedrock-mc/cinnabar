@@ -26,6 +26,8 @@ pub struct HudEditorState<'a> {
     pub frame: Option<&'a EngineFrame>,
     pub view: &'a ViewState,
     pub viewport: [f64; 2],
+    /// Whether the editor grid overlay is enabled independently of snapping.
+    pub grid: bool,
     pub snap: bool,
     /// Bind and layout passes performed by the retained editor screen.
     pub passes: usize,

@@ -4,6 +4,25 @@ use ui::mod_panel::{Control, Panel, Theme};
 
 use super::widgets::Palette;
 
+/// Compares mutable binding inputs after the caller proves both panels use the same template.
+pub(super) fn same_values(a: &Panel, b: &Panel) -> bool {
+    a.controls == b.controls
+        && a.motion == b.motion
+        && match (&a.surface, &b.surface) {
+            (Some(a), Some(b)) => {
+                a.bindings == b.bindings
+                    && a.transitions == b.transitions
+                    && a.collections.iter().all(|(name, collection)| {
+                        b.collections
+                            .get(name)
+                            .is_some_and(|other| collection.order == other.order)
+                    })
+            }
+            (None, None) => true,
+            _ => false,
+        }
+}
+
 pub(super) fn control_data(panel: &Panel) -> DataSource {
     let mut data = DataSource::new();
     let palette = Palette::for_panel(panel);

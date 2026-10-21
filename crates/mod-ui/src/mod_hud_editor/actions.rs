@@ -26,6 +26,15 @@ impl HudEditor {
             }]);
         }
         match action {
+            "hud.grid" | "hud.snap" => {
+                self.cancel_drag();
+                if action == "hud.grid" {
+                    self.grid = !self.grid;
+                } else {
+                    self.snap = !self.snap;
+                }
+                self.data_dirty = true;
+            }
             "hud.undo" => self.step_history(false),
             "hud.redo" => self.step_history(true),
             "hud.scale_down" | "hud.scale_up" => {
@@ -78,7 +87,7 @@ impl HudEditor {
                             let from = self.card_origin(index);
                             let card = &mut self.draft.cards[index];
                             card.anchor = anchor;
-                            card.offset = anchor.editor_offset(snapping::GRID as f32);
+                            card.offset = anchor.editor_offset(EDITOR_MARGIN as f32);
                             card.position = None;
                             self.anchor_motion = Some(motion::AnchorMotion::new(index, from));
                             self.data_dirty = true;
