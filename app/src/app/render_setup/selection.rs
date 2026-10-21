@@ -1,26 +1,69 @@
 //! Probes APIs separately, ranks eligible adapters, and exhausts device candidates.
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use launcher::graphics_backend::{Adapter, Backend, Platform, blocklist, default_order};
 use launcher_host::renderer_startup::{Attempt, Stage, StartupGuard};
 
 use super::device::log;
 
-/// Falls back to Auto for this launch after a saved Video choice fails; the environment is strict.
+/// A saved Video choice this launch could not use, so Auto chose without it.
+#[derive(Debug, Eq, PartialEq)]
+pub(super) struct VideoFallback {
+    pub requested: Backend,
+    pub reason: String,
+}
+
+/// Tries a saved Video choice, then Auto without that API for this launch; the environment is
+/// strict. A `crashed` choice is skipped until the setting changes. `attempt` receives the Video
+/// choice and the APIs this launch excludes.
 pub(super) fn with_video_fallback<T>(
     environment: bool,
     video: Option<Backend>,
-    mut attempt: impl FnMut(Option<Backend>) -> Result<T>,
-) -> Result<T> {
-    match attempt(video) {
-        Err(error) if !environment && video.is_some() => {
-            log(format_args!(
-                "Saved Graphics API {video:?} failed: {error:#}; falling back to Auto for this launch"
-            ));
-            attempt(None)
+    crashed: Option<Backend>,
+    mut attempt: impl FnMut(Option<Backend>, &[Backend]) -> Result<T>,
+) -> Result<(T, Option<VideoFallback>)> {
+    let Some(requested) = video.filter(|_| !environment) else {
+        return attempt(video, &[]).map(|renderer| (renderer, None));
+    };
+    let reason = if crashed == Some(requested) {
+        "it stopped an earlier launch before the first frame".to_owned()
+    } else {
+        match attempt(video, &[]) {
+            Ok(renderer) => return Ok((renderer, None)),
+            Err(error) => format!("{error:#}"),
         }
-        result => result,
-    }
+    };
+    log(format_args!(
+        "WARNING: Graphics API {requested:?} from the Video setting cannot be used: {reason}; \
+         trying Auto without it for this launch"
+    ));
+    let renderer = attempt(None, &[requested]).with_context(|| {
+        format!("Graphics API {requested:?} cannot be used ({reason}), and Auto also failed")
+    })?;
+    Ok((renderer, Some(VideoFallback { requested, reason })))
+}
+
+/// States the requested API, the API in use and why, for the startup log.
+pub(super) fn summary(
+    environment: Option<&[Backend]>,
+    video: Option<Backend>,
+    chosen: Backend,
+    fallback: Option<&VideoFallback>,
+) -> String {
+    let requested = match (environment, video) {
+        (Some(apis), _) => format!("{apis:?} from WGPU_BACKEND"),
+        (None, Some(api)) => format!("{api:?} from the Video setting"),
+        (None, None) => "Auto".to_owned(),
+    };
+    let why = match fallback {
+        Some(fallback) => format!(
+            "Auto fallback because {:?} cannot be used: {}",
+            fallback.requested, fallback.reason
+        ),
+        None if environment.is_some() || video.is_some() => "the requested API".to_owned(),
+        None => "the first working API in automatic order".to_owned(),
+    };
+    format!("Renderer API: requested {requested}; using {chosen:?}; reason: {why}")
 }
 
 /// Retries exhausted automatic selection once with previously excluded APIs restored.

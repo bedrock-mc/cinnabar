@@ -651,12 +651,15 @@ executed locally. No existing completion entry is advanced.
 
 The shared backend policy, driver blocklist, crash sentinel and restart-only Video override
 are implemented. GL/GLES is absent from choices and candidates; older saved GL choices read
-as Auto. Android requires Vulkan. Failed saved Video choices retry Auto for the current launch,
-while WGPU_BACKEND stays strict. Each API is enumerated under its own sentinel before eligible adapters are
+as Auto. Android requires Vulkan. A saved Video choice that fails, or that crashed an earlier
+startup under the same setting, retries Auto without that API for the current launch and opens a
+menu notice naming both APIs and the reason, while WGPU_BACKEND stays strict. The startup log
+states the requested API, the API in use and why. Each API is enumerated under its own sentinel before eligible adapters are
 ranked by power preference, device type and vendor backend order, with unclassified hardware
 ahead of software. Device failures advance through all candidates;
 named GPU selection restricts every API. Exclusions are keyed only by backend and reset on a
-client version change or Graphics API selection, including choosing Auto again. Exhausted candidates permit one retry
+client version change or selecting Auto, including choosing it again; an explicit selection keeps
+them for its Auto fallback. Exhausted candidates permit one retry
 pass with exclusions cleared. Startup log boundaries synchronize only the file sink.
 Candidate filtering requires base-vertex terrain draws, vertex and fragment storage, alternate
 texture views, non-power-of-two mipmaps, sample-rate shading, unaligned buffer bindings and

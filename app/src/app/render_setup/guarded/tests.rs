@@ -74,3 +74,39 @@ fn backend_mask_uses_the_policy_order() {
     assert!(backends(wgpu::Backends::empty()).is_empty());
     assert!(backends(wgpu::Backends::GL).is_empty());
 }
+
+#[test]
+fn fallback_notice_waits_for_a_visible_menu_and_opens_once() {
+    let message = notice(
+        &VideoFallback {
+            requested: Backend::Dx12,
+            reason: "device rejected".into(),
+        },
+        Backend::Vulkan,
+        Platform::Windows,
+    );
+    let mut app = App::new();
+    install_notice(&mut app, message.clone());
+    app.update();
+    app.insert_resource(client_shell::menu::MenuRuntime::new(
+        false,
+        2,
+        String::new(),
+    ));
+    app.update();
+    assert!(app.world().contains_resource::<FallbackNotice>());
+    app.world_mut()
+        .resource_mut::<client_shell::menu::MenuRuntime>()
+        .set_visible(true);
+    app.update();
+    assert!(!app.world().contains_resource::<FallbackNotice>());
+    let view = app
+        .world()
+        .resource::<client_shell::menu::MenuRuntime>()
+        .view();
+    assert_eq!(view.dialog, Some(launcher::menu::MenuDialog::Notice));
+    assert_eq!(view.message.as_deref(), Some(message.as_str()));
+    for expected in ["DX12", "Vulkan", "device rejected"] {
+        assert!(message.contains(expected), "{message}");
+    }
+}
