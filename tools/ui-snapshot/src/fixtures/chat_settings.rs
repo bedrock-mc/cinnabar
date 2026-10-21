@@ -39,7 +39,7 @@ pub(super) fn reset() -> Fixture {
     Fixture::Menu(view)
 }
 
-/// Shows the lower slider endpoints with the typeface that supports text scaling.
+/// Shows the lower endpoints of the chat presentation sliders.
 pub(super) fn minimum() -> Fixture {
     let Fixture::Menu(mut view) = panel(false, None) else {
         unreachable!()
@@ -52,6 +52,5 @@ pub(super) fn minimum() -> Fixture {
     ] {
         options.set(id.index(), id.definition().min);
     }
-    options.set(SettingId::ChatTypeface.index(), 1);
     Fixture::Menu(view)
 }

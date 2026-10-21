@@ -335,7 +335,6 @@ fn reset_restores_a_shared_default_without_changing_other_actions() {
 fn chat_settings_survive_reload_and_feed_the_chat_renderer() {
     let mut settings = SettingsOptions::default();
     for (name, value) in [
-        ("chat_typeface", 1),
         ("chat_font_size", 15),
         ("chat_line_spacing", 25),
         ("chat_color", 3),

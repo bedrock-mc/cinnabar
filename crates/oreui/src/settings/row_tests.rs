@@ -552,8 +552,7 @@ fn command_macro_invalid_draft_shows_a_chat_limit_error() {
 /// Every registered chat option exposes its real input action, including reset.
 #[test]
 fn chat_section_draws_all_chat_panel_options_and_reset() {
-    let mut view = MenuView::new(true, "Player".into());
-    std::sync::Arc::make_mut(&mut view.settings_options).set(SettingId::ChatTypeface.index(), 1);
+    let view = MenuView::new(true, "Player".into());
     for width in [400.0, 800.0] {
         let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
             let mut content = Content {
@@ -584,16 +583,9 @@ fn chat_section_draws_all_chat_panel_options_and_reset() {
             )));
         let labels = rendered_text(&nodes);
         assert!(labels.contains("ResetChatSettings"));
-        assert!(
-            labels.contains(
-                &assets::carriers::FONT
-                    .font_face
-                    .unwrap()
-                    .name
-                    .replace(' ', "")
-            )
-        );
         assert!(!labels.contains("Mojangles"));
+        assert!(!labels.contains("NotoSans"));
+        assert!(!labels.contains("Typeface"));
         assert!(labels.contains("100%"));
         assert!(!labels.contains("chat.settings."));
         assert!(!labels.contains("typeface."));
@@ -651,14 +643,11 @@ fn option_descriptions_do_not_expose_missing_translation_keys() {
 
 /// The pack's size template substitutes the percentage instead of printing its placeholder.
 #[test]
-fn chat_font_size_formats_translated_values_and_disables_unsupported_scaling() {
-    for (typeface, locale, enabled) in
-        [(0, "en_US", false), (1, "en_US", true), (1, "ja_JP", false)]
-    {
+fn chat_font_size_formats_translated_values_and_remains_editable() {
+    for locale in ["en_US", "ja_JP"] {
         for value in [5, 10, 20] {
             let mut view = MenuView::new(true, "Player".into());
             let options = std::sync::Arc::make_mut(&mut view.settings_options);
-            options.set(SettingId::ChatTypeface.index(), typeface);
             options.set(SettingId::ChatFontSize.index(), value);
             options.set_language(locale);
             let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
@@ -682,8 +671,8 @@ fn chat_font_size_formats_translated_values_and_disables_unsupported_scaling() {
             );
             assert!(!labels.contains("%s"));
             assert_eq!(labels.matches(&format!("{}%", value * 10)).count(), 1);
-            assert_eq!(hits.iter().any(|(action, _)| matches!(action,
-                MenuAction::SettingsOption(index, _) if usize::from(*index) == SettingId::ChatFontSize.index())), enabled);
+            assert!(hits.iter().any(|(action, _)| matches!(action,
+                MenuAction::SettingsOption(index, _) if usize::from(*index) == SettingId::ChatFontSize.index())));
         }
     }
 }

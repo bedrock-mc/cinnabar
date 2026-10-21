@@ -533,15 +533,13 @@ settings! {
     HideChat => "hide_chat", toggle("chat.settings.muteAll", false),
         [(SettingPanel::Chat, 0)], [SettingsGroup::Chat], None, None;
     ToggleEmoteChat => "toggle_emote_chat", toggle("chat.settings.muteEmotes", false),
-        [(SettingPanel::Chat, 9)], [SettingsGroup::Chat], None, None;
-    ToggleTts => "toggle_tts", toggle("chat.settings.tts", false),
-        [(SettingPanel::Chat, 10)], [SettingsGroup::Chat], None, None;
-    ChatTypeface => "chat_typeface", dropdown("chat.settings.typeface", super::chat::TYPEFACES, 0),
-        [(SettingPanel::Chat, 6)], [SettingsGroup::Chat], None, None;
-    ChatColor => "chat_color", dropdown("chat.settings.chatColor", super::chat::CHAT_COLORS, 0),
-        [(SettingPanel::Chat, 7)], [SettingsGroup::Chat], None, None;
-    MentionsColor => "mentions_color", dropdown("chat.settings.mentionsColor", super::chat::MENTIONS_COLORS, 5),
         [(SettingPanel::Chat, 8)], [SettingsGroup::Chat], None, None;
+    ToggleTts => "toggle_tts", toggle("chat.settings.tts", false),
+        [(SettingPanel::Chat, 9)], [SettingsGroup::Chat], None, None;
+    ChatColor => "chat_color", dropdown("chat.settings.chatColor", super::chat::CHAT_COLORS, 0),
+        [(SettingPanel::Chat, 6)], [SettingsGroup::Chat], None, None;
+    MentionsColor => "mentions_color", dropdown("chat.settings.mentionsColor", super::chat::MENTIONS_COLORS, 5),
+        [(SettingPanel::Chat, 7)], [SettingsGroup::Chat], None, None;
     ChatFontSize => "chat_font_size", slider("chat.settings.fontSize", 5, 20, 10),
         [(SettingPanel::Chat, 2)], [SettingsGroup::Chat], None, None;
     ChatLineSpacing => "chat_line_spacing", slider("chat.settings.lineSpacing", 0, 100, 0),

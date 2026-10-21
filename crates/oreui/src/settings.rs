@@ -485,12 +485,7 @@ impl Content<'_, '_> {
                     TEXT,
                     false,
                 )?;
-                let actions: Vec<_> = if id == SettingId::ChatFontSize
-                    && (!self.view.settings_options.chat_smooth_available()
-                        || self.view.settings_options.value(SettingId::ChatTypeface) == 0)
-                {
-                    vec![MenuAction::SettingsOption(index as u16, value)]
-                } else if id == SettingId::Msaa {
+                let actions: Vec<_> = if id == SettingId::Msaa {
                     self.view
                         .settings_options
                         .anti_aliasing_support()

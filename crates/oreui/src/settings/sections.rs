@@ -659,12 +659,8 @@ pub(super) fn fallback(key: &str) -> &str {
         }
         "chat.settings.tts" => "Text to Speech for Chat",
         "chat.settings.tts.description" => "Saved preference; chat narration is not available yet",
-        "chat.settings.typeface" => "Typeface",
-        "chat.settings.typeface.description" => "Choose the font used to render chat messages",
         "chat.settings.fontSize" => "Font Size",
-        "chat.settings.fontSize.description" => {
-            "Adjust the scale of chat text when Noto Sans is selected"
-        }
+        "chat.settings.fontSize.description" => "Adjust the scale of chat text",
         "chat.settings.lineSpacing" => "Line Spacing",
         "chat.settings.lineSpacing.description" => "Set the spacing between lines in chat",
         "chat.settings.chatColor" => "Chat Color",
@@ -681,7 +677,6 @@ pub(super) fn fallback(key: &str) -> &str {
         "options.notificationDuration.Chat.description" => {
             "How long chat notifications remain visible on the HUD"
         }
-        "typeface.notoSans" => "Noto Sans",
         "color.white" => "White",
         "color.green" => "Green",
         "color.aqua" => "Aqua",

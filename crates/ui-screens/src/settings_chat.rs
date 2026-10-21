@@ -38,6 +38,26 @@ impl ChatSettings {
     }
 }
 
+/// Keeps font sizing visible when the carrier ties it to the removed typeface selector.
+pub(crate) fn keep_font_size_visible(catalog: &mut json_ui::Catalog) {
+    let Some(control) = catalog
+        .controls_mut()
+        .find(|control| control.owner_ns == "chat_settings" && control.name == "font_size_slider")
+    else {
+        return;
+    };
+    if let Some(bindings) = control
+        .props
+        .get_mut("bindings")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        bindings.retain(|binding| binding["binding_name"] != "#chat_typeface_visible");
+    }
+    control
+        .props
+        .insert("visible".into(), serde_json::Value::Bool(true));
+}
+
 /// Binds the same persisted toggles used by the full settings host.
 pub(crate) fn bind(
     settings: &ChatSettings,
@@ -51,22 +71,11 @@ pub(crate) fn bind(
     data.set_global("#close_button_visible", Scalar::Bool(true));
     super::settings_controls::bind_values(&settings.options, settings.dropdown, data, translate);
     let options = &settings.options;
-    let smooth = options.chat_smooth_available() && options.value(SettingId::ChatTypeface) != 0;
-    data.set_global(
-        "#chat_typeface_visible",
-        Scalar::Bool(options.chat_smooth_available()),
-    );
-    data.set_global(
-        "#chat_font_type",
-        Scalar::Text(if smooth { "smooth" } else { "default" }.into()),
-    );
-    data.set_global("#chat_font_size_enabled", Scalar::Bool(smooth));
-    let size_label = if smooth {
-        translate("chat.settings.fontSize")
-            .replace("%s", &options.value(SettingId::ChatFontSize).to_string())
-    } else {
-        translate("chat.settings.fontSize.disabled").replace("%s", &translate("typeface.notoSans"))
-    };
+    data.set_global("#chat_typeface_visible", Scalar::Bool(false));
+    data.set_global("#chat_font_type", Scalar::Text("default".into()));
+    data.set_global("#chat_font_size_enabled", Scalar::Bool(true));
+    let size_label = translate("chat.settings.fontSize")
+        .replace("%s", &options.value(SettingId::ChatFontSize).to_string());
     data.set_global("#chat_font_size_custom_label", Scalar::Text(size_label));
     data.set_global(
         "#chat_line_spacing_slider_label",
@@ -77,10 +86,7 @@ pub(crate) fn bind(
         )),
     );
     for option in launcher::menu::settings_options::SETTINGS_OPTIONS {
-        if !matches!(
-            option.name,
-            "chat_typeface" | "chat_color" | "mentions_color"
-        ) {
+        if !matches!(option.id, SettingId::ChatColor | SettingId::MentionsColor) {
             continue;
         }
         if let launcher::menu::settings_options::SettingKind::Dropdown(choices) = option.kind {
@@ -174,5 +180,71 @@ pub fn message_text(settings: &SettingsOptions, text: &str) -> String {
         text.to_owned()
     } else {
         format!("§{}{text}", settings.chat_color_code())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Chat keeps the bundled face and exposes sizing without a second typeface.
+    #[test]
+    fn chat_popup_hides_typeface_and_keeps_font_sizing_enabled() {
+        for locale in ["en_US", "ja_JP"] {
+            let mut options = SettingsOptions::default();
+            options.set_language(locale);
+            options.set(SettingId::ChatFontSize.index(), 15);
+            let mut settings = ChatSettings::default();
+            settings.set_snapshot((Arc::new(options), None));
+            settings.set_open(true);
+            let mut data = DataSource::default();
+            bind(&settings, &mut data, &|key| {
+                if key == "chat.settings.fontSize" {
+                    "Size: %s".into()
+                } else {
+                    key.into()
+                }
+            });
+            let mut expected = data.clone();
+            expected.set_global("#chat_typeface_visible", Scalar::Bool(false));
+            expected.set_global("#chat_font_type", Scalar::Text("default".into()));
+            expected.set_global("#chat_font_size_enabled", Scalar::Bool(true));
+            expected.set_global(
+                "#chat_font_size_custom_label",
+                Scalar::Text("Size: 15".into()),
+            );
+            assert_eq!(data, expected);
+        }
+    }
+
+    /// The pack may share a visibility binding between the typeface and font-size rows.
+    #[test]
+    fn font_size_visibility_is_independent_of_the_removed_typeface_row() {
+        let mut catalog = json_ui::Catalog::default();
+        let bindings = serde_json::json!([{"binding_name":"#chat_typeface_visible", "binding_name_override":"#visible"}]);
+        let content = serde_json::json!({
+            "namespace":"chat_settings",
+            "typeface_dropdown":{"type":"panel", "bindings":bindings},
+            "font_size_slider":{"type":"panel", "bindings":bindings}
+        });
+        catalog.overlay_text("ui/chat_settings.json", &content.to_string());
+        keep_font_size_visible(&mut catalog);
+        let mut data = DataSource::default();
+        data.set_global("#chat_typeface_visible", Scalar::Bool(false));
+        for (reference, visible) in [
+            ("chat_settings.typeface_dropdown", false),
+            ("chat_settings.font_size_slider", true),
+        ] {
+            let root = json_ui::resolve(&catalog, reference, &json_ui::Context::empty())
+                .control
+                .unwrap();
+            let (bound, _) = json_ui::bind_stateful(
+                &Arc::new(root),
+                &data,
+                &json_ui::EmptyLibrary,
+                &mut json_ui::BindState::new(),
+            );
+            assert_eq!(bound.properties["visible"].as_bool(), Some(visible));
+        }
     }
 }
