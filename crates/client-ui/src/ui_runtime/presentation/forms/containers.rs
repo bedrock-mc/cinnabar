@@ -219,6 +219,18 @@ pub(super) fn player_rows(
     ui_screens::containers::player_rows(player_runtime, &container_frame(frame), icons)
 }
 
+/// The beacon pyramid level under `position`: how many full layers of base blocks, up to four,
+/// sit directly beneath it.
+pub fn beacon_pyramid_level(position: [i32; 3], beacon_base: impl Fn([i32; 3]) -> bool) -> u8 {
+    let [x, y, z] = position;
+    (1..=4)
+        .take_while(|&layer| {
+            (-layer..=layer)
+                .all(|dx| (-layer..=layer).all(|dz| beacon_base([x + dx, y - layer, z + dz])))
+        })
+        .count() as u8
+}
+
 /// Reads the open station's block for its screen: the beacon's pyramid level,
 /// the crafter's disabled slots and its `triggered_bit`.
 pub fn observe_station_block(
@@ -226,6 +238,7 @@ pub fn observe_station_block(
     runtime: &mut UiRuntime,
     stream: Option<&chunk_pipeline::WorldStream>,
     station_triggered: impl FnOnce([i32; 3]) -> Option<bool>,
+    beacon_level: impl FnOnce([i32; 3]) -> Option<u8>,
     now_millis: u64,
 ) {
     let ledger = runtime.inventory_ledger(player_runtime);
@@ -254,9 +267,10 @@ pub fn observe_station_block(
     let nbt = stream.block_entity_compound(position);
     let integer = |key: &str| nbt.as_ref().and_then(|nbt| nbt.integer(key));
     match kind {
+        // The level is not part of the beacon's block data; it comes from the blocks below.
         WindowKind::Beacon => {
-            runtime.screen_state_mut().beacon_level =
-                integer("Levels").and_then(|levels| u8::try_from(levels).ok());
+            runtime.screen_state_mut().beacon_level = beacon_level(position)
+                .or_else(|| integer("Levels").and_then(|levels| u8::try_from(levels).ok()));
         }
         WindowKind::Crafter => {
             let disabled = integer("disabled_slots").map_or(0, |mask| mask as u16);
@@ -495,3 +509,6 @@ mod tooltip_tests;
 
 #[cfg(test)]
 mod book_order_tests;
+
+#[cfg(test)]
+mod beacon_level_tests;

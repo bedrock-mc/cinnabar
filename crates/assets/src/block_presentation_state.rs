@@ -13,19 +13,41 @@ pub enum PortalAxis {
     Z,
 }
 
+/// The blocks a beacon pyramid may be built from.
+pub const BEACON_BASE_BLOCKS: [&str; 5] = [
+    "minecraft:emerald_block",
+    "minecraft:gold_block",
+    "minecraft:diamond_block",
+    "minecraft:iron_block",
+    "minecraft:netherite_block",
+];
+
 /// Presentation facts decoded from one canonical block state at admission.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct BlockPresentationState {
     pub crafter_triggered: Option<bool>,
     pub portal_axis: Option<PortalAxis>,
+    /// The block counts toward a beacon pyramid.
+    pub beacon_base: bool,
+}
+
+/// Whether `identifier` has any presentation facts to admit.
+fn admitted(identifier: &str) -> bool {
+    identifier == crate::facts::VanillaBlock::Crafter.identifier()
+        || identifier == crate::NETHER_PORTAL_IDENTIFIER
+        || BEACON_BASE_BLOCKS.contains(&identifier)
 }
 
 impl BlockPresentationState {
     /// Decodes supported facts while keeping missing or malformed values unknown.
     pub fn decode(identifier: &str, canonical: &str) -> Self {
-        if identifier != crate::facts::VanillaBlock::Crafter.identifier()
-            && identifier != crate::NETHER_PORTAL_IDENTIFIER
-        {
+        if BEACON_BASE_BLOCKS.contains(&identifier) {
+            return Self {
+                beacon_base: true,
+                ..Self::default()
+            };
+        }
+        if !admitted(identifier) {
             return Self::default();
         }
         let states = serde_json::from_str::<serde_json::Value>(canonical).ok();
@@ -41,6 +63,7 @@ impl BlockPresentationState {
                         .or_else(|| value.as_u64().map(|bit| bit != 0))
                 }),
                 portal_axis: None,
+                beacon_base: false,
             }
         } else {
             Self {
@@ -52,6 +75,7 @@ impl BlockPresentationState {
                         _ => PortalAxis::Unknown,
                     },
                 ),
+                beacon_base: false,
             }
         }
     }
@@ -69,9 +93,7 @@ impl BlockPresentationStates {
     pub fn from_records(records: &[RegistryRecord]) -> Self {
         let mut result = Self::default();
         for record in records {
-            if record.name.as_ref() != crate::facts::VanillaBlock::Crafter.identifier()
-                && record.name.as_ref() != crate::NETHER_PORTAL_IDENTIFIER
-            {
+            if !admitted(&record.name) {
                 continue;
             }
             let state = BlockPresentationState::decode(&record.name, &record.canonical_state);

@@ -361,6 +361,13 @@ pub(crate) fn prepare_ui_runtime(
                 position,
             )
         },
+        |position| {
+            beacon_level(
+                client_world.stream.as_ref()?,
+                collisions.as_deref()?,
+                position,
+            )
+        },
         now_millis,
     );
     let icon_frames = ItemIconFrames(std::array::from_fn(|slot| {
@@ -624,6 +631,29 @@ fn station_triggered(
     assets::block_presentation_state::pinned_block_presentation_states()
         .get(mode, runtime_id)
         .crafter_triggered
+}
+
+/// Counts the beacon pyramid's layers of base blocks from the loaded world.
+fn beacon_level(
+    stream: &chunk_pipeline::WorldStream,
+    collisions: &client_interaction::movement::PhysicsCollisionRegistries,
+    position: [i32; 3],
+) -> Option<u8> {
+    let mode = stream.network_id_mode();
+    let world = sim::PaletteWorld::new(
+        stream.collision_store(),
+        collisions.registry(mode),
+        stream.current_dimension(),
+        Default::default(),
+    );
+    let states = assets::block_presentation_state::pinned_block_presentation_states();
+    Some(
+        client_ui::ui_runtime::presentation::forms::beacon_pyramid_level(position, |block| {
+            world
+                .primary_runtime_id(block)
+                .is_ok_and(|runtime_id| states.get(mode, runtime_id).beacon_base)
+        }),
+    )
 }
 
 #[cfg(test)]
