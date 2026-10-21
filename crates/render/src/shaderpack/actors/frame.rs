@@ -37,6 +37,9 @@ pub(crate) fn prepare(
         ..
     } = state;
     actors.begin();
+    if actors.allocation_failed {
+        return;
+    }
     let Some(kernels) = sources.kernels else {
         return;
     };
@@ -63,7 +66,13 @@ pub(crate) fn prepare(
         actors.draws.clear();
         return;
     }
-    skin(device, queue, encoder, actors, sources, kernels, output);
+    if skin(device, queue, encoder, actors, sources, kernels, output).is_none() {
+        actors.allocation_failed = true;
+        actors.draws.clear();
+        actors.jobs.clear();
+        actors.dispatches.clear();
+        return;
+    }
     let neutral = actors
         .neutral
         .get_or_insert_with(|| NeutralTextures::new(device, queue));
@@ -138,7 +147,7 @@ fn skin(
     sources: &ActorSources<'_>,
     kernels: skin::SkinKernels<'_>,
     output: u64,
-) {
+) -> Option<()> {
     let limit = device
         .limits()
         .max_storage_buffer_binding_size
@@ -146,8 +155,9 @@ fn skin(
     let pages = super::pages::plan(&actors.jobs, &actors.dispatches, output, limit);
     actors.pages.resize_with(pages.len(), Default::default);
     for (page, buffers) in pages.iter().zip(&mut actors.pages) {
-        skin_page(device, queue, encoder, buffers, page, sources, kernels);
+        skin_page(device, queue, encoder, buffers, page, sources, kernels)?;
     }
+    Some(())
 }
 
 /// Uploads and dispatches only the jobs touching one output page.
@@ -159,7 +169,7 @@ fn skin_page(
     page: &super::pages::Page,
     sources: &ActorSources<'_>,
     kernels: skin::SkinKernels<'_>,
-) {
+) -> Option<()> {
     buffers.first = page.first;
     buffers.vertices = page.vertices;
     let storage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
@@ -170,7 +180,7 @@ fn skin_page(
             "shader-pack actor vertices",
             u64::from(page.vertices) * super::layout::ACTOR_VERTEX_STRIDE,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::VERTEX,
-        )
+        )?
         .clone();
     let jobs = buffers
         .jobs
@@ -179,7 +189,7 @@ fn skin_page(
             "shader-pack actor skinning jobs",
             (page.jobs.len().max(1) * std::mem::size_of::<SkinJob>()) as u64,
             storage,
-        )
+        )?
         .clone();
     queue.write_buffer(&jobs, 0, bytemuck::cast_slice(&page.jobs));
     let stride =
@@ -191,7 +201,7 @@ fn skin_page(
             "shader-pack actor skinning parameters",
             stride * page.dispatches.len() as u64,
             wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        )
+        )?
         .clone();
     let camera = sources.camera.extend(0.0).to_array();
     let block_lists = sources
@@ -314,6 +324,7 @@ fn skin_page(
         pass.set_bind_group(1, output_group, &[]);
         pass.dispatch_workgroups(x, y, z);
     }
+    Some(())
 }
 
 /// Workgroups of a rig dispatch: rig vertices in x, jobs in y, continuing in z.

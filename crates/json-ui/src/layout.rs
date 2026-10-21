@@ -31,6 +31,7 @@ mod size;
 mod stack;
 mod style;
 
+pub use grid::grid_template_columns;
 pub(crate) use grid::{
     CLIPPED_CELL_KEY as GRID_CLIPPED_CELL_KEY, PLACEHOLDER_KEY as GRID_PLACEHOLDER_KEY,
     TEMPLATE_KEY as GRID_TEMPLATE_KEY,
@@ -360,7 +361,7 @@ struct Reuse<'e> {
 
 /// `parent/name`, with `[index]` on factory instances and `~n` on the nth sibling sharing
 /// both, so anonymous array entries keep their own hover and press state.
-pub(crate) fn child_key(parent: &str, control: &ResolvedControl, repeat: usize) -> String {
+pub fn child_key(parent: &str, control: &ResolvedControl, repeat: usize) -> String {
     instance_key(parent, &control.name, collection_index(control), repeat)
 }
 
@@ -392,7 +393,7 @@ fn collection_index(control: &ResolvedControl) -> Option<u64> {
 /// Counts siblings by name and collection index for [`child_key`]'s repeat, keyed by a hash of
 /// both so counting a long list allocates nothing.
 #[derive(Default)]
-pub(crate) struct SiblingKeys(crate::bind::KeyMap<usize>);
+pub struct SiblingKeys(crate::bind::KeyMap<usize>);
 
 impl SiblingKeys {
     /// Earlier siblings sharing `name` and `index`.
@@ -409,7 +410,8 @@ impl SiblingKeys {
         *count - 1
     }
 
-    pub(crate) fn of(&mut self, control: &ResolvedControl) -> usize {
+    /// Counts earlier siblings with this control's name and collection index.
+    pub fn of(&mut self, control: &ResolvedControl) -> usize {
         self.repeat(&control.name, collection_index(control))
     }
 }
