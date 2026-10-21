@@ -444,7 +444,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   camera owners; interactive movement, perspective release, teleport and hurt-view
   acceptance remain unverified in a displayed client. Panel previews now
   select owner-scoped HUD cards, including preview-only cards, and share retained
-  gameplay artwork. Focused rendering and cache regressions cover visible previews;
+  gameplay artwork. Optional measured fitting sizes and aligns their painted bounds
+  within tiles and sheet stages, retaining each visible instance's multiplier.
+  Focused rendering and cache regressions cover visible previews;
   populated-world and displayed-frame acceptance remain pending.
   Personal panels and HUD editor surfaces can bind the host local player's name
   and skin head, with neutral artwork when the identity is unavailable. Skin and
