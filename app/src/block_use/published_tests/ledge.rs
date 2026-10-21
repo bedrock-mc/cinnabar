@@ -243,6 +243,7 @@ fn a_locked_line_uses_the_indirect_intercept_instead_of_the_forward_miss_segment
 /// Corners of the outline the production selection system publishes, if any.
 fn published_outline(world: &mut World) -> Option<[[f32; 3]; 2]> {
     world.init_resource::<render_scene::BlockSelectionFrameResource>();
+    world.init_resource::<crate::block_selection::CrosshairActor>();
     world
         .run_system_cached(crate::block_selection::publish)
         .unwrap();

@@ -1,6 +1,6 @@
 //! Java-style actor labels, retaining server text and the shared font-pixel atlas.
 
-use protocol_ids::ActorFlag;
+use protocol_ids::{ActorDataKey, ActorFlag};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -27,18 +27,16 @@ pub(super) mod tests;
 /// Presentation resource bound, not a native visibility rule.
 pub(super) const MAX_PRESENTED_NAMETAGS: usize = 128;
 const DEFAULT_RENDER_DISTANCE: f32 = 64.0;
-const SNEAK_RENDER_DISTANCE: f32 = 32.0;
 const HEAD_CLEARANCE: f32 = 0.5;
 const DEFAULT_HEIGHT: f32 = 1.8;
 /// Java's sneaking label moves down in camera space after its head translation.
 const SNEAK_LABEL_DROP: f32 = 0.25;
 const SNEAK_PLAYER_Y_OFFSET: f32 = 0.125;
 const SLEEPING_LABEL_DROP: f32 = 1.5;
-const METADATA_HEIGHT: u32 = 54;
-const METADATA_ALWAYS_SHOW_NAMETAG: u32 = 81;
-const METADATA_SCORE: u32 = 84;
-const METADATA_RENDER_DISTANCE: u32 = 140;
-const ACTOR_FLAG_ALWAYS_SHOW_NAME: u32 = 15;
+const METADATA_HEIGHT: u32 = ActorDataKey::Height.wire_value();
+const METADATA_ALWAYS_SHOW_NAMETAG: u32 = ActorDataKey::AlwaysShowNameTag.wire_value();
+const METADATA_SCORE: u32 = ActorDataKey::Score.wire_value();
+const METADATA_RENDER_DISTANCE: u32 = ActorDataKey::NameplateRenderDistance.wire_value();
 const SCORE_DISTANCE_SQUARED: f32 = 100.0;
 pub(super) const EXTRA_LINE_LIFT: f32 = 0.125;
 pub(super) const PLATE_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 0.25];
@@ -47,10 +45,9 @@ pub(super) const NAMETAG_RECORDS_PER_LINE: usize = 2;
 /// Most lines one tag can consume in a scene, including its backing plates.
 const MAX_NAMETAG_LINES: usize = MAX_NAMETAG_RECORDS / NAMETAG_RECORDS_PER_LINE;
 
-/// Viewer feet control visibility and score range; the camera controls label draw order.
+/// The camera controls visibility, score range and label draw order.
 #[derive(Clone, Copy, Debug)]
 pub struct NametagView {
-    pub viewer_position: Vec3,
     pub camera_position: Vec3,
     /// Unit forward vector from the camera rotation, pointing into the scene.
     pub camera_forward: Vec3,
@@ -63,8 +60,9 @@ pub struct NametagAnchor {
     pub(super) position: Vec3,
     pub(super) lines: Arc<[Arc<str>]>,
     pub(super) depth_tested: bool,
+    pub(super) sneaking: bool,
     pub(super) text_alpha: f32,
-    /// Signed camera-space depth of the head anchor, independent of viewer distance.
+    /// Signed camera-space depth of the head anchor, independent of camera distance.
     pub(super) view_depth: f32,
     /// Camera depth gained by one block of world-Y lift.
     pub(super) camera_forward_y: f32,
@@ -119,27 +117,29 @@ impl NametagTextCache {
         });
     }
 
-    /// Reuses unchanged text while recomputing visibility, pose and viewer distance.
+    /// Reuses unchanged text while recomputing visibility, pose and camera distance.
     fn extract(
         &mut self,
         actor: &ActorSnapshot,
         view: NametagView,
         picked_actor: Option<u64>,
         name: Arc<str>,
-        scoreboards: &ui::ScoreboardStore,
+        scoreboards: Option<&ui::ScoreboardStore>,
         partial_tick: f32,
     ) -> Option<NametagAnchor> {
         if name.is_empty() {
             return None;
         }
         let (position, distance_squared) =
-            nametag_geometry(actor, view.viewer_position, picked_actor, partial_tick)?;
-        let near_score = distance_squared < SCORE_DISTANCE_SQUARED;
+            nametag_geometry(actor, view.camera_position, picked_actor, partial_tick)?;
+        let near_score = scoreboards.is_some() && distance_squared < SCORE_DISTANCE_SQUARED;
         let score = match actor.metadata.get(&METADATA_SCORE) {
             Some(ActorMetadataValue::String(score)) if near_score => Some(Arc::clone(score)),
             _ => None,
         };
-        let scoreboard_revision = (near_score && score.is_none()).then(|| scoreboards.revision());
+        let scoreboard_revision = scoreboards
+            .filter(|_| near_score && score.is_none())
+            .map(ui::ScoreboardStore::revision);
         let key = (actor.runtime_id, actor.unique_id);
         if let Some(cached) = self.entries.get(&key) {
             let same_score = match (&cached.score, &score) {
@@ -174,12 +174,15 @@ fn actor_flag(actor: &ActorSnapshot, bit: u32) -> bool {
     actor_animation::AnimatedActor::flag(actor, bit)
 }
 
-/// Places player labels above Java's fixed standing height, independent of Bedrock's
-/// pose-dependent collision box. Other actors use their published height, including zero.
-/// Scale affects the height and clearance; Java player pose offsets follow that translation.
+/// Keeps crouched labels at standing height and follows the live height for prone poses.
+/// Raw metadata height and clearance each receive the render scale once.
 fn tag_height(actor: &ActorSnapshot) -> f32 {
     let player = matches!(actor.kind, ActorKind::Player { .. });
-    let height = if player {
+    let prone = player
+        && [ActorFlag::Swimming, ActorFlag::Crawling, ActorFlag::Gliding]
+            .into_iter()
+            .any(|flag| actor_flag(actor, flag.wire_value()));
+    let height = if player && !prone {
         DEFAULT_HEIGHT
     } else {
         match actor.metadata.get(&METADATA_HEIGHT) {
@@ -189,7 +192,7 @@ fn tag_height(actor: &ActorSnapshot) -> f32 {
             _ => DEFAULT_HEIGHT,
         }
     };
-    let offset = if !player {
+    let offset = if !player || prone {
         0.0
     } else if actor_flag(actor, ActorFlag::Sneaking.wire_value()) {
         SNEAK_PLAYER_Y_OFFSET
@@ -206,52 +209,33 @@ fn tag_world_position(actor: &ActorSnapshot, feet: Vec3) -> Vec3 {
     feet + Vec3::Y * tag_height(actor)
 }
 
+/// Uses the server's distance or the constructor default, without a pose-dependent cap.
 fn render_distance(actor: &ActorSnapshot) -> f32 {
-    let java_distance = if actor_flag(actor, ActorFlag::Sneaking.wire_value()) {
-        SNEAK_RENDER_DISTANCE
-    } else {
-        DEFAULT_RENDER_DISTANCE
-    };
     match actor.metadata.get(&METADATA_RENDER_DISTANCE) {
-        Some(ActorMetadataValue::Float(value)) if value.is_finite() && *value >= 0.0 => *value,
-        _ => java_distance,
+        Some(ActorMetadataValue::Float(value)) if value.is_finite() => *value,
+        _ => DEFAULT_RENDER_DISTANCE,
     }
-    .min(java_distance)
 }
 
-/// Applies explicit always-show overrides before the ordinary show-name gate.
+/// Shows named actors requested by the server or selected by the current hit result.
 fn visible(actor: &ActorSnapshot, picked_actor: Option<u64>) -> bool {
-    if actor_flag(actor, ActorFlag::Invisible.wire_value()) {
-        return false;
-    }
-    let always = actor_flag(actor, ACTOR_FLAG_ALWAYS_SHOW_NAME)
-        || matches!(actor.metadata.get(&METADATA_ALWAYS_SHOW_NAMETAG),
-            Some(ActorMetadataValue::Byte(value)) if *value != 0 && *value != -1);
-    if always {
-        return true;
-    }
-    // Missing flags retain the player default; an explicit server hide stays authoritative.
-    if matches!(
-        actor.metadata.get(&0),
-        Some(ActorMetadataValue::Flags(_) | ActorMetadataValue::FlagsExtended(_))
-    ) && !actor_flag(actor, ActorFlag::ShowName.wire_value())
-    {
-        return false;
-    }
-    matches!(actor.kind, ActorKind::Player { .. })
-        || (actor_flag(actor, ActorFlag::ShowName.wire_value())
-            && picked_actor == Some(actor.runtime_id))
+    !actor_flag(actor, ActorFlag::Invisible.wire_value())
+        && (matches!(actor.metadata.get(&METADATA_ALWAYS_SHOW_NAMETAG),
+            Some(ActorMetadataValue::Byte(value)) if *value != 0 && *value != -1)
+            || picked_actor == Some(actor.runtime_id))
 }
 
+/// Appends nearby score text when the caller admits a score line.
 fn tag_text(
     actor: &ActorSnapshot,
     name: Arc<str>,
     distance_squared: f32,
-    scoreboards: &ui::ScoreboardStore,
+    scoreboards: Option<&ui::ScoreboardStore>,
 ) -> Arc<str> {
-    if distance_squared >= SCORE_DISTANCE_SQUARED {
+    let Some(scoreboards) = scoreboards.filter(|_| distance_squared < SCORE_DISTANCE_SQUARED)
+    else {
         return name;
-    }
+    };
     // Empty synced score text is authoritative; retained objectives are only a fallback.
     match actor.metadata.get(&METADATA_SCORE) {
         Some(ActorMetadataValue::String(score)) if !score.is_empty() => {
@@ -268,30 +252,30 @@ fn tag_text(
     }
 }
 
-/// Checks an actor's visibility and returns its unlifted anchor and squared viewer distance.
+/// Checks an actor's visibility and returns its unlifted anchor and squared camera distance.
 fn nametag_geometry(
     actor: &ActorSnapshot,
-    viewer_position: Vec3,
+    camera_position: Vec3,
     picked_actor: Option<u64>,
     partial_tick: f32,
 ) -> Option<(Vec3, f32)> {
     let feet = Vec3::from_array(actor.interpolated_position(partial_tick.clamp(0.0, 1.0))?);
-    nametag_geometry_at_feet(actor, viewer_position, picked_actor, feet)
+    nametag_geometry_at_feet(actor, camera_position, picked_actor, feet)
 }
 
 /// Applies actor visibility and distance rules to the caller's current render feet.
 fn nametag_geometry_at_feet(
     actor: &ActorSnapshot,
-    viewer_position: Vec3,
+    camera_position: Vec3,
     picked_actor: Option<u64>,
     feet: Vec3,
 ) -> Option<(Vec3, f32)> {
     if !visible(actor, picked_actor) {
         return None;
     }
-    let distance_squared = viewer_position.distance_squared(feet);
+    let distance_squared = camera_position.distance_squared(feet);
     let maximum = render_distance(actor);
-    if !distance_squared.is_finite() || distance_squared >= maximum * maximum {
+    if !distance_squared.is_finite() || distance_squared > maximum * maximum {
         return None;
     }
     let position = tag_world_position(actor, feet);
@@ -337,7 +321,8 @@ fn nametag_with_lines(
         runtime_id: actor.runtime_id,
         position,
         lines,
-        depth_tested: sneaking,
+        sneaking,
+        depth_tested: sneaking || actor_flag(actor, ActorFlag::NameplateDepthTested.wire_value()),
         text_alpha: if sneaking { DIM_TEXT_ALPHA } else { 1.0 },
         view_depth,
         camera_forward_y: view.camera_forward.y,
@@ -356,24 +341,24 @@ pub fn extract_nametag(
     partial_tick: f32,
 ) -> Option<NametagAnchor> {
     let feet = Vec3::from_array(actor.interpolated_position(partial_tick.clamp(0.0, 1.0))?);
-    extract_nametag_at_feet(actor, view, picked_actor, name, scoreboards, feet)
+    extract_nametag_at_feet(actor, view, picked_actor, name, Some(scoreboards), feet)
 }
 
 /// Extracts a tag from the same render feet as its body, without interpolating the
-/// actor again. Metadata, visibility, score range and text limits remain authoritative.
+/// actor again. Absent score authority suppresses the appended score line.
 pub fn extract_nametag_at_feet(
     actor: &ActorSnapshot,
     view: NametagView,
     picked_actor: Option<u64>,
     name: Arc<str>,
-    scoreboards: &ui::ScoreboardStore,
+    scoreboards: Option<&ui::ScoreboardStore>,
     feet: Vec3,
 ) -> Option<NametagAnchor> {
     if name.is_empty() {
         return None;
     }
     let (position, distance_squared) =
-        nametag_geometry_at_feet(actor, view.viewer_position, picked_actor, feet)?;
+        nametag_geometry_at_feet(actor, view.camera_position, picked_actor, feet)?;
     let text = tag_text(actor, name, distance_squared, scoreboards);
     nametag_with_lines(actor, position, view, nametag_lines(&text))
 }
@@ -383,7 +368,7 @@ fn has_nametag_lines(
     actor: &ActorSnapshot,
     name: &Arc<str>,
     distance_squared: f32,
-    scoreboards: &ui::ScoreboardStore,
+    scoreboards: Option<&ui::ScoreboardStore>,
 ) -> bool {
     let maximum = protocol::MAX_ACTOR_METADATA_STRING_BYTES;
     if bounded_text(name, maximum)
@@ -412,7 +397,7 @@ pub fn project_nametags(
     show_players: bool,
 ) -> Vec<NametagAnchor> {
     let authority = stream.authority();
-    // Java hides the label of a mount carrying a passenger, including the local player.
+    // Passengers suppress the appended score, while the mount keeps its name.
     let mounts: HashSet<_> = authority
         .remote_actors()
         .filter_map(|actor| authority.ridden_unique_id(actor.unique_id))
@@ -420,17 +405,18 @@ pub fn project_nametags(
         .collect();
     let mut candidates: Vec<_> = authority
         .remote_actors()
-        .filter(|actor| !mounts.contains(&actor.unique_id))
         .filter(|actor| show_players || !matches!(actor.kind, ActorKind::Player { .. }))
         .filter_map(|actor| {
             let name = stream.authority().actor_name_tag(actor.unique_id)?;
             let (_, distance_squared) =
-                nametag_geometry(actor, view.viewer_position, picked_actor, partial_tick)?;
-            has_nametag_lines(actor, &name, distance_squared, scoreboards).then_some((
+                nametag_geometry(actor, view.camera_position, picked_actor, partial_tick)?;
+            has_nametag_lines(
                 actor,
-                name,
-                distance_squared.sqrt(),
-            ))
+                &name,
+                distance_squared,
+                (!mounts.contains(&actor.unique_id)).then_some(scoreboards),
+            )
+            .then_some((actor, name, distance_squared.sqrt()))
         })
         .collect();
     candidates.sort_by(|(a, _, a_distance), (b, _, b_distance)| {
@@ -447,7 +433,14 @@ pub fn project_nametags(
     candidates
         .into_iter()
         .filter_map(|(actor, name, _)| {
-            cache.extract(actor, view, picked_actor, name, scoreboards, partial_tick)
+            cache.extract(
+                actor,
+                view,
+                picked_actor,
+                name,
+                (!mounts.contains(&actor.unique_id)).then_some(scoreboards),
+                partial_tick,
+            )
         })
         .collect()
 }
@@ -638,7 +631,7 @@ pub fn build_nametag_scene<'p>(
                 ..common
             });
         }
-        if anchor.depth_tested {
+        if anchor.sneaking {
             let drop = SNEAK_LABEL_DROP / render_model::NAMETAG_BLOCKS_PER_FONT_PIXEL;
             for record in &mut records[first..] {
                 record.rect[1] += drop;

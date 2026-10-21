@@ -513,7 +513,7 @@ fn own_score_remains_visible_after_body_correction_with_stale_player_frame() {
         );
         assert!(
             scored.iter().all(|record| record.line_lift > 0.0),
-            "{perspective:?}: score range must use the current body's viewer feet"
+            "{perspective:?}: score range must use the current camera"
         );
         assert!(
             scored
@@ -523,4 +523,72 @@ fn own_score_remains_visible_after_body_correction_with_stale_player_frame() {
         );
         assert_eq!(glyph_anchors(&mut world, REMOTE_COLOR), remote);
     }
+}
+
+#[test]
+fn empty_own_name_tag_does_not_fall_back_to_the_username() {
+    let perspective = PerspectiveMode::ThirdPersonBack;
+    let mut world = fixture_world(perspective);
+    prepare_actor_motion(&mut world);
+    let feet = Vec3::new(0.0, 64.0, 0.0);
+    prepare_local_frame(&mut world, perspective, feet, 1);
+    publish_visibility(&mut world, perspective, feet, 1, 1);
+    world.run_system_cached(prepare_ui_runtime).unwrap();
+    assert!(!glyph_anchors(&mut world, OWN_COLOR).is_empty());
+    let mut client = world.resource_mut::<ClientWorld>();
+    let stream = client.stream.as_mut().unwrap();
+    stream
+        .submit(
+            stream.committed_sequence() + 1,
+            WorldEvent::Actor(ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
+                dimension: 0,
+                runtime_id: 1,
+                metadata: Arc::from([protocol::ActorMetadata {
+                    key: protocol_ids::ActorDataKey::Name.wire_value(),
+                    value: protocol::ActorMetadataValue::String("".into()),
+                }]),
+                properties: Arc::from([]),
+                tick: 0,
+            })),
+        )
+        .unwrap();
+    stream.poll(feet.to_array(), 0);
+    world.run_system_cached(prepare_ui_runtime).unwrap();
+    assert!(glyph_anchors(&mut world, OWN_COLOR).is_empty());
+}
+
+#[test]
+fn nametag_publication_uses_the_shared_eye_ray_pick_in_third_person() {
+    let perspective = PerspectiveMode::ThirdPersonBack;
+    let mut world = fixture_world(perspective);
+    prepare_actor_motion(&mut world);
+    let feet = Vec3::new(0.0, 64.0, 0.0);
+    prepare_local_frame(&mut world, perspective, feet, 1);
+    publish_visibility(&mut world, perspective, feet, 1, 1);
+    let mut client = world.resource_mut::<ClientWorld>();
+    let stream = client.stream.as_mut().unwrap();
+    stream
+        .submit(
+            stream.committed_sequence() + 1,
+            WorldEvent::Actor(ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
+                dimension: 0,
+                runtime_id: 2,
+                metadata: Arc::from([protocol::ActorMetadata {
+                    key: protocol_ids::ActorDataKey::AlwaysShowNameTag.wire_value(),
+                    value: protocol::ActorMetadataValue::Byte(0),
+                }]),
+                properties: Arc::from([]),
+                tick: 0,
+            })),
+        )
+        .unwrap();
+    stream.poll(feet.to_array(), 0);
+    world.insert_resource(crate::block_selection::CrosshairActor(Some(2)));
+    world.run_system_cached(prepare_ui_runtime).unwrap();
+    assert!(!glyph_anchors(&mut world, REMOTE_COLOR).is_empty());
+    world
+        .resource_mut::<crate::block_selection::CrosshairActor>()
+        .0 = None;
+    world.run_system_cached(prepare_ui_runtime).unwrap();
+    assert!(glyph_anchors(&mut world, REMOTE_COLOR).is_empty());
 }

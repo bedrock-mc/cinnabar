@@ -54,6 +54,7 @@ pub(crate) struct PublishExtras<'w, 's> {
     actor_pipelines: Option<Res<'w, render_scene::ActorPipelineReadiness>>,
     warmed_pipelines: Option<Res<'w, render_scene::PipelineWarmupReadiness>>,
     server_camera: Option<Res<'w, client_presentation::camera::ServerCameraView>>,
+    picked_actor: Option<Res<'w, crate::block_selection::CrosshairActor>>,
     nametag_cache: Local<'s, nametags::NametagTextCache>,
     fatal_error: ResMut<'w, crate::runtime::shutdown::FatalError>,
     actor_partial: Res<'w, client_presentation::actor_publication::ActorFramePartialTick>,
@@ -104,6 +105,7 @@ pub(crate) fn prepare_ui_runtime(
         actor_pipelines,
         warmed_pipelines,
         server_camera,
+        picked_actor,
         mut nametag_cache,
         mut fatal_error,
         actor_partial,
@@ -461,18 +463,7 @@ pub(crate) fn prepare_ui_runtime(
         )
         .map(|(stream, transform)| {
             let authority = stream.authority();
-            let viewer_position = local_frame
-                .snapshot()
-                .map(|frame| frame.feet())
-                .or_else(|| {
-                    authority
-                        .actor(authority.local_player_runtime_id())
-                        .and_then(|actor| actor.interpolated_position(actor_partial.0))
-                        .map(Vec3::from_array)
-                })
-                .unwrap_or_else(|| transform.translation());
             let nametag_view = nametags::NametagView {
-                viewer_position,
                 camera_position: transform.translation(),
                 camera_forward: *transform.forward(),
             };
@@ -481,7 +472,7 @@ pub(crate) fn prepare_ui_runtime(
                 runtime.scoreboards(),
                 stream,
                 nametag_view,
-                picked_nametag_actor(stream, &transform, collisions.as_deref(), &player_runtime),
+                picked_actor.as_deref().and_then(|picked| picked.0),
                 actor_partial.0,
                 show_names && !tag_style.is_some_and(|style| style.hide_players),
             );
@@ -505,18 +496,16 @@ pub(crate) fn prepare_ui_runtime(
                         !tag_style.is_some_and(|style| style.hide_passengers)
                             || authority.ridden_unique_id(actor.unique_id).is_none()
                     })
-                    && let Some(name) = authority
-                        .actor_name_tag(actor.unique_id)
-                        .or_else(|| authority.actor_display_name(actor.unique_id))
+                    && let Some(name) = authority.actor_name_tag(actor.unique_id)
                     && let Some(tag) = nametags::extract_nametag_at_feet(
                         actor,
-                        nametags::NametagView {
-                            viewer_position: visibility.feet(),
-                            ..nametag_view
-                        },
-                        None,
+                        nametag_view,
+                        Some(actor.runtime_id),
                         name,
-                        runtime.scoreboards(),
+                        (!authority.remote_actors().any(|rider| {
+                            authority.ridden_unique_id(rider.unique_id) == Some(actor.unique_id)
+                        }))
+                        .then_some(runtime.scoreboards()),
                         visibility.feet(),
                     )
                 {
@@ -625,47 +614,6 @@ fn station_triggered(
     assets::block_presentation_state::pinned_block_presentation_states()
         .get(mode, runtime_id)
         .crafter_triggered
-}
-
-/// Captures nametag picking with gameplay's reach and collision policy before UI projection.
-fn picked_nametag_actor(
-    stream: &chunk_pipeline::WorldStream,
-    camera_transform: &GlobalTransform,
-    collisions: Option<&client_interaction::movement::PhysicsCollisionRegistries>,
-    player: &client_state::PlayerRuntime,
-) -> Option<u64> {
-    let eye = camera_transform.translation();
-    let direction = *camera_transform.forward();
-    gameplay::melee::pick_actor(
-        stream.authority().remote_actors(),
-        None,
-        eye.to_array(),
-        direction.to_array(),
-        gameplay::mining::survival_reach(protocol::PlayerInputMode::Mouse),
-    )
-    .filter(|hit| {
-        let Some(collisions) = collisions else {
-            return true;
-        };
-        let world = sim::PaletteWorld::new(
-            stream.collision_store(),
-            collisions.registry(stream.network_id_mode()),
-            stream.current_dimension(),
-            crate::interaction_authority::pick_context(
-                stream,
-                collisions,
-                player.facts.player_game_mode(),
-                player.selected_stack().map(|item| item.block_runtime_id),
-            ),
-        );
-        let vector =
-            |v: bevy::math::Vec3| sim::Vec3::new(f64::from(v.x), f64::from(v.y), f64::from(v.z));
-        !matches!(
-            world.block_interaction_ray_current(vector(eye), vector(direction), hit.distance),
-            Ok(Some(_))
-        )
-    })
-    .map(|hit| hit.runtime_id)
 }
 
 #[cfg(test)]

@@ -4,14 +4,18 @@ use protocol_ids::*;
 fn generated_groups_cover_every_fixture_value_and_preserve_wire_ids() {
     let fixture: serde_json::Value =
         serde_json::from_str(include_str!("../../../protocol-ids/data/protocol-ids.json")).unwrap();
+    let extensions: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../protocol-ids/data/actor-data-extensions.json"
+    ))
+    .unwrap();
     macro_rules! check {
         ($($group:ident),* $(,)?) => {$({
             let values = fixture["groups"][stringify!($group)].as_object().unwrap();
-            let extra = usize::from(matches!(stringify!($group), "ActorDataKey" | "Effect"));
+            let extra = match stringify!($group) { "ActorDataKey" => extensions.as_object().unwrap().len(), "Effect" => 1, _ => 0 };
             assert_eq!($group::ALL.len(), values.len() + extra);
             for variant in $group::ALL {
                 let name = format!("{variant:?}");
-                if matches!(name.as_str(), "FlagsThird" | "Weaving") { continue; }
+                if (stringify!($group) == "ActorDataKey" && extensions.get(&name).is_some()) || name == "Weaving" { continue; }
                 let expected = values[&name].as_i64().unwrap();
                 assert_eq!(variant.wire_value() as i64, expected, "{}::{name}", stringify!($group));
                 assert_eq!($group::from_wire(variant.wire_value()).unwrap().wire_value(), variant.wire_value());
@@ -125,5 +129,14 @@ fn movement_extensions_match_the_named_contract() {
     assert_eq!(
         protocol_ids::SPRINT_SPEED_MODIFIER_ID,
         contract["sprint_speed_modifier_id"].as_str().unwrap()
+    );
+}
+
+#[test]
+fn active_nameplate_distance_key_is_distinct_from_the_pinned_version_name() {
+    assert_eq!(ActorDataKey::NameplateRenderDistance.wire_value(), 140);
+    assert_ne!(
+        ActorDataKey::NameplateRenderDistance.wire_value(),
+        ActorDataKey::NameplateRenderDistanceMax.wire_value()
     );
 }

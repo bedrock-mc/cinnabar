@@ -262,8 +262,12 @@ Equipped cosmetic emitters also run in visible menu and HUD paper dolls using th
 shared particle engine and attachment poses. Catalog-wide, in-world interaction
 and performance qualification for these previews remains open.
 
-Player name tags use Java's standing player height before pose offsets, independent of
-server collision-box changes. Other actors retain their published label height.
+Upright player name tags keep Java's standing height before pose offsets; swimming,
+crawling and gliding players use their live height. Other actors retain their published
+label height. Tag eligibility uses always-show metadata or the shared crosshair pick.
+Camera distance controls server render limits and score range; passenger mounts keep
+their name without a score line. Depth testing honors sneaking and the nameplate flag.
+Matched rendered-frame qualification remains open.
 
 Remaining qualification includes attachables and custom item models, action/use timing,
 projectile interpolation and shake, sleep/mount poses, name tags (including over

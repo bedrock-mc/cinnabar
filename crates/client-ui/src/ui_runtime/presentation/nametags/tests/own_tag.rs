@@ -44,7 +44,7 @@ fn local_feed() -> client_world::LocalPlayerFeed {
 }
 
 #[test]
-fn client_generated_flags_allow_own_tag_extraction_and_preserve_server_visibility() {
+fn explicit_own_tag_selection_keeps_local_pose_and_invisibility() {
     let mut stream = actor_stream(0, None, 1);
     let mut feed = local_feed();
     let boards = ui::ScoreboardStore::default();
@@ -57,8 +57,8 @@ fn client_generated_flags_allow_own_tag_extraction_and_preserve_server_visibilit
         extract_nametag(
             actor,
             view(Vec3::ZERO),
-            None,
-            authority.actor_display_name(actor.unique_id).unwrap(),
+            Some(actor.runtime_id),
+            authority.actor_name_tag(actor.unique_id).unwrap(),
             &boards,
             1.0,
         )
@@ -86,7 +86,7 @@ fn client_generated_flags_allow_own_tag_extraction_and_preserve_server_visibilit
         .sneaking
     );
     for (index, (flags, expected)) in [
-        (0, false),
+        (0, true),
         (
             (1 << ActorFlag::ShowName.wire_value()) | (1 << ActorFlag::Invisible.wire_value()),
             false,
@@ -137,7 +137,8 @@ fn render_feet_replace_stale_actor_interpolation_for_geometry_and_score_range() 
         let mut camera = view(feet);
         camera.camera_position = feet + Vec3::new(0.0, 2.0, 4.0);
         let tag =
-            extract_nametag_at_feet(&actor, camera, None, "Player".into(), &boards, feet).unwrap();
+            extract_nametag_at_feet(&actor, camera, None, "Player".into(), Some(&boards), feet)
+                .unwrap();
         assert_eq!(tag.position, feet + Vec3::Y * tag_height(&actor));
         assert_eq!(tag.lines[1].as_ref(), "7 wins");
         let old_tag = extract_nametag(&actor, camera, None, "Player".into(), &boards, 0.5).unwrap();
@@ -171,7 +172,14 @@ fn render_feet_preserve_actor_visibility_height_and_reject_nonfinite_positions()
     );
     let boards = ui::ScoreboardStore::default();
     let extract = |actor: &ActorSnapshot, position| {
-        extract_nametag_at_feet(actor, view(feet), None, "Player".into(), &boards, position)
+        extract_nametag_at_feet(
+            actor,
+            view(feet),
+            None,
+            "Player".into(),
+            Some(&boards),
+            position,
+        )
     };
     let tag = extract(&actor, feet).unwrap();
     assert_eq!(tag.position, feet + Vec3::Y * tag_height(&actor));
@@ -183,11 +191,18 @@ fn render_feet_preserve_actor_visibility_height_and_reject_nonfinite_positions()
     ] {
         assert!(extract(&actor, invalid).is_none());
     }
-    for flags in [
+    actor.metadata.insert(0, ActorMetadataValue::Flags(0));
+    assert!(extract(&actor, feet).is_some());
+    actor
+        .metadata
+        .insert(METADATA_ALWAYS_SHOW_NAMETAG, ActorMetadataValue::Byte(0));
+    assert!(extract(&actor, feet).is_none());
+    actor
+        .metadata
+        .insert(METADATA_ALWAYS_SHOW_NAMETAG, ActorMetadataValue::Byte(1));
+    actor.metadata.insert(
         0,
-        (1 << ActorFlag::ShowName.wire_value()) | (1 << ActorFlag::Invisible.wire_value()),
-    ] {
-        actor.metadata.insert(0, ActorMetadataValue::Flags(flags));
-        assert!(extract(&actor, feet).is_none());
-    }
+        ActorMetadataValue::Flags(1 << ActorFlag::Invisible.wire_value()),
+    );
+    assert!(extract(&actor, feet).is_none());
 }
