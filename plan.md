@@ -486,8 +486,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   shader-pack source loading and configuration metadata are implemented in
   `shaderpack`, including options, dimensions, parsed properties, program discovery
   and enable rules, and its programs translate to validated naga modules with a binding
-  contract. Behind the render crate's `shaderpacks` feature, the host builds the Java-style
-  block atlas packs sample. Pack-specific translation fixes, the rest of the render-host
+  contract. Parsed function calls are ordered before validation, including forward
+  declarations and generated sampler helpers. Behind the render crate's `shaderpacks`
+  feature, the host builds the Java-style block atlas packs sample. Pack-specific
+  translation fixes, the rest of the render-host
   integration and in-game acceptance remain incomplete. Geometry replacement retains the
   native scene-copy path when celestial layers or effects without depth writes still need
   native composition; their geometry-host composition is incomplete. Actor color masks,
