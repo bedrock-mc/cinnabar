@@ -100,25 +100,70 @@ fn readiness_closes_death_while_health_is_unavailable() {
 }
 
 #[test]
-fn readiness_retires_the_route_while_completion_waits_for_transport() {
+fn readiness_retires_the_route_while_completion_waits_for_queue_capacity() {
     let (mut app, _) = fixture_app();
-    let (network, mut packets) = NetworkHandle::<PackApplication>::stub_capturing_packets();
-    app.world_mut()
-        .remove_resource::<NetworkHandle<PackApplication>>();
+    let (network, mut packets) =
+        NetworkHandle::<PackApplication>::stub_capturing_packets_with_capacity(1);
+    app.insert_resource(network);
     health(&mut app, 1, 0);
     app.update();
     assert!(app.world().resource::<MenuRuntime>().is_visible());
+    packets.drain();
+    let blocker = protocol::modal_form_cancel_response(7);
+    app.world()
+        .resource::<NetworkHandle<PackApplication>>()
+        .send_inventory_packet(blocker.clone())
+        .unwrap();
     ready(&mut app, 2);
     app.update();
     assert!(!app.world().resource::<MenuRuntime>().is_visible());
     assert!(app.world().resource::<ClientWorld>().respawn.input_held());
-    assert!(packets.drain().is_empty());
-    app.insert_resource(network);
+    assert_eq!(packets.drain(), [blocker]);
     app.update();
     assert_eq!(packets.drain(), [protocol::respawn_ready_packet(42)]);
     assert!(!app.world().resource::<ClientWorld>().respawn.input_held());
     app.update();
     assert!(packets.drain().is_empty());
+}
+
+#[test]
+fn respawn_readiness_holds_input_behind_an_older_latency_control() {
+    let (mut app, _) = fixture_app();
+    let (network, mut packets) =
+        NetworkHandle::<PackApplication>::stub_capturing_packets_with_capacity(1);
+    app.insert_resource(network);
+    health(&mut app, 1, 0);
+    app.update();
+    packets.drain();
+    let blocker = protocol::modal_form_cancel_response(7);
+    app.world()
+        .resource::<NetworkHandle<PackApplication>>()
+        .send_inventory_packet(blocker.clone())
+        .unwrap();
+    submit(&mut app, 2, WorldEvent::NetworkStackLatency(123));
+    app.update();
+    assert!(app.world().resource::<MenuRuntime>().is_visible());
+    ready(&mut app, 3);
+    app.update();
+    assert!(!app.world().resource::<MenuRuntime>().is_visible());
+    assert!(
+        app.world().resource::<ClientWorld>().respawn.input_held(),
+        "committed readiness must withhold gameplay before its control can be consumed"
+    );
+    let mut observed = packets.drain();
+    for _ in 0..3 {
+        app.update();
+        observed.extend(packets.drain());
+    }
+    assert_eq!(
+        observed,
+        [
+            blocker,
+            protocol::network_stack_latency_reply(123),
+            protocol::respawn_ready_packet(42)
+        ]
+    );
+    assert!(!app.world().resource::<ClientWorld>().respawn.input_held());
 }
 
 #[test]
