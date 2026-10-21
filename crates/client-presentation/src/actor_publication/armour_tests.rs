@@ -140,6 +140,7 @@ fn hiding_a_player_torso_keeps_its_chestplate_visible() {
         ],
         ..Default::default()
     };
+    let unmasked = batch.submissions[0].clone();
     let mut frame = authority.actor_render_frame(1.0);
     let mut state = ActorFrameState::default();
     layers::attach(
@@ -211,6 +212,46 @@ fn hiding_a_player_torso_keeps_its_chestplate_visible() {
         contacts.len(),
         1,
         "hidden skin must still leave its drawn armor contact"
+    );
+    let bare_contacts = cloth_contacts::hidden(
+        &unmasked,
+        &rig,
+        (
+            &stream,
+            &ActorEquipmentInput::default(),
+            state.combat_visuals,
+        ),
+        (&scene, &mut pending, Some(&mut equipment)),
+        (1.0, 0.05),
+    )
+    .len();
+    assert_eq!(
+        cloth_contacts::hidden(
+            &unmasked,
+            &rig,
+            (&stream, &input, state.combat_visuals),
+            (&scene, &mut pending, Some(&mut equipment)),
+            (1.0, 0.05),
+        )
+        .len(),
+        bare_contacts + 1,
+        "hidden cloth must still collide with the equipped chestplate"
+    );
+    assert_eq!(
+        cloth_contacts::hidden(
+            &unmasked,
+            &rig,
+            (
+                &stream,
+                &ActorEquipmentInput::default(),
+                state.combat_visuals
+            ),
+            (&scene, &mut pending, Some(&mut equipment)),
+            (1.0, 0.05),
+        )
+        .len(),
+        bare_contacts,
+        "removing armor while hidden must retire its contact immediately"
     );
     for draw in &mut batch.submissions {
         if draw.input.identity.layer == crate::presentation::equipment::ELYTRA_LAYER {

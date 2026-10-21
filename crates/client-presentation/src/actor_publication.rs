@@ -240,14 +240,27 @@ pub fn prepare_actor_render_frame(
     );
     let local_flame_feet = flames::LocalFlameFeet::capture(local.as_ref(), visibility);
     if !local_visible
+        && state.hat_state.has_local_cloth()
         && let (Some(body), Some(stream)) = (local.as_ref(), stream)
         && let Some(rig) = stream.authority().actor_rig(bodies.local_runtime_id)
     {
+        let contacts = cloth_contacts::hidden(
+            &body.submission,
+            &rig,
+            (stream, &input.local_equipment, state.combat_visuals),
+            (
+                &params.scene,
+                &mut new_geometries,
+                params.equipment.as_deref_mut(),
+            ),
+            (step.partial_tick, params.time.delta_secs()),
+        );
         state.hat_state.advance_hidden_local(
             &body.submission,
             rig.bone_names,
             rig.attachments,
             step.partial_tick,
+            Some(&contacts),
         );
     }
     let camera_position = cull_view.map(|view| view.camera_position.to_array());

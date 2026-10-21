@@ -104,7 +104,7 @@ impl Attachment {
             // The authority's first-person context can arrive after the visibility change.
             self.cloth.reanchor();
         }
-        if self.visible == Some(false) {
+        if self.visible == Some(false) && self.contacts.is_none() {
             self.cloth.retain_fitting();
         }
         let colliders: Vec<_> = self.contacts.take().unwrap_or_else(|| {
@@ -148,6 +148,11 @@ pub(super) struct HatState {
     frame: u64,
 }
 impl HatState {
+    /// Whether hidden local cloth needs the wearer's current body and equipment contacts.
+    pub(super) fn has_local_cloth(&self) -> bool {
+        self.local.iter().any(|item| hats::rig(*item).has_cloth())
+    }
+
     /// Captures local slot selections and caller-owned motion for this frame.
     pub(super) fn advance(&mut self, items: &[Item], speed: f32, seconds: f32) {
         self.local.clear();
@@ -182,11 +187,13 @@ impl HatState {
         names: &[Box<str>],
         bindings: Option<&Arc<render_model::ActorAttachmentBindings>>,
         partial_tick: f32,
+        contacts: Option<&[hats::cloth::Collider]>,
     ) {
         for item in &self.local {
             if hats::rig(*item).has_cloth() {
                 let attachment = self.local_attachments.entry(*item).or_default();
                 attachment.set_visible(false);
+                attachment.contacts = contacts.map(<[hats::cloth::Collider]>::to_vec);
                 let _ =
                     attachment.pose(*item, body, (names, bindings), (self.seconds, partial_tick));
             }
@@ -294,6 +301,12 @@ impl HatState {
                 }
                 let mut submission = body.clone();
                 // The catalog slot index keeps layers unique for multiple attachments on one actor.
+                if model.has_cloth() {
+                    submission.world_from_actor = attachment
+                        .cloth
+                        .fitted_placement()
+                        .unwrap_or(body.world_from_actor);
+                }
                 submission.input.identity.layer = hats::ACTOR_LAYER_HAT
                     + cosmetics::slot_index(&item.descriptor().slot).unwrap_or(0) as u8;
                 submission.input.rig = model.geometry.id;
@@ -416,6 +429,78 @@ mod tests {
     }
 
     #[test]
+    fn hidden_armored_cloth_reveals_without_waiting_for_a_fixed_step() {
+        use bevy::math::{Mat4, Vec3};
+        let item = render_model::hats::fixture::cloth();
+        let root = render_model::RenderBoneTransform {
+            rotation: bevy::math::Quat::IDENTITY.to_array(),
+            translation_scale: [0.0, 1.5, 0.0, 1.0],
+            axis_scale: render_model::UNIT_AXIS_SCALE,
+        };
+        let armor = render_model::ActorRigGeometry::synthetic_cuboid(
+            render_model::EntityRigId(1),
+            [-0.25, -0.75, -3.0 / 16.0],
+            [0.25, 0.0, 3.0 / 16.0],
+            1,
+        )
+        .unwrap();
+        let mut body = crate::presentation::actors::local_diagnostic_presentation(
+            1,
+            0,
+            1,
+            render_api::PoseGeneration::new(1),
+            [0.0; 3],
+            0.0,
+            0.0,
+        )
+        .unwrap()
+        .submission;
+        body.input.previous_bones = vec![root].into();
+        body.input.current_bones = vec![root].into();
+        let names = vec![Box::<str>::from("body")];
+        let mut state = HatState::default();
+        for frame in 0..240 {
+            body.world_from_actor[2][3] = frame as f32 / 60.0;
+            let world = hats::cloth::placement(body.world_from_actor);
+            let contacts = [
+                hats::cloth::Collider::biped("body", root, world).unwrap(),
+                hats::cloth::Collider::geometry("body", &armor, 0, root, world).unwrap(),
+            ];
+            state.advance(&[item], 0.0, 1.0 / 120.0);
+            state.advance_hidden_local(&body, &names, None, 0.5, Some(&contacts));
+        }
+        let world = hats::cloth::placement(body.world_from_actor);
+        let attachment = state.local_attachments.get_mut(&item).unwrap();
+        attachment.contacts = Some(vec![
+            hats::cloth::Collider::geometry("body", &armor, 0, root, world).unwrap(),
+        ]);
+        attachment.set_visible(true);
+        let (_, pose) = attachment
+            .pose(item, &body, (&names, None), (0.0, 0.5))
+            .unwrap();
+        let placed = hats::cloth::placement(attachment.cloth.fitted_placement().unwrap());
+        let local_from_world: Mat4 = world.inverse();
+        let mut checked = 0;
+        // The synthetic surface owns one particle bone per distinct rest point.
+        for particle in pose.iter().skip(2) {
+            let point = local_from_world.transform_point3(
+                placed.transform_point3(Vec3::from_slice(&particle.translation_scale[..3])),
+            );
+            if point.x.abs() < 0.25 && point.y > 0.75 && point.y < 1.5 {
+                assert!(
+                    point.z > 3.0 / 16.0,
+                    "revealed fabric entered the chestplate: {point}"
+                );
+                checked += 1;
+            }
+        }
+        assert!(
+            checked > 0,
+            "fixture must exercise cloth over the chestplate"
+        );
+    }
+
+    #[test]
     fn hidden_local_cloth_reappears_at_the_continuously_simulated_pose() {
         let item = render_model::hats::fixture::cloth();
         let root = render_model::RenderBoneTransform {
@@ -452,7 +537,7 @@ mod tests {
                 let _ = frozen.pose(item, &body, (&names, None), (1.0 / 120.0, 0.5));
             }
             if frame < 239 {
-                hidden.advance_hidden_local(&body, &names, None, 0.5);
+                hidden.advance_hidden_local(&body, &names, None, 0.5, None);
             } else {
                 let revealed = hidden
                     .local_attachments

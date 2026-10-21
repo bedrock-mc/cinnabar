@@ -17,25 +17,17 @@ impl DepthFit {
         colliders: &[Collider],
     ) -> Option<Self> {
         let cloth = model.cloth.as_ref()?;
-        let head = crate::actor::sampled_bone_offset(
-            [0.0; 3],
-            bases[0][model.head],
-            bases[1][model.head],
-            actor,
-            alpha,
-        )?;
-        let frame = Mat4::from_cols(
-            Vec3::from_array(head.basis[0]).extend(0.0),
-            Vec3::from_array(head.basis[1]).extend(0.0),
-            Vec3::from_array(head.basis[2]).extend(0.0),
-            Vec3::from_array(head.position).extend(1.0),
-        );
-        if frame.determinant().abs() < 1e-8 {
-            return None;
-        }
+        let frame = sampled_frame(model.head, bases, actor, alpha)?;
         let inverse = frame.inverse();
-        let pivot = Vec3::from_array(model.geometry.bone_pivots[model.head]);
-        let pin = cloth.rest[0] - pivot;
+        let source = sampled_frame(cloth.source, bases, actor, alpha)?;
+        let pivot = Vec3::from_array(model.geometry.bone_pivots[cloth.source]);
+        let pins = [cloth.rest[0], cloth.rest[cloth.columns]].map(|point| {
+            let mut local = point - pivot;
+            local.x *= 0.89;
+            inverse.transform_point3(source.transform_point3(local))
+        });
+        let pin_min = pins[0].min(pins[1]);
+        let pin_max = pins[0].max(pins[1]);
         let mut front = None::<f32>;
         let mut outer_front = f32::INFINITY;
         let mut back = f32::NEG_INFINITY;
@@ -52,14 +44,14 @@ impl DepthFit {
                     }
                 }
             }
-            if pin.y >= min.y && pin.y <= max.y {
+            if pin_max.y >= min.y && pin_min.y <= max.y {
                 front.get_or_insert(min.z);
                 outer_front = outer_front.min(min.z);
                 back = back.max(max.z + CONTACT_SEPARATION);
             }
         }
         let front = front?;
-        let span = pin.z - front;
+        let span = pin_min.z - front;
         if span <= 1e-5 {
             return None;
         }
@@ -73,41 +65,41 @@ impl DepthFit {
         (self.offset - other.offset).abs() > 1e-4 || (self.scale - other.scale).abs() > 1e-4
     }
 
-    /// Fits mounts and cloth together between the torso front and the pinned back edge.
-    pub(super) fn apply(self, model: &HatRig, poses: &mut [RenderBoneTransform]) {
-        let head = poses[model.head];
-        let head_scale = Vec3::from_slice(&head.axis_scale[..3]) * head.translation_scale[3];
-        let frame = Mat4::from_scale_rotation_translation(
-            head_scale,
-            Quat::from_array(head.rotation),
-            Vec3::from_slice(&head.translation_scale[..3]),
-        );
-        if frame.determinant().abs() < 1e-8 {
-            return;
-        }
-        let fit = frame
-            * Mat4::from_translation(Vec3::Z * self.offset)
-            * Mat4::from_scale(Vec3::new(1.0, 1.0, self.scale))
-            * frame.inverse();
-        for pose in poses.iter_mut().take(model.cloth.as_ref().unwrap().first) {
-            let scale = Vec3::from_slice(&pose.axis_scale[..3]) * pose.translation_scale[3];
-            if scale.min_element() <= 1e-5 {
-                continue;
-            }
-            let matrix = fit
-                * Mat4::from_scale_rotation_translation(
-                    scale,
-                    Quat::from_array(pose.rotation),
-                    Vec3::from_slice(&pose.translation_scale[..3]),
-                );
-            let (scale, rotation, position) = matrix.to_scale_rotation_translation();
-            *pose = RenderBoneTransform {
-                rotation: rotation.to_array(),
-                translation_scale: [position.x, position.y, position.z, 1.0],
-                axis_scale: [scale.x, scale.y, scale.z, 1.0],
-            };
-        }
+    /// Places the entire attachment with an affine fit, preserving rotated-child shear exactly.
+    pub(super) fn placement(
+        self,
+        model: &HatRig,
+        bases: &[Arc<[RenderBoneTransform]>; 2],
+        actor: [[f32; 4]; 3],
+        alpha: f32,
+    ) -> Option<Mat4> {
+        let frame = sampled_frame(model.head, bases, actor, alpha)?;
+        Some(
+            frame
+                * Mat4::from_translation(Vec3::Z * self.offset)
+                * Mat4::from_scale(Vec3::new(1.0, 1.0, self.scale))
+                * frame.inverse()
+                * placement(actor),
+        )
     }
+}
+
+/// Samples a complete posed bone frame with the same interpolation as rendered vertices.
+fn sampled_frame(
+    bone: usize,
+    bases: &[Arc<[RenderBoneTransform]>; 2],
+    actor: [[f32; 4]; 3],
+    alpha: f32,
+) -> Option<Mat4> {
+    let sampled =
+        crate::actor::sampled_bone_offset([0.0; 3], bases[0][bone], bases[1][bone], actor, alpha)?;
+    let frame = Mat4::from_cols(
+        Vec3::from_array(sampled.basis[0]).extend(0.0),
+        Vec3::from_array(sampled.basis[1]).extend(0.0),
+        Vec3::from_array(sampled.basis[2]).extend(0.0),
+        Vec3::from_array(sampled.position).extend(1.0),
+    );
+    (frame.determinant().abs() >= 1e-8).then_some(frame)
 }
 
 #[cfg(test)]
@@ -187,11 +179,17 @@ mod tests {
             let pivot = Vec3::from_array(model.geometry.bone_pivots[model.head]);
             let mut mount = cloth.rest[0] - pivot;
             mount.x *= 0.89;
-            assert!(point(mount, pose[model.head]).abs_diff_eq(state.points[0], 1e-5));
-            let front = inverse.transform_point3(point(
-                Vec3::new(0.0, 0.0, -2.0 / 16.0 - CONTACT_MARGIN),
-                pose[model.head],
-            ));
+            assert!(
+                placement(state.fitted_placement().unwrap())
+                    .transform_point3(point(mount, pose[model.head]))
+                    .abs_diff_eq(state.points[0], 1e-5)
+            );
+            let front = inverse.transform_point3(
+                placement(state.fitted_placement().unwrap()).transform_point3(point(
+                    Vec3::new(0.0, 0.0, -2.0 / 16.0 - CONTACT_MARGIN),
+                    pose[model.head],
+                )),
+            );
             assert!((front.z + depth + CONTACT_MARGIN).abs() < 1e-5);
         }
     }
@@ -255,5 +253,93 @@ mod tests {
                 .unwrap();
             assert!(state.previous_frame.unwrap().abs_diff_eq(fitted, 1e-6));
         }
+    }
+    #[test]
+    fn animated_source_pins_stay_outside_the_torso() {
+        let item = crate::hats::fixture::cloth();
+        let model = rig(item);
+        let cloth = model.cloth.as_ref().unwrap();
+        let root = RenderBoneTransform {
+            rotation: Quat::IDENTITY.to_array(),
+            translation_scale: [0.0, 1.5, 0.0, 1.0],
+            axis_scale: UNIT_AXIS_SCALE,
+        };
+        let actor = [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+        ];
+        let mut base = model
+            .pose(root, super::super::super::Motion::default())
+            .to_vec();
+        base[cloth.source].translation_scale[2] -= 1.6 / 16.0;
+        let base: Arc<[RenderBoneTransform]> = base.into();
+        let mut state = ClothState::default();
+        state
+            .pose(
+                item,
+                [base.clone(), base],
+                actor,
+                (STEP, 1.0),
+                &[torso(2.0 / 16.0, root)],
+            )
+            .unwrap();
+        for pin in &state.points[..=cloth.columns] {
+            assert!(
+                (pin.z - (2.0 / 16.0 + CONTACT_MARGIN + CONTACT_SEPARATION)).abs() < 1e-5,
+                "posed pin entered torso: {pin}"
+            );
+        }
+    }
+
+    #[test]
+    fn affine_placement_preserves_coincident_vertices_on_rotated_child_bones() {
+        let item = crate::hats::fixture::cloth();
+        let model = rig(item);
+        let cloth = model.cloth.as_ref().unwrap();
+        let root = RenderBoneTransform {
+            rotation: Quat::IDENTITY.to_array(),
+            translation_scale: [0.0, 1.5, 0.0, 1.0],
+            axis_scale: UNIT_AXIS_SCALE,
+        };
+        let actor = [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+        ];
+        let mut base = model
+            .pose(root, super::super::super::Motion::default())
+            .to_vec();
+        base[cloth.source].rotation = Quat::from_rotation_y(0.7).to_array();
+        let child_vertex = Vec3::new(0.05, -0.1, 0.08);
+        let joined = point(child_vertex, base[cloth.source]);
+        let root_vertex = joined - Vec3::from_slice(&root.translation_scale[..3]);
+        let base: Arc<[RenderBoneTransform]> = base.into();
+        let mut state = ClothState::default();
+        let (_, posed) = state
+            .pose(
+                item,
+                [base.clone(), base],
+                actor,
+                (STEP, 1.0),
+                &[torso(2.0 / 16.0, root)],
+            )
+            .unwrap();
+        let root_join = point(root_vertex, posed[model.head]);
+        let child_join = point(child_vertex, posed[cloth.source]);
+        let world = placement(state.fitted_placement().unwrap());
+        assert!(
+            world
+                .transform_point3(root_join)
+                .abs_diff_eq(world.transform_point3(child_join), 1e-5),
+            "depth fitting separated coincident mount and fabric vertices"
+        );
+        let axes = [Vec3::X, Vec3::Z].map(|axis| {
+            world.transform_vector3(Quat::from_array(posed[cloth.source].rotation) * axis)
+        });
+        assert!(
+            axes[0].dot(axes[1]).abs() > 0.01,
+            "fixture must require shear rather than only TRS"
+        );
     }
 }

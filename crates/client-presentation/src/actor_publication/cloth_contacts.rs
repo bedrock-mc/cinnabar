@@ -6,6 +6,53 @@ use render_model::{
 };
 use render_scene::ActorRenderScene;
 
+/// Evaluates hidden local contacts from the unmasked body, before body-only draw visibility.
+pub(super) fn hidden(
+    body: &ActorRigSubmission,
+    rig: &actor_animation::ActorRigSnapshot<'_>,
+    (stream, input, combat): (
+        &chunk_pipeline::WorldStream,
+        &crate::presentation::equipment::ActorEquipmentInput,
+        render_api::CombatVisuals,
+    ),
+    (scene, pending, equipment): (
+        &ActorRenderScene,
+        &mut Vec<ActorRigGeometry>,
+        Option<&mut EquipmentRuntime>,
+    ),
+    (alpha, delta): (f32, f32),
+) -> Vec<Collider> {
+    let Some(equipment) = equipment else {
+        return collect(body, rig.bone_names, &[], scene, alpha, (pending, None));
+    };
+    let input =
+        super::equipment_layers::local_equipment(stream, body.input.identity.runtime_id, input);
+    let animation = stream
+        .authority()
+        .actor(body.input.identity.runtime_id)
+        .map(|owner| crate::presentation::equipment::EquipmentAnimation {
+            owner,
+            rig,
+            frame_alpha: alpha,
+            delta_seconds: delta,
+        });
+    let worn: Vec<_> = equipment
+        .layers_for_profile(body, &input, combat, animation)
+        .layers
+        .iter()
+        .map(|layer| layer.submission.clone())
+        .collect();
+    pending.extend(equipment.take_pending_geometries());
+    collect(
+        body,
+        rig.bone_names,
+        &worn,
+        scene,
+        alpha,
+        (pending, Some(equipment)),
+    )
+}
+
 /// Resolves newly prepared geometry before it enters the scene's persistent registry.
 fn geometry<'a>(
     id: EntityRigId,
