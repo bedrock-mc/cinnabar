@@ -281,7 +281,7 @@ impl Session {
         let font = ui_engine::test_support::fixture_font();
         let scene = nametags::build_nametag_scene(
             &[anchor],
-            1.0,
+            None,
             &font,
             &mut ui::TextLayoutCache::new(8, 1 << 20),
             &mut nametag_atlas::NametagAtlas::default(),

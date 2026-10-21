@@ -60,10 +60,10 @@ pub use settings::{
 pub use text::{
     BedrockColor, ColorDescriptor, FONT_ASCENT_TEXELS, FONT_DESIGN_PIXEL_TEXELS, FONT_INK_TEXELS,
     FORMATTING_COLORS, FormattingPalette, GlyphQuad, MAX_GLYPHS_PER_LAYOUT, MAX_TEXT_SPANS,
-    MAX_WRAP_LINES, ObfuscationGlyphs, TEXT_BASELINE_64, TEXT_BOLD_OFFSET_64, TEXT_LINE_HEIGHT_64,
-    TEXT_SHADOW_OFFSET_64, TextError, TextLayout, TextLayoutCache, TextLayoutKey,
-    TextLayoutRequest, TextLineAlign, TextSpan, TextSpans, TextStyle, TextWrap, WordChop,
-    parse_bedrock_text,
+    MAX_WRAP_LINES, ObfuscationGlyphs, TEXT_BASELINE_64, TEXT_BOLD_OFFSET_64, TEXT_ITALIC_SHEAR_PX,
+    TEXT_LINE_HEIGHT_64, TEXT_SHADOW_OFFSET_64, TextError, TextLayout, TextLayoutCache,
+    TextLayoutKey, TextLayoutRequest, TextLineAlign, TextSpan, TextSpans, TextStyle, TextWrap,
+    WordChop, parse_bedrock_text,
 };
 
 // Ties the action limits to the model types they size; tests include `action.rs` without the model.

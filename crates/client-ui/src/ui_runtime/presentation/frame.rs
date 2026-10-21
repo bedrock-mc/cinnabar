@@ -64,6 +64,7 @@ impl UiPresentationRuntime {
         }
         self.poll_server_ui_images();
         self.menu_seconds = now_millis as f64 / 1_000.0;
+        self.nametag_atlas.set_animation_seed(now_millis);
         self.configure_oreui_settings();
         self.screens
             .mod_ui

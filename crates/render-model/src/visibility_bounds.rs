@@ -43,6 +43,35 @@ pub fn box_intersects_view(matrix: Mat4, low: [f32; 3], high: [f32; 3]) -> bool 
         return true;
     };
     let error = clip_error(matrix, low, high);
+    clip_points_intersect_view(&p, error)
+}
+
+/// Tests a convex hull against the clip planes, retaining uncertain or empty bounds.
+pub fn points_intersect_view<const N: usize>(matrix: Mat4, points: [Vec3; N]) -> bool {
+    let determinant = matrix.determinant();
+    if N == 0
+        || !matrix.is_finite()
+        || !determinant.is_finite()
+        || determinant == 0.0
+        || points.iter().any(|point| !point.is_finite())
+    {
+        return true;
+    }
+    let low = points
+        .iter()
+        .copied()
+        .fold(Vec3::splat(f32::INFINITY), Vec3::min);
+    let high = points
+        .iter()
+        .copied()
+        .fold(Vec3::splat(f32::NEG_INFINITY), Vec3::max);
+    let error = clip_error(matrix, low.to_array(), high.to_array());
+    let points = points.map(|point| matrix * point.extend(1.0));
+    points.iter().any(|point| !point.is_finite()) || clip_points_intersect_view(&points, error)
+}
+
+/// Rejects only hulls whose corners are all outside the same plane, allowing roundoff.
+fn clip_points_intersect_view(p: &[Vec4], error: Vec4) -> bool {
     !(p.iter().all(|p| p.x < -p.w - error.x - error.w)
         || p.iter().all(|p| p.x > p.w + error.x + error.w)
         || p.iter().all(|p| p.y < -p.w - error.y - error.w)
@@ -91,6 +120,19 @@ pub fn perspective_supports_occlusion(matrix: Mat4, eye: [f32; 3], near_radius_l
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn planar_hulls_use_clip_planes_and_keep_uncertain_inputs() {
+        let plane = [Vec3::new(-0.5, -0.5, 0.5), Vec3::new(0.5, 0.5, 0.5)];
+        assert!(points_intersect_view(Mat4::IDENTITY, plane));
+        assert!(!points_intersect_view(
+            Mat4::IDENTITY,
+            plane.map(|point| point + Vec3::X * 3.0)
+        ));
+        assert!(points_intersect_view(Mat4::ZERO, plane));
+        assert!(points_intersect_view(Mat4::IDENTITY, [Vec3::NAN]));
+        assert!(points_intersect_view(Mat4::IDENTITY, []));
+    }
 
     #[test]
     fn uncertain_clip_boundaries_draw() {

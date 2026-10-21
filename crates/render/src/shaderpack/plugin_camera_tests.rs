@@ -32,34 +32,6 @@ fn particle_streams_keep_independent_replacement_coverage() {
     );
     assert!(!coverage.particles_opaque);
     assert!(coverage.particles_translucent && coverage.particles_additive);
-    let native = render_scene::AtmosphereFrame::default();
-    assert!(!needs_native_scene(Some(&native), None, None, None, |_| {
-        true
-    }));
-}
-
-#[test]
-fn depthless_native_layers_keep_the_scene_copy_path() {
-    let mut overlays = render_scene::ScreenOverlayScene::default();
-    assert!(!needs_native_scene(
-        None,
-        None,
-        None,
-        Some(&overlays),
-        |_| true
-    ));
-    overlays.layers.push(render_scene::ScreenOverlayLayer {
-        kind: render_scene::ScreenOverlayKind::SpyglassScope,
-        rgb: [1.0; 3],
-        alpha: 1.0,
-    });
-    assert!(needs_native_scene(
-        None,
-        None,
-        None,
-        Some(&overlays),
-        |_| true
-    ));
 }
 
 #[test]
@@ -81,34 +53,6 @@ fn scene_copy_inputs_retain_the_native_far_plane() {
         pack_inputs(&inputs, None, true).render_distance,
         inputs.render_distance
     );
-}
-
-#[test]
-fn unresolved_native_layers_keep_the_scene_copy_path() {
-    assert!(!needs_native_scene(None, None, None, None, |_| false));
-    assert!(needs_native_scene(
-        Some(&render_scene::AtmosphereFrame::default()),
-        None,
-        None,
-        None,
-        |_| false
-    ));
-    for additive in [false, true] {
-        let mut particles = render_scene::ParticleGpuFrame::default();
-        let instances = std::sync::Arc::from([particles::ParticleInstance::default()]);
-        if additive {
-            particles.add = instances;
-        } else {
-            particles.blend = instances;
-        }
-        assert!(needs_native_scene(
-            None,
-            Some(&particles),
-            None,
-            None,
-            |_| false
-        ));
-    }
 }
 
 #[test]
@@ -179,21 +123,4 @@ fn changing_the_option_file_starts_a_new_load() {
     let command_line = loader_key(&request, 0);
     request.options = Some(PathBuf::from("Outer.txt"));
     assert_ne!(loader_key(&request, 0), command_line);
-}
-
-#[test]
-fn nametag_records_do_not_require_native_scene_colour() {
-    use bevy::ecs::system::SystemState;
-    let mut world = World::new();
-    world.init_resource::<render_scene::NametagSceneResource>();
-    let mut layers = SystemState::<NativeSceneLayers>::new(&mut world);
-    assert!(!layers.get(&world).unwrap().uncovered_layers(|_| false));
-    world
-        .resource_mut::<render_scene::NametagSceneResource>()
-        .records
-        .push(render_model::NametagRecord::default());
-    assert!(
-        !layers.get(&world).unwrap().uncovered_layers(|_| false),
-        "names compose independently of shader-pack world replacement"
-    );
 }

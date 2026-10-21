@@ -131,7 +131,7 @@ pub(crate) fn install_overlay_graph(world: &mut World) {
         .try_schedule_scope(Core3d, |_, schedule| {
             schedule.add_systems((
                 crate::gpu_timing::profiled(
-                    world::ui_world,
+                    world::ui_world::<false>,
                     Some(render_scene::RuntimeStage::GpuUi),
                     "UiWorldLabel",
                 )
