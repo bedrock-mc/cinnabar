@@ -74,10 +74,10 @@ fn capture_titles(
                 })
         });
     window_text.custom_title.clone_from(&stated_title);
-    window_text.block_entity = ledger
-        .window_position()
-        .and_then(|position| stream?.block_entity_compound(position))
-        .and_then(|nbt| nbt.string("id").map(str::to_owned));
+    window_text.block_entity = runtime
+        .storage_block
+        .as_ref()
+        .map(|(_, block_entity)| block_entity.to_string());
     window_text.inventory_label = runtime
         .translation("container.inventory")
         .map(|text| text.to_string());

@@ -7,8 +7,8 @@ use crate::inventory_ledger::{
 use protocol::{
     ContainerCloseEvent, ContainerIdentity, ContainerOpenEvent, InventoryAuthority,
     InventoryContentEvent, InventoryEvent, InventorySlotEvent, ItemStackResponseEvent,
-    NetworkItemStack, SlotIdentity, StackResponse, StackResponseContainer, StackResponseSlot,
-    StackResponseStatus,
+    NetworkItemStack, SlotIdentity, StackRequestAction, StackRequestContainer, StackResponse,
+    StackResponseContainer, StackResponseSlot, StackResponseStatus,
 };
 
 mod cursor_close;
@@ -75,6 +75,11 @@ fn response_with_storage_identity(request_id: i32, identity: ContainerIdentity) 
 /// Native accepted answers write backing explicitly; success alone never
 /// replays the local transfer. Both corrections belong to this take request.
 fn accepted_storage_take(request_id: i32) -> InventoryEvent {
+    accepted_take_from(request_id, protocol::CONTAINER_NAME_LEVEL_ENTITY)
+}
+
+/// An accepted take of storage slot 2 whose answer names the storage `container`.
+fn accepted_take_from(request_id: i32, container: u8) -> InventoryEvent {
     let corrected_slot = |slot, count, item_stack_id| StackResponseSlot {
         slot,
         hotbar_slot: slot,
@@ -92,7 +97,7 @@ fn accepted_storage_take(request_id: i32) -> InventoryEvent {
                 StackResponseContainer {
                     container: ContainerIdentity {
                         window_id: None,
-                        slot_type: Some(protocol::CONTAINER_NAME_LEVEL_ENTITY),
+                        slot_type: Some(container),
                         dynamic_id: None,
                     },
                     slots: Arc::from([corrected_slot(2, 0, 0)]),
@@ -324,6 +329,46 @@ fn mismatched_full_container_identity_cannot_confirm_a_storage_request() {
     ));
     assert!(!ledger.resync_required());
     assert_eq!(ledger.storage_stack(2).unwrap().stack_network_id, 91);
+}
+
+/// Barrels and shulker boxes open as plain storage windows, but servers validate
+/// their requests against the block's own container name.
+#[test]
+fn barrel_and_shulker_box_requests_use_their_block_container_names() {
+    for (block, name) in [
+        (
+            Some("Barrel"),
+            protocol_ids::ContainerName::Barrel.wire_value(),
+        ),
+        (
+            Some("ShulkerBox"),
+            protocol_ids::ContainerName::ShulkerBox.wire_value(),
+        ),
+        (Some("Chest"), protocol::CONTAINER_NAME_LEVEL_ENTITY),
+        (None, protocol::CONTAINER_NAME_LEVEL_ENTITY),
+    ] {
+        let mut ledger = ready(27, 0);
+        ledger.name_storage_block([9, 9, 9], Some("Barrel"));
+        ledger.name_storage_block([1, 2, 3], block);
+        let request = ledger.begin_storage_click(2).unwrap();
+        let Some(StackRequestAction::Take { source, .. }) = ledger.newest_action() else {
+            panic!("a storage click takes into the cursor");
+        };
+        let expected = if name == protocol::CONTAINER_NAME_LEVEL_ENTITY {
+            StackRequestContainer::LevelEntity { dynamic_id: None }
+        } else {
+            StackRequestContainer::OpenWindow {
+                name,
+                dynamic_id: None,
+            }
+        };
+        assert_eq!(source.container, expected, "{block:?}");
+        ledger.mark_transport_enqueued(10);
+        ledger.apply(&accepted_take_from(request, name));
+        assert!(ledger.storage_stack(2).is_none(), "{block:?}");
+        assert_eq!(ledger.cursor_stack().unwrap().stack_network_id, 91);
+        assert!(!ledger.resync_required());
+    }
 }
 
 #[test]
