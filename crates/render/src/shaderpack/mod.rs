@@ -69,10 +69,6 @@ mod tests;
 #[cfg(feature = "shaderpacks")]
 mod uniform_audit;
 #[cfg(feature = "shaderpacks")]
-#[expect(
-    dead_code,
-    reason = "per-draw uniforms are consumed by the pack's geometry and actor draws"
-)]
 mod uniforms;
 
 use bevy::prelude::{App, Plugin};

@@ -137,7 +137,6 @@ pub(crate) fn host_vertex(
 /// A host vertex that also carries texture coordinates `uv` (with `mid_uv` as
 /// `mc_midTexCoord`) and Java's raw lightmap coordinates `light` (block, sky; light level
 /// × 16, which `LIGHTMAP_TEXTURE_MATRIX` maps to texel centres).
-#[expect(dead_code, reason = "consumed by the shader-pack effects")]
 pub(crate) fn textured_host_vertex(
     position: [f32; 3],
     colour: [f32; 4],
