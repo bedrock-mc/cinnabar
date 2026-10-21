@@ -1,5 +1,5 @@
 use super::*;
-use protocol::test_support::{ActorAbsoluteFixture, move_actor_absolute_event};
+use protocol::test_support::packets::{ActorAbsoluteFixture, move_actor_absolute_event};
 use std::sync::Arc;
 
 /// Couples wire normalization, committed authority and the existing prediction owners.
