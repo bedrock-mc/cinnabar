@@ -75,7 +75,7 @@ impl UiRuntime {
                 owner_names.get(&unique_id).cloned()
             })
         };
-        let reader_name = &self.chat_source_name;
+        let reader_name = &self.local_player_display_name;
         let known_player_names = &self.known_player_names;
         let selector = |selector: &str| -> Option<Arc<str>> {
             match selector.trim() {
