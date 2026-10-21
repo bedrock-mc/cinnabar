@@ -258,7 +258,7 @@ pub const METHOD_CINNABAR_PLAYERS: &str = "cinnabar_players.v1";
 pub const METHOD_CINNABAR_LOOKUP: &str = "cinnabar_lookup.v1";
 
 /// Cinnabar API origin; the package workflow reads it from this manifest.
-pub const CINNABAR_API_BASE_URL: &str = "https://cinnabar-api.cinnabar-api.workers.dev";
+pub const CINNABAR_API_BASE_URL: &str = "https://api.cinnabar.gg";
 
 /// Most XUIDs in one Cinnabar player lookup.
 pub const CINNABAR_API_MAX_LOOKUP_XUIDS: usize = 128;

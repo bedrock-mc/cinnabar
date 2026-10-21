@@ -6,6 +6,10 @@
 //! dominates the load, so the cache keeps the backend pipeline cache (Vulkan) in a private
 //! directory, keyed by the pack's content hash, the translation settings and the adapter.
 
+#[path = "load_diagnostics.rs"]
+mod diagnostics;
+use diagnostics::{failure_line, log_program};
+
 use super::draws::{GeometryDraw, GeometryStage, geometry_draws, select_draws};
 use super::effects::EffectSettings;
 use super::host_pipelines::{HostPipelines, host_pipelines};
@@ -190,40 +194,6 @@ fn runs(group: ProgramGroup) -> bool {
     )
 }
 
-/// Groups the host draws or dispatches, whose diagnostics are warnings.
-fn drawn(group: ProgramGroup) -> bool {
-    runs(group)
-        || matches!(
-            group,
-            ProgramGroup::Gbuffers | ProgramGroup::Shadow | ProgramGroup::ShadowComposite
-        )
-}
-
-/// Logs a program's diagnostics; failures of programs this host runs are warnings.
-fn log_program(pack: &str, program: &ProgramTranslation) {
-    let required = program.enabled && drawn(program.program.group);
-    for diagnostic in program.all_diagnostics() {
-        let location = diagnostic
-            .location
-            .as_ref()
-            .map(|l| format!("{}:{}", l.file, l.line))
-            .unwrap_or_default();
-        if required {
-            bevy::log::warn!(
-                target: "cinnabar::shaderpack",
-                pack, program = %program.program.name, %location,
-                "{:?}: {}", diagnostic.phase, diagnostic.message
-            );
-        } else {
-            bevy::log::debug!(
-                target: "cinnabar::shaderpack",
-                pack, program = %program.program.name, %location,
-                "{:?}: {}", diagnostic.phase, diagnostic.message
-            );
-        }
-    }
-}
-
 /// The pack's content hash with the translation settings: the cache key.
 pub(crate) fn content_key(pack: &ShaderPack, config: &TranslateConfig) -> String {
     let mut hash = Sha256::new();
@@ -293,11 +263,12 @@ fn discards(module: &naga::Module) -> bool {
         || module.entry_points.iter().any(|e| kills(&e.function.body))
 }
 
+/// Plans one translated program, rejecting unsupported destinations before building masks.
 fn planned(
     program: &ProgramTranslation,
     reflection: &ProgramReflection,
     properties: &ShaderProperties,
-) -> PlannedProgram {
+) -> Result<PlannedProgram, String> {
     let name = program.program.name.as_str();
     let mipmaps = program
         .consts
@@ -314,6 +285,11 @@ fn planned(
     } else {
         vec![]
     };
+    if let Some(index) = outputs.iter().flatten().find(|&&b| b >= MAX_COLOR_BUFFERS) {
+        return Err(format!(
+            "{name} writes unsupported color buffer {index}; expected an index below {MAX_COLOR_BUFFERS}"
+        ));
+    }
     let whole = properties.scales.iter().all(|s| s.program != name)
         && !program
             .stages
@@ -339,7 +315,7 @@ fn planned(
         .flatten()
         .filter(|&&b| !whole || blends(b))
         .fold(0u32, |mask, b| mask | (1 << b));
-    PlannedProgram {
+    Ok(PlannedProgram {
         name: name.to_owned(),
         group: program.program.group,
         kind: program.program.kind,
@@ -353,7 +329,7 @@ fn planned(
             .collect(),
         mipmaps,
         partial,
-    }
+    })
 }
 
 /// Opens, translates and builds `path` for `dimension` (a Java dimension id); `vanilla`
@@ -374,8 +350,8 @@ pub(crate) fn load(
     build(&pack, &name, dimension, cache_dir, gpu, vanilla, progress)
 }
 
-/// The enabled programs this host runs, in frame order, with their plans; an error has one
-/// line per such program that failed to translate, naming it with its first diagnostic.
+/// The enabled programs this host runs, in frame order, with validated destinations.
+/// Translation failures name each program and its first diagnostic.
 pub(crate) fn runnable_programs(
     translation: &shaderpack::PackTranslation,
 ) -> Result<(Vec<&ProgramTranslation>, Vec<PlannedProgram>), String> {
@@ -388,7 +364,7 @@ pub(crate) fn runnable_programs(
         }
         match &program.reflection {
             Some(reflection) => {
-                plans.push(planned(program, reflection, &translation.properties));
+                plans.push(planned(program, reflection, &translation.properties)?);
                 runnable.push(program);
             }
             None => failed.push(failure_line(program)),
@@ -399,21 +375,6 @@ pub(crate) fn runnable_programs(
     } else {
         Err(failed.join("\n"))
     }
-}
-
-/// `program: first diagnostic` on one line; the log carries every diagnostic.
-fn failure_line(program: &ProgramTranslation) -> String {
-    let mut line = format!("{}:", program.program.name);
-    match program.all_diagnostics().next() {
-        Some(diagnostic) => {
-            for word in diagnostic.to_string().split_whitespace() {
-                line.push(' ');
-                line.push_str(word);
-            }
-        }
-        None => line.push_str(" failed to translate"),
-    }
-    line
 }
 
 /// Translates and builds an opened pack.
@@ -501,18 +462,22 @@ pub(crate) fn build(
     let geometry_plans: Vec<PlannedProgram> = geometry
         .iter()
         .filter(|p| p.program.group == ProgramGroup::Gbuffers)
-        .filter_map(|p| Some(planned(p, p.reflection.as_ref()?, &translation.properties)))
-        .collect();
-    let mut frame = plan_frame(&plans, &translation.properties.flips);
+        .filter_map(|p| {
+            p.reflection
+                .as_ref()
+                .map(|r| planned(p, r, &translation.properties))
+        })
+        .collect::<Result<_, _>>()?;
+    let mut frame = plan_frame(&plans, &translation.properties.flips)?;
     let buffers = plan_buffers(
         &plans,
         &geometry_plans,
         &frame,
         &translation.buffers,
         &translation.properties.buffer_sizes,
-    );
+    )?;
     skip_cleared_swap_back(&mut frame, &buffers, &plans);
-    exchange_swap_back(&mut frame, &plans, &geometry_plans);
+    exchange_swap_back(&mut frame, &plans, &geometry_plans)?;
     let support = gpu.support();
     let mut buffer_formats = [None; MAX_COLOR_BUFFERS as usize];
     for buffer in &buffers {
@@ -534,15 +499,7 @@ pub(crate) fn build(
             }
         }
     }
-    let depth_format = if support.float32_filterable {
-        TextureFormat::R32Float
-    } else {
-        bevy::log::warn!(
-            target: "cinnabar::shaderpack",
-            "device cannot filter 32-bit floats; depth buffers use 16-bit precision"
-        );
-        TextureFormat::R16Float
-    };
+    let depth_format = TextureFormat::R32Float;
     let mut settings = pack_settings(&translation.programs);
     settings.shadow.culling = translation
         .properties
@@ -559,355 +516,365 @@ pub(crate) fn build(
     });
 
     let scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
-    let key = content_key(pack, &config);
-    let pipeline_cache = PipelineCacheFile::open(gpu, cache_dir, &key);
-    let image_formats = image_formats(&translation.properties.images, &reflections, support);
-    let atomic_images = translation
-        .properties
-        .images
-        .iter()
-        .zip(&image_formats)
-        .map(|(custom, &format)| {
-            gpu.supports_atomics(format)
-                && reflections
-                    .iter()
-                    .flat_map(|r| &r.storage_images)
-                    .any(|image| image.atomic && image.name == custom.name)
-        })
-        .collect();
-    let mut constants = ConstantBuilder::new(gpu, pack, &translation, vanilla, support);
-    let mut depth_compare = [false; 3];
-    let mut depth_sampled = [false; 3];
-    let mut programs = Vec::with_capacity(all.len());
-    // Per geometry program: its pipeline layout, vertex module and fragment stage.
-    let mut geometry_stages = vec![];
-    for (program, reflection) in all.iter().zip(&reflections) {
-        let bindings = resolve_bindings(
-            &mut constants,
-            program.program.group,
-            reflection,
-            &buffer_formats,
-            storage_buffers,
-            depth_format,
-            &translation.properties.images,
-            &image_formats,
-        )?;
-        for source in &bindings.textures {
-            match *source {
-                TextureSource::DepthCompare(i) => depth_compare[i] = true,
-                TextureSource::Depth { index, .. } => depth_sampled[index] = true,
-                _ => {}
-            }
-        }
-        let sample_types: Vec<_> = bindings
-            .textures
+    let render_device = bevy::render::renderer::RenderDevice::from(gpu.device.clone());
+    let loaded = crate::gpu_allocation::checked(&render_device, "shader pack load", 0, || {
+        let key = content_key(pack, &config);
+        let pipeline_cache = PipelineCacheFile::open(gpu, cache_dir, &key);
+        let image_formats = image_formats(&translation.properties.images, &reflections, support);
+        let atomic_images = translation
+            .properties
+            .images
             .iter()
-            .map(|s| s.sample_type(support))
+            .zip(&image_formats)
+            .map(|(custom, &format)| {
+                gpu.supports_atomics(format)
+                    && reflections
+                        .iter()
+                        .flat_map(|r| &r.storage_images)
+                        .any(|image| image.atomic && image.name == custom.name)
+            })
             .collect();
-        let entries = layout_entries(reflection, &sample_types)?;
-        let layouts = bind_group_layouts(&gpu.device, &program.program.name, &entries);
-        let layout_refs: Vec<Option<&wgpu::BindGroupLayout>> =
-            layouts.iter().map(Option::as_ref).collect();
-        let pipeline_layout = gpu
-            .device
-            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some(&format!("shader pack {}", program.program.name)),
-                bind_group_layouts: &layout_refs,
-                immediate_size: 0,
-            });
-        let stages: Vec<(StageKind, naga::Module)> = program
-            .stages
-            .iter()
-            .filter_map(|s| s.result.as_ref().ok())
-            .map(|c| (c.stage, c.module.clone()))
-            .collect();
-        let modules = shader_modules(&gpu.device, &program.program.name, &stages);
-        if matches!(
-            program.program.group,
-            ProgramGroup::Gbuffers | ProgramGroup::Shadow
-        ) {
-            if program.program.group == ProgramGroup::Shadow {
-                for buffer in reflection.color_outputs.iter().filter_map(|o| o.buffer) {
-                    constants.shadow_color(buffer)?;
+        let mut constants = ConstantBuilder::new(gpu, pack, &translation, vanilla, support);
+        let mut depth_compare = [false; 3];
+        let mut depth_sampled = [false; 3];
+        let mut programs = Vec::with_capacity(all.len());
+        // Per geometry program: its pipeline layout, vertex module and fragment stage.
+        let mut geometry_stages = vec![];
+        for (program, reflection) in all.iter().zip(&reflections) {
+            let bindings = resolve_bindings(
+                &mut constants,
+                program.program.group,
+                reflection,
+                &buffer_formats,
+                storage_buffers,
+                depth_format,
+                &translation.properties.images,
+                &image_formats,
+            )?;
+            for source in &bindings.textures {
+                match *source {
+                    TextureSource::DepthCompare(i) => depth_compare[i] = true,
+                    TextureSource::Depth { index, .. } => depth_sampled[index] = true,
+                    _ => {}
                 }
             }
-            let vertex = modules
-                .into_iter()
-                .find(|(s, _)| *s == StageKind::Vertex)
-                .map(|(_, m)| m);
-            let fragment = stages
-                .into_iter()
-                .find(|(s, _)| *s == StageKind::Fragment)
-                .map(|(_, m)| m);
-            let (Some(vertex), Some(fragment)) = (vertex, fragment) else {
-                return Err(format!(
-                    "{} needs a vertex and a fragment stage",
-                    program.program.name
-                ));
-            };
-            geometry_stages.push(GeometryStage {
-                program: programs.len(),
-                layout: pipeline_layout,
-                vertex,
-                fragment,
-            });
-            programs.push(GpuProgram {
-                name: program.program.name.clone(),
-                group: program.program.group,
-                reflection: (*reflection).clone(),
-                pipeline: ProgramPipeline::Geometry,
-                layouts,
-                textures: bindings.textures,
-                images: bindings.images,
-                color_targets: vec![],
-                scale: None,
-            });
-            continue;
-        }
-        let module = |stage: StageKind| modules.iter().find(|(s, _)| *s == stage).map(|(_, m)| m);
-        let entry = |stage: StageKind| {
-            reflection
-                .entry_points
+            let sample_types: Vec<_> = bindings
+                .textures
                 .iter()
-                .find(|(s, _)| *s == stage)
-                .map(|(_, e)| e.as_str())
-        };
-        let cache = pipeline_cache.as_ref().map(|c| &c.cache);
-        let targets = color_targets(
-            program.program.group,
-            &program.program.name,
-            reflection,
-            &buffer_formats,
-            &translation.properties.blends,
-            None,
-        );
-        let pipeline = match reflection.kind {
-            ProgramKind::Compute => {
-                let Some(module) = module(StageKind::Compute) else {
-                    return Err(format!("{} has no compute stage", program.program.name));
-                };
-                ProgramPipeline::Compute(gpu.device.create_compute_pipeline(
-                    &wgpu::ComputePipelineDescriptor {
-                        label: Some(&program.program.name),
-                        layout: Some(&pipeline_layout),
-                        module,
-                        entry_point: entry(StageKind::Compute),
-                        compilation_options: Default::default(),
-                        cache,
-                    },
-                ))
-            }
-            ProgramKind::Render => {
-                let (Some(vertex), Some(fragment)) =
-                    (module(StageKind::Vertex), module(StageKind::Fragment))
-                else {
+                .map(|s| s.sample_type(support))
+                .collect();
+            let entries = layout_entries(reflection, &sample_types)?;
+            let layouts = bind_group_layouts(&gpu.device, &program.program.name, &entries);
+            let layout_refs: Vec<Option<&wgpu::BindGroupLayout>> =
+                layouts.iter().map(Option::as_ref).collect();
+            let pipeline_layout =
+                gpu.device
+                    .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some(&format!("shader pack {}", program.program.name)),
+                        bind_group_layouts: &layout_refs,
+                        immediate_size: 0,
+                    });
+            let stages: Vec<(StageKind, naga::Module)> = program
+                .stages
+                .iter()
+                .filter_map(|s| s.result.as_ref().ok())
+                .map(|c| (c.stage, c.module.clone()))
+                .collect();
+            let modules = shader_modules(&gpu.device, &program.program.name, &stages);
+            if matches!(
+                program.program.group,
+                ProgramGroup::Gbuffers | ProgramGroup::Shadow
+            ) {
+                if program.program.group == ProgramGroup::Shadow {
+                    for buffer in reflection.color_outputs.iter().filter_map(|o| o.buffer) {
+                        constants.shadow_color(buffer)?;
+                    }
+                }
+                let vertex = modules
+                    .into_iter()
+                    .find(|(s, _)| *s == StageKind::Vertex)
+                    .map(|(_, m)| m);
+                let fragment = stages
+                    .into_iter()
+                    .find(|(s, _)| *s == StageKind::Fragment)
+                    .map(|(_, m)| m);
+                let (Some(vertex), Some(fragment)) = (vertex, fragment) else {
                     return Err(format!(
                         "{} needs a vertex and a fragment stage",
                         program.program.name
                     ));
                 };
-                let no_targets = targets.iter().all(Option::is_none);
-                if no_targets && !stores(reflection) {
-                    ProgramPipeline::Inert
-                } else {
-                    let attributes = quad_attributes(reflection);
-                    let pipeline =
-                        gpu.device
-                            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                                label: Some(&program.program.name),
-                                layout: Some(&pipeline_layout),
-                                vertex: wgpu::VertexState {
-                                    module: vertex,
-                                    entry_point: entry(StageKind::Vertex),
-                                    compilation_options: Default::default(),
-                                    buffers: &[Some(quad_layout(&attributes))],
-                                },
-                                primitive: wgpu::PrimitiveState {
-                                    topology: wgpu::PrimitiveTopology::TriangleStrip,
-                                    ..Default::default()
-                                },
-                                depth_stencil: None,
-                                multisample: Default::default(),
-                                fragment: Some(wgpu::FragmentState {
-                                    module: fragment,
-                                    entry_point: entry(StageKind::Fragment),
-                                    compilation_options: Default::default(),
-                                    targets: if no_targets {
-                                        &MASKED_TARGET
-                                    } else {
-                                        targets.as_slice()
-                                    },
-                                }),
-                                multiview_mask: None,
-                                cache,
-                            });
-                    if no_targets {
-                        ProgramPipeline::StoreOnly(pipeline)
+                geometry_stages.push(GeometryStage {
+                    program: programs.len(),
+                    layout: pipeline_layout,
+                    vertex,
+                    fragment,
+                });
+                programs.push(GpuProgram {
+                    name: program.program.name.clone(),
+                    group: program.program.group,
+                    reflection: (*reflection).clone(),
+                    pipeline: ProgramPipeline::Geometry,
+                    layouts,
+                    textures: bindings.textures,
+                    images: bindings.images,
+                    color_targets: vec![],
+                    scale: None,
+                });
+                continue;
+            }
+            let module =
+                |stage: StageKind| modules.iter().find(|(s, _)| *s == stage).map(|(_, m)| m);
+            let entry = |stage: StageKind| {
+                reflection
+                    .entry_points
+                    .iter()
+                    .find(|(s, _)| *s == stage)
+                    .map(|(_, e)| e.as_str())
+            };
+            let cache = pipeline_cache.as_ref().map(|c| &c.cache);
+            let targets = color_targets(
+                program.program.group,
+                &program.program.name,
+                reflection,
+                &buffer_formats,
+                &translation.properties.blends,
+                None,
+            );
+            let pipeline = match reflection.kind {
+                ProgramKind::Compute => {
+                    let Some(module) = module(StageKind::Compute) else {
+                        return Err(format!("{} has no compute stage", program.program.name));
+                    };
+                    ProgramPipeline::Compute(gpu.device.create_compute_pipeline(
+                        &wgpu::ComputePipelineDescriptor {
+                            label: Some(&program.program.name),
+                            layout: Some(&pipeline_layout),
+                            module,
+                            entry_point: entry(StageKind::Compute),
+                            compilation_options: Default::default(),
+                            cache,
+                        },
+                    ))
+                }
+                ProgramKind::Render => {
+                    let (Some(vertex), Some(fragment)) =
+                        (module(StageKind::Vertex), module(StageKind::Fragment))
+                    else {
+                        return Err(format!(
+                            "{} needs a vertex and a fragment stage",
+                            program.program.name
+                        ));
+                    };
+                    let no_targets = targets.iter().all(Option::is_none);
+                    if no_targets && !stores(reflection) {
+                        ProgramPipeline::Inert
                     } else {
-                        ProgramPipeline::Render(pipeline)
+                        let attributes = quad_attributes(reflection);
+                        let pipeline =
+                            gpu.device
+                                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                                    label: Some(&program.program.name),
+                                    layout: Some(&pipeline_layout),
+                                    vertex: wgpu::VertexState {
+                                        module: vertex,
+                                        entry_point: entry(StageKind::Vertex),
+                                        compilation_options: Default::default(),
+                                        buffers: &[Some(quad_layout(&attributes))],
+                                    },
+                                    primitive: wgpu::PrimitiveState {
+                                        topology: wgpu::PrimitiveTopology::TriangleStrip,
+                                        ..Default::default()
+                                    },
+                                    depth_stencil: None,
+                                    multisample: Default::default(),
+                                    fragment: Some(wgpu::FragmentState {
+                                        module: fragment,
+                                        entry_point: entry(StageKind::Fragment),
+                                        compilation_options: Default::default(),
+                                        targets: if no_targets {
+                                            &MASKED_TARGET
+                                        } else {
+                                            targets.as_slice()
+                                        },
+                                    }),
+                                    multiview_mask: None,
+                                    cache,
+                                });
+                        if no_targets {
+                            ProgramPipeline::StoreOnly(pipeline)
+                        } else {
+                            ProgramPipeline::Render(pipeline)
+                        }
                     }
                 }
-            }
-        };
-        programs.push(GpuProgram {
-            name: program.program.name.clone(),
-            group: program.program.group,
-            reflection: (*reflection).clone(),
-            pipeline,
-            layouts,
-            textures: bindings.textures,
-            images: bindings.images,
-            color_targets: targets.iter().map(Option::is_some).collect(),
-            scale: translation
-                .properties
-                .scales
-                .iter()
-                .rev()
-                .find(|s| s.program == program.program.name)
-                .cloned(),
-        });
-    }
-    let shadow_slots = constants.shadow_slots();
-    let draws = geometry_draws(
-        gpu,
-        pipeline_cache.as_ref().map(|c| &c.cache),
-        &selected_draws,
-        &geometry_stages,
-        &programs,
-        &translation.properties,
-        &effects,
-        &buffer_formats,
-        &shadow_slots,
-    );
-    // `shadowtex0` can be the attachment itself unless a shadow program samples it while
-    // the pass draws.
-    let shadowtex0 = shadow_slots.depth[0]
-        .filter(|slot| {
-            !draws.iter().filter(|d| d.kind.shadow()).any(|d| {
-                programs[d.program].textures.iter().any(
-                    |source| matches!(source, TextureSource::Constant { index, .. } if index == slot),
-                )
+            };
+            programs.push(GpuProgram {
+                name: program.program.name.clone(),
+                group: program.program.group,
+                reflection: (*reflection).clone(),
+                pipeline,
+                layouts,
+                textures: bindings.textures,
+                images: bindings.images,
+                color_targets: targets.iter().map(Option::is_some).collect(),
+                scale: translation
+                    .properties
+                    .scales
+                    .iter()
+                    .rev()
+                    .find(|s| s.program == program.program.name)
+                    .cloned(),
+            });
+        }
+        let shadow_slots = constants.shadow_slots();
+        let draws = geometry_draws(
+            gpu,
+            pipeline_cache.as_ref().map(|c| &c.cache),
+            &selected_draws,
+            &geometry_stages,
+            &programs,
+            &translation.properties,
+            &effects,
+            &buffer_formats,
+            &shadow_slots,
+        );
+        // `shadowtex0` can be the attachment itself unless a shadow program samples it while
+        // the pass draws.
+        let shadowtex0 = shadow_slots.depth[0]
+            .filter(|slot| {
+                !draws.iter().filter(|d| d.kind.shadow()).any(|d| {
+                    programs[d.program].textures.iter().any(
+                        |source| matches!(source, TextureSource::Constant { index, .. } if index == slot),
+                    )
+                })
             })
-        })
-        .map(|slot| (slot, constants.constant(slot)));
-    let shadow = draws
-        .iter()
-        .any(|d| d.kind.shadow())
-        .then(|| shadow_maps(gpu, shadow_slots, &translation.buffers, shadowtex0));
-    let shadowcomp = (runnable.len() + geometry.len()..programs.len())
-        .map(|program| PassStep {
-            program,
-            read_alt: 0,
-            writes: vec![],
-            mipmaps: vec![],
-            mipmapped: 0,
-        })
-        .collect();
-    let (block_ids, actor_ids) = if draws.is_empty() {
-        (None, Arc::default())
-    } else {
-        (block_ids, actor_ids)
-    };
-    let atlas_placeholder = constants
-        .placeholder(ATLAS_FORMAT, shaderpack::TextureDimension::D2, false)?
-        .0;
-    let flag = |key: &str| translation.properties.get(key) == Some("true");
-    let mipmap_formats: Vec<TextureFormat> = buffers
-        .iter()
-        .filter(|b| b.mipmapped)
-        .filter_map(|b| buffer_formats[b.index as usize])
-        .filter(|f| format_kind(*f) == Kind::Float)
-        .collect();
-    let host = host_pipelines(
-        &gpu.device,
-        &buffer_formats,
-        depth_format,
-        depth_compare.contains(&true) || !draws.is_empty(),
-        super::targets::float_depths(draws.is_empty(), depth_sampled),
-        &mipmap_formats,
-    );
-    let shader_storage = storage_sizes(&reflections, &translation.properties)?;
-    let max_uniform = reflections
-        .iter()
-        .flat_map(|r| &r.uniform_buffers)
-        .map(|b| u64::from(b.min_size))
-        .max()
-        .unwrap_or(16)
-        .max(16);
-    let zero_uniforms = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("shader pack zero uniforms"),
-        size: max_uniform.next_multiple_of(16),
-        usage: wgpu::BufferUsages::UNIFORM,
-        mapped_at_creation: false,
+            .map(|slot| (slot, constants.constant(slot)));
+        let shadow = draws
+            .iter()
+            .any(|d| d.kind.shadow())
+            .then(|| shadow_maps(gpu, shadow_slots, &translation.buffers, shadowtex0));
+        let shadowcomp = (runnable.len() + geometry.len()..programs.len())
+            .map(|program| PassStep {
+                program,
+                read_alt: 0,
+                writes: vec![],
+                mipmaps: vec![],
+                mipmapped: 0,
+            })
+            .collect();
+        let (block_ids, actor_ids) = if draws.is_empty() {
+            (None, Arc::default())
+        } else {
+            (block_ids, actor_ids)
+        };
+        let atlas_placeholder = constants
+            .placeholder(ATLAS_FORMAT, shaderpack::TextureDimension::D2, false)?
+            .0;
+        let flag = |key: &str| translation.properties.get(key) == Some("true");
+        let mipmap_formats: Vec<TextureFormat> = buffers
+            .iter()
+            .filter(|b| b.mipmapped)
+            .filter_map(|b| buffer_formats[b.index as usize])
+            .filter(|f| format_kind(*f) == Kind::Float)
+            .collect();
+        let host = host_pipelines(
+            &gpu.device,
+            &buffer_formats,
+            depth_format,
+            depth_compare.contains(&true) || !draws.is_empty(),
+            super::targets::float_depths(draws.is_empty(), depth_sampled),
+            &mipmap_formats,
+        );
+        let shader_storage = storage_sizes(&reflections, &translation.properties)?;
+        let max_uniform = reflections
+            .iter()
+            .flat_map(|r| &r.uniform_buffers)
+            .map(|b| u64::from(b.min_size))
+            .max()
+            .unwrap_or(16)
+            .max(16);
+        let zero_uniforms = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("shader pack zero uniforms"),
+            size: max_uniform.next_multiple_of(16),
+            usage: wgpu::BufferUsages::UNIFORM,
+            mapped_at_creation: false,
+        });
+        let quad_bytes = super::pipelines::quad_vertices();
+        let quad = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("shader pack full-screen quad"),
+            size: quad_bytes.len() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        gpu.queue.write_buffer(&quad, 0, &quad_bytes);
+        let filtering =
+            SamplerClass::ALL.map(|class| gpu.device.create_sampler(&class_sampler(class)));
+        let comparison = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("shader pack iris_samplerShadow"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            ..Default::default()
+        });
+        let lightmap = constants.lightmap_slot();
+        let constants = constants.finish();
+        let loaded = PackGpu {
+            name: name.to_string(),
+            programs,
+            frame,
+            buffers,
+            buffer_formats,
+            storage_buffers,
+            atomic_buffers,
+            depth_format,
+            depth_compare,
+            depth_sampled,
+            constants,
+            custom_images: translation.properties.images.clone(),
+            image_formats,
+            atomic_images,
+            shader_storage,
+            settings,
+            custom_uniforms: translation.properties.custom_uniforms.clone(),
+            filtering,
+            comparison,
+            zero_uniforms,
+            quad,
+            host,
+            terrain_layout: draws
+                .iter()
+                .find_map(|d| d.layout)
+                .unwrap_or(super::geometry::TerrainLayout::WIDE),
+            draws,
+            shadowcomp,
+            shadow,
+            shadow_terrain: translation.properties.get("shadowTerrain") != Some("false"),
+            shadow_translucent: translation.properties.get("shadowTranslucent") != Some("false"),
+            block_ids,
+            actor_ids,
+            separate_ao: flag("separateAo"),
+            old_lighting: flag("oldLighting"),
+            atlas_placeholder,
+            lightmap,
+            effects,
+        };
+        Ok((loaded, pipeline_cache))
     });
-    let quad_bytes = super::pipelines::quad_vertices();
-    let quad = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("shader pack full-screen quad"),
-        size: quad_bytes.len() as u64,
-        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
-    gpu.queue.write_buffer(&quad, 0, &quad_bytes);
-    let filtering = SamplerClass::ALL.map(|class| gpu.device.create_sampler(&class_sampler(class)));
-    let comparison = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
-        label: Some("shader pack iris_samplerShadow"),
-        mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Linear,
-        compare: Some(wgpu::CompareFunction::LessEqual),
-        ..Default::default()
-    });
-    let lightmap = constants.lightmap_slot();
-    let constants = constants.finish();
-    if let Some(error) = bevy::tasks::block_on(scope.pop()) {
+    let validation_error = bevy::tasks::block_on(scope.pop());
+    let (loaded, pipeline_cache) =
+        loaded.ok_or_else(|| "shader pack load ran out of GPU memory".to_owned())??;
+    if let Some(error) = validation_error {
         return Err(format!("the device rejected the pack: {error}"));
     }
-    if let Some(cache) = &pipeline_cache {
+    if let Some(cache) = pipeline_cache {
         cache.store();
     }
     bevy::log::info!(
         target: "cinnabar::shaderpack",
         pack = name, "ready after {:.0?}", started.elapsed()
     );
-    Ok(PackGpu {
-        name: name.to_string(),
-        programs,
-        frame,
-        buffers,
-        buffer_formats,
-        storage_buffers,
-        atomic_buffers,
-        depth_format,
-        depth_compare,
-        depth_sampled,
-        constants,
-        custom_images: translation.properties.images.clone(),
-        image_formats,
-        atomic_images,
-        shader_storage,
-        settings,
-        custom_uniforms: translation.properties.custom_uniforms.clone(),
-        filtering,
-        comparison,
-        zero_uniforms,
-        quad,
-        host,
-        terrain_layout: draws
-            .iter()
-            .find_map(|d| d.layout)
-            .unwrap_or(super::geometry::TerrainLayout::WIDE),
-        draws,
-        shadowcomp,
-        shadow,
-        shadow_terrain: translation.properties.get("shadowTerrain") != Some("false"),
-        shadow_translucent: translation.properties.get("shadowTranslucent") != Some("false"),
-        block_ids,
-        actor_ids,
-        separate_ao: flag("separateAo"),
-        old_lighting: flag("oldLighting"),
-        atlas_placeholder,
-        lightmap,
-        effects,
-    })
+    Ok(loaded)
 }
 
 /// Storage bindings: the reflected minimum, raised to the pack's complete requested words.

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/url"
 	"time"
 
@@ -28,6 +29,7 @@ var (
 type Config struct {
 	Path         string
 	Writer       io.Writer
+	Logger       *slog.Logger
 	DeviceAuth   func(context.Context) (*oauth2.DeviceAuthResponse, error)
 	DeviceToken  func(context.Context, *oauth2.DeviceAuthResponse) (*oauth2.Token, error)
 	Refresh      func(*oauth2.Token, io.Writer) oauth2.TokenSource
@@ -101,6 +103,9 @@ func Run(ctx context.Context, config Config) error {
 		}
 		if errors.Is(ctx.Err(), context.Canceled) {
 			stage, message = "cancelled", "Sign-in was cancelled."
+		}
+		if config.Logger != nil {
+			config.Logger.Error("authentication failed", "stage", stage, "diagnostic", authcache.FailureDiagnostic(err))
 		}
 		return fail(writer, stage, message)
 	}

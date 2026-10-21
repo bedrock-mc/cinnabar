@@ -255,7 +255,9 @@ impl RetainedDraw {
             if new == old {
                 continue;
             }
-            if matches!(new.visual, UiVisual::Mesh(_)) && new.world_projection.is_some() {
+            if matches!(new.visual, UiVisual::Mesh(_) | UiVisual::TintedMesh { .. })
+                && new.world_projection.is_some()
+            {
                 return None;
             }
             let position = self.positions[index];

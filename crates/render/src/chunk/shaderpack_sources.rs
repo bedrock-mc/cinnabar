@@ -144,9 +144,8 @@ impl ResidentSections<'_, '_> {
                 cube_quads: &instance.cube_quads,
                 solid_len: allocation.cube_layout.solid_len(),
                 model_refs: &instance.model_refs,
-                model_draw_base: record(&allocation.model_draw_range, 2),
+                model_base: record(&allocation.model_range, 4),
                 model_draw_refs: &instance.model_draw_refs,
-                transparent_model_draw_base: record(&allocation.transparent_model_draw_range, 2),
                 transparent_model_draw_refs: &instance.transparent_model_draw_refs,
                 liquid_base: record(&allocation.liquid_range, 4),
                 liquid_quads: &instance.liquid_quads,
@@ -201,7 +200,9 @@ impl ResidentSection<'_> {
         assets: &ChunkTextureAssets,
     ) -> Vec<crate::chunk::transparent::mixed::plan::MixedFace> {
         use crate::chunk::transparent::mixed::plan::{MixedFace, MixedStream};
-        use crate::shaderpack::geometry::jobs::{GeometryCategory, JobKind, job_slots};
+        use crate::shaderpack::geometry::jobs::{
+            GeometryCategory, JOB_MODEL_QUAD_MASK, JobKind, job_slots,
+        };
         let range = &plan.categories[GeometryCategory::Translucent.index()];
         let mut faces = Vec::with_capacity(range.len());
         for (kind, jobs) in plan.jobs.iter().enumerate() {
@@ -210,22 +211,17 @@ impl ResidentSection<'_> {
                     continue;
                 }
                 let anchor = if kind == JobKind::Model as usize {
-                    let local = record - self.geometry.transparent_model_draw_base;
-                    self.geometry
-                        .transparent_model_draw_refs
-                        .get(local as usize)
-                        .and_then(|draw| {
-                            transparent_model_draw_candidate(
-                                self.instance.key,
-                                &self.instance.model_refs,
-                                &self.instance.model_lighting,
-                                *draw,
-                                assets.assets().model_templates(),
-                                assets.assets().model_quads(),
-                                0,
-                            )
-                            .map(|(centroid, stable)| (MixedStream::Model, centroid, stable))
-                        })
+                    let local = record - self.geometry.model_base;
+                    transparent_model_draw_candidate(
+                        self.instance.key,
+                        &self.instance.model_refs,
+                        &self.instance.model_lighting,
+                        PackedModelDrawRef::new(local, flags & JOB_MODEL_QUAD_MASK),
+                        assets.assets().model_templates(),
+                        assets.assets().model_quads(),
+                        0,
+                    )
+                    .map(|(centroid, stable)| (MixedStream::Model, centroid, stable))
                 } else if kind == JobKind::Liquid as usize {
                     let local = record - self.geometry.liquid_base;
                     self.geometry.liquid_quads.get(local as usize).map(|quad| {

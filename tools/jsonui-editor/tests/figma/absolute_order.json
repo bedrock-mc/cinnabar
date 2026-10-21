@@ -1,0 +1,27 @@
+{
+  "id": "13:1", "name": "Order Test", "type": "FRAME", "width": 120, "height": 40,
+  "children": [
+    { "id": "13:2", "name": "Stack", "type": "FRAME", "x": 0, "y": 0, "width": 60, "height": 40,
+      "layout": { "mode": "VERTICAL" },
+      "children": [
+        { "id": "13:3", "name": "Backdrop", "type": "RECTANGLE", "x": 0, "y": 0, "width": 60, "height": 40,
+          "positioning": "ABSOLUTE", "fills": [{ "type": "SOLID", "color": [1, 0, 0] }] },
+        { "id": "13:4", "name": "A", "type": "RECTANGLE", "x": 0, "y": 0, "width": 60, "height": 20,
+          "fills": [{ "type": "SOLID", "color": [0, 1, 0] }] },
+        { "id": "13:5", "name": "Pin", "type": "RECTANGLE", "x": 50, "y": 20, "width": 10, "height": 10,
+          "positioning": "ABSOLUTE", "fills": [{ "type": "SOLID", "color": [1, 1, 0] }] },
+        { "id": "13:6", "name": "B", "type": "RECTANGLE", "x": 0, "y": 20, "width": 60, "height": 20,
+          "fills": [{ "type": "SOLID", "color": [0, 0, 1] }] },
+        { "id": "13:7", "name": "Badge", "type": "RECTANGLE", "x": 0, "y": 30, "width": 10, "height": 10,
+          "positioning": "ABSOLUTE", "fills": [{ "type": "SOLID", "color": [1, 1, 1] }] }
+      ] },
+    { "id": "13:8", "name": "Reversed", "type": "FRAME", "x": 60, "y": 0, "width": 60, "height": 40,
+      "layout": { "mode": "VERTICAL", "reverse_z_index": true },
+      "children": [
+        { "id": "13:9", "name": "Cover", "type": "RECTANGLE", "x": 0, "y": 0, "width": 60, "height": 40,
+          "positioning": "ABSOLUTE", "fills": [{ "type": "SOLID", "color": [1, 0, 1] }] },
+        { "id": "13:10", "name": "C", "type": "RECTANGLE", "x": 0, "y": 0, "width": 60, "height": 20,
+          "fills": [{ "type": "SOLID", "color": [0, 1, 1] }] }
+      ] }
+  ]
+}
