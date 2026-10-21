@@ -212,3 +212,44 @@ fn furnace_fuel_response_retains_the_accepted_window_slot() {
     );
     assert!(ledger.storage_stack(2).is_none());
 }
+
+#[test]
+fn named_station_request_addresses_return_to_their_original_cells() {
+    use protocol::{ContainerIdentity, ContainerOpenEvent, InventoryContentEvent, InventoryEvent};
+    let mut checked = 0;
+    for window_type in i8::MIN..=i8::MAX {
+        let Some(kind) = protocol::WindowKind::from_window_type(window_type) else {
+            continue;
+        };
+        let Some(protocol::OpenCells::Named { lengths, .. }) = kind.open_cells() else {
+            continue;
+        };
+        let mut ledger = PlayerInventoryLedger::default();
+        ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+            container: ContainerIdentity::window(3),
+            window_type,
+            position: [0, 64, 0],
+            runtime_entity_id: -1,
+        }));
+        ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+            container: ContainerIdentity::window(3),
+            slots: vec![protocol::NetworkItemStack::empty(); lengths[0]].into(),
+            storage_item: protocol::NetworkItemStack::empty(),
+        }));
+        for cell in 0..lengths[0] {
+            let cell = u8::try_from(cell).unwrap();
+            let (container, slot) = protocol::open_cell_request(kind, cell, None, None).unwrap();
+            assert_eq!(
+                ledger.request_cell(protocol::StackRequestSlot {
+                    container,
+                    slot,
+                    stack_network_id: 0
+                }),
+                Some(super::super::Cell::Storage(cell)),
+                "{kind:?}, slot{cell}"
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked > 0);
+}
