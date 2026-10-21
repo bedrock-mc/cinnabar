@@ -458,22 +458,39 @@ fn span(low: f32, high: f32, clip_low: f32, clip_high: f32) -> [i64; 2] {
     [(low - 0.5).ceil() as i64, (high - 0.5).ceil() as i64]
 }
 
-/// Weights of `point` inside triangle `p` (edges included), or `None` outside.
+/// Weights of `point` inside triangle `p`, or `None` outside. Like the GPU's top-left rule, a
+/// point on an edge belongs only to the triangle right of it (below it when horizontal), so
+/// triangles sharing an edge blend it once.
 fn barycentric(p: [[f32; 2]; 3], point: [f32; 2]) -> Option<[f32; 3]> {
     let area = edge(p[0], p[1], p[2]);
     if area == 0.0 {
         return None;
     }
-    let w = [
-        edge(p[1], p[2], point) / area,
-        edge(p[2], p[0], point) / area,
-        edge(p[0], p[1], point) / area,
-    ];
-    w.iter().all(|weight| *weight >= 0.0).then_some(w)
+    let mut w = [0.0; 3];
+    for (k, weight) in w.iter_mut().enumerate() {
+        let (a, b) = (p[(k + 1) % 3], p[(k + 2) % 3]);
+        *weight = shared_edge(a, b, point) / area;
+        let inward = [a[1] - b[1], b[0] - a[0]].map(|axis| axis * area.signum());
+        let top_left = inward[0] > 0.0 || (inward[0] == 0.0 && inward[1] > 0.0);
+        if *weight < 0.0 || (*weight == 0.0 && !top_left) {
+            return None;
+        }
+    }
+    Some(w)
 }
 
 fn edge(a: [f32; 2], b: [f32; 2], c: [f32; 2]) -> f32 {
     (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+}
+
+/// [`edge`] evaluated from a fixed endpoint order, so both triangles sharing `a`-`b` see exactly
+/// opposite values and no point is rounded onto both sides or neither.
+fn shared_edge(a: [f32; 2], b: [f32; 2], c: [f32; 2]) -> f32 {
+    if (a[0], a[1]) <= (b[0], b[1]) {
+        edge(a, b, c)
+    } else {
+        -edge(b, a, c)
+    }
 }
 
 fn mul(a: u8, b: u8) -> u32 {
@@ -578,6 +595,58 @@ mod tests {
         assert_eq!(pixel(1, 1), [255, 0, 0, 128]);
         assert_eq!(pixel(2, 2), [255, 0, 0, 128]);
         assert_eq!(pixel(3, 3), [0, 0, 0, 0]);
+    }
+
+    /// Rasterizes translucent triangles over a 4x4 canvas and returns each pixel's alpha.
+    fn translucent_alpha(points: &[[f32; 2]], triangles: &[[u32; 3]]) -> Vec<u8> {
+        let mut list = quad();
+        let template = UiVertex {
+            color: [255, 0, 0, 128],
+            ..list.vertices[0]
+        };
+        list.vertices = points
+            .iter()
+            .map(|&position| UiVertex {
+                position,
+                ..template
+            })
+            .collect();
+        list.indices = triangles.concat();
+        list.batches[0].index_range = 0..list.indices.len() as u32;
+        let white = Page::white();
+        let mut canvas = Canvas::new(4, 4);
+        canvas.draw(&list, |_| Some(&white));
+        canvas
+            .into_rgba()
+            .iter()
+            .skip(3)
+            .step_by(4)
+            .copied()
+            .collect()
+    }
+
+    // Separately drawn triangles sharing an edge through pixel centres blend it once.
+    #[test]
+    fn shared_triangle_edges_blend_once() {
+        let square = [[0., 0.], [4., 0.], [4., 4.], [0., 4.]];
+        assert_eq!(
+            translucent_alpha(&square, &[[0, 1, 2], [2, 3, 0]]),
+            [128; 16]
+        );
+        // A rounded-rectangle fan whose corner spokes fall between index groups.
+        let fan = [
+            [2., 2.],
+            [0., 0.],
+            [2., 0.],
+            [4., 0.],
+            [4., 2.],
+            [4., 4.],
+            [2., 4.],
+            [0., 4.],
+            [0., 2.],
+        ];
+        let triangles: Vec<[u32; 3]> = (1..=8).map(|i| [0, i, i % 8 + 1]).collect();
+        assert_eq!(translucent_alpha(&fan, &triangles), [128; 16]);
     }
 
     /// Creates one production quad so tests can exercise vertex shading independently.
