@@ -500,7 +500,7 @@ pub(crate) fn prepare_ui_runtime(
                     && let Some(tag) = nametags::extract_nametag_at_feet(
                         actor,
                         nametag_view,
-                        Some(actor.runtime_id),
+                        None,
                         name,
                         (!authority.remote_actors().any(|rider| {
                             authority.ridden_unique_id(rider.unique_id) == Some(actor.unique_id)

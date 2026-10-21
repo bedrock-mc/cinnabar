@@ -44,7 +44,7 @@ fn local_feed() -> client_world::LocalPlayerFeed {
 }
 
 #[test]
-fn explicit_own_tag_selection_keeps_local_pose_and_invisibility() {
+fn own_tag_eligibility_uses_server_metadata_and_local_pose() {
     let mut stream = actor_stream(0, None, 1);
     let mut feed = local_feed();
     let boards = ui::ScoreboardStore::default();
@@ -57,12 +57,31 @@ fn explicit_own_tag_selection_keeps_local_pose_and_invisibility() {
         extract_nametag(
             actor,
             view(Vec3::ZERO),
-            Some(actor.runtime_id),
+            None,
             authority.actor_name_tag(actor.unique_id).unwrap(),
             &boards,
             1.0,
         )
     };
+    assert!(own_tag(&stream).is_none());
+    stream
+        .submit(
+            1,
+            protocol::WorldEvent::Actor(protocol::ActorEvent::Metadata(
+                protocol::ActorMetadataUpdateEvent {
+                    dimension: 0,
+                    runtime_id: 1,
+                    metadata: Arc::from([protocol::ActorMetadata {
+                        key: METADATA_ALWAYS_SHOW_NAMETAG,
+                        value: ActorMetadataValue::Byte(1),
+                    }]),
+                    properties: Arc::from([]),
+                    tick: 0,
+                },
+            )),
+        )
+        .unwrap();
+    stream.poll([0.0; 3], 0);
     assert!(own_tag(&stream).is_some());
     assert!(
         project_nametags(
@@ -85,28 +104,37 @@ fn explicit_own_tag_selection_keeps_local_pose_and_invisibility() {
         ))
         .sneaking
     );
-    for (index, (flags, expected)) in [
-        (0, true),
+    for (index, (always, flags, expected)) in [
+        (0, 1 << ActorFlag::ShowName.wire_value(), false),
+        (-1, 1 << ActorFlag::ShowName.wire_value(), false),
+        (1, 0, true),
         (
+            1,
             (1 << ActorFlag::ShowName.wire_value()) | (1 << ActorFlag::Invisible.wire_value()),
             false,
         ),
-        (1 << ActorFlag::ShowName.wire_value(), true),
+        (1, 1 << ActorFlag::ShowName.wire_value(), true),
     ]
     .into_iter()
     .enumerate()
     {
         stream
             .submit(
-                index as u64 + 1,
+                index as u64 + 2,
                 protocol::WorldEvent::Actor(protocol::ActorEvent::Metadata(
                     protocol::ActorMetadataUpdateEvent {
                         dimension: 0,
                         runtime_id: 1,
-                        metadata: Arc::from([protocol::ActorMetadata {
-                            key: 0,
-                            value: ActorMetadataValue::Flags(flags),
-                        }]),
+                        metadata: Arc::from([
+                            protocol::ActorMetadata {
+                                key: METADATA_ALWAYS_SHOW_NAMETAG,
+                                value: ActorMetadataValue::Byte(always),
+                            },
+                            protocol::ActorMetadata {
+                                key: ActorDataKey::Flags.wire_value(),
+                                value: ActorMetadataValue::Flags(flags),
+                            },
+                        ]),
                         properties: Arc::from([]),
                         tick: 0,
                     },
