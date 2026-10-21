@@ -240,3 +240,20 @@ fn guest_slider_emits_stepped_events_and_keeps_the_editor_open() {
     assert!(editor.sync_control_fills(&controls));
     assert_eq!(editor.data().global_value(&fill), Some(&Scalar::Num(0.25)));
 }
+
+#[test]
+fn scale_gesture_keeps_the_inspector_in_place_until_release() {
+    let mut editor = scale_editor(false);
+    editor.draft.inspector_size = Some([150., 120.]);
+    editor.draft.cards[0].offset = [40., 40.];
+    let inspector =
+        |editor: &mut HudEditor| editor.data().global_value("#hud_inspector_x").cloned();
+    let before = inspector(&mut editor);
+    let at = slider(&mut editor, "hud.scale");
+    editor.pointer(at(at_scale(1.8)), true, true, &mut []);
+    assert_eq!(editor.draft.cards[0].scale, 1.8);
+    assert_eq!(inspector(&mut editor), before);
+    editor.pointer(at(at_scale(1.8)), false, false, &mut []);
+    assert_eq!(editor.draft.cards[0].scale, 1.8);
+    assert_ne!(inspector(&mut editor), before);
+}

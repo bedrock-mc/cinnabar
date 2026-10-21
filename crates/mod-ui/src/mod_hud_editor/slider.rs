@@ -143,8 +143,20 @@ impl HudEditor {
         }
     }
 
+    /// Whether a held scale gesture keeps the inspector, and so its slider, in place.
+    pub(super) fn scaling(&self) -> bool {
+        matches!(
+            self.slider,
+            Some(Gesture {
+                target: Target::Scale { .. },
+                ..
+            })
+        )
+    }
+
     /// Releases a slider, recording one history step when it left the card's scale changed.
     fn end_slider(&mut self) {
+        self.data_dirty = true;
         if let Some(Gesture {
             target: Target::Scale { id, before },
             ..

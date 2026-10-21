@@ -164,11 +164,14 @@ impl HudEditor {
         );
         data.set_global("#hud_selected_size_text", Scalar::Text(size_text));
         data.set_global("#hud_selected_position_text", Scalar::Text(position_text));
-        self.inspector.update(
-            selected.map(|_| [at[0], at[1], size[0], size[1]]),
-            self.viewport,
-            self.draft.inspector_size,
-        );
+        // Moving the inspector mid-gesture would move the slider under the pointer.
+        if !self.scaling() {
+            self.inspector.update(
+                selected.map(|_| [at[0], at[1], size[0], size[1]]),
+                self.viewport,
+                self.draft.inspector_size,
+            );
+        }
         for (name, value) in [
             ("#hud_inspector_x", self.inspector.at[0]),
             ("#hud_inspector_y", self.inspector.at[1]),
