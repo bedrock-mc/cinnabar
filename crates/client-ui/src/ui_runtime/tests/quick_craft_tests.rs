@@ -140,38 +140,49 @@ fn both_buttons_craft_from_engine_and_fallback_recipe_books() {
 
 #[test]
 fn a_held_stack_stops_a_secondary_recipe_click_and_shift_crafts_a_stack() {
-    let (mut player, mut runtime, output) = session(false);
-    let log = player
-        .inventory
-        .ledger()
-        .displayed_stack(0)
-        .unwrap()
-        .clone();
-    runtime
-        .inventory_ledger_mut(&mut player)
-        .apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
-            identity: protocol::SlotIdentity {
-                container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
-                slot: 0,
-            },
-            stack: protocol::NetworkItemStack {
-                stack_network_id: 300,
-                ..log
-            },
-            storage_item: None,
-        }));
-    assert!(player.inventory.ledger().cursor_stack().is_some());
-    let hit = InventoryCellHit::RecipeBook(0);
-    runtime.perform_pointer_action(&mut player, PointerAction::SecondaryClick(hit));
-    assert_eq!(player.inventory.ledger().pending_request_count(), 0);
-    runtime.perform_pointer_action(&mut player, PointerAction::QuickMove(hit));
-    let ledger = player.inventory.ledger();
-    assert_eq!(ledger.pending_request_count(), 1);
-    let crafted = ledger.displayed_stack(0).expect("shift-click must craft");
-    assert_eq!(
-        (crafted.network_id, crafted.count),
-        (output.network_id, u16::from(output.count))
-    );
+    for hit in [
+        InventoryCellHit::RecipeBook(0),
+        InventoryCellHit::Widget(Widget::BookRecipe(0)),
+    ] {
+        let (mut player, mut runtime, output) = session(false);
+        let log = player
+            .inventory
+            .ledger()
+            .displayed_stack(0)
+            .unwrap()
+            .clone();
+        runtime
+            .inventory_ledger_mut(&mut player)
+            .apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
+                identity: protocol::SlotIdentity {
+                    container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+                    slot: 0,
+                },
+                stack: protocol::NetworkItemStack {
+                    stack_network_id: 300,
+                    ..log
+                },
+                storage_item: None,
+            }));
+        assert!(player.inventory.ledger().cursor_stack().is_some());
+        runtime.perform_pointer_action(&mut player, PointerAction::SecondaryClick(hit));
+        assert_eq!(
+            player.inventory.ledger().pending_request_count(),
+            0,
+            "{hit:?}"
+        );
+        if hit != InventoryCellHit::RecipeBook(0) {
+            continue;
+        }
+        runtime.perform_pointer_action(&mut player, PointerAction::QuickMove(hit));
+        let ledger = player.inventory.ledger();
+        assert_eq!(ledger.pending_request_count(), 1);
+        let crafted = ledger.displayed_stack(0).expect("shift-click must craft");
+        assert_eq!(
+            (crafted.network_id, crafted.count),
+            (output.network_id, u16::from(output.count))
+        );
+    }
 }
 
 #[test]

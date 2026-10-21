@@ -465,6 +465,10 @@ impl PlayerInventoryLedger {
                 )?
                 .0;
         }
+        // An unencodable request never enters the queue; a craft-all scope shrinks instead.
+        if actions.len() > protocol::MAX_STACK_REQUEST_ACTIONS {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
         Ok(Submission {
             actions,
             groups,
@@ -475,26 +479,54 @@ impl PlayerInventoryLedger {
         })
     }
 
+    /// Whether one player cell can take all of `created` before anything is consumed: an
+    /// empty cell, or a compatible partial stack with room for the whole count.
+    pub(super) fn player_cell_fits(&self, created: &NetworkItemStack, capacity: u8) -> bool {
+        self.player_cells(&[]).into_iter().any(|cell| {
+            self.view().get(cell).is_none_or(|into| {
+                self.merges_into(into, created)
+                    && into.stack.count + created.count <= u16::from(capacity)
+            })
+        })
+    }
+
+    /// Known, confirmed player cells in hotbar-first order, without `taken`.
+    fn player_cells(&self, taken: &[Cell]) -> Vec<Cell> {
+        (0..protocol::PLAYER_INVENTORY_SLOTS)
+            .filter(|slot| {
+                self.known[usize::from(*slot)] && self.confirmed.contains(Cell::Inventory(*slot))
+            })
+            .map(Cell::Inventory)
+            .filter(|cell| !taken.contains(cell))
+            .collect()
+    }
+
+    /// Whether `created` may merge into the plain, settled stack `into`.
+    fn merges_into(&self, into: &Held, created: &NetworkItemStack) -> bool {
+        into.stack.network_id == created.network_id
+            && into.stack.metadata == created.metadata
+            && into.stack.block_runtime_id == created.block_runtime_id
+            && plain_stack(&into.stack)
+            && plain_stack(created)
+            && !self.awaiting_identity(into)
+    }
+
     /// Splits `created` over player cells: compatible partial stacks first,
     /// then empty cells, both in hotbar-first player slot order, after the
-    /// same request's earlier `consumed` amounts. Each entry is `(cell, amount,
-    /// occupied destination stack id and count)`. The plan stops short when
-    /// the inventory cannot hold the whole stack.
+    /// same request's earlier `consumed` amounts and away from cells it already
+    /// `taken`. Each entry is `(cell, amount, occupied destination stack id and
+    /// count)`. The plan stops short when the inventory cannot hold the whole stack.
     pub(super) fn spread_plan_partial(
         &self,
         created: &NetworkItemStack,
         capacity: u8,
         consumed: &[(Cell, u16)],
+        taken: &[Cell],
     ) -> Vec<OutputPlacement> {
         let capacity = u16::from(capacity);
         let mut remaining = created.count;
         let mut plan = Vec::new();
-        let cells: Vec<Cell> = (0..protocol::PLAYER_INVENTORY_SLOTS)
-            .filter(|slot| {
-                self.known[usize::from(*slot)] && self.confirmed.contains(Cell::Inventory(*slot))
-            })
-            .map(Cell::Inventory)
-            .collect();
+        let cells = self.player_cells(taken);
         let left = |cell: Cell, held: &Held| {
             let used: u16 = consumed
                 .iter()
@@ -510,12 +542,7 @@ impl PlayerInventoryLedger {
             if remaining == 0 {
                 break;
             }
-            let same = into.stack.network_id == created.network_id
-                && into.stack.metadata == created.metadata
-                && into.stack.block_runtime_id == created.block_runtime_id
-                && plain_stack(&into.stack)
-                && plain_stack(created);
-            if !same || self.awaiting_identity(into) {
+            if !self.merges_into(into, created) {
                 continue;
             }
             let count = left(*cell, into);
@@ -549,7 +576,7 @@ impl PlayerInventoryLedger {
         capacity: u8,
         consumed: &[(Cell, u16)],
     ) -> Option<Vec<OutputPlacement>> {
-        let plan = self.spread_plan_partial(created, capacity, consumed);
+        let plan = self.spread_plan_partial(created, capacity, consumed, &[]);
         let placed: u16 = plan.iter().map(|(_, amount, _)| *amount).sum();
         (placed == created.count).then_some(plan)
     }

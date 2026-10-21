@@ -128,11 +128,7 @@ impl PlayerInventoryLedger {
                     count: total - placed,
                     ..created.clone()
                 };
-                plan.extend(
-                    self.spread_plan_partial(&rest, capacity, consumed)
-                        .into_iter()
-                        .filter(|(cell, ..)| !filled.contains(cell)),
-                );
+                plan.extend(self.spread_plan_partial(&rest, capacity, consumed, &filled));
             }
             let mut left = total;
             for (cell, amount, into) in plan {
@@ -163,16 +159,19 @@ impl PlayerInventoryLedger {
                     capacity: into.map(|_| u16::from(capacity)),
                 });
             }
-            if left != 0 {
+            // Whatever fits nowhere is dropped, in amounts one action can carry.
+            while left != 0 {
+                let amount = left.min(u16::from(protocol::MAX_STACK_REQUEST_AMOUNT));
+                left -= amount;
                 actions.push(StackRequestAction::Drop {
-                    amount: u8::try_from(left)
+                    amount: u8::try_from(amount)
                         .map_err(|_| InventoryGestureError::InvalidRequest)?,
                     source: output_slot,
                     randomly: false,
                 });
                 groups.push(DeltaGroup::Shrink {
                     source: Cell::CreatedOutput,
-                    amount: left,
+                    amount,
                     source_id: request_id,
                 });
             }

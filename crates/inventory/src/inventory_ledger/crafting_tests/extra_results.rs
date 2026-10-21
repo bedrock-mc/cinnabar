@@ -193,3 +193,62 @@ fn a_rejected_craft_with_extras_restores_the_grid_and_cursor() {
     assert!(ledger.cursor_stack().is_none());
     assert!(!ledger.resync_required());
 }
+
+#[test]
+fn extras_with_nowhere_to_go_drop_in_encodable_amounts() {
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    let full: Vec<_> = (0..protocol::PLAYER_INVENTORY_SLOTS)
+        .map(|slot| stack(LOG, 100 + i32::from(slot), 64))
+        .collect();
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity::window(0),
+        slots: full.into(),
+        storage_item: NetworkItemStack::default(),
+    }));
+    let (mut actions, mut groups) = (Vec::new(), Vec::new());
+    ledger
+        .push_extra_outputs(
+            &recipe(),
+            64,
+            -3,
+            crafting::ExtraDestination::Inventory,
+            &[],
+            &[],
+            &mut actions,
+            &mut groups,
+        )
+        .unwrap();
+    let drops: Vec<_> = actions
+        .iter()
+        .filter_map(|action| match action {
+            StackRequestAction::Drop { amount, .. } => Some(*amount),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(drops, [64, 64]);
+    assert!(protocol::item_stack_request_packet(-3, &actions).is_ok());
+}
+
+#[test]
+fn a_craft_too_large_to_encode_is_refused_before_it_is_queued() {
+    let mut fixture = RecipeFixture::shapeless(
+        "test:many_extras",
+        vec![IngredientFixture::named("minecraft:cobblestone", 0)],
+        std::iter::once(OutputFixture::new(FURNACE, 1))
+            .chain((0..60).map(|_| OutputFixture::new(PLANKS, 1)))
+            .collect(),
+    );
+    fixture.net_id = 79;
+    let mut catalog = RecipeCatalog::default();
+    catalog.begin_session(1);
+    assert!(catalog.apply(1, 1, &CraftingDataFixture::clearing(vec![fixture]).update()));
+    let recipe = catalog.recipe(79).unwrap();
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    ledger.apply(&craft_slot(28, stack(COBBLE, 101, 1)));
+    let pending = ledger.pending_request_count();
+    assert_eq!(
+        ledger.begin_craft(&recipe, 1),
+        Err(InventoryGestureError::InvalidRequest)
+    );
+    assert_eq!(ledger.pending_request_count(), pending);
+}

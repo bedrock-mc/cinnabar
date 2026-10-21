@@ -191,11 +191,7 @@ impl PlayerInventoryLedger {
             .ok_or(InventoryGestureError::InvalidRequest)?;
         let one_craft = created_stack(output, u16::from(output.count), 0);
         // Before anything is consumed, one craft's output must fit an empty cell or a partial stack.
-        if !self
-            .spread_plan_partial(&one_craft, capacity, &[])
-            .iter()
-            .any(|(_, amount, _)| *amount == one_craft.count)
-        {
+        if !self.player_cell_fits(&one_craft, capacity) {
             return Err(InventoryGestureError::InvalidRequest);
         }
         let crafts = if all {
@@ -276,11 +272,7 @@ impl PlayerInventoryLedger {
             )?;
             actions.push(StackRequestAction::Create { results_index: 0 });
         }
-        let plan: Vec<_> = self
-            .spread_plan_partial(&created, capacity, &consumed)
-            .into_iter()
-            .filter(|(cell, ..)| !filled.contains(cell))
-            .collect();
+        let plan = self.spread_plan_partial(&created, capacity, &consumed, &filled);
         let placed: u16 = plan.iter().map(|(_, amount, _)| *amount).sum();
         let remainder = created.count - placed;
         if remainder != 0 && self.view().get(Cell::Cursor).is_some() {
@@ -331,6 +323,9 @@ impl PlayerInventoryLedger {
                 destination_id: None,
                 capacity: None,
             });
+        }
+        if actions.len() > protocol::MAX_STACK_REQUEST_ACTIONS {
+            return Err(InventoryGestureError::InvalidRequest);
         }
         self.submit(Submission {
             actions,
