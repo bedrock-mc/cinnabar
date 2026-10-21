@@ -94,13 +94,12 @@ fn item(value: &Nbt) -> Option<CustomMiningItem> {
     if name.is_empty() {
         return None;
     }
+    // Only a short `Aux` constrains metadata; an absent or other tag matches any metadata.
     let metadata = match value.field("Aux") {
-        None => None,
-        Some(Nbt::Short(value)) if *value == i64::from(crate::RECIPE_ANY_AUX) => None,
-        Some(Nbt::Short(value)) => Some(u16::from_ne_bytes(
-            i16::try_from(*value).ok()?.to_ne_bytes(),
-        )),
-        Some(_) => Some(0),
+        Some(Nbt::Short(value)) if *value != i64::from(crate::RECIPE_ANY_AUX) => Some(
+            u16::from_ne_bytes(i16::try_from(*value).ok()?.to_ne_bytes()),
+        ),
+        _ => None,
     };
     Some(CustomMiningItem::Item {
         name: name.into(),
@@ -193,15 +192,33 @@ mod tests {
         let descriptor = compound(vec![
             ("Tags", Nbt::String("q.any_tag('test:tools')".into())),
             ("Name", Nbt::String("test:tool".into())),
-            ("Aux", Nbt::Int(3)),
+            ("Aux", Nbt::Short(3)),
         ]);
         assert_eq!(
             item(&descriptor),
             Some(CustomMiningItem::Item {
                 name: "test:tool".into(),
-                metadata: Some(0)
+                metadata: Some(3)
             })
         );
+    }
+
+    // A wrong-typed Aux must not pin metadata 0, or items with other metadata lose the override.
+    #[test]
+    fn custom_mining_wrong_typed_aux_matches_any_metadata() {
+        for aux in [Nbt::Int(3), Nbt::Byte(1), Nbt::String("3".into())] {
+            let descriptor = compound(vec![
+                ("Name", Nbt::String("test:tool".into())),
+                ("Aux", aux),
+            ]);
+            assert_eq!(
+                item(&descriptor),
+                Some(CustomMiningItem::Item {
+                    name: "test:tool".into(),
+                    metadata: None
+                })
+            );
+        }
     }
 
     #[test]
