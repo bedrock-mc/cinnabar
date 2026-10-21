@@ -8,6 +8,8 @@
     <MediaTemplate EmbedCab="yes" />
     <Icon Id="cinnabar.ico" SourceFile="$(Icon)" />
     <Property Id="ARPPRODUCTICON" Value="cinnabar.ico" />
+    <!-- The update helper owns the client relaunch. -->
+    <Property Id="MSIDISABLERMRESTART" Value="1" />
 
     <!-- A custom INSTALLFOLDER from the command line survives elevation, so upgrades stay in place. -->
     <Property Id="INSTALLFOLDER" Secure="yes" />

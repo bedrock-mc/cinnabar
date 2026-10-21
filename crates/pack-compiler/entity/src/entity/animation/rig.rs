@@ -8,7 +8,7 @@ use assets::{
 use serde_json::{Map, Value};
 
 use super::{
-    super::{SourcePayloads, invalid, molang::MolangCompiler},
+    super::{SourceDocuments, invalid, molang::MolangCompiler},
     ClipIndices, CompileReferenceOutcome, FallbackReason, RejectReason,
     clip::read_json,
     controller::{ControllerKey, PendingController},
@@ -32,13 +32,15 @@ pub(super) struct PendingRigPayload {
 struct PendingRig {
     entity_symbol: u32,
     placement_frame: assets::placement::EntityPlacementFrame,
-    render_controller: u32,
+    render_controller: Option<u32>,
     geometries: Vec<PendingRigGeometry>,
     fallback: EntityRigFallback,
     initialize: Option<u32>,
     pre_animation: Option<u32>,
+    item_condition: Option<u32>,
     scale: EntityGeometryScalar,
     scale_expressions: Option<[u32; 4]>,
+    held_item_scale: Option<u32>,
 }
 
 /// `(alias, target, weight, authored order)` of one root binding.
@@ -110,8 +112,10 @@ impl PendingRigPayload {
                 fallback: rig.fallback,
                 initialize: rig.initialize,
                 pre_animation: rig.pre_animation,
+                item_condition: rig.item_condition,
                 scale: rig.scale,
                 scale_expressions: rig.scale_expressions,
+                held_item_scale: rig.held_item_scale,
             });
         }
         Ok(FinalRigPayload {
@@ -126,7 +130,7 @@ impl PendingRigPayload {
 
 pub(super) struct RigSources<'a> {
     pub root: &'a Path,
-    pub payloads: &'a SourcePayloads,
+    pub payloads: &'a SourceDocuments<'a>,
     pub sources: &'a [EntityAssetSource],
     pub symbols: &'a [EntityAssetSymbol],
     pub geometries: &'a [EntityGeometry],
@@ -174,13 +178,51 @@ pub(super) fn compile_rigs(
     }) {
         let source = &sources[entity.source_index as usize];
         let value = read_json(root, payloads, source)?;
-        let description = roots::description(&value)
+        let description = roots::description(value)
             .ok_or_else(|| invalid("client entity description is absent"))?;
         let reject = |reason| CompileReferenceOutcome::RequiredRigRejected {
             source: entity.source_index,
             symbol: entity_symbol as u32,
             reason,
         };
+        let item_condition = description
+            .get("item")
+            .and_then(Value::as_object)
+            .and_then(|items| items.values().next())
+            .map(|condition| {
+                condition
+                    .as_str()
+                    .ok_or_else(|| invalid("item condition must be a string"))
+                    .and_then(|condition| molang.compile(condition))
+                    .or_else(|_| {
+                        outcomes.push(CompileReferenceOutcome::OptionalStaticFallback {
+                            source: entity.source_index,
+                            symbol: entity_symbol as u32,
+                            reason: FallbackReason::UnsupportedOptionalExpression,
+                        });
+                        // An unreadable restriction must not admit this definition for every owner.
+                        molang.compile("0")
+                    })
+            })
+            .transpose()?;
+        // Owner selection remains available when this pack reuses external render resources.
+        let selection_rig = (entity.kind == EntityAssetKind::Attachable).then(|| {
+            let index = rigs.len();
+            rigs.push(PendingRig {
+                placement_frame: assets::placement::EntityPlacementFrame::Unresolved,
+                entity_symbol: entity_symbol as u32,
+                render_controller: None,
+                geometries: Vec::new(),
+                fallback: EntityRigFallback::GeometryOnly,
+                initialize: None,
+                pre_animation: None,
+                item_condition,
+                scale: EntityGeometryScalar::new(1.0).expect("unit scale is valid"),
+                scale_expressions: None,
+                held_item_scale: None,
+            });
+            index
+        });
         let Some(geometry_name) = default_geometry(description.get("geometry")) else {
             outcomes.push(reject(RejectReason::MissingGeometryReference));
             continue;
@@ -225,9 +267,9 @@ pub(super) fn compile_rigs(
             Some(GeometrySelection::Unsupported) => static_fallback = true,
             None => {}
         }
-        let animation_aliases = roots::animation_aliases(&value)?;
-        let controller_aliases = roots::legacy_controller_aliases(&value)?;
-        let roots = roots::activation_roots(&value);
+        let animation_aliases = roots::animation_aliases(value)?;
+        let controller_aliases = roots::legacy_controller_aliases(value)?;
+        let roots = roots::activation_roots(value);
         let root_condition = |name: &str| {
             roots.as_ref().and_then(|roots| {
                 roots
@@ -348,14 +390,14 @@ pub(super) fn compile_rigs(
             });
         }
         let rig_index = rigs.len() as u32;
-        rigs.push(PendingRig {
+        let compiled_rig = PendingRig {
             placement_frame: if entity.kind == EntityAssetKind::Entity {
                 assets::placement::builtin_placement_frame(&entity.identifier)
             } else {
                 assets::placement::EntityPlacementFrame::Unresolved
             },
             entity_symbol: entity_symbol as u32,
-            render_controller,
+            render_controller: Some(render_controller),
             geometries: pending_geometries,
             fallback: if static_fallback {
                 EntityRigFallback::GeometryOnly
@@ -364,9 +406,21 @@ pub(super) fn compile_rigs(
             },
             initialize: scripts.initialize,
             pre_animation: scripts.pre_animation,
+            item_condition,
             scale: scripts.scale,
             scale_expressions: scripts.scale_expressions,
-        });
+            held_item_scale: scripts.held_item_scale,
+        };
+        let rig_index = match selection_rig {
+            Some(index) => {
+                rigs[index] = compiled_rig;
+                index as u32
+            }
+            None => {
+                rigs.push(compiled_rig);
+                rig_index
+            }
+        };
         outcomes.push(CompileReferenceOutcome::Resolved(rig_index));
     }
     Ok((PendingRigPayload { rigs, outcomes }, names))
@@ -377,6 +431,7 @@ struct RigScripts {
     pre_animation: Option<u32>,
     scale: EntityGeometryScalar,
     scale_expressions: Option<[u32; 4]>,
+    held_item_scale: Option<u32>,
     dropped: usize,
 }
 
@@ -395,7 +450,13 @@ impl RigScripts {
         };
         let initialize = script("initialize")?;
         let pre_animation = script("pre_animation")?;
-        let field = |name: &str| scripts.and_then(|scripts| scripts.get(name));
+        let field = |name: &str| {
+            scripts.and_then(|scripts| {
+                scripts
+                    .get(name)
+                    .or_else(|| scripts.get(&name.to_ascii_lowercase()))
+            })
+        };
         let constant = match field("scale") {
             None => Some(1.0),
             Some(Value::Number(number)) => number.as_f64().map(|value| value as f32),
@@ -441,11 +502,25 @@ impl RigScripts {
             .and_then(EntityGeometryScalar::new)
             .or_else(|| EntityGeometryScalar::new(1.0))
             .ok_or_else(|| invalid("unit scale is representable"))?;
+        let held_item_scale = match description.get("held_item_scale") {
+            None => None,
+            Some(value) => {
+                let expression = match value {
+                    Value::Number(number) => Some(number.to_string()),
+                    Value::String(text) => Some(text.clone()),
+                    _ => None,
+                };
+                let compiled = expression.and_then(|text| molang.compile(&text).ok());
+                dropped += usize::from(compiled.is_none());
+                compiled
+            }
+        };
         Ok(Self {
             initialize,
             pre_animation,
             scale,
             scale_expressions,
+            held_item_scale,
             dropped,
         })
     }

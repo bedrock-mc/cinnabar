@@ -44,7 +44,7 @@ func TestControlRecoversAfterTwoLocallyBufferedPings(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		relay := testRelay(t)
 		client := netip.MustParseAddr("192.0.2.1")
-		session, detach, err := relay.openControl(client, "", time.Now())
+		controller, detach, err := relay.openControl(client, "", time.Now())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -54,7 +54,7 @@ func TestControlRecoversAfterTwoLocallyBufferedPings(t *testing.T) {
 		defer browser.Close()
 		conn := &droppedControlConn{Conn: server, pings: make(chan controlEvent, 2)}
 		done := make(chan struct{})
-		go func() { defer close(done); relay.runControl(relay.ctx, conn, client, session) }()
+		go func() { defer close(done); relay.runControl(relay.ctx, conn, client, controller) }()
 		for range 2 {
 			if err := readJSON(browser, new(controlEvent)); err != nil {
 				t.Fatal(err)
@@ -79,7 +79,7 @@ func TestControlRecoversAfterTwoLocallyBufferedPings(t *testing.T) {
 		<-done
 		detach(time.Now())
 		resumed, finish, err := relay.openControl(client, received.Resume, time.Now())
-		if err != nil || resumed != session {
+		if err != nil || resumed.session != controller.session {
 			t.Fatal("successful local writes discarded the acknowledged browser bearer", err)
 		}
 		finish(time.Now())
@@ -90,7 +90,7 @@ func TestControlRequestsCannotReplacePongLiveness(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		relay := testRelay(t)
 		client := netip.MustParseAddr("192.0.2.1")
-		session, detach, err := relay.openControl(client, "", time.Now())
+		controller, detach, err := relay.openControl(client, "", time.Now())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -101,7 +101,7 @@ func TestControlRequestsCannotReplacePongLiveness(t *testing.T) {
 		ctx, cancel := context.WithCancel(relay.ctx)
 		defer cancel()
 		done := make(chan struct{})
-		go func() { defer close(done); relay.runControl(ctx, server, client, session) }()
+		go func() { defer close(done); relay.runControl(ctx, server, client, controller) }()
 		for range 3 { // Welcome, account and the first ping.
 			if err := readJSON(browser, new(controlEvent)); err != nil {
 				t.Fatal(err)
@@ -127,7 +127,7 @@ func TestControlMessageFloodClosesTheController(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		relay := testRelay(t)
 		client := netip.MustParseAddr("192.0.2.1")
-		session, detach, err := relay.openControl(client, "", time.Now())
+		controller, detach, err := relay.openControl(client, "", time.Now())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -136,7 +136,7 @@ func TestControlMessageFloodClosesTheController(t *testing.T) {
 		defer server.Close()
 		defer browser.Close()
 		done := make(chan struct{})
-		go func() { defer close(done); relay.runControl(relay.ctx, server, client, session) }()
+		go func() { defer close(done); relay.runControl(relay.ctx, server, client, controller) }()
 		for range 2 {
 			if err := readJSON(browser, new(controlEvent)); err != nil {
 				t.Fatal(err)

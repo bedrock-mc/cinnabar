@@ -24,8 +24,8 @@ struct Shape<'a> {
 }
 
 /// The world state's GUI quads over their full-resolution tiles. `None` keeps the thumbnail: an
-/// unknown state, a refused or truly translucent material, a UV wrapping past its tile, or a
-/// full atlas.
+/// unknown state, unsupported material lighting or translucency, a UV wrapping past its tile,
+/// or a full atlas.
 pub(super) fn mesh(
     world: &RuntimeAssets,
     visual: BlockVisualId,
@@ -66,6 +66,13 @@ fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
         else {
             continue;
         };
+        // Native GUI meshes always shade faces; the baked thumbnail retains unshaded art.
+        if shape.materials.get(quad.material as usize)?.flags
+            & assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING
+            != 0
+        {
+            return None;
+        }
         let (tile, side, blend) = material_tile(shape.materials, quad.material, |page| {
             shape.pages.get(page as usize).map(|page| &page.texture)
         })

@@ -15,18 +15,40 @@ pub struct CollectionItem {
     pub role: Option<String>,
     /// `#name` → value at this index, keyed with the leading `#`.
     pub values: BTreeMap<String, Scalar>,
+    /// Collection answers that read a live global instead of copying its current value.
+    pub(super) global_bindings: BTreeMap<String, String>,
+    /// Controller callbacks selected by this enclosing collection instance.
+    pub(super) controller_values: BTreeMap<String, Scalar>,
 }
 
 impl CollectionItem {
+    /// Supplies a global controller answer for controls inside this collection item.
+    pub fn with_controller_value(mut self, name: impl Into<String>, value: Scalar) -> Self {
+        self.controller_values.insert(name.into(), value);
+        self
+    }
+
     pub fn new(role: impl Into<String>) -> Self {
         Self {
             role: Some(role.into()),
             values: BTreeMap::new(),
+            global_bindings: BTreeMap::new(),
+            controller_values: BTreeMap::new(),
         }
     }
 
     pub fn with(mut self, name: impl Into<String>, value: Scalar) -> Self {
         self.values.insert(name.into(), value);
+        self
+    }
+
+    /// Reads `global` whenever this item's `name` is bound, retaining the immutable item bag.
+    pub fn with_global_binding(
+        mut self,
+        name: impl Into<String>,
+        global: impl Into<String>,
+    ) -> Self {
+        self.global_bindings.insert(name.into(), global.into());
         self
     }
 }
@@ -91,6 +113,11 @@ impl DataSource {
     /// Set a `global` binding value, keyed with its leading `#`.
     pub fn set_global(&mut self, name: impl Into<String>, value: Scalar) {
         self.globals.insert(name.into(), value);
+    }
+
+    /// Reads an ordinary global value so native adapters can share its formatted representation.
+    pub fn global_value(&self, name: &str) -> Option<&Scalar> {
+        self.globals.get(name)
     }
 
     /// Answer a global binding on controls whose own property bag has `#index`.

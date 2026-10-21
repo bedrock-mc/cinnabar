@@ -26,11 +26,18 @@ pub(super) fn draw(
     match section {
         SettingSection::Accessibility => accessibility(content),
         SettingSection::Video => video(content),
+        SettingSection::Shaders => super::renderer::shaders(content),
         SettingSection::Sound => audio(content),
         SettingSection::KeyboardAndMouse => keyboard(content),
         SettingSection::ControllerAndSwitch => controller(content),
         SettingSection::General => general(content),
+        SettingSection::Updates => super::updates::draw(content),
         SettingSection::Creator => creator(content),
+        SettingSection::Chat => chat(content),
+        SettingSection::Server => content.heading(
+            section.title(),
+            "Settings supplied by the connected server appear here when available.",
+        ),
         _ => Ok(()),
     }
 }
@@ -83,6 +90,7 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         "menu.video.group.performance",
         "menu.video.group.performance.description",
     )?;
+    super::renderer::draw(content)?;
     options(content, SettingPanel::VideoPerformance)?;
     let graphics = if content.view.settings_options.value(SettingId::GraphicsMode) == 0 {
         "options.graphicsModeOptions.simple"
@@ -172,6 +180,7 @@ fn draw_macro_binding(content: &mut Content<'_, '_>, slot: usize) -> Result<(), 
     let control = content.view.settings_options.macro_control(slot);
     let capturing = content
         .view
+        .settings
         .key_remap
         .is_some_and(|index| macro_row(usize::from(index)) == Some(slot));
     let title = content.word(&macro_title(slot));
@@ -383,7 +392,7 @@ fn binding(
     key: &str,
 ) -> Result<(), PaintError> {
     let action = MenuAction::SettingsKey(index as u16);
-    let capturing = content.view.key_remap == Some(index as u16);
+    let capturing = content.view.settings.key_remap == Some(index as u16);
     let control = content.view.settings_options.key_control(index);
     let changed = control != defaults.key_control(index);
     let title = content.word(key);
@@ -439,7 +448,7 @@ fn binding(
         "...".to_owned()
     } else if index >= GAMEPAD_OFFSET {
         control
-            .map(gamepad_name)
+            .map(key_name)
             .unwrap_or_else(|| content.word("controllerLayoutScreen.unassigned"))
     } else {
         let mut value = control
@@ -475,27 +484,6 @@ fn binding(
     Ok(())
 }
 
-fn gamepad_name(control: semantic_input::PhysicalControl) -> String {
-    use semantic_input::PhysicalControl;
-    match control {
-        PhysicalControl::GamepadButton(0) => "A".to_owned(),
-        PhysicalControl::GamepadButton(1) => "B".to_owned(),
-        PhysicalControl::GamepadButton(2) => "Y".to_owned(),
-        PhysicalControl::GamepadButton(3) => "X".to_owned(),
-        PhysicalControl::GamepadButton(4) => "LB".to_owned(),
-        PhysicalControl::GamepadButton(5) => "RB".to_owned(),
-        PhysicalControl::GamepadButton(8) => "LS".to_owned(),
-        PhysicalControl::GamepadButton(9) => "RS".to_owned(),
-        PhysicalControl::GamepadButton(11) => "D-pad Up".to_owned(),
-        PhysicalControl::GamepadButton(12) => "D-pad Down".to_owned(),
-        PhysicalControl::GamepadButton(13) => "D-pad Left".to_owned(),
-        PhysicalControl::GamepadButton(14) => "D-pad Right".to_owned(),
-        PhysicalControl::GamepadAxis { axis: 4, .. } => "LT".to_owned(),
-        PhysicalControl::GamepadAxis { axis: 5, .. } => "RT".to_owned(),
-        _ => key_name(control),
-    }
-}
-
 fn general(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading("menu.general.tab.title", "menu.general.tab.description")?;
     options(content, SettingPanel::General)?;
@@ -509,25 +497,6 @@ fn general(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         "menu.general.tab.network.description",
     )?;
     options(content, SettingPanel::GeneralNetwork)?;
-    if content.view.updates.active {
-        options(content, SettingPanel::GeneralUpdates)?;
-    }
-    if content.view.updates.active && !content.view.over_world {
-        if let Some(message) = &content.view.updates.message {
-            content.heading(message, "")?;
-        }
-        if content.view.updates.switch_available {
-            super::services::action_row(
-                content,
-                "Change channel now",
-                "Download this channel's older build for manual installation.",
-                "Switch now",
-                Some(MenuAction::Update(
-                    launcher::menu::updates::Action::SwitchNow,
-                )),
-            )?;
-        }
-    }
     content.heading(
         "menu.general.tab.miscellaneous.title",
         "menu.general.tab.miscellaneous.description",
@@ -616,6 +585,16 @@ fn creator(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     Ok(())
 }
 
+/// Exposes the existing chat preferences and their shared reset route in the launcher.
+fn chat(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
+    content.heading(
+        SettingSection::Chat.title(),
+        "options.chat.title.description",
+    )?;
+    options(content, SettingPanel::Chat)?;
+    reset(content, SettingsGroup::Chat, "chat.settings.reset")
+}
+
 pub(super) fn fallback(key: &str) -> &str {
     match key {
         "options.renderClouds" => "Render Clouds",
@@ -635,6 +614,46 @@ pub(super) fn fallback(key: &str) -> &str {
             "Controls"
         }
         "hbui.Settings.category.social" | "options.social" => "Social",
+        "options.chat.title" | "chat.settings.title" => "Chat",
+        "options.chat.title.description" => "Chat appearance, opacity, size and colors",
+        "chat.settings.reset" => "Reset Chat Settings",
+        "chat.settings.reset.description" => "Restore all chat options to default values",
+        "chat.settings.reset.buttonLabel" => "Reset",
+        "chat.settings.muteAll" => "Mute All Chat",
+        "chat.settings.muteAll.description" => "Hide all incoming chat messages",
+        "chat.settings.muteEmotes" => "Mute Emotes",
+        "chat.settings.muteEmotes.description" => {
+            "Saved preference; emote chat filtering is not available yet"
+        }
+        "chat.settings.tts" => "Text to Speech for Chat",
+        "chat.settings.tts.description" => "Saved preference; chat narration is not available yet",
+        "chat.settings.fontSize" => "Font Size",
+        "chat.settings.fontSize.description" => "Adjust the scale of chat text",
+        "chat.settings.lineSpacing" => "Line Spacing",
+        "chat.settings.lineSpacing.description" => "Set the spacing between lines in chat",
+        "chat.settings.chatColor" => "Chat Color",
+        "chat.settings.chatColor.description" => "Default color for chat text",
+        "chat.settings.mentionsColor" => "Mentions Color",
+        "chat.settings.mentionsColor.description" => {
+            "Saved preference; mention highlighting is not available yet"
+        }
+        "options.chatBackgroundOpacity" => "Chat Background Opacity",
+        "options.chatBackgroundOpacity.description" => {
+            "Adjust the opacity of the chat background box"
+        }
+        "options.notificationDuration.Chat" => "Chat Notification Duration",
+        "options.notificationDuration.Chat.description" => {
+            "How long chat notifications remain visible on the HUD"
+        }
+        "color.white" => "White",
+        "color.green" => "Green",
+        "color.aqua" => "Aqua",
+        "color.red" => "Red",
+        "color.light_purple" => "Light Purple",
+        "color.yellow" => "Yellow",
+        "color.gold" => "Gold",
+        "Chat Position" => "Chat Position",
+        "Chat Position.description" => "Position the chat HUD at the bottom or top of the screen",
         "hbui.Settings.category.general" => "General",
         "menu.accessibility.tab.title" | "options.accessibility" => "Accessibility",
         "menu.accessibility.tab.description" => "Minecraft is for everyone, including you",
@@ -743,7 +762,16 @@ pub(super) fn fallback(key: &str) -> &str {
         "options.cinnabar.resourcePacksFolder.description" => {
             "Where your imported resource packs are stored"
         }
+        "options.cinnabar.shaderPacksFolder" => "Shader packs folder",
+        "options.cinnabar.shaderPacksFolder.description" => {
+            "Add Java shader packs here, or drop them onto this window"
+        }
         "options.cinnabar.openFolder.buttonLabel" => "Open folder",
+        "options.cinnabar.shaderOptions" => "Shader pack settings",
+        "options.cinnabar.shaderOptions.description" => {
+            "The selected pack's own options. Applying them reloads the pack."
+        }
+        "options.cinnabar.shaderOptions.buttonLabel" => "Shader options…",
         "options.dev_clearAllCache" => "Clear All Cache",
         "options.dev_clearDownloadeCache.name" => "Clear download cache",
         "options.dev_deleteLocalScreenshots" => "Delete Local Screenshots",

@@ -1,199 +1,55 @@
-//! Per-frame atmosphere derivation: clock and weather into one shared GPU
-//! frame, overlaid with client fog profiles and explicit boss requests.
+//! Publishes atmosphere and lighting from app-owned UI, settings, and camera inputs.
 
-use assets::{BiomeVisualProfile, FogMedium, FogProfile, facts::dimension_fallback_biome};
 use bevy::{
     prelude::{Local, Query, Res, ResMut, Time, Transform, With},
     time::Real,
 };
 use launcher::menu::settings_options::SettingId;
-use meshing::CameraMedium;
-use render_scene::{AtmosphereFrame, SkyKind};
-use ui::BossBarView;
+use render_scene::AtmosphereFrame;
 
+use client_presentation::environment::{
+    EnvironmentContext, EnvironmentProfileRoute, WeatherState, WorldClock,
+    atmosphere::{
+        apply_boss_environment, derive_base_frame, derive_boss_environment_iter,
+        derive_profiled_atmosphere_frame,
+    },
+    renderer_clock::RendererClock,
+    visual_world_time,
+    weather::{LightningFlashState, WeatherDisplay, WeatherTickFrame},
+};
 use client_shell::ui_resources::UiRuntimeResource;
 
-use super::{
-    CameraMediumState, EnvironmentContext, EnvironmentProfileRoute, LightningFlashState,
-    WeatherDisplay, WeatherState, WorldClock, profile_lookup::find_biome_profile,
-    visual_world_time,
-};
-
-#[must_use]
-#[cfg(test)]
-pub(crate) fn derive_atmosphere_frame(
-    clock: WorldClock,
-    weather: WeatherState,
-    elapsed_seconds: f64,
-) -> AtmosphereFrame {
-    derive_atmosphere_frame_for_medium(clock, weather, elapsed_seconds, CameraMedium::Air)
-}
-
-#[must_use]
-pub(crate) fn derive_atmosphere_frame_for_medium(
-    clock: WorldClock,
-    weather: WeatherState,
-    elapsed_seconds: f64,
-    medium: CameraMedium,
-) -> AtmosphereFrame {
-    AtmosphereFrame::from_bedrock_time(
-        visual_world_time(clock, elapsed_seconds),
-        weather.rain_level,
-        weather.lightning_level,
-    )
-    .with_camera_medium(medium)
-}
-
-/// Clock, weather, dimension sky and biome temperature, before any client profile.
-fn derive_base_frame(
-    clock: WorldClock,
-    weather: WeatherState,
-    elapsed_seconds: f64,
-    medium: CameraMedium,
-    context: &EnvironmentContext,
-) -> AtmosphereFrame {
-    // Player's packet radius includes one extra chunk before the camera margin.
-    // Vanilla's ordinary render parameters supply coefficient1; optional platform
-    // caps need their own admission witness, not a quality multiplier.
-    let adjusted_render_distance = context
-        .render_distance_blocks
-        .and_then(render_scene::adjusted_player_render_distance_blocks)
-        .unwrap_or(0.0);
-    let frame = derive_atmosphere_frame_for_medium(clock, weather, elapsed_seconds, medium)
-        .with_sky_kind(SkyKind::from_dimension(context.dimension))
-        .with_cloud_fade_distance(adjusted_render_distance)
-        .with_liquid_render_distance(adjusted_render_distance);
-    match context.camera_biome_temperature {
-        Some(temperature) => frame.with_biome_temperature(temperature),
-        None => frame,
-    }
-}
+use super::CameraMediumState;
 
 type AtmosphereOutputs<'w> = (
     ResMut<'w, AtmosphereFrame>,
     ResMut<'w, EnvironmentProfileRoute>,
     ResMut<'w, render_scene::WorldLighting>,
-    ResMut<'w, super::WeatherTickFrame>,
+    ResMut<'w, WeatherTickFrame>,
     ResMut<'w, render_scene::AtmosphereViewInputs>,
 );
 
-/// Resolves sampled indices only in their owning registry, using camera names after a reload.
-#[must_use]
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn derive_profiled_atmosphere_frame(
-    clock: WorldClock,
-    weather: WeatherState,
-    elapsed_seconds: f64,
-    medium: CameraMedium,
-    context: &EnvironmentContext,
-    biome_profiles: &[BiomeVisualProfile],
-    fog_profiles: &[FogProfile],
-    registry_generation: [u8; 32],
-    transition_seconds: Option<f32>,
-    fog_weather_level: f32,
-) -> (AtmosphereFrame, EnvironmentProfileRoute) {
-    let base = derive_base_frame(clock, weather, elapsed_seconds, medium, context);
-    // A pack can change after sampling. Use camera names until the next lattice sample.
-    let indexed = context.fog_registry_generation == Some(registry_generation);
-    let profile = context
-        .camera_profile
-        .filter(|_| indexed)
-        .and_then(|index| biome_profiles.get(index.0))
-        .or_else(|| {
-            context
-                .camera_biome_identifier
-                .as_deref()
-                .and_then(|identifier| find_biome_profile(biome_profiles, identifier))
-                .or_else(|| {
-                    dimension_fallback_biome(context.dimension)
-                        .and_then(|identifier| find_biome_profile(biome_profiles, identifier))
-                })
-        });
-    let Some(profile) = profile else {
-        return (base, EnvironmentProfileRoute::default());
-    };
-    let samples = context
-        .fog_biomes
-        .filter(|_| indexed)
-        .map(|samples| samples.map(|index| index.and_then(|index| fog_profiles.get(index.0))));
-    let (camera_fog, default_fog) = if indexed && context.profile_route.is_some() {
-        (
-            context
-                .camera_fog
-                .and_then(|index| fog_profiles.get(index.0)),
-            context
-                .default_fog
-                .and_then(|index| fog_profiles.get(index.0)),
-        )
-    } else {
-        (
-            fog_profiles
-                .binary_search_by(|fog| fog.identifier.cmp(&profile.fog_identifier))
-                .ok()
-                .map(|index| &fog_profiles[index]),
-            fog_profiles
-                .binary_search_by(|fog| fog.identifier.as_ref().cmp("minecraft:fog_default"))
-                .ok()
-                .map(|index| &fog_profiles[index]),
-        )
-    };
-    let resolve = |requested: FogMedium| {
-        // Air fog profiles use the adjusted render distance in the
-        // ordinary above-water route, not the raw packet.
-        // The separate native submerged distance admission remains incomplete.
-        let render_distance =
-            render_scene::adjusted_player_render_distance_blocks(context.render_distance_blocks?)?;
-        let camera = [Some(camera_fog?)];
-        let layer = samples.as_ref().map_or(&camera[..], |samples| &samples[..]);
-        assets::resolve_fog_layers(
-            &[layer],
-            default_fog,
-            requested,
-            render_distance,
-            transition_seconds.filter(|_| requested == FogMedium::Water),
-        )
-    };
-    let profiled = base.with_environment_profile(profile.sky_rgb8, None);
-    let frame = match medium {
-        CameraMedium::Air => profiled.with_blended_fog(
-            resolve(FogMedium::Air),
-            resolve(FogMedium::Weather),
-            fog_weather_level,
-        ),
-        CameraMedium::Water => profiled.with_environment_profile(None, resolve(FogMedium::Water)),
-        CameraMedium::Lava => profiled.with_environment_profile(None, resolve(FogMedium::Lava)),
-    };
-    (
-        frame,
-        context
-            .profile_route
-            .as_deref()
-            .filter(|_| indexed)
-            .cloned()
-            .unwrap_or_else(|| EnvironmentProfileRoute {
-                biome_identifier: Some(std::sync::Arc::from(profile.biome_identifier.as_ref())),
-                fog_identifier: Some(std::sync::Arc::from(profile.fog_identifier.as_ref())),
-                atmosphere_identifier: Some(std::sync::Arc::from(
-                    profile.atmosphere_identifier.as_ref(),
-                )),
-                provisional_lighting_identifier: Some(std::sync::Arc::from(
-                    profile.lighting_identifier.as_ref(),
-                )),
-            }),
-    )
+/// Menu options and optional sky settings consumed by atmosphere updates.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct AtmospherePreferences<'w> {
+    #[cfg(not(target_arch = "wasm32"))]
+    menu: Option<Res<'w, client_shell::menu::MenuRuntime>>,
+    #[cfg(target_arch = "wasm32")]
+    options: Res<'w, crate::browser_input::BrowserOptions>,
+    clouds: Option<ResMut<'w, render_scene::CloudVisibility>>,
+    skybox: Option<ResMut<'w, render_scene::SkyboxSettings>>,
 }
 
-/// Menu options and optional sky settings consumed by atmosphere updates.
-type AtmospherePreferences<'w> = (
-    Option<Res<'w, client_shell::menu::MenuRuntime>>,
-    Option<ResMut<'w, render_scene::CloudVisibility>>,
-    Option<ResMut<'w, render_scene::SkyboxSettings>>,
+/// The renderer-clock overrides, in [`super::rendered_clock`] precedence order.
+type TimeOverrides<'w> = (
+    Option<Res<'w, super::FixedTime>>,
+    Option<Res<'w, super::VisualTimeOverride>>,
 );
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn update_atmosphere_frame(
     clock: Res<WorldClock>,
-    time_override: Option<Res<super::VisualTimeOverride>>,
+    time_overrides: TimeOverrides,
     weather: Res<WeatherState>,
     medium: Res<CameraMediumState>,
     context: Res<EnvironmentContext>,
@@ -208,7 +64,7 @@ pub(crate) fn update_atmosphere_frame(
     outputs: AtmosphereOutputs,
     settings: Res<client_state::RuntimeSettings>,
     mut display: Local<WeatherDisplay>,
-    mut renderer_clock: Local<super::renderer_clock::RendererClock>,
+    mut renderer_clock: Local<RendererClock>,
     preferences: AtmospherePreferences,
     cameras: Query<&Transform, With<client_presentation::camera::FlyCamera>>,
 ) {
@@ -217,14 +73,20 @@ pub(crate) fn update_atmosphere_frame(
         .as_deref()
         .map_or(*vision.0, |camera| vision.0.for_camera(camera));
     let renderer_ticks = renderer_clock.advance(
-        clock.server_time().map(|_| clock.session_generation),
+        clock.server_time().map(|_| clock.session_generation()),
         time.elapsed_secs_f64(),
     );
-    let clock = time_override
+    let (fixed_time, time_override) = time_overrides;
+    let clock = super::rendered_clock(*clock, fixed_time.as_deref(), time_override.as_deref());
+    #[cfg(not(target_arch = "wasm32"))]
+    let options = preferences
+        .menu
         .as_ref()
-        .map_or(*clock, |value| value.rendering_clock(*clock));
-    let (menu, clouds, skybox) = preferences;
-    let options = menu.as_ref().map(|menu| menu.settings_snapshot().0);
+        .map(|menu| menu.settings_snapshot().0);
+    #[cfg(target_arch = "wasm32")]
+    let options = Some(std::sync::Arc::clone(&preferences.options.0));
+    let clouds = preferences.clouds;
+    let skybox = preferences.skybox;
     if let Some(mut clouds) = clouds {
         clouds.0 = options
             .as_ref()
@@ -303,7 +165,7 @@ pub(crate) fn update_atmosphere_frame(
         sky_darken: render_model::lightmap_sky_darken(
             frame.celestial_angle(),
             display.fog_level(),
-            shown.lightning_level,
+            shown.lightning_level(),
         ),
         sunrise,
         lightning: frame.lightning_flash() > 0.0,
@@ -320,71 +182,4 @@ pub(crate) fn update_atmosphere_frame(
         ..Default::default()
     };
     *route = next_route;
-}
-
-/// Explicit environment requests retained by active boss bars.
-///
-/// The pinned protocol-2168 `BossEvent` wire carries no sky-darkening or
-/// world-fog fields, so live servers leave both flags unset and this state
-/// is inert until a bar explicitly requests an effect.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct BossEnvironmentState {
-    pub(crate) darken_sky: bool,
-    pub(crate) world_fog: bool,
-}
-
-#[cfg(test)]
-pub(crate) fn derive_boss_environment(bars: &[BossBarView]) -> BossEnvironmentState {
-    derive_boss_environment_iter(bars)
-}
-
-/// Derives boss environment flags from an allocation-free boss-bar query.
-fn derive_boss_environment_iter<I>(bars: I) -> BossEnvironmentState
-where
-    I: IntoIterator,
-    I::Item: std::borrow::Borrow<BossBarView>,
-{
-    let mut state = BossEnvironmentState::default();
-    for bar in bars {
-        let bar = std::borrow::Borrow::borrow(&bar);
-        state.darken_sky |= bar.style.darken_sky == Some(true);
-        state.world_fog |= bar.style.create_world_fog == Some(true);
-    }
-    state
-}
-
-/// Boss effects respond only in air; water and lava media own their fog
-/// completely and must not be overridden by a boss flag.
-pub(crate) fn apply_boss_environment(
-    frame: AtmosphereFrame,
-    medium: CameraMedium,
-    state: BossEnvironmentState,
-) -> AtmosphereFrame {
-    match medium {
-        CameraMedium::Air => frame.with_boss_environment(state.darken_sky, state.world_fog),
-        CameraMedium::Water | CameraMedium::Lava => frame,
-    }
-}
-
-#[cfg(test)]
-mod liquid_distance_tests {
-    use super::*;
-
-    #[test]
-    fn base_frame_uses_native_player_margin_before_camera_distance_adjustment() {
-        let clock = WorldClock::default();
-        let weather = WeatherState::default();
-        for (confirmed, adjusted) in [(32.0, 45.0), (160.0, 160.0), (256.0, 256.0)] {
-            let context = EnvironmentContext {
-                render_distance_blocks: Some(confirmed),
-                ..Default::default()
-            };
-            let actual = derive_base_frame(clock, weather, 0.0, CameraMedium::Air, &context);
-            let expected =
-                derive_atmosphere_frame_for_medium(clock, weather, 0.0, CameraMedium::Air)
-                    .with_cloud_fade_distance(adjusted)
-                    .with_liquid_render_distance(adjusted);
-            assert_eq!(actual, expected);
-        }
-    }
 }

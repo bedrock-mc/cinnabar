@@ -3,13 +3,49 @@ use assets::{MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_LOOP_ITERATIONS, MolangSymbolKind
 
 use {super::*, simulation_clock::TICK_DURATION as ACTOR_TICK_DURATION};
 
+pub(crate) mod frame_cache;
 mod input_reads;
+mod numeric;
+mod observed;
+#[cfg(test)]
+pub(super) mod selection_work;
+mod vm;
+pub(super) use observed::ObservedInputs;
 mod owner_variables;
 mod presentation;
 pub(super) mod variables;
 
 #[cfg(test)]
 mod invalid_input_tests;
+
+#[cfg(test)]
+thread_local! {
+    static QUERY_WORK: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static EXPRESSION_WORK: std::cell::RefCell<Vec<usize>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Takes bytecode evaluations by expression on the current test thread.
+#[cfg(test)]
+pub(super) fn take_expression_work() -> Vec<usize> {
+    EXPRESSION_WORK.with(|work| std::mem::take(&mut *work.borrow_mut()))
+}
+
+/// Counts an expression whose inputs changed, including a direct single-read program.
+#[cfg(test)]
+pub(super) fn record_expression_work(index: usize) {
+    EXPRESSION_WORK.with(|work| {
+        let mut work = work.borrow_mut();
+        let size = work.len().max(index + 1);
+        work.resize(size, 0);
+        work[index] += 1;
+    });
+}
+
+/// Takes query evaluations performed on this test thread since its last observation.
+#[cfg(test)]
+pub(super) fn take_query_work() -> usize {
+    QUERY_WORK.with(|work| work.replace(0))
+}
 
 /// Runtime values retain the attachable's owning actor reference without numeric coercion.
 #[derive(Clone, Debug, PartialEq)]
@@ -52,6 +88,8 @@ pub(super) struct VariableLayout {
     controller_inputs: Vec<PresentationReads>,
     presentation_symbols: Vec<PresentationReads>,
     expression_inputs: Vec<PresentationReads>,
+    /// Pure numeric plans bound to this catalog's immutable bytecode and variable slots.
+    numeric: Vec<Option<numeric::Program>>,
     pub(super) engine: EngineSlots,
     /// Immutable analysis cached only for this finalized layout and its exact catalog.
     pub(super) plans: rig_plans::RigPlans,
@@ -150,6 +188,7 @@ impl VariableLayout {
     pub(super) fn new(assets: &Arc<RuntimeEntityAssets>) -> Self {
         let mut layout = Self::from_symbols(assets.molang_symbols());
         layout.bind_input_reads(assets);
+        layout.numeric = numeric::compile(assets, &layout);
         layout.plans = rig_plans::RigPlans::new(assets);
         layout
     }
@@ -184,6 +223,7 @@ impl VariableLayout {
             controller_inputs: Vec::new(),
             presentation_symbols: Vec::new(),
             expression_inputs: Vec::new(),
+            numeric: Vec::new(),
             engine: EngineSlots {
                 seeded: SEEDED_VARIABLES
                     .iter()
@@ -316,6 +356,18 @@ impl MolangEffects {
 }
 
 impl VariableLayout {
+    /// Reads an inherited persistent input; expression temporaries start unassigned.
+    pub(crate) fn input_variable(
+        &self,
+        variables: &MolangVariables,
+        symbol: u32,
+    ) -> Option<MolangValue> {
+        match self.place(symbol) {
+            Some(Place::Variable(slot)) => variables.variable(slot),
+            _ => None,
+        }
+    }
+
     fn place(&self, symbol: u32) -> Option<Place> {
         let symbol = symbol as usize;
         if let Some(slot) = symbol.checked_sub(self.variable_base)
@@ -410,203 +462,38 @@ impl Evaluator<'_> {
         this: f32,
         budget: &mut EvalBudget<'_>,
     ) -> Result<MolangValue, EvalError> {
-        let mut stack = std::mem::take(&mut budget.stack.0);
-        stack.clear();
-        let result = self.run_on(&mut stack, expression_index, variables, this, budget);
-        budget.stack.0 = stack;
-        result
+        if self.program.is_none()
+            && crate::render_frame::cache::enabled()
+            && let Some(mut cache) = variables
+                .frame
+                .as_mut()
+                .and_then(|frame| frame.cache.take())
+        {
+            let result = cache.run(self, expression_index, variables, this, budget);
+            variables.frame.as_mut().unwrap().cache = Some(cache);
+            result
+        } else {
+            self.run_observed(expression_index, variables, this, budget, None)
+        }
     }
 
-    fn run_on(
+    /// Records selection reads when given a recorder; its caller supplies clean temporaries and
+    /// restores recorded writes after every result. Ordinary evaluations clear their own temps.
+    pub(super) fn run_observed(
         &self,
-        stack: &mut Vec<MolangValue>,
         expression_index: usize,
         variables: &mut MolangVariables,
         this: f32,
         budget: &mut EvalBudget<'_>,
+        reads: Option<&mut ObservedInputs>,
     ) -> Result<MolangValue, EvalError> {
-        let expression = self
-            .expressions()
-            .get(expression_index)
-            .ok_or(EvalError::Invalid)?;
-        let first = expression.first_op as usize;
-        let end = first
-            .checked_add(expression.op_count as usize)
-            .ok_or(EvalError::Invalid)?;
-        let ops = self.ops().get(first..end).ok_or(EvalError::Invalid)?;
-        if let Some(cacheable) = budget.static_draw.as_mut() {
-            *cacheable &= self.program.is_none()
-                && super::attachable::static_draw::expression_is_static(
-                    self.assets,
-                    expression_index,
-                    false,
-                );
-        }
-        // Temporaries last for one evaluation.
-        variables.clear_temporaries();
-        stack.reserve(expression.max_stack as usize);
-        let mut loops = Vec::new();
-        let mut pc = 0;
-        while let Some(op) = ops.get(pc) {
-            budget.charge()?;
-            pc += 1;
-            let jump = |target: u16| -> Result<usize, EvalError> {
-                let target = target as usize;
-                (target <= ops.len())
-                    .then_some(target)
-                    .ok_or(EvalError::Invalid)
-            };
-            match *op {
-                MolangOp::Push(value) => stack.push(MolangValue::Number(value.get())),
-                MolangOp::PushString(symbol) => {
-                    stack.push(MolangValue::String(self.string(symbol)?));
-                }
-                MolangOp::LoadThis => stack.push(MolangValue::Number(this)),
-                MolangOp::LoadQuery(symbol) => {
-                    stack.push(self.query(symbol, &[]));
-                }
-                MolangOp::CallQuery(call) => {
-                    let start = stack
-                        .len()
-                        .checked_sub(call.arguments as usize)
-                        .ok_or(EvalError::Invalid)?;
-                    let value = self.query(call.symbol, &stack[start..]);
-                    stack.truncate(start);
-                    stack.push(value);
-                }
-                MolangOp::LoadVariable(symbol) => {
-                    let place = self.layout.place(symbol).ok_or(EvalError::Invalid)?;
-                    let value = variables.read(place).unwrap_or(MolangValue::Number(0.0));
-                    stack.push(value);
-                }
-                MolangOp::StoreVariable(symbol) => {
-                    let value = pop(stack)?;
-                    let place = self.layout.place(symbol).ok_or(EvalError::Invalid)?;
-                    variables.store(place, value)?;
-                }
-                MolangOp::Coalesce(branch) => {
-                    let place = self.layout.place(branch.symbol).ok_or(EvalError::Invalid)?;
-                    if let Some(value) = variables.read(place) {
-                        stack.push(value);
-                        pc = jump(branch.target)?;
-                    }
-                }
-                MolangOp::SelectCollection(collection) => {
-                    let index = pop(stack)?.number();
-                    stack.push(MolangValue::Number(self.collection(collection, index)?));
-                }
-                MolangOp::Pop => {
-                    pop(stack)?;
-                }
-                MolangOp::Negate => {
-                    let value = pop(stack)?.number();
-                    stack.push(MolangValue::Number(-value));
-                }
-                MolangOp::Not => {
-                    let value = match pop(stack)? {
-                        MolangValue::Number(value) => value == 0.0,
-                        MolangValue::String(_) | MolangValue::ActorReference(_) => false,
-                    };
-                    stack.push(bool_value(value));
-                }
-                MolangOp::Truthy => {
-                    let value = pop(stack)?.truthy();
-                    stack.push(bool_value(value));
-                }
-                MolangOp::Equal | MolangOp::NotEqual => {
-                    let right = pop(stack)?;
-                    let left = pop(stack)?;
-                    let equal = match (&left, &right) {
-                        (MolangValue::Number(left), MolangValue::Number(right)) => left == right,
-                        (MolangValue::String(left), MolangValue::String(right)) => left == right,
-                        (MolangValue::ActorReference(left), MolangValue::ActorReference(right)) => {
-                            left == right
-                        }
-                        _ => false,
-                    };
-                    stack.push(bool_value(equal == matches!(op, MolangOp::Equal)));
-                }
-                MolangOp::Add
-                | MolangOp::Subtract
-                | MolangOp::Multiply
-                | MolangOp::Divide
-                | MolangOp::Less
-                | MolangOp::LessEqual
-                | MolangOp::Greater
-                | MolangOp::GreaterEqual => {
-                    let right = pop(stack)?.number();
-                    let left = pop(stack)?.number();
-                    stack.push(MolangValue::Number(arithmetic(op, left, right)));
-                }
-                MolangOp::Call(function) => {
-                    let start = stack
-                        .len()
-                        .checked_sub(function.arity())
-                        .ok_or(EvalError::Invalid)?;
-                    let mut arguments = [0.0; 3];
-                    let arguments = arguments
-                        .get_mut(..function.arity())
-                        .ok_or(EvalError::Invalid)?;
-                    for (argument, value) in arguments.iter_mut().zip(&stack[start..]) {
-                        *argument = value.number();
-                    }
-                    stack.truncate(start);
-                    let value = molang_call(function, arguments, &mut || variables.next_random());
-                    stack.push(MolangValue::Number(value));
-                }
-                MolangOp::Jump(target) => pc = jump(target)?,
-                MolangOp::JumpIfFalse(target) => {
-                    if !pop(stack)?.truthy() {
-                        pc = jump(target)?;
-                    }
-                }
-                MolangOp::JumpIfTrue(target) => {
-                    if pop(stack)?.truthy() {
-                        pc = jump(target)?;
-                    }
-                }
-                MolangOp::Return => return pop(stack),
-                MolangOp::LoopStart(target) => match loop_iterations(pop(stack)?.number()) {
-                    Some(_) if loops.len() == MAX_MOLANG_LOOP_DEPTH => {
-                        return Err(EvalError::Invalid);
-                    }
-                    Some(iterations) => loops.push(iterations),
-                    None => pc = jump(target)?,
-                },
-                MolangOp::LoopNext(target)
-                | MolangOp::ForEachNext(assets::MolangBranch { target, .. }) => {
-                    let remaining = loops.last_mut().ok_or(EvalError::Invalid)?;
-                    *remaining = remaining.saturating_sub(1);
-                    if *remaining > 0 {
-                        pc = jump(target)?;
-                    } else {
-                        loops.pop();
-                    }
-                }
-                MolangOp::LoopBreak(target) => {
-                    loops.pop().ok_or(EvalError::Invalid)?;
-                    pc = jump(target)?;
-                }
-                MolangOp::ForEachStart(branch) => {
-                    // No value is an actor array, so the body never runs.
-                    pop(stack)?;
-                    pc = jump(branch.target)?;
-                }
-                MolangOp::Arrow(target) => {
-                    // Attachable queries already read the supplied owning actor snapshot.
-                    let reference = pop(stack)?;
-                    if !matches!(reference, MolangValue::ActorReference(id) if id == self.actor.runtime_id())
-                    {
-                        stack.push(MolangValue::Number(0.0));
-                        pc = jump(target)?;
-                    }
-                }
-            }
-        }
-        if stack.len() != 1 {
-            return Err(EvalError::Invalid);
-        }
-        pop(stack)
+        #[cfg(test)]
+        record_expression_work(expression_index);
+        let mut stack = std::mem::take(&mut budget.stack.0);
+        stack.clear();
+        let result = self.run_on(&mut stack, expression_index, variables, this, budget, reads);
+        budget.stack.0 = stack;
+        result
     }
 
     /// The literal's value, sharing the layout's interned copy instead of allocating one.
@@ -628,6 +515,18 @@ impl Evaluator<'_> {
             || self.assets.molang_query_binding(symbol),
             |program| program.query_binding(symbol),
         );
+        self.bound_query(symbol, binding, arguments)
+    }
+
+    /// Reads an already bound query with the same history and presentation overrides.
+    fn bound_query(
+        &self,
+        symbol: u32,
+        binding: Option<assets::MolangQuery>,
+        arguments: &[MolangValue],
+    ) -> MolangValue {
+        #[cfg(test)]
+        QUERY_WORK.with(|work| work.set(work.get() + 1));
         if let Some(alpha) = self.presentation_alpha
             && binding == Some(assets::MolangQuery::FrameAlpha)
         {

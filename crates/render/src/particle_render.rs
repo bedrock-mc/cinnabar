@@ -109,7 +109,7 @@ impl Plugin for ParticleRenderPlugin {
 }
 
 #[derive(Resource)]
-struct ParticleGpu {
+pub(crate) struct ParticleGpu {
     sampler: Sampler,
     texture_view: Option<TextureView>,
     texture: Option<Texture>,
@@ -122,6 +122,15 @@ struct ParticleGpu {
     add_range: Range<u32>,
     bind_group: Option<BindGroup>,
     bound: (Option<BufferId>, Option<BufferId>, u64),
+}
+
+#[cfg(feature = "shaderpacks")]
+impl ParticleGpu {
+    /// The uploaded particle atlas with its dynamic tiles, which shader-pack particle draws
+    /// read through a gamma-byte view rather than a copy of their own.
+    pub(crate) fn atlas_texture(&self) -> Option<&Texture> {
+        self.texture.as_ref()
+    }
 }
 
 fn init_particle_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
@@ -151,22 +160,20 @@ fn init_particle_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
     });
 }
 
-fn prepare_particle_resources(
+pub(crate) fn prepare_particle_resources(
     frame: Res<ParticleGpuFrame>,
-    render_device: Res<RenderDevice>,
-    render_queue: Res<RenderQueue>,
+    uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<ParticleGpu>,
-    staging: Option<Res<crate::upload_staging::BufferUploadStaging>>,
 ) {
     if let Some(base) = &frame.base
         && gpu.base.as_ref().is_none_or(|old| !Arc::ptr_eq(old, base))
         && assets::texture::policy::TexturePolicy::for_device(
-            render_device.limits().max_texture_dimension_2d,
+            uploads.device.limits().max_texture_dimension_2d,
         )
         .page_bytes(frame.atlas_side, frame.atlas_side)
             == Some(base.len())
     {
-        let texture = render_device.create_texture(&TextureDescriptor {
+        let texture = uploads.device.create_texture(&TextureDescriptor {
             label: Some("particle atlas"),
             size: Extent3d {
                 width: frame.atlas_side,
@@ -178,10 +185,11 @@ fn prepare_particle_resources(
             dimension: TextureDimension::D2,
             format: TextureFormat::Rgba8UnormSrgb,
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            view_formats: &[],
+            // Shader packs read the stored gamma bytes through an `Rgba8Unorm` view.
+            view_formats: crate::actor::gpu::ARTWORK_VIEW_FORMATS,
         });
         write_rect(
-            &render_queue,
+            &uploads.queue,
             &texture,
             [0, 0],
             [frame.atlas_side, frame.atlas_side],
@@ -198,7 +206,7 @@ fn prepare_particle_resources(
     {
         for patch in frame.patches.iter().filter(|p| p.seq > gpu.uploaded_seq) {
             write_rect(
-                &render_queue,
+                &uploads.queue,
                 texture,
                 [patch.x, patch.y],
                 [patch.width, patch.height],
@@ -219,7 +227,7 @@ fn prepare_particle_resources(
     }
     if gpu.capacity < total || gpu.buffer.is_none() {
         let capacity = total.next_power_of_two().max(MIN_CAPACITY);
-        gpu.buffer = Some(render_device.create_buffer(&BufferDescriptor {
+        gpu.buffer = Some(uploads.device.create_buffer(&BufferDescriptor {
             label: Some("particle instances"),
             size: capacity as u64 * INSTANCE_BYTES,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
@@ -236,24 +244,19 @@ fn prepare_particle_resources(
             bytes = total as u64 * INSTANCE_BYTES
         )
         .entered();
-        crate::upload_staging::write_batch(
-            staging.as_deref(),
-            &render_device,
-            &render_queue,
-            &[
-                (buffer, 0, bytemuck::cast_slice(&frame.opaque[..])),
-                (
-                    buffer,
-                    opaque as u64 * INSTANCE_BYTES,
-                    bytemuck::cast_slice(&frame.blend[..]),
-                ),
-                (
-                    buffer,
-                    (opaque + blend) as u64 * INSTANCE_BYTES,
-                    bytemuck::cast_slice(&frame.add[..]),
-                ),
-            ],
-        );
+        uploads.write_batch(&[
+            (buffer, 0, bytemuck::cast_slice(&frame.opaque[..])),
+            (
+                buffer,
+                opaque as u64 * INSTANCE_BYTES,
+                bytemuck::cast_slice(&frame.blend[..]),
+            ),
+            (
+                buffer,
+                (opaque + blend) as u64 * INSTANCE_BYTES,
+                bytemuck::cast_slice(&frame.add[..]),
+            ),
+        ]);
     }
 }
 
@@ -487,6 +490,10 @@ fn prepare_particle_bind_group(
 }
 
 /// Queues compact translucent streams at their target-view depths from the extracted frame.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "a queue system's render-world inputs"
+)]
 fn queue_particles(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<ParticlePipeline>,
@@ -501,6 +508,7 @@ fn queue_particles(
         &bevy::render::camera::ExtractedCamera,
         &Msaa,
     )>,
+    pack: render_scene::shaderpack::ShaderPackDrawnEffects,
 ) {
     for draws in pending.0.values_mut() {
         draws.clear_frame();
@@ -524,7 +532,13 @@ fn queue_particles(
         ] {
             let first = offset;
             offset += instances.len() as u32;
-            if instances.is_empty() {
+            if instances.is_empty()
+                || pack.replaces(view_entity, |drawn| match material {
+                    ParticleMode::Opaque => drawn.particles_opaque,
+                    ParticleMode::Blend => drawn.particles_translucent,
+                    ParticleMode::Add => drawn.particles_additive,
+                })
+            {
                 continue;
             }
             let Ok(pipeline) = pipeline.variants.specialize(

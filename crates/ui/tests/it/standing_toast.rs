@@ -15,7 +15,7 @@ fn standing(id: u64, since: u64, until: u64) -> StandingToast {
         id,
         title: Arc::from("Alex wants to join"),
         message: Arc::from("Press N to respond"),
-        press: ToastPress::JoinRequests,
+        press: Some(ToastPress::JoinRequests),
         since_millis: since,
         until_millis: until,
     }

@@ -147,7 +147,12 @@ fn install_join_carriers() {
             .unwrap(),
             loaded.entities.runtime(),
         );
-        super::super::set_vanilla_item_paths(loaded.entities.runtime());
+        let icons = assets::carriers::startup::require_icon_assets(
+            &loaded.selected_path,
+            assets::carriers::startup::vanilla_source_manifest_json(),
+        )
+        .unwrap();
+        super::super::install_vanilla_item_assets(loaded.entities.runtime(), icons.runtime());
         super::super::set_base_actor_artwork(artwork, Arc::clone(loaded.entities.runtime()));
     }
     if let Some(dir) = std::env::var_os("CINNABAR_JOIN_VANILLA_PACK") {

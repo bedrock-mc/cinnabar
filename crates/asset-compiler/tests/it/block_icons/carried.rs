@@ -186,11 +186,13 @@ fn carried_overlay_sheet_masks_tint_without_coloring_or_hiding_soil() {
     );
     assert_eq!(
         compiled.bytes,
-        encode_icon_catalog_with_block_sheets(
+        encode_icon_catalog_with_sources(
             catalog.source_manifest_sha256(),
             catalog.sprites(),
             catalog.entries(),
-            catalog.block_sheets()
+            catalog.block_sheets(),
+            catalog.block_models(),
+            catalog.sources().expect("compiler publishes raw sources")
         )
         .unwrap()
     );

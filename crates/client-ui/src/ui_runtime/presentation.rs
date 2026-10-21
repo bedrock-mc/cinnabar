@@ -15,6 +15,7 @@ use crate::ui_runtime::render_adapter::adapt_ui_draw_list;
 
 mod accessors;
 mod construction;
+mod control_previews;
 pub mod debug_overlay;
 mod dial_icons;
 pub mod dynamic_textures;
@@ -30,10 +31,12 @@ pub(super) mod item_glint;
 pub mod item_gui;
 pub mod item_sprite;
 pub mod item_viewmodel;
+mod local_player_identity;
 pub mod menu;
 pub mod menu_artwork;
 pub mod menu_branding;
 pub mod menu_scroll;
+mod mod_hud_bindings;
 mod mod_panel_font;
 mod runtime_assets;
 
@@ -114,6 +117,7 @@ pub struct UiPresentationRuntime {
     /// The startup font without the session's glyph sheets.
     base_font: Arc<RuntimeFontCatalog>,
     mod_panel_font: Option<mod_panel_font::InstalledFont>,
+    local_player_identity: local_player_identity::LocalPlayerIdentity,
     textures: Arc<UiRenderTextureArray>,
     texture_session: Option<u64>,
     item_glint: item_glint::ItemGlintTextures,
@@ -156,12 +160,16 @@ pub struct UiPresentationRuntime {
     inventory_cache: Option<Box<publish::inventory_cache::InventoryCache>>,
     /// Semantic HUD content retained before binding construction.
     hud_cache: forms::hud::SemanticHud,
+    /// Owner-scoped extension globals layered over the gameplay HUD's retained data.
+    mod_hud_bindings: mod_hud_bindings::Bindings,
+    control_previews: control_previews::Previews,
     /// Last logged skip/odd-data counters, so changes surface exactly once.
     last_hud_diagnostics: crate::ui_runtime::gameplay_hud::GameplayHudDiagnostics,
     /// This frame's world-space tags, including scores, and their retained glyph atlas.
     nametag_anchors: Vec<nametags::NametagAnchor>,
     nametag_local_actor: Option<u64>,
     nametag_atlas: nametag_atlas::NametagAtlas,
+    nametag_bounds: nametags::bounds::BoundsCache,
     primitive_text: primitive_shapes::PrimitiveTextRasterizer,
     /// Stable reserved logical page for the optional preview raster.
     paper_doll: paper_doll::PaperDoll,
@@ -183,6 +191,7 @@ pub struct UiPresentationRuntime {
     /// Worn armor and the held item the model shows, and where armor art comes from.
     player_preview_gear: player_preview::PreviewEquipment,
     equipment_catalog: Option<Arc<assets::RuntimeEquipmentCatalog>>,
+    preview_equipment_selection: player_preview::selection::EquipmentSelection,
     gui_models: gui_models::GuiModels,
     player_preview_pixels: Option<player_preview::PlayerPreviewRasters>,
     preview_dirty: bool,
@@ -215,6 +224,7 @@ pub struct UiPresentationRuntime {
     menu_hit_targets: Vec<(MenuAction, UiRect)>,
     menu_skin_thumbnail_indices: Vec<usize>,
     menu_cape_thumbnail_indices: Vec<usize>,
+    menu_cosmetic_thumbnail_indices: Vec<usize>,
     /// Full settings slider geometry, including steps clipped from view.
     settings_slider_drag_targets: Vec<(MenuAction, UiRect)>,
     menu_scrolls: ui_engine::menu_scroll::MenuScrolls<launcher::menu::MenuAction>,

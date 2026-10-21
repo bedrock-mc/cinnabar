@@ -93,7 +93,7 @@ fn a_stair_item_draws_its_template_quads_instead_of_the_thumbnail() {
 }
 
 #[test]
-fn blended_or_missing_materials_keep_the_thumbnail() {
+fn unsupported_materials_keep_the_thumbnail() {
     let templates = [ModelTemplate {
         quad_start: 0,
         quad_count: 2,
@@ -103,9 +103,10 @@ fn blended_or_missing_materials_keep_the_thumbnail() {
         material(0),
         material(0),
         material(MATERIAL_FLAG_ALPHA_BLEND),
+        material(assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING),
     ];
     let pages = [page()];
-    for material in [2, 9] {
+    for material in [2, 3, 9] {
         let quads = stair_quads(material);
         let mut atlas = Atlas::new(7, 1);
         assert!(shaped(&stair(&quads, &templates, &materials, &pages), &mut atlas).is_none());

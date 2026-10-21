@@ -15,6 +15,7 @@ require (
 	github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479 // indirect
 	github.com/cenkalti/backoff/v7 v7.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261019181927-1b7677ddec59 // indirect
 	github.com/coder/websocket v1.8.14 // indirect
 	github.com/coreos/go-oidc/v3 v3.17.0 // indirect
 	github.com/df-mc/go-nethernet v1.0.25-0.20260928201420-215e46422b58 // indirect
@@ -55,7 +56,7 @@ require (
 )
 
 replace (
-	github.com/df-mc/dragonfly => github.com/bedrock-mc/dragonfly v0.0.0-20261009181128-3ee589b2f500
-	github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.15.1-0.20260908193618-2049463566ca
-	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261015132925-cb2c98c049ab
+	github.com/df-mc/dragonfly => github.com/bedrock-mc/dragonfly v0.0.0-20261019182817-14a1c91693e7
+	github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.15.1-0.20261011190141-6124f52657d4
+	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261019151115-85d4022854e1
 )

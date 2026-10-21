@@ -1,15 +1,17 @@
-//! Chat layout is application-owned; other HUD controls retain pack priority.
+//! Chat placement is application-owned; server packs may author message content.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use json_ui::{Catalog, ControlRef, RawControl, ResolvedControl};
 use serde_json::Value;
 
+mod content;
+
 const ROOTS: [&str; 4] = ["java_chat", "chat_panel", "chat_grid_item", "chat_label"];
 /// Bounds factory templates followed from the HUD, as the runtime binder bounds its expansions.
 const MAX_FACTORY_EXPANSIONS: usize = 64;
 
-/// Restores built-in chat in `catalog`; returns the chat-screen controls that gained pack filters.
+/// Restores chat placement while retaining authored message content and filters.
 pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<RawControl> {
     let Some(screen) = builtin.lookup("hud", "hud_screen") else {
         return Vec::new();
@@ -21,6 +23,9 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
         return Vec::new();
     };
     let overlay_ref = ControlRef::parse(reference, "hud");
+    let mut message_row = authored_content(catalog, builtin, "hud", "chat_grid_item");
+    let mut message_text = authored_content(catalog, builtin, "chat", "messages_text");
+    let content_scope = content::isolate(catalog, &mut message_row, &mut message_text);
     let empty = screen
         .props
         .get("$cinnabar_additional_content|default")
@@ -32,7 +37,11 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
         .collect::<BTreeSet<_>>();
     chat.insert(overlay_ref.clone());
     let mut derived = BTreeMap::<_, Vec<_>>::new();
-    for control in catalog.controls() {
+    for control in catalog.controls().filter(|control| {
+        content_scope
+            .as_ref()
+            .is_none_or(|scope| !scope.contains_namespace(&control.owner_ns))
+    }) {
         if let Some(base) = &control.base {
             derived
                 .entry(ControlRef::parse(base, &control.owner_ns))
@@ -57,14 +66,22 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
         })
         .collect::<BTreeMap<_, _>>();
     let labels = derived_labels(&derived);
+    let ordinary_label = ControlRef::new("hud", "chat_label");
     collect_active_labels(
         catalog,
         &labels,
-        visibility
-            .entry(ControlRef::new("hud", "chat_label"))
-            .or_default(),
+        visibility.entry(ordinary_label.clone()).or_default(),
     );
-    for control in catalog.controls_mut() {
+    if let Some(row) = &mut message_row
+        && let Some(original) = builtin.lookup("hud", "chat_grid_item")
+    {
+        content::retain_fallback_filters(row, original, &visibility[&ordinary_label]);
+    }
+    for control in catalog.controls_mut().filter(|control| {
+        content_scope
+            .as_ref()
+            .is_none_or(|scope| !scope.contains_namespace(&control.owner_ns))
+    }) {
         suppress_chat(control, &chat);
     }
     let mut restore = BTreeSet::new();
@@ -83,7 +100,10 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
             catalog.insert(control);
         }
     }
-    let filtered = restore_chat_screen(catalog, builtin, &mut global_names);
+    if let Some(row) = message_row {
+        catalog.insert(row);
+    }
+    let filtered = restore_chat_screen(catalog, builtin, &mut global_names, message_text.as_ref());
     let globals = global_names
         .into_iter()
         .filter_map(|name| Some((format!("${name}"), builtin.global(&name)?.clone())))
@@ -114,6 +134,19 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
             .insert("$additional_screen_content".to_owned(), overlay.clone());
     }
     filtered
+}
+
+/// A pack's replacement message subtree, kept before restoration removes its controls.
+fn authored_content(
+    catalog: &Catalog,
+    builtin: &Catalog,
+    namespace: &str,
+    name: &str,
+) -> Option<RawControl> {
+    let content = catalog.lookup(namespace, name)?;
+    let base = builtin.lookup(namespace, name)?;
+    (content.children != base.children || content.has_controls != base.has_controls)
+        .then(|| content.clone())
 }
 
 /// Finds named templates inheriting the ordinary HUD chat label.
@@ -228,6 +261,7 @@ fn restore_chat_screen(
     catalog: &mut Catalog,
     builtin: &Catalog,
     globals: &mut BTreeSet<String>,
+    message_text: Option<&RawControl>,
 ) -> Vec<RawControl> {
     let context = crate::menu_screens::retail_context();
     let controls = builtin
@@ -241,6 +275,13 @@ fn restore_chat_screen(
         .collect::<Vec<_>>();
     let mut filtered = Vec::new();
     for (mut control, resolved) in controls {
+        if control.name == "messages_text"
+            && let Some(content) = message_text
+        {
+            filtered.push(content.clone());
+            catalog.insert(content.clone());
+            continue;
+        }
         if resolved.is_some_and(|resolved| retain_visibility(&mut control, &resolved)) {
             filtered.push(control.clone());
         }

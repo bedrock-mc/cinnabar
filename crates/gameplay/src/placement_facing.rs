@@ -42,7 +42,12 @@ pub(crate) fn facing_states(
 }
 
 /// Nearby vertical placements use strict body bounds; other placements use the yaw table.
-fn body_facing(position: [i32; 3], player: BoxBounds, yaw: f32, rotation: f32) -> Option<u8> {
+pub(crate) fn body_facing(
+    position: [i32; 3],
+    player: BoxBounds,
+    yaw: f32,
+    rotation: f32,
+) -> Option<u8> {
     let player = (
         player.0.map(|value| value as f32),
         player.1.map(|value| value as f32),

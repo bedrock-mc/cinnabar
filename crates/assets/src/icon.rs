@@ -1,6 +1,6 @@
-//! Compiled item-icon carrier: the exact sprite pixels for every
-//! sprite-routed item visual in the pinned pack, keyed by the same
-//! `(identifier, metadata)` item-visual keys the entity carrier compiles.
+//! Compiled item thumbnails and raw sprite sources from the pinned pack.
+//! Processed thumbnails use the entity carrier's `(identifier, metadata)` keys;
+//! source-filename bindings preserve unprocessed pixels for pack inheritance.
 //!
 //! Like the HUD and localization carriers, the carrier is provenance-pinned
 //! to the canonical `assets/vanilla-source.json` identity and required at
@@ -16,6 +16,8 @@ use sha2::{Digest, Sha256};
 use crate::AssetError;
 
 mod block;
+mod sources;
+pub use sources::IconSource;
 pub mod dial;
 pub use block::{
     BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BLOCK_ITEM_SHEET_SIZE, IconBlockModel,
@@ -29,6 +31,8 @@ const BLOCK_ICON_CARRIER_VERSION: u32 = 2;
 /// Adds the block model thumbnail table after the carried sheets.
 const MODEL_ICON_CARRIER_MAGIC: [u8; 8] = *b"MCBEICO3";
 const MODEL_ICON_CARRIER_VERSION: u32 = 3;
+const SOURCE_ICON_CARRIER_MAGIC: [u8; 8] = *b"MCBEICO4";
+const SOURCE_ICON_CARRIER_VERSION: u32 = 4;
 /// One sprite per compiled item visual at most.
 pub const MAX_ICON_SPRITES: usize = crate::item::MAX_ITEM_VISUALS;
 /// One entry per item visual plus one per alias at most.
@@ -60,11 +64,13 @@ pub struct IconEntry {
 
 /// Decoded, validated icon catalog with binary-search lookup.
 pub struct RuntimeIconCatalog {
+    carrier_identity: [u8; 32],
     source_manifest_sha256: [u8; 32],
     sprites: Arc<[IconSprite]>,
     entries: Arc<[IconEntry]>,
     block_sheets: Arc<[IconBlockSheet]>,
     block_models: Arc<[IconBlockModel]>,
+    sources: Option<Arc<[IconSource]>>,
 }
 
 impl std::fmt::Debug for RuntimeIconCatalog {
@@ -88,8 +94,10 @@ impl RuntimeIconCatalog {
             return Err(invalid("unsupported icon carrier header"));
         }
         let version = read_u32(bytes, 8)?;
-        let modelled =
-            bytes[..8] == MODEL_ICON_CARRIER_MAGIC && version == MODEL_ICON_CARRIER_VERSION;
+        let source_routed =
+            bytes[..8] == SOURCE_ICON_CARRIER_MAGIC && version == SOURCE_ICON_CARRIER_VERSION;
+        let modelled = source_routed
+            || (bytes[..8] == MODEL_ICON_CARRIER_MAGIC && version == MODEL_ICON_CARRIER_VERSION);
         let carried = modelled
             || (bytes[..8] == BLOCK_ICON_CARRIER_MAGIC && version == BLOCK_ICON_CARRIER_VERSION);
         if !carried && (bytes[..8] != ICON_CARRIER_MAGIC || version != ICON_CARRIER_VERSION) {
@@ -115,7 +123,8 @@ impl RuntimeIconCatalog {
         {
             return Err(invalid("noncanonical icon carrier layout"));
         }
-        if Sha256::digest(&bytes[..payload_end]).as_slice() != &bytes[payload_end..] {
+        let carrier_identity: [u8; 32] = Sha256::digest(&bytes[..payload_end]).into();
+        if carrier_identity[..] != bytes[payload_end..] {
             return Err(invalid("icon carrier envelope hash mismatch"));
         }
 
@@ -203,16 +212,28 @@ impl RuntimeIconCatalog {
             }
             block::validate_models(&block_models, &sprites)?;
         }
+        let sources = if source_routed {
+            Some(sources::decode(bytes, &mut cursor, payload_end, sprites.len())?.into())
+        } else {
+            None
+        };
         if cursor != payload_end {
             return Err(invalid("trailing icon carrier payload"));
         }
         Ok(Self {
+            carrier_identity,
             source_manifest_sha256,
             sprites: sprites.into(),
             entries: entries.into(),
             block_sheets: block_sheets.into(),
             block_models: block_models.into(),
+            sources,
         })
+    }
+
+    /// Identifies all decoded routes, sheets, models and pixels for persistent subscribers.
+    pub const fn carrier_identity(&self) -> [u8; 32] {
+        self.carrier_identity
     }
 
     #[must_use]
@@ -228,6 +249,12 @@ impl RuntimeIconCatalog {
     #[must_use]
     pub fn entries(&self) -> &[IconEntry] {
         &self.entries
+    }
+
+    /// Raw sprite-source bindings, independent of processed item thumbnails and atlas indices.
+    #[must_use]
+    pub fn sources(&self) -> Option<&[IconSource]> {
+        self.sources.as_deref()
     }
 
     /// Native carried faces, already resolved from the pack's item-specific texture colors.
@@ -301,6 +328,44 @@ pub fn encode_icon_catalog_with_blocks(
     entries: &[IconEntry],
     block_sheets: &[IconBlockSheet],
     block_models: &[IconBlockModel],
+) -> Result<Vec<u8>, AssetError> {
+    encode(
+        source_manifest_sha256,
+        sprites,
+        entries,
+        block_sheets,
+        block_models,
+        None,
+    )
+}
+
+/// Encodes raw source-filename bindings alongside independently processed item thumbnails.
+pub fn encode_icon_catalog_with_sources(
+    source_manifest_sha256: [u8; 32],
+    sprites: &[IconSprite],
+    entries: &[IconEntry],
+    block_sheets: &[IconBlockSheet],
+    block_models: &[IconBlockModel],
+    sources: &[IconSource],
+) -> Result<Vec<u8>, AssetError> {
+    encode(
+        source_manifest_sha256,
+        sprites,
+        entries,
+        block_sheets,
+        block_models,
+        Some(sources),
+    )
+}
+
+/// Shares bounded sprite and binding serialization across supported carrier versions.
+fn encode(
+    source_manifest_sha256: [u8; 32],
+    sprites: &[IconSprite],
+    entries: &[IconEntry],
+    block_sheets: &[IconBlockSheet],
+    block_models: &[IconBlockModel],
+    sources: Option<&[IconSource]>,
 ) -> Result<Vec<u8>, AssetError> {
     if sprites.len() > MAX_ICON_SPRITES || entries.len() > MAX_ICON_ENTRIES {
         return Err(invalid("icon sprite or entry count exceeds bound"));
@@ -397,7 +462,7 @@ pub fn encode_icon_catalog_with_blocks(
         )
         .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
     }
-    if !block_models.is_empty() {
+    if !block_models.is_empty() || sources.is_some() {
         let mut table = Vec::with_capacity(4 + block_models.len() * 8);
         table.extend_from_slice(&(block_models.len() as u32).to_le_bytes());
         for model in block_models {
@@ -412,12 +477,17 @@ pub fn encode_icon_catalog_with_blocks(
         )
         .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
     }
+    if let Some(sources) = sources {
+        sources::encode(&mut payload, sources, sprites.len())?;
+    }
     let payload_end = HEADER_BYTES
         .checked_add(payload.len())
         .filter(|end| end + HASH_BYTES <= MAX_ICON_CARRIER_BYTES)
         .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
     let mut bytes = vec![0u8; HEADER_BYTES];
-    let (magic, version) = if !block_models.is_empty() {
+    let (magic, version) = if sources.is_some() {
+        (SOURCE_ICON_CARRIER_MAGIC, SOURCE_ICON_CARRIER_VERSION)
+    } else if !block_models.is_empty() {
         (MODEL_ICON_CARRIER_MAGIC, MODEL_ICON_CARRIER_VERSION)
     } else if block_sheets.is_empty() {
         (ICON_CARRIER_MAGIC, ICON_CARRIER_VERSION)

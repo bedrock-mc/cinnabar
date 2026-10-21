@@ -1,4 +1,5 @@
 use super::*;
+use crate::game_frame::configure_client_frame_schedule;
 use crate::runtime::network::resource_packs::PackApplication;
 use bevy::ecs::schedule::{IntoSystemSet, NodeId, ScheduleGraph, Schedules, SystemSet};
 use client_runtime::network::NetworkHandle;
@@ -10,7 +11,7 @@ use server_experience::{
 use std::collections::BTreeSet;
 use {
     crate::{
-        app::{configure_client_frame_schedule, configure_client_production_frame_systems},
+        app::configure_client_production_frame_systems,
         runtime::world::{ClientWorld, drain_committed_ui_before_authority},
     },
     ui_engine::test_support::fixture_font,
@@ -51,6 +52,7 @@ fn offer() -> VerifiedOffer {
                 origins: BTreeSet::new(),
                 memory_bytes: 0,
                 gpu_bytes: 0,
+                personal_mods: Default::default(),
             },
             packages: Vec::new(),
             fallback: String::new(),
@@ -332,7 +334,7 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
             ..Default::default()
         })
         .init_resource::<crate::runtime::shutdown::FatalError>()
-        .init_resource::<crate::environment::WorldClock>()
+        .init_resource::<client_presentation::environment::WorldClock>()
         .init_resource::<Time<Real>>()
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
@@ -523,4 +525,43 @@ fn consent_answer_retains_capture_return_through_its_owned_frame() {
             .clone();
         let _ = std::fs::remove_file(path);
     }
+}
+
+/// A hotbar key over a main-inventory slot of the focused modal sends the swap with no inventory
+/// window open, as the modal shows the player's cells over gameplay.
+#[test]
+fn a_modal_hotbar_key_over_an_inventory_slot_sends_its_swap() {
+    use protocol::{ContainerIdentity, InventoryContentEvent, InventoryEvent};
+    use ui_screens::container_actions::InventoryCellHit;
+    let mut app = join_app(State::Disabled);
+    {
+        let mut player = app
+            .world_mut()
+            .resource_mut::<client_state::PlayerRuntime>();
+        let ledger = player.inventory.ledger_mut();
+        ledger.apply(&InventoryEvent::Authority(
+            protocol::InventoryAuthority::Server,
+        ));
+        let mut slots = vec![protocol::NetworkItemStack::empty(); 36];
+        let mut diamonds = protocol::NetworkItemStack::empty();
+        diamonds.network_id = 6;
+        diamonds.count = 32;
+        diamonds.stack_network_id = 9;
+        slots[9] = diamonds;
+        ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+            container: ContainerIdentity::window(0),
+            slots: slots.into(),
+            storage_item: protocol::NetworkItemStack::empty(),
+        }));
+    }
+    app.world_mut().resource_mut::<ExperienceService>().hotbar =
+        Some((InventoryCellHit::Player(9), vec![KeyCode::Digit3]));
+    app.world_mut().run_system_cached(modal_hotbar).unwrap();
+    let mut player = app
+        .world_mut()
+        .resource_mut::<client_state::PlayerRuntime>();
+    let ledger = player.inventory.ledger_mut();
+    assert!(ledger.displayed_stack(9).is_none());
+    assert_eq!(ledger.displayed_stack(2).unwrap().count, 32);
+    assert!(ledger.pending_batch().unwrap().is_some());
 }

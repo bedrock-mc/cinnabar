@@ -335,6 +335,21 @@ func (h *Host) neighbourUpdateTick(b Block, pos, changedNeighbour cube.Pos, tx *
 	}})
 }
 
+// scheduledTick queues on-scheduled-update for an update the Experience scheduled for its block at
+// pos, with the snapshot an interaction with it would have.
+func (h *Host) scheduledTick(b Block, pos cube.Pos, tx *world.Tx) {
+	if _, ok := h.dispatchers[b.t.exp]; !ok || h.closed.Load() {
+		return
+	}
+	dim, ok := dimensionOf(tx)
+	if !ok {
+		return
+	}
+	h.enqueue(b.t.exp, event{w: tx.World(), dim: dim, anchor: pos, call: Call{
+		ScheduledUpdate: &ScheduledUpdateCall{Pos: blockPos(pos)},
+	}})
+}
+
 // breakHandler deletes the broken block's data. A player's break then queues on-break with that
 // data; a break without a user, such as an explosion, notifies nothing.
 func (h *Host) breakHandler(b Block, pos cube.Pos, tx *world.Tx, u item.User) {

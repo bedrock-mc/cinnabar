@@ -144,12 +144,16 @@ startup.
 ## WIT and semantics
 
 The contract is `crates/experience-sdk/wit/server/server.wit`, package
-`cinnabar:experience-server@0.5.0`, world `server`. The guest exports `register`, which runs once
+`cinnabar:experience-server@0.6.0`, world `server`. The guest exports `register`, which runs once
 at startup and declares its blocks and items as a `registration`, the callbacks `on-place`,
-`on-break`, `on-interact` and `on-neighbor-changed`, `client-message` and `epoch`. Every world
+`on-break`, `on-interact` and `on-neighbor-changed`, `client-message`, `epoch` and
+`on-scheduled-update`. Every world
 method goes through the borrowed `callback` resource, valid for one callback only. The runtime
 still runs older artifacts against their frozen worlds, by the manifest's `api`:
 
+- `api = "0.5"`, `crates/experience-runtime/wit/0.5/server.wit`: no `crafting-result` or
+  `schedule-update`, and no `on-scheduled-update`; a scheduled update for it is rejected without
+  running it. 0.6 only added types, so the 0.5 world shares them.
 - `api = "0.4"`, `crates/experience-runtime/wit/0.4/server.wit`: `register` declares plain
   `block-def`s, which the runtime reads as cube block types and no items, and the callback has
   none of 0.5's calls. 0.5 only added types, so the 0.4 world shares them.
@@ -167,6 +171,18 @@ still runs older artifacts against their frozen worlds, by the manifest's `api`:
 WIT cannot express the rules below; the runtime (`crates/experience-runtime`) and the adapter
 (`tools/localserver/experience`) both enforce them.
 
+- **0.6.** `crafting-result` matches a 3×3 grid against the server's crafting-table recipes,
+  which the adapter sends with `load` (`recipes`, at most `MAX_RECIPES`, each input of at most
+  `MAX_RECIPE_INPUT_ITEMS` items): the first shaped recipe whose shape the grid's items fill,
+  anywhere in the grid or mirrored left to right with every other cell empty, or the first
+  shapeless one whose inputs the grid's items are exactly. An item tag input is its members, any
+  metadata. The Dragonfly adapter registers the server's recipes only once the server is built,
+  after the helpers first load, so it reloads each helper then. `schedule-update` stages a
+  `schedule_update` op for an owned block where `set-block-data` may write, 1 to
+  `MAX_SCHEDULE_TICKS` ticks on, at most `MAX_SCHEDULED_UPDATES` a callback; the adapter
+  schedules a Dragonfly block update, which the world keeps across a restart and runs only while
+  its block is unchanged (a state change drops it). When it is due, the adapter queues a
+  `scheduled_update` call anchored on the block, with an interaction's snapshot.
 - **0.5.** 0.5 declares block states and placement traits, visuals (geometry, material
   instances with render methods and flipbooks, bone visibility, boxes, rotation, permutations
   over structured conditions), network membership and items, and the callback calls
@@ -509,8 +525,8 @@ These axes are versioned separately. Before 1.0, a breaking change bumps the min
 
 | Axis | Version | Source |
 |---|---|---|
-| Server WIT | 0.5; 0.4, 0.3, 0.2 and 0.1 still accepted | `crates/experience-sdk/wit/server/server.wit`; older ones in `crates/experience-runtime/wit/<version>/server.wit` |
-| IPC protocol | 5 | `PROTOCOL_VERSION` in `crates/experience-runtime/src/protocol.rs` |
+| Server WIT | 0.6; 0.5, 0.4, 0.3, 0.2 and 0.1 still accepted | `crates/experience-sdk/wit/server/server.wit`; older ones in `crates/experience-runtime/wit/<version>/server.wit` |
+| IPC protocol | 6 | `PROTOCOL_VERSION` in `crates/experience-runtime/src/protocol.rs` |
 | Server manifest | `api`, `data-schema`; `[client]` is ignored | `crates/experience-runtime/src/manifest.rs` |
 | Client WIT | `cinnabar:server-experience@1.1.0`; 1.0 components still link | `crates/experience-sdk/wit/client/deps/server-experience/capabilities.wit`, world `server-bundle` in `crates/experience-sdk/wit/client/client.wit` |
 | Client wire protocol | 2, negotiated in Hello and Accept; 1 still accepted | `WIRE_VERSION`, `MAX_WIRE_VERSION` in `crates/server-experience/src/policy.rs` |

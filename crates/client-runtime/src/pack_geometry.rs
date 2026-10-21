@@ -7,6 +7,7 @@ type GeometrySource = (
     render_scene::ChunkTextureAssetIdentity,
     u64,
     Option<meshing::ChunkBiomeTintIdentity>,
+    Option<u64>,
 );
 
 type MeshReceiver = Mutex<mpsc::Receiver<Arc<[ChunkRenderInstance]>>>;
@@ -33,6 +34,7 @@ impl GeometryPreparation {
             candidate.identity(),
             epoch,
             stream.map(chunk_pipeline::WorldStream::biome_tint_identity),
+            stream.map(chunk_pipeline::WorldStream::mesh_render_revision),
         );
         if self
             .pending
@@ -40,7 +42,7 @@ impl GeometryPreparation {
             .is_some_and(|(previous, _)| *previous != source)
         {
             self.pending = None;
-            gpu.cancel_except(current.identity());
+            gpu.cancel_except(current.binding_identity());
         }
         if let Some((_, receiver)) = &self.pending {
             match receiver
@@ -50,7 +52,8 @@ impl GeometryPreparation {
             {
                 Ok(geometry) => gpu.request_geometry(epoch, candidate.clone(), geometry),
                 Err(mpsc::TryRecvError::Disconnected)
-                    if gpu.status(candidate.identity()).is_none() && gpu.geometry().is_none() =>
+                    if gpu.status(candidate.binding_identity()).is_none()
+                        && gpu.geometry().is_none() =>
                 {
                     return Err("Resource pack geometry worker stopped".into());
                 }
@@ -91,12 +94,15 @@ impl GeometryPreparation {
         let assets = candidate.assets().clone();
         let (sender, receiver) = mpsc::sync_channel(1);
         self.pending = Some((source, Mutex::new(receiver)));
-        std::thread::spawn(move || {
+        let work = move || {
             let _zone =
                 bevy::log::info_span!("pack_apply.remesh", chunks = instances.len()).entered();
             // Spread across the world cores, which the held mesh handoff leaves idle.
-            let Some(meshes) = chunk_pipeline::on_idle_world_cores(|| snapshot.build(&assets))
-            else {
+            #[cfg(not(target_arch = "wasm32"))]
+            let meshes = chunk_pipeline::on_idle_world_cores(|| snapshot.build(&assets));
+            #[cfg(target_arch = "wasm32")]
+            let meshes = snapshot.build(&assets);
+            let Some(meshes) = meshes else {
                 return;
             };
             let mut meshes: std::collections::BTreeMap<_, _> = meshes
@@ -113,7 +119,11 @@ impl GeometryPreparation {
                 })
                 .collect::<Vec<_>>();
             let _ = sender.send(Arc::from(instances));
-        });
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        std::thread::spawn(work);
+        #[cfg(target_arch = "wasm32")]
+        crate::browser_jobs::geometry(work);
         Ok(true)
     }
 
@@ -190,7 +200,12 @@ mod tests {
             }
             let mut preparation = GeometryPreparation {
                 pending: Some((
-                    (candidate.identity(), 0, Some(stream.biome_tint_identity())),
+                    (
+                        candidate.identity(),
+                        0,
+                        Some(stream.biome_tint_identity()),
+                        Some(stream.mesh_render_revision()),
+                    ),
                     Mutex::new(receiver),
                 )),
             };
@@ -221,7 +236,12 @@ mod tests {
         let (sender, receiver) = mpsc::sync_channel(1);
         let mut preparation = GeometryPreparation {
             pending: Some((
-                (candidate.identity(), 0, Some(before)),
+                (
+                    candidate.identity(),
+                    0,
+                    Some(before),
+                    Some(stream.mesh_render_revision()),
+                ),
                 Mutex::new(receiver),
             )),
         };
@@ -238,7 +258,7 @@ mod tests {
             .request(&candidate, &current, Some(&stream), &chunks, &gpu)
             .expect("retired geometry must be replaced");
         assert!(gpu.geometry().is_some());
-        assert!(gpu.status(candidate.identity()).is_none());
+        assert!(gpu.status(candidate.binding_identity()).is_none());
     }
 
     #[test]
@@ -251,7 +271,12 @@ mod tests {
             drop(sender);
             let mut preparation = GeometryPreparation {
                 pending: Some((
-                    (candidate.identity(), 0, Some(before)),
+                    (
+                        candidate.identity(),
+                        0,
+                        Some(before),
+                        Some(stream.mesh_render_revision()),
+                    ),
                     Mutex::new(receiver),
                 )),
             };
@@ -271,11 +296,80 @@ mod tests {
                 .request(&candidate, &current, Some(&stream), &chunks, &gpu)
                 .expect("an obsolete GPU result must be replaced");
             assert!(gpu.geometry().is_some());
-            assert!(gpu.status(candidate.identity()).is_none());
+            assert!(gpu.status(candidate.binding_identity()).is_none());
             assert!(!gpu.finish(&obsolete, true));
             gpu.finish(&gpu.preparation().unwrap(), true);
-            assert_eq!(gpu.status(candidate.identity()), Some(Ok(())));
+            assert_eq!(gpu.status(candidate.binding_identity()), Some(Ok(())));
         }
+    }
+
+    #[test]
+    fn quality_round_trip_drops_cpu_geometry_without_waiting() {
+        let (mut stream, _) = changed_biomes();
+        let current = ChunkTextureAssets::default();
+        let candidate = ChunkTextureAssets::with_revision(Arc::clone(current.assets()), 1);
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let mut preparation = GeometryPreparation {
+            pending: Some((
+                (
+                    candidate.identity(),
+                    0,
+                    Some(stream.biome_tint_identity()),
+                    Some(stream.mesh_render_revision()),
+                ),
+                Mutex::new(receiver),
+            )),
+        };
+        let original = stream.mesh_render_settings();
+        let cheap = meshing::MeshRenderSettings {
+            smooth_lighting: false,
+            transparent_leaves: false,
+        };
+        let now = std::time::Instant::now();
+        assert!(stream.set_mesh_render_settings(cheap, now));
+        assert!(stream.set_mesh_render_settings(original, now));
+        let mut world = World::new();
+        let mut state =
+            bevy::ecs::system::SystemState::<Query<&mut ChunkRenderInstance>>::new(&mut world);
+        let chunks = state.get_mut(&mut world).unwrap();
+        let gpu = ChunkTextureReload::default();
+        preparation
+            .request(&candidate, &current, Some(&stream), &chunks, &gpu)
+            .unwrap();
+        assert!(sender.send(Arc::from([])).is_err());
+        assert!(gpu.geometry().is_some());
+    }
+
+    #[test]
+    fn java_mode_round_trip_drops_pending_resource_snapshot_without_waiting() {
+        let (mut stream, _) = changed_biomes();
+        let current = ChunkTextureAssets::default();
+        let candidate = ChunkTextureAssets::with_revision(Arc::clone(current.assets()), 1);
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let mut preparation = GeometryPreparation {
+            pending: Some((
+                (
+                    candidate.identity(),
+                    0,
+                    Some(stream.biome_tint_identity()),
+                    Some(stream.mesh_render_revision()),
+                ),
+                Mutex::new(receiver),
+            )),
+        };
+        let now = std::time::Instant::now();
+        stream.set_java_meshing(Some(Arc::from([1_u32])), now);
+        stream.set_java_meshing(None, now);
+        let mut world = World::new();
+        let mut state =
+            bevy::ecs::system::SystemState::<Query<&mut ChunkRenderInstance>>::new(&mut world);
+        let chunks = state.get_mut(&mut world).unwrap();
+        let gpu = ChunkTextureReload::default();
+        preparation
+            .request(&candidate, &current, Some(&stream), &chunks, &gpu)
+            .unwrap();
+        assert!(sender.send(Arc::from([])).is_err());
+        assert!(gpu.geometry().is_some());
     }
 
     #[test]
@@ -284,7 +378,7 @@ mod tests {
         let candidate = ChunkTextureAssets::with_revision(Arc::clone(current.assets()), 1);
         let (sender, receiver) = mpsc::sync_channel(1);
         let mut preparation = GeometryPreparation {
-            pending: Some(((current.identity(), 0, None), Mutex::new(receiver))),
+            pending: Some(((current.identity(), 0, None, None), Mutex::new(receiver))),
         };
         let mut world = World::new();
         let mut state =

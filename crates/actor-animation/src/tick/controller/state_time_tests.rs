@@ -41,7 +41,7 @@ fn playback(blending: bool) -> (Vec<WeightedClip>, f32) {
         clip.source += 1;
     }
     compiled.rig_bindings[0].entity_symbol += 1;
-    compiled.rig_bindings[0].render_controller += 1;
+    *compiled.rig_bindings[0].render_controller.as_mut().unwrap() += 1;
     for candidate in &mut compiled.render.candidates {
         candidate.source += 1;
     }
@@ -130,10 +130,11 @@ fn playback(blending: bool) -> (Vec<WeightedClip>, f32) {
         static_draw: None,
     };
     let mut clips = Vec::new();
+    let mut runtime = Controllers::tick(&mut controllers);
     ControllerWalk {
         evaluator: &evaluator,
         variables: &mut variables,
-        controllers: &mut controllers,
+        controllers: &mut runtime,
         clip_clocks: &Default::default(),
         clips: &mut clips,
         budget: &mut budget,
@@ -145,6 +146,7 @@ fn playback(blending: bool) -> (Vec<WeightedClip>, f32) {
     }
     .evaluate(0, 1.0, 0)
     .unwrap();
+    drop(runtime);
     super::super::super::clock::prepare(
         &evaluator,
         &mut variables,

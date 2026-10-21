@@ -30,6 +30,11 @@ fn stream() -> WorldStream {
 }
 
 pub(super) fn lit_stream(dimension: i32) -> WorldStream {
+    lit_stream_with_assets(dimension, light_test_assets())
+}
+
+/// Builds a synthetic lighting stream with the supplied runtime assets.
+fn lit_stream_with_assets(dimension: i32, assets: RuntimeAssets) -> WorldStream {
     WorldStream::new_with_assets(
         WorldBootstrap {
             dimension,
@@ -40,7 +45,7 @@ pub(super) fn lit_stream(dimension: i32) -> WorldStream {
             air_network_id: 0,
             block_network_ids_are_hashes: false,
         },
-        Arc::new(light_test_assets()),
+        Arc::new(assets),
         [0.0, 80.0, 0.0],
         None,
     )
@@ -262,9 +267,14 @@ fn synthetic_light_completion(
 
 mod air_fixed_point;
 mod boundary_dominance;
-mod cases_01;
-mod cases_02;
+mod column_propagation;
+mod convergence;
+mod dependency_lifecycle;
 mod filter_dominance;
+mod mesh_fairness;
+mod mesh_light_dependencies;
+mod provenance;
+mod scheduling_priority;
 mod sky_boundary;
 mod worker_caps;
 

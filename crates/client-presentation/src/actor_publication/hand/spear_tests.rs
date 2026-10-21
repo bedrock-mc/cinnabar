@@ -4,34 +4,40 @@ use bevy::ecs::system::SystemState;
 use bevy::math::{EulerRot, Quat};
 use bevy::prelude::{PerspectiveProjection, World};
 
+/// Reads a spear fixture, naming missing carriers while rejecting other I/O errors.
+fn installed_carrier(path: &std::path::Path) -> Option<Vec<u8>> {
+    match std::fs::read(path) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!(
+                "skipping installed_spear_charge_keeps_the_authored_third_person_arm_with_java_enabled: missing fixture {}; run make assets",
+                path.display()
+            );
+            None
+        }
+        Err(error) => panic!("read {}: {error}", path.display()),
+    }
+}
+
 #[test]
 fn installed_spear_charge_keeps_the_authored_third_person_arm_with_java_enabled() {
     let configured = std::env::var_os("CINNABAR_ENTITY_ASSETS");
-    let required = configured.is_some();
     let path = configured.map(std::path::PathBuf::from).unwrap_or_else(|| {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
             .join(assets::carriers::COMPILED_DIR)
             .join(assets::carriers::ENTITY.output)
     });
-    let bytes = match std::fs::read(&path) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound && !required => {
-            eprintln!(
-                "skipping installed spear publication: {} is absent",
-                path.display()
-            );
-            return;
-        }
-        Err(error) => panic!("read {}: {error}", path.display()),
+    let Some(bytes) = installed_carrier(&path) else {
+        return;
+    };
+    let Some(equipment) =
+        installed_carrier(&path.with_file_name(assets::carriers::EQUIPMENT.output))
+    else {
+        return;
     };
     let entities = Arc::new(assets::RuntimeEntityAssets::decode(&bytes).unwrap());
-    let equipment = Arc::new(
-        assets::RuntimeEquipmentCatalog::decode(
-            &std::fs::read(path.with_file_name(assets::carriers::EQUIPMENT.output)).unwrap(),
-        )
-        .unwrap(),
-    );
+    let equipment = Arc::new(assets::RuntimeEquipmentCatalog::decode(&equipment).unwrap());
     let icons = Arc::new(
         assets::RuntimeIconCatalog::decode(
             &assets::encode_icon_catalog(entities.source_manifest_sha256(), &[], &[]).unwrap(),
@@ -80,6 +86,15 @@ fn installed_spear_charge_keeps_the_authored_third_person_arm_with_java_enabled(
     feed.head_yaw = 0.0;
     feed.pitch = 0.0;
     feed.main_hand = Some("minecraft:iron_spear".into());
+    feed.held_network_ids[0] = protocol::vanilla_item_registry()
+        .iter()
+        .find(|entry| entry.identifier.as_ref() == feed.main_hand.as_deref().unwrap())
+        .expect("registered spear fixture")
+        .network_id;
+    let use_facts = stream
+        .authority()
+        .item_use_profile(feed.held_network_ids[0]);
+    assert!(use_facts.ticks.is_some_and(|ticks| ticks > delay + 2));
     feed.item_use = client_world::LocalItemUse::Using;
     stream.sync_local_player_pose(&feed);
     stream.prepare_actor_appearance_fixture();
@@ -88,7 +103,7 @@ fn installed_spear_charge_keeps_the_authored_third_person_arm_with_java_enabled(
         main: Some(crate::presentation::equipment::WornItem {
             variant: Default::default(),
             charged_projectile: None,
-            use_facts: client_world::EffectiveItemUse::default(),
+            use_facts,
             grip: assets::item::grip::builtin_item_grip("minecraft:iron_spear"),
             identifier: "minecraft:iron_spear".into(),
             kind: crate::presentation::equipment::HeldKind::Sprite,
@@ -96,6 +111,7 @@ fn installed_spear_charge_keeps_the_authored_third_person_arm_with_java_enabled(
             damage: None,
             dye_rgb: None,
             enchanted: false,
+            glint: Default::default(),
         }),
         ..Default::default()
     };
@@ -144,6 +160,7 @@ fn installed_spear_charge_keeps_the_authored_third_person_arm_with_java_enabled(
             prepared_actor_artwork: &mut prepared_artwork,
         },
         super::super::ActorFrameInput {
+            cosmetics: Vec::new(),
             local_feed: None,
             predicted_eye: Some([feet[0], feet[1] + protocol::PLAYER_NETWORK_OFFSET, feet[2]]),
             predicted_feet: Some(feet),
@@ -152,6 +169,7 @@ fn installed_spear_charge_keeps_the_authored_third_person_arm_with_java_enabled(
             renders_game: true,
             hide_hand: false,
             remote_emotes: Vec::new(),
+            remote_hats: Vec::new(),
             custom_emote: None,
         },
         |_| {},

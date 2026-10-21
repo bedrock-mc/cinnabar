@@ -96,11 +96,10 @@ impl ModHost {
     ) -> Result<()> {
         self.begin_frame();
         let result = match self.dispatch(Vec::new()) {
-            Ok(CallbackOutcome::Executed) => {
-                self.instance
-                    .frame(pressed, snapshot, mobs, player_state, movement, controls)
-            }
-            Ok(CallbackOutcome::Deferred) => Ok(()),
+            Ok(delivery) => self
+                .instance
+                .observe_frame(pressed, snapshot, mobs, player_state, movement, controls)
+                .and_then(|()| self.instance.frame(delivery)),
             Err(error) => Err(error),
         };
         self.instance.finish_frame();
@@ -143,6 +142,11 @@ impl ModHost {
         self.instance.camera_view_scale()
     }
 
+    /// Current-frame damage styling; absence restores the player's camera preferences.
+    pub fn camera_hurt_style(&self) -> Option<render_api::HurtCameraStyle> {
+        self.instance.camera_hurt_style()
+    }
+
     /// Consumes a successful callback's jump request once.
     pub fn take_jump_pulse(&mut self) -> bool {
         self.instance.take_jump_pulse()
@@ -161,6 +165,11 @@ impl ModHost {
     /// Consumes the last successful frame's granted command requests once.
     pub fn take_commands(&mut self) -> Vec<String> {
         self.instance.take_commands()
+    }
+
+    /// Consumes the committed vanilla inventory requests once.
+    pub fn take_inventory_requests(&mut self) -> Vec<crate::InventoryRequest> {
+        self.instance.take_inventory_requests()
     }
 
     /// Cues the next callback can poll, typically last frame's from every loaded mod.

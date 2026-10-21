@@ -2,26 +2,32 @@
 
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    fs::File,
-    io::Read,
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, AtomicUsize, Ordering},
-        mpsc::{Receiver, SyncSender, TrySendError, sync_channel},
     },
 };
 
 use assets::{
     AudioDefinition, RuntimeAudioCatalog, SoundEventTables, decode_sound,
-    sound_bank::{SoundBankEntry, SoundBankIndex, sound_bank_prefix_len},
+    sound_bank::{SoundBankEntry, SoundBankIndex},
 };
 use serde_json::Value;
+#[cfg(not(target_arch = "wasm32"))]
+use std::{fs::File, io::Read};
+use tokio::sync::mpsc::{
+    Receiver, Sender as SyncSender, channel as sync_channel, error::TrySendError,
+};
+
+mod host;
+pub use host::{SoundDecodeDriver, SoundDecodeRequest};
 
 use super::{server::ServerSoundPack, voice::Pcm};
 
 pub const SOUND_BANK_FILENAME: &str = assets::carriers::AUDIO_BANK.output;
-const HEADER_READ_BYTES: usize = 40;
+#[cfg(not(target_arch = "wasm32"))]
+const HEADER_READ_BYTES: usize = assets::sound_bank::HEADER_BYTES;
 const CACHE_BUDGET_BYTES: usize = 96 * 1024 * 1024;
 /// Worker threads decoding bank entries, so a streamed track cannot hold up every first-play sound.
 const DECODE_WORKERS: usize = 2;
@@ -45,6 +51,7 @@ pub struct MusicEntry {
 }
 
 pub struct SoundBank {
+    #[cfg(not(target_arch = "wasm32"))]
     file: Option<Arc<File>>,
     index: SoundBankIndex,
     tables: SoundEventTables,
@@ -75,16 +82,20 @@ pub enum PcmLookup {
 }
 
 enum DecodeSource {
+    #[cfg(not(target_arch = "wasm32"))]
     Bank(BankEntry),
+    Range(SoundBankEntry),
     Server,
 }
 
 /// A queued entry that keeps the bank file opened during loading alive.
+#[cfg(not(target_arch = "wasm32"))]
 struct BankEntry {
     file: Arc<File>,
     entry: SoundBankEntry,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl BankEntry {
     /// Reads this entry by offset on a worker; returns None if its bytes cannot be read.
     fn read(&self) -> Option<Vec<u8>> {
@@ -136,10 +147,12 @@ struct Decoder {
     generation: Arc<AtomicU64>,
     encoded_bytes: Arc<AtomicUsize>,
     server: CurrentServer,
+    external: bool,
 }
 
 impl Decoder {
     /// Starts the bounded pool shared by reads and decodes across pack generations.
+    #[cfg(not(target_arch = "wasm32"))]
     fn spawn(generation: u64, server: Option<Arc<ServerSoundPack>>) -> Option<Self> {
         let (jobs, job_queue) = sync_channel::<DecodeJob>(MAX_QUEUED_DECODES);
         let (results, done) = sync_channel(DECODE_WORKERS);
@@ -158,8 +171,8 @@ impl Decoder {
                         let job = job_queue
                             .lock()
                             .unwrap_or_else(std::sync::PoisonError::into_inner)
-                            .recv();
-                        let Ok((epoch, path, source, permit)) = job else {
+                            .blocking_recv();
+                        let Some((epoch, path, source, permit)) = job else {
                             return;
                         };
                         if generation.load(Ordering::Acquire) != epoch {
@@ -169,6 +182,7 @@ impl Decoder {
                             DecodeSource::Bank(entry) => {
                                 entry.read().and_then(|bytes| decode_pcm(&bytes, &path))
                             }
+                            DecodeSource::Range(_) => None,
                             DecodeSource::Server => {
                                 let pack = {
                                     let current = server
@@ -183,7 +197,7 @@ impl Decoder {
                         if generation.load(Ordering::Acquire) != epoch {
                             continue;
                         }
-                        if results.send((epoch, path, pcm)).is_err() {
+                        if results.blocking_send((epoch, path, pcm)).is_err() {
                             return;
                         }
                     }
@@ -196,6 +210,7 @@ impl Decoder {
             generation,
             encoded_bytes: Arc::new(AtomicUsize::new(0)),
             server,
+            external: false,
         })
     }
 
@@ -250,6 +265,7 @@ fn parse_music(bytes: &[u8]) -> HashMap<Box<str>, MusicEntry> {
 
 impl SoundBank {
     /// Opens the bank file; `Ok(None)` when absent so audio stays silent instead of failing startup.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn open(
         path: &Path,
         catalog: Option<Arc<RuntimeAudioCatalog>>,
@@ -262,17 +278,26 @@ impl SoundBank {
         let mut header = [0_u8; HEADER_READ_BYTES];
         file.read_exact(&mut header)
             .map_err(|error| format!("read {}: {error}", path.display()))?;
-        let prefix_len = sound_bank_prefix_len(&header).map_err(|error| error.to_string())?;
+        let prefix_len = assets::sound_bank::sound_bank_prefix_len(&header)
+            .map_err(|error| error.to_string())?;
         let mut prefix = vec![0_u8; prefix_len];
         prefix[..HEADER_READ_BYTES].copy_from_slice(&header);
         file.read_exact(&mut prefix[HEADER_READ_BYTES..])
             .map_err(|error| format!("read {}: {error}", path.display()))?;
         let index = SoundBankIndex::decode_prefix(&prefix).map_err(|error| error.to_string())?;
+        let mut bank = Self::from_index(index, catalog);
+        bank.file = Some(Arc::new(file));
+        Ok(Some(bank))
+    }
+
+    /// Builds routing and cache state from an already verified bank prefix.
+    fn from_index(index: SoundBankIndex, catalog: Option<Arc<RuntimeAudioCatalog>>) -> Self {
         let json = |bytes: &[u8]| pack_json::parse_jsonc::<Value>(bytes).unwrap_or(Value::Null);
         let tables =
             SoundEventTables::from_json(&json(index.sounds_json()), &json(index.materials_json()));
-        Ok(Some(Self {
-            file: Some(Arc::new(file)),
+        Self {
+            #[cfg(not(target_arch = "wasm32"))]
+            file: None,
             music: parse_music(index.music_json()),
             index,
             tables,
@@ -288,7 +313,7 @@ impl SoundBank {
             in_flight: HashMap::new(),
             in_flight_bytes: 0,
             ready_streams: HashMap::new(),
-        }))
+        }
     }
 
     /// Queues a small set of finite UI, footstep and interaction sounds during loading.
@@ -427,6 +452,7 @@ impl SoundBank {
         {
             return PcmLookup::Busy;
         }
+        #[cfg(not(target_arch = "wasm32"))]
         if self.decoder.is_none() {
             self.decoder = Decoder::spawn(self.decode_generation, self.server.clone());
         }
@@ -440,11 +466,15 @@ impl SoundBank {
         let jobs = decoder.jobs.clone();
         let source = match server {
             true => Some(DecodeSource::Server),
-            false => entry.zip(self.file.as_ref()).map(|(entry, file)| {
-                DecodeSource::Bank(BankEntry {
-                    file: Arc::clone(file),
-                    entry,
-                })
+            false => entry.and_then(|entry| {
+                #[cfg(not(target_arch = "wasm32"))]
+                if let Some(file) = &self.file {
+                    return Some(DecodeSource::Bank(BankEntry {
+                        file: Arc::clone(file),
+                        entry,
+                    }));
+                }
+                decoder.external.then_some(DecodeSource::Range(entry))
             }),
         };
         let Some(source) = source else {
@@ -455,7 +485,7 @@ impl SoundBank {
         match jobs.try_send(job) {
             Ok(()) => {}
             Err(TrySendError::Full(_)) => return PcmLookup::Busy,
-            Err(TrySendError::Disconnected(_)) => {
+            Err(TrySendError::Closed(_)) => {
                 self.failed.insert(path.into());
                 return PcmLookup::Failed;
             }
@@ -472,6 +502,19 @@ impl SoundBank {
 
     /// Collects finished decodes.
     pub fn poll(&mut self) {
+        if let Some(decoder) = &self.decoder
+            && decoder.external
+            && decoder.jobs.is_closed()
+            && !self.in_flight.is_empty()
+        {
+            self.decode_generation = self.decode_generation.wrapping_add(1);
+            decoder
+                .generation
+                .store(self.decode_generation, Ordering::Release);
+            self.failed
+                .extend(self.in_flight.drain().map(|(path, _)| path));
+            self.in_flight_bytes = 0;
+        }
         for _ in 0..DECODE_WORKERS {
             let finished = self.decoder.as_ref().and_then(|decoder| {
                 decoder
@@ -536,24 +579,9 @@ impl SoundBank {
         tables: SoundEventTables,
         catalog: Option<Arc<RuntimeAudioCatalog>>,
     ) -> Self {
-        Self {
-            file: None,
-            music: parse_music(index.music_json()),
-            index,
-            tables,
-            catalog,
-            server: None,
-            merged: None,
-            cache: HashMap::new(),
-            cache_order: VecDeque::new(),
-            cache_bytes: 0,
-            failed: HashSet::new(),
-            decoder: None,
-            decode_generation: 0,
-            in_flight: HashMap::new(),
-            in_flight_bytes: 0,
-            ready_streams: HashMap::new(),
-        }
+        let mut bank = Self::from_index(index, catalog);
+        bank.tables = tables;
+        bank
     }
 
     /// Waits for `path` to decode or fail, panicking if the test timeout passes.
@@ -649,7 +677,7 @@ mod tests {
         let mut bank = SoundBank::open(&path, None).unwrap().unwrap();
         let mut probe = bank.file.as_ref().unwrap().try_clone().unwrap();
         let before = probe.stream_position().unwrap();
-        let (jobs, job_queue) = sync_channel(MAX_QUEUED_DECODES);
+        let (jobs, mut job_queue) = sync_channel(MAX_QUEUED_DECODES);
         let (_results, done) = sync_channel(DECODE_WORKERS);
         bank.decoder = Some(Decoder {
             jobs,
@@ -657,6 +685,7 @@ mod tests {
             generation: Arc::new(AtomicU64::new(0)),
             encoded_bytes: Arc::new(AtomicUsize::new(0)),
             server: Arc::new(Mutex::new((0, None))),
+            external: false,
         });
         assert!(matches!(
             bank.lookup("sounds/tone", false),

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	sharedbiome "github.com/bedrock-mc/protocolgen/generated/data/biome"
+	sharedbiome "github.com/cinnabar-mc/protocolgen/generated/data/biome"
 )
 
 // TestV2193BiomeProjectionRejectsInvalidSharedIDs covers invalid or ambiguous shared records.

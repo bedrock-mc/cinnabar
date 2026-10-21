@@ -1,29 +1,39 @@
 use protocol::{StackRequestAction, StackRequestContainer, StackRequestSlot};
 
-use super::{Cell, ContainerIdentity, InventoryGestureError, PlayerInventoryLedger, StorageWindow};
+use super::{Cell, ContainerIdentity, InventoryGestureError, PlayerInventoryLedger};
 
 impl PlayerInventoryLedger {
-    /// Resolves a default descriptor only against the open legacy storage window.
-    /// Real named and dynamic containers retain their exact identities.
-    pub(super) fn storage_wire_identity(&self, identity: ContainerIdentity) -> ContainerIdentity {
-        if identity.has_legacy_default_descriptor()
-            && self.storage.as_ref().is_some_and(|storage| {
-                identity.window_id == Some(storage.window_id)
-                    && storage.window_id != protocol::DYNAMIC_STORAGE_WINDOW_ID
-                    && matches!(
-                        storage.kind.open_cells(),
-                        Some(protocol::OpenCells::Generic(_))
-                    )
-            })
-        {
-            ContainerIdentity {
-                slot_type: Some(protocol::CONTAINER_NAME_LEVEL_ENTITY),
-                dynamic_id: None,
-                ..identity
-            }
-        } else {
-            identity
+    /// Binds admitted storage contents to the retained model's canonical request address.
+    pub(super) fn bind_storage_request_identity(&mut self) {
+        let identity = self.storage_request_identity();
+        if let Some(storage) = &mut self.storage {
+            storage.identity = identity;
         }
+    }
+
+    /// Uses the screen model's outbound address, independently of ignored packet descriptors.
+    pub(super) fn storage_request_identity(&self) -> Option<ContainerIdentity> {
+        let storage = self.storage.as_ref()?;
+        let (container, _) = protocol::open_cell_request(storage.kind, 0, None, None)?;
+        let name =
+            if protocol::open_name_first_cell(storage.kind, protocol::CONTAINER_NAME_LEVEL_ENTITY)
+                .is_some()
+            {
+                protocol::CONTAINER_NAME_LEVEL_ENTITY
+            } else {
+                match container {
+                    StackRequestContainer::LevelEntity { .. } => {
+                        protocol::CONTAINER_NAME_LEVEL_ENTITY
+                    }
+                    StackRequestContainer::OpenWindow { name, .. } => name,
+                    _ => return None,
+                }
+            };
+        Some(ContainerIdentity {
+            window_id: Some(storage.window_id),
+            slot_type: Some(name),
+            dynamic_id: None,
+        })
     }
 
     /// Even a predicted empty cell carries the owning request id in vanilla's
@@ -111,32 +121,6 @@ pub(super) const fn valid_raw_window_id(window_id: i32) -> bool {
 
 pub(super) const fn valid_storage_window_id(window_id: i32) -> bool {
     window_id != 0 && valid_raw_window_id(window_id)
-}
-
-pub(super) fn storage_slot_identity_matches(
-    storage: &StorageWindow,
-    identity: ContainerIdentity,
-) -> bool {
-    if identity.window_id != Some(storage.window_id) {
-        return false;
-    }
-    match (identity.slot_type, identity.dynamic_id) {
-        (None, None) => true,
-        _ => storage.identity == Some(identity),
-    }
-}
-
-/// Whether one container identity the projection left unrouted is exactly the
-/// prior bare-window storage leg: no decoded container name, no dynamic id,
-/// and a window id matching the one open generic-storage window. Named or
-/// dynamic identities never qualify — they must project canonically first.
-pub(super) fn bare_storage_window_matches(
-    storage: Option<&StorageWindow>,
-    identity: &ContainerIdentity,
-) -> bool {
-    identity.slot_type.is_none()
-        && identity.dynamic_id.is_none()
-        && storage.is_some_and(|storage| storage_slot_identity_matches(storage, *identity))
 }
 
 /// How the open window's own cells are named in a request.

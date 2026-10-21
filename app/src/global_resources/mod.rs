@@ -15,18 +15,9 @@ const WORKER_UNAVAILABLE: &str = "The resource pack worker is unavailable. Resta
 /// Creates the import worker; no filesystem or ZIP work runs on a frame.
 pub(crate) fn configure(app: &mut App, root: PathBuf, config_root: PathBuf, files: Vec<PathBuf>) {
     app.insert_resource(worker::Worker::new(root, config_root, files))
-        .init_resource::<PackReload>()
         .add_systems(
             Update,
             drive.before(crate::runtime::network::reload_resource_packs),
-        )
-        .add_systems(
-            Update,
-            crate::runtime::network::reload_resource_packs
-                .after(crate::runtime::network::receive_network_events)
-                .before(crate::runtime::world::drive_world_stream)
-                .before(client_state::ClientFrameSet::UiPublication)
-                .before(render_scene::ChunkRenderApplySet),
         );
 }
 
@@ -88,7 +79,8 @@ impl From<Overlay<'_>> for PublishedOverlay {
 ///
 /// The published snapshot is a function of the worker's snapshot and the reload overlay, so
 /// it is rebuilt only when either changes instead of being cloned every frame. Dropped world
-/// files go to the Worlds tab while it shows and every other drop imports as a pack.
+/// files go to the Worlds tab while it shows, the Shaders tab hands drops to the shader-pack
+/// import, and every other drop imports as a pack.
 fn drive(
     mut worker: ResMut<worker::Worker>,
     mut menu: ResMut<MenuRuntime>,
@@ -105,6 +97,9 @@ fn drive(
         }
     }
     let mut world_files = Vec::new();
+    if menu.takes_shader_pack_drops() {
+        drops.clear();
+    }
     for event in drops.read() {
         if let bevy::window::FileDragAndDrop::DroppedFile { path_buf, .. } = event {
             if is_world_archive(path_buf) {

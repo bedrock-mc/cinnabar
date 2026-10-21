@@ -348,9 +348,14 @@ fn static_clock_survives_invalid_first_eval_but_requires_real_tick_after_reset_o
 fn static_publication_observes_actors_before_actor_and_world_budget_branches() {
     // 127 queries and 126 adds = 253 real operations per weight. Repeated
     // bindings exercise the production budget, not an injected test seam.
-    let weight = std::iter::repeat_n("query.modified_move_speed", 127)
-        .collect::<Vec<_>>()
-        .join("+");
+    let weight = balanced_weight(127);
+    assert_eq!(
+        pack_entity_compiler::compile_molang_expression(&weight)
+            .unwrap()
+            .ops
+            .len(),
+        253
+    );
     for (repetitions, actors) in [(17, 1u64), (16, 70u64)] {
         let (_pack, artwork, entities) = weighted_fixture(&weight, repetitions);
         let mut world = stream(entities);
@@ -384,6 +389,18 @@ fn static_publication_observes_actors_before_actor_and_world_budget_branches() {
             draw.submission.input.current_bones
         );
     }
+}
+
+/// Adds query terms with bounded tree depth so the fixture reaches the runtime work budget.
+fn balanced_weight(terms: usize) -> String {
+    if terms == 1 {
+        return "query.modified_move_speed".into();
+    }
+    format!(
+        "({}+{})",
+        balanced_weight(terms / 2),
+        balanced_weight(terms - terms / 2)
+    )
 }
 
 /// A texture-only reload republishes base artwork; the scene must validate against the same pages

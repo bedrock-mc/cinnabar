@@ -99,10 +99,10 @@ fn command_macro_space_types_arguments_in_native_settings() {
     {
         let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
         menu.screen = MenuScreen::Settings;
-        menu.settings_section =
+        menu.settings.section =
             client_ui::test_support::settings_section_index("keyboard_and_mouse_forced_index")
                 .unwrap();
-        menu.settings_focus = vec![MenuAction::SettingsMacroCommand(0)];
+        menu.settings_input.actions = vec![MenuAction::SettingsMacroCommand(0)];
         menu.activate(MenuAction::SettingsMacroCommand(0));
     }
     let view = app.world().resource::<MenuRuntime>().view();
@@ -152,7 +152,7 @@ fn command_macro_space_types_arguments_in_native_settings() {
 fn command_macro_invalid_draft_does_not_replace_the_saved_command() {
     let mut menu = MenuRuntime::new(true, 2, "Macros".into());
     menu.screen = MenuScreen::Settings;
-    menu.settings_section =
+    menu.settings.section =
         client_ui::test_support::settings_section_index("keyboard_and_mouse_forced_index").unwrap();
     menu.activate(MenuAction::SettingsMacroCommand(0));
     menu.edit_text(&"x".repeat(ui::MAX_CHAT_INPUT_BYTES));

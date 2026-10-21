@@ -32,7 +32,7 @@ fn alternate_geometry_assets() -> Arc<RuntimeEntityAssets> {
     );
     compiled.symbols = symbols.into();
     compiled.geometries = vec![compiled.geometries[0].clone(), geometry].into();
-    compiled.rig_bindings[0].render_controller += 1;
+    *compiled.rig_bindings[0].render_controller.as_mut().unwrap() += 1;
     compiled.animation_clips[0].symbol += 1;
     let mut clip = compiled.animation_clips[0];
     clip.geometry = Some(1);

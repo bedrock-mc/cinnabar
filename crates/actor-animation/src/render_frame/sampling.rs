@@ -7,6 +7,7 @@ pub(super) fn render_expressions(assets: &RuntimeEntityAssets, binding: usize) -
     };
     let mut expressions = Vec::new();
     expressions.extend(rig.pre_animation);
+    expressions.extend(rig.held_item_scale);
     expressions.extend(render_controller_expressions(assets, binding));
     expressions
 }
@@ -24,13 +25,13 @@ pub(super) fn render_controller_expressions(
 }
 
 /// Separate selection gates preserve dependencies of conditionally executed assignments.
-pub(super) struct RenderExpressions {
+pub(crate) struct RenderExpressions {
     pub expressions: Vec<u32>,
     pub gates: Vec<u32>,
 }
 
 /// Layer conditions and choices control which following scripts execute.
-pub(super) fn render_layer_expressions(
+pub(crate) fn render_layer_expressions(
     assets: &RuntimeEntityAssets,
     layer: &assets::EntityRenderLayer,
 ) -> RenderExpressions {
@@ -86,15 +87,26 @@ pub(super) fn render_layer_expressions(
 
 /// Frame-time queries require fresh rendered-layer evaluation between simulation ticks.
 pub(crate) fn needs_frame_sampling(assets: &RuntimeEntityAssets, binding: usize) -> bool {
-    uses_render_query(assets, binding, |name| {
-        matches!(name, "query.frame_alpha" | "query.life_time")
+    uses_render_query(assets, binding, |symbol| {
+        matches!(
+            assets.molang_query_binding(symbol),
+            Some(assets::MolangQuery::FrameAlpha | assets::MolangQuery::LifeTime)
+        )
     })
 }
 
+/// Rendered expressions retain motion endpoints whenever they read interpolated actor inputs.
+pub(crate) fn needs_motion_sampling(assets: &RuntimeEntityAssets, binding: usize) -> bool {
+    uses_render_query(assets, binding, |symbol| {
+        super::rotation::is_query(assets, symbol) || super::rotation::is_walk_query(assets, symbol)
+    })
+}
+
+/// Finds direct or called query reads among the rig's rendered expressions.
 fn uses_render_query(
     assets: &RuntimeEntityAssets,
     binding: usize,
-    query: impl Fn(&str) -> bool,
+    query: impl Fn(u32) -> bool,
 ) -> bool {
     render_expressions(assets, binding)
         .into_iter()
@@ -115,10 +127,7 @@ fn uses_render_query(
                     MolangOp::CallQuery(call) => call.symbol,
                     _ => return false,
                 };
-                assets
-                    .molang_symbols()
-                    .get(symbol as usize)
-                    .is_some_and(|symbol| query(symbol.identifier.as_ref()))
+                query(symbol)
             })
         })
 }
@@ -194,7 +203,7 @@ pub(super) fn selection_expressions(
     expressions
 }
 
-fn topology_expressions(
+pub(super) fn topology_expressions(
     assets: &RuntimeEntityAssets,
     geometry: usize,
     controllers: &[ControllerState],

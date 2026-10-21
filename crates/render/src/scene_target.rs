@@ -1,7 +1,7 @@
 //! Main-pass colour retains sample coverage until the final resolve before post-processing.
 
 #[path = "scene_target/nodes.rs"]
-mod nodes;
+pub(crate) mod nodes;
 #[cfg(test)]
 #[path = "scene_target/tests.rs"]
 mod tests;
@@ -366,7 +366,7 @@ pub(crate) fn install_graph(world: &mut World) {
             );
             schedule.add_systems((
                 crate::gpu_timing::profiled(
-                    nodes::scene_opaque,
+                    nodes::scene_opaque::<false>,
                     Some(render_scene::RuntimeStage::GpuOpaque),
                     "MainOpaquePass",
                 )

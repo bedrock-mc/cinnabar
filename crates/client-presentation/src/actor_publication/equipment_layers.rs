@@ -10,51 +10,74 @@ pub(super) fn attach(
     batch: &mut ActorPresentationBatch,
     equipment: &mut EquipmentRuntime,
     stream: &WorldStream,
+    mut render_frame: Option<&mut actor_animation::ActorRenderFrame<'_>>,
     poses: &super::layers::LayerPoses<'_>,
     frame: (f32, f32, Option<&render_scene::UiGlintSettings>),
-) {
+    mut style_of: impl FnMut(
+        &render_model::ActorRigSubmission,
+        bool,
+        Option<&mut actor_animation::ActorRenderFrame<'_>>,
+    ) -> Option<crate::presentation::entity_layers::ControllerStyle>,
+) -> std::collections::BTreeSet<u64> {
     let (partial_tick, delta_seconds, glint_settings) = frame;
-    crate::presentation::actors::attach_layers(batch, equipment, |equipment, body| {
-        let runtime_id = body.input.identity.runtime_id;
-        let mut input = if runtime_id == poses.local_runtime_id {
-            local_equipment(stream, runtime_id, poses.local_equipment)
-        } else {
-            remote_input(stream, runtime_id)
-        };
-        if java::posed(poses.java_posed, runtime_id).is_some() {
-            let using = stream
-                .authority()
-                .actor(runtime_id)
-                .is_some_and(|actor| actor.is_using_item());
-            input.java = Some(crate::presentation::equipment::JavaGrip { blocking: using });
-        }
-        let animation =
-            stream
-                .authority()
-                .actor(runtime_id)
-                .zip(stream.authority().actor_rig(runtime_id).map(|rig| {
+    let mut wearing_elytra = std::collections::BTreeSet::new();
+    crate::presentation::actors::attach_layers(
+        batch,
+        equipment,
+        |equipment, body, runtime_skin| {
+            let runtime_id = body.input.identity.runtime_id;
+            let mut input = if runtime_id == poses.local_runtime_id {
+                local_equipment(stream, runtime_id, poses.local_equipment)
+            } else {
+                remote_input(stream, runtime_id)
+            };
+            if java::posed(poses.java_posed, runtime_id).is_some() {
+                let using = stream
+                    .authority()
+                    .actor(runtime_id)
+                    .is_some_and(|actor| actor.is_using_item());
+                input.java = Some(crate::presentation::equipment::JavaGrip { blocking: using });
+            }
+            let animation = stream.authority().actor(runtime_id).zip(
+                stream.authority().actor_rig(runtime_id).map(|rig| {
+                    let rig = render_frame
+                        .as_mut()
+                        .map_or(rig, |frame| frame.sample_held_item_scale(rig));
                     poses
                         .emote(runtime_id)
                         .map_or(rig, |pose| pose.snapshot(rig))
-                }));
-        let layers = equipment.layers_for_profile(
-            body,
-            &input,
-            poses.combat_visuals,
-            animation.as_ref().map(|(owner, rig)| {
-                crate::presentation::equipment::EquipmentAnimation {
-                    owner,
-                    rig,
-                    frame_alpha: partial_tick,
-                    delta_seconds,
-                }
-            }),
-        );
-        for layer in layers.iter_mut() {
-            animate_glint(&mut layer.submission, partial_tick, glint_settings);
-        }
-        layers
-    });
+                }),
+            );
+            let mut styled_body = body.clone();
+            if let Some(style) = runtime_skin
+                .and_then(|runtime_skin| style_of(body, runtime_skin, render_frame.as_deref_mut()))
+            {
+                styled_body.overlay_rgba8 = style.overlay_rgba8;
+                styled_body.light = style.light;
+            }
+            let selected = equipment.layers_for_profile(
+                &styled_body,
+                &input,
+                poses.combat_visuals,
+                animation.as_ref().map(|(owner, rig)| {
+                    crate::presentation::equipment::EquipmentAnimation {
+                        owner,
+                        rig,
+                        frame_alpha: partial_tick,
+                        delta_seconds,
+                    }
+                }),
+            );
+            if selected.wearing_elytra {
+                wearing_elytra.insert(runtime_id);
+            }
+            for layer in selected.layers.iter_mut() {
+                animate_glint(&mut layer.submission, partial_tick, glint_settings);
+            }
+            selected.layers
+        },
+    );
+    wearing_elytra
 }
 
 /// Reuses inventory facts while reading pose flags after this frame's local pose synchronization.

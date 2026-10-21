@@ -1,6 +1,51 @@
 use super::*;
 
 #[test]
+fn cutout_cube_offset_does_not_move_adjacent_opaque_models_or_liquids() {
+    let (mut app, _) = crate::queue_review_support::app();
+    let mut cache = app.world_mut().remove_resource::<PipelineCache>().unwrap();
+    let mut pipelines = ChunkPipeline::from_world(&mut World::new());
+    for msaa in [Msaa::Off, Msaa::Sample2, Msaa::Sample4, Msaa::Sample8] {
+        for hdr in [false, true] {
+            let key = ChunkPipelineKey {
+                msaa,
+                hdr,
+                enhanced: false,
+            };
+            for (variants, cutout) in [
+                (&mut pipelines.variants, true),
+                (&mut pipelines.solid_variants, false),
+                (&mut pipelines.model_variants, false),
+                (&mut pipelines.depth_liquid_variants, false),
+                (&mut pipelines.transparent_variants, false),
+            ]
+            .into_iter()
+            .chain(
+                pipelines
+                    .unit_variants
+                    .iter_mut()
+                    .enumerate()
+                    .map(|(index, variants)| (variants, index == 1)),
+            ) {
+                let id = variants.specialize(&cache, key).unwrap();
+                let descriptor = crate::queue_review_support::queued_descriptor(&mut cache, id);
+                let depth = descriptor.depth_stencil.as_ref().unwrap();
+                assert_eq!(depth.bias.constant, 0);
+                assert_eq!(depth.bias.clamp, 0.0);
+                if cutout {
+                    assert!(
+                        depth.bias.slope_scale < 0.0,
+                        "reverse-Z cutout offset recedes"
+                    );
+                } else {
+                    assert_eq!(depth.bias.slope_scale, 0.0);
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn vanilla_base_pipeline_construction_matches_baseline() {
     let (mut app, _) = crate::queue_review_support::app();
     let mut cache = app.world_mut().remove_resource::<PipelineCache>().unwrap();
@@ -218,6 +263,7 @@ fn solid_cube_pipeline_culls_back_faces_without_fragment_discards() {
             let mut expected = cutout.clone();
             expected.label = solid.label.clone();
             expected.primitive.cull_mode = solid.primitive.cull_mode;
+            expected.depth_stencil.as_mut().unwrap().bias = default();
             expected.fragment.as_mut().unwrap().entry_point = fragment.entry_point.clone();
             expected.multisample.alpha_to_coverage_enabled = false;
             // Coverage specializes both stages, so solid drops the definition from each.

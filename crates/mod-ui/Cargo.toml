@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+reads = ["assets/fonts/InterVariable.ttf"]
+
 [features]
 test-support = ["ui-engine/test-support"]
 
@@ -14,10 +17,14 @@ glam.workspace = true
 json-ui = { path = "../json-ui" }
 render-model = { path = "../render-model" }
 serde_json = "1"
-server-experience = { path = "../server-experience" }
+server-experience = { path = "../server-experience", default-features = false, features = ["data"] }
 tracing.workspace = true
 ui = { path = "../ui" }
 ui-engine = { path = "../ui-engine" }
+
+[dev-dependencies]
+ui-engine = { path = "../ui-engine", features = ["test-support"] }
+test-alloc = { path = "../test-alloc" }
 
 [lints]
 workspace = true

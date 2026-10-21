@@ -85,6 +85,7 @@ fn retained_layer_is_reused_only_for_identical_content() {
     let layer = super::super::composite::UiLayerTexture::detached(texture, view);
     let content = super::super::composite::UiLayerContent {
         revision: 3,
+        texture_generation: 0,
         segment: 0..1,
         inverted: None,
         skip: None,

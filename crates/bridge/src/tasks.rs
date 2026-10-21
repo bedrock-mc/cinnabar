@@ -2,9 +2,34 @@
 //! browser hosts can spawn the returned writer locally and supply their own timer future.
 
 use std::future::Future;
+use std::{pin::Pin, time::Duration};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{FrameQueue, FramedReader};
+
+/// A host timer, local to the browser event loop and movable on native executors.
+#[cfg(not(target_arch = "wasm32"))]
+pub type Timer = Pin<Box<dyn Future<Output = ()> + Send>>;
+/// A host timer whose browser handles stay on the event loop.
+#[cfg(target_arch = "wasm32")]
+pub type Timer = Pin<Box<dyn Future<Output = ()>>>;
+
+/// Creates cancellation-safe session timers without selecting a runtime in shared login code.
+#[derive(Clone, Copy)]
+pub struct Timers(pub fn(Duration) -> Timer);
+
+impl Timers {
+    /// Registers a fresh deadline; dropping the returned future cancels the host timer.
+    pub fn sleep(self, duration: Duration) -> Timer {
+        (self.0)(duration)
+    }
+
+    /// Uses the native session's existing Tokio timer driver.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub const fn tokio() -> Self {
+        Self(|duration| Box::pin(tokio::time::sleep(duration)))
+    }
+}
 
 /// Prepares one bounded writer and reader without spawning or executing either inline.
 /// The host must spawn the writer; dropping it closes the queue and wakes waiting senders.

@@ -18,7 +18,6 @@ use protocol::{
 };
 
 use super::integration_tests::evidence_context;
-use crate::environment::{WeatherState, WorldClock};
 use crate::runtime::movement_evidence::MovementEvidenceEmitter;
 use crate::runtime::world::{
     ClientWorld, WorldStreamFramePoll, advance_dimension_transfer,
@@ -28,6 +27,7 @@ use acceptance::model_witness::ModelWitnessFileSource;
 use assets::read_registry_for_protocol;
 use chunk_pipeline::WorldStream;
 use client_presentation::camera::CameraSettingsAuthority;
+use client_presentation::environment::{WeatherState, WorldClock};
 use client_presentation::local_player::{
     InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalViewPose,
 };

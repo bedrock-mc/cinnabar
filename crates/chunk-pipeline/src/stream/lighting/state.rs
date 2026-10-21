@@ -50,7 +50,7 @@ impl Lighting {
         }
     }
 
-    /// Releases every per-key index off the frame thread, as a disjoint retirement leaves no
+    /// Releases every per-key index through the host executor, as a disjoint retirement leaves no
     /// retained neighbours; plumbing, counters, running solves and the fatal latch survive.
     pub(in crate::stream) fn retire_all(&mut self) {
         let Self {
@@ -87,7 +87,7 @@ impl Lighting {
             std::mem::take(last_dispatched_batch),
             std::mem::take(waiters),
         );
-        rayon::spawn(move || drop(retired));
+        workers::retire(move || drop(retired));
     }
 
     /// Forgets one source in every index without invalidating dependent meshes; stale scan

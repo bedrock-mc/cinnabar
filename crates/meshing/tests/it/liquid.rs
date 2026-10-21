@@ -204,7 +204,64 @@ fn liquid_faces_are_clipped_and_culled_by_compatible_liquid_or_solid() {
         (SOLID, [9, 8, 8]),
         (SOLID, [8, 7, 8]),
     ]));
-    assert_eq!(occluded.liquid_quads().len(), 3);
+    assert_eq!(occluded.liquid_quads().len(), 4);
+}
+
+#[test]
+fn opaque_roofs_keep_liquid_surfaces_below_their_bottom_face() {
+    for liquid in [WATER_SOURCE, NON_WATER_LIQUID] {
+        let covered = mesh(&blocks(&[(liquid, [8, 8, 8]), (SOLID, [8, 9, 8])]));
+        let top = quad_at(&covered, [8, 8, 8], Face::PositiveY);
+        assert!(
+            top.heights()
+                .into_iter()
+                .all(|height| height < LiquidLevel::FULL_HEIGHT)
+        );
+        assert!(top.has_top_height_inset());
+        for side in [
+            Face::NegativeX,
+            Face::PositiveX,
+            Face::NegativeZ,
+            Face::PositiveZ,
+        ] {
+            assert!(quad_at(&covered, [8, 8, 8], side).has_top_height_inset());
+        }
+    }
+    let sloped = mesh(&blocks(&[
+        (WATER_SOURCE, [8, 8, 8]),
+        (SOLID, [8, 9, 8]),
+        (WATER_ALIAS, [9, 8, 8]),
+        (WATER_ALIAS, [9, 9, 9]),
+    ]));
+    let top = quad_at(&sloped, [8, 8, 8], Face::PositiveY);
+    assert_eq!(top.heights()[2], LiquidLevel::FULL_HEIGHT);
+    assert!(
+        top.heights()
+            .into_iter()
+            .any(|height| height < LiquidLevel::FULL_HEIGHT)
+    );
+}
+
+#[test]
+fn fully_raised_liquid_surfaces_stay_hidden_against_opaque_roofs() {
+    let covered = mesh(&blocks(&[
+        (WATER_SOURCE, [8, 8, 8]),
+        (SOLID, [8, 9, 8]),
+        (WATER_SOURCE, [7, 8, 8]),
+        (WATER_SOURCE, [7, 9, 8]),
+        (WATER_SOURCE, [9, 8, 8]),
+        (WATER_SOURCE, [9, 9, 8]),
+    ]));
+    assert!(
+        !covered
+            .liquid_quads()
+            .iter()
+            .any(|quad| { quad.origin() == [8, 8, 8] && quad.face() == Face::PositiveY })
+    );
+    assert_eq!(
+        quad_at(&covered, [8, 8, 8], Face::PositiveZ).heights(),
+        [0, LiquidLevel::FULL_HEIGHT, LiquidLevel::FULL_HEIGHT, 0]
+    );
 }
 
 #[test]
@@ -230,7 +287,9 @@ fn alpha_glass_enclosure_keeps_water_contacts_without_reverse_side_winding() {
             .filter(|quad| quad.face() != Face::PositiveY)
             .all(|quad| !quad.is_two_sided())
     );
-    assert!(enclosure(SOLID).liquid_quads().is_empty());
+    let opaque = enclosure(SOLID);
+    assert_eq!(opaque.liquid_quads().len(), 1);
+    assert_eq!(opaque.liquid_quads()[0].face(), Face::PositiveY);
 }
 
 #[test]
@@ -248,15 +307,20 @@ fn only_emitted_liquid_tops_lower_shared_top_and_side_heights_after_lighting_rep
             .enumerate()
             .all(|(index, quad)| { quad.lighting_index() == index as u32 })
     );
-    for cover in [WATER_ALIAS, SOLID] {
+    for (cover, emits_top) in [(WATER_ALIAS, false), (SOLID, true)] {
         let covered = mesh(&blocks(&[(WATER_SOURCE, [8, 8, 8]), (cover, [8, 9, 8])]));
         let mut lower = covered
             .liquid_quads()
             .iter()
             .filter(|quad| quad.origin() == [8, 8, 8]);
-        assert!(lower.clone().all(|quad| quad.face() != Face::PositiveY));
+        assert_eq!(
+            lower.clone().any(|quad| quad.face() == Face::PositiveY),
+            emits_top
+        );
         assert!(lower.clone().any(|quad| quad.face() == Face::NegativeX));
-        assert!(lower.all(|quad| !quad.has_top_height_inset()));
+        assert!(lower.all(|quad| {
+            quad.has_top_height_inset() == (emits_top && quad.face() != Face::NegativeY)
+        }));
     }
 }
 
@@ -1010,190 +1074,5 @@ fn varint(mut value: i32) -> Vec<u8> {
     }
 }
 
-/// Deterministic dense 3x3x3 fixture shared by the mesh-output golden digests.
-fn mixed_neighbourhood_chunks(seed: u64, density: u64) -> Vec<SubChunk> {
-    let mut state = seed | 1;
-    let mut next = move || {
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
-        state
-    };
-    let ids = [
-        SOLID,
-        GLASS,
-        CROSS,
-        WATER_SOURCE,
-        WATER_SOURCE + 3,
-        WATER_SOURCE + 9,
-        WATER_ALIAS,
-        OTHER_LIQUID,
-        FACED_LIQUID,
-        FACED_DEPTH_7,
-        NON_WATER_LIQUID,
-    ];
-    (0..27)
-        .map(|_| {
-            let mut primary = Vec::new();
-            let mut waterlogged = Vec::new();
-            for x in 0..16_u8 {
-                for y in 0..16_u8 {
-                    for z in 0..16_u8 {
-                        if next() % 100 >= density {
-                            continue;
-                        }
-                        let id = ids[(next() % ids.len() as u64) as usize];
-                        primary.push((id, [x, y, z]));
-                        if id == CROSS && next() % 2 == 0 {
-                            waterlogged.push(([x, y, z], 1));
-                        }
-                    }
-                }
-            }
-            let mut palette = vec![AIR];
-            let placements = primary
-                .iter()
-                .map(|&(id, pos)| {
-                    let index = palette.iter().position(|&v| v == id).unwrap_or_else(|| {
-                        palette.push(id);
-                        palette.len() - 1
-                    });
-                    (pos, index)
-                })
-                .collect::<Vec<_>>();
-            sub_chunk(vec![
-                packed_storage(5, &palette, &placements),
-                packed_storage(1, &[AIR, WATER_SOURCE], &waterlogged),
-            ])
-        })
-        .collect()
-}
-
-fn mesh_mixed(chunks: &[SubChunk]) -> meshing::ChunkMesh {
-    let mut neighbourhood = MeshNeighbourhood::new(&chunks[13]);
-    let mut index = 0;
-    for x in -1..=1_i8 {
-        for y in -1..=1_i8 {
-            for z in -1..=1_i8 {
-                if [x, y, z] != [0, 0, 0] {
-                    assert!(neighbourhood.insert([x, y, z], &chunks[index]));
-                }
-                index += 1;
-            }
-        }
-    }
-    let sampler = |[x, y, z]: [i32; 3]| {
-        let hash = (x.wrapping_mul(73_856_093)
-            ^ y.wrapping_mul(19_349_663)
-            ^ z.wrapping_mul(83_492_791)) as u32;
-        MeshLightSample::try_new((hash & 15) as u8, ((hash >> 4) & 15) as u8).unwrap()
-    };
-    mesh_sub_chunk_in_neighbourhood_with_lighting(
-        &BlockClassifier::new(AIR),
-        runtime_assets(),
-        NetworkIdMode::Sequential,
-        &neighbourhood,
-        &sampler,
-    )
-}
-
-/// Cube-shaped transparent barriers are excluded from the native height sample, and their motion-blocking material stops downhill flow. Face transparency must not turn glass into an air sample.
-#[test]
-fn transparent_cube_over_water_is_not_an_open_flow_neighbour() {
-    let mut placements = Vec::new();
-    for x in 7..=9 {
-        for z in 7..=9 {
-            placements.push((
-                if [x, z] == [9, 8] {
-                    GLASS
-                } else {
-                    WATER_SOURCE
-                },
-                [x, 8, z],
-            ));
-        }
-    }
-    placements.push((WATER_SOURCE, [9, 7, 8]));
-    let mesh = mesh(&blocks(&placements));
-    let top = quad_at(&mesh, [8, 8, 8], Face::PositiveY);
-    assert_eq!(top.flow_gradient(), [0, 0]);
-    assert_eq!(
-        top.heights(),
-        [LiquidLevel::from_variant(0).unwrap().height(); 4]
-    );
-    assert_eq!(top.material_id(), STILL);
-}
-
-/// Dense mixed scenes retain extra-air contacts, primary-air winding, flow barriers,
-/// liquid inset flags and no-AO lighting.
-#[test]
-fn mixed_neighbourhood_mesh_output_is_golden() {
-    let digests = [(1_u64, 8_u64), (2, 30), (3, 70), (4, 95)].map(|(seed, density)| {
-        let chunks = mixed_neighbourhood_chunks(seed, density);
-        let mesh = mesh_mixed(&chunks);
-        liquid_contacts::assert_thin_primary_contacts(&chunks, &mesh);
-        assert!(!mesh.cube_quads().is_empty() && !mesh.liquid_quads().is_empty());
-        format!("{mesh:?}")
-            .bytes()
-            .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
-                (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
-            })
-    });
-    assert_eq!(
-        digests,
-        [
-            13_081_610_191_978_589_870,
-            7_276_265_386_106_865_686,
-            18_330_598_413_732_250_100,
-            11_629_133_763_896_578_950
-        ]
-    );
-}
-
-/// Layer conflicts must resolve to the same diagnostic/primary/liquid winners.
-/// Diagnostic terrain cubes with non-solid source winners use their own center
-/// light; liquids use native inset flags and no-AO lighting.
-#[test]
-fn conflicting_layer_mesh_output_is_golden() {
-    let mut state = 0x9e37_79b9_7f4a_7c15_u64;
-    let mut next = move || {
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
-        state
-    };
-    let ids = [
-        AIR,
-        SOLID,
-        CROSS,
-        WATER_SOURCE,
-        WATER_SOURCE + 2,
-        OTHER_LIQUID,
-    ];
-    let chunks = (0..27)
-        .map(|_| {
-            let layers = (0..3)
-                .map(|_| {
-                    let placements = (0..4096_u32)
-                        .filter_map(|i| {
-                            let id = ids[(next() % ids.len() as u64) as usize];
-                            let position = [(i >> 8) as u8, (i & 15) as u8, ((i >> 4) & 15) as u8];
-                            (id != AIR).then_some((position, ids.iter().position(|&v| v == id)?))
-                        })
-                        .collect::<Vec<_>>();
-                    packed_storage(3, &ids, &placements)
-                })
-                .collect();
-            sub_chunk(layers)
-        })
-        .collect::<Vec<_>>();
-    let mesh = mesh_mixed(&chunks);
-    liquid_contacts::assert_thin_primary_contacts(&chunks, &mesh);
-    let digest = format!("{mesh:?}")
-        .bytes()
-        .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
-            (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
-        });
-    assert!(!mesh.cube_quads().is_empty());
-    assert_eq!(digest, 857_614_043_643_775_143);
-}
+#[path = "liquid/mixed.rs"]
+mod mixed;

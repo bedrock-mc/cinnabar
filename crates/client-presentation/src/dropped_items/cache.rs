@@ -22,6 +22,10 @@ pub(super) enum ModelKey {
         hashed: bool,
         id: u32,
     },
+    SessionBlock {
+        page: u16,
+        uv: [u16; 4],
+    },
     Icon {
         page: u16,
         uv: [u16; 4],
@@ -30,6 +34,14 @@ pub(super) enum ModelKey {
 }
 
 impl ModelKey {
+    /// Shares a pack cube by its admitted six-face sheet rather than its thumbnail.
+    pub(super) fn session_block(sheet: ui::IconRef) -> Self {
+        Self::SessionBlock {
+            page: sheet.page,
+            uv: sheet.uv,
+        }
+    }
+
     /// Uses the resolved image, so metadata fallback and identifier aliases share a model.
     pub(super) fn icon(icon: ui::IconRef, native: bool) -> Self {
         Self::Icon {

@@ -97,7 +97,7 @@ impl LocalPhysicsController {
         );
         // Vanilla's correction input writes both position and velocity
         // into the corrected frame before replaying later inputs.
-        corrected.position = feet;
+        corrected.set_position(feet);
         corrected.on_ground = on_ground;
         // Axis collisions describe the motion that produced a position, so they
         // cannot be recomputed from a corrected anchor. They are retained only

@@ -50,11 +50,7 @@ const fn storage_run<const N: usize>(first: u8) -> [Cell; N] {
     cells
 }
 
-const CHEST_27: [Cell; 27] = storage_run(0);
-const CHEST_54: [Cell; 54] = storage_run(0);
-const CHEST_18: [Cell; 18] = storage_run(0);
-const CHEST_36: [Cell; 36] = storage_run(0);
-const CHEST_45: [Cell; 45] = storage_run(0);
+const STORAGE_CELLS: [Cell; protocol::MAX_GENERIC_STORAGE_SLOTS] = storage_run(0);
 const NINE: [Cell; 9] = storage_run(0);
 const FIVE: [Cell; 5] = storage_run(0);
 /// The largest chest a mount carries; smaller ones show a prefix.
@@ -73,37 +69,13 @@ const fn kind(
     }
 }
 
-const CHEST_CELLS: &[(&str, &[Cell])] = &[("container_items", &CHEST_27)];
+const CHEST_CELLS: &[(&str, &[Cell])] = &[("container_items", &STORAGE_CELLS)];
 const SMALL_CHEST: ContainerKind = kind("chest.small_chest_screen", "container.chest", CHEST_CELLS);
 const LARGE_CHEST: ContainerKind = kind(
     "chest.large_chest_screen",
     "container.chestDouble",
-    &[("container_items", &CHEST_54)],
+    CHEST_CELLS,
 );
-// Vanilla chest screens use the container's size, rather than requiring exactly 27 or 54.
-// Server-authored chest layouts may display any of these bounded row counts.
-const MENU_CHESTS: [ContainerKind; 4] = [
-    kind(
-        "chest.small_chest_screen",
-        "container.chest",
-        &[("container_items", &NINE)],
-    ),
-    kind(
-        "chest.small_chest_screen",
-        "container.chest",
-        &[("container_items", &CHEST_18)],
-    ),
-    kind(
-        "chest.small_chest_screen",
-        "container.chest",
-        &[("container_items", &CHEST_36)],
-    ),
-    kind(
-        "chest.small_chest_screen",
-        "container.chest",
-        &[("container_items", &CHEST_45)],
-    ),
-];
 const BARREL: ContainerKind = kind("chest.barrel_screen", "container.barrel", CHEST_CELLS);
 const SHULKER_BOX: ContainerKind = kind(
     "chest.shulker_box_screen",
@@ -130,14 +102,11 @@ pub fn storage_kind(slots: usize, block_entity: Option<&str>) -> &'static Contai
         (_, Some("Barrel")) => &BARREL,
         (_, Some("ShulkerBox")) => &SHULKER_BOX,
         (_, Some("EnderChest")) => &ENDER_CHEST,
-        _ => MENU_CHESTS
-            .iter()
-            .find(|kind| kind.collections[0].1.len() == slots)
-            .unwrap_or(&SMALL_CHEST),
+        _ => &SMALL_CHEST,
     }
 }
 
-/// Row counts supported by the bounded chest templates and server menu layouts.
+/// Container lengths supported by the retained storage cells and server layouts.
 pub fn supported_storage_slots(slots: usize) -> bool {
     matches!(WindowKind::Storage.open_cells(), Some(protocol::OpenCells::Generic(lengths)) if lengths.contains(&slots))
 }
@@ -258,6 +227,7 @@ pub fn window_kind(kind: WindowKind) -> Option<&'static ContainerKind> {
         &[("container_items", &NINE)],
     );
     Some(match kind {
+        WindowKind::Trade { modern } => crate::trading::kind(modern),
         WindowKind::Furnace => &FURNACE,
         WindowKind::BlastFurnace => &BLAST_FURNACE,
         WindowKind::Smoker => &SMOKER,
@@ -390,10 +360,13 @@ mod tests {
                     Some(Cell::Storage(index as u8))
                 );
             }
-            assert_eq!(kind.cell("container_items", slots), None);
+            assert_eq!(
+                kind.cell("container_items", protocol::MAX_GENERIC_STORAGE_SLOTS),
+                None
+            );
             assert_eq!(kind.screen == "chest.large_chest_screen", slots == 54);
         }
-        for slots in [0, 1, 8, 10, 55, 255, usize::MAX] {
+        for slots in [0, protocol::MAX_GENERIC_STORAGE_SLOTS + 1, usize::MAX] {
             assert!(!supported_storage_slots(slots));
         }
     }

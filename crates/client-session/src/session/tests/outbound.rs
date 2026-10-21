@@ -1,6 +1,74 @@
 //! Outbound batching, receipts, transfer barriers and the split write path.
 
 use super::*;
+use protocol::Packet;
+
+#[tokio::test]
+async fn status_only_delimiters_reach_the_writer_and_keep_its_failure_path() {
+    struct Opportunities {
+        observed: Arc<Mutex<Vec<(usize, bool)>>>,
+        fail: bool,
+    }
+    impl OutboundSession for Opportunities {
+        type Error = &'static str;
+
+        /// Records the actual write boundary and optionally models a stopped writer.
+        async fn send_batch(
+            &mut self,
+            packets: Vec<Packet>,
+            opportunity: Option<simulation_clock::Moment>,
+        ) -> Result<(), Self::Error> {
+            self.observed
+                .lock()
+                .unwrap()
+                .push((packets.len(), opportunity.is_some()));
+            if self.fail {
+                Err("writer stopped")
+            } else {
+                Ok(())
+            }
+        }
+    }
+    for fail in [false, true] {
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let (commands, receiver) = mpsc::channel(1);
+        commands
+            .try_send(NetworkCommand::FlushFrame {
+                cache_opportunity: true,
+            })
+            .unwrap();
+        drop(commands);
+        let (hooks, mut received) = mpsc::unbounded_channel();
+        let (_shutdown, shutdown_rx) = watch::channel(false);
+        super::super::outbound::run_outbound(super::super::outbound::OutboundRuntime {
+            outbound: Opportunities {
+                observed: observed.clone(),
+                fail,
+            },
+            commands: receiver,
+            control_event_tx: mpsc::channel::<NetworkControlEvent>(1).0,
+            hooks,
+            shutdown_rx,
+            experience_gate: Arc::default(),
+            trace_line: |_: u64, _: &Packet| None::<String>,
+            write_trace: |_: &str| {},
+            fast_transfer_action_marker: None,
+        })
+        .await;
+        assert_eq!(*observed.lock().unwrap(), [(0, true)]);
+        let hook = received.try_recv().unwrap();
+        if fail {
+            assert!(
+                matches!(hook, super::super::outbound::PumpHook::SendFailed { message, .. } if message == "writer stopped")
+            );
+        } else {
+            assert!(matches!(
+                hook,
+                super::super::outbound::PumpHook::CommandsClosed
+            ));
+        }
+    }
+}
 
 #[test]
 fn a_full_packet_queue_still_submits_its_frame_without_another_update() {
@@ -53,7 +121,9 @@ fn a_rejected_batch_does_not_emit_an_empty_frame_or_lose_packet_capacity() {
     ));
     assert!(matches!(
         receiver.try_recv().unwrap(),
-        NetworkCommand::FlushFrame
+        NetworkCommand::FlushFrame {
+            cache_opportunity: false
+        }
     ));
     assert!(matches!(
         receiver.try_recv(),
@@ -128,7 +198,11 @@ async fn successful_fast_transfer_flushes_decoded_pending_ingress_then_enqueues_
     let (shutdown, shutdown_rx) = watch::channel(false);
     let rotations = Arc::new(AtomicUsize::new(0));
     let (written, after_write) = oneshot::channel();
-    commands.try_send(NetworkCommand::FlushFrame).unwrap();
+    commands
+        .try_send(NetworkCommand::FlushFrame {
+            cache_opportunity: false,
+        })
+        .unwrap();
     let worker = tokio::spawn(run_network_pump(
         GatedTransferSession {
             before_write: Some(WorldEvent::ChunkRadiusUpdated(16)),
@@ -200,7 +274,11 @@ async fn failed_fast_transfer_never_arms_a_reset() {
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
     let (_shutdown, shutdown_rx) = watch::channel(false);
 
-    commands.try_send(NetworkCommand::FlushFrame).unwrap();
+    commands
+        .try_send(NetworkCommand::FlushFrame {
+            cache_opportunity: false,
+        })
+        .unwrap();
     run_network_pump(
         FailingSendSession,
         NetworkSequencer::new(SessionGeneration::new(7), 0, 42),
@@ -244,7 +322,11 @@ async fn successful_non_transfer_chat_does_not_arm_blob_rotation() {
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
     let (shutdown, shutdown_rx) = watch::channel(false);
     let rotations = Arc::new(AtomicUsize::new(0));
-    commands.try_send(NetworkCommand::FlushFrame).unwrap();
+    commands
+        .try_send(NetworkCommand::FlushFrame {
+            cache_opportunity: false,
+        })
+        .unwrap();
     let worker = tokio::spawn(run_network_pump(
         QueuedInboundSession {
             inbound: VecDeque::new(),
@@ -289,7 +371,11 @@ async fn chat_send_failure_identifies_the_exact_outbox_item() {
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
     let (_shutdown, shutdown_rx) = watch::channel(false);
-    commands.try_send(NetworkCommand::FlushFrame).unwrap();
+    commands
+        .try_send(NetworkCommand::FlushFrame {
+            cache_opportunity: false,
+        })
+        .unwrap();
     run_network_pump(
         FailingSendSession,
         NetworkSequencer::new(SessionGeneration::new(7), 0, 42),
@@ -336,7 +422,11 @@ async fn fast_transfer_trace_arms_before_send_and_cancels_after_send_failure() {
     let (control_event_tx, _controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
     let (_shutdown, shutdown_rx) = watch::channel(false);
 
-    commands.try_send(NetworkCommand::FlushFrame).unwrap();
+    commands
+        .try_send(NetworkCommand::FlushFrame {
+            cache_opportunity: false,
+        })
+        .unwrap();
     run_network_pump(
         TraceOrderingFailSession {
             calls: Arc::clone(&calls),
@@ -419,19 +509,19 @@ async fn receipts_wait_for_a_blocked_write_and_never_follow_a_failed_one() {
                 }),
                 None,
             ),
-            (
-                None,
-                None,
-                Some(super::super::SubChunkRequestSend {
-                    chunk: world::ChunkKey::new(0, 1, 2),
-                    base_sub_chunk_y: -4,
-                    count: 1,
-                }),
-            ),
+            (None, None, Some(test_sub_chunk_receipt(1, 2))),
         ] {
+            let packet = sub_chunk.as_ref().map_or_else(test_packet, |receipt| {
+                protocol::request_sub_chunks(
+                    receipt.dimension,
+                    [0; 3],
+                    receipt.members.iter().map(|member| member.position),
+                )
+                .unwrap()
+            });
             commands
                 .try_send(NetworkCommand::Send {
-                    packet: test_packet(),
+                    packet,
                     sub_chunk,
                     chat,
                     physics,
@@ -440,7 +530,11 @@ async fn receipts_wait_for_a_blocked_write_and_never_follow_a_failed_one() {
                 })
                 .unwrap();
         }
-        commands.try_send(NetworkCommand::FlushFrame).unwrap();
+        commands
+            .try_send(NetworkCommand::FlushFrame {
+                cache_opportunity: false,
+            })
+            .unwrap();
         let (finish_write, write_outcome) = oneshot::channel();
         let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
         let (world_event_tx, _world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
@@ -485,6 +579,18 @@ async fn receipts_wait_for_a_blocked_write_and_never_follow_a_failed_one() {
             })
             .count();
         assert_eq!(receipts, if failed { 0 } else { 3 });
+        let groups = events
+            .iter()
+            .filter_map(|event| match event {
+                NetworkControlEvent::SubChunkRequestSent { receipt, .. } => Some(receipt),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        if failed {
+            assert!(groups.is_empty());
+        } else {
+            assert_eq!(groups, vec![&test_sub_chunk_receipt(1, 2)]);
+        }
         shutdown.send_replace(true);
         worker.await.unwrap();
     }
@@ -542,7 +648,11 @@ async fn transfer_barrier_waits_for_its_write_to_complete() {
             interaction: None,
         })
         .unwrap();
-    commands.try_send(NetworkCommand::FlushFrame).unwrap();
+    commands
+        .try_send(NetworkCommand::FlushFrame {
+            cache_opportunity: false,
+        })
+        .unwrap();
     let (open_write, write_gate) = oneshot::channel();
     let (control_event_tx, _controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
     let (shutdown, shutdown_rx) = watch::channel(false);
@@ -605,7 +715,11 @@ async fn each_frame_leaves_as_one_ordered_batch_and_an_empty_frame_sends_nothing
     impl OutboundSession for BatchOutbound {
         type Error = &'static str;
 
-        async fn send_batch(&mut self, packets: Vec<protocol::Packet>) -> Result<(), Self::Error> {
+        async fn send_batch(
+            &mut self,
+            packets: Vec<protocol::Packet>,
+            _: Option<simulation_clock::Moment>,
+        ) -> Result<(), Self::Error> {
             let batch = packets
                 .iter()
                 .map(|packet| protocol::encode(packet).unwrap().to_vec())
@@ -737,7 +851,11 @@ fn command_queued_during_a_blocked_inbound_decode_is_written_before_the_decode_e
                 interaction: None,
             })
             .unwrap();
-        commands.try_send(NetworkCommand::FlushFrame).unwrap();
+        commands
+            .try_send(NetworkCommand::FlushFrame {
+                cache_opportunity: false,
+            })
+            .unwrap();
         let written_during_decode = written.recv_timeout(Duration::from_secs(5)).is_ok();
         shutdown.send_replace(true);
         gate.send(()).unwrap();

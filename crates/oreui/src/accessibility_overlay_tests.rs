@@ -161,7 +161,7 @@ fn extra_large_editor_keeps_rename_delete_and_cancel_reachable_in_short_windows(
                             let artwork = HashMap::new();
                             let (editor, _) = with_frame(size, metrics, |frame| {
                                 let output = screen
-                                    .paint_editor(&menu, &view, size, &artwork, frame)
+                                    .paint_dressing_overlay(&menu, &view, size, &artwork, frame)
                                     .unwrap();
                                 assert_eq!(frame.metrics.gui_scale, metrics.gui_scale);
                                 output

@@ -1,5 +1,7 @@
 /// Solid and liquid material facts, independent of visual and collision geometry.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Deserialize, serde::Serialize,
+)]
 #[repr(u8)]
 pub enum NativeMaterialFacts {
     #[default]

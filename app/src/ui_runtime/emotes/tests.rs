@@ -7,6 +7,60 @@ use semantic_input::Action;
 mod controller_inventory;
 mod network;
 
+#[test]
+fn catalog_shortcut_honors_the_configured_xy_button_swap() {
+    let _catalog = cosmetics::test_support::playback_catalog();
+    for swapped in [false, true] {
+        let mut h = Harness::new();
+        let mut menu = MenuRuntime::new(false, 2, "Controller fixture".into());
+        menu.set_session_option(
+            launcher::menu::settings_options::SettingId::SwapGamepadXyButtons,
+            Some(i32::from(swapped)),
+        );
+        h.app.insert_resource(menu);
+        let pad = h.app.world_mut().spawn(Gamepad::default()).id();
+        h.press(KeyCode::KeyB);
+        for (button, chooses) in [
+            (
+                if swapped {
+                    GamepadButton::North
+                } else {
+                    GamepadButton::West
+                },
+                false,
+            ),
+            (
+                if swapped {
+                    GamepadButton::West
+                } else {
+                    GamepadButton::North
+                },
+                true,
+            ),
+        ] {
+            h.app
+                .world_mut()
+                .get_mut::<Gamepad>(pad)
+                .unwrap()
+                .digital_mut()
+                .press(button);
+            h.app.update();
+            assert_eq!(
+                h.runtime().emotes().is_choosing(),
+                chooses,
+                "swap={swapped}, button={button:?}"
+            );
+            h.app
+                .world_mut()
+                .get_mut::<Gamepad>(pad)
+                .unwrap()
+                .digital_mut()
+                .reset_all();
+            h.app.update();
+        }
+    }
+}
+
 use crate::semantic_controls::{
     PendingDeviceFrame, SemanticInputRuntime, SemanticRouteState, SemanticTouchTargets,
     collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
@@ -106,6 +160,7 @@ impl Harness {
 
 #[test]
 fn closing_wheel_consumes_the_full_raw_keyboard_batch_before_chat_or_inventory() {
+    let _catalog = cosmetics::test_support::playback_catalog();
     for trailing_key in [KeyCode::KeyT, KeyCode::KeyE, KeyCode::Enter] {
         let mut h = Harness::new();
         h.queue(KeyCode::KeyB);
@@ -151,6 +206,7 @@ fn closing_wheel_consumes_the_full_raw_keyboard_batch_before_chat_or_inventory()
 
 #[test]
 fn cancel_closing_frame_also_consumes_later_raw_ui_shortcuts() {
+    let _catalog = cosmetics::test_support::playback_catalog();
     let mut h = Harness::new();
     h.press(KeyCode::KeyB);
     h.queue(KeyCode::Escape);
@@ -164,6 +220,7 @@ fn cancel_closing_frame_also_consumes_later_raw_ui_shortcuts() {
 
 #[test]
 fn same_frame_open_and_play_consumes_already_sampled_gameplay_controls() {
+    let _catalog = cosmetics::test_support::playback_catalog();
     let mut h = Harness::new();
     h.queue(KeyCode::KeyB);
     h.queue(KeyCode::Digit1);
@@ -188,15 +245,18 @@ fn same_frame_open_and_play_consumes_already_sampled_gameplay_controls() {
 
 #[test]
 fn stationary_pointer_preserves_keyboard_selection_until_accept() {
+    let _catalog = cosmetics::test_support::playback_catalog();
     let mut h = Harness::new();
     {
         let mut runtime = h.app.world_mut().resource_mut::<UiRuntimeResource>();
         let emotes = runtime.emotes_mut();
+        let displaced = emotes.slots()[1];
         emotes.open();
         emotes.change_emotes();
+        emotes.activate_slot(0, 0);
         emotes.activate_slot(1, 0);
         emotes.close();
-        assert!(emotes.slots()[0].is_none());
+        assert_eq!(emotes.slots()[0], displaced);
         assert!(emotes.slots()[1].is_some());
     }
     h.app
@@ -221,6 +281,7 @@ fn stationary_pointer_preserves_keyboard_selection_until_accept() {
 
 #[test]
 fn native_controller_binding_opens_without_selecting_the_opening_direction() {
+    let _catalog = cosmetics::test_support::playback_catalog();
     let mut h = Harness::new();
     let pad = h.app.world_mut().spawn(Gamepad::default()).id();
     h.app.update();
@@ -270,6 +331,7 @@ fn native_controller_binding_opens_without_selecting_the_opening_direction() {
 
 #[test]
 fn controller_can_equip_and_play_the_left_slot_using_the_opening_button() {
+    let _catalog = cosmetics::test_support::playback_catalog();
     let mut h = Harness::new();
     let pad = h.app.world_mut().spawn(Gamepad::default()).id();
     h.app.update();
@@ -297,8 +359,10 @@ fn controller_can_equip_and_play_the_left_slot_using_the_opening_button() {
         .resource_mut::<UiRuntimeResource>()
         .emotes_mut()
         .change_emotes();
-    press(&mut h, GamepadButton::DPadLeft);
+    press(&mut h, GamepadButton::DPadUp);
+    press(&mut h, GamepadButton::South);
     assert!(h.runtime().emotes().is_equipping());
+    press(&mut h, GamepadButton::DPadLeft);
     assert_eq!(h.runtime().emotes().selected_slot(), Some(3));
     press(&mut h, GamepadButton::South);
     assert!(h.runtime().emotes().slots()[3].is_some());
@@ -316,6 +380,7 @@ fn controller_can_equip_and_play_the_left_slot_using_the_opening_button() {
 
 #[test]
 fn movement_and_jump_cancel_against_the_current_finalized_gameplay_frame() {
+    let _catalog = cosmetics::test_support::playback_catalog();
     for key in [KeyCode::KeyW, KeyCode::Space] {
         let mut h = Harness::new();
         h.play();
@@ -338,6 +403,7 @@ fn movement_and_jump_cancel_against_the_current_finalized_gameplay_frame() {
 
 #[test]
 fn focus_loss_preserves_emotes_while_visible_menu_retires_them() {
+    let _catalog = cosmetics::test_support::playback_catalog();
     for lose_focus in [true, false] {
         let mut h = Harness::new();
         h.play();
@@ -362,6 +428,7 @@ fn focus_loss_preserves_emotes_while_visible_menu_retires_them() {
 
 #[test]
 fn new_session_cannot_resume_an_old_emote() {
+    let _catalog = cosmetics::test_support::playback_catalog();
     let mut h = Harness::new();
     h.play();
     h.press(KeyCode::KeyB);

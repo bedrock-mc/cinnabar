@@ -1,7 +1,9 @@
 #[path = "tests/camera.rs"]
 mod camera;
+mod collection_reveal;
 use super::*;
 mod block_highlights;
+mod drawing_policy;
 mod embedded_assets;
 mod fullbright;
 mod gameplay;
@@ -221,6 +223,7 @@ fn component_validation_rejects_incompatible_required_signatures() {
 fn component_validation_rejects_incompatible_optional_callbacks() {
     let wit = include_str!("../../mod-api/wit/extension.wit");
     let (_, world) = wit.split_once("world player-mod {").unwrap();
+    let (world, _) = world.split_once("\n}").unwrap();
     for name in world.lines().filter_map(|line| {
         line.trim()
             .strip_prefix("export ")?

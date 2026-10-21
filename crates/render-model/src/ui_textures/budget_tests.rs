@@ -60,6 +60,13 @@ fn native_slot_growth_cannot_displace_admitted_static_artwork() {
         *page = model.clone();
     }
     pages[UI_SESSION_ICON_PAGE_OFFSET] = rgba([MAX_UI_TEXTURE_SIDE; 2]);
+    pages[UI_PARTICLE_PAGE_OFFSET] = rgba([MAX_UI_TEXTURE_SIDE; 2]);
+    let glyph = rgba([UI_SESSION_GLYPH_PAGE_SIDE; 2]);
+    for page in &mut pages
+        [UI_SESSION_GLYPH_PAGE_OFFSET..UI_SESSION_GLYPH_PAGE_OFFSET + UI_SESSION_GLYPH_PAGES]
+    {
+        *page = glyph.clone();
+    }
     let resized = base
         .replace_dynamic(pages)
         .expect("native slots have independent growth capacity");

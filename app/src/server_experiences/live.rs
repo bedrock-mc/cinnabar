@@ -5,13 +5,15 @@ use anyhow::{Result, ensure};
 use mod_host::helper::{CallFailure, Dispatch, Event, FailureKind, Helper, Reply};
 use server_experience::{
     bundle::VerifiedBundle,
-    manifest::{Manifest, developer_permissions},
+    manifest::{Manifest, Permission, developer_permissions},
     negotiation::Grant,
     policy::*,
+    rate_limit::RateLimit,
     runtime::{Budget, CALLBACK_INTERVAL_MS, Capabilities, Command, Contributions, Principal},
     screen::{self, GuiSize},
     session::Control,
-    wire::{self, Envelope, Ingress, RateLimit},
+    session_data::{SessionData, SessionItems},
+    wire::{self, Envelope, Ingress},
 };
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -42,6 +44,47 @@ struct Instance<H> {
     stopped: Option<&'static str>,
     /// The guest export of its pending callback, for the log.
     callback: &'static str,
+    /// The revision of the session's items its helper last received.
+    items_sent: Option<u64>,
+    /// The delivered or queued Shift state; None means the guest needs synchronization.
+    shift: Option<bool>,
+}
+
+impl<H: Worker> Instance<H> {
+    /// Hands `event` to the helper, with the session's items when the guest may read them and
+    /// they changed since the helper last received them.
+    fn dispatch(
+        &mut self,
+        session: Option<&SessionData>,
+        event: Event,
+        epoch: u64,
+        gui: Option<GuiSize>,
+    ) -> Result<()> {
+        let Some(helper) = &mut self.helper else {
+            return Ok(());
+        };
+        let items = session
+            .filter(|session| {
+                self.capabilities
+                    .scope
+                    .permissions
+                    .contains(&Permission::Items)
+                    && self.items_sent != Some(session.item_revision)
+            })
+            .map(SessionItems::from);
+        let revision = items.as_ref().map(|items| items.revision);
+        self.callback = event.callback();
+        helper.dispatch(Dispatch {
+            event,
+            epoch,
+            gui,
+            items,
+        })?;
+        self.items_sent = revision.or(self.items_sent);
+        self.busy = true;
+        self.epoch = epoch;
+        Ok(())
+    }
 }
 
 impl<H> Instance<H> {
@@ -99,6 +142,8 @@ pub(super) struct Live<H = Helper> {
     modal_order: u64,
     /// The drawn open modal's size and its bundle, which dispatches to that bundle carry.
     gui: Option<(GuiSize, String)>,
+    /// The session's items, for guests granted `items`.
+    session: Option<Arc<SessionData>>,
 }
 
 impl<H: Worker> Live<H> {
@@ -156,6 +201,8 @@ impl<H: Worker> Live<H> {
                     strikes: VecDeque::new(),
                     stopped: None,
                     callback: "init",
+                    items_sent: None,
+                    shift: Some(false),
                 },
             );
         }
@@ -178,6 +225,7 @@ impl<H: Worker> Live<H> {
             epoch,
             modal_order: 0,
             gui: None,
+            session: None,
         };
         live.initialize()?;
         Ok(live)
@@ -325,17 +373,12 @@ impl<H: Worker> Live<H> {
                     break;
                 }
                 self.budget.dispatch(&instance.owner)?;
-                if let Some(helper) = &mut instance.helper {
-                    let event = Event::Message {
-                        channel: super::media::EVENT_CHANNEL.into(),
-                        record,
-                    };
-                    instance.callback = event.callback();
-                    let gui = modal::size_for(&self.gui, &instance.owner.bundle);
-                    helper.dispatch(Dispatch { event, epoch, gui })?;
-                    instance.busy = true;
-                    instance.epoch = epoch;
-                }
+                let event = Event::Message {
+                    channel: super::media::EVENT_CHANNEL.into(),
+                    record,
+                };
+                let gui = modal::size_for(&self.gui, &instance.owner.bundle);
+                instance.dispatch(self.session.as_deref(), event, epoch, gui)?;
             }
             while let Some(message) = self.ingress.peek(u64::MAX, epoch) {
                 let instance = self
@@ -351,17 +394,12 @@ impl<H: Worker> Live<H> {
                 }
                 let message = self.ingress.pop(u64::MAX, epoch).expect("front checked");
                 self.budget.dispatch(&instance.owner)?;
-                if let Some(helper) = &mut instance.helper {
-                    let event = Event::Message {
-                        channel: message.channel,
-                        record: serde_json::to_vec(&message.payload)?,
-                    };
-                    instance.callback = event.callback();
-                    let gui = modal::size_for(&self.gui, &instance.owner.bundle);
-                    helper.dispatch(Dispatch { event, epoch, gui })?;
-                    instance.busy = true;
-                    instance.epoch = epoch;
-                }
+                let event = Event::Message {
+                    channel: message.channel,
+                    record: serde_json::to_vec(&message.payload)?,
+                };
+                let gui = modal::size_for(&self.gui, &instance.owner.bundle);
+                instance.dispatch(self.session.as_deref(), event, epoch, gui)?;
             }
         }
         Ok(packets)
@@ -426,6 +464,22 @@ impl<H: Worker> Live<H> {
         self.ingress.receive(bytes, now_ms, 0, &self.grant, |id| {
             instances.get(id).map(|instance| &instance.capabilities)
         })
+    }
+
+    /// Whether a guest may read the session's items, which [`Live::set_session`] then supplies.
+    pub(super) fn reads_items(&self) -> bool {
+        self.instances.values().any(|instance| {
+            instance
+                .capabilities
+                .scope
+                .permissions
+                .contains(&Permission::Items)
+        })
+    }
+
+    /// The session's items that later dispatches carry to guests granted `items`.
+    pub(super) fn set_session(&mut self, session: Arc<SessionData>) {
+        self.session = Some(session);
     }
 
     pub(super) fn media_mut(&mut self) -> &mut super::media::Media {
@@ -519,6 +573,11 @@ fn failed<H>(instance: &mut Instance<H>, budget: &mut Budget, failure: &CallFail
     } else if instance.strike(now_ms) {
         STOPPED_AFTER_ERRORS
     } else {
+        // A restarted guest must refresh retained UI even when Shift is released.
+        instance.shift = instance.events.iter().find_map(|event| match event {
+            Event::Shift { held } => Some(*held),
+            _ => None,
+        });
         return;
     };
     bevy::log::warn!(bundle = %instance.owner.bundle, "client part stopped {why}");

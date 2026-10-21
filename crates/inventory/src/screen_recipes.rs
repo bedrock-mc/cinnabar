@@ -11,6 +11,46 @@ use protocol::{RecipeCatalog, RecipeHandle, ScreenRecipe, ScreenRecipeKind, Wind
 use super::inventory_ledger::{InventoryTarget, PlayerInventoryLedger};
 use crate::InventorySession;
 
+/// One grouped book output with a preferred candidate and independent material availability.
+#[derive(Debug, Clone)]
+pub struct BookRecipe {
+    /// The current candidate used for selection; actions recheck its discovery permission.
+    pub recipe: RecipeHandle,
+    /// Whether inventory ingredients can supply any fitting variant of this output.
+    pub craftable: bool,
+}
+
+struct BookGroup {
+    entry: BookRecipe,
+    rank: (bool, bool, bool, i32),
+    held: bool,
+}
+
+impl BookGroup {
+    /// Ranks a candidate while keeping its material state independent from discovery.
+    fn new(recipe: &RecipeHandle, unlocked: bool, craftable: bool, held: bool) -> Self {
+        Self {
+            entry: BookRecipe {
+                recipe: recipe.clone(),
+                craftable,
+            },
+            rank: (!unlocked, !craftable, !held, recipe.recipe().priority()),
+            held,
+        }
+    }
+
+    /// Retains the preferred candidate and accumulates materials across sibling variants.
+    fn include(&mut self, candidate: Self) {
+        let craftable = self.entry.craftable || candidate.entry.craftable;
+        let held = self.held || candidate.held;
+        if candidate.rank < self.rank {
+            *self = candidate;
+        }
+        self.entry.craftable = craftable;
+        self.held = held;
+    }
+}
+
 struct Item {
     identifier: Arc<str>,
     metadata: u32,
@@ -120,19 +160,41 @@ impl InventorySession {
         }
     }
 
-    /// Crafting recipes the recipe book lists for the open grid, after
-    /// skipping `skip`, at most `take`. Filtering keeps the craftable ones,
-    /// first, then those the inventory holds some ingredient of; otherwise
-    /// every output lists, the uncraftable ones shown disabled. Alternate
-    /// recipes share one entry, preferring usable ingredients, then priority.
-    pub fn book_recipes(&self, filtering: bool, skip: usize, take: usize) -> Vec<RecipeHandle> {
-        let Some(catalog) = self.screen_catalog() else {
+    /// Whether a current book candidate has discovery permission, independent of ingredients.
+    pub fn book_recipe_selectable(&self, recipe: &RecipeHandle) -> bool {
+        self.crafting_authority.contains_recipe(recipe)
+            && self.crafting_authority.book_recipe_unlocked(recipe)
+    }
+
+    /// Rechecks recipe discovery at the action frontier before allocating any request.
+    pub fn begin_book_craft(
+        &mut self,
+        recipe: &RecipeHandle,
+    ) -> Result<i32, super::inventory_ledger::InventoryGestureError> {
+        if !self.book_recipe_selectable(recipe) {
+            return Err(super::inventory_ledger::InventoryGestureError::InvalidRequest);
+        }
+        self.ledger_mut().begin_auto_craft(recipe)
+    }
+
+    /// Lists one variant per output for the open grid, with pagination after grouping.
+    /// Discovery ranks candidates before ingredients and priority. Materials and held
+    /// ingredients are aggregated independently across variants. Nonempty search may
+    /// show locked outputs when limited crafting is off; actions recheck discovery.
+    pub fn book_recipes(
+        &self,
+        filtering: bool,
+        search_active: bool,
+        skip: usize,
+        take: usize,
+    ) -> Vec<BookRecipe> {
+        let (Some(catalog), Some(rules)) = (self.screen_catalog(), self.crafting_rules()) else {
             return Vec::new();
         };
         let ledger = self.ledger();
         let small = ledger.window_kind() != Some(WindowKind::Workbench);
-        let mut listed: Vec<(bool, bool, RecipeHandle)> = Vec::new();
-        let mut outputs = std::collections::HashMap::new();
+        let mut listed: Vec<BookGroup> = Vec::new();
+        let mut outputs: std::collections::HashMap<_, usize> = std::collections::HashMap::new();
         for recipe in catalog.crafting_recipes().filter(|recipe| {
             let (width, height) = recipe.dimensions();
             !small
@@ -142,32 +204,29 @@ impl InventorySession {
                     width <= 2 && height <= 2
                 }
         }) {
+            let unlocked = self.crafting_authority.book_recipe_unlocked(recipe);
             let craftable = ledger.can_auto_craft(recipe);
             let held = craftable || ledger.holds_any_ingredient(recipe);
-            if filtering && !held {
-                continue;
-            }
+            let candidate = BookGroup::new(recipe, unlocked, craftable, held);
             let output = recipe.output();
             let key = (output.network_id, output.aux, output.block_runtime_id);
             if let Some(&index) = outputs.get(&key) {
-                let previous: &(bool, bool, RecipeHandle) = &listed[index];
-                let rank = |craftable: bool, held: bool, recipe: &RecipeHandle| {
-                    (!craftable, !held, recipe.recipe().priority())
-                };
-                if rank(craftable, held, recipe) < rank(previous.0, previous.1, &previous.2) {
-                    listed[index] = (craftable, held, recipe.clone());
-                }
+                listed[index].include(candidate);
             } else {
                 outputs.insert(key, listed.len());
-                listed.push((craftable, held, recipe.clone()));
+                listed.push(candidate);
             }
         }
         if filtering {
-            listed.sort_by_key(|(craftable, _, _)| !craftable);
+            listed.sort_by_key(|group| !group.entry.craftable);
         }
         listed
             .into_iter()
-            .map(|(_, _, recipe)| recipe)
+            .filter(|group| {
+                (!filtering || group.held)
+                    && (!group.rank.0 || (search_active && !rules.limited_crafting_enabled()))
+            })
+            .map(|group| group.entry)
             .skip(skip)
             .take(take)
             .collect()

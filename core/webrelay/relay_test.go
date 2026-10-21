@@ -25,6 +25,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
+	"github.com/hashimthearab/rust-mcbe/core/proxy"
 	"github.com/quic-go/webtransport-go"
 	"golang.org/x/oauth2"
 	"golang.org/x/time/rate"
@@ -38,33 +39,41 @@ func testRelay(t *testing.T) *Relay {
 	return relay
 }
 
+// testWelcome requires a capability response from the current controller.
+func testWelcome(t *testing.T, relay *Relay, controller *sessionController, refresh bool, now time.Time) controlEvent {
+	t.Helper()
+	event, err := relay.welcome(controller, refresh, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return event
+}
+
 func TestResumeRotatesAcrossNetworksAndExpires(t *testing.T) {
 	relay := testRelay(t)
 	now := time.Now()
 	first := netip.MustParseAddr("192.0.2.1")
 	second := netip.MustParseAddr("198.51.100.1")
-	session, detach, err := relay.openControl(first, "", now)
+	controller, detach, err := relay.openControl(first, "", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	token := session.token
-	generation := session.generation
-	if _, _, err := relay.openControl(second, token, now); !errors.Is(err, errResume) {
-		t.Fatal("second controller accepted", err)
-	}
-	detach(now)
+	token := controller.session.token
+	generation := controller.generation
+	oldDetach := detach
 	resumed, detach, err := relay.openControl(second, token, now.Add(time.Second))
-	if err != nil || resumed != session || resumed.token == token || resumed.generation <= generation || relay.perIP[first] != 0 {
+	if err != nil || resumed.session != controller.session || resumed.session.token == token || resumed.generation <= generation || relay.perIP[first] != 0 {
 		t.Fatal("resume did not rotate and migrate", err)
 	}
-	if _, _, err := relay.playSession(nil, hello{Resume: resumed.token, Generation: generation}, now); !errors.Is(err, errResume) {
+	oldDetach(now)
+	if _, _, err := relay.playSession(nil, hello{Resume: resumed.session.token, Generation: generation}, now); !errors.Is(err, errResume) {
 		t.Fatal("stale play generation admitted")
 	}
-	_, playCtx, err := relay.playSession(nil, hello{Resume: resumed.token, Generation: resumed.generation}, now)
+	_, playCtx, err := relay.playSession(nil, hello{Resume: resumed.session.token, Generation: resumed.generation}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	token = resumed.token
+	token = resumed.session.token
 	detach(now)
 	if playCtx.Err() == nil {
 		t.Fatal("closing control did not cancel play")
@@ -122,32 +131,32 @@ func TestAccountChangesRejectStaleSignInAndSecondPlay(t *testing.T) {
 	}, Token: func(context.Context, *oauth2.DeviceAuthResponse) (*oauth2.Token, error) {
 		return nil, errors.New("cancelled")
 	}}
-	session, _, err := relay.openControl(netip.MustParseAddr("192.0.2.1"), "", time.Now())
+	controller, _, err := relay.openControl(netip.MustParseAddr("192.0.2.1"), "", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = session.SignIn(); err != nil {
+	if err = controller.session.SignIn(); err != nil {
 		t.Fatal(err)
 	}
 	<-started
-	if err = session.SignOut(); err != nil {
+	if err = controller.session.SignOut(); err != nil {
 		t.Fatal(err)
 	}
 	close(release)
-	session.signIns.Wait()
-	if state, _ := session.Auth(); state.State != control.AuthSignedOut {
+	controller.session.signIns.Wait()
+	if state, _ := controller.session.Auth(); state.State != control.AuthSignedOut {
 		t.Fatal("stale sign-in published after sign-out")
 	}
-	if _, err = session.beginPlay(t.Context(), session.controlCtx); err != nil {
+	if _, err = controller.session.beginPlay(t.Context(), controller.ctx, 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = session.beginPlay(t.Context(), session.controlCtx); !errors.Is(err, errSessionBusy) {
+	if _, err = controller.session.beginPlay(t.Context(), controller.ctx, 0); !errors.Is(err, errSessionBusy) {
 		t.Fatal("second play admitted")
 	}
-	if err = session.SignOut(); !errors.Is(err, errSessionBusy) {
+	if err = controller.session.SignOut(); !errors.Is(err, errSessionBusy) {
 		t.Fatal("active handler replaced")
 	}
-	session.endPlay()
+	controller.session.endPlay()
 }
 
 // bufferConn presents fragmented reads with in-memory writes and no deadline side effects.
@@ -194,9 +203,21 @@ func TestControlFramingAndContractConformance(t *testing.T) {
 	values := []any{
 		hello{Version: bridgecontract.RelayVersion, Channel: bridgecontract.RelayChannelControl, Channels: []string{bridgecontract.RelayChannelControl, bridgecontract.RelayChannelPlay}},
 		hello{Version: bridgecontract.RelayVersion, Channel: bridgecontract.RelayChannelPlay, Generation: 1},
+		hello{Version: bridgecontract.RelayVersion, Channel: bridgecontract.RelayChannelPlay, Generation: 1, Join: 2},
 		controlEvent{Type: bridgecontract.RelayEventWelcome, Version: bridgecontract.RelayVersion, Resume: "test-token", Generation: 1, ExpiresSeconds: int(resumeTTL / time.Second)},
 		controlRequest{Op: bridgecontract.RelayOpSignIn},
 		controlRequest{Op: bridgecontract.RelayOpPong, Resume: "test-token"},
+		controlRequest{Op: bridgecontract.RelayOpSignOut},
+		controlEvent{Type: bridgecontract.RelayEventAccount, Account: &control.AuthV1{State: bridgecontract.AuthAwaitingCode, VerificationURI: "https://example.test/verify", UserCode: "TEST-CODE"}},
+		controlEvent{Type: bridgecontract.RelayEventConnect, Connect: &proxy.ConnectProgress{Stage: proxy.ConnectStagePacks, PacksDone: 1, PacksTotal: 2, ReceivedBytes: 3, TotalBytes: 4}},
+		controlEvent{Type: bridgecontract.RelayEventConnect, Connect: &proxy.ConnectProgress{}},
+		controlEvent{Type: bridgecontract.RelayEventError, Error: bridgecontract.RelayRefusalResume},
+		controlEvent{Type: bridgecontract.RelayEventError, Error: bridgecontract.RelayRefusalAdmission},
+		controlEvent{Type: bridgecontract.RelayEventError, Error: bridgecontract.RelayRefusalSessionBusy},
+		controlEvent{Type: bridgecontract.RelayEventError, Error: bridgecontract.RelayRefusalUnknown},
+		controlEvent{Type: bridgecontract.RelayEventPing, Version: bridgecontract.RelayVersion, Resume: "test-token", Generation: 1, ExpiresSeconds: int(resumeTTL / time.Second)},
+		controlEvent{Type: bridgecontract.RelayEventAccount, Account: &control.AuthV1{State: bridgecontract.AuthSignedOut}},
+		controlEvent{Type: bridgecontract.RelayEventConnect, Connect: &proxy.ConnectProgress{Stage: proxy.ConnectStagePacks, PacksDone: 1, PacksTotal: 2, ReceivedBytes: 512, TotalBytes: 1024}},
 	}
 	if len(values) != len(manifest.Relay.Fixtures) {
 		t.Fatal("missing contract fixture")
@@ -385,7 +406,8 @@ func TestWebTransportHelloAndReliablePlay(t *testing.T) {
 	defer func() { stopServe(); <-done }()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	client := &webtransport.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}} // Only the local test certificate is untrusted.
+	client := &webtransport.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // Only the local test certificate is untrusted.
+		Config: &webtransport.Config{MaxIncomingData: playMessageLimit}}
 	defer client.Close()
 	_, session, err := client.Dial(ctx, "https://"+listener.LocalAddr().String()+bridgecontract.RelayTransportPath, nil)
 	if err != nil {
@@ -411,9 +433,16 @@ func TestWebTransportHelloAndReliablePlay(t *testing.T) {
 	if welcome.Resume == "" || account.Account == nil || account.Account.State != control.AuthSignedOut {
 		t.Fatal("missing control outcome")
 	}
-	stream, err := session.OpenStreamSync(ctx)
+	retiring, err := session.OpenStreamSync(ctx)
 	if err != nil {
 		t.Fatal(err)
+	}
+	defer retiring.CancelRead(0)
+	defer retiring.CancelWrite(0)
+	// Local cancellation need not have returned credit before the next join opens.
+	stream, err := session.OpenStream()
+	if err != nil {
+		t.Fatal("replacement play could not overlap a retiring stream", err)
 	}
 	play := &transportConn{Stream: stream, session: session}
 	if err = writeJSON(context.Background(), play, hello{Version: bridgecontract.RelayVersion, Channel: bridgecontract.RelayChannelPlay, Generation: welcome.Generation}); err != nil {
@@ -427,5 +456,24 @@ func TestWebTransportHelloAndReliablePlay(t *testing.T) {
 	frame, err := framed.ReadPacket()
 	if err != nil || len(frame) == 0 || frame[0] != bridgecontract.SessionKindDisconnect {
 		t.Fatal("core refusal did not traverse reliable play", err)
+	}
+}
+
+func TestPackJoinCannotBeReusedByAController(t *testing.T) {
+	relay := testRelay(t)
+	controller, detach, err := relay.openControl(netip.MustParseAddr("192.0.2.1"), "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer detach(time.Now())
+	first, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	if !controller.session.claimPackJoin(first, 1) || controller.session.claimPackJoin(first, 1) || controller.session.claimPackJoin(first, 0) || !controller.session.claimPackJoin(first, 2) {
+		t.Fatal("join identities were reused")
+	}
+	next, stop := context.WithCancel(t.Context())
+	defer stop()
+	if !controller.session.claimPackJoin(next, 1) {
+		t.Fatal("new controller could not start a fresh join")
 	}
 }

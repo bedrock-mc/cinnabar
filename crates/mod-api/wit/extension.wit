@@ -6,6 +6,9 @@ interface hud {
     set-label: func(text: string) -> result<_, string>;
     /// Bounded host-rendered HUD cards; requires hud authority. Empty clears them.
     set-content: func(json: string) -> result<_, string>;
+    /// Atomically replaces named HUD cards, removes named cards, and optionally replaces
+    /// presentation metadata while retaining other cards. Uses the bounded HudUpdate schema.
+    update-content: func(json: string) -> result<_, string>;
     /// Replaces only a normally visible crosshair; requires hud authority. Empty restores it.
     set-crosshair: func(json: string) -> result<_, string>;
     /// Adds one bounded local-only system chat line after a successful callback; requires hud.
@@ -15,6 +18,10 @@ interface hud {
     record editor-result { saved: bool, reset: bool, placements: list<placement> }
     record layout-placement { id: string, position: option<point>, scale: f32 }
     record layout-result { saved: bool, reset: bool, placements: list<layout-placement> }
+    enum anchor { top-left, top-center, top-right, left, center, right, bottom-left, bottom-center, bottom-right }
+    record anchored-placement { id: string, anchor: anchor, offset: point, scale: f32 }
+    record anchored-layout-result { saved: bool, reset: bool, placements: list<anchored-placement> }
+    record visibility-result { saved: bool, hidden-cards: list<string> }
     /// Opens a host-owned layout editor from an input-owning panel. Requires hud and controls.
     /// JSON is bounded HUD preview data, including cards disabled during normal gameplay.
     open-editor: func(json: string) -> result<_, string>;
@@ -23,6 +30,11 @@ interface hud {
     read-editor-result: func() -> result<option<editor-result>, string>;
     /// Reads positions and uniform scales; shares consumption with the legacy result.
     read-editor-layout: func() -> result<option<layout-result>, string>;
+    /// Reads GUI-pixel offsets inward from edges, or right/down from centered axes.
+    /// Shares stable callback lifetime and consumption with both normalized reads.
+    read-editor-anchored-layout: func() -> result<option<anchored-layout-result>, string>;
+    /// Reads hidden card IDs; shares stable callback lifetime and consumption with layout reads.
+    read-editor-visibility: func() -> result<option<visibility-result>, string>;
 }
 
 /// Read-only, session-bound facts about the local player's presented inventory and effects.
@@ -95,6 +107,11 @@ interface player-state {
         look-origin: option<tuple<f32,f32,f32>>, look-direction: option<tuple<f32,f32,f32>>,
         invisible: bool, sneaking: bool, hurt: bool, health: option<f32>,
     }
+    record observed-actor {
+        actor: actor,
+        /// Replicated health attribute maximum; absent when the server has supplied none.
+        max-health: option<f32>,
+    }
     enum combat-kind { attack-admitted, hurt, death }
     record combat-event {
         sequence: u64, session: u64, dimension: s32, kind: combat-kind,
@@ -109,6 +126,9 @@ interface player-state {
     read-ping: func() -> result<option<u32>, string>;
     /// At most 16 nearby actors within 128 blocks; player rows require players, other rows entities.
     read-actors: func() -> result<list<actor>, string>;
+    /// Reads a smaller prefix of the same authorized observations to bound guest copying work.
+    /// limit is 1 through MAX_OBSERVED_ACTORS; filtering and session authority are unchanged.
+    read-actors-limited: func(limit: u32) -> result<list<observed-actor>, string>;
     /// Incremental retained evidence, at most 4 entries per read. Requires player-state authority.
     /// Attack admission is outbound intent, NOT server confirmation; hurt carries NO attacker attribution.
     read-combat: func(after: u64, limit: u32) -> result<list<combat-event>, string>;
@@ -131,6 +151,18 @@ interface player-state {
     /// None outside a current snapshot. Shares the read-snapshot grant and read budget.
     /// Contents equal to the last full read reuse its token, even after unimported changes.
     read-revision: func() -> result<option<u64>, string>;
+    record equipment {
+        session: u64, dimension: s32, selected-slot: option<u8>,
+        inventory: list<slot>, armor: list<slot>, offhand: slot,
+    }
+    record effects { session: u64, dimension: s32, effects: list<effect> }
+    record revisions { session: u64, dimension: s32, equipment: u64, effects: u64 }
+    /// Independent exact observation tokens. Equipment is unaffected by ticking effects.
+    /// Tokens advance on observed changes and never repeat within an instance, including reconnects.
+    /// These three reads share read-snapshot's grant, bounds, and callback read allowance.
+    read-revisions: func() -> result<option<revisions>, string>;
+    read-equipment: func() -> result<option<equipment>, string>;
+    read-effects: func() -> result<option<effects>, string>;
 }
 
 /// An opt-in retained settings panel, rendered and hit-tested by the host.
@@ -143,6 +175,9 @@ interface panel {
     set-content: func(json: string) -> result<_, string>;
     /// Applies a bounded sparse control patch and registered surface route atomically.
     /// Omitting controls preserves them; bindings, when present, replace custom scalars.
+    /// The JSON record optionally accepts collection_reveal: {collection: string, item: u32}.
+    /// The item is its immutable published index, resolved through the accepted collection_order.
+    /// Each request is consumed once; a filtered-out item is ignored.
     update-content: func(json: string) -> result<_, string>;
 }
 
@@ -156,6 +191,16 @@ interface settings {
 /// Local control edges, available only with explicit controls authority.
 interface input {
     use panel.{event};
+    record text-event { id: string, value: string }
+    record field-key {
+        id: string, key: string,
+        shift: bool, control: bool, alt: bool, super-key: bool,
+    }
+    variant field-event {
+        change(text-event),
+        submit(text-event),
+        key(field-key),
+    }
     record controls {
         seconds: f32,
         focused: bool,
@@ -179,6 +224,12 @@ interface input {
     /// Reads selected fields from the same current frame, preserving native key order.
     /// Requires controls authority and shares the read-controls callback read budget.
     read-selected-controls: func(selection: selection) -> result<controls, string>;
+    /// Committed single-line native text edits, separate from legacy numeric control events.
+    /// Requires controls authority; repeated reads see the same bounded batch in a frame callback.
+    read-text-events: func() -> result<list<text-event>, string>;
+    /// Live values coalesce per field between frame callbacks. Submit and navigation retain order.
+    /// Navigation includes the modifiers sampled at that key edge; preedit stays host-local.
+    read-field-events: func() -> result<list<field-event>, string>;
     /// Physical key names reserved before the ordinary gameplay router samples them.
     reserve-keys: func(keys: list<string>) -> result<_, string>;
 }
@@ -226,6 +277,10 @@ interface gameplay {
     pulse-jump: func() -> result<_, string>;
     /// Cancels pending local jump input after a successful callback, even outside gameplay.
     cancel-jump: func() -> result<_, string>;
+    record movement-toggles { toggle-sprint: bool, toggle-sneak: bool, always-sprint: bool }
+    /// Renews ordinary input toggle modes for this focused gameplay frame. Omission restores saved settings.
+    /// Requires movement authority; server movement, hunger and item-use restrictions still apply.
+    set-movement-toggles: func(policy: option<movement-toggles>) -> result<_, string>;
     /// Requires the camera grant and a current frame; commits only after frame returns.
     rotate: func(yaw-delta: f32, pitch-delta: f32) -> result<_, string>;
     /// Bounded local actor attack range; none restores ordinary game-mode rules.
@@ -372,10 +427,35 @@ interface screen {
     set-text: func(control: string, text: string) -> result<_, string>;
     /// Selects the drawn edit box named `control`, as a press on it would.
     focus-text: func(control: string) -> result<_, string>;
+    /// The modifier keys held with the event being delivered, such as Shift with a press.
+    held-modifiers: func() -> modifiers;
+    /// Monotonic seconds since the mod loaded, to animate by, as JEI cycles ingredients.
+    elapsed-seconds: func() -> f64;
+}
+
+/// Vanilla inventory requests a player mod asks for; each is one the vanilla screens can make,
+/// and the server checks it. Every function errs without the `inventory` permission. Requests
+/// are sent after the callback returns, at most `MAX_INVENTORY_REQUESTS` per callback.
+interface inventory {
+    use cinnabar:session/items@0.1.0.{item-key};
+
+    /// Takes `count` of creative item `key` into the first free inventory slot, else the
+    /// cursor, as a click on the creative catalog does. Errs outside Creative or when the
+    /// item is not in the creative content.
+    creative-take: func(key: item-key, count: u8) -> result<_, string>;
+    /// Crafts crafting recipe `network-id` once from inventory ingredients onto the cursor, as
+    /// a click on the recipe book does. Errs while no crafting screen is up.
+    fill-recipe: func(network-id: u32) -> result<_, string>;
 }
 
 /// Opt-in local camera policy; requires the explicit camera grant.
 interface camera {
+    /// Damage shake only; death rotation and ordinary view bob remain independent.
+    record hurt-camera-style { intensity: f32, old-tilt: bool }
+    /// Current-frame damage presentation, with finite intensity from zero through two.
+    /// Presentation remains available while a menu owns input. None, omission, unload,
+    /// and failed callbacks restore current player settings; this does not change look or movement.
+    set-hurt-camera-style: func(style: option<hurt-camera-style>) -> result<_, string>;
     /// Renew every frame. Only actual teleports preserve yaw/pitch; position and acknowledgments remain unchanged.
     /// Omission, no gameplay frame, or a failed callback restores server rotation.
     set-preserve-teleport-rotation: func(enabled: bool) -> result<_, string>;
@@ -456,6 +536,7 @@ interface terrain {
 
 /// Experimental developer contract; no WASI or ambient operating-system access.
 world extension {
+    import cinnabar:world-draw/masks@0.1.0;
     import terrain;
     import player-state;
     import item-use;
@@ -468,6 +549,7 @@ world extension {
     import panel;
     import settings;
     import render;
+    import cinnabar:world-draw/drawing@0.1.0;
     /// Creates the initial retained UI state.
     export init: func();
     /// Bounded frame callback used to measure the spike's crossing cost.
@@ -483,6 +565,7 @@ world extension {
 world player-mod {
     include extension;
     import screen;
+    import inventory;
     import cinnabar:session/items@0.1.0;
     import cinnabar:session/recipes@0.1.0;
 
@@ -520,4 +603,51 @@ world player-mod {
     export data-changed: func(sources: list<data-source>);
     /// The host closed the view (Escape, or the container closing), not the mod.
     export view-closed: func();
+}
+
+/// Every session packet, relayed through one trusted mod. A batch is the session contract's batch
+/// body: each packet as a varuint32 byte length followed by the encoded packet, header included,
+/// in the session's protocol.
+interface packet-relay {
+    /// The way a batch travels.
+    enum direction { from-client, from-server }
+
+    /// The upstream login's canonical player identity.
+    record session-identity {
+        display-name: string,
+        xuid: string,
+        uuid: string,
+    }
+
+    /// A resource pack the mod adds to the session.
+    record session-pack {
+        /// The pack's zip archive; its manifest identity must not repeat another pack in the stack.
+        archive: list<u8>,
+        /// Whether the pack applies above the server's packs rather than below them.
+        above-server: bool,
+    }
+
+    /// Batch bodies the mod sends outside a relayed batch; an empty body sends nothing.
+    record outbound {
+        to-client: list<u8>,
+        to-server: list<u8>,
+    }
+}
+
+/// A trusted mod that relays every session packet. It needs the `packets` grant; WASI preview 2
+/// is linked only with the `wasi` grant, without files, environment, arguments or network.
+world packet-mod {
+    use packet-relay.{direction, session-identity, session-pack, outbound};
+
+    /// Begins a session: the upstream identity, the login client data as the session's Connect sent
+    /// it (JSON), and the server's startup packets through StartGame as one batch body. Returns the
+    /// resource packs the mod adds.
+    export start: func(identity: session-identity, client-data: string, startup: list<u8>) -> result<list<session-pack>, string>;
+    /// Handles one relayed batch: none forwards it unchanged; some replaces it, and an empty body
+    /// drops it.
+    export on-batch: func(direction: direction, batch: list<u8>) -> result<option<list<u8>>, string>;
+    /// Runs timed work about once per client tick (50 ms) and returns packets to send now.
+    export tick: func() -> result<outbound, string>;
+    /// Ends the session.
+    export stop: func();
 }

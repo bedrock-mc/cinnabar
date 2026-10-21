@@ -3,8 +3,8 @@
 //! The mesher reads a block only through its resolved [`ResolvedPaletteEntry`]: flags, faces,
 //! kind, model template, variant, contributor role and, through [`RuntimeAssets::resolve`],
 //! light emission. Raw network values are compared only by diagnostic geometry, liquid
-//! contributor merging, transparent-cube self culling and air classification, so a change whose
-//! values avoid all four and resolve identically cannot change any mesh that samples it.
+//! contributor merging, transparent-cube self culling, water-filled neighbours and air
+//! classification. A change must preserve those inputs as well as resolved visuals.
 
 use assets::{
     BLOCK_VISUAL_VARIANT_COVERED_GRASS, BLOCK_VISUAL_VARIANT_MATERIAL_MASK,
@@ -27,6 +27,7 @@ const _: () = assert!(DIAGNOSTIC_MATERIAL == 0);
 /// value, and the cell's layers must still merge without a diagnostic. The whole sections are
 /// compared, so cells changed outside `hint` are still found; `hint` (the cells an update set)
 /// is checked first so an ordinary visible change is rejected without decoding a layer.
+/// `water_filled` is the sorted list used by the liquid mesher. Membership must be unchanged.
 /// Unregistered values answer `false` without counting a registry miss.
 pub fn block_changes_preserve_meshes(
     classifier: BlockClassifier,
@@ -35,13 +36,17 @@ pub fn block_changes_preserve_meshes(
     previous: &SubChunk,
     replacement: &SubChunk,
     hint: impl IntoIterator<Item = [u8; 3]>,
+    water_filled: &[u32],
 ) -> bool {
     let layers = previous.storages().len();
     if layers != replacement.storages().len() {
         return false;
     }
     let shares_inputs = |old: u32, new: u32| {
-        old == new || values_share_mesh_inputs(classifier, assets, mode, old, new)
+        old == new
+            || (water_filled.binary_search(&old).is_ok()
+                == water_filled.binary_search(&new).is_ok()
+                && values_share_mesh_inputs(classifier, assets, mode, old, new))
     };
     for [x, y, z] in hint {
         for layer in 0..layers {
@@ -77,7 +82,7 @@ pub fn block_changes_preserve_meshes(
                 continue;
             }
             if proven != Some((old, new)) {
-                if !values_share_mesh_inputs(classifier, assets, mode, old, new) {
+                if !shares_inputs(old, new) {
                     return false;
                 }
                 proven = Some((old, new));

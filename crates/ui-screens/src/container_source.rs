@@ -67,10 +67,9 @@ pub struct ScreenView<'a> {
     /// The crafter block's `triggered_bit`.
     pub crafter_powered: Option<bool>,
     pub furnace_book_open: bool,
-    pub furnace_tab: Option<u8>,
-    pub creative_tab: u8,
-    /// Creative's wide list stands in for its recipe book layout.
-    pub creative_wide: bool,
+    pub furnace_tab: Option<i32>,
+    /// The Classic controller snapshot read by all inventory bindings.
+    pub inventory: inventory::InventoryController,
     /// Creative catalog groups the player expanded, by group index.
     pub creative_expanded: &'a BTreeSet<u32>,
     pub search: &'a str,
@@ -116,8 +115,8 @@ pub struct ContainerFrame<'a> {
     pub inventory_icons: &'a [Option<IconRef>; 36],
     pub player_durability: &'a [Option<f32>; 36],
     pub hotbar_durability: &'a [Option<f32>; 9],
-    pub storage_icons: &'a [Option<IconRef>; 54],
-    pub storage_durability: &'a [Option<f32>; 54],
+    pub storage_icons: &'a [Option<IconRef>],
+    pub storage_durability: &'a [Option<f32>],
     /// UI-inventory slot icons and durabilities, by slot.
     pub ui_icons: &'a [Option<IconRef>],
     pub ui_durability: &'a [Option<f32>],
@@ -129,6 +128,8 @@ pub struct ContainerFrame<'a> {
     pub offhand_durability: Option<f32>,
     /// The held stack's icon.
     pub cursor_icon: Option<IconRef>,
+    /// Remaining durability of the presented cursor stack, including server corrections.
+    pub cursor_durability: Option<f32>,
     /// Output icons of the stonecutter's recipe cells.
     pub recipe_icons: &'a [Option<IconRef>],
     /// The result a recipe screen would produce now.

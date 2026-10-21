@@ -25,7 +25,10 @@ use super::actors::{
     ActorParticleCommand, ActorParticleFrame, follow_actor_particles, queue_actor_particles,
     route_actor_particles,
 };
-use super::{ambient::AmbientParticles, tiles::block_tile, world_adapter::StreamParticleWorld};
+use super::{
+    ambient::AmbientParticles, cosmetics::CosmeticEmitters, tiles::block_tile,
+    world_adapter::StreamParticleWorld,
+};
 use {
     crate::runtime::world::ClientWorld,
     client_interaction::{
@@ -113,6 +116,8 @@ pub(crate) fn configure_particles(app: &mut App) {
         drive_particles
             .after(client_presentation::camera::FlyCameraUpdateSet)
             .after(client_state::ClientFrameSet::ActorPreparation)
+            // Cosmetic emitters follow the attachments this frame's actor finalization placed.
+            .after(client_state::ClientFrameSet::ActorFinalization)
             .after(crate::environment::update_seasonal_foliage),
     );
 }
@@ -453,6 +458,14 @@ type ParticleCues<'w, 's> = (
     Option<Res<'w, client_presentation::camera::ServerCameraView>>,
 );
 
+/// Cave culling, profiling and the cosmetic emitters placed by this frame's actor finalization.
+type ParticleFrameContext<'w, 's> = (
+    Res<'w, crate::runtime::visibility::CaveVisibilityCache>,
+    Option<Res<'w, render_scene::RuntimeStageProfiler>>,
+    Option<Res<'w, client_presentation::actor_publication::CosmeticEmitterPlacements>>,
+    Local<'s, CosmeticEmitters>,
+);
+
 #[allow(clippy::too_many_arguments)]
 fn drive_particles(
     frame_time: (
@@ -473,10 +486,7 @@ fn drive_particles(
     (mut block_cues, mut eating_cues, camera_settings, server_camera): ParticleCues<'_, '_>,
     mut break_echoes: Local<client_audio::audio::EchoLedger>,
     mut ambient: Local<AmbientParticles>,
-    (cave, profiler): (
-        Res<crate::runtime::visibility::CaveVisibilityCache>,
-        Option<Res<render_scene::RuntimeStageProfiler>>,
-    ),
+    (cave, profiler, cosmetic_placements, mut cosmetics): ParticleFrameContext<'_, '_>,
 ) {
     let (time, actor_alpha) = frame_time;
     // Timed inside the system: a span around it would also count systems ordered in between.
@@ -493,6 +503,7 @@ fn drive_particles(
         block_cues.clear();
         eating_cues.clear();
         ambient.reset();
+        cosmetics.reset();
         return;
     };
     drain_committed_particles(stream, &mut inbox);
@@ -509,6 +520,7 @@ fn drive_particles(
         system.clear();
         inbox.actor_commands.clear();
         ambient.reset();
+        cosmetics.reset();
         inbox.events.retain(|event| event.dimension == identity.1);
     }
     let mode = stream.network_id_mode();
@@ -520,7 +532,7 @@ fn drive_particles(
         icons: icons.as_ref().map(|icons| &*icons.0),
     };
     let view = particle_view(&(*transform).into(), projection);
-    let first_person = crate::ui_runtime::presentation::publish::hand_first_person(
+    let first_person = client_presentation::camera::hand_first_person(
         camera_settings.map_or(semantic_input::PerspectiveMode::FirstPerson, |settings| {
             settings.perspective()
         }),
@@ -621,6 +633,12 @@ fn drive_particles(
     route_actor_particles(&mut system, &mut inbox.actor_commands);
     follow_bound_emitters(&mut system, stream);
     follow_actor_particles(&mut system, &mut actor_frame);
+    cosmetics.sync(
+        &mut system,
+        cosmetic_placements
+            .as_deref()
+            .map_or(&[], |placements| &placements.0),
+    );
     let camera = crate::runtime::telemetry::camera_sub_chunk_key(
         stream.current_dimension(),
         bevy::math::Vec3::from_array(view.position),

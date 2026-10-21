@@ -57,7 +57,7 @@ mod cape;
 pub use cape::CapePreparationQueue;
 mod clock;
 pub mod custom_emotes;
-pub use custom_emotes::{CustomEmote, CustomEmotePose, sample_custom_emote};
+pub use custom_emotes::{CustomEmotePose, sample_custom_emote};
 mod evaluation;
 mod geometry;
 mod horse;
@@ -89,13 +89,13 @@ pub use attachable::{
     AttachableAnimationInput, AttachableBoneParent, AttachableRigSnapshot, AttachablesRuntime,
 };
 pub use evaluation::ActorAnimationVariables;
-use evaluation::variables::{MolangVariables, ScratchVariables};
+use evaluation::variables::MolangVariables;
 use evaluation::{EngineSlots, Evaluator, MolangValue, VariableLayout};
 use geometry::{collect_controllers, resolve_binding, resolve_bones, skeleton};
 pub use motion::{ACTOR_SWING_TICKS, SwingEffects};
 use motion::{MotionInput, MotionState};
 pub use pose::MODEL_PART_ORIGIN_Y;
-use pose::{compose_pose, sample_clips};
+use pose::compose_pose;
 pub use render::RenderTextureLayer;
 pub use skin_layers::SkinRenderLayer;
 pub use tick::{ActorTickContext, StackVariant, WornArmor};
@@ -126,3 +126,7 @@ mod crystal_tests;
 
 #[cfg(test)]
 mod dragon_tests;
+
+#[cfg(test)]
+#[global_allocator]
+static TEST_ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;

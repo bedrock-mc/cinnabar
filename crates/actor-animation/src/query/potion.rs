@@ -17,5 +17,5 @@ pub(super) fn variant(actor: &dyn AnimatedActor) -> Option<f32> {
         Some(ActorMetadataValue::Short(auxiliary)) => *auxiliary,
         _ => 0,
     };
-    Some(assets::vanilla_potion_variant(auxiliary).map_or(0.0, f32::from))
+    Some(assets::potion::vanilla_potion_variant(auxiliary).map_or(0.0, f32::from))
 }

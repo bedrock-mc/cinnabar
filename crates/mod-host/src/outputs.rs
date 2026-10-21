@@ -4,6 +4,10 @@ use super::{CameraDelta, ModHost};
 use anyhow::Result;
 
 impl ModHost {
+    /// Current-frame ordinary input modes; absence restores the player's saved preferences.
+    pub fn movement_toggles(&self) -> Option<&crate::MovementToggles> {
+        self.instance.movement_toggles()
+    }
     /// Successfully committed local lighting override.
     pub fn fullbright(&self) -> bool {
         self.instance.fullbright()
@@ -37,6 +41,11 @@ impl ModHost {
     /// Retained host-rendered cards from the last successful callback.
     pub fn hud(&self) -> Option<&ui::mod_hud::Hud> {
         self.instance.hud()
+    }
+
+    /// Process-unique committed HUD identity, including changes from native bindings.
+    pub fn hud_revision(&self) -> Option<u64> {
+        self.hud().map(|_| self.instance.hud_revision())
     }
 
     /// Consumes a committed native-editor request without entering the guest.

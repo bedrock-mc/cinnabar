@@ -10,6 +10,13 @@ pub struct ItemBannerPattern {
     pub color: u8,
 }
 
+/// Reads a root Int banner Type; absent and differently typed values remain unspecified.
+pub fn item_banner_type(extra_data: &[u8]) -> Option<i32> {
+    let mut nbt = decode_extra_nbt(extra_data)?;
+    let mut value = root_tag(&mut nbt, 3, b"Type")?;
+    read_i32_le(&mut value)
+}
+
 /// Reads up to sixteen valid banner overlays; malformed metadata returns no overlays.
 pub fn item_banner_patterns(extra_data: &[u8]) -> Vec<ItemBannerPattern> {
     parse(extra_data).unwrap_or_default()

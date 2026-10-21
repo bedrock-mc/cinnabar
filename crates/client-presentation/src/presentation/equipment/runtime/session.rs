@@ -15,11 +15,12 @@ pub struct StagedSessionIcons {
     by_identifier: BTreeMap<Box<str>, BTreeMap<u32, usize>>,
     block_sheets: BTreeMap<Box<str>, usize>,
     block_alpha: BTreeMap<Box<str>, render_model::HandItemAlphaMode>,
+    models: BTreeMap<usize, Arc<[render_model::ActorRigVertex]>>,
     atlas: SpriteAtlas,
 }
 
 impl StagedSessionIcons {
-    /// Packs the pack's item icons and custom block cube sheets; `None` when the session has
+    /// Packs the pack's item icons and custom block material sheets; `None` when the session has
     /// none.
     pub fn stage(items: Option<&SessionItems>) -> Option<Self> {
         let icons = items?.icons.as_deref()?;
@@ -27,6 +28,7 @@ impl StagedSessionIcons {
         let mut by_identifier: BTreeMap<Box<str>, BTreeMap<u32, usize>> = BTreeMap::new();
         let mut block_sheets = BTreeMap::new();
         let mut block_alpha = BTreeMap::new();
+        let mut models = BTreeMap::new();
         for icon in icons.icons.iter().take(MAX_SESSION_MESHES) {
             let (Ok(width), Ok(height)) = (u16::try_from(icon.width), u16::try_from(icon.height))
             else {
@@ -56,6 +58,9 @@ impl StagedSessionIcons {
             {
                 continue;
             }
+            if let Some(model) = icons.block_models.get(&sheet.identifier) {
+                models.insert(sprites.len(), Arc::clone(model));
+            }
             block_sheets.insert(Box::from(sheet.identifier.as_ref()), sprites.len());
             let flags = icons
                 .block_material_flags
@@ -78,6 +83,7 @@ impl StagedSessionIcons {
             by_identifier,
             block_sheets,
             block_alpha,
+            models,
         })
     }
 
@@ -92,9 +98,10 @@ pub(super) struct SessionLayer {
     wearable: BTreeMap<Box<str>, ArmorSlot>,
     sprites: Vec<IconSprite>,
     by_identifier: BTreeMap<Box<str>, BTreeMap<u32, usize>>,
-    /// Custom block item to its cube sheet's index in `sprites`.
+    /// Custom block item to its material sheet's index in `sprites`.
     block_sheets: BTreeMap<Box<str>, usize>,
     block_alpha: BTreeMap<Box<str>, render_model::HandItemAlphaMode>,
+    models: BTreeMap<usize, Arc<[render_model::ActorRigVertex]>>,
     placements: Vec<Option<Placement>>,
     locations: Vec<Option<ActorArtworkLocation>>,
 }
@@ -141,12 +148,21 @@ impl EquipmentRuntime {
             layer.by_identifier = icons.by_identifier;
             layer.block_sheets = icons.block_sheets;
             layer.block_alpha = icons.block_alpha;
+            layer.models = icons.models;
             layer.placements = icons.atlas.placements;
             layer.locations = locations;
         }
         self.item_use = Arc::new(item_use);
         self.item_attack = Arc::new(item_attack);
         self.session = layer;
+    }
+
+    /// Returns authored session geometry only while its matching sheet is installed.
+    pub(super) fn session_block_model(
+        &self,
+        index: usize,
+    ) -> Option<&[render_model::ActorRigVertex]> {
+        self.session.models.get(&index).map(AsRef::as_ref)
     }
 
     /// The armor slot a custom item's `minecraft:wearable` names.

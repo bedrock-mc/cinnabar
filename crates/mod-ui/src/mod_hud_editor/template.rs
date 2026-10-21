@@ -24,8 +24,7 @@ fn button(action: &str, size: [f64; 2], offset: [f64; 2], controls: Vec<Value>) 
 }
 
 /// Builds stable card previews and a bounded grid with editor controls.
-pub(super) fn catalog(editor: &HudEditor, viewport: [f64; 2]) -> Result<Catalog, String> {
-    let hud = &editor.draft;
+pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> {
     let style = hud.editor_style.unwrap_or_default();
     let color = |value: [f32; 4]| value.map(f64::from);
     let mut controls = Vec::new();
@@ -36,7 +35,8 @@ pub(super) fn catalog(editor: &HudEditor, viewport: [f64; 2]) -> Result<Catalog,
     if hud.surface.is_none() {
         let mut lines = Vec::new();
         for axis in 0..2 {
-            let spacing = 8. * (viewport[axis] / (192. * 8.)).ceil().max(1.);
+            let spacing =
+                snapping::GRID * (viewport[axis] / (192. * snapping::GRID)).ceil().max(1.);
             for n in 1..=(viewport[axis] / spacing) as usize {
                 let mut size = viewport;
                 size[axis] = 0.5;
@@ -65,12 +65,54 @@ pub(super) fn catalog(editor: &HudEditor, viewport: [f64; 2]) -> Result<Catalog,
         node["layer"] = json!(10);
         controls.push(named(&format!("guide_{axis}"), node));
     }
+    controls.push(named(
+        "keep_out",
+        json!({
+            "type":"custom", "renderer":"cinnabar_hud_keep_out", "size":viewport,
+            "anchor_from":"top_left", "anchor_to":"top_left", "layer":1,
+            "bindings":[{"binding_name":"#hud_dragging","binding_name_override":"#visible"}]
+        }),
+    ));
+    for axis in 0..2 {
+        let visible = json!({"binding_name":format!("#measurement_{axis}_visible"), "binding_name_override":"#visible"});
+        let mut line = rect([1.; 2], [0.; 2], color(style.guide));
+        line["layer"] = json!(10);
+        line["bindings"] = json!([visible.clone(),
+            {"binding_name":format!("#measurement_{axis}_offset"), "binding_name_override":"#offset"},
+            {"binding_name":format!("#measurement_{axis}_width"), "binding_name_override":"#size_binding_x_absolute"},
+            {"binding_name":format!("#measurement_{axis}_height"), "binding_name_override":"#size_binding_y_absolute"}]);
+        controls.push(named(&format!("measurement_{axis}"), line));
+        // The pill width follows its label; the label is centred in it at its natural height.
+        let widest = feedback::pill_size("00000");
+        let width = json!({"binding_name":format!("#measurement_{axis}_pill_width"),
+            "binding_name_override":"#size_binding_x_absolute"});
+        let mut text = label(&format!("#measurement_{axis}_label"), widest, [0.; 2]);
+        text["size"][1] = json!("default");
+        text["max_size"] = json!(widest);
+        text["anchor_from"] = json!("center");
+        text["anchor_to"] = json!("center");
+        text["font_scale_factor"] = json!(MEASUREMENT_FONT_SCALE);
+        text["clip_children"] = json!(false);
+        text["text_alignment"] = json!("center");
+        text["bindings"] = json!([{"binding_name":format!("#measurement_{axis}_label")}]);
+        let mut background = rect(widest, [0.; 2], color(style.measurement));
+        background["radius"] = json!(MEASUREMENT_PILL_HEIGHT * 0.5);
+        background["bindings"] = json!([width.clone()]);
+        controls.push(named(&format!("measurement_{axis}_pill"), json!({
+            "type":"panel", "size":widest, "anchor_from":"top_left", "anchor_to":"top_left", "layer":11,
+            "bindings":[visible, width, {"binding_name":format!("#measurement_{axis}_pill"),"binding_name_override":"#offset"}],
+            "controls":[named("background",background),named("label",text)]
+        })));
+    }
     let mut row = 0;
     for (index, card) in hud.cards.iter().enumerate() {
-        controls.push(named(
-            &format!("card_{index}"),
-            cards::card(card, index, &mut row),
-        ));
+        let visible = json!({"binding_name":format!("#hud_card_{index}_visible"), "binding_name_override":"#visible"});
+        let mut artwork = cards::card(card, index, &mut row);
+        artwork["bindings"]
+            .as_array_mut()
+            .expect("card bindings")
+            .push(visible.clone());
+        controls.push(named(&format!("card_{index}"), artwork));
         let size = cards::dimensions(card);
         let edges = [
             ([size[0], 0.5], [0., 0.]),
@@ -84,7 +126,7 @@ pub(super) fn catalog(editor: &HudEditor, viewport: [f64; 2]) -> Result<Catalog,
             named(&format!("edge_{n}"),node)
         }).collect();
         let mut bounds = button(&format!("hud.card:{index}"), size, [0.; 2], border);
-        bounds["bindings"] = json!([{"binding_name":format!("#card_{index}_offset"),"binding_name_override":"#offset"}]);
+        bounds["bindings"] = json!([{"binding_name":format!("#card_{index}_offset"),"binding_name_override":"#offset"}, visible.clone()]);
         controls.push(named(&format!("bounds_{index}"), bounds));
         if hud.resizable {
             for corner in 0..4 {
@@ -118,50 +160,55 @@ pub(super) fn catalog(editor: &HudEditor, viewport: [f64; 2]) -> Result<Catalog,
                     named("pressed", feedback(style.handle_pressed)),
                 ]);
                 let mut group = json!({"type":"panel","size":size,"controls":[named("handle",handle)],"anchor_from":"top_left","anchor_to":"top_left","layer":20});
-                group["bindings"] = json!([{"binding_name":format!("#card_{index}_offset"),"binding_name_override":"#offset"}]);
+                group["bindings"] = json!([{"binding_name":format!("#card_{index}_offset"),"binding_name_override":"#offset"}, visible.clone()]);
                 controls.push(named(&format!("resize_{index}_{corner}"), group));
             }
         }
-        if !hud.hide_editor_labels {
-            let text = if card.editor_label.is_empty() {
-                &card.id
-            } else {
-                &card.editor_label
-            };
-            let mut text = label(text, [size[0], 12.], [0.; 2]);
-            text["bindings"] = json!([{"binding_name":format!("#bounds_{index}_label_offset"),"binding_name_override":"#offset"}]);
+        if !hud.hide_editor_labels && hud.surface.is_some() {
+            let name = format!("#hud_card_{index}_name");
+            let mut text = label(&name, [size[0], 12.], [0.; 2]);
+            text["bindings"] = json!([{"binding_name":format!("#bounds_{index}_label_offset"),"binding_name_override":"#offset"}, {"binding_name":name}, visible]);
             controls.push(named(&format!("name_{index}"), text));
         }
     }
     if let Some(surface) = &hud.surface {
         controls.push(named(&format!("surface@{}", surface.screen), json!({})));
     } else {
-        let width = 220.;
+        let actions: &[(&str, &str)] = if hud.autosave {
+            &[
+                ("close", "Done"),
+                ("reset", "Reset"),
+                ("grid", "#grid_label"),
+                ("snap", "#snap_label"),
+            ]
+        } else {
+            &[
+                ("save", "Save"),
+                ("cancel", "Cancel"),
+                ("reset", "Reset"),
+                ("grid", "#grid_label"),
+                ("snap", "#snap_label"),
+            ]
+        };
+        let slot = 53_f64.min((viewport[0] - 8.).max(0.) / actions.len() as f64);
+        let width = actions.len() as f64 * slot + 8.;
         let x = ((viewport[0] - width) * 0.5).max(0.);
         let y = viewport[1] - 32.;
         let mut toolbar = vec![named(
             "surface",
             rect([width, 28.], [0.; 2], [0.055, 0.065, 0.08, 0.97]),
         )];
-        for (index, (action, text)) in [
-            ("save", "Save"),
-            ("cancel", "Cancel"),
-            ("reset", "Reset"),
-            ("grid", "#grid_label"),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let mut textnode = label(text, [49., 12.], [4., 7.]);
-            if action == "grid" {
-                textnode["bindings"] = json!([{"binding_name":"#grid_label"}]);
+        for (index, &(action, text)) in actions.iter().enumerate() {
+            let mut textnode = label(text, [(slot - 4.).max(0.), 12.], [4., 7.]);
+            if matches!(action, "grid" | "snap") {
+                textnode["bindings"] = json!([{"binding_name":text}]);
             }
             toolbar.push(named(
                 action,
                 button(
                     &format!("hud.{action}"),
-                    [53., 24.],
-                    [4. + index as f64 * 53., 2.],
+                    [slot, 24.],
+                    [4. + index as f64 * slot, 2.],
                     vec![named("text", textnode)],
                 ),
             ));
@@ -171,12 +218,26 @@ pub(super) fn catalog(editor: &HudEditor, viewport: [f64; 2]) -> Result<Catalog,
             json!({"type":"panel","size":[width,28.],"offset":[x,y],
         "anchor_from":"top_left","anchor_to":"top_left","controls":toolbar}),
         ));
+        if !hud.hide_editor_labels {
+            let mut caption = label(
+                "#editor_label",
+                [390_f64.min(viewport[0] - 12.), 12.],
+                [((viewport[0] - 390.) * 0.5).max(6.), viewport[1] - 61.],
+            );
+            caption["text_alignment"] = json!("center");
+            caption["bindings"] = json!([{"binding_name":"#editor_label"}]);
+            controls.push(named("selection_label", caption));
+        }
         controls.push(named(
             "help",
             label(
-                "Drag cards / arrows nudge / Enter saves / Esc cancels",
-                [310_f64.min(viewport[0] - 12.), 12.],
-                [((viewport[0] - 310.) * 0.5).max(6.), viewport[1] - 46.],
+                if hud.autosave {
+                    "Drag / Shift bypasses snapping / arrows nudge / autosaved"
+                } else {
+                    "Drag / Shift bypasses snapping / Enter saves / Esc cancels"
+                },
+                [390_f64.min(viewport[0] - 12.), 12.],
+                [((viewport[0] - 390.) * 0.5).max(6.), viewport[1] - 46.],
             ),
         ));
     }

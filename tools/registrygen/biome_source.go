@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 
-	shared "github.com/bedrock-mc/protocolgen/generated/data"
-	sharedbiome "github.com/bedrock-mc/protocolgen/generated/data/biome"
+	shared "github.com/cinnabar-mc/protocolgen/generated/data"
+	sharedbiome "github.com/cinnabar-mc/protocolgen/generated/data/biome"
 )
 
 // validateSharedBiomeTarget binds numeric IDs to this carrier's release and source lock.

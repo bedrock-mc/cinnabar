@@ -1,7 +1,7 @@
-//! Occlusion for direct draws, without indirect submission. While the camera holds still and a
-//! verdict could change, solid terrain draws in its own pass ahead of every other opaque draw,
-//! so its depth holds only static, fully opaque geometry; a pyramid of it tests every resident
-//! slot, and the bits come back asynchronously for later frames to skip what stays occluded.
+//! Occlusion for ordinary direct draws. Opt-in Metal admission probes a bounded current-frame
+//! depth path for large views and keeps it active while it hides enough candidates. Devices use
+//! readbacks only for an unchanged view. Both paths test depth from static opaque terrain;
+//! asynchronous feedback admits work and never authorizes stale visibility after camera motion.
 
 use crate::queue_writes::ProfiledQueue as _;
 use render_scene::{ChunkBiomeTints, ChunkRenderInstance, RuntimeStageProfiler};
@@ -192,6 +192,10 @@ pub(in crate::chunk) struct DirectOcclusion {
     kernels: CullKernels,
     masks: super::unit_mask::UnitMasks,
     same_frame: bool,
+    adaptive: bool,
+    reset_masks: bool,
+    admission: super::visibility_admission::VisibilityAdmission,
+    measured_candidates: [Vec<u32>; SLOTS],
     capture_masks: bool,
     depth_pipelines: HashMap<CachedRenderPipelineId, CachedRenderPipelineId>,
     storage: Option<OcclusionStorage>,
@@ -225,7 +229,7 @@ impl DirectOcclusion {
         page: &wgpu::Buffer,
         bindings: &mut Option<super::unit_mask::UnitMaskBindings>,
     ) {
-        if self.same_frame {
+        if self.same_frame || self.adaptive {
             self.masks.prepare(
                 device,
                 page,
@@ -256,6 +260,11 @@ impl DirectOcclusion {
             masks: super::unit_mask::UnitMasks::new(device.wgpu_device()),
             same_frame: cfg!(target_os = "macos")
                 && env_compat::var("CINNABAR_TERRAIN_VISIBILITY").as_deref() == Ok("1"),
+            adaptive: cfg!(target_os = "macos")
+                && env_compat::var("CINNABAR_TERRAIN_VISIBILITY").as_deref() == Ok("adaptive"),
+            reset_masks: false,
+            admission: default(),
+            measured_candidates: std::array::from_fn(|_| Vec::new()),
             capture_masks: crate::gpu_timing::query_health_requested(),
             depth_pipelines: default(),
             storage: None,
@@ -391,6 +400,9 @@ impl DirectOcclusion {
             stats,
             same_frame,
             capture_masks,
+            adaptive,
+            admission,
+            measured_candidates,
             ..
         } = self;
         verdicts.drain(|slot, tag| {
@@ -410,6 +422,14 @@ impl DirectOcclusion {
             {
                 let data = buffer.slice(..).get_mapped_range().expect("readback buffer is mapped");
                 let words: &[u32] = bytemuck::cast_slice(&data);
+                if *adaptive && tag.basis.world == history.world() {
+                    let candidates = &measured_candidates[slot];
+                    let hidden = candidates.iter().filter(|&&index| {
+                        words.get(index as usize / 32)
+                            .is_some_and(|word| word >> (index % 32) & 1 != 0)
+                    }).count();
+                    admission.observe(tag.frame, candidates.len(), hidden);
+                }
                 history.apply(tag, words);
                 if *same_frame && *capture_masks {
                     eprintln!("CINNABAR_TERRAIN_VISIBILITY {}", serde_json::json!({ "frame":tag.frame, "slots":tag.slots, "hidden_slots":tag.hidden_slots(words) }));
@@ -548,7 +568,7 @@ pub(in crate::chunk) fn prepare_direct_occlusion(
             );
             occlusion.bind_group = Some((group, prepared.depth));
         }
-        if occlusion.same_frame && !occlusion.capture_masks {
+        if occlusion.same_frame && !occlusion.capture_masks && !occlusion.adaptive {
             return None;
         }
         let tag = VerdictTag {
@@ -557,6 +577,16 @@ pub(in crate::chunk) fn prepare_direct_occlusion(
             slots,
         };
         let slot = occlusion.verdicts.acquire(tag);
+        if let Some(slot) = slot.filter(|_| occlusion.adaptive) {
+            let candidates = &mut occlusion.measured_candidates[slot];
+            candidates.clear();
+            candidates.extend(frame.candidates.iter().filter_map(|(entity, _)| {
+                allocations
+                    .get(*entity)
+                    .ok()
+                    .map(|(allocation, _)| allocation.metadata_index)
+            }));
+        }
         if slot.is_none() {
             occlusion.stats.verdicts_dropped += 1;
         }
@@ -695,7 +725,7 @@ pub(crate) fn terrain_pass(
     let render_context = &mut render_context;
     let occlusion = world.resource::<DirectOcclusion>();
     let batches = world.resource::<pipeline::units::TerrainUnitBatches>();
-    if occlusion.same_frame {
+    if occlusion.same_frame || occlusion.reset_masks {
         batches.encode_masks(
             view_entity,
             &occlusion.masks,
@@ -792,7 +822,7 @@ pub(crate) fn terrain_pass(
     let encoder = render_context.command_encoder();
     occlusion
         .kernels
-        .encode_pyramid(encoder, &prepared.pyramid, &prepared.bindings);
+        .encode_pyramid(encoder, &prepared.pyramid, &prepared.bindings, None);
     occlusion
         .kernels
         .encode_occlusion(encoder, group, plan.slots);
@@ -841,6 +871,26 @@ impl<P: PhaseItem> RenderCommand<P> for SkipOccludedTerrain {
     }
 }
 
+/// Chooses fresh visibility before queueing and clears masks when falling back to direct drawing.
+fn select_visibility(
+    mut occlusion: ResMut<DirectOcclusion>,
+    views: Query<(&ExtractedView, &Msaa)>,
+) {
+    let previous = occlusion.same_frame;
+    if occlusion.adaptive {
+        // A settled still view already has safe CPU verdicts and needs no repeated depth work.
+        let settled = occlusion.last_view.is_some_and(|(entity, _)| {
+            views
+                .get(entity)
+                .is_ok_and(|(view, msaa)| !occlusion.wants_verdict(entity, view, *msaa))
+        });
+        let frame = occlusion.frame + 1;
+        let candidates = occlusion.stats.candidates as usize;
+        occlusion.same_frame = !settled && occlusion.admission.select(frame, candidates);
+    }
+    occlusion.reset_masks = previous && !occlusion.same_frame;
+}
+
 /// Inserts the direct occlusion path's resources, systems and graph node.
 pub(super) fn install(render_app: &mut SubApp, device: &RenderDevice) {
     render_app
@@ -850,6 +900,9 @@ pub(super) fn install(render_app: &mut SubApp, device: &RenderDevice) {
         .add_systems(
             Render,
             (
+                select_visibility
+                    .after(RenderSystems::PrepareViews)
+                    .before(RenderSystems::Queue),
                 prepare_direct_occlusion
                     .in_set(RenderSystems::PrepareResources)
                     .after(prepare_gpu_chunks)

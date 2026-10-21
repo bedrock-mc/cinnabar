@@ -9,7 +9,7 @@ pub(crate) struct AcceptanceRun;
 
 impl AcceptanceRun {
     /// Reports the absence of a configured acceptance deadline to the movement adapter.
-    pub(crate) fn deadline_reached(&self, _now: std::time::Instant) -> bool {
+    pub(crate) fn deadline_reached(&self, _now: web_time::Instant) -> bool {
         false
     }
 }

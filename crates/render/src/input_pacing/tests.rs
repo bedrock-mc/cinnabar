@@ -436,7 +436,9 @@ fn cpu_render_completion_does_not_admit_input_behind_a_gpu_backlog() {
         }
         let finished = pacer.clone();
         let render_clock = clock.clone();
-        pacer.handoff(&mut World::new(), &mut World::new(), &mut |_, _| {
+        let mut main = World::new();
+        main.init_resource::<FramePacing>();
+        pacer.handoff(&mut main, &mut World::new(), &mut |_, _| {
             finished.render_started();
             let finished = finished.clone();
             render_clock.schedule(render_clock.base + ms(1.0), move || {
@@ -455,7 +457,9 @@ fn fifo_completion_does_not_delay_input_for_a_predicted_gpu_backlog() {
     for display_sync in [false, true] {
         let clock = FakeClock::new();
         let pacer = InputPacer::new(clock.clone(), true);
-        pacer.update_started(FramePacing {
+        pacer.update_started();
+        let mut main = World::new();
+        main.insert_resource(FramePacing {
             display_sync,
             ..Default::default()
         });
@@ -473,7 +477,7 @@ fn fifo_completion_does_not_delay_input_for_a_predicted_gpu_backlog() {
         }
         clock.advance(ms(1.0));
         let handed = clock.now();
-        pacer.handoff(&mut World::new(), &mut World::new(), &mut |_, _| {});
+        pacer.handoff(&mut main, &mut World::new(), &mut |_, _| {});
         assert_eq!(
             clock.now() - handed,
             if display_sync {
@@ -520,3 +524,6 @@ fn render_bound_frames_under_a_loose_cadence_still_sample_late() {
 
 #[path = "tests/cadence.rs"]
 mod cadence;
+
+#[path = "tests/policy.rs"]
+mod policy;

@@ -15,6 +15,18 @@ pub const MIP_COUNT: u32 = 5;
 pub const VANILLA_TERRAIN_MIP_COUNT: u32 = 4;
 /// Terrain entry grid exponents use the low five shift bits.
 pub const TERRAIN_QUAD_SHIFT_MASK: u32 = 31;
+/// Optional authored material metadata in otherwise unused packed texture-reference bits.
+pub const PBR_REF_COLOR: u32 = 1 << 11;
+pub const PBR_REF_NORMAL: u32 = 1 << 12;
+/// Only spatially varying authored height enables displacement sampling.
+pub const PBR_REF_HEIGHT: u32 = 1 << 13;
+pub const PBR_REF_MATERIAL: u32 = 1 << 14;
+pub const PBR_REF_LABPBR: u32 = 1 << 15;
+pub const PBR_REF_OCCLUSION: u32 = 1 << 16;
+pub const PBR_REF_SUBSURFACE: u32 = 1 << 17;
+/// Authored height spans this many block units in both derived normals and parallax tracing.
+pub const PBR_HEIGHT_SCALE: f32 = 0.035;
+pub const PBR_TILE_SIZE: u32 = 512;
 /// Largest square layer a runtime overlay page may use.
 pub const MAX_TILE_SIZE: u32 = crate::texture::policy::MAX_TEXTURE_SIDE;
 const ALPHA_TEST_THRESHOLD: u8 = 128;
@@ -23,14 +35,14 @@ const ALPHA_SCALE_MAX: u32 = 16 << ALPHA_SCALE_FRACTION_BITS;
 const ALPHA_SCALE_SEARCH_STEPS: usize = 21;
 
 /// One mip level containing every array layer in layer-major RGBA8 order.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TextureMip {
     pub size: u32,
     pub rgba8: Box<[u8]>,
 }
 
 /// Equal-sized square texture-array layers with independent mip chains.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TextureArray {
     pub layers: u32,
     pub mips: Box<[TextureMip]>,

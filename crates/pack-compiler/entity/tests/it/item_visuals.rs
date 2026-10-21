@@ -16,6 +16,9 @@ mod spawn_eggs;
 #[path = "item_visuals/beds.rs"]
 mod beds;
 
+#[path = "item_visuals/redstone.rs"]
+mod redstone;
+
 #[test]
 fn independent_retail_inventory_has_explicit_compiled_glint_facts() {
     let pack = item_pack(false);
@@ -200,6 +203,16 @@ fn leather_tga_atlas_sources_keep_their_opaque_untinted_trim() {
         .expect("TGA leather icon");
     assert_eq!(sprite.rgba8[3], 255);
     assert_eq!(sprite.rgba8[7], 255);
+    let raw = icons
+        .sources()
+        .unwrap()
+        .iter()
+        .find(|source| source.path.as_ref() == "textures/items/leather_helmet.tga")
+        .map(|source| &icons.sprites()[source.sprite as usize])
+        .unwrap();
+    assert_eq!(raw.rgba8.as_ref(), image.as_raw().as_slice());
+    assert_ne!(raw.rgba8, sprite.rgba8);
+
     assert!(
         sprite.rgba8[0] > sprite.rgba8[4],
         "trim keeps its source color"
@@ -214,16 +227,17 @@ fn write(root: &Path, relative: &str, bytes: &[u8]) {
 
 fn item_pack(reverse: bool) -> TempDir {
     let temporary = tempfile::tempdir().unwrap();
-    let files: [(&str, &[u8]); 9] = [
+    let files: [(&str, &[u8]); 10] = [
         ("entity/item.entity.json", br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:item","geometry":{"default":"geometry.item"},"render_controllers":["controller.render.item"]}}}"#),
         ("models/entity/item.geo.json", br#"{"format_version":"1.21.0","minecraft:geometry":[{"description":{"identifier":"geometry.item"},"bones":[{"name":"root"}]}]}"#),
         ("animations/empty.json", br#"{"format_version":"1.8.0","animations":{}}"#),
         ("animation_controllers/empty.json", br#"{"format_version":"1.10.0","animation_controllers":{}}"#),
         ("render_controllers/item.json", br#"{"format_version":"1.8.0","render_controllers":{"controller.render.item":{"geometry":"Geometry.default"}}}"#),
         ("textures/entity/item.png", b"entity-raster"),
-        ("textures/item_texture.json", br#"{"resource_pack_name":"synthetic","texture_name":"atlas.items","texture_data":{"apple":{"textures":["textures/items/apple","textures/items/apple_alt"]},"missing":{"textures":"textures/items/missing"},"stone":{"textures":"textures/blocks/stone"}}}"#),
+        ("textures/item_texture.json", br#"{"resource_pack_name":"synthetic","texture_name":"atlas.items","texture_data":{"apple":{"textures":["textures/items/apple","textures/items/apple_alt"]},"missing":{"textures":"textures/items/missing"},"stone":{"textures":"textures/blocks/stone"},"nether_wart":{"textures":"textures/items/nether_wart"}}}"#),
         ("textures/items/apple.png", b"apple-raster"),
         ("textures/items/apple_alt.png", b"apple-alt-raster"),
+        ("textures/items/nether_wart.png", b"nether-wart-raster"),
     ];
     let iterator: Box<dyn Iterator<Item = &(&str, &[u8])>> = if reverse {
         Box::new(files.iter().rev())
@@ -616,6 +630,28 @@ fn legacy_icon_routes_bind_identifiers_to_their_atlas_variants() {
             format!("sword-{index}").as_bytes(),
         );
     }
+    for index in 0..7 {
+        image::RgbaImage::from_pixel(2, 2, image::Rgba([index, 40, 80, 255]))
+            .save(
+                pack.path()
+                    .join(format!("textures/items/sword_{index}.png")),
+            )
+            .unwrap();
+    }
+    image::RgbaImage::from_pixel(2, 2, image::Rgba([0, 40, 80, 255]))
+        .save(pack.path().join("textures/items/compass_item.png"))
+        .unwrap();
+    let icons =
+        RuntimeIconCatalog::decode(&compile_icon_assets(pack.path(), MANIFEST).unwrap().bytes)
+            .unwrap();
+    let donor = icons
+        .sources()
+        .unwrap()
+        .iter()
+        .find(|source| source.path.as_ref() == "textures/items/sword_4.png")
+        .map(|source| &icons.sprites()[source.sprite as usize])
+        .expect("nonzero atlas variant donor");
+    assert_eq!(&donor.rgba8[..4], &[4, 40, 80, 255]);
     let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
     let sprite = |identifier: &str| match visual(&compiled.item_visuals, identifier, 0).route {
         ItemVisualDefinitionRoute::Sprite { texture } => {
@@ -636,4 +672,14 @@ fn legacy_icon_routes_bind_identifiers_to_their_atlas_variants() {
         ItemVisualDefinitionRoute::Missing
     ));
     assets::RuntimeEntityAssets::decode(&encode_entity_blob(&compiled).unwrap()).unwrap();
+}
+
+/// Retail draws nether wart with its item sprite: the crop it places has no inventory form.
+#[test]
+fn nether_wart_keeps_its_item_sprite_over_its_crop() {
+    let compiled = compile_entity_assets(item_pack(false).path(), MANIFEST).unwrap();
+    assert!(matches!(
+        visual(&compiled.item_visuals, "minecraft:nether_wart", 0).route,
+        ItemVisualDefinitionRoute::Sprite { .. }
+    ));
 }

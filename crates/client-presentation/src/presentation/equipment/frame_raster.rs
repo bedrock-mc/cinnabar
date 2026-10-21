@@ -5,19 +5,19 @@ use render_model::ActorRigVertex;
 #[cfg(test)]
 use render_model::RenderBoneTransform;
 
-pub(super) const WIDTH: usize = 854;
-pub(super) const HEIGHT: usize = 480;
+pub(crate) const WIDTH: usize = 854;
+pub(crate) const HEIGHT: usize = 480;
 
-pub(super) struct Image {
-    pub(super) width: usize,
-    pub(super) height: usize,
-    pub(super) rgba8: Vec<u8>,
+pub(crate) struct Image {
+    pub(crate) width: usize,
+    pub(crate) height: usize,
+    pub(crate) rgba8: Vec<u8>,
 }
 
 impl Image {
     /// Loads a local texture, skipping an absent fixture while rejecting malformed images.
     #[cfg(test)]
-    pub(super) fn load(path: &std::path::Path) -> Option<Self> {
+    pub(crate) fn load(path: &std::path::Path) -> Option<Self> {
         let image = match image::open(path) {
             Ok(image) => image.to_rgba8(),
             Err(image::ImageError::IoError(error))
@@ -44,9 +44,9 @@ impl Image {
     }
 }
 
-pub(super) struct Target {
-    pub(super) color: Vec<u8>,
-    pub(super) depth: Vec<f32>,
+pub(crate) struct Target {
+    pub(crate) color: Vec<u8>,
+    pub(crate) depth: Vec<f32>,
 }
 
 /// One camera-space vertex with both face UVs.
@@ -132,7 +132,7 @@ fn draw(target: &mut Target, triangle: [Placed; 3], texture: &Image) {
 }
 
 /// Transforms the supplied rig vertices and draws their atlas-backed triangles.
-pub(super) fn draw_mesh(
+pub(crate) fn draw_mesh(
     target: &mut Target,
     vertices: &[ActorRigVertex],
     to_view: impl Fn(&ActorRigVertex) -> Vec3,
@@ -149,7 +149,7 @@ pub(super) fn draw_mesh(
 }
 
 /// Restores the homogeneous transform represented by the rig frame's three rows.
-pub(super) fn rows_to_mat(rows: [[f32; 4]; 3]) -> Mat4 {
+pub(crate) fn rows_to_mat(rows: [[f32; 4]; 3]) -> Mat4 {
     Mat4::from_cols(
         Vec4::new(rows[0][0], rows[1][0], rows[2][0], 0.0),
         Vec4::new(rows[0][1], rows[1][1], rows[2][1], 0.0),
@@ -160,7 +160,7 @@ pub(super) fn rows_to_mat(rows: [[f32; 4]; 3]) -> Mat4 {
 
 #[cfg(test)]
 /// Converts a sampled bone into the matrix used by the offline pose witness.
-pub(super) fn bone_mat(bone: RenderBoneTransform) -> Mat4 {
+pub(crate) fn bone_mat(bone: RenderBoneTransform) -> Mat4 {
     let [x, y, z, w] = bone.rotation;
     let scale = Vec3::from_slice(&bone.axis_scale[..3]) * bone.translation_scale[3];
     Mat4::from_scale_rotation_translation(

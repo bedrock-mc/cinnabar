@@ -12,7 +12,10 @@ fn inventory_pack_replacement_preserves_pixels_and_rechecks_virtualization() {
     };
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = crate::test_support::creative_with(&mut player, 256);
-    runtime.screen_state_mut().creative_tab = ui_screens::container_actions::SEARCH_TAB;
+    runtime.select_inventory_layout(&mut player, 2).unwrap();
+    runtime
+        .screen_state_mut()
+        .select_tab(ui_screens::container_actions::SEARCH_TAB);
     let mut original = None;
     for modified in [false, true, false] {
         let files = if modified {
@@ -92,7 +95,10 @@ fn unrelated_server_ui_keeps_creative_search_virtualized() {
     )];
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = crate::test_support::creative_with(&mut player, 2048);
-    runtime.screen_state_mut().creative_tab = ui_screens::container_actions::SEARCH_TAB;
+    runtime.select_inventory_layout(&mut player, 2).unwrap();
+    runtime
+        .screen_state_mut()
+        .select_tab(ui_screens::container_actions::SEARCH_TAB);
     runtime.set_server_ui(Some(
         ServerUiPack {
             ui_layers: vec![files],

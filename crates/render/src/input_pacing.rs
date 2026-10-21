@@ -1,19 +1,4 @@
-//! Frame admission: the single wait between one frame's handoff and the next frame's input.
-//!
-//! The main thread hands frame N to the render thread at the end of an update, then would start
-//! N+1 at once and block at the next handoff until N finishes rendering, so N+1's input goes stale
-//! by that whole wait. After each handoff this delays the next update until the later of two
-//! deadlines: the next slot of the requested frame-rate cadence, and the predicted render
-//! completion less the predicted main-thread time and a safety margin, from recent frame history
-//! (or that frame's actual completion if sooner). Render time includes drawable acquisition, so
-//! swapchain backpressure is folded in. The wait ends before the event loop collects the next
-//! frame's input, so events arriving meanwhile are read fresh, and since every update passes
-//! through it, input events can wake the loop but never admit an extra frame.
-//! On Metal, completed frame markers also predict the GPU queue's finish. That prediction counts
-//! every submission and budgets CPU encoding separately from drawable waits, so input can be
-//! sampled later without adding GPU backlog. Display-synchronized surfaces use CPU completion
-//! and drawable backpressure, since their GPU markers contain display-dependent gaps.
-//! Missing or stale GPU feedback leaves CPU pacing intact.
+//! Admits fresh input after frame handoff using the requested cadence and predicted CPU/GPU work.
 
 use bevy::prelude::IntoScheduleConfigs;
 mod frame_time;
@@ -30,11 +15,14 @@ use std::{
 };
 
 #[cfg(test)]
-use bevy::prelude::{Fixed, FixedUpdate, PreUpdate, Real, ResMut, Time, Update};
 use bevy::{
     app::MainScheduleOrder,
-    ecs::schedule::{MainThreadExecutor, ScheduleLabel},
-    prelude::{App, First, Last, Plugin, Res, Resource, World},
+    ecs::schedule::ScheduleLabel,
+    prelude::{First, Fixed, FixedUpdate, Last, PreUpdate, Real, ResMut, Time, Update},
+};
+use bevy::{
+    ecs::schedule::MainThreadExecutor,
+    prelude::{App, Plugin, Res, Resource, World},
     render::{Render, RenderApp, RenderSystems, pipelined_rendering::RenderExtractApp},
 };
 use render_model::{Cadence, FrameRate};
@@ -63,35 +51,7 @@ const MIN_SPIN: Duration = Duration::from_micros(50);
 const MAX_SPIN: Duration = Duration::from_micros(500);
 const SPIN_HEADROOM: Duration = Duration::from_micros(25);
 
-/// Starts frame timing before reclaiming background work and running `First`.
-#[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FrameStart;
-
-impl FrameStart {
-    /// Installs the timing boundary once, preserving schedules already placed after it.
-    pub fn install(app: &mut App) {
-        app.init_schedule(Self);
-        let mut order = app.world_mut().resource_mut::<MainScheduleOrder>();
-        if !order.labels.contains(&Self.intern()) {
-            order.insert_before(First, Self);
-        }
-    }
-}
-
-/// Waits for the next frame only after the current frame's work has finished.
-#[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FrameEnd;
-
-impl FrameEnd {
-    /// Installs the wait boundary once so other owners can finish work before it.
-    pub fn install(app: &mut App) {
-        app.init_schedule(Self);
-        let mut order = app.world_mut().resource_mut::<MainScheduleOrder>();
-        if !order.labels.contains(&Self.intern()) {
-            order.insert_after(Last, Self);
-        }
-    }
-}
+use crate::{FrameEnd, FrameStart};
 
 /// The cadence the next frames are admitted at; the app's presentation policy writes it.
 #[derive(Resource, Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -282,12 +242,15 @@ impl InputPacer {
         self.epoch + Duration::from_nanos(nanos)
     }
 
-    /// Marks this update's input sample against the cadence; a new rate starts a new epoch.
-    fn update_started(&self, pacing: FramePacing) {
-        let now = self.clock.now();
-        let at = self.nanos(now);
+    /// Records input sampling before frame work, without retaining the previous focus policy.
+    fn update_started(&self) {
+        self.state().update_started = Some(self.clock.now());
+    }
+
+    /// Applies this frame's policy before waiting, anchoring cadence to its input sample.
+    fn prepare_wait(&self, pacing: FramePacing) {
         let mut state = self.state();
-        state.update_started = Some(now);
+        let at = self.nanos(state.update_started.unwrap_or_else(|| self.clock.now()));
         state.precise = pacing.precise;
         #[cfg(any(target_os = "macos", test))]
         state.gpu.set_display_sync(pacing.display_sync);
@@ -358,6 +321,7 @@ impl InputPacer {
         let ready = self.clock.now();
         inner(main, render);
         let handed = self.clock.now();
+        self.prepare_wait(*main.resource::<FramePacing>());
         let (update_started, delay, handed_frame, cadence, precise, gpu_ready) = {
             let mut state = self.state();
             state.handed += 1;
@@ -419,6 +383,7 @@ impl InputPacer {
 
     /// Without pipelined rendering only the cadence applies, at the end of the update.
     fn pace_unpipelined(&self, main: &World) {
+        self.prepare_wait(*main.resource::<FramePacing>());
         let (cadence, precise) = {
             let state = self.state();
             (state.cadence, state.precise)
@@ -524,8 +489,8 @@ impl Plugin for InputPacingPlugin {
     }
 }
 
-fn mark_update_start(pacer: Res<InputPacer>, pacing: Res<FramePacing>) {
-    pacer.update_started(*pacing);
+fn mark_update_start(pacer: Res<InputPacer>) {
+    pacer.update_started();
 }
 
 fn pace_unpipelined(world: &mut World) {

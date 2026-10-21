@@ -18,17 +18,19 @@ const proofPrefix = "cinnabar-api/v1/auth:"
 
 // Message types on the v1 WebSocket.
 const (
-	typeHello        = "hello"
-	typeChallenge    = "challenge"
-	typeProof        = "proof"
-	typeWelcome      = "welcome"
-	typeError        = "error"
-	typeVisibility   = "visibility"
-	typeLookup       = "lookup"
-	typeLookupResult = "lookup_result"
-	typeRelease      = "release"
-	typeEmote        = "emote"
-	typeEmoteState   = "emote_state"
+	typeHello             = "hello"
+	typeChallenge         = "challenge"
+	typeProof             = "proof"
+	typeWelcome           = "welcome"
+	typeError             = "error"
+	typeVisibility        = "visibility"
+	typeLookup            = "lookup"
+	typeLookupResult      = "lookup_result"
+	typeRelease           = "release"
+	typeEmote             = "emote"
+	typeLoadout           = "loadout"
+	typeCosmeticOwnership = "cosmetic_ownership"
+	typeEmoteState        = "emote_state"
 )
 
 // codeRateLimited is the error code for a refused lookup.
@@ -78,11 +80,15 @@ type lookupMessage struct {
 
 // inbound is the union of server messages; absent fields stay zero and unknown ones are ignored.
 type inbound struct {
-	XUID       string  `json:"xuid"`
-	UUID       string  `json:"uuid"`
-	EmoteID    *string `json:"emote_id"`
-	ElapsedMS  uint32  `json:"elapsed_ms"`
-	ValidForMS uint64  `json:"valid_for_ms"`
+	OwnedCosmetics  []string           `json:"owned_cosmetics"`
+	LoadoutRevision uint64             `json:"loadout_revision"`
+	XUID            string             `json:"xuid"`
+	UUID            string             `json:"uuid"`
+	EmoteID         *string            `json:"emote_id"`
+	Revision        uint64             `json:"revision"`
+	Slots           map[string]*string `json:"slots"`
+	ElapsedMS       uint32             `json:"elapsed_ms"`
+	ValidForMS      uint64             `json:"valid_for_ms"`
 	parameters
 	Build         uint64   `json:"build"`
 	Type          string   `json:"type"`

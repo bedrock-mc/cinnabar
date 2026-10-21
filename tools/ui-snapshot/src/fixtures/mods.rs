@@ -40,6 +40,8 @@ fn view(metadata: bool) -> Fixture {
                         authors: Some("Example Author".into()),
                         licenses: Some("MIT OR Apache-2.0".into()),
                         icon: Some(icon()),
+                        update_repository: None,
+                        update_url: None,
                     },
                 ),
                 card(

@@ -26,7 +26,7 @@ pub(super) fn draw(
     let words = disconnect::describe(error);
     let title = translated(translate, words.title.0, words.title.1);
     let body = match words.body {
-        DisconnectBody::Key(key) => translated(translate, key, key),
+        DisconnectBody::Key(key) => translated(translate, key, disconnect::body_fallback(key)),
         // Servers may send a whole lang key or embed `%` tokens, as the JSON-UI label resolved.
         DisconnectBody::Server(reason) => localized(&reason, translate).into_owned(),
     };

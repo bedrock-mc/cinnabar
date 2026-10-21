@@ -13,6 +13,7 @@ use super::fixtures::{envelope, warp_tree};
 use super::support::text;
 
 mod mentions;
+mod submission;
 
 #[test]
 fn accepted_chat_send_clears_editor_and_session_replacement_attributes_drops() {

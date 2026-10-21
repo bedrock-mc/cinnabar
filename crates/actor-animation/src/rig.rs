@@ -43,11 +43,15 @@ pub struct ActorRigSnapshot<'a> {
     pub scale: f32,
     /// Authored per-axis model scale (`scaleX`, `scaleY`, `scaleZ`) on top of `scale`.
     pub axis_scale: [f32; 3],
+    /// Authored main-hand item scale, independent of the owner's body and offhand.
+    pub held_item_scale: Option<f32>,
     /// Body yaw in degrees at the previous and current completed tick.
     pub previous_body_yaw: f32,
     pub body_yaw: f32,
     /// Texture layers the rig's render controllers select this tick, in draw order.
     pub render: &'a [RenderTextureLayer],
+    /// Indices prepared for the current appearance; absent on unbound diagnostic snapshots.
+    pub attachments: Option<&'a Arc<render_model::ActorAttachmentBindings>>,
     /// Lowercase bone names in pose order.
     pub bone_names: &'a [Box<str>],
     /// The skin model the pose drives, instead of the rig's geometry.

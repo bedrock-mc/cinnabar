@@ -6,10 +6,8 @@ use bevy::{
     render::{Render, RenderSystems, renderer::render_system},
 };
 use render_scene::RuntimeStage;
-use std::{
-    sync::Mutex,
-    time::{Duration, Instant},
-};
+use std::{sync::Mutex, time::Duration};
+use web_time::Instant;
 
 /// Upload categories count submitted transfers through queue writes or staging.
 #[derive(Clone, Copy)]

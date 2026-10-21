@@ -26,7 +26,7 @@ fn all_air_connectivity_walks_the_loaded_graph() {
     ]);
 
     let visible = cave_visible_sub_chunks(first, &graph);
-    assert_eq!(visible, [first, second, third].into());
+    assert_eq!(visible, HashSet::from([first, second, third]));
 }
 
 #[test]
@@ -43,7 +43,7 @@ fn sealed_middle_subchunk_stops_bfs_beyond_the_conservative_shell() {
     ]);
 
     let visible = cave_visible_sub_chunks(first, &graph);
-    assert_eq!(visible, [first, sealed, shell].into());
+    assert_eq!(visible, HashSet::from([first, sealed, shell]));
 }
 
 #[test]
@@ -120,7 +120,10 @@ fn missing_camera_node_falls_back_to_conservative_visibility() {
     let loaded = SubChunkKey::new(0, 0, 0, 0);
     let graph = grid([(loaded, FaceConnectivity::none())]);
 
-    assert_eq!(cave_visible_sub_chunks(camera, &graph), [loaded].into());
+    assert_eq!(
+        cave_visible_sub_chunks(camera, &graph),
+        HashSet::from([loaded])
+    );
 }
 
 #[test]
@@ -143,7 +146,7 @@ fn outdoor_camera_boundary_keeps_the_loaded_graph_continuously_visible() {
         before, after,
         "crossing an outdoor sub-chunk boundary must not hide a loaded entity for one frame"
     );
-    assert_eq!(before, graph.keys().collect());
+    assert_eq!(before, graph.keys().collect::<HashSet<_>>());
 }
 
 /// The hash-map traversal the dense grid replaced, kept verbatim as the output oracle.
@@ -358,7 +361,7 @@ fn dense_traversal_matches_the_oracle_on_random_worlds() {
         grid.retain(|key| key.x % 3 != 0);
         assert_eq!(
             grid.keys().collect::<HashSet<_>>(),
-            map.keys().copied().collect()
+            map.keys().copied().collect::<HashSet<_>>()
         );
         let camera = map
             .keys()
@@ -490,7 +493,7 @@ fn incremental_additions_keep_exactly_one_support_shell() {
     ));
     assert_eq!(
         visible.iter().collect::<HashSet<_>>(),
-        [key(0), key(1), key(2)].into()
+        HashSet::from([key(0), key(1), key(2)])
     );
     grid.insert(key(4), FaceConnectivity::all());
     assert!(!update_incrementally(
@@ -502,6 +505,91 @@ fn incremental_additions_keep_exactly_one_support_shell() {
     ));
     assert!(!visible.contains(&key(3)) && !visible.contains(&key(4)));
     assert_eq!(scratch.work.explored_exits, 0);
+}
+
+/// A camera opening only toward +x, and a path that turns back toward the camera's column.
+fn turning_back() -> (SubChunkKey, [SubChunkKey; 3], ConnectivityGrid) {
+    let key = |x, y| SubChunkKey::new(0, x, y, 0);
+    let camera = key(0, 0);
+    let path = [key(1, 0), key(1, 1), key(0, 1)];
+    let only_positive_x = FaceConnectivity::from_bits(1 << (Face::PositiveX as u64 * 7));
+    let graph = grid(
+        [(camera, only_positive_x)]
+            .into_iter()
+            .chain(path.map(|key| (key, FaceConnectivity::all()))),
+    );
+    (camera, path, graph)
+}
+
+#[test]
+fn sodium_rule_never_steps_back_toward_the_camera_and_keeps_no_shell() {
+    let (camera, [away, up, back], graph) = turning_back();
+    let mut scratch = CaveVisibilityScratch::default();
+    let mut visible = CaveVisibleSet::default();
+    fill_visible(camera, &graph, &mut scratch, &mut visible);
+    assert!(
+        visible.contains(&back),
+        "the shell rule reaches every connected node"
+    );
+
+    scratch.set_outward_only(true);
+    fill_visible(camera, &graph, &mut scratch, &mut visible);
+    assert!(scratch.built_outward_only());
+    assert_eq!(
+        visible.iter().collect::<HashSet<_>>(),
+        [camera, away, up].into(),
+        "stepping from x=1 back to the camera's x=0 is not outward"
+    );
+}
+
+#[test]
+fn sodium_rule_additions_match_a_full_rebuild_and_rule_changes_rebuild() {
+    let (camera, path, full) = turning_back();
+    let mut graph = grid([(camera, full.get(&camera).unwrap())]);
+    let mut scratch = CaveVisibilityScratch::default();
+    let mut visible = CaveVisibleSet::default();
+    let mut replacement = CaveVisibleSet::default();
+    scratch.set_outward_only(true);
+    assert!(update_incrementally(
+        camera,
+        &graph,
+        &mut scratch,
+        &mut visible,
+        &mut replacement
+    ));
+    for key in path.into_iter().rev() {
+        graph.insert(key, FaceConnectivity::all());
+        assert!(!update_incrementally(
+            camera,
+            &graph,
+            &mut scratch,
+            &mut visible,
+            &mut replacement
+        ));
+    }
+    let mut rebuilt = CaveVisibleSet::default();
+    fill_visible(
+        camera,
+        &graph,
+        &mut CaveVisibilityScratch::default(),
+        &mut rebuilt,
+    );
+    let mut expected = CaveVisibleSet::default();
+    let mut outward = CaveVisibilityScratch::default();
+    outward.set_outward_only(true);
+    fill_visible(camera, &graph, &mut outward, &mut expected);
+    assert_eq!(visible, expected);
+    assert_ne!(visible, rebuilt);
+
+    scratch.set_outward_only(false);
+    assert!(update_incrementally(
+        camera,
+        &graph,
+        &mut scratch,
+        &mut visible,
+        &mut replacement
+    ));
+    assert_eq!(visible, rebuilt);
 }
 
 #[test]

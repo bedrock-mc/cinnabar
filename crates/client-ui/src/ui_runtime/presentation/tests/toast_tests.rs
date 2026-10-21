@@ -148,7 +148,7 @@ fn join_request_toast_stands_around_server_toasts_and_takes_presses() {
         id: 7,
         title: Arc::from(title.as_str()),
         message: Arc::from(hint.as_str()),
-        press: ui::ToastPress::JoinRequests,
+        press: Some(ui::ToastPress::JoinRequests),
         since_millis: 0,
         until_millis: 30_000,
     });
@@ -174,6 +174,13 @@ fn join_request_toast_stands_around_server_toasts_and_takes_presses() {
         presentation.toast_press_at(top_middle),
         Some(ui::ToastPress::JoinRequests)
     );
+    // A developer capture (`--hide-toasts`) draws no toast and takes no press.
+    runtime.set_hide_toasts(true);
+    build(&player_runtime, &mut presentation, &runtime, 6_100);
+    let frame = super::super::forms::pack_harness::menu_nodes(&presentation);
+    assert!(!super::super::forms::pack_harness::drawn_texts(frame).contains(&title));
+    assert_eq!(presentation.toast_press_at(top_middle), None);
+    runtime.set_hide_toasts(false);
     runtime.retire_standing_toast(6_000);
     build(&player_runtime, &mut presentation, &runtime, 6_000 + 400);
     let frame = super::super::forms::pack_harness::menu_nodes(&presentation);

@@ -8,6 +8,8 @@ use crate::presentation::{actors::PoseConversions, skin_rig::SkinRigCache};
 use bevy::math::Vec3;
 use render_model::ActorCullView;
 
+mod parallel;
+
 /// Captured view facts shared by body and hand sampling.
 #[derive(Clone, Copy)]
 pub(super) struct PoseView {
@@ -22,6 +24,7 @@ pub(super) struct PoseView {
 
 /// Retained pose conversions and skin registration used while sampling bodies.
 pub(super) struct BodyCaches<'a> {
+    pub coverage: &'a [u64],
     pub poses: &'a mut PoseConversions,
     pub java_poses: &'a mut java::PoseScratch,
     pub native_pose: &'a mut hand::NativePoseCache,
@@ -62,6 +65,7 @@ pub(super) struct SampledBodies<'a> {
     pub actor_session_id: u64,
     pub dimension: i32,
     pub remotes: Vec<ActorRigPresentation>,
+    pub mask_only_runtime_ids: Vec<u64>,
     pub canonical_local: Option<ActorRigPresentation>,
     pub unrigged_actors: usize,
     pub local_emote_pose: Option<actor_animation::CustomEmotePose>,
@@ -96,6 +100,7 @@ pub(super) fn sample<'a>(
         cull_view,
     ) = view;
     let BodyCaches {
+        coverage,
         poses,
         java_poses,
         native_pose,
@@ -116,6 +121,7 @@ pub(super) fn sample<'a>(
         })
         .flatten();
     let mut native_body_sampled = false;
+    let mut mask_only_runtime_ids = Vec::new();
     let mut remote_emote_poses = bevy::platform::collections::HashMap::new();
     let mut remote_skin_layers = std::mem::take(&mut scratch.remote_skin_layers);
     remote_skin_layers.clear();
@@ -128,6 +134,7 @@ pub(super) fn sample<'a>(
                 let mut remotes = Vec::with_capacity(stream.authority().actor_count());
                 let mut canonical_local = None;
                 let mut rigged = 0;
+                let mut pending = Vec::new();
                 for rig in stream.authority().actor_rigs() {
                     rigged += 1;
                     let Some(actor) = stream.authority().actor(rig.actor.runtime_id) else {
@@ -136,12 +143,37 @@ pub(super) fn sample<'a>(
                     if actor.painting.is_some() {
                         continue;
                     }
+                    let coverage = coverage.contains(&rig.actor.runtime_id);
+                    let batch_body = !coverage
+                        && rig.actor.runtime_id != local_runtime_id
+                        && !java_mode
+                        && matches!(actor.kind, protocol::ActorKind::Player { .. })
+                        && !input.remote_emotes.iter().any(|emote| {
+                            emote.runtime_id == rig.actor.runtime_id
+                                && emote.spawn_revision == actor.spawn_revision
+                        })
+                        && render_frame.as_ref().is_some_and(|frame| {
+                            !frame.samples_during_admission(rig.actor.runtime_id)
+                        });
+                    if !batch_body {
+                        parallel::publish(
+                            &mut pending,
+                            render_frame.as_mut(),
+                            cull_view,
+                            combat_visuals,
+                            skin_rigs,
+                            equipment.as_deref_mut(),
+                            new_geometries,
+                            &mut remote_skin_layers,
+                            &mut remotes,
+                        );
+                    }
                     let mut sample_scale = |rig| {
                         render_frame
                             .as_mut()
                             .map_or(rig, |frame| frame.sample_rig_scale(rig))
                     };
-                    let rig = if rig.actor.runtime_id == local_runtime_id {
+                    let rig = if rig.actor.runtime_id == local_runtime_id || coverage {
                         sample_scale(rig)
                     } else {
                         let Some(rig) = crate::presentation::actors::sample_candidate_scale(
@@ -159,8 +191,8 @@ pub(super) fn sample<'a>(
                     let occluded = std::cell::Cell::new(false);
                     occlusion_work.candidates +=
                         u32::from(rig.actor.runtime_id != local_runtime_id);
-                    if rig.actor.runtime_id != local_runtime_id
-                        && !crate::presentation::actors::rig_may_be_visible(
+                    let visible = rig.actor.runtime_id == local_runtime_id
+                        || crate::presentation::actors::rig_may_be_visible(
                             &rig,
                             actor,
                             partial_tick,
@@ -180,8 +212,8 @@ pub(super) fn sample<'a>(
                                     hidden
                                 })
                             },
-                        )
-                    {
+                        );
+                    if !visible && !coverage {
                         occlusion_work.hidden_by_occlusion += u32::from(occluded.get());
                         continue;
                     }
@@ -253,7 +285,8 @@ pub(super) fn sample<'a>(
                                 );
                                 native_body_sampled = true;
                             }
-                            if !local
+                            if !batch_body
+                                && !local
                                 && remote_emote_pose.is_none()
                                 && !java_applied
                                 && let Some(frame) = render_frame.as_mut()
@@ -278,6 +311,14 @@ pub(super) fn sample<'a>(
                     let Some(mut presentation) = presentation else {
                         continue;
                     };
+                    if batch_body {
+                        pending.push(parallel::RemoteBody {
+                            rig,
+                            actor,
+                            presentation,
+                        });
+                        continue;
+                    }
                     if rig.actor.runtime_id != local_runtime_id {
                         let admission_rig = emote_geometry::skin_layer_snapshot(
                             rig,
@@ -288,13 +329,17 @@ pub(super) fn sample<'a>(
                                 .get(&rig.actor.runtime_id)
                                 .map(AsRef::as_ref),
                         );
-                        if !crate::presentation::actors::admit_frame_bounds(
+                        let visible_bounds = crate::presentation::actors::admit_frame_bounds(
                             &mut presentation,
                             &admission_rig,
                             cull_view,
                             render_frame.as_mut(),
-                        ) {
+                        );
+                        if !visible_bounds && !coverage {
                             continue;
+                        }
+                        if !visible || !visible_bounds {
+                            mask_only_runtime_ids.push(rig.actor.runtime_id);
                         }
                     }
                     preparation::register_player_skin(
@@ -315,6 +360,17 @@ pub(super) fn sample<'a>(
                         remotes.push(presentation);
                     }
                 }
+                parallel::publish(
+                    &mut pending,
+                    render_frame.as_mut(),
+                    cull_view,
+                    combat_visuals,
+                    skin_rigs,
+                    equipment,
+                    new_geometries,
+                    &mut remote_skin_layers,
+                    &mut remotes,
+                );
                 (
                     local_runtime_id,
                     stream.authority().actor_session_id(),
@@ -330,6 +386,7 @@ pub(super) fn sample<'a>(
         actor_session_id,
         dimension,
         remotes,
+        mask_only_runtime_ids,
         canonical_local,
         unrigged_actors,
         local_emote_pose,
@@ -340,6 +397,45 @@ pub(super) fn sample<'a>(
         occlusion: occlusion_work,
         render_frame,
     }
+}
+
+/// Reuses the animation owner's full-body preview pose for hidden local coverage.
+/// Call after first-person hand preparation so its camera-only pose remains independent.
+pub(super) fn apply_local_coverage_pose(
+    bodies: &mut SampledBodies<'_>,
+    stream: &WorldStream,
+    cache: &mut PoseConversions,
+) {
+    let id = bodies.local_runtime_id;
+    let Some(body) = bodies.canonical_local.as_mut() else {
+        return;
+    };
+    let Some(mut rig) = stream.authority().actor_rig(id) else {
+        return;
+    };
+    let Some(actor) = stream.authority().actor(id) else {
+        return;
+    };
+    let Some(pose) = stream
+        .authority()
+        .actor_ui_pose(id)
+        .filter(|pose| pose.len() == body.submission.input.current_bones.len())
+    else {
+        return;
+    };
+    rig.previous = pose;
+    rig.current = pose;
+    let Some(full) = crate::presentation::actors::actor_rig_presentation_cached(
+        &rig,
+        actor,
+        stream.authority().actor_player_profile(id),
+        1.,
+        cache,
+    ) else {
+        return;
+    };
+    body.submission.input.previous_bones = full.submission.input.previous_bones;
+    body.submission.input.current_bones = full.submission.input.current_bones;
 }
 
 /// Places the visible local body without changing the canonical pose already used by the hand.

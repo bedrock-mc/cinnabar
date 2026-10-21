@@ -1,7 +1,8 @@
 //! Per-phase wall time of one StartGame bootstrap, logged once so a join hitch inside
 //! `network_ingestion` names the phase that spent it.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 /// Phases of the bootstrap in the order it runs them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,7 +44,12 @@ impl BootstrapTimings {
     /// Charges the time since the previous mark to `phase`.
     pub(super) fn mark(&mut self, phase: BootstrapPhase) {
         let now = Instant::now();
-        self.spent[phase as usize] += now.saturating_duration_since(self.last);
+        let spent = now.saturating_duration_since(self.last);
+        if let Some(id) = bridge::join_profile::JoinProfile::current().id() {
+            bevy::log::debug!(target: "join_profile", join_profile_id = id, stage = "bootstrap_phase",
+                phase = ?phase, duration_ms = spent.as_secs_f64() * 1000.0, "join section ended");
+        }
+        self.spent[phase as usize] += spent;
         self.last = now;
     }
 
@@ -58,6 +64,7 @@ impl BootstrapTimings {
             equipment,
             presentation,
         ] = self.spent.map(ms);
+        bridge::join_profile::JoinProfile::current().mark("bootstrap_applied");
         bevy::log::info!(
             total_ms = ms(self.last.saturating_duration_since(self.started)),
             session,

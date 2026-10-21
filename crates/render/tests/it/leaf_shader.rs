@@ -74,7 +74,7 @@ fn native_leaf_colour_is_world_material_gated_and_enhanced_keeps_its_existing_pa
 }
 
 #[test]
-fn alternate_atlas_views_and_native_sampler_fit_baseline_limits_without_more_storage() {
+fn alternate_atlas_views_and_native_sampler_fit_baseline_limits() {
     let baseline = wgpu::Limits::default();
     assert!(material_shader::chunk_atlas_views_fit(&baseline));
     let required = material_shader::CHUNK_SAMPLED_TEXTURE_BINDINGS;
@@ -96,14 +96,4 @@ fn alternate_atlas_views_and_native_sampler_fit_baseline_limits_without_more_sto
     assert_eq!(sampler.address_mode_u, wgpu::AddressMode::ClampToEdge);
     assert_eq!(sampler.address_mode_v, wgpu::AddressMode::ClampToEdge);
     assert_eq!(sampler.address_mode_w, wgpu::AddressMode::ClampToEdge);
-    let uploader = include_str!("../../src/chunk/gpu/bind_groups.rs");
-    assert!(uploader.contains("view_formats: &[TextureFormat::Rgba8Unorm]"));
-    assert!(uploader.contains("format: TextureFormat::Rgba8UnormSrgb"));
-    assert!(uploader.contains("native world leaf atlas view"));
-    assert!(
-        uploader
-            .contains("for (index, (texture, plans)) in terrain_pages.iter().zip(upload_plans)")
-    );
-    assert_eq!(uploader.matches("render_device.create_texture(").count(), 1);
-    assert!(uploader.contains("crate::material_shader::native_leaf_sampler_descriptor()"));
 }

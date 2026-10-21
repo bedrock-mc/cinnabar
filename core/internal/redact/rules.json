@@ -281,7 +281,17 @@
       "name": "explicit host ports override filename exemptions",
       "input": "connect play.example.sh:19132 play.example.log:19132 localhost:9 7host:19132",
       "output": "connect [redacted] [redacted] [redacted] [redacted]"
+    },
+    {
+      "name": "plain log timestamps survive",
+      "input": "12:00:01 INFO join started\n23:59:59.123 ERROR render failed\n00:00:00 WARN retry",
+      "output": "12:00:01 INFO join started\n23:59:59.123 ERROR render failed\n00:00:00 WARN retry"
+    },
+    {
+      "name": "time-like explicit endpoints remain private",
+      "input": "target=12:34:56 endpoint=23:59:59\nconnect 12:34\n24:00:00 ERROR invalid time",
+      "output": "target=[redacted] endpoint=[redacted]\nconnect [redacted]\n[redacted]:00 ERROR invalid time"
     }
   ],
-  "timestamp": "\\b[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?(?:[Zz]|[+-][0-9]{2}:[0-9]{2})?"
+  "timestamp": "(?m)(?:\\b[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?(?:[Zz]|[+-][0-9]{2}:[0-9]{2})?|^(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]+)?(?:[ \\t]|$))"
 }

@@ -2,11 +2,19 @@
 
 use super::{MAX_IMPORT_WRITES, State, cinnabar};
 use crate::{ControlFrame, InteractionOutput, ModHost, empty_controls};
-use anyhow::{Result, bail, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use std::sync::Arc;
 use ui::mod_panel::{MAX_PANEL_BYTES, Panel, PanelBundle, PanelPatch};
 
 impl ModHost {
+    /// Queues validated native text edits for this owner's next executed frame callback.
+    pub fn queue_text_events(&mut self, events: Vec<ui::mod_panel::TextEvent>) -> Result<()> {
+        self.instance.queue_text_events(events)
+    }
+    /// Queues additive live field input for this owner's next frame callback.
+    pub fn queue_field_events(&mut self, events: Vec<ui::mod_panel::FieldEvent>) -> Result<()> {
+        self.instance.queue_field_events(events)
+    }
     /// Shares the validated local UI catalog with presentation preparation workers.
     pub fn panel_bundle(&self) -> Option<Arc<PanelBundle>> {
         self.instance.panel_bundle()
@@ -53,6 +61,9 @@ impl ModHost {
 
 pub(super) struct ControlState {
     pub frame: ControlFrame,
+    pub text_events: Vec<ui::mod_panel::TextEvent>,
+    pub field_events: Vec<ui::mod_panel::FieldEvent>,
+    text_events_in_frame: bool,
     pub panel: Option<Panel>,
     pub bundle: Option<Arc<PanelBundle>>,
     pub open: bool,
@@ -76,6 +87,9 @@ impl ControlState {
     pub fn new(settings: String) -> Self {
         Self {
             frame: empty_controls(),
+            text_events: Vec::new(),
+            field_events: Vec::new(),
+            text_events_in_frame: false,
             panel: None,
             bundle: None,
             open: false,
@@ -100,6 +114,7 @@ impl ControlState {
     }
 
     pub fn begin_frame(&mut self) {
+        self.text_events_in_frame = false;
         self.reset_budget();
         self.frame = empty_controls();
         self.interaction = InteractionOutput::default();
@@ -127,6 +142,9 @@ impl ControlState {
     }
 
     pub fn revoke(&mut self) {
+        self.text_events.clear();
+        self.field_events.clear();
+        self.text_events_in_frame = false;
         self.panel = None;
         self.open = false;
         self.keys.clear();
@@ -151,6 +169,83 @@ impl ControlState {
         }
         Ok(())
     }
+
+    /// Exposes committed native text only while a regular frame callback owns input.
+    pub(super) fn begin_text_frame(&mut self) {
+        self.text_events_in_frame = true;
+    }
+
+    /// Keeps input for a deferred frame while preventing unrelated callbacks from reading it.
+    pub(super) fn finish_text_frame(&mut self, deferred: bool) {
+        self.text_events_in_frame = false;
+        if !deferred {
+            self.text_events.clear();
+            self.field_events.clear();
+        }
+    }
+}
+
+/// Admits an entire native batch before updating its retained values or pending input.
+pub(super) fn queue_text_events(
+    state: &mut State,
+    events: Vec<ui::mod_panel::TextEvent>,
+) -> Result<()> {
+    ensure!(state.grants.controls, "controls capability denied");
+    ensure!(
+        state.controls.text_events.len() + events.len() <= ui::mod_panel::MAX_PANEL_EVENTS,
+        "too many native text events"
+    );
+    if events.is_empty() {
+        return Ok(());
+    }
+    let panel = state
+        .controls
+        .panel
+        .as_mut()
+        .context("native text events require a retained panel")?;
+    for event in &events {
+        let Some(ui::mod_panel::Control::Text {
+            min_chars,
+            max_chars,
+            ..
+        }) = panel.controls.iter().find(|c| c.id() == event.id)
+        else {
+            bail!("native text event does not match a text control");
+        };
+        ui::mod_panel::validate_text_value(&event.value, *min_chars, *max_chars)
+            .map_err(anyhow::Error::msg)?;
+    }
+    for event in &events {
+        if let Some(ui::mod_panel::Control::Text { value, .. }) =
+            panel.controls.iter_mut().find(|c| c.id() == event.id)
+        {
+            value.clone_from(&event.value);
+        }
+    }
+    state.controls.text_events.extend(events);
+    Ok(())
+}
+
+/// Reads the native text batch without changing its stable view during this callback.
+pub(super) fn read_text_events(
+    state: &mut State,
+) -> Result<Result<Vec<cinnabar::extension::input::TextEvent>, String>> {
+    state.controls.budget(true)?;
+    if !state.grants.controls {
+        return Ok(Err("controls capability denied".into()));
+    }
+    if !state.controls.text_events_in_frame {
+        return Ok(Ok(Vec::new()));
+    }
+    Ok(Ok(state
+        .controls
+        .text_events
+        .iter()
+        .map(|event| cinnabar::extension::input::TextEvent {
+            id: event.id.clone(),
+            value: event.value.clone(),
+        })
+        .collect()))
 }
 
 fn key_valid(key: &str) -> bool {
@@ -321,11 +416,10 @@ impl cinnabar::extension::panel::Host for State {
                 "panel update schema differs from the registered bundle".into(),
             ));
         }
-        let routes = self.controls.bundle.as_ref().map(|bundle| &bundle.surfaces);
-        let empty = std::collections::BTreeMap::new();
-        match PanelPatch::parse(&json)
-            .and_then(|patch| patch.apply(current, routes.unwrap_or(&empty)))
-        {
+        match PanelPatch::parse(&json).and_then(|patch| match &self.controls.bundle {
+            Some(bundle) => patch.apply_bundle(current, bundle),
+            None => patch.apply(current, &std::collections::BTreeMap::new()),
+        }) {
             Ok(panel) => {
                 self.controls.pending_panel = Some(Some(panel));
                 Ok(Ok(()))
@@ -398,5 +492,122 @@ impl State {
 }
 
 #[cfg(test)]
+#[path = "controls_collection_reveal_tests.rs"]
+mod collection_reveal_tests;
+#[cfg(test)]
 #[path = "controls_tests.rs"]
 mod tests;
+
+/// Admits a batch transactionally, retaining new values independently of deferred delivery history.
+pub(super) fn queue_field_events(
+    state: &mut State,
+    events: Vec<ui::mod_panel::FieldEvent>,
+) -> Result<()> {
+    use ui::mod_panel::{Control, FieldEvent, MAX_PANEL_EVENTS};
+    ensure!(state.grants.controls, "controls capability denied");
+    if events.is_empty() {
+        return Ok(());
+    }
+    let panel = state
+        .controls
+        .panel
+        .as_mut()
+        .context("native field events require a retained panel")?;
+    for event in &events {
+        let id = match event {
+            FieldEvent::Change(e) | FieldEvent::Submit(e) => &e.id,
+            FieldEvent::Key(e) => &e.id,
+        };
+        let Some(Control::Text {
+            min_chars,
+            max_chars,
+            live,
+            navigation_keys,
+            ..
+        }) = panel.controls.iter().find(|c| c.id() == id)
+        else {
+            bail!("native field event does not match a text control");
+        };
+        match event {
+            FieldEvent::Change(e) => {
+                ensure!(*live, "native change event requires a live field");
+                ui::mod_panel::validate_text_value(&e.value, 0, *max_chars)
+                    .map_err(anyhow::Error::msg)?;
+            }
+            FieldEvent::Submit(e) => {
+                ui::mod_panel::validate_text_value(&e.value, *min_chars, *max_chars)
+                    .map_err(anyhow::Error::msg)?;
+            }
+            FieldEvent::Key(e) => {
+                ensure!(
+                    *navigation_keys && ui::mod_panel::is_field_navigation_key(&e.key),
+                    "invalid native field navigation key"
+                );
+            }
+        }
+    }
+    let mut pending = state.controls.field_events.clone();
+    for event in &events {
+        if let FieldEvent::Change(next) = event {
+            pending.retain(|old| !matches!(old, FieldEvent::Change(old) if old.id == next.id));
+        }
+        ensure!(
+            pending.len() < MAX_PANEL_EVENTS,
+            "too many native field events"
+        );
+        pending.push(event.clone());
+    }
+    for event in &events {
+        if let FieldEvent::Change(e) | FieldEvent::Submit(e) = event
+            && let Some(Control::Text {
+                value,
+                min_chars,
+                max_chars,
+                ..
+            }) = panel.controls.iter_mut().find(|c| c.id() == e.id)
+            && ui::mod_panel::validate_text_value(&e.value, *min_chars, *max_chars).is_ok()
+        {
+            value.clone_from(&e.value);
+        }
+    }
+    state.controls.field_events = pending;
+    Ok(())
+}
+
+/// Exposes one stable field batch only in a regular frame callback with controls authority.
+pub(super) fn read_field_events(
+    state: &mut State,
+) -> Result<Result<Vec<cinnabar::extension::input::FieldEvent>, String>> {
+    use cinnabar::extension::input as abi;
+    use ui::mod_panel::FieldEvent;
+    state.controls.budget(true)?;
+    if !state.grants.controls {
+        return Ok(Err("controls capability denied".into()));
+    }
+    if !state.controls.text_events_in_frame {
+        return Ok(Ok(Vec::new()));
+    }
+    Ok(Ok(state
+        .controls
+        .field_events
+        .iter()
+        .map(|event| match event {
+            FieldEvent::Change(e) => abi::FieldEvent::Change(abi::TextEvent {
+                id: e.id.clone(),
+                value: e.value.clone(),
+            }),
+            FieldEvent::Submit(e) => abi::FieldEvent::Submit(abi::TextEvent {
+                id: e.id.clone(),
+                value: e.value.clone(),
+            }),
+            FieldEvent::Key(e) => abi::FieldEvent::Key(abi::FieldKey {
+                id: e.id.clone(),
+                key: e.key.clone(),
+                shift: e.modifiers.shift,
+                control: e.modifiers.control,
+                alt: e.modifiers.alt,
+                super_key: e.modifiers.super_key,
+            }),
+        })
+        .collect()))
+}

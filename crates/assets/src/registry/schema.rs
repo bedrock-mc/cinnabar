@@ -20,7 +20,7 @@ pub(super) const MAX_COLLISION_BOXES: usize = 7;
 
 bitflags! {
     /// Geometry, occlusion and seasonal shelter facts.
-    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
     pub struct BlockFlags: u8 {
         const AIR = 1 << 0;
         const CUBE_GEOMETRY = 1 << 1;
@@ -112,6 +112,7 @@ bitflags! {
         const CORAL = 1 << 59;
         const BLOCK_ENTITY_BACKING = 1 << 60;
         const FARMLAND = 1 << 61;
+        const CAN_CONTAIN_LIQUID_SOURCE = 1 << 62;
     }
 }
 
@@ -286,7 +287,9 @@ impl ModelFamily {
 }
 
 /// A byte-sized registry discriminator.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
 #[repr(u8)]
 pub enum ContributorRole {
     #[default]

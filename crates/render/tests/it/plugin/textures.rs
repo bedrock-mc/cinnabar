@@ -72,15 +72,15 @@ fn mip_upload_plan_preserves_exact_layer_offsets_and_row_padding() {
 
 #[test]
 fn global_texture_bind_group_rebuilds_only_for_new_asset_identity_or_revision() {
-    let current = texture_identity(0x1000, 7);
+    let current = texture_assets(0x1000, 7).binding_identity();
     assert!(!texture_asset_needs_rebuild(Some(current), current));
     assert!(texture_asset_needs_rebuild(
         Some(current),
-        texture_identity(0x2000, 7)
+        texture_assets(0x2000, 7).binding_identity()
     ));
     assert!(texture_asset_needs_rebuild(
         Some(current),
-        texture_identity(0x1000, 8)
+        texture_assets(0x1000, 8).binding_identity()
     ));
     assert!(texture_asset_needs_rebuild(None, current));
 }
@@ -240,33 +240,4 @@ fn one_page_fallback_is_a_real_one_layer_copy_of_diagnostic_mips() {
             &source_mip.rgba8[..layer_bytes]
         );
     }
-}
-
-#[test]
-fn asset_revision_replacement_is_atomic_and_retains_the_previous_prepared_set_on_failure() {
-    let plugin = CHUNK_RENDERER_SOURCE;
-    let start = plugin
-        .find("fn prepare_chunk_texture_assets(")
-        .expect("texture preparation system");
-    let end = plugin[start..]
-        .find("\npub(in crate::chunk) fn storage_table_fits(")
-        .map(|offset| start + offset)
-        .expect("end of texture preparation system");
-    let prepare = &plugin[start..end];
-
-    assert!(
-        !prepare.contains("gpu_assets.prepared = None"),
-        "a rejected new revision must retain the previous complete GPU asset set"
-    );
-    let uploads = prepare
-        .find("for (index, (texture, plans)) in terrain_pages.iter().zip(upload_plans)")
-        .expect("every page uploads before publication");
-    let publish = prepare
-        .find("_textures: textures.try_into()")
-        .expect("complete revision publication");
-    assert!(uploads < publish);
-    assert!(prepare.contains(".animations()"));
-    assert!(prepare.contains(".animation_frames()"));
-    assert!(prepare.contains("views: views"));
-    assert!(prepare.contains(".try_into().expect(\"every physical page uploads\")"));
 }

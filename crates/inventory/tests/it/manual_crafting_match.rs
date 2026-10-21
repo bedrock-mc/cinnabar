@@ -68,6 +68,7 @@ fn update(recipes: Vec<RecipeFixture>, clear: bool) -> RecipeUpdate {
     CraftingDataFixture {
         recipes,
         clear_recipes: clear,
+        ..Default::default()
     }
     .update()
 }

@@ -4,6 +4,9 @@ use assets::{
 };
 use sha2::{Digest, Sha256};
 
+#[path = "actor/inheritance.rs"]
+mod inheritance;
+
 /// Builds a single-cube geometry for UV eligibility checks.
 fn geometry(size: [f32; 3], uv: assets::EntityGeometryUv) -> assets::EntityGeometry {
     use assets::{EntityGeometryBone, EntityGeometryCube, EntityGeometryScalar as Scalar};

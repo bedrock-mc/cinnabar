@@ -325,4 +325,45 @@ fn first_open_and_recipe_replacement_refresh_crafting_output_before_publication(
         .contents
         .unwrap();
     assert_eq!(reopen.crafting.output.unwrap().1.network_id, ITEM_ID + 1);
+    let mut output_visible = true;
+    for (sequence, event, visible) in [
+        (
+            3,
+            InventoryEvent::CraftingRules(protocol::CraftingRules {
+                recipes_unlock: Some(true),
+                limited_crafting: Some(true),
+            }),
+            false,
+        ),
+        (
+            4,
+            protocol::test_support::recipes::recipe_unlock_event(0, &[]),
+            false,
+        ),
+        (
+            5,
+            protocol::test_support::recipes::recipe_unlock_event(1, &["fixture:recipe"]),
+            true,
+        ),
+        (
+            6,
+            protocol::test_support::recipes::recipe_unlock_event(3, &["fixture:recipe"]),
+            false,
+        ),
+    ] {
+        player
+            .inventory
+            .enqueue_inventory_event(1, sequence, event)
+            .unwrap();
+        player
+            .inventory
+            .synchronize_crafting_frontier(1, Some((1, 0, Some(sequence))));
+        player.inventory.drain_pending_inventory();
+        if let Some(refreshed) =
+            capture(&mut cache, &player, &runtime, &presentation, &stream).contents
+        {
+            output_visible = refreshed.crafting.output.is_some();
+        }
+        assert_eq!(output_visible, visible, "sequence {sequence}");
+    }
 }

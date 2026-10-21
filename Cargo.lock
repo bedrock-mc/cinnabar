@@ -20,7 +20,7 @@ checksum = "366ffbaa4442f4684d91e2cd7c5ea7c4ed8add41959a31447066e279e432b618"
 
 [[package]]
 name = "acceptance"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "anyhow",
  "bevy",
@@ -118,9 +118,11 @@ dependencies = [
 
 [[package]]
 name = "actor-animation"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
+ "cosmetics",
+ "criterion",
  "protocol",
  "protocol-ids",
  "rayon",
@@ -128,6 +130,8 @@ dependencies = [
  "render-model",
  "sha2",
  "simulation-clock",
+ "test-alloc",
+ "test-time",
  "tracing",
  "world",
 ]
@@ -159,13 +163,13 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "aes"
-version = "0.8.4"
+version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b169f7a6d4742236a0a00c541b845991d0ac43e546831af1249753ab4c3aa3a0"
+checksum = "35f0f96ce78e38c3dc6d8948aa8163d06385be74000f3c7a95bf1eef35d3ea32"
 dependencies = [
- "cfg-if",
  "cipher",
- "cpufeatures 0.2.17",
+ "cpubits",
+ "cpufeatures 0.3.0",
 ]
 
 [[package]]
@@ -395,8 +399,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-swap"
+version = "1.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "380962b3d93b99642e50b9febf72c071e97e8b32d86eae9cf4ef582bb960ae6e"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "architecture"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
  "cfg-expr",
@@ -450,11 +463,12 @@ dependencies = [
 
 [[package]]
 name = "asset-compiler"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
  "block-transform",
  "clap",
+ "flate2",
  "image",
  "pack-compile-input",
  "pack-compiler",
@@ -469,16 +483,18 @@ dependencies = [
  "tempfile",
  "tokio",
  "world",
+ "zip",
 ]
 
 [[package]]
 name = "assets"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "bitflags 2.13.0",
  "block-transform",
  "env-compat",
  "flate2",
+ "fontdue",
  "glam",
  "lewton",
  "png",
@@ -710,7 +726,7 @@ dependencies = [
 
 [[package]]
 name = "bedrock-replay"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "anyhow",
  "bridge",
@@ -1015,7 +1031,7 @@ dependencies = [
  "indexmap",
  "log",
  "nonmax",
- "rand",
+ "rand 0.10.2",
  "serde",
  "slotmap",
  "smallvec",
@@ -1335,7 +1351,7 @@ dependencies = [
  "derive_more",
  "glam",
  "libm",
- "rand",
+ "rand 0.10.2",
  "serde",
  "thiserror 2.0.18",
  "variadics_please",
@@ -1617,7 +1633,7 @@ dependencies = [
  "bevy_math",
  "bevy_reflect",
  "derive_more",
- "rand",
+ "rand 0.10.2",
  "rand_distr",
  "serde",
  "thiserror 2.0.18",
@@ -1841,7 +1857,7 @@ dependencies = [
 
 [[package]]
 name = "block-transform"
-version = "0.1.20"
+version = "0.1.23"
 
 [[package]]
 name = "block2"
@@ -1876,7 +1892,7 @@ dependencies = [
 
 [[package]]
 name = "bootstrap-ui"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "anyhow",
  "assets",
@@ -1917,7 +1933,7 @@ dependencies = [
 
 [[package]]
 name = "bridge"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "anyhow",
  "bytes",
@@ -1932,6 +1948,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "web-time",
 ]
 
 [[package]]
@@ -2054,9 +2071,9 @@ dependencies = [
 
 [[package]]
 name = "cap-fs-ext"
-version = "3.4.5"
+version = "3.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5528f85b1e134ae811704e41ef80930f56e795923f866813255bc342cc20654"
+checksum = "476f0d0003a760918ed4b1e039a59e11769030416f79c8222551d22785f7f70d"
 dependencies = [
  "cap-primitives",
  "cap-std",
@@ -2065,10 +2082,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "cap-primitives"
-version = "3.4.5"
+name = "cap-net-ext"
+version = "3.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6cf3aea8a5081171859ef57bc1606b1df6999df4f1110f8eef68b30098d1d3a"
+checksum = "150941cefd3df4de2fea24604ba4949371576f62e527410298333f7d431a1bc6"
+dependencies = [
+ "cap-primitives",
+ "cap-std",
+ "rustix 1.1.4",
+ "smallvec",
+]
+
+[[package]]
+name = "cap-primitives"
+version = "3.4.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e0bf07d379916947be6c4a07f43684153d710a2896c31f9e97781362895596c"
 dependencies = [
  "ambient-authority",
  "fs-set-times",
@@ -2083,15 +2112,39 @@ dependencies = [
 ]
 
 [[package]]
-name = "cap-std"
-version = "3.4.5"
+name = "cap-rand"
+version = "3.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6dc3090992a735d23219de5c204927163d922f42f575a0189b005c62d37549a"
+checksum = "6ec6a5b75f54547c579a6b117c6fdd5f04f4ab7598de747b9f440a53592b3a4a"
+dependencies = [
+ "ambient-authority",
+ "rand 0.8.8",
+]
+
+[[package]]
+name = "cap-std"
+version = "3.4.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a59e59fa26472d29680ece6a9f8ee8b0551a719a33df2f5240bde065ecbddfd7"
 dependencies = [
  "cap-primitives",
  "io-extras",
  "io-lifetimes",
  "rustix 1.1.4",
+]
+
+[[package]]
+name = "cap-time-ext"
+version = "3.4.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b54c289326c70f1c697ebf0a31842a480932e5942b5fac92fcc46e87286b48e2"
+dependencies = [
+ "ambient-authority",
+ "cap-primitives",
+ "iana-time-zone",
+ "once_cell",
+ "rustix 1.1.4",
+ "winx",
 ]
 
 [[package]]
@@ -2157,12 +2210,23 @@ checksum = "d524456ba66e72eb8b115ff89e01e497f8e6d11d78b70b1aa13c0fbd97540a81"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.3.0",
- "rand_core",
+ "rand_core 0.10.1",
+]
+
+[[package]]
+name = "chrono"
+version = "0.4.45"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
+dependencies = [
+ "iana-time-zone",
+ "num-traits",
+ "windows-link 0.2.1",
 ]
 
 [[package]]
 name = "chunk-pipeline"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "actor-animation",
  "assets",
@@ -2186,6 +2250,7 @@ dependencies = [
  "test-time",
  "thiserror 2.0.18",
  "tracing",
+ "web-time",
  "windows-sys 0.61.2",
  "world",
 ]
@@ -2219,7 +2284,7 @@ dependencies = [
 
 [[package]]
 name = "cinnabar"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "acceptance",
  "actor-animation",
@@ -2241,6 +2306,7 @@ dependencies = [
  "client-state",
  "client-ui",
  "client-world",
+ "cosmetics",
  "crash-monitor",
  "crash-report",
  "crossbeam-channel",
@@ -2254,7 +2320,7 @@ dependencies = [
  "gameplay",
  "glam",
  "image",
- "inventory 0.1.20",
+ "inventory 0.1.23",
  "json-ui",
  "launcher",
  "launcher-host",
@@ -2296,6 +2362,7 @@ dependencies = [
  "serde_json",
  "server-experience",
  "sha2",
+ "shaderpack",
  "sim",
  "simulation-clock",
  "tempfile",
@@ -2312,6 +2379,7 @@ dependencies = [
  "url",
  "uuid",
  "wat",
+ "web-time",
  "wgpu",
  "windows-sys 0.61.2",
  "winit",
@@ -2322,7 +2390,7 @@ dependencies = [
 
 [[package]]
 name = "cinnabar-android"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "anyhow",
  "assets",
@@ -2338,7 +2406,7 @@ dependencies = [
 
 [[package]]
 name = "cinnabar-cxb"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "anyhow",
  "protocol",
@@ -2355,7 +2423,7 @@ dependencies = [
 
 [[package]]
 name = "cinnabar-mcp"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "developer-control",
  "diagnostics",
@@ -2368,11 +2436,11 @@ dependencies = [
 
 [[package]]
 name = "cipher"
-version = "0.4.4"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "773f3b9af64447d2ce9850330c473515014aa235e6a783b02db81ff39e4a3dad"
+checksum = "e8cf2a2c93cd704877c0858356ed03480ff301ee950b43f1cbe4573b088bfa6c"
 dependencies = [
- "crypto-common",
+ "crypto-common 0.2.2",
  "inout",
 ]
 
@@ -2435,7 +2503,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "client-audio"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "actor-animation",
  "anyhow",
@@ -2445,7 +2513,7 @@ dependencies = [
  "client-ui",
  "client-world",
  "crossbeam-queue",
- "inventory 0.1.20",
+ "inventory 0.1.23",
  "pack-json",
  "particles",
  "player-state",
@@ -2460,6 +2528,9 @@ dependencies = [
  "simulation-clock",
  "test-alloc",
  "test-time",
+ "tokio",
+ "web-sys",
+ "web-time",
  "windows-sys 0.61.2",
  "world",
  "zip",
@@ -2467,33 +2538,37 @@ dependencies = [
 
 [[package]]
 name = "client-extensions"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "assets",
  "bevy",
  "client-state",
  "client-ui",
  "client-world",
  "fontdue",
- "inventory 0.1.20",
+ "inventory 0.1.23",
  "mod-api",
  "mod-host",
  "mod-render",
+ "mod-ui",
  "player-state",
  "protocol",
+ "render-api",
  "render-model",
  "serde",
  "serde_json",
  "server-experience",
  "sha2",
  "tempfile",
+ "tracing",
  "ui",
 ]
 
 [[package]]
 name = "client-interaction"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "actor-animation",
  "assets",
@@ -2506,7 +2581,7 @@ dependencies = [
  "client-world",
  "diagnostics",
  "gameplay",
- "inventory 0.1.20",
+ "inventory 0.1.23",
  "player-state",
  "protocol",
  "protocol-ids",
@@ -2521,7 +2596,7 @@ dependencies = [
 
 [[package]]
 name = "client-presentation"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "actor-animation",
  "anyhow",
@@ -2530,10 +2605,11 @@ dependencies = [
  "chunk-pipeline",
  "client-ui",
  "client-world",
+ "cosmetics",
  "diagnostics",
  "glam",
  "image",
- "inventory 0.1.20",
+ "inventory 0.1.23",
  "launcher",
  "meshing",
  "pack-compiler",
@@ -2563,7 +2639,7 @@ dependencies = [
 
 [[package]]
 name = "client-runtime"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "anyhow",
  "bevy",
@@ -2589,11 +2665,12 @@ dependencies = [
  "test-time",
  "tokio",
  "tracing",
+ "web-time",
 ]
 
 [[package]]
 name = "client-session"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "bridge",
  "bytes",
@@ -2601,6 +2678,7 @@ dependencies = [
  "crossbeam-channel",
  "protocol",
  "protocol-ids",
+ "render-api",
  "serde_json",
  "server-experience",
  "simulation-clock",
@@ -2611,12 +2689,13 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "web-time",
  "world",
 ]
 
 [[package]]
 name = "client-shell"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "ash",
  "assets",
@@ -2627,9 +2706,11 @@ dependencies = [
  "client-state",
  "client-ui",
  "client-world",
+ "cosmetics",
  "crossbeam-channel",
  "developer-control",
  "image",
+ "js-sys",
  "json-ui",
  "launcher",
  "launcher-host",
@@ -2653,6 +2734,8 @@ dependencies = [
  "tokio",
  "ui",
  "ui-engine",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
  "wgpu",
  "winit",
  "zip",
@@ -2660,7 +2743,7 @@ dependencies = [
 
 [[package]]
 name = "client-state"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "bevy",
  "player-state",
@@ -2671,7 +2754,7 @@ dependencies = [
 
 [[package]]
 name = "client-ui"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "actor-animation",
  "anyhow",
@@ -2680,11 +2763,13 @@ dependencies = [
  "bridge",
  "chunk-pipeline",
  "client-world",
+ "cosmetics",
  "crossbeam-channel",
  "env-compat",
  "glam",
  "image",
- "inventory 0.1.20",
+ "inventory 0.1.23",
+ "js-sys",
  "json-ui",
  "launcher",
  "launcher-host",
@@ -2694,6 +2779,7 @@ dependencies = [
  "pack-compiler",
  "pack-entity-compiler",
  "pack-json",
+ "particles",
  "player-state",
  "protocol",
  "protocol-ids",
@@ -2719,19 +2805,22 @@ dependencies = [
  "ui-screens",
  "url",
  "uuid",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-time",
  "world",
  "zip",
 ]
 
 [[package]]
 name = "client-world"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "actor-animation",
  "assets",
  "bytes",
  "hashbrown 0.16.1",
- "inventory 0.1.20",
+ "inventory 0.1.23",
  "protocol",
  "protocol-ids",
  "render-api",
@@ -2742,6 +2831,7 @@ dependencies = [
  "test-time",
  "thiserror 2.0.18",
  "tracing",
+ "web-time",
  "world",
 ]
 
@@ -2778,6 +2868,8 @@ version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af491d569909a7e4dee0ad7db7f5341fef5c614d5b8ec8cf765732aba3cff681"
 dependencies = [
+ "serde",
+ "termcolor",
  "unicode-width",
 ]
 
@@ -2963,6 +3055,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cosmetics"
+version = "0.1.23"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "cpal"
 version = "0.15.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2993,6 +3094,12 @@ checksum = "f2bb79cb74d735044c972aae58ed0aaa9a837e85b01106a54c39e42e97f62253"
 dependencies = [
  "cfg-if",
 ]
+
+[[package]]
+name = "cpubits"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15b85f9c39137c3a891689859392b1bd49812121d0d61c9caf00d46ed5ce06ae"
 
 [[package]]
 name = "cpufeatures"
@@ -3176,7 +3283,7 @@ dependencies = [
 
 [[package]]
 name = "crash-monitor"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "bootstrap-ui",
  "bytes",
@@ -3206,7 +3313,7 @@ dependencies = [
 
 [[package]]
 name = "crash-report"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "libc",
  "regex",
@@ -3339,6 +3446,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "crypto-common"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce6e4c961d6cd6c9a86db418387425e8bdeaf05b3c8bc1411e6dca4c252f1453"
+dependencies = [
+ "hybrid-array",
+]
+
+[[package]]
 name = "csv"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3444,7 +3560,7 @@ dependencies = [
 
 [[package]]
 name = "developer-control"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "crossbeam-channel",
  "mio",
@@ -3456,7 +3572,7 @@ dependencies = [
 
 [[package]]
 name = "devtool"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "crash-report",
  "csv",
@@ -3474,6 +3590,7 @@ dependencies = [
  "test-assembler",
  "thiserror 2.0.18",
  "tokio",
+ "toml 0.9.12+spec-1.1.0",
  "wait-timeout",
  "wholesym",
  "workspace-declarations",
@@ -3482,7 +3599,7 @@ dependencies = [
 
 [[package]]
 name = "diagnostics"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "android_log-sys",
  "assets",
@@ -3505,6 +3622,7 @@ dependencies = [
  "tracing-error",
  "tracing-log",
  "tracing-subscriber",
+ "web-time",
  "windows-sys 0.61.2",
  "world",
 ]
@@ -3516,7 +3634,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
  "block-buffer",
- "crypto-common",
+ "crypto-common 0.1.7",
 ]
 
 [[package]]
@@ -3600,7 +3718,7 @@ checksum = "c9c272297e804878a2a4b707cfcfc6d2328b5bb936944613b4fdf2b9269afdfd"
 
 [[package]]
 name = "dist-local"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
  "same-file",
@@ -3747,7 +3865,7 @@ dependencies = [
 
 [[package]]
 name = "env-compat"
-version = "0.1.20"
+version = "0.1.23"
 
 [[package]]
 name = "equivalent"
@@ -3823,14 +3941,14 @@ dependencies = [
 
 [[package]]
 name = "experience-probe"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "experience-sdk",
 ]
 
 [[package]]
 name = "experience-runtime"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "anyhow",
  "serde",
@@ -3846,7 +3964,7 @@ dependencies = [
 
 [[package]]
 name = "experience-sdk"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "serde",
  "serde_json",
@@ -3856,7 +3974,7 @@ dependencies = [
 
 [[package]]
 name = "experience-terminal-client"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "experience-sdk",
  "serde_json",
@@ -3876,7 +3994,7 @@ checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
 
 [[package]]
 name = "far-terrain"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
  "criterion",
@@ -3889,6 +4007,7 @@ dependencies = [
  "test-time",
  "thiserror 2.0.18",
  "tracing",
+ "web-time",
  "world",
  "xxhash-rust",
 ]
@@ -3898,6 +4017,17 @@ name = "fastrand"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
+
+[[package]]
+name = "fd-lock"
+version = "4.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ce92ff622d6dadf7349484f42c93271a0d49b7cc4d466a936405bacbe10aa78"
+dependencies = [
+ "cfg-if",
+ "rustix 1.1.4",
+ "windows-sys 0.59.0",
+]
 
 [[package]]
 name = "fdeflate"
@@ -3916,7 +4046,7 @@ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
 name = "first-run"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "anyhow",
  "assets",
@@ -4168,14 +4298,15 @@ dependencies = [
 
 [[package]]
 name = "gameplay"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "actor-animation",
  "assets",
  "block-transform",
  "client-world",
  "env-compat",
- "inventory 0.1.20",
+ "inventory 0.1.23",
+ "meshing",
  "player-state",
  "protocol",
  "protocol-ids",
@@ -4189,6 +4320,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "web-time",
  "world",
 ]
 
@@ -4261,7 +4393,7 @@ dependencies = [
  "js-sys",
  "libc",
  "r-efi 6.0.0",
- "rand_core",
+ "rand_core 0.10.1",
  "wasm-bindgen",
 ]
 
@@ -4360,7 +4492,7 @@ dependencies = [
  "bytemuck",
  "encase",
  "libm",
- "rand",
+ "rand 0.10.2",
  "serde_core",
 ]
 
@@ -4500,7 +4632,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "hello-mod"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "mod-api",
 ]
@@ -4568,6 +4700,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
+name = "hybrid-array"
+version = "0.4.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27f864f10dfb56725ce5ce5472bc52252c8f93a4ab86327122cebf62c5f59a17"
+dependencies = [
+ "typenum",
+]
+
+[[package]]
 name = "hyper"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4624,6 +4765,30 @@ dependencies = [
  "tokio",
  "tower-service",
  "tracing",
+]
+
+[[package]]
+name = "iana-time-zone"
+version = "0.1.65"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e31bc9ad994ba00e440a8aa5c9ef0ec67d5cb5e5cb0cc7f8b744a35b389cc470"
+dependencies = [
+ "android_system_properties",
+ "core-foundation-sys",
+ "iana-time-zone-haiku",
+ "js-sys",
+ "log",
+ "wasm-bindgen",
+ "windows-core 0.62.2",
+]
+
+[[package]]
+name = "iana-time-zone-haiku"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f31827a206f56af32e590ba56d5d2d085f558508192593743f16b2306495269f"
+dependencies = [
+ "cc",
 ]
 
 [[package]]
@@ -4786,11 +4951,11 @@ dependencies = [
 
 [[package]]
 name = "inout"
-version = "0.1.4"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "879f10e63c20629ecabbb64a8010319738c66a5cd0c29b02d63d272b03751d01"
+checksum = "3ce983bb6fb399067d101fbfc9e74174e07e9f29a2bc679efefeb8c645819c3f"
 dependencies = [
- "generic-array",
+ "hybrid-array",
 ]
 
 [[package]]
@@ -4804,7 +4969,7 @@ dependencies = [
 
 [[package]]
 name = "inventory"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
  "bytes",
@@ -4985,7 +5150,7 @@ dependencies = [
 
 [[package]]
 name = "json-ui"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "pack-json",
  "serde",
@@ -4996,7 +5161,7 @@ dependencies = [
 
 [[package]]
 name = "jsonui-editor"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
  "image",
@@ -5013,7 +5178,7 @@ dependencies = [
 
 [[package]]
 name = "jsonui-mcp"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "image",
  "json-ui",
@@ -5060,10 +5225,11 @@ dependencies = [
 
 [[package]]
 name = "launcher"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
  "bridge",
+ "cosmetics",
  "json-ui",
  "render-api",
  "resource-pack",
@@ -5071,6 +5237,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "shaderpack",
  "thiserror 2.0.18",
  "ui",
  "update-manifest",
@@ -5079,11 +5246,12 @@ dependencies = [
 
 [[package]]
 name = "launcher-host"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "anyhow",
  "async-io",
  "bridge",
+ "cosmetics",
  "crash-handler",
  "crash-report",
  "crossbeam-channel",
@@ -5121,6 +5289,12 @@ name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
+
+[[package]]
+name = "leb128"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c83bff1d572d6b9aeef67ddfc8448e4a3737909cb28e81f97c791b9018703e52"
 
 [[package]]
 name = "leb128fmt"
@@ -5457,7 +5631,7 @@ checksum = "4facc753ae494aeb6e3c22f839b158aebd4f9270f55cd3c79906c45476c47ab4"
 
 [[package]]
 name = "mcp-stdio"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "serde_json",
 ]
@@ -5497,7 +5671,7 @@ dependencies = [
 
 [[package]]
 name = "meshing"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
  "block-transform",
@@ -5717,21 +5891,28 @@ dependencies = [
 
 [[package]]
 name = "mod-api"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
+ "render-api",
+ "serde",
+ "serde_json",
  "wit-bindgen",
 ]
 
 [[package]]
 name = "mod-host"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "anyhow",
+ "assets",
+ "bytes",
+ "chrono",
  "criterion",
  "experience-sdk",
  "mod-api",
  "mod-render",
  "png",
+ "render-api",
  "rustix 1.1.4",
  "serde",
  "serde_json",
@@ -5740,10 +5921,14 @@ dependencies = [
  "tempfile",
  "test-alloc",
  "test-time",
+ "tokio",
+ "tracing",
  "ui",
+ "wasi-preview1-component-adapter-provider",
  "wasm-metadata",
  "wasmparser 0.247.0",
  "wasmtime",
+ "wasmtime-wasi",
  "wat",
  "windows-sys 0.61.2",
  "wit-component",
@@ -5752,16 +5937,17 @@ dependencies = [
 
 [[package]]
 name = "mod-render"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "bytemuck",
  "mod-api",
  "naga",
+ "test-alloc",
 ]
 
 [[package]]
 name = "mod-ui"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
  "glam",
@@ -5769,6 +5955,7 @@ dependencies = [
  "render-model",
  "serde_json",
  "server-experience",
+ "test-alloc",
  "tracing",
  "ui",
  "ui-engine",
@@ -5809,7 +5996,7 @@ checksum = "bc0287524726960e07b119cebd01678f852f147742ae0d925e6a520dca956126"
 [[package]]
 name = "naga"
 version = "30.0.1"
-source = "git+https://github.com/bedrock-mc/wgpu?rev=892de142a078784c58b2531c15d7ace97a851157#892de142a078784c58b2531c15d7ace97a851157"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=241cdd04a413ce5dc8547d7f4693297e403d40f3#241cdd04a413ce5dc8547d7f4693297e403d40f3"
 dependencies = [
  "arrayvec",
  "bit-set",
@@ -5825,6 +6012,7 @@ dependencies = [
  "naga-types",
  "num-traits",
  "once_cell",
+ "pp-rs",
  "rustc-hash 1.1.0",
  "spirv",
  "thiserror 2.0.18",
@@ -5834,7 +6022,7 @@ dependencies = [
 [[package]]
 name = "naga-types"
 version = "30.0.1"
-source = "git+https://github.com/bedrock-mc/wgpu?rev=892de142a078784c58b2531c15d7ace97a851157#892de142a078784c58b2531c15d7ace97a851157"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=241cdd04a413ce5dc8547d7f4693297e403d40f3#241cdd04a413ce5dc8547d7f4693297e403d40f3"
 dependencies = [
  "hashbrown 0.17.1",
  "indexmap",
@@ -6500,10 +6688,11 @@ dependencies = [
 
 [[package]]
 name = "oreui"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
  "bridge",
+ "cosmetics",
  "image",
  "launcher",
  "protocol",
@@ -6541,7 +6730,7 @@ dependencies = [
 
 [[package]]
 name = "pack-compile-input"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
  "image",
@@ -6554,7 +6743,7 @@ dependencies = [
 
 [[package]]
 name = "pack-compiler"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
  "cap-fs-ext",
@@ -6571,13 +6760,14 @@ dependencies = [
 
 [[package]]
 name = "pack-entity-compiler"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
  "image",
  "pack-compile-input",
  "pack-compiler",
  "pack-json",
+ "rayon",
  "serde",
  "serde_json",
  "sha2",
@@ -6587,7 +6777,7 @@ dependencies = [
 
 [[package]]
 name = "pack-font-compiler"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
  "cap-fs-ext",
@@ -6604,7 +6794,7 @@ dependencies = [
 
 [[package]]
 name = "pack-json"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "serde",
  "serde_json",
@@ -6612,22 +6802,27 @@ dependencies = [
 
 [[package]]
 name = "pack-runtime"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
  "block-transform",
+ "bridge",
+ "flate2",
  "image",
  "json-ui",
  "pack-compile-input",
  "pack-entity-compiler",
  "pack-json",
+ "postcard",
  "protocol",
  "rayon",
  "resource-pack",
+ "serde",
  "serde_json",
  "sha2",
  "sim",
  "tempfile",
+ "test-alloc",
  "thiserror 2.0.18",
  "tracing",
  "zip",
@@ -6674,7 +6869,7 @@ dependencies = [
 
 [[package]]
 name = "particles"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
  "bytemuck",
@@ -6796,10 +6991,10 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "player-state"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "client-world",
- "inventory 0.1.20",
+ "inventory 0.1.23",
 ]
 
 [[package]]
@@ -6870,6 +7065,23 @@ name = "powerfmt"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
+
+[[package]]
+name = "pp-rs"
+version = "0.2.1"
+source = "git+https://github.com/cinnabar-mc/glslpp-rs?rev=2032a88999c95c6ca0b397758dc97930089a6608#2032a88999c95c6ca0b397758dc97930089a6608"
+dependencies = [
+ "unicode-xid",
+]
+
+[[package]]
+name = "ppv-lite86"
+version = "0.2.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
+dependencies = [
+ "zerocopy",
+]
 
 [[package]]
 name = "presser"
@@ -7039,7 +7251,7 @@ dependencies = [
 
 [[package]]
 name = "protocol"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "anyhow",
  "base64",
@@ -7063,13 +7275,14 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "web-time",
  "xxhash-rust",
  "zeroize",
 ]
 
 [[package]]
 name = "protocol-ids"
-version = "0.1.20"
+version = "0.1.23"
 
 [[package]]
 name = "pulley-interpreter"
@@ -7138,7 +7351,7 @@ dependencies = [
  "bytes",
  "getrandom 0.4.3",
  "lru-slab",
- "rand",
+ "rand 0.10.2",
  "rand_pcg",
  "ring",
  "rustc-hash 2.1.3",
@@ -7214,13 +7427,43 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "rand"
+version = "0.8.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e058c7de0b26af77780c769414d6257830bb240f3c38477dbc2c16e5f54d6d4c"
+dependencies = [
+ "libc",
+ "rand_chacha",
+ "rand_core 0.6.4",
+]
+
+[[package]]
+name = "rand"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c7f5fa3a058cd35567ef9bfa5e75732bee0f9e4c55fa90477bef2dfcdbc4be80"
 dependencies = [
  "chacha20",
  "getrandom 0.4.3",
- "rand_core",
+ "rand_core 0.10.1",
+]
+
+[[package]]
+name = "rand_chacha"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6c10a63a0fa32252be49d21e7709d4d4baf8d231c2dbce1eaa8141b9b127d88"
+dependencies = [
+ "ppv-lite86",
+ "rand_core 0.6.4",
+]
+
+[[package]]
+name = "rand_core"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
+dependencies = [
+ "getrandom 0.2.17",
 ]
 
 [[package]]
@@ -7236,7 +7479,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4d431c2703ccf129de4d45253c03f49ebb22b97d6ad79ee3ecfc7e3f4862c1d8"
 dependencies = [
  "num-traits",
- "rand",
+ "rand 0.10.2",
 ]
 
 [[package]]
@@ -7245,7 +7488,7 @@ version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "caa0f4137e1c0a72f4c651489402276c8e8e1cf081f3b0ba156d2cbeef09e86a"
 dependencies = [
- "rand_core",
+ "rand_core 0.10.1",
 ]
 
 [[package]]
@@ -7436,7 +7679,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "release-manifest"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "base64",
  "serde_json",
@@ -7448,12 +7691,13 @@ dependencies = [
 
 [[package]]
 name = "render"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
  "bevy",
  "block-transform",
  "bytemuck",
+ "criterion",
  "env-compat",
  "far-terrain",
  "glam",
@@ -7468,16 +7712,19 @@ dependencies = [
  "objc2-quartz-core 0.3.2",
  "pack-compiler",
  "particles",
+ "png",
  "rayon",
  "render-api",
  "render-model",
  "render-scene",
  "serde_json",
  "sha2",
+ "shaderpack",
  "tempfile",
  "test-alloc",
  "test-time",
  "tracy-client",
+ "web-time",
  "wesl",
  "wgpu",
  "windows-sys 0.61.2",
@@ -7486,15 +7733,16 @@ dependencies = [
 
 [[package]]
 name = "render-api"
-version = "0.1.20"
+version = "0.1.23"
 
 [[package]]
 name = "render-model"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
  "block-transform",
  "bytemuck",
+ "cosmetics",
  "foldhash 0.2.0",
  "glam",
  "hashbrown 0.16.1",
@@ -7503,6 +7751,7 @@ dependencies = [
  "pack-compiler",
  "pack-entity-compiler",
  "render-api",
+ "serde",
  "serde_json",
  "sha2",
  "simulation-clock",
@@ -7514,14 +7763,14 @@ dependencies = [
 
 [[package]]
 name = "render-sample-mod"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "mod-api",
 ]
 
 [[package]]
 name = "render-scene"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
  "bevy",
@@ -7543,6 +7792,7 @@ dependencies = [
  "test-alloc",
  "test-time",
  "tracy-client",
+ "web-time",
  "world",
 ]
 
@@ -7595,22 +7845,25 @@ dependencies = [
 
 [[package]]
 name = "resource-pack"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "aes",
  "pack-json",
  "protocol",
+ "rayon",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.18",
  "uuid",
  "zeroize",
  "zip",
+ "zip-footer",
 ]
 
 [[package]]
 name = "rich-presence"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "crossbeam-channel",
  "discord-presence",
@@ -7858,7 +8111,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "screen-probe-mod"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "experience-sdk",
  "mod-api",
@@ -7919,7 +8172,7 @@ dependencies = [
 
 [[package]]
 name = "semantic-input"
-version = "0.1.20"
+version = "0.1.23"
 
 [[package]]
 name = "semver"
@@ -8014,7 +8267,7 @@ dependencies = [
 
 [[package]]
 name = "server-experience"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "anyhow",
  "dav1d",
@@ -8056,6 +8309,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "shaderpack"
+version = "0.1.23"
+dependencies = [
+ "assets",
+ "naga",
+ "pp-rs",
+ "rayon",
+ "serde_json",
+ "tempfile",
+ "zip",
+ "zip-footer",
+]
+
+[[package]]
 name = "sharded-slab"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8088,7 +8355,7 @@ dependencies = [
 
 [[package]]
 name = "sim"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
  "block-transform",
@@ -8126,7 +8393,7 @@ checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
 name = "simulation-clock"
-version = "0.1.20"
+version = "0.1.23"
 
 [[package]]
 name = "slab"
@@ -8348,6 +8615,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "system-interface"
+version = "0.27.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc4592f674ce18521c2a81483873a49596655b179f71c5e05d10c1fe66c78745"
+dependencies = [
+ "bitflags 2.13.0",
+ "cap-fs-ext",
+ "cap-std",
+ "fd-lock",
+ "io-lifetimes",
+ "rustix 0.38.44",
+ "windows-sys 0.59.0",
+ "winx",
+]
+
+[[package]]
 name = "target-lexicon"
 version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8377,7 +8660,7 @@ dependencies = [
 
 [[package]]
 name = "test-alloc"
-version = "0.1.20"
+version = "0.1.23"
 
 [[package]]
 name = "test-assembler"
@@ -8390,7 +8673,7 @@ dependencies = [
 
 [[package]]
 name = "test-time"
-version = "0.1.20"
+version = "0.1.23"
 
 [[package]]
 name = "thiserror"
@@ -8457,7 +8740,7 @@ dependencies = [
 
 [[package]]
 name = "time-changer-mod"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "mod-api",
 ]
@@ -8942,7 +9225,7 @@ dependencies = [
 
 [[package]]
 name = "ui"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
  "criterion",
@@ -8958,7 +9241,7 @@ dependencies = [
 
 [[package]]
 name = "ui-engine"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
  "crossbeam-channel",
@@ -8979,19 +9262,21 @@ dependencies = [
 
 [[package]]
 name = "ui-screens"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
- "actor-animation",
  "assets",
  "bridge",
+ "cosmetics",
  "image",
- "inventory 0.1.20",
+ "inventory 0.1.23",
  "json-ui",
  "launcher",
  "player-state",
  "protocol",
+ "render-api",
  "render-model",
  "resource-pack",
+ "semantic-input",
  "serde_json",
  "tracing",
  "ui",
@@ -9001,19 +9286,26 @@ dependencies = [
 
 [[package]]
 name = "ui-snapshot"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
+ "bridge",
+ "client-ui",
+ "cosmetics",
  "image",
- "inventory 0.1.20",
+ "inventory 0.1.23",
  "json-ui",
  "jsonui-editor",
  "launcher",
+ "mod-ui",
  "oreui",
  "player-state",
  "protocol",
+ "render-api",
  "render-model",
+ "resource-pack",
  "serde_json",
+ "shaderpack",
  "tempfile",
  "tracing-subscriber",
  "ui",
@@ -9064,7 +9356,7 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "update-installer"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "anyhow",
  "rustix 1.1.4",
@@ -9078,7 +9370,7 @@ dependencies = [
 
 [[package]]
 name = "update-manifest"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "base64",
  "ring",
@@ -9193,6 +9485,12 @@ name = "wasi"
 version = "0.11.1+wasi-snapshot-preview1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
+
+[[package]]
+name = "wasi-preview1-component-adapter-provider"
+version = "36.0.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b27d58d8b0ad45b3b78b84878b587be08888f8591bd99403cadacea40dd031b6"
 
 [[package]]
 name = "wasip2"
@@ -9369,6 +9667,7 @@ checksum = "1edc1374519a6d4c3eb99e0598f2ce069e6feb63de65bed7d0240a5f84b58c3b"
 dependencies = [
  "addr2line 0.25.1",
  "anyhow",
+ "async-trait",
  "bitflags 2.13.0",
  "bumpalo",
  "cc",
@@ -9598,6 +9897,61 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasmtime-wasi"
+version = "36.0.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20d7de002fbde807a38b0a7dc9e85103ca1652281c3af4d72a9572b88ad7d94c"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bitflags 2.13.0",
+ "bytes",
+ "cap-fs-ext",
+ "cap-net-ext",
+ "cap-rand",
+ "cap-std",
+ "cap-time-ext",
+ "fs-set-times",
+ "futures",
+ "io-extras",
+ "io-lifetimes",
+ "rustix 1.1.4",
+ "rustix-linux-procfs",
+ "system-interface",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "url",
+ "wasmtime",
+ "wasmtime-wasi-io",
+ "wiggle",
+ "windows-sys 0.60.2",
+ "winx",
+]
+
+[[package]]
+name = "wasmtime-wasi-io"
+version = "36.0.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3fca974fb40fd0f57293bfcbd3fb7871e5c3b6107b204ff6a17b3dfad077d73"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bytes",
+ "futures",
+ "wasmtime",
+]
+
+[[package]]
+name = "wast"
+version = "35.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ef140f1b49946586078353a453a1d28ba90adfc54dde75710bc1931de204d68"
+dependencies = [
+ "leb128",
+]
+
+[[package]]
 name = "wast"
 version = "260.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9616,7 +9970,7 @@ version = "1.260.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f56de9341c410d04121da51dd16c11d095cb6a914bd2b2850cd3c60558c0c15"
 dependencies = [
- "wast",
+ "wast 260.0.0",
 ]
 
 [[package]]
@@ -9740,16 +10094,27 @@ dependencies = [
 
 [[package]]
 name = "web-client"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "assets",
  "bridge",
+ "cinnabar",
+ "client-audio",
+ "client-session",
+ "console_error_panic_hook",
  "futures",
  "js-sys",
+ "launcher",
+ "protocol",
  "semantic-input",
+ "serde",
  "serde_json",
+ "tempfile",
+ "tokio",
+ "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "web-sys",
  "web-transport",
 ]
 
@@ -9787,12 +10152,13 @@ dependencies = [
 
 [[package]]
 name = "web-transport"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "bridge",
  "bytes",
  "futures",
  "js-sys",
+ "serde",
  "serde_json",
  "tokio",
  "tokio-util",
@@ -9859,7 +10225,7 @@ dependencies = [
 [[package]]
 name = "wgpu"
 version = "30.0.1"
-source = "git+https://github.com/bedrock-mc/wgpu?rev=892de142a078784c58b2531c15d7ace97a851157#892de142a078784c58b2531c15d7ace97a851157"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=241cdd04a413ce5dc8547d7f4693297e403d40f3#241cdd04a413ce5dc8547d7f4693297e403d40f3"
 dependencies = [
  "arrayvec",
  "bitflags 2.13.0",
@@ -9870,6 +10236,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "js-sys",
  "log",
+ "naga",
  "portable-atomic",
  "profiling",
  "raw-window-handle",
@@ -9886,7 +10253,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core"
 version = "30.0.1"
-source = "git+https://github.com/bedrock-mc/wgpu?rev=892de142a078784c58b2531c15d7ace97a851157#892de142a078784c58b2531c15d7ace97a851157"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=241cdd04a413ce5dc8547d7f4693297e403d40f3#241cdd04a413ce5dc8547d7f4693297e403d40f3"
 dependencies = [
  "arrayvec",
  "bit-set",
@@ -9919,7 +10286,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-apple"
 version = "30.0.1"
-source = "git+https://github.com/bedrock-mc/wgpu?rev=892de142a078784c58b2531c15d7ace97a851157#892de142a078784c58b2531c15d7ace97a851157"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=241cdd04a413ce5dc8547d7f4693297e403d40f3#241cdd04a413ce5dc8547d7f4693297e403d40f3"
 dependencies = [
  "wgpu-hal",
 ]
@@ -9927,7 +10294,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-emscripten"
 version = "30.0.1"
-source = "git+https://github.com/bedrock-mc/wgpu?rev=892de142a078784c58b2531c15d7ace97a851157#892de142a078784c58b2531c15d7ace97a851157"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=241cdd04a413ce5dc8547d7f4693297e403d40f3#241cdd04a413ce5dc8547d7f4693297e403d40f3"
 dependencies = [
  "wgpu-hal",
 ]
@@ -9935,7 +10302,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-windows-linux-android"
 version = "30.0.1"
-source = "git+https://github.com/bedrock-mc/wgpu?rev=892de142a078784c58b2531c15d7ace97a851157#892de142a078784c58b2531c15d7ace97a851157"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=241cdd04a413ce5dc8547d7f4693297e403d40f3#241cdd04a413ce5dc8547d7f4693297e403d40f3"
 dependencies = [
  "wgpu-hal",
 ]
@@ -9943,7 +10310,7 @@ dependencies = [
 [[package]]
 name = "wgpu-hal"
 version = "30.0.1"
-source = "git+https://github.com/bedrock-mc/wgpu?rev=892de142a078784c58b2531c15d7ace97a851157#892de142a078784c58b2531c15d7ace97a851157"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=241cdd04a413ce5dc8547d7f4693297e403d40f3#241cdd04a413ce5dc8547d7f4693297e403d40f3"
 dependencies = [
  "android_system_properties",
  "arrayvec",
@@ -9998,7 +10365,7 @@ dependencies = [
 [[package]]
 name = "wgpu-naga-bridge"
 version = "30.0.1"
-source = "git+https://github.com/bedrock-mc/wgpu?rev=892de142a078784c58b2531c15d7ace97a851157#892de142a078784c58b2531c15d7ace97a851157"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=241cdd04a413ce5dc8547d7f4693297e403d40f3#241cdd04a413ce5dc8547d7f4693297e403d40f3"
 dependencies = [
  "naga",
  "wgpu-types",
@@ -10007,7 +10374,7 @@ dependencies = [
 [[package]]
 name = "wgpu-types"
 version = "30.0.1"
-source = "git+https://github.com/bedrock-mc/wgpu?rev=892de142a078784c58b2531c15d7ace97a851157#892de142a078784c58b2531c15d7ace97a851157"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=241cdd04a413ce5dc8547d7f4693297e403d40f3#241cdd04a413ce5dc8547d7f4693297e403d40f3"
 dependencies = [
  "bitflags 2.13.0",
  "bytemuck",
@@ -10073,6 +10440,47 @@ dependencies = [
  "uuid",
  "yoke",
  "yoke-derive",
+]
+
+[[package]]
+name = "wiggle"
+version = "36.0.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a261b3cdd7fa86e21f7a6adfb4adeb4987dac21ec6a9fd60d56a6775650d720b"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bitflags 2.13.0",
+ "thiserror 2.0.18",
+ "tracing",
+ "wasmtime",
+ "wiggle-macro",
+]
+
+[[package]]
+name = "wiggle-generate"
+version = "36.0.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51a8a72eeac76e8838c54ef1ac1980c14a54006b111632ea9b141033082beb2f"
+dependencies = [
+ "anyhow",
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
+ "witx",
+]
+
+[[package]]
+name = "wiggle-macro"
+version = "36.0.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "03425f7576c84f396774e2ea6cab619b277ad0b23cd416ebf15f56f6db7f50b1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
+ "wiggle-generate",
 ]
 
 [[package]]
@@ -10772,6 +11180,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "witx"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e366f27a5cabcddb2706a78296a40b8fcc451e1a6aba2fc1d94b4a01bdaaef4b"
+dependencies = [
+ "anyhow",
+ "log",
+ "thiserror 1.0.69",
+ "wast 35.0.2",
+]
+
+[[package]]
 name = "wl-clipboard-rs"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10791,11 +11211,11 @@ dependencies = [
 
 [[package]]
 name = "workspace-declarations"
-version = "0.1.20"
+version = "0.1.23"
 
 [[package]]
 name = "world"
-version = "0.1.20"
+version = "0.1.23"
 dependencies = [
  "criterion",
  "hashbrown 0.16.1",
@@ -11067,6 +11487,14 @@ dependencies = [
  "indexmap",
  "memchr",
  "typed-path",
+]
+
+[[package]]
+name = "zip-footer"
+version = "0.1.23"
+dependencies = [
+ "thiserror 2.0.18",
+ "zip",
 ]
 
 [[package]]

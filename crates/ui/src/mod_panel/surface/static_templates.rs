@@ -368,6 +368,8 @@ mod tests {
     /// Builds a caller-owned local document for structural validation.
     fn surface(document: Value) -> Surface {
         Surface {
+            collections: Default::default(),
+            previews: Default::default(),
             transitions: Default::default(),
             screen: "local.root".into(),
             document: document.to_string(),
@@ -406,11 +408,20 @@ mod tests {
     }
     #[test]
     fn expanded_tree_budget_counts_repeated_templates() {
-        let leaf = serde_json::json!({"type":"panel","controls":(0..30).map(|i|serde_json::json!({format!("leaf{i}"):{"type":"panel"}})).collect::<Vec<_>>()});
-        let children = (0..34)
-            .map(|i| serde_json::json!({format!("instance{i}@local.template"): {}}))
-            .collect::<Vec<_>>();
-        assert!(surface(serde_json::json!({"namespace":"local","template":leaf,"root":{"type":"panel","controls":children}})).validate().is_err());
+        const LEAVES: usize = 30;
+        let leaf = serde_json::json!({"type":"panel","controls":(0..LEAVES).map(|i|serde_json::json!({format!("leaf{i}"):{"type":"panel"}})).collect::<Vec<_>>()});
+        let maximum = (MAX_SURFACE_NODES - 1) / (LEAVES + 1);
+        for instances in [maximum, maximum + 1] {
+            let children = (0..instances)
+                .map(|i| serde_json::json!({format!("instance{i}@local.template"): {}}))
+                .collect::<Vec<_>>();
+            let result = surface(serde_json::json!({"namespace":"local","template":leaf,"root":{"type":"panel","controls":children}})).validate();
+            assert_eq!(
+                result.is_ok(),
+                instances == maximum,
+                "{instances} instances: {result:?}"
+            );
+        }
     }
     #[test]
     fn large_literal_template_replication_is_rejected_before_materialization() {

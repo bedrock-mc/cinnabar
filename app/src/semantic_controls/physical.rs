@@ -16,6 +16,7 @@ use semantic_input::{
 };
 
 use crate::camera::mouse_input_active;
+mod ordered;
 use {
     super::{SemanticInputRuntime, SemanticTouchTargets},
     client_state::SemanticInputSnapshot,
@@ -28,6 +29,13 @@ pub(crate) struct PendingDeviceFrame {
     ignored_touches: u64,
 }
 
+impl PendingDeviceFrame {
+    /// Replaces the current platform sample before the common semantic router runs.
+    pub(crate) fn replace(&mut self, frame: DeviceFrame) {
+        self.frame = Some(frame);
+    }
+}
+
 #[derive(Resource, Debug, Default)]
 pub(crate) struct SemanticRouteState {
     routed: bool,
@@ -35,7 +43,7 @@ pub(crate) struct SemanticRouteState {
 
 #[derive(SystemParam)]
 pub(crate) struct SemanticPhysicalInputs<'w, 's> {
-    window: Single<'w, 's, (&'static Window, &'static CursorOptions), With<PrimaryWindow>>,
+    window: Single<'w, 's, (Entity, &'static Window, &'static CursorOptions), With<PrimaryWindow>>,
     keys: Res<'w, ButtonInput<KeyCode>>,
     mouse_buttons: Res<'w, ButtonInput<MouseButton>>,
     mouse_motion: Res<'w, AccumulatedMouseMotion>,
@@ -44,14 +52,22 @@ pub(crate) struct SemanticPhysicalInputs<'w, 's> {
     touch_targets: ResMut<'w, SemanticTouchTargets>,
     focus: Option<Res<'w, client_state::CursorFocus>>,
     driven: Option<Res<'w, client_state::DrivenInput>>,
+    reserved: Option<Res<'w, crate::semantic_controls::ReservedControls>>,
 }
 
 pub(crate) fn collect_raw_input(
     inputs: SemanticPhysicalInputs,
     mut pending: ResMut<PendingDeviceFrame>,
     mut input_gated: bevy::prelude::Local<bool>,
+    events: Option<Res<bevy::prelude::Messages<bevy::window::WindowEvent>>>,
+    mut cursor: bevy::prelude::Local<bevy::ecs::message::MessageCursor<bevy::window::WindowEvent>>,
 ) {
-    let translated = translate_device_frame(inputs);
+    let ordered = ordered::collect(&inputs, events.as_deref(), &mut cursor);
+    let mut translated = translate_device_frame(inputs);
+    if let Some((events, lost)) = ordered {
+        translated.frame.window_focus_lost |= lost;
+        translated.frame.desktop_events = Some(events);
+    }
     let gated = translated.frame.window_focus_lost;
     if gated && !*input_gated {
         bevy::log::info!("held inputs released: window focus or input availability lost");
@@ -63,7 +79,7 @@ pub(crate) fn collect_raw_input(
     pending.ignored_touches = pending
         .ignored_touches
         .saturating_add(translated.ignored_touches as u64);
-    pending.frame = Some(translated.frame);
+    pending.replace(translated.frame);
 }
 
 pub(crate) fn route_semantic_input(
@@ -88,7 +104,7 @@ pub(crate) fn finalize_semantic_input_after_ui_authority(
     mut runtime: ResMut<SemanticInputRuntime>,
     mut route: ResMut<SemanticRouteState>,
     mut published: ResMut<SemanticInputSnapshot>,
-    emote_input: Option<Res<crate::ui_runtime::emotes::EmoteInputConsumed>>,
+    emote_input: Option<Res<client_state::EmoteInputConsumed>>,
 ) {
     let routed = std::mem::take(&mut route.routed);
     if !routed {
@@ -169,8 +185,9 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> TranslatedDeviceFra
         mut touch_targets,
         focus,
         driven,
+        reserved: _,
     } = inputs;
-    let (window, cursor) = window.into_inner();
+    let (_, window, cursor) = window.into_inner();
     let focused = driven.is_some()
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
     let captured = mouse_input_active(window, cursor, focus.as_deref(), driven.is_some());

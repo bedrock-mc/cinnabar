@@ -701,3 +701,20 @@ fn oversized_multisession_logs_recover_the_latest_header() {
         assert!(text.ends_with(&format!("latest event{newline}")));
     }
 }
+
+/// Diagnostic export retains the request-to-present records from both process logs.
+#[test]
+fn join_timeline_includes_client_and_core_diagnostic_stages() {
+    let client = "unrelated menu log\njoin_profile: join milestone join_profile_id=7 stage=request_accepted elapsed_ms=0\njoin_profile: join finished join_profile_id=7 stage=first_world_presented elapsed_ms=4500";
+    let core = "unrelated account log\njoin_profile_id=7 stage=authentication_ready core_elapsed_ms=200\nmsg=upstream connected elapsed_ms=900";
+    let timeline = super::join_timeline(client, core);
+    for stage in [
+        "request_accepted",
+        "first_world_presented",
+        "authentication_ready",
+        "upstream connected",
+    ] {
+        assert!(timeline.contains(stage), "missing {stage}");
+    }
+    assert!(!timeline.contains("unrelated"));
+}

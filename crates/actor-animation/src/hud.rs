@@ -10,6 +10,9 @@ pub(super) struct UiAnimationState {
     variables: MolangVariables,
     initialized: bool,
     replay: Option<replay::Replay>,
+    pub(super) render: Vec<RenderTextureLayer>,
+    pub(super) skin_layers: Vec<SkinRenderLayer>,
+    pub(super) held_item_scale: Option<f32>,
 }
 
 impl UiAnimationState {
@@ -58,6 +61,9 @@ pub(super) fn evaluate(
             .clone(),
         initialized: original.map_or(state.initialized, |replay| replay.initialized),
         replay: None,
+        render: Vec::new(),
+        skin_layers: Vec::new(),
+        held_item_scale: None,
     });
     let evaluation_context = replay_context.as_ref().unwrap_or(context);
     ui.swap_with(state);
@@ -83,6 +89,11 @@ pub(super) fn evaluate(
                 true,
             );
             state.initialized = true;
+            if let Some(render) = evaluated.render {
+                ui.render = render;
+            }
+            ui.skin_layers = evaluated.skin_layers;
+            ui.held_item_scale = evaluated.held_item_scale;
             evaluated.pose
         }
         Err(_) => Vec::new(),

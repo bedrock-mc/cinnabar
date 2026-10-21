@@ -6,16 +6,17 @@ rust-version.workspace = true
 publish = false
 
 [features]
-test-support = ["dep:render-api"]
+test-support = []
 tracy = []
 
 [dependencies]
+cosmetics = { path = "../cosmetics" }
 assets = { path = "../assets" }
 bridge = { path = "../bridge" }
 image.workspace = true
 launcher = { path = "../launcher" }
 protocol = { path = "../protocol" }
-render-api = { path = "../render-api", optional = true }
+render-api = { path = "../render-api" }
 render-model = { path = "../render-model" }
 resource-pack = { path = "../resource-pack", default-features = false }
 semantic-input = { path = "../input" }
@@ -26,6 +27,7 @@ ui = { path = "../ui" }
 ui-engine = { path = "../ui-engine" }
 
 [dev-dependencies]
+render-model = { path = "../render-model", features = ["test-support"] }
 test-alloc = { path = "../test-alloc" }
 render-api = { path = "../render-api" }
 tempfile = "3"

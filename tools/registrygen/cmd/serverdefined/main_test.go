@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bedrock-mc/protocolgen/generated/data/registry"
+	"github.com/cinnabar-mc/protocolgen/generated/data/registry"
 )
 
 func TestDefinitionRangesFollowStableCanonicalOrdering(t *testing.T) {

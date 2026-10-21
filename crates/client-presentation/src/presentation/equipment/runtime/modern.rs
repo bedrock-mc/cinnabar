@@ -8,7 +8,52 @@ use client_world::ActorSnapshot;
 
 use super::*;
 
+/// A first-person definition admitted once for both hand placement and model drawing.
+pub(crate) struct HeldSelection {
+    source: Option<pack::BindingSource>,
+}
+
+impl HeldSelection {
+    /// Reports whether this admitted definition supplies its own hand placement.
+    pub(crate) fn uses_authored_hand(&self, item: &WornItem) -> bool {
+        self.source.as_ref().is_some_and(|source| {
+            java::keep_authored_hand(
+                &item.identifier,
+                source.catalog.bindings()[source.index].category,
+                source.from_pack,
+            )
+        })
+    }
+}
+
 impl EquipmentRuntime {
+    /// Admits the first-person definition before choosing its hand and drawing its model.
+    pub(crate) fn select_held_item(
+        &mut self,
+        item: &WornItem,
+        owner: &ActorSnapshot,
+        rig: &ActorRigSnapshot<'_>,
+        input: AttachableAnimationInput<'_>,
+    ) -> HeldSelection {
+        HeldSelection {
+            source: if self.uses_native_item_mesh(&item.identifier) {
+                None
+            } else {
+                self.selected_binding_source(
+                    item,
+                    EquipmentAnimation {
+                        owner,
+                        rig,
+                        frame_alpha: input.frame_alpha,
+                        delta_seconds: input.delta_seconds.unwrap_or_default(),
+                    },
+                    input,
+                )
+            },
+        }
+    }
+
+    /// Draws the owner's admitted attachable, retaining authored hand poses when it owns them.
     pub fn first_person_attachable(
         &mut self,
         body: &ActorRigSubmission,
@@ -18,31 +63,72 @@ impl EquipmentRuntime {
         input: AttachableAnimationInput<'_>,
         java_hand: Option<render_model::java_animation::JavaHand>,
     ) -> Option<FirstPersonItem> {
-        self.held_attachable(body, item, owner, owner_rig, input, java_hand)
+        let selected = self.select_held_item(item, owner, owner_rig, input);
+        self.first_person_selected_attachable(
+            body, item, &selected, owner, owner_rig, input, java_hand,
+        )
     }
 
-    /// Samples a held model in the requested view, retaining its authored bone binding.
-    pub(super) fn held_attachable(
+    /// Draws the definition already used to choose the first-person hand placement.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn first_person_selected_attachable(
         &mut self,
         body: &ActorRigSubmission,
         item: &WornItem,
+        selected: &HeldSelection,
         owner: &ActorSnapshot,
         owner_rig: &ActorRigSnapshot<'_>,
         input: AttachableAnimationInput<'_>,
         java_hand: Option<render_model::java_animation::JavaHand>,
     ) -> Option<FirstPersonItem> {
-        if self.uses_native_item_mesh(&item.identifier) {
+        self.held_attachable_from_source(
+            body,
+            item,
+            selected.source.as_ref()?,
+            owner,
+            owner_rig,
+            input,
+            java_hand,
+        )
+    }
+
+    /// Samples an already admitted held definition without selecting another fallback.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn held_attachable_from_source(
+        &mut self,
+        body: &ActorRigSubmission,
+        item: &WornItem,
+        source: &pack::BindingSource,
+        owner: &ActorSnapshot,
+        owner_rig: &ActorRigSnapshot<'_>,
+        input: AttachableAnimationInput<'_>,
+        java_hand: Option<render_model::java_animation::JavaHand>,
+    ) -> Option<FirstPersonItem> {
+        let (_, body_bones) = self.body_bones_for(body.input.rig)?;
+        let pack::BindingSource {
+            ref catalog,
+            from_pack,
+            index,
+            ..
+        } = *source;
+        let binding = &catalog.bindings()[index];
+        let java_hand = java_hand.filter(|_| {
+            !super::java::keep_authored_hand(&item.identifier, binding.category, from_pack)
+        });
+        if !matches!(
+            self.effective_category(&item.identifier, binding.category),
+            EquipmentCategory::Held | EquipmentCategory::Shield
+        ) {
             return None;
         }
-        let (_, body_bones) = self.body_bones_for(body.input.rig)?;
-        let (catalog, from_pack) = self.binding_source(&item.identifier)?;
         let (assets, runtime) = if from_pack {
             let pack = self.pack.as_mut()?;
             (Arc::clone(&pack.assets), &mut pack.attachables)
         } else {
             (Arc::clone(&self.assets), &mut self.attachables)
         };
-        let evaluated = runtime.evaluate(&item.identifier, owner, owner_rig, input)?;
+        let evaluated =
+            runtime.evaluate(binding.attachable_identifier(), owner, owner_rig, input)?;
         // Each hand has its own item texture page. Multi-layer attachables remain
         // explicitly incomplete rather than accidentally displaying an enchantment layer.
         let selected = evaluated
@@ -56,16 +142,47 @@ impl EquipmentRuntime {
         } else {
             &selected.pose
         };
-        let model_scale =
-            std::array::from_fn::<_, 3, _>(|axis| evaluated.scale * evaluated.axis_scale[axis]);
-        let placed = self.poses.sample_pair(
+        let held_scale = AttachableAnimationInput {
+            held_item_scale: owner_rig.held_item_scale,
+            ..input
+        }
+        .main_hand_scale();
+        let model_scale = std::array::from_fn::<_, 3, _>(|axis| {
+            evaluated.scale * evaluated.axis_scale[axis] * held_scale
+        });
+        let placed = self.attachment_poses.sample(
             body,
-            if input.off_hand {
-                LAYER_OFF_HAND
-            } else {
-                LAYER_MAIN_HAND
+            (
+                false,
+                if input.off_hand {
+                    LAYER_OFF_HAND
+                } else {
+                    LAYER_MAIN_HAND
+                },
+            ),
+            self.poses.frame,
+            placement_cache::Inputs {
+                assets: &assets,
+                bones: &body_bones,
+                owner_names: owner_rig.bone_names,
+                geometry: (geometry_index, evaluated.geometry),
+                local: pose,
+                paired: !input.first_person,
+                hidden: &selected.hidden_bones,
+                scale: model_scale,
+                alpha: input
+                    .first_person
+                    .then(|| {
+                        placement_cache::alpha(
+                            body,
+                            &evaluated,
+                            geometry_index,
+                            pose.len(),
+                            input.frame_alpha,
+                        )
+                    })
+                    .flatten(),
             },
-            pose.len(),
             |endpoint, index| {
                 if selected.hidden_bones.contains(&(index as u32)) {
                     return Some(hidden_bone());
@@ -90,14 +207,13 @@ impl EquipmentRuntime {
                 )
             },
         )?;
-        let source = assets.sources().get(selected.source as usize)?;
-        let texture_identifier = source
+        let texture_source = assets.sources().get(selected.source as usize)?;
+        let texture_identifier = texture_source
             .path
             .strip_suffix(".png")
-            .or_else(|| source.path.strip_suffix(".tga"))
-            .unwrap_or(&source.path);
-        let (artwork, texture_index, location) =
-            self.draw_artwork(&item.identifier, texture_identifier, (catalog, from_pack))?;
+            .or_else(|| texture_source.path.strip_suffix(".tga"))
+            .unwrap_or(&texture_source.path);
+        let (artwork, texture_index, location) = self.draw_artwork(texture_identifier, source)?;
         let texture = &artwork.textures()[texture_index];
         let key = (
             from_pack,
@@ -131,6 +247,7 @@ impl EquipmentRuntime {
                     raster.image_to_rig,
                     texture.width,
                     texture.height,
+                    held_scale,
                 );
                 camera
                     .is_finite()
@@ -175,7 +292,8 @@ impl EquipmentRuntime {
     }
 }
 
-fn parent_for_root(
+/// Resolves the sampled owner frame inherited by an authored attachable root.
+pub(super) fn parent_for_root(
     previous: &[RenderBoneTransform],
     current: &[RenderBoneTransform],
     bones: &BodyBones,

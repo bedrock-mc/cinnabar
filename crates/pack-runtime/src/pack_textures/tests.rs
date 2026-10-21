@@ -1,6 +1,25 @@
 use super::*;
 
 #[test]
+fn pack_json_matches_previous_normalized_bytes() {
+    for bytes in [
+        br#"{"texture_data":{"a":{"textures":"textures/first"},"a":{"textures":"textures/last"}},"number":1.0000000000000002}"#.as_slice(),
+        b"\xef\xbb\xbf{/* catalog */\"texture_data\":{\"caf\xe9\":{\"textures\":\"textures/a\",},},}",
+        br#"{"number":18446744073709551616}"#,
+        b"{\"texture_data\":{,}}",
+        b"{} {}",
+        b"1e309",
+    ] {
+        let before = pack_json::normalize_jsonc(bytes)
+            .and_then(|normalized| serde_json::from_slice::<Value>(&normalized).ok());
+        assert_eq!(
+            parse_pack_json(bytes).map(|value| serde_json::to_vec(&value).unwrap()),
+            before.map(|value| serde_json::to_vec(&value).unwrap()),
+        );
+    }
+}
+
+#[test]
 fn full_catalogs_keep_later_valid_overrides_after_skipping_new_keys() {
     let mut paths = (0..MAX_CATALOG_ENTRIES)
         .map(|index| (format!("z_{index:05}"), "textures/old".to_owned()))
@@ -170,7 +189,11 @@ fn indexed_alias_candidates_preserve_precedence_without_reading_image_payloads()
     for path in ["textures/shared", "./textures/shared.PNG", "textures/alias"] {
         assert_eq!(
             indexed_image_candidate(&view, path).as_deref(),
-            Some("textures/shared.png")
+            Some(if path.ends_with(".PNG") {
+                "textures/shared.png"
+            } else {
+                "textures/shared.tga"
+            })
         );
     }
     assert_eq!(indexed_image_candidate(&view, "textures/uncached"), None);
@@ -180,4 +203,28 @@ fn indexed_alias_candidates_preserve_precedence_without_reading_image_payloads()
             if (path.ends_with(".png") || path.ends_with(".tga"))
                 && *limit == resource_pack::MAX_PACK_TEXTURE_BYTES
     )));
+}
+
+#[test]
+fn extensionless_texture_decodes_tga_ahead_of_darker_png() {
+    let mut png = Cursor::new(Vec::new());
+    let mut tga = Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(16, 16, image::Rgba([110, 110, 110, 255]))
+        .write_to(&mut png, ImageFormat::Png)
+        .unwrap();
+    image::RgbaImage::from_pixel(16, 16, image::Rgba([145, 145, 145, 255]))
+        .write_to(&mut tga, ImageFormat::Tga)
+        .unwrap();
+    let view = LayeredPackView::new(crate::test_support::stack(&[
+        ("textures/grass.png", png.get_ref()),
+        ("textures/grass.tga", tga.get_ref()),
+    ]));
+    let policy = TexturePolicy::for_device(assets::texture::policy::MAX_TEXTURE_SIDE);
+    let resolved =
+        resolve_pack_texture_with_policy(&view, "textures/grass", policy, false).unwrap();
+    assert_eq!(resolved.image_path, "textures/grass.tga");
+    assert_eq!(&resolved.texture.rgba8[..4], &[145, 145, 145, 255]);
+    let explicit =
+        resolve_pack_texture_with_policy(&view, "textures/grass.png", policy, false).unwrap();
+    assert_eq!(&explicit.texture.rgba8[..4], &[110, 110, 110, 255]);
 }

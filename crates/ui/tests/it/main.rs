@@ -14,6 +14,7 @@ mod geometry_gui_scale;
 mod hud;
 mod model;
 mod model_mesh;
+mod model_outline;
 mod model_retained;
 mod model_transform;
 mod scoreboard;

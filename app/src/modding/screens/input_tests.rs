@@ -37,7 +37,7 @@ struct Host(ModHost);
 fn input_app() -> (App, Entity) {
     let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut ui = inventory_session(&mut player);
-    ui.toggle_inventory(&mut player);
+    ui.toggle_inventory(&mut player, None);
     assert!(ui.inventory_open());
     let mut app = App::new();
     app.add_message::<KeyboardInput>()
@@ -48,6 +48,8 @@ fn input_app() -> (App, Entity) {
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
         .init_resource::<Observed>()
+        .init_resource::<crate::modding::packet_render::Drawing>()
+        .init_resource::<render_scene::mod_scene::retained::DrawingFrame>()
         .insert_resource(player)
         .insert_resource(UiRuntimeResource(ui))
         .insert_resource(UiPresentationResource(
@@ -699,7 +701,7 @@ fn data_callbacks_observe_simultaneous_container_opening_and_closing() {
                 |world, mut player: Mut<client_state::PlayerRuntime>| {
                     world
                         .resource_mut::<UiRuntimeResource>()
-                        .toggle_inventory(&mut player);
+                        .toggle_inventory(&mut player, None);
                 },
             );
             app.world_mut().resource_scope(
@@ -930,7 +932,7 @@ fn production_mod_driver_delivers_declared_keys_and_view_escape() {
     let (mut app, window) = input_app();
     let dir = tempfile::tempdir().unwrap();
     write_transition_probe(dir.path(), "0.1.0");
-    let mut host = ModHost::load_package(dir.path(), mod_host::ModGrants::default()).unwrap();
+    let mut host = deferred_tests::load_driver_host(dir.path());
     let package = host.package().unwrap();
     if !draw_package_view(&mut app, &package.id, &package.files) {
         return;
@@ -963,12 +965,19 @@ fn production_mod_driver_delivers_declared_keys_and_view_escape() {
     .init_resource::<super::super::interaction::ModInteraction>()
     .add_systems(
         Update,
-        (drive_chat_keyboard_input, super::super::drive_mod).chain(),
+        (
+            super::super::begin_mod_frame,
+            drive_chat_keyboard_input,
+            super::super::drive_mod,
+        )
+            .chain(),
     );
+    // Initial lifecycle callbacks use the event lane before physical input arrives.
+    app.update();
     send(&mut app, window, KeyCode::KeyR, ButtonState::Pressed, None);
     assert!(matches!(
-        app.world().resource::<ModRuntime>().hosts.host.screens().data.values.get("#key"),
-        Some(server_experience::screen::Value::Text(key)) if key.starts_with("probe.show:")
+            app.world().resource::<ModRuntime>().hosts.host(0).screens().data.values.get("#key"),
+            Some(server_experience::screen::Value::Text(key)) if key.starts_with("probe.show:")
     ));
     send(
         &mut app,
@@ -978,9 +987,15 @@ fn production_mod_driver_delivers_declared_keys_and_view_escape() {
         None,
     );
     let runtime = app.world().resource::<ModRuntime>();
-    assert!(runtime.hosts.host.screens().view.is_none());
+    assert!(runtime.hosts.host(0).screens().view.is_none());
     assert_eq!(
-        runtime.hosts.host.screens().data.values.get("#view_closed"),
+        runtime
+            .hosts
+            .host(0)
+            .screens()
+            .data
+            .values
+            .get("#view_closed"),
         Some(&server_experience::screen::Value::Integer(1))
     );
 }
@@ -1006,7 +1021,7 @@ fn escape_closes_a_view_after_same_frame_pointer_actions() {
         &format!("{:x}", Sha256::digest(template)),
     );
     std::fs::write(manifest_path, manifest).unwrap();
-    let mut host = ModHost::load_package(dir.path(), mod_host::ModGrants::default()).unwrap();
+    let mut host = deferred_tests::load_driver_host(dir.path());
     let package = host.package().unwrap();
     if !draw_package_view(&mut app, &package.id, &package.files) {
         return;
@@ -1043,8 +1058,15 @@ fn escape_closes_a_view_after_same_frame_pointer_actions() {
     .init_resource::<super::super::interaction::ModInteraction>()
     .add_systems(
         Update,
-        (drive_chat_keyboard_input, super::super::drive_mod).chain(),
+        (
+            super::super::begin_mod_frame,
+            drive_chat_keyboard_input,
+            super::super::drive_mod,
+        )
+            .chain(),
     );
+    // Deliver the initial lifecycle before the pointer action and Escape share a frame.
+    app.update();
     app.world_mut()
         .get_mut::<Window>(window)
         .unwrap()
@@ -1074,15 +1096,28 @@ fn escape_closes_a_view_after_same_frame_pointer_actions() {
     );
     let runtime = app.world().resource::<ModRuntime>();
     assert!(
-        matches!(runtime.hosts.host.screens().data.values.get("#action"),
+        matches!(runtime.hosts.host(0).screens().data.values.get("#action"),
         Some(server_experience::screen::Value::Text(action)) if action == "probe.view:None:Ok(())")
     );
     assert!(
-        runtime.hosts.host.screens().view.is_none(),
+        runtime.hosts.host(0).screens().view.is_none(),
         "a queued pointer action reopened the escaped view"
     );
+    // Closure is immediate; its guest notification waits for the next event allowance.
+    app.update();
+    let runtime = app.world().resource::<ModRuntime>();
+    assert!(
+        runtime.hosts.host(0).screens().view.is_none(),
+        "deferred callbacks must keep the escaped view closed"
+    );
     assert_eq!(
-        runtime.hosts.host.screens().data.values.get("#view_closed"),
+        runtime
+            .hosts
+            .host(0)
+            .screens()
+            .data
+            .values
+            .get("#view_closed"),
         Some(&server_experience::screen::Value::Integer(1))
     );
 }

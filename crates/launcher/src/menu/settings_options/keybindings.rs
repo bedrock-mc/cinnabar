@@ -7,7 +7,9 @@ use super::{
         GAMEPAD_OFFSET, UNBOUND_CONTROL, decode_control, encode_control, is_gamepad,
     },
 };
-use semantic_input::{Action, ControlSettings, InputContext, PhysicalControl};
+use semantic_input::{
+    Action, ActionBinding, ControlSettings, InputChord, InputContext, PhysicalControl,
+};
 
 pub const DEBUG_OVERLAY_KEY: &str = BindingId::DebugOverlay.name();
 pub const PLAYER_LIST_KEY: &str = BindingId::PlayerList.name();
@@ -104,13 +106,21 @@ impl SettingsOptions {
                 return Some((format!("gamepad:{name}"), Some(*action), None));
             }
             let (name, control) = EXTRA_GAMEPAD.get(index.checked_sub(GAMEPAD_BINDINGS.len())?)?;
-            return Some((format!("gamepad:{name}"), None, *control));
+            return Some((
+                format!("gamepad:{name}"),
+                BindingId::from_name(name)?.definition().action,
+                *control,
+            ));
         }
         if let Some((action, name)) = KEY_BINDINGS.get(index) {
             return Some(((*name).to_owned(), Some(*action), None));
         }
         let (name, control) = EXTRA_KEYS.get(index.checked_sub(KEY_BINDINGS.len())?)?;
-        Some(((*name).to_owned(), None, Some(*control)))
+        Some((
+            (*name).to_owned(),
+            BindingId::from_name(name)?.definition().action,
+            Some(*control),
+        ))
     }
 
     /// Reads the persisted device binding, falling back to the gameplay router's defaults.
@@ -258,9 +268,9 @@ impl SettingsOptions {
                 bindings.retain(|binding| binding.action != action);
             }
         }
-        for index in (0..KEY_BINDINGS.len())
-            .chain((0..GAMEPAD_BINDINGS.len()).map(|index| GAMEPAD_OFFSET + index))
-        {
+        for index in (0..KEY_BINDINGS.len() + EXTRA_KEYS.len()).chain(
+            (0..GAMEPAD_BINDINGS.len() + EXTRA_GAMEPAD.len()).map(|index| GAMEPAD_OFFSET + index),
+        ) {
             let Some((name, Some(action), _)) = self.binding(index) else {
                 continue;
             };
@@ -293,6 +303,16 @@ impl SettingsOptions {
                 replaced = true;
                 true
             });
+            if !replaced && let Some(control) = control {
+                bindings.push(ActionBinding {
+                    action,
+                    context: InputContext::Gameplay,
+                    chord: InputChord {
+                        control,
+                        modifiers: Default::default(),
+                    },
+                });
+            }
         }
         for binding in &mut bindings {
             binding.chord.control = self.swap_gamepad_control(binding.chord.control);
@@ -337,7 +357,7 @@ impl SettingsOptions {
     }
 }
 
-/// Displays the physical USB control when no layout label is available.
+/// Displays a physical keyboard, mouse or gamepad control without a layout label.
 pub fn key_name(control: PhysicalControl) -> String {
     match control {
         PhysicalControl::KeyboardUsage(code @ 0x04..=0x1d) => {
@@ -370,6 +390,20 @@ pub fn key_name(control: PhysicalControl) -> String {
         PhysicalControl::KeyboardUsage(code @ 0x68..=0x73) => format!("F{}", code - 0x5b),
         PhysicalControl::MouseButton(button) => format!("Mouse {button}"),
         PhysicalControl::KeyboardUsage(code) => format!("Key {code:02X}"),
+        PhysicalControl::GamepadButton(0) => "A".to_owned(),
+        PhysicalControl::GamepadButton(1) => "B".to_owned(),
+        PhysicalControl::GamepadButton(2) => "Y".to_owned(),
+        PhysicalControl::GamepadButton(3) => "X".to_owned(),
+        PhysicalControl::GamepadButton(4) => "LB".to_owned(),
+        PhysicalControl::GamepadButton(5) => "RB".to_owned(),
+        PhysicalControl::GamepadButton(8) => "LS".to_owned(),
+        PhysicalControl::GamepadButton(9) => "RS".to_owned(),
+        PhysicalControl::GamepadButton(11) => "D-pad Up".to_owned(),
+        PhysicalControl::GamepadButton(12) => "D-pad Down".to_owned(),
+        PhysicalControl::GamepadButton(13) => "D-pad Left".to_owned(),
+        PhysicalControl::GamepadButton(14) => "D-pad Right".to_owned(),
+        PhysicalControl::GamepadAxis { axis: 4, .. } => "LT".to_owned(),
+        PhysicalControl::GamepadAxis { axis: 5, .. } => "RT".to_owned(),
         _ => String::new(),
     }
 }
@@ -385,6 +419,74 @@ mod unbound_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn controller_pick_remap_creates_a_semantic_binding() {
+        let mut settings = SettingsOptions::default();
+        let row = BindingId::PickItem.row(true).unwrap();
+        for button in [9, 14] {
+            assert!(settings.remap(row, PhysicalControl::GamepadButton(button)));
+            let controls = settings.controls().unwrap();
+            let picks: Vec<_> = controls
+                .bindings()
+                .iter()
+                .filter(|binding| {
+                    binding.context == InputContext::Gameplay
+                        && binding.action == Action::PickItem
+                        && is_gamepad(binding.chord.control)
+                })
+                .collect();
+            assert_eq!(picks.len(), 1);
+            assert_eq!(
+                picks[0].chord.control,
+                PhysicalControl::GamepadButton(button)
+            );
+            assert!(controls.bindings().iter().any(|binding| {
+                binding.action == Action::PickItem
+                    && binding.chord.control == PhysicalControl::MouseButton(3)
+            }));
+            let mut router = semantic_input::SemanticInputRouter::default();
+            router.replace_bindings(controls).unwrap();
+            for (index, pressed) in [false, true, true, false, true].into_iter().enumerate() {
+                let activity_sequence = index as u64 + 1;
+                router
+                    .route(semantic_input::DeviceFrame {
+                        keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
+                            activity_sequence: 1,
+                            ..Default::default()
+                        }),
+                        desktop_events: Some(Default::default()),
+                        controllers: vec![semantic_input::ControllerFrame {
+                            device_id: 1,
+                            activity_sequence,
+                            buttons: if pressed { vec![button] } else { vec![] },
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    })
+                    .unwrap();
+                let snapshot = router.finalize().unwrap();
+                let phase = snapshot.phases[Action::PickItem as usize];
+                assert_eq!(phase.pressed, pressed && index != 2);
+                assert!(!phase.held);
+                if pressed {
+                    assert_eq!(snapshot.input_mode, semantic_input::InputMode::GamePad);
+                    assert!(snapshot.ordered.is_none());
+                }
+            }
+        }
+        assert!(settings.reset_key(row));
+        assert!(
+            !settings
+                .controls()
+                .unwrap()
+                .bindings()
+                .iter()
+                .any(|binding| {
+                    binding.action == Action::PickItem && is_gamepad(binding.chord.control)
+                })
+        );
+    }
 
     #[test]
     fn fake_azerty_layout_labels_preserve_saved_bindings() {

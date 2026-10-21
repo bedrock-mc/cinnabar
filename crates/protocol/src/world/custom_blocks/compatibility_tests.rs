@@ -348,3 +348,63 @@ fn sort_key_is_fnv1_64_of_the_name() {
     assert_eq!(block_name_sort_key(""), 0xcbf2_9ce4_8422_2325);
     assert_eq!(block_name_sort_key("a"), 0xaf63_bd4c_8601_b7be);
 }
+
+/// Compound trait descriptions and string lists must retain complete state hashes.
+#[test]
+fn compound_traits_with_enabled_state_lists_preserve_state_identities() {
+    let mut nbt = named(10, "");
+    nbt.extend(named(10, "traits"));
+    nbt.extend(named(10, "minecraft:placement_direction"));
+    nbt.extend(named(9, "enabled_states"));
+    nbt.extend([8, 2]);
+    nbt.extend(string("minecraft:cardinal_direction"));
+    nbt.extend([0, 0, 0]);
+    let blocks = super::CustomBlocks::from_definitions([("fixture:directional", nbt.as_slice())]);
+    let block = &blocks.blocks[0];
+    assert_eq!(block.state_count, 4);
+    assert_eq!(block.hashed_states().len(), 4);
+    assert_eq!(
+        block.visual.state_axes[0].name.as_ref(),
+        "minecraft:cardinal_direction"
+    );
+    assert_eq!(
+        block.state_values(1).unwrap().as_ref(),
+        [super::CustomStateValue::String("west".into())]
+    );
+}
+
+#[test]
+fn inventory_visual_descriptions_stay_separate_from_placed_components() {
+    use crate::nbt_tree::Nbt;
+    let geometry =
+        |name: &str| Nbt::Compound(vec![("identifier".into(), Nbt::String(name.into()))]);
+    let material = Nbt::Compound(vec![(
+        "materials".into(),
+        Nbt::Compound(vec![(
+            "*".into(),
+            Nbt::Compound(vec![("texture".into(), Nbt::String("fixture:item".into()))]),
+        )]),
+    )]);
+    let root = Nbt::Compound(vec![(
+        "components".into(),
+        Nbt::Compound(vec![
+            ("minecraft:geometry".into(), geometry("geometry.placed")),
+            (
+                "minecraft:item_visual".into(),
+                Nbt::Compound(vec![
+                    ("geometryDescription".into(), geometry("geometry.carried")),
+                    ("materialInstancesDescription".into(), material),
+                ]),
+            ),
+        ]),
+    )]);
+    let parsed = super::parse_definition(&root).unwrap();
+    assert_eq!(
+        parsed.visual.base.geometry.as_deref(),
+        Some("geometry.placed")
+    );
+    let item = parsed.visual.item_visual.unwrap();
+    assert_eq!(item.geometry.as_deref(), Some("geometry.carried"));
+    assert_eq!(item.materials.unwrap()[0].texture.as_ref(), "fixture:item");
+    assert!(item.transformation.is_none());
+}

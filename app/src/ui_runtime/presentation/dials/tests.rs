@@ -170,7 +170,7 @@ fn dial_app(dimension: i32) -> App {
     app.insert_resource(world)
         .insert_resource(physics)
         .init_resource::<LocalViewPose>()
-        .init_resource::<crate::environment::WorldClock>()
+        .init_resource::<client_presentation::environment::WorldClock>()
         .init_resource::<Time<Real>>()
         .insert_resource(UiPresentationResource(
             UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap(),

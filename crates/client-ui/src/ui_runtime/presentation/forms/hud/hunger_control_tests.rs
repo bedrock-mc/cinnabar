@@ -44,7 +44,7 @@ fn engine() -> FormEngine {
         2,
         registry(),
         crate::ui_runtime::presentation::forms::texture_sources::downloads(),
-        crate::ui_runtime::presentation::forms::texture_sources::image_work(),
+        ui_engine::sources::ImageWork::inline(),
     );
     let mut png = Vec::new();
     image::RgbaImage::from_pixel(9, 9, image::Rgba([255, 0, 0, 255]))
@@ -127,6 +127,7 @@ fn draw_with_factory(
                 renderers: &mut [&mut HudRenderer {
                     hud: &paint,
                     hunger_update: Some(&advance_hunger),
+                    bounds: None,
                 }],
             },
             |env, root| {
@@ -371,5 +372,155 @@ fn a_destroyed_factory_hunger_renderer_restarts_when_recreated_with_the_same_ide
     assert!(
         rows[0].iter().all(|y| *y == 0.0),
         "recreated control must not inherit the destroyed renderer's pulse"
+    );
+}
+
+#[test]
+fn prepared_saturation_masks_publish_once_and_reuse_texels_for_faded_inverse_rows() {
+    let mut engine = engine();
+    let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(1.).unwrap(), Some(2));
+    let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+    let mut screen = CachedScreen::default();
+    let mut data = DataSource::default();
+    data.set_global("#first_visible", json_ui::Scalar::Bool(true));
+    data.set_global("#second_visible", json_ui::Scalar::Bool(true));
+    let data = Arc::new(data);
+    let mut paint = ui_screens::hud_renderers::HudPaint {
+        hunger: ui_screens::hud_renderers::HungerPaint {
+            current: 20,
+            saturation_overlay: Some(20),
+            inverse_overlay: true,
+            overlay_color: [30, 50, 70, 110],
+            sprites: Some([
+                assets::HudTextureRole::HungerBackground.source_path(),
+                assets::HudTextureRole::HungerFull.source_path(),
+                assets::HudTextureRole::HungerHalf.source_path(),
+            ]),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mut render = |engine: &FormEngine, paint: &ui_screens::hud_renderers::HudPaint| {
+        let mut layouts = TextLayoutCache::new(32, 1024 * 1024);
+        let mut nodes = Vec::new();
+        let mut next = 1;
+        engine
+            .draw(
+                ScreenArt::default(),
+                &mut PaintFrame {
+                    layouts: &mut layouts,
+                    font: &fixture_font(),
+                    metrics,
+                    solid_page: 0,
+                    safe_area: SafeArea::ZERO,
+                    content: [1280., 720.],
+                    translate: &|_| None,
+                    language: [0; 3],
+                    now: 0.,
+                    nodes: &mut nodes,
+                    next: &mut next,
+                    renderers: &mut [&mut HudRenderer {
+                        hud: paint,
+                        hunger_update: None,
+                        bounds: None,
+                    }],
+                },
+                |env, root| {
+                    screen.render(
+                        "hud.root",
+                        engine.catalog(),
+                        &Context::desktop(),
+                        data.clone(),
+                        (root, px, [0; 3]),
+                        env,
+                    )
+                },
+            )
+            .unwrap()
+            .unwrap();
+        ui::UiTree::new(nodes).unwrap().build_draw_list().unwrap()
+    };
+    let pending = render(&engine, &paint);
+    assert!(
+        pending
+            .batches
+            .iter()
+            .all(|batch| batch.blend != ui::UiBlendMode::Invert)
+    );
+    assert!(
+        engine.poll_native_images(),
+        "prepared source readiness must invalidate retained HUD frames"
+    );
+    let draw = render(&engine, &paint);
+    let inverse: Vec<_> = draw
+        .batches
+        .iter()
+        .filter(|batch| batch.blend == ui::UiBlendMode::Invert)
+        .collect();
+    assert!(
+        !inverse.is_empty(),
+        "native hunger controls must publish their prepared masks"
+    );
+    let vertices: Vec<_> = inverse
+        .iter()
+        .flat_map(|batch| {
+            &draw.indices[batch.index_range.start as usize..batch.index_range.end as usize]
+        })
+        .map(|index| &draw.vertices[*index as usize])
+        .collect();
+    assert!(
+        vertices.iter().any(|v| v.position[1] < 90.)
+            && vertices.iter().any(|v| v.position[1] > 90.)
+    );
+    assert!(
+        vertices
+            .iter()
+            .all(|v| v.color == [255, 255, 255, 110] && v.style_flags == 0)
+    );
+    let atlas = engine.textures.lock();
+    let first = vertices[0];
+    let page = &atlas.images()[usize::from(inverse[0].texture_page - engine.textures.server_page)];
+    let [x, y] = first.uv.map(|value| value as usize);
+    let stride = page.dimensions()[0] as usize;
+    assert_eq!(
+        &page.pixels()[((y + 2) * stride + x) * 4..((y + 2) * stride + x) * 4 + 4],
+        &[255, 255, 255, 255]
+    );
+    assert_eq!(
+        page.pixels()[(y * stride + x) * 4 + 3],
+        0,
+        "the row margin remains transparent"
+    );
+    drop(atlas);
+    engine.textures.lock().take_dirty();
+    paint.hunger.overlay_color[3] = 180;
+    let faded = render(&engine, &paint);
+    assert!(
+        faded
+            .batches
+            .iter()
+            .any(|batch| batch.blend == ui::UiBlendMode::Invert)
+    );
+    assert!(
+        !engine.textures.lock().take_dirty(),
+        "tint opacity changes must not rebuild or upload mask pixels"
+    );
+    paint.hunger.saturation_overlay = Some(18);
+    let changed = render(&engine, &paint);
+    let batch = changed
+        .batches
+        .iter()
+        .find(|batch| batch.blend == ui::UiBlendMode::Invert)
+        .unwrap();
+    let changed_vertex =
+        &changed.vertices[changed.indices[batch.index_range.start as usize] as usize];
+    assert_eq!(batch.texture_page, inverse[0].texture_page);
+    assert_eq!(
+        changed_vertex.uv, first.uv,
+        "moving coverage must update the existing atlas slot"
+    );
+    assert!(
+        engine.textures.lock().take_dirty(),
+        "changed coverage must upload its new pixels"
     );
 }

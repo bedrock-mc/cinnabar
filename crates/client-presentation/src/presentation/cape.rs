@@ -9,7 +9,7 @@ use render_model::{
     ACTOR_LAYER_BODY, ActorRigRoute, ActorRigSubmission, MAX_RENDERED_PLAYERS, RenderBoneTransform,
     cape::CapeRig, java_animation::JavaCapeInput,
 };
-use std::sync::Arc;
+use std::{borrow::Cow, sync::Arc};
 
 /// Render layer of a player's cape, below the extra texture layers.
 pub const ACTOR_LAYER_CAPE: u8 = 24;
@@ -71,7 +71,7 @@ pub fn apply_capes<'a>(
     rig_of: impl Fn(u64) -> Option<ActorRigSnapshot<'a>>,
     profile_of: impl Fn(u64) -> Option<&'a PlayerProfile>,
     java_cape: impl Fn(u64) -> Option<JavaCapeInput>,
-    elytra_of: impl Fn(u64) -> bool,
+    mut elytra_of: impl FnMut(u64) -> bool,
 ) {
     preparation.begin_frame();
     let mut capes: Vec<(SkinRgba8, usize)> = Vec::new();
@@ -106,14 +106,18 @@ pub fn apply_capes<'a>(
         let Some(rig) = rig_of(identity.runtime_id) else {
             continue;
         };
+        let bindings = rig
+            .attachments
+            .and_then(|bindings| bindings.cape_for(cape))
+            .map_or_else(|| Cow::Owned(cape.bind(rig.bone_names)), Cow::Borrowed);
         let body = &batch.submissions[index];
         let mut submission: ActorRigSubmission = body.clone();
         submission.input.identity.layer = ACTOR_LAYER_CAPE;
         submission.input.rig = cape.geometry.id;
         match java_cape(identity.runtime_id) {
             Some(input) => {
-                let pose = cape.pose(
-                    rig.bone_names,
+                let pose = cape.pose_bound(
+                    &bindings,
                     |index| rest_pose(rig.rest, index),
                     &body.input.current_bones,
                     Some(&input),
@@ -122,8 +126,8 @@ pub fn apply_capes<'a>(
                 submission.input.current_bones = pose;
             }
             None => {
-                let current = cape.pose(
-                    rig.bone_names,
+                let current = cape.pose_bound(
+                    &bindings,
                     |index| rest_pose(rig.rest, index),
                     &body.input.current_bones,
                     None,
@@ -133,8 +137,8 @@ pub fn apply_capes<'a>(
                     if Arc::ptr_eq(&body.input.previous_bones, &body.input.current_bones) {
                         Arc::clone(&current)
                     } else {
-                        cape.pose(
-                            rig.bone_names,
+                        cape.pose_bound(
+                            &bindings,
                             |index| rest_pose(rig.rest, index),
                             &body.input.previous_bones,
                             None,

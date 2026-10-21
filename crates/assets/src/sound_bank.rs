@@ -10,7 +10,7 @@ use thiserror::Error;
 
 pub const SOUND_BANK_MAGIC: &[u8; 8] = b"MCBESND1";
 const SCHEMA: u32 = 1;
-const HEADER_BYTES: usize = 40;
+pub const HEADER_BYTES: usize = 40;
 const HASH_BYTES: usize = 32;
 pub const MAX_SOUND_BANK_PREFIX_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_SOUND_BANK_FILES: usize = 16_384;
@@ -34,6 +34,7 @@ pub struct SoundBankIndex {
     music_json: Box<[u8]>,
     entries: HashMap<Box<str>, SoundBankEntry>,
     prefix_sha256: [u8; 32],
+    total_bytes: u64,
 }
 
 fn word(bytes: &[u8], offset: usize) -> Result<u32, SoundBankError> {
@@ -130,7 +131,13 @@ impl SoundBankIndex {
             music_json,
             entries,
             prefix_sha256: expected,
+            total_bytes: prefix.len() as u64 + data_len,
         })
+    }
+
+    /// Exact length of the indexed bank, including its encoded sound data.
+    pub const fn total_bytes(&self) -> u64 {
+        self.total_bytes
     }
 
     pub fn sounds_json(&self) -> &[u8] {
@@ -248,6 +255,7 @@ mod tests {
         let bytes = sample();
         let prefix_len = sound_bank_prefix_len(&bytes).expect("prefix length");
         let index = SoundBankIndex::decode_prefix(&bytes[..prefix_len]).expect("decode");
+        assert_eq!(index.total_bytes(), bytes.len() as u64);
         assert_eq!(index.sounds_json(), b"{\"a\":1}");
         let entry = index.entry("sounds/b").expect("entry");
         let start = entry.offset as usize;

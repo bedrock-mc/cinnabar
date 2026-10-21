@@ -446,7 +446,8 @@ fn enhanced_bamboo_uses_the_production_graph_under_changing_views_and_shadows() 
             .clone()
     };
     assert!(!cracked.crack.is_empty());
-    app.world_mut().insert_resource(cracked);
+    app.world_mut()
+        .insert_resource(render_scene::BlockEntityFrameResource(cracked));
     let cracked = capture(&mut app);
     assert_ne!(
         close, cracked,

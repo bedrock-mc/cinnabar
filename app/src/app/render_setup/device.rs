@@ -4,21 +4,6 @@ use anyhow::{Context, Result};
 use bevy::render::settings::{WgpuSettings, WgpuSettingsPriority};
 use launcher::graphics_backend::{Adapter, Backend};
 
-/// Applies renderer limits and compiler policy to Bevy's defaults.
-pub(super) fn configure_render_settings(settings: &mut WgpuSettings) {
-    #[cfg(target_arch = "wasm32")]
-    {
-        settings.priority = WgpuSettingsPriority::WebGPU;
-        settings.backends = Some(wgpu::Backends::BROWSER_WEBGPU);
-    }
-    // Shipping installs use FXC; a DLL in the launch directory must not change that.
-    settings.dx12_shader_compiler = wgpu::Dx12Compiler::Fxc;
-    settings.limits.max_storage_buffers_per_shader_stage = settings
-        .limits
-        .max_storage_buffers_per_shader_stage
-        .max(render::required_vertex_storage_buffers());
-}
-
 /// Converts the policy's backend to wgpu's flags without keeping a separate order table.
 pub(super) fn flags(backend: Backend) -> wgpu::Backends {
     match backend {
@@ -123,6 +108,12 @@ pub(super) fn instance(
         backend_options: Default::default(),
         display,
     };
+    #[cfg(target_os = "macos")]
+    if env_compat::var("CINNABAR_ASYNC_PRESENT").as_deref() != Ok("0") {
+        descriptor
+            .flags
+            .insert(wgpu::InstanceFlags::METAL_ASYNC_WINDOWED_PRESENTATION);
+    }
     descriptor.backend_options.dx12.shader_compiler = settings.dx12_shader_compiler.clone();
     descriptor.backend_options.dx12.presentation_system =
         wgpu::wgt::Dx12SwapchainKind::from_env().unwrap_or_default();

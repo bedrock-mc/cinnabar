@@ -113,6 +113,10 @@ impl<'a, W: CollisionWorld> ScaffoldingView<'a, W> {
 }
 
 impl<W: CollisionWorld> CollisionWorld for ScaffoldingView<'_, W> {
+    fn registry_identity(&self) -> crate::CollisionRegistryIdentity {
+        self.inner.registry_identity()
+    }
+
     /// Preserves the underlying terrain availability requirement for movement origins.
     fn ensure_movement_origin(&self, feet: crate::Vec3) -> Result<(), WorldQueryError> {
         self.inner.ensure_movement_origin(feet)

@@ -98,6 +98,7 @@ wire_ids!(ActorDataKey, u32, {
     Name => 4,
     NameAuthor => 83,
     NameRawText => 112,
+    NameplateRenderDistance => 140,
     NameplateRenderDistanceMax => 143,
     NearbyCuredDiscountTimeStamp => 117,
     NearbyCuredTradeDiscount => 116,

@@ -13,13 +13,19 @@ impl WorldStream {
             self.record_normalization_error(NormalizationErrorReason::BlockMutationFailure);
         }
         if collision_authoritative {
+            if let Some(unencodable) = self.requests.unencodable.get_mut(&chunk) {
+                unencodable.remove(&key.y);
+                if unencodable.is_empty() {
+                    self.requests.unencodable.remove(&chunk);
+                }
+            }
             if let Some(recoveries) = self.requests.recoveries.get_mut(&chunk) {
                 recoveries.remove(&key.y);
                 if recoveries.is_empty() {
                     self.requests.recoveries.remove(&chunk);
-                    self.requests.collision_failures.remove(&chunk);
                 }
             }
+            self.requests.clear_recovered_collision_failure(chunk);
         } else {
             self.schedule_sub_chunk_recovery(key);
         }
@@ -44,13 +50,14 @@ impl WorldStream {
             self.requests.correlated_attempts.insert(
                 key,
                 CorrelatedSubChunkAttempts {
+                    demand: pending.demand,
+                    answered_transport_packet: pending.answered_transport_packet,
                     pending_transport_attempts: pending.pending_transport_attempts,
                     confirmed_attempts: pending.confirmed_attempts,
                 },
             );
         }
         if completed {
-            self.requests.queue.clear_mesh_blocker(chunk);
             self.requests.requested.remove(&chunk);
             if self.requests.collision_failures.contains(&chunk) {
                 self.loaded_columns.remove(&chunk);
@@ -148,26 +155,22 @@ impl WorldStream {
         }
     }
     pub(super) fn enqueue_exact_retry(&mut self, key: SubChunkKey) -> bool {
-        let Ok(packet) = request_sub_chunk_column(key.dimension, key.x, key.z, key.y, 1) else {
-            self.record_normalization_error(NormalizationErrorReason::RetryRequestEncodingFailure);
+        let Some(pending) = self
+            .requests
+            .requested
+            .get(&key.chunk())
+            .and_then(|column| column.get(&key.y))
+        else {
             return false;
         };
+        let request = PendingSubChunkRequest::new(key.chunk(), key.y, 1, pending.demand)
+            .expect("one requested slot is a valid range");
         self.stats.publication_stages.requests_constructed = self
             .stats
             .publication_stages
             .requests_constructed
             .saturating_add(1);
-        self.place_outbound_request(
-            None,
-            PendingSubChunkRequest {
-                packet,
-                dimension: key.dimension,
-                chunk: key.chunk(),
-                base_sub_chunk_y: key.y,
-                count: 1,
-            },
-            true,
-        )
+        self.place_outbound_request(None, request, true)
     }
     pub(super) fn try_schedule_exact_retry(&mut self, key: SubChunkKey) -> RetrySchedule {
         if !self.requests.deferred_retries.is_empty()

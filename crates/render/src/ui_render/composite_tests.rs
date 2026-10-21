@@ -1,6 +1,82 @@
 use super::*;
 use render_model::{UiRenderBatch, UiScissor, UiTextureCatalog, UiTexturePage};
 
+#[test]
+fn composite_bindings_reuse_both_scene_orientations_and_expire_replaced_sources() {
+    let world = super::super::ordered_command_tests::binding_world();
+    let device = world.resource::<RenderDevice>();
+    let cache = world.resource::<PipelineCache>();
+    let pipeline = UiCompositePipeline::from_world(&mut World::new());
+    let layout = cache.get_bind_group_layout(&pipeline.layout);
+    let size = Extent3d {
+        width: 2,
+        height: 2,
+        depth_or_array_layers: 1,
+    };
+    let layer = retained_layer(device, size);
+    let scenes = [retained_layer(device, size), retained_layer(device, size)];
+    let frame = frame_layer(&layer, false);
+    let live_scenes = scenes.each_ref().map(|scene| scene.view.id());
+    let first = frame.bindings.lock().unwrap().get(
+        device,
+        &layout,
+        [&frame.view, &scenes[0].view],
+        live_scenes,
+    );
+    let second = frame.bindings.lock().unwrap().get(
+        device,
+        &layout,
+        [&frame.view, &scenes[1].view],
+        live_scenes,
+    );
+    let allocated = test_alloc::thread_allocations();
+    for index in 0..8 {
+        let next = frame_layer(&layer, false);
+        let group = next.bindings.lock().unwrap().get(
+            device,
+            &layout,
+            [&next.view, &scenes[index % 2].view],
+            live_scenes,
+        );
+        assert_eq!(
+            group,
+            if index % 2 == 0 {
+                first.clone()
+            } else {
+                second.clone()
+            }
+        );
+    }
+    assert_eq!(test_alloc::thread_allocations(), allocated);
+    let replacement = retained_layer(device, size);
+    let changed = frame.bindings.lock().unwrap().get(
+        device,
+        &layout,
+        [&frame.view, &replacement.view],
+        [replacement.view.id(), scenes[1].view.id()],
+    );
+    assert_ne!(changed, first);
+    assert_ne!(changed, second);
+    assert_eq!(frame.bindings.lock().unwrap().entries.len(), 2);
+    let next_pair = [retained_layer(device, size), retained_layer(device, size)];
+    frame.bindings.lock().unwrap().get(
+        device,
+        &layout,
+        [&frame.view, &next_pair[0].view],
+        next_pair.each_ref().map(|scene| scene.view.id()),
+    );
+    let bindings = frame.bindings.lock().unwrap();
+    assert_eq!(
+        bindings.entries.len(),
+        1,
+        "retired targets must leave even if only one orientation is used"
+    );
+    assert_eq!(bindings.entries[0].0[1], next_pair[0].view.id());
+    drop(bindings);
+    let new_raster = frame_layer(&replacement, false);
+    assert!(new_raster.bindings.lock().unwrap().entries.is_empty());
+}
+
 /// Supplies one valid triangle with an immutable texture catalog.
 fn input() -> Arc<UiRenderInput> {
     Arc::new(UiRenderInput {
@@ -43,6 +119,7 @@ fn held(input: Arc<UiRenderInput>) -> HeldLayer {
     HeldLayer {
         content: UiLayerContent {
             revision: input.revision,
+            texture_generation: 0,
             segment: 0..input.batches.len(),
             inverted: None,
             skip: None,
@@ -174,6 +251,7 @@ fn independent_segment_rasters_reuse_and_invalidate_separately() {
     frame.segments.push(frame_layer(&layers[0], false));
     let content = UiLayerContent {
         revision: 1,
+        texture_generation: 0,
         skip: None,
         viewport: None,
         model_depth: false,
@@ -292,6 +370,7 @@ fn retained_segments_leave_no_orphan_publication_after_view_or_device_removal() 
         let layers = vec![retained_layer(device, size), retained_layer(device, size)];
         let content = UiLayerContent {
             revision: 1,
+            texture_generation: 0,
             skip: None,
             viewport: None,
             model_depth: false,

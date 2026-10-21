@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use bedrock_protocol_1_26_51::enums::{ContainerEnumName, ItemStackNetResult};
 use bedrock_protocol_1_26_51::packets::{
-    ContainerClose, ContainerOpen, ContainerSetData, InventoryContent, InventorySlot,
-    ItemStackResponse, MobArmorEquipment, PlayerEnchantOptions, PlayerHotbar,
+    ContainerClose, ContainerOpen, ContainerRegistryCleanup, ContainerSetData, InventoryContent,
+    InventorySlot, ItemStackResponse, MobArmorEquipment, PlayerEnchantOptions, PlayerHotbar,
 };
 use bedrock_protocol_1_26_51::types::FullContainerName;
 use bedrock_protocol_1_26_51::wire;
@@ -23,6 +23,19 @@ pub use creative::{
     CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
     MAX_CREATIVE_ITEMS, normalize_creative_content,
 };
+mod crafting_rules;
+pub use crafting_rules::CraftingRules;
+mod options;
+pub(crate) use options::normalize_inventory_options;
+pub use options::{
+    InventoryLayout, InventoryOptions, InventoryRightTab, InventoryTab, inventory_options_packet,
+};
+mod furnace_options;
+pub(crate) use furnace_options::normalize_furnace_options;
+pub use furnace_options::{
+    FurnaceKind, FurnaceLayout, FurnaceOptions, FurnaceOptionsEvent, FurnaceTab,
+    furnace_options_packet,
+};
 mod client_packets;
 mod legacy;
 pub use legacy::{
@@ -32,9 +45,14 @@ pub use legacy::{
 mod raw_scan;
 pub mod recipes;
 mod request;
+mod trade;
 mod transaction;
 mod validation;
 mod windows;
+pub(crate) use trade::normalize_trade;
+pub use trade::{TradeEvent, TradeItem, TradeOffer};
+#[cfg(test)]
+mod trade_tests;
 pub use address::{
     ARMOR_WINDOW_ID, CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
     CONTAINER_NAME_CRAFT_INPUT, CONTAINER_NAME_CURSOR, CONTAINER_NAME_DYNAMIC,
@@ -51,14 +69,15 @@ pub(crate) use raw_scan::validate_raw_inventory_packet;
 pub use request::mining::{MineBlockRequest, MineBlockRequestError};
 pub(crate) use transaction::normalize_transaction;
 pub use windows::{
-    NO_CONTAINER_WINDOW_TYPE, OpenCells, UI_SLOT_COUNT, WINDOW_TYPE_ANVIL, WINDOW_TYPE_BEACON,
-    WINDOW_TYPE_BLAST_FURNACE, WINDOW_TYPE_BREWING_STAND, WINDOW_TYPE_CARTOGRAPHY,
-    WINDOW_TYPE_CONTAINER, WINDOW_TYPE_CRAFTER, WINDOW_TYPE_DISPENSER, WINDOW_TYPE_DROPPER,
-    WINDOW_TYPE_ENCHANTMENT, WINDOW_TYPE_FURNACE, WINDOW_TYPE_GRINDSTONE, WINDOW_TYPE_HOPPER,
-    WINDOW_TYPE_HORSE, WINDOW_TYPE_LECTERN, WINDOW_TYPE_LOOM, WINDOW_TYPE_SMITHING_TABLE,
-    WINDOW_TYPE_SMOKER, WINDOW_TYPE_STONECUTTER, WINDOW_TYPE_WORKBENCH, WindowKind, WindowSegment,
-    is_chest_like_name, is_open_window_name, is_result_preview_name, open_cell_request,
-    open_name_first_cell, ui_slot_container_name, ui_slot_for_name, ui_slot_request_container,
+    LEGACY_TRADE_SLOTS, MAX_GENERIC_STORAGE_SLOTS, MODERN_TRADE_SLOTS, NO_CONTAINER_WINDOW_TYPE,
+    OpenCells, UI_SLOT_COUNT, WINDOW_TYPE_ANVIL, WINDOW_TYPE_BEACON, WINDOW_TYPE_BLAST_FURNACE,
+    WINDOW_TYPE_BREWING_STAND, WINDOW_TYPE_CARTOGRAPHY, WINDOW_TYPE_CONTAINER, WINDOW_TYPE_CRAFTER,
+    WINDOW_TYPE_DISPENSER, WINDOW_TYPE_DROPPER, WINDOW_TYPE_ENCHANTMENT, WINDOW_TYPE_FURNACE,
+    WINDOW_TYPE_GRINDSTONE, WINDOW_TYPE_HOPPER, WINDOW_TYPE_HORSE, WINDOW_TYPE_LECTERN,
+    WINDOW_TYPE_LOOM, WINDOW_TYPE_SMITHING_TABLE, WINDOW_TYPE_SMOKER, WINDOW_TYPE_STONECUTTER,
+    WINDOW_TYPE_TRADE, WINDOW_TYPE_WORKBENCH, WindowKind, WindowSegment, is_chest_like_name,
+    is_open_window_name, is_result_preview_name, open_cell_request, open_name_first_cell,
+    ui_slot_container_name, ui_slot_for_name, ui_slot_request_container,
 };
 mod registry_snapshot;
 pub use recipes::{
@@ -226,6 +245,8 @@ pub const MAX_ENCHANT_OPTIONS: usize = 8;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InventoryEvent {
     Recipes(recipes::RecipeUpdate),
+    RecipeUnlocks(recipes::RecipeUnlockUpdate),
+    CraftingRules(CraftingRules),
     Authority(InventoryAuthority),
     Content(InventoryContentEvent),
     Slot(InventorySlotEvent),
@@ -234,8 +255,13 @@ pub enum InventoryEvent {
     Response(ItemStackResponseEvent),
     Open(ContainerOpenEvent),
     Close(ContainerCloseEvent),
+    /// Retire only the named entries in the dynamic container registry.
+    RegistryCleanup(Arc<[ContainerIdentity]>),
     Data(ContainerDataEvent),
     EnchantOptions(EnchantOptionsEvent),
+    Trade(TradeEvent),
+    FurnaceOptions(FurnaceOptionsEvent),
+    Options(InventoryOptions),
     Creative(CreativeContentEvent),
 }
 
@@ -426,6 +452,15 @@ impl VerifiedNetworkItemStack {
             user_data_buffer: bytes::Bytes::copy_from_slice(&self.inner.extra_data),
         })
     }
+
+    /// Preserves selected transaction item contents while omitting its optional stack identity.
+    pub(crate) fn into_selected_vendor_item(
+        self,
+    ) -> Result<ItemStackDescriptor, InventoryPacketError> {
+        let mut item = self.into_vendor_item()?;
+        item.net_id_variant = None;
+        Ok(item)
+    }
 }
 
 /// The single item shape 1.26.40 puts on the wire. See `crate::item`.
@@ -594,6 +629,18 @@ pub(crate) fn normalize_container_close(
         window_type: raw_window_type(packet.container_type.0)?,
         server_initiated: packet.server_initiated_close,
     }))
+}
+
+/// Preserves full registry keys, including unknown names and optional ID presence.
+pub(crate) fn normalize_container_registry_cleanup(
+    packet: ContainerRegistryCleanup,
+) -> Result<InventoryEvent, InventoryPacketError> {
+    let removed = packet
+        .removed_containers
+        .into_iter()
+        .map(full_container_identity)
+        .collect::<Result<Arc<[_]>, _>>()?;
+    Ok(InventoryEvent::RegistryCleanup(removed))
 }
 
 pub(crate) fn normalize_container_data(

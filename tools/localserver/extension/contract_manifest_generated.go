@@ -9,13 +9,14 @@ import (
 
 // Scope is the schema-defined Scope document.
 type Scope struct {
-	Permissions Permissions
-	Origins     []string
-	MemoryBytes uint64
-	GPUBytes    uint64
+	Permissions  Permissions
+	Origins      []string
+	MemoryBytes  uint64
+	GPUBytes     uint64
+	PersonalMods []string
 }
 
-var scopeFields = []string{"permissions", "origins", "memory_bytes", "gpu_bytes"}
+var scopeFields = []string{"permissions", "origins", "memory_bytes", "gpu_bytes", "personal_mods"}
 
 // appendJSON writes Scope in canonical field order.
 func (v Scope) appendJSON(b []byte) ([]byte, error) {
@@ -25,6 +26,12 @@ func (v Scope) appendJSON(b []byte) ([]byte, error) {
 	o.add(appendSet(o.b, v.Origins))
 	o.uint(uint64(v.MemoryBytes))
 	o.uint(uint64(v.GPUBytes))
+	if len(v.PersonalMods) > 0 {
+		o.key()
+		o.add(appendSet(o.b, v.PersonalMods))
+	} else {
+		o.skip()
+	}
 	return o.end()
 }
 
@@ -41,9 +48,11 @@ func (v *Scope) decodeJSON(r *reader) error {
 			v.MemoryBytes, err = readUint[uint64](r)
 		case "gpu_bytes":
 			v.GPUBytes, err = readUint[uint64](r)
+		case "personal_mods":
+			v.PersonalMods, err = readSet(r)
 		}
 		return err
-	})
+	}, "personal_mods")
 }
 
 // PackageOffer is the schema-defined PackageOffer document.
@@ -270,9 +279,16 @@ const (
 	PermissionMessaging
 	PermissionScene
 	PermissionMedia
+	PermissionItems
+	PermissionWorldDraw
+	PermissionEntityObserve
+	PermissionEntityHighlight
+	PermissionRenderThroughWalls
+	PermissionRenderMaterial
+	PermissionRenderPost
 )
 
-var permissionNames = [...]string{"ui", "modal_ui", "input", "messaging", "scene", "media"}
+var permissionNames = [...]string{"ui", "modal_ui", "input", "messaging", "scene", "media", "items", "world_draw", "entity_observe", "entity_highlight", "render_through_walls", "render_material", "render_post"}
 
 // String returns the schema name, or a diagnostic for an invalid enum.
 func (v Permission) String() string {
@@ -318,4 +334,4 @@ func Identifier(text string) bool {
 	return true
 }
 
-const ImplementedPermissions = Permissions(1<<PermissionUI | 1<<PermissionModalUI | 1<<PermissionInput | 1<<PermissionMessaging)
+const ImplementedPermissions = Permissions(1<<PermissionUI | 1<<PermissionModalUI | 1<<PermissionInput | 1<<PermissionMessaging | 1<<PermissionWorldDraw | 1<<PermissionEntityObserve | 1<<PermissionEntityHighlight | 1<<PermissionRenderThroughWalls | 1<<PermissionRenderMaterial | 1<<PermissionRenderPost)

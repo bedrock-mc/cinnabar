@@ -41,6 +41,18 @@ fn layered(builtin: &Catalog, entry: &str, document: serde_json::Value) -> Catal
     catalog
 }
 
+/// Assembles the protected screen catalog from the finisher's retained content.
+fn builtin_chat(pack: &Catalog, builtin: &Catalog, retained: Vec<RawControl>) -> Catalog {
+    let mut chat = pack.clone();
+    for control in builtin.controls() {
+        chat.insert(control.clone());
+    }
+    for control in retained {
+        chat.insert(control);
+    }
+    chat
+}
+
 fn visible_when(expression: &str) -> serde_json::Value {
     json!({"binding_type":"view","source_property_name":expression,"target_property_name":"#visible"})
 }
@@ -83,10 +95,7 @@ fn chat_screen_filters_survive_pack_overrides_of_shared_templates() {
     );
     let filtered = prefer_builtin(&mut pack, &builtin);
     assert!(!filtered.is_empty());
-    let mut chat = builtin;
-    for control in filtered {
-        chat.insert(control);
-    }
+    let chat = builtin_chat(&pack, &builtin, filtered);
     let context = crate::menu_screens::retail_context();
     let screen = json_ui::resolve(&chat, "chat.chat_screen", &context)
         .control
@@ -120,6 +129,7 @@ fn copied_filters_keep_the_bindings_and_values_that_feed_them() {
     );
     let mut control = RawControl {
         owner_ns: "chat".into(),
+        definition_scope: None,
         name: "text".into(),
         base: None,
         props: serde_json::Map::from_iter([(
@@ -249,4 +259,443 @@ fn filter_dependencies_keep_full_property_names() {
         rules.bag,
         serde_json::Map::from_iter([("#custom:message".to_owned(), json!("x"))])
     );
+}
+
+#[test]
+fn server_message_content_keeps_its_parser_and_hover_controls() {
+    let builtin = builtin();
+    let mut pack = layered(
+        &builtin,
+        "ui/hud_screen.json",
+        json!({"namespace":"hud","chat_grid_item":{
+        "controls":[
+            {"data":{"type":"panel","property_bag":{"#raw":"hidden|shown"},
+                "bindings":[{"binding_type":"view","source_property_name":"(#raw - 'hidden|')",
+                    "target_property_name":"#display"}]}},
+            {"caption@hud.chat_label":{"bindings":[{"binding_type":"view",
+                "source_control_name":"data","resolve_sibling_scope":true,
+                "source_property_name":"#display","target_property_name":"#text"}]}}
+        ]}}),
+    );
+    pack.overlay_text(
+        "ui/chat_screen.json",
+        &json!({"namespace":"chat",
+        "messages_text":{"controls":[{"message@hover.row":{}}]}})
+        .to_string(),
+    );
+    pack.overlay_text(
+        "ui/hover_chat.json",
+        &json!({"namespace":"hover",
+        "row":{"type":"button","size":[60,10],"default_control":"idle","hover_control":"tooltip",
+            "controls":[{"idle":{"type":"label","text":"shown"}},
+                {"tooltip":{"type":"custom","renderer":"hover_text_renderer",
+                    "property_bag":{"#hover_text":"detail"}}}]}})
+        .to_string(),
+    );
+    let selected = prefer_builtin(&mut pack, &builtin);
+    let row = json_ui::resolve(&pack, "hud.chat_grid_item", &json_ui::Context::empty())
+        .control
+        .unwrap();
+    let bound = json_ui::bind(&row, &json_ui::DataSource::new(), &json_ui::EmptyLibrary);
+    let caption = bound
+        .find(&|control: &ResolvedControl| control.name == "caption")
+        .expect("server caption survives built-in placement");
+    assert_eq!(caption.properties["text"], "shown");
+    let mut screen_catalog = pack;
+    for control in builtin.controls() {
+        screen_catalog.insert(control.clone());
+    }
+    for control in selected {
+        screen_catalog.insert(control);
+    }
+    let screen = json_ui::resolve(
+        &screen_catalog,
+        "chat.chat_screen",
+        &json_ui::Context::empty(),
+    )
+    .control
+    .unwrap();
+    assert!(
+        screen
+            .find(&|control: &ResolvedControl| control
+                .properties
+                .get("renderer")
+                .is_some_and(|renderer| renderer == "hover_text_renderer"))
+            .is_some()
+    );
+}
+
+#[test]
+fn encoded_message_fixture_binds_only_its_caption() {
+    let files = crate::test_support::hover_chat::files();
+    let catalog = Catalog::from_files(
+        files
+            .iter()
+            .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
+    )
+    .unwrap();
+    let root = json_ui::resolve(&catalog, "hover.row", &json_ui::Context::empty())
+        .control
+        .unwrap();
+    let mut data = json_ui::DataSource::new();
+    data.set_control_values(
+        "data",
+        BTreeMap::from([(
+            "#text".into(),
+            json_ui::Scalar::Text(crate::test_support::hover_chat::message()),
+        )]),
+    );
+    let bound = json_ui::bind(&root, &data, &json_ui::EmptyLibrary);
+    assert_eq!(
+        bound
+            .find(&|control: &ResolvedControl| control.name == "caption")
+            .unwrap()
+            .properties["text"],
+        crate::test_support::hover_chat::CAPTION
+    );
+}
+
+#[test]
+fn hud_factory_keeps_the_server_caption_across_refreshes() {
+    let builtin = builtin();
+    let mut pack = builtin.clone();
+    let files = crate::test_support::hover_chat::files();
+    pack.apply_pack(
+        files
+            .iter()
+            .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
+    );
+    prefer_builtin(&mut pack, &builtin);
+    let context = json_ui::Context::empty();
+    let root = json_ui::resolve(&pack, "hud.java_chat", &context)
+        .control
+        .unwrap();
+    let mut data = json_ui::DataSource::new();
+    data.set_collection(
+        "chat_text_grid",
+        vec![json_ui::CollectionItem::default().with(
+            "#chat_text",
+            json_ui::Scalar::Text(crate::test_support::hover_chat::message()),
+        )],
+    );
+    data.set_factory(
+        "chat_item_factory",
+        vec![json_ui::FactoryItem::new("chat_item", 0.0).at("chat_text_grid", 0)],
+    );
+    let mut state = json_ui::BindState::new();
+    for _ in 0..2 {
+        let bound = json_ui::bind_screen(&root, &pack, &context, &data, &mut state);
+        let caption = bound
+            .find(&|control: &ResolvedControl| control.name == "caption")
+            .unwrap();
+        assert_eq!(
+            caption.properties["text"],
+            crate::test_support::hover_chat::CAPTION
+        );
+    }
+}
+
+#[test]
+fn retained_rows_keep_named_caption_templates_without_duplicate_placements() {
+    let builtin = builtin();
+    let mut pack = layered(
+        &builtin,
+        "ui/hud_screen.json",
+        json!({"namespace":"hud",
+            "caption@hud.chat_label":{"text":"Server caption"},
+            "chat_grid_item":{"controls":[{"text@hud.caption":{}}]},
+            "root_panel":{"controls":[{"duplicate@hud.chat_panel":{}}]}
+        }),
+    );
+    prefer_builtin(&mut pack, &builtin);
+    let context = json_ui::Context::empty();
+    let row = json_ui::resolve(&pack, "hud.chat_grid_item", &context)
+        .control
+        .unwrap();
+    let caption = row
+        .find(&|control: &ResolvedControl| control.name == "text")
+        .expect("referenced caption template remains available");
+    assert_eq!(caption.properties["text"], "Server caption");
+    let root = json_ui::resolve(&pack, "hud.root_panel", &context)
+        .control
+        .unwrap();
+    assert!(
+        root.find(&|control: &ResolvedControl| control.name == "duplicate")
+            .is_none()
+    );
+}
+
+#[test]
+fn open_chat_keeps_inline_captions_inheriting_hud_labels() {
+    let builtin = builtin();
+    let mut pack = layered(
+        &builtin,
+        "ui/chat_screen.json",
+        json!({"namespace":"chat",
+            "messages_text":{"controls":[{"caption@hud.chat_label":{"text":"Server caption"}}]}
+        }),
+    );
+    let retained = prefer_builtin(&mut pack, &builtin);
+    let chat = builtin_chat(&pack, &builtin, retained);
+    for catalog in [&pack, &chat] {
+        let messages = json_ui::resolve(catalog, "chat.messages_text", &json_ui::Context::empty())
+            .control
+            .unwrap();
+        let caption = messages
+            .find(&|control: &ResolvedControl| control.name == "caption")
+            .expect("inline caption survives placement suppression");
+        assert_eq!(caption.properties["text"], "Server caption");
+    }
+}
+
+#[test]
+fn open_chat_grids_keep_caption_template_dependencies() {
+    let builtin = builtin();
+    let mut pack = layered(
+        &builtin,
+        "ui/hud_screen.json",
+        json!({"namespace":"hud",
+            "caption@hud.chat_label":{"text":"Grid caption"}
+        }),
+    );
+    pack.overlay_text(
+        "ui/chat_screen.json",
+        &json!({"namespace":"chat",
+            "messages_text":{"controls":[{"grid":{"type":"grid", "grid_dimensions":[1,1],
+                "grid_item_template":"hud.caption"}}]}
+        })
+        .to_string(),
+    );
+    let retained = prefer_builtin(&mut pack, &builtin);
+    let chat = builtin_chat(&pack, &builtin, retained);
+    for catalog in [&pack, &chat] {
+        let context = json_ui::Context::empty();
+        let messages = json_ui::resolve(catalog, "chat.messages_text", &context)
+            .control
+            .unwrap();
+        let bound = json_ui::bind_screen(
+            &messages,
+            catalog,
+            &context,
+            &json_ui::DataSource::new(),
+            &mut json_ui::BindState::new(),
+        );
+        assert!(
+            bound
+                .find(&|control: &ResolvedControl| control.properties.get("text")
+                    == Some(&json!("Grid caption")))
+                .is_some(),
+            "grid caption survives placement suppression"
+        );
+    }
+}
+
+#[test]
+fn scoped_message_dependencies_survive_suppression() {
+    for contents in [
+        json!({"$caption_template":"hud.caption","controls":[{"caption@$caption_template":{}}]}),
+        json!({"$caption_template":"hud.caption","controls":[{"grid":{"type":"grid",
+            "grid_dimensions":[1,1],"grid_item_template":"$caption_template"}}]}),
+        json!({"$caption_template":"hud.caption","controls":[],"factory":{"name":"captions",
+            "control_ids":{"caption":"$caption_template"}}}),
+        json!({"$caption_template":"hud.caption","controls":[],"factory":{"name":"captions",
+            "control_ids":{"caption":"chat.caption_host"},"factory_variables":["$caption_template"]}}),
+        json!({"$contents":[{"caption@hud.caption":{}}],"controls":"$contents"}),
+        json!({"$instance":"caption@hud.caption","controls":[{"$instance":{}}]}),
+    ] {
+        let builtin = builtin();
+        let mut pack = layered(
+            &builtin,
+            "ui/hud_screen.json",
+            json!({"namespace":"hud",
+                "caption@hud.chat_label":{"text":"Scoped caption"}
+            }),
+        );
+        pack.overlay_text(
+            "ui/chat_screen.json",
+            &json!({"namespace":"chat",
+                "messages_text":contents,
+                "caption_host":{"type":"panel","controls":[{"caption@$caption_template":{}}]}
+            })
+            .to_string(),
+        );
+        let retained = prefer_builtin(&mut pack, &builtin);
+        let chat = builtin_chat(&pack, &builtin, retained);
+        for catalog in [&pack, &chat] {
+            let context = json_ui::Context::empty();
+            let messages = json_ui::resolve(catalog, "chat.messages_text", &context)
+                .control
+                .unwrap();
+            let mut data = json_ui::DataSource::new();
+            data.set_factory("captions", vec![json_ui::FactoryItem::new("caption", 0.0)]);
+            let bound = json_ui::bind_screen(
+                &messages,
+                catalog,
+                &context,
+                &data,
+                &mut json_ui::BindState::new(),
+            );
+            assert!(
+                bound
+                    .find(&|control: &ResolvedControl| control.properties.get("text")
+                        == Some(&json!("Scoped caption")))
+                    .is_some(),
+                "scoped caption survives: {contents}"
+            );
+        }
+    }
+}
+
+#[test]
+fn message_templates_cannot_replace_shared_chat_shell_definitions() {
+    let builtin = builtin();
+    let mut policy = ui_engine::engine::pack_catalog::CatalogPolicy::default();
+    policy.after_layers(prefer_builtin);
+    let files = vec![
+        (
+            json_ui::UI_DEFS_PATH.into(),
+            br#"{"ui_defs":["ui/ui_common.json","ui/chat_screen.json"]}"#.to_vec(),
+        ),
+        (
+            "ui/ui_common.json".into(),
+            json!({"namespace":"common",
+            "base_screen":{"ignored":true,"size":[43,17]}})
+            .to_string()
+            .into_bytes(),
+        ),
+        (
+            "ui/chat_screen.json".into(),
+            json!({"namespace":"chat",
+            "messages_text":{"controls":[{"caption@common.base_screen":{
+                "ignored":false,"text":"Isolated caption"}}]}})
+            .to_string()
+            .into_bytes(),
+        ),
+    ];
+    let layered = policy.layer(&builtin, &[files]);
+    let catalog = layered.builtin_screens.as_ref().unwrap();
+    let root = json_ui::resolve(catalog, "chat.chat_screen", &json_ui::Context::empty())
+        .control
+        .expect("shared shell keeps its built-in base");
+    assert_eq!(root.properties["size"], json!(["100%", "100%"]));
+    let caption = root
+        .find(&|control: &ResolvedControl| control.name == "caption")
+        .unwrap();
+    assert_eq!(caption.properties["text"], "Isolated caption");
+    assert_eq!(caption.properties["size"], json!([43, 17]));
+}
+
+#[test]
+fn cosmetic_rows_keep_active_ordinary_label_filters() {
+    let builtin = builtin();
+    let mut pack = layered(
+        &builtin,
+        "ui/hud_screen.json",
+        json!({"namespace":"hud",
+            "unused@hud.chat_label":{"bindings":[visible_when("(#text = 'unused')")]},
+            "used@hud.chat_label":{"bindings":[visible_when("(not (#text = 'hidden'))")]},
+            "custom_row":{"type":"panel","controls":[{"message@hud.used":{}}]},
+            "chat_grid_item/chat_text":{"color":[1,0,0]},
+            "root_panel":{"controls":[{"custom_chat":{"type":"stack_panel",
+                "factory":{"name":"chat_item_factory","control_ids":{"chat_item":"hud.custom_row"}}}}]}
+        }),
+    );
+    prefer_builtin(&mut pack, &builtin);
+    let context = json_ui::Context::empty();
+    let root = json_ui::resolve(&pack, "hud.chat_grid_item", &context)
+        .control
+        .unwrap();
+    let mut state = json_ui::BindState::new();
+    for text in ["visible", "hidden", "visible"] {
+        let mut data = json_ui::DataSource::new();
+        data.set_creation_value("#text", json_ui::Scalar::Text(text.into()));
+        let bound = json_ui::bind_screen(&root, &pack, &context, &data, &mut state);
+        let label = bound
+            .find(&|control: &ResolvedControl| control.name == "chat_text")
+            .unwrap();
+        assert_eq!(label.properties["color"], json!([1, 0, 0]));
+        assert_eq!(
+            bound
+                .properties
+                .get("visible")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
+            text != "hidden"
+        );
+    }
+}
+
+#[test]
+fn retained_named_caption_filters_stay_independent() {
+    let builtin = builtin();
+    let mut pack = layered(
+        &builtin,
+        "ui/hud_screen.json",
+        json!({"namespace":"hud",
+            "one@hud.chat_label":{"bindings":[visible_when("(#text = 'one')")]},
+            "two@hud.chat_label":{"bindings":[visible_when("(#text = 'two')")]},
+            "chat_grid_item":{"controls":[{"first@hud.one":{}},{"second@hud.two":{}}]},
+            "root_panel":{"controls":[{"chat":{"type":"stack_panel","factory":{
+                "name":"chat_item_factory","control_ids":{"chat_item":"hud.chat_grid_item"}}}}]}
+        }),
+    );
+    prefer_builtin(&mut pack, &builtin);
+    let context = json_ui::Context::empty();
+    let root = json_ui::resolve(&pack, "hud.chat_grid_item", &context)
+        .control
+        .unwrap();
+    let mut state = json_ui::BindState::new();
+    for text in ["one", "two", "one"] {
+        let mut data = json_ui::DataSource::new();
+        data.set_creation_value("#text", json_ui::Scalar::Text(text.into()));
+        let bound = json_ui::bind_screen(&root, &pack, &context, &data, &mut state);
+        assert_eq!(bound.children[0].properties["visible"], text == "one");
+        assert_eq!(bound.children[1].properties["visible"], text == "two");
+    }
+}
+
+#[test]
+fn retained_unfiltered_captions_do_not_inherit_sibling_filters() {
+    let builtin = builtin();
+    let children = json!([
+        {"chat_text@hud.chat_label":{}},
+        {"conditional@hud.conditional":{}}
+    ]);
+    let mut pack = layered(
+        &builtin,
+        "ui/hud_screen.json",
+        json!({"namespace":"hud",
+            "conditional@hud.chat_label":{"bindings":[visible_when("(#text = 'shown')")]},
+            "chat_grid_item":{"controls":children},
+            "root_panel":{"controls":[{"chat":{"type":"stack_panel","factory":{
+                "name":"chat_item_factory","control_ids":{"chat_item":"hud.chat_grid_item"}}}}]}
+        }),
+    );
+    pack.overlay_text(
+        "ui/chat_screen.json",
+        &json!({"namespace":"chat","messages_text":{"controls":children}}).to_string(),
+    );
+    let retained = prefer_builtin(&mut pack, &builtin);
+    let chat = builtin_chat(&pack, &builtin, retained);
+    let context = json_ui::Context::empty();
+    for (catalog, reference) in [(&pack, "hud.chat_grid_item"), (&chat, "chat.messages_text")] {
+        let root = json_ui::resolve(catalog, reference, &context)
+            .control
+            .unwrap();
+        let mut state = json_ui::BindState::new();
+        for text in ["shown", "hidden", "shown"] {
+            let mut data = json_ui::DataSource::new();
+            data.set_creation_value("#text", json_ui::Scalar::Text(text.into()));
+            let bound = json_ui::bind_screen(&root, catalog, &context, &data, &mut state);
+            assert!(
+                bound.children[0]
+                    .properties
+                    .get("visible")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
+                "unfiltered caption stays visible for {text} in {reference}"
+            );
+            assert_eq!(bound.children[1].properties["visible"], text == "shown");
+        }
+    }
 }

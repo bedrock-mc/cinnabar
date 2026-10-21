@@ -19,6 +19,12 @@ pub(crate) fn normalize_transaction(packet: InventoryTransaction) -> Option<Inve
     else {
         return None;
     };
+    if actions.actions.iter().any(invalid_action) {
+        return Some(InventoryEvent::Transaction(InventoryTransactionEvent {
+            slots: Arc::from([]),
+            skipped_actions: actions.actions.len(),
+        }));
+    }
     let mut slots = Vec::new();
     let mut skipped_actions = 0usize;
     for action in actions.actions {
@@ -54,6 +60,31 @@ pub(crate) fn normalize_transaction(packet: InventoryTransaction) -> Option<Inve
         skipped_actions,
     }))
 }
+
+/// Rejects a normal transaction before any supported leg can publish authority.
+fn invalid_action(action: &InventoryAction) -> bool {
+    match action.source.source_type {
+        InventorySourceType::WorldInteraction | InventorySourceType::CreativeInventory => false,
+        InventorySourceType::ContainerInventory => {
+            let Some(window) = action.source.container_id.map(|id| i32::from(id.0)) else {
+                return true;
+            };
+            let slot = action.slot.0;
+            match window {
+                PLAYER_INVENTORY_WINDOW_ID => slot >= u32::from(PLAYER_INVENTORY_SLOTS),
+                OFFHAND_WINDOW_ID => slot != 0,
+                // Transaction verification has a wider range than retained armor cells.
+                ARMOR_WINDOW_ID => slot >= ARMOR_TRANSACTION_LIMIT,
+                UI_INVENTORY_WINDOW_ID => slot >= UI_SLOT_COUNT as u32,
+                _ => false,
+            }
+        }
+        _ => true,
+    }
+}
+
+/// The transaction verifier's equipment index bound, independent of UI armor cells.
+const ARMOR_TRANSACTION_LIMIT: u32 = 14;
 
 fn inventory_identity(action: &InventoryAction) -> Option<SlotIdentity> {
     if action.source.source_type != InventorySourceType::ContainerInventory {

@@ -28,11 +28,12 @@ pub struct UiRenderVertex {
     pub uv: [f32; 2],
     pub color: [u8; 4],
     pub style_flags: u32,
-    /// Negative disables explicit model-material sampled alpha testing.
+    /// Negative disables model-material alpha testing.
     pub alpha_cutoff: f32,
-    /// Native linear lighting, or border area for coverage paint, without byte quantization.
+    /// Linear lighting or coverage border area, without quantization.
     pub model_light: f32,
-    /// Entity overlay RGB and mix amount, or the coverage paint's packed constant colors.
+    /// Entity overlay RGB and mix amount, coverage paint colors, or particle source bounds
+    /// (x, y, width, height) in texture-page texels.
     pub overlay_color: [f32; 4],
 }
 
@@ -76,22 +77,47 @@ pub const UI_STYLE_GLINT: u32 = 1 << 1;
 pub const UI_STYLE_ALPHA_TEST: u32 = 1 << 4;
 /// Texture alpha weights dye color; every surviving sampled texel is opaque.
 pub const UI_STYLE_COLOR_MASK: u32 = 1 << 7;
+/// Premultiplied RGB contributes light while preserving destination coverage.
+pub const UI_STYLE_ADDITIVE: u32 = 1 << 9;
+/// Particle materials threshold cutout texels before applying the emitter's independent alpha.
+pub const UI_STYLE_PARTICLE: u32 = 1 << 10;
+
+/// Clamps interpolated particle UVs to source texel centres without shrinking sprite geometry.
+/// Bounds are (x, y, width, height) in texels; nonpositive extents disable clamping.
+#[must_use]
+pub fn ui_particle_uv(uv: [f32; 2], bounds: [f32; 4]) -> [f32; 2] {
+    if bounds[2] <= 0.0 || bounds[3] <= 0.0 {
+        return uv;
+    }
+    std::array::from_fn(|i| {
+        let low = bounds[i] + 0.5;
+        let high = (bounds[i] + bounds[i + 2] - 0.5).max(low);
+        uv[i].clamp(low, high)
+    })
+}
 
 #[cfg(test)]
 mod style_tests {
     use super::*;
 
     #[test]
-    fn font_coverage_never_enables_opaque_model_color_masks() {
+    fn font_coverage_never_enables_model_or_compositing_styles() {
         for rendering in [
             assets::FontRendering::Coverage,
+            assets::FontRendering::OutlineCoverage,
             assets::FontRendering::NativeCoverage,
             assets::FontRendering::NativeSdf,
         ] {
             assert_eq!(
-                u32::from(rendering.style_flags()) & UI_STYLE_COLOR_MASK,
+                u32::from(rendering.style_flags())
+                    & (UI_STYLE_COLOR_MASK
+                        | UI_STYLE_ADDITIVE
+                        | UI_STYLE_PARTICLE
+                        | UI_STYLE_ALPHA_TEST
+                        | UI_STYLE_RADIAL_GRADIENT
+                        | UI_STYLE_GLINT),
                 0,
-                "text coverage must remain transparent outside glyphs"
+                "text coverage must retain ordinary alpha compositing"
             );
         }
     }
@@ -278,6 +304,8 @@ pub enum UiRenderRejectReason {
     InvalidTextureExtent,
     TextureByteLengthInvalid { actual: usize, expected: usize },
     TextureByteLimitExceeded { actual: usize, limit: usize },
+    TextureAllocationFailed { bytes: u64 },
+    GeometryAllocationFailed { bytes: u64 },
     NoPublishedScene,
     StaleRevision { current: u64, rejected: u64 },
     RevisionConflict { revision: u64 },

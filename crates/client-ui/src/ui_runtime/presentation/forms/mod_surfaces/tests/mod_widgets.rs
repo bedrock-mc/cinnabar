@@ -70,6 +70,7 @@ pub(super) fn content() -> Hud {
             offset: [6., 6.],
             scale: 1.,
             rows: vec![Row {
+                localized: false,
                 formatted: false,
                 label: "Helmet".into(),
                 value: "85%".into(),
@@ -712,8 +713,13 @@ fn anchored_card_bounds_and_icons_scale_together_across_viewports() {
     ] {
         for anchor in [
             Anchor::TopLeft,
+            Anchor::TopCenter,
             Anchor::TopRight,
+            Anchor::Left,
+            Anchor::Center,
+            Anchor::Right,
             Anchor::BottomLeft,
+            Anchor::BottomCenter,
             Anchor::BottomRight,
         ] {
             let mut p = presentation(false);
@@ -722,9 +728,14 @@ fn anchored_card_bounds_and_icons_scale_together_across_viewports() {
             hud.cards[0].scale = scale;
             hud.cards[0].offset = match anchor {
                 Anchor::TopLeft => [6., 6.],
-                Anchor::TopRight => [-6., 6.],
-                Anchor::BottomLeft => [6., -6.],
-                Anchor::BottomRight => [-6., -6.],
+                Anchor::TopCenter => [0., 6.],
+                Anchor::TopRight => [6., 6.],
+                Anchor::Left => [6., 0.],
+                Anchor::Center => [0., 0.],
+                Anchor::Right => [6., 0.],
+                Anchor::BottomLeft => [6., 6.],
+                Anchor::BottomCenter => [0., 6.],
+                Anchor::BottomRight => [6., 6.],
             };
             p.set_mod_hud(Some(&hud)).unwrap();
             frame(&mut p, &UiRuntime::new(1), size, dpi);
@@ -793,6 +804,7 @@ fn personal_hud_snapshot_with_real_carrier() {
         ]
         .into_iter()
         .map(|(label, item, value, progress)| Row {
+            localized: false,
             formatted: false,
             label: label.into(),
             value: value.into(),
@@ -818,6 +830,7 @@ fn personal_hud_snapshot_with_real_carrier() {
         rows: [("Speed II", 1, "1:42"), ("Fire Resistance", 12, "6:15")]
             .into_iter()
             .map(|(label, id, value)| Row {
+                localized: false,
                 formatted: false,
                 label: label.into(),
                 value: value.into(),
@@ -844,6 +857,7 @@ fn personal_hud_snapshot_with_real_carrier() {
         ]
         .into_iter()
         .map(|(label, item, metadata, value)| Row {
+            localized: false,
             formatted: false,
             label: label.into(),
             value: value.into(),

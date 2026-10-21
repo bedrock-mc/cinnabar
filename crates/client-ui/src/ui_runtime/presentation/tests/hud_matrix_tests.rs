@@ -34,7 +34,7 @@ fn player_preview_only_renders_in_the_personal_inventory() {
         "ordinary gameplay has no persistent player preview"
     );
 
-    runtime.toggle_inventory(&mut player_runtime);
+    runtime.toggle_inventory(&mut player_runtime, None);
     let personal_inventory = build(&player_runtime, &mut presentation, &runtime, 0);
     assert!(
         personal_inventory

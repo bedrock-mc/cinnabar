@@ -116,6 +116,16 @@ pub(super) fn apply(
     bag: &BTreeMap<String, Scalar>,
     native: &mut Native,
 ) {
+    if target == crate::position::BINDING {
+        if control.properties.contains_key(crate::position::PROPERTY)
+            && let Some(position) = crate::position::parse(value)
+        {
+            native
+                .props
+                .insert(crate::position::PROPERTY.to_owned(), json!(position));
+        }
+        return;
+    }
     let kind = control.control_type.as_deref().unwrap_or("");
     let grid = kind == "grid";
     if grid
@@ -166,13 +176,25 @@ pub(super) fn apply(
     let mut set = |key: &str, value: Value| {
         props.insert(key.to_owned(), value);
     };
+    // Collection artwork uses the same renderer properties as authored vector paths.
+    if kind == "custom"
+        && control.properties.get("renderer").and_then(Value::as_str)
+            == Some(crate::vector_path::RENDERER)
+        && matches!(target, "#paths" | "#view_box" | "#stroke_width" | "#closed")
+    {
+        set(&target[1..], value.clone());
+        return;
+    }
     match target {
         "#maximum_grid_items" if grid => set("maximum_grid_items", Value::from(int(value, 0))),
         "#collection_length"
-            if control.properties.contains_key("collection_name") || kind == "collection_panel" =>
+            if control.factory.is_some()
+                || control.properties.contains_key("collection_name")
+                || kind == "collection_panel" =>
         {
             let length = match value {
                 Value::Array(_) => Some(value.clone()),
+                Value::Bool(flag) => Some(Value::from(i32::from(*flag))),
                 other => {
                     Some(Value::from(int(other, -1))).filter(|length| length != &Value::from(-1))
                 }
@@ -303,5 +325,47 @@ pub(super) fn apply(
             );
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod vector_art_tests {
+    use crate::{BindState, DataSource, EmptyLibrary, ResolvedControl, Scalar, bind_stateful};
+    use serde_json::json;
+    use std::sync::Arc;
+
+    /// Per-item artwork must replace the authored fallback before the renderer reads its data.
+    #[test]
+    fn collection_vector_art_reaches_the_custom_renderer_after_rebinding() {
+        let properties = serde_json::from_value::<std::collections::BTreeMap<_, _>>(json!({
+            "renderer":crate::vector_path::RENDERER,
+            "paths":[[[0,0],[1,1]]], "view_box":[0,0,105,60],"stroke_width":1,"closed":false,
+            "bindings":[{"binding_name":"#item_art_paths","binding_name_override":"#paths"}]
+        }))
+        .unwrap();
+        let root = Arc::new(ResolvedControl {
+            name: "art".into(),
+            control_type: Some("custom".into()),
+            base: None,
+            unresolved_base: None,
+            properties: properties.into(),
+            children: Vec::new(),
+            factory: None,
+        });
+        let mut state = BindState::new();
+        for paths in [
+            json!([[[23, 43], [25, 48], [29, 45]]]),
+            json!([[[52, 8], [72, 28], [52, 48]]]),
+        ] {
+            let mut data = DataSource::new();
+            data.set_global("#item_art_paths", Scalar::Json(paths.clone()));
+            let (bound, notes) = bind_stateful(&root, &data, &EmptyLibrary, &mut state);
+            assert!(notes.is_empty(), "{notes:?}");
+            let crate::Draw::Custom { data, .. } = crate::emit::custom_draw(&bound).unwrap() else {
+                panic!("vector draw missing")
+            };
+            assert_eq!(data["paths"], paths);
+            assert!(crate::vector_path::parse(&data).is_some());
+        }
     }
 }

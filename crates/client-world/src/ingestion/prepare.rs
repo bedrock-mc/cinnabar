@@ -7,9 +7,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
-use world::{
-    BlockIds, ChunkStore, DecodedLevelChunk, DecodedSubChunk, MutationError, SubChunk, SubChunkKey,
-};
+use world::{BlockIds, DecodedLevelChunk, DecodedSubChunk, MutationError, SubChunk, SubChunkKey};
 
 use super::{
     BlockMutationBatch, DecodeIds, PreparedBlockMutations, PreparedSubChunk, PreparedSubChunkResult,
@@ -42,11 +40,12 @@ pub(super) fn prepare_resolved_block_mutations(
         crack_intermediates: Vec::new(),
     };
     for batch in batches {
-        let mutation = ChunkStore::prepare_sub_chunk_blocks(
+        let mutation = super::prepare_block_mutation(
             batch.key,
             batch.previous.as_deref(),
             &batch.updates,
-            ids.air(),
+            ids.air,
+            ids.mode,
         )?;
         if mutation.changed()
             && light_semantics_changed_at(
@@ -189,7 +188,7 @@ fn light_semantics_changed_at(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use world::{BlockUpdate, RawBlockIds};
+    use world::{BlockUpdate, ChunkStore, RawBlockIds};
 
     /// Builds a small decoded section with explicit primary and secondary layers.
     fn section(layers: &[u32]) -> SubChunk {

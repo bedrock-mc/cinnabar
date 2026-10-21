@@ -68,7 +68,7 @@ fn water_fragment_preserves_submerged_receiver_and_native_gamma_lighting() {
     ] {
         for (back_facing, two_sided) in [(false, false), (true, false), (true, true)] {
             let table = vec![[light[0], light[1], light[2], 1.0]; 256];
-            let lightmap = gpu.buffer(bytemuck::cast_slice(&table), wgpu::BufferUsages::UNIFORM);
+            let lightmap = gpu.lightmap(bytemuck::cast_slice(&table));
             // The native frozen-river RGB from the pack, already gamma encoded.
             let tint = [24.0 / 255.0, 83.0 / 255.0, 144.0 / 255.0];
             let case = gpu.buffer(
@@ -200,7 +200,7 @@ const WITNESS: &str = r#"
     out.frame_blend = witness_case[1].w;
     out.water_tint = tint_to_linear(witness_case[0]);
     out.water_tint.a = liquid_vertex_alpha(out.water_tint.a, witness_case[2].x, atmosphere.liquid_distance.x);
-    out.lighting = world_lightmap[0].rgb;
+    out.lighting = world_lightmap.raw[0].rgb;
     out.native_light_levels = vec2(0.0);
     out.native_face_shade = witness_case[2].y;
     out.depth_write_route = 0u;

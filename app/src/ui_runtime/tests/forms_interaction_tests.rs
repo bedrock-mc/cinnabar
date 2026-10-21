@@ -1,4 +1,5 @@
 use super::forms_fixture::retained;
+use crate::game_frame::configure_client_frame_schedule;
 use bevy::{
     ecs::schedule::{IntoSystemSet, NodeId, ScheduleGraph, Schedules, SystemSet, graph::DiGraph},
     input::{
@@ -18,11 +19,13 @@ use {
     ui_engine::test_support::fixture_font,
 };
 
+mod npc_dismissal_tests;
+
 #[test]
 fn production_committed_stream_poll_precedes_form_input_authority_without_moving_publication() {
     use {
         crate::{
-            app::{configure_client_frame_schedule, configure_client_production_frame_systems},
+            app::configure_client_production_frame_systems,
             runtime::world::{
                 drain_committed_ui_before_authority, drive_world_stream,
                 reconcile_world_stream_before_physics,
@@ -132,14 +135,22 @@ fn app(player_runtime: &mut client_state::PlayerRuntime) -> (App, Entity) {
     app_for(player_runtime, false)
 }
 fn app_for(player_runtime: &mut client_state::PlayerRuntime, unsupported: bool) -> (App, Entity) {
-    let mut app = App::new();
-    let mut menu = MenuRuntime::new(true, 2, "Test".into());
-    menu.set_visible(false);
-    let mut runtime = UiRuntime::new(1);
     let mut event = retained(7, 1);
     if unsupported && let protocol::UiEvent::Form(form) = &mut event.event {
         form.model = protocol::ServerFormModel::Unsupported(protocol::UnsupportedForm::Controls);
     }
+    app_for_event(player_runtime, event)
+}
+
+/// Runs form, chat and menu input against the supplied authoritative form event.
+fn app_for_event(
+    player_runtime: &mut client_state::PlayerRuntime,
+    event: client_ui::ui_runtime::SequencedUiEvent,
+) -> (App, Entity) {
+    let mut app = App::new();
+    let mut menu = MenuRuntime::new(true, 2, "Test".into());
+    menu.set_visible(false);
+    let mut runtime = UiRuntime::new(1);
     runtime.apply(player_runtime, event).unwrap();
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     presentation
@@ -242,6 +253,7 @@ fn form_open_and_answer_frames_consume_gameplay_chat_inventory_and_pause_edges()
         let mut packets = Vec::new();
         flush_form_response(
             &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+            |_| false,
             |packet| {
                 packets.push(packet);
                 Ok(())
@@ -284,6 +296,7 @@ fn pointer_action_is_bound_to_rendered_revision_and_keyboard_focus_selects_index
     let mut response = None;
     flush_form_response(
         &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+        |_| false,
         |packet| {
             response = Some(packet);
             Ok(())
@@ -318,10 +331,24 @@ fn mouse_activates_visible_buttons_once_and_rejects_old_rendered_hits() {
             client_ui::ui_runtime::LocalFormAction::SubmitButton(0)
         );
         if stale {
-            app.world_mut()
-                .resource_mut::<UiRuntimeResource>()
-                .apply(&mut player_runtime, retained(7, 2))
+            // Reusing an ID requires the previous form and its answer to retire first.
+            let mut runtime = app.world_mut().resource_mut::<UiRuntimeResource>();
+            runtime
+                .respond_to_server_form(hit.0, client_ui::ui_runtime::LocalFormAction::Dismiss)
                 .unwrap();
+            assert!(
+                flush_form_response(
+                    &mut runtime,
+                    |_| false,
+                    |packet| {
+                        assert_eq!(packet, protocol::modal_form_cancel_response(hit.0.form_id));
+                        Ok(())
+                    }
+                )
+                .unwrap()
+            );
+            runtime.apply(&mut player_runtime, retained(7, 2)).unwrap();
+            assert_ne!(runtime.server_forms().active().unwrap().identity, hit.0);
         }
         app.world_mut()
             .get_mut::<Window>(entity)
@@ -333,6 +360,7 @@ fn mouse_activates_visible_buttons_once_and_rejects_old_rendered_hits() {
         app.update();
         let sent = flush_form_response(
             &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+            |_| false,
             |_| Ok(()),
         )
         .unwrap();
@@ -340,6 +368,7 @@ fn mouse_activates_visible_buttons_once_and_rejects_old_rendered_hits() {
         assert!(
             !flush_form_response(
                 &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+                |_| false,
                 |_| Ok(())
             )
             .unwrap()
@@ -361,36 +390,26 @@ fn mouse_activates_visible_buttons_once_and_rejects_old_rendered_hits() {
 fn enter_reveals_a_hidden_button_before_it_can_submit() {
     let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
-    let (mut app, entity) = app(&mut player_runtime);
-    let mut event = retained(7, 2);
+    let mut event = retained(7, 1);
     if let protocol::UiEvent::Form(form) = &mut event.event
         && let protocol::ServerFormModel::TextMenu(menu) = &mut form.model
     {
         menu.content = "Long body\n".repeat(100).into();
         menu.omitted_images = 1;
     }
-    let mut runtime = app
-        .world_mut()
-        .remove_resource::<UiRuntimeResource>()
-        .unwrap();
-    runtime.apply(&mut player_runtime, event).unwrap();
-    app.world_mut()
-        .resource_mut::<UiPresentationResource>()
-        .build(
-            &player_runtime,
-            &runtime,
-            0,
-            [1280, 720],
-            ui::DpiScale::new(1.0).unwrap(),
-        )
-        .unwrap();
-    let identity = runtime.server_forms().active().unwrap().identity;
+    let (mut app, entity) = app_for_event(&mut player_runtime, event);
+    let identity = app
+        .world()
+        .resource::<UiRuntimeResource>()
+        .server_forms()
+        .active()
+        .unwrap()
+        .identity;
     assert!(
         !app.world()
             .resource::<UiPresentationResource>()
             .form_button_visible(identity, 0)
     );
-    app.insert_resource(runtime);
     press(&mut app, entity, KeyCode::Enter);
     app.update();
     let runtime = app
@@ -420,6 +439,7 @@ fn enter_reveals_a_hidden_button_before_it_can_submit() {
     assert!(
         flush_form_response(
             &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+            |_| false,
             |_| Ok(())
         )
         .unwrap()
@@ -427,6 +447,7 @@ fn enter_reveals_a_hidden_button_before_it_can_submit() {
     assert!(
         !flush_form_response(
             &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+            |_| false,
             |_| Ok(())
         )
         .unwrap()
@@ -500,6 +521,7 @@ fn clicking_an_engine_drawn_button_answers_its_index() {
     let mut response = None;
     flush_form_response(
         &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+        |_| false,
         |packet| {
             response = Some(packet);
             Ok(())
@@ -581,6 +603,7 @@ fn held_keys_auto_repeating_into_an_open_form_do_not_answer_it() {
     let mut response = None;
     flush_form_response(
         &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+        |_| false,
         |packet| {
             response = Some(packet);
             Ok(())
@@ -590,7 +613,7 @@ fn held_keys_auto_repeating_into_an_open_form_do_not_answer_it() {
     assert!(response.is_none(), "an auto-repeated key answered the form");
 }
 
-// Zeqa answers a page before the mouse is released; that release must not click the next page.
+// Reissuing a page while its button is held must not transfer that click to the new revision.
 #[test]
 fn a_release_after_the_next_page_arrives_does_not_click_it() {
     use bevy::input::mouse::MouseButtonInput;
@@ -598,9 +621,7 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
     use client_ui::ui_runtime::SequencedUiEvent;
     use protocol::{FormKind, FormRequestEvent, ServerFormModel, TextMenuForm, UiEvent};
     use std::sync::Arc;
-    let Some(mut presentation) = pack_harness::engine_presentation() else {
-        return;
-    };
+    let mut presentation = client_ui::test_support::mini_engine_presentation();
     let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let runtime = pack_harness::action_form(&mut player_runtime, "Menu", &["A", "B", "C"]);
     let (physical, dpi) = ([1280, 720], ui::DpiScale::new(1.0).unwrap());
@@ -660,6 +681,7 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
         let mut sent = Vec::new();
         flush_form_response(
             &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+            |_| false,
             |packet| {
                 sent.push(packet);
                 Ok(())
@@ -670,7 +692,17 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
     };
     send(&mut app, ButtonState::Pressed);
     let first = take(&mut app);
-    // The server's next page arrives while the button is still held.
+    assert!(first.is_empty(), "pointer selection waits for release");
+    // The first page closes before the server sends the next request.
+    // Its held pointer must not transfer to the next page, even with the same ID.
+    app.world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .respond_to_server_form(identity, client_ui::ui_runtime::LocalFormAction::Dismiss)
+        .unwrap();
+    assert_eq!(
+        take(&mut app),
+        vec![protocol::modal_form_cancel_response(identity.form_id)]
+    );
     app.world_mut()
         .resource_scope(|world, mut runtime: Mut<UiRuntimeResource>| {
             let mut player_runtime = world
@@ -685,7 +717,7 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
                         local_millis: 0,
                         server_tick: None,
                         event: UiEvent::Form(FormRequestEvent {
-                            form_id: 4,
+                            form_id: identity.form_id,
                             kind: FormKind::Menu,
                             title: Some(Arc::from("Next")),
                             json: Arc::from("{}"),
@@ -713,8 +745,18 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
     send(&mut app, ButtonState::Released);
     let second = take(&mut app);
     assert!(
-        first.len() + second.len() <= 1,
-        "one physical click answered more than one page"
+        second.is_empty(),
+        "the old press must not answer the reissued page: {second:?}"
+    );
+    send(&mut app, ButtonState::Pressed);
+    send(&mut app, ButtonState::Released);
+    assert_eq!(
+        take(&mut app),
+        vec![protocol::modal_form_submit_response(
+            identity.form_id,
+            protocol::ModalFormResponseSelection::ButtonIndex(1),
+        )],
+        "a fresh click answers the new page exactly once"
     );
 }
 
@@ -810,11 +852,13 @@ fn custom_form_toggle_and_input_edit_their_values() {
                         title: "T".into(),
                         elements: vec![
                             CustomFormElement::Toggle {
+                                control_locked: Default::default(),
                                 text: "On".into(),
                                 default: false,
                                 tooltip: None,
                             },
                             CustomFormElement::Input {
+                                control_locked: Default::default(),
                                 text: "Name".into(),
                                 placeholder: "".into(),
                                 default: Arc::from(""),
@@ -954,6 +998,7 @@ fn explicit_form_return_survives_pending_response_after_overlay_focus_loss() {
         );
         flush_form_response(
             &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+            |_| false,
             |_| Ok(()),
         )
         .unwrap();

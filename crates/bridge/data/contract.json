@@ -15,8 +15,13 @@
     {"rust_name": "HOSTED_WORLD_MAX_PLAYERS", "go_name": "HostedWorldMaxPlayers", "value": 8, "rust_type": "u32", "doc": "Vanilla's player limit for a hosted local world, the host included."},
     {"rust_name": "RELAY_VERSION", "go_name": "RelayVersion", "value": 2, "rust_type": "u32", "doc": "Browser relay protocol version."},
     {"rust_name": "RELAY_CONTROL_BYTES", "go_name": "RelayControlBytes", "value": 4096, "rust_type": "usize", "doc": "Largest relay Hello or control JSON payload in bytes."},
-    {"rust_name": "RELAY_PLAY_MESSAGE_BYTES", "go_name": "RelayPlayMessageBytes", "value": 8388608, "rust_type": "usize", "doc": "Largest WebSocket play message and upload burst in bytes."},
+    {"rust_name": "RELAY_PLAY_MESSAGE_BYTES", "go_name": "RelayPlayMessageBytes", "value": 8388608, "rust_type": "usize", "doc": "Largest WebSocket play message in bytes."},
+    {"rust_name": "QUEUED_FRAMES", "go_name": "QueuedFrames", "value": 16, "rust_type": "usize", "doc": "Maximum queued reliable frames or browser receive chunks."},
+    {"rust_name": "RELAY_QUEUED_FRAME_BYTES", "go_name": "RelayQueuedFrameBytes", "value": 8388608, "rust_type": "usize", "doc": "Ordinary browser frame queue budget; a larger bridge frame is admitted alone."},
+    {"rust_name": "RELAY_UPLOAD_BURST_BYTES", "go_name": "RelayUploadBurstBytes", "value": 8388608, "rust_type": "usize", "doc": "Upload rate limiter burst, independent of message and queue limits."},
+    {"rust_name": "RELAY_BIDIRECTIONAL_STREAMS", "go_name": "RelayBidirectionalStreams", "value": 3, "rust_type": "usize", "doc": "Concurrent browser streams for control, active play and retiring play."},
     {"rust_name": "RELAY_KEEPALIVE_SECONDS", "go_name": "RelayKeepAliveSeconds", "value": 30, "rust_type": "u32", "doc": "Interval between control keepalives."},
+    {"rust_name": "RELAY_CONTROL_REFILL_MILLIS", "go_name": "RelayControlRefillMillis", "value": 1000, "rust_type": "u32", "doc": "Time to replenish one relay control request; busy sign-out retries wait at least this long."},
     {"rust_name": "RELAY_TRANSPORT_PATH", "go_name": "RelayTransportPath", "value": "/v2/transport", "rust_type": "str", "doc": "WebTransport Extended CONNECT route."},
     {"rust_name": "RELAY_CONTROL_PATH", "go_name": "RelayControlPath", "value": "/v2/control", "rust_type": "str", "doc": "WebSocket control route."},
     {"rust_name": "RELAY_PLAY_PATH", "go_name": "RelayPlayPath", "value": "/v2/play", "rust_type": "str", "doc": "WebSocket play route."},
@@ -79,9 +84,15 @@
     {"rust_name": "RPC_SERVICES_DISABLED", "go_name": "RPCServicesDisabled", "value": -32023, "rust_type": "i64", "doc": "Control error code for services disabled."},
     {"rust_name": "RPC_CINNABAR_RATE_LIMITED", "go_name": "RPCCinnabarRateLimited", "value": -32024, "rust_type": "i64", "doc": "Control error code for a Cinnabar lookup the API rate-limited."},
     {"rust_name": "METHOD_CINNABAR_API", "go_name": "MethodCinnabarAPI", "value": "cinnabar_api.v1", "rust_type": "str", "doc": "Control method for the Cinnabar API identity and visibility."},
-    {"rust_name": "METHOD_CINNABAR_EMOTES", "go_name": "MethodCinnabarEmotes", "value": "cinnabar_emotes.v1", "rust_type": "str", "doc": "Control method for nearby Cinnabar emote playback."},
+    {"rust_name": "METHOD_CINNABAR_PLAYERS", "go_name": "MethodCinnabarPlayers", "value": "cinnabar_players.v1", "rust_type": "str", "doc": "Control method for nearby Cinnabar emotes and cosmetics."},
     {"rust_name": "METHOD_CINNABAR_LOOKUP", "go_name": "MethodCinnabarLookup", "value": "cinnabar_lookup.v1", "rust_type": "str", "doc": "Control method for a Cinnabar player lookup."},
-    {"rust_name": "", "go_name": "CinnabarAPIBaseURL", "value": "https://cinnabar-api.cinnabar-api.workers.dev", "rust_type": "str", "doc": "Cinnabar API origin; the package workflow reads it from this manifest."},
+    {
+      "rust_name": "CINNABAR_API_BASE_URL",
+      "go_name": "CinnabarAPIBaseURL",
+      "value": "https://api.cinnabar.gg",
+      "rust_type": "str",
+      "doc": "Cinnabar API origin; the package workflow reads it from this manifest."
+    },
     {"rust_name": "CINNABAR_API_MAX_LOOKUP_XUIDS", "go_name": "CinnabarAPIMaxLookupXUIDs", "value": 128, "rust_type": "usize", "doc": "Most XUIDs in one Cinnabar player lookup."},
     {"rust_name": "CINNABAR_API_CACHE_TTL_MS", "go_name": "CinnabarAPICacheTTLMS", "value": 120000, "rust_type": "u32", "doc": "Fallback lifetime of a Cinnabar lookup answer."},
     {"rust_name": "", "go_name": "CinnabarAPILookupBucketCapacity", "value": 1024, "rust_type": "u32", "doc": "Fallback lookup budget in XUIDs."},
@@ -110,13 +121,58 @@
     {"rust_name": "MESSAGE_ART_BANNER", "go_name": "MessageArtBanner", "value": "banner", "rust_type": "str", "doc": "Image id marker for banner artwork."},
     {"rust_name": "MESSAGE_ART_HOVER", "go_name": "MessageArtHover", "value": "hover", "rust_type": "str", "doc": "Image id marker for hover artwork."},
     {"rust_name": "MESSAGE_ART_FORE", "go_name": "MessageArtFore", "value": "fore", "rust_type": "str", "doc": "Image id marker for fore artwork."},
-    {"rust_name": "MESSAGE_ART_FG", "go_name": "MessageArtFg", "value": "fg", "rust_type": "str", "doc": "Image id marker for fg artwork."}
+    {"rust_name": "MESSAGE_ART_FG", "go_name": "MessageArtFg", "value": "fg", "rust_type": "str", "doc": "Image id marker for fg artwork."},
+    {"rust_name": "DISCONNECT_KEY_CANT_CONNECT", "go_name": "DisconnectKeyCantConnect", "value": "disconnectionScreen.cantConnect", "rust_type": "str", "doc": "Core disconnect message: The core could not join the server."},
+    {"rust_name": "DISCONNECT_KEY_CANT_CONNECT_TO_REALM", "go_name": "DisconnectKeyCantConnectToRealm", "value": "disconnectionScreen.cantConnectToRealm", "rust_type": "str", "doc": "Core disconnect message: The core could not join the Realm."},
+    {"rust_name": "DISCONNECT_KEY_RESOURCE_PACK", "go_name": "DisconnectKeyResourcePack", "value": "disconnectionScreen.resourcePack", "rust_type": "str", "doc": "Core disconnect message: The server's resource packs could not be admitted."},
+    {"rust_name": "DISCONNECT_KEY_OUTDATED_CLIENT", "go_name": "DisconnectKeyOutdatedClient", "value": "disconnectionScreen.outdatedClient", "rust_type": "str", "doc": "Core disconnect message: The client's protocol or game version is older than the core's."},
+    {"rust_name": "DISCONNECT_KEY_OUTDATED_SERVER", "go_name": "DisconnectKeyOutdatedServer", "value": "disconnectionScreen.outdatedServer", "rust_type": "str", "doc": "Core disconnect message: The client's protocol is newer than the core's."},
+    {"rust_name": "DISCONNECT_KEY_INVALID_SKIN", "go_name": "DisconnectKeyInvalidSkin", "value": "disconnectionScreen.invalidSkin", "rust_type": "str", "doc": "Core disconnect message: The client's login data is invalid only because of its skin."},
+    {"rust_name": "DISCONNECT_KEY_INVALID_NAME", "go_name": "DisconnectKeyInvalidName", "value": "disconnectionScreen.invalidName", "rust_type": "str", "doc": "Core disconnect message: The client's login data is invalid only because of its player name."},
+    {"rust_name": "DISCONNECT_KEY_DEVICE_CLOCK", "go_name": "DisconnectKeyDeviceClock", "value": "cinnabar.disconnect.deviceClock", "rust_type": "str", "doc": "Core disconnect message: The sign-in token was rejected because this device's clock is behind."}
   ],
   "string_lists": [
     {"rust_name": "INBOX_CATEGORIES", "go_name": "InboxCategories", "values": ["News", "Realms", "Invites", "Feedback"], "doc": "Inbox category names in display order."},
-    {"rust_name": "MESSAGE_EVENT_TYPES", "go_name": "MessageEventTypes", "prefix": "MESSAGE_EVENT_", "doc": "Messaging report types accepted by the core."}
+    {"rust_name": "MESSAGE_EVENT_TYPES", "go_name": "MessageEventTypes", "prefix": "MESSAGE_EVENT_", "doc": "Messaging report types accepted by the core."},
+    {"rust_name": "CORE_DISCONNECT_KEYS", "go_name": "CoreDisconnectKeys", "prefix": "DISCONNECT_KEY_", "doc": "Every lang key the core sends as a whole disconnect message."}
   ],
   "enums": [
+    {
+      "rust_name": "RefusalCode",
+      "doc": "A safe relay refusal code; unrecognized codes use the generic refusal.",
+      "derive": [
+        "Clone",
+        "Copy",
+        "Debug",
+        "Deserialize",
+        "Eq",
+        "PartialEq",
+        "Serialize"
+      ],
+      "variants": [
+        {
+          "rust_name": "ResumeRefused",
+          "go_name": "RelayRefusalResume",
+          "value": "resume_refused"
+        },
+        {
+          "rust_name": "AdmissionRefused",
+          "go_name": "RelayRefusalAdmission",
+          "value": "admission_refused"
+        },
+        {
+          "rust_name": "SessionBusy",
+          "go_name": "RelayRefusalSessionBusy",
+          "value": "session_busy"
+        },
+        {
+          "rust_name": "Refused",
+          "go_name": "RelayRefusalUnknown",
+          "value": "refused",
+          "other": true
+        }
+      ]
+    },
     {
       "rust_name": "GameMode",
       "doc": "Game mode a world starts players in.",
@@ -244,6 +300,7 @@
       "doc": "Join progress stage reported by the core.",
       "derive": ["Clone", "Copy", "Debug", "Deserialize", "Eq", "PartialEq", "Serialize"],
       "variants": [
+        {"rust_name": "Idle", "go_name": "ConnectStageIdle", "value": "", "doc": "No join is being prepared."},
         {"rust_name": "Realm", "go_name": "ConnectStageRealm", "value": "realm", "doc": "The Realm lookup."},
         {"rust_name": "Packs", "go_name": "ConnectStagePacks", "value": "packs", "doc": "Resource pack acquisition."},
         {"rust_name": "Connecting", "go_name": "ConnectStageConnecting", "value": "connecting", "doc": "Transport connect and login; also any stage this client does not know.", "other": true}
@@ -251,6 +308,34 @@
     }
   ],
   "structs": [
+    {
+      "rust_name": "CinnabarCosmeticSlot",
+      "go_name": "CinnabarCosmeticSlot",
+      "doc": "One namespaced cosmetic item in a supported slot.",
+      "derive": [
+        "Clone",
+        "Debug",
+        "Default",
+        "Deserialize",
+        "Eq",
+        "PartialEq",
+        "Serialize"
+      ],
+      "fields": [
+        {
+          "name": "slot",
+          "go_name": "Slot",
+          "type": "string",
+          "doc": "Catalog slot name."
+        },
+        {
+          "name": "item_id",
+          "go_name": "ItemID",
+          "type": "string",
+          "doc": "Namespaced item identifier."
+        }
+      ]
+    },
     {
       "rust_name": "CinnabarRelease",
       "go_name": "CinnabarRelease",
@@ -264,9 +349,9 @@
       ]
     },
     {
-      "rust_name": "CinnabarEmoteState",
-      "go_name": "CinnabarEmoteState",
-      "doc": "Nearby subscriptions and the local custom emote, cleared when the game session ends.",
+      "rust_name": "CinnabarPlayerState",
+      "go_name": "CinnabarPlayerState",
+      "doc": "Nearby subscriptions, local playback and the selected slot loadout.",
       "derive": [
         "Clone",
         "Debug",
@@ -306,6 +391,12 @@
           "go_name": "PlaybackID",
           "type": "u64",
           "doc": "Local start identity, including same-clip restarts."
+        },
+        {
+          "name": "slots",
+          "go_name": "Slots",
+          "type": "list:CinnabarCosmeticSlot",
+          "doc": "Persistent selected items by slot; empty clears the loadout."
         }
       ]
     },
@@ -354,12 +445,94 @@
           "doc": "Remaining playback lease."
         }
       ]
+    },
+    {
+      "derive": [
+        "Clone",
+        "Debug",
+        "Default",
+        "Deserialize",
+        "Eq",
+        "PartialEq",
+        "Serialize"
+      ],
+      "rust_name": "CinnabarRemoteLoadout",
+      "go_name": "CinnabarRemoteLoadout",
+      "doc": "An authenticated nearby session loadout without an emote lease.",
+      "fields": [
+        {
+          "name": "xuid",
+          "go_name": "XUID",
+          "type": "string",
+          "doc": "Authenticated Xbox account identifier."
+        },
+        {
+          "name": "uuid",
+          "go_name": "UUID",
+          "type": "string",
+          "doc": "Account UUID derived by the API."
+        },
+        {
+          "name": "revision",
+          "go_name": "Revision",
+          "type": "u64",
+          "doc": "Newest accepted account revision."
+        },
+        {
+          "name": "slots",
+          "go_name": "Slots",
+          "type": "list:CinnabarCosmeticSlot",
+          "doc": "Equipped items; empty withdraws the loadout."
+        }
+      ]
+    },
+    {
+      "derive": [
+        "Clone",
+        "Debug",
+        "Default",
+        "Deserialize",
+        "Eq",
+        "PartialEq",
+        "Serialize"
+      ],
+      "rust_name": "CinnabarPlayerUpdates",
+      "go_name": "CinnabarPlayerUpdates",
+      "doc": "Current authenticated nearby playback and session loadouts.",
+      "fields": [
+        {
+          "name": "emotes",
+          "go_name": "Emotes",
+          "type": "list:CinnabarRemoteEmote",
+          "doc": "Nearby custom emotes."
+        },
+        {
+          "name": "loadouts",
+          "go_name": "Loadouts",
+          "type": "list:CinnabarRemoteLoadout",
+          "doc": "Nearby authenticated loadouts."
+        },
+        {
+          "name": "ownership_xuid",
+          "go_name": "OwnershipXUID",
+          "type": "string",
+          "default": true,
+          "doc": "Verified local account identity, empty while disconnected."
+        },
+        {
+          "name": "owned_cosmetics",
+          "go_name": "OwnedCosmetics",
+          "type": "strings",
+          "default": true,
+          "doc": "Paid grants supplied by the account API database."
+        }
+      ]
     }
   ],
   "relay": {
     "framing": "Every Hello and control message is nonzero u32 big-endian JSON length followed by that many UTF-8 bytes. Stream/message chunks are arbitrary. Play bytes after Hello use the existing bridge framing unchanged.",
     "control_hello": {"version": 2, "channel": "control", "channels": ["control", "play"], "resume": "optional bearer"},
-    "play_hello": {"version": 2, "channel": "play", "generation": 1, "resume": "required for WebSocket; omitted for authenticated WebTransport"},
+    "play_hello": {"version": 2, "channel": "play", "generation": 1, "join": "fresh nonzero identity for pack-stream delivery; omitted by legacy peers", "resume": "required for WebSocket; omitted for authenticated WebTransport"},
     "welcome": {"type": "welcome", "version": 2, "resume": "rotated bearer", "generation": 1, "expires_seconds": 120},
     "request": {"op": "sign_in, sign_out or pong", "resume": "pong echoes the bearer from the received ping"},
     "event": "account carries auth.v1 under account; connect carries ConnectProgress under connect; error carries a public code under error. ping carries the same capability fields as welcome and requires pong with that resume bearer. Unanswered pings repeat the pending bearer and report its remaining expiry. Unknown fields are optional extensions; unknown operations receive error. Malformed framing ends the transport.",
@@ -367,9 +540,21 @@
     "fixtures": [
       {"version": 2, "channel": "control", "channels": ["control", "play"]},
       {"version": 2, "channel": "play", "generation": 1},
+      {"version": 2, "channel": "play", "generation": 1, "join": 2},
       {"type": "welcome", "version": 2, "resume": "test-token", "generation": 1, "expires_seconds": 120},
       {"op": "sign_in"},
-      {"op": "pong", "resume": "test-token"}
+      {"op": "pong", "resume": "test-token"},
+      {"op": "sign_out"},
+      {"type": "account", "account": {"state": "awaiting_code", "verification_uri": "https://example.test/verify", "user_code": "TEST-CODE"}},
+      {"type": "connect", "connect": {"stage": "packs", "packs_done": 1, "packs_total": 2, "received_bytes": 3, "total_bytes": 4}},
+      {"type": "connect", "connect": {"stage": ""}},
+      {"type": "error", "error": "resume_refused"},
+      {"type": "error", "error": "admission_refused"},
+      {"type": "error", "error": "session_busy"},
+      {"type": "error", "error": "refused"},
+      {"type": "ping", "version": 2, "resume": "test-token", "generation": 1, "expires_seconds": 120},
+      {"type": "account", "account": {"state": "signed_out"}},
+      {"type": "connect", "connect": {"stage": "packs", "packs_done": 1, "packs_total": 2, "received_bytes": 512, "total_bytes": 1024}}
     ]
   }
 }

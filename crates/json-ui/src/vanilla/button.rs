@@ -40,6 +40,7 @@ names! {
         MenuNetworkServerItem = "button.menu_network_server_item",
         MenuNetworkServerWorldEdit = "button.menu_network_server_world_edit",
         MenuNetworkWorldItem = "button.menu_network_world_item",
+        MenuOk = "button.menu_ok",
         MenuPlay = "button.menu_play",
         MenuProfile = "button.menu_profile",
         MenuQuit = "button.menu_quit",
@@ -82,5 +83,8 @@ names! {
         ToProfileScreen = "button.to_profile_screen",
         ToastInteraction = "button.toast_interaction",
         TurnDoll = "button.turn_doll",
+        CycleRecipeLeft = "button.cycle_recipe_left",
+        CycleRecipeRight = "button.cycle_recipe_right",
+        Trade = "button.trade",
     }
 }

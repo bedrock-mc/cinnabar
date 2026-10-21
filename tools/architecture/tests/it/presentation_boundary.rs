@@ -174,3 +174,27 @@ fn presentation_test_support_cannot_leak_into_production() {
             .any(|line| line.contains("test-support"))
     );
 }
+
+#[test]
+fn environment_derivation_rejects_app_world_ui_and_preference_wrappers() {
+    for source in [
+        "fn derive(_: ClientWorld) {}",
+        "fn derive(_: UiRuntimeResource) {}",
+        "fn derive(_: BrowserOptions) {}",
+        "fn derive(_: client_shell::menu::MenuRuntime) {}",
+    ] {
+        let temp = fixture();
+        write(
+            &temp
+                .path()
+                .join("crates/client-presentation/src/environment.rs"),
+            source,
+        );
+        assert!(
+            diagnostics(temp.path())
+                .iter()
+                .any(|line| line.contains("crosses forbidden")),
+            "{source}"
+        );
+    }
+}

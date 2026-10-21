@@ -315,7 +315,9 @@ fn snapshot_custom_display_name_search() {
             ..Default::default()
         },
     )]))));
-    runtime.screen_state_mut().creative_tab = ui_screens::container_actions::SEARCH_TAB;
+    runtime
+        .screen_state_mut()
+        .select_tab(ui_screens::container_actions::SEARCH_TAB);
     runtime.screen_state_mut().search = "Crystal".into();
     runtime.screen_state_mut().search_focused = true;
     runtime.set_session_icons(Some(Arc::new(super::super::SessionIcons {
@@ -348,7 +350,7 @@ fn snapshot_custom_display_name_search() {
     let icon = presentation.item_icon("custom:blade", 0).unwrap();
     presentation.hud_frame_mut().window_icons.book_entries = vec![Some(icon)];
     let first = runtime.screen_state().creative_row;
-    let matched = visible_creative_entries(runtime.inventory_ledger(&player), &runtime).len();
+    let matched = visible_creative_entries(&player, &runtime).len();
     for frame in 0..24 {
         let input = presentation
             .build(

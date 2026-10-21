@@ -717,3 +717,31 @@ fn jump_at_a_ladder_base_climbs_without_a_ground_jump() {
         .unwrap();
     assert_eq!(output.tick_result.movement.z, walked.movement.z);
 }
+
+/// Stepping a flying player upward does not turn a rising request into ground contact.
+#[test]
+fn flying_up_a_slab_does_not_create_ground_contact() {
+    let mut world = TerrainWorld::floor(Vec3::new(-4.0, 0.0, -4.0), Vec3::new(4.0, 1.0, 4.0));
+    world.boxes.push(Aabb::new(
+        Vec3::new(-1.0, 1.0, 0.7),
+        Vec3::new(1.0, 1.5, 3.0),
+    ));
+    let mut state = grounded(Vec3::new(0.0, 1.0, 0.4));
+    state.velocity = Vec3::new(0.0, 0.1, 0.5);
+    let result = Simulator::default()
+        .tick(
+            &mut state,
+            MovementInput {
+                mode: sim::MovementMode::Flying,
+                forward: 1.0,
+                fly_speed: Some(0.0),
+                ..MovementInput::default()
+            },
+            &world,
+        )
+        .unwrap();
+    assert_eq!(result.movement.y, 0.5);
+    assert!(result.collisions.y);
+    assert!(state.requested_movement.y > 0.0);
+    assert!(!result.on_ground);
+}

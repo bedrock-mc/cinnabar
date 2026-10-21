@@ -48,7 +48,7 @@ impl EquipmentRuntime {
                     "no attachable armor binding for this identifier"
                 };
             };
-            let category = binding.category;
+            let category = self.effective_category(&item.identifier, binding.category);
             if category != (EquipmentCategory::Armor { slot })
                 && category != EquipmentCategory::Elytra
             {

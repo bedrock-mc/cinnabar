@@ -12,7 +12,7 @@ import (
 	"slices"
 	"sort"
 
-	shared "github.com/bedrock-mc/protocolgen/generated/data"
+	shared "github.com/cinnabar-mc/protocolgen/generated/data"
 )
 
 type v2193BlockProjectionManifest struct {
@@ -31,6 +31,7 @@ type v2193BlockProjectionManifest struct {
 	Projection struct {
 		States              int      `json:"states"`
 		LegacyExactStates   int      `json:"legacy_exact_states"`
+		AuthoredStates      int      `json:"authored_states"`
 		LegacyReducedStates int      `json:"legacy_reduced_states"`
 		TwinStates          int      `json:"twin_states"`
 		TwinNames           int      `json:"twin_names"`
@@ -53,8 +54,8 @@ type v2193BlockProjectionManifest struct {
 }
 
 type v2193ProjectionStats struct {
-	legacy, reduced, twins, additions, denied, education int
-	deniedFingerprint, additionFingerprint               string
+	legacy, reduced, twins, additions, denied, education, authored int
+	deniedFingerprint, additionFingerprint                         string
 }
 
 // Projection classes recorded per canonical source key.
@@ -65,6 +66,7 @@ const (
 	v2193ClassLegacyReduced
 	v2193ClassTwin
 	v2193ClassEducation
+	v2193ClassAuthored
 )
 
 // v2193Projection records, per source index, the projected record, its class,
@@ -110,6 +112,12 @@ func projectV2193Blocks(source, legacy []Record, allowed map[string]struct{}) (v
 			projected[index] = record
 			projection.classes[index] = v2193ClassEducation
 			stats.education++
+			continue
+		}
+		if _, retail := allowed[identity.Name]; retail && identity.Name == "minecraft:shelf_mushroom" {
+			projected[index] = identity
+			projection.classes[index] = v2193ClassAuthored
+			stats.authored++
 			continue
 		}
 		key := canonicalRecordKey(identity.Name, identity.StateJSON)
@@ -251,7 +259,7 @@ func writeV2193BlockProjectionOracle(legacyBREGPath, allowlistPath, outputPath, 
 		fmt.Fprintf(twinHash, "%s\x00%s\x00%s\x00", name, v2193Twins[name].twin, v2193Twins[name].item)
 	}
 	manifest := v2193BlockProjectionManifest{Schema: v2193BlockManifestSchema, GameVersion: v2193GameVersion, Protocol: v2193BlockProtocol}
-	manifest.Source.Module = "github.com/bedrock-mc/protocolgen/generated/data"
+	manifest.Source.Module = shared.ModulePath
 	manifest.Source.SourceLockSHA256, manifest.Source.CloudburstRef = shared.SourceLockSHA256, shared.CloudburstRef
 	manifest.Allowlist.Path, manifest.Allowlist.SHA256 = v2193RetailItemsPath, v2193RetailItemsSHA256
 	manifest.Projection.States, manifest.Projection.LegacyExactStates = len(projected), stats.legacy
@@ -260,6 +268,7 @@ func writeV2193BlockProjectionOracle(legacyBREGPath, allowlistPath, outputPath, 
 	manifest.Projection.UnresolvedRetail = append([]string(nil), v2193UnresolvedRetail...)
 	manifest.Projection.DeniedCount, manifest.Projection.DeniedFingerprint = stats.denied, stats.deniedFingerprint
 	manifest.Projection.EducationStates = stats.education
+	manifest.Projection.AuthoredStates = stats.authored
 	manifest.Output.Format, manifest.Output.Path, manifest.Output.SHA256 = registryHeader, v2193BlockOutputPath, fmt.Sprintf("%x", sha256.Sum256(encoded))
 	manifest.Light.Format, manifest.Light.Path, manifest.Light.SHA256 = lightRegistryHeader, v2193LightOutputPath, fmt.Sprintf("%x", sha256.Sum256(light))
 	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
@@ -420,7 +429,7 @@ var v2193Twins = map[string]v2193Twin{
 
 // v2193UnresolvedRetail are retail 1.26.50 blocks with no schema-identical
 // twin; they stay reserved until a reviewed fact source exists.
-var v2193UnresolvedRetail = []string{"minecraft:shelf_mushroom", "minecraft:straw_bed"}
+var v2193UnresolvedRetail = []string{"minecraft:straw_bed"}
 
 func v2193TwinFor(name string) (v2193Twin, bool) {
 	twin, ok := v2193Twins[name]

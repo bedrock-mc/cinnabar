@@ -19,6 +19,8 @@ use bedrock_protocol_1_26_51::types::{
 };
 use bytes::{Buf, BufMut, Bytes};
 
+mod container_registry_cleanup;
+
 #[test]
 fn all_named_audio_packets_are_allowlisted_for_raw_world_ingress() {
     for fixture in [

@@ -206,9 +206,10 @@ impl Harness {
             AttackFrame {
                 attack,
                 mining_target: match input {
-                    DestroyInput::Held(target) => target,
+                    DestroyInput::Held(target) | DestroyInput::Continue(target) => target,
                     DestroyInput::Released => None,
                 },
+                allow_mining_start: true,
                 attack_held: held,
                 authority: BlockBreakingAuthority::Server,
                 now_millis: self.now,

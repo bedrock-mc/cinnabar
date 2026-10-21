@@ -1,8 +1,9 @@
 //! Actual spatial filtering and exposure compose over a stationary diagonal actor silhouette.
 
 use super::super::*;
-use crate::depth_smaa::tests::raster_tests::{
-    FixturePipelines, SIDE, app_with_effects, fixture_pipeline, frame, read_pixels, ready, renderer,
+use crate::depth_smaa::tests::raster_tests::{app_with_effects, ready};
+use crate::render_test_support::scene_raster::{
+    FixturePipelines, SIDE, fixture_pipeline, frame, read_pixels, renderer,
 };
 use bevy::{
     anti_alias::smaa::Smaa,

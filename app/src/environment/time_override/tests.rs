@@ -1,6 +1,7 @@
 use super::*;
-use crate::environment::{self, WeatherState};
+use crate::environment;
 use bevy::{prelude::*, time::Real};
+use client_presentation::environment::WeatherState;
 use client_world::CommittedControlEvent;
 use protocol::{DaylightCycleUpdateEvent, SetTimeEvent, WorldEnvironmentBootstrap};
 use render_scene::{AtmosphereFrame, WorldLighting};
@@ -9,7 +10,7 @@ use render_scene::{AtmosphereFrame, WorldLighting};
 fn atmosphere_app(cycle: bool) -> App {
     let mut clock = WorldClock::default();
     let mut weather = WeatherState::default();
-    environment::replace_session(
+    client_presentation::environment::replace_session(
         &mut clock,
         &mut weather,
         WorldEnvironmentBootstrap {
@@ -27,10 +28,10 @@ fn atmosphere_app(cycle: bool) -> App {
         .insert_resource(weather)
         .init_resource::<VisualTimeOverride>()
         .init_resource::<environment::CameraMediumState>()
-        .init_resource::<environment::EnvironmentContext>()
-        .init_resource::<environment::EnvironmentProfileRoute>()
-        .init_resource::<environment::LightningFlashState>()
-        .init_resource::<environment::WeatherTickFrame>()
+        .init_resource::<client_presentation::environment::EnvironmentContext>()
+        .init_resource::<client_presentation::environment::EnvironmentProfileRoute>()
+        .init_resource::<client_presentation::environment::weather::LightningFlashState>()
+        .init_resource::<client_presentation::environment::weather::WeatherTickFrame>()
         .init_resource::<render_scene::AtmosphereTextureAssets>()
         .init_resource::<AtmosphereFrame>()
         .init_resource::<render_scene::AtmosphereViewInputs>()
@@ -80,6 +81,41 @@ fn ordinary_world_publisher_preserves_native_nighttime_ambient_floor() {
 }
 
 #[test]
+fn fixed_time_outranks_mod_output() {
+    let server = *atmosphere_app(true).world().resource::<WorldClock>();
+    let clock_at = |ticks| VisualTimeOverride(Some(ticks)).rendering_clock(server);
+    let fixed = FixedTime(Some(13_013));
+    let visual = VisualTimeOverride(Some(18_000));
+    assert_eq!(rendered_clock(server, None, None), server);
+    assert_eq!(
+        rendered_clock(server, Some(&FixedTime(None)), Some(&visual)),
+        clock_at(18_000)
+    );
+    assert_eq!(
+        rendered_clock(server, Some(&fixed), Some(&visual)),
+        clock_at(13_013)
+    );
+
+    // The atmosphere publisher draws the pinned time while a mod keeps writing its own.
+    let mut app = atmosphere_app(true);
+    app.world_mut().resource_mut::<VisualTimeOverride>().0 = Some(18_000);
+    let modded = output(&mut app);
+    app.insert_resource(fixed);
+    let pinned = output(&mut app);
+    assert_ne!(pinned.0.sun_direction(), modded.0.sun_direction());
+    assert_eq!(
+        pinned.0.day_fraction(),
+        AtmosphereFrame::from_bedrock_time(
+            client_presentation::environment::visual_world_time(clock_at(13_013), 0.0),
+            0.0,
+            0.0
+        )
+        .day_fraction()
+    );
+    assert_eq!(*app.world().resource::<WorldClock>(), server);
+}
+
+#[test]
 fn override_replaces_atmosphere_and_light_and_clearing_restores_server() {
     for cycle in [true, false] {
         let mut app = atmosphere_app(cycle);
@@ -116,7 +152,7 @@ fn override_replaces_atmosphere_and_light_and_clearing_restores_server() {
         assert_eq!(
             advancing_server.0.day_fraction(),
             render_scene::AtmosphereFrame::from_bedrock_time(
-                environment::visual_world_time(server, 10.0),
+                client_presentation::environment::visual_world_time(server, 10.0),
                 0.0,
                 0.0
             )
@@ -126,7 +162,7 @@ fn override_replaces_atmosphere_and_light_and_clearing_restores_server() {
         assert_eq!(output(&mut app), advancing_clouds);
         let mut clock = *app.world().resource::<WorldClock>();
         let mut weather = *app.world().resource::<WeatherState>();
-        environment::apply_environment_control(
+        client_presentation::environment::apply_environment_control(
             CommittedControlEvent::SetTime {
                 sequence: 1,
                 update: SetTimeEvent { time: 1_000 },
@@ -135,7 +171,7 @@ fn override_replaces_atmosphere_and_light_and_clearing_restores_server() {
             &mut weather,
             10.0,
         );
-        environment::apply_environment_control(
+        client_presentation::environment::apply_environment_control(
             CommittedControlEvent::DaylightCycle {
                 sequence: 2,
                 update: DaylightCycleUpdateEvent { enabled: false },
@@ -149,7 +185,7 @@ fn override_replaces_atmosphere_and_light_and_clearing_restores_server() {
         app.world_mut().resource_mut::<VisualTimeOverride>().0 = None;
         let restored = output(&mut app);
         let expected = render_scene::AtmosphereFrame::from_bedrock_time(
-            environment::visual_world_time(clock, 12.0),
+            client_presentation::environment::visual_world_time(clock, 12.0),
             0.0,
             0.0,
         )

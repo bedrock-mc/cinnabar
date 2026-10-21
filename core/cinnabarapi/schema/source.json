@@ -1,6 +1,10 @@
 {
-  "repository": "https://github.com/bedrock-mc/cinnabar-api",
-  "commit": "2e5b5b6e9936b76d0ce32e19288c906a681c7a1f",
+  "repository": "https://github.com/cinnabar-mc/cinnabar-api",
+  "commit": "630561f1762a99aecc474b274f42e38ed660e320",
   "path": "schema/v1.json",
-  "sha256": "0e30178ac05476ee3157541ae77b47c0c143f04411c1e574d07a993edaa52d7b"
+  "sha256": "af7c963a6be5f800707d2ceeb5a841d98393482e6f233890dafd2be818c2ca08",
+  "conformance": {
+    "path": "schema/fixtures/emote-clips.json",
+    "sha256": "bea4c1aeb485d66dab6c31b1037548f675e463495b761c30919571327358bafe"
+  }
 }

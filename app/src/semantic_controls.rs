@@ -16,6 +16,10 @@ pub(crate) use physical::{
 use client_shell::ui_resources::UiRuntimeResource;
 use {crate::runtime::world::ClientWorld, client_state::RuntimeSettings};
 
+/// Physical controls already consumed before gameplay reads this frame's ordered events.
+#[derive(Resource, Default)]
+pub(crate) struct ReservedControls(pub Vec<String>);
+
 #[derive(Resource, Default)]
 pub struct SemanticInputRuntime {
     router: SemanticInputRouter,
@@ -69,6 +73,7 @@ impl SemanticInputRuntime {
             .truncate(semantic_input::MAX_DISCONNECTED_CONTROLLERS);
         self.stamp_activity(&mut frame);
         self.router.route(frame.clone())?;
+        frame.desktop_events = None;
         // The router keeps these events; activity comparisons need only the held state.
         for controller in &mut frame.controllers {
             controller.button_edges = Default::default();

@@ -1,8 +1,10 @@
 //! Native wheel and native equip-slot popup, backed by the original local catalog.
 use std::{collections::HashMap, sync::Arc};
 
-use actor_animation::CustomEmote;
+use cosmetics::emotes::Item;
 use json_ui::{DataSource, HitKind, InputMode, Scalar, ViewState};
+use launcher::menu::settings_options::{SettingsOptions, key_name};
+use semantic_input::PhysicalControl;
 use ui::{FONT_DESIGN_PIXEL_TEXELS, IconRef, UiPoint};
 use ui_engine::cached_screen::CachedScreen;
 use ui_engine::engine::{
@@ -35,9 +37,12 @@ pub struct EmoteScreen {
 
 /// The emote wheel or equip popup, as the client's emote state shows it.
 pub struct EmoteInput<'a> {
+    pub settings: &'a SettingsOptions,
     pub equipping: bool,
+    pub catalog_page: Option<(usize, usize)>,
+    pub equipping_emote: Option<Item>,
     pub selected_slot: Option<usize>,
-    pub slots: &'a [Option<CustomEmote>],
+    pub slots: &'a [Option<Item>],
     /// The live player preview the occupied slots show.
     pub preview: Option<IconRef>,
 }
@@ -80,10 +85,13 @@ impl EmoteScreen {
             ..Default::default()
         };
         let translate = frame.translate;
-        let data = emote_data(&input, input.preview.is_some(), self.input_mode, &|key| {
+        let mut data = emote_data(&input, input.preview.is_some(), self.input_mode, &|key| {
             translate(key).map(|text| text.to_string())
         });
-        let context = engine.context().clone();
+        let context = engine
+            .context()
+            .clone()
+            .with_flag(json_ui::vanilla::Variable::StoreDisabled.key(), false);
         let catalog = Arc::clone(engine.catalog());
         let px = frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let language = frame.language;
@@ -97,8 +105,33 @@ impl EmoteScreen {
         } else {
             EMOTE_SCREEN
         };
+        let instructions = instructions(
+            self.input_mode,
+            input.catalog_page,
+            input.equipping,
+            input.settings,
+        );
+        data.set_global(
+            "#emote_screen_instructions",
+            Scalar::Text(instructions.clone()),
+        );
+        let translate = |key: &str| {
+            if matches!(
+                key,
+                "emotes.instructions_keyboard" | "emotes.instructions_touch"
+            ) {
+                Some(Arc::<str>::from(instructions.as_str()))
+            } else if key == "emotes.change_emotes" && input.catalog_page.is_some() {
+                Some(Arc::<str>::from("Next page"))
+            } else {
+                translate(key)
+            }
+        };
+        let mut renderers = [];
+        let mut translated_frame = frame.with_renderers(&mut renderers);
+        translated_frame.translate = &translate;
         let screen = &mut self.screen;
-        self.frame = engine.draw(art, frame, |env, root| {
+        self.frame = engine.draw(art, &mut translated_frame, |env, root| {
             screen.render_with(
                 reference,
                 &catalog,
@@ -166,6 +199,37 @@ impl EmoteScreen {
     }
 }
 
+/// Names the controls available in the current wheel stage and input device.
+pub fn instructions(
+    mode: InputMode,
+    page: Option<(usize, usize)>,
+    equipping: bool,
+    settings: &SettingsOptions,
+) -> String {
+    if let Some((page, count)) = page {
+        let next = match mode {
+            InputMode::Mouse => "Tab: more",
+            InputMode::Gamepad => "RB: more",
+            InputMode::Touch => "Next page",
+        };
+        format!("Choose ({}/{}). {next}", page + 1, count)
+    } else if equipping {
+        "Choose a wheel slot".to_owned()
+    } else {
+        match mode {
+            InputMode::Mouse => "1–4: play. C: catalog",
+            InputMode::Gamepad => {
+                let button = |code| {
+                    key_name(settings.swap_gamepad_control(PhysicalControl::GamepadButton(code)))
+                };
+                return format!("D-pad/{}: play. {}: catalog", button(0), button(2));
+            }
+            InputMode::Touch => "Tap an emote or Change Emotes",
+        }
+        .to_owned()
+    }
+}
+
 fn emote_data(
     state: &EmoteInput<'_>,
     preview_ready: bool,
@@ -187,14 +251,14 @@ fn emote_data(
     ] {
         data.set_global(name, Scalar::Bool(value));
     }
-    let selected = state.selected_slot.and_then(|slot| state.slots[slot]);
+    let selected = state
+        .selected_slot
+        .and_then(|slot| state.slots.get(slot).copied().flatten());
     data.set_global(
         "#emote_name",
         Scalar::Text(selected.map_or(String::new(), |emote| emote.label().to_owned())),
     );
-    let chosen = actor_animation::CustomEmote::ALL
-        .first()
-        .map_or("", |emote| emote.label());
+    let chosen = state.equipping_emote.map_or("", |emote| emote.label());
     data.set_global("#emote_popup_title", Scalar::Text(chosen.to_owned()));
     for (name, key) in [
         (
@@ -208,6 +272,16 @@ fn emote_data(
         ("#emote_screen_exit", "controller.buttonTip.back"),
     ] {
         data.set_global(name, Scalar::Text(translate(key).unwrap_or_default()));
+    }
+    if let Some((page, count)) = state.catalog_page {
+        data.set_global(
+            "#emote_screen_instructions",
+            Scalar::Text(format!(
+                "Choose an emote ({}/{}). Tab / RB: next page",
+                page + 1,
+                count
+            )),
+        );
     }
     data.set_control_values(
         "emote_wheel",
@@ -242,4 +316,70 @@ fn emote_data(
         );
     }
     data
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use launcher::menu::settings_options::SettingId;
+
+    #[test]
+    fn controller_instructions_follow_both_button_swaps() {
+        for (swap_ab, swap_xy, accept, catalog) in [
+            (false, false, "A", "Y"),
+            (true, false, "B", "Y"),
+            (false, true, "A", "X"),
+            (true, true, "B", "X"),
+        ] {
+            let mut settings = SettingsOptions::default();
+            settings.set(SettingId::SwapGamepadAbButtons.index(), i32::from(swap_ab));
+            settings.set(SettingId::SwapGamepadXyButtons.index(), i32::from(swap_xy));
+            assert_eq!(
+                instructions(InputMode::Gamepad, None, false, &settings),
+                format!("D-pad/{accept}: play. {catalog}: catalog"),
+                "swap_ab={swap_ab}, swap_xy={swap_xy}"
+            );
+        }
+    }
+
+    #[test]
+    fn button_swaps_preserve_other_device_and_wheel_stage_instructions() {
+        for swap_ab in [0, 1] {
+            for swap_xy in [0, 1] {
+                let mut settings = SettingsOptions::default();
+                settings.set(SettingId::SwapGamepadAbButtons.index(), swap_ab);
+                settings.set(SettingId::SwapGamepadXyButtons.index(), swap_xy);
+                for (mode, page, equipping, expected) in [
+                    (InputMode::Mouse, None, false, "1–4: play. C: catalog"),
+                    (
+                        InputMode::Touch,
+                        None,
+                        false,
+                        "Tap an emote or Change Emotes",
+                    ),
+                    (
+                        InputMode::Gamepad,
+                        Some((1, 3)),
+                        false,
+                        "Choose (2/3). RB: more",
+                    ),
+                    (
+                        InputMode::Mouse,
+                        Some((0, 2)),
+                        false,
+                        "Choose (1/2). Tab: more",
+                    ),
+                    (
+                        InputMode::Touch,
+                        Some((0, 1)),
+                        false,
+                        "Choose (1/1). Next page",
+                    ),
+                    (InputMode::Gamepad, None, true, "Choose a wheel slot"),
+                ] {
+                    assert_eq!(instructions(mode, page, equipping, &settings), expected);
+                }
+            }
+        }
+    }
 }

@@ -29,6 +29,9 @@ pub const CHAT_SCREEN: &str = "chat.chat_screen";
 
 /// The open chat keeps the built-in presentation whatever server packs layer.
 pub fn register(registry: &mut ScreenRegistry) {
+    registry
+        .catalog_mut()
+        .extend(crate::settings_chat::keep_font_size_visible);
     registry.builtin_screen(CHAT_SCREEN);
 }
 
@@ -78,6 +81,8 @@ pub struct ChatScreen {
     screen: CachedScreen,
     /// Window-logical hit rects and their layout keys, from the last frame.
     hits: Vec<(ChatHit, UiRect, String)>,
+    /// Message controls can own hover feedback without a native chat action.
+    hover_hits: Vec<(UiRect, String)>,
     edit_box: Option<String>,
     /// The messages view's key and extents from the last frame.
     scroll: Option<(String, ScrollMetrics)>,
@@ -147,7 +152,18 @@ impl ChatScreen {
         let metrics = frame.metrics;
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let language = frame.language;
+        let color = crate::settings_chat::default_color(&self.settings.options);
+        let text_color = |node: &json_ui::DrawNode| {
+            crate::settings_chat::message_color(&node.key, MESSAGES_VIEW, color)
+        };
         let art = ScreenArt {
+            text_color: Some(&text_color),
+            pointer: self.pointer.map(|point| {
+                [
+                    (point.x() - frame.safe_area.left()) / px,
+                    (point.y() - frame.safe_area.top()) / px,
+                ]
+            }),
             clocks: Some(input.clocks),
             view: Some(&view),
             edit: Some(ui_engine::engine::host_edit::Feedback::from_chat(
@@ -168,6 +184,7 @@ impl ChatScreen {
             )
         })?;
         self.hits.clear();
+        self.hover_hits.clear();
         self.edit_box = None;
         let Some(drawn) = drawn else {
             return Ok(());
@@ -213,8 +230,16 @@ impl ChatScreen {
             self.hits.extend(self.link_hits.iter().cloned());
         }
         for region in drawn.hits.iter().filter(|region| region.enabled) {
+            if !self.settings.open
+                && self.pending_link.is_none()
+                && region.input.hover_enabled
+                && (region.kind != HitKind::Panel || region.input.consume_hover_events)
+                && let Some(bounds) = window_rect(region, drawn.scale, drawn.origin)
+            {
+                self.hover_hits.push((bounds, region.key.clone()));
+            }
             if region.kind == HitKind::EditBox {
-                if !self.settings.open {
+                if !self.settings.open && !region.key.contains(MESSAGES_VIEW) {
                     self.edit_box = Some(region.key.clone());
                 }
                 continue;
@@ -260,6 +285,7 @@ impl ChatScreen {
             return Ok(());
         };
         self.hits.clear();
+        self.hover_hits.clear();
         let model = json_ui::FormModel::Modal(json_ui::ModalForm {
             title: "Open link?".to_owned(),
             body: url.clone(),
@@ -307,6 +333,7 @@ impl ChatScreen {
         self.open = false;
         self.settings.open = false;
         self.hits.clear();
+        self.hover_hits.clear();
         self.links.clear();
         self.pending_link = None;
         self.link_hits.clear();
@@ -411,27 +438,40 @@ impl ChatScreen {
     }
 
     fn view_state(&self, selected: Option<usize>) -> ViewState {
-        let hovered = self
-            .pointer
-            .and_then(|point| {
-                self.hits
-                    .iter()
-                    .rev()
-                    .find(|(_, bounds, _)| bounds.contains(point))
+        let selected = selected.and_then(|selected| {
+            self.hits
+                .iter()
+                .find(|(hit, ..)| *hit == ChatHit::Suggestion(selected))
+                .map(|(_, _, key)| key.clone())
+        });
+        let hovered = (!self.settings.open && self.pending_link.is_none())
+            .then(|| {
+                self.pointer.and_then(|point| {
+                    self.hover_hits
+                        .iter()
+                        .rev()
+                        .find(|(bounds, _)| bounds.contains(point))
+                        .map(|(_, key)| key.clone())
+                })
             })
+            .flatten()
             .or_else(|| {
-                // The keyboard-selected suggestion shows its focus border.
-                let selected = selected?;
-                self.hits
-                    .iter()
-                    .find(|(hit, ..)| *hit == ChatHit::Suggestion(selected))
+                self.pointer.and_then(|point| {
+                    self.hits
+                        .iter()
+                        .rev()
+                        .find(|(_, bounds, _)| bounds.contains(point))
+                        .map(|(_, _, key)| key.clone())
+                })
             })
-            .map(|(_, _, key)| key.clone());
+            .or_else(|| selected.clone());
         let mut view = ViewState {
             hovered,
             focused: self.edit_box.clone(),
             ..ViewState::default()
         };
+        // Keyboard completion keeps its hover look while the pointer follows message controls.
+        view.focus_memory.held = selected;
         // The view's `jump_to_bottom_on_update` jumps to the newest line whenever
         // its maximum changes; otherwise it keeps `from_bottom`.
         if let Some((key, metrics)) = &self.scroll {
@@ -459,6 +499,10 @@ fn chat_data(
     let settings = &*settings.options;
     let mut data = DataSource::new();
     data.set_strict(true);
+    data.set_global(
+        json_ui::vanilla::Binding::ChatVisible.as_str(),
+        Scalar::Bool(settings.value(SettingId::HideChat) == 0),
+    );
     data.set_global(
         "#chat_background_opacity",
         Scalar::Num(crate::settings_chat::background_opacity(settings)),
@@ -503,20 +547,9 @@ fn chat_data(
             FactoryItem::new("chat_screen_messages", 0.0)
                 .value(
                     "#text",
-                    Scalar::Text(crate::settings_chat::message_text(settings, text.as_ref())),
+                    Scalar::Text(bounded_visible_text(text.as_ref()).to_owned()),
                 )
-                .var(
-                    "chat_font_type",
-                    Value::from(
-                        if !settings.chat_smooth_available()
-                            || settings.value(SettingId::ChatTypeface) == 0
-                        {
-                            "default"
-                        } else {
-                            "smooth"
-                        },
-                    ),
-                )
+                .var("chat_font_type", Value::from("default"))
                 .var(
                     "chat_font_scale_factor",
                     Value::from(settings.chat_font_scale()),
@@ -598,5 +631,7 @@ fn chat_hit(region: &HitRegion) -> Option<ChatHit> {
 
 #[cfg(test)]
 mod geometry_tests;
+#[cfg(test)]
+mod hover_tests;
 #[cfg(test)]
 mod tests;

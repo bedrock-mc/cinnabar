@@ -151,7 +151,12 @@ impl InputComponent {
             .get_or_init(|| Self::parse_mappings(control))
             .mappings
             .iter()
-            .find(|mapping| mapping.from == from && mapping.kind == MappingType::Global)
+            .find(|mapping| {
+                mapping.from == from
+                    && mapping.kind == MappingType::Global
+                    && (control.control_type.as_deref() != Some("edit_box")
+                        || mapping.handle_select)
+            })
             .map(|mapping| mapping.to.clone())
     }
 

@@ -1,8 +1,12 @@
 //! The menu's presented data: saved servers, catalog cards, and the per-frame
 //! view the renderers draw from.
 
+mod settings;
+pub use settings::SettingsInteraction;
+
+use crate::download::DownloadTracker;
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 
@@ -238,92 +242,6 @@ pub struct JoinProgress {
     download: DownloadTracker,
 }
 
-/// Minimum download time before the rate steadies enough to show.
-const DOWNLOAD_RATE_MIN_ELAPSED: Duration = Duration::from_millis(500);
-/// How far back the rate averages, so a stall fades instead of sticking.
-const DOWNLOAD_WINDOW: Duration = Duration::from_secs(3);
-/// Minimum spacing between samples, independent of rendering frequency.
-const DOWNLOAD_SAMPLE_INTERVAL: Duration = Duration::from_millis(250);
-/// Sample capacity, with room for the full averaging window.
-const DOWNLOAD_SAMPLES: usize = 16;
-
-/// Rolling average for the current pack download, owned by the join it measures.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-struct DownloadTracker {
-    samples: [Option<(u64, Instant)>; DOWNLOAD_SAMPLES],
-    len: usize,
-    rate_bytes_per_sec: Option<u64>,
-    eta_secs: Option<u64>,
-}
-
-impl DownloadTracker {
-    /// Clears the sample history and estimates for a new download.
-    fn reset(&mut self) {
-        *self = Self::default();
-    }
-
-    /// Samples download progress at a bounded rate and updates its estimates.
-    fn observe(&mut self, received_bytes: u64, total_bytes: u64, now: Instant) {
-        if self.len > 0 {
-            let (last_bytes, last_time) = self.samples[self.len - 1].expect("tracked sample");
-            if received_bytes < last_bytes {
-                // A retry restarts its bytes, so the old window no longer applies.
-                self.reset();
-            } else if now.checked_duration_since(last_time).unwrap_or_default()
-                < DOWNLOAD_SAMPLE_INTERVAL
-            {
-                return;
-            }
-        }
-        if self.len < DOWNLOAD_SAMPLES {
-            self.samples[self.len] = Some((received_bytes, now));
-            self.len += 1;
-        } else {
-            self.samples.copy_within(1..DOWNLOAD_SAMPLES, 0);
-            self.samples[DOWNLOAD_SAMPLES - 1] = Some((received_bytes, now));
-        }
-        // Keep only the trailing window so a stall ages out instead of sticking.
-        while self.len > 1 {
-            let (_, oldest_time) = self.samples[0].expect("tracked sample");
-            if now.checked_duration_since(oldest_time).unwrap_or_default() <= DOWNLOAD_WINDOW {
-                break;
-            }
-            self.samples.copy_within(1..self.len, 0);
-            self.samples[self.len - 1] = None;
-            self.len -= 1;
-        }
-        let (oldest_bytes, oldest_time) = self.samples[0].expect("tracked sample");
-        let (newest_bytes, newest_time) = self.samples[self.len - 1].expect("tracked sample");
-        let elapsed = newest_time
-            .checked_duration_since(oldest_time)
-            .unwrap_or_default();
-        if elapsed < DOWNLOAD_RATE_MIN_ELAPSED {
-            self.rate_bytes_per_sec = None;
-            self.eta_secs = None;
-            return;
-        }
-        let elapsed_secs = elapsed.as_secs_f64();
-        if !elapsed_secs.is_finite() || elapsed_secs <= 0.0 {
-            return;
-        }
-        let delta = newest_bytes.saturating_sub(oldest_bytes);
-        if delta == 0 {
-            self.rate_bytes_per_sec = None;
-            self.eta_secs = None;
-            return;
-        }
-        let rate = (delta as f64 / elapsed_secs) as u64;
-        if rate == 0 {
-            self.rate_bytes_per_sec = None;
-            self.eta_secs = None;
-            return;
-        }
-        self.rate_bytes_per_sec = Some(rate);
-        let remaining = total_bytes.saturating_sub(received_bytes);
-        self.eta_secs = Some(remaining.div_ceil(rate));
-    }
-}
-
 impl JoinProgress {
     pub fn new(kind: JoinKind) -> Self {
         Self {
@@ -373,12 +291,12 @@ impl JoinProgress {
 
     /// Average pack download speed over the trailing window, once it steadies.
     pub fn bytes_per_sec(&self) -> Option<u64> {
-        self.download.rate_bytes_per_sec
+        self.download.bytes_per_sec()
     }
 
     /// Estimated seconds until the pack download completes, once the rate steadies.
     pub fn eta_secs(&self) -> Option<u64> {
-        self.download.eta_secs
+        self.download.eta_secs()
     }
 
     /// Whether vanilla's handler for this stage lets the player cancel.
@@ -526,6 +444,19 @@ pub struct MenuView {
     pub gui_scale_choices: Vec<ui::DesktopGuiScaleChoice>,
     pub fullscreen: bool,
     pub render_mode: ui::RenderMode,
+    /// Names of the discovered shader packs that [`super::RendererChoice::ShaderPack`] indexes.
+    pub shader_packs: std::sync::Arc<[String]>,
+    /// Revision of the discovered list carried by shader-pack picker actions.
+    pub shader_packs_revision: u64,
+    /// The requested pack while shader-pack mode is active, even if discovery no longer lists it.
+    pub shader_pack: Option<String>,
+    /// The highlighted renderer or shader-pack choice; `None` while the selected shader pack is missing.
+    pub renderer: Option<super::RendererChoice>,
+    /// The requested pack has an option screen, including a command-line pack not listed.
+    pub shader_options_available: bool,
+    /// Why the selected shader pack failed to load, for the Shaders tab; see
+    /// [`super::shader_pack_status::failure_description`].
+    pub renderer_failure: Option<std::sync::Arc<str>>,
     /// Session VSync forced by a launch flag; the saved toggle is shown locked to it.
     pub vsync_override: Option<bool>,
     pub display_name: String,
@@ -546,12 +477,13 @@ pub struct MenuView {
     /// Interactive sign-in may show waiting and recovery prompts over the current route.
     pub sign_in_requested: bool,
     pub connecting: bool,
-    pub settings_section: u8,
     pub dressing_room: std::sync::Arc<crate::dressing_room::DressingRoomView>,
     pub player_skin: Option<render_api::StandardSkin>,
     pub player_skin_model: crate::dressing_room::SkinModel,
     pub global_resources: std::sync::Arc<crate::global_resources::Snapshot>,
     pub mods: std::sync::Arc<crate::mods::Snapshot>,
+    /// The Shader Pack Settings screen in the Shaders tab, while open.
+    pub shader_options: Option<std::sync::Arc<crate::shader_options::View>>,
     pub minecraft_import: std::sync::Arc<crate::minecraft_import::Snapshot>,
     /// Why the last session ended, shown until acknowledged.
     pub disconnect_message: Option<String>,
@@ -562,19 +494,9 @@ pub struct MenuView {
     pub local_worlds: MenuList<LocalWorldCard>,
     /// The local-world create, edit and template screens and their modals.
     pub local: crate::local_worlds::WorldsView,
+    pub settings: SettingsInteraction,
     pub settings_options: std::sync::Arc<super::settings_options::SettingsOptions>,
     pub storage: std::sync::Arc<super::settings_storage::StorageView>,
-    pub settings_dropdown: Option<u16>,
-    pub settings_scale_picker: bool,
-    /// Last interactive settings activation and its monotonic input revision.
-    pub settings_control_activation: Option<(MenuAction, u64)>,
-    pub settings_control_activation_navigation: bool,
-    /// Continuous pointer position remains independent of the persisted slider step.
-    pub settings_slider_pointer: Option<SettingsSliderPointer>,
-    pub settings_slider_hovered: Option<u16>,
-    pub settings_slider_selected: Option<u16>,
-    pub key_remap: Option<u16>,
-    pub settings_advanced_graphics: bool,
     pub language_choices: std::sync::Arc<[(String, String)]>,
     pub feeds: MenuFeeds,
     /// The open local world is hosted for Xbox friends, so the pause screen offers invites.
@@ -785,6 +707,12 @@ impl MenuView {
             gui_scale_choices: ui::DesktopGuiScale::for_window([1, 1]).choices().collect(),
             fullscreen: false,
             render_mode: ui::RenderMode::Vanilla,
+            shader_packs: std::sync::Arc::from([]),
+            shader_packs_revision: 0,
+            shader_pack: None,
+            renderer: Some(super::RendererChoice::Vanilla),
+            shader_options_available: false,
+            renderer_failure: None,
             vsync_override: None,
             display_name,
             servers: MenuList::default(),
@@ -802,29 +730,21 @@ impl MenuView {
             sign_in_browser: Default::default(),
             sign_in_requested: false,
             connecting: false,
-            settings_section: 0,
             dressing_room: Default::default(),
             player_skin: None,
             player_skin_model: Default::default(),
             global_resources: Default::default(),
             mods: Default::default(),
+            shader_options: None,
             minecraft_import: Default::default(),
             disconnect_message: None,
             can_reconnect: false,
             editing: None,
             local_worlds: MenuList::default(),
             local: Default::default(),
+            settings: SettingsInteraction::default(),
             settings_options: Default::default(),
             storage: Default::default(),
-            settings_dropdown: None,
-            settings_scale_picker: false,
-            settings_control_activation: None,
-            settings_control_activation_navigation: false,
-            settings_slider_pointer: None,
-            settings_slider_hovered: None,
-            settings_slider_selected: None,
-            key_remap: None,
-            settings_advanced_graphics: false,
             language_choices: Default::default(),
             feeds: Default::default(),
             hosting: false,

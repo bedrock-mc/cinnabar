@@ -13,9 +13,9 @@ type sessionPlay struct {
 	done       chan struct{}
 }
 
-// beginPlay claims the sole play connection, waiting only for a cancelled controller's handler.
+// beginPlay claims the sole play connection after a cancelled controller or an older join finishes.
 // Both the caller and its controller may cancel the wait or prevent a late claim.
-func (session *webSession) beginPlay(ctx, controlCtx context.Context) (*proxy.SessionHandler, error) {
+func (session *webSession) beginPlay(ctx, controlCtx context.Context, join uint64) (*proxy.SessionHandler, error) {
 	for {
 		session.mu.Lock()
 		if err := ctx.Err(); err != nil {
@@ -30,7 +30,8 @@ func (session *webSession) beginPlay(ctx, controlCtx context.Context) (*proxy.Se
 			session.mu.Unlock()
 			return nil, net.ErrClosed
 		}
-		if session.cancelSignIn != nil || session.play != nil && session.play.controlCtx.Err() == nil {
+		if session.cancelSignIn != nil || session.play != nil && session.play.controlCtx.Err() == nil &&
+			(join == 0 || session.packControl == controlCtx && join <= session.packJoin) {
 			session.mu.Unlock()
 			return nil, errSessionBusy
 		}
@@ -58,4 +59,18 @@ func (session *webSession) endPlay() {
 	close(session.play.done)
 	session.play = nil
 	session.mu.Unlock()
+}
+
+// claimPackJoin rejects reused identities within one controller before publishing any archive.
+func (session *webSession) claimPackJoin(control context.Context, join uint64) bool {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.packControl != control {
+		session.packControl, session.packJoin = control, 0
+	}
+	if join == 0 || join <= session.packJoin {
+		return false
+	}
+	session.packJoin = join
+	return true
 }

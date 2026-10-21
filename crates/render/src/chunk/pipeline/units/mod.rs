@@ -97,7 +97,7 @@ pub(in crate::chunk) struct TerrainUnitBatches {
 }
 
 impl TerrainUnitBatches {
-    /// Rewrites every selected descriptor from this frame's bits, or clears it on fallback.
+    /// Rewrites selected flags from this frame's bits, or clears all retained flags on fallback.
     pub(in crate::chunk) fn encode_masks(
         &self,
         entity: Entity,

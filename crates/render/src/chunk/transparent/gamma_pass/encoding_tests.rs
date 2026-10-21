@@ -15,10 +15,17 @@ use bevy::{
         view::{RetainedViewEntity, ViewTargetAttachments, prepare_view_targets},
     },
 };
-use std::sync::Mutex;
+use std::{
+    collections::HashSet,
+    hash::{DefaultHasher, Hash, Hasher},
+    sync::Mutex,
+};
 
 #[derive(Resource, Default)]
 struct EncodedItems(Mutex<Vec<Entity>>);
+
+#[derive(Resource, Default)]
+struct EncodedPasses(Mutex<HashSet<u64>>);
 
 struct RecordItem;
 
@@ -26,7 +33,7 @@ impl Draw<Transparent3d> for RecordItem {
     fn draw<'w>(
         &mut self,
         world: &'w World,
-        _pass: &mut TrackedRenderPass<'w>,
+        pass: &mut TrackedRenderPass<'w>,
         _view: Entity,
         item: &Transparent3d,
     ) -> Result<(), DrawError> {
@@ -36,12 +43,20 @@ impl Draw<Transparent3d> for RecordItem {
             .lock()
             .unwrap()
             .push(item.entity());
+        let mut hash = DefaultHasher::new();
+        pass.wgpu_pass().hash(&mut hash);
+        world
+            .resource::<EncodedPasses>()
+            .0
+            .lock()
+            .unwrap()
+            .insert(hash.finish());
         Ok(())
     }
 }
 
 /// Creates the real view, scene and depth attachments without a display surface.
-fn fixture(modes: &[bool]) -> (World, Entity, Vec<Entity>) {
+fn fixture(modes: &[Option<bool>]) -> (World, Entity, Vec<Entity>) {
     bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
     let (device, queue) = wgpu::Device::noop(&Default::default());
     let device = RenderDevice::from(device);
@@ -91,7 +106,17 @@ fn fixture(modes: &[bool]) -> (World, Entity, Vec<Entity>) {
     world.init_resource::<bevy::render::camera::CameraMainPassTextureFormats>();
     world.init_resource::<PendingCommandBuffers>();
     world.init_resource::<EncodedItems>();
-    world.init_resource::<DrawFunctions<Transparent3d>>();
+    world.init_resource::<EncodedPasses>();
+    world.init_resource::<bevy::ecs::schedule::Schedules>();
+    let mut app = App::new();
+    app.init_resource::<Assets<Shader>>();
+    let mut render = bevy::app::SubApp::new();
+    std::mem::swap(render.world_mut(), &mut world);
+    render.init_resource::<DrawFunctions<Transparent3d>>();
+    app.insert_sub_app(RenderApp, render);
+    crate::nametag_render::install_nametag_render(&mut app);
+    std::mem::swap(app.sub_app_mut(RenderApp).world_mut(), &mut world);
+    let nametag = crate::nametag_render::draw_function(&world).unwrap();
     let retained = RetainedViewEntity::new(Entity::PLACEHOLDER.into(), None, 0);
     let camera = world
         .spawn((
@@ -139,7 +164,11 @@ fn fixture(modes: &[bool]) -> (World, Entity, Vec<Entity>) {
             distance: 0.0,
             pipeline: CachedRenderPipelineId::INVALID,
             entity: (entity, entity.into()),
-            draw_function: if gamma { encoded } else { linear },
+            draw_function: match gamma {
+                Some(true) => encoded,
+                Some(false) => linear,
+                None => nametag,
+            },
             batch_range: 0..1,
             extra_index: PhaseItemExtraIndex::None,
             indexed: false,
@@ -153,10 +182,13 @@ fn fixture(modes: &[bool]) -> (World, Entity, Vec<Entity>) {
 
 #[test]
 fn mixed_ranges_share_one_command_buffer_and_keep_draw_order() {
-    for modes in [&[true, true][..], &[true, false, true, false][..]] {
+    for modes in [
+        &[Some(true), Some(true)][..],
+        &[Some(true), Some(false), Some(true), Some(false)][..],
+    ] {
         let (mut world, _, items) = fixture(modes);
         world
-            .run_system_once::<_, (), _>(gamma_transparent::<false>)
+            .run_system_once::<_, (), _>(gamma_transparent::<false, false>)
             .unwrap();
         let buffers = world
             .resource_mut::<PendingCommandBuffers>()
@@ -169,14 +201,14 @@ fn mixed_ranges_share_one_command_buffer_and_keep_draw_order() {
 
 #[test]
 fn outside_viewport_clears_once_without_drawing_items() {
-    let (mut world, camera, _) = fixture(&[true, false, true]);
+    let (mut world, camera, _) = fixture(&[Some(true), Some(false), Some(true)]);
     world.get_mut::<ExtractedCamera>(camera).unwrap().viewport = Some(Viewport {
         physical_position: UVec2::splat(8),
         physical_size: UVec2::splat(4),
         ..Default::default()
     });
     world
-        .run_system_once::<_, (), _>(gamma_transparent::<false>)
+        .run_system_once::<_, (), _>(gamma_transparent::<false, false>)
         .unwrap();
     assert_eq!(
         world
@@ -196,10 +228,41 @@ fn outside_viewport_clears_once_without_drawing_items() {
 }
 
 #[test]
+fn smaa_deferral_does_not_split_compatible_colour_passes() {
+    for (modes, expected_passes) in [
+        ([Some(true), None, Some(true), None, Some(true)], 1),
+        ([Some(false), None, Some(false), None, Some(false)], 1),
+        ([Some(true), None, Some(false), None, Some(true)], 3),
+    ] {
+        let (mut world, camera, items) = fixture(&modes);
+        world
+            .entity_mut(camera)
+            .insert(bevy::anti_alias::smaa::Smaa::default());
+        world
+            .run_system_once::<_, (), _>(gamma_transparent::<false, false>)
+            .unwrap();
+        let expected: Vec<_> = items
+            .into_iter()
+            .zip(modes)
+            .filter_map(|(entity, mode)| mode.map(|_| entity))
+            .collect();
+        assert_eq!(
+            *world.resource::<EncodedItems>().0.lock().unwrap(),
+            expected
+        );
+        assert_eq!(
+            world.resource::<EncodedPasses>().0.lock().unwrap().len(),
+            expected_passes,
+            "deferred names must not cause another attachment load and store"
+        );
+    }
+}
+
+#[test]
 fn empty_phase_submits_no_commands() {
     let (mut world, _, _) = fixture(&[]);
     world
-        .run_system_once::<_, (), _>(gamma_transparent::<false>)
+        .run_system_once::<_, (), _>(gamma_transparent::<false, false>)
         .unwrap();
     assert_eq!(
         world

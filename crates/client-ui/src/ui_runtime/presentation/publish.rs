@@ -20,6 +20,7 @@ pub fn capture_hud_frame(
     now_millis: u64,
     icon_frames: ItemIconFrames,
 ) -> (Option<IconRef>, Option<IconRef>) {
+    presentation.capture_local_player_identity(stream, runtime.session_id());
     runtime.sync_anvil_name(player_runtime);
     // Inventory capture precedes lectern opening and screen selection. Selected-item
     // and sleep observations run after item capture, immediately before publication.
@@ -59,6 +60,15 @@ pub fn capture_hud_frame(
         .inventory_ledger(player_runtime)
         .cursor_stack()
         .and_then(|stack| items.icon(stack, None));
+    let ledger = runtime.inventory_ledger(player_runtime);
+    let cursor_durability = ledger.cursor_stack().and_then(|stack| {
+        items.durability(
+            stack,
+            ledger
+                .presented_cursor_overlay()
+                .and_then(|overlay| overlay.durability_correction),
+        )
+    });
     let selected = player_items::SelectedItem::capture(player_runtime);
     let hotbar = player_items::hotbar(
         runtime.inventory_ledger(player_runtime),
@@ -116,6 +126,7 @@ pub fn capture_hud_frame(
     }
     frame.window_text = window_text;
     frame.cursor_icon = cursor_icon;
+    frame.cursor_durability = cursor_durability;
     frame.armor_icons = equipment.armor_icons;
     frame.armor_durability = equipment.armor_durability;
     frame.offhand_icon = equipment.offhand_icon;
@@ -173,12 +184,22 @@ pub fn hovered_stack(
                     .anvil_output(player_runtime)
                     .map(|stack| (stack, None));
             }
+            Hit::CraftOutput
+                if matches!(
+                    ledger.window_kind(),
+                    Some(protocol::WindowKind::Trade { .. })
+                ) =>
+            {
+                (ledger.trade_output(), None)
+            }
             Hit::CraftOutput => (ledger.created_output_stack(), None),
             Hit::CreativeGrid(index) => {
                 let position = runtime.screen_state().creative_row * super::screens::GRID_COLUMNS
                     + usize::from(index);
-                let entries =
-                    crate::ui_runtime::inventory_actions::visible_creative_entries(ledger, runtime);
+                let entries = crate::ui_runtime::inventory_actions::visible_creative_entries(
+                    player_runtime,
+                    runtime,
+                );
                 (entries.get(position).map(|item| &item.stack), None)
             }
             Hit::Widget(ui_screens::container_actions::Widget::BookRecipe(index)) => {
@@ -187,7 +208,7 @@ pub fn hovered_stack(
                 let output = runtime
                     .book_recipes(player_runtime, skip, 1)
                     .first()
-                    .map(protocol::RecipeHandle::output);
+                    .map(|entry| entry.recipe.output());
                 return output.map(|output| {
                     let stack = protocol::NetworkItemStack {
                         network_id: output.network_id,
@@ -198,6 +219,14 @@ pub fn hovered_stack(
                     };
                     (stack, None)
                 });
+            }
+            Hit::Widget(ui_screens::container_actions::Widget::TradeOffer {
+                tier,
+                row,
+                item: Some(column),
+            }) => {
+                let trade = ledger.trading()?;
+                (trade.preview(trade.row_index(tier, row)?, column), None)
             }
             Hit::RecipeBook(index) => {
                 return super::forms::recipe_book_hover(player_runtime, runtime, index);

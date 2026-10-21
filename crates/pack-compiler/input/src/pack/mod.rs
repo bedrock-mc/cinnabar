@@ -1,4 +1,6 @@
 mod block;
+mod component_cross;
+mod component_models;
 mod fixed_tint;
 mod flipbook;
 mod model_selectors;
@@ -15,12 +17,14 @@ pub use block::{
     has_runtime_cube_face_mapping, resolve_carried_down_key, resolve_carried_face_key,
     resolve_carried_fallback_key, runtime_binding_identity,
 };
+pub use component_cross::CrossMaterial;
+pub use component_models::ComponentModel;
 pub use flipbook::MAX_FLIPBOOKS;
 pub use terrain::TerrainTextureMap;
 
 use block::read_blocks;
 use flipbook::read_flipbooks;
-use terrain::read_terrain;
+pub use terrain::read_terrain;
 
 /// Parsed vanilla pack sources used by the later deterministic compiler.
 #[derive(Debug)]
@@ -46,6 +50,19 @@ pub fn read_pack(root: &Path) -> Result<PackSources, AssetError> {
         terrain,
         flipbooks,
     })
+}
+
+/// Adds supported behavior-pack cross materials before validating their terrain keys.
+pub fn read_pack_with_behavior(
+    root: &Path,
+    behavior: &Path,
+    records: &[assets::RegistryRecord],
+) -> Result<PackSources, AssetError> {
+    let mut pack = read_pack(root)?;
+    component_cross::install(&mut pack.blocks, behavior, records)?;
+    component_models::install(root, behavior, &mut pack, records)?;
+    validate_block_keys(&pack.blocks, &pack.terrain)?;
+    Ok(pack)
 }
 
 fn validate_block_keys(

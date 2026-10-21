@@ -46,6 +46,30 @@ fn entity_cache_keys_on_vanilla_refs() {
 }
 
 #[test]
+fn join_and_global_reload_entities_do_not_evict_each_other() {
+    let (view, cache) = (empty_view(), super::EntityCache::default());
+    let compiles = std::cell::Cell::new(0);
+    for vanilla in [
+        None,
+        Some(refs_with_animation()),
+        None,
+        Some(refs_with_animation()),
+    ] {
+        cache.get_or_compile(
+            inputs(vanilla),
+            &view,
+            None,
+            &|| false,
+            |_, _, _, _, _, _| {
+                compiles.set(compiles.get() + 1);
+                Some((None, None))
+            },
+        );
+    }
+    assert_eq!(compiles.get(), 2);
+}
+
+#[test]
 fn entity_cache_recompiles_when_the_installed_vanilla_layer_changes() {
     let (view, cache) = (empty_view(), super::EntityCache::default());
     let compiles = std::cell::Cell::new(0);
@@ -78,6 +102,34 @@ fn later_vanilla_refs_replace_earlier_ones() {
 }
 
 const FIXTURE_MATERIAL_PATH: &str = "materials/fixture.material";
+
+#[test]
+fn recompiled_entities_share_unchanged_pixels_with_the_live_catalog() {
+    use std::sync::Arc;
+    let cache = super::EntityCache::default();
+    let view = resource_pack::LayeredPackView::tracked(entity_stack());
+    let resolve = |input| {
+        cache
+            .get_or_compile(input, &view, None, &|| false, super::super::compile_encoded)
+            .unwrap()
+            .unwrap()
+    };
+    let first = resolve(inputs(None));
+    let next = resolve(inputs(Some(refs_with_animation())));
+    assert!(
+        !Arc::ptr_eq(&first, &next),
+        "the changed inputs still recompile"
+    );
+    assert!(Arc::ptr_eq(
+        &first.textures[0].rgba8,
+        &next.textures[0].rgba8
+    ));
+    let pixels = Arc::downgrade(&first.textures[0].rgba8);
+    drop(first);
+    drop(next);
+    drop(cache);
+    assert!(pixels.upgrade().is_none());
+}
 
 fn entity_stack() -> std::sync::Arc<resource_pack::ValidatedPackStack> {
     let mut png = std::io::Cursor::new(Vec::new());
@@ -365,5 +417,27 @@ fn different_loaded_texture_paths_under_one_pin_do_not_share_disk_entries() {
         compiles.get(),
         2,
         "each path compiles once, then reuses its disk entry"
+    );
+}
+
+#[test]
+fn compressed_entity_entry_roundtrip_preserves_every_encoded_byte() {
+    let dir = tempfile::tempdir().unwrap();
+    let disk = crate::compile_cache::CompileCache::new(dir.path().into(), 1 << 20);
+    let view = resource_pack::LayeredPackView::tracked(entity_stack());
+    let (pack, blob) =
+        super::super::compile_encoded(&view, None, None, None, true, &|| false).unwrap();
+    let pack = pack.unwrap();
+    let files = view.dependencies().unwrap().snapshot();
+    let original = super::encode_entry(&files, Some(&pack), blob.as_deref()).unwrap();
+    disk.store(&[8; 32], &original);
+    let fresh = crate::compile_cache::CompileCache::new(dir.path().into(), 1 << 20);
+    let loaded = fresh.load(&[8; 32]).unwrap();
+    assert_eq!(loaded, original);
+    let (decoded, restored) = super::decode_entry(&loaded).unwrap();
+    assert_eq!(restored, files);
+    assert_eq!(
+        decoded.unwrap().encode(blob.as_deref().unwrap()).unwrap(),
+        pack.encode(blob.as_deref().unwrap()).unwrap()
     );
 }

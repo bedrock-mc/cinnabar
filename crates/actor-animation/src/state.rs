@@ -10,14 +10,19 @@ pub(super) struct ActorRigState {
     pub(super) rig_binding: usize,
     pub(super) geometry_binding: usize,
     pub(super) bones: Vec<RuntimeBone>,
+    pub(super) composition: Arc<pose::Composition>,
     /// Lowercase bone names in `bones` order, for part visibility.
     pub(super) bone_names: Vec<Box<str>>,
+    pub(super) attachment_bindings: Arc<render_model::ActorAttachmentBindings>,
+    pub(super) channel_bindings: Arc<pose::ChannelBindings>,
     /// This tick's render-controller result.
     pub(super) render: Vec<RenderTextureLayer>,
     /// Includes dormant controller layers, so admission need not sample ordinary rigs.
     pub(super) may_use_always_depth_material: bool,
     /// This tick's evaluated `[scale, scaleX, scaleY, scaleZ]`, for rigs that script them.
     pub(super) scale: Option<[f32; 4]>,
+    /// Completed main-hand scale, absent when the owner did not author one.
+    pub(super) held_item_scale: Option<f32>,
     /// Skeletons of the geometries render controllers draw instead of the rig's, by geometry.
     pub(super) layer_skeletons: BTreeMap<u32, Option<Arc<render::LayerSkeleton>>>,
     pub(super) controllers: Vec<ControllerState>,
@@ -130,9 +135,10 @@ pub(super) struct ActorTickInput {
 pub(super) struct EvaluatedState {
     pub(super) pose: Vec<BoneTransform>,
     pub(super) skin_layers: Vec<SkinRenderLayer>,
-    /// `None` when the render controllers ran out of budget, keeping the last choice.
+    /// `None` when artwork is unavailable or render evaluation cannot supply fresh layers.
     pub(super) render: Option<Vec<RenderTextureLayer>>,
     pub(super) scale: Option<[f32; 4]>,
+    pub(super) held_item_scale: Option<f32>,
     pub(super) controllers: Vec<ControllerState>,
     pub(super) server_animations: Vec<server_animation::Controller>,
     pub(super) clip_clocks: clock::ClipClocks,

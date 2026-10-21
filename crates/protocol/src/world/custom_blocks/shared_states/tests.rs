@@ -11,7 +11,11 @@ fn block() -> CustomBlock {
         collision_boxes: None,
         selection: CustomSelection::Default,
         friction: None,
+        mining: Default::default(),
+        state_physics_complete: false,
         state_physics: Arc::default(),
+        state_mining: Default::default(),
+        player_interact: false,
         visual: Arc::new(CustomBlockVisuals {
             state_axes: Box::new([CustomStateAxis {
                 name: "test:active".into(),

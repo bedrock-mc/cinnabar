@@ -1,18 +1,23 @@
 //! Bounded recipe admission. Limits are client policy, not server maxima.
+mod brewing;
 mod budget;
 mod catalog;
 mod crafting;
 mod decode;
 mod grammar;
+mod identity;
 mod item_tags;
 pub(super) mod model;
 mod observation;
 mod reader;
 mod screen;
+mod unlocks;
 
+pub use brewing::{BrewingMix, BrewingMixItem};
 pub use budget::RECIPE_OWNED_BYTES;
 pub use catalog::RecipeCatalog;
 pub use crafting::{RecipeIngredientView, RecipeOutput};
+pub use identity::{RecipeIdentity, RecipeIdentityHandle, RecipeUnlockingContext};
 pub use item_tags::vanilla_tag_contains;
 pub use model::{
     ANY_AUX as RECIPE_ANY_AUX, Ingredient as RecipeIngredient,
@@ -22,7 +27,14 @@ pub use model::{
 pub use observation::{
     IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
 };
-pub use screen::{MultiRecipe, ScreenIngredient, ScreenRecipe, ScreenRecipeKind, ScreenRecipes};
+pub use screen::{
+    BrewingItem, BrewingRecipe, MultiRecipe, ScreenIngredient, ScreenRecipe, ScreenRecipeKind,
+    ScreenRecipes,
+};
+pub(crate) use unlocks::normalize_recipe_unlocks;
+pub use unlocks::{
+    RecipeUnlockOperation, RecipeUnlockState, RecipeUnlockUpdate, decode_recipe_unlocks,
+};
 
 pub fn decode_recipe_update(body: &[u8]) -> Result<RecipeUpdate, super::InventoryPacketError> {
     decode::decode(body)
@@ -31,7 +43,7 @@ pub fn decode_recipe_update(body: &[u8]) -> Result<RecipeUpdate, super::Inventor
 /// Whether a registry entry has the plain descriptor admitted by recipe wire observations.
 pub fn recipe_binding_supported(entry: &crate::ItemRegistryEntry) -> bool {
     (!entry.component_based || entry.canonical_empty_component_data)
-        && entry.identifier.len() <= 16384
+        && entry.identifier.len() <= budget::MAX_STRING_BYTES
         && grammar::identifier(&entry.identifier)
 }
 /// Whether the user-data bytes are the canonical empty recipe envelope.

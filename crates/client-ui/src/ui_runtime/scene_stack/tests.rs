@@ -135,7 +135,7 @@ fn absorbing_screens_route_clicks_to_the_ui() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = in_world(&mut player_runtime, vanilla_like_table());
-    runtime.toggle_inventory(&mut player_runtime);
+    runtime.toggle_inventory(&mut player_runtime, None);
     assert!(runtime.inventory_open());
     assert!(!runtime.gameplay_input(&player_runtime, None));
     assert!(!runtime.steals_mouse(&player_runtime, None));
@@ -194,7 +194,7 @@ fn hurt_closes_a_top_container_that_asks() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = in_world(&mut player_runtime, vanilla_like_table());
-    runtime.toggle_inventory(&mut player_runtime);
+    runtime.toggle_inventory(&mut player_runtime, None);
     runtime.note_player_hurt();
     runtime.close_scenes_on_player_hurt(&mut player_runtime, None);
     assert!(!runtime.inventory_open());
@@ -241,7 +241,7 @@ fn carrier_settings_route_input_like_vanilla() {
     assert!(!hud.absorbs_input && hud.should_steal_mouse);
     let mut runtime = in_world(&mut player_runtime, Arc::new(table));
     assert!(runtime.gameplay_input(&player_runtime, None));
-    runtime.toggle_inventory(&mut player_runtime);
+    runtime.toggle_inventory(&mut player_runtime, None);
     assert!(!runtime.gameplay_input(&player_runtime, None));
     assert_eq!(
         runtime.scenes(&player_runtime, host(None)).closes_on_hurt(),

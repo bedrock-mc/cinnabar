@@ -19,6 +19,36 @@ fn model(document: serde_json::Value) -> ServerFormModel {
 }
 
 #[test]
+fn custom_controls_retain_control_locked_in_the_packet_model() {
+    use protocol::{CustomFormElement, FormControlLock};
+    for (lock, expected) in [
+        ("none", FormControlLock::None),
+        ("pregame", FormControlLock::Pregame),
+        ("ingame", FormControlLock::Ingame),
+    ] {
+        let ServerFormModel::Custom(form) = model(json!({"type":"custom_form","content":[
+            {"type":"toggle","control_locked":lock},
+            {"type":"slider","control_locked":lock},
+            {"type":"step_slider","steps":["A"],"control_locked":lock},
+            {"type":"input","control_locked":lock}
+        ]})) else {
+            panic!("custom form");
+        };
+        assert_eq!(form.elements.len(), 4);
+        for element in form.elements.iter() {
+            let (CustomFormElement::Toggle { control_locked, .. }
+            | CustomFormElement::Slider { control_locked, .. }
+            | CustomFormElement::StepSlider { control_locked, .. }
+            | CustomFormElement::Input { control_locked, .. }) = element
+            else {
+                panic!("editable control");
+            };
+            assert_eq!(*control_locked, expected);
+        }
+    }
+}
+
+#[test]
 fn structured_text_is_supported_in_every_form_family() {
     let text = json!({"rawtext":[{"text":"Hello "},{"translate":"gui.submit"}]});
     for document in [
@@ -106,12 +136,15 @@ fn multiselect_response_is_an_index_array_in_the_custom_response_slot() {
     let packets::Packet::ModalFormResponse(packet) = *packet.data else {
         panic!("response");
     };
-    assert_eq!(packet.json_response, Some("[null,[2,0],\"draft\"]".into()));
+    assert_eq!(
+        packet.json_response,
+        Some("[null,[2,0],\"draft\"]\n".into())
+    );
     assert!(packet.form_cancel_reason.is_none());
 }
 
 #[test]
-fn structured_display_text_stays_bounded_and_literal_json_stays_literal() {
+fn literal_json_display_strings_stay_literal() {
     let literal = r#"{"rawtext":[{"text":"literal JSON"}]}"#;
     let ServerFormModel::TextMenu(form) =
         model(json!({"type":"form","buttons":[{"text":literal}]}))
@@ -120,11 +153,6 @@ fn structured_display_text_stays_bounded_and_literal_json_stays_literal() {
     };
     assert!(matches!(&form.buttons[0], protocol::FormText::Literal(_)));
     assert_eq!(form.buttons[0].as_ref(), literal);
-    let too_long = "x".repeat(protocol::MAX_UI_TEXT_BYTES + 1);
-    assert!(matches!(
-        model(json!({"type":"form","buttons":[{"text":{"rawtext":[{"text":too_long}]}}]})),
-        ServerFormModel::Unsupported(protocol::UnsupportedForm::Limit)
-    ));
 }
 
 #[test]
@@ -246,6 +274,7 @@ fn display_fields_use_boolean_and_empty_scalar_fallbacks() {
             placeholder,
             tooltip,
             default,
+            ..
         } = &custom.elements[0]
         else {
             panic!("input");
@@ -298,5 +327,266 @@ fn structured_display_metadata_and_component_precedence_are_preserved() {
             protocol::FormText::Raw(document) => document.resolve(&resolver).text,
         };
         assert_eq!(text, expected);
+    }
+}
+
+#[test]
+fn form_display_strings_keep_long_utf8_in_every_family() {
+    let long = "世界🙂".repeat(protocol::MAX_UI_TEXT_BYTES / "世界🙂".len() + 1);
+    for value in [json!(long), json!({"rawtext":[{"text":long}]})] {
+        let ServerFormModel::TextMenu(menu) =
+            model(json!({"type":"form","title":value,"content":value,"buttons":[{"text":value}]}))
+        else {
+            panic!("long menu text");
+        };
+        for text in [&menu.title, &menu.content, &menu.buttons[0]] {
+            assert_eq!(text.as_ref(), long);
+        }
+        let ServerFormModel::Modal(modal) = model(
+            json!({"type":"modal","title":value,"content":value,"button1":value,"button2":value}),
+        ) else {
+            panic!("long modal text");
+        };
+        for text in [&modal.title, &modal.content, &modal.button1, &modal.button2] {
+            assert_eq!(text.as_ref(), long);
+        }
+        let ServerFormModel::Custom(custom) = model(
+            json!({"type":"custom_form","title":value,"submit":value,"content":[
+                {"type":"label","text":value}, {"type":"header","text":value},
+                {"type":"toggle","text":value,"tooltip":value},
+                {"type":"slider","text":value,"tooltip":value},
+                {"type":"step_slider","text":value,"steps":[value],"tooltip":value},
+                {"type":"dropdown","text":value,"options":[value],"tooltip":value},
+                {"type":"multiselect","text":value,"options":[value],"tooltip":value},
+                {"type":"input","text":value,"placeholder":value,"tooltip":value,"default":"Draft"}
+            ]}),
+        ) else {
+            panic!("long custom text");
+        };
+        assert_eq!(custom.title.as_ref(), long);
+        assert_eq!(custom.submit.as_ref().unwrap().as_ref(), long);
+        use protocol::CustomFormElement::*;
+        for element in custom.elements.iter() {
+            let (text, tooltip) = match element {
+                Label { text } | Header { text } => (text, None),
+                Toggle { text, tooltip, .. } | Slider { text, tooltip, .. } => {
+                    (text, tooltip.as_ref())
+                }
+                StepSlider {
+                    text,
+                    steps,
+                    tooltip,
+                    ..
+                } => {
+                    assert_eq!(steps[0].as_ref(), long);
+                    (text, tooltip.as_ref())
+                }
+                Dropdown {
+                    text,
+                    options,
+                    tooltip,
+                    ..
+                }
+                | MultiSelect {
+                    text,
+                    options,
+                    tooltip,
+                    ..
+                } => {
+                    assert_eq!(options[0].as_ref(), long);
+                    (text, tooltip.as_ref())
+                }
+                Input {
+                    text,
+                    placeholder,
+                    default,
+                    tooltip,
+                    ..
+                } => {
+                    assert_eq!(placeholder.as_ref(), long);
+                    assert_eq!(default.as_ref(), "Draft");
+                    (text, tooltip.as_ref())
+                }
+                Divider => panic!("unexpected divider"),
+            };
+            assert_eq!(text.as_ref(), long);
+            if let Some(tooltip) = tooltip {
+                assert_eq!(tooltip.as_ref(), long);
+            }
+        }
+    }
+}
+
+#[test]
+fn form_display_resolution_keeps_expanded_translations_without_changing_chat() {
+    let expanded: std::sync::Arc<str> = "Translated 🌍 ".repeat(3_000).into();
+    let translate = |key: &str| match key {
+        "long" => Some(std::sync::Arc::clone(&expanded)),
+        "repeat" => Some(std::sync::Arc::from("%1/%1")),
+        _ => None,
+    };
+    let resolver = protocol::RawTextResolver {
+        reader_name: "Player",
+        translate: &translate,
+        score: &|_, _| None,
+        selector: &|_| None,
+    };
+    for (component, expected) in [
+        (json!({"translate":"long"}), expanded.to_string()),
+        (
+            json!({"translate":"repeat","with":["%long"]}),
+            format!("{expanded}/{expanded}"),
+        ),
+    ] {
+        let text = json!({"rawtext":[component]});
+        let ServerFormModel::TextMenu(menu) =
+            model(json!({"type":"form","buttons":[{"text":text}]}))
+        else {
+            panic!("translated form");
+        };
+        let protocol::FormText::Raw(document) = &menu.buttons[0] else {
+            panic!("structured form text");
+        };
+        let resolved = document.resolve(&resolver);
+        assert_eq!(resolved.text, expected);
+        assert!(!resolved.truncated);
+        let chat = protocol::parse_raw_text(&text.to_string())
+            .unwrap()
+            .resolve(&resolver);
+        assert!(chat.text.len() <= protocol::MAX_RAW_TEXT_OUTPUT_BYTES);
+        assert!(chat.truncated);
+    }
+    assert!(
+        protocol::parse_raw_text(
+            &json!({"rawtext":[{"text":"x".repeat(protocol::MAX_UI_TEXT_BYTES + 1)}]}).to_string()
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn form_display_expansion_shares_one_budget_across_large_unused_arguments() {
+    use std::sync::Arc;
+    let arguments = vec!["%large"; protocol::MAX_RAW_TEXT_COMPONENTS - 1];
+    let ServerFormModel::TextMenu(menu) = model(json!({"type":"form","buttons":[
+        {"text":{"rawtext":[{"translate":"tiny","with":arguments}]}}
+    ]})) else {
+        panic!("form with large arguments");
+    };
+    let protocol::FormText::Raw(document) = &menu.buttons[0] else {
+        panic!("rawtext");
+    };
+    let large: Arc<str> = "x".repeat(protocol::MAX_RAW_TEXT_EXPANSION_BYTES).into();
+    let lookups = std::cell::Cell::new(0);
+    let translate = |key: &str| match key {
+        "tiny" => Some(Arc::from("OK")),
+        "large" => {
+            lookups.set(lookups.get() + 1);
+            Some(Arc::clone(&large))
+        }
+        _ => None,
+    };
+    let (resolved, allocations) = test_alloc::measure(|| {
+        document.resolve(&protocol::RawTextResolver {
+            reader_name: "Player",
+            translate: &translate,
+            score: &|_, _| None,
+            selector: &|_| None,
+        })
+    });
+    // Allow small per-component bookkeeping beyond the single expanded-text allowance.
+    let allowance = protocol::MAX_RAW_TEXT_EXPANSION_BYTES;
+    assert!(
+        allocations.bytes <= allowance + allowance / 16,
+        "{allocations:?}"
+    );
+    assert!("OK".starts_with(&resolved.text));
+    assert!(resolved.truncated);
+    assert_eq!(lookups.get(), 1);
+}
+
+#[test]
+fn form_display_expansion_stops_nested_amplification_with_bounded_allocations() {
+    use std::sync::Arc;
+    // The safe reduction fails first, before an unbounded resolver can attempt the 100 GB case.
+    for (repeats, seed_bytes) in [(10, 2_048), (1_000, 100)] {
+        let seed = "x".repeat(seed_bytes);
+        let mut component = json!({"text":seed});
+        for _ in 0..3 {
+            component = json!({"translate":"repeat","with":{"rawtext":[component]}});
+        }
+        let ServerFormModel::TextMenu(menu) = model(json!({"type":"form","buttons":[
+            {"text":{"rawtext":[{"text":"prefix"}, component, {"selector":"@s"}]}}
+        ]})) else {
+            panic!("amplified form");
+        };
+        let protocol::FormText::Raw(document) = &menu.buttons[0] else {
+            panic!("rawtext");
+        };
+        let template: Arc<str> = "%1".repeat(repeats).into();
+        let lookups = std::cell::Cell::new(0);
+        let translate = |_: &str| {
+            lookups.set(lookups.get() + 1);
+            Some(Arc::clone(&template))
+        };
+        let resolver = protocol::RawTextResolver {
+            reader_name: "Player",
+            translate: &translate,
+            score: &|_, _| None,
+            selector: &|_| panic!("expansion must stop after exhaustion"),
+        };
+        let (resolved, allocations) = test_alloc::measure(|| document.resolve(&resolver));
+        let suffix = resolved.text.strip_prefix("prefix").unwrap();
+        assert!(resolved.text.len() <= protocol::MAX_RAW_TEXT_EXPANSION_BYTES);
+        assert!(suffix.bytes().all(|byte| byte == b'x'));
+        assert!(resolved.truncated);
+        assert!(resolved.text.capacity() <= protocol::MAX_RAW_TEXT_EXPANSION_BYTES);
+        assert_eq!(lookups.get(), 3);
+        assert!(
+            allocations.bytes <= protocol::MAX_RAW_TEXT_EXPANSION_BYTES * 8,
+            "{allocations:?}"
+        );
+    }
+}
+
+#[test]
+fn form_display_expansion_keeps_the_utf8_prefix_when_translation_or_parameter_exhausts_it() {
+    use std::sync::Arc;
+    for parameter in [false, true] {
+        let bytes = if parameter {
+            // The key, argument and output leave two bytes for the four-byte scalar.
+            (protocol::MAX_RAW_TEXT_EXPANSION_BYTES - "%long".len() - "🌍Z".len() - 2) / 2
+        } else {
+            protocol::MAX_RAW_TEXT_EXPANSION_BYTES - 1
+        };
+        let expected = "p".repeat(bytes);
+        let expanded: Arc<str> = format!("{expected}🌍Z").into();
+        let translate = |key: &str| match key {
+            "long" => Some(Arc::clone(&expanded)),
+            "argument" => Some(Arc::from("%1")),
+            _ => None,
+        };
+        let component = if parameter {
+            json!({"translate":"argument","with":["%long"]})
+        } else {
+            json!({"translate":"long"})
+        };
+        let ServerFormModel::TextMenu(menu) = model(json!({"type":"form","buttons":[
+            {"text":{"rawtext":[component,{"text":"Z"}]}}
+        ]})) else {
+            panic!("translated form");
+        };
+        let protocol::FormText::Raw(document) = &menu.buttons[0] else {
+            panic!("rawtext");
+        };
+        let resolved = document.resolve(&protocol::RawTextResolver {
+            reader_name: "Player",
+            translate: &translate,
+            score: &|_, _| None,
+            selector: &|_| None,
+        });
+        assert_eq!(resolved.text, expected);
+        assert!(resolved.truncated);
+        assert!(resolved.text.capacity() <= protocol::MAX_RAW_TEXT_EXPANSION_BYTES);
     }
 }

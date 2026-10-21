@@ -100,9 +100,9 @@ impl MenuRuntime {
         if screen != MenuScreen::DressingRoom && self.dressing_room.editor.is_some() {
             std::sync::Arc::make_mut(&mut self.dressing_room).editor = None;
         }
-        self.settings_focus_geometry = super::focus::SettingsFocusGeometry::default();
-        self.settings_slider_selected = None;
-        self.settings_focus.clear();
+        self.settings_input.geometry = super::focus::SettingsFocusGeometry::default();
+        self.settings.slider_selected = None;
+        self.settings_input.actions.clear();
         if screen == MenuScreen::Profile {
             self.feeds.profile_refresh_requested = true;
         }
@@ -151,6 +151,12 @@ impl MenuRuntime {
             ));
             return;
         }
+        if self.screen == MenuScreen::DressingRoom && self.dressing_room.cosmetic_filter_open {
+            self.activate(MenuAction::DressingRoom(
+                launcher::dressing_room::Action::ToggleCosmeticFilter,
+            ));
+            return;
+        }
         if self.screen == MenuScreen::Settings && self.global_resources.settings.is_some() {
             self.global_resource_actions
                 .push(launcher::global_resources::Action::CloseSettings);
@@ -164,12 +170,12 @@ impl MenuRuntime {
             self.dismiss_disconnect();
             return;
         }
-        if self.screen == MenuScreen::Settings && self.settings_scale_picker {
+        if self.screen == MenuScreen::Settings && self.settings.scale_picker {
             self.activate(MenuAction::SettingsScalePicker);
             return;
         }
         if self.screen == MenuScreen::Settings
-            && let Some(index) = self.settings_dropdown
+            && let Some(index) = self.settings.dropdown
         {
             self.activate(MenuAction::SettingsDropdown(index));
             return;
@@ -186,6 +192,9 @@ impl MenuRuntime {
         // Back on the join progress screen is its cancel button, where vanilla offers one.
         if self.is_connecting() {
             self.intents.disconnect |= self.feeds.join.cancellable();
+            return;
+        }
+        if self.shader_options_back() {
             return;
         }
         match self.screen {

@@ -180,7 +180,7 @@ impl BoneResidency {
     }
 
     /// Visits only changed ranges in byte offsets accepted by the existing GPU buffers.
-    pub fn writes(&self, frame: &BoneFrame, mut write: impl FnMut(bool, u64, &[u8])) {
+    pub fn writes<'a>(&'a self, frame: &BoneFrame, mut write: impl FnMut(bool, u64, &'a [u8])) {
         for (is_current, ranges, mirror) in [
             (false, &frame.previous, &self.previous),
             (true, &frame.current, &self.current),

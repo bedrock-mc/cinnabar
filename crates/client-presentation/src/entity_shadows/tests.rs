@@ -292,3 +292,69 @@ fn regression_display_runtime_ids_cannot_admit_undrawn_network_shadows() {
         "a disconnected network session admits no bodies"
     );
 }
+
+/// Coverage-only source meshes never leak shadows, and visibility resumes when coverage ends.
+#[test]
+fn coverage_only_remote_bodies_do_not_cast_ordinary_shadows() {
+    let mut stream = WorldStream::new(protocol::WorldBootstrap {
+        local_player_unique_id: 1,
+        local_player_runtime_id: 1,
+        dimension: 0,
+        player_position: [0.0, 65.62, 0.0],
+        world_spawn_position: [0, 64, 0],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    });
+    for (sequence, runtime_id, x) in [(1, 5, 2.0), (2, 6, 4.0)] {
+        spawn_kind(
+            &mut stream,
+            sequence,
+            runtime_id,
+            ActorKind::Player {
+                uuid: [runtime_id as u8; 16],
+                username: "fixture".into(),
+            },
+            x,
+        );
+    }
+    let session = stream.authority().actor_session_id();
+    let mut frame = ActorRenderFrame::default();
+    frame.rig.manifest = Arc::from([
+        manifest_entry(session, 5, ACTOR_LAYER_BODY),
+        manifest_entry(session, 6, ACTOR_LAYER_BODY),
+    ]);
+    let mut drawn = Vec::new();
+    let mut staging = Vec::new();
+    let mut scene = EntityShadowScene::default();
+    for (hidden, expected) in [
+        (vec![6], vec![2.0]),
+        (vec![], vec![2.0, 4.0]),
+        (vec![5], vec![4.0]),
+        (vec![5, 6], vec![]),
+        (vec![], vec![2.0, 4.0]),
+    ] {
+        frame.mask_only_runtime_ids = hidden.into();
+        drawn_bodies(&frame, Some(session), &mut drawn);
+        publish_entity_shadows(
+            Some(&stream),
+            1.0,
+            None,
+            None,
+            &drawn,
+            &mut staging,
+            &mut scene,
+        );
+        let mut actual: Vec<_> = scene
+            .0
+            .shadows
+            .iter()
+            .map(|shadow| shadow.feet[0])
+            .collect();
+        actual.sort_by(f32::total_cmp);
+        assert_eq!(
+            actual, expected,
+            "mask-only IDs: {:?}",
+            frame.mask_only_runtime_ids
+        );
+    }
+}

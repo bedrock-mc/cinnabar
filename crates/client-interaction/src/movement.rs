@@ -160,6 +160,14 @@ impl PhysicsAuthorityGate {
         Self(gameplay::movement::PhysicsAuthorityGate::ProductionEnabled);
 }
 impl PhysicsCollisionRegistries {
+    /// Installs collision views from already verified startup carrier records.
+    pub fn from_decoded(
+        records: &[assets::RegistryRecord],
+        physics: &assets::PhysicsRegistry,
+    ) -> Result<Self, gameplay::movement::PhysicsCollisionRegistryError> {
+        gameplay::movement::PhysicsCollisionRegistries::from_decoded(records, physics).map(Self)
+    }
+
     /// Validates coherent startup carriers before installing them as a Bevy resource.
     pub fn bind_coherent_assets(
         breg: &[u8],

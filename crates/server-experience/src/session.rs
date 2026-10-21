@@ -4,8 +4,8 @@ use crate::{
     crypto::SignedDocument,
     negotiation::{Grant, Hello, Pending, VerifiedOffer},
     policy::*,
-    trust::{Choice, Decision, Settings},
-    wire::RateLimit,
+    rate_limit::RateLimit,
+    trust::{Decision, Settings},
 };
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};

@@ -2,12 +2,19 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 mod account;
+mod account_data;
+mod player_identity;
+pub use account_data::{
+    Account, Artwork, ConnectProgress, MessageEvent, Person, ProfileAchievement,
+    ProfileAchievements, ProfileStatistics,
+};
+pub use player_identity::{valid_cinnabar_uuid, valid_cinnabar_xuid};
 #[cfg(not(target_arch = "wasm32"))]
 mod cinnabar_api;
 #[cfg(not(target_arch = "wasm32"))]
 pub use cinnabar_api::{
     CinnabarApiConfig, CinnabarLookup, configure_cinnabar_api, lookup_cinnabar_players,
-    sync_cinnabar_emotes, valid_cinnabar_uuid, valid_cinnabar_xuid,
+    sync_cinnabar_players,
 };
 /// Shared values and wire enums for the Rust and Go bridge.
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
@@ -21,6 +28,7 @@ pub use contract::{
 mod endpoint;
 mod error;
 mod framed;
+pub mod join_profile;
 pub mod latency_trace;
 #[cfg(not(target_arch = "wasm32"))]
 mod packet_delay;
@@ -46,13 +54,11 @@ pub async fn connect_session(socket_dir: &Path) -> anyhow::Result<(FramedReader,
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use account::{
-    Account, Artwork, ConnectProgress, Events, FeaturedGame, FeaturedServer, Friend, Home, Inbox,
-    LiveEvent, Message, MessageButton, MessageEvent, MessageImage, Person, Profile,
-    ProfileAchievement, ProfileAchievements, ProfileStatistics, Realm, RealmMembership,
-    ServerDisconnect, ServerPing, ServerTrustPrompt, account_status, answer_server_trust,
-    connect_target, home, list_featured_servers, list_featured_servers_with_counts, list_friends,
-    list_people, list_realms, ping_servers, poll_events, profile, realm_membership,
-    report_message_event, sign_out,
+    Events, FeaturedGame, FeaturedServer, Friend, Home, Inbox, LiveEvent, Message, MessageButton,
+    MessageImage, Profile, Realm, RealmMembership, ServerDisconnect, ServerPing, ServerTrustPrompt,
+    account_status, answer_server_trust, connect_target, home, list_featured_servers,
+    list_featured_servers_with_counts, list_friends, list_people, list_realms, ping_servers,
+    poll_events, profile, realm_membership, report_message_event, sign_out,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use endpoint::listener::SessionListener;
@@ -60,7 +66,7 @@ pub use error::BridgeError;
 pub use framed::BridgeCodec;
 #[cfg(not(target_arch = "wasm32"))]
 pub use framed::FramedStream;
-pub use framed::{FrameQueue, FramedReader};
+pub use framed::{FrameQueue, FrameRead, FrameWritten, FramedReader};
 #[cfg(not(target_arch = "wasm32"))]
 pub use packet_delay::{
     PacketDelayLease, RelayedPosition, packet_delay_with_position, set_packet_delay,

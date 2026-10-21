@@ -1,7 +1,10 @@
 use super::*;
-use crate::environment::{CameraMediumState, EnvironmentContext, FogBindings};
-use crate::runtime::world::{ClientWorld, update_camera_medium};
+use crate::environment::CameraMediumState;
+use crate::runtime::world::{ClientWorld, camera_environment::update_camera_medium};
 use client_presentation::camera::FlyCamera;
+use client_presentation::environment::{
+    EnvironmentContext, atmosphere::derive_profiled_atmosphere_frame, fog::FogBindings,
+};
 
 #[test]
 fn camera_environment_samples_the_live_biome_for_atmosphere_profiles() {
@@ -110,7 +113,7 @@ fn camera_environment_samples_the_live_biome_for_atmosphere_profiles() {
     assert_eq!(context.camera_biome_temperature, Some(-0.5));
     assert_eq!(context.render_distance_blocks, Some(256.0));
     assert_eq!(context.fog_registry_generation, Some(identity));
-    let (frame, route) = crate::environment::atmosphere::derive_profiled_atmosphere_frame(
+    let (frame, route) = derive_profiled_atmosphere_frame(
         Default::default(),
         Default::default(),
         0.0,
@@ -124,7 +127,7 @@ fn camera_environment_samples_the_live_biome_for_atmosphere_profiles() {
     );
     assert_eq!(route.biome_identifier.as_deref(), Some("test:camera"));
     assert_eq!(route.fog_identifier.as_deref(), Some("test:fog"));
-    let unprofiled = crate::environment::atmosphere::derive_profiled_atmosphere_frame(
+    let unprofiled = derive_profiled_atmosphere_frame(
         Default::default(),
         Default::default(),
         0.0,

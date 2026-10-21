@@ -108,3 +108,131 @@ fn creative_to_survival_keeps_abilities_but_stops_instant_destruction() {
     assert!(runtime.apply_game_mode_update(GameModeUpdate::Explicit(Creative)));
     assert!(runtime.game_mode_capabilities().unwrap().instant_break);
 }
+
+/// Builds an original Instabuild definition in one chosen ability layer.
+fn instabuild_update(layer_type: u16, value: bool) -> AbilitiesUpdate {
+    let bit = crate::game_mode_capabilities::ability_bit::INSTANT_BUILD;
+    AbilitiesUpdate {
+        layers: AbilityLayersEvidence::Received(
+            [AbilityLayerEvidence {
+                layer_type,
+                abilities: bit,
+                values: if value { bit } else { 0 },
+                fly_speed_bits: 0,
+                vertical_fly_speed_bits: 0,
+                walk_speed_bits: 0,
+            }]
+            .into(),
+        ),
+        ..update(17, 0)
+    }
+}
+
+#[test]
+fn instabuild_follows_mode_assignment_and_accepted_ability_replacement_order() {
+    use protocol::PlayerGameMode::*;
+    let mut facts = LocalPlayerFacts::new(7);
+    facts.publish_bootstrap_game_modes(Creative, Creative, false);
+    facts.bind_local_abilities(7, 4, 17, true);
+    assert_eq!(facts.instabuild(), Some(true));
+    assert!(facts.local_abilities().is_none());
+    facts.apply_local_abilities(7, 4, 1, update(17, 0));
+    assert_eq!(facts.instabuild(), Some(false));
+    facts.publish_player_game_mode(Creative);
+    assert_eq!(facts.instabuild(), Some(true));
+    facts.apply_local_abilities(7, 4, 2, instabuild_update(1, false));
+    assert_eq!(facts.instabuild(), Some(false));
+    facts.publish_player_game_mode(Creative);
+    assert_eq!(facts.instabuild(), Some(true));
+    facts.apply_local_abilities(7, 4, 3, instabuild_update(3, false));
+    facts.publish_player_game_mode(Creative);
+    assert_eq!(facts.instabuild(), Some(false));
+    facts.apply_local_abilities(7, 4, 4, update(17, 0));
+    facts.publish_player_game_mode(Survival);
+    assert_eq!(facts.instabuild(), Some(false));
+    facts.begin_session(8);
+    assert_eq!(facts.instabuild(), Some(false));
+}
+
+#[test]
+fn mode_assignment_rebuilds_spectator_layer_but_preserves_higher_definitions() {
+    use protocol::PlayerGameMode::*;
+    let mut facts = LocalPlayerFacts::new(7);
+    facts.bind_local_abilities(7, 4, 17, true);
+    facts.apply_local_abilities(7, 4, 1, instabuild_update(2, false));
+    facts.publish_player_game_mode(Creative);
+    assert_eq!(facts.instabuild(), Some(true));
+    facts.publish_player_game_mode(Spectator);
+    assert_eq!(facts.instabuild(), Some(false));
+    facts.apply_local_abilities(7, 4, 2, instabuild_update(3, true));
+    facts.publish_player_game_mode(Spectator);
+    assert_eq!(facts.instabuild(), Some(true));
+    facts.publish_player_game_mode(Survival);
+    assert_eq!(facts.instabuild(), Some(true));
+}
+
+#[test]
+fn unavailable_and_rejected_ability_evidence_does_not_invent_instabuild() {
+    let mut facts = LocalPlayerFacts::new(7);
+    facts.bind_local_abilities(7, 4, 17, true);
+    facts.apply_local_abilities(7, 4, 1, update(17, 33));
+    assert_eq!(facts.instabuild(), None);
+    facts.publish_player_game_mode(protocol::PlayerGameMode::Creative);
+    assert_eq!(facts.instabuild(), None);
+    facts.apply_local_abilities(7, 4, 2, instabuild_update(3, true));
+    for (session, stream, sequence, owner) in
+        [(6, 4, 3, 17), (7, 5, 3, 17), (7, 4, 3, 19), (7, 4, 2, 17)]
+    {
+        facts.apply_local_abilities(session, stream, sequence, update(owner, 0));
+        assert_eq!(facts.instabuild(), Some(true));
+    }
+    facts.apply_local_abilities(7, 4, 3, update(17, 0));
+    assert_eq!(facts.instabuild(), Some(false));
+}
+
+/// Admitted ability evidence keeps collision and flight permissions independent.
+#[test]
+fn ability_axes_local_facts_keep_permissions_independent() {
+    use crate::game_mode_capabilities::{FlightAuthority, ability_bit as b};
+    use protocol::PlayerGameMode::{Spectator, Survival};
+    for (values, expected_flight, collision) in [
+        (b::FLYING, FlightAuthority::Mutable(true), true),
+        (b::NO_CLIP, FlightAuthority::Mutable(false), false),
+        (
+            b::FLYING | b::NO_CLIP,
+            FlightAuthority::Mutable(true),
+            false,
+        ),
+    ] {
+        let mut runtime = LocalPlayerFacts::new(7);
+        runtime.publish_bootstrap_game_modes(Survival, Survival, false);
+        runtime.bind_local_abilities(7, 4, 17, true);
+        runtime.apply_local_abilities(
+            7,
+            4,
+            1,
+            AbilitiesUpdate {
+                layers: AbilityLayersEvidence::Received(
+                    [AbilityLayerEvidence {
+                        layer_type: 1,
+                        abilities: b::FLYING | b::NO_CLIP,
+                        values,
+                        fly_speed_bits: 0,
+                        vertical_fly_speed_bits: 0,
+                        walk_speed_bits: 0,
+                    }]
+                    .into(),
+                ),
+                ..update(17, 0)
+            },
+        );
+        let caps = runtime.game_mode_capabilities().unwrap();
+        assert_eq!(caps.flight, expected_flight);
+        assert_eq!(caps.has_collision, collision);
+    }
+    let mut spectator = LocalPlayerFacts::new(7);
+    spectator.publish_bootstrap_game_modes(Spectator, Spectator, false);
+    let caps = spectator.game_mode_capabilities().unwrap();
+    assert_eq!(caps.flight, FlightAuthority::Fixed(true));
+    assert!(!caps.has_collision);
+}

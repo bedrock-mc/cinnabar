@@ -110,14 +110,16 @@ pub(super) fn assets(identifier: &str) -> Arc<RuntimeEntityAssets> {
         rig_bindings: vec![EntityRigBinding {
             placement_frame: assets::placement::EntityPlacementFrame::Unresolved,
             entity_symbol: 0,
-            render_controller: 3,
+            render_controller: Some(3),
             first_geometry: 0,
             geometry_count: 2,
             fallback: EntityRigFallback::Skip,
             initialize: None,
             pre_animation: None,
+            item_condition: None,
             scale: scalar(1.0),
             scale_expressions: None,
+            held_item_scale: None,
         }]
         .into_boxed_slice(),
         rig_geometries: [None, Some(0)]

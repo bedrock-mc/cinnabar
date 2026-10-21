@@ -2,18 +2,18 @@ use super::widgets::*;
 use super::*;
 use serde_json::Value;
 
+const MAX_NUMERIC_CHARS: usize = 24;
+
 pub(super) enum Editor {
     Choice {
         control: usize,
         rect: [f64; 4],
         selected: usize,
     },
-    Number {
+    Field {
         control: usize,
         rect: [f64; 4],
-        text: String,
-        selected: bool,
-        cursor: usize,
+        state: Box<super::field::Field>,
         invalid: bool,
     },
 }
@@ -28,19 +28,121 @@ impl ModUi {
             .is_some_and(|panel| panel.open && panel.edit.is_some())
     }
 
+    /// Returns selected field text, an empty slice for a caret, or None without native field focus.
+    pub fn mod_panel_field_selection(&self) -> Option<&str> {
+        if self.mod_hud_editor_open() {
+            return None;
+        }
+        let panel = self.mod_panel.as_ref().filter(|panel| panel.open)?;
+        match panel.edit.as_ref()? {
+            Editor::Field { state, .. } => Some(&state.text[state.selection()]),
+            Editor::Choice { .. } => None,
+        }
+    }
+
     /// Routes keyboard input exclusively to an open personal-panel editor.
     pub fn mod_panel_key(&mut self, key: &str, text: Option<&str>) -> Vec<Event> {
         if let Some(editor) = self.mod_hud_editor.as_mut().filter(|e| e.open) {
-            let close_autosave = editor.autosave && key == "Escape";
-            editor.key(key);
+            let close_autosave =
+                editor.autosave && matches!(key, "Escape" | "Enter" | "NumpadEnter");
             if close_autosave {
+                editor.close_requested = key != "Escape";
                 self.set_mod_panel_open(false);
+            } else {
+                editor.key(key);
             }
             return Vec::new();
         }
+        self.mod_panel.as_mut().map_or_else(Vec::new, |panel| {
+            panel.edit_key(key, text, Default::default())
+        })
+    }
+
+    /// Routes a key with its physical modifier snapshot to the native field.
+    pub fn mod_panel_field_key(
+        &mut self,
+        key: &str,
+        text: Option<&str>,
+        modifiers: ui::mod_panel::FieldModifiers,
+    ) -> Vec<Event> {
+        if self.mod_hud_editor_open() {
+            if !matches!(key, "Escape" | "Enter" | "NumpadEnter") {
+                self.mod_hud_editor
+                    .as_mut()
+                    .expect("open editor")
+                    .key_with_modifiers(key, modifiers);
+                return Vec::new();
+            }
+            return self.mod_panel_key(key, text);
+        }
         self.mod_panel
             .as_mut()
-            .map_or_else(Vec::new, |panel| panel.edit_key(key, text))
+            .map_or_else(Vec::new, |panel| panel.edit_key(key, text, modifiers))
+    }
+
+    /// Reports native field focus for platform IME activation.
+    pub fn mod_panel_field_focused(&self) -> bool {
+        !self.mod_hud_editor_open()
+            && self
+                .mod_panel
+                .as_ref()
+                .is_some_and(|panel| panel.open && matches!(panel.edit, Some(Editor::Field { .. })))
+    }
+
+    /// Reports the focused field's one authoritative IME composition state.
+    pub fn mod_panel_composing(&self) -> bool {
+        self.mod_panel_field_focused()
+            && matches!(self.mod_panel.as_ref().and_then(|panel| panel.edit.as_ref()), Some(Editor::Field { state, .. }) if state.composing)
+    }
+
+    /// Places the platform's candidate popup below the last painted caret in window pixels.
+    pub fn mod_panel_ime_position(&self) -> Option<[f32; 2]> {
+        if !self.mod_panel_field_focused() {
+            return None;
+        }
+        match self.mod_panel.as_ref()?.edit.as_ref()? {
+            Editor::Field { state, .. } => Some(state.ime_position),
+            _ => None,
+        }
+    }
+
+    /// Publishes bounded inline IME text without emitting a value change before commit.
+    pub fn mod_panel_preedit(&mut self, text: &str, cursor: Option<usize>) {
+        if !self.mod_panel_field_focused() {
+            return;
+        }
+        let Some(panel) = self.mod_panel.as_mut() else {
+            return;
+        };
+        if let Some(Editor::Field { state, .. }) = &mut panel.edit {
+            state.preedit(text, cursor);
+        }
+    }
+
+    /// Commits IME text through the same selection and length checks as typing and paste.
+    pub fn mod_panel_ime_commit(&mut self, text: &str) {
+        if !self.mod_panel_field_focused() {
+            return;
+        }
+        if let Some(panel) = self.mod_panel.as_mut()
+            && let Some(Editor::Field {
+                control,
+                state,
+                invalid,
+                ..
+            }) = &mut panel.edit
+            && let Some((maximum, numeric)) = field_bounds(&panel.panel.controls[*control])
+        {
+            let was_invalid = *invalid;
+            state.clear_composition();
+            if state.insert(text, maximum, numeric) {
+                *invalid = false;
+                panel.live_change();
+                if was_invalid {
+                    panel.refresh_editor();
+                }
+            }
+        }
     }
 
     pub fn cancel_mod_panel_edit(&mut self) {
@@ -52,12 +154,53 @@ impl ModUi {
 }
 
 impl ModPanel {
+    /// Native text fields retain keyboard ownership while a guest's capture flag is unchanged.
+    pub(super) fn editing_text(&self) -> bool {
+        matches!(self.edit.as_ref(),Some(Editor::Field {control,..})
+            if matches!(self.panel.controls.get(*control),Some(Control::Text {..})))
+    }
+    /// Reconciles explicit guest replacements for persistent fields without discarding focus.
+    pub(super) fn reconcile_editor_value(&mut self, next: &Panel) {
+        let Some(Editor::Field {
+            control,
+            state,
+            invalid,
+            ..
+        }) = &mut self.edit
+        else {
+            return;
+        };
+        let (
+            Some(Control::Text {
+                value: previous,
+                live,
+                navigation_keys,
+                ..
+            }),
+            Some(Control::Text { value, .. }),
+        ) = (
+            self.panel.controls.get(*control),
+            next.controls.get(*control),
+        )
+        else {
+            return;
+        };
+        if (*live || *navigation_keys) && previous != value && state.text != *value {
+            state.replace_value(value);
+            let was_invalid = std::mem::replace(invalid, false);
+            if was_invalid {
+                self.refresh_editor();
+            }
+        }
+    }
+
     pub(super) fn cancel_edit(&mut self) {
         if self.edit.take().is_some() {
             self.refresh_editor();
         }
     }
 
+    /// Publishes literal draft data without putting user text through template resolution.
     fn refresh_editor(&mut self) {
         self.catalog = None;
         self.frame = None;
@@ -65,6 +208,7 @@ impl ModPanel {
         self.pointer = None;
     }
 
+    /// Starts the native editor appropriate to the selected admitted control kind.
     pub(super) fn open_editor(&mut self, index: usize, rect: [f64; 4]) {
         self.edit = match self.panel.controls.get(index) {
             Some(Control::Choice {
@@ -76,16 +220,19 @@ impl ModPanel {
             }),
             Some(Control::Slider { value, .. }) => {
                 let text = format_number(*value);
-                let cursor = text.len();
-                Some(Editor::Number {
+                Some(Editor::Field {
                     control: index,
                     rect,
-                    text,
-                    selected: true,
-                    cursor,
+                    state: Box::new(super::field::Field::new(text)),
                     invalid: false,
                 })
             }
+            Some(Control::Text { value, .. }) => Some(Editor::Field {
+                control: index,
+                rect,
+                state: Box::new(super::field::Field::new(value.clone())),
+                invalid: false,
+            }),
             _ => None,
         };
         self.refresh_editor();
@@ -116,16 +263,61 @@ impl ModPanel {
         vec![event]
     }
 
-    fn commit_number(&mut self) -> Vec<Event> {
-        let Some(Editor::Number {
+    /// Commits valid numeric and text fields through their separate event channels.
+    fn commit_field(&mut self) -> Vec<Event> {
+        let Some(Editor::Field {
             control,
-            text,
+            state,
             invalid,
             ..
         }) = self.edit.as_mut()
         else {
             return Vec::new();
         };
+        let text = &state.text;
+        if let Some(Control::Text {
+            id,
+            value,
+            min_chars,
+            max_chars,
+            live,
+            navigation_keys,
+            ..
+        }) = self.panel.controls.get_mut(*control)
+        {
+            if value == text && !*live && !*navigation_keys {
+                self.cancel_edit();
+                return Vec::new();
+            }
+            if ui::mod_panel::validate_text_value(text, *min_chars, *max_chars).is_err()
+                || self.text_events.len() >= ui::mod_panel::MAX_PANEL_EVENTS
+                || self.field_events.len() >= ui::mod_panel::MAX_PANEL_EVENTS
+            {
+                *invalid = true;
+                self.refresh_editor();
+                return Vec::new();
+            }
+            let value_changed = value != text;
+            if value_changed {
+                value.clone_from(text);
+            }
+            let event = ui::mod_panel::TextEvent {
+                id: id.clone(),
+                value: text.clone(),
+            };
+            self.text_events.push(event.clone());
+            self.field_events
+                .push(ui::mod_panel::FieldEvent::Submit(event));
+            let live = *live || *navigation_keys;
+            if value_changed {
+                self.refresh_data();
+            }
+            if live {
+                return Vec::new();
+            }
+            self.cancel_edit();
+            return Vec::new();
+        }
         let Some(Control::Slider {
             id,
             value,
@@ -158,22 +350,49 @@ impl ModPanel {
         vec![event]
     }
 
-    fn edit_key(&mut self, key: &str, input: Option<&str>) -> Vec<Event> {
+    /// Routes editing keys and optional navigation through one focused editor.
+    fn edit_key(
+        &mut self,
+        key: &str,
+        input: Option<&str>,
+        modifiers: ui::mod_panel::FieldModifiers,
+    ) -> Vec<Event> {
         if !self.open || self.edit.is_none() {
             return Vec::new();
         }
-        match key {
-            "Escape" | "F10" | "ShiftRight" => {
-                self.cancel_edit();
-                return Vec::new();
+        if matches!(key, "Escape" | "F10" | "ShiftRight") {
+            self.cancel_edit();
+            return Vec::new();
+        }
+        if matches!(&self.edit, Some(Editor::Field { state, .. }) if state.composing) {
+            return Vec::new();
+        }
+        let passthrough = self.field_navigation(key);
+        if matches!(key, "Enter" | "NumpadEnter") {
+            let id = self.edit.as_ref().and_then(|editor| match editor {
+                Editor::Field { control, .. } => {
+                    Some(self.panel.controls[*control].id().to_owned())
+                }
+                _ => None,
+            });
+            let events = match self.edit.as_ref() {
+                Some(Editor::Choice { selected, .. }) => self.choose(*selected),
+                _ => self.commit_field(),
+            };
+            if passthrough && let Some(id) = id {
+                self.forward_field_key(id, key, modifiers);
             }
-            "Enter" | "NumpadEnter" => {
-                return match self.edit.as_ref() {
-                    Some(Editor::Choice { selected, .. }) => self.choose(*selected),
-                    _ => self.commit_number(),
-                };
+            return events;
+        }
+        if passthrough {
+            if let Some(Editor::Field { control, .. }) = &self.edit {
+                self.forward_field_key(
+                    self.panel.controls[*control].id().to_owned(),
+                    key,
+                    modifiers,
+                );
             }
-            _ => {}
+            return Vec::new();
         }
         match self.edit.as_mut() {
             Some(Editor::Choice {
@@ -190,56 +409,33 @@ impl ModPanel {
                     "End" => *selected = options.len() - 1,
                     _ => return Vec::new(),
                 }
+                self.refresh_editor();
             }
-            Some(Editor::Number {
-                text,
-                selected,
-                cursor,
+            Some(Editor::Field {
+                state,
+                control,
                 invalid,
                 ..
-            }) => match key {
-                "SelectAll" => {
-                    *selected = true;
-                    *cursor = text.len();
+            }) => {
+                if state.composing {
+                    return Vec::new();
                 }
-                "Home" => {
-                    *cursor = 0;
-                    *selected = false;
-                }
-                "End" => {
-                    *cursor = text.len();
-                    *selected = false;
-                }
-                "ArrowLeft" => {
-                    *cursor = if *selected {
-                        0
-                    } else {
-                        cursor.saturating_sub(1)
-                    };
-                    *selected = false;
-                }
-                "ArrowRight" => {
-                    *cursor = if *selected {
-                        text.len()
-                    } else {
-                        (*cursor + 1).min(text.len())
-                    };
-                    *selected = false;
-                }
-                "Backspace" | "Delete" => {
-                    if *selected {
-                        text.clear();
-                        *cursor = 0;
-                    } else if key == "Backspace" && *cursor > 0 {
-                        *cursor -= 1;
-                        text.remove(*cursor);
-                    } else if key == "Delete" && *cursor < text.len() {
-                        text.remove(*cursor);
-                    }
-                    *selected = false;
-                    *invalid = false;
-                }
-                _ => {
+                let Some((limit, numeric)) = field_bounds(&self.panel.controls[*control]) else {
+                    return Vec::new();
+                };
+                let was_invalid = *invalid;
+                let changed = if matches!(
+                    key,
+                    "SelectAll"
+                        | "Home"
+                        | "End"
+                        | "ArrowLeft"
+                        | "ArrowRight"
+                        | "Backspace"
+                        | "Delete"
+                ) {
+                    state.key(key, modifiers)
+                } else {
                     let fallback = key
                         .strip_prefix("Digit")
                         .or_else(|| key.strip_prefix("Numpad"))
@@ -249,51 +445,143 @@ impl ModPanel {
                             "Minus" | "NumpadSubtract" => Some("-"),
                             _ => None,
                         });
-                    let Some(input) = input.or(fallback) else {
-                        return Vec::new();
-                    };
-                    if input.is_empty()
-                        || !input
-                            .chars()
-                            .all(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | '+'))
-                    {
+                    if key == "Unidentified" || modifiers.super_key || modifiers.control {
                         return Vec::new();
                     }
-                    if !*selected && text.len() + input.len() > 24 || input.len() > 24 {
-                        return Vec::new();
-                    }
-                    if *selected {
-                        text.clear();
-                        *cursor = 0;
-                    }
-                    text.insert_str(*cursor, input);
-                    *cursor += input.len();
-                    *selected = false;
+                    input
+                        .or(fallback)
+                        .is_some_and(|input| state.insert(input, limit, numeric))
+                };
+                if changed {
                     *invalid = false;
+                    self.live_change();
+                    if was_invalid {
+                        self.refresh_editor();
+                    }
                 }
-            },
-            None => return Vec::new(),
+            }
+            None => {}
         }
-        self.refresh_editor();
         Vec::new()
+    }
+
+    /// Returns whether this key belongs to the guest instead of native caret movement.
+    fn field_navigation(&self, key: &str) -> bool {
+        let Some(Editor::Field { control, state, .. }) = &self.edit else {
+            return false;
+        };
+        matches!(
+            self.panel.controls.get(*control),
+            Some(Control::Text {
+                navigation_keys: true,
+                ..
+            })
+        ) && !state.composing
+            && ui::mod_panel::is_field_navigation_key(key)
+            && match key {
+                "ArrowLeft" => state.selection().is_empty() && state.cursor == 0,
+                "ArrowRight" => state.selection().is_empty() && state.cursor == state.text.len(),
+                _ => true,
+            }
+    }
+
+    /// Retains a bounded key event with the modifier snapshot taken at its input edge.
+    fn forward_field_key(
+        &mut self,
+        id: String,
+        key: &str,
+        modifiers: ui::mod_panel::FieldModifiers,
+    ) {
+        if self.field_events.len() < ui::mod_panel::MAX_PANEL_EVENTS {
+            self.field_events
+                .push(ui::mod_panel::FieldEvent::Key(ui::mod_panel::FieldKey {
+                    id,
+                    key: key.into(),
+                    modifiers,
+                }));
+        }
+    }
+
+    /// Retains exactly the valid values in the emitted batch, matching host-side admission.
+    pub(super) fn drain_field_events(&mut self) -> Vec<ui::mod_panel::FieldEvent> {
+        use ui::mod_panel::FieldEvent;
+        let events = std::mem::take(&mut self.field_events);
+        for event in &events {
+            let (FieldEvent::Change(event) | FieldEvent::Submit(event)) = event else {
+                continue;
+            };
+            let Some((
+                index,
+                Control::Text {
+                    value,
+                    min_chars,
+                    max_chars,
+                    ..
+                },
+            )) = self
+                .panel
+                .controls
+                .iter_mut()
+                .enumerate()
+                .find(|(_, control)| control.id() == event.id)
+            else {
+                continue;
+            };
+            if value.as_str() != event.value.as_str()
+                && ui::mod_panel::validate_text_value(&event.value, *min_chars, *max_chars).is_ok()
+            {
+                value.clone_from(&event.value);
+                Arc::make_mut(&mut self.data).set_global(
+                    format!("#row_{index}_value"),
+                    json_ui::Scalar::Text(event.value.clone()),
+                );
+            }
+        }
+        events
+    }
+
+    /// Coalesces live values by field until the app drains this frame's native batch.
+    fn live_change(&mut self) {
+        let Some(Editor::Field { control, state, .. }) = &self.edit else {
+            return;
+        };
+        let Some(Control::Text { id, live: true, .. }) = self.panel.controls.get(*control) else {
+            return;
+        };
+        let event = ui::mod_panel::TextEvent {
+            id: id.clone(),
+            value: state.text.clone(),
+        };
+        self.field_events.retain(|existing| !matches!(existing, ui::mod_panel::FieldEvent::Change(old) if old.id == event.id));
+        if self.field_events.len() < ui::mod_panel::MAX_PANEL_EVENTS {
+            self.field_events
+                .push(ui::mod_panel::FieldEvent::Change(event));
+        }
     }
 }
 
+/// Shares character capacity and numeric admission across typing, paste and explicit commits.
+fn field_bounds(control: &Control) -> Option<(usize, bool)> {
+    match control {
+        Control::Text { max_chars, .. } => Some((*max_chars, false)),
+        Control::Slider { .. } => Some((MAX_NUMERIC_CHARS, true)),
+        _ => None,
+    }
+}
+
+/// Uses the finite native slider value's shortest ordinary representation.
 fn format_number(value: f32) -> String {
     value.to_string()
 }
 
-pub(super) fn visible_draft(text: &str, selected: bool, cursor: usize, width: f64) -> String {
-    let capacity = ((width - 6.) / 5.).floor().max(3.) as usize;
-    if selected {
-        return text.chars().take(capacity).collect();
-    }
-    let before = cursor.min(capacity - 1);
-    let start = cursor - before;
-    let end = (start + capacity - 1).min(text.len());
-    let mut visible = text[start..end].to_owned();
-    visible.insert(before, '|');
-    visible
+/// Text scrolls inside its authored field; numeric entry retains a usable minimum width.
+fn field_width(spec: &Panel, control: usize, rect: &[f64; 4], viewport: [f64; 2]) -> f64 {
+    let minimum = if matches!(spec.controls.get(control), Some(Control::Text { .. })) {
+        8.
+    } else {
+        42.
+    };
+    rect[2].max(minimum).min(viewport[0] - 8.)
 }
 pub(super) fn append_overlay(
     document: &mut Value,
@@ -363,48 +651,56 @@ pub(super) fn append_overlay(
             }
             controls.push(named("choices", panel([width, height], [x, y], rows)));
         }
-        Editor::Number {
+        Editor::Field {
             control,
             rect,
-            text,
-            selected,
-            cursor,
             invalid,
+            ..
         } => {
-            let width = rect[2].max(42.);
-            let x = (rect[0] + rect[2] - width).clamp(4., viewport[0] - width - 4.);
+            let is_text = matches!(spec.controls.get(*control), Some(Control::Text { .. }));
+            let width = field_width(spec, *control, rect, viewport);
+            let x = if is_text {
+                rect[0]
+            } else {
+                rect[0] + rect[2] - width
+            }
+            .clamp(4., viewport[0] - width - 4.);
             let height = 17.;
-            let y = (rect[1] - 2.).clamp(4., viewport[1] - height - 4.);
+            let y = (rect[1] + (rect[3] - height) * 0.5).clamp(4., viewport[1] - height - 4.);
             let mut raised = palette;
             raised.card = palette.raised;
-            raised.border = if *invalid {
-                palette.accent
-            } else {
-                palette.text
-            };
+            raised.border = palette.accent;
             let mut field = chrome([width, height], raised, 3.);
-            let display = visible_draft(text, *selected, *cursor, width);
             field.push(named(
                 "value",
-                label(
-                    &display,
-                    [width - 6., 14.],
-                    [3., 4.],
-                    if *selected {
-                        palette.accent
-                    } else {
-                        palette.text
-                    },
-                    false,
-                ),
+                serde_json::json!({
+                    "type":"custom", "renderer":super::field_paint::RENDERER,
+                    "size":[width - 6., 13.], "offset":[3., 2.],
+                    "anchor_from":"top_left", "anchor_to":"top_left", "clip_children":true
+                }),
             ));
             controls.push(named(
                 "number",
                 button("mod.editor", [width, height], [x, y], field),
             ));
-            if *invalid && let Some(Control::Slider { min, max, .. }) = spec.controls.get(*control)
-            {
-                let message = format!("Use {} to {}", format_number(*min), format_number(*max));
+            let message = if *invalid {
+                match spec.controls.get(*control) {
+                    Some(Control::Slider { min, max, .. }) => Some(format!(
+                        "Use {} to {}",
+                        format_number(*min),
+                        format_number(*max)
+                    )),
+                    Some(Control::Text {
+                        min_chars,
+                        max_chars,
+                        ..
+                    }) => Some(format!("Use {min_chars} to {max_chars} characters")),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            if let Some(message) = message {
                 let w = 105_f64.min(viewport[0] - 8.);
                 let x = x.min(viewport[0] - w - 4.);
                 let y = (y + height + 2.).min(viewport[1] - 22.);

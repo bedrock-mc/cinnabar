@@ -61,6 +61,51 @@ fn mesh() -> Arc<UiMesh> {
     )
 }
 
+/// Flat coverage geometry shares ordinary raster passes while real models retain private depth.
+#[test]
+fn depthless_meshes_do_not_start_private_model_passes() {
+    let geometry = Arc::new(
+        UiMesh::new(
+            vec![
+                vertex([0., 0.], 1.),
+                vertex([1., 0.], 1.),
+                vertex([0., 1.], 1.),
+            ]
+            .into(),
+            vec![0, 1, 2].into(),
+            vec![UiMeshBatch {
+                depth_test: false,
+                depth_write: false,
+                ..batch(1, 0..3)
+            }]
+            .into(),
+        )
+        .unwrap(),
+    );
+    let mut tree = UiTree::new(
+        (1..=2)
+            .map(|id| {
+                UiNode::new(UiNodeId::new(id), None, rect(0., 0., 10., 10.))
+                    .with_visual(UiVisual::Mesh(Arc::clone(&geometry)))
+            })
+            .collect(),
+    )
+    .unwrap();
+    tree.layout(
+        rect(0., 0., 100., 100.),
+        UiScale::new(1.).unwrap(),
+        SafeArea::default(),
+    )
+    .unwrap();
+    let draw = tree.build_draw_list().unwrap();
+    assert_eq!(draw.indices.len(), 6);
+    assert!(
+        draw.batches
+            .iter()
+            .all(|batch| batch.isolated_depth_scope.is_none())
+    );
+}
+
 #[test]
 fn mesh_fades_share_topology_and_do_not_change_the_cached_source() {
     let source = mesh();
@@ -163,6 +208,61 @@ fn ui_mesh_keeps_node_layout_clips_homogeneous_depth_and_authored_material_order
         draw.vertices[0].model_light.to_bits(),
         0.718_629_f32.to_bits()
     );
+}
+
+/// Dense indexed icons share their grid vertices without consuming the frame's vertex budget per triangle corner.
+#[test]
+fn dense_indexed_meshes_fit_the_frame_without_expanding_shared_vertices() {
+    let side = 64_u32;
+    let vertices: Vec<_> = (0..=side)
+        .flat_map(|y| {
+            (0..=side).map(move |x| vertex([x as f32 / side as f32, y as f32 / side as f32], 1.))
+        })
+        .collect();
+    let indices: Vec<_> = (0..side)
+        .flat_map(|y| {
+            (0..side).flat_map(move |x| {
+                let a = y * (side + 1) + x;
+                [a, a + 1, a + side + 2, a, a + side + 2, a + side + 1]
+            })
+        })
+        .collect();
+    let mesh = Arc::new(
+        UiMesh::new(
+            vertices.into(),
+            indices.clone().into(),
+            vec![batch(0, 0..indices.len() as u32)].into(),
+        )
+        .unwrap(),
+    );
+    let mut tree = UiTree::new(
+        (1..=12)
+            .map(|id| {
+                UiNode::new(UiNodeId::new(id), None, rect(0., 0., 100., 100.))
+                    .with_visual(UiVisual::Mesh(Arc::clone(&mesh)))
+            })
+            .collect(),
+    )
+    .unwrap();
+    tree.layout(rect(0., 0., 200., 200.), UiScale::default(), SafeArea::ZERO)
+        .unwrap();
+    let draw = tree
+        .build_draw_list()
+        .expect("indexed icons fit the unchanged frame budget");
+    assert_eq!(
+        draw.indices.len(),
+        indices.len() * 12,
+        "all triangles survive"
+    );
+    assert_eq!(draw.vertices.len(), mesh.vertices().len() * 12);
+    for (actual, source) in draw.indices.iter().zip(&indices) {
+        assert_eq!(
+            draw.vertices[*actual as usize].position,
+            mesh.vertices()[*source as usize]
+                .position
+                .map(|value| value * 100.)
+        );
+    }
 }
 
 #[test]

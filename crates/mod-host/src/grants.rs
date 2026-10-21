@@ -79,7 +79,7 @@ grants! {
     /// Allows this instance to replace visual time and local menu branding.
     #[permission("Environment", false)]
     pub environment: bool,
-    /// Allows current-frame remote player and camera pose reads.
+    /// Allows current-frame remote player and camera pose reads with independent user consent.
     #[permission("Player poses", false)]
     pub players: bool,
     /// Allows bounded local camera rotation, rigs, and per-frame teleport aim preservation.
@@ -106,6 +106,24 @@ grants! {
     /// Allows sandboxed post passes and bounded world primitives.
     #[permission("Rendering", false)]
     pub render: bool,
+    /// Allows bounded retained world geometry.
+    #[permission("World drawing", false)]
+    pub world_draw: bool,
+    /// Allows session-authorized actor observations.
+    #[permission("Entity observation", false)]
+    pub entity_observe: bool,
+    /// Allows drawing attached to authorized actors.
+    #[permission("Entity highlights", false)]
+    pub entity_highlight: bool,
+    /// Allows elevated drawing and protected world observations.
+    #[permission("Through walls", false)]
+    pub render_through_walls: bool,
+    /// Allows bounded procedural drawing materials.
+    #[permission("Drawing materials", false)]
+    pub render_material: bool,
+    /// Allows sandboxed scene post effects.
+    #[permission("Post effects", false)]
+    pub render_post: bool,
     /// Lets render passes read scene depth.
     #[permission("Scene depth", false)]
     pub render_depth: bool,
@@ -130,12 +148,21 @@ grants! {
     /// Allows delivering a package's declared keys.
     #[permission("Keys", true)]
     pub keys: bool,
+    /// Allows a package's vanilla inventory requests: creative takes and recipe fills.
+    #[permission("Inventory requests", true)]
+    pub inventory: bool,
     /// Allows retained full-block highlights of matching loaded blocks.
     #[permission("Block highlights", false)]
     pub block_highlights: bool,
     /// Allows retained local fullbright lighting, without altering server light data.
     #[permission("Fullbright", false)]
     pub fullbright: bool,
+    /// Lets a trusted packet mod see and change every session packet, and add resource packs.
+    #[permission("Session packets", true)]
+    pub packets: bool,
+    /// Links WASI clocks, randomness and captured output into a packet mod, never files or network.
+    #[permission("WASI runtime", false)]
+    pub wasi: bool,
 }
 
 #[cfg(test)]
@@ -160,10 +187,12 @@ mod tests {
             "item_use",
             "interaction",
             "packet_delay",
+            "packets",
             "controls",
             "movement",
             "commands",
             "keys",
+            "inventory",
         ] {
             assert!(
                 ModGrants::CAPABILITIES

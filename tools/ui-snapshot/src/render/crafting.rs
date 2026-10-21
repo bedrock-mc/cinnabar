@@ -64,6 +64,7 @@ pub fn icons(pages: &mut Vec<Page>) -> Result<[IconRef; session::ITEMS.len()], E
         }
     });
     pages.push(Page {
+        repeat_content: None,
         width: width.into(),
         height: ICON_SIZE.into(),
         rgba: rgba.into(),
@@ -82,7 +83,17 @@ pub fn paint(
 ) -> Result<(), Error> {
     let mut player = session::player()?;
     let mut screen = ContainerScreen::default();
-    let first = draw(engine, lang, icons, &player, &mut screen, None, None, frame)?;
+    let first = draw(
+        engine,
+        lang,
+        icons,
+        &player,
+        &mut screen,
+        None,
+        None,
+        None,
+        frame,
+    )?;
     let pointer = first
         .hits
         .iter()
@@ -113,6 +124,7 @@ pub fn paint(
         &mut screen,
         Some(&first),
         Some(pointer),
+        None,
         frame,
     )?;
     if selected {
@@ -123,10 +135,10 @@ pub fn paint(
         };
         let recipe = player
             .inventory
-            .book_recipes(false, usize::from(index), 1)
+            .book_recipes(false, false, usize::from(index), 1)
             .pop()
             .ok_or_else(|| Error::Invalid("craft fixture selected recipe is absent".into()))?;
-        match player.inventory.ledger_mut().begin_auto_craft(&recipe) {
+        match player.inventory.begin_book_craft(&recipe.recipe) {
             Ok(_) | Err(InventoryGestureError::InvalidRequest) => {}
             Err(error) => {
                 return Err(Error::Invalid(format!(
@@ -144,9 +156,37 @@ pub fn paint(
             &mut screen,
             Some(&ready),
             Some(pointer),
+            None,
             frame,
         )?;
     }
+    Ok(())
+}
+
+/// Picks up a fixture stack through the ledger, then paints its half-worn cursor decoration.
+pub fn paint_cursor(
+    engine: &FormEngine,
+    lang: &RuntimeLangCatalog,
+    icons: &[IconRef; session::ITEMS.len()],
+    frame: &mut PaintFrame<'_>,
+) -> Result<(), Error> {
+    let mut player = session::player()?;
+    player
+        .inventory
+        .ledger_mut()
+        .begin_take_count(protocol::HOTBAR_SLOT_COUNT, 1)
+        .map_err(|error| Error::Invalid(format!("cursor fixture pickup failed: {error:?}")))?;
+    draw(
+        engine,
+        lang,
+        icons,
+        &player,
+        &mut ContainerScreen::default(),
+        None,
+        Some([260.0, 150.0]),
+        Some(0.5),
+        frame,
+    )?;
     Ok(())
 }
 
@@ -163,6 +203,7 @@ fn draw(
     screen: &mut ContainerScreen,
     previous: Option<&EngineFrame>,
     pointer: Option<[f32; 2]>,
+    cursor_durability: Option<f32>,
     frame: &mut PaintFrame<'_>,
 ) -> Result<EngineFrame, Error> {
     let icon = |stack: &protocol::NetworkItemStack| {
@@ -212,6 +253,7 @@ fn draw(
         offhand_icon: None,
         offhand_durability: None,
         cursor_icon: ledger.cursor_stack().and_then(icon),
+        cursor_durability,
         recipe_icons: &[],
         recipe_output: None,
         book_entries: &entries,
@@ -224,7 +266,11 @@ fn draw(
             &items,
             ContainerInput {
                 layout: LAYOUT,
-                title: "Overlapping ingredients",
+                title: if cursor_durability.is_some() {
+                    "Cursor durability"
+                } else {
+                    "Overlapping ingredients"
+                },
                 previous,
                 pointer,
                 tooltip: None,

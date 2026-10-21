@@ -3,8 +3,8 @@
   "game_version": "1.26.50",
   "protocol": 2193,
   "source": {
-    "module": "github.com/bedrock-mc/protocolgen/generated/data",
-    "source_lock_sha256": "7672d394035aade326e9f36edb00d6414911e1f841137bc2eef871781a088f97",
+    "module": "github.com/cinnabar-mc/protocolgen/generated/data",
+    "source_lock_sha256": "62824ba020f9c4d0eec51455a7b3398dc0e3d5d4ba964bc5770a65b2e4d478d4",
     "cloudburst_ref": "659ce1e2eee3a67045693f4fd5515c6ccf571953"
   },
   "allowlist": {
@@ -14,26 +14,26 @@
   "projection": {
     "states": 22091,
     "legacy_exact_states": 15963,
+    "authored_states": 8,
     "legacy_reduced_states": 3440,
     "twin_states": 2026,
     "twin_names": 119,
     "twin_fingerprint": "8241b13c69a52d991beb3b2ffff30357a5cbf83fda18abad50b5ec0ceb5f7ec3",
     "unresolved_retail": [
-      "minecraft:shelf_mushroom",
       "minecraft:straw_bed"
     ],
-    "denied_count": 498,
-    "denied_fingerprint": "aeeccfe0e227087889ad3d2f8bba5492c40335d76331d04ece290acb6399e1a0",
+    "denied_count": 490,
+    "denied_fingerprint": "40ea99af25c7d74a39ff7133af07436a0e20a21fe3875c98106e8a6d173fb874",
     "education_states": 164
   },
   "output": {
     "format": "BREG1005",
     "path": "crates/assets/data/block-registry-v2193.bin",
-    "sha256": "f9ac5559b318fc2395a362e74b3bad9a2cfa0618204cfab47016b63aa048700c"
+    "sha256": "38b45931675c91da339ef1e916e684da541d706d622b4399937f49e91feced82"
   },
   "light": {
     "format": "LREG1001",
     "path": "crates/assets/data/block-light-registry-v2193.bin",
-    "sha256": "8b39c689ceab4f3de18110e558e2afde45b015aae91bd82ae21c68c6a100804f"
+    "sha256": "659f0a87c0c375324f9e34efcd4540d84a0ae59ce51a321dc7636d6032598b00"
   }
 }

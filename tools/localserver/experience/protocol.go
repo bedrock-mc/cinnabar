@@ -17,7 +17,7 @@ import (
 
 // protocolVersion is the adapter protocol this package speaks. It must equal the Rust runtime's
 // PROTOCOL_VERSION, which TestFrameLimitMatchesRust checks against the limits fixture.
-const protocolVersion = 5
+const protocolVersion = 6
 
 // BlockPos is a block position.
 type BlockPos struct {
@@ -107,8 +107,9 @@ type Call struct {
 	Break         *BreakCall
 	Interact      *InteractCall
 	Neighbor      *NeighborCall
-	ClientMessage *ClientMessageCall
-	Epoch         *EpochCall
+	ClientMessage   *ClientMessageCall
+	Epoch           *EpochCall
+	ScheduledUpdate *ScheduledUpdateCall
 }
 
 // PlaceCall follows a successful player placement.
@@ -161,10 +162,12 @@ type Request struct {
 }
 
 // LoadRequest loads the artifact in Dir. It is the first request of a session. Items are the
-// server's items, which the guest may make stacks of besides its own.
+// server's items, which the guest may make stacks of besides its own, and Recipes its
+// crafting-table recipes, in the order it tries them.
 type LoadRequest struct {
-	Dir   string       `json:"dir"`
-	Items []ServerItem `json:"items"`
+	Dir     string       `json:"dir"`
+	Items   []ServerItem `json:"items"`
+	Recipes []Recipe     `json:"recipes"`
 }
 
 // CallbackRequest runs Call on a snapshot. Its result echoes Seq.
@@ -244,8 +247,9 @@ type Op struct {
 	Tell          *TellOp
 	SendClient    *SendClientOp
 	SetBlockState *SetBlockStateOp
-	SetSlot       *SetSlotOp
-	DropItem      *DropItemOp
+	SetSlot        *SetSlotOp
+	DropItem       *DropItemOp
+	ScheduleUpdate *ScheduleUpdateOp
 }
 
 // SetBlockOp sets the block at Pos to ID.
@@ -573,6 +577,8 @@ func (c Call) MarshalJSON() ([]byte, error) {
 		return json.Marshal(clientMessageWire{variantTag{typeClientMessage}, c.ClientMessage})
 	case c.Epoch != nil:
 		return json.Marshal(epochWire{variantTag{typeEpoch}, c.Epoch})
+	case c.ScheduledUpdate != nil:
+		return json.Marshal(scheduledUpdateWire{variantTag{typeScheduledUpdate}, c.ScheduledUpdate})
 	}
 	return nil, errors.New("empty call")
 }
@@ -596,6 +602,8 @@ func (c *Call) UnmarshalJSON(data []byte) error {
 		return decodeStrict(data, &clientMessageWire{ClientMessageCall: fresh(&c.ClientMessage)})
 	case typeEpoch:
 		return decodeStrict(data, &epochWire{EpochCall: fresh(&c.Epoch)})
+	case typeScheduledUpdate:
+		return decodeStrict(data, &scheduledUpdateWire{ScheduledUpdateCall: fresh(&c.ScheduledUpdate)})
 	}
 	return fmt.Errorf("unknown call type %q", tag)
 }
@@ -737,6 +745,8 @@ func (o Op) MarshalJSON() ([]byte, error) {
 		return json.Marshal(setSlotWire{variantTag{typeSetSlot}, o.SetSlot})
 	case o.DropItem != nil:
 		return json.Marshal(dropItemWire{variantTag{typeDropItem}, o.DropItem})
+	case o.ScheduleUpdate != nil:
+		return json.Marshal(scheduleUpdateWire{variantTag{typeScheduleUpdate}, o.ScheduleUpdate})
 	}
 	return nil, errors.New("empty op")
 }
@@ -762,6 +772,8 @@ func (o *Op) UnmarshalJSON(data []byte) error {
 		return decodeStrict(data, &setSlotWire{SetSlotOp: fresh(&o.SetSlot)})
 	case typeDropItem:
 		return decodeStrict(data, &dropItemWire{DropItemOp: fresh(&o.DropItem)})
+	case typeScheduleUpdate:
+		return decodeStrict(data, &scheduleUpdateWire{ScheduleUpdateOp: fresh(&o.ScheduleUpdate)})
 	}
 	return fmt.Errorf("unknown op type %q", tag)
 }

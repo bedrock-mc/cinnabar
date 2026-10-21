@@ -12,15 +12,16 @@ mod status;
 mod tests;
 mod worker;
 
+use super::admission::SettingsSeed;
 use super::{ModRuntime, RELOAD_INTERVAL, VisualTimeOverride, interaction::ModInteraction};
 use assets::RuntimeFontCatalog;
 use bevy::prelude::*;
-use candidate::{Candidate, build_candidate_with_settings};
-use client_extensions::modding::multi::ModHosts;
+use candidate::{Candidate, Runtime as CandidateRuntime};
 use client_shell::ui_resources::UiPresentationResource;
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded};
-use mod_host::ModHost;
-use schema::{Entry, Registration, VERSION};
+use mod_host::{ModHost, SettingsSnapshot};
+pub(super) use schema::Entry;
+use schema::{Registration, VERSION};
 use std::{
     collections::BTreeMap,
     path::PathBuf,
@@ -59,15 +60,51 @@ impl HostMetadata {
 #[derive(Clone)]
 pub(super) struct RegisteredHost {
     pub(super) entry: Entry,
-    identity: [u8; 32],
+    pub(super) identity: [u8; 32],
 }
 
 struct SourceSnapshot {
     registration: Entry,
     identity: [u8; 32],
     component: Vec<u8>,
+    drawing: Option<super::admission::DrawingContext>,
     font: Option<Vec<u8>>,
     ui: Option<Vec<u8>>,
+    settings: SettingsSeed,
+}
+
+impl SourceSnapshot {
+    /// Retains the live-world fence captured for this snapshot.
+    fn drawing_policy(&self) -> Option<mod_api::drawing::DrawingSession> {
+        self.drawing.as_ref().map(|drawing| drawing.policy())
+    }
+
+    /// Selects source edits and recoverable fence changes without reviving a stopped identity.
+    fn needs_admission(&self, admitted: Option<&Admitted>) -> bool {
+        let Some(admitted) = admitted else {
+            return true;
+        };
+        if admitted.source != self.identity {
+            return true;
+        }
+        match &self.drawing {
+            Some(drawing) if !drawing.restartable() => false,
+            Some(drawing) if drawing.needs_restart() => true,
+            _ => admitted.drawing != self.drawing_policy(),
+        }
+    }
+
+    /// Prefers committed preferences to captured disk input, within the requested consent.
+    fn settings_seed(&self, current: Option<&SettingsSnapshot>) -> SettingsSeed {
+        match current {
+            Some(current) => super::admission::settings_seed(
+                self.registration.grants.settings,
+                Some(current),
+                &self.registration.component,
+            ),
+            None => self.settings.clone(),
+        }
+    }
 }
 struct Change {
     entry: Entry,
@@ -89,15 +126,19 @@ struct LoadRequest {
 struct Status {
     component: PathBuf,
     state: String,
+    /// The reload counter actually admitted or rejected, independent of list request IDs.
+    #[serde(default)]
+    reload: Option<u64>,
     #[serde(default)]
     message: Option<String>,
 }
 impl Status {
     /// Bounds guest and file error text before exposing it to the Settings card.
-    fn new(component: PathBuf, state: &str, message: Option<String>) -> Self {
+    fn new(component: PathBuf, state: &str, message: Option<String>, reload: Option<u64>) -> Self {
         Self {
             component,
             state: state.into(),
+            reload,
             message: message.map(|message| status::bounded_message(&message)),
         }
     }
@@ -128,17 +169,67 @@ struct Desired {
     generation: u64,
     registration: Option<Registration>,
 }
-#[derive(Clone)]
-struct SettingsSnapshot {
-    path: PathBuf,
-    json: String,
+/// Source and fence accepted by the frame for one registration.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Admitted {
+    source: [u8; 32],
+    drawing: Option<mod_api::drawing::DrawingSession>,
+}
+
+/// Off-frame disposal owns both frame guests and compiled packet programs.
+pub(super) enum Retired {
+    Frame(Box<ModHost>),
+    Packet(Arc<mod_host::packet_mod::CompiledPacketMod>),
+}
+
+impl Retired {
+    /// Releases executable resources on the loader worker.
+    fn dispose(self) {
+        match self {
+            Self::Frame(host) => drop(host),
+            Self::Packet(program) => drop(program),
+        }
+    }
+}
+
+impl From<ModHost> for Retired {
+    fn from(host: ModHost) -> Self {
+        Self::Frame(Box::new(host))
+    }
+}
+
+impl Candidate {
+    /// Returns the settings-owning frame guest when this is a frame candidate.
+    fn frame_host(&self) -> Option<&ModHost> {
+        match &self.runtime {
+            CandidateRuntime::Frame(prepared) => Some(&prepared.host),
+            CandidateRuntime::Packet(_) => None,
+        }
+    }
+
+    /// Returns the mutable frame guest for frame-only admission fixtures.
+    #[cfg(test)]
+    fn frame_host_mut(&mut self) -> Option<&mut ModHost> {
+        match &mut self.runtime {
+            CandidateRuntime::Frame(prepared) => Some(&mut prepared.host),
+            CandidateRuntime::Packet(_) => None,
+        }
+    }
+
+    /// Moves executable resources into the registration worker's retirement lane.
+    fn retire(self, watcher: &Watcher) {
+        match self.runtime {
+            CandidateRuntime::Frame(prepared) => watcher.retire(prepared.host),
+            CandidateRuntime::Packet(program) => watcher.retire(Retired::Packet(program)),
+        }
+    }
 }
 
 enum Message {
     Acknowledge {
         generation: u64,
         request_id: String,
-        installed: BTreeMap<PathBuf, [u8; 32]>,
+        installed: BTreeMap<PathBuf, Admitted>,
         statuses: Vec<Status>,
     },
     AwaitRetirement {
@@ -147,6 +238,7 @@ enum Message {
     },
     Failed {
         component: PathBuf,
+        reload: u64,
         error: String,
     },
     Retry {
@@ -157,21 +249,31 @@ enum Message {
 }
 
 #[derive(Resource)]
-pub(super) struct Watcher {
+pub(crate) struct Watcher {
     updates: Receiver<Update>,
     messages: Sender<Message>,
-    retired: Sender<ModHost>,
+    retired: Sender<Retired>,
     latest: Arc<AtomicU64>,
+    applied: AtomicU64,
     desired: Arc<Mutex<Desired>>,
     alive: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
     pending: Mutex<Option<Update>>,
     acknowledgments: Mutex<Vec<Message>>,
-    fallback_retired: Mutex<Vec<ModHost>>,
+    fallback_retired: Mutex<Vec<Retired>>,
     settings: Arc<Mutex<BTreeMap<PathBuf, SettingsSnapshot>>>,
     companions: Arc<Mutex<Vec<PathBuf>>>,
+    drawing: Arc<Mutex<BTreeMap<PathBuf, super::admission::DrawingContext>>>,
 }
 impl Watcher {
+    /// Keeps new sessions pending until the observed mod selection has finished admission.
+    pub(crate) fn preparing(&self) -> bool {
+        if !self.alive.load(Ordering::Acquire) {
+            return false;
+        }
+        let desired = self.desired.lock().expect("mod desired list");
+        desired.registration.is_none() || self.applied.load(Ordering::Acquire) != desired.generation
+    }
     /// Gives the library a fence that waits off-frame for final settings writes.
     pub(super) fn removal_client(&self) -> removal::Client {
         removal::Client::new(
@@ -189,6 +291,8 @@ impl Watcher {
         let desired = Arc::new(Mutex::new(Desired::default()));
         let alive = Arc::new(AtomicBool::new(true));
         let settings = Arc::new(Mutex::new(BTreeMap::new()));
+        let drawing = Arc::new(Mutex::new(BTreeMap::new()));
+        let fences = drawing.clone();
         let (generation, selection, life, current) = (
             latest.clone(),
             desired.clone(),
@@ -206,6 +310,7 @@ impl Watcher {
                     generation,
                     selection,
                     current,
+                    fences,
                 );
                 life.store(false, Ordering::Release);
             })
@@ -215,6 +320,7 @@ impl Watcher {
             messages,
             retired,
             latest,
+            applied: AtomicU64::new(0),
             desired,
             alive,
             thread: Some(thread),
@@ -223,6 +329,7 @@ impl Watcher {
             fallback_retired: Mutex::new(Vec::new()),
             companions: Arc::new(Mutex::new(Vec::new())),
             settings,
+            drawing,
         })
     }
     /// Publishes every surviving settings writer, including environment-loaded instances.
@@ -237,30 +344,31 @@ impl Watcher {
             .collect();
     }
     /// Captures each mod's latest in-memory preferences before preparing replacements.
-    pub(super) fn remember_settings(&self, runtime: &ModRuntime) {
-        self.remember_companions(Some(runtime));
+    pub(super) fn remember_settings(&self, runtime: Option<&ModRuntime>) {
+        self.remember_companions(runtime);
+        let mut drawing = self.drawing.lock().expect("mod drawing fences");
+        drawing.clear();
         let mut current = self.settings.lock().expect("mod settings snapshots");
         current.clear();
+        let Some(runtime) = runtime else { return };
         for (index, metadata) in runtime.metadata.iter().enumerate() {
             let Some(registered) = &metadata.registration else {
                 continue;
             };
             let host = runtime.hosts.host(index);
-            if let Some((path, json)) = host.settings_path().zip(host.settings_snapshot()) {
-                current.insert(
-                    registered.entry.component.clone(),
-                    SettingsSnapshot {
-                        path: path.into(),
-                        json: json.into(),
-                    },
-                );
+            if let Some(context) = super::admission::DrawingContext::capture(host) {
+                drawing.insert(registered.entry.component.clone(), context);
+            }
+            if let Some(snapshot) = SettingsSnapshot::capture(host) {
+                current.insert(registered.entry.component.clone(), snapshot);
             }
         }
     }
     /// Publishes a single instance's trap without revoking any other mod.
-    pub(super) fn quarantine(&self, component: &std::path::Path, error: String) {
+    pub(super) fn quarantine(&self, entry: &Entry, error: String) {
         self.send(Message::Failed {
-            component: component.into(),
+            component: entry.component.clone(),
+            reload: entry.reload,
             error,
         });
     }
@@ -274,7 +382,8 @@ impl Watcher {
         }
     }
     /// Moves disposal to the loader so dropping an instance never joins a writer on-frame.
-    fn retire(&self, host: ModHost) {
+    pub(super) fn retire(&self, host: impl Into<Retired>) {
+        let host = host.into();
         if let Err(error) = self.retired.try_send(host) {
             self.fallback_retired
                 .lock()

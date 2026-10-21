@@ -1,4 +1,4 @@
-//! Render-only knees for classic cuboid skins; unusual authored models stay intact.
+//! Render-only joints for classic cuboid skins; unusual authored models stay intact.
 use assets::{
     EntityGeometryBone, EntityGeometryCube, EntityGeometryFaceUv, EntityGeometryFaceUvs,
     EntityGeometryScalar as Scalar, EntityGeometryUv, SkinGeometry,
@@ -11,9 +11,61 @@ use std::sync::{Arc, Mutex, OnceLock};
 pub(super) struct Model {
     pub geometry: Arc<SkinGeometry>,
     pub mesh: render_model::ActorRigGeometry,
+    pub bounds: Arc<[Option<BoneBounds>]>,
+    /// Original bone index for each appended joint, in mesh order.
+    sources: Arc<[u32]>,
+}
+
+impl Model {
+    /// Hides generated pieces only when their own source cuboid is hidden in this draw.
+    pub(super) fn hidden_bones(&self, hidden: &Arc<[u32]>) -> Arc<[u32]> {
+        let original_count = self.geometry.bones.len() - self.sources.len();
+        let mut generated = self
+            .sources
+            .iter()
+            .enumerate()
+            .filter_map(|(index, source)| {
+                hidden
+                    .contains(source)
+                    .then_some((original_count + index) as u32)
+            })
+            .peekable();
+        if generated.peek().is_none() {
+            return Arc::clone(hidden);
+        }
+        hidden.iter().copied().chain(generated).collect()
+    }
+}
+
+/// Local bounds derived from the prepared vertices, including skin-layer inflation.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct BoneBounds {
+    pub min: [f32; 3],
+    pub max: [f32; 3],
+}
+
+/// Retains contact bounds once per prepared mesh rather than scanning vertices each frame.
+fn contact_bounds(mesh: &render_model::ActorRigGeometry) -> Arc<[Option<BoneBounds>]> {
+    let mut bounds: Vec<Option<BoneBounds>> = vec![None; mesh.bone_pivots.len()];
+    for vertex in mesh.vertices.iter() {
+        let index = vertex.bone_index as usize;
+        let point = std::array::from_fn(|axis| {
+            (vertex.position[axis] - mesh.bone_pivots[index][axis]) * 16.0
+        });
+        let bounds = bounds[index].get_or_insert(BoneBounds {
+            min: point,
+            max: point,
+        });
+        for (axis, value) in point.iter().enumerate() {
+            bounds.min[axis] = bounds.min[axis].min(*value);
+            bounds.max[axis] = bounds.max[axis].max(*value);
+        }
+    }
+    bounds.into()
 }
 
 type Entry = ([u8; 32], Option<Model>);
+mod full_body;
 /// Covers every selected player and persona layer without an eight-skin cache thrashing during shared playback.
 const MAX_MODELS: usize =
     render_model::MAX_RENDERED_PLAYERS * (1 + render_api::MAX_SKIN_ANIMATION_LAYERS) + 1;
@@ -23,6 +75,8 @@ fn mesh_bytes(model: &Option<Model>) -> usize {
     model.as_ref().map_or(0, |model| {
         std::mem::size_of_val(model.mesh.vertices.as_ref())
             + std::mem::size_of_val(model.mesh.bone_pivots.as_ref())
+            + std::mem::size_of_val(model.bounds.as_ref())
+            + std::mem::size_of_val(model.sources.as_ref())
     })
 }
 
@@ -33,13 +87,7 @@ pub(super) fn model(source: &Arc<SkinGeometry>) -> Option<Model> {
     if let Some((_, model)) = cache.iter().find(|(digest, _)| *digest == source.digest) {
         return model.clone();
     }
-    let model = build(source).and_then(|geometry| {
-        let mesh = render_model::skin_geometry(&geometry, render_model::DIAGNOSTIC_RIG_ID).ok()?;
-        Some(Model {
-            geometry: Arc::new(geometry),
-            mesh,
-        })
-    });
+    let model = build(source);
     let bytes = mesh_bytes(&model);
     if bytes > render_model::MAX_ACTOR_CATALOG_VERTEX_BYTES {
         return None;
@@ -54,7 +102,8 @@ pub(super) fn model(source: &Arc<SkinGeometry>) -> Option<Model> {
     model
 }
 
-fn build(source: &SkinGeometry) -> Option<SkinGeometry> {
+/// Splits supported cuboids and prepares a mesh with each generated joint's source bone.
+fn build(source: &SkinGeometry) -> Option<Model> {
     // Only classic skins with unrotated cuboid limbs can be split without
     // changing authored bind rotations, polygon meshes or arbitrary proportions.
     if source.poly_meshes.iter().any(Option::is_some) {
@@ -72,6 +121,7 @@ fn build(source: &SkinGeometry) -> Option<SkinGeometry> {
     let mut model = source.clone();
     let mut bones = source.bones.to_vec();
     let mut added = Vec::new();
+    let mut sources = Vec::new();
     for (index, bone) in source.bones.iter().enumerate() {
         let leg = legs
             .iter()
@@ -100,7 +150,9 @@ fn build(source: &SkinGeometry) -> Option<SkinGeometry> {
             if cube.rotation.iter().any(|v| v.get() != 0.0) {
                 return None;
             }
-            let (top, bottom) = split(cube, height * 0.5)?;
+            let overlap = height / 12.0;
+            let (top, _) = split(cube, height * 0.5 - overlap)?;
+            let (_, bottom) = split(cube, height * 0.5 + overlap)?;
             // Put the ankle inside the foot volume, rather than on its exposed
             // top face. A rotated shin otherwise opens a wedge between the two
             // rigid cuboids even though their joint centers remain connected.
@@ -138,6 +190,7 @@ fn build(source: &SkinGeometry) -> Option<SkinGeometry> {
         foot.cubes = feet.into();
         added.push(shin);
         added.push(foot);
+        sources.extend([index as u32; 2]);
     }
     bones.extend(added);
     if bones.len() > assets::MAX_SKIN_GEOMETRY_BONES {
@@ -145,13 +198,22 @@ fn build(source: &SkinGeometry) -> Option<SkinGeometry> {
     }
     model.poly_meshes = vec![None; bones.len()].into();
     model.bones = bones.into();
+    full_body::extend(source, &mut model, &mut sources)?;
     let mut digest = Sha256::new();
     digest.update(source.digest);
     digest.update(b"cinnabar:render-only-knees-and-ankles:v3");
+    digest.update(b"cinnabar:elbows-wrists-spine:v2");
     model.digest = digest.finalize().into();
-    Some(model)
+    let mesh = render_model::skin_geometry(&model, render_model::DIAGNOSTIC_RIG_ID).ok()?;
+    Some(Model {
+        bounds: contact_bounds(&mesh),
+        geometry: Arc::new(model),
+        mesh,
+        sources: sources.into(),
+    })
 }
 
+/// Reports whether a bone belongs to a limb subtree.
 fn descendant(source: &SkinGeometry, index: usize, leg: usize) -> bool {
     let mut current = index;
     for _ in 0..source.bones.len() {
@@ -173,6 +235,7 @@ fn descendant(source: &SkinGeometry, index: usize, leg: usize) -> bool {
     false
 }
 
+/// Splits one cuboid at a joint while cropping its original texture faces.
 fn split(cube: &EntityGeometryCube, knee: f32) -> Option<(EntityGeometryCube, EntityGeometryCube)> {
     let bottom = cube.origin[1].get();
     let top = bottom + cube.size[1].get();
@@ -191,6 +254,7 @@ fn split(cube: &EntityGeometryCube, knee: f32) -> Option<(EntityGeometryCube, En
     Some((upper, lower))
 }
 
+/// Resolves box or authored UVs to explicit face coordinates.
 fn faces(cube: &EntityGeometryCube) -> Option<EntityGeometryFaceUvs> {
     let [x, y, z] = cube.size.map(Scalar::get);
     let face = |uv: [f32; 2], size: [f32; 2]| -> Option<EntityGeometryFaceUv> {
@@ -233,6 +297,7 @@ fn faces(cube: &EntityGeometryCube) -> Option<EntityGeometryFaceUvs> {
     }
 }
 
+/// Crops side faces and samples interior rows for newly exposed joint caps.
 fn crop(faces: &EntityGeometryFaceUvs, start: f32, end: f32) -> Option<EntityGeometryFaceUvs> {
     let mut result = faces.clone();
     for face in [

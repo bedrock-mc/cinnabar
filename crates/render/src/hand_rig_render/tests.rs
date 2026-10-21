@@ -165,7 +165,10 @@ fn steady_uploads_hand_uniforms_are_independent_and_allocation_free() {
     world.insert_resource(RenderDevice::from(device));
     world.run_system_once(init_gpu).unwrap();
     let mut gpu = world.remove_resource::<HandRigGpu>().unwrap();
-    let device = world.resource::<RenderDevice>().clone();
+    world.insert_resource(queue.clone());
+    let mut upload_state =
+        bevy::ecs::system::SystemState::<crate::upload_staging::FrameUploads>::new(&mut world);
+    let uploads = upload_state.get(&world).unwrap();
     let buffers = [gpu.view_uniform.id(), gpu.light_uniform.id()];
     let projection = glam::camera::rh::proj::directx::perspective_infinite_reverse(
         1.2,
@@ -173,10 +176,10 @@ fn steady_uploads_hand_uniforms_are_independent_and_allocation_free() {
         CAMERA_NEAR_PLANE_BLOCKS,
     );
     let mut light = light();
-    upload_uniforms(&mut gpu, &device, &queue, None, projection, light);
+    upload_uniforms(&mut gpu, &uploads, projection, light);
     assert_eq!(gpu.uniform_uploads, [1, 1]);
     let allocated = test_alloc::thread_allocations();
-    upload_uniforms(&mut gpu, &device, &queue, None, projection, light);
+    upload_uniforms(&mut gpu, &uploads, projection, light);
     assert_eq!(
         gpu.uniform_uploads,
         [1, 1],
@@ -189,13 +192,13 @@ fn steady_uploads_hand_uniforms_are_independent_and_allocation_free() {
         2.0,
         CAMERA_NEAR_PLANE_BLOCKS,
     );
-    upload_uniforms(&mut gpu, &device, &queue, None, projection, light);
+    upload_uniforms(&mut gpu, &uploads, projection, light);
     assert_eq!(gpu.uniform_uploads, [2, 1]);
     light.java_lights[1][2] = 0.75;
-    upload_uniforms(&mut gpu, &device, &queue, None, projection, light);
+    upload_uniforms(&mut gpu, &uploads, projection, light);
     assert_eq!(gpu.uniform_uploads, [2, 2]);
     light.java_normal_axes[2][0] = 0.25;
-    upload_uniforms(&mut gpu, &device, &queue, None, projection, light);
+    upload_uniforms(&mut gpu, &uploads, projection, light);
     assert_eq!(gpu.uniform_uploads, [2, 3]);
     assert_eq!([gpu.view_uniform.id(), gpu.light_uniform.id()], buffers);
 }
@@ -351,17 +354,15 @@ fn pose_updates_reuse_their_buffers() {
     world.insert_resource(device.clone());
     world.run_system_once(init_gpu).unwrap();
     let mut gpu = world.remove_resource::<HandRigGpu>().unwrap();
+    world.insert_resource(queue.clone());
+    let mut upload_state =
+        bevy::ecs::system::SystemState::<crate::upload_staging::FrameUploads>::new(&mut world);
+    let uploads = upload_state.get(&world).unwrap();
     let mut scene = HandRigScene::default();
     let mut buffers = Vec::new();
     for revision in 1..=3 {
         assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, revision));
-        upload_pose(
-            &mut gpu,
-            &device,
-            &queue,
-            None,
-            scene.frame.as_ref().unwrap(),
-        );
+        upload_pose(&mut gpu, &uploads, scene.frame.as_ref().unwrap());
         buffers.push(gpu.instances.as_ref().unwrap().id());
     }
     assert!(buffers.windows(2).all(|pair| pair[0] == pair[1]));

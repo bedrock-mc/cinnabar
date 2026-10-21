@@ -4,6 +4,25 @@ use ui::mod_panel::{Control, Panel, Theme};
 
 use super::widgets::Palette;
 
+/// Compares mutable binding inputs after the caller proves both panels use the same template.
+pub(super) fn same_values(a: &Panel, b: &Panel) -> bool {
+    a.controls == b.controls
+        && a.motion == b.motion
+        && match (&a.surface, &b.surface) {
+            (Some(a), Some(b)) => {
+                a.bindings == b.bindings
+                    && a.transitions == b.transitions
+                    && a.collections.iter().all(|(name, collection)| {
+                        b.collections
+                            .get(name)
+                            .is_some_and(|other| collection.order == other.order)
+                    })
+            }
+            (None, None) => true,
+            _ => false,
+        }
+}
+
 pub(super) fn control_data(panel: &Panel) -> DataSource {
     let mut data = DataSource::new();
     let palette = Palette::for_panel(panel);
@@ -23,6 +42,7 @@ pub(super) fn control_data(panel: &Panel) -> DataSource {
                 }
             }
             Control::Choice { index, options, .. } => options[*index as usize].clone(),
+            Control::Text { value, .. } => value.clone(),
         };
         data.set_global(
             format!("#row_{index}_label"),
@@ -38,9 +58,18 @@ pub(super) fn control_data(panel: &Panel) -> DataSource {
                 Scalar::Num(f64::from((value - min) / (max - min))),
             ),
             Control::Toggle { value, .. } => {
+                data.set_global(format!("#row_{index}_toggle_enabled"), Scalar::Bool(*value));
+                data.set_global(
+                    format!("#row_{index}_toggle_disabled"),
+                    Scalar::Bool(!*value),
+                );
                 data.set_global(
                     format!("#row_{index}_toggle_progress"),
                     Scalar::Num(f64::from(u8::from(*value))),
+                );
+                data.set_global(
+                    format!("#row_{index}_toggle_inverse_progress"),
+                    Scalar::Num(f64::from(u8::from(!*value))),
                 );
                 data.set_global(
                     format!("#row_{index}_toggle_color"),
@@ -73,6 +102,7 @@ pub(super) fn control_data(panel: &Panel) -> DataSource {
     if let Some(surface) = &panel.surface {
         super::surface::bind(surface, &mut data);
     }
+    super::surface::collections(panel, &mut data);
     data
 }
 

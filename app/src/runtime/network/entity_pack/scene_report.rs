@@ -104,7 +104,6 @@ fn render_captured_scene() {
             extract_nametag(
                 actor,
                 NametagView {
-                    viewer_position: eye,
                     camera_position: eye,
                     camera_forward: rotation * Vec3::NEG_Z,
                 },
@@ -118,7 +117,7 @@ fn render_captured_scene() {
     let first_glyph_page = font.pages().len();
     let scene = build_nametag_scene(
         &anchors,
-        1.0,
+        None,
         &font,
         &mut TextLayoutCache::new(64, 1 << 24),
         &mut NametagAtlas::default(),

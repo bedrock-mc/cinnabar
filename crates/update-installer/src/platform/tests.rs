@@ -12,6 +12,7 @@ fn an_upgrade_keeps_a_custom_install_folder_with_spaces() {
             "/passive",
             "/norestart",
             "REBOOT=ReallySuppress",
+            "MSIDISABLERMRESTART=1",
             r#"INSTALLFOLDER="D:\My Games\Cinnabar""#,
         ]
     );

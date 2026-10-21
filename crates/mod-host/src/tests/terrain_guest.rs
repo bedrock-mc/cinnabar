@@ -92,6 +92,12 @@ pub fn terrain_guest(
     resolve
         .push_str("capabilities.wit", CAPABILITIES_WIT)
         .unwrap();
+    resolve
+        .push_str(
+            "drawing.wit",
+            include_str!("../../../mod-api/wit/deps/world-draw/drawing.wit"),
+        )
+        .unwrap();
     let extension = resolve.push_str("extension.wit", EXTENSION_WIT).unwrap();
     let world = resolve
         .select_world(&[extension], Some("extension"))

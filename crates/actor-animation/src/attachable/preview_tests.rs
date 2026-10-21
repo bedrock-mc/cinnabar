@@ -79,7 +79,7 @@ fn fixture(multiple_geometry: bool, fail_selected: bool) -> Arc<RuntimeEntityAss
         );
         compiled.symbols = symbols.into();
         compiled.rig_bindings[0].entity_symbol += 1;
-        compiled.rig_bindings[0].render_controller += 1;
+        *compiled.rig_bindings[0].render_controller.as_mut().unwrap() += 1;
         compiled.animation_clips[0].symbol += 1;
         let mut animations = compiled.rig_animations.into_vec();
         animations.push(animations[0]);
@@ -361,6 +361,27 @@ fn attachable_preview_missing_render_returns_no_draw_and_commits_authored_state_
         RuntimeEntityAssets::from_compiled(compiled).unwrap(),
     ));
     let owner = crate::tests::actor_with_metadata(HashMap::new());
+    runtime.begin_preview();
+    assert!(
+        runtime
+            .evaluate(
+                "minecraft:test_item",
+                &owner,
+                &owner_rig(),
+                AttachableAnimationInput {
+                    animation_frame: 1,
+                    ..Default::default()
+                },
+            )
+            .is_none()
+    );
+    runtime.end_preview();
+    runtime.finish_preview(true);
+    assert_eq!(
+        runtime.commits, 0,
+        "an initial budget failure must roll back"
+    );
+    assert!(!runtime.states.values().next().unwrap().rig.initialized);
     runtime
         .evaluate(
             "minecraft:test_item",
@@ -401,5 +422,49 @@ fn attachable_preview_missing_render_returns_no_draw_and_commits_authored_state_
     assert_eq!(
         runtime.commits, 2,
         "the normal authored evaluation still commits once"
+    );
+}
+
+#[test]
+fn complete_static_attachable_draws_reuse_their_committed_pose() {
+    let mut compiled = crate::test_support::compiled_fixture();
+    compiled.rig_geometries[0].animation_count = 0;
+    compiled.rig_animations = Box::new([]);
+    compiled.rig_bindings[0].initialize = None;
+    compiled.rig_bindings[0].pre_animation = None;
+    let mut runtime = AttachablesRuntime::new(Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled).unwrap(),
+    ));
+    let owner = crate::tests::actor_with_metadata(HashMap::new());
+    let rig = owner_rig();
+    let pose = runtime
+        .evaluate("minecraft:test_item", &owner, &rig, Default::default())
+        .unwrap()
+        .pose
+        .as_ptr();
+    assert!(
+        runtime
+            .states
+            .values()
+            .next()
+            .unwrap()
+            .static_draw
+            .is_some()
+    );
+    let next = ActorRigSnapshot {
+        completed_tick: rig.completed_tick + 1,
+        ..rig
+    };
+    assert_eq!(
+        runtime
+            .evaluate("minecraft:test_item", &owner, &next, Default::default(),)
+            .unwrap()
+            .pose
+            .as_ptr(),
+        pose
+    );
+    assert_eq!(
+        runtime.states.values().next().unwrap().rig.completed_tick,
+        next.completed_tick
     );
 }

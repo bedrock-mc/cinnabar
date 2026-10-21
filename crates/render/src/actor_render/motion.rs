@@ -109,7 +109,7 @@ impl MotionView {
             * u64::from(size.height)
             * 8
             * u64::from(depth.texture().sample_count());
-        let texture = allocation::checked(device, "rendered actor velocities", bytes, || {
+        let texture = gpu_allocation::checked(device, "rendered actor velocities", bytes, || {
             device.create_texture(&TextureDescriptor {
                 label: Some("rendered actor velocities"),
                 size: depth.texture().size(),
@@ -121,7 +121,7 @@ impl MotionView {
                 view_formats: &[],
             })
         })?;
-        let view = allocation::checked(device, "actor velocity view", 0, || {
+        let view = gpu_allocation::checked(device, "actor velocity view", 0, || {
             texture.create_view(&Default::default())
         })?;
         Some(Self {
@@ -211,7 +211,7 @@ pub(crate) fn prepare(
         return;
     };
     if instances_changed || bones_changed || state.binding.is_none() {
-        state.binding = allocation::checked(device, "actor velocity bindings", 0, || {
+        state.binding = gpu_allocation::checked(device, "actor velocity bindings", 0, || {
             device.create_bind_group(
                 "previous rendered actor pose",
                 &cache.get_bind_group_layout(&layout()),
@@ -261,8 +261,7 @@ pub(crate) fn prepare(
             state.ready &= gpu.artwork_current
                 && gpu
                     .artwork
-                    .pages
-                    .get(usize::from(span.page) - 1)
+                    .page(usize::from(span.page) - 1)
                     .is_some_and(|page| page.bind_group.is_some());
         }
         state.draws.push((*span, id));
@@ -270,6 +269,8 @@ pub(crate) fn prepare(
     state.frame_generation = gpu.frame_generation;
 }
 
+#[cfg(test)]
+mod fault_matrix_tests;
 #[cfg(test)]
 mod raster_tests;
 #[cfg(test)]
@@ -353,8 +354,7 @@ pub(crate) fn draw(
             gpu.bind_group.as_ref()
         } else {
             gpu.artwork
-                .pages
-                .get(usize::from(span.page) - 1)
+                .page(usize::from(span.page) - 1)
                 .and_then(|page| page.bind_group.as_ref())
         };
         let Some(binding) = binding else {

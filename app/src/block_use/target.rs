@@ -17,6 +17,7 @@ use {
 pub(super) fn observe_use_target(
     player_runtime: &client_state::PlayerRuntime,
     context: &BlockUseContext,
+    origin: &InteractionOriginSnapshot,
     input_mode: PlayerInputMode,
     survival: bool,
     input_authority: (InputAuthorityGeneration, InputSequence),
@@ -32,7 +33,7 @@ pub(super) fn observe_use_target(
         creative_reach(input_mode)
     };
     let stream = context.client_world.stream.as_ref()?;
-    let ray = context.origin.outbound_ray()?;
+    let ray = origin.outbound_ray()?;
     let pick = pick.filter(|pick| {
         pick.session_generation == ray.session_generation()
             && pick.actor_session_id == ray.actor_session_id()
@@ -46,6 +47,10 @@ pub(super) fn observe_use_target(
         reach,
     );
     let selection = verified_use_selection(player_runtime, &context.ui)?;
+    let identifier = stream
+        .authority()
+        .item_identifier(selection.item.network_id());
+    let liquids = gameplay::block_use::uses_liquid_pick(&selection.item, identifier.as_deref());
     let orientation_hit = held_block_store_id(stream, selection.item.block_runtime_id())
         .filter(|block| {
             gameplay::block_use::orientation_sensitive(
@@ -56,12 +61,13 @@ pub(super) fn observe_use_target(
         })
         .and_then(|_| runtime.intention.first_world_hit());
     let mut observed = crate::interaction_authority::observe_block_ray_using(
-        &context.origin,
+        origin,
         &context.ui,
         &context.client_world,
         &context.collisions,
         selection,
         player_runtime.facts.player_game_mode(),
+        liquids,
         (
             input_mode,
             reach,
@@ -167,8 +173,8 @@ pub(super) fn observe_use_target(
             }))
         },
     )
-    .ok()
-    .flatten()?;
+    .ok()?
+    .value?;
     observed.ray.origin = pick.origin.to_array();
     observed.ray.direction = pick.direction.to_array();
     // Like the refreshed pick, the resolved target is in reach of the pre-tick eye.

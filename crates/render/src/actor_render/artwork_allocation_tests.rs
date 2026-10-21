@@ -23,15 +23,41 @@ fn device() -> (RenderDevice, RenderQueue) {
 }
 
 #[test]
+fn artwork_arrays_allocate_exact_source_layers() {
+    let (device, queue) = device();
+    for layers in [3, 129, device.limits().max_texture_array_layers] {
+        let pages = publication(1, layers);
+        let expected_bytes = pages.pages[0].rgba8.len() as u64;
+        let _observe = gpu_allocation::inject(move |label, bytes| {
+            if label == "immutable actor page" {
+                assert_eq!(
+                    bytes, expected_bytes,
+                    "artwork must not reserve spare layers"
+                );
+            }
+            false
+        });
+        let mut gpu = GpuArtwork::default();
+        assert!(gpu.prepare(&pages, &device, &queue));
+        assert_eq!(
+            gpu.page(0).unwrap()._texture.depth_or_array_layers(),
+            layers
+        );
+        queue.submit([]);
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    }
+}
+
+#[test]
 fn page_allocation_failure_retains_previous_texture_without_uploading() {
     let (device, queue) = device();
     let mut gpu = GpuArtwork::default();
     assert!(gpu.prepare(&publication(1, 1), &device, &queue));
-    let previous = gpu.pages[0]._texture.id();
+    let previous = gpu.page(0).unwrap()._texture.id();
     let uploads = work_tests::upload_count();
-    let _failure = allocation::inject(|label, _| label == "immutable actor page");
+    let _failure = gpu_allocation::inject(|label, _| label == "immutable actor page");
     assert!(gpu.prepare(&publication(2, 1), &device, &queue));
-    assert_eq!(gpu.pages[0]._texture.id(), previous);
+    assert_eq!(gpu.page(0).unwrap()._texture.id(), previous);
     assert_eq!(
         work_tests::upload_count(),
         uploads,
@@ -44,7 +70,7 @@ fn first_page_allocation_failure_retries_through_one_texel() {
     let (device, queue) = device();
     let attempts = Rc::new(Cell::new(0));
     let observed = Rc::clone(&attempts);
-    let _failure = allocation::inject(move |label, bytes| {
+    let _failure = gpu_allocation::inject(move |label, bytes| {
         if label != "immutable actor page" {
             return false;
         }
@@ -53,7 +79,7 @@ fn first_page_allocation_failure_retries_through_one_texel() {
     });
     let mut gpu = GpuArtwork::default();
     assert!(gpu.prepare(&publication(1, 1), &device, &queue));
-    assert_eq!(gpu.pages[0]._texture.width(), 1);
+    assert_eq!(gpu.page(0).unwrap()._texture.width(), 1);
     assert_eq!(attempts.get(), 5);
 }
 
@@ -67,7 +93,7 @@ fn superseded_pages_are_released_before_replacement_allocation() {
     let mut gpu = GpuArtwork::default();
     assert!(gpu.prepare(&old, &device, &queue));
     drop(old);
-    let _observe = allocation::inject(move |label, _| {
+    let _observe = gpu_allocation::inject(move |label, _| {
         if label == "immutable actor page" {
             assert!(
                 weak.upgrade().is_none(),
@@ -126,7 +152,7 @@ fn reduced_actor_uploads_sample_every_layer_with_normalized_uvs() {
         ..default()
     });
     let mut failed = false;
-    let _failure = allocation::inject(move |label, _| {
+    let _failure = gpu_allocation::inject(move |label, _| {
         if label != "reduced fixture" || failed {
             return false;
         }
@@ -206,7 +232,7 @@ fn exhausting_all_page_sizes_skips_generic_artwork_without_repeating_allocations
     let uploads = work_tests::upload_count();
     let attempts = Rc::new(Cell::new(0));
     let observed = Rc::clone(&attempts);
-    let _failure = allocation::inject(move |label, _| {
+    let _failure = gpu_allocation::inject(move |label, _| {
         if label != "immutable actor page" {
             return false;
         }
@@ -228,10 +254,103 @@ fn incompatible_old_layer_count_uses_coarse_new_data_instead() {
     let (device, queue) = device();
     let mut gpu = GpuArtwork::default();
     assert!(gpu.prepare(&publication(1, 1), &device, &queue));
-    let previous = gpu.pages[0]._texture.id();
-    let _failure = allocation::inject(|label, bytes| label == "immutable actor page" && bytes > 8);
+    let previous = gpu.page(0).unwrap()._texture.id();
+    let _failure =
+        gpu_allocation::inject(|label, bytes| label == "immutable actor page" && bytes > 8);
     assert!(gpu.prepare(&publication(2, 2), &device, &queue));
-    assert_ne!(gpu.pages[0]._texture.id(), previous);
-    assert_eq!(gpu.pages[0]._texture.depth_or_array_layers(), 2);
-    assert_eq!(gpu.pages[0]._texture.width(), 1);
+    assert_ne!(gpu.page(0).unwrap()._texture.id(), previous);
+    assert_eq!(
+        gpu.pages[0]
+            .as_ref()
+            .unwrap()
+            ._texture
+            .depth_or_array_layers(),
+        2
+    );
+    assert_eq!(gpu.page(0).unwrap()._texture.width(), 1);
+}
+
+#[test]
+fn gpu_fault_matrix_native_retains_and_recovers_page_pixels() {
+    let Some(native) = crate::gpu_snapshot::Gpu::for_fixture(
+        "gpu_fault_matrix_native_retains_and_recovers_page_pixels",
+    ) else {
+        return;
+    };
+    let device = RenderDevice::from(native.device.clone());
+    let queue = RenderQueue::new(native.queue.clone());
+    let sampler = native.device.create_sampler(&Default::default());
+    let pages = |marker, color: [u8; 4]| {
+        let mut pages = publication(marker, 1);
+        Arc::make_mut(&mut pages.pages)[0].rgba8 = color.repeat(16 * 16).into();
+        pages
+    };
+    let raster = |gpu: &GpuArtwork| {
+        native.render(
+            r#"
+struct Vertex { @builtin(position) position: vec4f, @location(0) uv: vec2f }
+@group(0) @binding(0) var artwork: texture_2d_array<f32>;
+@group(0) @binding(1) var artwork_sampler: sampler;
+@vertex fn vertex(@builtin(vertex_index) index: u32) -> Vertex {
+    let p = array(vec2f(-1., -1.), vec2f(3., -1.), vec2f(-1., 3.))[index];
+    return Vertex(vec4f(p, 0.5, 1.), p * 0.5 + 0.5);
+}
+@fragment fn fragment(in: Vertex) -> @location(0) vec4f {
+    return textureSample(artwork, artwork_sampler, in.uv, 0);
+}
+"#,
+            "vertex",
+            &[crate::gpu_snapshot::Draw {
+                fragment: "fragment",
+                vertices: 0..3,
+                bindings: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&gpu.page(0).unwrap().view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ],
+                blend: None,
+                write_depth: false,
+            }],
+        )
+    };
+    for label in [
+        "immutable actor page",
+        "actor page upload",
+        "actor page view",
+    ] {
+        let mut gpu = GpuArtwork::default();
+        assert!(gpu.prepare(&pages(1, [255, 0, 0, 255]), &device, &queue));
+        let before = raster(&gpu);
+        assert_eq!(&before[..4], &[255, 0, 0, 255], "visible artwork control");
+        let hits = Rc::new(Cell::new(0));
+        {
+            let observed = Rc::clone(&hits);
+            let _fault = gpu_allocation::inject(move |owner, _| {
+                if owner != label {
+                    return false;
+                }
+                observed.set(observed.get() + 1);
+                true
+            });
+            assert!(gpu.prepare(&pages(2, [0, 255, 0, 255]), &device, &queue));
+        }
+        assert!(hits.get() > 0);
+        assert_eq!(
+            raster(&gpu),
+            before,
+            "{label}: compatible artwork stays visible"
+        );
+        assert!(gpu.prepare(&pages(3, [0, 0, 255, 255]), &device, &queue));
+        let recovered = raster(&gpu);
+        assert_eq!(&recovered[..4], &[0, 0, 255, 255]);
+        assert_ne!(
+            recovered, before,
+            "{label}: next valid publication reaches pixels"
+        );
+    }
 }

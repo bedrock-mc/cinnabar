@@ -40,8 +40,8 @@ pub fn pick_actor<'a>(
     )
 }
 
-/// Returns a painting's persistent pick ID only when it wins the current actor/block ray.
-pub fn painting_pick_unique_id(
+/// Returns the nearest actor's persistent pick ID when it wins the current actor/block ray.
+pub fn actor_pick_unique_id(
     world: &client_world::WorldAuthority,
     origin: [f32; 3],
     direction: [f32; 3],
@@ -60,8 +60,7 @@ pub fn painting_pick_unique_id(
     let Crosshair::Actor(hit) = classify(actor, block_distance, reach) else {
         return None;
     };
-    let actor = world.actor(hit.runtime_id)?;
-    actor.painting.as_ref().map(|_| actor.unique_id)
+    Some(world.actor(hit.runtime_id)?.unique_id)
 }
 
 /// [`pick_actor`] against the `(min, max)` boxes `hit_boxes` places each actor at; the

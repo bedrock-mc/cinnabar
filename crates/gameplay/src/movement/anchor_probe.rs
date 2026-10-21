@@ -184,7 +184,7 @@ impl AnchorProbeState {
         if input.immobile || input.skip_travel || !self.pending() {
             return;
         }
-        if input.spectator || intent.ride.is_some() {
+        if input.spectator || input.no_clip || intent.ride.is_some() {
             self.reset();
             return;
         }

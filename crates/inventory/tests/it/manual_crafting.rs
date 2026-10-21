@@ -138,6 +138,90 @@ fn cursor() -> VerifiedNetworkItemStack {
     let digest = stack.nbt_digest;
     VerifiedNetworkItemStack::try_new(stack, digest).unwrap()
 }
+
+#[test]
+fn item_data_manual_packet_keeps_named_ingredient_identity() {
+    let mut stack = NetworkItemStack {
+        network_id: 6,
+        count: 1,
+        stack_network_id: 301,
+        ..NetworkItemStack::empty()
+    };
+    stack.extra_data = edit_item_extra(
+        &[0; 10],
+        &ItemNbtEdit {
+            custom_name: Some(Some("Craft ingredient".to_owned())),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    stack.nbt_digest = Sha256::digest(&stack.extra_data).into();
+    let digest = stack.nbt_digest;
+    let packet = request(
+        &catalog(),
+        17,
+        [
+            Some(ManualCraftInput {
+                slot: 28,
+                stack: VerifiedNetworkItemStack::try_new(stack, digest).unwrap(),
+            }),
+            None,
+            None,
+            None,
+        ],
+        &registry(),
+        -3,
+        &cursor(),
+    )
+    .unwrap();
+    let actions = stack_request_actions(&packet).unwrap();
+    assert!(
+        matches!(&actions[2], StackActionObservation::Consume { source, .. } if source.stack_network_id == 301)
+    );
+}
+
+#[test]
+fn item_data_manual_packet_refuses_nonzero_consumption_locks() {
+    for mode in [0, 1, 2, 255] {
+        let name = b"minecraft:item_lock";
+        let mut extra = vec![255, 255, 1, 10, 0, 0, 1];
+        extra.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        extra.extend_from_slice(name);
+        extra.extend_from_slice(&[mode, 0]);
+        extra.extend_from_slice(&[0; 8]);
+        assert_eq!(item_extra_lock(&extra), Some(mode));
+        let digest = Sha256::digest(&extra).into();
+        let ingredient = VerifiedNetworkItemStack::try_new(
+            NetworkItemStack {
+                network_id: 6,
+                count: 1,
+                stack_network_id: 301,
+                extra_data: extra.into(),
+                nbt_digest: digest,
+                ..NetworkItemStack::empty()
+            },
+            digest,
+        )
+        .unwrap();
+        let result = request(
+            &catalog(),
+            17,
+            [
+                Some(ManualCraftInput {
+                    slot: 28,
+                    stack: ingredient,
+                }),
+                None,
+                None,
+                None,
+            ],
+            &registry(),
+            -3,
+            &cursor(),
+        );
+        assert_eq!(result.is_ok(), mode == 0, "consumption lock {mode}");
+    }
+}
 fn catalog() -> RecipeCatalog {
     let mut catalog = RecipeCatalog::default();
     catalog.begin_session(1);

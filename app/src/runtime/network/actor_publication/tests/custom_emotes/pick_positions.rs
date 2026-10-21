@@ -1,7 +1,11 @@
 //! Interaction picks remote actors at this frame's tick positions without disturbing their
 //! per-tick animation or the actor clock.
+use gameplay::movement::MovementEffectSource;
 use protocol_ids::ActorDataKey;
 use {super::*, client_presentation::actor_publication::ActorFramePartialTick};
+
+#[path = "pick_positions/paused_motion.rs"]
+mod paused_motion;
 
 #[derive(Resource, Default)]
 struct Picked(Option<u64>);
@@ -50,16 +54,17 @@ fn move_actor(runtime_id: u64, position: [f32; 3], yaw: f32) -> WorldEvent {
     }))
 }
 
-/// The production frame schedule over the actor fixture, with the resources its systems read.
+/// Actor-only production boundaries use the fallback clock unless a test adds prediction.
 fn production(app: &mut App) -> (bevy::ecs::schedule::Schedule, World) {
-    crate::app::configure_client_frame_schedule(app);
-    crate::app::configure_actor_render_systems(app);
+    crate::game_frame::configure_client_frame_schedule(app);
+    crate::game_frame::configure_actor_render_systems(app);
     let schedule = app
         .world_mut()
         .resource_mut::<bevy::ecs::schedule::Schedules>()
         .remove(Update)
         .unwrap();
     let mut world = fixture();
+    world.insert_resource(client_interaction::movement::LocalPhysicsController::default());
     let mut movement = client_interaction::movement::MovementTicker::default();
     *movement = gameplay::test_support::survival_mining::ticker_with_ticks(1);
     world.insert_resource(movement);
@@ -111,7 +116,10 @@ fn stalled_frame_caps_live_ticks_and_custom_hitbox_prediction_together() {
     );
     let (mut schedule, mut world) = production(&mut app);
     world.init_resource::<PredictedBox>();
-    let cap = simulation_clock::MAX_TICKS_PER_FRAME;
+    let cap = u32::try_from(
+        simulation_clock::MAX_FRAME_ELAPSED.as_nanos() / simulation_clock::TICK_DURATION.as_nanos(),
+    )
+    .unwrap();
     let initial_tick = {
         let mut client = world.resource_mut::<ClientWorld>();
         let stream = client.stream.as_mut().unwrap();
@@ -169,7 +177,7 @@ fn stalled_frame_caps_live_ticks_and_custom_hitbox_prediction_together() {
     );
     assert!((actor.position[2] - cap as f32).abs() < 1e-4);
     assert_eq!(world.resource::<PredictedBox>().0, actor.hit_boxes().next());
-    assert_eq!(world.resource::<ActorFramePartialTick>().0, 0.5);
+    assert_eq!(world.resource::<ActorFramePartialTick>().0, 0.0);
 }
 
 /// Predicting picks for a three-tick frame leaves every per-tick input of that frame unchanged:
@@ -314,4 +322,102 @@ fn pick_prediction_reuses_its_buffer_across_frames() {
         }
     }
     assert_eq!(test_alloc::thread_allocations() - before, 0);
+}
+
+/// Remote picks and publication share elapsed frame time even when local ticks have another phase.
+#[test]
+fn remote_actor_motion_keeps_its_clock_when_local_ticks_differ() {
+    let mut app = App::new();
+    app.add_systems(
+        Update,
+        capture_predicted_box.in_set(client_state::ClientFrameSet::NetworkSend),
+    );
+    let (mut schedule, mut world) = production(&mut app);
+    world.init_resource::<PredictedBox>();
+    let anchor = world
+        .resource::<ClientWorld>()
+        .stream
+        .as_ref()
+        .unwrap()
+        .authority()
+        .resolved_server_position()
+        .position;
+    let mut physics = client_interaction::movement::LocalPhysicsController::default();
+    physics.reanchor_network_position(anchor, 0, true);
+    world.insert_resource(physics);
+    {
+        let mut client = world.resource_mut::<ClientWorld>();
+        let stream = client.stream.as_mut().unwrap();
+        stream
+            .submit(3, move_actor(2, [2.0, 64.0, 9.0], 0.0))
+            .unwrap();
+        stream.poll([0.0, 64.0, 0.0], 0);
+    }
+    for (millis, local_ticks, expected_z, expected_alpha) in [
+        (25, 0, 0.0, 0.5),
+        (75, 1, 6.0, 0.0),
+        (25, 0, 6.0, 0.5),
+        (25, 0, 9.0, 0.0),
+    ] {
+        {
+            let mut effects =
+                world.resource_mut::<client_interaction::movement::LocalMovementEffectTimeline>();
+            effects.begin_frame();
+            for _ in 0..local_ticks {
+                effects.commit_successful_tick();
+            }
+        }
+        world
+            .resource_mut::<Time<Real>>()
+            .advance_by(Duration::from_millis(millis));
+        schedule.run(&mut world);
+        let client = world.resource::<ClientWorld>();
+        let actor = client
+            .stream
+            .as_ref()
+            .unwrap()
+            .authority()
+            .actor(2)
+            .unwrap();
+        assert!(
+            (actor.position[2] - expected_z).abs() < 1e-4,
+            "remote position {:?} after {millis} ms and {local_ticks} local ticks",
+            actor.position
+        );
+        assert_eq!(world.resource::<PredictedBox>().0, actor.hit_boxes().next());
+        assert_eq!(world.resource::<ActorFramePartialTick>().0, expected_alpha);
+    }
+}
+
+/// Without local prediction, actor time still uses the client's admitted frame interval.
+#[test]
+fn remote_actor_motion_clamps_unowned_frame_time() {
+    let mut app = App::new();
+    let (mut schedule, mut world) = production(&mut app);
+    world.insert_resource(client_interaction::movement::LocalPhysicsController::default());
+    {
+        let mut client = world.resource_mut::<ClientWorld>();
+        let stream = client.stream.as_mut().unwrap();
+        stream
+            .submit(3, move_actor(2, [2.0, 64.0, 9.0], 0.0))
+            .unwrap();
+        stream.poll([0.0, 64.0, 0.0], 0);
+    }
+    world
+        .resource_mut::<Time<Real>>()
+        .advance_by(simulation_clock::MAX_FRAME_ELAPSED + simulation_clock::TICK_DURATION);
+    schedule.run(&mut world);
+    let client = world.resource::<ClientWorld>();
+    let actor = client
+        .stream
+        .as_ref()
+        .unwrap()
+        .authority()
+        .actor(2)
+        .unwrap();
+    assert!(
+        (actor.position[2] - 6.0).abs() < 1e-4,
+        "the admitted interval must advance two interpolation steps: {:?}",
+        actor.position
+    );
 }

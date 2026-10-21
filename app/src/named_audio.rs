@@ -3,7 +3,8 @@ use client_audio::audio_ingress::SequencedAudioEvent;
 use client_audio::named_audio::{AudioDevice, NamedAudio};
 use client_presentation::local_player_camera_receipt::CameraPublicationAttempt;
 use {
-    crate::{environment::WorldClock, runtime::world::ClientWorld},
+    crate::runtime::world::ClientWorld,
+    client_presentation::environment::WorldClock,
     client_presentation::{
         camera::FlyCamera,
         local_player::{CameraPose, LocalPlayerFrameCarrier},

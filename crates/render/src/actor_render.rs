@@ -10,11 +10,16 @@ use std::mem::size_of;
 mod artwork;
 mod bones;
 mod dissolve;
+pub(crate) mod masks;
 pub(crate) mod motion;
 pub(crate) mod phase;
 pub(crate) mod pipeline;
+#[cfg(feature = "publication-test-support")]
+pub(crate) mod publication_test_support;
+#[cfg(feature = "shaderpacks")]
+pub(crate) mod shaderpack_source;
 mod skins;
-use crate::actor::gpu::allocation;
+use crate::gpu_allocation;
 use artwork::{GpuArtwork, draw_spans};
 use phase::{DrawActorCommands, DrawTransparentActorCommands, queue_actors};
 use pipeline::*;
@@ -69,6 +74,19 @@ use {
 };
 
 const ACTOR_SHADER_HANDLE: Handle<Shader> = uuid_handle!("09d34708-6fd4-4c65-b27e-ce22f172cc73");
+const ACTOR_RIG_SHADER_HANDLE: Handle<Shader> =
+    uuid_handle!("5b1f0c6e-2f4e-4c55-9a43-7c1d2e8b9f30");
+
+/// Registers `render::actor_rig`, the rig skinning the actor and hand passes share.
+pub(crate) fn load_rig_shader(app: &mut App) {
+    load_internal_asset!(
+        app,
+        ACTOR_RIG_SHADER_HANDLE,
+        "actor_rig.wesl",
+        crate::shader_safety::from_wesl
+    );
+}
+
 #[cfg(test)]
 const ACTOR_SHADER_SOURCE: &str = include_str!("actor.wesl");
 
@@ -111,6 +129,7 @@ fn install_actor_render(app: &mut App) {
         .resource::<render_scene::ActorPipelineReadiness>()
         .clone();
     app.add_plugins(ExtractResourcePlugin::<ActorRenderFrame>::default());
+    load_rig_shader(app);
     load_internal_asset!(
         app,
         ACTOR_SHADER_HANDLE,
@@ -154,6 +173,7 @@ fn install_actor_render(app: &mut App) {
                 .in_set(RenderSystems::Queue)
                 .before(queue_actors),
         );
+    masks::install(app.sub_app_mut(RenderApp));
 }
 
 #[derive(Resource)]
@@ -164,6 +184,8 @@ pub(crate) struct ActorGpu {
     color_mask_material: Buffer,
     multitexture_material: Buffer,
     spans: Vec<crate::actor::gpu::ActorDrawSpan>,
+    mask_spans: Vec<crate::actor::gpu::ActorDrawSpan>,
+    main_manifest: std::sync::Arc<[render_model::ActorDrawManifestEntry]>,
     sorted: dissolve::SortedDraws,
     instances: std::sync::Arc<[ActorGpuInstance]>,
     executed_instances: std::sync::atomic::AtomicU32,
@@ -218,7 +240,7 @@ fn init_actor_gpu(
 
 /// Builds checked actor resources without publishing partially initialized state.
 fn create_actor_gpu(render_device: &RenderDevice, render_queue: &RenderQueue) -> Option<ActorGpu> {
-    let sampler = allocation::checked(render_device, "actor sampler", 0, || {
+    let sampler = gpu_allocation::checked(render_device, "actor sampler", 0, || {
         render_device.create_sampler(&SamplerDescriptor {
             label: Some("nearest shared actor artwork sampler"),
             address_mode_u: AddressMode::ClampToEdge,
@@ -232,28 +254,28 @@ fn create_actor_gpu(render_device: &RenderDevice, render_queue: &RenderQueue) ->
     })?;
     Some(ActorGpu {
         artwork: GpuArtwork::default(),
-        player_material: allocation::buffer_with_data(
+        player_material: gpu_allocation::buffer_with_data(
             render_device,
             render_queue,
             "unchanged player material class",
             bytemuck::cast_slice(&[0u32; 4]),
             BufferUsages::UNIFORM,
         )?,
-        neutral_material: allocation::buffer_with_data(
+        neutral_material: gpu_allocation::buffer_with_data(
             render_device,
             render_queue,
             "neutral binary-alpha material class",
             bytemuck::cast_slice(&[1u32, 0, 0, 0]),
             BufferUsages::UNIFORM,
         )?,
-        color_mask_material: allocation::buffer_with_data(
+        color_mask_material: gpu_allocation::buffer_with_data(
             render_device,
             render_queue,
             "native actor color-mask material",
             bytemuck::cast_slice(&[0u32, 1, 0, 0]),
             BufferUsages::UNIFORM,
         )?,
-        multitexture_material: allocation::buffer_with_data(
+        multitexture_material: gpu_allocation::buffer_with_data(
             render_device,
             render_queue,
             "native actor three-sampler material",
@@ -261,13 +283,15 @@ fn create_actor_gpu(render_device: &RenderDevice, render_queue: &RenderQueue) ->
             BufferUsages::UNIFORM,
         )?,
         spans: Vec::new(),
+        mask_spans: Vec::new(),
+        main_manifest: std::sync::Arc::from([]),
         sorted: dissolve::SortedDraws::default(),
         instances: std::sync::Arc::from([]),
         executed_instances: std::sync::atomic::AtomicU32::new(0),
         queued_draw: None,
         artwork_identity: [0; 32],
         artwork_current: false,
-        instance_buffer: allocation::buffer(
+        instance_buffer: gpu_allocation::buffer(
             render_device,
             &BufferDescriptor {
                 label: Some("bounded shared actor instance arena"),
@@ -277,7 +301,7 @@ fn create_actor_gpu(render_device: &RenderDevice, render_queue: &RenderQueue) ->
                 mapped_at_creation: false,
             },
         )?,
-        previous_bone_buffer: allocation::buffer(
+        previous_bone_buffer: gpu_allocation::buffer(
             render_device,
             &BufferDescriptor {
                 label: Some("bounded shared actor previous-bone arena"),
@@ -286,7 +310,7 @@ fn create_actor_gpu(render_device: &RenderDevice, render_queue: &RenderQueue) ->
                 mapped_at_creation: false,
             },
         )?,
-        current_bone_buffer: allocation::buffer(
+        current_bone_buffer: gpu_allocation::buffer(
             render_device,
             &BufferDescriptor {
                 label: Some("bounded shared actor current-bone arena"),
@@ -301,7 +325,7 @@ fn create_actor_gpu(render_device: &RenderDevice, render_queue: &RenderQueue) ->
         instance_count: 0,
         maximum_vertex_count: 0,
         skins: GpuSkinArrays::new(render_device)?,
-        glint_sampler: allocation::checked(render_device, "actor glint sampler", 0, || {
+        glint_sampler: gpu_allocation::checked(render_device, "actor glint sampler", 0, || {
             render_device.create_sampler(&SamplerDescriptor {
                 label: Some("repeat actor glint sampler"),
                 address_mode_u: AddressMode::Repeat,
@@ -325,10 +349,8 @@ fn create_actor_gpu(render_device: &RenderDevice, render_queue: &RenderQueue) ->
 #[allow(clippy::too_many_arguments)]
 fn prepare_actor_resources(
     frame: Res<ActorRenderFrame>,
-    render_device: Res<RenderDevice>,
-    render_queue: Res<RenderQueue>,
+    uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<ActorGpu>,
-    staging: Option<Res<crate::upload_staging::BufferUploadStaging>>,
     witness: Res<ActorRuntimeWitness>,
     gate: Res<ActorPresentationGate>,
     tracker: Res<ActorDrawTracker>,
@@ -342,9 +364,12 @@ fn prepare_actor_resources(
         return;
     }
     let rig = &frame.rig;
-    let artwork_valid = gpu
-        .artwork
-        .prepare(&frame.artwork, &render_device, &render_queue);
+    let artwork_valid = gpu.artwork.prepare_demanded(
+        &frame.artwork,
+        &frame.instance_pages,
+        &uploads.device,
+        &uploads.queue,
+    );
     gpu.artwork_current = artwork_valid;
     if gpu.artwork_identity != frame.artwork.identity() {
         gate.clear();
@@ -370,15 +395,15 @@ fn prepare_actor_resources(
         gpu.bones.clear();
         // A new skin model or item mesh uploads only its own vertices.
         gpu.geometry_ready = gpu.geometry_vertices.sync(
-            &render_device,
-            &render_queue,
+            &uploads.device,
+            &uploads.queue,
             "shared actor rig vertices",
             &rig.geometry_vertices,
         );
         if !rig.geometry_spans.is_empty() && gpu.geometry_ready {
-            if let Some(buffer) = allocation::buffer_with_data(
-                &render_device,
-                &render_queue,
+            if let Some(buffer) = gpu_allocation::buffer_with_data(
+                &uploads.device,
+                &uploads.queue,
                 "shared actor rig geometry spans",
                 bytemuck::cast_slice::<ActorRigGeometrySpan, u8>(&rig.geometry_spans),
                 BufferUsages::STORAGE,
@@ -440,34 +465,27 @@ fn prepare_actor_resources(
                 bytes = std::mem::size_of_val(&*rig.instances) + prepared.uploaded_bytes(),
             )
             .entered();
-            let uploaded = allocation::checked(
-                &render_device,
+            let uploaded = gpu_allocation::checked(
+                &uploads.device,
                 "actor instance and bone upload",
                 (std::mem::size_of_val(&*prepared.instances) + prepared.uploaded_bytes()) as u64,
                 || {
-                    crate::upload_staging::write_batch(
-                        staging.as_deref(),
-                        &render_device,
-                        &render_queue,
-                        &[(
-                            &gpu.instance_buffer,
-                            0,
-                            bytemuck::cast_slice::<ActorGpuInstance, u8>(&prepared.instances),
-                        )],
-                    );
+                    let mut writes =
+                        Vec::with_capacity(1 + prepared.previous.len() + prepared.current.len());
+                    writes.push((
+                        &*gpu.instance_buffer,
+                        0,
+                        bytemuck::cast_slice::<ActorGpuInstance, u8>(&prepared.instances),
+                    ));
                     gpu.bones.writes(&prepared, |current, offset, bytes| {
                         let buffer = if current {
                             &gpu.current_bone_buffer
                         } else {
                             &gpu.previous_bone_buffer
                         };
-                        crate::upload_staging::write_batch(
-                            staging.as_deref(),
-                            &render_device,
-                            &render_queue,
-                            &[(buffer, offset, bytes)],
-                        );
+                        writes.push((&**buffer, offset, bytes));
                     });
+                    uploads.write_batch(&writes);
                 },
             );
             if uploaded.is_none() {
@@ -482,13 +500,31 @@ fn prepare_actor_resources(
             drop(_span);
             gpu.instance_count = rig.instances.len() as u32;
             gpu.maximum_vertex_count = rig.maximum_vertex_count;
-            gpu.manifest = prepared.manifest;
             draw_spans(
                 &mut gpu.spans,
                 &frame.instance_pages,
                 &prepared.instances,
                 &rig.geometry_spans,
+                prepared.manifest.iter().map(|entry| entry.identity.layer),
             );
+            gpu.mask_spans.clear();
+            if frame.mask_only_runtime_ids.is_empty() {
+                gpu.main_manifest = std::sync::Arc::clone(&prepared.manifest);
+            } else {
+                gpu.mask_spans = gpu.spans.clone();
+                gpu.spans = artwork::visible_spans(
+                    &gpu.spans,
+                    &prepared.manifest,
+                    &frame.mask_only_runtime_ids,
+                );
+                let main_count = gpu
+                    .spans
+                    .last()
+                    .map_or(0, |span| (span.first + span.count) as usize);
+                // Coverage-only submissions follow the contiguous visible prefix at publication.
+                gpu.main_manifest = std::sync::Arc::from(&prepared.manifest[..main_count]);
+            }
+            gpu.manifest = prepared.manifest;
             gpu.instances = prepared.instances;
             let ActorGpu {
                 sorted,
@@ -503,6 +539,8 @@ fn prepare_actor_resources(
             gpu.maximum_vertex_count = 0;
             gpu.manifest = std::sync::Arc::from([]);
             gpu.spans.clear();
+            gpu.mask_spans.clear();
+            gpu.main_manifest = std::sync::Arc::from([]);
             gpu.sorted.prepare(&[], &[]);
             gpu.instances = std::sync::Arc::from([]);
             gate.clear();
@@ -528,7 +566,9 @@ fn prepare_actor_resources(
             });
             return;
         }
-        let views_changed = gpu.skins.sync(&frame.skins, &render_device, &render_queue);
+        let views_changed = gpu
+            .skins
+            .sync(&frame.skins, &uploads.device, &uploads.queue);
         if !gpu.skins.is_synced(&frame.skins) {
             gpu.bind_group = None;
             gpu.instance_count = 0;
@@ -586,22 +626,26 @@ pub(crate) fn prepare_actor_bind_group(
         .uniforms
         .buffer()
         .expect("a dynamic view binding always owns a GPU buffer");
+    let view_changed = gpu.view_buffer_id != Some(view_buffer.id());
     if gpu.bind_group.is_some()
-        && gpu.view_buffer_id == Some(view_buffer.id())
+        && !view_changed
         && gpu
             .artwork
             .pages
             .iter()
+            .flatten()
             .all(|page| page.bind_group.is_some())
     {
         return;
     }
     let Some((generic_groups, player_group)) =
-        allocation::checked(&render_device, "actor bindings", 0, || {
+        gpu_allocation::checked(&render_device, "actor bindings", 0, || {
             let generic_groups: Vec<_> = gpu
                 .artwork
                 .pages
                 .iter()
+                .flatten()
+                .filter(|page| view_changed || page.bind_group.is_none())
                 .map(|page| {
                     render_device.create_bind_group(
                         "neutral actor page bind group",
@@ -752,7 +796,14 @@ pub(crate) fn prepare_actor_bind_group(
         return;
     };
     gpu.bind_group = Some(player_group);
-    for (page, group) in gpu.artwork.pages.iter_mut().zip(generic_groups) {
+    for (page, group) in gpu
+        .artwork
+        .pages
+        .iter_mut()
+        .flatten()
+        .filter(|page| view_changed || page.bind_group.is_none())
+        .zip(generic_groups)
+    {
         page.bind_group = Some(group);
     }
     gpu.view_buffer_id = Some(view_buffer.id());
@@ -789,14 +840,14 @@ fn submit_actor_presented_frame(
         reserved: true,
         acknowledged: false,
     });
-    let present_returned_at = std::time::Instant::now();
+    let present_returned_at = web_time::Instant::now();
     let callback_gate = gate.clone();
     let callback_witness = witness.clone();
     crate::device_poll::on_frame_complete(&render_queue, move || {
         #[cfg(feature = "tracy")]
         let _span = bevy::log::info_span!("actor.completion_callback").entered();
         let acknowledged =
-            callback_gate.publish_reserved(token, present_returned_at, std::time::Instant::now());
+            callback_gate.publish_reserved(token, present_returned_at, web_time::Instant::now());
         callback_witness.observe_submit(ActorSubmitWitness {
             drawn_frame: true,
             exact: true,
@@ -808,3 +859,6 @@ fn submit_actor_presented_frame(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(feature = "publication-test-support")]
+pub(crate) mod equipment_test_support;

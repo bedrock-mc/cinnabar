@@ -50,10 +50,13 @@ impl SkinModel {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
     SetSection(DressingRoomSection),
+    ToggleCosmeticFilter,
+    SetCosmeticCategory(CosmeticCategory),
     Select(usize),
     Import,
     ImportCape,
     SelectCape(Option<usize>),
+    SelectCosmetic(Option<cosmetics::Item>),
     SetModel(SkinModel),
     BeginRename(usize),
     BeginDelete(usize),
@@ -64,11 +67,45 @@ pub enum Action {
     Cancel,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum DressingRoomSection {
-    #[default]
-    Skins,
-    Capes,
+/// Declares navigation and its captions from one catalog.
+macro_rules! wardrobe_tabs {
+    ($name:ident { $first:ident => $first_label:literal $(, $section:ident => $label:literal)* $(,)? }) => {
+        #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+        pub enum $name {
+            #[default]
+            $first,
+            $($section,)*
+        }
+
+        impl $name {
+            pub const ALL: [Self; [$first_label, $($label,)*].len()] = [Self::$first, $(Self::$section,)*];
+
+            /// Tab caption shared by the wardrobe's navigation controls.
+            pub const fn label(self) -> &'static str {
+                match self { Self::$first => $first_label, $(Self::$section => $label,)* }
+            }
+        }
+    };
+}
+
+wardrobe_tabs! { DressingRoomSection { Skins => "Skins", Capes => "Capes", Cosmetics => "Cosmetics" } }
+wardrobe_tabs! {
+    CosmeticCategory {
+        All => "All",
+        Head => "Head",
+        Face => "Face",
+        Back => "Back",
+        Body => "Body",
+        Pet => "Pet",
+        Aura => "Aura",
+    }
+}
+
+impl CosmeticCategory {
+    /// Includes every slot in All and the matching equipment slot in each named category.
+    pub fn includes_slot(self, slot: &str) -> bool {
+        self == Self::All || self.label().eq_ignore_ascii_case(slot)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -116,6 +153,8 @@ pub struct DressingRoomCape {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DressingRoomView {
     pub section: DressingRoomSection,
+    pub cosmetic_category: CosmeticCategory,
+    pub cosmetic_filter_open: bool,
     pub skins: Arc<[DressingRoomSkin]>,
     pub selected: Option<usize>,
     pub busy: bool,
@@ -123,6 +162,7 @@ pub struct DressingRoomView {
     pub editor: Option<SkinEditor>,
     pub capes: Arc<[DressingRoomCape]>,
     pub selected_cape: Option<usize>,
+    pub selected_cosmetics: cosmetics::Slots,
 }
 
 impl DressingRoomView {
@@ -138,5 +178,40 @@ impl DressingRoomView {
         let mut skin = self.selected_skin()?.skin.clone();
         skin.cape = self.selected_cape().map(|entry| entry.cape.clone());
         Some(skin)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CosmeticCategory;
+
+    #[test]
+    fn cosmetic_categories_use_known_equipment_slots() {
+        assert_eq!(CosmeticCategory::default(), CosmeticCategory::All);
+        for category in CosmeticCategory::ALL {
+            if category != CosmeticCategory::All {
+                assert!(cosmetics::known_slot(
+                    &category.label().to_ascii_lowercase()
+                ));
+            }
+        }
+        assert!(CosmeticCategory::All.includes_slot("face"));
+        assert!(CosmeticCategory::Head.includes_slot("head"));
+        assert!(!CosmeticCategory::Head.includes_slot("back"));
+        assert!(CosmeticCategory::Back.includes_slot("back"));
+        assert!(!CosmeticCategory::Back.includes_slot("head"));
+    }
+
+    #[test]
+    fn every_schema_slot_has_exactly_one_named_category() {
+        for slot in cosmetics::known_slots() {
+            let named = CosmeticCategory::ALL
+                .into_iter()
+                .filter(|category| *category != CosmeticCategory::All)
+                .filter(|category| category.includes_slot(slot))
+                .count();
+            assert_eq!(named, 1, "slot {slot} needs one gallery filter");
+        }
+        assert_eq!(CosmeticCategory::ALL.len(), cosmetics::SLOT_COUNT + 1);
     }
 }

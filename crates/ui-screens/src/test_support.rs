@@ -1,5 +1,7 @@
 //! Layout fixtures for tests that lay screens out without a carrier's fonts or atlas.
 
+pub mod hover_chat;
+
 /// Measures text at six px per character and nine px tall.
 pub struct FixedText;
 impl json_ui::TextMeasure for FixedText {
@@ -42,6 +44,7 @@ pub fn history_node(text: &str, width: f64) -> json_ui::DrawNode {
         layer: 1,
         alpha: 1.0,
         anim: None,
+        paint_region: None,
         gates: Vec::new(),
         draw: Draw::Text {
             text: text.into(),

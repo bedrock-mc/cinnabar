@@ -1044,14 +1044,13 @@ fn idle_flushes_keep_a_shared_ledger_snapshot() {
 fn recipe_changes_keep_partial_takes_from_the_ingredient_slot() {
     let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
     let ledger = inventory.ledger_mut();
-    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
-        container: ContainerIdentity {
-            window_id: Some(-1),
-            slot_type: Some(::protocol::CONTAINER_NAME_CURSOR),
-            dynamic_id: None,
+    ledger.apply(&InventoryEvent::Slot(::protocol::InventorySlotEvent {
+        identity: ::protocol::SlotIdentity {
+            container: ContainerIdentity::window(::protocol::UI_INVENTORY_WINDOW_ID),
+            slot: 0,
         },
-        slots: Arc::from([NetworkItemStack::empty()]),
-        storage_item: NetworkItemStack::empty(),
+        stack: NetworkItemStack::empty(),
+        storage_item: None,
     }));
     let mut slots = vec![NetworkItemStack::empty(); 3];
     slots[0] = NetworkItemStack {

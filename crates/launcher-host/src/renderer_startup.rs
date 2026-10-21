@@ -60,7 +60,7 @@ pub struct Recovery {
 /// Owns the two local files used to diagnose an interrupted renderer startup.
 pub struct StartupGuard {
     root: PathBuf,
-    lock: Option<Arc<fs::File>>,
+    lock: Option<Arc<termination::Lease>>,
     owner: Owner,
     pub recovery: Recovery,
     pub interrupted: Option<Attempt>,
@@ -107,7 +107,7 @@ impl StartupGuard {
         if root.join(SENTINEL_FILE).exists() {
             fs::remove_file(root.join(SENTINEL_FILE))?;
         }
-        let lock = Arc::new(lock);
+        let lock = Arc::new(termination::Lease(lock));
         active.register(root, &lock);
         Ok(Self {
             root: root.to_owned(),

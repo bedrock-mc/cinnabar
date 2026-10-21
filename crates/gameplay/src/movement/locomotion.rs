@@ -1,8 +1,9 @@
 //! Selects the simulated locomotion mode (flight, glide, swim, crawl) each tick.
 //!
-//! The chosen mode feeds the simulator and the wire start/stop edges from one
-//! source, so a flag is never asserted for a mode the simulator did not run.
+//! The chosen mode feeds simulation and mode edges. Flight requests remain
+//! separate from effective flight when an ability layer fixes its value.
 
+use client_world::game_mode_capabilities::FlightAuthority;
 use sim::{BlockPhysicsFlags, CollisionWorld, MovementMode, Vec3, WorldQueryError, pose_fits};
 
 mod sprint_trigger;
@@ -43,15 +44,17 @@ impl RideKind {
 pub struct ModeIntent {
     /// Spectator flight stays active independently of the ordinary flight toggle.
     pub spectator: bool,
+    /// Terrain collision is independent of the selected travel mode.
+    pub no_clip: bool,
     /// The mount the player currently rides, if any.
     pub ride: Option<RideKind>,
     /// Feet position of the rider's seat on that mount, when the mount's placement is known.
     pub ride_seat: Option<[f32; 3]>,
     /// Abilities permit flight.
     pub can_fly: bool,
-    /// The server's ability layers currently say the player is flying.
-    pub server_flying: bool,
-    /// Arrival order of the server ability update behind `server_flying`.
+    /// Effective flight value and authority retained from the winning ability layer.
+    pub flight: FlightAuthority,
+    /// Arrival order of the server ability update behind `flight`.
     pub ability_sequence: Option<u64>,
     /// Ability flight speed, when the server sent a usable one.
     pub fly_speed: Option<f64>,
@@ -129,7 +132,7 @@ pub(super) struct ModeChoice {
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct ModeTracker {
     mode: MovementMode,
-    last_server_flying: bool,
+    last_flight: FlightAuthority,
     last_ability_sequence: Option<u64>,
     /// `Jumping` sent on the previous tick; a flight press needs it clear.
     previous_jumping: bool,
@@ -217,7 +220,7 @@ impl ModeTracker {
                 self.sprint_trigger
                     .select(self.sprinting, self.previous_feet, intent, observed);
             self.mode = MovementMode::Flying;
-            self.last_server_flying = intent.server_flying;
+            self.last_flight = intent.flight;
             self.last_ability_sequence = intent.ability_sequence;
             self.fly_countdown = 0;
             self.fall_fly_ticks = 0;
@@ -231,17 +234,17 @@ impl ModeTracker {
             });
         }
         // Every ability update overwrites local flight, even when it repeats the previous value.
-        let server_update = intent.server_flying != self.last_server_flying
+        let server_update = intent.flight != self.last_flight
             || intent.ability_sequence != self.last_ability_sequence;
         let held_flight = if server_update {
-            intent.server_flying
+            intent.flight.is_flying()
         } else {
             self.mode == MovementMode::Flying
         };
         let fly_toggle = self.fly_trigger(intent, held_flight, observed.jump_down);
         let flight_request = fly_toggle.then_some(!held_flight);
         if intent.ride.is_some() {
-            self.last_server_flying = intent.server_flying;
+            self.last_flight = intent.flight;
             self.last_ability_sequence = intent.ability_sequence;
             self.mode = MovementMode::Riding;
             self.sprinting = false;
@@ -255,8 +258,13 @@ impl ModeTracker {
                 flight_request,
             });
         }
-        // Flight persists on the ground; only a toggle or an ability update changes it.
-        let flying = intent.can_fly && held_flight != fly_toggle;
+        // Flight survives ground contact; server flight does not require MayFly.
+        let flying = match intent.flight {
+            FlightAuthority::Fixed(value) => value,
+            FlightAuthority::Mutable(server_flying) => {
+                (intent.can_fly || server_flying) && held_flight != fly_toggle
+            }
+        };
         let sampled = sim::Simulator::default().movement_environment_with_liquid_contact(
             observed.feet,
             self.mode,
@@ -306,7 +314,7 @@ impl ModeTracker {
             (MovementMode::Gliding, false)
         } else if swimming {
             (MovementMode::Swimming, false)
-        } else if pose_fits(world, observed.feet, MovementMode::Walking, false)? {
+        } else if intent.no_clip || pose_fits(world, observed.feet, MovementMode::Walking, false)? {
             (MovementMode::Walking, false)
         } else if pose_fits(world, observed.feet, MovementMode::Walking, true)? {
             (MovementMode::Walking, true)
@@ -321,7 +329,7 @@ impl ModeTracker {
         } else {
             (MovementMode::Walking, false)
         };
-        self.last_server_flying = intent.server_flying;
+        self.last_flight = intent.flight;
         self.last_ability_sequence = intent.ability_sequence;
         // Every glide entry counts from its own first tick.
         self.fall_fly_ticks = match (self.mode, mode) {

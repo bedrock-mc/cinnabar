@@ -13,7 +13,7 @@ fn forbidden_overlay_edit_boxes_release_focus_and_reject_focus_requests() {
     };
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = crate::test_support::inventory_session(&mut player);
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     let template = serde_json::json!({"namespace":"focus_test", "overlay": {
         "type":"panel", "size":["100%","100%"], "controls":[{"search": {
             "type":"edit_box", "size":[20,10], "anchor_from":"top_left", "anchor_to":"top_left",

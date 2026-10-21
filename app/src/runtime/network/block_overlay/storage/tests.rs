@@ -39,6 +39,7 @@ fn builder<'a>(
 ) -> Builder<'a> {
     Builder {
         fallback: None,
+        base_keys: None,
         catalog: TextureCatalog::new(view, Some(keys)),
         overlay: Default::default(),
         sources: (0..super::super::MAX_OVERLAY_SHARDS)

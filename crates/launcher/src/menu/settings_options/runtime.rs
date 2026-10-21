@@ -53,7 +53,8 @@ impl SettingsOptions {
             ui::MotionBlurQuality::from_index(self.value(MOTION_BLUR_OPTION.id));
         settings.video.smaa_mode = ui::SmaaMode::from_value(self.value(SMAA_OPTION.id));
         settings.video.render_distance_chunks = self.value(SettingId::RenderDistance) as u8;
-        settings.video.view_bobbing = self.value(SettingId::ViewBobbing) != 0;
+        settings.video.view_bobbing =
+            ui::ViewBobbing::from_value(self.value(SettingId::ViewBobbing));
         settings.video.java_animations = self.value(ANIMATIONS_OPTION.id) == 0;
         settings.video.native_skybox_offset =
             self.value(super::NATIVE_SKYBOX_OFFSET_OPTION.id) != 0;

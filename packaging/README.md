@@ -70,9 +70,9 @@ matching `vX.Y.Z` tag by hand also builds and publishes it; re-running that tagg
 replaces its release assets. Tagged runs do not cancel a running release; GitHub may replace an
 older pending run. Scheduled runs cancel older nightly runs.
 
-Every installer is extracted and checked by `packaging/check-payload.sh`, which fails on any file
-outside the payload allowlist (shared with `stage-payload.sh`). Windows uses WiX extraction without
-running installer actions. DMG creation retries the transient `Resource busy` error on hosted
+Every desktop installer is extracted and checked by `packaging/check-payload.sh`, which fails on
+any file outside the payload allowlist (shared with `stage-payload.sh`). Windows uses WiX extraction
+without running installer actions. DMG creation retries the transient `Resource busy` error on hosted
 macOS runners; other errors remain fatal.
 
 Windows publishes `Cinnabar-x64-setup.exe` and `Cinnabar-x64.msi`. Setup is a self-contained
@@ -84,7 +84,15 @@ The update manifest points to the MSI. No Mojang artwork is embedded. Local pack
 ImageMagick and `dotnet tool install --global wix --version 5.0.2`, followed by
 `wix extension add -g WixToolset.BootstrapperApplications.wixext/5.0.2`.
 
-Signing is optional; each missing secret yields unsigned output instead of a failure:
+The game, core, crash monitor and update helper do not request administrator rights or reject
+an elevated launch. All packaged executables embed an `asInvoker` manifest before signing,
+so they inherit the launching process's permissions. Installation may still require administrator
+approval. Setup never launches the game, and Windows Installer's Restart Manager relaunch is
+disabled; the update helper owns the client relaunch. Windows SDK `mt.exe` is required to embed
+and verify these manifests during packaging.
+
+Desktop signing and update-manifest signing are optional. Android release signing is required:
+Android must recognize the same signing key to install later APKs over an existing installation.
 
 | Name (repo secret unless noted) | Enables |
 | --- | --- |
@@ -92,6 +100,8 @@ Signing is optional; each missing secret yields unsigned output instead of a fai
 | `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD` | Notarization; required once `CODESIGN_IDENTITY` is set |
 | `WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD` | Authenticode signing of the exes, MSI, setup engine and bundle |
 | `CINNABAR_UPDATE_SIGNING_KEY` (`release` environment secret, limited to `dev` and `v*` tags) | Each run's signed channel manifest, published where `update_channels` in `release-assets.json` names it (else skipped with a notice) |
+| `CINNABAR_ANDROID_KEYSTORE_BASE64` (`release` environment secret) | Base64-encoded persistent Android release keystore; required for APK publication |
+| `CINNABAR_ANDROID_KEY_ALIAS`, `CINNABAR_ANDROID_STORE_PASSWORD`, `CINNABAR_ANDROID_KEY_PASSWORD` (`release` environment secrets) | Alias and passwords for the Android release keystore; all required |
 | `UPDATE_TRUSTED_KEYS` (variable) | Keys the client trusts for update manifests |
 | `DISCORD_CHANGELOG_WEBHOOK` | Posts each new `v*` release's changelog to Discord, grouped by PR label (`packaging/changelog.py`) |
 
@@ -99,10 +109,18 @@ Without `CODESIGN_IDENTITY` the macOS app is ad-hoc signed and not notarized. Ga
 it on other Macs until the recipient runs `xattr -dr com.apple.quarantine /Applications/Cinnabar.app`
 (Open Anyway in System Settings clears only the app, so first-run helpers may still be blocked).
 
+Keep a secure backup of the Android release keystore and its passwords, and reuse them for Beta
+and nightly builds. The Android package job imports the keystore only for signing and deletes its
+temporary copy even if the build fails. Missing signing secrets fail APK publication; the release
+workflow never uses the local builder's generated test key. See [Android](../docs/android.md) for
+device requirements and installation.
+
 ## Release downloads and Linux installation
 
 `packaging/release-assets.json` is the canonical list of downloadable release artifacts and
-their repository. Publication requires every platform installer, every platform's symbol archive
+their repository. `assets` lists desktop updater platforms; `manual_assets` lists downloads such
+as Android APKs that are installed separately and have no desktop update payload or symbol archive.
+Publication requires every platform installer, every desktop platform's symbol archive
 and the generated Linux install script before writing checksums for the native downloads. A new tagged Beta release
 stays draft until its downloads, update payloads and signed manifest are uploaded. Reruns keep
 existing payload downloads public; the signature authenticates the update manifest.
@@ -110,9 +128,9 @@ existing payload downloads public; the signature authenticates the update manife
 Linux users can install the latest Beta release without root:
 
 ```sh
-curl -fsSL https://github.com/bedrock-mc/cinnabar/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/cinnabar-mc/cinnabar/releases/latest/download/install.sh | sh
 # or, without curl:
-wget -qO- https://github.com/bedrock-mc/cinnabar/releases/latest/download/install.sh | sh
+wget -qO- https://github.com/cinnabar-mc/cinnabar/releases/latest/download/install.sh | sh
 ```
 
 The installer resolves a concrete release tag, verifies the AppImage against its release checksum,
@@ -124,7 +142,10 @@ launcher runs and `app/previous` the one it replaced; each install keeps only th
 `--channel nightly` or `--version TAG` when invoking the script directly to test a particular release; these are explicit opt-ins to builds outside the Beta channel.
 
 Windows users download the self-contained setup EXE. macOS users choose the native Apple silicon
-or Intel DMG. The website is deployed separately and links directly to GitHub's latest release.
+or Intel DMG. The [website](https://github.com/cinnabar-mc/website) owns its deployment
+and links directly to this repository's latest release. Its build reads the release
+manifest, API contract and branding from a pinned client revision; shared inputs
+remain in this repository.
 
 ## Release symbols
 
@@ -138,10 +159,11 @@ rejects any other file. Each package job zips its Rust binaries with their debug
 `manifest.json` (version, commit, platform, and each binary's PE GUID+age, Mach-O UUID or ELF build
 id) into `cinnabar-symbols-<version>-<platform>-<arch>.zip`, named by `release-assets.json`, and
 the release carries it beside the installers. Go binaries (`bedrock-core`, `bedrock-local-server`)
-print symbolized tracebacks themselves and have no symbol files. Android APKs are CI artifacts built
-with the `play` profile, which has no release debug info, so they have no archive. Releasing an older
-source branch without debug info publishes no archives when run without those overrides, with a
-workflow warning; `release-symbols.py has-symbols` checks the effective setting for both the package
+print symbolized tracebacks themselves and have no symbol files. Android release APKs use the
+`release` profile with split debug info disabled and have no symbol archive; the separate Android
+CI workflow uses `play`. Releasing an older source branch without debug info publishes no archives
+when run without those overrides, with a workflow warning; `release-symbols.py has-symbols` checks
+the effective setting for both the package
 and publish jobs.
 
 To symbolicate a user's crash, ask for the crash folder (`crashes/<UTC time>-<id>/` under the

@@ -113,6 +113,11 @@ impl Slots {
         )
     }
 
+    /// Whether this carrier consumes any of the completed spear pose variables.
+    pub(super) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     /// Publishes one sampled pose without advancing any actor or item clocks.
     pub(super) fn apply(
         &self,
@@ -273,7 +278,7 @@ impl SpearPose {
 fn progress(start: f32, end: f32, value: f32) -> f32 {
     assets::molang_call(
         MolangFunction::InverseLerp,
-        &[start, end, value],
+        [start, end, value],
         &mut || 0.0,
     )
     .clamp(0.0, 1.0)
@@ -283,7 +288,7 @@ fn progress(start: f32, end: f32, value: f32) -> f32 {
 fn ease(curve: Curve, mode: Mode, progress: f32) -> f32 {
     assets::molang_call(
         MolangFunction::Ease(curve, mode),
-        &[0.0, 1.0, progress],
+        [0.0, 1.0, progress],
         &mut || 0.0,
     )
 }

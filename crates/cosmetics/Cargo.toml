@@ -1,0 +1,20 @@
+[package]
+name = "cosmetics"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[package.metadata.cinnabar]
+reads = ["core/cinnabarapi/schema/v1.json", "core/cinnabarapi/schema/source.json", "core/cinnabarapi/schema/emote-clips.json"]
+
+[features]
+test-support = []
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2.workspace = true
+
+[lints]
+workspace = true

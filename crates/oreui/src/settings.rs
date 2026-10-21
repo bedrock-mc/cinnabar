@@ -8,10 +8,13 @@ mod layout;
 mod mods;
 mod picker;
 mod presets;
+mod renderer;
 mod resources;
 mod sections;
 mod services;
+mod shader_options;
 mod sidebar;
+mod updates;
 
 #[cfg(test)]
 mod row_tests;
@@ -38,12 +41,20 @@ pub(super) fn section_index(name: &str) -> u8 {
         .index
 }
 
+/// Retains the described option until another option or screen is selected.
+#[derive(Default)]
+pub(super) struct ShaderOptionDescription {
+    screen: Option<(String, u32)>,
+    index: Option<usize>,
+}
+
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
     translate: Translate<'_>,
     gamerpic: Option<IconRef>,
+    description: &mut ShaderOptionDescription,
 ) -> Result<(), PaintError> {
     widgets::screen_overlay(canvas, size)?;
     canvas.settings_scrollbars = true;
@@ -70,20 +81,33 @@ pub(super) fn draw(
     let panel = [body[0], top, body[1] - canvas.r(1.6), bottom];
     canvas.fill(panel, NEUTRAL.fill)?;
     canvas.frame(panel, EDGE, theme::BORDER)?;
+    let section =
+        SettingSection::from_index(view.settings.section).unwrap_or(SettingSection::Accessibility);
+    // The Shader Pack Settings screen keeps a footer below the option grid.
+    let options = view
+        .shader_options
+        .as_deref()
+        .filter(|_| render_model::SHADER_PACKS_ENABLED && section == SettingSection::Shaders);
+    let footer = options.map_or(0.0, |_| shader_options::footer_height(canvas));
     let viewport = [
         panel[0] + canvas.r(EDGE),
         top + canvas.r(EDGE),
         body[1],
-        bottom,
+        bottom - footer,
     ];
-    let section =
-        SettingSection::from_index(view.settings_section).unwrap_or(SettingSection::Accessibility);
     let selector = section.definition().name;
-    let key = format!("oreui_settings/{selector}");
+    let key = match options {
+        Some(options) => format!(
+            "oreui_settings/{selector}/shader_options/{}",
+            options.screen
+        ),
+        None => format!("oreui_settings/{selector}"),
+    };
     let tab = focus::tab(section.definition().index);
     let entrance =
         canvas.begin_entrance(super::motion::Surface::Settings(section.definition().index));
     let tab_focus = canvas.begin_focus_region(tab, [body[0], top, body[1], bottom], None, false)?;
+    let mut described = None;
     // A resize can shrink the scroll range. Redraw once with the new clamped offset.
     for attempt in 0..2 {
         let rollback = (
@@ -114,7 +138,10 @@ pub(super) fn draw(
             translate,
             nested: false,
         };
-        sections::draw(&mut content, section)?;
+        match options {
+            Some(options) => described = shader_options::body(&mut content, options)?,
+            None => sections::draw(&mut content, section)?,
+        }
         let height = content.y + offset - viewport[1];
         content.canvas.end_scroll(scroll, height)?;
         content.canvas.end_focus_region(body_focus);
@@ -131,6 +158,36 @@ pub(super) fn draw(
         canvas.focus_landmarks.truncate(rollback.6);
         canvas.slider_tracks.truncate(rollback.7);
         canvas.offsets.insert(key.clone(), max);
+    }
+    if let Some(options) = options {
+        if !description
+            .screen
+            .as_ref()
+            .is_some_and(|(pack, screen)| pack == &options.pack && *screen == options.screen)
+        {
+            description.screen = Some((options.pack.clone(), options.screen));
+            description.index = None;
+        }
+        if let Some((index, _)) = described {
+            description.index = Some(index);
+        }
+        let described = description
+            .index
+            .and_then(|index| options.elements.get(index).map(|element| (index, element)));
+        shader_options::footer(
+            canvas,
+            view,
+            options,
+            [
+                panel[0] + canvas.r(EDGE),
+                bottom - footer,
+                panel[2] - canvas.r(EDGE),
+                bottom,
+            ],
+            described,
+        )?;
+    } else {
+        *description = ShaderOptionDescription::default();
     }
     canvas.end_focus_region(tab_focus);
     canvas.end_focus_region(detail_focus);
@@ -406,6 +463,8 @@ impl Content<'_, '_> {
             "Restart required. Auto checks driver stability before choosing an API. WGPU_BACKEND takes priority over this setting.".to_owned()
         } else if id == SettingId::Vrr {
             "Automatic uses display detection. Choose On if variable refresh is enabled in your display and system settings, or Off to disable the VRR frame cap.".to_owned()
+        } else if id == SettingId::ViewBobbing {
+            "Minimal bobs only the hand; Full also bobs the camera.".to_owned()
         } else if id == SettingId::CinnabarVisible {
             "Let other Cinnabar players see a Cinnabar badge next to your name.".to_owned()
         } else if id == SettingId::CinnabarBadges {
@@ -415,20 +474,20 @@ impl Content<'_, '_> {
         } else if id == SettingId::InstallUpdatesOnQuit {
             "Install a downloaded update and restart when you quit. Later defers it for this session.".to_owned()
         } else if id == SettingId::UpdateChannel {
-            "A slower channel waits until its version passes your installed build. Stable appears after its first signed release.".to_owned()
+            "Beta for regular releases. Nightly for the latest changes.".to_owned()
         } else if id == SettingId::ScreenAnimations {
             "Smooth highlights, button presses and screen transitions. Turn off for an instant interface.".to_owned()
         } else if id == SettingId::VerboseLogging {
             "Write detailed network, session, core and resource pack logs. Applies now and at launch. CINNABAR_LOG or RUST_LOG take priority when set.".to_owned()
         } else if id == SettingId::RecordNetworkSession {
             "Save each new server session's packets to the logs folder. The recording contains chat messages and player names. It stays on this device and is never uploaded.".to_owned()
-        } else if (id == SettingId::RenderClouds
-            || id == SettingId::MaxFramerate
-            || id == SettingId::ShowExactServerPing
-            || id == SettingId::OreuiDarkMode)
-            && description.is_empty()
-        {
-            sections::fallback(&description_key).to_owned()
+        } else if description.is_empty() {
+            let fallback = sections::fallback(&description_key);
+            if fallback == description_key {
+                String::new()
+            } else {
+                fallback.to_owned()
+            }
         } else {
             description
         };
@@ -465,7 +524,13 @@ impl Content<'_, '_> {
                         })
                     }
                     SettingId::Msaa => value.to_string(),
+                    SettingId::ChatFontSize => format!("{}%", value * 10),
                     _ => format!("{value}%"),
+                };
+                let (title, shown) = if id == SettingId::ChatFontSize && title.contains("%s") {
+                    (title.replace("%s", &shown), String::new())
+                } else {
+                    (title, shown)
                 };
                 let amount = self.canvas.measure(&shown, BODY)?;
                 let width = (right - left - amount - self.canvas.r(1.6)).max(1.0);

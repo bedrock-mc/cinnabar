@@ -23,6 +23,12 @@ mod actor_use_tests;
 #[path = "published_tests/item_use.rs"]
 mod item_use_tests;
 
+#[path = "published_tests/use_progress.rs"]
+mod use_progress_tests;
+
+#[path = "published_tests/liquid_pick.rs"]
+mod liquid_pick_tests;
+
 #[path = "published_tests/riptide.rs"]
 mod riptide_tests;
 
@@ -47,8 +53,17 @@ mod attack_frame_tests;
 #[path = "published_tests/attack_progress.rs"]
 mod attack_progress_tests;
 
+#[path = "published_tests/entity_hover.rs"]
+mod entity_hover_tests;
+
+#[path = "published_tests/held_equipment.rs"]
+mod held_equipment_tests;
+
 #[path = "published_tests/ledge.rs"]
 mod ledge_tests;
+
+#[path = "published_tests/selection.rs"]
+mod selection_tests;
 
 #[path = "published_tests/drop_inventory.rs"]
 mod drop_inventory_tests;
@@ -56,8 +71,38 @@ mod drop_inventory_tests;
 #[path = "published_tests/repeat_clock.rs"]
 mod repeat_clock_tests;
 
+/// Builds a fully known air column for interaction rays and their shape halo.
+fn empty_column(x: i32, z: i32) -> protocol::WorldEvent {
+    let mut payload = vec![1, 2];
+    payload.extend(std::iter::repeat_n(
+        0xff,
+        protocol::vanilla_dimension_range(0)
+            .unwrap()
+            .sub_chunk_count
+            - 1,
+    ));
+    payload.push(0);
+    protocol::WorldEvent::LevelChunk(protocol::LevelChunkEvent {
+        dimension: 0,
+        x,
+        z,
+        mode: protocol::LevelChunkMode::LimitedRequests { highest: 0 },
+        payload,
+    })
+}
+
 /// Supplies loaded synthetic terrain, a current interaction ray and one real Use press.
 fn fixture() -> (World, client_session::CapturedPackets) {
+    fixture_with_network(NetworkHandle::<PackApplication>::stub_capturing_packets())
+}
+
+/// Supplies the existing world fixture with a caller-owned capture transport.
+fn fixture_with_network(
+    (network, captured): (
+        NetworkHandle<PackApplication>,
+        client_session::CapturedPackets,
+    ),
+) -> (World, client_session::CapturedPackets) {
     let bytes = assets::pinned_block_registry_bytes();
     let version = assets::active_content_registry_protocol();
     let records = assets::read_registry_for_protocol(bytes, version).unwrap();
@@ -85,27 +130,7 @@ fn fixture() -> (World, client_session::CapturedPackets) {
         air_network_id: id("minecraft:air"),
         block_network_ids_are_hashes: false,
     });
-    let mut payload = vec![1, 2];
-    payload.extend(std::iter::repeat_n(
-        0xff,
-        protocol::vanilla_dimension_range(0)
-            .unwrap()
-            .sub_chunk_count
-            - 1,
-    ));
-    payload.push(0);
-    stream
-        .submit(
-            1,
-            protocol::WorldEvent::LevelChunk(protocol::LevelChunkEvent {
-                dimension: 0,
-                x: 0,
-                z: 0,
-                mode: protocol::LevelChunkMode::LimitedRequests { highest: 0 },
-                payload,
-            }),
-        )
-        .unwrap();
+    stream.submit(1, empty_column(0, 0)).unwrap();
     stream
         .submit(
             2,
@@ -123,7 +148,6 @@ fn fixture() -> (World, client_session::CapturedPackets) {
     });
     let mut sample = gameplay::test_support::survival_mining::completed(101);
     sample.position = position;
-    let (network, captured) = NetworkHandle::<PackApplication>::stub_capturing_packets();
     let mut movement = client_interaction::movement::MovementTicker::with_epoch_publisher(
         network.physics_epoch_publisher(),
     );

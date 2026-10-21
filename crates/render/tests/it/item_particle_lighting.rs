@@ -107,7 +107,7 @@ fn items_and_particles_compose_native_rgb_in_darkness_and_daylight() {
         ),
     ] {
         let table = inputs.build();
-        let lightmap = gpu.buffer(bytemuck::cast_slice(&table), wgpu::BufferUsages::UNIFORM);
+        let lightmap = gpu.lightmap(bytemuck::cast_slice(&table));
         for (block, sky) in [(0_u8, 0_u8), (0, 15), (10, 0), (15, 15)] {
             let light = native_light(&table, block, sky);
             for (particle, lit) in [(false, true), (true, true), (true, false)] {
@@ -148,6 +148,7 @@ fn items_and_particles_compose_native_rgb_in_darkness_and_daylight() {
                     axis_x: [1.0, 0.0, 0.0, 0.0],
                     axis_y: [0.0, 1.0, 0.0, f32::from(lit)],
                     uv: [0.0, 0.0, 1.0, 1.0],
+                    texture_bounds: [0.0; 4],
                     color: TINT,
                 };
                 let records =
@@ -292,3 +293,114 @@ const PARTICLE_VERTEX: &str = r#"
     return particle_vertex(index, 0u);
 }
 "#;
+
+#[test]
+fn particle_uvs_clamp_inside_their_texture_without_sampling_adjacent_atlas_sprites() {
+    let Some(gpu) = Gpu::for_fixture("particle_uvs_clamp_inside_their_texture") else {
+        return;
+    };
+    let source = shader_source::standalone(include_str!("../../src/particles.wesl"), &[])
+        .replace("@group(1) @binding(0)", "@group(0) @binding(20)");
+    let view = gpu.buffer(
+        &gpu_snapshot::view(bevy::math::Mat4::IDENTITY, bevy::math::Vec3::ZERO),
+        wgpu::BufferUsages::UNIFORM,
+    );
+    let lightmap = gpu.lightmap(bytemuck::cast_slice(&LightmapInputs::default().build()));
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("red/green leaf texture next to blue atlas sprites"),
+        size: wgpu::Extent3d {
+            width: 4,
+            height: 4,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let mut texels = [0, 0, 255, 255].repeat(16);
+    for (index, color) in [
+        (5, [255, 0, 0, 255]),
+        (6, [255, 0, 0, 255]),
+        (9, [0, 255, 0, 255]),
+        (10, [0, 255, 0, 255]),
+    ] {
+        texels[index * 4..index * 4 + 4].copy_from_slice(&color);
+    }
+    gpu.queue.write_texture(
+        texture.as_image_copy(),
+        &texels,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(16),
+            rows_per_image: Some(4),
+        },
+        texture.size(),
+    );
+    let atlas = texture.create_view(&Default::default());
+    let sampler = gpu.device.create_sampler(&Default::default());
+    for (u, v, clamped, expected) in [
+        (0.375, 0.375, true, [255, 0, 0, 255]),
+        (0.375, 0.625, true, [0, 255, 0, 255]),
+        (0.375, 1.375, true, [0, 255, 0, 255]),
+        (0.375, -0.375, true, [255, 0, 0, 255]),
+        (-1.375, 0.625, true, [0, 255, 0, 255]),
+        (1.375, 0.375, true, [255, 0, 0, 255]),
+        (0.875, 0.875, false, [0, 0, 255, 255]),
+    ] {
+        let record = ParticleInstance {
+            center_light: [0.0, 0.0, 0.5, 0.0],
+            axis_x: [1.0, 0.0, 0.0, 1.0],
+            axis_y: [0.0, 1.0, 0.0, 0.0],
+            uv: [u, v, 0.0, 0.0],
+            color: [1.0; 4],
+            texture_bounds: if clamped {
+                [0.25, 0.25, 0.5, 0.5]
+            } else {
+                [0.0; 4]
+            },
+        };
+        let records = gpu.buffer(bytemuck::cast_slice(&[record]), wgpu::BufferUsages::STORAGE);
+        let bindings = [
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: view.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: records.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::TextureView(&atlas),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::Sampler(&sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 20,
+                resource: lightmap.as_entire_binding(),
+            },
+        ];
+        let pixels = gpu.render_srgb(
+            &source,
+            "particle_vertex",
+            &[Draw {
+                fragment: "particle_fragment",
+                vertices: 0..6,
+                bindings: &bindings,
+                blend: None,
+                write_depth: true,
+            }],
+        );
+        let offset = (128 * 256 + 128) * 4;
+        assert_eq!(
+            &pixels[offset..offset + 4],
+            &expected,
+            "uv={u},{v}, clamped={clamped}"
+        );
+    }
+}

@@ -82,10 +82,16 @@ impl ActorAnimationStore {
 
     /// Layers a server-pack entity catalog over the vanilla one for actors spawned afterwards.
     pub fn set_pack(&mut self, assets: Option<(Arc<RuntimeEntityAssets>, Vec<u32>)>) {
-        self.pack = assets.map(|(assets, artwork)| PackCatalog {
-            layout: Arc::new(VariableLayout::new(&assets)),
-            artwork: artwork.into_iter().collect(),
-            assets,
+        self.pack = assets.map(|(assets, artwork)| {
+            let mut layout = VariableLayout::new(&assets);
+            if let Some(vanilla) = &self.assets {
+                layout.plans.bind_attachments(vanilla);
+            }
+            PackCatalog {
+                layout: Arc::new(layout),
+                artwork: artwork.into_iter().collect(),
+                assets,
+            }
         });
     }
 
@@ -332,6 +338,18 @@ impl ActorAnimationStore {
         }
     }
 
+    /// Full-body controller output from the same UI evaluation as [`Self::ui_pose`].
+    pub fn ui_layers(&self, runtime_id: u64) -> Option<ActorRenderLayers<'_>> {
+        let state = self.rigs.get(self.runtime_to_lifetime.get(&runtime_id)?)?;
+        self.ui_pose(runtime_id)?;
+        let ui = state.ui_animation.as_ref()?;
+        Some(ActorRenderLayers {
+            render: std::borrow::Cow::Borrowed(&ui.render),
+            skin: std::borrow::Cow::Borrowed(&ui.skin_layers),
+            held_item_scale: ui.held_item_scale,
+        })
+    }
+
     pub fn snapshots(&self) -> impl Iterator<Item = ActorRigSnapshot<'_>> {
         self.rigs
             .iter()
@@ -382,9 +400,17 @@ impl ActorAnimationStore {
             axis_scale: state
                 .scale
                 .map_or([1.0; 3], |scale| [scale[1], scale[2], scale[3]]),
+            held_item_scale: state.held_item_scale,
             previous_body_yaw: state.motion.previous_body_yaw,
             body_yaw: state.motion.body_yaw,
             render: &state.render,
+            attachments: Some(
+                state
+                    .skin_skeleton()
+                    .map_or(&state.attachment_bindings, |skeleton| {
+                        &skeleton.prepared.attachments
+                    }),
+            ),
             bone_names: state.posed_bone_names(),
             skin_geometry: state
                 .skin_skeleton()

@@ -14,14 +14,15 @@ use {crate::runtime::world::ClientWorld, client_state::SemanticInputSnapshot};
 
 #[derive(SystemParam)]
 pub(super) struct GameplayContext<'w> {
+    pub(super) native_input: Option<ResMut<'w, super::native_input::NativeInput>>,
     pub(super) world: Option<Res<'w, ClientWorld>>,
     pub(super) view: Option<ResMut<'w, LocalViewPose>>,
     pub(super) input: Option<ResMut<'w, SemanticInputSnapshot>>,
     auto_fly: Option<Res<'w, AutoFly>>,
     server_camera: Option<Res<'w, ServerCameraView>>,
     time: Option<Res<'w, Time>>,
-    real_time: Option<Res<'w, Time<Real>>>,
-    clock: Option<Res<'w, crate::environment::WorldClock>>,
+    pub(super) real_time: Option<Res<'w, Time<Real>>>,
+    clock: Option<Res<'w, client_presentation::environment::WorldClock>>,
     pub(super) physics: Option<ResMut<'w, client_interaction::movement::LocalPhysicsController>>,
     pub(super) movement: Option<Res<'w, client_interaction::movement::MovementTicker>>,
     pub(super) player: Option<Res<'w, client_state::PlayerRuntime>>,
@@ -36,7 +37,86 @@ pub(super) struct GameplayContext<'w> {
     pub(super) session: Option<Res<'w, crate::session::SessionController>>,
 }
 
+const _: () = assert!(mod_api::BEDROCK_TICKS_PER_SECOND == simulation_clock::TICKS_PER_SECOND);
+
 impl GameplayContext<'_> {
+    /// Reads the real server clock in this scope; visual time overrides never enter this observation.
+    pub(super) fn world_day(
+        &self,
+        world: &mod_host::WorldObservation,
+    ) -> Option<mod_host::module_observations::WorldDay> {
+        let clock = self.clock.as_deref()?;
+        if world.session == 0 || clock.session_generation() != world.session {
+            return None;
+        }
+        Some(mod_host::module_observations::WorldDay {
+            session: world.session,
+            dimension: world.dimension,
+            day: clock.world_day(self.time.as_ref()?.elapsed_secs_f64())?,
+        })
+    }
+
+    /// Native packet frames share the current input snapshot and connected-world fences.
+    pub(super) fn native_frame(
+        &self,
+        allowed: bool,
+        ui: &client_ui::ui_runtime::UiRuntime,
+    ) -> Option<mod_api::native_frame::Frame> {
+        let world = self.world.as_ref()?;
+        if world.dimension_transfer.active()
+            || world.respawn.input_held()
+            || self.clock.as_ref()?.session_generation() != ui.session_id()
+            || ui
+                .hud()
+                .health()
+                .is_some_and(|health| health.current() == 0)
+        {
+            return None;
+        }
+        let grants = ModGrants {
+            players: true,
+            camera: true,
+            ..Default::default()
+        };
+        let Some(snapshot) = self.snapshot(allowed, &grants) else {
+            let eye = self.view.as_ref()?.eye_translation().to_array();
+            return Some(mod_api::native_frame::Frame {
+                version: mod_api::native_frame::VERSION,
+                session: world.stream.as_ref()?.authority().actor_session_id(),
+                dimension: world.stream.as_ref()?.current_dimension(),
+                eye,
+                yaw: 0.0,
+                pitch: 0.0,
+                attack_held: false,
+                seconds: self
+                    .real_time
+                    .as_ref()
+                    .map_or(0.0, |time| time.delta_secs().min(1.0)),
+                players: Vec::new(),
+                suspended: true,
+            });
+        };
+        Some(mod_api::native_frame::Frame {
+            version: mod_api::native_frame::VERSION,
+            session: snapshot.session,
+            dimension: snapshot.dimension,
+            eye: [snapshot.eye.x, snapshot.eye.y, snapshot.eye.z],
+            yaw: snapshot.yaw,
+            pitch: snapshot.pitch,
+            attack_held: snapshot.attack_held,
+            seconds: snapshot.frame_seconds,
+            suspended: false,
+            players: snapshot
+                .players
+                .into_iter()
+                .map(|player| mod_api::native_frame::Player {
+                    runtime_id: player.runtime_id,
+                    feet: [player.position.x, player.position.y, player.position.z],
+                })
+                .collect(),
+        })
+    }
+
     /// Read-only current world identity and feet pose, independent of input capture.
     pub(super) fn world_observation(
         &self,
@@ -96,7 +176,10 @@ impl GameplayContext<'_> {
     }
 
     /// Returns walking ownership independently of temporary server input permissions.
-    fn walking_scope(&self, ui: &client_ui::ui_runtime::UiRuntime) -> Option<(u64, i32)> {
+    pub(super) fn walking_scope(
+        &self,
+        ui: &client_ui::ui_runtime::UiRuntime,
+    ) -> Option<(u64, i32)> {
         self.input.as_ref()?.snapshot()?;
         let world = self.world.as_ref()?;
         if world.dimension_transfer.active()
@@ -118,7 +201,7 @@ impl GameplayContext<'_> {
         let capabilities = player.facts.game_mode_capabilities();
         if player.facts.is_immobile()
             || player.facts.mount_unique_id().is_some()
-            || capabilities.is_some_and(|abilities| abilities.flying)
+            || capabilities.is_some_and(|abilities| abilities.flight.is_flying())
             || !self.physics.as_ref()?.jump_pulse_eligible()
         {
             return None;

@@ -6,6 +6,8 @@
 //! token this process handed it on that stdin.
 
 mod slot;
+#[cfg(all(test, target_os = "macos"))]
+mod unresponsive_tests;
 
 use std::{
     io::{self, BufRead, BufReader, Write},
@@ -73,6 +75,9 @@ struct Session {
 static SESSION: OnceLock<Session> = OnceLock::new();
 /// The monitor's process id once it started.
 static PID: OnceLock<u32> = OnceLock::new();
+/// Retains the Windows monitor's identity even after the child registry reaps it.
+#[cfg(windows)]
+static PROCESS: OnceLock<children::Spawned> = OnceLock::new();
 /// The monitor's stdin, held open for this process's lifetime; its end tells the monitor this
 /// process is gone.
 static LIFELINE: OnceLock<Mutex<ChildStdin>> = OnceLock::new();
@@ -144,6 +149,8 @@ fn try_start(
         }
     };
     let _ = PID.set(spawned.id());
+    #[cfg(windows)]
+    let spawned = PROCESS.get_or_init(|| spawned);
     let mut stdin = spawned
         .take_stdin()
         .ok_or_else(|| io::Error::other("no stdin"))?;
@@ -293,6 +300,34 @@ fn introduction_pause() {
     std::thread::sleep(Duration::from_millis(1));
 }
 
+/// Announces a macOS dump and bounds its receipt wait using the existing connection budget.
+#[cfg(target_os = "macos")]
+pub(super) fn announce_dump(client: &minidumper::Client) -> bool {
+    static REQUEST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let Some(region) = heartbeat::watched() else {
+        return false;
+    };
+    let request = REQUEST.fetch_add(1, Ordering::Relaxed);
+    send_on(client, protocol::DUMP_REQUEST, &request.to_le_bytes())
+        && wait_for_dump_receipt(region, request, introduction_pause)
+}
+
+/// Waits without locks or socket reads; an unresponsive monitor consumes only the wait budget.
+#[cfg(any(target_os = "macos", test))]
+fn wait_for_dump_receipt(
+    region: &heartbeat::Region,
+    request: u64,
+    mut pause: impl FnMut(),
+) -> bool {
+    for _ in 0..INTRODUCTION_WAIT_STEPS {
+        if region.dump_acknowledged(request) {
+            return true;
+        }
+        pause();
+    }
+    region.dump_acknowledged(request)
+}
+
 /// Sends one message; false when there is no connection or the send failed.
 pub(super) fn send(kind: u32, payload: &[u8]) -> bool {
     connection().is_some_and(|client| send_on(&client, kind, payload))
@@ -332,6 +367,15 @@ pub fn wait_for_connection(timeout: Duration) -> bool {
 /// The monitor's process id, once started.
 pub fn pid() -> Option<u32> {
     PID.get().copied()
+}
+
+/// Duplicates the retained Windows monitor handle, including when the monitor already exited.
+#[cfg(windows)]
+pub(crate) fn process_handle() -> io::Result<Option<std::os::windows::io::OwnedHandle>> {
+    PROCESS
+        .get()
+        .map(children::Spawned::process_handle)
+        .transpose()
 }
 
 /// The socket the monitor listens on, once started.
@@ -438,6 +482,32 @@ mod unix {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A monitor that retains its mapping but never acknowledges cannot hold the caller forever.
+    #[test]
+    fn nonresponsive_dump_monitor_exhausts_the_existing_wait_budget() {
+        let directory = tempfile::tempdir().unwrap();
+        let heartbeat = heartbeat::Heartbeat::create(&directory.path().join("heartbeat")).unwrap();
+        let mut pauses = 0;
+        assert!(!wait_for_dump_receipt(heartbeat.region(), 1, || pauses += 1));
+        assert_eq!(pauses, INTRODUCTION_WAIT_STEPS);
+    }
+
+    /// A late receipt for an older dump cannot release a new request's ordering barrier.
+    #[test]
+    fn dump_receipt_matches_the_current_request() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("heartbeat");
+        let client = heartbeat::Heartbeat::create(&path).unwrap();
+        let monitor = heartbeat::Heartbeat::open(&path).unwrap();
+        monitor.region().acknowledge_dump(1);
+        let mut pauses = 0;
+        assert!(wait_for_dump_receipt(client.region(), 2, || {
+            pauses += 1;
+            monitor.region().acknowledge_dump(2);
+        }));
+        assert_eq!(pauses, 1);
+    }
 
     #[test]
     fn socket_paths_are_unique_per_launch() {

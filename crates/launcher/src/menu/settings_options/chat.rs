@@ -20,16 +20,6 @@ pub const CHAT_POSITIONS: &[SettingChoice] = &[
     },
 ];
 
-pub const TYPEFACES: &[SettingChoice] = &[
-    SettingChoice {
-        name: "typeface_radio_mojangles",
-        label: "typeface.mojangles",
-    },
-    SettingChoice {
-        name: "typeface_radio_notoSans",
-        label: "typeface.notoSans",
-    },
-];
 /// One color's text code and rendered swatch.
 #[derive(Clone, Copy, Debug)]
 pub struct ChatColor {
@@ -67,18 +57,9 @@ impl SettingsOptions {
         self.value(CHAT_POSITION_OPTION.id) == 1
     }
 
-    /// Vanilla disables smooth chat for these four locales.
-    pub fn chat_smooth_available(&self) -> bool {
-        !matches!(self.language(), Some("zh_TW" | "zh_CN" | "ko_KR" | "ja_JP"))
-    }
-
-    /// Scales the open chat's text; the exact retail font-size option range remains unverified.
+    /// Scales the bundled chat font independently of any retired typeface preference.
     pub fn chat_font_scale(&self) -> f64 {
-        if !self.chat_smooth_available() || self.value(SettingId::ChatTypeface) == 0 {
-            1.0
-        } else {
-            f64::from(self.value(SettingId::ChatFontSize)) / 10.0
-        }
+        f64::from(self.value(SettingId::ChatFontSize)) / 10.0
     }
 
     /// Applies vanilla's one-decimal padding plus its nonzero epsilon.

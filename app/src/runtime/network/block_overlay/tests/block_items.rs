@@ -25,7 +25,7 @@ fn custom_block_items_draw_their_default_state() {
         vanilla_blocks: Default::default(),
         skipped: 0,
     };
-    let icons = custom_block_icons(&overlay, &blocks, false, &items);
+    let icons = custom_block_icons(&overlay, &blocks, false, &items, None);
     let drawn = icons
         .icons
         .iter()
@@ -57,7 +57,7 @@ fn custom_block_items_draw_their_default_state() {
     let overlay = compile_block_overlay(&view(), &hashed, true, None)
         .expect("overlay")
         .overlay;
-    let icons = custom_block_icons(&overlay, &hashed, true, &items[1..2]);
+    let icons = custom_block_icons(&overlay, &hashed, true, &items[1..2], None);
     assert_eq!(icons.icons.len(), 1);
 }
 
@@ -91,7 +91,7 @@ fn full_cube_block_items_carry_a_sixteen_texel_face_sheet() {
         vanilla_blocks: Default::default(),
         skipped: 0,
     };
-    let icons = custom_block_icons(&compiled.overlay, &blocks, false, &items);
+    let icons = custom_block_icons(&compiled.overlay, &blocks, false, &items, None);
     let sheets = icons
         .block_sheets
         .iter()
@@ -207,6 +207,7 @@ fn cube_inputs_with_unrepresented_transforms_or_materials_keep_fallback_support(
             &blocks,
             false,
             &[("test:cube".into(), "test:cube".into())],
+            None,
         );
         assert_eq!(
             icons.icons.len(),
@@ -272,7 +273,7 @@ fn packcache_custom_block_items_draw_when_requested() {
             .iter()
             .map(|block| (Arc::clone(&block.name), Arc::clone(&block.name)))
             .collect::<Vec<_>>();
-        let icons = custom_block_icons(&compiled.overlay, &blocks, false, &items);
+        let icons = custom_block_icons(&compiled.overlay, &blocks, false, &items, None);
         let textured = items.len() - compiled.gaps.missing_textures as usize;
         assert!(
             icons.icons.len() >= textured,
@@ -324,4 +325,147 @@ fn join_preparation_icons_carry_the_compiled_block_sheets() {
     let icons = application.item_icons.expect("block item icons");
     assert_eq!(icons.block_sheets.len(), 1);
     assert_eq!(icons.block_sheets[0].identifier.as_ref(), "test:lucky");
+}
+
+#[test]
+fn authored_inventory_visuals_use_their_own_geometry_and_materials() {
+    let blocks = CustomBlocks {
+        blocks: vec![block(
+            "fixture:shaped",
+            1,
+            CustomBlockVisuals {
+                base: CustomVisualComponents {
+                    geometry: Some("geometry.gen".into()),
+                    materials: materials("gen"),
+                    transformation: Some(CustomTransformation {
+                        rotation: [0, 1, 0],
+                        scale: [0.5; 3],
+                        translation: [0.25; 3],
+                    }),
+                    ..Default::default()
+                },
+                item_visual: Some(CustomVisualComponents {
+                    geometry: Some("minecraft:geometry.full_block".into()),
+                    materials: materials("lucky").map(|mut materials| {
+                        materials[0].face_dimming = Some(false);
+                        materials
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        )]
+        .into(),
+        ..Default::default()
+    };
+    let view = view();
+    let world = compile_block_overlay(&view, &blocks, false, None).unwrap();
+    assert_eq!(world.overlay.visuals[0].kind, VisualKind::Model);
+    let (items, definitions) = super::super::compile_block_item_overlay(
+        &view,
+        &blocks,
+        None,
+        assets::MAX_TEXTURE_LAYERS as u32,
+        None,
+        None,
+    )
+    .unwrap();
+    assert_eq!(items.overlay.visuals.len(), 1);
+    assert_eq!(items.overlay.visuals[0].kind, VisualKind::Cube);
+    assert_eq!(definitions.blocks[0].visual.base.transformation, None);
+    let icons = crate::runtime::network::item_icons::custom_block_icons(
+        &items.overlay,
+        &definitions,
+        false,
+        &[("fixture:shaped".into(), "fixture:shaped".into())],
+        None,
+    );
+    assert_eq!(icons.icons.len(), 1);
+    assert_eq!(icons.block_sheets.len(), 1);
+    assert!(icons.misses.is_empty());
+    assert!(
+        icons.icons[0]
+            .rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|pixel| pixel[3] != 0)
+            .all(|pixel| pixel[2] == 0)
+    );
+}
+
+#[test]
+fn borrowed_base_page_textures_draw_custom_inventory_icons() {
+    use super::super::super::item_icons::custom_block_icons;
+    let base = RuntimeAssets::diagnostic();
+    let mut overlay = compiled().overlay;
+    overlay.materials[1].texture = assets::TextureRef::new(0, 0).unwrap();
+    overlay.visuals[0].faces = [1; 6];
+    overlay.textures.clear();
+    let blocks = CustomBlocks {
+        blocks: vec![block("fixture:borrowed", 1, CustomBlockVisuals::default())].into(),
+        ..Default::default()
+    };
+    let icons = custom_block_icons(
+        &overlay,
+        &blocks,
+        false,
+        &[("fixture:borrowed".into(), "fixture:borrowed".into())],
+        Some(&base),
+    );
+    assert_eq!(icons.icons.len(), 1);
+    assert_eq!(icons.block_sheets.len(), 1);
+    assert!(icons.misses.is_empty());
+}
+
+#[test]
+fn shared_terrain_catalog_preserves_inventory_output_and_replays_reads() {
+    let stack = view().shared_stack();
+    let blocks = CustomBlocks {
+        blocks: vec![generator()].into(),
+        ..Default::default()
+    };
+    let shared = super::super::SharedTextures::default();
+    let world_view = resource_pack::LayeredPackView::tracked(stack.clone());
+    let _ = super::super::compile_block_overlay_with_textures(
+        &world_view,
+        &blocks,
+        false,
+        None,
+        assets::MAX_TEXTURE_LAYERS as u32,
+        None,
+        Some(&shared),
+    );
+    let inventory_view = resource_pack::LayeredPackView::tracked(stack.clone());
+    let compiled = super::super::compile_block_overlay_with_textures(
+        &inventory_view,
+        &blocks,
+        false,
+        None,
+        assets::MAX_TEXTURE_LAYERS as u32,
+        None,
+        Some(&shared),
+    )
+    .unwrap();
+    let fresh_view = resource_pack::LayeredPackView::tracked(stack);
+    let fresh = super::super::compile_block_overlay_with_textures(
+        &fresh_view,
+        &blocks,
+        false,
+        None,
+        assets::MAX_TEXTURE_LAYERS as u32,
+        None,
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        shared.catalog_builds.get(),
+        1,
+        "inventory reuses the parsed terrain tables"
+    );
+    assert_eq!(compiled, fresh);
+    assert_eq!(
+        inventory_view.dependencies().unwrap().snapshot(),
+        fresh_view.dependencies().unwrap().snapshot()
+    );
 }

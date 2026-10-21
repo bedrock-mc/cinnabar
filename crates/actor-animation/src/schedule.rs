@@ -599,7 +599,6 @@ fn evaluate_job(
         stack: OperandStack::lease(),
         static_draw: None,
     };
-    render::cache_layer_skeletons(assets, state);
     if job.refresh_view {
         geometry::reselect_geometry_replay(
             assets,
@@ -751,6 +750,7 @@ impl Ledger<'_> {
             job.context.is_local,
         );
         state.scale = evaluated.scale;
+        state.held_item_scale = evaluated.held_item_scale;
         let initial = !state.initialized;
         let restart = initial || state.reset_pending || resumed || view_changed;
         if let Some(next) = evaluated.render_frame.as_mut() {

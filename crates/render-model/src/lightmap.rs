@@ -1,5 +1,27 @@
 //! Classic RGB lightmap.
 
+/// Raw light values and byte-truncated values shared by all world materials.
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[repr(C)]
+pub struct LightmapUniform {
+    pub raw: [[f32; 4]; 256],
+    pub native: [[f32; 4]; 256],
+}
+
+impl LightmapUniform {
+    /// Keeps raw consumers unchanged and quantizes each native RGB entry once per upload.
+    pub fn new(raw: [[f32; 4]; 256]) -> Self {
+        let native = raw.map(|rgba| {
+            let mut quantized = rgba;
+            for channel in &mut quantized[..3] {
+                *channel = (channel.clamp(0.0, 1.0) * 255.0).floor() / 255.0;
+            }
+            quantized
+        });
+        Self { raw, native }
+    }
+}
+
 /// Inputs to the classic light texture builder, before material color conversion.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LightmapInputs {
@@ -98,4 +120,61 @@ impl LightmapInputs {
 pub fn darkness_pulse(tick: f32, partial: f32, previous: f32, current: f32, amplitude: f32) -> f32 {
     let strength = previous + (current - previous) * partial;
     (((tick - partial) * 0.078_539_82).cos() * amplitude * strength).max(0.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Checks raw and prequantized uploads across byte boundaries and all environment builders.
+    #[test]
+    fn lightmap_upload_preserves_raw_values_and_truncates_only_native_rgb() {
+        let mut cases = vec![None];
+        for dimension_tint in [None, Some([0.22, 0.28, 0.25]), Some([0.7, 0.1, 0.4])] {
+            for (sky_darken, brightness, night_vision, darkness, lightning) in [
+                (0.0, 0.0, 0.0, 0.0, false),
+                (1.0, 1.0, 0.0, 0.0, false),
+                (0.4, 0.5, 0.7, 0.25, true),
+            ] {
+                cases.push(Some(LightmapInputs {
+                    dimension_tint,
+                    sky_darken,
+                    brightness,
+                    night_vision,
+                    darkness,
+                    lightning,
+                    ..Default::default()
+                }));
+            }
+        }
+        for inputs in cases {
+            let raw = inputs.map_or([[1.0; 4]; 256], LightmapInputs::build);
+            let upload = LightmapUniform::new(raw);
+            assert_eq!(upload.raw, raw);
+            for (entry, native) in raw.into_iter().zip(upload.native) {
+                for channel in 0..3 {
+                    assert_eq!(
+                        native[channel],
+                        (entry[channel].clamp(0.0, 1.0) * 255.0).floor() / 255.0
+                    );
+                }
+                assert_eq!(native[3], entry[3]);
+            }
+        }
+        let raw: [[f32; 4]; 256] = std::array::from_fn(|byte| {
+            let boundary = byte as f32 / 255.0;
+            [boundary.next_down(), boundary, boundary.next_up(), 0.25]
+        });
+        let upload = LightmapUniform::new(raw);
+        assert_eq!(upload.raw, raw);
+        for (raw, native) in raw.into_iter().zip(upload.native) {
+            for channel in 0..3 {
+                assert_eq!(
+                    native[channel],
+                    (raw[channel].clamp(0.0, 1.0) * 255.0).floor() / 255.0
+                );
+            }
+            assert_eq!(native[3], 0.25);
+        }
+    }
 }

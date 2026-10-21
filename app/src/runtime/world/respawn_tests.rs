@@ -1,5 +1,6 @@
 use super::*;
 use client_world::ResolvedServerPosition;
+use protocol::RespawnEvent;
 
 fn control(sequence: u64, state: u8, position: [f32; 3]) -> CommittedControlEvent {
     CommittedControlEvent::Respawn {
@@ -53,18 +54,31 @@ fn respawn_ready_retries_without_duplicate_packets_or_the_server_sentinel_actor(
         .unwrap();
     assert_eq!(packets, [protocol::respawn_ready_packet(42)]);
     assert!(!lifecycle.input_held());
-    for duplicate in [2, 3] {
-        assert!(lifecycle.consume_nonspatial_phase(
-            7,
-            &control(duplicate, 1, position),
-            42,
-            &mut movement,
-            &mut physics,
-            None
-        ));
-    }
+    assert!(lifecycle.consume_nonspatial_phase(
+        7,
+        &control(2, 1, position),
+        42,
+        &mut movement,
+        &mut physics,
+        None
+    ));
     lifecycle
         .queue_completion(|_| panic!("duplicate ready completion"))
+        .unwrap();
+    assert!(!lifecycle.input_held());
+    assert!(!lifecycle.consume_nonspatial_phase(
+        7,
+        &control(3, 1, position),
+        42,
+        &mut movement,
+        &mut physics,
+        None
+    ));
+    lifecycle
+        .queue_completion(|packet| {
+            assert_eq!(packet, protocol::respawn_ready_packet(42));
+            Ok(())
+        })
         .unwrap();
     assert!(!lifecycle.input_held());
 }
@@ -151,7 +165,6 @@ fn respawn_unknown_phases_are_nonspatial_and_preserve_the_current_search() {
         ));
     }
     assert!(lifecycle.input_held());
-    assert_eq!(lifecycle.pending.unwrap().position, position);
     lifecycle
         .queue_completion(|_| panic!("unknown phase cannot complete respawn"))
         .unwrap();

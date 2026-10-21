@@ -4,9 +4,8 @@ use std::{collections::BTreeMap, path::Path};
 
 use assets::{
     AssetError, EntityAssetKind, EntityGeometryBone, EntityGeometryCube, EntityGeometryFaceUv,
-    EntityGeometryFaceUvs, EntityGeometryScalar, EntityGeometryUv, MAX_ENTITY_GEOMETRIES,
-    MAX_ENTITY_GEOMETRY_BONES, MAX_ENTITY_GEOMETRY_CUBES, MAX_ENTITY_GEOMETRY_NAME_BYTES,
-    MAX_ENTITY_TEXTURE_DIMENSION,
+    EntityGeometryFaceUvs, EntityGeometryScalar, EntityGeometryUv, MAX_ENTITY_GEOMETRY_BONES,
+    MAX_ENTITY_GEOMETRY_CUBES, MAX_ENTITY_GEOMETRY_NAME_BYTES, MAX_ENTITY_TEXTURE_DIMENSION,
 };
 use serde_json::Value;
 
@@ -199,9 +198,6 @@ fn insert_geometry(
         return Err(invalid(format!(
             "duplicate entity geometry payload `{identifier}` within one source"
         )));
-    }
-    if geometries.len() > MAX_ENTITY_GEOMETRIES {
-        return Err(invalid("entity geometry count exceeds bound"));
     }
     Ok(())
 }

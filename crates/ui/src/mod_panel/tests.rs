@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeMap;
 
 fn panel() -> Panel {
     Panel {
@@ -19,6 +20,7 @@ fn panel() -> Panel {
         }],
         sections: Vec::new(),
         capture_key: false,
+        show_gameplay_hud: false,
         motion: false,
     }
 }
@@ -26,6 +28,200 @@ fn panel() -> Panel {
 #[test]
 fn finite_slider_and_physical_key_are_accepted() {
     assert!(panel().validate().is_ok());
+}
+
+#[test]
+fn relative_axis_extent_bindings_require_a_declared_positive_numeric_value() {
+    let mut panel = panel();
+    panel.surface = Some(Surface { collections: Default::default(),
+        previews: Default::default(),
+screen:"extent.root".into(),
+        document:serde_json::json!({"namespace":"extent","root":{
+            "type":"button","size":[10,10],"button_mappings":[{
+                "from_button_id":"button.menu_select","to_button_id":"mod.drag_axis:0:x:#resize_extent","mapping_type":"pressed"
+            }]
+        }}).to_string(),
+        bindings:Default::default(),transitions:Default::default()
+    });
+    assert!(
+        panel.validate().is_err(),
+        "missing extent is not an implicit zero"
+    );
+    for value in [
+        SurfaceValue::Bool(true),
+        SurfaceValue::Text("112".into()),
+        SurfaceValue::Vector(vec![112.0, 112.0]),
+        SurfaceValue::Number(0.0),
+        SurfaceValue::Number(-1.0),
+        SurfaceValue::Number(f64::NAN),
+        SurfaceValue::Number(1_000_001.0),
+    ] {
+        panel
+            .surface
+            .as_mut()
+            .unwrap()
+            .bindings
+            .insert("#resize_extent".into(), value);
+        assert!(panel.validate().is_err());
+    }
+    for value in [0.5, 112.0, 224.0, 1_000_000.0] {
+        panel
+            .surface
+            .as_mut()
+            .unwrap()
+            .bindings
+            .insert("#resize_extent".into(), SurfaceValue::Number(value));
+        assert!(panel.validate().is_ok(), "extent={value}");
+    }
+}
+
+/// Each route admits its own bounded controls before any sparse changes are applied.
+#[test]
+fn route_schemas_switch_atomically_and_keep_repeated_values() {
+    let surface = serde_json::json!({"screen":"local.page","document":
+        serde_json::json!({"namespace":"local","page":{"type":"button","button_mappings":[{"from_button_id":"button.menu_select","mapping_type":"pressed","to_button_id":"mod.control:0"}]}}).to_string()});
+    let bundle = serde_json::json!({"panel":panel(),"surfaces":{"main":surface,"options":surface},
+        "control_schemas":{"options":[{"kind":"toggle","id":"enabled","label":"Enabled","value":false}]}});
+    let bundle = PanelBundle::parse(&bundle.to_string()).unwrap();
+    let changed =
+        PanelPatch::parse(r#"{"surface":"options","controls":[{"id":"enabled","value":true}]}"#)
+            .unwrap()
+            .apply_bundle(&bundle.panel, &bundle)
+            .unwrap();
+    assert!(bundle.matches_schema(&changed));
+    assert!(matches!(
+        changed.controls[0],
+        Control::Toggle { value: true, .. }
+    ));
+    let repeated = PanelPatch::parse(r#"{"surface":"options"}"#)
+        .unwrap()
+        .apply_bundle(&changed, &bundle)
+        .unwrap();
+    assert_eq!(repeated.controls, changed.controls);
+    assert!(
+        PanelPatch::parse(r#"{"surface":"main","controls":[{"id":"enabled","value":false}]}"#)
+            .unwrap()
+            .apply_bundle(&changed, &bundle)
+            .is_err()
+    );
+    let restored =
+        PanelPatch::parse(r#"{"surface":"main","controls":[{"id":"distance","value":4}]}"#)
+            .unwrap()
+            .apply_bundle(&changed, &bundle)
+            .unwrap();
+    assert!(matches!(
+        restored.controls[0],
+        Control::Slider { value: 4., .. }
+    ));
+    let mut invalid = bundle.clone();
+    invalid.control_schemas.insert("missing".into(), vec![]);
+    assert!(invalid.validate().is_err());
+    invalid = bundle.clone();
+    invalid.control_schemas.get_mut("options").unwrap().clear();
+    assert!(invalid.validate().is_err());
+    invalid = bundle;
+    invalid
+        .control_schemas
+        .get_mut("options")
+        .unwrap()
+        .resize(super::MAX_PANEL_CONTROLS + 1, changed.controls[0].clone());
+    assert!(invalid.validate().is_err());
+}
+
+/// Selecting or repeating a route preserves capture until a patch explicitly changes it.
+#[test]
+fn bundled_routes_keep_sparse_capture_updates() {
+    for initial_capture in [false, true] {
+        let mut initial = panel();
+        initial.capture_key = initial_capture;
+        let bundle = PanelBundle {
+            panel: initial,
+            surfaces: BTreeMap::from([
+                ("main".into(), surface("mod.control:0")),
+                ("options".into(), surface("mod.close")),
+            ]),
+            control_schemas: BTreeMap::from([(
+                "options".into(),
+                vec![Control::Toggle {
+                    id: "enabled".into(),
+                    label: "Enabled".into(),
+                    value: false,
+                }],
+            )]),
+        };
+        bundle.validate().unwrap();
+        let patch = serde_json::json!({"capture_key": !initial_capture}).to_string();
+        let mut current = PanelPatch::parse(&patch)
+            .unwrap()
+            .apply_bundle(&bundle.panel, &bundle)
+            .unwrap();
+        for route in ["main", "main", "options", "options", "main"] {
+            let patch = serde_json::json!({"surface": route}).to_string();
+            current = PanelPatch::parse(&patch)
+                .unwrap()
+                .apply_bundle(&current, &bundle)
+                .unwrap();
+            assert_eq!(current.capture_key, !initial_capture, "route {route}");
+            assert_eq!(current.surface.as_ref(), Some(&bundle.surfaces[route]));
+            assert!(bundle.matches_schema(&current));
+            current.validate().unwrap();
+        }
+        for route in ["main", "options"] {
+            let patch =
+                serde_json::json!({"surface": route, "capture_key": initial_capture}).to_string();
+            let changed = PanelPatch::parse(&patch)
+                .unwrap()
+                .apply_bundle(&current, &bundle)
+                .unwrap();
+            assert_eq!(changed.capture_key, initial_capture, "route {route}");
+        }
+    }
+}
+
+/// Compact scalar edits keep the exact kinds, ranges and transaction rules of named edits.
+#[test]
+fn indexed_control_values_are_typed_bounded_and_unambiguous() {
+    let mut original = panel();
+    original.controls.push(Control::Choice {
+        id: "choice".into(),
+        label: "Choice".into(),
+        index: 0,
+        options: vec!["A".into(), "B".into()],
+    });
+    let changed = PanelPatch::parse(r#"{"control_values":[[0,4],[1,1]]}"#)
+        .unwrap()
+        .apply(&original, &Default::default())
+        .unwrap();
+    assert!(matches!(
+        changed.controls[0],
+        Control::Slider { value: 4., .. }
+    ));
+    assert!(matches!(
+        changed.controls[1],
+        Control::Choice { index: 1, .. }
+    ));
+    for json in [
+        r#"{"control_values":[[0,true]]}"#,
+        r#"{"control_values":[[0,8]]}"#,
+        r#"{"control_values":[[2,1]]}"#,
+        r#"{"control_values":[[1,-1]]}"#,
+        r#"{"control_values":[[1,0.5]]}"#,
+        r#"{"control_values":[[1,2]]}"#,
+        r#"{"control_values":[[0,4],[0,5]]}"#,
+        r#"{"controls":[{"id":"distance","value":4}],"control_values":[[0,5]]}"#,
+    ] {
+        assert!(
+            PanelPatch::parse(json)
+                .unwrap()
+                .apply(&original, &Default::default())
+                .is_err(),
+            "{json}"
+        );
+    }
+    assert!(matches!(
+        original.controls[0],
+        Control::Slider { value: 3., .. }
+    ));
 }
 
 /// Route and scalar changes preserve the schema, and invalid batches leave it untouched.
@@ -120,6 +316,32 @@ fn local_panel_bundle_checks_routes_and_replaces_custom_bindings() {
     assert_eq!(
         unchanged.surface.as_ref().unwrap().bindings["#custom"],
         SurfaceValue::Bool(true)
+    );
+    let updated = PanelPatch::parse(r##"{"binding_changes":{"#other":2}}"##)
+        .unwrap()
+        .apply(&unchanged, &bundle.surfaces)
+        .unwrap();
+    assert_eq!(
+        updated.surface.as_ref().unwrap().bindings["#custom"],
+        SurfaceValue::Bool(true)
+    );
+    assert_eq!(
+        updated.surface.as_ref().unwrap().bindings["#other"],
+        SurfaceValue::Number(2.)
+    );
+    assert!(
+        !unchanged
+            .surface
+            .as_ref()
+            .unwrap()
+            .bindings
+            .contains_key("#other")
+    );
+    assert!(
+        PanelPatch::parse(r##"{"binding_changes":{"bad":true}}"##)
+            .unwrap()
+            .apply(&unchanged, &bundle.surfaces)
+            .is_err()
     );
     assert!(
         PanelPatch::parse(r##"{"surface":"main","bindings":{"bad":true}}"##)
@@ -247,7 +469,7 @@ fn expanded_panels_still_reject_controls_above_the_capacity() {
 
 /// Supplies a small extension-authored screen with one declared button route.
 fn surface(action: &str) -> Surface {
-    Surface {
+    Surface { collections: Default::default(), previews: Default::default(),
         transitions: Default::default(),
         screen: "extension.screen".into(),
         document: serde_json::json!({"namespace":"extension","screen":{
@@ -443,7 +665,7 @@ fn bounded_large_external_catalog_rejects_one_excess_control() {
 #[test]
 fn resolved_template_routes_still_require_declared_panel_controls() {
     let mut spec = panel();
-    spec.surface=Some(Surface {transitions:Default::default(),screen:"extension.screen".into(),bindings:Default::default(),document:serde_json::json!({"namespace":"extension","button":{"type":"button","$action|default":"mod.control:0","button_mappings":[{"from_button_id":"button.menu_select","mapping_type":"pressed","to_button_id":"$action"}]},"screen":{"type":"panel","controls":[{"chosen@extension.button":{"$action":"mod.control:7"}}]}}).to_string()});
+    spec.surface=Some(Surface { collections: Default::default(), previews: Default::default(),transitions:Default::default(),screen:"extension.screen".into(),bindings:Default::default(),document:serde_json::json!({"namespace":"extension","button":{"type":"button","$action|default":"mod.control:0","button_mappings":[{"from_button_id":"button.menu_select","mapping_type":"pressed","to_button_id":"$action"}]},"screen":{"type":"panel","controls":[{"chosen@extension.button":{"$action":"mod.control:7"}}]}}).to_string()});
     assert!(spec.validate().is_err());
     let surface = spec.surface.as_mut().unwrap();
     surface.document = surface.document.replace("mod.control:7", "mod.control:0");
@@ -453,6 +675,8 @@ fn resolved_template_routes_still_require_declared_panel_controls() {
 /// A surface whose panel carries `transform` and a bound scale over a `child` control.
 fn transformed(transform: serde_json::Value, child: &str) -> Surface {
     Surface {
+        collections: Default::default(),
+        previews: Default::default(),
         transitions: Default::default(),
         screen: "extension.screen".into(),
         document: serde_json::json!({"namespace":"extension","screen":{
@@ -490,5 +714,225 @@ fn surfaces_keep_bounded_transforms_and_reject_rotated_clips() {
             transformed(transform.clone(), child).validate().is_err(),
             "{transform} over {child}"
         );
+    }
+}
+
+/// Collection viewports obey the same inherited clipping constraints as authored controls.
+#[test]
+fn surfaces_reject_rotated_collection_viewports() {
+    use super::{CollectionDefinition, SurfaceCollection};
+
+    let template = Surface {
+        previews: Default::default(),
+        screen: "extension.tile".into(),
+        document: serde_json::json!({"namespace":"extension", "tile":{
+            "type":"panel", "size":[20,20]
+        }})
+        .to_string(),
+        bindings: Default::default(),
+        transitions: Default::default(),
+        collections: Default::default(),
+    };
+    let mut surface = transformed(serde_json::json!({"scale":0.97}), "panel");
+    let mut document: serde_json::Value = serde_json::from_str(&surface.document).unwrap();
+    document["screen"]["controls"][0]["card"]["controls"][0]["inner"]["cinnabar_collection"] =
+        serde_json::json!("items");
+    surface.collections.insert(
+        "items".into(),
+        SurfaceCollection {
+            reveal: None,
+            definition: std::sync::Arc::new(CollectionDefinition {
+                template,
+                columns: 1,
+                viewport: [48.0, 40.0],
+                items: vec![],
+            }),
+            order: vec![],
+        },
+    );
+    surface.document = document.to_string();
+    surface.validate().unwrap();
+    surface.resolved_document().unwrap();
+    for bound in [false, true] {
+        let card = &mut document["screen"]["controls"][0]["card"];
+        card["cinnabar_transform"] = serde_json::json!({"rotation":if bound {0} else {45}});
+        if bound {
+            card["bindings"][0]["binding_name_override"] = serde_json::json!("#cinnabar_rotation");
+        }
+        surface.document = document.to_string();
+        assert!(
+            surface.validate().is_err(),
+            "rotated collection admitted (bound={bound})"
+        );
+        assert!(
+            surface.actions().is_err(),
+            "rotated collection actions admitted (bound={bound})"
+        );
+        assert!(
+            surface.resolved_document().is_err(),
+            "rotated collection document admitted (bound={bound})"
+        );
+    }
+    let card = &mut document["screen"]["controls"][0]["card"];
+    card["cinnabar_transform"] = serde_json::json!({"scale":0.97});
+    card["bindings"][0]["binding_name_override"] = serde_json::json!("#cinnabar_scale");
+    card["controls"][0]["inner"]["cinnabar_transform"] = serde_json::json!({"rotation":45});
+    surface.document = document.to_string();
+    assert!(surface.validate().is_err(), "rotated placeholder admitted");
+    assert!(
+        surface.resolved_document().is_err(),
+        "rotated placeholder document admitted"
+    );
+}
+
+/// Preview declarations belong to the immutable route definition, alongside collection data.
+#[test]
+fn surface_definition_tracks_previews_but_not_scalar_bindings() {
+    let mut original = surface("mod.control:0");
+    original.previews.insert(
+        "sample".into(),
+        preview::ControlPreview {
+            reference: "fixture.first".into(),
+            ..Default::default()
+        },
+    );
+    let mut changed = original.clone();
+    changed
+        .bindings
+        .insert("#value".into(), SurfaceValue::Number(2.));
+    assert!(original.same_definition(&changed));
+    changed.previews.get_mut("sample").unwrap().reference = "fixture.second".into();
+    assert!(!original.same_definition(&changed));
+}
+
+/// Live and navigation capabilities are additive defaults and part of immutable route schemas.
+#[test]
+fn text_field_capabilities_default_off_and_preserve_schema() {
+    let control: Control = serde_json::from_value(
+        serde_json::json!({"kind":"text", "id":"search", "label":"Search", "value":""}),
+    )
+    .unwrap();
+    assert!(matches!(
+        &control,
+        Control::Text {
+            live: false,
+            navigation_keys: false,
+            ..
+        }
+    ));
+    for flag in ["live", "navigation_keys"] {
+        let mut changed = serde_json::to_value(&control).unwrap();
+        changed[flag] = true.into();
+        let changed: Control = serde_json::from_value(changed).unwrap();
+        assert!(!control.same_schema(&changed));
+    }
+}
+
+/// Motion is an optional typed value; failed transactions cannot change the retained panel.
+#[test]
+fn motion_patches_are_optional_typed_and_atomic() {
+    for enabled in [false, true] {
+        let mut original = panel();
+        original.motion = enabled;
+        for json in ["{}", r#"{"motion":null}"#] {
+            let changed = PanelPatch::parse(json)
+                .unwrap()
+                .apply(&original, &Default::default())
+                .unwrap();
+            assert_eq!(changed, original);
+        }
+        for next in [false, true] {
+            let patch = serde_json::json!({"motion":next,"control_values":[[0,4]]});
+            let changed = PanelPatch::parse(&patch.to_string())
+                .unwrap()
+                .apply(&original, &Default::default())
+                .unwrap();
+            assert_eq!(changed.motion, next);
+            assert!(matches!(
+                changed.controls[0],
+                Control::Slider { value: 4., .. }
+            ));
+            for invalid in [
+                serde_json::json!({"motion":next,"control_values":[[0,8]]}),
+                serde_json::json!({"motion":next,"surface":"missing"}),
+                serde_json::json!({"motion":next,"control_values":[[0,4]],
+                    "collection_order":{"missing":[0]}}),
+            ] {
+                let retained = original.clone();
+                assert!(
+                    PanelPatch::parse(&invalid.to_string())
+                        .unwrap()
+                        .apply(&original, &Default::default())
+                        .is_err()
+                );
+                assert_eq!(original, retained);
+            }
+        }
+    }
+    for json in [
+        r#"{"motion":0}"#,
+        r#"{"motion":"false"}"#,
+        r#"{"motion":[]}"#,
+    ] {
+        assert!(PanelPatch::parse(json).is_err());
+    }
+}
+
+/// Route defaults and control schema switches cannot overwrite an existing motion preference.
+#[test]
+fn route_patches_retain_motion_until_explicitly_changed() {
+    let surface = serde_json::json!({"screen":"local.page","document":
+        serde_json::json!({"namespace":"local","page":{"type":"panel"}}).to_string()});
+    for default in [false, true] {
+        let mut initial = panel();
+        initial.motion = default;
+        let bundle = PanelBundle::parse(
+            &serde_json::json!({
+                "panel":initial,"surfaces":{"main":surface,"options":surface},
+                "control_schemas":{"options":[{"kind":"button","id":"back","label":"Back"}]}
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let mut current = PanelPatch::parse(&serde_json::json!({"motion":!default}).to_string())
+            .unwrap()
+            .apply_bundle(&bundle.panel, &bundle)
+            .unwrap();
+        for route in ["main", "options", "options", "main"] {
+            let patch = serde_json::json!({"surface":route});
+            current = PanelPatch::parse(&patch.to_string())
+                .unwrap()
+                .apply_bundle(&current, &bundle)
+                .unwrap();
+            assert_eq!(current.motion, !default);
+            let direct = PanelPatch::parse(&patch.to_string())
+                .unwrap()
+                .apply(&current, &bundle.surfaces)
+                .unwrap();
+            assert_eq!(direct.motion, !default);
+        }
+        let restored = PanelPatch::parse(
+            &serde_json::json!({
+                "surface":"options","motion":default
+            })
+            .to_string(),
+        )
+        .unwrap()
+        .apply_bundle(&current, &bundle)
+        .unwrap();
+        assert_eq!(restored.motion, default);
+        let retained = current.clone();
+        assert!(
+            PanelPatch::parse(
+                &serde_json::json!({
+                    "surface":"options","motion":default,"control_values":[[0,1]]
+                })
+                .to_string()
+            )
+            .unwrap()
+            .apply_bundle(&current, &bundle)
+            .is_err()
+        );
+        assert_eq!(current, retained);
     }
 }

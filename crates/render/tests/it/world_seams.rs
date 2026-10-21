@@ -278,10 +278,9 @@ impl Fixture {
                 wgpu::BufferUsages::UNIFORM,
             ),
             atmosphere: gpu.buffer(bytemuck::cast_slice(std::slice::from_ref(&frame)), uniform),
-            lightmap: gpu.buffer(
-                bytemuck::cast_slice(&render_model::LightmapInputs::default().build()),
-                uniform,
-            ),
+            lightmap: gpu.lightmap(bytemuck::cast_slice(
+                &render_model::LightmapInputs::default().build(),
+            )),
             atlas: solid_terrain_raster::pattern_texture(&gpu),
             sampler: gpu.device.create_sampler(&wgpu::SamplerDescriptor {
                 address_mode_u: wgpu::AddressMode::Repeat,

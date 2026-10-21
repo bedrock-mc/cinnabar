@@ -59,7 +59,7 @@ pub fn after_exit(
             return Ok(());
         }
         ensure!(
-            target::access(target)? == target::Access::Writable,
+            target::access(target)?.permits_update(),
             "install is not writable; use Download update"
         );
         ensure!(

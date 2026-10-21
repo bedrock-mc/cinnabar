@@ -15,8 +15,6 @@ pub struct CraftGridItem<'a> {
     pub identifier: &'a str,
     pub metadata: u32,
     pub count: u16,
-    /// No NBT, place or break data; recipe inputs never carry any.
-    pub plain: bool,
     /// Tags the session item registry declares for this item.
     pub tags: &'a [std::sync::Arc<str>],
 }
@@ -106,10 +104,9 @@ fn accepts(ingredient: &Ingredient, item: &CraftGridItem<'_>, crafts: u16) -> bo
     } else {
         ingredient.name() == item.identifier && ingredient.accepts_metadata(item.metadata)
     };
-    kind && item.plain
-        && u16::from(ingredient.count())
-            .checked_mul(crafts)
-            .is_some_and(|needed| item.count >= needed)
+    kind && u16::from(ingredient.count())
+        .checked_mul(crafts)
+        .is_some_and(|needed| item.count >= needed)
 }
 
 /// Identifies the unique recipe a `width`-by-`width` grid forms.
@@ -118,6 +115,16 @@ pub fn match_crafting_grid(
     catalog: &RecipeCatalog,
     width: u8,
     grid: &[Option<CraftGridItem<'_>>],
+) -> CraftGridMatch {
+    match_crafting_grid_where(catalog, width, grid, |_| true)
+}
+
+/// Matches eligible recipes without allowing rejected variants to affect priority or ambiguity.
+pub(crate) fn match_crafting_grid_where(
+    catalog: &RecipeCatalog,
+    width: u8,
+    grid: &[Option<CraftGridItem<'_>>],
+    allowed: impl Fn(&RecipeHandle) -> bool,
 ) -> CraftGridMatch {
     if !catalog.is_available()
         || !matches!(width, 2 | 3)
@@ -129,6 +136,9 @@ pub fn match_crafting_grid(
     let mut best: Option<(i32, RecipeHandle)> = None;
     let mut ambiguous = false;
     for handle in catalog.crafting_recipes() {
+        if !allowed(handle) {
+            continue;
+        }
         let recipe = handle.recipe();
         let matched = if recipe.is_shapeless() {
             shapeless_matches(recipe, grid)

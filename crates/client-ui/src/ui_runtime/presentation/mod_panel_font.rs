@@ -3,11 +3,11 @@
 use std::sync::{Arc, OnceLock};
 
 use assets::{RuntimeFontCatalog, SheetGlyph};
-use render_model::{UI_LOCAL_FONT_PAGE_OFFSET, UI_LOCAL_FONT_PAGE_SIDE, UiTexturePage};
+use render_model::{
+    UI_LOCAL_FONT_PAGE_OFFSET, UI_LOCAL_FONT_PAGE_SIDE, UI_LOCAL_ICON_FONT_PAGE_SIDE, UiTexturePage,
+};
 
 use super::{UiPresentationError, UiPresentationRuntime, session_glyphs};
-
-const MAX_PRIVATE_GLYPHS: usize = 256;
 
 pub(super) struct InstalledFont {
     source: Arc<RuntimeFontCatalog>,
@@ -60,21 +60,23 @@ impl UiPresentationRuntime {
     }
 }
 
+/// Validates the private atlas and rebases its glyphs without changing game or server fonts.
 fn prepare(
     source: Arc<RuntimeFontCatalog>,
     page: usize,
 ) -> Result<InstalledFont, UiPresentationError> {
     if source.pages().len() != 1
-        || source.glyphs().len() > MAX_PRIVATE_GLYPHS
+        || source.glyphs().len() > ui::mod_panel::MAX_FONT_GLYPHS
         || !source.named_fonts().is_empty()
     {
         return Err(UiPresentationError::InvalidFontTexture);
     }
     let page = u16::try_from(page).map_err(|_| UiPresentationError::InvalidFontTexture)?;
     let texture = &source.pages()[0];
-    // The reserved slot stays RGBA, so installing a font never moves it to another bucket.
-    if [texture.width, texture.height] != [UI_LOCAL_FONT_PAGE_SIDE; 2]
-        || texture.pixels.rgba8().is_none()
+    let dimensions = [texture.width, texture.height];
+    if dimensions != [UI_LOCAL_FONT_PAGE_SIDE; 2]
+        && !(dimensions == [UI_LOCAL_ICON_FONT_PAGE_SIDE; 2]
+            && matches!(texture.pixels, assets::FontPixels::Coverage(_)))
     {
         return Err(UiPresentationError::InvalidFontTexture);
     }
@@ -82,8 +84,8 @@ fn prepare(
         glyph.page != 0
             || glyph.uv[0] >= glyph.uv[2]
             || glyph.uv[1] >= glyph.uv[3]
-            || u32::from(glyph.uv[2]) > UI_LOCAL_FONT_PAGE_SIDE
-            || u32::from(glyph.uv[3]) > UI_LOCAL_FONT_PAGE_SIDE
+            || u32::from(glyph.uv[2]) > texture.width
+            || u32::from(glyph.uv[3]) > texture.height
             || source.draw_size_64(glyph.codepoint).is_some_and(|size| {
                 size.into_iter()
                     .any(|side| side > UI_LOCAL_FONT_PAGE_SIDE * 64)

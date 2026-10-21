@@ -115,32 +115,35 @@ func (relay *Relay) allow(client netip.Addr) bool {
 	return relay.allowLocked(client, time.Now())
 }
 
-// openControl creates or resumes an account, rotates its bearer and claims its sole controller.
-func (relay *Relay) openControl(client netip.Addr, token string, now time.Time) (*webSession, func(time.Time), error) {
+// openControl creates or resumes an account and replaces its previous controller.
+// A valid bearer retires the old controller before the new generation becomes available.
+func (relay *Relay) openControl(client netip.Addr, token string, now time.Time) (*sessionController, func(time.Time), error) {
+	session, err := relay.controlSession(client, token, now)
+	if err != nil {
+		return nil, nil, err
+	}
+	session.commands.Lock()
+	defer session.commands.Unlock()
+	// Account cleanup may hold the session lock. Wait before taking the shared map lock.
+	detach, err := session.attach()
+	if err != nil {
+		return nil, nil, err
+	}
 	relay.mu.Lock()
-	defer relay.mu.Unlock()
 	if relay.ctx.Err() != nil {
-		return nil, nil, net.ErrClosed
+		err = net.ErrClosed
+	} else if _, exists := relay.sessions[session]; !exists || token != "" && relay.resumeLocked(token, now) != session {
+		// The bearer or session may have expired while this controller waited.
+		err = errResume
+	} else if session.client != client && relay.perIP[client] >= maxPerIP {
+		err = errAdmission
 	}
-	session := relay.resumeLocked(token, now)
-	if token != "" && (session == nil || session.controlOpen) {
-		return nil, nil, errResume
+	if err != nil {
+		relay.mu.Unlock()
+		detach(now)
+		return nil, nil, err
 	}
-	if session == nil {
-		if len(relay.sessions) >= maxSessions || relay.perIP[client] >= maxPerIP {
-			return nil, nil, errAdmission
-		}
-		var err error
-		session, err = newWebSession(relay, client, now)
-		if err != nil {
-			return nil, nil, err
-		}
-		relay.sessions[session] = struct{}{}
-		relay.perIP[client]++
-	} else if session.client != client {
-		if relay.perIP[client] >= maxPerIP {
-			return nil, nil, errAdmission
-		}
+	if session.client != client {
 		relay.perIP[session.client]--
 		if relay.perIP[session.client] == 0 {
 			delete(relay.perIP, session.client)
@@ -148,75 +151,104 @@ func (relay *Relay) openControl(client netip.Addr, token string, now time.Time) 
 		session.client = client
 		relay.perIP[client]++
 	}
-	detach, err := session.attach()
-	if err != nil {
-		return nil, nil, err
+	if session.controller != nil {
+		session.controller.cancel()
 	}
-	session.controlOpen = true
-	session.controlCtx, session.controlCancel = context.WithCancel(relay.ctx)
 	session.generation++
+	ctx, cancel := context.WithCancel(relay.ctx)
+	controller := &sessionController{session: session, ctx: ctx, cancel: cancel, generation: session.generation}
+	session.controller = controller
 	relay.rotateLocked(session, token, now)
 	// A fresh account has no earlier capability to protect. Its first ping may replace
 	// the welcome while retaining it; a resume must first confirm its replacement welcome.
 	if token == "" {
 		session.tokenPending = false
 	}
+	relay.mu.Unlock()
 	var once sync.Once
-	return session, func(now time.Time) {
+	return controller, func(now time.Time) {
 		once.Do(func() {
 			relay.mu.Lock()
-			session.controlOpen = false
-			session.controlCancel()
-			detach(now)
+			controller.cancel()
+			if session.controller == controller {
+				session.controller = nil
+			}
 			relay.mu.Unlock()
+			detach(now)
 		})
 	}, nil
 }
 
-// welcome refreshes acknowledged capabilities and repeats outstanding ones at their original expiry.
-func (relay *Relay) welcome(session *webSession, refresh bool, now time.Time) controlEvent {
+// controlSession finds or creates an account without waiting for existing session work.
+func (relay *Relay) controlSession(client netip.Addr, token string, now time.Time) (*webSession, error) {
 	relay.mu.Lock()
 	defer relay.mu.Unlock()
+	if relay.ctx.Err() != nil {
+		return nil, net.ErrClosed
+	}
+	if token != "" {
+		if session := relay.resumeLocked(token, now); session != nil {
+			return session, nil
+		}
+		return nil, errResume
+	}
+	if len(relay.sessions) >= maxSessions || relay.perIP[client] >= maxPerIP {
+		return nil, errAdmission
+	}
+	session, err := newWebSession(relay, client, now)
+	if err != nil {
+		return nil, err
+	}
+	relay.sessions[session] = struct{}{}
+	relay.perIP[client]++
+	return session, nil
+}
+
+// welcome refreshes current capabilities; a retired controller gets no capability to publish.
+func (relay *Relay) welcome(controller *sessionController, refresh bool, now time.Time) (controlEvent, error) {
+	relay.mu.Lock()
+	defer relay.mu.Unlock()
+	session := controller.session
+	if session.controller != controller || controller.ctx.Err() != nil {
+		return controlEvent{}, net.ErrClosed
+	}
 	if refresh && !session.tokenPending {
 		relay.rotateLocked(session, session.token, now)
 	}
 	expires := relay.tokens[session.token].expires.Sub(now)
 	return controlEvent{Type: bridgecontract.RelayEventWelcome, Version: bridgecontract.RelayVersion,
-		Resume: session.token, Generation: session.generation, ExpiresSeconds: max(0, int((expires+time.Second-1)/time.Second))}
+		Resume: session.token, Generation: controller.generation, ExpiresSeconds: max(0, int((expires+time.Second-1)/time.Second))}, nil
 }
 
 // playSession checks a fallback bearer or the authenticated QUIC account and its generation.
-func (relay *Relay) playSession(bound *webSession, hello hello, now time.Time) (*webSession, context.Context, error) {
+func (relay *Relay) playSession(bound *sessionController, hello hello, now time.Time) (*webSession, context.Context, error) {
 	relay.mu.Lock()
 	defer relay.mu.Unlock()
-	session := bound
-	if session == nil {
+	var session *webSession
+	if bound == nil {
 		session = relay.resumeLocked(hello.Resume, now)
 		if session == nil {
 			return nil, nil, errResume
 		}
+	} else {
+		session = bound.session
+		if session.controller != bound {
+			return nil, nil, errResume
+		}
 	}
-	if !session.controlOpen || hello.Generation != session.generation {
+	controller := session.controller
+	if controller == nil || controller.ctx.Err() != nil || hello.Generation != controller.generation {
 		return nil, nil, errResume
 	}
-	return session, session.controlCtx, nil
+	return session, controller.ctx, nil
 }
 
 // expire forgets detached accounts and old address limiters using caller time.
 func (relay *Relay) expire(now time.Time) {
 	relay.mu.Lock()
-	var expired []*webSession
+	sessions := make([]*webSession, 0, len(relay.sessions))
 	for session := range relay.sessions {
-		if session.expired(now, idleTTL) {
-			delete(relay.sessions, session)
-			delete(relay.tokens, session.token)
-			delete(relay.tokens, session.previousToken)
-			relay.perIP[session.client]--
-			if relay.perIP[session.client] == 0 {
-				delete(relay.perIP, session.client)
-			}
-			expired = append(expired, session)
-		}
+		sessions = append(sessions, session)
 	}
 	for client, entry := range relay.limiters {
 		if now.Sub(entry.lastSeen) > idleTTL {
@@ -224,8 +256,25 @@ func (relay *Relay) expire(now time.Time) {
 		}
 	}
 	relay.mu.Unlock()
-	for _, session := range expired {
-		session.close()
+	for _, session := range sessions {
+		session.commands.Lock()
+		expired := session.expired(now, idleTTL)
+		relay.mu.Lock()
+		_, exists := relay.sessions[session]
+		if expired && exists {
+			delete(relay.sessions, session)
+			delete(relay.tokens, session.token)
+			delete(relay.tokens, session.previousToken)
+			relay.perIP[session.client]--
+			if relay.perIP[session.client] == 0 {
+				delete(relay.perIP, session.client)
+			}
+		}
+		relay.mu.Unlock()
+		session.commands.Unlock()
+		if expired && exists {
+			session.close()
+		}
 	}
 }
 

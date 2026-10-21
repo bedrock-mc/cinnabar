@@ -3,9 +3,11 @@ package proxy
 import (
 	"errors"
 
+	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 )
 
@@ -59,15 +61,19 @@ func relayPreLoginDisconnect(downstream packetDisconnecter, err error) {
 	_ = callSafely("delivering pre-login disconnect", func() error { return downstream.DisconnectPacket(packet.Disconnect{Message: joinFailureKey(err)}) })
 }
 
+// joinFailureKey names the lang key a failed join reads as. A sign-in token the local clock
+// sees as not yet issued or valid means this device's clock is behind the identity service's.
 func joinFailureKey(err error) string {
 	var realm *realmJoinError
 	var admission *PackAdmissionError
 	switch {
-	case errors.Is(err, errResourcePackTransferTooLarge), errors.As(err, &admission):
-		return "disconnectionScreen.resourcePack"
+	case errors.Is(err, errResourcePackSizeUnsupported), errors.As(err, &admission):
+		return bridgecontract.DisconnectKeyResourcePack
+	case errors.Is(err, jwt.ErrIssuedInTheFuture), errors.Is(err, jwt.ErrNotValidYet):
+		return bridgecontract.DisconnectKeyDeviceClock
 	case errors.As(err, &realm):
-		return "disconnectionScreen.cantConnectToRealm"
+		return bridgecontract.DisconnectKeyCantConnectToRealm
 	default:
-		return "disconnectionScreen.cantConnect"
+		return bridgecontract.DisconnectKeyCantConnect
 	}
 }

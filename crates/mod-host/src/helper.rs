@@ -8,6 +8,7 @@ use server_experience::{
     policy::*,
     runtime::{Capabilities, Principal, Transaction},
     screen::{self, GuiSize},
+    session_data::SessionItems,
 };
 use std::{
     io::{Read, Write},
@@ -19,16 +20,18 @@ use std::{
 mod supervisor;
 
 const MAX_STARTUP_IPC: usize = MAX_COMPONENT_BYTES * 2 + MAX_HOST_OUTPUT;
+/// A dispatch's session items, which a dispatch carries only when they changed.
+const MAX_ITEMS_IPC: usize = 8 << 20;
 // Decimal byte encoding needs up to four bytes per payload byte, plus bounded metadata.
-const MAX_DISPATCH_IPC: usize = MAX_MESSAGE_BYTES * 4 + MAX_HOST_OUTPUT;
+const MAX_DISPATCH_IPC: usize = MAX_MESSAGE_BYTES * 4 + MAX_HOST_OUTPUT + MAX_ITEMS_IPC;
 /// A reply: one callback's output, or a failure, with room for the reply's own framing.
 const MAX_REPLY_IPC: usize = MAX_HOST_OUTPUT + 2 * MAX_FAILURE_REASON_BYTES;
 const HELPER_DEADLINE: Duration = Duration::from_secs(10);
 
 /// The helper IPC protocol. A client and its helper ship together; a helper of another version
 /// refuses the start. 2 added `protocol` to the start and replies that are a failure instead of
-/// the helper exiting.
-const HELPER_PROTOCOL: u32 = 2;
+/// the helper exiting; 3 the session items a dispatch carries.
+const HELPER_PROTOCOL: u32 = 3;
 /// UTF-8 bytes of a failure's reason, its error chain and guest backtrace; the rest is cut off
 /// at a char boundary.
 pub const MAX_FAILURE_REASON_BYTES: usize = 2048;
@@ -109,6 +112,8 @@ pub enum Event {
         view: String,
         range: screen::ScrollRange,
     },
+    /// Shift is now `held` or not while the modal has focus, to `shift-changed`.
+    Shift { held: bool },
 }
 
 impl Event {
@@ -130,6 +135,7 @@ impl Event {
             Event::Scrolled { view, range } => {
                 server_experience::manifest::identifier(view) && range.valid()
             }
+            Event::Shift { .. } => true,
         };
         ensure!(valid, "helper event too large or malformed");
         Ok(())
@@ -147,6 +153,7 @@ impl Event {
             Event::Resized { .. } => "modal-resized",
             Event::Text { .. } => "text-changed",
             Event::Scrolled { .. } => "scroll-changed",
+            Event::Shift { .. } => "shift-changed",
         }
     }
 }
@@ -237,6 +244,10 @@ pub struct Dispatch {
     pub epoch: u64,
     /// The bundle's open modal's size, which `ui.modal-size` returns; none while it is closed.
     pub gui: Option<GuiSize>,
+    /// The session's items, which `items` reads from this callback on; none when unchanged
+    /// since the last dispatch that carried them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub items: Option<SessionItems>,
 }
 
 pub struct Helper {
@@ -417,6 +428,9 @@ pub fn serve_developer() -> Result<()> {
         let request: Dispatch = read_frame(&mut input, MAX_DISPATCH_IPC)?;
         let callback = request.event.callback();
         host.set_modal_size(request.gui);
+        if let Some(items) = request.items {
+            host.set_session(std::sync::Arc::new(items.into()));
+        }
         let reply = match host.dispatch(&request.event, request.epoch) {
             Ok(transaction) => Reply::Committed {
                 transaction,

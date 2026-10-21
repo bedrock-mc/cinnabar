@@ -53,8 +53,9 @@ pub use self::clocks::{
     WorldClockUpdateEvent,
 };
 pub use self::custom_blocks::{
-    CustomBlock, CustomBlockPhysics, CustomBlockVisuals, CustomBlocks, CustomBox, CustomCollision,
-    CustomHashedState, CustomMaterialInstance, CustomPermutation, CustomPhysicalComponents,
+    CustomBlock, CustomBlockMining, CustomBlockPhysics, CustomBlockVisuals, CustomBlocks,
+    CustomBox, CustomCollision, CustomHashedState, CustomMaterialInstance, CustomMiningItem,
+    CustomMiningSpeed, CustomPermutation, CustomPhysicalComponents, CustomPlacement,
     CustomSelection, CustomStateAxis, CustomStateValue, CustomTransformation,
     CustomVisualComponents, block_name_sort_key, block_state_network_hash,
 };
@@ -74,18 +75,15 @@ pub use self::events::{
 };
 pub use self::game_mode::PlayerGameMode;
 use self::game_rules::{
-    daylight_cycle_rule_update, death_rules, hud_rules, weather_cycle_rule_update,
+    crafting_rules, daylight_cycle_rule_update, death_rules, hud_rules, weather_cycle_rule_update,
 };
 pub(crate) use self::level_chunk::normalize_level_chunk_payload;
-pub use self::requests::request_sub_chunk_column;
+pub use self::requests::{request_sub_chunk_column, request_sub_chunks};
 
 use protocol_ids::LevelEvent;
 
 /// Client safety limit for block storage layers in update packets.
 pub const MAX_BLOCK_LAYERS: usize = 16;
-
-/// Maximum Y offsets emitted in one column SubChunkRequest.
-pub const MAX_SUB_CHUNK_REQUESTS: usize = 128;
 
 /// Maximum dimension definitions retained from one server packet or session.
 pub const MAX_DIMENSION_DEFINITIONS: usize = 64;
@@ -244,6 +242,12 @@ pub enum WorldPacketError {
 
     #[error("SubChunkRequest base Y {base_y} plus offset {offset} overflows i32")]
     SubChunkRequestYOverflow { base_y: i32, offset: usize },
+
+    #[error("SubChunkRequest position {position:?} is outside the offsets from {center:?}")]
+    SubChunkRequestOutOfRange {
+        center: [i32; 3],
+        position: [i32; 3],
+    },
 }
 
 impl From<ActorPacketError> for WorldPacketError {
@@ -444,8 +448,27 @@ world_packets! {
     PlayerHotbar(packet) => WorldEvent::Inventory(normalize_hotbar(packet)?),
     ItemStackResponse(packet) => WorldEvent::Inventory(normalize_response(packet)?),
     ContainerOpen(packet) => WorldEvent::Inventory(normalize_container_open(packet)?),
+    UpdateTrade(packet) => {
+        let Some(event) = crate::inventory::normalize_trade(&packet) else { return Ok(None); };
+        WorldEvent::Inventory(crate::InventoryEvent::Trade(event))
+    },
     ContainerClose(packet) => WorldEvent::Inventory(normalize_container_close(packet)?),
+    ContainerRegistryCleanup(packet) => {
+        WorldEvent::Inventory(crate::inventory::normalize_container_registry_cleanup(packet)?)
+    },
     ContainerSetData(packet) => WorldEvent::Inventory(normalize_container_data(packet)?),
+    UnlockedRecipes(packet) => WorldEvent::Inventory(crate::InventoryEvent::RecipeUnlocks(
+        crate::inventory::recipes::normalize_recipe_unlocks(packet)
+    )),
+    SetPlayerInventoryOptions(packet) => {
+        WorldEvent::Inventory(crate::inventory::normalize_inventory_options(packet))
+    },
+    SetPlayerFurnaceOptions(packet) => {
+        let Some(event) = crate::inventory::normalize_furnace_options(packet) else {
+            return Ok(None);
+        };
+        WorldEvent::Inventory(event)
+    },
     PlayerEnchantOptions(packet) => {
         WorldEvent::Inventory(crate::inventory::normalize_enchant_options(packet)?)
     },
@@ -505,7 +528,13 @@ world_packets! {
     BlockEvent(packet) => {
         WorldEvent::BlockEvent(block_side::normalize_block_event(&packet, current_dimension))
     },
-    ChunkRadiusUpdated(packet) => WorldEvent::ChunkRadiusUpdated(packet.chunk_radius.0),
+    ChunkRadiusUpdated(packet) => {
+        if packet.chunk_radius.0 > 0 {
+            bridge::join_profile::JoinProfile::current()
+                .mark_once(bridge::join_profile::Milestone::ChunkRadiusReply);
+        }
+        WorldEvent::ChunkRadiusUpdated(packet.chunk_radius.0)
+    },
     NetworkChunkPublisherUpdate(packet) => {
         let center = &packet.new_position_for_view;
         WorldEvent::PublisherUpdate(PublisherUpdateEvent {
@@ -572,7 +601,12 @@ world_packets! {
         let weather_cycle = weather_cycle_rule_update(rules);
         let hud = hud_rules(rules);
         let death = death_rules(rules);
-        if daylight_cycle.is_none() && weather_cycle.is_none() && hud.is_empty() && death.is_empty()
+        let crafting = crafting_rules(rules);
+        if daylight_cycle.is_none()
+            && weather_cycle.is_none()
+            && hud.is_empty()
+            && death.is_empty()
+            && crafting.is_empty()
         {
             return Ok(None);
         }
@@ -581,6 +615,7 @@ world_packets! {
             weather_cycle,
             hud,
             death,
+            crafting,
         })
     },
     LevelEventGeneric(packet) => {

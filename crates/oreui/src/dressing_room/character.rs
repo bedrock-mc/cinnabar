@@ -30,7 +30,10 @@ pub(super) fn draw(
     canvas.fill(badge, theme::PRIMARY_ROLE.shadow)?;
     canvas.text_centred("EQUIPPED", badge, CAPTION, TEXT, false)?;
     let cape_tab = view.dressing_room.section == DressingRoomSection::Capes;
-    let custom = if cape_tab {
+    let hat_tab = view.dressing_room.section == DressingRoomSection::Cosmetics;
+    let custom = if hat_tab {
+        false
+    } else if cape_tab {
         view.dressing_room
             .selected_cape()
             .is_some_and(|cape| cape.imported)
@@ -73,7 +76,17 @@ pub(super) fn draw(
         [left, hint_bottom, right, hint_bottom + canvas.r(EDGE)],
         theme::BEVEL_LIGHT,
     )?;
-    let (name, caption) = if cape_tab {
+    let (name, caption) = if hat_tab {
+        let selected = view
+            .dressing_room
+            .selected_cosmetics
+            .values()
+            .filter_map(|id| cosmetics::Item::from_id(id.as_deref()?))
+            .next();
+        selected.map_or(("No cosmetics", "Your original look"), |item| {
+            (item.name(), "Select again to remove")
+        })
+    } else if cape_tab {
         view.dressing_room
             .selected_cape()
             .map_or(("No cape", "A clean silhouette."), |cape| {
@@ -108,7 +121,7 @@ pub(super) fn draw(
         CAPTION,
         TEXT_DIMMER,
     )?;
-    if !cape_tab {
+    if !cape_tab && !hat_tab {
         let skin = view.dressing_room.selected_skin();
         let mut y = details_top + canvas.r(6.2);
         if custom && skin.is_some_and(|skin| skin.model != SkinModel::Custom) {
@@ -175,6 +188,8 @@ pub(super) fn draw(
         ],
         visible_skins: Vec::new(),
         visible_capes: Vec::new(),
+        visible_cosmetics: Vec::new(),
+        filter_anchor: None,
     })
 }
 

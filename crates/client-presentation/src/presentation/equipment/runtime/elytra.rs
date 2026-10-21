@@ -1,7 +1,5 @@
 //! Worn wings use the pack's controller, movement queries and body attachment.
 
-use actor_animation::AttachableAnimationInput;
-
 use super::*;
 
 /// Vanilla's `elytra` material derives `entity_alphatest`: alpha-tested and double-sided.
@@ -23,22 +21,20 @@ impl EquipmentRuntime {
         &mut self,
         body: &ActorRigSubmission,
         item: &WornItem,
+        source: pack::BindingSource,
         equipment: &ActorEquipmentInput,
         animation: EquipmentAnimation<'_>,
         layers: &mut Vec<EquipmentPresentation>,
     ) {
-        let variables = [("variable.is_enchanted", f32::from(item.enchanted))];
-        let input = equipment.attachable_input(AttachableAnimationInput {
-            worn: true,
-            worn_slot: ArmorSlot::Chestplate as u8,
-            frame_alpha: animation.frame_alpha,
-            delta_seconds: Some(animation.delta_seconds),
-            owner_variables: &variables,
-            ..Default::default()
-        });
-        let Some((catalog, from_pack)) = self.binding_source(&item.identifier) else {
-            return;
-        };
+        let variables = [("variable.is_enchanted", f32::from(item.has_glint()))];
+        let input = animation.worn_input(equipment, ArmorSlot::Chestplate, &variables);
+        let pack::BindingSource {
+            ref catalog,
+            from_pack,
+            index,
+            ..
+        } = source;
+        let binding = &catalog.bindings()[index];
         let (assets, runtime) = if from_pack {
             let Some(pack) = self.pack.as_mut() else {
                 return;
@@ -47,16 +43,18 @@ impl EquipmentRuntime {
         } else {
             (Arc::clone(&self.assets), &mut self.attachables)
         };
-        let Some(evaluated) =
-            runtime.evaluate(&item.identifier, animation.owner, animation.rig, input)
-        else {
+        let Some(evaluated) = runtime.evaluate(
+            binding.attachable_identifier(),
+            animation.owner,
+            animation.rig,
+            input,
+        ) else {
             return;
         };
         // The scene registers only each binding's catalog default model.
-        let registered = catalog
-            .binding(&item.identifier)
-            .filter(|binding| binding.geometry.resolution == EntityDependencyResolution::Catalog)
-            .and_then(|binding| find_geometry_index(&assets, &binding.geometry.identifier));
+        let registered = (binding.geometry.resolution == EntityDependencyResolution::Catalog)
+            .then(|| find_geometry_index(&assets, &binding.geometry.identifier))
+            .flatten();
         // Each material group draws apart; later texture slots are samplers of that draw.
         let groups: Vec<_> = evaluated
             .render
@@ -105,9 +103,9 @@ impl EquipmentRuntime {
         }
         let ids =
             std::iter::once(super::super::ELYTRA_LAYER).chain(super::super::ELYTRA_GROUP_LAYERS);
-        for (layer_id, (index, pose, hidden, material, state, source)) in ids.zip(groups) {
+        for (layer_id, (index, pose, hidden, material, state, texture_source)) in ids.zip(groups) {
             let material = render_model::ActorMaterial {
-                kind: if item.enchanted {
+                kind: if item.has_glint() {
                     assets::EntityRenderMaterial::Glint
                 } else {
                     material
@@ -120,16 +118,16 @@ impl EquipmentRuntime {
                 },
                 ..Default::default()
             };
-            let Some(source) = assets.sources().get(source as usize) else {
+            let Some(texture_source) = assets.sources().get(texture_source as usize) else {
                 continue;
             };
-            let texture = source
+            let texture = texture_source
                 .path
                 .strip_suffix(".png")
-                .or_else(|| source.path.strip_suffix(".tga"));
-            let Some((_, _, location)) = texture.and_then(|texture| {
-                self.draw_artwork(&item.identifier, texture, (Arc::clone(&catalog), from_pack))
-            }) else {
+                .or_else(|| texture_source.path.strip_suffix(".tga"));
+            let Some((_, _, location)) =
+                texture.and_then(|texture| self.draw_artwork(texture, &source))
+            else {
                 continue;
             };
             let Some(geometry) = assets.geometries().get(index as usize) else {

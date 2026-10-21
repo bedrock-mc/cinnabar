@@ -478,7 +478,6 @@
     }
   },
   "unresolved_retail": [
-    "minecraft:shelf_mushroom",
     "minecraft:straw_bed"
   ],
   "movement": [
@@ -584,7 +583,7 @@
     }
   ],
   "movement_census": {
-    "identifiers_sha256": "6bb6de8a82c86457e0b54e59cb912509a2896efb675994f0d76d77b04b927390",
+    "identifiers_sha256": "3ea3593aa723e2f4c89b982d2d0b60492167ad28e950085ab1dd239a5181de86",
     "unmodeled": [
       "minecraft:acacia_door",
       "minecraft:acacia_fence_gate",
@@ -640,6 +639,7 @@
       "minecraft:poplar_trapdoor",
       "minecraft:purple_shulker_box",
       "minecraft:red_shulker_box",
+      "minecraft:shelf_mushroom",
       "minecraft:spruce_door",
       "minecraft:spruce_fence_gate",
       "minecraft:spruce_trapdoor",
@@ -1070,6 +1070,31 @@
     }
   ],
   "block_rules": [
+    {
+      "id": "shape-shelf-mushroom",
+      "fact": "shape:SHELF_MUSHROOM",
+      "members": [
+        "minecraft:shelf_mushroom"
+      ],
+      "status": "verified"
+    },
+    {
+      "id": "render-authored-model",
+      "fact": "render:AuthoredModel",
+      "status": "verified",
+      "members": [
+        "minecraft:shelf_mushroom"
+      ]
+    },
+    {
+      "id": "render-grass-cross",
+      "fact": "render:GrassCross",
+      "status": "verified",
+      "members": [
+        "minecraft:short_grass",
+        "minecraft:fern"
+      ]
+    },
     {
       "id": "torch-0",
       "fact": "TORCH",
@@ -3280,6 +3305,16 @@
       ]
     },
     {
+      "id": "render-command-block",
+      "fact": "render:CommandBlock",
+      "status": "provisional",
+      "members": [
+        "minecraft:command_block",
+        "minecraft:chain_command_block",
+        "minecraft:repeating_command_block"
+      ]
+    },
+    {
       "id": "render-barrel",
       "fact": "render:Barrel",
       "status": "provisional",
@@ -3670,7 +3705,8 @@
         "minecraft:tall_grass",
         "minecraft:fern",
         "minecraft:large_fern",
-        "minecraft:bush"
+        "minecraft:bush",
+        "minecraft:reeds"
       ]
     },
     {
@@ -6807,6 +6843,8 @@
       "experience_orb": "AlphaTest",
       "player_spectator": "AlphaBlend",
       "slime_outer": "AlphaBlend",
+      "sulfur_cube": "AlphaTestNoCull",
+      "sulfur_cube_outer": "AlphaBlend",
       "breeze_wind": "Wind",
       "charged_creeper": "Charged",
       "ender_dragon": "Dragon",
@@ -6842,7 +6880,8 @@
     ],
     "item_visuals": {
       "minecraft:banner": "BlockModel",
-      "minecraft:bed": "Sprite"
+      "minecraft:bed": "Sprite",
+      "minecraft:nether_wart": "Sprite"
     },
     "alias_cubes": {
       "minecraft:bone_block": {

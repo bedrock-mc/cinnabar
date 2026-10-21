@@ -275,6 +275,7 @@ fn default_bindings() -> Vec<ActionBinding> {
     }
     bind(&mut bindings, Attack, Gameplay, MouseButton(1));
     bind(&mut bindings, Use, Gameplay, MouseButton(2));
+    bind(&mut bindings, PickItem, Gameplay, MouseButton(3));
     for (action, axis) in [
         (LookRight, XPositive),
         (LookLeft, XNegative),

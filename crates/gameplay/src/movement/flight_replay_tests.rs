@@ -1,10 +1,62 @@
+/// Server-enabled flight remains usable when the server has not granted MayFly.
+#[test]
+fn server_forced_flight_ascends_without_may_fly() {
+    let world = VersionedFloor(1);
+    let intent = ModeIntent {
+        can_fly: false,
+        flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(true),
+        creative_flight: true,
+        ability_sequence: Some(1),
+        ..Default::default()
+    };
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position(
+        [0.0, 90.0 + protocol::PLAYER_NETWORK_OFFSET, 0.0],
+        100,
+        false,
+    );
+    let first = step(&mut physics, MovementInput::default(), intent, &world);
+    assert_eq!(first.processed.mode, MovementMode::Flying);
+    let ascend = step(
+        &mut physics,
+        MovementInput {
+            jumping: true,
+            ..Default::default()
+        },
+        intent,
+        &world,
+    );
+    assert!(ascend.position[1] > first.position[1]);
+    assert!(has(
+        input_flags(&ascend, HeldInput::from(&first)),
+        PlayerInputFlags::WANT_UP
+    ));
+    let cleared = ModeIntent {
+        flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(false),
+        ability_sequence: Some(2),
+        ..intent
+    };
+    let stopped = step(&mut physics, MovementInput::default(), cleared, &world);
+    assert_eq!(stopped.processed.mode, MovementMode::Walking);
+    let ungranted = step(
+        &mut physics,
+        MovementInput {
+            jumping: true,
+            ..Default::default()
+        },
+        cleared,
+        &world,
+    );
+    assert_eq!(ungranted.processed.mode, MovementMode::Walking);
+}
+
 /// An actor's crouch flag cannot replace the keyboard's held flight-descent request.
 #[test]
 fn server_sneak_clear_preserves_held_flight_descent_during_replay() {
     let world = VersionedFloor(1);
     let intent = ModeIntent {
         can_fly: true,
-        server_flying: true,
+        flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(true),
         creative_flight: true,
         ..Default::default()
     };
@@ -52,7 +104,7 @@ fn live_server_sneak_clear_does_not_release_flight_descent() {
     );
     let intent = ModeIntent {
         can_fly: true,
-        server_flying: true,
+        flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(true),
         creative_flight: true,
         ..Default::default()
     };
@@ -90,7 +142,7 @@ fn walking_sneak_correction_does_not_rewrite_later_flight_input() {
     let walking = step(&mut physics, input, ModeIntent::default(), &world);
     let flight = ModeIntent {
         can_fly: true,
-        server_flying: true,
+        flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(true),
         creative_flight: true,
         ..Default::default()
     };

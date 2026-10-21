@@ -4,7 +4,7 @@
 use serde_json::Value;
 use uuid::Uuid;
 
-use pack_json::normalize_jsonc;
+use pack_json::parse_jsonc;
 
 use crate::{AdmissionError, Subpack};
 
@@ -54,35 +54,12 @@ pub(crate) fn read_manifest(
     pack_id: Uuid,
     version: &str,
 ) -> Result<Manifest, AdmissionError> {
-    let json = normalize_jsonc(bytes).ok_or(AdmissionError::MalformedManifest)?;
-    let root: Value =
-        serde_json::from_slice(&json).map_err(|_| AdmissionError::MalformedManifest)?;
-    let parse_format = |val: &Value| -> Option<f64> {
-        match val {
-            Value::Number(number) => number.as_f64(),
-            Value::String(text) => {
-                let trimmed = text.trim();
-                trimmed
-                    .parse::<u64>()
-                    .ok()
-                    .map(|n| n as f64)
-                    .or_else(|| {
-                        trimmed
-                            .split('.')
-                            .next()
-                            .and_then(|major| major.parse::<u64>().ok())
-                            .map(|n| n as f64)
-                    })
-            }
-            Value::Array(parts) => parts.first().and_then(|part| match part {
-                Value::Number(number) => number.as_f64(),
-                Value::String(text) => text.trim().parse::<u64>().ok().map(|n| n as f64),
-                _ => None,
-            }),
-            _ => None,
-        }
+    let root: Value = parse_jsonc(bytes).map_err(|_| AdmissionError::MalformedManifest)?;
+    let format = match &root["format_version"] {
+        Value::Number(number) => number.as_f64(),
+        Value::String(text) => text.trim().parse::<u64>().ok().map(|number| number as f64),
+        _ => None,
     };
-    let format = parse_format(&root["format_version"]);
     if !format.is_some_and(|format| (1.0..=3.0).contains(&format) && format.fract() == 0.0) {
         return Err(AdmissionError::UnsupportedManifestFormat);
     }
@@ -138,15 +115,7 @@ mod tests {
     #[test]
     fn accepts_formats_one_to_three_and_ignores_unknown_fields() {
         let resources = r#"{"type": "resources"}, {"type": "script", "language": "js"}"#;
-        for (format, version) in [
-            ("1", "[1, 2, 3]"),
-            ("2", "[1, 2, 3]"),
-            ("3", "\"1.2.3\""),
-            ("2.0", "[1, 2, 3]"),
-            ("\"2.0\"", "[1, 2, 3]"),
-            ("\"2.0.0\"", "[1, 2, 3]"),
-            ("[2, 0, 0]", "[1, 2, 3]"),
-        ] {
+        for (format, version) in [("1", "[1, 2, 3]"), ("2", "[1, 2, 3]"), ("3", "\"1.2.3\"")] {
             let text = manifest(format, version, resources);
             assert!(
                 read_manifest(text.as_bytes(), ID, "1.2.3").is_ok(),
@@ -154,16 +123,6 @@ mod tests {
             );
         }
         let text = manifest("4", "[1, 2, 3]", resources);
-        assert_eq!(
-            read_manifest(text.as_bytes(), ID, "1.2.3").err(),
-            Some(AdmissionError::UnsupportedManifestFormat)
-        );
-        let text = manifest("4.0", "[1, 2, 3]", resources);
-        assert_eq!(
-            read_manifest(text.as_bytes(), ID, "1.2.3").err(),
-            Some(AdmissionError::UnsupportedManifestFormat)
-        );
-        let text = manifest("\"4.0\"", "[1, 2, 3]", resources);
         assert_eq!(
             read_manifest(text.as_bytes(), ID, "1.2.3").err(),
             Some(AdmissionError::UnsupportedManifestFormat)

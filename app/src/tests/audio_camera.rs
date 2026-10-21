@@ -6,11 +6,11 @@ use client_presentation::local_player_camera_receipt::{
 use std::{path::Path, sync::Arc, time::Duration};
 use {
     crate::{
-        environment::WorldClock,
         local_player::{publish_local_player_frame, resolve_camera_pose},
         runtime::world::ClientWorld,
     },
     client_interaction::movement::{LocalPhysicsController, PhysicsCollisionRegistries},
+    client_presentation::environment::WorldClock,
     client_presentation::{
         camera::{CameraSettingsAuthority, FlyCamera},
         local_player::{CameraPose, LocalPlayerFrameCarrier, LocalViewPose},
@@ -303,5 +303,128 @@ fn nonfinite_pose_changed_after_writer_is_not_published_as_the_written_camera() 
             .resource::<CameraPublicationAttempt>()
             .published()
             .is_some()
+    );
+}
+
+#[test]
+fn sub_chunk_origin_uses_published_third_person_camera_without_a_new_physics_tick() {
+    use crate::runtime::world::sub_chunk_request_center;
+    let mut app = camera_app();
+    app.world_mut()
+        .resource_mut::<LocalViewPose>()
+        .set_eye_translation(Vec3::new(-0.1, 90.0, -16.1));
+    app.world_mut()
+        .resource_mut::<CameraSettingsAuthority>()
+        .cycle_perspective();
+    app.world_mut()
+        .spawn((FlyCamera::default(), Transform::default()));
+    app.update();
+    let camera = app
+        .world()
+        .resource::<CameraPublicationAttempt>()
+        .published()
+        .unwrap();
+    let tick = camera.tick;
+    let position = camera.transform.translation;
+    let expected = [
+        (position.x.floor() as i32).div_euclid(16),
+        0,
+        (position.z.floor() as i32).div_euclid(16),
+    ];
+    let owner = app.world().resource::<ClientWorld>();
+    let stream = owner.stream.as_ref().unwrap();
+    let publication = app.world().resource::<CameraPublicationAttempt>();
+    let session = app.world().resource::<WorldClock>().session_generation();
+    assert_eq!(
+        sub_chunk_request_center(stream, Some(publication), session, [3_000.0; 3]),
+        Some(expected)
+    );
+    assert_eq!(
+        sub_chunk_request_center(stream, Some(publication), session + 1, [-0.1, 900.0, -16.1]),
+        Some([-1, 0, -2])
+    );
+    app.update();
+    let publication = app.world().resource::<CameraPublicationAttempt>();
+    assert_eq!(publication.published().unwrap().tick, tick);
+    assert_eq!(
+        sub_chunk_request_center(
+            app.world()
+                .resource::<ClientWorld>()
+                .stream
+                .as_ref()
+                .unwrap(),
+            Some(publication),
+            session,
+            [3_000.0; 3]
+        ),
+        Some(expected)
+    );
+}
+
+#[test]
+fn sub_chunk_origin_rejects_stale_camera_owners_and_falls_back_without_camera() {
+    use crate::runtime::world::sub_chunk_request_center;
+    let mut app = camera_app();
+    app.world_mut()
+        .spawn((FlyCamera::default(), Transform::default()));
+    app.update();
+    let session = app.world().resource::<WorldClock>().session_generation();
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .submit(
+            1,
+            protocol::WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
+                dimension: 1,
+                position: [400.0, 80.0, 400.0],
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+    let world = app.world().resource::<ClientWorld>();
+    let stream = world.stream.as_ref().unwrap();
+    let publication = app.world().resource::<CameraPublicationAttempt>();
+    let actor = [-0.1, f32::NAN, -16.1];
+    assert_eq!(
+        sub_chunk_request_center(stream, Some(publication), session, actor),
+        Some([-1, 0, -2])
+    );
+    assert_eq!(
+        sub_chunk_request_center(stream, None, session, actor),
+        Some([-1, 0, -2])
+    );
+    assert_eq!(
+        sub_chunk_request_center(stream, None, session, [f32::NAN; 3]),
+        None
+    );
+    let replacement = camera_app();
+    assert_eq!(
+        sub_chunk_request_center(
+            replacement
+                .world()
+                .resource::<ClientWorld>()
+                .stream
+                .as_ref()
+                .unwrap(),
+            Some(publication),
+            session,
+            actor
+        ),
+        Some([-1, 0, -2])
+    );
+    let absent = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
+        local_player_runtime_id: 0,
+        local_player_unique_id: 0,
+        dimension: 0,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
+        block_network_ids_are_hashes: false,
+    });
+    assert_eq!(
+        sub_chunk_request_center(&absent, Some(publication), session, actor),
+        None
     );
 }

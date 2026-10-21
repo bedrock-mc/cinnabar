@@ -4,20 +4,21 @@
 //! Implement [`ClientPart`] on a type and export it with
 //! [`export_client_part!`](crate::export_client_part). Records travel as [`Value`]s:
 //! [`ClientPart::dispatch`] receives what the server half sends, and [`send`] sends a record on a
-//! declared channel. The host's imports are [`ui`], [`input`], [`messaging`], [`scene`] and
-//! [`media`]; each refuses what the bundle's grants do not allow.
+//! declared channel. The host's imports are [`ui`], [`input`], [`messaging`], [`scene`],
+//! [`media`] and [`items`]; each refuses what the bundle's grants do not allow.
 
 /// Bindings generated from `wit/client/client.wit`.
 pub mod bindings {
     wit_bindgen::generate!({
-        path: "wit/client",
-        world: "server-bundle",
+        path: ["wit/session", "wit/client"],
+        world: "cinnabar:extension/server-bundle@0.1.0",
         generate_all,
         pub_export_macro: true,
     });
 }
 
 pub use bindings::cinnabar::server_experience::{input, media, messaging, scene, ui};
+pub use bindings::cinnabar::session::items;
 
 use crate::{Channel, Value};
 
@@ -61,6 +62,9 @@ pub trait ClientPart {
     /// content changed length. Changes are coalesced, so this is the latest range. A client part
     /// can bind only the rows a scroll view shows, and lay a fixed grid over it.
     fn scroll_changed(_view: String, _range: ui::ScrollRange) {}
+
+    /// Handles `shift-changed`: Shift is now `held`, or not, while the modal has focus.
+    fn shift_changed(_held: bool) {}
 }
 
 /// Sends `record` on the to-server `channel`. The host checks it against the channel's
@@ -123,6 +127,10 @@ macro_rules! export_client_part {
 
             fn scroll_changed(view: ::std::string::String, range: $crate::client::ui::ScrollRange) {
                 <$ty as $crate::client::ClientPart>::scroll_changed(view, range)
+            }
+
+            fn shift_changed(held: bool) {
+                <$ty as $crate::client::ClientPart>::shift_changed(held)
             }
         }
 

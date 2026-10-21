@@ -331,3 +331,18 @@ pub fn input_block_actions(packet: &Packet) -> Vec<(i32, [i32; 3], i32)> {
         })
         .collect()
 }
+
+/// Reads the runtime ID and optional world-space point of an entity-hover report.
+pub fn entity_hover(packet: &Packet) -> Option<(u64, Option<[f32; 3]>)> {
+    let packets::Packet::Interact(interact) = &*packet.data else {
+        return None;
+    };
+    (interact.action == bedrock_protocol_1_26_51::enums::InteractAction::Interactupdate).then(
+        || {
+            (
+                interact.target_runtime_id.0,
+                interact.position.map(|point| point.to_array()),
+            )
+        },
+    )
+}

@@ -1,6 +1,6 @@
 use super::*;
-use crate::environment::{self, WeatherState, WorldClock};
 use crate::runtime::network::resource_packs::PackApplication;
+use client_presentation::environment::{WeatherState, WorldClock};
 use client_runtime::network::NetworkHandle;
 use client_ui::ui_runtime::UiRuntime;
 
@@ -24,7 +24,7 @@ fn configured_time_changer_is_visual_only_offline() {
         .insert_resource(ButtonInput::<KeyCode>::default());
     app.world_mut().spawn((Window::default(), PrimaryWindow));
     configure(&mut app, Some(Path::new(&path)));
-    let label = app.world().resource::<ModRuntime>().hosts.host.label();
+    let label = app.world().resource::<ModRuntime>().hosts.host(0).label();
     // The shared variable may select another sample; a time changer that loads wrong still fails.
     if label.is_some_and(|label| !label.starts_with("Time:")) {
         eprintln!(
@@ -36,7 +36,7 @@ fn configured_time_changer_is_visual_only_offline() {
     let (network, mut packets) = NetworkHandle::<PackApplication>::stub_capturing_packets();
     app.insert_resource(network);
     let mut clock = WorldClock::default();
-    environment::replace_session(
+    client_presentation::environment::replace_session(
         &mut clock,
         &mut WeatherState::default(),
         protocol::WorldEnvironmentBootstrap {
@@ -62,10 +62,10 @@ fn configured_time_changer_is_visual_only_offline() {
             .press(DEMO_KEY);
         app.update();
         let runtime = app.world().resource::<ModRuntime>();
-        let label = runtime.hosts.host.label().unwrap().to_owned();
+        let label = runtime.hosts.host(0).label().unwrap().to_owned();
         assert_eq!(
             app.world().resource::<VisualTimeOverride>().0,
-            runtime.hosts.host.time_override()
+            runtime.hosts.host(0).time_override()
         );
         assert_eq!(*app.world().resource::<WorldClock>(), clock);
         assert!(packets.drain().is_empty());
@@ -74,7 +74,7 @@ fn configured_time_changer_is_visual_only_offline() {
                 .resource::<ButtonInput<KeyCode>>()
                 .just_pressed(DEMO_KEY)
         );
-        if runtime.hosts.host.time_override().is_none() {
+        if runtime.hosts.host(0).time_override().is_none() {
             assert_eq!(label, "Time: Server");
             break;
         }

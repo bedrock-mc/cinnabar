@@ -143,7 +143,7 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
         source
     };
     let view = raster(gpu, held);
-    let lightmap = gpu.buffer(&[1.0; 1024], wgpu::BufferUsages::UNIFORM);
+    let lightmap = gpu.lightmap(&[1.0; 256 * 4]);
     let sampler = gpu.device.create_sampler(&if held {
         wgpu::SamplerDescriptor::default()
     } else {

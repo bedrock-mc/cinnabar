@@ -2,6 +2,7 @@
 use super::*;
 
 mod preview;
+mod selection;
 pub(super) mod static_draw;
 use preview::Preview;
 type AttachableKey = (ActorLifetimeId, bool, bool, bool, u8);
@@ -17,11 +18,15 @@ pub struct AttachableAnimationInput<'a> {
     /// Whether the owner belongs to the current game window.
     pub is_local_player: bool,
     pub off_hand: bool,
+    /// Sampled owner main-hand scale, applied by equipment placement outside the item VM.
+    pub held_item_scale: Option<f32>,
     /// A worn model has independent controller state from either held item.
     pub worn: bool,
     /// Armour slot index of a worn model, so each worn piece keeps its own state.
     pub worn_slot: u8,
     pub is_paperdoll: bool,
+    /// Marks a UI draw even when its owner rig was sampled in the world.
+    pub is_in_ui: bool,
     pub frame_alpha: f32,
     /// Elapsed render time for clip application; absent inputs use the actor timestep.
     pub delta_seconds: Option<f32>,
@@ -39,6 +44,17 @@ pub struct AttachableAnimationInput<'a> {
 }
 
 impl AttachableAnimationInput<'_> {
+    /// Keeps owner item scaling independent of offhand and worn item models.
+    pub fn main_hand_scale(self) -> f32 {
+        if self.off_hand || self.worn {
+            1.0
+        } else {
+            self.held_item_scale
+                .filter(|value| value.is_finite() && *value > 0.0)
+                .unwrap_or(1.0)
+        }
+    }
+
     /// Selects the rendered hand from the owner's first-person use frame.
     pub fn for_hand(self, off_hand: bool) -> Self {
         if off_hand {
@@ -83,6 +99,26 @@ impl AttachableQueryContext {
         } else {
             "main_hand"
         }
+    }
+}
+
+/// Sets equipment-only context values after inheriting the owner's script variables.
+pub(super) fn apply_context_variables(
+    engine: &EngineSlots,
+    variables: &mut MolangVariables,
+    actor: &dyn AnimatedActor,
+    context: &ActorTickContext,
+    input: &ActorTickInput,
+) {
+    if let Some(attachable) = context.attachable {
+        variables.set_actor_reference(engine.context_owning_entity, actor.runtime_id());
+        variables.set(
+            engine.context_first_person,
+            f32::from(attachable.first_person),
+        );
+        variables.set(engine.context_paperdoll, f32::from(attachable.is_paperdoll));
+        variables.set_string(engine.context_item_slot, attachable.item_slot());
+        variables.set(engine.attack_time, input.attack_time);
     }
 }
 
@@ -153,14 +189,22 @@ pub struct AttachablesRuntime {
     evaluations: u64,
     previewing: bool,
     previewed: Vec<AttachableKey>,
+    selection_variables: MolangVariables,
+    selection_stack: Vec<evaluation::MolangValue>,
+    selections: selection::SelectionCache,
     #[cfg(test)]
     commits: u64,
 }
 
 impl AttachablesRuntime {
     pub fn new(assets: Arc<RuntimeEntityAssets>) -> Self {
+        let layout = VariableLayout::new(&assets);
+        let selection_variables = layout.fresh(1);
         Self {
-            layout: VariableLayout::new(&assets),
+            layout,
+            selection_variables,
+            selection_stack: Vec::new(),
+            selections: selection::SelectionCache::default(),
             assets,
             states: BTreeMap::new(),
             evaluations: 0,
@@ -175,6 +219,7 @@ impl AttachablesRuntime {
     pub fn clear(&mut self) {
         self.layout.plans.clear();
         self.states.clear();
+        self.selections = selection::SelectionCache::default();
         self.previewed.clear();
         self.previewing = false;
     }
@@ -306,46 +351,7 @@ impl AttachablesRuntime {
         }
         entry.static_draw = None;
         let state = &mut entry.rig;
-        let frame_alpha = if input.frame_alpha.is_finite() {
-            input.frame_alpha.clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-        let query_context = AttachableQueryContext {
-            first_person: input.first_person,
-            off_hand: input.off_hand,
-            worn: input.worn,
-            worn_slot: input.worn_slot,
-            is_paperdoll: input.is_paperdoll,
-            frame_alpha,
-            delta_seconds: input
-                .delta_seconds
-                .filter(|delta| delta.is_finite() && *delta >= 0.0),
-            animation_frame: input.animation_frame,
-            use_elapsed_ticks: input.use_elapsed_ticks,
-            max_use_ticks: input.max_use_ticks,
-            owner_life_tick: owner_rig.animation_variables.life_tick(),
-        };
-        let (main_hand_kinetic, main_hand_swing_seconds) =
-            owner_rig.animation_variables.item_timings();
-        let owner_context = owner_rig.animation_variables.owner_context();
-        let mut context = ActorTickContext {
-            // Attachables use render time, independently of the owner's tick batching.
-            animation_elapsed_ticks: None,
-            main_hand_kinetic,
-            main_hand_swing_seconds,
-            main_hand_is_spear: owner_rig.animation_variables.is_spear(),
-            is_local_first_person: input.first_person,
-            is_local_player: input.is_local_player
-                || input.first_person
-                || owner_context.is_some_and(|owner| owner.is_local_player),
-            hand_charged: input.hand_charged,
-            main_hand_max_use_ticks: input.max_use_ticks,
-            attachable: Some(query_context),
-            main_hand: input.owner_main_hand.map(Arc::from),
-            off_hand: input.owner_off_hand.map(Arc::from),
-            ..owner_context.cloned().unwrap_or_default()
-        };
+        let mut context = selection::owner_context(owner_rig, input);
         if !input.worn && input.off_hand {
             context
                 .off_hand
@@ -355,30 +361,10 @@ impl AttachablesRuntime {
                 .main_hand
                 .get_or_insert_with(|| Arc::from(identifier));
         }
-        let mut item =
-            owner_rig.item_animation[0].interpolate(owner_rig.item_animation[1], frame_alpha);
-        item.attack_time = owner_rig.item_animation[0]
-            .interpolate(
-                owner_rig.item_animation[1],
-                owner_rig.java.local_swing_alpha.unwrap_or(frame_alpha),
-            )
-            .attack_time;
-        let offhand = owner_rig.off_hand_animation[0]
-            .interpolate(owner_rig.off_hand_animation[1], frame_alpha);
         state.history.clear();
-        state.history.push_back(ActorTickInput {
-            position: owner.position(),
-            velocity: owner.velocity(),
-            on_ground: owner.on_ground(),
-            body_yaw: owner_rig.body_yaw,
-            head_yaw: owner.head_yaw(),
-            pitch: owner.pitch(),
-            item_use_ticks: input.use_elapsed_ticks.unwrap_or(0),
-            attack_time: item.attack_time,
-            arm_height: item.arm_height,
-            off_hand_arm_height: offhand.arm_height,
-            ..owner_rig.animation_variables.input().unwrap_or_default()
-        });
+        state
+            .history
+            .push_back(selection::owner_frame(owner, owner_rig, input));
         let mut world_left = MAX_MOLANG_OPS_PER_ACTOR_TICK;
         let mut budget = EvalBudget {
             actor_left: MAX_MOLANG_OPS_PER_ACTOR_TICK,
@@ -390,7 +376,6 @@ impl AttachablesRuntime {
             static_draw: (!self.previewing)
                 .then_some(self.assets.rig_bindings()[binding].geometry_count == 1),
         };
-        render::cache_layer_skeletons(&self.assets, state);
         let geometry = if self.previewing {
             geometry::reselect_geometry_preview(
                 &self.assets,
@@ -512,3 +497,7 @@ mod parent_frame_tests;
 
 #[cfg(test)]
 mod spear_tests;
+
+#[cfg(test)]
+#[path = "attachable/selection_tests.rs"]
+mod review_tests;

@@ -1,15 +1,13 @@
 //! Spatial SMAA detects world depth edges before text and first-person overlays draw.
 
 mod nametags;
-mod node;
+pub(crate) mod node;
 mod pipelines;
 #[cfg(test)]
 pub(crate) mod tests;
 
 #[cfg(test)]
-use bevy::prelude::{
-    AssetApp, Camera, Image, IntoSystem, MinimalPlugins, Mut, System, Transform, TransformPlugin,
-};
+use bevy::prelude::{AssetApp, Image, IntoSystem, MinimalPlugins, Mut, System, Transform};
 #[cfg(test)]
 use bevy::render::render_resource::{BufferUsages, Extent3d, TextureUsages};
 use bevy::{
@@ -52,12 +50,6 @@ impl Plugin for DepthSmaaPlugin {
             "depth_smaa/edge.wesl",
             crate::shader_safety::from_wesl
         );
-        load_internal_asset!(
-            app,
-            pipelines::RESTORE_SHADER,
-            "depth_smaa/restore.wgsl",
-            crate::shader_safety::from_wgsl
-        );
         crate::pipeline_warmup::register::<DepthSmaaPipelines>(app);
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
             render
@@ -80,11 +72,11 @@ impl Plugin for DepthSmaaPlugin {
 }
 
 #[derive(Component)]
-struct DepthSmaaView {
+pub(crate) struct DepthSmaaView {
     source: TextureViewId,
     uniform: BufferId,
     depth: BindGroup,
-    post: [(TextureViewId, BindGroup, BindGroup); 2],
+    post: [(TextureViewId, BindGroup); 2],
     ids: pipelines::PipelineIds,
     samples: u32,
     format: TextureFormat,
@@ -132,7 +124,7 @@ fn prepare(
                 && old
                     .post
                     .iter()
-                    .any(|(id, _, _)| *id == target.main_texture_view().id())
+                    .any(|(id, _)| *id == target.main_texture_view().id())
         }) {
             continue;
         }
@@ -148,12 +140,7 @@ fn prepare(
                 &cache.get_bind_group_layout(&pipelines.post_layout),
                 &BindGroupEntries::sequential((view, uniform.clone())),
             );
-            let restore = device.create_bind_group(
-                "SMAA scene restore",
-                &cache.get_bind_group_layout(&pipelines.restore_layout),
-                &BindGroupEntries::single(view),
-            );
-            (view.id(), binding, restore)
+            (view.id(), binding)
         });
         commands.entity(entity).insert(DepthSmaaView {
             source: crate::scene_sampling::view_depth(depth).id(),
@@ -202,7 +189,7 @@ fn configure_passes(world: &mut World, enabled: bool) {
             if enabled {
                 schedule.add_systems(
                     (
-                        crate::gpu_timing::profiled(node::depth_smaa, None, "Smaa")
+                        crate::gpu_timing::profiled(node::depth_smaa::<false>, None, "Smaa")
                             .in_set(DepthSmaaLabel)
                             .after(crate::motion_blur::graph::MotionBlurLabel),
                         crate::gpu_timing::profiled(

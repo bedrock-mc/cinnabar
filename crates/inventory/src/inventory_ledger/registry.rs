@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use protocol::{ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion, NetworkItemStack};
 use sha2::{Digest, Sha256};
 
+use super::cells::Held;
 use super::equipment::equipment_admission;
 use super::{Cell, PlayerInventoryLedger};
 
@@ -19,7 +20,7 @@ impl PlayerInventoryLedger {
         a.network_id == b.network_id
             && a.metadata == b.metadata
             && a.block_runtime_id == b.block_runtime_id
-            && a.extra_data == b.extra_data
+            && protocol::item_user_data_equal(&a.extra_data, &b.extra_data) == Some(true)
     }
 
     /// Retained registry identity for consumers caching identifier-dependent data.
@@ -67,6 +68,7 @@ impl PlayerInventoryLedger {
             self.item_registry = Some(std::sync::Arc::new(next));
             self.item_facts = facts;
             self.refresh_fuel_facts();
+            self.refresh_trade_items();
             return;
         };
         let affected_cells = self.registry_affected_cells(previous, &next);
@@ -74,22 +76,23 @@ impl PlayerInventoryLedger {
             .queue
             .iter()
             .filter(|pending| {
-                pending
-                    .predicted
-                    .iter()
-                    .filter_map(|prediction| prediction.held.as_ref())
-                    .map(|held| held.stack.network_id)
-                    .any(|network_id| {
-                        registry_identity_changed(previous, &next, network_id)
-                            || (pending.predicted.iter().any(|prediction| {
-                                matches!(prediction.cell, Cell::Armor(_) | Cell::Offhand)
-                            }) && (equipment_admission(&self.item_facts, network_id)
-                                != equipment_admission(&facts, network_id)
-                                || previous.get(&network_id).and_then(entry_capacity)
-                                    != next.get(&network_id).and_then(entry_capacity)))
-                            || (pending.registry_bound_merge
-                                && registry_merge_rule_changed(previous, &next, network_id))
-                    })
+                self.placement_admission_changes(pending, &facts)
+                    || pending
+                        .predicted
+                        .iter()
+                        .filter_map(|prediction| prediction.held.as_ref())
+                        .map(|held| held.stack.network_id)
+                        .any(|network_id| {
+                            registry_identity_changed(previous, &next, network_id)
+                                || (pending.predicted.iter().any(|prediction| {
+                                    matches!(prediction.cell, Cell::Armor(_) | Cell::Offhand)
+                                }) && (equipment_admission(&self.item_facts, network_id)
+                                    != equipment_admission(&facts, network_id)
+                                    || previous.get(&network_id).and_then(entry_capacity)
+                                        != next.get(&network_id).and_then(entry_capacity)))
+                                || (pending.registry_bound_merge
+                                    && registry_merge_rule_changed(previous, &next, network_id))
+                        })
             })
             .map(|pending| pending.request_id)
             .collect();
@@ -100,15 +103,38 @@ impl PlayerInventoryLedger {
         self.item_registry = Some(std::sync::Arc::new(next));
         self.item_facts = facts;
         self.refresh_fuel_facts();
+        self.refresh_trade_items();
         self.retire_rerouted_quick_moves();
         self.refold();
     }
 
+    /// Checks item compatibility and the settled identities needed for a new merge.
     pub(super) fn occupied_stack_relation(
         &self,
-        source: &NetworkItemStack,
-        destination: &NetworkItemStack,
+        source: &Held,
+        destination: &Held,
     ) -> OccupiedStackRelation {
+        let (source_stack, destination_stack) = (&source.stack, &destination.stack);
+        if self.authority == Some(protocol::InventoryAuthority::Server)
+            && (self.stack_awaiting_identity(source_stack)
+                || self.stack_awaiting_identity(destination_stack)
+                || ((source_stack.stack_network_id > 0
+                    || protocol::is_legacy_request_id(source_stack.stack_network_id))
+                    && source_stack.stack_network_id == destination_stack.stack_network_id))
+        {
+            return OccupiedStackRelation::Unsupported;
+        }
+        self.merge_item_relation(source, destination)
+    }
+
+    /// Compares retained item identity and capacity without requiring transport-ready stack IDs.
+    pub(super) fn merge_item_relation(
+        &self,
+        source: &Held,
+        destination: &Held,
+    ) -> OccupiedStackRelation {
+        let (source_held, destination_held) = (source, destination);
+        let (source, destination) = (&source.stack, &destination.stack);
         let distinct_network_ids = source.network_id != destination.network_id;
         // Vanilla item matching compares block/aux identity; a
         // nonzero block identity is an ordinary block stack, not an unknown
@@ -117,22 +143,6 @@ impl PlayerInventoryLedger {
             || source.block_runtime_id != destination.block_runtime_id
         {
             return OccupiedStackRelation::Incompatible;
-        }
-        if !plain_stack(source) || !plain_stack(destination) {
-            return if distinct_network_ids {
-                OccupiedStackRelation::Incompatible
-            } else {
-                OccupiedStackRelation::Unsupported
-            };
-        }
-        if self.authority == Some(protocol::InventoryAuthority::Server)
-            && (self.stack_awaiting_identity(source)
-                || self.stack_awaiting_identity(destination)
-                || ((source.stack_network_id > 0
-                    || protocol::is_legacy_request_id(source.stack_network_id))
-                    && source.stack_network_id == destination.stack_network_id))
-        {
-            return OccupiedStackRelation::Unsupported;
         }
         let Some(registry) = self.item_registry.as_ref() else {
             return if distinct_network_ids {
@@ -157,6 +167,11 @@ impl PlayerInventoryLedger {
         };
         if source_entry.identifier != destination_entry.identifier {
             return OccupiedStackRelation::Incompatible;
+        }
+        match held_item_data_equal(source_held, destination_held) {
+            Some(true) => {}
+            Some(false) => return OccupiedStackRelation::Incompatible,
+            None => return OccupiedStackRelation::Unsupported,
         }
         let Some(source_capacity) = entry_capacity(source_entry) else {
             return OccupiedStackRelation::Unsupported;
@@ -183,6 +198,17 @@ impl PlayerInventoryLedger {
             .map(|(cell, _)| cell)
             .collect()
     }
+}
+
+/// Compares retained user data after checking each descriptor's integrity.
+pub(super) fn held_item_data_equal(left: &Held, right: &Held) -> Option<bool> {
+    for held in [left, right] {
+        let digest: [u8; 32] = Sha256::digest(&held.stack.extra_data).into();
+        if digest != held.stack.nbt_digest {
+            return None;
+        }
+    }
+    protocol::item_user_data_equal(&left.stack.extra_data, &right.stack.extra_data)
 }
 
 fn registry_map(event: &ItemRegistryEvent) -> Option<BTreeMap<i32, ItemRegistryEntry>> {
@@ -260,6 +286,9 @@ pub(crate) fn entry_capacity_with_base(
             Some(protocol::ITEM_DEFAULT_MAX_STACK_SIZE)
         };
     }
+    if stack_component && vanilla.is_none() && entry.version == ItemRegistryVersion::Legacy {
+        return components.and_then(|components| components.max_stack_size_component);
+    }
     if stack_component {
         // The top-level stack component's effect on plain and vanilla items is unresolved.
         return None;
@@ -267,10 +296,14 @@ pub(crate) fn entry_capacity_with_base(
     Some(vanilla.unwrap_or(protocol::ITEM_DEFAULT_MAX_STACK_SIZE))
 }
 
+/// Checks retained byte integrity without interpreting pending request IDs as wire stack IDs.
+pub(super) fn recipe_input_valid(stack: &NetworkItemStack) -> bool {
+    <[u8; 32]>::from(Sha256::digest(&stack.extra_data)) == stack.nbt_digest
+}
+
 pub(super) fn plain_stack(stack: &NetworkItemStack) -> bool {
     let digest: [u8; 32] = Sha256::digest(&stack.extra_data).into();
-    // Plainness describes user data, not aux or block identity. Recipes match
-    // aux independently and vanilla accepts block ingredients with runtime ids.
+    // Plainness describes user data, independently of aux and block identity.
     (stack.extra_data.is_empty() || stack.extra_data.as_ref() == [0; 10])
         && stack.nbt_digest == digest
 }
@@ -424,6 +457,40 @@ mod tests {
             ))),
             None
         );
+    }
+
+    #[test]
+    fn custom_content_legacy_items_use_declared_stack_capacity() {
+        for size in [1, 16, 64] {
+            let legacy = ItemRegistryEntry {
+                version: ItemRegistryVersion::Legacy,
+                components: Some(Arc::new(ItemComponents {
+                    max_stack_size: Some(size),
+                    max_stack_size_component: Some(size),
+                    max_stack_size_component_declared: true,
+                    ..Default::default()
+                })),
+                ..entry("fixture:legacy", false, None)
+            };
+            assert_eq!(entry_capacity(&legacy), Some(size));
+        }
+    }
+
+    #[test]
+    fn custom_content_legacy_scalar_capacity_is_independent_from_item_properties() {
+        let legacy = ItemRegistryEntry {
+            version: ItemRegistryVersion::Legacy,
+            negotiated_max_stack_size: Some(64),
+            components: Some(Arc::new(ItemComponents {
+                max_stack_size: Some(64),
+                max_stack_size_component: Some(1),
+                max_stack_size_component_declared: true,
+                item_properties_declared: true,
+                ..Default::default()
+            })),
+            ..entry("fixture:legacy", false, None)
+        };
+        assert_eq!(entry_capacity(&legacy), Some(1));
     }
 
     // A server block's own item is the BlockItem its block registers: not component based, no

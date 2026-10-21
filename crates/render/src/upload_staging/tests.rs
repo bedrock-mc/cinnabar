@@ -165,3 +165,43 @@ fn custom_fallback_runs_after_older_overlapping_copies() {
     assert_eq!(&bytes[8..16], &[2; 8]);
     assert_eq!(staging.lock().stats.overflow_submissions, 1);
 }
+
+#[test]
+fn recurring_frame_overflow_grows_once_then_avoids_fallback() {
+    let (device, queue, staging, _) = setup_shape(FRAME);
+    let initial = staging.capacity_bytes();
+    let bytes = vec![3; (initial + FRAME.slot_bytes) as usize];
+    let target = device.wgpu_device().create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: bytes.len() as u64,
+        usage: wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    staging.write_batch(&device, &queue, &[(&target, 0, &bytes)]);
+    assert_eq!(staging.stats().fallback_writes, 1);
+    let mut encoder = device.create_command_encoder(&Default::default());
+    staging.encode_pending(&mut encoder);
+    staging.lock().grow();
+    queue.submit([encoder.finish()]);
+    device.poll(wgpu::PollType::Poll).unwrap();
+    assert!(staging.capacity_bytes() > initial);
+    let before = staging.stats();
+    staging.write_batch(&device, &queue, &[(&target, 0, &bytes)]);
+    assert_eq!(staging.stats().fallback_writes, before.fallback_writes);
+    assert_eq!(
+        staging.stats().staged_bytes - before.staged_bytes,
+        bytes.len() as u64
+    );
+}
+
+#[test]
+fn fragmented_frame_writes_fit_copy_metadata_without_queue_fallback() {
+    let (device, queue, staging, target) = setup_shape(FRAME);
+    let bytes = [1; 4];
+    let writes: Vec<_> = (0..256).map(|_| (&target, 0, bytes.as_slice())).collect();
+    staging.write_batch(&device, &queue, &writes);
+    assert_eq!(staging.stats().fallback_writes, 0);
+    assert_eq!(staging.stats().staged_writes, writes.len() as u64);
+    assert_eq!(staging.stats().batches, 1);
+    assert_eq!(staging.lock().diagnostic_counts().0[1], 1);
+}

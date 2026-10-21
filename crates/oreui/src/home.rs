@@ -29,14 +29,16 @@ pub(super) fn draw(
         size,
         canvas.title_artwork,
         view.feeds.home.live_event.is_some(),
-        view.updates.ready.is_some(),
+        super::updates::available(view),
     );
-    canvas.with_scale(layout.scale, |canvas| {
+    let preview = canvas.with_scale(layout.scale, |canvas| {
         draw_layout(canvas, view, size, portrait, translate, layout)
-    })
+    })?;
+    super::updates::notice(canvas, view, size)?;
+    Ok(preview)
 }
 
-/// Draws the home group at the fitted scale and preserves its existing breakpoints.
+/// Draws the home group at the fitted scale.
 fn draw_layout(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
@@ -50,6 +52,7 @@ fn draw_layout(
         width,
         height,
         outside,
+        header_height,
         gap,
         footer_height,
         logo_width,
@@ -59,7 +62,7 @@ fn draw_layout(
         ..
     } = layout;
     let left = (size[0] - width) * 0.5;
-    let group_top = (size[1] - height - outside) * 0.5;
+    let group_top = (size[1] - header_height - height - outside) * 0.5 + header_height;
     let logo_left = (size[0] - logo_width) * 0.5;
     let logo_bounds = [
         logo_left,
@@ -87,7 +90,12 @@ fn draw_layout(
     };
     let screen = canvas.begin_focus_region(
         focus::SCREEN,
-        [left, group_top, left + width, size[1] - group_top],
+        [
+            left,
+            group_top,
+            left + width,
+            size[1] - group_top + header_height,
+        ],
         None,
         true,
     )?;
@@ -119,7 +127,7 @@ fn draw_layout(
         left,
         bottom + gap + footer_height + canvas.r(0.6),
         left + width,
-        size[1] - group_top,
+        size[1] - group_top + header_height,
     ];
     let style = super::theme::Type {
         size: 1.1,
@@ -178,7 +186,7 @@ fn action_panel(
     compact: bool,
     translate: Translate<'_>,
 ) -> Result<(), PaintError> {
-    widgets::panel(canvas, bounds)?;
+    panel(canvas, bounds)?;
     let pad = layout::action_padding(canvas.rem, bounds[2] - bounds[0], compact);
     let viewport = [
         bounds[0] + canvas.r(EDGE),
@@ -199,23 +207,9 @@ fn action_panel(
     } else {
         0.0
     };
-    let update_height = if view.updates.ready.is_some() {
-        layout::UPDATE_NOTICE_HEIGHT
-    } else {
-        0.0
-    };
-    let group_height = canvas.r(layout::action_group_height(
-        compact,
-        view.updates.ready.is_some(),
-    ));
-    let content_height = bounds[3] - bounds[1];
-    let origin = bounds[1];
     let x = bounds[0] + pad;
     let right = bounds[2] - pad;
-    let mut y = origin
-        + pad
-        + canvas.r(event_height)
-        + (content_height - pad * 2.0 - group_height - canvas.r(event_height)).max(0.0) * 0.5;
+    let mut y = bounds[1] + pad + canvas.r(event_height);
     if let Some(event) = &view.feeds.home.live_event {
         let b = [
             x,
@@ -224,14 +218,6 @@ fn action_panel(
             y - canvas.r(1.2),
         ];
         live_event(canvas, view, b, event, translate)?;
-    }
-    if view.updates.ready.is_some() {
-        super::updates::notice(
-            canvas,
-            view,
-            [x, y, right, y + canvas.r(update_height - 1.2)],
-        )?;
-        y += canvas.r(update_height);
     }
     canvas.text_line("LET'S PLAY", [x, y], right - x, HEADER5, TEXT)?;
     y += canvas.r(HEADER5.line + 0.8);
@@ -294,14 +280,26 @@ fn action_panel(
     Ok(())
 }
 
+/// Draws a lighter home surface while leaving the panorama visible beneath it.
+fn panel(canvas: &mut Canvas<'_>, bounds: Bounds) -> Result<(), PaintError> {
+    let role = canvas.role(NEUTRAL80);
+    let mut fill = role.fill;
+    fill[3] = 200;
+    canvas.fill(bounds, fill)?;
+    let mut border = role.border;
+    border[3] = 160;
+    canvas.frame(bounds, EDGE, border)
+}
+
+/// Draws the player name, skin preview and full-width Dressing Room action.
 fn character_panel(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     b: Bounds,
 ) -> Result<CharacterPreview, PaintError> {
-    widgets::panel(canvas, b)?;
+    panel(canvas, b)?;
     let region = canvas.begin_focus_region(focus::DETAIL, b, None, true)?;
-    let pad = canvas.r(2.4);
+    let pad = canvas.r(layout::PANEL_PADDING);
     let x = b[0] + pad;
     let right = b[2] - pad;
     let top = b[1] + pad;
@@ -332,6 +330,7 @@ fn character_panel(
     })
 }
 
+/// Draws a text link with interaction feedback and no idle Realms backing.
 fn link(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
@@ -344,7 +343,11 @@ fn link(
     let down = canvas.r(0.2) * motion.press;
     let face = [bounds[0], bounds[1] + down, bounds[2], bounds[3]];
     let role = canvas.role(NEUTRAL80);
-    canvas.fill(face, motion.color(role.fill, role.hovered, role.pressed))?;
+    let mut fill = role.fill;
+    if action == MenuAction::Navigate(MenuScreen::Social) {
+        fill[3] = 0;
+    }
+    canvas.fill(face, motion.color(fill, role.hovered, role.pressed))?;
     if motion.focus > 0.0 {
         canvas.frame(face, EDGE, opacity(OUTLINE, motion.focus))?;
     }

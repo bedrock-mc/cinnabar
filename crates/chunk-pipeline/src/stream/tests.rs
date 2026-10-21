@@ -828,203 +828,25 @@ fn cave_test_slab(runtime_id: u8) -> SubChunk {
     SubChunk::decode(&encoded, &RawBlockIds { air: 0 })
 }
 
-fn stream_with_one_expected_sub_chunk() -> (WorldStream, SubChunkKey) {
-    let mut stream = WorldStream::new(WorldBootstrap {
-        local_player_unique_id: 1,
-        dimension: 0,
-        local_player_runtime_id: 1,
-        player_position: [0.0; 3],
-        world_spawn_position: [0; 3],
-        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
-        block_network_ids_are_hashes: false,
-    });
-    let key = SubChunkKey::new(0, 0, -4, 0);
-    stream
-        .submit(
-            1,
-            WorldEvent::LevelChunk(LevelChunkEvent {
-                dimension: 0,
-                x: 0,
-                z: 0,
-                mode: LevelChunkMode::LimitedRequests { highest: 1 },
-                payload: biome_payload(0, 1),
-            }),
-        )
-        .unwrap();
-    complete_pending_decode_jobs(&mut stream);
-    assert_eq!(stream.take_requests().len(), 1);
-    (stream, key)
-}
+use sub_chunk_fixtures::*;
+mod sub_chunk_batching;
+mod sub_chunk_fixtures;
 
-#[test]
-fn abandoned_cached_column_recovery_enters_bounded_request_scheduler() {
-    let mut stream = WorldStream::new(WorldBootstrap {
-        dimension: 0,
-        local_player_runtime_id: 1,
-        local_player_unique_id: 1,
-        player_position: [0.0; 3],
-        world_spawn_position: [0; 3],
-        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
-        block_network_ids_are_hashes: false,
-    });
-    stream
-        .submit(
-            1,
-            WorldEvent::ChunkResync(ChunkResyncEvent {
-                dimension: 0,
-                x: 0,
-                z: 0,
-                requested_sub_chunks: None,
-                requested_sub_chunk_ys: None,
-            }),
-        )
-        .expect("cache recovery admission");
-
-    let requests = stream.take_requests();
-    assert_eq!(requests.len(), 1);
-    assert_eq!(requests[0].chunk, ChunkKey::new(0, 0, 0));
-    assert_eq!(requests[0].base_sub_chunk_y, -4);
-    assert_eq!(requests[0].count, 24);
-}
-
-#[test]
-fn exact_recovery_keeps_disjoint_ranges_expected_when_outbound_is_saturated() {
-    let mut stream = WorldStream::new(WorldBootstrap {
-        dimension: 0,
-        local_player_runtime_id: 1,
-        local_player_unique_id: 1,
-        player_position: [0.0; 3],
-        world_spawn_position: [0; 3],
-        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
-        block_network_ids_are_hashes: false,
-    });
-    for index in 0..(super::OUTBOUND_REQUEST_CAPACITY - 1) {
-        let chunk = ChunkKey::new(0, 20 + i32::try_from(index).unwrap(), 0);
-        stream.requests.queue.push_ready(
-            PendingSubChunkRequest {
-                packet: request_sub_chunk_column(0, chunk.x, chunk.z, -4, 1).unwrap(),
-                dimension: 0,
-                chunk,
-                base_sub_chunk_y: -4,
-                count: 1,
-            },
-            false,
-        );
-    }
-
-    stream
-        .submit(
-            1,
-            WorldEvent::ChunkResync(ChunkResyncEvent {
-                dimension: 0,
-                x: 0,
-                z: 0,
-                requested_sub_chunks: None,
-                requested_sub_chunk_ys: Some(vec![-4, -2]),
-            }),
-        )
-        .expect("the reserved first exact range has admission capacity");
-
-    assert_eq!(
-        stream.requests.queue.len(),
-        super::OUTBOUND_REQUEST_CAPACITY
-    );
-    assert_eq!(stream.requests.deferred_recovery.len(), 1);
-    assert_eq!(stream.requests.requested[&ChunkKey::new(0, 0, 0)].len(), 2);
-
-    let requests = stream.take_requests();
-    let recovery_ranges = requests
-        .iter()
-        .filter(|request| request.chunk == ChunkKey::new(0, 0, 0))
-        .map(|request| (request.base_sub_chunk_y, request.count))
-        .collect::<BTreeSet<_>>();
-    assert_eq!(recovery_ranges, BTreeSet::from([(-4, 1), (-2, 1)]));
-    assert!(stream.requests.deferred_recovery.is_empty());
-    assert_eq!(stream.requests.requested[&ChunkKey::new(0, 0, 0)].len(), 2);
-}
-
-fn apply_sub_chunk_result(
-    stream: &mut WorldStream,
-    key: SubChunkKey,
-    result: super::PreparedSubChunkResult,
-) {
-    stream.apply_prepared(super::PreparedWorldEvent::SubChunks {
-        dimension: key.dimension,
-        entries: vec![PreparedSubChunk {
-            diagnostics: None,
-            position: [key.x, key.y, key.z],
-            result,
-        }],
-        duration: std::time::Duration::ZERO,
-    });
-}
-
-fn stream_with_unsent_sub_chunks(
-    count: u16,
-) -> (WorldStream, Vec<SubChunkKey>, super::PendingSubChunkRequest) {
-    let mut stream = WorldStream::new(WorldBootstrap {
-        local_player_unique_id: 1,
-        dimension: 0,
-        local_player_runtime_id: 1,
-        player_position: [0.0; 3],
-        world_spawn_position: [0; 3],
-        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
-        block_network_ids_are_hashes: false,
-    });
-    let chunk = ChunkKey::new(0, 0, 0);
-    stream
-        .submit(
-            1,
-            WorldEvent::LevelChunk(LevelChunkEvent {
-                dimension: 0,
-                x: chunk.x,
-                z: chunk.z,
-                mode: LevelChunkMode::LimitedRequests { highest: count },
-                payload: biome_payload(0, 1),
-            }),
-        )
-        .unwrap();
-    complete_pending_decode_jobs(&mut stream);
-    let request = stream
-        .pop_next_request()
-        .expect("request-mode LevelChunk should enqueue one request");
-    let keys = (0..count)
-        .map(|offset| SubChunkKey::from_chunk(chunk, -4 + i32::from(offset)))
-        .collect();
-    (stream, keys, request)
-}
-
-fn acknowledge_request_sent(
-    stream: &mut WorldStream,
-    request: &super::PendingSubChunkRequest,
-    sent_at: Instant,
-) {
-    stream.acknowledge_sub_chunk_request_sent(
-        request.chunk,
-        request.base_sub_chunk_y,
-        request.count,
-        sent_at,
-    );
-}
-
+mod actor_authority;
 mod actor_light;
+mod admission_backpressure;
 mod audio_events;
+mod biome_admission;
+mod block_entity_admission;
+mod block_update_admission;
 #[path = "tests/camera_events.rs"]
 mod camera_events;
-mod cases_01;
-mod cases_02;
-mod cases_03;
-mod cases_04;
-mod cases_05;
-mod cases_06;
-mod cases_07;
-mod cases_08;
-mod cases_09;
-mod cases_10;
-mod cases_11;
-mod cases_12;
+mod cave_connectivity;
 mod cohort_progress;
+mod column_admission;
 mod entity_occlusion;
+mod environment_admission;
+mod environment_sampling;
 mod far_summaries;
 mod forced_remesh;
 mod full_detail;
@@ -1034,13 +856,25 @@ mod inventory_commit_fence;
 mod lane_footprints;
 mod lenient_decode;
 mod local_abilities;
+mod mesh_dispatch;
+mod mesh_publication;
+mod mesh_removal;
 mod near_drawn;
+mod player_grid_interest;
+mod player_retention;
 mod prediction;
+mod publication_metrics;
+mod publisher_epochs;
+mod publisher_scope;
 mod remote_motion_replay;
 mod render_distance;
+mod request_admission;
+mod request_lifecycle;
+mod request_order;
 mod service;
 mod streaming_harness;
 mod sub_chunk_recovery;
+mod ui_epochs;
 
 mod actor_block_sync;
 #[path = "tests/ordered_commits.rs"]

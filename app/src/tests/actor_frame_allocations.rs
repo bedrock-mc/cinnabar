@@ -1,9 +1,7 @@
 //! Steady actor frames must not allocate per drawn actor.
 
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Duration};
+use web_time::Instant;
 
 use bevy::{
     math::Vec3,

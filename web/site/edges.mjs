@@ -1,7 +1,26 @@
 /** Samples the browser clock for relay capability expiry. */
 export const milliseconds = () => performance.now();
-/** Gives the shared selector a browser-owned deadline. */
-export const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Owns a timeout registration until the driver drops or completes its wait. */
+export function startTimer(ms) {
+  const handle = { id: undefined, promise: undefined, settle: undefined };
+  handle.promise = new Promise((resolve) => {
+    /** Releases the resolver after either expiry or cancellation completes the wait. */
+    handle.settle = () => {
+      handle.id = undefined;
+      handle.settle = undefined;
+      resolve();
+    };
+    handle.id = setTimeout(handle.settle, ms);
+  });
+  return handle;
+}
+/** Returns the existing promise without registering another timeout on each poll. */
+export const timerPromise = (handle) => handle.promise;
+/** Cancels a suspended, superseded or disposed driver's pending registration. */
+export const cancelTimer = (handle) => {
+  if (handle.id !== undefined) clearTimeout(handle.id);
+  handle.settle?.();
+};
 
 /** Reads an exact, bounded response; cancels surplus bytes before retaining them. */
 export async function boundedBytes(response, maximum, exact = true) {
@@ -19,6 +38,19 @@ export async function boundedBytes(response, maximum, exact = true) {
     if (exact && used !== maximum) throw new Error("Asset is truncated");
     return bytes.subarray(0, used);
   } finally { await reader.cancel(); }
+}
+
+/** Keeps required delivery failures fatal while unavailable optional carriers use startup fallbacks. */
+export async function downloadCarriers(carriers, manifest, base, fetcher = fetch) {
+  for (const [name, path, required] of JSON.parse(carriers.entries())) {
+    try {
+      const entry = manifest.entries.find((entry) => entry.name === name);
+      const response = await fetcher(new URL(path, base), { credentials: "omit" });
+      carriers.insert(name, await boundedBytes(response, entry.bytes));
+    } catch (error) {
+      if (required !== false) throw error;
+    }
+  }
 }
 
 /** Suspends cached pages and tears down resources only when navigation is final. */
@@ -72,7 +104,7 @@ export function canvasEdges(canvas, input, audio, view = window, doc = document)
     audio.resume().catch(() => {});
     canvas.requestPointerLock()?.catch(() => {});
   });
-  listen(doc, "pointerlockchange", () => { if (!locked()) input.release(); });
+  listen(doc, "pointerlockchange", () => { input.focus?.(locked()); if (!locked()) input.release(); });
   listen(view, "blur", () => input.release());
   for (const [name, down] of [["keydown", true], ["keyup", false]]) {
     listen(doc, name, (event) => { if (locked()) { event.preventDefault(); input.key(event.code, down); } });

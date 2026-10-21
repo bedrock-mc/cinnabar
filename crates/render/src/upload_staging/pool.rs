@@ -37,15 +37,18 @@ const FRAME_SLOT_BYTES: u64 = (PARTICLE_FRAME_BYTES + FRAME_OTHER_BYTES)
     .div_ceil(FRAME_SLOTS_PER_FRAME * FRAME_SLOT_GRANULE)
     * FRAME_SLOT_GRANULE;
 
-/// Fixed storage for four maximum particle frames plus bounded hand/UI headroom.
-/// Pending or failed mappings, extra writes and copy-record exhaustion still use fallback.
+/// Retained frame storage stops at 64 MiB even under sustained overflow.
+const FRAME_MAX_SLOTS: usize = (64_u64 * 1024 * 1024 / FRAME_SLOT_BYTES) as usize;
+
+/// Initial storage covers particles and small recurring writes; missed frames can grow
+/// toward a bounded retained budget for actors, models and the other frame owners.
 pub(super) const FRAME: Shape = Shape {
     name: "retained frame upload staging",
     slots: FRAME_SLOT_COUNT,
-    max_slots: FRAME_SLOT_COUNT,
-    growth_slots: 0,
+    max_slots: FRAME_MAX_SLOTS,
+    growth_slots: FRAME_SLOT_COUNT,
     slot_bytes: FRAME_SLOT_BYTES,
-    max_copies: 128,
+    max_copies: 128 + 2 * render_model::MAX_ACTOR_RENDER_INSTANCES + FRAME_MAX_SLOTS,
 };
 
 const TERRAIN_SLOT_BYTES: u64 = 256 * 1024;

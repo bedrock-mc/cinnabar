@@ -1,5 +1,6 @@
-//! Copies conservative current-frame section verdicts into ordinary unit descriptors.
+//! Copies current-frame section verdicts and clears retained flags before direct drawing.
 
+use render_model::terrain_units::IndexedUnitPage;
 use wgpu::util::DeviceExt;
 
 const WORKGROUP: u32 = 64;
@@ -7,6 +8,7 @@ const WORKGROUP: u32 = 64;
 /// A visibility write never changes addresses, references, counts or primitive order.
 pub struct UnitMasks {
     pipeline: wgpu::ComputePipeline,
+    clear_pipeline: wgpu::ComputePipeline,
     clear: wgpu::Buffer,
 }
 
@@ -26,20 +28,45 @@ impl UnitMasks {
             label: Some("ordinary terrain visibility mask"),
             source: wgpu::ShaderSource::Wgsl(source.into()),
         });
-        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("ordinary terrain visibility mask"),
-            layout: None,
-            module: &module,
-            entry_point: Some("mask_units"),
-            compilation_options: Default::default(),
-            cache: None,
+        let storage = |binding, read_only| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Storage { read_only },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        };
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("ordinary terrain visibility layout"),
+            entries: &[storage(0, false), storage(1, true)],
         });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("ordinary terrain visibility pipeline layout"),
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
+        });
+        let pipeline = |entry| {
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("ordinary terrain visibility mask"),
+                layout: Some(&layout),
+                module: &module,
+                entry_point: Some(entry),
+                compilation_options: Default::default(),
+                cache: None,
+            })
+        };
         let clear = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("all terrain visible"),
             contents: &[0; 4],
             usage: wgpu::BufferUsages::STORAGE,
         });
-        Self { pipeline, clear }
+        Self {
+            pipeline: pipeline("mask_units"),
+            clear_pipeline: pipeline("clear_units"),
+            clear,
+        }
     }
 
     /// Retains both page bindings, rebuilding only when a bound buffer changes.
@@ -94,7 +121,7 @@ impl UnitMasks {
         })
     }
 
-    /// Sets referenced flags from retained bindings, clearing them when depth is unavailable.
+    /// Sets referenced flags, or clears every retained slot even when no units are selected.
     pub fn encode(
         &self,
         device: &wgpu::Device,
@@ -103,23 +130,31 @@ impl UnitMasks {
         visibility: bool,
         count: u32,
     ) {
+        let count = if visibility {
+            count
+        } else {
+            IndexedUnitPage::capacity_for(bindings.page.size()) as u32
+        };
         if count == 0 {
             return;
         }
-        let group = if visibility {
-            &bindings
-                .visibility
-                .as_ref()
-                .expect("prepared occlusion bindings")
-                .1
+        let (pipeline, group) = if visibility {
+            (
+                &self.pipeline,
+                &bindings
+                    .visibility
+                    .as_ref()
+                    .expect("prepared occlusion bindings")
+                    .1,
+            )
         } else {
-            &bindings.clear
+            (&self.clear_pipeline, &bindings.clear)
         };
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("ordinary terrain visibility"),
             timestamp_writes: None,
         });
-        pass.set_pipeline(&self.pipeline);
+        pass.set_pipeline(pipeline);
         pass.set_bind_group(0, group, &[]);
         let groups = count.div_ceil(WORKGROUP);
         let width = groups.min(device.limits().max_compute_workgroups_per_dimension);
@@ -132,8 +167,97 @@ mod tests {
     use super::*;
 
     #[test]
+    fn fallback_clears_retained_units_outside_the_current_references() {
+        use crate::gpu_snapshot::Gpu;
+        use render_model::terrain_units::{QUADS_PER_UNIT, VisibleTerrainUnit};
+
+        let Some(gpu) = Gpu::for_fixture("retained terrain visibility flags") else {
+            return;
+        };
+        let masks = UnitMasks::new(&gpu.device);
+        let layout = IndexedUnitPage {
+            capacity: WORKGROUP as usize + 3,
+        };
+        let descriptors: Vec<_> = (0..layout.capacity as u32)
+            .map(|slot| VisibleTerrainUnit {
+                stream_start: slot * QUADS_PER_UNIT,
+                quad_count: 1,
+                origin_slot: slot,
+                hidden: 0,
+            })
+            .collect();
+        let mut words = vec![0; layout.byte_size() as usize / size_of::<u32>()];
+        words[..4].copy_from_slice(&layout.header(layout.capacity as u32));
+        words[4..4 + descriptors.len() * 4].copy_from_slice(bytemuck::cast_slice(&descriptors));
+        let reference_start = layout.reference_offset() as usize / size_of::<u32>();
+        for (slot, word) in words[reference_start..][..layout.capacity]
+            .iter_mut()
+            .enumerate()
+        {
+            *word = slot as u32;
+        }
+        let bits = gpu.words(
+            &vec![u32::MAX; layout.capacity.div_ceil(32)],
+            wgpu::BufferUsages::STORAGE,
+        );
+        for selected in [0, 1] {
+            let page = gpu.words(
+                &words,
+                wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_DST
+                    | wgpu::BufferUsages::COPY_SRC,
+            );
+            let mut bindings = None;
+            masks.prepare(&gpu.device, &page, Some(&bits), &mut bindings);
+            let bindings = bindings.unwrap();
+            let mut encoder = gpu.device.create_command_encoder(&Default::default());
+            masks.encode(
+                &gpu.device,
+                &mut encoder,
+                &bindings,
+                true,
+                layout.capacity as u32,
+            );
+            gpu.queue.submit([encoder.finish()]);
+
+            // The fallback selection omits units whose hidden flags are still retained.
+            gpu.queue
+                .write_buffer(&page, 0, bytemuck::cast_slice(&layout.header(selected)));
+            let mut encoder = gpu.device.create_command_encoder(&Default::default());
+            masks.encode(&gpu.device, &mut encoder, &bindings, false, selected);
+            let readback = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("retained visibility readback"),
+                size: page.size(),
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            encoder.copy_buffer_to_buffer(&page, 0, &readback, 0, page.size());
+            gpu.queue.submit([encoder.finish()]);
+            readback
+                .slice(..)
+                .map_async(wgpu::MapMode::Read, Result::unwrap);
+            gpu.device
+                .poll(wgpu::PollType::wait_indefinitely())
+                .unwrap();
+            let mapped = readback.slice(..).get_mapped_range().unwrap();
+            let retained: &[VisibleTerrainUnit] = bytemuck::cast_slice(&mapped);
+            assert_eq!(
+                &retained[1..=layout.capacity],
+                descriptors,
+                "fallback must clear every retained descriptor with {selected} references"
+            );
+            assert!(retained[layout.capacity].quad(0).is_some());
+            assert_eq!(
+                &mapped[layout.reference_offset() as usize..],
+                bytemuck::cast_slice::<u32, u8>(&words[reference_start..]),
+                "clearing visibility must preserve the reference region"
+            );
+        }
+    }
+
+    #[test]
     fn unchanged_visibility_mask_buffers_reuse_both_bind_groups() {
-        let (device, _) = wgpu::Device::noop(&Default::default());
+        let (device, _queue) = wgpu::Device::noop(&Default::default());
         let masks = UnitMasks::new(&device);
         let buffer = || {
             device.create_buffer(&wgpu::BufferDescriptor {
@@ -146,6 +270,9 @@ mod tests {
         let page = buffer();
         let bits = buffer();
         let mut bindings = None;
+        masks.prepare(&device, &page, None, &mut bindings);
+        let mut encoder = device.create_command_encoder(&Default::default());
+        masks.encode(&device, &mut encoder, bindings.as_ref().unwrap(), true, 0);
         masks.prepare(&device, &page, Some(&bits), &mut bindings);
         let first = bindings.as_ref().unwrap();
         let clear = first.clear.clone();

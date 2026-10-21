@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 /// Creates the host import state with worst-case serialized identity and epoch fields.
 fn state() -> State {
     let mut state = State {
+        session: Arc::default(),
         limits: StoreLimitsBuilder::new().build(),
         owner: Principal {
             session: "\\\"".repeat(MAX_IDENTIFIER_BYTES),
@@ -18,6 +19,7 @@ fn state() -> State {
                 origins: BTreeSet::new(),
                 memory_bytes: 0,
                 gpu_bytes: 0,
+                personal_mods: Default::default(),
             },
             assets: BTreeSet::new(),
             templates: BTreeSet::new(),
@@ -95,6 +97,48 @@ fn staged_output_at_the_transaction_boundary_round_trips_through_ipc() {
     assert_eq!(serde_json::to_vec(&transaction).unwrap().len(), state.bytes);
 }
 
+/// `items` reads the session the client last sent, and only under the `items` permission.
+#[test]
+fn items_read_the_sent_session_only_when_granted() {
+    use items::Host as _;
+    use server_experience::session_data::{Item, SessionItems};
+    let stone = Item {
+        key: ItemKey {
+            identifier: "minecraft:stone".into(),
+            aux: 0,
+        },
+        icon: SessionData::icon_key(1, 0),
+        name: "Stone".into(),
+        group: None,
+        category: None,
+        max_stack: 64,
+        tags: Vec::new(),
+    };
+    let mut state = state();
+    state.session = Arc::new(
+        SessionItems {
+            revision: 3,
+            items: vec![stone],
+            tags: Default::default(),
+        }
+        .into(),
+    );
+    let key = || items::ItemKey {
+        identifier: "minecraft:stone".into(),
+        aux: 0,
+    };
+    assert!(state.revision().unwrap().is_err());
+    assert!(state.lookup(key()).unwrap().is_err());
+    state
+        .capabilities
+        .scope
+        .permissions
+        .insert(Permission::Items);
+    assert_eq!(state.revision().unwrap(), Ok(3));
+    let found = state.lookup(key()).unwrap().unwrap().unwrap();
+    assert_eq!(found.icon, SessionData::icon_key(1, 0));
+}
+
 /// The 1.1 test guest, as a component built against 1.1.0 imports it: from the package the host
 /// binds, at 1.1.0.
 fn guest_1_1(template: &str) -> String {
@@ -130,6 +174,7 @@ fn screen_capabilities(permissions: &[Permission]) -> Capabilities {
             origins: BTreeSet::new(),
             memory_bytes: 1 << 20,
             gpu_bytes: 0,
+            personal_mods: Default::default(),
         },
         assets: BTreeSet::from(["ui/terminal.json".to_owned()]),
         templates: BTreeSet::from(["ui/terminal.json".to_owned()]),
@@ -535,6 +580,34 @@ fn secondary_presses_reach_secondary_action() {
         other => panic!("{other:?}"),
     }
     assert!(host.dispatch(&press("terminal.other"), 1).is_err());
+}
+
+/// `shift-changed` tells a guest granted `input` whether Shift is held; one without `input` is
+/// refused before it runs.
+#[test]
+fn shift_changed_reaches_the_guest() {
+    let mut host = searching_terminal();
+    match host
+        .dispatch(&Event::Shift { held: true }, 1)
+        .unwrap()
+        .commands
+        .as_slice()
+    {
+        [
+            Command::Value {
+                name,
+                value: screen::Value::Bool(held),
+            },
+        ] => {
+            assert_eq!((name.as_str(), *held), ("#shift", true));
+        }
+        other => panic!("{other:?}"),
+    }
+    let mut capabilities = screen_capabilities(&[Permission::ModalUi]);
+    capabilities.scope.memory_bytes = MAX_GUEST_MEMORY;
+    let mut blind = BundleHost::launch(&terminal_component(), owner(), capabilities, 1).unwrap();
+    blind.take_transaction();
+    assert!(blind.dispatch(&Event::Shift { held: true }, 1).is_err());
 }
 
 /// `scroll-changed` delivers a declared scroll view's range; an undeclared view, or a range

@@ -28,7 +28,7 @@ fn java_chat_keeps_the_world_and_hud_but_absorbs_gameplay() {
     );
     assert!(chat.absorbs_input && chat.render_game_behind);
     assert!(!hud.absorbs_input && hud.renders(false));
-    assert!(presentation.renders_game_behind(&player_runtime, &runtime, &menu));
+    assert!(presentation.renders_game_behind(&player_runtime, &runtime, Some(&menu)));
     assert!(presentation.absorbs_gameplay_input(&player_runtime, &runtime, &menu));
     presentation.set_server_ui_pack(&ServerUiPack {
         ui_layers: vec![vec![(
@@ -62,11 +62,11 @@ fn retail_menu_defaults_and_server_visibility_override_share_the_resolved_root()
     menu.open_pause();
     let pause = client_ui::test_support::menu_settings(&presentation, &runtime, &menu.view());
     assert!(pause.absorbs_input && pause.render_game_behind && pause.render_only_when_topmost);
-    assert!(presentation.renders_game_behind(&player_runtime, &runtime, &menu));
+    assert!(presentation.renders_game_behind(&player_runtime, &runtime, Some(&menu)));
     menu.activate(MenuAction::PauseSettings);
     let settings = client_ui::test_support::menu_settings(&presentation, &runtime, &menu.view());
     assert!(settings.absorbs_input && settings.render_game_behind);
-    assert!(presentation.renders_game_behind(&player_runtime, &runtime, &menu));
+    assert!(presentation.renders_game_behind(&player_runtime, &runtime, Some(&menu)));
     assert!(presentation.absorbs_gameplay_input(&player_runtime, &runtime, &menu));
     let (namespace, control) = json_ui::vanilla::Reference::SettingsScreenControlsAndSettings
         .as_str()
@@ -81,10 +81,10 @@ fn retail_menu_defaults_and_server_visibility_override_share_the_resolved_root()
         )]],
         ..Default::default()
     });
-    assert!(!presentation.renders_game_behind(&player_runtime, &runtime, &menu));
+    assert!(!presentation.renders_game_behind(&player_runtime, &runtime, Some(&menu)));
     assert!(presentation.absorbs_gameplay_input(&player_runtime, &runtime, &menu));
     presentation.set_server_ui_pack(&ServerUiPack::default());
-    assert!(presentation.renders_game_behind(&player_runtime, &runtime, &menu));
+    assert!(presentation.renders_game_behind(&player_runtime, &runtime, Some(&menu)));
     menu.set_visible(false);
     menu.open_pause();
     presentation.set_server_ui_pack(&ServerUiPack {
@@ -94,6 +94,6 @@ fn retail_menu_defaults_and_server_visibility_override_share_the_resolved_root()
         )]],
         ..Default::default()
     });
-    assert!(!presentation.renders_game_behind(&player_runtime, &runtime, &menu));
+    assert!(!presentation.renders_game_behind(&player_runtime, &runtime, Some(&menu)));
     assert!(presentation.absorbs_gameplay_input(&player_runtime, &runtime, &menu));
 }

@@ -1,5 +1,7 @@
 use super::*;
 
+mod dispatch;
+
 /// Outbound sub-chunk requests and the per-slot bookkeeping that answers, retries and
 /// eviction reconcile against.
 #[derive(Default)]
@@ -7,6 +9,8 @@ pub(super) struct SubChunkRequests {
     pub(super) queue: RequestQueue,
     pub(super) requested: BTreeMap<ChunkKey, PendingSubChunkColumn>,
     pub(super) collision_failures: BTreeSet<ChunkKey>,
+    /// Retired heights keep a column incomplete until received or replaced.
+    pub(super) unencodable: BTreeMap<ChunkKey, BTreeSet<i32>>,
     pub(super) deadlines: BTreeSet<(Instant, SubChunkKey)>,
     pub(super) correlated_attempts: ColumnRecords<SubChunkKey, CorrelatedSubChunkAttempts>,
     pub(super) admitted_replies: ColumnRecords<SubChunkKey, u8>,
@@ -16,11 +20,27 @@ pub(super) struct SubChunkRequests {
     pub(super) recoveries: BTreeMap<ChunkKey, BTreeMap<i32, SubChunkRecovery>>,
     /// The last recovery column visited, so spent polls resume past it.
     pub(super) recovery_cursor: Option<ChunkKey>,
-    pub(super) transport_pending: usize,
+    pub(super) transport: BTreeMap<u64, SubChunkRequestReceipt>,
+    next_identity: u64,
     pub(super) last_player_chunk: Option<ChunkKey>,
 }
 
 impl SubChunkRequests {
+    /// Clears the column failure only when no missing heights remain.
+    pub(super) fn clear_recovered_collision_failure(&mut self, chunk: ChunkKey) {
+        if !self.recoveries.contains_key(&chunk) && !self.unencodable.contains_key(&chunk) {
+            self.collision_failures.remove(&chunk);
+        }
+    }
+
+    /// Allocates identities that are never reused after a column or dimension retires.
+    pub(super) fn allocate_identity(&mut self) -> u64 {
+        self.next_identity = self
+            .next_identity
+            .checked_add(1)
+            .expect("request identity space exhausted");
+        self.next_identity
+    }
     pub(super) fn consume_confirmed_attempt(&mut self, key: SubChunkKey) {
         let Some(pending) = self
             .requested
@@ -29,7 +49,12 @@ impl SubChunkRequests {
         else {
             return;
         };
-        pending.confirmed_attempts = pending.confirmed_attempts.saturating_sub(1);
+        if pending.confirmed_attempts != 0 {
+            pending.confirmed_attempts -= 1;
+        } else if pending.pending_transport_attempts != 0 {
+            // Responses can commit before the successful-write event reaches the app.
+            pending.answered_transport_packet = pending.latest_transport_packet;
+        }
     }
     pub(super) fn clear_admitted_replies(&mut self, key: SubChunkKey) -> bool {
         self.admitted_replies.remove(&key).is_some()
@@ -105,6 +130,7 @@ impl SubChunkRequests {
             self.correlated_attempts.remove_column(chunk);
             self.admitted_replies.remove_column(chunk);
             self.recoveries.remove(&chunk);
+            self.unencodable.remove(&chunk);
         }
     }
     /// Reads and resets record visits made by the shared column cleanup helpers.
@@ -150,7 +176,7 @@ impl WorldStream {
                 self.requests.last_player_chunk,
                 &self.publisher.required_columns,
             ) {
-                self.requests.queue.confirm_popped(&request);
+                let _ = self.requests.queue.confirm_popped(&request);
                 ready.push(request);
                 popped = true;
             }
@@ -178,96 +204,6 @@ impl WorldStream {
         self.requests.queue.retry_front(request);
         Ok(())
     }
-    pub fn record_sub_chunk_request_transport_pending(
-        &mut self,
-        chunk: ChunkKey,
-        base_sub_chunk_y: i32,
-        count: usize,
-    ) {
-        self.publisher
-            .local_reset
-            .record_dispatch(self.requests.queue.last_popped_class());
-        self.requests.transport_pending = self.requests.transport_pending.saturating_add(1);
-        self.requests
-            .queue
-            .confirm_popped_identity(chunk, base_sub_chunk_y, count);
-        for offset in 0..count {
-            let y = base_sub_chunk_y.saturating_add(offset as i32);
-            if let Some(pending) = self
-                .requests
-                .requested
-                .get_mut(&chunk)
-                .and_then(|column| column.get_mut(&y))
-            {
-                pending.pending_transport_attempts = pending
-                    .pending_transport_attempts
-                    .saturating_add(1)
-                    .min(MAX_SUB_CHUNK_RETRIES.saturating_add(1));
-            }
-        }
-    }
-    pub fn acknowledge_sub_chunk_request_sent(
-        &mut self,
-        chunk: ChunkKey,
-        base_sub_chunk_y: i32,
-        count: usize,
-        sent_at: Instant,
-    ) {
-        self.requests.transport_pending = self.requests.transport_pending.saturating_sub(1);
-        self.stats.publication_stages.requests_sent = self
-            .stats
-            .publication_stages
-            .requests_sent
-            .saturating_add(1);
-        let deadline = sent_at
-            .checked_add(SUB_CHUNK_RESPONSE_TIMEOUT)
-            .unwrap_or(sent_at);
-        for offset in 0..count {
-            let y = base_sub_chunk_y.saturating_add(offset as i32);
-            let key = SubChunkKey::from_chunk(chunk, y);
-            let reply_admitted = self
-                .requests
-                .admitted_replies
-                .get(&key)
-                .is_some_and(|admitted| *admitted != 0);
-            let pending = self
-                .requests
-                .requested
-                .get_mut(&chunk)
-                .and_then(|column| column.get_mut(&y));
-            let Some(pending) = pending else {
-                if let Some(correlated) = self.requests.correlated_attempts.get_mut(&key)
-                    && correlated.pending_transport_attempts != 0
-                {
-                    correlated.pending_transport_attempts =
-                        correlated.pending_transport_attempts.saturating_sub(1);
-                    correlated.confirmed_attempts = correlated
-                        .confirmed_attempts
-                        .saturating_add(1)
-                        .min(MAX_SUB_CHUNK_RETRIES.saturating_add(1));
-                }
-                continue;
-            };
-            pending.pending_transport_attempts =
-                pending.pending_transport_attempts.saturating_sub(1);
-            pending.confirmed_attempts = pending
-                .confirmed_attempts
-                .saturating_add(1)
-                .min(MAX_SUB_CHUNK_RETRIES.saturating_add(1));
-            if reply_admitted {
-                if let Some(previous) = pending.response_deadline.take() {
-                    self.requests.deadlines.remove(&(previous, key));
-                }
-                continue;
-            }
-            let previous = pending.response_deadline.replace(deadline);
-            if let Some(previous) = previous {
-                self.requests.deadlines.remove(&(previous, key));
-            }
-            self.requests.deadlines.insert((deadline, key));
-        }
-        debug_assert!(self.requests.deadlines.len() <= self.outstanding_sub_chunk_count());
-    }
     pub fn pending_request_count(&self) -> usize {
         self.requests.queue.ready_requests().count()
     }
@@ -287,9 +223,7 @@ impl WorldStream {
         count: usize,
         sequence: Option<u64>,
     ) {
-        if !self.requests.recoveries.contains_key(&key) {
-            self.requests.collision_failures.remove(&key);
-        }
+        self.requests.clear_recovered_collision_failure(key);
         if count == 0 {
             if let Some(sequence) = sequence {
                 self.cancel_request_reservation(sequence);
@@ -306,20 +240,14 @@ impl WorldStream {
             }
             return;
         }
-        match request_sub_chunk_column(key.dimension, key.x, key.z, base_sub_chunk_y, count) {
-            Ok(packet) => {
+        let demand = self.requests.allocate_identity();
+        match PendingSubChunkRequest::new(key, base_sub_chunk_y, count, demand) {
+            Some(request) => {
                 self.stats.publication_stages.requests_constructed = self
                     .stats
                     .publication_stages
                     .requests_constructed
                     .saturating_add(1);
-                let request = PendingSubChunkRequest {
-                    packet,
-                    dimension: key.dimension,
-                    chunk: key,
-                    base_sub_chunk_y,
-                    count,
-                };
                 if !self.place_outbound_request(sequence, request, false) {
                     self.record_normalization_error(
                         NormalizationErrorReason::OutboundRequestPlacementFailure,
@@ -330,7 +258,10 @@ impl WorldStream {
                     .map(|offset| {
                         (
                             base_sub_chunk_y.saturating_add(offset as i32),
-                            PendingSubChunk::default(),
+                            PendingSubChunk {
+                                demand,
+                                ..Default::default()
+                            },
                         )
                     })
                     .collect::<PendingSubChunkColumn>();
@@ -348,7 +279,7 @@ impl WorldStream {
                     self.requests.requested.insert(key, expected);
                 }
             }
-            Err(_) => {
+            None => {
                 self.record_normalization_error(NormalizationErrorReason::RequestEncodingFailure)
             }
         }
@@ -361,9 +292,7 @@ impl WorldStream {
         ys: &[i32],
         sequence: Option<u64>,
     ) {
-        if !self.requests.recoveries.contains_key(&key) {
-            self.requests.collision_failures.remove(&key);
-        }
+        self.requests.clear_recovered_collision_failure(key);
         let range_end = range
             .base_sub_chunk_y
             .saturating_add(i32::try_from(range.sub_chunk_count).unwrap_or(i32::MAX));
@@ -418,8 +347,8 @@ impl WorldStream {
             if count == 0 {
                 continue;
             }
-            let Ok(packet) = request_sub_chunk_column(key.dimension, key.x, key.z, base_y, count)
-            else {
+            let demand = self.requests.allocate_identity();
+            let Some(request) = PendingSubChunkRequest::new(key, base_y, count, demand) else {
                 self.record_normalization_error(NormalizationErrorReason::RequestEncodingFailure);
                 continue;
             };
@@ -428,26 +357,19 @@ impl WorldStream {
                 .publication_stages
                 .requests_constructed
                 .saturating_add(1);
-            requests.push((
-                base_y,
-                count,
-                PendingSubChunkRequest {
-                    packet,
-                    dimension: key.dimension,
-                    chunk: key,
-                    base_sub_chunk_y: base_y,
-                    count,
-                },
-            ));
+            requests.push((base_y, count, request));
         }
 
         if !requests.is_empty() {
             let expected = self.requests.requested.entry(key).or_default();
-            for (base_y, count, _) in &requests {
+            for (base_y, count, request) in &requests {
                 for offset in 0..*count {
                     expected
                         .entry(base_y.saturating_add(i32::try_from(offset).unwrap_or(i32::MAX)))
-                        .or_default();
+                        .or_insert(PendingSubChunk {
+                            demand: request.demand,
+                            ..Default::default()
+                        });
                 }
             }
         }
@@ -501,8 +423,7 @@ mod cleanup_tests {
     /// Builds one valid request identity for the populated retirement fixture.
     fn request(chunk: ChunkKey) -> PendingSubChunkRequest {
         PendingSubChunkRequest {
-            packet: request_sub_chunk_column(chunk.dimension, chunk.x, chunk.z, 0, 1).unwrap(),
-            dimension: chunk.dimension,
+            demand: 0,
             chunk,
             base_sub_chunk_y: 0,
             count: 1,
@@ -552,7 +473,6 @@ mod cleanup_tests {
             requests.deferred_retries.push_back(key);
             requests.deferred_retry_set.insert(key);
             requests.queue.push_ready(request(column), true);
-            requests.queue.prioritize_mesh_blocker(column);
         }
         let survivor = ChunkKey::new(1, 0, 0);
         requests.queue.reserve(7);

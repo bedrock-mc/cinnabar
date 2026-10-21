@@ -10,7 +10,7 @@ use semantic_input::PerspectiveMode;
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ActorCameraEffects;
 
-/// Shares hurt at the actor fraction and bob at the physics fraction without changing gameplay aim.
+/// Samples hurt and bob on their own clocks, applying movement bob to the selected views.
 #[allow(clippy::too_many_arguments)]
 pub fn apply_actor_damage_camera_rotation(
     settings: Res<CameraSettingsAuthority>,
@@ -39,23 +39,33 @@ pub fn apply_actor_damage_camera_rotation(
             })
             .and_then(|rig| rig.skin_geometry)
             .map(|geometry| geometry.as_ref());
-        let effect = sampled_legacy_effect(
-            actor,
-            legacy
-                .as_deref()
-                .map(|legacy| legacy.state.endpoints)
-                .unwrap_or_default(),
-            alpha,
-            physics_partial_tick,
-            settings.feel().view_bobbing,
-            settings.feel().damage_bob,
-            geometry,
-        );
+        let endpoints = legacy
+            .as_deref()
+            .map(|legacy| legacy.state.endpoints)
+            .unwrap_or_default();
+        let sample = |bobbing| {
+            sampled_legacy_effect(
+                actor,
+                endpoints,
+                alpha,
+                physics_partial_tick,
+                bobbing,
+                settings.hurt_camera_style(),
+                geometry,
+            )
+        };
+        let mode = settings.feel().view_bobbing;
+        let effect = sample(mode.hand_enabled());
         hand.legacy_effect = Some(effect);
-        if effect.is_finite() {
+        let camera_effect = if mode.hand_enabled() == mode.camera_enabled() {
+            effect
+        } else {
+            sample(false)
+        };
+        if camera_effect.is_finite() {
             for mut camera in &mut cameras {
-                // Inverting the shared view effect gives Hurt × Bob × Vbase.
-                *camera = Transform::from_matrix(camera.to_matrix() * effect.inverse());
+                // Inverting the selected view effect gives Hurt × Bob × Vbase.
+                *camera = Transform::from_matrix(camera.to_matrix() * camera_effect.inverse());
             }
         }
         return;
@@ -78,11 +88,20 @@ pub fn apply_actor_damage_camera_rotation(
             damage_rotation(
                 death_ticks,
                 hurt_progress,
-                actor.status.hurt_direction.unwrap_or(0.0).to_radians(),
-                settings.feel().damage_bob,
+                if settings.hurt_camera_style().old_tilt() {
+                    0.0
+                } else {
+                    actor.status.hurt_direction.unwrap_or(0.0).to_radians()
+                },
+                settings.hurt_camera_style().intensity(),
             )
         });
-    let effect = Mat4::from_quat(damage) * hand.bob.matrix().inverse();
+    let bob = if settings.feel().view_bobbing.camera_enabled() {
+        hand.bob.matrix().inverse()
+    } else {
+        Mat4::IDENTITY
+    };
+    let effect = Mat4::from_quat(damage) * bob;
     if effect == Mat4::IDENTITY || !effect.is_finite() {
         return;
     }
@@ -98,7 +117,7 @@ fn sampled_legacy_effect(
     actor_alpha: f32,
     physics_alpha: f32,
     view_bobbing: bool,
-    strength: f32,
+    style: render_api::HurtCameraStyle,
     geometry: Option<&assets::SkinGeometry>,
 ) -> Mat4 {
     let Some(actor) = actor else {
@@ -112,10 +131,14 @@ fn sampled_legacy_effect(
     .then(|| f32::from(actor.status.native_death_ticks()));
     let hurt = render_model::legacy_combat::legacy_hurt_matrix(
         actor.status.hurt_time,
-        actor.status.hurt_direction.unwrap_or(0.0),
+        if style.old_tilt() {
+            0.0
+        } else {
+            actor.status.hurt_direction.unwrap_or(0.0)
+        },
         death_ticks,
         actor_alpha,
-        strength,
+        style.intensity(),
     );
     let bob = if view_bobbing
         && matches!(actor.kind, protocol::ActorKind::Player { .. })
@@ -167,6 +190,49 @@ pub fn collect_death_fov_inputs(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The old tilt ignores the supplied damage direction; disabling shake preserves ordinary bob.
+    #[test]
+    fn hurt_camera_style_controls_direction_and_shake_without_changing_bob() {
+        let mut stream = crate::presentation::combat::tests::player_stream();
+        let id = stream.local_player_runtime_id();
+        crate::presentation::combat::tests::event(&mut stream, 2, protocol::ActorStatusKind::Hurt);
+        let mut actor = stream.authority().actor(id).unwrap().clone();
+        let old = render_api::HurtCameraStyle::new(1.0, true).unwrap();
+        let sample = |actor: &client_world::ActorSnapshot, style| {
+            sampled_legacy_effect(
+                Some(actor),
+                Default::default(),
+                0.5,
+                0.5,
+                false,
+                style,
+                None,
+            )
+        };
+        actor.status.hurt_direction = Some(0.0);
+        let fixed = sample(&actor, old);
+        actor.status.hurt_direction = Some(90.0);
+        assert_eq!(sample(&actor, old), fixed);
+        assert_ne!(
+            sample(
+                &actor,
+                render_api::HurtCameraStyle::new(1.0, false).unwrap()
+            ),
+            fixed
+        );
+        let endpoints = render_model::legacy_combat::LegacyCameraEndpoints {
+            walked: [0.3, 0.6],
+            bob: [0.05, 0.1],
+            fall_degrees: [-4.0, -2.0],
+        };
+        let disabled = render_api::HurtCameraStyle::new(0.0, true).unwrap();
+        assert_eq!(sample(&actor, disabled), Mat4::IDENTITY);
+        assert_eq!(
+            sampled_legacy_effect(Some(&actor), endpoints, 0.5, 0.5, true, disabled, None),
+            endpoints.bob_matrix(0.5)
+        );
+    }
     use bevy::prelude::Vec3;
 
     #[test]
@@ -223,13 +289,37 @@ mod legacy_effect_tests {
             bob: [0.05, 0.1],
             fall_degrees: [-4.0, -2.0],
         };
-        let suppressed = sampled_legacy_effect(actor, endpoints, 0.5, 0.5, true, 1.0, Some(&skin));
-        let hurt_only = sampled_legacy_effect(actor, Default::default(), 0.5, 0.5, true, 1.0, None);
+        let suppressed = sampled_legacy_effect(
+            actor,
+            endpoints,
+            0.5,
+            0.5,
+            true,
+            render_api::HurtCameraStyle::new(1.0, false).unwrap(),
+            Some(&skin),
+        );
+        let hurt_only = sampled_legacy_effect(
+            actor,
+            Default::default(),
+            0.5,
+            0.5,
+            true,
+            render_api::HurtCameraStyle::new(1.0, false).unwrap(),
+            None,
+        );
         assert_eq!(suppressed, hurt_only);
         assert_ne!(suppressed, Mat4::IDENTITY);
         assert_ne!(
             suppressed,
-            sampled_legacy_effect(actor, endpoints, 0.5, 0.5, true, 1.0, None)
+            sampled_legacy_effect(
+                actor,
+                endpoints,
+                0.5,
+                0.5,
+                true,
+                render_api::HurtCameraStyle::new(1.0, false).unwrap(),
+                None
+            )
         );
     }
 
@@ -259,10 +349,26 @@ mod legacy_effect_tests {
                 0.85,
                 1.0,
             ) * endpoints.bob_matrix(0.2);
-            let actual = sampled_legacy_effect(Some(actor), endpoints, 0.85, 0.2, true, 1.0, None);
+            let actual = sampled_legacy_effect(
+                Some(actor),
+                endpoints,
+                0.85,
+                0.2,
+                true,
+                render_api::HurtCameraStyle::new(1.0, false).unwrap(),
+                None,
+            );
             assert_eq!(actual, expected);
             assert!(!actual.abs_diff_eq(
-                sampled_legacy_effect(Some(actor), endpoints, 0.2, 0.2, true, 1.0, None),
+                sampled_legacy_effect(
+                    Some(actor),
+                    endpoints,
+                    0.2,
+                    0.2,
+                    true,
+                    render_api::HurtCameraStyle::new(1.0, false).unwrap(),
+                    None
+                ),
                 1e-5,
             ));
         }

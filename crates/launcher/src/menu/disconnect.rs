@@ -83,11 +83,21 @@ pub fn describe(error: &str) -> DisconnectText {
 }
 
 /// Lang keys a server (the core, on a failed join) may send as its whole message.
-pub const SERVER_SENT_KEYS: &[&str] = &[
-    "disconnectionScreen.cantConnect",
-    "disconnectionScreen.cantConnectToRealm",
-    "disconnectionScreen.resourcePack",
-];
+pub const SERVER_SENT_KEYS: &[&str] = &bridge::contract::CORE_DISCONNECT_KEYS;
+
+/// English for a body key when the loaded packs lack it: Cinnabar's own keys carry their text,
+/// and a vanilla key reads as itself, as before.
+pub fn body_fallback(key: &'static str) -> &'static str {
+    match key {
+        bridge::contract::DISCONNECT_KEY_DEVICE_CLOCK => DEVICE_CLOCK_TEXT,
+        _ => key,
+    }
+}
+
+const DEVICE_CLOCK_TEXT: &str = concat!(
+    "Your device's clock is behind, so sign-in was rejected. ",
+    "Turn on automatic date and time, then try again."
+);
 
 /// A server's disconnect text: a known `DisconnectFailReason` name reads as
 /// vanilla's line for it, a known lang key is localized as vanilla does, and
@@ -187,5 +197,18 @@ mod tests {
         assert_eq!(unreachable.body, key("disconnectionScreen.cantConnect"));
         assert_eq!(body("something odd"), key("disconnectionScreen.noReason"));
         assert_eq!(describe("closed").title, DISCONNECTED);
+    }
+
+    // Every key the core sends reads as that key, and Cinnabar's own keys have English text.
+    #[test]
+    fn core_sent_keys_read_as_their_text() {
+        for &sent in SERVER_SENT_KEYS {
+            assert_eq!(describe(&from_server(sent)).body, DisconnectBody::Key(sent));
+            if sent.starts_with("cinnabar.") {
+                assert_ne!(body_fallback(sent), sent, "{sent} has no English text");
+            } else {
+                assert_eq!(body_fallback(sent), sent);
+            }
+        }
     }
 }

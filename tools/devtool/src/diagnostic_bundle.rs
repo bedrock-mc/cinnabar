@@ -27,16 +27,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
     let client = client.as_str();
     entries.push(("client.log".to_owned(), client.to_owned()));
     let core = core_session_tail(&root.join("logs/core.log"), client).unwrap_or_default();
-    let timeline = core
-        .lines()
-        .filter(|line| {
-            line.contains("upstream ")
-                && (line.contains("elapsed_ms")
-                    || line.contains("connection starting")
-                    || line.contains("connection failed"))
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let timeline = join_timeline(client, &core);
     entries.push(("core.log".into(), core));
     entries.push(("join-timeline.txt".into(), timeline));
     let session_identity = client
@@ -81,6 +72,22 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
     bundle(&path, &entries)?;
     println!("{}", path.display());
     Ok(())
+}
+
+/// Keeps client timing records and the matching core milestones in the diagnostic bundle.
+fn join_timeline(client: &str, core: &str) -> String {
+    client
+        .lines()
+        .filter(|line| line.contains("join_profile_id="))
+        .chain(core.lines().filter(|line| {
+            line.contains("join_profile_id=")
+                || (line.contains("upstream ")
+                    && (line.contains("elapsed_ms")
+                        || line.contains("connection starting")
+                        || line.contains("connection failed")))
+        }))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Collects the current session's retained log segments, oldest first, with a bounded tail

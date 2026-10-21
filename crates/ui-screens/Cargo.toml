@@ -18,7 +18,7 @@ reads = [
 test-support = []
 
 [dependencies]
-actor-animation = { path = "../actor-animation" }
+cosmetics = { path = "../cosmetics" }
 assets = { path = "../assets" }
 bridge = { path = "../bridge" }
 inventory = { path = "../inventory" }
@@ -26,8 +26,10 @@ json-ui = { path = "../json-ui" }
 launcher = { path = "../launcher" }
 player-state = { path = "../player-state" }
 protocol = { path = "../protocol" }
+render-api = { path = "../render-api" }
 render-model = { path = "../render-model" }
 resource-pack = { path = "../resource-pack", default-features = false }
+semantic-input = { path = "../input" }
 serde_json = "1"
 tracing.workspace = true
 ui = { path = "../ui" }
@@ -36,6 +38,7 @@ url = "2"
 
 [dev-dependencies]
 image.workspace = true
+protocol = { path = "../protocol", features = ["test-support"] }
 ui-engine = { path = "../ui-engine", features = ["test-support"] }
 
 [lints]

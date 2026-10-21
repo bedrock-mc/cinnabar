@@ -3,6 +3,7 @@ use crate::runtime::network::resource_packs::PackApplication;
 use crate::runtime::visibility::AppMetrics;
 #[cfg(feature = "acceptance")]
 use ::acceptance::AcceptanceRun;
+use client_presentation::environment::{WeatherState, WorldClock, apply_environment_control};
 use client_runtime::network::NetworkHandle;
 #[cfg(feature = "acceptance")]
 use {
@@ -14,7 +15,8 @@ use {
     acceptance::model_witness::ModelWitnessFileSource,
     acceptance::mutation::deterministic_mutation_coordinate, diagnostics::write_stdout_marker,
 };
-mod committed_ui;
+pub(crate) mod camera_environment;
+pub(super) mod committed_ui;
 mod control_apply;
 mod dimension;
 mod input_locks;
@@ -30,6 +32,7 @@ mod sub_chunk_requests;
 mod terrain_generation;
 pub(crate) use service::configure_world_service;
 pub(crate) use sub_chunk_requests::flush_sub_chunk_requests;
+pub(crate) use sub_chunk_requests::sub_chunk_request_center;
 pub(crate) use terrain_generation::synchronize_terrain_generation;
 
 #[cfg(feature = "acceptance")]
@@ -44,10 +47,7 @@ use assets::{RuntimeAssets, RuntimeEntityAssets};
 use bevy::{
     ecs::system::SystemParam,
     log::info,
-    prelude::{
-        DetectChangesMut, Local, MessageWriter, Query, Res, ResMut, Resource, Time, Transform,
-        Vec3, With,
-    },
+    prelude::{DetectChangesMut, Local, MessageWriter, Res, ResMut, Resource, Time, Vec3},
     time::{Real, Virtual},
 };
 use chunk_pipeline::{
@@ -58,7 +58,6 @@ use client_world::CommittedControlEvent;
 use client_audio::audio_ingress::{SequencedAudioEvent, drain_committed_audio};
 use client_presentation::server_camera::{ServerCameraInstructions, drain_committed_camera};
 use client_ui::block_cracks::reconcile_world_block_cracks;
-use meshing::CameraMedium;
 use protocol::BlobCacheStats;
 use render_scene::{
     ChunkBiomeTints, ChunkRenderQueue, ChunkUploadAcknowledgements, ChunkUploadBudget,
@@ -68,19 +67,16 @@ use render_scene::{
 
 use client_shell::ui_resources::UiRuntimeResource;
 use {
-    crate::{
-        environment::{self, WeatherState, WorldClock, apply_environment_control},
-        runtime::{
-            shutdown::{FatalError, record_fatal_error},
-            visibility::{CaveVisibilityCache, DiagnosticQuads},
-        },
+    crate::runtime::{
+        shutdown::{FatalError, record_fatal_error},
+        visibility::{CaveVisibilityCache, DiagnosticQuads},
     },
     client_interaction::movement::{
         LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
         MovementTicker, PhysicsCollisionRegistries,
     },
     client_presentation::{
-        camera::{CameraSettingsAuthority, FlyCamera},
+        camera::CameraSettingsAuthority,
         local_player::{
             InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset,
             LocalViewPose,
@@ -130,6 +126,8 @@ pub(crate) struct ClientWorld {
         Option<Arc<client_presentation::prepared_actor_artwork::PreparedActorArtwork>>,
     /// The session's custom item facts and pack icons for held and worn items.
     pub(crate) session_items: Option<Arc<client_presentation::session_assets::SessionItems>>,
+    /// Item tag programs compiled with this session's block registries.
+    pub(crate) mining_filters: Arc<pack_runtime::CustomMiningFilters>,
     pub(crate) pending_surface_spawn: Option<[i32; 2]>,
     pub(crate) dimension_transfer: dimension::DimensionTransfer,
     pub(crate) respawn: respawn::RespawnLifecycle,
@@ -158,6 +156,7 @@ impl ClientWorld {
             terrain_resource_identity: [0; 32],
             prepared_actor_artwork: None,
             session_items: None,
+            mining_filters: Arc::default(),
             pending_surface_spawn: None,
             dimension_transfer: dimension::DimensionTransfer::default(),
             respawn: respawn::RespawnLifecycle::default(),
@@ -222,58 +221,6 @@ pub(crate) fn synchronize_biome_tints(stream: &WorldStream, active: &mut ChunkBi
     true
 }
 
-pub(crate) fn update_camera_medium(
-    client_world: Res<ClientWorld>,
-    camera: Query<&Transform, With<FlyCamera>>,
-    mut medium: ResMut<environment::CameraMediumState>,
-    mut context: ResMut<environment::EnvironmentContext>,
-    mut fog_bindings: ResMut<environment::FogBindings>,
-    atmosphere: Res<render_scene::AtmosphereTextureAssets>,
-    mut arena_hint: ResMut<render_scene::chunk::capacity::ChunkArenaCapacityHint>,
-) {
-    let Some((stream, camera)) = client_world.stream.as_ref().zip(camera.single().ok()) else {
-        arena_hint.sections = 0;
-        medium.0 = CameraMedium::Air;
-        *context = environment::EnvironmentContext::default();
-        return;
-    };
-    *arena_hint = render_scene::chunk::capacity::ChunkArenaCapacityHint::for_view(
-        (stream.render_distance_blocks() / 16.0) as usize,
-        stream
-            .dimension_range(stream.current_dimension())
-            .map_or(0, |range| range.sub_chunk_count),
-    );
-    let position = camera.translation.to_array();
-    fog_bindings.refresh(
-        stream.authority().resolved_biome_tints(),
-        stream.biome_tint_identity(),
-        Some(&atmosphere),
-    );
-    let raw_id = stream.camera_biome_id(position);
-    let (camera_profile, profile_route, camera_fog) =
-        fog_bindings.camera(raw_id, stream.current_dimension());
-    medium.0 = stream.camera_medium(position);
-    let camera_biome =
-        raw_id.and_then(|raw_id| stream.authority().resolved_biome_tints().biome(raw_id));
-    *context = environment::EnvironmentContext {
-        dimension: stream.current_dimension(),
-        fog_registry_generation: fog_bindings.atmosphere_generation,
-        fog_biomes: Some(environment::fog_biome_samples(
-            stream,
-            position,
-            &fog_bindings,
-        )),
-        camera_profile,
-        camera_fog,
-        profile_route,
-        default_fog: fog_bindings.default_fog,
-        precipitation_sample_count: environment::fog_precipitation_count(stream, position),
-        camera_biome_identifier: fog_bindings.identifier(raw_id),
-        camera_biome_temperature: camera_biome.map(|biome| biome.temperature),
-        render_distance_blocks: Some(stream.render_distance_blocks()),
-    };
-}
-
 /// Computes startup readiness from required columns and full diagnostics only when enabled.
 /// Once startup releases, ordinary play scans neither.
 pub(crate) fn frame_cohort_status(
@@ -320,16 +267,22 @@ pub(crate) fn mesh_change_has_publication_permit(change: &WorldMeshChange) -> bo
 }
 
 /// Diagnostics, player authority and per-system correction history used while polling the world.
-type WorldPollInputs<'w, 's> = (
-    Option<Res<'w, VisibilityDiagnosticsInput>>,
-    Option<Res<'w, RuntimeStageProfiler>>,
-    ResMut<'w, client_state::PlayerRuntime>,
-    Option<Res<'w, client_presentation::camera::ServerCameraView>>,
-    Local<'s, gameplay::movement::CorrectionContextLog>,
-    Option<ResMut<'w, client_interaction::item_use::ItemUseRuntime>>,
-    ResMut<'w, client_interaction::movement::LocomotionState>,
-    ResMut<'w, client_presentation::camera::look::LookSmoother>,
-);
+#[derive(SystemParam)]
+pub(crate) struct WorldPollInputs<'w, 's> {
+    visibility_diagnostics: Option<Res<'w, VisibilityDiagnosticsInput>>,
+    profiler: Option<Res<'w, RuntimeStageProfiler>>,
+    player_runtime: ResMut<'w, client_state::PlayerRuntime>,
+    server_camera_view: Option<Res<'w, client_presentation::camera::ServerCameraView>>,
+    correction_log: Local<'s, gameplay::movement::CorrectionContextLog>,
+    item_use: Option<ResMut<'w, client_interaction::item_use::ItemUseRuntime>>,
+    locomotion: ResMut<'w, client_interaction::movement::LocomotionState>,
+    look_smoother: ResMut<'w, client_presentation::camera::look::LookSmoother>,
+    #[cfg(not(target_arch = "wasm32"))]
+    menu: Option<Res<'w, client_shell::menu::MenuRuntime>>,
+    #[cfg(target_arch = "wasm32")]
+    options: Res<'w, crate::browser_input::BrowserOptions>,
+    render_queue: Option<ResMut<'w, ChunkRenderQueue>>,
+}
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn reconcile_world_stream_before_physics(
@@ -348,7 +301,9 @@ pub(crate) fn reconcile_world_stream_before_physics(
     mut server_camera: ResMut<ServerCameraInstructions>,
     mut camera_hurt: Option<ResMut<client_presentation::camera::CameraHurtState>>,
     mut particle_inbox: Option<ResMut<crate::particles::ParticleInbox>>,
-    (
+    inputs: WorldPollInputs<'_, '_>,
+) {
+    let WorldPollInputs {
         visibility_diagnostics,
         profiler,
         mut player_runtime,
@@ -357,8 +312,12 @@ pub(crate) fn reconcile_world_stream_before_physics(
         mut item_use,
         mut locomotion,
         mut look_smoother,
-    ): WorldPollInputs<'_, '_>,
-) {
+        #[cfg(not(target_arch = "wasm32"))]
+        menu,
+        #[cfg(target_arch = "wasm32")]
+        options,
+        mut render_queue,
+    } = inputs;
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::WorldPoll));
@@ -391,6 +350,24 @@ pub(crate) fn reconcile_world_stream_before_physics(
         return;
     };
     stream.set_view_forward((view.camera_rotation() * Vec3::NEG_Z).to_array());
+    #[cfg(not(target_arch = "wasm32"))]
+    let options = menu.as_ref().map(|menu| menu.settings_snapshot().0);
+    #[cfg(target_arch = "wasm32")]
+    let options = Some(Arc::clone(&options.0));
+    let rendering = options
+        .as_ref()
+        .map_or_else(meshing::MeshRenderSettings::default, |options| {
+            use launcher::menu::settings_options::SettingId;
+            meshing::MeshRenderSettings {
+                smooth_lighting: options.value(SettingId::SmoothLighting) != 0,
+                transparent_leaves: options.value(SettingId::TransparentLeaves) != 0,
+            }
+        });
+    if stream.set_mesh_render_settings(rendering, web_time::Instant::now())
+        && let Some(queue) = render_queue.as_mut()
+    {
+        queue.discard_resource_work();
+    }
     // Adds to the between-frames service's work already recorded for this frame.
     frame_poll.report.accumulate(stream.poll(
         view.eye_translation().to_array(),
@@ -431,11 +408,23 @@ pub(crate) fn reconcile_world_stream_before_physics(
         return;
     }
     movement.set_control_fence_pending(false);
+    respawn.synchronize_session(Some(clock.session_generation()));
     let controls = stream.take_committed_controls();
     refresh_player_list_cache_for_controls(stream, &mut ui_runtime, &controls);
 
     let mut controls = controls.into_iter();
     while let Some(control) = controls.next() {
+        if let Err(error) = respawn.queue_completion(|packet| match network.as_ref() {
+            Some(network) => network.send_dimension_packet(packet),
+            None => Err(client_session::PacketSendError::Full(packet)),
+        }) {
+            if error.is_closed() {
+                record_fatal_error(&mut fatal_error.0, format!("respawn completion: {error}"));
+            }
+            movement.set_control_fence_pending(true);
+            stream.restore_committed_controls(std::iter::once(control).chain(controls));
+            return;
+        }
         if let CommittedControlEvent::ClientInputLocks { locks, .. } = control {
             input_locks::apply_committed_input_locks(
                 clock.session_generation(),
@@ -485,7 +474,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             let camera = server_camera_view.as_deref();
             correction_log.note(
                 movement.session_generation(),
-                std::time::Instant::now(),
+                web_time::Instant::now(),
                 packet,
                 gameplay::movement::CorrectionContext::read(
                     &player_runtime.facts,
@@ -701,6 +690,17 @@ pub(crate) fn drive_world_stream(
         frame_poll.report.mesh_results += report.mesh_results;
         frame_poll.report.mesh_jobs_dispatched += report.mesh_jobs_dispatched;
     }
+    let profile = bridge::join_profile::JoinProfile::current();
+    use bridge::join_profile::Milestone;
+    if frame_poll.report.decoded_results > 0 {
+        profile.mark_once(Milestone::ChunkDecoded);
+    }
+    if frame_poll.report.light_results > 0 {
+        profile.mark_once(Milestone::LightingReady);
+    }
+    if frame_poll.report.mesh_results > 0 {
+        profile.mark_once(Milestone::MeshReady);
+    }
     local_retention::retain_completed_player_terrain(
         stream,
         &local_physics,
@@ -714,6 +714,7 @@ pub(crate) fn drive_world_stream(
     #[cfg(feature = "acceptance")]
     let mutation_cohort = frame_poll.cohort;
     for acknowledgement in acknowledgements.drain() {
+        profile.mark_once(Milestone::MeshUploaded);
         block_use.prediction_frames.uploaded(
             frame.0,
             acknowledgement.key,
@@ -770,12 +771,20 @@ pub(crate) fn drive_world_stream(
     });
 
     let send_error = client_world.stream.as_mut().and_then(|stream| {
+        let actor_position = local_physics
+            .network_position()
+            .unwrap_or(stream.resolved_server_position().position);
+        let center = sub_chunk_request_center(
+            stream,
+            camera_publication.as_deref(),
+            clock.session_generation(),
+            actor_position,
+        )?;
         flush_sub_chunk_requests(
             stream,
             OUTBOUND_SEND_BUDGET_PER_FRAME,
-            |chunk, base_sub_chunk_y, count, packet| {
-                network.send_sub_chunk_request(chunk, base_sub_chunk_y, count, packet)
-            },
+            center,
+            |receipt, packet| network.send_sub_chunk_request(receipt, packet),
         )
         .err()
     });

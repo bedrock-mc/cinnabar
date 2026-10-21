@@ -1,6 +1,8 @@
 //! Bounded, ordered world admission and synchronous mutation progress.
 
+mod block_mutation;
 mod block_sync;
+pub use block_mutation::prepare_block_mutation;
 mod contracts;
 mod decode;
 mod decode_diagnostics;

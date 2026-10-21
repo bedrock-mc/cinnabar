@@ -42,10 +42,11 @@ pub enum Action {
     Freelook,
     /// Vanilla's "Open Notification": opens what the showing toast offers.
     InteractWithToast,
+    PickItem,
 }
 
 impl Action {
-    pub const COUNT: usize = 38;
+    pub const COUNT: usize = 39;
 
     pub(crate) const ALL: [Self; Self::COUNT] = [
         Self::MoveForward,
@@ -86,6 +87,7 @@ impl Action {
         Self::PlayerList,
         Self::Freelook,
         Self::InteractWithToast,
+        Self::PickItem,
     ];
 
     pub(crate) const fn is_ui_preview(self) -> bool {
@@ -108,6 +110,7 @@ impl Action {
         matches!(
             self,
             Self::CyclePerspective
+                | Self::PickItem
                 | Self::InteractWithToast
                 | Self::Menu
                 | Self::Back
@@ -173,15 +176,17 @@ pub enum ReleaseReason {
     DimensionReplaced,
     AuthorityChanged,
     BindingChanged,
+    InputOverflow,
 }
 
 impl ReleaseReason {
     pub(crate) const fn priority(self) -> u8 {
         match self {
-            Self::SessionReplaced => 7,
-            Self::DimensionReplaced => 6,
-            Self::AuthorityChanged => 5,
-            Self::BindingChanged => 4,
+            Self::SessionReplaced => 8,
+            Self::DimensionReplaced => 7,
+            Self::AuthorityChanged => 6,
+            Self::BindingChanged => 5,
+            Self::InputOverflow => 4,
             Self::ControllerDisconnected => 3,
             Self::WindowFocusLost => 2,
             Self::UiFocusTaken => 1,
@@ -191,6 +196,8 @@ impl ReleaseReason {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActionSnapshot {
+    /// Ordered desktop transitions, when supplied by the physical adapter.
+    pub ordered: Option<crate::OrderedActions>,
     pub frame_sequence: InputSequence,
     pub authority_generation: InputAuthorityGeneration,
     /// Unit-clamped movement consumed by simulation and packet construction.

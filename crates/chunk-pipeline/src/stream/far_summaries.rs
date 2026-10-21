@@ -1,6 +1,8 @@
 //! Far-terrain summaries of complete and retiring columns, extracted on world workers.
 
-use crossbeam_channel::{Select, unbounded};
+#[cfg(not(target_arch = "wasm32"))]
+use crossbeam_channel::Select;
+use crossbeam_channel::unbounded;
 use far_terrain::{ColumnSnapshot, EncodedSummary, SummaryBudget, SurfaceColours, SurfaceContext};
 
 use super::*;
@@ -156,6 +158,7 @@ impl FarSummaryInbox {
 
     /// Advances the producer, waiting for dependency, capacity or result publication until
     /// `deadline`. The application retains its existing bounded shutdown wait.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn drain_waiting(&mut self, out: &mut Vec<FarColumnSummary>, deadline: Instant) {
         self.drain(out);
         while !self.is_idle() && Instant::now() < deadline {
@@ -170,6 +173,7 @@ impl FarSummaryInbox {
     /// Waits for any non-idle inbox after the caller has given every inbox a drain turn.
     /// Deferred results are already ready. Waiting does not consume output or transfer its
     /// session ownership, and the caller supplies one shared deadline for the whole group.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn wait_for_any<'a>(
         inboxes: impl IntoIterator<Item = &'a Self>,
         deadline: Instant,

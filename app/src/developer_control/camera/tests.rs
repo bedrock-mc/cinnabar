@@ -129,7 +129,7 @@ fn scripted_camera_loop_resets_motion_blur_only_for_discontinuous_wraps() {
 fn scripted_fov_survives_gameplay_updates_and_release_restores_the_player_fov() {
     use bevy::window::{CursorOptions, PrimaryWindow, WindowResolution};
     let mut app = App::new();
-    crate::app::configure_client_frame_schedule(&mut app);
+    crate::game_frame::configure_client_frame_schedule(&mut app);
     app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
         1,
     )));
@@ -213,7 +213,7 @@ fn scripted_pose_survives_late_actor_camera_effects() {
         },
         ..Default::default()
     });
-    crate::app::configure_client_frame_schedule(&mut app);
+    crate::game_frame::configure_client_frame_schedule(&mut app);
     app.add_systems(
         Update,
         actor_effect

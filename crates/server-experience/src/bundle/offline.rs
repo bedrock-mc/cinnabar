@@ -49,6 +49,7 @@ pub fn verify(bytes: &[u8]) -> Result<Metadata> {
         origins: BTreeSet::new(),
         memory_bytes: 0,
         gpu_bytes: 0,
+        personal_mods: Default::default(),
     };
     let verified = VerifiedBundle::read(bytes, &offer, &scope, MAX_EXPANDED_BYTES)?;
     Ok(Metadata {

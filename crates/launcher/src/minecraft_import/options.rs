@@ -12,6 +12,8 @@ use crate::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
 #[derive(Clone, Copy, Debug)]
 pub enum Encoding {
     Toggle,
+    /// Native Off/On imports select the corresponding bobbing mode.
+    ViewBobbing,
     Integer,
     Fraction,
     Blocks,
@@ -73,7 +75,7 @@ pub const MAPPINGS: &[Mapping] = &[
     Mapping {
         source: "gfx_viewbobbing",
         destination: SettingId::ViewBobbing,
-        encoding: Encoding::Toggle,
+        encoding: Encoding::ViewBobbing,
         category: Category::Video,
     },
     Mapping {
@@ -300,6 +302,11 @@ pub fn parse(bytes: &[u8]) -> ParsedOptions {
 fn convert(mapping: &Mapping, raw: &str) -> Option<i32> {
     let option = mapping.destination.definition();
     let value = match mapping.encoding {
+        Encoding::ViewBobbing => match raw {
+            "0" => ui::ViewBobbing::Off as i32,
+            "1" => ui::ViewBobbing::Full as i32,
+            _ => return None,
+        },
         Encoding::Toggle => match raw {
             "0" => 0,
             "1" => 1,
@@ -376,6 +383,25 @@ mod tests {
             };
             assert!(convert(mapping, &raw).is_some(), "{}", mapping.source);
         }
+    }
+
+    /// Native preferences remain binary even though the client offers a third mode.
+    #[test]
+    fn imported_view_bobbing_selects_off_or_full() {
+        for (raw, mode) in [("0", ui::ViewBobbing::Off), ("1", ui::ViewBobbing::Full)] {
+            let parsed = parse(format!("gfx_viewbobbing:{raw}").as_bytes());
+            let mut settings = SettingsOptions::default();
+            settings.set(
+                SettingId::ViewBobbing.index(),
+                ui::ViewBobbing::Minimal as i32,
+            );
+            parsed.apply(&mut settings);
+            assert_eq!(parsed.skipped, 0);
+            assert_eq!(settings.user_settings().video.view_bobbing, mode);
+        }
+        let parsed = parse(b"gfx_viewbobbing:2");
+        assert_eq!(parsed.skipped, 1);
+        assert!(parsed.values.is_empty());
     }
 
     #[test]

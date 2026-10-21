@@ -21,6 +21,7 @@ mod slots;
 #[cfg(test)]
 mod tests;
 pub(in crate::chunk) mod unit_mask;
+mod visibility_admission;
 
 use bevy::{
     camera::{primitives::Frustum, visibility::RenderLayers},
@@ -35,7 +36,8 @@ pub(in crate::chunk) use direct::{DirectOcclusionFrame, SkipOccludedTerrain};
 use model::STREAM_COUNT;
 pub(crate) use node::GpuCullLateLabel;
 pub(in crate::chunk) use node::{DrawGpuCulledCommands, draw_function_ids, install_commands};
-use prepare::{ChunkHiddenEntities, GpuCull, extract_hidden_chunks, prepare_gpu_cull};
+pub(in crate::chunk) use prepare::ChunkHiddenEntities;
+use prepare::{GpuCull, extract_hidden_chunks, prepare_gpu_cull};
 
 /// Forces the CPU culling path for A/B measurement.
 const CPU_CULLING_ENV: &str = "CINNABAR_CPU_CULLING";

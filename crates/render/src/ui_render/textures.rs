@@ -1,6 +1,6 @@
-//! Retained dimension buckets and transactional dirty-page write planning.
+//! Retained dimension buckets and per-bucket dirty-page write planning.
 
-use crate::queue_writes::ProfiledQueue as _;
+use crate::{gpu_allocation, queue_writes::ProfiledQueue as _};
 use bevy::render::{
     render_resource::{
         BindGroup, Extent3d, Origin3d, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture,
@@ -9,6 +9,7 @@ use bevy::render::{
     },
     renderer::{RenderDevice, RenderQueue},
 };
+use std::time::Duration;
 
 use bevy::prelude::{Res, ResMut};
 use bevy::render::render_resource::{BindGroupEntry, BindingResource, PipelineCache};
@@ -18,6 +19,9 @@ use super::{UiGpu, pipeline::UiPipeline};
 use render_model::{
     UiTextureCatalog, UiTextureFormat, UiTextureLocation, UiTexturePage, UiTexturePlan,
 };
+
+/// Delay between failed attempts for an unchanged texture plan.
+const TEXTURE_RETRY_DELAY: Duration = Duration::from_millis(250);
 
 /// Observes schedule-separated device-resource changes, not arbitrary context IDs.
 pub(crate) struct DeviceObservation {
@@ -52,13 +56,17 @@ pub(super) struct GpuBucket {
     /// `x` is 1 for a coverage bucket, which the shader samples as white with that alpha.
     pub(super) format_uniform: bevy::render::render_resource::Buffer,
     pub(super) bind_group: Option<BindGroup>,
+    #[cfg(test)]
+    allocation_lifetime: std::sync::Arc<()>,
 }
 
 #[derive(Default)]
 pub(super) struct TextureUploadState {
     static_identity: Option<[u8; 32]>,
+    /// Plan whose locations the resident identities below occupy.
     plan: Option<UiTexturePlan>,
-    uploaded: Vec<[u8; 32]>,
+    /// Per page, the content identity resident at its location in `plan`.
+    pub(super) uploaded: Vec<Option<[u8; 32]>>,
 }
 
 impl TextureUploadState {
@@ -71,20 +79,49 @@ impl TextureUploadState {
                 identity: catalog.static_identity(),
             });
         }
-        // One plan comparison serves every page; a changed plan rewrites them all.
-        let replanned = self.plan.as_ref().is_none_or(|plan| plan != catalog.plan());
+        // Residency is only meaningful against the plan it was recorded or rebound for.
+        let replanned = self.plan.as_ref() != Some(catalog.resident_plan());
         Ok(catalog
             .pages()
             .iter()
             .enumerate()
             .filter_map(|(index, page)| {
-                (replanned || self.uploaded.get(index) != Some(&page.identity())).then_some(index)
+                (replanned || self.uploaded.get(index).copied().flatten() != Some(page.identity()))
+                    .then_some(index)
             })
             .collect())
     }
 
+    /// Moves residency onto `plan` after bucket reallocation. A page stays resident only
+    /// when its old bucket was kept as its new bucket at the same layer; `kept` maps old
+    /// bucket indices to the new index that retained the same texture.
+    fn rebind(&mut self, plan: &UiTexturePlan, kept: &[Option<usize>]) {
+        let old = self.plan.as_ref().map_or(&[][..], UiTexturePlan::locations);
+        self.uploaded.resize(plan.locations().len(), None);
+        for (index, uploaded) in self.uploaded.iter_mut().enumerate() {
+            let retained = old.get(index).is_some_and(|old| {
+                let new = plan.locations()[index];
+                kept.get(old.bucket).copied().flatten() == Some(new.bucket)
+                    && old.layer == new.layer
+            });
+            if !retained {
+                *uploaded = None;
+            }
+        }
+        self.plan = Some(plan.clone());
+    }
+
+    /// Marks pages whose writes the device may not have completed.
+    fn forget(&mut self, pages: &[usize]) {
+        for &index in pages {
+            if let Some(uploaded) = self.uploaded.get_mut(index) {
+                *uploaded = None;
+            }
+        }
+    }
+
     /// The executor is shared by device preparation and deterministic recording
-    /// tests. Only successful issuance of ALL writes commits content IDs.
+    /// tests. Only successful issuance of all supplied writes commits their content IDs.
     fn execute<E>(
         &mut self,
         catalog: &UiTextureCatalog,
@@ -95,16 +132,18 @@ impl TextureUploadState {
             write(
                 index,
                 &catalog.pages()[index],
-                catalog.plan().locations()[index],
+                catalog.resident_plan().locations()[index],
             )?;
         }
-        self.uploaded.clear();
-        self.uploaded
-            .extend(catalog.pages().iter().map(UiTexturePage::identity));
-        self.static_identity = Some(catalog.static_identity());
-        if self.plan.as_ref() != Some(catalog.plan()) {
-            self.plan = Some(catalog.plan().clone());
+        if self.plan.as_ref() != Some(catalog.resident_plan()) {
+            self.uploaded.clear();
+            self.plan = Some(catalog.resident_plan().clone());
         }
+        self.uploaded.resize(catalog.pages().len(), None);
+        for &index in dirty {
+            self.uploaded[index] = Some(catalog.pages()[index].identity());
+        }
+        self.static_identity = Some(catalog.static_identity());
         Ok(())
     }
 }
@@ -112,15 +151,46 @@ impl TextureUploadState {
 #[derive(Default)]
 pub(super) struct UiGpuTextures {
     pub(super) fonts: render_model::FontAtlasFrame,
-    pub(super) buckets: Vec<GpuBucket>,
+    pub(super) buckets: Vec<Option<GpuBucket>>,
     pub(super) state: TextureUploadState,
     pub(super) locations: Vec<UiTextureLocation>,
     pub(super) bytes: usize,
     allocation_identity: Option<[u8; 32]>,
     allocation_plan: Option<UiTexturePlan>,
+    retry: Option<(Duration, u64)>,
+    pub(super) residency_generation: u64,
 }
 
 impl UiGpuTextures {
+    /// Reports whether the requested page has successfully uploaded storage.
+    pub(super) fn page_resident(&self, page: usize) -> bool {
+        self.state.uploaded.get(page).is_some_and(Option::is_some)
+            && self.locations.get(page).is_some_and(|location| {
+                self.buckets
+                    .get(location.bucket)
+                    .is_some_and(Option::is_some)
+            })
+    }
+
+    /// Invalidates failed glyph writes and delays another attempt on the same plan.
+    pub(super) fn failed_font_uploads(&mut self, pages: &[usize], bytes: u64, now: Duration) {
+        self.state.forget(pages);
+        self.fonts.clear();
+        self.retry = Some((now.saturating_add(TEXTURE_RETRY_DELAY), bytes));
+        self.residency_generation = self.residency_generation.wrapping_add(1);
+    }
+
+    /// Resolves a drawable page's binding, leaving failed pages absent.
+    pub(super) fn page_binding(&self, page: usize) -> Option<&BindGroup> {
+        if !self.page_resident(page) {
+            return None;
+        }
+        self.buckets[self.locations[page].bucket]
+            .as_ref()?
+            .bind_group
+            .as_ref()
+    }
+
     pub(super) fn allocated_buckets(&self) -> &[render_model::UiTextureBucket] {
         self.allocation_plan
             .as_ref()
@@ -128,16 +198,17 @@ impl UiGpuTextures {
     }
     pub(super) fn resident(&self, catalog: &UiTextureCatalog) -> bool {
         self.allocation_identity == Some(catalog.static_identity())
-            && self.allocation_plan.as_ref() == Some(catalog.plan())
-            && self.buckets.len() == catalog.plan().buckets().len()
-            && self.locations == catalog.plan().locations()
+            && self.allocation_plan.as_ref() == Some(catalog.resident_plan())
+            && self.buckets.len() == catalog.resident_plan().buckets().len()
+            && self.buckets.iter().all(Option::is_some)
+            && self.locations == catalog.resident_plan().locations()
             && self.state.uploaded.len() == catalog.pages().len()
             && self
                 .state
                 .uploaded
                 .iter()
                 .zip(catalog.pages())
-                .all(|(id, page)| *id == page.identity())
+                .all(|(id, page)| *id == Some(page.identity()))
     }
     pub(super) fn prepare(
         &mut self,
@@ -145,6 +216,7 @@ impl UiGpuTextures {
         device: &RenderDevice,
         queue: &RenderQueue,
         profile: Option<&super::profile::UiProfile>,
+        now: Duration,
     ) -> Result<(), UiRenderRejectReason> {
         let limits = device.limits();
         catalog.plan().validate_device(
@@ -159,18 +231,15 @@ impl UiGpuTextures {
                 identity: catalog.static_identity(),
             });
         }
-        let resized = self
-            .allocation_plan
-            .as_ref()
-            .is_some_and(|plan| plan != catalog.plan());
+        // Unused reserved pages share a layer: allocation follows the resident plan.
+        let replanned = self.allocation_plan.as_ref() != Some(catalog.resident_plan());
         if self.allocation_identity.is_some()
-            && !resized
-            && (self.buckets.len() != catalog.plan().buckets().len()
-                || self.locations != catalog.plan().locations())
+            && !replanned
+            && (self.buckets.len() != catalog.resident_plan().buckets().len()
+                || self.locations != catalog.resident_plan().locations())
         {
             return Err(UiRenderRejectReason::InvalidTextureExtent);
         }
-        let dirty = self.state.dirty(catalog)?;
         for format in [TextureFormat::Rgba8Unorm, TextureFormat::R8Unorm] {
             let format = format.guaranteed_format_features(device.features());
             if !format
@@ -184,118 +253,264 @@ impl UiGpuTextures {
             }
         }
         // All catalog and per-device admission checks precede allocation/writes.
-        if resized {
-            self.buckets.clear();
-            self.locations.clear();
-            self.state = TextureUploadState::default();
+        if !replanned {
+            let dirty = self.state.dirty(catalog)?;
+            if dirty
+                .iter()
+                .any(|&page| self.state.uploaded.get(page).is_some_and(Option::is_some))
+            {
+                self.residency_generation = self.residency_generation.wrapping_add(1);
+            }
+            self.state.forget(&dirty);
+            if let Some((retry_at, bytes)) = self.retry
+                && now < retry_at
+            {
+                return Err(UiRenderRejectReason::TextureAllocationFailed { bytes });
+            }
+        }
+        let mut failed_bytes = 0;
+        if replanned || self.buckets.iter().any(Option::is_none) {
+            failed_bytes += self.reallocate(catalog, device);
+        }
+        let dirty = self.state.dirty(catalog)?;
+        if dirty
+            .iter()
+            .any(|&page| catalog.pages()[page].font_atlas_side().is_some())
+        {
             self.fonts.clear();
         }
-        if self.buckets.is_empty() {
-            self.allocation_identity = Some(catalog.static_identity());
-            self.allocation_plan = Some(catalog.plan().clone());
-            for bucket in catalog.plan().buckets() {
-                #[cfg(feature = "tracy")]
-                let _span = bevy::log::info_span!(
-                    "ui.texture_allocate",
-                    width = bucket.dimensions[0],
-                    height = bucket.dimensions[1],
-                    layers = bucket.layers,
-                )
-                .entered();
-                let texture = device.create_texture(&TextureDescriptor {
-                    label: Some("bounded UI dimension bucket"),
-                    size: Extent3d {
-                        width: bucket.dimensions[0],
-                        height: bucket.dimensions[1],
-                        depth_or_array_layers: bucket.layers,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: TextureDimension::D2,
-                    format: match bucket.format {
-                        UiTextureFormat::Rgba8 => TextureFormat::Rgba8Unorm,
-                        UiTextureFormat::Coverage => TextureFormat::R8Unorm,
-                    },
-                    usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                    view_formats: &[],
-                });
-                let view = texture.create_view(&TextureViewDescriptor {
-                    label: Some("bounded UI dimension bucket view"),
-                    dimension: Some(TextureViewDimension::D2Array),
-                    ..Default::default()
-                });
-                let coverage = u32::from(bucket.format == UiTextureFormat::Coverage);
-                let format_uniform = device.create_buffer_with_data(
-                    &bevy::render::render_resource::BufferInitDescriptor {
-                        label: Some("UI bucket page format"),
-                        contents: bytemuck::cast_slice(&[coverage, 0, 0, 0]),
-                        usage: bevy::render::render_resource::BufferUsages::UNIFORM,
-                    },
-                );
-                self.buckets.push(GpuBucket {
-                    texture,
-                    view,
-                    format_uniform,
-                    bind_group: None,
-                });
+        for (index, bucket) in self.buckets.iter().enumerate() {
+            let Some(bucket) = bucket else {
+                continue;
+            };
+            let pages = dirty
+                .iter()
+                .copied()
+                .filter(|&page| self.locations[page].bucket == index)
+                .collect::<Vec<_>>();
+            if pages.is_empty() {
+                continue;
             }
-            self.locations = catalog.plan().locations().to_vec();
-            self.bytes = catalog.plan().bytes();
-        }
-        if self.buckets.len() != catalog.plan().buckets().len() {
-            return Err(UiRenderRejectReason::InvalidTextureExtent);
-        }
-        if dirty.is_empty() {
-            return Ok(());
-        }
-        let buckets = &self.buckets;
-        self.state.execute(catalog, &dirty, |_, page, location| {
-            if page.font_atlas_side().is_some() {
-                return Ok(());
+            let bytes = pages
+                .iter()
+                .map(|&page| catalog.pages()[page].pixels().len() as u64)
+                .sum();
+            let state = &mut self.state;
+            let issued = gpu_allocation::checked(device, "UI texture page upload", bytes, || {
+                state.execute(catalog, &pages, |_, page, location| {
+                    queue.profiled_write_buffer(
+                        &bucket.format_uniform,
+                        render_model::ui_page_uniform::offset(location.layer),
+                        bytemuck::cast_slice(&render_model::ui_page_uniform::region(page)),
+                    );
+                    write_page(queue, &bucket.texture, page, location, profile);
+                    Ok::<(), UiRenderRejectReason>(())
+                })
+            });
+            if issued.is_none() {
+                self.state.forget(&pages);
+                failed_bytes += bytes;
+            } else {
+                self.residency_generation = self.residency_generation.wrapping_add(1);
             }
-            let [width, height] = page.dimensions();
-            #[cfg(feature = "tracy")]
-            let _span = bevy::log::info_span!(
-                "ui.texture_write",
-                bucket = location.bucket,
-                layer = location.layer,
-                width,
-                height,
-                bytes = page.pixels().len(),
-            )
-            .entered();
-            if let Some(profile) = profile {
-                profile.record_upload(
-                    super::profile::UploadKind::Texture,
-                    page.pixels().len() as u64,
-                );
-            }
-            queue.profiled_write_texture(
-                TexelCopyTextureInfo {
-                    texture: &buckets[location.bucket].texture,
-                    mip_level: 0,
-                    origin: Origin3d {
-                        x: 0,
-                        y: 0,
-                        z: location.layer,
-                    },
-                    aspect: Default::default(),
-                },
-                page.pixels(),
-                TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(width * page.format().bytes_per_texel() as u32),
-                    rows_per_image: Some(height),
-                },
-                Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
-            );
-            Ok::<(), UiRenderRejectReason>(())
-        })
+        }
+        self.retry =
+            (failed_bytes > 0).then(|| (now.saturating_add(TEXTURE_RETRY_DELAY), failed_bytes));
+        if failed_bytes > 0 {
+            Err(UiRenderRejectReason::TextureAllocationFailed {
+                bytes: failed_bytes,
+            })
+        } else {
+            Ok(())
+        }
     }
+
+    /// Keeps unchanged buckets and retries missing storage after freeing superseded
+    /// buckets on the first failure. Returns the bytes still missing from the new plan.
+    fn reallocate(&mut self, catalog: &UiTextureCatalog, device: &RenderDevice) -> u64 {
+        let plan = catalog.resident_plan();
+        let old = self
+            .allocation_plan
+            .as_ref()
+            .map_or(&[][..], UiTexturePlan::buckets);
+        let mut previous = std::mem::take(&mut self.buckets);
+        let mut kept = vec![None; previous.len()];
+        for (index, bucket) in plan.buckets().iter().enumerate() {
+            let source =
+                (0..previous.len()).find(|&i| previous[i].is_some() && old.get(i) == Some(bucket));
+            self.buckets.push(source.and_then(|old| {
+                kept[old] = Some(index);
+                previous[old].take()
+            }));
+        }
+        // Moving the plan invalidates pages in all superseded or missing buckets.
+        self.state.rebind(plan, &kept);
+        self.residency_generation = self.residency_generation.wrapping_add(1);
+        self.fonts.clear();
+        self.allocation_identity = Some(catalog.static_identity());
+        self.allocation_plan = Some(plan.clone());
+        self.locations = plan.locations().to_vec();
+        let mut failed_bytes = 0;
+        for (index, bucket) in plan.buckets().iter().enumerate() {
+            if self.buckets[index].is_some() {
+                continue;
+            }
+            let mut created = allocate_bucket(device, bucket);
+            if created.is_none() && previous.iter().any(Option::is_some) {
+                // Free GPU storage even if an earlier submitted frame still owns a view.
+                for old in previous.iter().flatten() {
+                    old.texture.destroy();
+                }
+                previous.clear();
+                created = allocate_bucket(device, bucket);
+            }
+            if created.is_none() {
+                failed_bytes += bucket_bytes(bucket);
+            }
+            self.buckets[index] = created;
+        }
+        self.bytes = plan
+            .buckets()
+            .iter()
+            .zip(&self.buckets)
+            .filter(|(_, bucket)| bucket.is_some())
+            .map(|(bucket, _)| bucket_bytes(bucket) as usize)
+            .sum();
+        failed_bytes
+    }
+}
+
+/// Counts the storage requested by a validated dimension bucket.
+fn bucket_bytes(bucket: &render_model::UiTextureBucket) -> u64 {
+    u64::from(bucket.dimensions[0])
+        * u64::from(bucket.dimensions[1])
+        * u64::from(bucket.layers)
+        * bucket.format.bytes_per_texel() as u64
+}
+
+/// Creates bindings only after a bucket's texture has passed its allocation scope.
+fn allocate_bucket(
+    device: &RenderDevice,
+    bucket: &render_model::UiTextureBucket,
+) -> Option<GpuBucket> {
+    let bytes = bucket_bytes(bucket);
+    let texture = gpu_allocation::checked(device, "bounded UI dimension bucket", bytes, || {
+        create_texture(device, bucket)
+    })?;
+    gpu_allocation::checked(device, "UI bucket bindings", bytes, || {
+        bind_texture(device, bucket, texture)
+    })
+}
+
+/// Creates one bucket's array texture.
+fn create_texture(device: &RenderDevice, bucket: &render_model::UiTextureBucket) -> Texture {
+    #[cfg(feature = "tracy")]
+    let _span = bevy::log::info_span!(
+        "ui.texture_allocate",
+        width = bucket.dimensions[0],
+        height = bucket.dimensions[1],
+        layers = bucket.layers,
+    )
+    .entered();
+    device.create_texture(&TextureDescriptor {
+        label: Some("bounded UI dimension bucket"),
+        size: Extent3d {
+            width: bucket.dimensions[0],
+            height: bucket.dimensions[1],
+            depth_or_array_layers: bucket.layers,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: TextureDimension::D2,
+        format: match bucket.format {
+            UiTextureFormat::Rgba8 => TextureFormat::Rgba8Unorm,
+            UiTextureFormat::Coverage => TextureFormat::R8Unorm,
+        },
+        usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+        view_formats: &[],
+    })
+}
+
+/// Wraps a successfully created bucket texture with its view and page-format uniform.
+fn bind_texture(
+    device: &RenderDevice,
+    bucket: &render_model::UiTextureBucket,
+    texture: Texture,
+) -> GpuBucket {
+    let view = texture.create_view(&TextureViewDescriptor {
+        label: Some("bounded UI dimension bucket view"),
+        dimension: Some(TextureViewDimension::D2Array),
+        ..Default::default()
+    });
+    let format = render_model::ui_page_uniform::words(bucket.format == UiTextureFormat::Coverage);
+    let format_uniform =
+        device.create_buffer_with_data(&bevy::render::render_resource::BufferInitDescriptor {
+            label: Some("UI bucket page format"),
+            contents: bytemuck::cast_slice(&format),
+            usage: bevy::render::render_resource::BufferUsages::UNIFORM
+                | bevy::render::render_resource::BufferUsages::COPY_DST,
+        });
+    GpuBucket {
+        texture,
+        view,
+        format_uniform,
+        bind_group: None,
+        #[cfg(test)]
+        allocation_lifetime: std::sync::Arc::new(()),
+    }
+}
+
+/// Writes one whole non-font page to its bucket layer.
+fn write_page(
+    queue: &RenderQueue,
+    texture: &Texture,
+    page: &UiTexturePage,
+    location: UiTextureLocation,
+    profile: Option<&super::profile::UiProfile>,
+) {
+    if page.font_atlas_side().is_some() {
+        return;
+    }
+    let [width, height] = page.dimensions();
+    #[cfg(feature = "tracy")]
+    let _span = bevy::log::info_span!(
+        "ui.texture_write",
+        bucket = location.bucket,
+        layer = location.layer,
+        width,
+        height,
+        bytes = page.pixels().len(),
+    )
+    .entered();
+    if let Some(profile) = profile {
+        profile.record_upload(
+            super::profile::UploadKind::Texture,
+            page.pixels().len() as u64,
+        );
+    }
+    queue.profiled_write_texture(
+        TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: Origin3d {
+                x: 0,
+                y: 0,
+                z: location.layer,
+            },
+            aspect: Default::default(),
+        },
+        page.pixels(),
+        TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(width * page.format().bytes_per_texel() as u32),
+            rows_per_image: Some(height),
+        },
+        Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
 }
 
 /// Bind each page bucket with the viewport and both samplers once the frame is accepted.
@@ -342,7 +557,7 @@ pub(super) fn prepare_ui_bind_group(
     } = &mut *gpu;
     let (viewport, sampler, linear_sampler) = (&*viewport, &*sampler, &*linear_sampler);
     let (glint_view, glint_sampler) = (&item_glint.view, &item_glint.sampler);
-    for bucket in &mut textures.buckets {
+    for bucket in textures.buckets.iter_mut().flatten() {
         if bucket.bind_group.is_some() && !changed {
             continue;
         }
@@ -384,382 +599,5 @@ pub(super) fn prepare_ui_bind_group(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn device_observation_handles_clamped_aging_wrap_and_unknown_gaps() {
-        use bevy::ecs::change_detection::{MAX_CHANGE_AGE, Tick};
-        let mut observation = DeviceObservation::new(Tick::new(10));
-        assert!(observation.observe(Tick::new(1), Tick::new(11), true));
-        let near_age = MAX_CHANGE_AGE - 1;
-        assert!(
-            observation.observe(Tick::new(1), Tick::new(11 + near_age), true),
-            "old unchanged resource aging is not a replacement"
-        );
-        assert!(
-            observation.observe(Tick::new(12), Tick::new(12 + near_age), true),
-            "clamped old resource stamp is not newer than last observation"
-        );
-        let mut wrapped = DeviceObservation::new(Tick::new(u32::MAX - 2));
-        assert!(wrapped.observe(Tick::new(u32::MAX - 5), Tick::new(1), true));
-        assert!(!wrapped.observe(Tick::new(2), Tick::new(3), true));
-        assert!(
-            !wrapped.observe(Tick::new(0), Tick::new(4), true),
-            "observed invalidation is permanent"
-        );
-        let mut missing = DeviceObservation::new(Tick::new(10));
-        assert!(
-            !missing.observe(Tick::new(1), Tick::new(10 + MAX_CHANGE_AGE), true),
-            "unknown detection-window gap fails closed"
-        );
-        assert!(!missing.observe(Tick::new(1), Tick::new(11 + MAX_CHANGE_AGE), true));
-        assert!(
-            !DeviceObservation::new(Tick::new(10)).observe(
-                Tick::new(1),
-                Tick::new(11 + MAX_CHANGE_AGE),
-                true
-            ),
-            "gap beyond detection window is also unknown"
-        );
-        let mut mismatch = DeviceObservation::new(Tick::new(1));
-        assert!(!mismatch.observe(Tick::new(1), Tick::new(2), false));
-        assert!(!mismatch.observe(Tick::new(1), Tick::new(3), true));
-        assert!(
-            DeviceObservation::new(Tick::new(3)).observe(Tick::new(1), Tick::new(4), true),
-            "actual recreation starts a new observer"
-        );
-    }
-
-    fn catalog(value: u8) -> UiTextureCatalog {
-        UiTextureCatalog::new(
-            vec![
-                UiTexturePage::owned([1024, 1024], vec![255; 1024 * 1024 * 4].into()).unwrap(),
-                UiTexturePage::owned([256, 256], vec![value; 256 * 256 * 4].into()).unwrap(),
-            ],
-            1,
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn local_font_replacement_writes_one_reserved_page_without_static_reallocation() {
-        use render_model::{
-            MAX_UI_DYNAMIC_PAGES, UI_DYNAMIC_PAGE_SIDE, UI_LOCAL_FONT_PAGE_OFFSET,
-            UI_LOCAL_FONT_PAGE_SIDE,
-        };
-
-        let page = |side, value| {
-            UiTexturePage::owned(
-                [side; 2],
-                vec![value; side as usize * side as usize * 4].into(),
-            )
-            .unwrap()
-        };
-        let mut pages = vec![page(1, 255)];
-        pages.extend((0..MAX_UI_DYNAMIC_PAGES).map(|offset| {
-            page(
-                if offset == UI_LOCAL_FONT_PAGE_OFFSET {
-                    UI_LOCAL_FONT_PAGE_SIDE
-                } else {
-                    UI_DYNAMIC_PAGE_SIDE
-                },
-                0,
-            )
-        }));
-        let base = UiTextureCatalog::new(pages, 1).unwrap();
-        let mut state = TextureUploadState::default();
-        let dirty = state.dirty(&base).unwrap();
-        state
-            .execute(&base, &dirty, |_, _, _| Ok::<_, ()>(()))
-            .unwrap();
-        let mut replacement = base.pages()[base.dynamic_start()..].to_vec();
-        replacement[UI_LOCAL_FONT_PAGE_OFFSET] = page(UI_LOCAL_FONT_PAGE_SIDE, 41);
-        let current = base.replace_dynamic(replacement).unwrap();
-        assert_eq!(current.static_identity(), base.static_identity());
-        assert_eq!(current.plan(), base.plan());
-        let target = base.dynamic_start() + UI_LOCAL_FONT_PAGE_OFFSET;
-        assert_eq!(state.dirty(&current).unwrap(), [target]);
-        let mut written = Vec::new();
-        state
-            .execute(&current, &[target], |index, page, _| {
-                written.push(index);
-                assert_eq!(page.format(), base.pages()[target].format());
-                assert_eq!(page.pixels().len(), base.pages()[target].pixels().len());
-                Ok::<_, ()>(())
-            })
-            .unwrap();
-        assert_eq!(written, [target]);
-        assert!(state.dirty(&current).unwrap().is_empty());
-        let mut wrong = base.pages()[base.dynamic_start()..].to_vec();
-        wrong[UI_LOCAL_FONT_PAGE_OFFSET] = page(UI_DYNAMIC_PAGE_SIDE, 0);
-        assert!(base.replace_dynamic(wrong).is_err());
-    }
-
-    #[test]
-    fn recording_executor_writes_only_changed_layers_and_retries_refusal() {
-        let base = catalog(0);
-        let mut state = TextureUploadState::default();
-        let first = state.dirty(&base).unwrap();
-        assert_eq!(first, [0, 1]);
-        state
-            .execute(&base, &first, |_, _, _| Ok::<_, ()>(()))
-            .unwrap();
-        assert!(state.dirty(&base).unwrap().is_empty());
-        for value in 1..=100 {
-            let changed = base
-                .replace_dynamic(vec![
-                    UiTexturePage::owned([256, 256], vec![value; 256 * 256 * 4].into()).unwrap(),
-                ])
-                .unwrap();
-            let dirty = state.dirty(&changed).unwrap();
-            assert_eq!(dirty, [1]);
-            assert!(state.execute(&changed, &dirty, |_, _, _| Err(())).is_err());
-            assert_eq!(state.dirty(&changed).unwrap(), [1]);
-            let mut written = Vec::new();
-            state
-                .execute(&changed, &dirty, |i, page, location| {
-                    written.push((i, page.pixels().len(), location));
-                    Ok::<_, ()>(())
-                })
-                .unwrap();
-            assert_eq!(written.len(), 1);
-            assert_eq!(written[0].1, 256 * 256 * 4);
-            assert!(state.dirty(&changed).unwrap().is_empty());
-        }
-        assert!(state.dirty(&catalog(101)).is_ok());
-        let different_static = UiTextureCatalog::new(
-            vec![
-                UiTexturePage::owned([1024, 1024], vec![0; 1024 * 1024 * 4].into()).unwrap(),
-                base.pages()[1].clone(),
-            ],
-            1,
-        )
-        .unwrap();
-        assert!(state.dirty(&different_static).is_err());
-    }
-
-    #[test]
-    fn partial_initial_issuance_never_commits_and_retries_all_pages() {
-        let catalog = catalog(0);
-        let mut state = TextureUploadState::default();
-        let dirty = state.dirty(&catalog).unwrap();
-        assert!(
-            state
-                .execute(&catalog, &dirty, |i, _, _| if i == 1 {
-                    Err(())
-                } else {
-                    Ok(())
-                })
-                .is_err()
-        );
-        assert!(state.static_identity.is_none());
-        assert_eq!(state.dirty(&catalog).unwrap(), [0, 1]);
-    }
-
-    #[test]
-    fn missing_bucket_and_new_generation_never_recreate_or_reuse_uploaded_ids() {
-        let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
-        let device = RenderDevice::from(device);
-        let queue = RenderQueue::new(queue);
-        let catalog = catalog(0);
-        let mut gpu = UiGpuTextures::default();
-        gpu.prepare(&catalog, &device, &queue, None).unwrap();
-        assert_eq!(gpu.buckets.len(), 2);
-        assert!(gpu.state.dirty(&catalog).unwrap().is_empty());
-        assert!(gpu.resident(&catalog));
-        let changed_generation =
-            UiTextureCatalog::with_source_identity(catalog.pages().to_vec(), 1, [7; 32]).unwrap();
-        assert!(
-            gpu.prepare(&changed_generation, &device, &queue, None)
-                .is_err()
-        );
-        assert_eq!(gpu.buckets.len(), 2);
-        gpu.buckets.pop();
-        assert!(!gpu.resident(&catalog));
-        for _ in 0..10 {
-            assert!(gpu.prepare(&catalog, &device, &queue, None).is_err());
-            assert_eq!(gpu.buckets.len(), 1);
-        }
-    }
-
-    #[test]
-    fn ui_model_resize_rebuilds_uploads_and_never_retains_old_bucket_bindings() {
-        use bevy::ecs::system::RunSystemOnce;
-        use render_model::{
-            UI_DYNAMIC_PAGE_SIDE, UI_MODEL_ATLAS_PAGE_OFFSET, UI_MODEL_ATLAS_SIDE,
-            UI_PLAYER_SKIN_PAGE_OFFSET,
-        };
-        use {
-            super::super::{UiGpu, UiRenderInput, UiRenderScene},
-            render_scene::{UiRenderSceneResource, UiRenderStatsResource},
-        };
-
-        let small = UiTexturePage::owned(
-            [UI_DYNAMIC_PAGE_SIDE; 2],
-            vec![0; (UI_DYNAMIC_PAGE_SIDE * UI_DYNAMIC_PAGE_SIDE * 4) as usize].into(),
-        )
-        .unwrap();
-        let mut pages = vec![UiTexturePage::owned([1; 2], vec![255; 4].into()).unwrap()];
-        pages.extend(vec![small; UI_MODEL_ATLAS_PAGE_OFFSET + 1]);
-        let base = UiTextureCatalog::new(pages, 1).unwrap();
-        let mut replacements = base.pages()[base.dynamic_start()..].to_vec();
-        let skin_side = render_api::CLASSIC_SKIN_SIDE as u32;
-        replacements[UI_PLAYER_SKIN_PAGE_OFFSET] = UiTexturePage::owned(
-            [skin_side; 2],
-            vec![7; (skin_side * skin_side * 4) as usize].into(),
-        )
-        .unwrap();
-        replacements[UI_MODEL_ATLAS_PAGE_OFFSET] = UiTexturePage::owned(
-            [UI_MODEL_ATLAS_SIDE; 2],
-            vec![11; (UI_MODEL_ATLAS_SIDE * UI_MODEL_ATLAS_SIDE * 4) as usize].into(),
-        )
-        .unwrap();
-        let resized = base.replace_dynamic(replacements).unwrap();
-        assert_eq!(base.static_identity(), resized.static_identity());
-        let mut world = super::super::ordered_command_tests::binding_world();
-        let input = |revision, catalog| UiRenderInput {
-            revision,
-            viewport_size: [64; 2],
-            safe_area: [0; 4],
-            vertices: std::sync::Arc::from([]),
-            indices: std::sync::Arc::from([]),
-            batches: std::sync::Arc::from([]),
-            textures: std::sync::Arc::new(catalog),
-        };
-        let mut scene = UiRenderScene::default();
-        scene
-            .publish(
-                input(1, base.clone()),
-                world.resource::<UiRenderStatsResource>(),
-            )
-            .unwrap();
-        world.insert_resource(UiRenderSceneResource(scene.clone()));
-        world
-            .run_system_once(super::super::resources::prepare_ui_resources)
-            .unwrap();
-        world
-            .run_system_once(super::super::prepare_ui_bind_group)
-            .unwrap();
-        let initial_textures = world
-            .resource::<UiGpu>()
-            .textures
-            .buckets
-            .iter()
-            .map(|bucket| bucket.texture.id())
-            .collect::<Vec<_>>();
-        assert!(
-            world
-                .resource::<UiGpu>()
-                .textures
-                .buckets
-                .iter()
-                .all(|b| b.bind_group.is_some())
-        );
-
-        scene
-            .publish(
-                input(2, resized.clone()),
-                world.resource::<UiRenderStatsResource>(),
-            )
-            .unwrap();
-        world.insert_resource(UiRenderSceneResource(scene.clone()));
-        world
-            .run_system_once(super::super::resources::prepare_ui_resources)
-            .unwrap();
-        let gpu = world.resource::<UiGpu>();
-        assert_eq!(gpu.accepted_revision, Some(2));
-        assert!(gpu.textures.resident(&resized));
-        assert!(
-            gpu.textures
-                .buckets
-                .iter()
-                .all(|bucket| bucket.bind_group.is_none())
-        );
-        assert!(
-            gpu.textures
-                .buckets
-                .iter()
-                .all(|bucket| !initial_textures.contains(&bucket.texture.id()))
-        );
-        assert_eq!(gpu.textures.bytes, resized.plan().bytes());
-        assert_eq!(gpu.textures.locations, resized.plan().locations());
-        world
-            .run_system_once(super::super::prepare_ui_bind_group)
-            .unwrap();
-        assert!(
-            world
-                .resource::<UiGpu>()
-                .textures
-                .buckets
-                .iter()
-                .all(|b| b.bind_group.is_some())
-        );
-
-        scene
-            .publish(
-                input(3, base.clone()),
-                world.resource::<UiRenderStatsResource>(),
-            )
-            .unwrap();
-        world.insert_resource(UiRenderSceneResource(scene));
-        world
-            .run_system_once(super::super::resources::prepare_ui_resources)
-            .unwrap();
-        let gpu = world.resource::<UiGpu>();
-        assert_eq!(gpu.accepted_revision, Some(3));
-        assert!(gpu.textures.resident(&base));
-        assert!(
-            gpu.textures
-                .buckets
-                .iter()
-                .all(|bucket| bucket.bind_group.is_none())
-        );
-    }
-
-    #[test]
-    fn ui_model_plan_change_requires_all_writes_and_commits_only_after_complete_issuance() {
-        use render_model::{UI_DYNAMIC_PAGE_SIDE, UI_PLAYER_SKIN_PAGE_OFFSET};
-        let mut pages = vec![catalog(0).pages()[0].clone()];
-        pages.extend(vec![
-            catalog(0).pages()[1].clone();
-            UI_PLAYER_SKIN_PAGE_OFFSET + 1
-        ]);
-        let base = UiTextureCatalog::new(pages, 1).unwrap();
-        let mut replacements = base.pages()[1..].to_vec();
-        let side = render_api::CLASSIC_SKIN_SIDE as u32;
-        replacements[UI_PLAYER_SKIN_PAGE_OFFSET] =
-            UiTexturePage::owned([side; 2], vec![0; (side * side * 4) as usize].into()).unwrap();
-        let resized = base.replace_dynamic(replacements).unwrap();
-        let mut state = TextureUploadState::default();
-        state
-            .execute(&base, &state.dirty(&base).unwrap(), |_, _, _| {
-                Ok::<_, ()>(())
-            })
-            .unwrap();
-        let all = state.dirty(&resized).unwrap();
-        assert_eq!(all, (0..resized.pages().len()).collect::<Vec<_>>());
-        assert!(
-            state
-                .execute(&resized, &all, |index, _, _| if index == 1 {
-                    Err(())
-                } else {
-                    Ok(())
-                })
-                .is_err()
-        );
-        assert_eq!(state.plan.as_ref(), Some(base.plan()));
-        assert_eq!(state.dirty(&resized).unwrap(), all);
-        let mut issued = Vec::new();
-        state
-            .execute(&resized, &all, |index, page, location| {
-                issued.push((index, page.dimensions(), location));
-                Ok::<_, ()>(())
-            })
-            .unwrap();
-        assert_eq!(issued[1].1, [UI_DYNAMIC_PAGE_SIDE; 2]);
-        assert_eq!(issued[2].1, [side; 2]);
-        assert!(state.dirty(&resized).unwrap().is_empty());
-        assert_eq!(state.plan.as_ref(), Some(resized.plan()));
-    }
-}
+#[path = "textures_tests.rs"]
+mod tests;

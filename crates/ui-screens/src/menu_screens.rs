@@ -94,7 +94,11 @@ pub fn screen_data(
             text(translated(translate, words.title.0, words.title.1)),
         );
         let body = match words.body {
-            launcher::menu::disconnect::DisconnectBody::Key(key) => translated(translate, key, key),
+            launcher::menu::disconnect::DisconnectBody::Key(key) => translated(
+                translate,
+                key,
+                launcher::menu::disconnect::body_fallback(key),
+            ),
             launcher::menu::disconnect::DisconnectBody::Server(message) => message,
         };
         data.set_global("#disconnect_text", text(body));
@@ -379,7 +383,7 @@ fn add_server_screen(view: &MenuView, data: &mut DataSource, translate: Translat
 /// Select the section and the titles supplied by its vanilla toggle property bag.
 fn settings_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>) {
     super::enhanced_setting::bind(view, data);
-    let section = match view.settings_section {
+    let section = match view.settings.section {
         0 => SettingSection::Video.definition().index,
         picked => picked,
     };

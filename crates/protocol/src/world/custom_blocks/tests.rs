@@ -7,11 +7,17 @@ fn parse_definition(bytes: &[u8]) -> Option<Definition> {
     super::parse_definition(&crate::nbt_tree::read_root(bytes)?)
 }
 
+mod mining;
+
 // Every state appears once, in palette order, with a distinct hash.
 #[test]
 fn hashed_states_enumerate_axes_and_hash_distinctly() {
     let block = CustomBlock {
+        mining: Default::default(),
+        state_physics_complete: false,
         state_physics: Default::default(),
+        state_mining: Default::default(),
+        player_interact: false,
         name: "ns:b".into(),
         tags: Default::default(),
         state_count: 6,
@@ -47,7 +53,11 @@ fn hashed_states_enumerate_axes_and_hash_distinctly() {
     let hashes: std::collections::HashSet<_> = states.iter().map(|state| state.hash).collect();
     assert_eq!(hashes.len(), 6);
     let plain = CustomBlock {
+        mining: Default::default(),
+        state_physics_complete: false,
         state_physics: Default::default(),
+        state_mining: Default::default(),
+        player_interact: false,
         visual: std::sync::Arc::new(CustomBlockVisuals::default()),
         ..block
     };
@@ -195,7 +205,11 @@ fn placement_traits(direction_first: bool) -> Vec<Nbt> {
 fn custom_block(name: &str, root: &Nbt) -> CustomBlock {
     let definition = super::parse_definition(root).expect("definition");
     CustomBlock {
+        mining: definition.mining,
+        state_physics_complete: false,
         state_physics: Default::default(),
+        state_mining: Default::default(),
+        player_interact: definition.player_interact,
         name: name.into(),
         tags: definition.tags,
         state_count: definition.state_count,
@@ -727,4 +741,220 @@ fn large_server_stacks_admit_every_state() {
             .all(|block| !block.visual.materialization_disabled)
     );
     assert_eq!(admitted.total_states(), 70_000);
+}
+
+// The connection trait enables four neighbor-derived booleans that read as
+// ordinary block states, so fence permutations and bone visibility resolve
+// per palette state instead of staying unevaluated.
+#[test]
+fn connection_trait_group_expands_to_sixteen_states() {
+    let root = compound(vec![(
+        "traits",
+        Nbt::List(vec![trait_nbt(
+            "minecraft:connection",
+            &[("minecraft:cardinal_connections", 1)],
+        )]),
+    )]);
+    let definition = super::parse_definition(&root).expect("definition");
+    assert_eq!(definition.state_count, 16);
+    assert!(!definition.visual.state_identity_incomplete);
+    let block = custom_block("test:fence", &root);
+    let names: Vec<_> = block
+        .visual
+        .state_axes
+        .iter()
+        .map(|axis| axis.name.as_ref())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "minecraft:connection_north",
+            "minecraft:connection_east",
+            "minecraft:connection_south",
+            "minecraft:connection_west",
+        ]
+    );
+    let (n, e, s, w) = (
+        "minecraft:connection_north",
+        "minecraft:connection_east",
+        "minecraft:connection_south",
+        "minecraft:connection_west",
+    );
+    // North varies fastest, then east, south, west.
+    expect_state(
+        &block,
+        0,
+        &[(n, "false"), (e, "false"), (s, "false"), (w, "false")],
+    );
+    expect_state(
+        &block,
+        1,
+        &[(n, "true"), (e, "false"), (s, "false"), (w, "false")],
+    );
+    expect_state(
+        &block,
+        2,
+        &[(n, "false"), (e, "true"), (s, "false"), (w, "false")],
+    );
+    expect_state(
+        &block,
+        15,
+        &[(n, "true"), (e, "true"), (s, "true"), (w, "true")],
+    );
+}
+
+/// Integer connection flags admit cardinal states through the retained definition.
+#[test]
+fn integer_connection_flags_materialize_cardinal_states() {
+    for (flags, expected) in [(0, 1), (1, 16), (2, 1), (256, 1), (257, 16), (-1, 16)] {
+        for kind in [0, 1] {
+            let root = compound(vec![(
+                "traits",
+                Nbt::List(vec![compound(vec![
+                    ("name", text("minecraft:connection")),
+                    ("type", Nbt::Int(kind)),
+                    ("enabled_states", Nbt::Int(flags)),
+                    ("update_flags", Nbt::Int(0)),
+                ])]),
+            )]);
+            let definition = super::parse_definition(&root).unwrap();
+            assert_eq!(
+                definition.state_count, expected,
+                "mask {flags}, type {kind}"
+            );
+            assert!(!definition.visual.state_identity_incomplete);
+        }
+    }
+}
+
+/// Independently authored network bytes preserve the integer connection flags.
+#[test]
+fn integer_connection_flags_survive_network_admission() {
+    for (flags, expected) in [(0_u8, 1), (1, 16)] {
+        let mut wire = named(10, "");
+        wire.extend(named(9, "traits"));
+        wire.extend([10, 2]);
+        wire.extend(named(8, "name"));
+        wire.extend(string("minecraft:connection"));
+        for (name, value) in [
+            ("type", 0),
+            ("enabled_states", flags * 2),
+            ("update_flags", 0),
+        ] {
+            wire.extend(named(3, name));
+            wire.push(value);
+        }
+        wire.extend([0, 0]);
+        let blocks = super::CustomBlocks::from_definitions([("test:fence", wire.as_slice())]);
+        assert_eq!(blocks.skipped, 0);
+        assert_eq!(blocks.total_states(), expected);
+        assert_eq!(
+            blocks.blocks[0].visual.state_axes.len(),
+            if flags == 0 { 0 } else { 4 }
+        );
+    }
+}
+
+/// Numeric masks from another trait do not create connection axes.
+#[test]
+fn integer_connection_flags_require_the_connection_trait_identity() {
+    let root = compound(vec![(
+        "traits",
+        Nbt::List(vec![compound(vec![
+            ("name", text("minecraft:placement_direction")),
+            ("enabled_states", Nbt::Int(1)),
+        ])]),
+    )]);
+    let definition = super::parse_definition(&root).unwrap();
+    assert!(
+        definition
+            .visual
+            .state_axes
+            .iter()
+            .all(|axis| !axis.name.starts_with("minecraft:connection_"))
+    );
+}
+
+// Individually enabled directions expand the same way as the group state.
+#[test]
+fn individually_enabled_connection_directions_expand_to_axes() {
+    let root = compound(vec![(
+        "traits",
+        Nbt::List(vec![trait_nbt(
+            "minecraft:connection",
+            &[
+                ("connection_north", 1),
+                ("connection_east", 1),
+                ("connection_south", 1),
+                ("connection_west", 1),
+            ],
+        )]),
+    )]);
+    let definition = super::parse_definition(&root).expect("definition");
+    assert_eq!(definition.state_count, 16);
+    assert!(!definition.visual.state_identity_incomplete);
+}
+
+// Connection axes join placement trait states before custom properties.
+#[test]
+fn connection_axes_follow_placement_traits_and_precede_properties() {
+    let root = compound(vec![
+        (
+            "traits",
+            Nbt::List(vec![
+                trait_nbt(
+                    "minecraft:placement_direction",
+                    &[("cardinal_direction", 1)],
+                ),
+                trait_nbt("minecraft:connection", &[("cardinal_connections", 1)]),
+            ]),
+        ),
+        (
+            "properties",
+            Nbt::List(vec![compound(vec![
+                ("enum", Nbt::List(vec![Nbt::Byte(0), Nbt::Byte(1)])),
+                ("name", text("test:lit")),
+            ])]),
+        ),
+    ]);
+    let definition = super::parse_definition(&root).expect("definition");
+    assert_eq!(definition.state_count, 4 * 16 * 2);
+    assert!(!definition.visual.state_identity_incomplete);
+    let names: Vec<_> = definition
+        .visual
+        .state_axes
+        .iter()
+        .map(|axis| axis.name.as_ref())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "minecraft:cardinal_direction",
+            "minecraft:connection_north",
+            "minecraft:connection_east",
+            "minecraft:connection_south",
+            "minecraft:connection_west",
+            "test:lit",
+        ]
+    );
+}
+
+/// Only a `minecraft:custom_components` that sets `hasPlayerInteract` declares the handler.
+#[test]
+fn custom_components_declare_a_player_interact_handler() {
+    let root = |components: Vec<(&str, Nbt)>| compound(vec![("components", compound(components))]);
+    let flag = |value: i8| {
+        vec![(
+            "minecraft:custom_components",
+            compound(vec![("hasPlayerInteract", Nbt::Byte(value))]),
+        )]
+    };
+    let parsed = |root: Nbt| super::parse_definition(&root).unwrap().player_interact;
+    assert!(parsed(root(flag(1))));
+    assert!(!parsed(root(flag(0))));
+    assert!(!parsed(root(Vec::new())));
+    assert!(!parsed(root(vec![(
+        "minecraft:custom_components",
+        compound(vec![("hasPlayerPlacing", Nbt::Byte(1))]),
+    )])));
 }

@@ -17,7 +17,8 @@ POWERSHELL ?= powershell
 
 NO_VSYNC ?= 0
 TRACY ?= 0
-CLIENT_FEATURES = $(if $(filter 1,$(TRACY)),--features tracy)
+SHADERPACKS ?= 0
+CLIENT_FEATURES = $(if $(filter 1,$(TRACY)),--features tracy) $(if $(filter 1,$(SHADERPACKS)),--features shaderpacks)
 # Identifies the client build in its session log and supplies runtime acceptance markers.
 # The pre-rename RUST_MCBE_BUILD_COMMIT is still honoured for one release.
 ifdef RUST_MCBE_BUILD_COMMIT
@@ -65,7 +66,7 @@ LOCAL_FONT_ASSET_COMPILE = $(ASSETC) font-assets --pack "$(FONT_PACK_DIR)" --sou
 LOCAL_HUD_ASSET_COMPILE = $(ASSETC) hud-assets --pack "$(HUD_PACK_DIR)" --source-manifest "$(HUD_SOURCE_MANIFEST)" --out "$(LOCAL_ASSET_DIR)/vanilla-v1.mcbehud" --report "$(LOCAL_ASSET_DIR)/hud-assets.json"
 
 .PHONY: help vanilla-assets assets font-assets-local hud-assets-local physics-assets local-server play dist-local
-.PHONY: registry-foundation-check jsonui-editor
+.PHONY: registry-foundation-check jsonui-editor figma-plugin
 
 help:
 	@echo make registry-foundation-check - Validate the exact protocol-2193 registry foundation
@@ -78,8 +79,10 @@ help:
 	@echo make local-server    - Build the dragonfly local-world server and experience-runtime beside the core binary
 	@echo make play            - Refresh stale assets, build the core, and run the full game from the menu
 	@echo make play TRACY=1    - Run with opt-in Tracy frame attribution
+	@echo make play SHADERPACKS=1 - Run with the experimental Java shader-pack renderer
 	@echo make dist-local      - Stage an unsigned local-development-only bundle under .local/dist
 	@echo make jsonui-editor   - Build the static JSON-UI editor site into JSONUI_EDITOR_OUT
+	@echo make figma-plugin    - Build the Figma to JSON-UI plugin into tools/figma-plugin/dist
 	@echo Override optional settings with NO_VSYNC=1
 	@echo Set CINNABAR_CLOUDS_PNG to the exact local-only Bedrock 1.26.33.1 clouds.png
 
@@ -92,6 +95,9 @@ jsonui-editor: $(FONT_SOURCE)
 	bash tools/jsonui-editor/build.sh "$(abspath $(JSONUI_EDITOR_OUT))" "$(abspath $(FONT_SOURCE))"
 	@echo Serve it locally with: python3 -m http.server --directory $(JSONUI_EDITOR_OUT) 8000
 	@echo then open http://localhost:8000/
+
+figma-plugin: $(FONT_SOURCE)
+	bash tools/figma-plugin/build.sh "$(abspath $(FONT_SOURCE))"
 
 vanilla-assets: $(PACK_SENTINEL)
 
@@ -132,12 +138,28 @@ ifeq ($(CINNABAR_DEV_SERVER_EXPERIENCES),1)
 	$(CARGO) build --profile $(PROFILE) -p mod-host --bin mod-host --locked
 	$(CARGO) build --profile $(PROFILE) -p mod-host --bin cinnabar-media-helper --features media --locked
 endif
-	$(GO) build -ldflags "$(CORE_STAMP)" -o "$(abspath target/$(PROFILE_DIR)/bedrock-core$(EXE))" ./core/cmd/bedrock-core
+	$(GO) build -tags joinprofile -ldflags "$(CORE_STAMP)" -o "$(abspath target/$(PROFILE_DIR)/bedrock-core$(EXE))" ./core/cmd/bedrock-core
 	-cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-local-server$(EXE))" .
 	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build --profile $(PROFILE) -p cinnabar --locked $(CLIENT_FEATURES) --message-format=$(CLIENT_MESSAGE_FORMAT)
 
+# macOS grants Game Mode only to bundled games, so `make play` runs the build from a dev bundle
+# whose Info.plist comes from the release template; its binaries are refreshed hard links.
+DEV_APP = target/$(PROFILE_DIR)/Cinnabar Dev.app
+# The release bundle identifier from build-app.sh, suffixed so dev never shares its preferences.
+DEV_APP_ID = $(shell sed -n 's/^bundle_id="$${BUNDLE_ID:-\(.*\)}"/\1/p' packaging/macos/build-app.sh).dev
+DEV_APP_BINARIES = cinnabar bedrock-core bedrock-local-server mod-host cinnabar-media-helper
 play: play-build
+ifneq ($(findstring Darwin,$(shell uname -s)),)
+	@mkdir -p "$(DEV_APP)/Contents/MacOS"
+	@sed -e "s|@BUNDLE_ID@|$(DEV_APP_ID)|g" -e "s|@VERSION@|$(PKG_VERSION)|g" packaging/macos/Info.plist.in > "$(DEV_APP)/Contents/Info.plist"
+	@for binary in $(DEV_APP_BINARIES); do \
+		if [ -f "target/$(PROFILE_DIR)/$$binary" ]; then ln -f "target/$(PROFILE_DIR)/$$binary" "$(DEV_APP)/Contents/MacOS/$$binary"; \
+		else rm -f "$(DEV_APP)/Contents/MacOS/$$binary"; fi; \
+	done
+	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" "$(DEV_APP)/Contents/MacOS/cinnabar" $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
+else
 	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) run --profile $(PROFILE) -p cinnabar --locked $(CLIENT_FEATURES) -- $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
+endif
 
 dist-local:
 	$(CARGO) run --locked -p dist-local -- --platform "$(DIST_PLATFORM)" --client "$(DIST_CLIENT)" --core "$(DIST_CORE)" --binaries "$(DIST_BINARIES)" --physics "$(PHYSICS_REGISTRY)" --notices "$(DIST_NOTICES)" --target "$(DIST_TARGET)" --git-commit "$(DIST_GIT_COMMIT)" --out "$(DIST_OUT)"

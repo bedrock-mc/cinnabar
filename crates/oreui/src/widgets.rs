@@ -59,7 +59,8 @@ pub(super) enum Variant {
 }
 
 impl Variant {
-    fn role(self, bundle: Bundle) -> Role {
+    /// Resolves the button palette used by its face, label and accompanying artwork.
+    pub(super) fn role(self, bundle: Bundle) -> Role {
         match (bundle, self) {
             (_, Self::Hero | Self::Primary) => PRIMARY_ROLE,
             (Bundle::Menus, Self::Secondary) => MENU_SECONDARY,

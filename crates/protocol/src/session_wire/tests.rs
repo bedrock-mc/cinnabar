@@ -1,3 +1,4 @@
+mod bulk;
 mod cache;
 
 use bytes::{Buf, Bytes, BytesMut};
@@ -11,6 +12,7 @@ const CORE_STREAM_FIXTURE: &[u8] = include_bytes!("../../fixtures/session/core_s
 #[test]
 fn connect_encoding_matches_the_core_fixture() {
     let request = ConnectRequest {
+        join_profile_id: None,
         protocol: 2193,
         target: Some(ConnectTarget::RakNet("play.example.net:19132".into())),
         client_cache: true,
@@ -228,6 +230,7 @@ fn handoff_with_sizes(sizes: &[u64]) -> SessionHandoff {
                 content_key: PackContentKey("secret-key".into()),
                 size,
                 cache: None,
+                sha256: None,
             })
             .collect(),
         ..SessionHandoff::default()
@@ -327,4 +330,50 @@ fn server_encoding_matches_the_core_stream_fixture() {
         CONNECT_FIXTURE
     );
     assert!(decode_connect(b"\x01{\"client_data\":null}").is_err());
+}
+
+/// Archive declarations must fit the platform's addressable byte buffers.
+#[test]
+fn pack_receiver_rejects_unrepresentable_declarations() {
+    assert!(HandoffPackReceiver::new(&handoff_with_sizes(&[u64::MAX]), None).is_err());
+}
+
+/// Large required experience packs reach archive delivery without allocating their payloads here.
+#[test]
+fn pack_receiver_admits_large_experience_declarations() {
+    let mib = 1024 * 1024;
+    let handoff = handoff_with_sizes(&[72 * mib, 3 * mib, 7 * mib]);
+    assert!(HandoffPackReceiver::new(&handoff, None).is_ok());
+}
+
+/// The bridge retains large selections without treating a scheduling budget as content admission.
+#[test]
+fn pack_receiver_admits_large_selections() {
+    let handoff = handoff_with_sizes(&[600 * 1024 * 1024; 40]);
+    assert!(HandoffPackReceiver::new(&handoff, None).is_ok());
+}
+
+/// Diagnostic IDs survive the local wire without entering Bedrock client data.
+#[test]
+fn connect_keeps_diagnostic_identity_separate_from_login_claims() {
+    let request = ConnectRequest {
+        protocol: crate::PROTOCOL_VERSION,
+        target: None,
+        client_cache: false,
+        client_data: serde_json::json!({}),
+        join_profile_id: Some(42),
+    };
+    let decoded = decode_connect(&encode_connect(&request).unwrap()).unwrap();
+    assert_eq!(decoded.join_profile_id, Some(42));
+    assert_eq!(decoded.client_data, serde_json::json!({}));
+    let plain = ConnectRequest {
+        join_profile_id: None,
+        ..request
+    };
+    assert!(
+        serde_json::to_value(&plain)
+            .unwrap()
+            .get("join_profile_id")
+            .is_none()
+    );
 }

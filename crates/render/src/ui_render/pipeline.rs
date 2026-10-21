@@ -64,7 +64,7 @@ pub(crate) fn ui_bind_group_layout() -> BindGroupLayoutDescriptor {
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(16),
+                    min_binding_size: BufferSize::new(render_model::ui_page_uniform::BYTE_SIZE),
                 },
                 count: None,
             },
@@ -207,6 +207,8 @@ pub(super) struct UiPipelineKey {
     pub(super) depth_test: bool,
     pub(super) depth_write: bool,
     pub(super) isolated_depth: bool,
+    /// Allows a no-depth material to share a pass that has a depth attachment.
+    pub(super) attached_depth: bool,
 }
 
 impl Specializer<RenderPipeline> for UiPipelineSpecializer {
@@ -226,8 +228,8 @@ impl Specializer<RenderPipeline> for UiPipelineSpecializer {
             }
             .into(),
         );
-        descriptor.depth_stencil =
-            (key.depth_test || key.depth_write).then_some(DepthStencilState {
+        descriptor.depth_stencil = (key.attached_depth || key.depth_test || key.depth_write)
+            .then_some(DepthStencilState {
                 format: CORE_3D_DEPTH_FORMAT,
                 depth_write_enabled: Some(key.depth_write),
                 depth_compare: Some(if key.depth_test {
@@ -282,6 +284,7 @@ impl crate::pipeline_warmup::PrewarmPipelines for UiPipeline {
             depth_test: false,
             depth_write: false,
             isolated_depth: false,
+            attached_depth: false,
         };
         ids.push(self.variants.specialize(cache, hud)?);
         ids.push(
@@ -312,14 +315,21 @@ impl crate::pipeline_warmup::PrewarmPipelines for UiPipeline {
                     depth_write,
                     ..hud
                 };
-                ids.push(self.variants.specialize(cache, world)?);
-                ids.push(self.variants.specialize(
-                    cache,
-                    UiPipelineKey {
-                        invert_blend: true,
-                        ..world
-                    },
-                )?);
+                for attached_depth in [false, true] {
+                    if attached_depth && (depth_test || depth_write) {
+                        continue;
+                    }
+                    for invert_blend in [false, true] {
+                        ids.push(self.variants.specialize(
+                            cache,
+                            UiPipelineKey {
+                                attached_depth,
+                                invert_blend,
+                                ..world
+                            },
+                        )?);
+                    }
+                }
             }
         }
         Ok(())
@@ -329,6 +339,32 @@ impl crate::pipeline_warmup::PrewarmPipelines for UiPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn no_depth_world_material_can_share_depth_without_testing_or_writing() {
+        let mut descriptor = ui_pipeline_descriptor(ui_bind_group_layout());
+        UiPipelineSpecializer
+            .specialize(
+                UiPipelineKey {
+                    msaa: Msaa::Sample4,
+                    hdr: false,
+                    invert_blend: false,
+                    layer: false,
+                    depth_test: false,
+                    depth_write: false,
+                    isolated_depth: false,
+                    attached_depth: true,
+                },
+                &mut descriptor,
+            )
+            .unwrap();
+        let depth = descriptor
+            .depth_stencil
+            .expect("shared pass requires a compatible depth format");
+        assert_eq!(depth.depth_compare, Some(CompareFunction::Always));
+        assert_eq!(depth.depth_write_enabled, Some(false));
+        assert_eq!(depth.bias.constant, 0);
+    }
 
     #[test]
     fn hud_layer_and_projected_world_use_distinct_color_targets() {
@@ -344,6 +380,7 @@ mod tests {
                         depth_test: !layer,
                         depth_write: !layer,
                         isolated_depth: false,
+                        attached_depth: false,
                     },
                     &mut descriptor,
                 )
@@ -388,6 +425,7 @@ mod tests {
                             depth_test,
                             depth_write,
                             isolated_depth: true,
+                            attached_depth: false,
                         },
                         &mut descriptor,
                     )

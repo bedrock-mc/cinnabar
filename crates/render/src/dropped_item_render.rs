@@ -382,9 +382,7 @@ fn current_models(scene: &DroppedItemScene, current: &mut Vec<bool>) {
 fn prepare_items(
     scene: Res<DroppedItemScene>,
     terrain: Res<TerrainItemMeshGenerations>,
-    staging: Option<Res<crate::upload_staging::BufferUploadStaging>>,
-    device: Res<RenderDevice>,
-    queue: Res<RenderQueue>,
+    uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<ItemGpu>,
 ) {
     let mut current = std::mem::take(&mut gpu.current_scratch);
@@ -399,10 +397,10 @@ fn prepare_items(
             })
     });
     if gpu.models_revision != scene.models_revision || gpu.atlas_view.is_none() || missing_current {
-        rebuild_models(&scene, &current, &device, &queue, &mut gpu);
+        rebuild_models(&scene, &current, &uploads.device, &uploads.queue, &mut gpu);
     }
     gpu.current_scratch = current;
-    glint::upload(&scene, &device, &queue, &mut gpu);
+    glint::upload(&scene, &uploads.device, &uploads.queue, &mut gpu);
     if scene.instances.is_empty()
         && scene.dynamic.is_empty()
         && !scene
@@ -461,15 +459,10 @@ fn prepare_items(
         meta: [0, 15, 15, 0],
         glint: [0.0; 4],
     });
-    crate::upload_staging::write_batch(
-        staging.as_deref(),
-        &device,
-        &queue,
-        &[(
-            &gpu.instance_buffer,
-            0,
-            bytemuck::cast_slice::<GpuItemInstance, u8>(&instances),
-        )],
+    uploads.write(
+        &gpu.instance_buffer,
+        0,
+        bytemuck::cast_slice::<GpuItemInstance, u8>(&instances),
     );
     #[cfg(test)]
     {
@@ -477,15 +470,10 @@ fn prepare_items(
     }
     gpu.dynamic_count = scene.dynamic.len() as u32;
     if !scene.dynamic.is_empty() {
-        crate::upload_staging::write_batch(
-            staging.as_deref(),
-            &device,
-            &queue,
-            &[(
-                &gpu.dynamic_buffer,
-                0,
-                bytemuck::cast_slice::<ItemMeshVertex, u8>(&scene.dynamic),
-            )],
+        uploads.write(
+            &gpu.dynamic_buffer,
+            0,
+            bytemuck::cast_slice::<ItemMeshVertex, u8>(&scene.dynamic),
         );
         #[cfg(test)]
         {
@@ -502,15 +490,10 @@ fn prepare_items(
     ];
     let environment_bits = environment.map(f32::to_bits);
     if gpu.environment_bits != Some(environment_bits) {
-        crate::upload_staging::write_batch(
-            staging.as_deref(),
-            &device,
-            &queue,
-            &[(
-                &gpu.environment,
-                0,
-                bytemuck::cast_slice::<f32, u8>(&environment),
-            )],
+        uploads.write(
+            &gpu.environment,
+            0,
+            bytemuck::cast_slice::<f32, u8>(&environment),
         );
         gpu.environment_bits = Some(environment_bits);
         #[cfg(test)]

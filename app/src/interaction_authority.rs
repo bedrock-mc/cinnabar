@@ -57,6 +57,20 @@ pub(crate) fn ray_is_current(
         && ray.fifo_sequence() <= FifoSequence::new(stream.committed_sequence())
 }
 
+/// Verifies inspected collision columns without recasting a frozen proposal at a new target.
+pub(crate) fn world_identity_current(
+    client_world: &ClientWorld,
+    collisions: &PhysicsCollisionRegistries,
+    identity: &sim::WorldCollisionIdentity,
+) -> bool {
+    client_world.stream.as_ref().is_some_and(|stream| {
+        collisions.registry(stream.network_id_mode()).identity() == identity.registry
+            && identity.chunks.iter().all(|revision| {
+                stream.collision_store().collision_revision(revision.chunk) == Some(*revision)
+            })
+    })
+}
+
 /// The ray or world evidence behind a block observation is stale or unreadable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct BlockRayUnavailable;
@@ -111,14 +125,16 @@ pub(crate) fn observe_block_ray(
         collisions,
         selection,
         game_mode,
+        false,
         input,
         |world, origin, direction, reach| {
             world.block_interaction_ray_current(origin, direction, reach)
         },
     )
+    .map(|observed| observed.value)
 }
 
-/// Freezes a current observation after the owning interaction chooses its support target.
+/// Retains query evidence even when the owning interaction finds a clear ray.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn observe_block_ray_using(
     origin: &InteractionOriginSnapshot,
@@ -127,6 +143,7 @@ pub(crate) fn observe_block_ray_using(
     collisions: &PhysicsCollisionRegistries,
     selection: FrozenMiningSelection,
     game_mode: Option<protocol::PlayerGameMode>,
+    liquids: bool,
     input: (
         PlayerInputMode,
         f64,
@@ -139,7 +156,7 @@ pub(crate) fn observe_block_ray_using(
         Vec3,
         f64,
     ) -> Result<Option<sim::BlockHit>, sim::WorldQueryError>,
-) -> Result<Option<FrozenBlockObservation>, BlockRayUnavailable> {
+) -> Result<sim::CollisionQuery<Option<FrozenBlockObservation>>, BlockRayUnavailable> {
     let (
         input_mode,
         reach,
@@ -154,23 +171,33 @@ pub(crate) fn observe_block_ray_using(
     let vector = |value: bevy::prelude::Vec3| {
         Vec3::new(f64::from(value.x), f64::from(value.y), f64::from(value.z))
     };
+    let mut context = pick_context(
+        stream,
+        collisions,
+        game_mode,
+        Some(selection.item.block_runtime_id()),
+    );
+    context.liquids = liquids;
     let world = PaletteWorld::new(
         stream.collision_store(),
         collisions.registry(stream.network_id_mode()),
         stream.current_dimension(),
-        pick_context(
-            stream,
-            collisions,
-            game_mode,
-            Some(selection.item.block_runtime_id()),
-        ),
+        context,
     );
-    let Some(hit) = choose(&world, vector(ray.origin()), vector(ray.direction()), reach)
-        .map_err(|_| BlockRayUnavailable)?
-    else {
-        return Ok(None);
+    let observed = world
+        .observe(|world| choose(world, vector(ray.origin()), vector(ray.direction()), reach))
+        .map_err(|_| BlockRayUnavailable)?;
+    let Some(mut hit) = observed.value.map_err(|_| BlockRayUnavailable)? else {
+        return Ok(sim::CollisionQuery {
+            identity: observed.identity,
+            value: None,
+        });
     };
-    Ok(Some(FrozenBlockObservation {
+    hit.identity = hit
+        .identity
+        .merge(&observed.identity)
+        .map_err(|_| BlockRayUnavailable)?;
+    let value = Some(FrozenBlockObservation {
         frame: FrozenMiningFrame {
             session_generation: ray.session_generation(),
             position_authority_generation,
@@ -205,7 +232,11 @@ pub(crate) fn observe_block_ray_using(
             runtime_id: hit.runtime_id,
             identity: hit.identity,
         },
-    }))
+    });
+    Ok(sim::CollisionQuery {
+        identity: observed.identity,
+        value,
+    })
 }
 
 #[cfg(test)]

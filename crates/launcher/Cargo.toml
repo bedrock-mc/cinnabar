@@ -17,15 +17,21 @@ reads = [
 
 [features]
 test-support = []
+# Offers shader-pack controls; enabled by the app's `shaderpacks` feature.
+shaderpacks = ["shader-pack-options"]
+# Runs shader-pack option screens on the `shaderpack` crate.
+shader-pack-options = ["dep:shaderpack"]
 
 [dependencies]
+cosmetics = { path = "../cosmetics" }
 bridge = { path = "../bridge" }
 json-ui = { path = "../json-ui" }
 assets = { path = "../assets" }
 render-api = { path = "../render-api" }
-resource-pack = { path = "../resource-pack" }
+resource-pack = { path = "../resource-pack", default-features = false }
 semantic-input = { path = "../input" }
 ui = { path = "../ui" }
+shaderpack = { path = "../shaderpack", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 update-manifest = { path = "../update-manifest" }

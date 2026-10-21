@@ -19,6 +19,7 @@ pub(in crate::ui_runtime::presentation) struct MeshSources<'a> {
     pub(super) layers: Vec<Layer<'a>>,
     pub(super) parts: [Option<Affine3A>; 6],
     pub(super) fire: Option<PreviewFire>,
+    pub(super) particles: Option<&'a UiMesh>,
 }
 
 impl<'a> MeshSources<'a> {
@@ -64,7 +65,31 @@ impl<'a> MeshSources<'a> {
             layers,
             parts: body.map_or([None; 6], |(_, parts)| *parts),
             fire,
+            particles: None,
         }
+    }
+
+    /// Adds an independently textured head attachment to the shared depth pass.
+    pub(in crate::ui_runtime::presentation) fn with_attachment(
+        mut self,
+        vertices: &'a [ActorVertex],
+        icon: IconRef,
+    ) -> Self {
+        self.layers.push(Layer {
+            vertices: Cow::Borrowed(vertices),
+            icon,
+            tint: None,
+        });
+        self
+    }
+
+    /// Adds already projected particle quads to the player's isolated depth pass.
+    pub(in crate::ui_runtime::presentation) fn with_particles(
+        mut self,
+        particles: Option<&'a UiMesh>,
+    ) -> Self {
+        self.particles = particles;
+        self
     }
 
     /// Counts triangle corners and batches from the same layers the projection consumes.
@@ -77,6 +102,10 @@ impl<'a> MeshSources<'a> {
         if let Some(fire) = self.fire {
             vertices = vertices.checked_add(fire.vertex_count()?)?;
             batches = batches.checked_add(1)?;
+        }
+        if let Some(particles) = self.particles {
+            vertices = vertices.checked_add(particles.vertices().len())?;
+            batches = batches.checked_add(particles.batches().len())?;
         }
         Some((vertices, batches))
     }

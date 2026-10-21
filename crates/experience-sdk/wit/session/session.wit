@@ -78,6 +78,11 @@ interface recipes {
         cartography,
         smithing-transform,
         smithing-trim,
+        furnace,
+        blast-furnace,
+        smoker,
+        /// The brewing stand: the input potion, then the reagent. Brewing has no network id (0).
+        brewing,
     }
 
     record recipe {
@@ -88,7 +93,7 @@ interface recipes {
         width: u8,
         height: u8,
         /// Shaped: `width * height` cells, row-major, `none` for an empty cell. Otherwise the
-        /// inputs in order: stonecutter the input; cartography the map, then the modifier;
+        /// inputs in order: stonecutter and furnaces the input; cartography the map, then the modifier;
         /// smithing the template, the base, then the addition.
         ingredients: list<option<ingredient>>,
         /// Empty for a smithing trim, which decorates its base.

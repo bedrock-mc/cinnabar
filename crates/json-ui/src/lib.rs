@@ -33,8 +33,10 @@ mod localize;
 mod lru;
 mod merge;
 mod pack;
+pub mod position;
 mod predicate;
 mod resolve;
+pub mod rounded;
 mod scene;
 mod screens;
 mod sidecar;
@@ -60,7 +62,7 @@ pub use bind::{
     EmptyLibrary, FactoryItem, bind, bind_incremental, bind_reporting, bind_shared, bind_stateful,
     rebind, scoped_key,
 };
-pub use catalog::{Catalog, LoadError, RawControl};
+pub use catalog::{Catalog, ControlScope, LoadError, RawControl};
 pub use component::{
     ButtonEvent, ButtonInput, CARET_BLINK_SECONDS, CARET_GLYPH, Components, Dispatch, Dispatcher,
     EditMeta, PointerInput, ScreenEvent, SelectionWheelMeta, SliderMeta, SoundMeta, TextEdit,
@@ -68,15 +70,15 @@ pub use component::{
 };
 pub use context::Context;
 pub use emit::{
-    Draw, DrawNode, RectOut, SpriteFilter, SpriteQuad, StateGate, TextAlign, UvRect, color_value,
-    emit, emit_gated,
+    Draw, DrawNode, RectOut, SpriteFilter, SpriteQuad, SpriteRepeat, StateGate, TextAlign, UvRect,
+    color_value, emit, emit_gated,
 };
 pub use env::Env;
 pub use expr::{AxisContext, Length, Resolved, Term, Unit, length_from_value, parse_length};
 pub use form::{
-    ActionElement, ActionForm, ButtonImage, CachedLibrary, CatalogLibrary, CustomElement,
-    CustomForm, FormButton, FormModel, FormRender, ModalForm, ResolveCache, bind_form,
-    bind_form_over, form_context, form_data_source, form_factory_id, form_screen_cancel,
+    ActionElement, ActionForm, BoundedCatalogLibrary, ButtonImage, CachedLibrary, CatalogLibrary,
+    CustomElement, CustomForm, FormButton, FormModel, FormRender, ModalForm, ResolveCache,
+    bind_form, bind_form_over, form_context, form_data_source, form_factory_id, form_screen_cancel,
     form_template, render_bound, render_bound_cached, render_bound_gated, render_form,
     render_form_with,
 };
@@ -96,10 +98,11 @@ pub use input::{
 };
 pub use label::{LabelShape, TextOptions};
 pub use layout::{
-    LaidOut, LayoutEnv, MeasureCache, Rect, TextMeasure, TextureSource, layout, layout_with,
+    LaidOut, LayoutEnv, MeasureCache, Rect, SiblingKeys, TextMeasure, TextureSource, child_key,
+    grid_template_columns, layout, layout_with,
 };
 pub use layout_cache_key::LayoutCacheKey;
-pub use localize::{localize_text, localize_text_prefix};
+pub use localize::{localize_text, localize_text_chars, localize_text_prefix};
 pub use pack::{GLOBAL_VARIABLES_PATH, UI_DEFS_PATH};
 pub use predicate::{Bindings, Scalar};
 pub use resolve::Resolver;
@@ -168,4 +171,9 @@ fn resolve_in(catalog: &Catalog, reference: &str, root: &env::Env) -> Resolution
         control,
         diagnostics: resolver.into_diagnostics(),
     }
+}
+
+/// Returns the property names read by a binding expression, excluding quoted text.
+pub fn expression_properties(expression: &str) -> Vec<String> {
+    predicate::property_tokens(expression)
 }

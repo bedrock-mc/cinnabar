@@ -159,6 +159,7 @@ impl Channel {
 }
 // END GENERATED EXTENSION CONTRACT
 
+use crate::rate_limit::RateLimit;
 use crate::{
     manifest::identifier,
     negotiation::{Grant, Wire},
@@ -256,45 +257,6 @@ pub fn encode(envelope: &Envelope, wire: &Wire) -> Result<Vec<Vec<u8>>> {
             Ok(serde_json::to_vec(&Fragment::of(envelope, part))?)
         })
         .collect()
-}
-
-#[derive(Clone, Debug)]
-pub struct RateLimit {
-    last_ms: u64,
-    messages: u64,
-    bytes: u64,
-}
-
-impl RateLimit {
-    /// Gives at most one second of initial burst credit.
-    pub fn new(now_ms: u64) -> Self {
-        Self {
-            last_ms: now_ms,
-            messages: MAX_MESSAGES_PER_SECOND * 1000,
-            bytes: MAX_BYTES_PER_SECOND * 1000,
-        }
-    }
-
-    /// Charges before parsing; a clock reversal cannot mint extra credit.
-    pub fn charge(&mut self, size: usize, now_ms: u64) -> Result<()> {
-        let elapsed = now_ms.saturating_sub(self.last_ms).min(1000);
-        self.last_ms = self.last_ms.max(now_ms);
-        self.messages =
-            (self.messages + elapsed * MAX_MESSAGES_PER_SECOND).min(MAX_MESSAGES_PER_SECOND * 1000);
-        self.bytes = (self.bytes + elapsed * MAX_BYTES_PER_SECOND).min(MAX_BYTES_PER_SECOND * 1000);
-        ensure!(
-            size <= protocol::MAX_EXPERIENCE_ENVELOPE_BYTES,
-            "envelope too large"
-        );
-        let cost = size as u64 * 1000;
-        ensure!(
-            self.messages >= 1000 && self.bytes >= cost,
-            "channel rate exceeded"
-        );
-        self.messages -= 1000;
-        self.bytes -= cost;
-        Ok(())
-    }
 }
 
 /// A wire v2 message whose fragments are still arriving.

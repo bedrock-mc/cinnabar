@@ -1,6 +1,9 @@
 use crate::chunk::*;
 
+#[cfg(test)]
+mod cutout_contact_tests;
 mod terrain_blend;
+mod terrain_cutout;
 
 // Packed liquid corners run opposite to cube/model corners. Native's outward
 // winding is preserved without reversing the index buffer shared with cubes; the
@@ -46,7 +49,7 @@ impl FromWorld for ChunkPipeline {
     fn from_world(_world: &mut World) -> Self {
         let transparent_bind_group_layout = chunk_bind_group_layout();
         let bind_group_layout = opaque_chunk_bind_group_layout();
-        let descriptor = RenderPipelineDescriptor {
+        let mut descriptor = RenderPipelineDescriptor {
             label: Some("packed chunk pipeline".into()),
             layout: vec![bind_group_layout.clone(), crate::lighting::layout()],
             vertex: VertexState {
@@ -130,6 +133,9 @@ impl FromWorld for ChunkPipeline {
         depth_fragment.entry_point = Some("fragment_depth".into());
         depth_liquid_descriptor.primitive.cull_mode = None;
         depth_liquid_descriptor.primitive.front_face = LIQUID_FRONT_FACE;
+        // Apply after cloning: model geometry includes the opaque stairs/slabs
+        // that must win a shared plane against a two-sided cutout cube.
+        terrain_cutout::apply(&mut descriptor);
         let unit_variants = [
             &solid_descriptor,
             &descriptor,

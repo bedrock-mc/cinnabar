@@ -53,18 +53,18 @@ fn material_leaf_shade(ao_face: f32, flags: u32) -> f32 {
 }
 
 // Vanilla uses wrapping coordinates, subtractive weights, last fallback.
-fn positional_material(id: u32, position: vec3<i32>) -> MaterialGpu {
+fn positional_material_id(id: u32, position: vec3<i32>) -> u32 {
     let base = materials[id];
-    if (base.variation_count == 0u) { return base; }
-    if (base.variation_count == 1u) { return materials[base.variation_start]; }
+    if (base.variation_count == 0u) { return id; }
+    if (base.variation_count == 1u) { return base.variation_start; }
     var sample = f32(material_position_random(position) >> 16u) / 65535.0;
     for (var i = 0u; i < base.variation_count; i += 1u) {
         let candidate = materials[base.variation_start + i];
         let weight = bitcast<f32>(candidate.variation_weight);
-        if (sample <= weight || i + 1u == base.variation_count) { return candidate; }
+        if (sample <= weight || i + 1u == base.variation_count) { return base.variation_start + i; }
         sample -= weight;
     }
-    return base;
+    return id;
 }
 
 // Layers use the same field as the carrier, below GPU-only dimension metadata.

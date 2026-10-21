@@ -22,7 +22,9 @@ mod login;
 mod movement;
 mod nbt_tree;
 mod packet;
+mod packet_relay;
 pub mod packet_tap;
+pub use packet_relay::{PacketRelay, RELAY_TICK, RelayOutput, RelayPack};
 mod particle;
 mod permissions;
 mod primitive_shapes;
@@ -102,25 +104,27 @@ pub use codec::{
 pub use disconnect::ServerDisconnectEvent;
 pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
-    HeldItemRequest, ItemUseTrigger, PredictedSlotChange, SwingSource, click_air_packet,
-    click_block_packet, click_block_transaction_packet, destroy_block_packet,
-    is_aim_assist_rotation_action, release_item_packet, start_item_use_on_packet,
-    stop_item_use_on_packet, stop_riding_packet, stop_sleeping_packet, swing_arm_packet,
-    use_actor_packet, use_item_as_attack_packet, writable_book_init_change,
+    HeldItemRequest, ItemUseHand, ItemUseTrigger, PredictedSlotChange, SwingSource,
+    click_air_packet, click_block_packet, click_block_transaction_packet, destroy_block_packet,
+    entity_hover_packet, is_aim_assist_rotation_action, release_item_packet,
+    start_item_use_on_packet, stop_item_use_on_packet, stop_riding_packet, stop_sleeping_packet,
+    swing_arm_packet, use_actor_packet, use_item_as_attack_packet, writable_book_init_change,
 };
 pub use inventory::recipes::{
-    MAX_RECIPE_INGREDIENTS, RECIPE_ANY_AUX, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeDefinition,
-    RecipeHandle, RecipeIngredient, RecipeIngredientView, RecipeOutput, RecipeUpdate,
-    decode_recipe_update, empty_recipe_extra, recipe_binding_supported, vanilla_tag_contains,
-};
-pub use inventory::recipes::{
-    MultiRecipe, ScreenIngredient, ScreenRecipe, ScreenRecipeKind, ScreenRecipes,
+    BrewingItem, BrewingMix, BrewingMixItem, BrewingRecipe, MAX_RECIPE_INGREDIENTS, MultiRecipe,
+    RECIPE_ANY_AUX, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeDefinition, RecipeHandle,
+    RecipeIdentity, RecipeIdentityHandle, RecipeIngredient, RecipeIngredientView, RecipeOutput,
+    RecipeUnlockOperation, RecipeUnlockState, RecipeUnlockUpdate, RecipeUnlockingContext,
+    RecipeUpdate, ScreenIngredient, ScreenRecipe, ScreenRecipeKind, ScreenRecipes,
+    decode_recipe_unlocks, decode_recipe_update, empty_recipe_extra, recipe_binding_supported,
+    vanilla_tag_contains,
 };
 pub use inventory::{
     ARMOR_SLOTS, ARMOR_WINDOW_ID, AutoCraftIngredient, CONTAINER_NAME_CREATED_OUTPUT,
     CONTAINER_NAME_HOTBAR, CRAFTING_INPUT_SLOTS, CREATED_OUTPUT_SLOT, ContainerWindow, CraftResult,
-    LAST_CONTAINER_NAME, MAX_STACK_REQUEST_ACTIONS, NO_CONTAINER_WINDOW_TYPE, StackItemDescriptor,
-    container_window, is_personal_ui_inventory,
+    LAST_CONTAINER_NAME, LEGACY_TRADE_SLOTS, MAX_STACK_REQUEST_ACTIONS, MODERN_TRADE_SLOTS,
+    NO_CONTAINER_WINDOW_TYPE, StackItemDescriptor, TradeEvent, TradeItem, TradeOffer,
+    WINDOW_TYPE_TRADE, container_window, is_personal_ui_inventory,
 };
 pub use inventory::{
     BookEdit, MAX_BOOK_PAGE_BYTES, actor_pick_request_packet, block_pick_request_packet,
@@ -146,25 +150,31 @@ pub use inventory::{
     repeated_container_open_warning_packet, validate_item_nbt_size,
 };
 pub use inventory::{
+    CraftingRules, FurnaceKind, FurnaceLayout, FurnaceOptions, FurnaceOptionsEvent, FurnaceTab,
+    furnace_options_packet,
+};
+pub use inventory::{
     CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
     MAX_CREATIVE_ITEMS,
 };
 pub use inventory::{
-    EnchantOption, EnchantOptionsEvent, MAX_ENCHANT_OPTIONS, OpenCells, UI_SLOT_COUNT,
-    WINDOW_TYPE_ANVIL, WINDOW_TYPE_BEACON, WINDOW_TYPE_BLAST_FURNACE, WINDOW_TYPE_BREWING_STAND,
-    WINDOW_TYPE_CARTOGRAPHY, WINDOW_TYPE_CONTAINER, WINDOW_TYPE_CRAFTER, WINDOW_TYPE_DISPENSER,
-    WINDOW_TYPE_DROPPER, WINDOW_TYPE_ENCHANTMENT, WINDOW_TYPE_FURNACE, WINDOW_TYPE_GRINDSTONE,
-    WINDOW_TYPE_HOPPER, WINDOW_TYPE_HORSE, WINDOW_TYPE_LECTERN, WINDOW_TYPE_LOOM,
-    WINDOW_TYPE_SMITHING_TABLE, WINDOW_TYPE_SMOKER, WINDOW_TYPE_STONECUTTER, WINDOW_TYPE_WORKBENCH,
-    WindowKind, WindowSegment, is_chest_like_name, is_open_window_name, is_result_preview_name,
-    open_cell_request, open_name_first_cell, ui_slot_container_name, ui_slot_for_name,
-    ui_slot_request_container,
+    EnchantOption, EnchantOptionsEvent, MAX_ENCHANT_OPTIONS, MAX_GENERIC_STORAGE_SLOTS, OpenCells,
+    UI_SLOT_COUNT, WINDOW_TYPE_ANVIL, WINDOW_TYPE_BEACON, WINDOW_TYPE_BLAST_FURNACE,
+    WINDOW_TYPE_BREWING_STAND, WINDOW_TYPE_CARTOGRAPHY, WINDOW_TYPE_CONTAINER, WINDOW_TYPE_CRAFTER,
+    WINDOW_TYPE_DISPENSER, WINDOW_TYPE_DROPPER, WINDOW_TYPE_ENCHANTMENT, WINDOW_TYPE_FURNACE,
+    WINDOW_TYPE_GRINDSTONE, WINDOW_TYPE_HOPPER, WINDOW_TYPE_HORSE, WINDOW_TYPE_LECTERN,
+    WINDOW_TYPE_LOOM, WINDOW_TYPE_SMITHING_TABLE, WINDOW_TYPE_SMOKER, WINDOW_TYPE_STONECUTTER,
+    WINDOW_TYPE_WORKBENCH, WindowKind, WindowSegment, is_chest_like_name, is_open_window_name,
+    is_result_preview_name, open_cell_request, open_name_first_cell, ui_slot_container_name,
+    ui_slot_for_name, ui_slot_request_container,
 };
 pub use inventory::{
     IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
 };
-pub use inventory::{MineBlockRequest, MineBlockRequestError};
-pub use inventory::{RecipeRegistryError, RecipeRegistrySnapshot};
+pub use inventory::{
+    InventoryLayout, InventoryOptions, InventoryRightTab, InventoryTab, MineBlockRequest,
+    MineBlockRequestError, RecipeRegistryError, RecipeRegistrySnapshot, inventory_options_packet,
+};
 pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, EquipmentEvent,
     FoodProperties, HOTBAR_SLOT_COUNT, ItemActorEvent, ItemAttackCooldown, ItemAttackTiming,
@@ -172,23 +182,27 @@ pub use item::{
     ItemRegistryEvent, ItemRegistryVersion, ItemStackFacts, ItemStackFactsCache, ItemUseCooldown,
     KineticWeaponTiming, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
     MAX_ANIMATION_IDENTIFIER_BYTES, MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES,
-    MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, item_banner_patterns, item_book, item_bundle_id,
-    item_charged_projectile, item_custom_color, item_display, item_enchantment_level,
-    item_extra_damage, item_extra_unbreakable, item_has_enchantment_list, item_stack_damage,
-    select_hotbar_slot_packet, vanilla_item_registry,
+    MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, held_items_match, item_banner_patterns,
+    item_banner_type, item_book, item_bundle_id, item_charged_projectile, item_custom_color,
+    item_display, item_enchantment_level, item_enchantment_level_value, item_extra_damage,
+    item_extra_damage_integer, item_extra_damage_value, item_extra_unbreakable,
+    item_has_enchantment_list, item_stack_damage, item_use_progress_packet,
+    offhand_equipment_packet, select_hotbar_slot_packet, vanilla_item_registry,
 };
 pub use item::{
     ItemAnvilData, ItemNbtEdit, book_init_extra, book_needs_init, edit_item_extra, item_anvil_data,
-    item_custom_name, item_repair_cost,
+    item_custom_name, item_extra_lock, item_extra_slot_locked, item_filtered_custom_name,
+    item_repair_cost, item_user_data_equal,
 };
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
 pub use respawn::{respawn_ready_packet, respawn_request_packet};
 
 pub use login::{
     ClientCape, ClientRandomId, ClientSkin, ClientSkinGeometry, GAME_VERSION, GameData,
-    LoginSequence, LoginSettings, PROTOCOL_VERSION, PacketIdTraceSnapshot, PlayOutbound,
-    PlaySession, ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff, StartupItems,
-    StartupSettings, WRITE_FAILURE_DRAIN, login_memory_tier, network_stack_latency_reply,
+    JoinPreparation, LoginSequence, LoginSettings, PROTOCOL_VERSION, PacketIdTraceSnapshot,
+    PlayOutbound, PlaySession, ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff,
+    SessionIo, SessionLogin, StartupItems, StartupSettings, WRITE_FAILURE_DRAIN, WebSessionReader,
+    login_memory_tier, network_stack_latency_reply,
 };
 pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,
@@ -208,14 +222,16 @@ pub use permissions::{
     decode_abilities_update,
 };
 pub use raw_text::{
-    MAX_RAW_TEXT_COMPONENTS, MAX_RAW_TEXT_DEPTH, MAX_RAW_TEXT_INPUT_BYTES, MAX_RAW_TEXT_NODES,
+    FormTextBudget, MAX_FORM_TEXT_EXPANSION_BYTES, MAX_RAW_TEXT_COMPONENTS, MAX_RAW_TEXT_DEPTH,
+    MAX_RAW_TEXT_EXPANSION_BYTES, MAX_RAW_TEXT_INPUT_BYTES, MAX_RAW_TEXT_NODES,
     MAX_RAW_TEXT_OUTPUT_BYTES, RawTextComponent, RawTextDocument, RawTextResolution,
-    RawTextResolver, ResolvedRawText, format_translation, parse_raw_text,
+    RawTextResolver, ResolvedRawText, format_translation, format_translation_chars, parse_raw_text,
 };
 pub use render_api::primitive_shapes::{
     PrimitiveShapeChange, PrimitiveShapeData, PrimitiveShapeKind, PrimitiveShapeUpdate,
     PrimitiveShapesEvent, PrimitiveText,
 };
+#[cfg(not(target_arch = "wasm32"))]
 pub use session_transport::report_pack_application;
 pub use settings::request_chunk_radius_packet;
 pub use transfer::{MAX_TRANSFER_HOST_BYTES, ServerTransferEvent, ServerTransferRejection};
@@ -226,39 +242,39 @@ pub use ui::{
     ChatAutocompleteCompletion, ChatAutocompleteEvent, ChatPacketError, CommandOutputEvent,
     CommandOutputMessage, CommandParam, CommandParamKind, CommandSpec, CommandTreeEvent,
     CompletionContext, CustomForm, CustomFormElement, CustomFormValue, DeathInfoEvent, DeathRules,
-    ElementMenuForm, FormButtonImage, FormKind, FormNumber, FormRequestEvent, FormText,
-    GameModeEvent, GameModeUpdate, HudEvent, HudRules, MAX_BOSS_EVENTS, MAX_CHAT_AUTOCOMPLETE,
-    MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_PARAMETERS, MAX_COMMAND_OUTPUT_MESSAGES,
-    MAX_CUSTOM_FORM_ITEMS, MAX_FORM_JSON_BYTES, MAX_FORM_JSON_DEPTH, MAX_OUTBOUND_CHAT_BYTES,
-    MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, MenuElement, ModalDialogForm,
-    ModalFormResponseSelection, NPC_DIALOGUE_FORM_ID, NpcButton, NpcDialogueForm, NpcRequestKind,
-    ObjectiveEvent, PlayerStatus, RawTextEvent, ScoreAction, ScoreEntry, ScoreEvent, ScoreIdentity,
-    ServerFormModel, SleepStatusEvent, TextCategory, TextEvent, TextKind, TextMenuForm,
-    TitleAction, TitleEvent, UiEvent, UiPacketError, UnsupportedForm, chat_input_packet,
-    chat_text_packet, command_request_packet, custom_form_submit_response,
+    ElementMenuForm, FormButtonImage, FormControlLock, FormKind, FormNumber, FormRequestEvent,
+    FormText, GameModeEvent, GameModeUpdate, HudEvent, HudRules, MAX_BOSS_EVENTS,
+    MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_PARAMETERS,
+    MAX_COMMAND_OUTPUT_MESSAGES, MAX_CUSTOM_FORM_ITEMS, MAX_FORM_JSON_BYTES,
+    MAX_OUTBOUND_CHAT_BYTES, MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, MenuElement,
+    ModalDialogForm, ModalFormResponseSelection, NPC_DIALOGUE_FORM_ID, NpcButton, NpcDialogueForm,
+    NpcRequestKind, ObjectiveEvent, PlayerStatus, RawTextEvent, ScoreAction, ScoreEntry,
+    ScoreEvent, ScoreIdentity, ServerFormModel, SleepStatusEvent, TextCategory, TextEvent,
+    TextKind, TextMenuForm, TitleAction, TitleEvent, UiEvent, UiPacketError, UnsupportedForm,
+    chat_input_packet, chat_text_packet, command_request_packet, custom_form_submit_response,
     modal_form_busy_response, modal_form_cancel_response, modal_form_submit_response,
     npc_request_packet, server_settings_request_packet,
 };
 pub use world::{
     ActorBlockSyncMessage, ActorMotionEvent, ActorPropertySyncEvent, BiomeDefinitionEvent,
     BiomeDefinitionsEvent, BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent,
-    ChangeDimensionEvent, ChunkResyncEvent, CustomBlock, CustomBlockPhysics, CustomBlockVisuals,
-    CustomBlocks, CustomBox, CustomCollision, CustomHashedState, CustomMaterialInstance,
-    CustomPermutation, CustomPhysicalComponents, CustomSelection, CustomStateAxis,
-    CustomStateValue, CustomTransformation, CustomVisualComponents, DaylightCycleUpdateEvent,
+    ChangeDimensionEvent, ChunkResyncEvent, CustomBlock, CustomBlockMining, CustomBlockPhysics,
+    CustomBlockVisuals, CustomBlocks, CustomBox, CustomCollision, CustomHashedState,
+    CustomMaterialInstance, CustomMiningItem, CustomMiningSpeed, CustomPermutation,
+    CustomPhysicalComponents, CustomPlacement, CustomSelection, CustomStateAxis, CustomStateValue,
+    CustomTransformation, CustomVisualComponents, DaylightCycleUpdateEvent,
     DimensionHeightDiagnostic, DimensionRange, GameRulesEvent, HeightmapDiagnostic,
     LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,
-    MAX_BLOCK_LAYERS, MAX_DIMENSION_DEFINITIONS, MAX_SUB_CHUNK_REQUESTS, MapDataEvent,
-    MovePlayerEvent, MovePlayerMode, MovementCorrectionSubject, MovementEffectEvent,
-    MovementEffectKind, NETHER_DIMENSION_ID, OVERWORLD_CLOCK_ID, OVERWORLD_CLOCK_NAME,
-    OpenSignEvent, PLAYER_NETWORK_OFFSET, PlayerGameMode, PlayerMovementCorrectionEvent,
-    PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent,
-    SubChunkBatchEvent, SubChunkDiagnostic, SubChunkEntryEvent, SubChunkReplyAdmissionEvent,
-    SubChunkResult, SubChunkUnavailable, SyncedBlockUpdateEvent, WeatherChannel,
-    WeatherUpdateEvent, WorldBootstrap, WorldClockDefinition, WorldClockState,
+    MAX_DIMENSION_DEFINITIONS, MapDataEvent, MovePlayerEvent, MovePlayerMode,
+    MovementCorrectionSubject, MovementEffectEvent, MovementEffectKind, NETHER_DIMENSION_ID,
+    OVERWORLD_CLOCK_ID, OVERWORLD_CLOCK_NAME, OpenSignEvent, PLAYER_NETWORK_OFFSET, PlayerGameMode,
+    PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT,
+    SetTimeEvent, SubChunkBatchEvent, SubChunkDiagnostic, SubChunkEntryEvent,
+    SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable, SyncedBlockUpdateEvent,
+    WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldClockDefinition, WorldClockState,
     WorldClockUpdateEvent, WorldEnvironmentBootstrap, WorldEvent, WorldPacketError,
     WorldSpawnEvent, WorldWireError, air_network_id, block_name_sort_key, block_state_network_hash,
-    into_world_event, request_sub_chunk_column, vanilla_dimension_range,
+    into_world_event, request_sub_chunk_column, request_sub_chunks, vanilla_dimension_range,
 };
 
 mod movement_transport;
@@ -279,3 +295,6 @@ static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 extern crate self as protocol;
 #[cfg(test)]
 mod tests;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use login::NativeJoinPreparation;

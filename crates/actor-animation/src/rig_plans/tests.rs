@@ -63,7 +63,7 @@ fn controller_catalog() -> Arc<RuntimeEntityAssets> {
     compiled.geometries[0].source_index += 1;
     compiled.animation_clips[0].source += 1;
     compiled.rig_bindings[0].entity_symbol += 1;
-    compiled.rig_bindings[0].render_controller += 1;
+    *compiled.rig_bindings[0].render_controller.as_mut().unwrap() += 1;
     for candidate in &mut compiled.render.candidates {
         candidate.source += 1;
     }
@@ -361,3 +361,6 @@ fn simultaneous_same_key_requests_publish_one_shared_constructor_plan() {
     assert!(plans.iter().all(|plan| Arc::ptr_eq(plan, &plans[0])));
     assert_eq!(layout.plans.rig_builds.load(Ordering::Relaxed), 1);
 }
+
+mod bindings;
+mod sparse;

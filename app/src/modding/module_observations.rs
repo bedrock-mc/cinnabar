@@ -3,7 +3,7 @@ use super::gameplay::GameplayContext;
 use client_ui::ui_runtime::UiRuntime;
 use mod_host::{
     ActorObservation, ActorObservationBounds, CombatKind, CombatObservation, MotionObservation,
-    VitalsObservation, WorldObservation, module_observations::ModuleObservations,
+    ObservedActor, VitalsObservation, WorldObservation, module_observations::ModuleObservations,
 };
 use simulation_clock::identity::SessionGeneration;
 use std::{
@@ -403,54 +403,60 @@ impl ModuleObserver {
                 while !name.is_char_boundary(end) {
                     end -= 1;
                 }
-                ActorObservation {
-                    session: world.session,
-                    dimension: world.dimension,
-                    identifier: match &actor.kind {
-                        protocol::ActorKind::Player { .. } => {
-                            assets::facts::entity::NativeEntityClass::Player
-                                .identifier()
-                                .expect("pinned player identity")
-                                .into()
-                        }
-                        protocol::ActorKind::Entity { identifier } => bounded_text(identifier),
+                ObservedActor {
+                    actor: ActorObservation {
+                        session: world.session,
+                        dimension: world.dimension,
+                        identifier: match &actor.kind {
+                            protocol::ActorKind::Player { .. } => {
+                                assets::facts::entity::NativeEntityClass::Player
+                                    .identifier()
+                                    .expect("pinned player identity")
+                                    .into()
+                            }
+                            protocol::ActorKind::Entity { identifier } => bounded_text(identifier),
+                        },
+                        yaw: actor.yaw,
+                        pitch: actor.pitch,
+                        pickable: gameplay::melee::actor_is_pickable(actor),
+                        hittable: target.map(|target| target == Some(actor.runtime_id)),
+                        look_origin: look_origin(authority, actor, position)
+                            .map(|point| (point[0], point[1], point[2])),
+                        look_direction: {
+                            let yaw = actor.head_yaw.to_radians();
+                            let pitch = actor.pitch.to_radians();
+                            Some((
+                                -yaw.sin() * pitch.cos(),
+                                -pitch.sin(),
+                                yaw.cos() * pitch.cos(),
+                            ))
+                        },
+                        runtime_id: actor.runtime_id,
+                        player: matches!(actor.kind, protocol::ActorKind::Player { .. }),
+                        position: (position[0], position[1], position[2]),
+                        boxes: actor
+                            .hit_boxes_at(position)
+                            .take(mod_api::MAX_OBSERVED_ACTOR_BOXES)
+                            .map(|(min, max)| ActorObservationBounds {
+                                min: (min[0], min[1], min[2]),
+                                max: (max[0], max[1], max[2]),
+                            })
+                            .collect(),
+                        name: name[..end]
+                            .chars()
+                            .filter(|character| !character.is_control())
+                            .collect(),
+                        invisible: actor.is_invisible(),
+                        sneaking: actor.is_sneaking(),
+                        hurt: actor.hurt_overlay_active(),
+                        health: authority
+                            .actor_health_by_unique(actor.unique_id)
+                            .map(|(current, _)| current),
                     },
-                    yaw: actor.yaw,
-                    pitch: actor.pitch,
-                    pickable: gameplay::melee::actor_is_pickable(actor),
-                    hittable: target.map(|target| target == Some(actor.runtime_id)),
-                    look_origin: look_origin(authority, actor, position)
-                        .map(|point| (point[0], point[1], point[2])),
-                    look_direction: {
-                        let yaw = actor.head_yaw.to_radians();
-                        let pitch = actor.pitch.to_radians();
-                        Some((
-                            -yaw.sin() * pitch.cos(),
-                            -pitch.sin(),
-                            yaw.cos() * pitch.cos(),
-                        ))
-                    },
-                    runtime_id: actor.runtime_id,
-                    player: matches!(actor.kind, protocol::ActorKind::Player { .. }),
-                    position: (position[0], position[1], position[2]),
-                    boxes: actor
-                        .hit_boxes_at(position)
-                        .take(mod_api::MAX_OBSERVED_ACTOR_BOXES)
-                        .map(|(min, max)| ActorObservationBounds {
-                            min: (min[0], min[1], min[2]),
-                            max: (max[0], max[1], max[2]),
-                        })
-                        .collect(),
-                    name: name[..end]
-                        .chars()
-                        .filter(|character| !character.is_control())
-                        .collect(),
-                    invisible: actor.is_invisible(),
-                    sneaking: actor.is_sneaking(),
-                    hurt: actor.hurt_overlay_active(),
-                    health: authority
+                    max_health: authority
                         .actor_health_by_unique(actor.unique_id)
-                        .map(|(current, _)| current),
+                        .map(|(_, maximum)| maximum)
+                        .filter(|maximum| maximum.is_finite() && *maximum > 0.),
                 }
             })
             .collect();
@@ -513,6 +519,8 @@ impl ModuleObserver {
                 .map(PathBuf::from),
         );
         ModuleObservations {
+            world_day: gameplay.world_day(world),
+            local_totem_uses: authority.totem_activations(authority.local_player_runtime_id()),
             motion,
             vitals,
             ping_ms,

@@ -97,6 +97,7 @@ impl WorldStream {
                         [position.x, position.y, position.z]
                             .map(|axis| axis.rem_euclid(world::SUB_CHUNK_SIDE as i32) as u8)
                     }),
+                    self.java_meshing.as_deref().unwrap_or_default(),
                 )
             })
             .map(PreparedSubChunkMutation::key)
@@ -435,13 +436,21 @@ impl WorldStream {
         );
         revision
     }
-    pub(super) fn invalidate_resident_biome_tints(&mut self, now: Instant) {
+    /// Revises resident and unfinished geometry so queued old-quality results cannot publish.
+    pub(super) fn invalidate_meshes(&mut self, now: Instant) {
         let renderable = self
             .resident
             .iter()
+            .chain(self.mesh_jobs.pending.keys())
+            .chain(self.mesh_jobs.in_flight.keys())
+            .chain(
+                self.staged_mesh_completions
+                    .iter()
+                    .map(|completion| &completion.key),
+            )
             .copied()
             .filter(|key| self.authority.terrain().sub_chunk(*key).is_some())
-            .collect::<Vec<_>>();
+            .collect::<HashSet<_>>();
         for key in renderable {
             self.mark_forced_dirty_exact(key, now);
             self.mesh_jobs.in_flight.remove(&key);

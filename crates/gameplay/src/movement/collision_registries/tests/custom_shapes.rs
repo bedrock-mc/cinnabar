@@ -35,6 +35,41 @@ fn definitions(shapes: &[[f32; 6]]) -> protocol::CustomBlocks {
 }
 
 #[test]
+fn custom_mining_components_resolve_in_both_runtime_identity_spaces() {
+    let version = active_content_registry_protocol();
+    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let mut registries = bind(
+        BREG_V2193,
+        &synthetic_preg(version, BREG_V2193, &records),
+        version,
+    )
+    .unwrap();
+    let mut custom = definitions(&[[0.0, 0.0, 0.0, 16.0, 16.0, 16.0]]);
+    let block = &mut Arc::make_mut(&mut custom.blocks)[0];
+    block.tags = [Arc::from("minecraft:is_pickaxe_item_destructible")].into();
+    block.mining = Arc::new(protocol::CustomBlockMining {
+        seconds_to_destroy: 2.0,
+        ..Default::default()
+    });
+    let (range, _) = registries.begin_session_custom_blocks(&custom).unwrap();
+    registries.begin_session_hashed_custom_blocks(&custom);
+    for (mode, id) in [
+        (assets::NetworkIdMode::Sequential, range.start),
+        (
+            assets::NetworkIdMode::Hashed,
+            custom.blocks[0].hashed_states()[0].hash,
+        ),
+    ] {
+        let (mining, tools) = registries.custom_block_mining(mode, id).unwrap();
+        assert_eq!(mining.seconds_to_destroy, 2.0);
+        assert_eq!(
+            tools,
+            assets::compiled::block_destroy::ToolKind::Pickaxe.bit()
+        );
+    }
+}
+
+#[test]
 fn native_collision_boxes_register_separate_primitives_in_both_identity_spaces() {
     let version = active_content_registry_protocol();
     let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
@@ -551,9 +586,14 @@ fn face_facing() -> protocol::CustomBlocks {
             collision_boxes: Some([base].into()),
             selection: CustomSelection::Box(base),
             friction: None,
+            player_interact: false,
             visual: Arc::new(protocol::CustomBlockVisuals {
+                placement: Default::default(),
                 base: protocol::CustomVisualComponents::default(),
+                item_visual: None,
                 permutations: Box::default(),
+                components_incomplete: false,
+                mining_incomplete: false,
                 state_axes: Box::new([CustomStateAxis {
                     name: Arc::from("minecraft:block_face"),
                     values: ["down", "up", "north", "south", "west", "east"]
@@ -563,7 +603,10 @@ fn face_facing() -> protocol::CustomBlocks {
                 state_identity_incomplete: false,
                 materialization_disabled: false,
             }),
+            mining: Default::default(),
+            state_physics_complete: false,
             state_physics: physics.into(),
+            state_mining: Default::default(),
         }]),
         vanilla_blocks: Arc::default(),
         skipped: 0,
@@ -658,6 +701,55 @@ fn custom_friction_components_set_surface_friction_in_both_identity_spaces() {
             assert_eq!(facts.fluid_height_blocks, 0.0);
             assert_eq!(facts.flags, sim::BlockPhysicsFlags::default());
             assert_eq!(facts.surface_response, sim::SurfaceResponse::None);
+        }
+    }
+}
+
+/// A server block whose `minecraft:custom_components` declares a player-interact handler is used
+/// rather than built against, in both identity spaces; one without it stays a building surface.
+#[test]
+fn a_declared_player_interact_handler_makes_the_block_used_not_built_against() {
+    let definition = |interact: bool| {
+        let mut bytes = named(10, "");
+        bytes.extend(named(10, "components"));
+        if interact {
+            bytes.extend(named(10, "minecraft:custom_components"));
+            bytes.extend(named(1, "hasPlayerInteract"));
+            bytes.push(1);
+            bytes.push(0);
+        }
+        bytes.extend([0, 0]);
+        bytes
+    };
+    let (used, plain) = (definition(true), definition(false));
+    let custom = protocol::CustomBlocks::from_definitions([
+        ("test:terminal", used.as_slice()),
+        ("test:wall", plain.as_slice()),
+    ]);
+    let version = active_content_registry_protocol();
+    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let mut registries = bind(
+        BREG_V2193,
+        &synthetic_preg(version, BREG_V2193, &records),
+        version,
+    )
+    .unwrap();
+    let (range, _) = registries.begin_session_custom_blocks(&custom).unwrap();
+    assert_eq!(registries.begin_session_hashed_custom_blocks(&custom), 2);
+    for (offset, block) in custom.blocks.iter().enumerate() {
+        let hash = block.hashed_states()[0].hash;
+        let sequential = range.start + u32::try_from(offset).unwrap();
+        for fact in [
+            registries.block_facts(assets::NetworkIdMode::Sequential, sequential),
+            registries.block_facts(assets::NetworkIdMode::Hashed, hash),
+        ] {
+            assert_eq!(
+                fact.traits
+                    .contains(assets::registry::BlockTraits::USES_LOCALLY),
+                block.name.as_ref() == "test:terminal",
+                "{}",
+                block.name
+            );
         }
     }
 }

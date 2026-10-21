@@ -81,6 +81,7 @@ fn pass(name: &str, order: i32, revision: u64) -> Pass {
         name: name.into(),
         order,
         depth: false,
+        masks: Vec::new(),
         source: Arc::from(""),
         shader: Arc::from(""),
         revision,
@@ -91,11 +92,13 @@ fn pass(name: &str, order: i32, revision: u64) -> Pass {
 
 fn output(passes: Vec<Pass>, decals: usize) -> RenderOutput {
     RenderOutput {
+        masks: Default::default(),
         passes,
         primitives: Arc::new(Primitives {
             decals: vec![decal(); decals],
             ..Default::default()
         }),
+        ..Default::default()
     }
 }
 

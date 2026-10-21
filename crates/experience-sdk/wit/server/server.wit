@@ -1,4 +1,4 @@
-package cinnabar:experience-server@0.5.0;
+package cinnabar:experience-server@0.6.0;
 
 interface types {
     record block-pos { x: s32, y: s32, z: s32 }
@@ -104,12 +104,20 @@ interface types {
     /// The network around a callback's anchor: every loaded member reachable through
     /// face-adjacent members. `truncated` when its bounds cut it short.
     record network { blocks: list<block-pos>, truncated: bool }
+
+    // 0.6: the server's crafting recipes and scheduled updates. Every 0.5 type above is
+    // unchanged, so the 0.5 world shares them.
+
+    /// An item by Bedrock id and metadata.
+    record item-key { id: string, metadata: u16 }
+    /// What a crafting recipe makes.
+    record crafted { id: string, metadata: u16, count: u8 }
 }
 
 interface world-access {
     use types.{
         block-pos, player-id, callback-info, world-error, value-node, block-state, network,
-        inventory, new-stack,
+        inventory, new-stack, item-key, crafted,
     };
     /// Created only by the host, for one callback invocation.
     resource callback {
@@ -146,6 +154,15 @@ interface world-access {
         /// Stages an item entity holding `stack`, spawned at `pos`, a position `set-block` may
         /// write.
         drop-item: func(pos: block-pos, stack: new-stack) -> result<_, world-error>;
+        /// What the server's crafting-table recipes make of a 3×3 grid, row by row from the top
+        /// left, one item or none per cell: the first shaped recipe the grid's items match, its
+        /// shape anywhere in the grid or mirrored, or the first shapeless recipe whose inputs are
+        /// exactly the grid's items. None when no recipe does, or the grid is not nine cells.
+        crafting-result: func(grid: list<option<item-key>>) -> option<crafted>;
+        /// Stages an update of this Experience's block at `pos`, a position `set-block-data` may
+        /// write, `ticks` (1 or more) game ticks after the callback commits; it then gets
+        /// `on-scheduled-update`. The server keeps scheduled updates across a restart.
+        schedule-update: func(pos: block-pos, ticks: u32) -> result<_, world-error>;
     }
 }
 
@@ -173,4 +190,7 @@ world server {
     /// what was sent before. `ctx` has the snapshot of `player`'s focus (`callback.focus`);
     /// without one, every world read and write is refused.
     export epoch: func(ctx: borrow<callback>, player: player-id) -> result<_, guest-error>;
+    /// An update `schedule-update` staged for this Experience's block at `pos` is due. `ctx` has
+    /// the snapshot an interaction with that block would have.
+    export on-scheduled-update: func(ctx: borrow<callback>, pos: block-pos) -> result<_, guest-error>;
 }

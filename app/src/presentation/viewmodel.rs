@@ -8,6 +8,7 @@ use client_ui::ui_runtime::UiRuntime;
 #[derive(SystemParam)]
 pub(crate) struct ViewmodelPublish<'w, 's> {
     inner: client_presentation::presentation::viewmodel::ViewmodelPublish<'w, 's>,
+    #[cfg(not(target_arch = "wasm32"))]
     menu: Option<Res<'w, client_shell::menu::MenuRuntime>>,
     movement: Option<Res<'w, client_interaction::movement::MovementTicker>>,
 }
@@ -60,6 +61,9 @@ impl ViewmodelPublish<'_, '_> {
         hidden: bool,
         viewport: [u32; 2],
     ) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        let renders_game = true;
+        #[cfg(not(target_arch = "wasm32"))]
         let renders_game =
             client_shell::screen_policy::renders_game(player, Some(ui), self.menu.as_deref(), None);
         self.inner.observe(
@@ -85,6 +89,9 @@ impl ViewmodelPublish<'_, '_> {
         viewport: [u32; 2],
         completed: bool,
     ) -> (u8, [i128; 32]) {
+        #[cfg(target_arch = "wasm32")]
+        let renders_game = true;
+        #[cfg(not(target_arch = "wasm32"))]
         let renders_game =
             client_shell::screen_policy::renders_game(player, Some(ui), self.menu.as_deref(), None);
         self.inner.diagnostic_snapshot(

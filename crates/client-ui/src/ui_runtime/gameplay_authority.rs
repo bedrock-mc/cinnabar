@@ -4,9 +4,7 @@
 
 use std::sync::Arc;
 
-use protocol::{
-    ActorEffectEvent, ActorMetadata, CanonicalCell, InventoryEvent, project_container_cell,
-};
+use protocol::{ActorEffectEvent, ActorMetadata};
 use ui::BoundedStat;
 
 use super::{GameplayHudState, SequencedLocalAttributes, UiRuntime, UiRuntimeError, hud_adapter};
@@ -66,8 +64,12 @@ impl UiRuntime {
         Some(tick.saturating_add(now_millis.saturating_sub(observed) / MILLIS_PER_SERVER_TICK))
     }
 
-    /// Accepts a forward clock observation while keeping packet-order fences independent.
+    /// Retains specified wire ticks and advances the presentation clock when they lead it.
+    /// Zero timestamps leave the last nonzero ordering fence intact.
     pub(super) fn observe_presentation_tick(&mut self, tick: u64, now_millis: u64) -> u64 {
+        if tick != 0 {
+            self.last_server_tick = Some(self.last_server_tick.unwrap_or(0).max(tick));
+        }
         let estimated = self.estimated_server_tick(now_millis);
         if estimated.is_none_or(|estimated| tick > estimated) {
             self.presentation_tick_anchor = Some((tick, now_millis));
@@ -214,65 +216,16 @@ impl UiRuntime {
                     continue;
                 }
             };
-            match &event {
-                InventoryEvent::Authority(_) => {
-                    self.inventory_open = player_runtime
-                        .inventory
-                        .ledger()
-                        .personal_inventory_desired_open()
-                        || player_runtime
-                            .inventory
-                            .ledger()
-                            .storage_generation()
-                            .is_some();
-                }
-                InventoryEvent::Open(_) => {
-                    self.inventory_open = player_runtime
-                        .inventory
-                        .ledger()
-                        .personal_inventory_desired_open()
-                        || player_runtime
-                            .inventory
-                            .ledger()
-                            .storage_generation()
-                            .is_some();
-                    if self.inventory_open {
-                        self.chat_focused = false;
-                    }
-                }
-                InventoryEvent::Content(content)
-                    if matches!(
-                        project_container_cell(&content.container, 0),
-                        Some(CanonicalCell::GenericStorage { .. })
-                    ) =>
-                {
-                    self.inventory_open = player_runtime
-                        .inventory
-                        .ledger()
-                        .personal_inventory_desired_open()
-                        || player_runtime
-                            .inventory
-                            .ledger()
-                            .storage_slot_count()
-                            .is_some();
-                    if self.inventory_open {
-                        self.chat_focused = false;
-                    }
-                }
-                InventoryEvent::Close(_) => {
-                    self.inventory_open = player_runtime
-                        .inventory
-                        .ledger()
-                        .personal_inventory_desired_open()
-                        || player_runtime
-                            .inventory
-                            .ledger()
-                            .storage_generation()
-                            .is_some();
-                }
-                _ => {}
+            let ledger = player_runtime.inventory.ledger();
+            self.inventory_open = self.screen.book.is_some()
+                || ledger.personal_inventory_desired_open()
+                || ledger.storage_inventory_desired_open();
+            if self.inventory_open {
+                self.chat_focused = false;
             }
-            self.gameplay_hud.apply_inventory(&event);
+            self.observe_inventory_window(player_runtime);
+            self.gameplay_hud
+                .apply_inventory(&event, player_runtime.inventory.ledger());
             self.observe_use_on_identity(
                 player_runtime,
                 sequenced.session_generation,
@@ -355,7 +308,6 @@ impl UiRuntime {
         }
         self.last_fifo_sequence = Some(envelope.fifo_sequence);
         self.last_local_millis = Some(envelope.local_millis);
-        self.last_server_tick = Some(envelope.server_tick);
         self.observe_presentation_tick(envelope.server_tick, envelope.local_millis);
         Ok(())
     }
@@ -392,9 +344,6 @@ impl UiRuntime {
         event.tick = self.observe_presentation_tick(event_tick, local_millis);
         self.gameplay_hud.apply_effect(event);
         self.last_fifo_sequence = Some(fifo_sequence);
-        if event_tick >= self.last_server_tick.unwrap_or(0) {
-            self.last_server_tick = Some(event_tick);
-        }
         Ok(())
     }
 

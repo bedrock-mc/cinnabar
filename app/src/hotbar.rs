@@ -1,9 +1,7 @@
 //! Local hotbar slot selection.
 //!
-//! Bedrock owns hotbar-slot selection on the client: number keys, the mouse wheel, and the
-//! controller cycle buttons change the held slot immediately (predicted locally so the HUD
-//! highlight follows input without waiting for the server), and the choice is announced upstream
-//! with a `PlayerHotbar` packet.
+//! Number keys, the mouse wheel and controller buttons announce the selected slot through
+//! equipment packets. Ordered desktop input publishes its local selection on FIFO admission.
 
 use crate::runtime::{
     network::resource_packs::PackApplication,
@@ -14,6 +12,8 @@ use client_runtime::network::NetworkHandle;
 use client_session::PacketSendError;
 use protocol::Packet;
 
+pub(crate) mod ordered;
+
 /// Flushes the queued hotbar selection after input sampling and before block use.
 #[allow(
     clippy::too_many_arguments,
@@ -23,22 +23,20 @@ pub(crate) fn flush_hotbar_selection(
     mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     network: Res<NetworkHandle<PackApplication>>,
     mut fatal_error: ResMut<FatalError>,
+    input: Option<Res<client_state::SemanticInputSnapshot>>,
 ) {
-    if network.closed_command_has_pending_control() {
+    if input
+        .as_ref()
+        .and_then(|input| input.snapshot())
+        .is_some_and(|input| input.ordered.is_some())
+    {
         return;
     }
-
-    flush_pending_hotbar_selection(
+    ordered::flush_existing_with(
         &mut player_runtime,
         &mut fatal_error.0,
-        |packet| match network.send_hotbar_packet(packet) {
-            Err(PacketSendError::Closed(packet))
-                if network.closed_command_has_pending_control() =>
-            {
-                Err(PacketSendError::Full(packet))
-            }
-            result => result,
-        },
+        |packet| network.send_hotbar_packet(packet),
+        || network.closed_command_has_pending_control(),
     );
 }
 
@@ -95,6 +93,28 @@ mod tests {
 
     use super::*;
     use client_interaction::hotbar::queue_hotbar_selection;
+
+    #[test]
+    fn ordered_selection_rechecks_terminal_control_after_a_closed_send() {
+        let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
+        let mut ui = identified_runtime(&mut player);
+        publish_slot(&mut player, &mut ui, 1, NetworkItemStack::empty());
+        let mode = player.facts.player_game_mode();
+        player.inventory.queue_local_hotbar_selection(1, mode);
+        let pending = std::cell::Cell::new(false);
+        let mut fatal = None;
+        assert!(!ordered::flush_existing_with(
+            &mut player,
+            &mut fatal,
+            |packet| {
+                pending.set(true);
+                Err(PacketSendError::Closed(packet))
+            },
+            || pending.get(),
+        ));
+        assert_eq!(fatal, None);
+        assert_eq!(player.inventory.pending_hotbar_selection(), Some(1));
+    }
 
     /// Publishes one authoritative player-inventory slot into a UI runtime.
     fn publish_slot(
@@ -253,7 +273,7 @@ mod tests {
         let mut inventory = identified_runtime(&mut player_runtime);
         inventory
             .publish_inventory_authority(&mut player_runtime, protocol::InventoryAuthority::Server);
-        inventory.toggle_inventory(&mut player_runtime);
+        inventory.toggle_inventory(&mut player_runtime, None);
         assert!(inventory.inventory_open());
         assert_eq!(wheel_with_ui(&mut player_runtime, inventory, hidden()), 0);
         let form = client_ui::test_support::pack_harness::action_form(
@@ -367,7 +387,7 @@ mod tests {
     }
 
     #[test]
-    fn unknown_slot_retains_pending_selection_without_sending() {
+    fn unknown_hotbar_cell_announces_empty_equipment_and_releases_hand_actions() {
         let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
         identified_runtime(&mut player_runtime);
@@ -383,8 +403,12 @@ mod tests {
             Ok::<(), PacketSendError>(())
         });
 
-        assert_eq!(sends, 0);
-        assert_eq!(player_runtime.inventory.pending_hotbar_selection(), Some(2));
+        assert_eq!(sends, 1);
+        assert_eq!(player_runtime.inventory.pending_hotbar_selection(), None);
+        let hand = client_interaction::mining::hand_interaction_selection(&player_runtime)
+            .expect("the admitted selection releases bare-hand actions");
+        assert_eq!(hand.slot, 2);
+        assert_eq!(hand.item.network_id(), 0);
         assert_eq!(fatal, None);
     }
 
@@ -572,7 +596,7 @@ mod tests {
     }
 
     #[test]
-    fn predicted_slot_state_drives_packet_and_rollback_restores_authority() {
+    fn screen_prediction_changes_presentation_but_equipment_keeps_backing_stack() {
         let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
         let mut runtime = identified_runtime(&mut player_runtime);
@@ -610,8 +634,11 @@ mod tests {
             Ok(())
         });
         let predicted_bytes = protocol::encode(&predicted_packet.unwrap()).unwrap();
-        let empty_packet = select_hotbar_slot_packet(42, 0, &NetworkItemStack::empty()).unwrap();
-        assert_eq!(predicted_bytes, protocol::encode(&empty_packet).unwrap());
+        let authoritative_packet = select_hotbar_slot_packet(42, 0, &authoritative).unwrap();
+        assert_eq!(
+            predicted_bytes,
+            protocol::encode(&authoritative_packet).unwrap()
+        );
 
         runtime
             .inventory_ledger_mut(&mut player_runtime)
@@ -643,7 +670,6 @@ mod tests {
             Ok(())
         });
         let restored_bytes = protocol::encode(&restored_packet.unwrap()).unwrap();
-        let authoritative_packet = select_hotbar_slot_packet(42, 0, &authoritative).unwrap();
         assert_eq!(
             restored_bytes,
             protocol::encode(&authoritative_packet).unwrap()
@@ -651,9 +677,9 @@ mod tests {
         assert_eq!(fatal, None);
     }
 
-    /// A slot still holding a predicted stack id is announced in the frame it is selected.
+    /// A screen-predicted stack does not delay or replace the backing equipment packet.
     #[test]
-    fn predicted_selected_slot_sends_without_waiting_for_correction() {
+    fn screen_predicted_selected_slot_sends_backing_without_waiting_for_correction() {
         let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
         let mut runtime = identified_runtime(&mut player_runtime);
         runtime
@@ -738,7 +764,7 @@ mod tests {
             Ok(())
         });
         assert_eq!(sent.len(), 1);
-        let expected = select_hotbar_slot_packet(42, 0, &predicted).unwrap();
+        let expected = select_hotbar_slot_packet(42, 0, &NetworkItemStack::empty()).unwrap();
         assert_eq!(
             protocol::encode(&sent[0]).unwrap(),
             protocol::encode(&expected).unwrap()

@@ -16,5 +16,56 @@
       "off_hand": false,
       "plain": true
     }
+  ],
+  "recipes": [
+    {
+      "shape": [
+        1,
+        2
+      ],
+      "inputs": [
+        [
+          {
+            "id": "minecraft:oak_planks",
+            "metadata": null
+          },
+          {
+            "id": "minecraft:spruce_planks",
+            "metadata": null
+          }
+        ],
+        [
+          {
+            "id": "minecraft:oak_planks",
+            "metadata": null
+          },
+          {
+            "id": "minecraft:spruce_planks",
+            "metadata": null
+          }
+        ]
+      ],
+      "output": {
+        "id": "minecraft:stick",
+        "metadata": 0,
+        "count": 4
+      }
+    },
+    {
+      "shape": null,
+      "inputs": [
+        [
+          {
+            "id": "minecraft:red_flower",
+            "metadata": 0
+          }
+        ]
+      ],
+      "output": {
+        "id": "minecraft:red_dye",
+        "metadata": 0,
+        "count": 1
+      }
+    }
   ]
 }

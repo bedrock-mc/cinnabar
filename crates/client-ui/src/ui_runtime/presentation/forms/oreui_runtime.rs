@@ -131,6 +131,7 @@ impl UiPresentationRuntime {
         if let Some(dressing) = paint.dressing_preview.take() {
             self.menu_skin_thumbnail_indices = dressing.visible_skins;
             self.menu_cape_thumbnail_indices = dressing.visible_capes;
+            self.menu_cosmetic_thumbnail_indices = dressing.visible_cosmetics;
             self.append_menu_player_preview(
                 nodes,
                 next,
@@ -149,7 +150,7 @@ impl UiPresentationRuntime {
                 },
             )?;
             paint.apply_entrance(nodes, size)?;
-            if view.dressing_room.editor.is_some() {
+            if view.dressing_room.editor.is_some() || view.dressing_room.cosmetic_filter_open {
                 self.menu_preview.control = None;
                 self.cancel_menu_player_preview_input();
                 let mut frame = PaintFrame {
@@ -166,7 +167,7 @@ impl UiPresentationRuntime {
                     next: &mut *next,
                     renderers: &mut [],
                 };
-                let editor = self.screens.oreui.paint_editor(
+                let editor = self.screens.oreui.paint_dressing_overlay(
                     &paint,
                     view,
                     size,
@@ -576,8 +577,8 @@ impl UiPresentationRuntime {
 
     fn window_slider_tracks(
         &self,
-        tracks: Vec<(u16, UiRect, Option<UiRect>)>,
-    ) -> Result<Vec<(u16, UiRect, Option<UiRect>)>, UiPresentationError> {
+        tracks: Vec<(MenuAction, UiRect, Option<UiRect>)>,
+    ) -> Result<Vec<(MenuAction, UiRect, Option<UiRect>)>, UiPresentationError> {
         tracks
             .into_iter()
             .map(|(index, track, thumb)| {

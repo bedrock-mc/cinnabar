@@ -5,6 +5,11 @@ use wgpu::util::DeviceExt;
 
 /// Draws the production composite into float storage so color loss cannot hide in quantization.
 fn composite(ui: &[[u8; 4]], scene: &[[f32; 4]]) -> Option<Vec<[f32; 4]>> {
+    composite_entry(ui, scene, "composite_fragment")
+}
+
+/// Draws one production composite entry into float storage for exact colour and alpha checks.
+fn composite_entry(ui: &[[u8; 4]], scene: &[[f32; 4]], entry: &str) -> Option<Vec<[f32; 4]>> {
     assert_eq!(ui.len(), scene.len());
     let gpu = Gpu::for_fixture("gamma-space UI composite pixels")?;
     let size = wgpu::Extent3d {
@@ -86,7 +91,7 @@ fn composite(ui: &[[u8; 4]], scene: &[[f32; 4]]) -> Option<Vec<[f32; 4]>> {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: Some("composite_fragment"),
+                entry_point: Some(entry),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: wgpu::TextureFormat::Rgba32Float,
@@ -174,8 +179,8 @@ fn composite(ui: &[[u8; 4]], scene: &[[f32; 4]]) -> Option<Vec<[f32; 4]>> {
 }
 
 #[test]
-fn empty_ui_preserves_scene_color_and_alpha_exactly() {
-    let scene = [[0.125, 0.5, 0.875, 0.25], [-0.25, 1.5, 4.0, 0.75]];
+fn empty_ui_preserves_in_range_scene_color_and_alpha_exactly() {
+    let scene = [[0.125, 0.5, 0.875, 0.25], [0.0, 1.0, 0.25, 0.75]];
     let Some(pixels) = composite(&[[0; 4]; 2], &scene) else {
         return;
     };
@@ -214,4 +219,25 @@ fn opaque_and_translucent_ui_keep_premultiplied_gamma_blending() {
             );
         }
     }
+}
+
+#[test]
+fn empty_and_translucent_pixels_share_the_scene_clamp() {
+    let scene = [[2.0, -0.5, 0.25, 0.7]; 2];
+    let Some(pixels) = composite(&[[0; 4], [0, 0, 0, 1]], &scene) else {
+        return;
+    };
+    assert_eq!(pixels[0], [1.0, 0.0, 0.25, 0.7]);
+    assert!(pixels[1][0] <= 1.0);
+    assert!(pixels[1][1].abs() < 0.00001);
+    assert!((pixels[1][0] - pixels[0][0]).abs() < 0.01);
+}
+
+#[test]
+fn empty_nametag_layer_preserves_hdr_pixels_and_scene_alpha() {
+    let scene = [[2.0, 0.5, 4.0, 0.25], [-0.25, 1.5, 0.25, 0.75]];
+    let Some(pixels) = composite_entry(&[[0; 4]; 2], &scene, "nametag_composite_fragment") else {
+        return;
+    };
+    assert_eq!(pixels, scene);
 }

@@ -24,6 +24,9 @@ pub enum InventoryCellHit {
 impl InventoryCellHit {
     /// Whether the hit is a cell holding an item (not a control or tab).
     pub const fn is_item_cell(self) -> bool {
+        if matches!(self, Self::Widget(Widget::TradeOffer { item: Some(_), .. })) {
+            return true;
+        }
         !matches!(
             self,
             Self::Widget(_) | Self::CreativeTab(_) | Self::CreativeSearch
@@ -34,6 +37,16 @@ impl InventoryCellHit {
 /// A clickable control that is not an item cell.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Widget {
+    TradeOffer {
+        tier: usize,
+        row: usize,
+        /// The hovered input/input/output preview, when the hit is on an item.
+        item: Option<u8>,
+    },
+    TradeCycle {
+        next: bool,
+    },
+    Trade,
     EnchantOption(u8),
     BeaconEffect {
         id: i32,
@@ -56,6 +69,8 @@ pub enum Widget {
     /// Picks the inventory layout by its radio index: survival, recipe book, or
     /// the creative wide list.
     InventoryLayout(u8),
+    /// Selects the inventory's right panel by its wire radio index.
+    InventoryRightTab(u8),
     FurnaceTab(u8),
     FurnaceClearRecipe,
     /// Re-enables one disabled crafter slot.
@@ -96,6 +111,27 @@ pub enum ReaderButton {
 pub const TAB_COUNT: u8 = 5;
 /// The last tab is the search tab.
 pub const SEARCH_TAB: u8 = TAB_COUNT - 1;
+/// The inventory tab follows the five recipe tabs in the UI's index space.
+pub const SURVIVAL_TAB: u8 = TAB_COUNT;
+
+/// Converts the UI's category order into a protocol tab without guessing unknown values.
+pub fn inventory_tab(tab: u8) -> Option<protocol::InventoryTab> {
+    use protocol::InventoryTab;
+    Some(match tab {
+        0 => InventoryTab::Construction,
+        1 => InventoryTab::Nature,
+        2 => InventoryTab::Equipment,
+        3 => InventoryTab::Items,
+        SEARCH_TAB => InventoryTab::Search,
+        SURVIVAL_TAB => InventoryTab::Survival,
+        _ => return None,
+    })
+}
+
+/// Finds the UI category index for a known wire tab; unfamiliar values stay unselected.
+pub fn inventory_tab_ui(tab: protocol::InventoryTab) -> Option<u8> {
+    (0..=SURVIVAL_TAB).find(|index| inventory_tab(*index) == Some(tab))
+}
 pub const STONECUTTER_CELLS: usize = 12;
 /// The beacon level each selectable effect needs.
 pub const BEACON_LEVEL_FOR: [(i32, u8); 6] = [(1, 1), (3, 1), (11, 2), (8, 2), (5, 3), (10, 4)];

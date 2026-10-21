@@ -1,12 +1,15 @@
 //! Engine-independent local gameplay, prediction and ordered interaction admission.
 
 pub mod block_use;
+pub mod entity_hover;
 pub mod interaction_authority;
 pub mod item_use;
 pub mod melee;
 pub mod mining;
 pub mod movement;
+pub mod ordered_interactions;
 mod placement_connections;
+mod placement_custom;
 mod placement_doors;
 mod placement_facing;
 mod placement_multiface;

@@ -1,4 +1,10 @@
+mod composition;
+pub(super) use composition::Composition;
+
 use assets::{EntityAnimationKeyframe, EntityAnimationProperty};
+
+mod buffer;
+pub(crate) use buffer::PoseBuffer;
 
 use super::{
     tick::{ControllerBlend, WeightedClip},
@@ -9,7 +15,7 @@ use super::{
 // bone's default position.
 pub const MODEL_PART_ORIGIN_Y: f32 = assets::gui_item::SHIELD_MODEL_PART_HEIGHT;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct LocalDelta {
     pub(super) translation: [f32; 3],
     pub(super) rotation: [f32; 3],
@@ -31,6 +37,26 @@ impl Default for LocalDelta {
 }
 
 impl LocalDelta {
+    /// Composed poses can be reused only when every sampled channel has identical bits.
+    pub(super) fn same_bits(self, other: Self) -> bool {
+        let Self {
+            translation,
+            rotation,
+            scale,
+            rotation_relative_to_entity,
+            legacy_swing,
+        } = self;
+        translation.map(f32::to_bits) == other.translation.map(f32::to_bits)
+            && rotation.map(f32::to_bits) == other.rotation.map(f32::to_bits)
+            && scale.map(f32::to_bits) == other.scale.map(f32::to_bits)
+            && rotation_relative_to_entity == other.rotation_relative_to_entity
+            && match (legacy_swing, other.legacy_swing) {
+                (Some(a), Some(b)) => a.same_bits(b),
+                (None, None) => true,
+                _ => false,
+            }
+    }
+
     fn property(&mut self, property: EntityAnimationProperty) -> &mut [f32; 3] {
         match property {
             EntityAnimationProperty::Translation => &mut self.translation,
@@ -42,6 +68,7 @@ impl LocalDelta {
 
 /// Blends weighted clips into per-bone deltas, evaluating keyframe expressions against the
 /// native default orientation plus the value earlier clips produced for the same channel.
+#[cfg(test)]
 pub(super) fn sample_clips(
     evaluator: &Evaluator<'_>,
     variables: &mut MolangVariables,
@@ -50,8 +77,28 @@ pub(super) fn sample_clips(
     clips: &[WeightedClip],
     budget: &mut EvalBudget<'_>,
 ) -> Result<Vec<LocalDelta>, EvalError> {
+    Ok(sample_clips_reused(
+        evaluator,
+        variables,
+        bones,
+        ChannelBones::new(bone_names),
+        clips,
+        budget,
+    )?
+    .into_vec())
+}
+
+/// Frame samples lease local-channel buffers and return them after publication.
+pub(super) fn sample_clips_reused<'a>(
+    evaluator: &Evaluator<'a>,
+    variables: &mut MolangVariables,
+    bones: &[RuntimeBone],
+    mut channel_bones: ChannelBones<'a>,
+    clips: &[WeightedClip],
+    budget: &mut EvalBudget<'_>,
+) -> Result<PoseBuffer, EvalError> {
     let assets = evaluator.assets;
-    let mut local = vec![LocalDelta::default(); bones.len()];
+    let mut local = PoseBuffer::lease(bones.len());
     // Shortest-path blends sample each state into its own fresh pose before composing.
     let mut sides = clips.iter().any(|clip| clip.blend.is_some()).then(|| {
         [
@@ -68,7 +115,7 @@ pub(super) fn sample_clips(
             evaluator.context,
             evaluator.input.swim_amount,
         );
-    let mut channel_bones = ChannelBones::new(bone_names);
+
     for weighted in clips {
         budget.charge_work()?;
         if let (Some(blend), Some(sides)) = (pending, sides.as_mut())
@@ -79,7 +126,7 @@ pub(super) fn sample_clips(
             compose_blend(&mut local, sides, blend.amount);
             pending = None;
         }
-        let pose = match (weighted.blend, sides.as_mut()) {
+        let pose: &mut [LocalDelta] = match (weighted.blend, sides.as_mut()) {
             (Some(blend), Some(sides)) => {
                 pending = Some(blend);
                 &mut sides[usize::from(blend.incoming)]
@@ -199,7 +246,7 @@ pub(super) fn sample_clips(
     }
     if legacy_weight > 0.0 {
         super::legacy_swing::apply(
-            bone_names,
+            channel_bones.names,
             &mut local,
             variables
                 .get(evaluator.layout.engine.attack_time)
@@ -211,17 +258,87 @@ pub(super) fn sample_clips(
     Ok(local)
 }
 
+/// Immutable indices for the names of one skeleton, independent of catalog size.
+#[derive(Clone, Debug, Default)]
+pub(super) struct ChannelBindings {
+    named: Box<[(Box<str>, usize)]>,
+    #[cfg(test)]
+    reference: bool,
+}
+
+impl ChannelBindings {
+    /// Indexes each skeleton name once, preserving the first exact match for duplicates.
+    pub(super) fn new(names: &[Box<str>]) -> Self {
+        let mut named = BTreeMap::new();
+        for (index, name) in names.iter().enumerate() {
+            #[cfg(test)]
+            BINDING_BUILD_WORK.with(|work| work.set(work.get() + 1));
+            named.entry(name.clone()).or_insert(index);
+        }
+        Self {
+            #[cfg(test)]
+            reference: false,
+            named: named.into_iter().collect(),
+        }
+    }
+
+    /// Selects the previous name-search path for differential tests only.
+    #[cfg(test)]
+    pub(super) fn reference() -> Self {
+        Self {
+            reference: true,
+            ..Default::default()
+        }
+    }
+
+    /// Counts the exact boxed payload retained beside a rig template.
+    pub(super) fn retained_bytes(&self) -> usize {
+        let Self {
+            named,
+            #[cfg(test)]
+                reference: _,
+        } = self;
+        std::mem::size_of_val(named.as_ref())
+            + named.iter().map(|(name, _)| name.len()).sum::<usize>()
+    }
+
+    /// Tests whether two skeleton handles retain the same immutable binding payload.
+    #[cfg(test)]
+    pub(super) fn shares_data(&self, other: &Self) -> bool {
+        std::ptr::eq(self.named.as_ptr(), other.named.as_ptr())
+    }
+}
+
 /// Resolves animation channels to bones of one skeleton by lowercase name or compiled index.
 /// Clips list each bone's properties consecutively, so a channel naming the same bone as the
 /// previous one reuses that scan's result.
 pub(super) struct ChannelBones<'a> {
     names: &'a [Box<str>],
     last: Option<(&'a str, Option<usize>)>,
+    bound: Option<&'a ChannelBindings>,
 }
 
 impl<'a> ChannelBones<'a> {
+    /// Uses name resolution when no catalog binding has been prepared.
     pub(super) fn new(names: &'a [Box<str>]) -> Self {
-        Self { names, last: None }
+        Self {
+            names,
+            last: None,
+            bound: None,
+        }
+    }
+
+    /// Uses prepared skeleton indices and retains name search for absent bindings.
+    pub(super) fn bound(names: &'a [Box<str>], bound: &'a ChannelBindings) -> Self {
+        #[cfg(test)]
+        if bound.reference {
+            return Self::new(names);
+        }
+        Self {
+            names,
+            last: None,
+            bound: Some(bound),
+        }
     }
 
     /// The first bone named by `channel`, or its compiled index when it names none.
@@ -229,11 +346,20 @@ impl<'a> ChannelBones<'a> {
         let Some(name) = channel.bone_name.as_deref() else {
             return Some(channel.bone as usize);
         };
+        if let Some(bound) = self.bound
+            && let Ok(slot) = bound
+                .named
+                .binary_search_by(|(bone, _)| bone.as_ref().cmp(name))
+        {
+            return Some(bound.named[slot].1);
+        }
         if let Some((last, index)) = self.last
             && last == name
         {
             return index;
         }
+        #[cfg(test)]
+        NAME_LOOKUPS.with(|count| count.set(count.get() + 1));
         let index = self.names.iter().position(|candidate| **candidate == *name);
         self.last = Some((name, index));
         index
@@ -370,6 +496,7 @@ fn sample_channel(
     }
 }
 
+/// Composes skeletons without retained programs, including alternate render and skin layers.
 pub(super) fn compose_pose(
     bones: &[RuntimeBone],
     local: &[LocalDelta],
@@ -563,4 +690,22 @@ fn catmull(p0: f32, p1: f32, p2: f32, p3: f32, amount: f32) -> f32 {
         + (-p0 + p2) * amount
         + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * amount2
         + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * amount3)
+}
+
+#[cfg(test)]
+thread_local! {
+    static NAME_LOOKUPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static BINDING_BUILD_WORK: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Counts input records visited while constructing bindings on this thread.
+#[cfg(test)]
+pub(super) fn binding_build_work() -> usize {
+    BINDING_BUILD_WORK.with(std::cell::Cell::get)
+}
+
+/// Counts real named-channel scans on this sampling thread for work-regression tests.
+#[cfg(test)]
+pub(super) fn name_lookups() -> usize {
+    NAME_LOOKUPS.with(std::cell::Cell::get)
 }

@@ -10,7 +10,7 @@ fn fixture() -> (HashMap<u64, TestActor>, ActorAnimationStore) {
     compiled.symbols[4].identifier = "minecraft:player".into();
     compiled.symbols.rotate_right(1);
     compiled.rig_bindings[0].entity_symbol = 0;
-    compiled.rig_bindings[0].render_controller = 3;
+    compiled.rig_bindings[0].render_controller = Some(3);
     compiled.animation_clips[0].symbol = 2;
     let mut actor = super::tests::actor_with_metadata(HashMap::new());
     actor.kind = ActorKind::Player {
@@ -245,6 +245,35 @@ fn java_torso_uses_physics_ticks_and_preserves_other_motion() {
     early(&actors, &mut store, 5);
     assert_eq!(store.get(1).unwrap().java.body_yaw, changed.body_yaw);
     assert_eq!(store.completed_tick, completed + 5);
+}
+
+/// Actor ticks turn the native body while retaining the latest local torso and attack samples.
+#[test]
+fn native_visual_turns_without_repeating_local_physics_observations() {
+    let (mut actors, mut store) = fixture();
+    early(&actors, &mut store, 1);
+    let actor = actors.get_mut(&1).unwrap();
+    actor.yaw = 60.0;
+    actor.head_yaw = 60.0;
+    let progress = LocalSwingProgress {
+        bedrock: [0.25, 0.5],
+        java: [0.25, 0.5],
+        frame_alpha: Some(0.75),
+    };
+    publish(&actors, &mut store, progress);
+    let before = store.get(1).unwrap();
+    let native_yaw = before.body_yaw;
+    let java_yaw = before.java.body_yaw;
+    let position = actors[&1].position;
+
+    early(&actors, &mut store, 3);
+
+    let after = store.get(1).unwrap();
+    assert_ne!(after.body_yaw, native_yaw);
+    assert_eq!(after.java.body_yaw, java_yaw);
+    assert_eq!(after.java.swing, progress.java);
+    assert_eq!(after.hand.map(|phase| phase.attack_time), progress.bedrock);
+    assert_eq!(actors[&1].position, position);
 }
 
 /// Backpressure can change only the latest published tick; duplicate and phase-only samples stay inert.

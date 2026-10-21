@@ -13,7 +13,11 @@ use protocol::{
 
 use super::*;
 
+mod action_scopes;
 mod auto_allocation;
+#[path = "crafting_tests/creative.rs"]
+mod creative;
+mod item_data;
 
 const LOG: i32 = 6;
 const PLANKS: i32 = 7;
@@ -454,258 +458,16 @@ fn workbench_crafts_three_by_three_from_its_grid() {
     }
 }
 
+/// Restates the cursor through its fixed UI inventory slot.
 fn cursor_content(stack: NetworkItemStack) -> InventoryEvent {
-    InventoryEvent::Content(InventoryContentEvent {
-        container: ContainerIdentity {
-            window_id: Some(-1),
-            slot_type: Some(CONTAINER_NAME_CURSOR),
-            dynamic_id: None,
+    InventoryEvent::Slot(protocol::InventorySlotEvent {
+        identity: protocol::SlotIdentity {
+            container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+            slot: 0,
         },
-        slots: Arc::from([stack]),
-        storage_item: NetworkItemStack::default(),
-    })
-}
-
-fn creative(ledger: &mut PlayerInventoryLedger) {
-    ledger.apply(&InventoryEvent::Creative(protocol::CreativeContentEvent {
-        groups: Arc::from([]),
-        items: Arc::from([protocol::CreativeItem {
-            creative_network_id: 44,
-            stack: stack(COBBLE, -1, 1),
-            group: 0,
-        }]),
-        skipped: 0,
-    }));
-}
-
-/// A creative take crafts the entry and transfers a full stack out of created
-/// output, named by the request id.
-#[test]
-fn creative_take_moves_a_full_stack_into_the_cursor() {
-    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
-    creative(&mut ledger);
-    let request = ledger
-        .begin_creative_take(44, CreativeDestination::Cursor)
-        .unwrap();
-    let actions = &ledger.newest_request().unwrap().actions;
-    assert!(matches!(
-        actions[0],
-        StackRequestAction::CraftCreative {
-            creative_item_network_id: 44,
-            crafts: 1
-        }
-    ));
-    assert!(matches!(
-        &actions[1],
-        StackRequestAction::CraftResultsDeprecated { results, crafts: 1 }
-            if results.as_ref() == [protocol::CraftResult {
-                identifier: Arc::from("minecraft:cobblestone"),
-                aux: 0,
-                count: 1,
-                block_runtime_id: 0,
-                user_data: Arc::from([]),
-            }]
-    ));
-    let StackRequestAction::Take {
-        amount,
-        source,
-        destination,
-    } = actions[2]
-    else {
-        panic!("take into the cursor");
-    };
-    assert_eq!(
-        (amount, source.slot, source.stack_network_id),
-        (64, 50, request)
-    );
-    assert_eq!(destination.container, StackRequestContainer::Cursor);
-    assert!(ledger.pending_batch().unwrap().is_some());
-    let held = ledger.cursor_stack().unwrap();
-    assert_eq!((held.network_id, held.count), (COBBLE, 64));
-
-    assert!(ledger.mark_transport_enqueued(10));
-    respond(&mut ledger, request, &[(CONTAINER_NAME_CURSOR, 0, 64, 700)]);
-    assert_eq!(ledger.cursor_stack().unwrap().stack_network_id, 700);
-    assert!(!ledger.resync_required());
-}
-
-#[test]
-fn creative_take_refuses_unparsed_stack_size_data() {
-    for unrelated_depth in [0, 40] {
-        let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
-        let registry = protocol::test_support::items::component_item_registry(
-            "minecraft:cobblestone",
-            COBBLE as i16,
-            1,
-            unrelated_depth,
-        );
-        ledger.apply_registry(&registry);
-        creative(&mut ledger);
-        if unrelated_depth == 0 {
-            ledger
-                .begin_creative_take(44, CreativeDestination::Cursor)
-                .unwrap();
-            assert_eq!(ledger.cursor_stack().unwrap().count, 1);
-            continue;
-        }
-        for destination in [
-            CreativeDestination::Cursor,
-            CreativeDestination::Player(4),
-            CreativeDestination::Drop { whole_stack: false },
-            CreativeDestination::Drop { whole_stack: true },
-        ] {
-            assert_eq!(
-                ledger.begin_creative_take(44, destination),
-                Err(InventoryGestureError::InvalidRequest)
-            );
-            assert_eq!(ledger.pending_request_count(), 0);
-            assert!(ledger.cursor_stack().is_none());
-            assert!(ledger.displayed_stack(4).is_none());
-        }
-    }
-}
-
-/// Vanilla's creative create-item scope declares
-/// the catalog prototype, not the full-stack prediction used for the transfer.
-#[test]
-fn creative_take_declares_the_catalog_item_metadata_and_user_data() {
-    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
-    let prototype = NetworkItemStack {
-        metadata: 2,
-        block_runtime_id: 123,
-        extra_data: Arc::from([0; 10]),
-        ..stack(COBBLE, -1, 1)
-    };
-    ledger.apply(&InventoryEvent::Creative(protocol::CreativeContentEvent {
-        groups: Arc::from([]),
-        items: Arc::from([protocol::CreativeItem {
-            creative_network_id: 44,
-            stack: prototype.clone(),
-            group: 0,
-        }]),
-        skipped: 0,
-    }));
-    ledger
-        .begin_creative_take(44, CreativeDestination::Player(4))
-        .unwrap();
-    let StackRequestAction::CraftResultsDeprecated { results, crafts } =
-        &ledger.newest_request().unwrap().actions[1]
-    else {
-        panic!("creative take declares its result");
-    };
-    assert_eq!(*crafts, 1);
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].identifier.as_ref(), "minecraft:cobblestone");
-    assert_eq!(results[0].aux, prototype.metadata as i32);
-    assert_eq!(results[0].count, prototype.count);
-    assert_eq!(
-        results[0].block_runtime_id,
-        prototype.block_runtime_id as u32
-    );
-    assert_eq!(results[0].user_data, prototype.extra_data);
-    assert_eq!(ledger.displayed_stack(4).unwrap().count, 64);
-}
-
-#[test]
-fn creative_take_preserves_high_bit_block_ids_and_signed_aux() {
-    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
-    let prototype = NetworkItemStack {
-        metadata: u32::MAX,
-        block_runtime_id: i32::MIN + 123,
-        ..stack(COBBLE, -1, 1)
-    };
-    ledger.apply(&InventoryEvent::Creative(protocol::CreativeContentEvent {
-        groups: Arc::from([]),
-        items: Arc::from([protocol::CreativeItem {
-            creative_network_id: 44,
-            stack: prototype.clone(),
-            group: 0,
-        }]),
-        skipped: 0,
-    }));
-    ledger
-        .begin_creative_take(44, CreativeDestination::Cursor)
-        .unwrap();
-    let StackRequestAction::CraftResultsDeprecated { results, .. } =
-        &ledger.newest_request().unwrap().actions[1]
-    else {
-        panic!("declared creative prototype")
-    };
-    assert_eq!(results[0].aux, -1);
-    assert_eq!(
-        results[0].block_runtime_id,
-        u32::from_ne_bytes(prototype.block_runtime_id.to_ne_bytes())
-    );
-    assert_eq!(
-        ledger.cursor_stack().unwrap().block_runtime_id,
-        prototype.block_runtime_id
-    );
-}
-
-#[test]
-fn creative_drop_creates_one_or_a_whole_stack_without_occupying_the_cursor() {
-    for (whole_stack, expected) in [(false, 1), (true, protocol::ITEM_DEFAULT_MAX_STACK_SIZE)] {
-        let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
-        creative(&mut ledger);
-        let request = ledger
-            .begin_creative_take(44, CreativeDestination::Drop { whole_stack })
-            .unwrap();
-        let actions = &ledger.newest_request().unwrap().actions;
-        assert!(matches!(
-            actions[0],
-            StackRequestAction::CraftCreative {
-                creative_item_network_id: 44,
-                crafts: 1
-            }
-        ));
-        assert!(
-            matches!(actions[2], StackRequestAction::Drop { amount, source, randomly: false } if amount == expected && source.container == StackRequestContainer::CreatedOutput && source.stack_network_id == request)
-        );
-        assert!(ledger.cursor_stack().is_none());
-        assert!(
-            ledger
-                .view()
-                .get(super::cells::Cell::CreatedOutput)
-                .is_none()
-        );
-        assert!(ledger.pending_batch().unwrap().is_some());
-    }
-}
-
-/// Unknown entries and occupied destinations send nothing.
-#[test]
-fn creative_take_refuses_unknown_entries_and_occupied_destinations() {
-    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
-    assert_eq!(
-        ledger.begin_creative_take(44, CreativeDestination::Cursor),
-        Err(InventoryGestureError::InvalidRequest)
-    );
-    creative(&mut ledger);
-    assert_eq!(
-        ledger.begin_creative_take(45, CreativeDestination::Cursor),
-        Err(InventoryGestureError::InvalidRequest)
-    );
-    ledger.apply(&InventoryEvent::Slot(InventorySlotEvent {
-        identity: SlotIdentity {
-            container: ContainerIdentity::window(0),
-            slot: 3,
-        },
-        stack: stack(LOG, 90, 1),
+        stack,
         storage_item: None,
-    }));
-    assert_eq!(
-        ledger.begin_creative_take(44, CreativeDestination::Player(3)),
-        Err(InventoryGestureError::InvalidRequest)
-    );
-    assert_eq!(ledger.pending_request_count(), 0);
-    let request = ledger
-        .begin_creative_take(44, CreativeDestination::Player(4))
-        .unwrap();
-    assert!(matches!(
-        ledger.newest_request().unwrap().actions[2],
-        StackRequestAction::Place { amount: 64, .. }
-    ));
-    assert_eq!(ledger.displayed_stack(4).unwrap().stack_network_id, request);
+    })
 }
 
 /// Close returns real inputs, and the close follows them without waiting for an answer.
@@ -790,9 +552,9 @@ fn closing_a_crafting_screen_returns_inputs_before_close_admission() {
     );
 }
 
-/// A workbench close acknowledgement that overtakes its return still lets the return apply.
+/// A retired workbench request cannot commit its predicted ingredient return.
 #[test]
-fn workbench_close_ack_before_the_return_response_applies_the_return() {
+fn workbench_close_ack_retires_the_unanswered_return() {
     let mut workbench = ledger(WORKBENCH_WINDOW_TYPE);
     workbench.apply(&craft_slot(36, stack(COBBLE, 201, 1)));
     workbench.request_storage_close();
@@ -818,11 +580,13 @@ fn workbench_close_ack_before_the_return_response_applies_the_return() {
             ),
         ],
     );
+    assert_eq!(workbench.displayed_stack(0).map(|stack| stack.count), None);
     assert_eq!(
-        workbench.displayed_stack(0).map(|stack| stack.count),
+        workbench
+            .target_stack(InventoryTarget::Craft(36))
+            .map(|stack| stack.count),
         Some(1)
     );
-    assert!(workbench.target_stack(InventoryTarget::Craft(36)).is_none());
     assert!(!workbench.resync_required());
 }
 
@@ -953,7 +717,7 @@ fn refused_close_return_after_the_close_preserves_the_ingredient() {
     assert!(!ledger.personal_inventory_desired_open());
     assert!(ledger.confirmed.get(Cell::Craft(28)).is_some());
 
-    // The stranded ingredient awaits the server, but the reopened screen still closes.
+    // A later close builds a fresh return from the still-confirmed ingredient.
     assert!(ledger.request_personal_open(42));
     assert!(ledger.mark_transport_enqueued(20));
     ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
@@ -965,6 +729,9 @@ fn refused_close_return_after_the_close_preserves_the_ingredient() {
     assert!(ledger.personal_inventory_desired_open());
     ledger.request_personal_close();
     assert!(!ledger.personal_inventory_desired_open());
+    let (returning, _) = ledger.pending_batch().unwrap().unwrap();
+    assert_eq!(format!("{:?}", returning.kind()), "ItemStackRequestPacket");
+    assert!(ledger.mark_transport_enqueued(30));
     let (close, _) = ledger.pending_batch().unwrap().unwrap();
     assert_eq!(format!("{:?}", close.kind()), "ContainerClosePacket");
 }
@@ -1118,3 +885,6 @@ fn review_overlapping_ingredients_find_a_complete_assignment() {
         assert!(result.is_ok(), "{result:?}");
     }
 }
+
+#[path = "crafting_tests/batches.rs"]
+mod batches;

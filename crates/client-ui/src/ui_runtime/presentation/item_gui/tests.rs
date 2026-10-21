@@ -64,17 +64,17 @@ fn cube_preserves_authored_face_uv_edges_and_glint() {
 }
 
 #[test]
-fn cutout_cubes_keep_rear_faces_and_the_thumbnail_alpha_threshold() {
+fn cutout_cubes_show_outward_faces_with_the_thumbnail_alpha_threshold() {
     let faces = std::array::from_fn(|index| face(index as u16));
     let mesh = cutout_cube(faces).unwrap();
-    assert_eq!(mesh.vertices().len(), BlockFace::ALL.len() * 4);
-    assert_eq!(mesh.indices().len(), BlockFace::ALL.len() * 6);
-    for face in BlockFace::ALL {
+    assert_eq!(mesh.vertices().len(), CUBE_FACES.len() * 4);
+    assert_eq!(mesh.indices().len(), CUBE_FACES.len() * 6);
+    for (face, _, _, _) in CUBE_FACES {
         let batch = mesh
             .batches()
             .iter()
             .find(|batch| batch.texture_page == faces[face as usize].page)
-            .expect("front and rear faces must both remain drawable");
+            .expect("outward faces must remain drawable");
         assert_eq!(batch.index_range.len(), 6);
         assert!(batch.depth_test && batch.depth_write);
         assert_eq!(

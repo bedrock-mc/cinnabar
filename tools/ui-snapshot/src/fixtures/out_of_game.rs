@@ -1,11 +1,31 @@
 //! Anonymous session-boundary and launcher popup fixtures.
 
-use super::Fixture;
+use super::{Arc, Fixture, SettingSection, settings};
 use launcher::menu::{MenuAction, MenuDialog, MenuScreen, MenuView};
 
 /// Creates a menu fixture with no account or network services.
 fn menu() -> MenuView {
     MenuView::new(true, "Player".into())
+}
+
+/// Shows invalid-cache failure or the fresh sign-in prompt with anonymous credentials.
+pub(super) fn sign_in_recovery(recovered: bool) -> Fixture {
+    use launcher::menu::{auth::AuthState, sign_in::BrowserState};
+
+    let mut view = menu();
+    view.sign_in_requested = true;
+    if recovered {
+        view.auth_state = AuthState::AwaitingCode {
+            uri: "https://example.invalid/sign-in".into(),
+            code: "DEMO-CODE".into(),
+        };
+        view.sign_in_browser = BrowserState::Opened;
+        view.focused_action = Some(MenuAction::OpenSignInLink);
+    } else {
+        view.auth_state = AuthState::Failed("Could not validate the saved account.".into());
+        view.focused_action = Some(MenuAction::StartSignIn);
+    }
+    Fixture::Menu(Box::new(view))
 }
 
 /// Wraps a launcher dialog over settings.
@@ -46,6 +66,17 @@ pub(super) fn disconnect_no_retry() -> Fixture {
     };
     view.can_reconnect = false;
     view.focused_action = Some(MenuAction::DismissDialog);
+    Fixture::Menu(view)
+}
+
+/// Shows a join the core refused because this device's clock rejected the sign-in token.
+pub(super) fn disconnect_device_clock() -> Fixture {
+    let Fixture::Menu(mut view) = disconnect() else {
+        unreachable!()
+    };
+    view.disconnect_message = Some(launcher::menu::disconnect::from_server(
+        bridge::contract::DISCONNECT_KEY_DEVICE_CLOCK,
+    ));
     Fixture::Menu(view)
 }
 
@@ -201,5 +232,12 @@ pub(super) fn world_edit_after_delete_back() -> Fixture {
     let mut view = menu();
     view.screen = MenuScreen::Play;
     view.local = worlds.view();
+    Fixture::Menu(Box::new(view))
+}
+
+/// Shows Storage as a desktop host fills it, with the folder buttons.
+pub(super) fn settings_storage() -> Fixture {
+    let mut view = settings(SettingSection::StorageManagement.definition().name);
+    Arc::make_mut(&mut view.storage).opens_folders = true;
     Fixture::Menu(Box::new(view))
 }

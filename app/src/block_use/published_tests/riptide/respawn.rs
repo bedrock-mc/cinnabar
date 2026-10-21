@@ -60,8 +60,8 @@ pub(super) fn charging_world(charge_ticks: u64) -> (World, client_session::Captu
     );
     world.insert_resource(physics);
     world.init_resource::<Messages<client_audio::audio_ingress::SequencedAudioEvent>>();
-    world.init_resource::<crate::environment::WorldClock>();
-    world.init_resource::<crate::environment::WeatherState>();
+    world.init_resource::<client_presentation::environment::WorldClock>();
+    world.init_resource::<client_presentation::environment::WeatherState>();
     world.init_resource::<client_interaction::movement::LocalMovementSpeedAuthority>();
     world.init_resource::<client_interaction::movement::LocomotionState>();
     world.init_resource::<client_presentation::camera::look::LookSmoother>();

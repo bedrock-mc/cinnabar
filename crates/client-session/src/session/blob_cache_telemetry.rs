@@ -30,6 +30,7 @@ pub(super) fn try_emit_blob_cache_telemetry<S: NetworkSession, P>(
 pub(super) async fn send_final_blob_cache_telemetry<S: NetworkSession, P>(
     session: &S,
     control_event_tx: &mpsc::Sender<NetworkControlEvent<P>>,
+    timers: bridge::tasks::Timers,
 ) -> bool {
     if !session.blob_cache_enabled() {
         return true;
@@ -42,7 +43,7 @@ pub(super) async fn send_final_blob_cache_telemetry<S: NetworkSession, P>(
                 enabled: true,
                 stats,
             }),
-            tokio::time::sleep(FINAL_CONTROL_FLUSH_TIMEOUT),
+            timers.sleep(FINAL_CONTROL_FLUSH_TIMEOUT),
         )
         .await,
         Ok(Ok(()))

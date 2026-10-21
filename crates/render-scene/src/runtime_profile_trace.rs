@@ -15,8 +15,9 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread::{JoinHandle, ThreadId},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
+use web_time::{Instant, SystemTime, UNIX_EPOCH};
 
 const TRACE_CAPACITY: usize = 131_072;
 const MAX_TRACE_CAPACITY: usize = 2_097_152;
@@ -144,7 +145,7 @@ impl FrameTrace {
             gpu_sequence: AtomicU64::new(0),
             flushed: AtomicBool::new(false),
             export: Mutex::new(None),
-            events: Mutex::new(TraceWindow {
+            events: crate::runtime_profile::initialized_mutex(TraceWindow {
                 events: VecDeque::with_capacity(capacity),
                 next_sequence: 0,
                 pending: VecDeque::with_capacity(MAX_PENDING_HITCHES),

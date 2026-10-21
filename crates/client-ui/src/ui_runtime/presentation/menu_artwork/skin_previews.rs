@@ -67,6 +67,8 @@ impl UiPresentationRuntime {
                     view,
                     &self.menu_skin_thumbnail_indices,
                     &self.menu_cape_thumbnail_indices,
+                    &self.menu_cosmetic_thumbnail_indices,
+                    &self.menu_preview_model.cosmetics,
                 )
             })
         {
@@ -79,6 +81,8 @@ impl UiPresentationRuntime {
             view,
             &self.menu_skin_thumbnail_indices,
             &self.menu_cape_thumbnail_indices,
+            &self.menu_cosmetic_thumbnail_indices,
+            &self.menu_preview_model.cosmetics,
         );
         let skins = if view.screen == MenuScreen::DressingRoom {
             let mut indices: Vec<_> = view.dressing_room.selected.into_iter().collect();
@@ -146,6 +150,13 @@ impl UiPresentationRuntime {
             oversized: self.oversized_ui_textures(),
             skins,
             capes,
+            cosmetics: super::cosmetic_requests::requested(
+                &self.menu_preview_model.cosmetics,
+                &self.menu_cosmetic_thumbnail_indices,
+                view.screen == MenuScreen::DressingRoom
+                    && view.dressing_room.section
+                        == launcher::dressing_room::DressingRoomSection::Cosmetics,
+            ),
         });
         self.menu_artwork_loader.gallery = request;
     }
@@ -155,6 +166,7 @@ impl UiPresentationRuntime {
 mod tests {
     use super::super::{DecodeCache, Source, sources};
     use launcher::dressing_room::{DressingRoomSkin, DressingRoomView};
+    use std::sync::Arc;
     use {
         super::*,
         launcher::menu::{MenuScreen, MenuView},
@@ -162,6 +174,7 @@ mod tests {
 
     #[test]
     fn unchanged_gallery_artwork_sync_allocates_nothing() {
+        let _ = render_model::hats::fixture::gallery();
         use launcher::dressing_room::{DressingRoomCape, DressingRoomSection};
         let mut presentation = UiPresentationRuntime::new(ui_engine::test_support::fixture_font())
             .expect("diagnostic presentation");
@@ -221,6 +234,148 @@ mod tests {
             });
             assert_eq!(allocations, 0);
         }
+    }
+
+    #[test]
+    fn cosmetic_artwork_requests_only_equipped_items_outside_the_gallery() {
+        let catalog = render_model::hats::fixture::gallery();
+        let equipped = *catalog.last().unwrap();
+        let mut presentation = UiPresentationRuntime::new(ui_engine::test_support::fixture_font())
+            .expect("diagnostic presentation");
+        presentation.set_preview_cosmetics(&[equipped]);
+        let view = MenuView::new(true, "Fixture".into());
+        presentation.sync_menu_artwork_view(&view);
+        let requested: Vec<_> = sources(&presentation.menu_artwork_set)
+            .into_iter()
+            .filter_map(|source| match source {
+                Source::Item(item, thumbnail) => Some((item, thumbnail)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(requested, vec![(equipped, false)]);
+        presentation.sync_menu_artwork(Vec::new());
+        assert!(
+            sources(&presentation.menu_artwork_set)
+                .iter()
+                .any(|source| source.key().0 == equipped.texture_key())
+        );
+    }
+
+    #[test]
+    fn cosmetic_gallery_requests_follow_visible_items_without_displacing_skin_art() {
+        let catalog = render_model::hats::fixture::gallery();
+        let equipped = *catalog.last().unwrap();
+        let mut presentation =
+            UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+        presentation.set_preview_cosmetics(&[equipped]);
+        let mut view = MenuView::new(true, "Fixture".into());
+        view.screen = MenuScreen::DressingRoom;
+        let wardrobe = std::sync::Arc::make_mut(&mut view.dressing_room);
+        wardrobe.section = launcher::dressing_room::DressingRoomSection::Cosmetics;
+        wardrobe.skins = vec![DressingRoomSkin {
+            id: "fixture-skin".into(),
+            name: "Skin".into(),
+            path: String::new(),
+            imported: false,
+            model: launcher::dressing_room::SkinModel::Classic,
+            engine_version: render_api::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
+            skin: render_api::StandardSkin {
+                width: 64,
+                height: 64,
+                rgba8: vec![255; 64 * 64 * 4].into(),
+                cape: None,
+                geometry: None,
+            },
+        }]
+        .into();
+        wardrobe.selected = Some(0);
+        for shown in [catalog[catalog.len() - 2], equipped] {
+            presentation.menu_cosmetic_thumbnail_indices = vec![
+                cosmetics::Item::all()
+                    .iter()
+                    .position(|item| *item == shown)
+                    .unwrap(),
+            ];
+            presentation.sync_menu_artwork_view(&view);
+            let requested = sources(&presentation.menu_artwork_set);
+            assert!(requested.len() < super::super::MAX_ARTWORKS);
+            assert!(
+                requested
+                    .iter()
+                    .any(|source| source.key().0 == thumbnail_key("fixture-skin"))
+            );
+            let items: Vec<_> = requested
+                .into_iter()
+                .filter_map(|source| match source {
+                    Source::Item(item, thumbnail) => Some((item, thumbnail)),
+                    _ => None,
+                })
+                .collect();
+            let mut expected = vec![(equipped, false)];
+            expected.push((shown, true));
+            if shown != equipped {
+                expected.push((shown, false));
+            }
+            assert_eq!(items, expected);
+        }
+    }
+
+    #[test]
+    fn cosmetic_gallery_keeps_every_visible_thumbnail_when_animation_textures_reach_the_budget() {
+        let gallery = render_model::hats::fixture::gallery();
+        let equipped = render_model::hats::fixture::crown();
+        let all = cosmetics::Item::all();
+        let visible: Vec<_> = gallery
+            .iter()
+            .map(|item| all.iter().position(|candidate| candidate == item).unwrap())
+            .collect();
+        let set = ArtworkSet {
+            cosmetics: super::super::cosmetic_requests::requested(&[equipped], &visible, true),
+            ..Default::default()
+        };
+        let admitted = sources(&set);
+        assert!(admitted.len() <= super::super::MAX_ARTWORKS);
+        assert!(matches!(admitted.first(), Some(Source::Item(item, false)) if *item == equipped));
+        for &item in gallery {
+            assert!(
+                admitted
+                    .iter()
+                    .any(|source| matches!(source, Source::Item(shown, true) if *shown == item)),
+                "missing visible thumbnail for {}",
+                item.id()
+            );
+        }
+    }
+
+    #[test]
+    fn cosmetic_geometry_revision_prepares_bounds_when_its_texture_is_cached() {
+        let [original, revised] = render_model::hats::fixture::wing_revisions();
+        let mut cache = DecodeCache::default();
+        let mut set = ArtworkSet {
+            cosmetics: super::super::cosmetic_requests::requested(&[original], &[], false),
+            ..Default::default()
+        };
+        let missing = cache.missing(&set);
+        cache.decode(&missing, &set);
+        let key = Source::Item(original, false).key();
+        let texture = Arc::clone(&cache.decoded[&key]);
+        assert_eq!(original.texture_key(), revised.texture_key());
+        assert!(render_model::hats::thumbnail::prepared_frame(revised).is_none());
+        set.cosmetics = super::super::cosmetic_requests::requested(&[revised], &[], false);
+        let missing = cache.missing(&set);
+        assert!(render_model::hats::thumbnail::prepared_frame(revised).is_none());
+        assert_eq!(missing.len(), 1);
+        cache.decode(&missing, &set);
+        assert!(cache.missing(&set).is_empty());
+        let frame = render_model::hats::thumbnail::prepared_frame(revised)
+            .expect("new rig bounds despite the texture cache hit");
+        assert_ne!(
+            frame.model_bounds(),
+            render_model::hats::thumbnail::prepared_frame(original)
+                .unwrap()
+                .model_bounds()
+        );
+        assert!(Arc::ptr_eq(&texture, &cache.decoded[&key]));
     }
 
     #[test]

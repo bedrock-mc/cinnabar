@@ -85,5 +85,6 @@ bitflags! {
         const TRIP_WIRE = 1 << 76;
         const TRIPWIRE_HOOK = 1 << 77;
         const END_GATEWAY = 1 << 78;
+        const SHELF_MUSHROOM = 1 << 79;
     }
 }

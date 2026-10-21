@@ -29,18 +29,7 @@ fn texture(gpu: &Gpu, width: u32, height: u32, pixels: &[u8]) -> wgpu::TextureVi
         .create_view(&Default::default())
 }
 
-#[test]
-fn numbered_faces_uvs_and_translated_face_boundaries_render_on_the_gpu() {
-    let Some(gpu) = Gpu::for_fixture("pack skybox projection") else {
-        return;
-    };
-    let mut source = shader_source::standalone(include_str!("../atmosphere.wesl"), &[]);
-    source.push_str(
-        r#"
-@vertex fn probe_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
-    let position = vec2(f32(index & 1u), f32((index >> 1u) & 1u)) * 4.0 - vec2(1.0);
-    return VertexOutput(vec4(position, 0.0, 1.0), 0.0);
-}
+const PROJECTION_PROBE: &str = r#"
 @fragment fn projection_probe(input: VertexOutput) -> @location(0) vec4<f32> {
     let rays = array<vec3<f32>, 16>(
         vec3(0.0, 0.0, -1.0), vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0),
@@ -53,8 +42,57 @@ fn numbered_faces_uvs_and_translated_face_boundaries_render_on_the_gpu() {
     let mapping = pack_skybox_mapping(ray, skybox.parameters.x);
     return vec4(mapping.xy, mapping.z / 5.0, 1.0);
 }
+"#;
+const CUBE_PROBE: &str = r#"
+@fragment fn background(input: VertexOutput) -> @location(0) vec4<f32> { return vec4(0.0, 0.0, 0.25, skybox.parameters.z); }
+@fragment fn foreground(input: VertexOutput) -> PackSkyboxOutput { return PackSkyboxOutput(vec4(0.0, 1.0, 0.0, skybox.parameters.z), 0.5); }
+"#;
+
+/// Composes both fixtures with one vertex that zero-initializes unused sky outputs.
+fn probe_source(fragments: &str) -> String {
+    let mut source = shader_source::standalone(include_str!("../atmosphere.wesl"), &[]);
+    source.push_str(
+        r#"
+@vertex fn probe_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
+    let position = vec2(f32(index & 1u), f32((index >> 1u) & 1u)) * 4.0 - vec2(1.0);
+    var out: VertexOutput;
+    out.position = vec4(position, 0.0, 1.0);
+    return out;
+}
 "#,
     );
+    source.push_str(fragments);
+    source
+}
+
+/// Checks complete fixture shaders without requiring a native GPU adapter.
+fn validate_probe(source: &str) {
+    let module = naga::front::wgsl::parse_str(source)
+        .unwrap_or_else(|error| panic!("{}", error.emit_to_string(source)));
+    naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .unwrap_or_else(|error| panic!("{}", error.emit_to_string(source)));
+}
+
+#[test]
+fn projection_probe_validates_without_a_gpu() {
+    validate_probe(&probe_source(PROJECTION_PROBE));
+}
+
+#[test]
+fn cube_probe_validates_without_a_gpu() {
+    validate_probe(&probe_source(CUBE_PROBE));
+}
+
+#[test]
+fn numbered_faces_uvs_and_translated_face_boundaries_render_on_the_gpu() {
+    let Some(gpu) = Gpu::for_fixture("pack skybox projection") else {
+        return;
+    };
+    let source = probe_source(PROJECTION_PROBE);
     for (enabled, expected) in [
         (
             false,
@@ -177,15 +215,7 @@ fn draw_cube_view(
     rotation: bevy::math::Quat,
     foreground: bool,
 ) -> Vec<u8> {
-    let mut source = shader_source::standalone(include_str!("../atmosphere.wesl"), &[]);
-    source.push_str(r#"
-@vertex fn cube_probe_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
-    let position = vec2(f32(index & 1u), f32((index >> 1u) & 1u)) * 4.0 - vec2(1.0);
-    return VertexOutput(vec4(position, 0.0, 1.0), 0.0);
-}
-@fragment fn background(input: VertexOutput) -> @location(0) vec4<f32> { return vec4(0.0, 0.0, 0.25, skybox.parameters.z); }
-@fragment fn foreground(input: VertexOutput) -> PackSkyboxOutput { return PackSkyboxOutput(vec4(0.0, 1.0, 0.0, skybox.parameters.z), 0.5); }
-"#);
+    let source = probe_source(CUBE_PROBE);
     let projection = glam::camera::rh::proj::directx::perspective_infinite_reverse(
         90_f32.to_radians(),
         1.0,
@@ -270,7 +300,7 @@ fn draw_cube_view(
     });
     gpu.render_srgb_with_state(
         &source,
-        "cube_probe_vertex",
+        "probe_vertex",
         &draws,
         gpu_snapshot::RasterState {
             write_mask: wgpu::ColorWrites::RED | wgpu::ColorWrites::GREEN | wgpu::ColorWrites::BLUE,

@@ -4,27 +4,47 @@
 
 Actor nametags use Java Edition rendering as an accepted deviation. All labels share
 camera-right and camera-up, including the front-view pitch sign, with a fixed
-`1.6 / 60` blocks per font pixel. The head anchor scales the published height plus
-`0.5` blocks of clearance by the actor's Scale metadata;
-sneaking players lower it by `0.125` blocks and move the quad `0.25` blocks along
+`1.6 / 60` blocks per font pixel. The head anchor uses Java's fixed `1.8`-block
+standing height for upright players, so crouching collision height does not lower
+it again. Swimming, crawling and gliding players use their live published height,
+as do other actors. Height plus `0.5` blocks of
+clearance follows the actor's Scale metadata. Sneaking players lower it by
+`0.125` blocks and move the quad `0.25` blocks along
 camera-down; sleeping players lower their anchor by `1.5` blocks.
 Each line's black plate has alpha `0.25`, one pixel of side padding,
 and vertical bounds `-1 .. 8`. The existing ten-pixel multiline spacing and
 `0.125` world lift per extra line stay unchanged.
 
-Ordinary labels draw a plate and dim text through walls, then full-opacity text
-with depth testing. Each complete label is drawn back to front by camera depth
+Ordinary labels draw a plate and full-opacity text through geometry so server
+cosmetics extending above the actor's published bounds cannot obscure the name. Each complete label is drawn back to front by camera
+depth
 of the final lifted plane, including cosmetic scale, before starting the next label.
-Only lines that fit the scene and atlas contribute to the lift. Viewer distance still
-controls visibility and score range. Sneaking labels draw only a depth-tested plate and dim text.
-Dim text alpha is `32 / 255`; only tested text writes depth. Labels have no depth
+Presentation bounds exclude off-screen labels before the tag and record caps. They
+include text, plates, badges, counters, cosmetic extensions and possible prefix lifts.
+The scene admits nearer labels first, then draws their final planes back to front.
+Cosmetic borders and shadows admit or reject a complete label within the record cap.
+An atlas miss leaves later lines in their original slots; the badge and counter stay
+with the first slot. Fragmented cells are repacked before records capture their UVs.
+Only lines that fit the scene and atlas contribute to the lift. Camera distance
+controls visibility and score range. Sneaking labels draw a depth-tested plate and dim text.
+The NameplateDepthTested flag also enables depth testing, with full-opacity text.
+Sneaking text alpha is `32 / 255`; depth-tested text writes depth. Labels have no depth
 bias, and sampled atlas coverage must exceed `0.1` before text alpha and cosmetic
-opacity are applied. Distance from the viewer's feet
-must be below 64 blocks, or 32 while sneaking; server limits can shorten this.
-Invisible actors, mounts carrying passengers and server hide flags suppress labels.
+opacity are applied. Tags stay within the server's nameplate render distance,
+including its boundary; the default is 64 blocks, independent of sneaking.
+A named actor is eligible when always-show actor data is nonzero or the shared
+crosshair hit selects it. Missing always-show data defaults to false; the `-1`
+update sentinel preserves the previous value. Invisible actors and players whose
+appearance is still preparing have no tag. A mount carrying passengers keeps its
+name and suppresses only the appended score line.
 The local label stays hidden by default; the existing optional own-tag style is
 limited to third person. The open font, server text and formatting, multiline
 handling, debug text and explicit debug quaternions retain their existing paths.
+Italic and obfuscated runs share the UI text effects. Obfuscated runs update their
+existing cells once per frame seed. Private-use coverage icons keep white ink,
+and transparent gutters separate neighboring cells. Full-span edges use the existing
+clamp sampler, preserving the original maximum line size.
+Fractional advances round up before centering the plate.
 Rendered-frame acceptance remains pending.
 
 ## Earlier Bedrock implementation
@@ -105,8 +125,8 @@ every stem texel at native size and scaling; zero-area sources emit no ink.
 The current extraction caller appends actor data 84 as a new line only inside the score
 distance gate. Our retained below-name objective supplies `score + space + display name`
 when the server did not supply actor-data score text; empty synced text remains authoritative.
-Render-distance metadata is key 140 on this target (the old tracking table listed a different
-version's key). An empty synced player name hides its tag; a missing tag falls back to its spawn
+Render-distance metadata uses the active `ActorDataKey::NameplateRenderDistance`
+contract (key 140). An empty synced player name hides its tag; a missing tag falls back to its spawn
 username, without changing its scoreboard name authority.
 
 ### Material and shader witnesses
@@ -151,11 +171,12 @@ Native material definitions and compiled shaders have now been located as descri
 the prior speculative collision-ray dimming is removed. A matched 1.26.50 shader-pack witness
 and native fixed-state comparison are still needed to close exact through-wall/material parity.
 Explicit orientation/backface/education/custom-color paths, profanity-filtered names,
-vehicle/riding-adjusted anchors, default missing height/render distance, and the inherited
-provisional crosshair selection shapes/range remain incomplete. The presentation budget of
-128 nearest tags is an upstream client resource bound, not a vanilla visibility rule. Player-default
-visibility, current-position/camera-anchor distance details, the retained-score fallback and
-NameplateDepthTested flag 129 (outside the current wire flag carrier) remain incomplete.
+vehicle/riding-adjusted anchors, default missing height and native frame comparisons
+remain incomplete. Nametag selection reuses the gameplay eye ray, input-mode reach,
+block occlusion and mount exclusion. The presentation budget of
+128 nearest tags is an upstream client resource bound, not a vanilla visibility rule.
+Current-position distance details and the retained-score fallback remain incomplete.
+The third flag word carries NameplateDepthTested flag 129.
 
 The canonical debug build was run in Zeqa on 2026-10-01: macOS 26.3, Apple M3 Pro,
 Metal, 1280×720 logical viewport, 2560×1440 physical pixels (DPI scale 2). The endpoint

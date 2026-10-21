@@ -22,12 +22,14 @@ pub struct CameraSettingsAuthority {
     perspective: PerspectiveMode,
     configured_perspective: PerspectiveMode,
     pub(super) freelook: bool,
+    detached: Option<super::DetachedView>,
     death_rotation: Option<Quat>,
     feel: CameraFeelSettings,
     game_sensitivity: super::look::GameSensitivity,
     rig: Option<CameraRig>,
     preserve_teleport_rotation: bool,
     view_scale: [f32; 2],
+    hurt_style: Option<render_api::HurtCameraStyle>,
 }
 
 /// A local mod's third-person boom: camera-local blocks (x right, y up, z back), roll and FOV change.
@@ -43,7 +45,7 @@ pub struct CameraRig {
 pub struct CameraFeelSettings {
     pub fov_effects_scale: f32,
     pub distortion_scale: f32,
-    pub view_bobbing: bool,
+    pub view_bobbing: ui::ViewBobbing,
     pub cinematic_camera: bool,
     pub camera_shake: bool,
     pub damage_bob: f32,
@@ -89,17 +91,35 @@ impl Default for CameraSettingsAuthority {
             perspective: settings.gameplay.default_perspective,
             configured_perspective: settings.gameplay.default_perspective,
             freelook: false,
+            detached: None,
             death_rotation: None,
             feel: CameraFeelSettings::from_settings(&settings),
             game_sensitivity: Default::default(),
             rig: None,
             preserve_teleport_rotation: false,
             view_scale: [1.0, 1.0],
+            hurt_style: None,
         }
     }
 }
 
 impl CameraSettingsAuthority {
+    /// Applies detached ownership to the view through the shared camera authority.
+    /// The look pass has already resolved whether a held user action is admitted.
+    pub fn apply_detached_view(
+        &mut self,
+        view: &mut crate::local_player::LocalViewPose,
+        detached: Option<super::DetachedView>,
+        user_freelook: bool,
+    ) {
+        let previous = self.detached_view();
+        self.set_detached_view(detached);
+        if detached.is_some() || previous.is_some() {
+            view.set_freelook(detached.is_some() || user_freelook && self.freelook);
+        }
+        view.set_detached_translation(matches!(detached, Some(super::DetachedView::Fly { .. })));
+    }
+
     /// Atomically accepts newer settings after validating their FOV.
     pub fn replace(
         &mut self,
@@ -167,7 +187,8 @@ impl CameraSettingsAuthority {
     /// shows; a chosen third-person mode is kept.
     #[must_use]
     pub const fn perspective(&self) -> PerspectiveMode {
-        if self.rig.is_some()
+        if self.detached.is_some()
+            || self.rig.is_some()
             || self.freelook
             || (self.death_rotation.is_some()
                 && matches!(self.perspective, PerspectiveMode::FirstPerson))
@@ -203,8 +224,25 @@ impl CameraSettingsAuthority {
 
     #[must_use]
     /// Returns the optional local camera rig override.
-    pub const fn rig(&self) -> Option<CameraRig> {
-        self.rig
+    pub fn rig(&self) -> Option<CameraRig> {
+        match self.detached {
+            Some(super::DetachedView::Orbit { distance }) => Some(CameraRig {
+                offset: Vec3::new(0.0, 0.0, distance),
+                roll_radians: 0.0,
+                fov_delta_degrees: 0.0,
+            }),
+            _ => self.rig,
+        }
+    }
+
+    /// Selects an already validated detached view; omission releases local view ownership.
+    pub fn set_detached_view(&mut self, view: Option<super::DetachedView>) {
+        self.detached = view;
+    }
+
+    /// The current extension-selected view, without changing the player's saved perspective.
+    pub const fn detached_view(&self) -> Option<super::DetachedView> {
+        self.detached
     }
 
     /// A granted extension's current-frame policy for actual teleport yaw/pitch only.
@@ -243,6 +281,19 @@ impl CameraSettingsAuthority {
         self.view_scale[1]
     }
 
+    /// Applies a validated local damage effect without changing saved preferences or aim.
+    pub fn set_hurt_camera_style(&mut self, style: Option<render_api::HurtCameraStyle>) {
+        self.hurt_style = style;
+    }
+
+    /// Current damage styling, falling back to the latest sanitized player preference.
+    pub fn hurt_camera_style(&self) -> render_api::HurtCameraStyle {
+        self.hurt_style.unwrap_or_else(|| {
+            render_api::HurtCameraStyle::new(self.feel.damage_bob, false)
+                .expect("camera preferences sanitize damage shake")
+        })
+    }
+
     /// Non-finite rigs are dropped; `None` restores the player's own perspective.
     pub fn set_rig(&mut self, rig: Option<CameraRig>) {
         self.rig = rig.filter(|rig| {
@@ -273,9 +324,11 @@ impl CameraSettingsAuthority {
     pub fn reset_perspective(&mut self) {
         self.perspective = PerspectiveMode::FirstPerson;
         self.freelook = false;
+        self.detached = None;
         self.death_rotation = None;
         self.preserve_teleport_rotation = false;
         self.view_scale = [1.0, 1.0];
+        self.hurt_style = None;
     }
 }
 

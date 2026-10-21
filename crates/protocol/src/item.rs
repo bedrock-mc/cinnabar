@@ -15,22 +15,24 @@ use bedrock_protocol_1_26_51::wire;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::inventory::{InventoryPacketError, VerifiedNetworkItemStack};
-
 #[cfg(test)]
 mod animation_tests;
 mod attack;
 mod banner;
 mod components;
 mod display;
+mod equipment;
 mod facts;
+pub use equipment::{held_items_match, offhand_equipment_packet, select_hotbar_slot_packet};
 mod icons;
 pub use facts::{ItemStackFacts, ItemStackFactsCache};
 mod nbt_edit;
-mod registry_capacity;
+mod nbt_equal;
+mod registry_properties;
+mod user_data;
 
 pub use attack::{ItemAttackCooldown, ItemAttackTiming, KineticWeaponTiming};
-pub use banner::{ItemBannerPattern, item_banner_patterns};
+pub use banner::{ItemBannerPattern, item_banner_patterns, item_banner_type};
 pub use components::{FoodProperties, ItemComponents, ItemUseCooldown};
 pub use display::{
     ItemBook, ItemDisplay, MAX_BOOK_PAGES, item_book, item_bundle_id, item_display,
@@ -39,8 +41,9 @@ pub use display::{
 pub(crate) use icons::item_icon_keys;
 pub use nbt_edit::{
     ItemAnvilData, ItemNbtEdit, book_init_extra, book_needs_init, edit_item_extra, item_anvil_data,
-    item_custom_name, item_repair_cost,
+    item_custom_name, item_filtered_custom_name, item_repair_cost,
 };
+pub use user_data::item_user_data_equal;
 
 /// The single item shape 1.26.40 puts on the wire.
 ///
@@ -55,38 +58,14 @@ type ItemStackDescriptor =
 /// Number of hotbar slots on the vanilla survival hotbar.
 pub const HOTBAR_SLOT_COUNT: u8 = 9;
 
-/// Builds the vanilla outbound packet announcing a local hotbar-slot selection.
-///
-/// The vanilla Bedrock client owns hotbar-slot selection locally and notifies the server with a
-/// `MobEquipment` packet against the inventory window (`PlayerHotbar` is server->client and is not
-/// what a client sends). The selected stack must be the exact known player-inventory value: this
-/// boundary verifies its retained bytes and shape before converting it to the vendor wire type.
-/// `runtime_id` must be the local player's StartGame-assigned runtime id — servers reject a
-/// foreign runtime id on this packet.
-pub fn select_hotbar_slot_packet(
-    runtime_id: u64,
-    slot: u8,
-    stack: &NetworkItemStack,
-) -> Result<crate::Packet, InventoryPacketError> {
-    if slot >= HOTBAR_SLOT_COUNT {
-        return Err(InventoryPacketError::InvalidSelectedSlot(i32::from(slot)));
-    }
-    // Vanilla's client equipment descriptor never includes a stack network id, so a
-    // predicted request id is neither validated nor sent.
-    let mut untracked = stack.clone();
-    if !untracked.is_empty() {
-        untracked.stack_network_id = -1;
-    }
-    let item =
-        VerifiedNetworkItemStack::try_new(untracked, stack.nbt_digest)?.into_vendor_item()?;
-    Ok(crate::Packet::new(MobEquipmentPacket {
+/// Packs a held-use particle event from the negotiated item ID and signed auxiliary value.
+pub fn item_use_progress_packet(runtime_id: u64, item_id: i16, auxiliary: i16) -> crate::Packet {
+    crate::Packet::new(bedrock_protocol_1_26_51::packets::ActorEvent {
         target_runtime_id: ActorRuntimeID(runtime_id),
-        item,
-        slot: wire::U8(slot),
-        selected_slot: wire::U8(slot),
-        // The inventory container: a raw ID rather than a named WindowId enum.
-        container_id: wire::U8(0),
-    }))
+        event_id: bedrock_protocol_1_26_51::enums::ActorEventType::Feed,
+        data: wire::ZigZag32((i32::from(item_id as u16) << 16) | i32::from(auxiliary)),
+        fire_at_position: None,
+    })
 }
 
 pub const MAX_ITEM_REGISTRY_ENTRIES: usize = 16_384;
@@ -153,6 +132,18 @@ pub fn item_stack_damage(stack: &NetworkItemStack) -> Option<u32> {
 /// [`item_stack_damage`] over a stack's raw extra data.
 #[must_use]
 pub fn item_extra_damage(extra_data: &[u8]) -> Option<u32> {
+    item_extra_damage_value(extra_data).and_then(|value| u32::try_from(value).ok())
+}
+
+/// Reads item damage as a signed 16-bit value from its retained integer `Damage` tag.
+#[must_use]
+pub fn item_extra_damage_value(extra_data: &[u8]) -> Option<i32> {
+    item_extra_damage_integer(extra_data).map(|damage| i32::from(damage as i16))
+}
+
+/// Reads the stored root `Damage` integer without applying item damage conversion.
+#[must_use]
+pub fn item_extra_damage_integer(extra_data: &[u8]) -> Option<i32> {
     root_damage_tag(decode_extra_nbt(extra_data)?)
 }
 
@@ -166,11 +157,32 @@ pub fn item_extra_unbreakable(extra_data: &[u8]) -> bool {
     })
 }
 
+/// Reads the typed item-lock byte, preserving unknown values for special-removal checks.
+#[must_use]
+pub fn item_extra_lock(extra_data: &[u8]) -> Option<u8> {
+    let mut cursor = decode_extra_nbt(extra_data)?;
+    let mut value = root_tag(&mut cursor, 1, b"minecraft:item_lock")?;
+    read_u8(&mut value)
+}
+
+/// Whether retained item data locks the item into its current slot.
+#[must_use]
+pub fn item_extra_slot_locked(extra_data: &[u8]) -> bool {
+    item_extra_lock(extra_data) == Some(1)
+}
+
 /// Reads one enchantment's level from the root `ench` list of a stack's extra data.
 ///
 /// Each entry is a compound of short `id` and short `lvl`; malformed data reads as `None`.
 #[must_use]
 pub fn item_enchantment_level(extra_data: &[u8], enchantment_id: i16) -> Option<u8> {
+    item_enchantment_level_value(extra_data, enchantment_id)
+        .and_then(|level| u8::try_from(level).ok())
+}
+
+/// Reads the full signed-short level of the first matching typed enchantment entry.
+#[must_use]
+pub fn item_enchantment_level_value(extra_data: &[u8], enchantment_id: i16) -> Option<i16> {
     let nbt = decode_extra_nbt(extra_data)?;
     let mut cursor = nbt;
     let mut list = root_tag(&mut cursor, 9, b"ench")?;
@@ -195,7 +207,7 @@ pub fn item_enchantment_level(extra_data: &[u8], enchantment_id: i16) -> Option<
             skip_le_payload(&mut list, tag, 1)?;
         }
         if id == Some(enchantment_id) {
-            return level.and_then(|level| u8::try_from(level).ok());
+            return level;
         }
     }
     None
@@ -240,6 +252,11 @@ fn root_tag<'a>(cursor: &mut &'a [u8], tag: u8, wanted: &[u8]) -> Option<&'a [u8
         return None;
     }
     skip_le_string(cursor)?;
+    compound_field(cursor, tag, wanted)
+}
+
+/// Finds one typed entry in a compound body, leaving its payload borrowed.
+fn compound_field<'a>(cursor: &mut &'a [u8], tag: u8, wanted: &[u8]) -> Option<&'a [u8]> {
     loop {
         let entry = read_u8(cursor)?;
         if entry == 0 {
@@ -275,7 +292,7 @@ fn decode_extra_nbt(extra: &[u8]) -> Option<&[u8]> {
 }
 
 /// Walks one fixed little-endian NBT compound root for an integer `Damage`.
-fn root_damage_tag(nbt: &[u8]) -> Option<u32> {
+fn root_damage_tag(nbt: &[u8]) -> Option<i32> {
     let mut cursor = nbt;
     if read_u8(&mut cursor)? != 10 {
         return None;
@@ -292,7 +309,7 @@ fn root_damage_tag(nbt: &[u8]) -> Option<u32> {
         cursor = cursor.get(name_len..)?;
         if is_damage {
             let value = i32::from_le_bytes(cursor.get(..4)?.try_into().ok()?);
-            return u32::try_from(value).ok();
+            return Some(value);
         }
         skip_le_payload(&mut cursor, tag, 0)?;
     }
@@ -322,9 +339,9 @@ fn skip_le_string(cursor: &mut &[u8]) -> Option<()> {
     Some(())
 }
 
-const MAX_ITEM_NBT_WALK_DEPTH: u8 = 16;
+const MAX_ITEM_NBT_WALK_DEPTH: u32 = wire::MAX_NBT_DEPTH;
 
-fn skip_le_payload(cursor: &mut &[u8], tag: u8, depth: u8) -> Option<()> {
+fn skip_le_payload(cursor: &mut &[u8], tag: u8, depth: u32) -> Option<()> {
     if depth > MAX_ITEM_NBT_WALK_DEPTH {
         return None;
     }
@@ -341,6 +358,20 @@ fn skip_le_payload(cursor: &mut &[u8], tag: u8, depth: u8) -> Option<()> {
         9 => {
             let element = read_u8(cursor)?;
             let count = usize::try_from(read_i32_le(cursor)?).ok()?;
+            if count != 0 && depth == MAX_ITEM_NBT_WALK_DEPTH {
+                return None;
+            }
+            let width = match element {
+                1 => Some(1usize),
+                2 => Some(2),
+                3 | 5 => Some(4),
+                4 | 6 => Some(8),
+                _ => None,
+            };
+            if let Some(width) = width {
+                *cursor = cursor.get(count.checked_mul(width)?..)?;
+                return Some(());
+            }
             for _ in 0..count {
                 skip_le_payload(cursor, element, depth.checked_add(1)?)?;
             }
@@ -702,11 +733,11 @@ pub(crate) fn normalize_item_registry(
             ItemDataItemVersion::Unknown(value) => ItemRegistryVersion::Unknown(value),
         };
         let canonical_empty_component_data =
-            component_bytes == registry_capacity::CANONICAL_EMPTY_COMPONENT_DATA;
+            component_bytes == registry_properties::CANONICAL_EMPTY_COMPONENT_DATA;
         let negotiated_max_stack_size = if matches!(version, ItemRegistryVersion::Unknown(_)) {
             None
         } else {
-            registry_capacity::negotiated_max_stack_size(&component_bytes)
+            registry_properties::negotiated_max_stack_size(&component_bytes)
         };
         let entry = ItemRegistryEntry {
             identifier: Arc::from(item.item_name.to_string_lossy()),
@@ -718,7 +749,7 @@ pub(crate) fn normalize_item_registry(
             negotiated_max_stack_size,
             canonical_empty_component_data,
             item_tags: if item.is_component_based {
-                registry_capacity::declared_item_tags(&component_bytes).into()
+                registry_properties::declared_item_tags(&component_bytes).into()
             } else {
                 Arc::from([])
             },

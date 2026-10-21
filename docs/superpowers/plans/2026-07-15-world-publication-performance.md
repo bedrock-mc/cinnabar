@@ -120,4 +120,4 @@ Use the stable approved BDS/core/client paths and release FIFO default. Capture 
 
 - [ ] **Step 5: Update plan truthfully, review, commit, and push**
 
-Record actual values and close only the publication blocker if both deterministic and live gates pass. Run one focused independent review, fix Critical/Important findings, preserve history, then push to `bedrock-mc/cinnabar:phase2-textures`.
+Record actual values and close only the publication blocker if both deterministic and live gates pass. Run one focused independent review, fix Critical/Important findings, preserve history, then push to `cinnabar-mc/cinnabar:phase2-textures`.

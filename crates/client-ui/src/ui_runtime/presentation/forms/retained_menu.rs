@@ -19,6 +19,10 @@ pub(in crate::ui_runtime::presentation) struct RetainedMenu {
 impl UiPresentationRuntime {
     /// Only launcher scenes with no live overlay or continuously animated preview are retained.
     fn retainable_menu(&self, runtime: &UiRuntime) -> Option<&MenuView> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if runtime.experiences.active || runtime.experiences.holds_world_entry() {
+            return None;
+        }
         let view = self.menu_view.as_deref()?;
         (view.visible
             && !view.over_world
@@ -29,9 +33,15 @@ impl UiPresentationRuntime {
             && !(view.screen == MenuScreen::Servers && oreui::animated_server_details(view))
             && !view.popup_open()
             && view.field.is_none()
-            && view.key_remap.is_none()
+            && view.settings.key_remap.is_none()
             && !view.connecting
             && view.local.progress.is_none()
+            && !(view.screen == MenuScreen::Settings
+                && view.settings.section
+                    == launcher::menu::settings_sections::SettingSection::Mods
+                        .definition()
+                        .index
+                && !view.mods.library.update_progress.is_empty())
             && view.disconnect_message.is_none()
             && !view.auth_state.awaiting_browser()
             && !(view.screen == MenuScreen::Home
@@ -51,8 +61,7 @@ impl UiPresentationRuntime {
             && !runtime.forms.owns_input()
             && !runtime.credits.owns_input()
             && runtime.hud.toasts().is_empty()
-            && !runtime.experiences.active
-            && !runtime.experiences.holds_world_entry()
+            && runtime.hud.standing_toast().is_none()
             && !self.screens.mod_ui.mod_panel_painting()
             && !self.screens.mod_ui.experience_modal_open())
         .then_some(view)
@@ -111,5 +120,74 @@ impl UiPresentationRuntime {
             look: self.screens.oreui.look,
             offsets: self.menu_scrolls.offsets().clone(),
         });
+    }
+}
+
+#[cfg(test)]
+mod mod_update_tests {
+    use super::*;
+    use launcher::{
+        menu::settings_sections::SettingSection,
+        mods::{UpdatePhase, UpdateProgress},
+    };
+
+    #[test]
+    fn visible_mod_update_activity_keeps_frames_live_until_completion() {
+        let mut presentation =
+            UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+        let runtime = UiRuntime::new(0);
+        let mut view = MenuView::new(true, "Fixture".into());
+        view.screen = MenuScreen::Settings;
+        view.settings.section = SettingSection::Mods.definition().index;
+        Arc::make_mut(&mut view.mods).library.update_progress =
+            vec![UpdateProgress::stage(1, UpdatePhase::Reloading)];
+        presentation.set_menu_view(Some(view.clone()));
+        assert!(
+            presentation.retainable_menu(&runtime).is_none(),
+            "the activity indicator must keep animating while reloading"
+        );
+        view.settings.section = SettingSection::General.definition().index;
+        presentation.set_menu_view(Some(view.clone()));
+        assert!(
+            presentation.retainable_menu(&runtime).is_some(),
+            "hidden progress does not animate another settings page"
+        );
+        view.settings.section = SettingSection::Mods.definition().index;
+        Arc::make_mut(&mut view.mods)
+            .library
+            .update_progress
+            .clear();
+        presentation.set_menu_view(Some(view));
+        assert!(
+            presentation.retainable_menu(&runtime).is_some(),
+            "completed mod updates restore frame retention"
+        );
+    }
+
+    #[test]
+    fn a_standing_toast_keeps_menu_frames_live_until_it_leaves() {
+        let mut presentation =
+            UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+        let mut runtime = UiRuntime::new(0);
+        let mut view = MenuView::new(true, "Fixture".into());
+        view.screen = MenuScreen::Settings;
+        view.settings.section = SettingSection::General.definition().index;
+        presentation.set_menu_view(Some(view));
+        assert!(presentation.retainable_menu(&runtime).is_some());
+        runtime.stand_toast(ui::StandingToast {
+            id: 0,
+            title: Arc::from("Loading shader pack Dusk…"),
+            message: Arc::from(""),
+            press: None,
+            since_millis: 0,
+            until_millis: u64::MAX,
+        });
+        assert!(
+            presentation.retainable_menu(&runtime).is_none(),
+            "the toast slides in and updates over the menu"
+        );
+        runtime.retire_standing_toast(1_000);
+        runtime.hud.expire(1_000 + ui::TOAST_SLIDE_OUT_MILLIS);
+        assert!(presentation.retainable_menu(&runtime).is_some());
     }
 }

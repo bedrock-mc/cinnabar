@@ -20,15 +20,6 @@ pub enum Decision {
     Never,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Choice {
-    Once,
-    Always,
-    Never,
-    Cancel,
-    Disable,
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Pin {

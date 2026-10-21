@@ -1,4 +1,3 @@
-use crate::queue_writes::ProfiledQueue as _;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::render::render_resource::ShaderType;
 use bevy::{
@@ -46,7 +45,7 @@ const LAYER_BYTES: usize = std::mem::size_of::<PrecipitationLayerRecord>();
 const PARAMS_BYTES: usize = std::mem::size_of::<WeatherParamsGpu>();
 const OCCLUSION_BYTES: usize = 2 * (OCCLUSION_SIDE * OCCLUSION_SIDE) as usize * 4;
 /// Fixed seed so the particle mesh is identical across runs.
-const PARTICLE_MESH_SEED: u64 = 0x5745_4154_4845_5231;
+pub(crate) const PARTICLE_MESH_SEED: u64 = 0x5745_4154_4845_5231;
 
 /// Uniform read by `weather.wesl`: box forward offset plus sheet flag, then the grid origin.
 #[repr(C)]
@@ -57,6 +56,7 @@ struct WeatherParamsGpu {
 }
 
 pub(crate) fn install_weather_render(app: &mut App) {
+    crate::upload_staging::install(app);
     crate::pipeline_warmup::register::<WeatherPipeline>(app);
     load_internal_asset!(
         app,
@@ -161,8 +161,7 @@ fn init_weather_gpu(
 pub(crate) fn prepare_weather_records(
     scene: Res<PrecipitationScene>,
     textures: Option<Res<WeatherTextureAssets>>,
-    render_device: Res<RenderDevice>,
-    render_queue: Res<RenderQueue>,
+    uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<WeatherGpu>,
 ) {
     let sheet = textures.as_deref().and_then(|assets| {
@@ -174,16 +173,16 @@ pub(crate) fn prepare_weather_records(
         gpu.sheet_identity = sheet.map(|(identity, _)| identity);
         let (texture, view) = match sheet {
             Some((_, textures)) => upload_rgba(
-                &render_device,
-                &render_queue,
+                &uploads.device,
+                &uploads.queue,
                 textures.weather.width,
                 textures.weather.height,
                 &textures.weather.rgba8,
                 "vanilla precipitation sheet",
             ),
             None => upload_rgba(
-                &render_device,
-                &render_queue,
+                &uploads.device,
+                &uploads.queue,
                 1,
                 1,
                 &[255; 4],
@@ -213,14 +212,14 @@ pub(crate) fn prepare_weather_records(
         upload_occlusion = gpu.occlusion_generation != Some(scene.occlusion_generation),
     )
     .entered();
-    render_queue.profiled_write_buffer(
+    uploads.write(
         &gpu.record_buffer,
         0,
         bytemuck::cast_slice::<PrecipitationLayerRecord, u8>(&scene.layers[..count]),
     );
     if gpu.occlusion_generation != Some(scene.occlusion_generation) {
         gpu.occlusion_generation = Some(scene.occlusion_generation);
-        render_queue.profiled_write_buffer(
+        uploads.write(
             &gpu.occlusion_buffer,
             0,
             bytemuck::cast_slice::<i32, u8>(&scene.occlusion.heights),
@@ -232,7 +231,7 @@ pub(crate) fn prepare_weather_records(
         forward: [x, y, z, has_sheet],
         grid: [origin_x, origin_z, 0, 0],
     };
-    render_queue.profiled_write_buffer(&gpu.params_buffer, 0, bytemuck::bytes_of(&params));
+    uploads.write(&gpu.params_buffer, 0, bytemuck::bytes_of(&params));
 }
 
 struct WeatherPipelineSpecializer;
@@ -422,6 +421,10 @@ fn prepare_weather_bind_group(
     gpu.atmosphere_buffer_id = Some(atmosphere.buffer.id());
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "a queue system's render-world inputs"
+)]
 fn queue_weather(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<WeatherPipeline>,
@@ -436,12 +439,16 @@ fn queue_weather(
         &bevy::render::camera::ExtractedCamera,
         &Msaa,
     )>,
+    pack: render_scene::shaderpack::ShaderPackDrawnEffects,
 ) {
     if gpu.layer_count == 0 || gpu.max_particles == 0 || scene.layers.is_empty() {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawWeatherCommands>();
     for (view_entity, main_entity, view, extracted_camera, msaa) in &views {
+        if pack.replaces(view_entity, |drawn| drawn.weather) {
+            continue;
+        }
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -542,6 +549,26 @@ impl crate::pipeline_warmup::PrewarmPipelines for WeatherPipeline {
 #[cfg(test)]
 mod tests {
     use super::{LAYER_BYTES, OCCLUSION_BYTES, PARAMS_BYTES};
+
+    #[test]
+    fn frame_uploads_stage_weather_records_parameters_and_occlusion() {
+        use super::*;
+        use crate::upload_staging::BufferUploadStaging;
+        use bevy::ecs::system::RunSystemOnce;
+        let (mut app, _) = crate::queue_review_support::app();
+        let world = app.world_mut();
+        let staging = BufferUploadStaging::new(world.resource());
+        world.insert_resource(staging);
+        world.insert_resource(PrecipitationScene {
+            layers: vec![PrecipitationLayerRecord::default()],
+            ..Default::default()
+        });
+        world.run_system_once(init_weather_gpu).unwrap();
+        world.run_system_once(prepare_weather_records).unwrap();
+        let stats = world.resource::<BufferUploadStaging>().stats();
+        assert_eq!(stats.staged_writes, 3);
+        assert_eq!(stats.fallback_writes, 0);
+    }
 
     #[test]
     fn gpu_records_match_the_wgsl_layouts() {

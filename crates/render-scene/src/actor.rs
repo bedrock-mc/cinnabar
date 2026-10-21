@@ -72,6 +72,8 @@ pub struct ActorRenderInstance {
 #[derive(Debug, Clone, Resource, ExtractResource)]
 #[extract_app(bevy::render::RenderApp)]
 pub struct ActorRenderFrame {
+    /// Actors prepared for mask coverage without appearing in the scene's main passes.
+    pub mask_only_runtime_ids: Arc<[u64]>,
     pub instances: Arc<[ActorRenderInstance]>,
     pub skins: Arc<ActorSkinResidency>,
     pub instance_revision: u64,
@@ -111,6 +113,7 @@ impl ActorRenderFrame {
 impl Default for ActorRenderFrame {
     fn default() -> Self {
         Self {
+            mask_only_runtime_ids: Arc::from([]),
             instances: Arc::from([]),
             skins: Arc::default(),
             instance_revision: 0,
@@ -237,6 +240,11 @@ impl ActorRenderScene {
         self.rig_builder.contains_geometry(id)
     }
 
+    /// Borrows the geometry that this scene currently draws, including pack replacements.
+    pub fn geometry(&self, id: EntityRigId) -> Option<&ActorRigGeometry> {
+        self.rig_builder.geometry(id)
+    }
+
     pub fn replace_runtime_entity_assets(
         &mut self,
         assets: &assets::RuntimeEntityAssets,
@@ -244,6 +252,7 @@ impl ActorRenderScene {
         let replacement = ActorRigFrameBuilder::from_runtime_assets(assets)?;
         self.rig_builder = replacement;
         self.frame = ActorRenderFrame {
+            mask_only_runtime_ids: Arc::from([]),
             artwork: Arc::clone(&self.frame.artwork),
             ..ActorRenderFrame::default()
         };
@@ -276,6 +285,7 @@ impl ActorRenderScene {
     ) -> Result<(), ActorRigGeometryError> {
         self.rig_builder.replace_pack_geometries(geometries)?;
         self.frame = ActorRenderFrame {
+            mask_only_runtime_ids: Arc::from([]),
             artwork: Arc::clone(&self.frame.artwork),
             ..ActorRenderFrame::default()
         };
@@ -688,3 +698,5 @@ pub use presentation::{
     ActorDrawFrame, ActorPresentationGate, ActorPresentedFrameAck,
     MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS,
 };
+
+mod coverage;

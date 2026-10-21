@@ -39,6 +39,77 @@ fn collect_at(
     packets
 }
 
+/// Supersedes a transfer without replacing its local player or session.
+fn replace_transfer(transfer: &mut DimensionTransfer, epoch: u64, id: Option<u32>) {
+    transfer.begin(
+        7,
+        epoch,
+        ChangeDimensionEvent {
+            dimension: 2,
+            loading_screen_id: id,
+            ..Default::default()
+        },
+        42,
+        Duration::from_secs(1),
+    );
+}
+
+/// A replacement updates an active screen without another start report.
+#[test]
+fn overlapping_dimension_transfers_keep_one_loading_screen() {
+    for id in [None, Some(0), Some(88)] {
+        let mut transfer = transfer(Some(77));
+        assert_eq!(collect(&mut transfer).len(), 1);
+        replace_transfer(&mut transfer, 12, id);
+        assert!(collect(&mut transfer).is_empty());
+        transfer.acknowledge(12);
+        assert_eq!(
+            collect(&mut transfer),
+            [protocol::dimension_change_done_packet(42)]
+        );
+        transfer
+            .complete_with(|packet| {
+                assert_eq!(
+                    packet,
+                    protocol::loading_screen_packet(LoadingScreenPhase::End, id.or(Some(77)))
+                );
+                Ok(())
+            })
+            .unwrap();
+    }
+}
+
+/// Only the final pending replacement can change an already-active screen's ID.
+#[test]
+fn pending_dimension_replacements_coalesce_before_loading_updates() {
+    let mut active = transfer(Some(77));
+    collect(&mut active);
+    replace_transfer(&mut active, 12, Some(88));
+    replace_transfer(&mut active, 13, None);
+    assert!(collect(&mut active).is_empty());
+    active.acknowledge(13);
+    collect(&mut active);
+    active
+        .complete_with(|packet| {
+            assert_eq!(
+                packet,
+                protocol::loading_screen_packet(LoadingScreenPhase::End, Some(77))
+            );
+            Ok(())
+        })
+        .unwrap();
+
+    let mut unstarted = transfer(Some(77));
+    replace_transfer(&mut unstarted, 12, None);
+    assert_eq!(
+        collect(&mut unstarted),
+        [protocol::loading_screen_packet(
+            LoadingScreenPhase::Start,
+            None
+        )]
+    );
+}
+
 #[test]
 fn dimension_done_waits_for_start_server_and_terrain_then_keeps_loading_until_presentation_end() {
     let mut transfer = transfer(Some(0));
@@ -270,9 +341,9 @@ fn session_replacement_and_superseding_transfer_drop_obsolete_loading_identity()
 
 #[test]
 fn dimension_start_progresses_without_a_window_but_done_waits_for_server_and_terrain() {
-    use crate::environment::WorldClock;
     use crate::runtime::world::ClientWorld;
     use bevy::prelude::{App, Update};
+    use client_presentation::environment::WorldClock;
     let clock = WorldClock::default();
     let session = clock.session_generation();
     let mut world = ClientWorld {

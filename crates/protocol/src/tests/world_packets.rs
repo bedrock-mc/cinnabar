@@ -1,7 +1,10 @@
 use protocol_ids::{HASHED_AIR_NETWORK_ID, SEQUENTIAL_AIR_NETWORK_ID};
+use render_api::sub_chunk_requests::MAX_SUB_CHUNK_COLUMN_HEIGHT;
 
 #[path = "world_packets/block_sync.rs"]
 mod block_sync;
+#[path = "world_packets/crafting_rules.rs"]
+mod crafting_rules;
 #[path = "world_packets/dimension.rs"]
 mod dimension;
 #[path = "world_packets/lighting_diagnostics.rs"]
@@ -27,9 +30,9 @@ use bedrock_protocol_1_26_51::wire;
 use protocol::{
     BiomeDefinitionEvent, BiomeDefinitionsEvent, DaylightCycleUpdateEvent, DimensionRange,
     GameRulesEvent, HudRules, LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,
-    MAX_SUB_CHUNK_REQUESTS, SetTimeEvent, SubChunkResult, WeatherChannel, WeatherUpdateEvent,
-    WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, air_network_id,
-    into_world_event, request_sub_chunk_column, vanilla_dimension_range,
+    SetTimeEvent, SubChunkResult, WeatherChannel, WeatherUpdateEvent, WorldBootstrap,
+    WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, air_network_id, into_world_event,
+    request_sub_chunk_column, vanilla_dimension_range,
 };
 
 /// `LevelEventStartRaining`, from gophertunnel `packet/level_event.go`
@@ -452,7 +455,7 @@ fn rejects_malformed_or_cached_level_chunks() {
 
     let over_request_bound = LevelChunk {
         dimension_id: DimensionType(0),
-        sub_chunks_count: wire::VarUInt((MAX_SUB_CHUNK_REQUESTS + 1) as u32),
+        sub_chunks_count: wire::VarUInt((MAX_SUB_CHUNK_COLUMN_HEIGHT + 1) as u32),
         ..Default::default()
     };
     let WorldEvent::LevelChunk(event) =
@@ -465,7 +468,7 @@ fn rejects_malformed_or_cached_level_chunks() {
     assert_eq!(
         event.mode,
         LevelChunkMode::Inline {
-            count: MAX_SUB_CHUNK_REQUESTS + 1
+            count: MAX_SUB_CHUNK_COLUMN_HEIGHT + 1
         }
     );
 }
@@ -741,6 +744,7 @@ fn normalizes_only_boolean_daylight_cycle_rule_changes_case_insensitively() {
             weather_cycle: None,
             hud: HudRules::default(),
             death: Default::default(),
+            crafting: Default::default(),
         }))
     );
 
@@ -779,6 +783,7 @@ fn normalizes_the_hud_text_rules_beside_the_daylight_cycle() {
                 show_days_played: Some(false),
             },
             death: Default::default(),
+            crafting: Default::default(),
         }))
     );
     let mut game_data = game_data();
@@ -870,13 +875,30 @@ fn ignores_level_events_without_normalized_world_state() {
 }
 
 #[test]
+fn column_sub_chunk_request_keeps_zero_vertical_origin() {
+    let packet = request_sub_chunk_column(0, 12, -8, -4, 3).unwrap();
+    let packets::Packet::SubChunkRequest(request) = *packet.data else {
+        panic!("expected SubChunkRequest packet")
+    };
+    assert_eq!(request.center_pos, sub_chunk_pos(12, 0, -8));
+    assert_eq!(
+        request
+            .sub_chunk_position_offset_list
+            .iter()
+            .map(|offset| offset.subchunk_offset_y.0)
+            .collect::<Vec<_>>(),
+        [-4, -3, -2]
+    );
+}
+
+#[test]
 fn builds_bounded_column_sub_chunk_requests() {
     let packet = request_sub_chunk_column(0, 12, -8, -4, 3).unwrap();
     let packets::Packet::SubChunkRequest(request) = *packet.data else {
         panic!("expected SubchunkRequest packet")
     };
     assert_eq!(request.dimension_type.0, 0);
-    assert_eq!(request.center_pos, sub_chunk_pos(12, -4, -8));
+    assert_eq!(request.center_pos, sub_chunk_pos(12, 0, -8));
     assert_eq!(request.sub_chunk_position_offset_list.len(), 3);
     assert_eq!(
         request
@@ -888,14 +910,14 @@ fn builds_bounded_column_sub_chunk_requests() {
                 offset.subchunk_offset_z.0
             ])
             .collect::<Vec<_>>(),
-        vec![[0, 0, 0], [0, 1, 0], [0, 2, 0]]
+        vec![[0, -4, 0], [0, -3, 0], [0, -2, 0]]
     );
 
     assert_eq!(
-        request_sub_chunk_column(0, 0, 0, 0, 129),
+        request_sub_chunk_column(0, 0, 0, 0, MAX_SUB_CHUNK_COLUMN_HEIGHT + 1),
         Err(WorldPacketError::TooManySubChunkRequests {
-            count: 129,
-            max: 128,
+            count: MAX_SUB_CHUNK_COLUMN_HEIGHT + 1,
+            max: MAX_SUB_CHUNK_COLUMN_HEIGHT,
         })
     );
     assert_eq!(
@@ -906,3 +928,5 @@ fn builds_bounded_column_sub_chunk_requests() {
         })
     );
 }
+
+mod sub_chunk_requests;

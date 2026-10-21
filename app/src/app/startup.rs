@@ -63,6 +63,8 @@ pub(super) struct CoreCarriers {
     pub(super) assets: LoadedAssets,
     pub(super) actor: Result<RuntimeActorCatalog, AssetStartupError>,
     pub(super) equipment: Option<Arc<RuntimeEquipmentCatalog>>,
+    pub(super) authored_texture_loading:
+        crate::render_mode::authored_textures::AuthoredTextureLoading,
 }
 
 pub(super) struct AudioCarriers {
@@ -153,6 +155,11 @@ fn load_core(
     times: &LoadTimes,
 ) -> Result<CoreCarriers, AssetStartupError> {
     let mut assets = asset_startup::load_runtime_assets_observed(selection, times)?;
+    let authored_texture_loading =
+        crate::render_mode::authored_textures::AuthoredTextureLoading::new(
+            Arc::clone(&assets.runtime),
+            assets.material_keys.clone(),
+        );
     crate::asset_bindings::install_world_sidecars(&mut assets);
     let (world, entities) = (assets.selected_path.as_path(), &assets.entities);
     let (actor, equipment) = std::thread::scope(|scope| {
@@ -173,6 +180,7 @@ fn load_core(
         assets,
         actor,
         equipment,
+        authored_texture_loading,
     })
 }
 

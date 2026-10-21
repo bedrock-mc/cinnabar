@@ -1,6 +1,6 @@
 //! UI choices projected through the inventory recipe authority.
 use super::UiRuntime;
-use protocol::{RecipeCatalog, RecipeHandle, ScreenRecipe};
+use protocol::{RecipeCatalog, ScreenRecipe};
 
 impl UiRuntime {
     /// Borrows the currently credited recipe catalog.
@@ -41,9 +41,12 @@ impl UiRuntime {
 
     /// Resolves the recipe-book filter choice against the current game mode.
     pub fn recipe_filtering(&self, player_runtime: &player_state::PlayerState) -> bool {
-        self.screen_state().recipe_filtering.unwrap_or(
-            player_runtime.facts.player_game_mode() != Some(protocol::PlayerGameMode::Creative),
-        )
+        if let Some(options) = self.furnace_options(player_runtime) {
+            return options.filtering;
+        }
+        self.inventory_controller(player_runtime)
+            .is_some_and(|controller| controller.options.filtering)
+            && player_runtime.facts.player_game_mode() != Some(protocol::PlayerGameMode::Creative)
     }
 
     /// Projects one recipe-book page using the screen's filter choice.
@@ -52,9 +55,12 @@ impl UiRuntime {
         player_runtime: &player_state::PlayerState,
         skip: usize,
         take: usize,
-    ) -> Vec<RecipeHandle> {
-        player_runtime
-            .inventory
-            .book_recipes(self.recipe_filtering(player_runtime), skip, take)
+    ) -> Vec<inventory::BookRecipe> {
+        player_runtime.inventory.book_recipes(
+            self.recipe_filtering(player_runtime),
+            !self.screen_state().search.is_empty(),
+            skip,
+            take,
+        )
     }
 }

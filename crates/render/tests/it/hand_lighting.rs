@@ -158,10 +158,9 @@ fn java_hand_lights_normals_and_composes_texture_in_gamma() {
                     .to_array(); 3];
             }
             let light = gpu.buffer(bytemuck::cast_slice(&[light]), wgpu::BufferUsages::UNIFORM);
-            let lightmap = gpu.buffer(
-                bytemuck::cast_slice(&[[world_light, world_light, world_light, 1.0]; 256]),
-                wgpu::BufferUsages::UNIFORM,
-            );
+            let lightmap = gpu.lightmap(bytemuck::cast_slice(
+                &[[world_light, world_light, world_light, 1.0]; 256],
+            ));
             let buffers = [
                 (0, &projection),
                 (2, &vertices),

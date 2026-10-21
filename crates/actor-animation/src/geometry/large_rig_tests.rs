@@ -7,7 +7,7 @@ fn compiled_display(bone_count: usize) -> assets::CompiledEntityAssets {
     compiled.symbols[4].identifier = "minecraft:test".into();
     compiled.symbols.rotate_right(1);
     compiled.rig_bindings[0].entity_symbol = 0;
-    compiled.rig_bindings[0].render_controller = 3;
+    compiled.rig_bindings[0].render_controller = Some(3);
     compiled.rig_bindings[0].pre_animation = None;
     compiled.animation_clips[0].symbol = 2;
     let template = compiled.geometries[0].bones[0].clone();

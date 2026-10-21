@@ -127,6 +127,26 @@ fn commit_within(state: &mut OrderedCommitState, budget: CommitBudget) -> Option
 }
 
 #[test]
+fn skin_updates_keep_wire_order_with_control_events() {
+    let skin = WorldEvent::Actor(ActorEvent::Skin {
+        uuid: [0; 16],
+        skin: protocol::PlayerSkin::Unavailable(protocol::PlayerSkinUnavailable::InvalidDimensions),
+    });
+    let clock = WorldEvent::SetTime(protocol::SetTimeEvent { time: 6000 });
+    for events in [[clock.clone(), skin.clone()], [skin, clock]] {
+        let mut state = OrderedCommitState::new(1);
+        admit(&mut state, 1, events[0].clone(), false);
+        admit(&mut state, 2, events[1].clone(), true);
+        assert!(state.next_commit().is_none());
+        state
+            .insert_ready(1, PreparedWorldEvent::Immediate(events[0].clone()))
+            .unwrap();
+        assert_eq!(commit_one(&mut state), Some(1));
+        assert_eq!(commit_one(&mut state), Some(2));
+    }
+}
+
+#[test]
 fn latency_reply_waits_for_actor_movement_and_blocks_later_movement() {
     let mut state = OrderedCommitState::new(1);
     admit(&mut state, 1, actor_move(9), false);
@@ -734,4 +754,88 @@ fn retained_light_ingress_credits_are_bounded_and_reusable() {
         0,
         "consumer fanout still counts against admission"
     );
+}
+
+/// Constructs the player packet whose local identity decides retention and control dependencies.
+fn player_move(runtime_id: u64, mode: protocol::MovePlayerMode) -> WorldEvent {
+    WorldEvent::MovePlayer(protocol::MovePlayerEvent {
+        runtime_id,
+        mode,
+        ..Default::default()
+    })
+}
+
+/// A remote player never owns local retention, whatever MovePlayer mode the server sends.
+#[test]
+fn remote_player_moves_pass_unrelated_terrain_in_actor_order() {
+    for mode in [
+        protocol::MovePlayerMode::Normal,
+        protocol::MovePlayerMode::Reset,
+        protocol::MovePlayerMode::Teleport,
+        protocol::MovePlayerMode::Rotation,
+    ] {
+        for couple_position in [false, true] {
+            let mut state = OrderedCommitState::new(1);
+            admit(&mut state, 1, level_chunk(0), false);
+            admit(&mut state, 2, player_move(9, mode), true);
+            admit(&mut state, 3, actor_move(9), true);
+            let budget = CommitBudget {
+                couple_position,
+                ..CommitBudget::UNLIMITED
+            };
+            assert_eq!(commit_within(&mut state, budget), Some(2), "{mode:?}");
+            assert_eq!(commit_within(&mut state, budget), Some(3), "{mode:?}");
+            assert_eq!(state.committed_sequence(), 0);
+        }
+    }
+}
+
+/// Unrelated block mutations do not delay a remote player's packet or later actor traffic.
+#[test]
+fn remote_player_moves_pass_unrelated_block_mutations() {
+    let mut state = OrderedCommitState::new(1);
+    admit(&mut state, 1, block_update(0), false);
+    admit(
+        &mut state,
+        2,
+        player_move(9, protocol::MovePlayerMode::Normal),
+        true,
+    );
+    admit(&mut state, 3, actor_move(9), true);
+    assert_eq!(commit_one(&mut state), Some(2));
+    assert_eq!(commit_one(&mut state), Some(3));
+    assert_eq!(state.committed_sequence(), 0);
+}
+
+/// Remote player packets still wait for earlier actor work on their shared ordered store.
+#[test]
+fn remote_player_moves_preserve_actor_dependencies() {
+    let mut state = OrderedCommitState::new(1);
+    admit(&mut state, 1, actor_move(9), false);
+    admit(
+        &mut state,
+        2,
+        player_move(9, protocol::MovePlayerMode::Normal),
+        true,
+    );
+    assert!(state.next_commit().is_none());
+    state
+        .insert_ready(1, PreparedWorldEvent::Immediate(actor_move(9)))
+        .unwrap();
+    assert_eq!(commit_one(&mut state), Some(1));
+    assert_eq!(commit_one(&mut state), Some(2));
+}
+
+/// Local teleports retain their terrain fence and local moves retain their mutation fence.
+#[test]
+fn local_player_moves_keep_terrain_and_mutation_dependencies() {
+    for (earlier, mode) in [
+        (level_chunk(0), protocol::MovePlayerMode::Teleport),
+        (block_update(0), protocol::MovePlayerMode::Normal),
+    ] {
+        let mut state = OrderedCommitState::new(1);
+        admit(&mut state, 1, earlier, false);
+        admit(&mut state, 2, player_move(1, mode), true);
+        assert!(state.next_commit().is_none(), "{mode:?}");
+    }
 }

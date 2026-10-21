@@ -2,6 +2,7 @@
 //! not a Bedrock parity screen; its visual reference is the supplied 19w05a image.
 
 use crate::runtime::network::resource_packs::PackApplication;
+use client_presentation::environment::{WeatherState, WorldClock};
 use client_runtime::network::NetworkHandle;
 mod bindings;
 mod details;
@@ -30,10 +31,7 @@ use render_scene::{
 use client_shell::ui_resources::UiPresentationResource;
 use client_ui::ui_runtime::presentation::DebugLines;
 use {
-    crate::{
-        environment::{WeatherState, WorldClock},
-        runtime::{shutdown::FatalError, visibility::CaveVisibilityCache, world::ClientWorld},
-    },
+    crate::runtime::{shutdown::FatalError, visibility::CaveVisibilityCache, world::ClientWorld},
     client_interaction::movement::{
         LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries,
     },

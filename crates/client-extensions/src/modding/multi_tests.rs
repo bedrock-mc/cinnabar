@@ -153,6 +153,81 @@ fn a_set_loads_every_valid_component_in_order_and_skips_broken_ones() {
     assert!(runtime.reserved_keys().is_empty());
 }
 
+/// Loads three distinct panel publishers so selection can be followed through order changes.
+fn panel_hosts(directory: &Path) -> ModHosts {
+    let mut runtime = load_set(
+        ["first.wat", "second.wat", "third.wat"]
+            .into_iter()
+            .map(|name| {
+                (
+                    component(directory, name),
+                    ModGrants {
+                        controls: true,
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect(),
+    );
+    for (index, key) in ["KeyA", "KeyB", "KeyC"].into_iter().enumerate() {
+        let bundle = serde_json::json!({
+            "panel": {"title":key, "toggle_key":key, "dark":true, "controls":[]},
+            "surfaces":{}
+        });
+        runtime
+            .host_mut(index)
+            .set_panel_bundle(&bundle.to_string())
+            .unwrap();
+    }
+    runtime
+}
+
+#[test]
+fn removing_the_first_host_keeps_surviving_order_and_selected_panel() {
+    let directory = tempfile::tempdir().unwrap();
+    for (key, selected) in [("KeyA", 0), ("KeyB", 0), ("KeyC", 1)] {
+        let mut runtime = panel_hosts(directory.path());
+        runtime.select_panel(&[key.into()]);
+        let removed = runtime.remove(0);
+        assert_eq!(removed.panel().unwrap().toggle_key, "KeyA");
+        assert_eq!(runtime.host_count(), 2);
+        assert_eq!(runtime.host(0).panel().unwrap().toggle_key, "KeyB");
+        assert_eq!(runtime.host(1).panel().unwrap().toggle_key, "KeyC");
+        assert_eq!(runtime.panel_owner(), selected);
+    }
+}
+
+#[test]
+fn reordering_hosts_keeps_panel_selection_on_its_instance() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = panel_hosts(directory.path());
+    assert!(runtime.select_panel(&["KeyC".into()]));
+    runtime.host_mut(2).set_panel_open(true);
+    runtime.swap(0, 2);
+    assert_eq!(runtime.panel_owner(), 0);
+    assert!(runtime.host(0).panel_open());
+    runtime.swap(1, 0);
+    assert_eq!(runtime.panel_owner(), 1);
+    assert!(runtime.host(1).panel_open());
+    runtime.remove(2);
+    assert_eq!(runtime.panel_owner(), 1);
+    runtime.remove(0);
+    assert_eq!(runtime.panel_owner(), 0);
+    assert_eq!(runtime.host(0).panel().unwrap().toggle_key, "KeyC");
+    assert!(runtime.host(0).panel_open());
+}
+
+#[test]
+#[should_panic(expected = "a mod host collection must stay nonempty")]
+fn removing_the_last_host_is_rejected() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = load_set(vec![(
+        component(directory.path(), "only.wat"),
+        ModGrants::default(),
+    )]);
+    runtime.remove(0);
+}
+
 /// A guest that labels, sets time, a rig and a command, emits a cue, and checks polled cues.
 struct Probe {
     label: &'static str,
@@ -440,10 +515,7 @@ fn load_set(mods: Vec<(PathBuf, ModGrants)>) -> ModHosts {
             .collect(),
     )
     .into_iter();
-    ModHosts::new(
-        hosts.next().unwrap(),
-        hosts.map(|host| Companion { host }).collect(),
-    )
+    ModHosts::new(hosts.next().unwrap(), hosts.collect())
 }
 
 #[test]
@@ -531,6 +603,7 @@ fn hud_host(root: &Path, name: &str, json: &str) -> ModHost {
         &path,
         ModGrants {
             hud: true,
+            player_state: true,
             ..Default::default()
         },
     )
@@ -575,11 +648,9 @@ fn merged_huds_admit_whole_cards_within_aggregate_row_and_cell_limits() {
             serde_json::json!({"id":"small","rows":[],"cells":[{"label":"cell"}]})
         });
         let lower = serde_json::json!({"cards":lower_cards}).to_string();
-        let runtime = ModHosts::new(
+        let mut runtime = ModHosts::new(
             hud_host(directory.path(), "a.wat", &higher),
-            vec![Companion {
-                host: hud_host(directory.path(), "b.wat", &lower),
-            }],
+            vec![hud_host(directory.path(), "b.wat", &lower)],
         );
         for index in 0..runtime.host_count() {
             runtime.host(index).hud().unwrap().validate().unwrap();
@@ -594,4 +665,50 @@ fn merged_huds_admit_whole_cards_within_aggregate_row_and_cell_limits() {
         assert_eq!(merged.cards.last().unwrap().id, "small");
         assert_eq!(merged.cards.len(), total / per_card + 1);
     }
+}
+
+/// Compass admission preserves precedence and still admits unrelated cards after overflow.
+#[test]
+fn merged_huds_keep_the_aggregate_compass_budget() {
+    use ui::mod_hud::MAX_HUD_COMPASSES;
+
+    let directory = tempfile::tempdir().unwrap();
+    let compass = |id: String| {
+        serde_json::json!({
+            "id": id, "rows": [], "width": ui::mod_hud::COMPASS_MIN_WIDTH, "compass": {}
+        })
+    };
+    let higher = serde_json::json!({"cards": (0..MAX_HUD_COMPASSES - 1)
+        .map(|index| compass(format!("higher_{index}"))).collect::<Vec<_>>()});
+    let lower = serde_json::json!({"cards": [
+        compass("higher_0".into()), compass("last_compass".into()),
+        compass("excess_compass".into()), {"id": "ordinary", "rows": []}
+    ]});
+    let last = serde_json::json!({"cards": [
+        compass("also_excess".into()), {"id": "last_ordinary", "rows": []}
+    ]});
+    let mut runtime = ModHosts::new(
+        hud_host(directory.path(), "higher.wat", &higher.to_string()),
+        vec![
+            hud_host(directory.path(), "lower.wat", &lower.to_string()),
+            hud_host(directory.path(), "last.wat", &last.to_string()),
+        ],
+    );
+    for index in 0..runtime.host_count() {
+        runtime.host(index).hud().unwrap().validate().unwrap();
+    }
+    let merged = runtime.merged_hud().unwrap();
+    merged.validate().unwrap();
+    let mut expected = (0..MAX_HUD_COMPASSES - 1)
+        .map(|index| format!("higher_{index}"))
+        .collect::<Vec<_>>();
+    expected.extend(["last_compass", "ordinary", "last_ordinary"].map(str::to_owned));
+    assert_eq!(
+        merged
+            .cards
+            .iter()
+            .map(|card| card.id.clone())
+            .collect::<Vec<_>>(),
+        expected
+    );
 }

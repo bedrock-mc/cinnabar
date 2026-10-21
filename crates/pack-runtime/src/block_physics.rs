@@ -1,15 +1,14 @@
 use std::sync::Arc;
 
-use pack_entity_compiler::{BlockMolang, BlockStateValue};
-use protocol::{
-    CustomBlock, CustomBlockPhysics, CustomBlocks, CustomPhysicalComponents, CustomStateValue,
-};
+use pack_entity_compiler::BlockMolang;
+use protocol::{CustomBlock, CustomBlockPhysics, CustomBlocks, CustomPhysicalComponents};
 
 /// Bounds materialized state records across a session without allocating the reserve.
 const MAX_RESOLVED_PHYSICS_STATES: usize = 1 << 18;
 
 type Condition<'a> = (BlockMolang, &'a CustomPhysicalComponents);
 
+/// Parses only conditions that can change physical components.
 fn conditions(block: &CustomBlock) -> (Vec<Condition<'_>>, usize) {
     let mut skipped = 0;
     let conditions = block
@@ -18,12 +17,7 @@ fn conditions(block: &CustomBlock) -> (Vec<Condition<'_>>, usize) {
         .iter()
         .filter_map(|permutation| {
             let physical = &permutation.physical;
-            if physical.collision.is_none()
-                && physical.selection.is_none()
-                && physical.random_offset.is_none()
-                && physical.transformation.is_none()
-                && physical.friction.is_none()
-            {
+            if !physical.affects_physics() {
                 return None;
             }
             match BlockMolang::parse(&permutation.condition) {
@@ -38,30 +32,21 @@ fn conditions(block: &CustomBlock) -> (Vec<Condition<'_>>, usize) {
     (conditions, skipped)
 }
 
+/// Resolves one physical state and records conditions whose values are unknown.
 fn evaluate(
     block: &CustomBlock,
     state: u32,
     conditions: &[Condition<'_>],
+    complete: &mut bool,
 ) -> Option<CustomBlockPhysics> {
     let values = block.state_values(state)?;
-    let query = |name: &str| {
-        let index = block
-            .visual
-            .state_axes
-            .iter()
-            .position(|axis| axis.name.as_ref() == name)?;
-        Some(match &values[index] {
-            CustomStateValue::String(value) => BlockStateValue::String(value),
-            CustomStateValue::Int(value) => BlockStateValue::Number(*value as f32),
-            CustomStateValue::Bool(value) => BlockStateValue::Number(f32::from(*value)),
-        })
-    };
     let mut physics = block.base_physics();
     for (condition, physical) in conditions {
-        if !condition
-            .evaluate(&query)
-            .is_some_and(|value| value.is_finite() && value != 0.0)
-        {
+        let Some(value) = crate::block_condition::evaluate(condition, block, &values) else {
+            *complete = false;
+            continue;
+        };
+        if value == 0.0 {
             continue;
         }
         if let Some(collision) = &physical.collision {
@@ -89,26 +74,35 @@ pub(crate) fn resolve(blocks: &mut CustomBlocks) {
     resolve_bounded(blocks, MAX_RESOLVED_PHYSICS_STATES);
 }
 
+/// Retains the physical reservation independently of other state consumers.
 fn resolve_bounded(blocks: &mut CustomBlocks, mut remaining: usize) {
     for block in Arc::make_mut(&mut blocks.blocks) {
+        block.state_physics_complete = false;
         if block.visual.materialization_disabled {
             continue;
         }
         let (conditions, skipped) = conditions(block);
         blocks.skipped += skipped;
         if conditions.is_empty() {
+            block.state_physics_complete = !block.visual.components_incomplete && skipped == 0;
             continue;
         }
         if block.visual.state_identity_incomplete || block.state_count as usize > remaining {
             blocks.skipped += 1;
             continue;
         }
+        let mut evaluated = true;
         let resolved = (0..block.state_count)
-            .map(|state| evaluate(block, state, &conditions))
+            .map(|state| evaluate(block, state, &conditions, &mut evaluated))
             .collect::<Option<Vec<_>>>();
+        if !evaluated {
+            blocks.skipped += 1;
+        }
         if let Some(resolved) = resolved {
             remaining -= resolved.len();
             block.state_physics = resolved.into();
+            block.state_physics_complete =
+                !block.visual.components_incomplete && skipped == 0 && evaluated;
         } else {
             blocks.skipped += 1;
         }
@@ -125,7 +119,9 @@ fn state_physics(
     protocol::CustomSelection,
 ) {
     let (conditions, _) = conditions(block);
-    let physics = evaluate(block, state, &conditions).unwrap_or_else(|| block.base_physics());
+    let mut complete = true;
+    let physics =
+        evaluate(block, state, &conditions, &mut complete).unwrap_or_else(|| block.base_physics());
     (physics.collides, physics.collision_boxes, physics.selection)
 }
 

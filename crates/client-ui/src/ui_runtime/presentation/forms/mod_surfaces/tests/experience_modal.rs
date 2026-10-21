@@ -155,6 +155,57 @@ fn open_search() -> (screen::Modal, Arc<screen::Files>) {
     (modal, Arc::new(files(&[("ui/terminal.json", SEARCH)])))
 }
 
+/// The `#item_id_aux` keys a client part binds in its rows are the ones its item renderers draw.
+#[test]
+fn bound_item_keys_are_the_modal_icon_keys() {
+    let (mut modal, files) = open_search();
+    let row =
+        |key: i64| screen::Row::from([("#item_id_aux".to_owned(), screen::Value::Integer(key))]);
+    modal
+        .collections
+        .insert("items".into(), Arc::from([row(1 << 16), row(5 << 16 | 2)]));
+    let presentation = drawn(&modal, &files, [1280, 720]);
+    let keys = presentation.mod_ui().experience_modal_icon_keys().unwrap();
+    assert_eq!(
+        keys.iter().copied().collect::<Vec<_>>(),
+        [1 << 16, 5 << 16 | 2]
+    );
+}
+
+/// A terminal with the player's hotbar and inventory rows at the top left, 18 GUI units a slot,
+/// each a button as vanilla's container cells are.
+const SLOTS: &str = r#"{"namespace": "demo",
+    "terminal": {"type": "panel", "size": ["100%", "100%"], "controls": [
+        {"hotbar": {"type": "grid", "size": [162, 18], "offset": [0, 0],
+            "anchor_from": "top_left", "anchor_to": "top_left", "grid_dimensions": [9, 1],
+            "collection_name": "hotbar_items", "grid_item_template": "demo.cell"}},
+        {"inventory": {"type": "grid", "size": [162, 54], "offset": [0, 20],
+            "anchor_from": "top_left", "anchor_to": "top_left", "grid_dimensions": [9, 3],
+            "collection_name": "inventory_items", "grid_item_template": "demo.cell"}}]},
+    "cell": {"type": "button", "size": [18, 18], "button_mappings": [
+        {"from_button_id": "button.menu_select", "to_button_id": "button.container_slot", "mapping_type": "pressed"}],
+        "controls": [
+        {"item": {"type": "custom", "renderer": "inventory_item_renderer", "size": [16, 16]}}]}}"#;
+
+/// A hotbar key acts on the modal's player slot under the pointer, as in a container screen: a
+/// hotbar row is that hotbar slot and an inventory row the main inventory slot after it.
+#[test]
+fn modal_inventory_rows_hit_their_player_slots() {
+    use ui_screens::container_actions::InventoryCellHit;
+    let mut modal = screen::Modal::default();
+    modal.open(Some("ui/terminal.json".into()));
+    let files = Arc::new(files(&[("ui/terminal.json", SLOTS)]));
+    let presentation = drawn(&modal, &files, [1280, 720]);
+    let scale = presentation.mod_ui().experience_modal_size().unwrap().scale as f32;
+    let at = |x: f32, y: f32| presentation.experience_modal_inventory_hit([x * scale, y * scale]);
+    assert_eq!(at(2.0 * 18.0 + 9.0, 9.0), Some(InventoryCellHit::Player(2)));
+    assert_eq!(
+        at(18.0 + 9.0, 20.0 + 18.0 + 9.0),
+        Some(InventoryCellHit::Player(19))
+    );
+    assert_eq!(at(400.0, 400.0), None);
+}
+
 /// The drawn modal's size is its root's, in GUI units, with the GUI scale that maps them onto the
 /// window; a resize changes it, and a closed modal has none.
 #[test]
@@ -359,6 +410,208 @@ fn typed_text_draws_in_the_box() {
         drawn.iter().any(|text| text.starts_with("iron")),
         "{drawn:?}"
     );
+}
+
+/// The texts the last frame drew.
+fn drawn_texts(presentation: &UiPresentationRuntime) -> Vec<String> {
+    presentation
+        .last_frame
+        .as_ref()
+        .expect("a frame")
+        .nodes
+        .iter()
+        .filter_map(|node| match node.visual() {
+            ui::UiVisual::Text { layout, .. } => Some(
+                layout
+                    .glyphs()
+                    .iter()
+                    .map(|glyph| glyph.codepoint)
+                    .collect(),
+            ),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A selected box draws vanilla's caret after its text, blinking on the edit component's
+/// interval and shown again by each edit; a deselected box draws none.
+#[test]
+fn a_selected_box_draws_a_blinking_caret() {
+    let (modal, files) = open_search();
+    let mut presentation = drawn(&modal, &files, [1280, 720]);
+    let scale = presentation.mod_ui().experience_modal_size().unwrap().scale as f32;
+    let inside = Some([10.0 * scale, 10.0 * scale]);
+    let none: Vec<String> = Vec::new();
+    let caret = format!("iron{}", json_ui::CARET_GLYPH);
+    let at = |presentation: &mut UiPresentationRuntime, typed: &[String], escape, now| {
+        presentation
+            .mod_ui_mut()
+            .edit_experience_modal(inside, false, typed, escape, now);
+        redraw(presentation, &modal, &files, [1280, 720]);
+        drawn_texts(presentation)
+    };
+    presentation
+        .mod_ui_mut()
+        .edit_experience_modal(inside, true, &none, false, 0.0);
+    let typed = at(&mut presentation, &["iron".to_owned()], false, 0.05);
+    assert!(typed.contains(&caret), "{typed:?}");
+    let blinked = at(
+        &mut presentation,
+        &none,
+        false,
+        0.05 + json_ui::CARET_BLINK_SECONDS * 1.5,
+    );
+    assert!(blinked.iter().any(|text| text == "iron"), "{blinked:?}");
+    let back = at(
+        &mut presentation,
+        &none,
+        false,
+        0.05 + json_ui::CARET_BLINK_SECONDS * 2.5,
+    );
+    assert!(back.contains(&caret), "{back:?}");
+    let escaped = at(&mut presentation, &none, true, 1.0);
+    assert!(!escaped.contains(&caret), "{escaped:?}");
+    assert!(escaped.iter().any(|text| text == "iron"), "{escaped:?}");
+}
+
+/// A search field built on vanilla's `common.text_edit_box`, clipped and right-anchored as a
+/// terminal's search is.
+const VANILLA_SEARCH: &str = r#"{"namespace": "demo",
+    "terminal": {"type": "panel", "size": ["100%", "100%"], "controls": [
+        {"search@common.text_edit_box": {"anchor_from": "top_left", "anchor_to": "top_left",
+            "size": [89, 12], "max_length": 25,
+            "$text_box_name": "demo.search",
+            "$text_edit_clipping_panel_size": [79, "100%"],
+            "$text_edit_box_label_anchor_point": "top_right"}}]}}"#;
+
+/// A terminal's search field as a client part writes it: inside an offset `input_panel`, on
+/// vanilla's `common.text_edit_box` with its own background, colours, offset and button mappings.
+/// Vanilla's box clips its text to its height less 4px, which in a 12-unit box cuts off the caret
+/// below the baseline, so the clipper is 2px taller and the label 1px lower, keeping the text put.
+const TERMINAL_SEARCH: &str = r#"{"namespace": "demo",
+    "terminal": {"type": "panel", "size": ["100%", "100%"], "controls": [
+        {"screen@demo.screen": {}}]},
+    "screen": {"type": "input_panel", "size": [195, 152], "offset": [40, 30],
+        "anchor_from": "top_left", "anchor_to": "top_left", "layer": 1,
+        "controls": [{"search@demo.search": {}}]},
+    "search@common.text_edit_box": {
+        "anchor_from": "top_left", "anchor_to": "top_left", "offset": [80, 4], "size": [89, 12],
+        "layer": 2, "max_length": 25,
+        "$text_box_name": "demo.search",
+        "$place_holder_text": "Search...",
+        "$place_holder_text_color": [0.8706, 0.8745, 0.8902],
+        "$text_box_text_color": [1, 1, 1],
+        "$text_offset": [-1, 0],
+        "$text_edit_clipping_panel_size": [79, "100% + 2px"],
+        "$text_edit_box_label_offset": [0, 1],
+        "$text_edit_box_label_anchor_point": "top_right",
+        "$text_background_default": "demo.search_field",
+        "$text_background_hover": "demo.search_field",
+        "button_mappings": [
+            {"from_button_id": "button.menu_select", "to_button_id": "$text_edit_box_selected_to_button_id", "handle_select": true, "handle_deselect": false, "mapping_type": "pressed"},
+            {"from_button_id": "button.menu_select", "to_button_id": "$text_edit_box_selected_to_button_id", "handle_select": false, "handle_deselect": true, "mapping_type": "global", "consume_event": false},
+            {"from_button_id": "button.menu_ok", "to_button_id": "$text_edit_box_selected_to_button_id", "handle_select": true, "handle_deselect": true, "mapping_type": "pressed"},
+            {"from_button_id": "button.menu_ok", "to_button_id": "$text_edit_box_selected_to_button_id", "handle_select": false, "handle_deselect": true, "mapping_type": "global"},
+            {"from_button_id": "button.menu_cancel", "to_button_id": "$text_edit_box_deselected_to_button_id", "handle_select": false, "handle_deselect": true, "mapping_type": "global"},
+            {"to_button_id": "$text_edit_box_hovered_button_id", "mapping_type": "pressed"},
+            {"from_button_id": "$text_edit_box_clear_from_button_id", "to_button_id": "$text_edit_box_clear_to_button_id", "handle_select": false, "handle_deselect": false, "mapping_type": "focused"},
+            {"from_button_id": "button.menu_secondary_select", "to_button_id": "demo.search", "mapping_type": "pressed"}]},
+    "search_field": {"type": "panel", "size": [89, 12]}}"#;
+
+/// Whether `text`'s last glyph, the caret, lies inside the panel that clips it.
+fn caret_in_clip(presentation: &UiPresentationRuntime, text: &str) -> bool {
+    let nodes = &presentation.last_frame.as_ref().expect("a frame").nodes;
+    nodes.iter().any(|node| {
+        let ui::UiVisual::Text { layout, .. } = node.visual() else {
+            return false;
+        };
+        let glyphs = layout.glyphs();
+        if glyphs
+            .iter()
+            .map(|glyph| glyph.codepoint)
+            .collect::<String>()
+            != text
+        {
+            return false;
+        }
+        let Some(clip) = node
+            .parent()
+            .and_then(|id| nodes.iter().find(|n| n.id() == id))
+        else {
+            return false;
+        };
+        let caret = glyphs.last().expect("the caret glyph");
+        let bottom = node.bounds().min().y() + caret.bounds_64[3] as f32 / 64.0;
+        bottom <= clip.bounds().height()
+    })
+}
+
+/// The terminal's search field draws the caret after what was typed, as the driver feeds it:
+/// one edit pass per frame on an advancing clock.
+#[test]
+fn a_terminal_search_field_draws_its_caret() {
+    let Some(mut presentation) = super::super::super::pack_harness::engine_presentation() else {
+        return;
+    };
+    let mut modal = screen::Modal::default();
+    modal.open(Some("ui/terminal.json".into()));
+    let files = Arc::new(files(&[("ui/terminal.json", TERMINAL_SEARCH)]));
+    redraw(&mut presentation, &modal, &files, [1280, 720]);
+    let scale = presentation.mod_ui().experience_modal_size().unwrap().scale as f32;
+    let inside = Some([(40.0 + 120.0) * scale, (30.0 + 9.0) * scale]);
+    let none: Vec<String> = Vec::new();
+    let caret = format!("ston{}", json_ui::CARET_GLYPH);
+    let mut now = 0.0;
+    let mut frame = |presentation: &mut UiPresentationRuntime,
+                     modal: &screen::Modal,
+                     pressed,
+                     typed: &[String]| {
+        now += 1.0 / 60.0;
+        let edits = presentation
+            .mod_ui_mut()
+            .edit_experience_modal(inside, pressed, typed, false, now);
+        redraw(presentation, modal, &files, [1280, 720]);
+        (edits, drawn_texts(presentation))
+    };
+    frame(&mut presentation, &modal, true, &none);
+    let (edits, texts) = frame(&mut presentation, &modal, false, &["ston".to_owned()]);
+    assert_eq!(edits.edits, [("demo.search".to_owned(), "ston".to_owned())]);
+    assert!(texts.contains(&caret), "{texts:?}");
+    assert!(caret_in_clip(&presentation, &caret));
+    // The client part answers the edit by binding new values, as a terminal filtering its list
+    // does; the box keeps its selection and caret.
+    modal.set_value("#shown".into(), screen::Value::Integer(3));
+    let (_, texts) = frame(&mut presentation, &modal, false, &none);
+    assert!(texts.contains(&caret), "{texts:?}");
+}
+
+/// Vanilla's own edit box draws the caret after the typed text too.
+#[test]
+fn a_selected_vanilla_box_draws_its_caret() {
+    let Some(mut presentation) = super::super::super::pack_harness::engine_presentation() else {
+        return;
+    };
+    let mut modal = screen::Modal::default();
+    modal.open(Some("ui/terminal.json".into()));
+    let files = Arc::new(files(&[("ui/terminal.json", VANILLA_SEARCH)]));
+    redraw(&mut presentation, &modal, &files, [1280, 720]);
+    let scale = presentation.mod_ui().experience_modal_size().unwrap().scale as f32;
+    let inside = Some([40.0 * scale, 6.0 * scale]);
+    let none: Vec<String> = Vec::new();
+    presentation
+        .mod_ui_mut()
+        .edit_experience_modal(inside, true, &none, false, 0.0);
+    presentation.mod_ui_mut().edit_experience_modal(
+        inside,
+        false,
+        &["iron".to_owned()],
+        false,
+        0.05,
+    );
+    redraw(&mut presentation, &modal, &files, [1280, 720]);
+    let texts = drawn_texts(&presentation);
+    let caret = format!("iron{}", json_ui::CARET_GLYPH);
+    assert!(texts.contains(&caret), "{texts:?}");
 }
 
 /// A list 100 GUI units wide whose 50-unit viewport scrolls 400 units of content, at the top

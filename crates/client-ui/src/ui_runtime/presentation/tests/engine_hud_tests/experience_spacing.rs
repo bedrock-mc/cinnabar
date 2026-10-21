@@ -21,18 +21,24 @@ fn level_gap(
         })
         .expect("visible level label");
     let bar = named(nodes, "empty_progress_bar")[0];
-    let green: Vec<_> = input
-        .vertices
-        .as_chunks::<4>()
-        .0
+    let quads: Vec<_> = input
+        .batches
+        .iter()
+        .flat_map(|batch| {
+            input.indices
+                [batch.first_index as usize..(batch.first_index + batch.index_count) as usize]
+                .as_chunks::<6>()
+                .0
+        })
+        .filter(|indices| indices[0] == indices[3] && indices[2] == indices[4])
+        .map(|indices| [0, 1, 2, 5].map(|corner| input.vertices[indices[corner] as usize]))
+        .collect();
+    let green: Vec<_> = quads
         .iter()
         .filter(|quad| quad.iter().all(|vertex| vertex.color == color))
         .collect();
     assert!(!green.is_empty(), "the level must paint visible glyphs");
-    let bottom = input
-        .vertices
-        .as_chunks::<4>()
-        .0
+    let bottom = quads
         .iter()
         .filter(|quad| {
             green.iter().any(|glyph| {
@@ -57,11 +63,25 @@ fn level_gap(
 fn experience_level_glyphs_leave_a_gap_above_the_bar() {
     let mut player = player_state::PlayerState::new(1);
     let snapshots = std::env::var_os("CINNABAR_FORM_SNAPSHOT_DIR").is_some();
-    let font = if snapshots {
-        super::super::super::forms::pack_harness::font()
-    } else {
-        ui_engine::test_support::fixture_font()
+    let font_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(assets::carriers::COMPILED_DIR)
+        .join(assets::carriers::FONT.output);
+    let font_bytes = match std::fs::read(&font_path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!(
+                "skipping experience_level_glyphs_leave_a_gap_above_the_bar: missing font fixture {}; run make assets",
+                font_path.display()
+            );
+            return;
+        }
+        Err(error) => panic!("read {}: {error}", font_path.display()),
     };
+    let manifest = assets::canonical_source_manifest_sha256(
+        assets::carriers::FONT.font_face.unwrap().manifest,
+    );
+    let font = Arc::new(assets::RuntimeFontCatalog::decode(&font_bytes, manifest).unwrap());
     let Some(carrier) = ui_engine::test_support::carrier() else {
         eprintln!(
             "skipping experience_level_glyphs_leave_a_gap_above_the_bar: missing UI carrier; make assets"

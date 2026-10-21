@@ -31,10 +31,19 @@ pub struct WornItem {
     pub damage: Option<u32>,
     pub kind: HeldKind,
     pub dye_rgb: Option<u32>,
-    /// Enables the resource pack's enchanted material on worn equipment.
+    /// Actual stack enchantment state used by semantic item queries.
     pub enchanted: bool,
+    /// Intrinsic shine admitted independently of stack enchantments.
+    pub glint: assets::item::glint::ItemGlint,
     /// Data value, block and tags whose change re-equips a held stack.
     pub variant: actor_animation::StackVariant,
+}
+
+impl WornItem {
+    /// Combines actual enchantments with the admitted intrinsic choice for visual shine.
+    pub fn has_glint(&self) -> bool {
+        self.enchanted || self.glint.enabled().unwrap_or(false)
+    }
 }
 
 /// How a held stack is drawn.
@@ -53,7 +62,7 @@ pub(super) enum MeshKey {
     Block(u32),
     /// A session icon, by its index in the session layer.
     Session(usize),
-    /// A session custom block item's cube sheet, by its index in the session layer.
+    /// A session custom block item's material sheet, by its index in the session layer.
     SessionBlock(usize),
 }
 
@@ -83,6 +92,12 @@ pub struct JavaGrip {
 pub struct EquipmentPresentation {
     pub submission: ActorRigSubmission,
     pub location: ActorArtworkLocation,
+}
+
+/// Drawn equipment and the chest routing decision used by later cape composition.
+pub struct EquipmentLayers<'a> {
+    pub layers: &'a mut [EquipmentPresentation],
+    pub wearing_elytra: bool,
 }
 
 /// An ordinary item already in camera space, or an attachable on the avatar skeleton.
@@ -134,6 +149,7 @@ pub struct EquipmentAnimation<'a> {
     pub delta_seconds: f32,
 }
 
+#[derive(Clone, Eq, PartialEq)]
 pub(super) struct BodyBones {
     pub(super) names: Vec<Box<str>>,
     pub(super) right_arm: Option<usize>,
@@ -147,4 +163,62 @@ pub(in crate::presentation::equipment) struct ArmorGeometry {
     pub(super) names: Vec<Box<str>>,
     pub(super) pivots: Vec<[f32; 3]>,
     pub(super) binding_expressions: Vec<bool>,
+}
+
+/// A controller's armour draw, including poses for bones absent from the owner's model.
+pub(super) struct WornRender {
+    pub texture: Box<str>,
+    pub geometry: Box<str>,
+    pub layer: actor_animation::RenderTextureLayer,
+    pub pose: Arc<[render_model::RenderBoneTransform]>,
+}
+
+impl EquipmentAnimation<'_> {
+    /// Supplies held selection and animation with identical hand, owner and use inputs.
+    pub(super) fn held_input<'a>(
+        self,
+        equipment: &'a ActorEquipmentInput,
+        off_hand: bool,
+    ) -> actor_animation::AttachableAnimationInput<'a> {
+        actor_animation::AttachableAnimationInput {
+            off_hand,
+            held_item_scale: self.rig.held_item_scale,
+            worn: false,
+            ..self.worn_input(equipment, assets::ArmorSlot::Helmet, &[])
+        }
+    }
+
+    /// Supplies the same main-hand use clock to worn selection and controller evaluation.
+    pub(super) fn worn_input<'a>(
+        self,
+        equipment: &'a ActorEquipmentInput,
+        slot: assets::ArmorSlot,
+        variables: &'a [(&'a str, f32)],
+    ) -> actor_animation::AttachableAnimationInput<'a> {
+        let elapsed = self
+            .owner
+            .is_using_item()
+            .then_some(self.rig.hand[1].use_ticks);
+        let use_facts = equipment
+            .main
+            .as_ref()
+            .map(|main| main.use_facts)
+            .unwrap_or_default();
+        let duration = use_facts.ticks.unwrap_or_default();
+        equipment.attachable_input(actor_animation::AttachableAnimationInput {
+            worn: true,
+            worn_slot: slot as u8,
+            frame_alpha: self.frame_alpha,
+            delta_seconds: Some(self.delta_seconds),
+            use_elapsed_ticks: elapsed,
+            max_use_ticks: duration,
+            animation_frame: inventory::ranged_animation_frame(
+                use_facts.animation,
+                elapsed,
+                duration,
+            ),
+            owner_variables: variables,
+            ..Default::default()
+        })
+    }
 }

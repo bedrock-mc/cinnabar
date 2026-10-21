@@ -163,7 +163,7 @@ pub enum PlayerAuthInputError {
     Interaction(#[from] InteractionEncodeError),
 }
 
-/// Converts an app-owned movement snapshot to the pinned protocol-2168 packet
+/// Converts an app-owned movement snapshot to the current Bedrock packet
 /// without any interaction payload.
 pub fn player_auth_input(
     snapshot: PlayerAuthInputSnapshot,
@@ -172,7 +172,7 @@ pub fn player_auth_input(
 }
 
 /// Converts an app-owned movement snapshot plus the interactions of the same
-/// tick to the pinned protocol-2168 packet.
+/// tick to the current Bedrock packet.
 ///
 /// The block-action, item-interaction, and stack-request flags are derived
 /// exclusively from payload presence so the flag list and the optional
@@ -351,7 +351,7 @@ const INPUT_FLAG_ITEMS: [(InputFlagItem, &str); 66] = [
     (Item::Internalupdate, "InternalUpdate"),
 ];
 
-/// Expands the bitset the app owns into the flag list 1.26.40 puts on the wire.
+/// Expands the bitset the app owns into the current wire flag list.
 ///
 /// The input flags stopped being a bitset and became a length-prefixed list of
 /// the flag IDs that are set (gophertunnel's `protocol.InputFlagList`). Each

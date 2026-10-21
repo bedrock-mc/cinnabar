@@ -45,6 +45,11 @@ pub fn predicted_placement(
     world: &PaletteWorld<'_>,
     context: &PlacementContext<'_>,
 ) -> Option<PredictedPlacement> {
+    if let Some((definition, state)) = collisions.custom_placement_state(mode, held) {
+        return crate::placement_custom::predict(
+            collisions, mode, held, definition, state, world, context,
+        );
+    }
     let fact = collisions.block_facts(mode, held);
     let identity = fact.identity?;
     let canonical = collisions.block_canonical_state(mode, held)?;

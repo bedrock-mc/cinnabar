@@ -15,6 +15,9 @@ struct Route {
     variant: u32,
     aliases: Vec<String>,
 }
+pub(in crate::runtime::network) static CACHE_IDENTITY: OnceLock<Option<([u8; 32], [u8; 32])>> =
+    OnceLock::new();
+
 static PATHS: OnceLock<Vec<Route>> = OnceLock::new();
 
 /// Whether the carrier's item routes are installed; once installed they never change.
@@ -22,8 +25,22 @@ pub(crate) fn vanilla_item_paths_installed() -> bool {
     PATHS.get().is_some()
 }
 
+/// Installs the item routes and matching base artwork before pack compilation.
+pub(crate) fn install_vanilla_item_assets(
+    entities: &RuntimeEntityAssets,
+    icons: &assets::RuntimeIconCatalog,
+) {
+    set_vanilla_item_paths(entities);
+    set_vanilla_item_sprites(entities, icons);
+    let _ = CACHE_IDENTITY.set(
+        entities
+            .carrier_identity()
+            .map(|identity| (identity, icons.carrier_identity())),
+    );
+}
+
 /// Retains source routes once, so menus can apply packs before any item registry arrives.
-pub(crate) fn set_vanilla_item_paths(entities: &RuntimeEntityAssets) {
+fn set_vanilla_item_paths(entities: &RuntimeEntityAssets) {
     super::vanilla_blocks::install(entities);
     let mut aliases_by_source = std::collections::HashMap::<_, Vec<String>>::new();
     for item in entities.item_visuals() {
@@ -117,4 +134,36 @@ pub(super) fn append(
             present.insert((identifier.clone(), *metadata));
         }
     }
+}
+
+static SPRITES: OnceLock<std::collections::HashMap<String, assets::IconSprite>> = OnceLock::new();
+
+/// Retains base sprite pixels by their recorded source filenames for custom item aliases.
+fn set_vanilla_item_sprites(entities: &RuntimeEntityAssets, icons: &assets::RuntimeIconCatalog) {
+    if entities.source_manifest_sha256() != icons.source_manifest_sha256() {
+        return;
+    }
+    let sprites = icons
+        .sources()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|source| {
+            let sprite = icons.sprites().get(source.sprite as usize)?.clone();
+            Some((source.path.to_string(), sprite))
+        })
+        .collect();
+    let _ = SPRITES.set(sprites);
+}
+
+/// Resolves an absent pack raster against a matching immutable base sprite filename.
+pub(super) fn texture(path: &str) -> Option<pack_runtime::pack_textures::DecodedTexture> {
+    let sprites = SPRITES.get()?;
+    let sprite = pack_runtime::pack_textures::texture_image_paths(path)
+        .into_iter()
+        .find_map(|path| sprites.get(&path.to_ascii_lowercase()))?;
+    Some(pack_runtime::pack_textures::DecodedTexture {
+        width: u32::from(sprite.width),
+        height: u32::from(sprite.height),
+        rgba8: sprite.rgba8.to_vec().into_boxed_slice(),
+    })
 }

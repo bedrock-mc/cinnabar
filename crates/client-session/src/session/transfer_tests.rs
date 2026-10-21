@@ -272,7 +272,12 @@ async fn a_failed_write_behind_an_unread_transfer_still_transfers() {
         })
         .await
         .unwrap();
-    commands.send(NetworkCommand::FlushFrame).await.unwrap();
+    commands
+        .send(NetworkCommand::FlushFrame {
+            cache_opportunity: false,
+        })
+        .await
+        .unwrap();
     tokio::select! {
         reached = boundary => reached.expect("the drain reached the Transfer"),
         event = controls.recv() => panic!("the write failure masked the Transfer: {event:?}"),

@@ -23,6 +23,10 @@ a position correction retains them. Piercing attacks take priority when the view
 ray hits a block and suppress mining while the attack button stays held.
 Damage and Lunge movement remain server-owned.
 
+Hotbar shading reads the admitted attack-category timer for each displayed stack,
+including other items sharing that category. Use-type item cooldowns retain their
+existing shading.
+
 Attack priority follows the published
 [piercing weapon component](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/itemreference/examples/itemcomponents/minecraft_piercing_weapon?view=minecraft-bedrock-stable)
 contract.

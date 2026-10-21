@@ -71,11 +71,13 @@ fn cube_world_assets(
 fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rejection() {
     let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
 
+    use crate::runtime::network::resource_packs::PackApplication;
     use bevy::{
         camera::{Camera, ComputedCameraValues, RenderTarget, RenderTargetInfo},
         ecs::system::RunSystemOnce,
         prelude::*,
     };
+    use client_runtime::network::NetworkHandle;
     use client_ui::test_support::fixture_hud;
     use client_ui::ui_runtime::presentation::{UiPresentationRuntime, refresh_hud_frame};
     use protocol::WorldBootstrap;
@@ -290,9 +292,9 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     // Exercise the real committed-control reconciliation, not a fabricated
     // actor spawn counter. The free-camera correction branch anchors without
     // requiring loaded collision chunks; cube admission resumes only afterward.
-    let mut clock = crate::environment::WorldClock::default();
-    let mut weather = crate::environment::WeatherState::default();
-    crate::environment::bind_session_generation(&mut clock, &mut weather, 1);
+    let mut clock = client_presentation::environment::WorldClock::default();
+    let mut weather = client_presentation::environment::WeatherState::default();
+    client_presentation::environment::bind_session_generation(&mut clock, &mut weather, 1);
     let breg = assets::pinned_block_registry_bytes();
     let records = assets::read_registry_for_protocol(breg, 2193).unwrap();
     let collisions = client_interaction::movement::PhysicsCollisionRegistries::from_assets(
@@ -302,7 +304,9 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         2193,
     )
     .unwrap();
+    let (network, mut packets) = NetworkHandle::<PackApplication>::stub_capturing_packets();
     app.insert_resource(clock)
+        .insert_resource(network)
         .insert_resource(weather)
         .insert_resource(collisions)
         .insert_resource(physics)
@@ -346,6 +350,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         }),
     ];
     for (index, event) in controls.into_iter().enumerate() {
+        let is_respawn = matches!(event, protocol::WorldEvent::Respawn(_));
         app.world_mut()
             .resource_mut::<client_interaction::movement::MovementTicker>()
             .set_source(gameplay::movement::MovementSource::FreeCamera);
@@ -369,6 +374,12 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
             .interaction_authority_identity();
         assert_eq!(before.0, after.0);
         assert!(after.1 > before.1);
+        if is_respawn {
+            app.world_mut()
+                .run_system_once(crate::runtime::world::advance_dimension_transfer)
+                .unwrap();
+            assert_eq!(packets.drain(), [protocol::respawn_ready_packet(1)]);
+        }
         app.world_mut()
             .run_system_once(
                 |mut hand: ViewmodelPublish,

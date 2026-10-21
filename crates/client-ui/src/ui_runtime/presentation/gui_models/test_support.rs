@@ -1,6 +1,11 @@
 //! Assertions shared with app-owned installed-carrier integration tests.
 use super::*;
+
+mod cosmetic_particles;
 use crate::test_support::fixture_hud;
+pub use cosmetic_particles::cosmetic_particle_preview;
+#[cfg(test)]
+pub(super) use cosmetic_particles::particle_fixture_assets;
 use ui_engine::test_support::fixture_font;
 
 /// Checks installed geometry admission and diagnostic fallback without owning asset paths.
@@ -94,14 +99,7 @@ pub fn assert_installed_geometry(
             assert!(mesh.batches().iter().all(|batch| batch.depth_test));
         }
     }
-    let beacon = presentation.item_icon("minecraft:beacon", 0).unwrap();
-    assert!(
-        !presentation
-            .gui_models
-            .models
-            .contains_key(&icon_key(beacon)),
-        "the translucent special model must not take the opaque cube route"
-    );
+    assert_installed_blended_thumbnails(&presentation, world, entities, icons);
     let dynamic = presentation.textures.dynamic_start();
     assert_eq!(
         presentation.textures.pages()[dynamic + MODEL_PAGE].dimensions(),
@@ -118,4 +116,62 @@ pub fn assert_installed_geometry(
             .models
             .contains_key(&icon_key(grass))
     );
+}
+
+/// Checks fractional blended faces using the installed carrier's material and alpha data.
+#[expect(
+    clippy::print_stderr,
+    reason = "reports the missing fractional blended sheet fixture without skipping geometry checks"
+)]
+fn assert_installed_blended_thumbnails(
+    presentation: &UiPresentationRuntime,
+    world: &RuntimeAssets,
+    entities: &RuntimeEntityAssets,
+    icons: &assets::RuntimeIconCatalog,
+) {
+    let mut checked = 0;
+    for definition in entities.item_visuals() {
+        let assets::ItemVisualDefinitionRoute::BlockItem { block_visual } = definition.route else {
+            continue;
+        };
+        let Ok(index) = icons
+            .block_sheets()
+            .binary_search_by_key(&block_visual.0, |sheet| sheet.visual.0)
+        else {
+            continue;
+        };
+        let sheet = &icons.sprites()[icons.block_sheets()[index].sprite as usize];
+        let fractional = sheet
+            .rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[3] != 0 && pixel[3] != 255);
+        let block = world.resolve(assets::NetworkIdMode::Sequential, block_visual.0);
+        let blended = assets::BlockFace::ALL.into_iter().all(|face| {
+            world
+                .materials()
+                .get(block.face(face).material_id() as usize)
+                .is_some_and(|material| material.flags & assets::MATERIAL_FLAG_ALPHA_BLEND != 0)
+        });
+        if !fractional || !blended {
+            continue;
+        }
+        let Some(icon) =
+            presentation.item_icon(&definition.key.identifier, definition.key.metadata)
+        else {
+            continue;
+        };
+        assert!(
+            !presentation.gui_models.models.contains_key(&icon_key(icon)),
+            "fractional blended faces retain their composited thumbnail: {:?}",
+            definition.key
+        );
+        checked += 1;
+    }
+    if checked == 0 {
+        eprintln!(
+            "skipping installed_carriers_blended_thumbnail_subcase: missing fractional blended carried-sheet fixture (make assets)"
+        );
+    }
 }

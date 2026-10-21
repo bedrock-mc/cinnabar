@@ -73,6 +73,7 @@ impl ImageJobDriver {
             crate::atlas::native_sheets::run_one,
             crate::atlas::source_reads::run_one,
             crate::atlas::fitted::run_one,
+            crate::atlas::outlines::run_one,
         ];
         for offset in 0..workers.len() {
             let index = (self.next + offset) % workers.len();

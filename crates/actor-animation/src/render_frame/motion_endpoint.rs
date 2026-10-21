@@ -20,14 +20,15 @@ pub(crate) struct MotionEndpointState {
 
 pub(super) struct MotionEndpoint<'a> {
     pub evaluator: evaluation::Evaluator<'a>,
-    pub variables: ScratchVariables,
-    pub clips: Vec<tick::WeightedClip>,
+    pub variables: evaluation::variables::frame::FrameVariableLease<'a>,
+    pub clips: Cow<'a, [tick::WeightedClip]>,
     pub scale: Option<[f32; 4]>,
 }
 
 impl MotionEndpointState {
     /// Replays an endpoint with frame rotation, swelling and swing, retaining its other inputs.
     /// A `camera` context replaces the tick's camera and resamples camera-weighted clips.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn sample<'a>(
         &'a self,
         base: evaluation::Evaluator<'a>,
@@ -36,6 +37,7 @@ impl MotionEndpointState {
         camera: Option<&'a ActorTickContext>,
         publish: bool,
         budget: &mut EvalBudget<'_>,
+        scratch: &'a mut evaluation::variables::frame::FrameVariables,
     ) -> Result<MotionEndpoint<'a>, EvalError> {
         let evaluator = evaluation::Evaluator {
             context: camera.unwrap_or(&self.context),
@@ -50,10 +52,17 @@ impl MotionEndpointState {
             },
             ..base
         };
-        let mut variables = ScratchVariables::copy_of(&self.variables);
+        let mut variables = scratch.lease(&self.variables);
         if let Some(swing) = swing {
             variables.set(evaluator.layout.engine.attack_time, swing);
         }
+        // Replay held-expression effects before this endpoint's downstream scripts.
+        tick::scale::evaluate_held_item(
+            &evaluator,
+            &evaluator.assets.rig_bindings()[state.rig_binding],
+            &mut variables,
+            budget,
+        )?;
         if let Some(script) = evaluator.assets.rig_bindings()[state.rig_binding].pre_animation {
             evaluator.run(script as usize, &mut variables, 0.0, budget)?;
         }
@@ -69,7 +78,7 @@ impl MotionEndpointState {
         if publish {
             variables.capture_writes();
         }
-        let scale = tick::evaluate_scale(
+        let scale = tick::scale::evaluate_model(
             &evaluator,
             &evaluator.assets.rig_bindings()[state.rig_binding],
             &mut variables,
@@ -93,10 +102,11 @@ impl MotionEndpointState {
                 false,
                 budget,
             )?
+            .into()
         } else {
             self.journal.apply(&mut variables)?;
             self.server_effects.apply(&mut variables)?;
-            self.clips.clone()
+            Cow::Borrowed(self.clips.as_slice())
         };
         Ok(MotionEndpoint {
             evaluator,

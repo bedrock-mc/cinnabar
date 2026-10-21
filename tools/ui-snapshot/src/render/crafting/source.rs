@@ -43,8 +43,11 @@ impl<'a> Source<'a> {
                 crafter_powered: None,
                 furnace_book_open: false,
                 furnace_tab: None,
-                creative_tab: ui_screens::container_actions::SEARCH_TAB,
-                creative_wide: false,
+                inventory: inventory::InventoryController::new(
+                    Default::default(),
+                    inventory::InventoryContext::Personal,
+                    false,
+                ),
                 creative_expanded: groups,
                 search: "",
                 container_scroll: scrolls,
@@ -63,7 +66,7 @@ impl ContainerSource for Source<'_> {
         &self.screen
     }
     fn translation(&self, key: &str) -> Option<Arc<str>> {
-        self.lang.lookup(key).map(Arc::from)
+        self.lang.lookup(key)
     }
     fn experience_level(&self) -> u32 {
         0
@@ -80,7 +83,12 @@ impl ContainerSource for Source<'_> {
     fn book_entries(&self) -> Vec<BookEntry<'_>> {
         self.player
             .inventory
-            .book_recipes(self.recipe_filtering(), 0, usize::MAX)
+            .book_recipes(
+                self.recipe_filtering(),
+                !self.screen.search.is_empty(),
+                0,
+                usize::MAX,
+            )
             .into_iter()
             .map(BookEntry::Recipe)
             .collect()

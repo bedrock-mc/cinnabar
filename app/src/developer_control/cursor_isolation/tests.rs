@@ -277,8 +277,9 @@ fn desktop_cursor_requests_and_real_pointer_survive_control_handoff() {
 
 #[test]
 fn emote_open_and_close_keep_synthetic_input_inside_the_application() {
-    use crate::ui_runtime::emotes::{EmoteInputConsumed, drive_emote_input};
+    use crate::ui_runtime::emotes::drive_emote_input;
     use client_shell::ui_resources::UiRuntimeResource;
+    use client_state::EmoteInputConsumed;
     use client_state::PlayerRuntime;
 
     let (mut app, entity) = harness();

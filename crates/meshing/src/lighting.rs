@@ -131,6 +131,10 @@ pub(crate) struct CellInputs {
 
 /// Occlusion and light lookups shared by the direct and cached bake paths.
 pub(crate) trait LightingInputs {
+    /// Whether terrain faces interpolate neighbouring light and geometric shade.
+    fn smooth_lighting(&self) -> bool {
+        true
+    }
     /// Native cached solid-render bit, independent of geometric face coverage.
     fn occludes(&self, coordinate: [i32; 3]) -> bool;
     /// Native shade brightness is 0.2 for leaves and solid render blocks; only
@@ -225,6 +229,7 @@ const HALO_WORDS: usize = HALO_VOLUME.div_ceil(64);
 /// halo, filled lazily so sparse sub-chunks resolve only what their faces touch.
 /// Misses read the mesh's per-palette-value bits rather than resolving each cell.
 pub(crate) struct MeshLightingCache<'a, 'n, S: MeshLightSampler + ?Sized> {
+    smooth_lighting: bool,
     direct: DirectInputs<'a, 'n, S>,
     bits: &'a crate::palette_bits::NeighbourhoodBlockBits<'a, 'n>,
     light: [Cell<MeshLightSample>; HALO_VOLUME],
@@ -243,8 +248,10 @@ impl<'a, 'n, S: MeshLightSampler + ?Sized> MeshLightingCache<'a, 'n, S> {
         neighbourhood: &'a MeshNeighbourhood<'n>,
         sampler: &'a S,
         bits: &'a crate::palette_bits::NeighbourhoodBlockBits<'a, 'n>,
+        smooth_lighting: bool,
     ) -> Self {
         Self {
+            smooth_lighting,
             direct: DirectInputs {
                 classifier,
                 assets,
@@ -299,6 +306,10 @@ impl<S: MeshLightSampler + ?Sized> MeshLightingCache<'_, '_, S> {
 }
 
 impl<S: MeshLightSampler + ?Sized> LightingInputs for MeshLightingCache<'_, '_, S> {
+    /// Uses the quality captured when this mesh cache was created.
+    fn smooth_lighting(&self) -> bool {
+        self.smooth_lighting
+    }
     fn occludes(&self, coordinate: [i32; 3]) -> bool {
         halo_index(coordinate).map_or_else(
             || self.direct.occludes(coordinate),
@@ -380,6 +391,9 @@ pub(crate) fn bake_quad_with<I: LightingInputs + ?Sized>(
     check_bounds: bool,
     emitting_block: bool,
 ) -> PackedQuadLighting {
+    if !inputs.smooth_lighting() {
+        return bake_flat_quad(inputs, block, face, positions, emitting_block);
+    }
     bake_quad_in_plane(
         inputs,
         block,
@@ -389,6 +403,35 @@ pub(crate) fn bake_quad_with<I: LightingInputs + ?Sized>(
         false,
         emitting_block,
     )
+}
+
+/// Repeats one face light sample without corner interpolation or ambient occlusion.
+fn bake_flat_quad<I: LightingInputs + ?Sized>(
+    inputs: &I,
+    block: [i32; 3],
+    face: Face,
+    positions: [[i16; 3]; 4],
+    emitting_block: bool,
+) -> PackedQuadLighting {
+    let (normal, _, _) = face_basis(face);
+    let axis = normal
+        .iter()
+        .position(|&value| value != 0)
+        .expect("face axis");
+    let boundary = positions.iter().all(|position| {
+        if normal[axis] < 0 {
+            position[axis] <= 0
+        } else {
+            position[axis] == 256
+        }
+    });
+    let sample = inputs.sample(if boundary {
+        add_normal(block, normal)
+    } else {
+        block
+    });
+    let packed = pack_sample(sample.block(), sample.sky(), 0) | (u16::from(emitting_block) << 11);
+    PackedQuadLighting::new([packed; 4])
 }
 
 fn bake_quad_in_plane<I: LightingInputs + ?Sized>(
@@ -771,6 +814,9 @@ const fn rotate_model_position([x, y, z]: [i16; 3], rotation: u32) -> [i16; 3] {
     }
 }
 
+#[cfg(test)]
+#[path = "lighting/flat_tests.rs"]
+mod flat_tests;
 #[cfg(test)]
 #[path = "lighting/native_planes.rs"]
 mod native_planes;

@@ -50,4 +50,28 @@ fn player_list_marker_refreshes_known_names_without_a_ui_event() {
         ui.player_roster.xuids().collect::<Vec<_>>(),
         ["2535400000000007"]
     );
+    assert!(ui.player_roster.rows()[0].skin.is_none());
+    let skin = render_api::StandardSkin {
+        width: 64,
+        height: 64,
+        rgba8: vec![255; 64 * 64 * 4].into(),
+        cape: None,
+        geometry: None,
+    };
+    stream
+        .submit(
+            2,
+            WorldEvent::Actor(ActorEvent::Skin {
+                uuid: [7; 16],
+                skin: PlayerSkin::Standard(skin.clone()),
+            }),
+        )
+        .unwrap();
+    let controls = stream.take_committed_controls();
+    assert_eq!(
+        controls,
+        vec![CommittedControlEvent::PlayerListChanged { sequence: 2 }]
+    );
+    refresh_player_list_cache_for_controls(&stream, &mut ui, &controls);
+    assert_eq!(ui.player_roster.rows()[0].skin, Some(skin));
 }

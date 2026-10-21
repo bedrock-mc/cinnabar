@@ -507,3 +507,75 @@ fn vine_property_and_scaffold_full_top_are_distinct_facts() {
         );
     }
 }
+
+#[test]
+fn short_grass_and_fern_selection_carries_the_render_displacement() {
+    for name in ["minecraft:short_grass", "minecraft:fern"] {
+        let record = record(name);
+        let shapes = compile(
+            record,
+            fixture().1.by_sequential_id(record.sequential_id).unwrap(),
+        )
+        .shapes
+        .unwrap();
+        assert!(shapes.flags.contains(ShapeFlags::GRASS_OFFSET));
+    }
+    let reeds = record("minecraft:reeds");
+    assert!(
+        !compile(
+            reeds,
+            fixture().1.by_sequential_id(reeds.sequential_id).unwrap()
+        )
+        .shapes
+        .unwrap()
+        .flags
+        .contains(ShapeFlags::GRASS_OFFSET)
+    );
+}
+
+#[test]
+fn shelf_mushroom_selection_uses_the_cap_and_preserves_oriented_collision_footprints() {
+    let (records, seed) = fixture();
+    let mushrooms = records
+        .iter()
+        .filter(|r| r.name.as_ref() == "minecraft:shelf_mushroom")
+        .collect::<Vec<_>>();
+    assert_eq!(mushrooms.len(), 8);
+    for record in mushrooms {
+        let input = seed.by_sequential_id(record.sequential_id).unwrap();
+        let output = compile(record, input);
+        assert_eq!(output.boxes, input.boxes);
+        let shapes = output.shapes.unwrap();
+        assert_eq!(shapes.selection.len(), 1);
+        let selection = shapes.selection[0];
+        let state: serde_json::Value = serde_json::from_str(&record.canonical_state).unwrap();
+        assert_eq!(
+            selection.min[1],
+            if state["growth"]["value"] == 0 {
+                0.5
+            } else {
+                0.375
+            }
+        );
+        assert_eq!(selection.max[1], 0.6875);
+        let source = &input.boxes[0];
+        assert_eq!(
+            selection.min[0],
+            f64::from(source.min_x) * assets::block_shapes::COLLISION_COORDINATE_SCALE
+        );
+        assert_eq!(
+            selection.max[2],
+            f64::from(source.max_z) * assets::block_shapes::COLLISION_COORDINATE_SCALE
+        );
+        let mut changed = input.clone();
+        for boxes in [
+            Box::new([]) as Box<[_]>,
+            Box::new([super::collision_box(UNIT)]),
+        ] {
+            changed.boxes = boxes;
+            let actual = compile(record, &changed);
+            assert_eq!(actual.boxes, changed.boxes);
+            assert_eq!(actual.shapes.unwrap().selection, shapes.selection);
+        }
+    }
+}

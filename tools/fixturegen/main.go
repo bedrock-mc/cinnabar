@@ -351,7 +351,7 @@ func fixtures() []fixture {
 		{
 			name: "ModalFormResponseButton",
 			file: "modal_form_response_button.bin",
-			pk:   &packet.ModalFormResponse{FormID: 92, ResponseData: protocol.Option([]byte("1"))},
+			pk:   &packet.ModalFormResponse{FormID: 92, ResponseData: protocol.Option([]byte("1\n"))},
 		},
 		{
 			name: "ModalFormResponseClosed",

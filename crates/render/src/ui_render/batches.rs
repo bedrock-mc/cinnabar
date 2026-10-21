@@ -6,7 +6,8 @@ pub(super) fn resolved_batches<'a>(
     batches: &'a [UiRenderBatch],
     locations: &'a [render_model::UiTextureLocation],
     buckets: &[render_model::UiTextureBucket],
-) -> Option<impl Iterator<Item = (usize, &'a UiRenderBatch, render_model::UiTextureLocation)>> {
+) -> Option<impl Iterator<Item = (usize, &'a UiRenderBatch, render_model::UiTextureLocation)> + Clone>
+{
     if accepted_revision.is_none()
         || batches.iter().any(|batch| {
             locations

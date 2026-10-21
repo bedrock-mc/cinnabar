@@ -137,6 +137,12 @@ pub fn spawn_core_for_address(
     enable_upstream_client_cache: bool,
     ask_server_trust: bool,
 ) -> Result<Spawned> {
+    if matches!(
+        crate::launcher_core::target_for(address),
+        bridge::ConnectTarget::Gathering(_)
+    ) {
+        bail!("Featured experiences require the launcher account core");
+    }
     let executable = core_executable(layout).ok_or_else(|| {
         anyhow::anyhow!(
             "bedrock-core executable was not found at {}",
@@ -245,6 +251,23 @@ pub fn auth_cache_path(layout: &InstallLayout) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unresolved_gathering_requires_the_launcher_before_core_startup() {
+        let layout = launcher::test_support::scratch("unresolved-gathering");
+        for address in [
+            format!("{}fixture", bridge::contract::GATHERING_TARGET_PREFIX),
+            format!("  {}fixture  ", bridge::contract::GATHERING_TARGET_PREFIX),
+        ] {
+            let error =
+                spawn_core_for_address(&layout, &layout.runtime_root, &address, None, false, false)
+                    .expect_err("an unresolved gathering must not start a direct core");
+            assert_eq!(
+                error.to_string(),
+                "Featured experiences require the launcher account core"
+            );
+        }
+    }
 
     #[test]
     fn fallback_core_normalizes_the_same_raknet_address_as_the_launcher() {

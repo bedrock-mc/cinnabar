@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 /// Makes a sparse source page with a glyph far from the demand atlas's first slot.
-fn input() -> UiRenderInput {
+pub(super) fn input() -> UiRenderInput {
     let side = 2048usize;
     let mut pixels = vec![0; side * side];
     for y in 100..118 {
@@ -239,7 +239,10 @@ fn raster(
         ..Default::default()
     });
     let viewport = gpu.buffer(&[256., 256., 0., 0.], BufferUsages::UNIFORM);
-    let format = gpu.words(&[u32::from(coverage), 0, 0, 0], BufferUsages::UNIFORM);
+    let format = gpu.words(
+        &render_model::ui_page_uniform::words(coverage),
+        BufferUsages::UNIFORM,
+    );
     let nearest = gpu.device.create_sampler(&SamplerDescriptor::default());
     let linear = gpu.device.create_sampler(&SamplerDescriptor {
         mag_filter: FilterMode::Linear,

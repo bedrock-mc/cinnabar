@@ -126,7 +126,8 @@ impl WorldAuthority {
                 if let ActorEvent::Move(movement) = &mut event {
                     self.resolve_actor_teleport(movement);
                 }
-                let player_list_changed = matches!(&event, ActorEvent::PlayerList(_));
+                let player_list_changed =
+                    matches!(&event, ActorEvent::PlayerList(_) | ActorEvent::Skin { .. });
                 let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
                 if let ActorEvent::Attributes(update) = &event
                     && update.runtime_id == self.local_player_runtime_id
@@ -235,7 +236,38 @@ impl WorldAuthority {
                     }
                     _ => None,
                 };
+                let totem = match &event {
+                    ActorEvent::Status(status)
+                        if status.kind == protocol::ActorStatusKind::TotemActivate =>
+                    {
+                        Some((status.runtime_id, true))
+                    }
+                    ActorEvent::Status(status)
+                        if status.kind == protocol::ActorStatusKind::Death =>
+                    {
+                        Some((status.runtime_id, false))
+                    }
+                    _ => None,
+                };
+                let attributes_runtime = match &event {
+                    ActorEvent::Attributes(update) => Some(update.runtime_id),
+                    _ => None,
+                };
                 let result = self.actors.apply(self.actor_session_id, sequence, event);
+                if result == crate::actor_store::ActorApplyResult::Updated
+                    && let Some(runtime_id) = attributes_runtime
+                    && self
+                        .actors
+                        .get(runtime_id)
+                        .is_some_and(|actor| actor.status.dead)
+                {
+                    self.observe_totem_status(runtime_id, false);
+                }
+                if result == crate::actor_store::ActorApplyResult::Updated
+                    && let Some((runtime_id, activated)) = totem
+                {
+                    self.observe_totem_status(runtime_id, activated);
+                }
                 if result == crate::actor_store::ActorApplyResult::Updated
                     && let Some((runtime_id, kind)) = combat
                 {
@@ -346,6 +378,9 @@ impl WorldAuthority {
                     UiEvent::Hud(protocol::HudEvent::Health { health }) => {
                         self.actors
                             .set_local_health(self.local_player_runtime_id, health);
+                        if health <= 0 {
+                            self.observe_totem_status(self.local_player_runtime_id, false);
+                        }
                         UiEvent::Hud(protocol::HudEvent::Health { health })
                     }
                     UiEvent::ShowCredits(event)

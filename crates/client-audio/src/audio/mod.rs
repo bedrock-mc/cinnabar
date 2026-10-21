@@ -7,6 +7,7 @@ pub mod engine;
 pub mod inventory;
 pub mod listener;
 pub mod local;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod media;
 mod music;
 pub mod predicted;
@@ -18,7 +19,7 @@ mod voice;
 mod water;
 pub mod weather;
 
-pub use bank::{SoundBank, sound_bank_path};
+pub use bank::{SoundBank, SoundDecodeDriver, SoundDecodeRequest, sound_bank_path};
 
 pub use engine::AudioEngine;
 pub use predicted::LocalBlockCue;

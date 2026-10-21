@@ -24,6 +24,7 @@ type NametagsAfterSmaaQuery = (
     &'static crate::scene_target::SceneTarget,
     Option<&'static MainPassResolutionOverride>,
     Option<&'static render_scene::EnhancedRendering>,
+    Option<&'static render_scene::shaderpack::ShaderPackRendering>,
 );
 
 /// Draws world names after spatial filtering unless motion blur owns their final pass.
@@ -33,9 +34,12 @@ pub(crate) fn nametags_after_smaa(
     mut context: RenderContext,
 ) -> bevy::ecs::error::Result {
     let view_entity = query.entity();
-    let (_, camera, view, target, depth, msaa, scene, resolution, enhanced) = query.into_inner();
+    let (_, camera, view, target, depth, msaa, scene, resolution, enhanced, pack) =
+        query.into_inner();
     let context = &mut context;
-    if crate::motion_blur::applies(world, view_entity) {
+    if crate::motion_blur::applies(world, view_entity)
+        || crate::nametag_render::overlay::enabled(enhanced.is_some(), pack.is_some())
+    {
         return Ok(());
     }
     let Some(draw) = crate::nametag_render::draw_function(world) else {
@@ -49,14 +53,13 @@ pub(crate) fn nametags_after_smaa(
     };
     let gamma =
         crate::chunk::transparent::gamma_pass::admitted(camera.hdr, *msaa, enhanced.is_some());
-    for (range, deferred) in
+    let mut ranges =
         crate::chunk::transparent::gamma_pass::contiguous_ranges(phase.items.values(), |item| {
             crate::nametag_render::deferred_by_world_filter(true, Some(draw), item.draw_function())
         })
-    {
-        if !deferred {
-            continue;
-        }
+        .filter_map(|(range, deferred)| deferred.then_some(range))
+        .peekable();
+    if ranges.peek().is_some() {
         let attachments = [Some(scene.color_attachment(target, gamma))];
         let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
             label: Some("world text after spatial anti-aliasing"),
@@ -80,7 +83,9 @@ pub(crate) fn nametags_after_smaa(
             };
             pass.set_camera_viewport(&viewport);
         }
-        phase.render_range(&mut pass, world, view_entity, range)?;
+        for range in ranges {
+            phase.render_range(&mut pass, world, view_entity, range)?;
+        }
     }
     Ok(())
 }

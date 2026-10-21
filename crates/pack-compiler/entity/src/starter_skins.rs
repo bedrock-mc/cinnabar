@@ -142,7 +142,7 @@ fn modern_skin_model(models: &Map<String, Value>, model: &str) -> Result<Value, 
     Ok(resolved)
 }
 
-/// Flattens a legacy child without applying its cube defaults to inherited cubes.
+/// Flattens a legacy child while preserving resolved cube defaults and inherited inflation.
 fn overlay_skin_model(base: &mut Value, mut child: Value) -> Result<(), String> {
     let mut bones = base["bones"].as_array().cloned().unwrap_or_default();
     let child_bones = child["bones"].as_array().cloned().unwrap_or_default();
@@ -166,6 +166,16 @@ fn overlay_skin_model(base: &mut Value, mut child: Value) -> Result<(), String> 
         } else {
             inherited["cubes"].as_array().cloned().unwrap_or_default()
         };
+        let inflate = bone["inflate"]
+            .as_f64()
+            .or_else(|| inherited["inflate"].as_f64());
+        if let Some(inflate) = inflate.filter(|inflate| *inflate as f32 != 0.0) {
+            for cube in &mut cubes {
+                if let Some(cube) = cube.as_object_mut() {
+                    cube.insert("inflate".to_owned(), inflate.into());
+                }
+            }
+        }
         cubes.extend(bone["cubes"].as_array().into_iter().flatten().cloned());
         let inherited = inherited
             .as_object_mut()
@@ -217,7 +227,7 @@ fn overlay_skin_model(base: &mut Value, mut child: Value) -> Result<(), String> 
     Ok(())
 }
 
-/// Makes each cube's mirror and inflate independent of later bone overlays.
+/// Resolves authored cube defaults before inherited inflation is applied separately.
 fn resolve_cube_defaults(bone: &mut Value) {
     let mirror = bone["mirror"].as_bool().unwrap_or(false);
     let inflate = bone["inflate"].as_f64().unwrap_or(0.0);
@@ -283,9 +293,7 @@ pub fn compile_starter_skins(pack: &Path) -> Result<Vec<u8>, String> {
 /// Compiles the carrier and writes it to `out` through a temporary sibling file.
 pub fn compile_starter_skins_to_file(pack: &Path, out: &Path) -> Result<(), String> {
     let blob = compile_starter_skins(pack)?;
-    let temporary = out.with_extension("tmp");
-    fs::write(&temporary, &blob).map_err(|error| format!("{}: {error}", temporary.display()))?;
-    fs::rename(&temporary, out).map_err(|error| format!("{}: {error}", out.display()))
+    assets::write_blob_atomic(out, &blob).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
@@ -399,9 +407,12 @@ mod tests {
                 .save(pack.join(skin.texture))
                 .unwrap();
         }
-        let carrier =
-            assets::starter_skins::decode_starter_skins(&compile_starter_skins(pack).unwrap())
-                .unwrap();
+        let out = pack.join("out.mcbeskn");
+        let occupied = out.with_extension("tmp");
+        fs::write(&occupied, b"another writer").unwrap();
+        compile_starter_skins_to_file(pack, &out).unwrap();
+        assert_eq!(fs::read(occupied).unwrap(), b"another writer");
+        let carrier = assets::starter_skins::decode_starter_skins(&fs::read(out).unwrap()).unwrap();
         let entries = assert_modern_skin_schema(&carrier.geometry);
         assert_eq!(entries[0], modern["minecraft:geometry"][0]);
         assert_eq!(
@@ -500,6 +511,74 @@ mod tests {
             assert_eq!(after.texture_width, before.texture_width);
             assert_eq!(after.texture_height, before.texture_height);
             assert_eq!(after.visible_bounds, before.visible_bounds);
+        }
+    }
+
+    #[test]
+    fn normalized_inheritance_preserves_effective_cube_inflation() {
+        for (parent_inflate, cube_inflate, child_inflate, expected) in [
+            (None, None, Some(1.0), [1.0, 0.125]),
+            (None, Some(0.25), Some(1.0), [1.0, 0.125]),
+            (Some(0.5), Some(0.25), None, [0.5, 0.125]),
+            (Some(0.5), Some(0.25), Some(0.0), [0.25, 0.125]),
+            (None, None, Some(-0.25), [-0.25, 0.125]),
+        ] {
+            for repeated in [false, true] {
+                for reset in [false, true] {
+                    let mut parent = cube_model();
+                    let parent_bone = &mut parent["bones"][0];
+                    if let Some(inflate) = cube_inflate {
+                        parent_bone["cubes"][0]["inflate"] = inflate.into();
+                    }
+                    if let Some(inflate) = parent_inflate {
+                        parent_bone["inflate"] = inflate.into();
+                    }
+                    let mut child = cube_model()["bones"][0].clone();
+                    child["name"] = "BODY".into();
+                    child["reset"] = reset.into();
+                    child["cubes"][0]["inflate"] = 0.125.into();
+                    if let Some(inflate) = child_inflate {
+                        child["inflate"] = inflate.into();
+                    }
+                    let mut models = serde_json::json!({
+                        "format_version":"1.8.0",
+                        "geometry.humanoid.customSlim:geometry.humanoid.custom":{
+                            "bones":[{"name":"body"}]
+                        },
+                    });
+                    if repeated {
+                        parent["bones"].as_array_mut().unwrap().push(child);
+                        models[CLASSIC_SKIN_GEOMETRY] = parent;
+                    } else {
+                        models["geometry.parent"] = parent;
+                        models["geometry.humanoid.custom:geometry.parent"] =
+                            serde_json::json!({"bones":[child]});
+                    }
+                    let normalized = skin_geometry(models.as_object().unwrap()).unwrap();
+                    assert_modern_skin_schema(&normalized);
+                    for identifier in [CLASSIC_SKIN_GEOMETRY, SLIM_SKIN_GEOMETRY] {
+                        let patch =
+                            serde_json::json!({"geometry":{"default":identifier}}).to_string();
+                        let before = parse_skin_geometry(&patch, &models.to_string())
+                            .unwrap()
+                            .unwrap();
+                        let after = parse_skin_geometry(&patch, &normalized).unwrap().unwrap();
+                        if identifier == CLASSIC_SKIN_GEOMETRY {
+                            let inflation = before.bones[0]
+                                .cubes
+                                .iter()
+                                .map(|cube| cube.inflate.get())
+                                .collect::<Vec<_>>();
+                            assert_eq!(inflation, expected[usize::from(reset)..]);
+                        }
+                        assert_eq!(
+                            after.bones, before.bones,
+                            "{identifier}, parent={parent_inflate:?}, child={child_inflate:?}, \
+                             repeated={repeated}, reset={reset}"
+                        );
+                    }
+                }
+            }
         }
     }
 

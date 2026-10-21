@@ -5,7 +5,7 @@ import render::chunk_bindings::{
     model_sampler, animations, animation_frames,
     clock, model_templates, geometry_streams, atmosphere,
 };
-import render::material::{MaterialGpu, materials, positional_material, texture_layer, texture_page, material_uv_flags, texture_model_uv, texture_gradient_scale};
+import render::material::{MaterialGpu, materials, positional_material_id, texture_layer, texture_page, material_uv_flags, texture_model_uv, texture_gradient_scale};
 @if(ENHANCED_SHADOW)
 import render::enhanced::caster::caster_clip;
 import render::world_projection::{section_camera_offset, camera_offset_clip};
@@ -174,26 +174,66 @@ fn vertex(
     return model_vertex(offsets.x, offsets.y + instance_index);
 }
 
-fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
-    let local_vertex = vertex_index & 3u;
-    let metadata_index = vertex_index / 4u;
-    let corner = local_vertex;
+/// One quad of a placed model, decoded as every model program reads it.
+struct ModelQuad {
+    /// False when the draw ref, model ref, template or lighting record is out of range, or
+    /// the quad is hidden by its ref's visibility mask; no other field is meaningful then.
+    valid: bool,
+    template_quad_base: u32,
+    quad_index: u32,
+    packed_transform: u32,
+    lighting_base_index: u32,
+    /// Placed block corner, relative to the section origin.
+    block_position: vec3<f32>,
+    /// Quarter turns about the block's vertical centre line, after bamboo and lily-pad rules.
+    rotation: u32,
+    is_lily_pad: bool,
+    is_bamboo: bool,
+    /// Bamboo's packed placement offset, added to template corners before `rotation`.
+    template_offset: vec3<f32>,
+    /// Bamboo leaf plane inset, added after `template_offset` and before `rotation`.
+    leaf_inset: vec3<f32>,
+    /// Random placement offset, added after `rotation`.
+    placement_offset: vec3<f32>,
+    material_id: u32,
+    quad_flags: u32,
+    /// `material_id` after positional variation at the placed block.
+    selected_material_id: u32,
+    /// Section origin in blocks, and the section's biome record in `w`.
+    chunk_origin: vec4<i32>,
+}
+
+fn invalid_model_quad() -> ModelQuad {
+    var quad: ModelQuad;
+    quad.valid = false;
+    return quad;
+}
+
+/// Decodes the model quad that draw-ref record `instance_index` names, in origin slot
+/// `metadata_index`, validating every address it reads.
+fn model_quad(instance_index: u32, metadata_index: u32) -> ModelQuad {
     let geometry_word_count = arrayLength(&geometry_streams);
     if (instance_index > 0x7fffffffu) {
-        return invisible_vertex();
+        return invalid_model_quad();
     }
     let draw_ref_word = instance_index * 2u;
     if (draw_ref_word + 1u >= geometry_word_count) {
-        return invisible_vertex();
+        return invalid_model_quad();
     }
     let model_ref_index = geometry_streams[draw_ref_word];
     let quad_index = geometry_streams[draw_ref_word + 1u];
+    return model_quad_at(model_ref_index, quad_index, metadata_index);
+}
+
+/// Decodes a stable model-ref address and template quad in an origin slot, validating all reads.
+fn model_quad_at(model_ref_index: u32, quad_index: u32, metadata_index: u32) -> ModelQuad {
+    let geometry_word_count = arrayLength(&geometry_streams);
     if (quad_index >= 32u || model_ref_index > 0x3fffffffu) {
-        return invisible_vertex();
+        return invalid_model_quad();
     }
     let ref_word = model_ref_index * 4u;
     if (ref_word + 3u >= geometry_word_count) {
-        return invisible_vertex();
+        return invalid_model_quad();
     }
     let packed_transform = geometry_streams[ref_word];
     let template_id = geometry_streams[ref_word + 1u];
@@ -201,108 +241,148 @@ fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     let visible_quad_mask = geometry_streams[ref_word + 3u];
     let template_word_count = arrayLength(&model_templates);
     if (template_word_count < 4u) {
-        return invisible_vertex();
+        return invalid_model_quad();
     }
     let template_count = model_templates[0];
     if (template_count > (template_word_count - 1u) / 3u || template_id >= template_count) {
-        return invisible_vertex();
+        return invalid_model_quad();
     }
     let descriptor = 1u + template_id * 3u;
     let quad_start = model_templates[descriptor];
     let quad_count = model_templates[descriptor + 1u];
     if (quad_count == 0u || quad_index >= quad_count) {
-        return invisible_vertex();
+        return invalid_model_quad();
     }
-    let is_visible = (visible_quad_mask >> quad_index) & 1u;
-    if (is_visible == 0u) {
-        return invisible_vertex();
+    if (((visible_quad_mask >> quad_index) & 1u) == 0u) {
+        return invalid_model_quad();
     }
     let template_quad_words = 1u + template_count * 3u;
     let stored_quad_count = (template_word_count - template_quad_words) / 12u;
     if (quad_start >= stored_quad_count || quad_index >= stored_quad_count - quad_start) {
-        return invisible_vertex();
+        return invalid_model_quad();
     }
-    let template_quad_base = template_quad_words + (quad_start + quad_index) * 12u;
-
-    let component = corner * 3u;
-    var template_position = vec3<f32>(
-        f32(packed_i16(template_quad_base, component)),
-        f32(packed_i16(template_quad_base, component + 1u)),
-        f32(packed_i16(template_quad_base, component + 2u)),
-    ) / 256.0;
-    let block_position = vec3<f32>(
+    var quad: ModelQuad;
+    quad.valid = true;
+    quad.template_quad_base = template_quad_words + (quad_start + quad_index) * 12u;
+    quad.quad_index = quad_index;
+    quad.packed_transform = packed_transform;
+    quad.lighting_base_index = lighting_base_index;
+    quad.block_position = vec3<f32>(
         f32(packed_transform & 15u),
         f32((packed_transform >> 4u) & 15u),
         f32((packed_transform >> 8u) & 15u),
     );
-    let origin = chunk_origins[metadata_index];
-    let is_lily_pad = (model_templates[descriptor + 2u] & MODEL_LILY_PAD_FLAG) != 0u;
-    let is_bamboo = (model_templates[descriptor + 2u] & MODEL_BAMBOO_FLAG) != 0u;
+    quad.chunk_origin = chunk_origins[metadata_index].value;
+    quad.is_lily_pad = (model_templates[descriptor + 2u] & MODEL_LILY_PAD_FLAG) != 0u;
+    quad.is_bamboo = (model_templates[descriptor + 2u] & MODEL_BAMBOO_FLAG) != 0u;
     let has_offset = (packed_transform & MODEL_RANDOM_OFFSET_FLAG) != 0u;
-    var rotation = packed_transform >> 12u;
-    if (is_bamboo) {
+    quad.rotation = packed_transform >> 12u;
+    if (quad.is_bamboo) {
         if (!has_offset) {
-            template_position.x += BAMBOO_OFFSET_MIN + f32(rotation & 15u) * BAMBOO_OFFSET_STEP;
-            template_position.z += BAMBOO_OFFSET_MIN + f32((rotation >> 4u) & 15u) * BAMBOO_OFFSET_STEP;
+            quad.template_offset.x = BAMBOO_OFFSET_MIN + f32(quad.rotation & 15u) * BAMBOO_OFFSET_STEP;
+            quad.template_offset.z = BAMBOO_OFFSET_MIN + f32((quad.rotation >> 4u) & 15u) * BAMBOO_OFFSET_STEP;
         }
-        if (quad_index == BAMBOO_POSITIVE_X_LEAF_QUAD) { template_position.z += BAMBOO_LEAF_PLANE_INSET; }
-        if (quad_index == BAMBOO_POSITIVE_Z_LEAF_QUAD) { template_position.x += BAMBOO_LEAF_PLANE_INSET; }
-        rotation = 0u;
+        if (quad_index == BAMBOO_POSITIVE_X_LEAF_QUAD) { quad.leaf_inset.z = BAMBOO_LEAF_PLANE_INSET; }
+        if (quad_index == BAMBOO_POSITIVE_Z_LEAF_QUAD) { quad.leaf_inset.x = BAMBOO_LEAF_PLANE_INSET; }
+        quad.rotation = 0u;
     }
-    if (is_lily_pad) {
-        rotation = lily_pad_rotation(origin.value.xyz + vec3<i32>(block_position));
+    if (quad.is_lily_pad) {
+        quad.rotation = lily_pad_rotation(quad.chunk_origin.xyz + vec3<i32>(quad.block_position));
     }
-    template_position = rotate_cross(template_position, rotation);
     if (has_offset) {
-        if (lighting_base_index < 2u || lighting_base_index > geometry_word_count / 2u) { return invisible_vertex(); }
+        if (lighting_base_index < 2u || lighting_base_index > geometry_word_count / 2u) { return invalid_model_quad(); }
         let offset_word = lighting_base_index * 2u - 4u;
-        template_position += vec3<f32>(bitcast<f32>(geometry_streams[offset_word]),
+        quad.placement_offset = vec3<f32>(bitcast<f32>(geometry_streams[offset_word]),
             bitcast<f32>(geometry_streams[offset_word + 1u]), bitcast<f32>(geometry_streams[offset_word + 2u]));
     }
-    let local_position = block_position + template_position;
-    let material_id = model_templates[template_quad_base + 10u];
-    let quad_flags = model_templates[template_quad_base + 11u];
-    let material = positional_material(material_id, origin.value.xyz + vec3<i32>(block_position));
-    let frame = animation_sample(material);
-    let uv_component = corner * 2u;
-
+    quad.material_id = model_templates[quad.template_quad_base + 10u];
+    quad.quad_flags = model_templates[quad.template_quad_base + 11u];
+    quad.selected_material_id = positional_material_id(quad.material_id, quad.chunk_origin.xyz + vec3<i32>(quad.block_position));
     if (lighting_base_index >= geometry_word_count / 2u || quad_index >= geometry_word_count / 2u - lighting_base_index) {
-        return invisible_vertex();
+        return invalid_model_quad();
     }
-    let light_word = geometry_streams[(lighting_base_index + quad_index) * 2u + corner / 2u];
-    let light_sample = select(light_word & 0xffffu, light_word >> 16u, (corner & 1u) != 0u);
-    var out: VertexOutput;
-    let world = vec3<f32>(origin.value.xyz) + local_position;
-    let camera_offset = section_camera_offset(origin.value.xyz, local_position, view.world_position);
-    out.clip_position = camera_offset_clip(view.clip_from_world, view.world_position, camera_offset);
-    @if(ENHANCED_SHADOW)
-    out.clip_position = caster_clip(world, material_id, clamp(template_position.y, 0.0, 1.0));
-    out.uv = vec2<f32>(
-        f32(packed_u16(template_quad_base + 6u, uv_component)),
-        f32(packed_u16(template_quad_base + 6u, uv_component + 1u)),
+    return quad;
+}
+
+/// Template-space position of `corner` (block units from the placed block corner), after the
+/// quad's offsets and rotation.
+fn model_corner_position(quad: ModelQuad, corner: u32) -> vec3<f32> {
+    let component = corner * 3u;
+    let template_position = vec3<f32>(
+        f32(packed_i16(quad.template_quad_base, component)),
+        f32(packed_i16(quad.template_quad_base, component + 1u)),
+        f32(packed_i16(quad.template_quad_base, component + 2u)),
+    ) / 256.0;
+    return rotate_cross(template_position + quad.template_offset + quad.leaf_inset, quad.rotation) + quad.placement_offset;
+}
+
+/// Texture coordinates of `corner` in the material's texture, before its page scale.
+fn model_corner_uv(quad: ModelQuad, material: MaterialGpu, corner: u32) -> vec2<f32> {
+    let uv_component = corner * 2u;
+    var uv = vec2<f32>(
+        f32(packed_u16(quad.template_quad_base + 6u, uv_component)),
+        f32(packed_u16(quad.template_quad_base + 6u, uv_component + 1u)),
     ) / 4096.0;
     // World rotation acts on the authored UV rectangle, independently of model geometry.
     if ((material.flags & MATERIAL_ISOTROPIC_FLAG) != 0u) {
-        let uv_flags = material_uv_flags(material.flags, origin.value.xyz + vec3<i32>(block_position));
+        let uv_flags = material_uv_flags(material.flags, quad.chunk_origin.xyz + vec3<i32>(quad.block_position));
         switch uv_flags & 3u {
-            case 1u: { out.uv = vec2(out.uv.y, 1.0 - out.uv.x); }
-            case 2u: { out.uv = vec2(1.0) - out.uv; }
-            case 3u: { out.uv = vec2(1.0 - out.uv.y, out.uv.x); }
+            case 1u: { uv = vec2(uv.y, 1.0 - uv.x); }
+            case 2u: { uv = vec2(1.0) - uv; }
+            case 3u: { uv = vec2(1.0 - uv.y, uv.x); }
             default: {}
         }
     }
-    if (is_bamboo && ((BAMBOO_STEM_SIDE_QUAD_MASK >> quad_index) & 1u) != 0u) {
-        out.uv.x += f32((packed_transform >> 20u) & 3u) * BAMBOO_STEM_UV_STRIDE;
+    if (quad.is_bamboo && ((BAMBOO_STEM_SIDE_QUAD_MASK >> quad.quad_index) & 1u) != 0u) {
+        uv.x += f32((quad.packed_transform >> 20u) & 3u) * BAMBOO_STEM_UV_STRIDE;
     }
-    out.current_texture = frame.current;
+    return uv;
+}
+
+/// Packed light sample of `corner`, laid out as `cube_light_sample` describes in `chunk.wesl`.
+fn model_light_sample(quad: ModelQuad, corner: u32) -> u32 {
+    let light_word = geometry_streams[(quad.lighting_base_index + quad.quad_index) * 2u + corner / 2u];
+    return select(light_word & 0xffffu, light_word >> 16u, (corner & 1u) != 0u);
+}
+
+/// The quad's authored shading normal, turned with the model.
+fn model_quad_normal(quad: ModelQuad) -> vec3<f32> {
     let normals = array(vec3(0.0), vec3(0.0,-1.0,0.0), vec3(0.0,1.0,0.0), vec3(-1.0,0.0,0.0), vec3(1.0,0.0,0.0), vec3(0.0,0.0,-1.0), vec3(0.0,0.0,1.0));
-    out.normal = rotate_cross(normals[quad_flags & 7u] + vec3(0.5,0.0,0.5), rotation) - vec3(0.5,0.0,0.5);
+    return rotate_cross(normals[quad.quad_flags & 7u] + vec3(0.5,0.0,0.5), quad.rotation) - vec3(0.5,0.0,0.5);
+}
+
+fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
+    let corner = vertex_index & 3u;
+    let quad = model_quad(instance_index, vertex_index / 4u);
+    if (!quad.valid) {
+        return invisible_vertex();
+    }
+    let template_position = model_corner_position(quad, corner);
+    let block_position = quad.block_position;
+    let local_position = block_position + template_position;
+    let material_id = quad.material_id;
+    let quad_flags = quad.quad_flags;
+    let rotation = quad.rotation;
+    let is_lily_pad = quad.is_lily_pad;
+    let is_bamboo = quad.is_bamboo;
+    let material = materials[quad.selected_material_id];
+    let frame = animation_sample(material);
+    let light_sample = model_light_sample(quad, corner);
+    var out: VertexOutput;
+    let world = vec3<f32>(quad.chunk_origin.xyz) + local_position;
+    let camera_offset = section_camera_offset(quad.chunk_origin.xyz, local_position, view.world_position);
+    out.clip_position = camera_offset_clip(view.clip_from_world, view.world_position, camera_offset);
+    @if(ENHANCED_SHADOW)
+    out.clip_position = caster_clip(world, material_id, clamp(template_position.y, 0.0, 1.0));
+    out.uv = model_corner_uv(quad, material, corner);
+    out.current_texture = frame.current;
+    out.normal = model_quad_normal(quad);
     out.material_flags = material.flags;
     out.local_position = block_position;
-    out.biome_record = u32(origin.value.w);
+    out.biome_record = u32(quad.chunk_origin.w);
     out.next_texture = frame.next;
     out.frame_blend = frame.blend;
-    out.visibility.x = is_visible | select(0u, MODEL_BOUNDED_TILE, is_bamboo && is_visible != 0u);
+    out.visibility.x = 1u | select(0u, MODEL_BOUNDED_TILE, is_bamboo);
     // Vanilla uses white top vertices and RGB 0x0f on the reverse
     // plane. Apply it after sampling, without another 8-bit atlas quantization.
     let pad_shade = select(1.0, 15.0 / 255.0, out.normal.y < 0.0);
@@ -320,7 +400,7 @@ fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     out.native_ao_face = terrain_shade;
     out.visibility.y = select(0u, 1u, (quad_flags & 8u) != 0u);
     out.world_position = world;
-    out.world_origin = vec3<f32>(origin.value.xyz);
+    out.world_origin = vec3<f32>(quad.chunk_origin.xyz);
     @if(!ENHANCED)
     out.tint_gamma = stem_colour(material.flags);
     // Every corner belongs to the same block; keep its exact tint flat across the model.
@@ -341,7 +421,7 @@ fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
         camera_offset + (out.world_position - world),
     );
     @if(ENHANCED)
-    out.normal = template_quad_normal(template_quad_base, rotation);
+    out.normal = template_quad_normal(quad.template_quad_base, rotation);
     return out;
 }
 

@@ -21,11 +21,23 @@ use super::UiPresentationRuntime;
 use ui::IconRef;
 use ui_engine::pages::WHOLE_ART_PAGE;
 
+#[cfg(target_arch = "wasm32")]
+mod browser;
+#[cfg(not(target_arch = "wasm32"))]
+mod native;
 mod skin_previews;
+#[cfg(target_arch = "wasm32")]
+use browser::start;
+#[cfg(not(target_arch = "wasm32"))]
+use native::start;
 use skin_previews::SkinArtwork;
+pub(super) mod cosmetic_requests;
+use cosmetic_requests::{CosmeticArtwork, Kind as CosmeticArtworkKind};
 mod cape_previews;
 mod packing;
 mod request_cache;
+#[cfg(test)]
+mod scheduling_tests;
 #[cfg(test)]
 mod source_sync_tests;
 use cape_previews::CapeArtwork;
@@ -73,6 +85,7 @@ pub(super) struct ArtworkSet {
     pub(super) oversized: ui_engine::atlas::OversizedTextures,
     pub(super) skins: Vec<SkinArtwork>,
     pub(super) capes: Vec<CapeArtwork>,
+    pub(super) cosmetics: Vec<CosmeticArtwork>,
 }
 
 impl ArtworkSet {
@@ -89,6 +102,7 @@ impl ArtworkSet {
                 .iter()
                 .zip(&other.images)
                 .all(|(a, b)| a.0 == b.0 && Arc::ptr_eq(&a.1, &b.1))
+            && self.cosmetics == other.cosmetics
             && self.capes.len() == other.capes.len()
             && self.capes.iter().zip(&other.capes).all(|(a, b)| a.same(b))
             && self.skins.len() == other.skins.len()
@@ -119,6 +133,8 @@ pub(super) struct Packed {
 /// stalls a frame; until an atlas arrives the previous one keeps drawing.
 pub(super) struct ArtworkLoader {
     requests: Sender<Request>,
+    #[cfg(target_arch = "wasm32")]
+    pending_requests: Receiver<Request>,
     results: Receiver<Packed>,
     requested: u64,
     ready: Option<Packed>,
@@ -129,18 +145,16 @@ pub(super) struct ArtworkLoader {
 
 impl Default for ArtworkLoader {
     fn default() -> Self {
-        let (requests, jobs) = crossbeam_channel::unbounded();
-        let (done, results) = crossbeam_channel::unbounded();
-        let spawned = std::thread::Builder::new()
-            .name("menu-artwork".to_owned())
-            .spawn(move || serve(&jobs, &done));
-        if let Err(error) = spawned {
-            tracing::warn!("menu artwork worker unavailable: {error}");
-        }
+        #[cfg(target_arch = "wasm32")]
+        let (requests, pending_requests, results) = start();
+        #[cfg(not(target_arch = "wasm32"))]
+        let (requests, results) = start();
         // The title is packed before the first frame so the pack's own never flashes.
         let title = pack(&ArtworkSet::default(), &DecodeCache::default(), 0, true);
         Self {
             requests,
+            #[cfg(target_arch = "wasm32")]
+            pending_requests,
             results,
             requested: 0,
             relative: HashMap::new(),
@@ -161,10 +175,18 @@ impl ArtworkLoader {
         self.gallery = None;
         self.requested += 1;
         self.ready = None;
-        let _ = self.requests.send(Request {
+        let request = Request {
             id: self.requested,
             set,
-        });
+        };
+        #[cfg(target_arch = "wasm32")]
+        if let Err(crossbeam_channel::TrySendError::Full(request)) = self.requests.try_send(request)
+        {
+            let _ = self.pending_requests.try_recv();
+            let _ = self.requests.try_send(request);
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = self.requests.try_send(request);
     }
 
     /// Whether an atlas for the latest request (or a partial one) is ready to install.
@@ -248,9 +270,10 @@ struct DecodeCache {
 
 const MAX_DECODED: usize = 160;
 const MAX_FAILED: usize = 256;
-/// Art decoded before the first partial atlas goes out, so visible rows fill early.
+/// Initial world previews and native decode batches, so visible rows fill early.
 const FIRST_BATCH: usize = 8;
 
+#[cfg(not(target_arch = "wasm32"))]
 fn serve(jobs: &Receiver<Request>, done: &Sender<Packed>) {
     let mut cache = DecodeCache::default();
     while let Ok(mut request) = jobs.recv() {
@@ -285,12 +308,22 @@ enum Source {
     Bytes(String, Arc<[u8]>),
     Skin(SkinArtwork),
     Cape(CapeArtwork),
+    Item(cosmetics::Item, bool),
 }
 
 impl Source {
     /// Includes replacement pack bytes so a reload cannot reuse an older image.
     fn key(&self) -> DecodeKey {
         match self {
+            Self::Item(hat, thumbnail) => (
+                if *thumbnail {
+                    hat.thumbnail_key()
+                } else {
+                    hat.texture_key()
+                },
+                THUMBNAIL_SIDE,
+                None,
+            ),
             Self::Skin(skin) => skin.decode_key(),
             Self::Cape(cape) => cape.decode_key(),
             Self::File(path, side) => (path.clone(), *side, None),
@@ -307,28 +340,41 @@ impl Source {
 }
 
 impl DecodeCache {
+    /// Lists pending decoding and rig preparation without doing work outside a decode slice.
     fn missing(&self, set: &ArtworkSet) -> Vec<Source> {
         sources(set)
             .into_iter()
             .filter(|source| {
                 let key = source.key();
-                !self.decoded.contains_key(&key) && !self.failed.contains(&key)
+                let needs_frame = matches!(source, Source::Item(item, _)
+                    if render_model::hats::thumbnail::prepared_frame(*item).is_none());
+                needs_frame || (!self.decoded.contains_key(&key) && !self.failed.contains(&key))
             })
             .collect()
     }
 
-    /// Keep large image scratch allocations on the existing artwork worker.
+    /// Prepares only this slice's rigs and decodes uncached images within the same slice.
     fn decode(&mut self, batch: &[Source], set: &ArtworkSet) {
         let results: Vec<_> = batch
             .iter()
-            .map(|source| {
+            .filter_map(|source| {
+                if let Source::Item(item, _) = source {
+                    render_model::hats::thumbnail::prepare_frame(*item);
+                }
+                let key = source.key();
+                if self.decoded.contains_key(&key) || self.failed.contains(&key) {
+                    return None;
+                }
                 let art = match source {
+                    Source::Item(hat, thumbnail) => {
+                        super::player_preview::hats::decode(*hat, *thumbnail)
+                    }
                     Source::Skin(skin) => skin.decode(),
                     Source::Cape(cape) => cape.decode(),
                     Source::File(path, side) => decode(Path::new(path), *side),
                     Source::Bytes(_, bytes) => decode_bytes(bytes, WHOLE_ART_PAGE),
                 };
-                (source.key(), art)
+                Some((key, art))
             })
             .collect();
         for (key, art) in results {
@@ -385,12 +431,14 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
         .iter()
         .map(|(key, bytes)| Source::Bytes(format!("{SERVER_ART_PREFIX}{key}"), Arc::clone(bytes)));
     let mut all: Vec<_> = set
-        .capes
+        .cosmetics
         .iter()
+        .filter(|source| source.kind == CosmeticArtworkKind::EquippedTexture)
         .take(MAX_ARTWORKS)
-        .cloned()
-        .map(Source::Cape)
+        .map(|source| Source::Item(source.item, false))
         .collect();
+    let remaining = MAX_ARTWORKS - all.len();
+    all.extend(set.capes.iter().take(remaining).cloned().map(Source::Cape));
     let remaining = MAX_ARTWORKS - all.len();
     all.extend(set.skins.iter().take(remaining).cloned().map(Source::Skin));
     let remaining = MAX_ARTWORKS - all.len();
@@ -402,6 +450,22 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
         engine
             .filter(|source| unique.insert(source.key().0))
             .take(remaining),
+    );
+    let remaining = MAX_ARTWORKS - all.len();
+    all.extend(
+        set.cosmetics
+            .iter()
+            .filter(|source| source.kind == CosmeticArtworkKind::Thumbnail)
+            .take(remaining)
+            .map(|source| Source::Item(source.item, true)),
+    );
+    let remaining = MAX_ARTWORKS - all.len();
+    all.extend(
+        set.cosmetics
+            .iter()
+            .filter(|source| source.kind == CosmeticArtworkKind::GalleryTexture)
+            .take(remaining)
+            .map(|source| Source::Item(source.item, false)),
     );
     all
 }
@@ -610,7 +674,7 @@ fn view_images(
             .collect();
     }
     if view.screen == MenuScreen::Settings
-        && view.settings_section
+        && view.settings.section
             == launcher::menu::settings_sections::SettingSection::Mods
                 .definition()
                 .index

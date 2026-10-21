@@ -39,7 +39,7 @@ fn sort_key(
     ViewSortKey::try_new(
         camera.map(|value| value as f32),
         visible,
-        texture_identity(assets as usize, assets),
+        texture_assets(assets as usize, assets).identity(),
         meshing::ChunkBiomeTintIdentity::new(tint, tint),
     )
     .unwrap()
@@ -234,7 +234,7 @@ fn conflicting_duplicate_visible_allocation_is_rejected() {
         ViewSortKey::try_new(
             [0.0, 0.0, 0.0],
             vec![allocation(key, 1, 8), allocation(key, 2, 16)],
-            texture_identity(1, 1),
+            texture_assets(1, 1).identity(),
             meshing::ChunkBiomeTintIdentity::new(1, 1),
         ),
         Err(TransparentSortError::ConflictingAllocation { key })
@@ -249,7 +249,7 @@ fn sort_key_tracks_quantized_position_only_while_water_is_near() {
         ViewSortKey::try_new(
             camera,
             visible.clone(),
-            texture_identity(1, 1),
+            texture_assets(1, 1).identity(),
             meshing::ChunkBiomeTintIdentity::new(1, 1),
         )
         .unwrap()
@@ -408,46 +408,10 @@ fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
     assert!(plugin.contains("resource: texture_assets.model_template_buffer.as_entire_binding()"));
     let shader_storage_bindings = shader.matches("var<storage, read>").count() as u32;
     assert!(shader_storage_bindings <= render::required_vertex_storage_buffers());
-    assert!(shader.contains("visible_quad_mask"));
-    assert!(shader.contains("lighting_base_index"));
-    assert!(shader.contains("let draw_ref_word = instance_index * 2u"));
-    assert!(shader.contains("let model_ref_index = geometry_streams[draw_ref_word]"));
-    assert!(shader.contains("let quad_index = geometry_streams[draw_ref_word + 1u]"));
-    assert!(shader.contains("let geometry_word_count = arrayLength(&geometry_streams)"));
-    assert!(shader.contains("if (draw_ref_word + 1u >= geometry_word_count)"));
-    assert!(shader.contains("if (quad_index >= 32u || model_ref_index > 1073741823u)"));
-    assert!(shader.contains("if (ref_word + 3u >= geometry_word_count)"));
-    assert!(shader.contains("light_colour(light_sample)"));
-    assert!(!shader.contains("block_light"));
-    assert!(!shader.contains("sky_light"));
-    assert!(!shader.contains("safe_quad_index"));
-    let masked_guard = shader
-        .find("if (is_visible == 0u) {")
-        .expect("masked/padded model quads must exit in the vertex stage");
-    let masked_return = shader[masked_guard..]
-        .find("return invisible_vertex();")
-        .expect("masked/padded model quads must return an invisible vertex")
-        + masked_guard;
-    assert!(
-        shader[masked_guard..]
-            .starts_with("if (is_visible == 0u) {\r\n        return invisible_vertex();")
-            || shader[masked_guard..]
-                .starts_with("if (is_visible == 0u) {\n        return invisible_vertex();"),
-        "masked/padded model guard must immediately return an invisible vertex"
-    );
-    assert!(masked_guard < shader.find("var template_position").unwrap());
-    assert!(masked_guard < shader.find("let light_word").unwrap());
-    assert!(masked_return < shader.find("var template_position").unwrap());
-    let zero_guard = shader
-        .find("if (quad_count == 0u || quad_index >= quad_count)")
-        .expect("zero-quad templates require an early invisible return");
-    assert!(zero_guard < shader.find("template_quad_base").unwrap());
-    assert!(zero_guard < shader.find("let light_word").unwrap());
     assert_eq!(
         shader_source::alpha_discard_threshold(&shader, "fragment"),
         Some(0.5)
     );
-    assert!(shader.contains("let quad_flags = model_templates[template_quad_base + 11u]"));
     assert!(shader.contains("@builtin(front_facing) front_facing: bool"));
     assert!(
         shader

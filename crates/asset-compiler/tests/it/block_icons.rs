@@ -185,10 +185,13 @@ fn real_block_routes_compile_decode_lookup_preserving_original_sprites_and_alias
     assert_eq!(new.report.block_policy, Some("opaque-cube-thumbnail-v1"));
     assert!(new.report.skipped_blocks > 0);
     assert_eq!(
-        encode_icon_catalog(
+        encode_icon_catalog_with_sources(
             catalog.source_manifest_sha256(),
             catalog.sprites(),
-            catalog.entries()
+            catalog.entries(),
+            catalog.block_sheets(),
+            catalog.block_models(),
+            catalog.sources().expect("compiler publishes raw sources")
         )
         .unwrap(),
         new.bytes

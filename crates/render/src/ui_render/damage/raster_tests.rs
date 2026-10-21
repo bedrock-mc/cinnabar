@@ -2,9 +2,14 @@
 
 #[path = "raster_fixture.rs"]
 mod fixture;
+mod repeat_tests;
+mod shadow_tests;
 
 use super::*;
 use fixture::{Raster, SIDE, buffer, target};
+
+#[path = "outline_raster.rs"]
+mod outline_raster;
 use render_model::{UiRenderBatch, UiTextureCatalog, UiTexturePage};
 
 impl Raster {
@@ -99,10 +104,13 @@ impl Raster {
             pass.set_vertex_buffer(0, vertices.slice(..));
             pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
             pass.set_bind_group(0, &self.binding, &[]);
-            pass.set_pipeline(
-                &self.materials[usize::from(mode.1 != 0) * 2 + usize::from(mode.2 != 0)],
-            );
             for batch in batches {
+                pass.set_pipeline(if batch.blend_mode == render_model::UI_BLEND_INVERT {
+                    assert!(!needs_depth, "inverse fixture uses depth-free HUD masks");
+                    &self.invert
+                } else {
+                    &self.materials[usize::from(mode.1 != 0) * 2 + usize::from(mode.2 != 0)]
+                });
                 let Some(rect) = super::super::layer::clipped_scissor(batch.scissor, damage)
                     .and_then(|rect| {
                         crate::render_bounds::scissor(rect, [output.width(), output.height()])

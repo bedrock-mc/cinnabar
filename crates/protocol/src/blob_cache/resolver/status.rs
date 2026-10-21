@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(test)]
+use bedrock_protocol_1_26_51::packets::ClientCacheBlobStatus;
 
 /// The sealed classification of one cached packet's unique blob references.
 ///
@@ -113,8 +115,14 @@ impl BlobCacheStatus {
         self.recovery.take()
     }
 
+    /// Transfers the sealed wire sets to the session outbox, omitting outstanding references.
+    pub(crate) fn into_hashes(self) -> (Vec<u64>, Vec<u64>) {
+        (self.missing, self.have)
+    }
+
     /// Splits the missing and have protocol sets. Outstanding hashes are intentionally omitted.
     #[must_use]
+    #[cfg(test)]
     pub(crate) fn into_packets(self) -> Vec<ClientCacheBlobStatus> {
         let mut missing = self.missing.into_iter().peekable();
         let mut have = self.have.into_iter().peekable();

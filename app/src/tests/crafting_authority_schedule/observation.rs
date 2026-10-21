@@ -31,7 +31,7 @@ fn production_registration_orders_actual_network_control_before_observer_drain()
             .unwrap()
     }
     let mut app = App::new();
-    crate::app::configure_client_frame_schedule(&mut app);
+    crate::game_frame::configure_client_frame_schedule(&mut app);
     crate::app::configure_client_production_frame_systems(&mut app);
     let schedules = app.world().resource::<Schedules>();
     let graph = schedules.get(Update).unwrap().graph();

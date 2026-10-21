@@ -32,10 +32,12 @@ pub(super) fn owner_rig() -> ActorRigSnapshot<'static> {
         previous_body_yaw: 0.0,
         body_yaw: 0.0,
         render: &[],
+        attachments: None,
         bone_names: &[],
         skin_geometry: None,
         skin_mesh: None,
         skin_layers: &[],
+        held_item_scale: None,
         hand: [HandPhase::default(); 2],
         item_animation: [ItemAnimationState::default(); 2],
         off_hand_animation: [ItemAnimationState::default(); 2],
@@ -237,6 +239,7 @@ fn owner_name_binding_clears_defaults_but_explicit_binding_keeps_native_origin()
     let owner = crate::tests::actor_with_metadata(HashMap::new());
     let names = [Box::<str>::from("rightItem")];
     let owner_rig = ActorRigSnapshot {
+        attachments: None,
         bone_names: &names,
         ..owner_rig()
     };
@@ -677,7 +680,7 @@ fn standby_and_three_pulling_frames_choose_matching_geometry_texture_and_pose() 
     compiled.sources = sources.into_boxed_slice();
     compiled.geometries = geometries.into_boxed_slice();
     compiled.rig_bindings[0].entity_symbol = 10;
-    compiled.rig_bindings[0].render_controller = 5;
+    compiled.rig_bindings[0].render_controller = Some(5);
     let clip = compiled.animation_clips[0];
     let channel = compiled.animation_channels[0].clone();
     let keyframe = compiled.animation_keyframes[0];
@@ -737,6 +740,7 @@ fn standby_and_three_pulling_frames_choose_matching_geometry_texture_and_pose() 
     let owner = crate::tests::actor_with_metadata(HashMap::new());
     let names = [Box::<str>::from("rightitem")];
     let owner_rig = ActorRigSnapshot {
+        attachments: None,
         bone_names: &names,
         ..owner_rig()
     };

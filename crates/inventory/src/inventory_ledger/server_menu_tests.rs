@@ -10,6 +10,7 @@ use protocol::{
 
 use super::*;
 
+mod large_menu;
 mod repeated_open;
 
 const MENU_WINDOW: i32 = 1;
@@ -107,7 +108,7 @@ fn server_menu_default_descriptors_admit_content_updates_and_level_entity_reques
 }
 
 #[test]
-fn server_menu_default_alias_never_claims_foreign_or_dynamic_descriptors() {
+fn server_menu_admits_its_window_ignoring_descriptor_names() {
     for container in [
         ContainerIdentity {
             window_id: Some(2),
@@ -119,45 +120,52 @@ fn server_menu_default_alias_never_claims_foreign_or_dynamic_descriptors() {
     ] {
         let mut ledger = open(GENERIC_STORAGE_WINDOW_TYPE);
         ledger.apply(&content(container));
-        assert_eq!(ledger.storage_slot_count(), None, "{container:?}");
+        let matching = container.window_id == Some(1);
+        assert_eq!(
+            ledger.storage_slot_count(),
+            matching.then_some(MENU_CELLS),
+            "{container:?}"
+        );
         ledger.apply(&slot(container, (MENU_CELLS - 1) as u16, 102));
-        assert!(
-            ledger.storage_stack((MENU_CELLS - 1) as u8).is_none(),
+        assert_eq!(
+            ledger
+                .storage_stack((MENU_CELLS - 1) as u8)
+                .map(|stack| stack.stack_network_id),
+            matching.then_some(102),
             "{container:?}"
         );
     }
 }
 
 #[test]
-fn server_menu_named_dynamic_identity_remains_exact_in_requests() {
+fn server_menu_ignores_ordinary_dynamic_descriptor_in_requests() {
     let mut ledger = open(GENERIC_STORAGE_WINDOW_TYPE);
     let container = descriptor(Some(CONTAINER_NAME_LEVEL_ENTITY), Some(91));
     ledger.apply(&content(container));
     ledger.apply(&slot(container, (MENU_CELLS - 1) as u16, 103));
     ledger.begin_storage_click((MENU_CELLS - 1) as u8).unwrap();
     let Some(StackRequestAction::Take { source, .. }) = ledger.newest_action() else {
-        panic!("taking the dynamically addressed item");
+        panic!("taking the ordinary window item");
     };
     assert_eq!(
         source.container,
-        StackRequestContainer::LevelEntity {
-            dynamic_id: Some(91)
-        }
+        StackRequestContainer::LevelEntity { dynamic_id: None }
     );
     assert_eq!(source.stack_network_id, 103);
 }
 
 #[test]
-fn server_menu_alias_leaves_real_anvil_zero_name_as_ui_input() {
+fn ordinary_anvil_slot_uses_manager_index_instead_of_packet_name() {
     let mut ledger = open(WINDOW_TYPE_ANVIL);
     ledger.apply(&slot(descriptor(Some(0), None), 1, 104));
     assert_eq!(
         ledger
-            .target_stack(InventoryTarget::Craft(1))
+            .target_stack(InventoryTarget::Craft(2))
             .unwrap()
             .stack_network_id,
         104
     );
+    assert!(ledger.target_stack(InventoryTarget::Craft(1)).is_none());
     assert!(ledger.storage_stack(1).is_none());
 }
 
@@ -359,5 +367,31 @@ fn empty_success_ack_allows_repeated_purchases_and_reopening() {
             assert!(ledger.storage_generation().is_none());
             assert!(!ledger.resync_required());
         }
+    }
+}
+
+/// Anvil Content has two inputs plus a deferred preview and requires the complete shape.
+#[test]
+fn ordinary_anvil_content_requires_all_manager_cells_and_skips_preview() {
+    for count in [2, 3, 4] {
+        let mut ledger = open(WINDOW_TYPE_ANVIL);
+        ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+            container: descriptor(Some(protocol::CONTAINER_NAME_CURSOR), Some(91)),
+            slots: (0..count)
+                .map(|index| stack(100 + index))
+                .collect::<Vec<_>>()
+                .into(),
+            storage_item: NetworkItemStack::empty(),
+        }));
+        for (slot, id) in [(ANVIL_TARGET_SLOT, 100), (ANVIL_MATERIAL_SLOT, 101)] {
+            assert_eq!(
+                ledger
+                    .target_stack(InventoryTarget::Craft(slot))
+                    .map(|stack| stack.stack_network_id),
+                (count == 3).then_some(id)
+            );
+        }
+        assert!(ledger.created_output_stack().is_none());
+        assert!(ledger.cursor_stack().is_none());
     }
 }

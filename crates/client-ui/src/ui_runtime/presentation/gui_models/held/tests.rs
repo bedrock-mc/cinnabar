@@ -256,11 +256,12 @@ fn installed_gui_carriers_reuse_sprite_pages_within_the_model_atlas_budget() {
             continue;
         };
         if matches!(model.placements[0], PreviewHeldPlacement::Sprite { .. }) {
+            let original = presentation
+                .item_icon(&key.identifier, key.metadata)
+                .unwrap();
             assert_eq!(
-                model.source,
-                presentation
-                    .item_icon(&key.identifier, key.metadata)
-                    .unwrap()
+                (model.source.page, model.source.uv),
+                (original.page, original.uv)
             );
             assert!((model.source.page as usize) < presentation.textures.dynamic_start());
             sprites += 1;

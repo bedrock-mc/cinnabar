@@ -55,28 +55,46 @@ impl UiPresentationRuntime {
         self.screens.mod_ui.set_mod_hud(content)
     }
 
+    /// Publishes a shared merged HUD without copying unchanged card data.
+    pub fn set_shared_mod_hud(
+        &mut self,
+        content: Option<std::sync::Arc<Hud>>,
+    ) -> Result<(), String> {
+        if self.screens.mod_ui.mod_chat_actions()
+            != content
+                .as_ref()
+                .map_or(&[][..], |hud| hud.chat_actions.as_slice())
+        {
+            self.screens.chat.forget_annotations();
+        }
+        self.screens.mod_ui.set_shared_mod_hud(content)
+    }
+
     /// Follows the client part's modal in the dynamic pages reserved to its atlas.
     pub fn set_experience_modal(&mut self, modal: Option<ExperienceModal<'_>>) {
         let page = (self.textures.dynamic_start() + pages::MODAL_UI_PAGE) as u16;
         self.screens.mod_ui.set_experience_modal(modal, page);
     }
 
+    /// The player inventory slot of the client part modal's read-only inventory or hotbar rows
+    /// under window-logical `point`, which a hotbar key acts on as in a container screen; none
+    /// while one of its edit boxes takes typing.
+    pub fn experience_modal_inventory_hit(
+        &self,
+        point: [f32; 2],
+    ) -> Option<ui_screens::container_actions::InventoryCellHit> {
+        let modal = &self.screens.mod_ui;
+        if modal.experience_modal_text_focused() {
+            return None;
+        }
+        let (collection, index) = modal.experience_modal_cell_at(point)?;
+        ui_screens::containers::player_cell(collection, index)
+    }
+
     /// Follows the player mod's screens in the dynamic pages reserved to their atlas.
     pub fn set_mod_screens(&mut self, input: Option<ModScreensInput<'_>>) {
         let page = (self.textures.dynamic_start() + pages::MOD_UI_PAGE) as u16;
         self.screens.mod_ui.set_mod_screens(input, page);
-    }
-
-    /// Applies the Screen animations setting to mod surface motion. It reads the settings
-    /// snapshot, which gameplay publishes while the launcher menu is hidden.
-    pub(in super::super) fn configure_mod_ui_motion(&mut self) {
-        let animations = self
-            .screens
-            .chat
-            .settings
-            .options()
-            .value(SettingId::ScreenAnimations);
-        self.screens.mod_ui.configure_motion(animations != 0);
     }
 
     /// All personal HUD content follows gameplay focus and the player's HUD preference.
@@ -96,6 +114,7 @@ impl UiPresentationRuntime {
                 .value(SettingId::HideHud)
                 == 0
             && !self.screens.mod_ui.mod_panel_open()
+            && !self.screens.mod_ui.mod_hud_editor_painting()
     }
 
     /// Draws the extension label through JSON-UI only while the gameplay HUD owns focus.
@@ -142,7 +161,8 @@ impl UiPresentationRuntime {
         else {
             return;
         };
-        let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &|_| None);
+        let translate = |key: &str| runtime.translation(key);
+        let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &translate);
         self.screens
             .mod_ui
             .paint_mod_widgets(self.engine.as_deref(), &mut paint, &resolved);
@@ -151,13 +171,15 @@ impl UiPresentationRuntime {
     /// Draws the personal panel, or the HUD editor while it owns the panel surface.
     pub(in super::super) fn append_mod_panel(
         &mut self,
+        player: &player_state::PlayerState,
         runtime: &UiRuntime,
         nodes: &mut Vec<UiNode>,
         next: &mut u32,
         metrics: TextMetrics,
         content: [f32; 2],
     ) {
-        if self.screens.mod_ui.mod_hud_editor_open() {
+        let translate = |key: &str| runtime.translation(key);
+        if self.screens.mod_ui.mod_hud_editor_painting() {
             let Some(resolved) = self
                 .screens
                 .mod_ui
@@ -165,16 +187,95 @@ impl UiPresentationRuntime {
             else {
                 return;
             };
-            let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &|_| None);
+            let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &translate);
             self.screens
                 .mod_ui
                 .paint_mod_hud_editor(self.engine.as_deref(), &mut paint, &resolved);
             return;
         }
-        let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &|_| None);
+        let session_icons = &self.session_icons;
+        let icon_catalog = self.icon_catalog.as_deref();
+        let icon_refs = self.icon_refs.as_deref();
+        let icon = |id: &str, metadata| {
+            super::super::session_icons::lookup_icon(
+                session_icons,
+                icon_catalog,
+                icon_refs,
+                id,
+                metadata,
+            )
+        };
+        let Some(engine) = self.engine.as_deref() else {
+            return;
+        };
+        self.control_previews.sync(
+            self.screens.mod_ui.control_previews(),
+            runtime.session_id(),
+            engine.catalog(),
+            &self.font,
+        );
+        if self.control_previews.is_empty() {
+            let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &translate);
+            self.screens.mod_ui.paint_mod_panel_with_icons(
+                self.engine.as_deref(),
+                &mut paint,
+                &icon,
+            );
+            return;
+        }
+        let native_paint = super::super::hud_layout::capture_hud_paint(
+            player,
+            runtime,
+            &self.hud_frame,
+            self.hud_textures.as_ref(),
+            self.screens.chat.settings.options(),
+        );
+        let mut hud_renderer = ui_screens::hud_renderers::HudRenderer {
+            hud: &native_paint,
+            hunger_update: None,
+            bounds: None,
+        };
+        let mut item_renderer = ui_engine::engine::item_renderer::ItemRenderer {
+            icons: &self.hud_cache.icons,
+            id_aux: &[],
+        };
+        let preview_view = std::cell::Cell::new(None);
+        let mut player_renderer = super::preview_renderer::PreviewRenderer {
+            preview: self.hud_frame.player_preview,
+            view: Some(&preview_view),
+            ..Default::default()
+        };
+        let mut renderers: [&mut dyn ui_engine::engine::screen::CustomRenderer; 3] =
+            [&mut hud_renderer, &mut item_renderer, &mut player_renderer];
+        let mut preview_frame = PaintFrame {
+            layouts: &mut self.layouts,
+            font: &self.font,
+            metrics,
+            solid_page: self.solid_texture_page,
+            safe_area: self.safe_area,
+            content,
+            translate: &translate,
+            language: runtime.text_generation(),
+            now: self.menu_seconds,
+            nodes,
+            next,
+            renderers: &mut renderers,
+        };
+        self.control_previews.paint(
+            engine,
+            &json_ui::hud_context(engine.context()),
+            &mut preview_frame,
+        );
+        if let Some(view) = preview_view.get() {
+            self.player_preview_view = view;
+        }
+        let mut previews = self.control_previews.renderer();
+        let mut panel_renderers: [&mut dyn ui_engine::engine::screen::CustomRenderer; 1] =
+            [&mut previews];
+        let mut paint = preview_frame.with_renderers(&mut panel_renderers);
         self.screens
             .mod_ui
-            .paint_mod_panel(self.engine.as_deref(), &mut paint);
+            .paint_mod_panel_with_icons(self.engine.as_deref(), &mut paint, &icon);
     }
 
     /// Draws the client part's modal over the gameplay scenes; trusted chrome draws after it.
@@ -192,6 +293,12 @@ impl UiPresentationRuntime {
         content: [f32; 2],
         over_gameplay: bool,
     ) {
+        let id_aux = match self.screens.mod_ui.experience_modal_icon_keys() {
+            Some(keys) => item_icons(keys, player_runtime, runtime, |id, aux| {
+                self.item_icon(id, aux)
+            }),
+            None => Vec::new(),
+        };
         let translate = |key: &str| runtime.translation(key);
         let hud_frame = &self.hud_frame;
         let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &translate);
@@ -199,6 +306,7 @@ impl UiPresentationRuntime {
             self.engine.as_deref(),
             &mut paint,
             over_gameplay,
+            &id_aux,
             |icons| super::containers::player_rows(player_runtime, hud_frame, icons),
         );
     }

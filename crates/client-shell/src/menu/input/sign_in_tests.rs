@@ -173,13 +173,13 @@ fn device_prompt_actions_precede_a_hidden_skin_editor() {
 fn device_prompt_releases_pending_binding_capture() {
     let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
     menu.screen = MenuScreen::Settings;
-    menu.key_remap = Some(0);
+    menu.settings.key_remap = Some(0);
     menu.apply_control_auth(AuthState::AwaitingCode {
         uri: "https://example.invalid".into(),
         code: "TEST-CODE".into(),
     });
     let view = menu.view();
-    assert!(view.key_remap.is_none());
+    assert!(view.settings.key_remap.is_none());
     assert_eq!(view.focused_action, Some(MenuAction::OpenSignInLink));
 }
 

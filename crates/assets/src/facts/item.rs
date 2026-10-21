@@ -1,9 +1,15 @@
+/// Canonical arrow identity used by item presentation.
+pub const ARROW_IDENTIFIER: &str = "minecraft:arrow";
 /// Canonical identity used to request the totem's presentation assets.
 pub const TOTEM_IDENTIFIER: &str = "minecraft:totem_of_undying";
 /// Read-only book identity retained outside the pinned retail census.
 pub(super) const WRITTEN_BOOK_IDENTIFIER: &str = "minecraft:written_book";
 /// Native filled-map identity used for session admission outside the retail census.
 pub const FILLED_MAP_IDENTIFIER: &str = "minecraft:filled_map";
+/// Canonical empty bucket identity; legacy filled variants carry nonzero metadata.
+pub const EMPTY_BUCKET_IDENTIFIER: &str = "minecraft:bucket";
+/// Canonical banner identity used by stack-aware loom admission.
+pub const BANNER_IDENTIFIER: &str = "minecraft:banner";
 
 use crate::{
     item::{
@@ -394,7 +400,7 @@ mod presentation_tests {
         assert_eq!(facts.book_editable("fixture:written_book"), None);
 
         let food_members: std::collections::BTreeSet<_> =
-            include_str!("../../../protocol/data/item_tags_dragonfly.tsv")
+            include_str!("../../../protocol/data/item_tags_native.tsv")
                 .lines()
                 .find_map(|row| {
                     row.split_once('\t')

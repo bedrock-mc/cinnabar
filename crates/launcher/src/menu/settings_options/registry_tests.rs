@@ -134,6 +134,34 @@ fn shared_section_metadata_drives_titles_tabs_and_reset_routes() {
         SettingSection::Sound.definition().reset_group,
         Some(SettingsGroup::Audio)
     );
+    assert_eq!(
+        SettingSection::Chat.definition().reset_group,
+        Some(SettingsGroup::Chat)
+    );
+}
+
+#[test]
+fn shaders_tab_is_visible_only_in_shader_pack_builds() {
+    let shaders = SettingSection::Shaders.definition();
+    assert_eq!(shaders.tab_title.is_some(), super::SHADER_PACK_BINDINGS);
+    assert_eq!(
+        SETTINGS_TABS.iter().any(|(name, _)| *name == shaders.name),
+        super::SHADER_PACK_BINDINGS
+    );
+    let position = |section: SettingSection| {
+        SECTION_DEFINITIONS
+            .iter()
+            .position(|row| row.id == section)
+            .unwrap()
+    };
+    assert_eq!(
+        position(SettingSection::Shaders),
+        position(SettingSection::GlobalTexturePack) + 1
+    );
+    assert_eq!(
+        position(SettingSection::Mods),
+        position(SettingSection::Shaders) + 1
+    );
 }
 
 #[test]
@@ -208,7 +236,8 @@ fn chat_color_codes_and_swatch_choices_share_one_palette() {
 }
 
 #[test]
-fn saved_schema_snapshot_keeps_all_setting_and_binding_keys() {
+fn saved_schema_snapshot_keeps_active_setting_and_binding_keys() {
+    let retired = "chat_typeface";
     let fixture = include_bytes!("../../../tests/data/settings-v1.json");
     let stored: serde_json::Value = serde_json::from_slice(fixture).unwrap();
     let options = SettingsOptions::decode(fixture).unwrap();
@@ -223,10 +252,17 @@ fn saved_schema_snapshot_keeps_all_setting_and_binding_keys() {
             .as_object()
             .unwrap()
             .keys()
+            .filter(|name| name.as_str() != retired)
             .collect::<Vec<_>>()
     );
     assert_eq!(encoded["keys"], stored["keys"]);
-    for name in stored["values"].as_object().unwrap().keys() {
+    assert!(encoded["values"].get(retired).is_none());
+    for name in stored["values"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .filter(|name| name.as_str() != retired)
+    {
         let id = SettingId::from_name(name).expect("saved setting must remain registered");
         assert_eq!(
             options.value(id),
@@ -240,4 +276,86 @@ fn saved_schema_snapshot_keeps_all_setting_and_binding_keys() {
         let id = BindingId::from_name(name).expect("saved binding must remain registered");
         assert_eq!(options.key_control(id.row(gamepad).unwrap()), None);
     }
+}
+
+/// The dedicated Chat reset includes every displayed preference and preserves other panels.
+#[test]
+fn chat_panel_reset_restores_shared_values_and_persists_defaults() {
+    let mut settings = SettingsOptions::default();
+    let chat: BTreeSet<_> = SettingPanel::Chat
+        .options()
+        .map(|option| option.name)
+        .collect();
+    let reset: BTreeSet<_> = SettingsGroup::Chat
+        .options()
+        .map(|option| option.name)
+        .collect();
+    assert_eq!(chat, reset);
+    for option in SettingPanel::Chat.options() {
+        let changed = if option.default == option.min {
+            option.max
+        } else {
+            option.min
+        };
+        assert!(settings.set(option.id.index(), changed));
+    }
+    let unrelated = SettingId::MainVolume;
+    settings.set(unrelated.index(), unrelated.definition().min);
+    let saved = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    for option in SettingPanel::Chat.options() {
+        assert_ne!(saved.value(option.id), option.default);
+    }
+    assert!(settings.reset_group(SettingsGroup::Chat));
+    let restored = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    for option in SettingPanel::Chat.options() {
+        assert_eq!(restored.value(option.id), option.default);
+    }
+    assert_eq!(restored.value(unrelated), unrelated.definition().min);
+}
+
+/// Old typeface values cannot suppress font sizing or reintroduce a removed selector.
+#[test]
+fn retired_chat_typeface_is_ignored_without_losing_font_size() {
+    let retired = "chat_typeface";
+    for legacy in [0, 1] {
+        let stored =
+            serde_json::json!({"schema": 2, "values": {(retired): legacy, "chat_font_size": 15}});
+        let options = SettingsOptions::decode(&serde_json::to_vec(&stored).unwrap()).unwrap();
+        assert_eq!(options.chat_font_scale(), 1.5);
+        assert!(SettingId::from_name(retired).is_none());
+        let saved = serde_json::to_value(&options).unwrap();
+        assert!(saved["values"].get(retired).is_none());
+        assert_eq!(
+            SettingsOptions::decode(&serde_json::to_vec(&saved).unwrap())
+                .unwrap()
+                .chat_font_scale(),
+            1.5
+        );
+    }
+}
+
+/// Iris's reload key defaults to R and remaps like other client controls, in builds that
+/// compile shader packs; other builds offer no row for it.
+#[test]
+fn reload_shaders_defaults_to_r_and_remaps_only_in_shader_pack_builds() {
+    let r = semantic_input::PhysicalControl::KeyboardUsage(0x15);
+    let mut options = SettingsOptions::default();
+    let row = BindingId::ReloadShaders.row(false);
+    assert_eq!(row.is_some(), super::SHADER_PACK_BINDINGS);
+    let Some(row) = row else {
+        assert_eq!(options.named_key_control(BindingId::ReloadShaders), None);
+        return;
+    };
+    assert_eq!(
+        super::custom_key_label(BindingId::ReloadShaders.name()),
+        Some("Reload Shaders")
+    );
+    assert_eq!(options.named_key_control(BindingId::ReloadShaders), Some(r));
+    let f5 = semantic_input::PhysicalControl::KeyboardUsage(0x3e);
+    assert!(options.remap(row, f5));
+    let reloaded = SettingsOptions::decode(&serde_json::to_vec(&options).unwrap()).unwrap();
+    assert_eq!(
+        reloaded.named_key_control(BindingId::ReloadShaders),
+        Some(f5)
+    );
 }

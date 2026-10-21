@@ -203,15 +203,13 @@ fn prepare_atmosphere_uniform(
     settings: Res<render_scene::SkyboxSettings>,
     assets: Res<AtmosphereTextureAssets>,
     mut gpu: ResMut<AtmosphereGpu>,
-    render_queue: Res<RenderQueue>,
-    device: Res<RenderDevice>,
-    staging: Option<Res<crate::upload_staging::BufferUploadStaging>>,
+    uploads: crate::upload_staging::FrameUploads,
 ) {
     let gpu = &mut *gpu;
     let mask = assets
         .skybox(crate::pack_skybox::dimension(*frame))
         .map_or(0, assets::PackSkybox::face_mask);
-    gpu.skybox_active = mask != 0;
+    gpu.skybox_active = mask != 0 && settings.visible;
     let skybox = crate::pack_skybox::SkyboxUniform::new(*frame, *settings, mask);
     let (frame_changed, skybox_changed) = gpu.uploaded.as_ref().map_or((true, true), |old| {
         (
@@ -220,24 +218,14 @@ fn prepare_atmosphere_uniform(
         )
     });
     if frame_changed {
-        crate::upload_staging::write_batch(
-            staging.as_deref(),
-            &device,
-            &render_queue,
-            &[(&gpu.buffer, 0, bytemuck::bytes_of(&*frame))],
-        );
+        uploads.write(&gpu.buffer, 0, bytemuck::bytes_of(&*frame));
         #[cfg(test)]
         {
             gpu.uniform_writes[0] += 1;
         }
     }
     if skybox_changed {
-        crate::upload_staging::write_batch(
-            staging.as_deref(),
-            &device,
-            &render_queue,
-            &[(&gpu.skybox, 0, bytemuck::bytes_of(&skybox))],
-        );
+        uploads.write(&gpu.skybox, 0, bytemuck::bytes_of(&skybox));
         #[cfg(test)]
         {
             gpu.uniform_writes[1] += 1;

@@ -1,0 +1,14 @@
+{
+  "name": "figma-to-jsonui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "1.140.0",
+    "esbuild": "0.28.2",
+    "typescript": "6.0.3"
+  }
+}

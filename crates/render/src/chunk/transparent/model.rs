@@ -481,14 +481,18 @@ pub(in crate::chunk) fn spawn_transparent_model_sort(
     sender: SyncSender<TransparentModelWorkerResult>,
     work: TransparentModelSortWork,
 ) {
-    rayon::spawn(move || {
+    let work = move || {
         let batches = sort_transparent_model_candidates(work.camera_position, work.candidates);
         let _ = sender.try_send(TransparentModelWorkerResult {
             generation: work.generation,
             key: work.key,
             batches,
         });
-    });
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    rayon::spawn(work);
+    #[cfg(target_arch = "wasm32")]
+    crate::browser_jobs::submit(crate::browser_jobs::Lane::Models, work);
 }
 
 #[allow(clippy::too_many_arguments)]

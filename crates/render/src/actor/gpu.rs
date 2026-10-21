@@ -8,11 +8,20 @@ use bevy::prelude::Resource;
 
 use render_model::ActorArtworkPageId;
 
-pub(crate) mod allocation;
 #[path = "gpu/geometry.rs"]
 mod geometry;
 pub(crate) use geometry::SegmentedVertexBuffer;
 pub use geometry::storage_binding_bytes;
+
+/// The non-sRGB view sRGB actor, item and block-entity artwork also allows when shader packs
+/// are compiled in: packs read texels as the raw gamma bytes Java's textures hold. Without
+/// them the artwork keeps no extra view format.
+pub(crate) const ARTWORK_VIEW_FORMATS: &[bevy::render::render_resource::TextureFormat] =
+    if cfg!(feature = "shaderpacks") {
+        &[bevy::render::render_resource::TextureFormat::Rgba8Unorm]
+    } else {
+        &[]
+    };
 
 #[derive(Default, Resource)]
 pub(crate) struct ActorDrawTracker {
@@ -49,7 +58,7 @@ pub(crate) struct ActorDrawSpan {
     pub page: ActorArtworkPageId,
     pub first: u32,
     pub count: u32,
-    /// Vertices of the geometry every instance of the span draws.
+    /// Exact vertex count drawn for every instance in the span.
     pub vertex_count: u32,
 }
 

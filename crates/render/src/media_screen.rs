@@ -1,6 +1,5 @@
 //! Emissive in-world quads that sample server media textures.
 
-use crate::queue_writes::ProfiledQueue as _;
 use bevy::prelude::IntoScheduleConfigs;
 #[cfg(test)]
 use bevy::prelude::System;
@@ -56,6 +55,7 @@ const MEDIA_SCREEN_SHADER_HANDLE: Handle<Shader> =
 const RECORD_BYTES: u64 = 48;
 
 pub(crate) fn install_media_screen_render(app: &mut App) {
+    crate::upload_staging::install(app);
     crate::pipeline_warmup::register::<MediaScreenPipeline>(app);
     load_internal_asset!(
         app,
@@ -153,8 +153,7 @@ fn init_media_screen_gpu(
 #[allow(clippy::too_many_arguments, reason = "Bevy system parameters")]
 fn prepare_media_screens(
     scene: Res<MediaScreenScene>,
-    device: Res<RenderDevice>,
-    queue: Res<RenderQueue>,
+    uploads: crate::upload_staging::FrameUploads,
     pipeline_cache: Res<PipelineCache>,
     pipeline: Res<MediaScreenPipeline>,
     view_uniforms: Res<ViewUniforms>,
@@ -194,7 +193,7 @@ fn prepare_media_screens(
             serial: None,
             uploaded: false,
             record: None,
-            record_buffer: device.create_buffer(&BufferDescriptor {
+            record_buffer: uploads.device.create_buffer(&BufferDescriptor {
                 label: Some("media screen record"),
                 size: RECORD_BYTES,
                 usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
@@ -217,7 +216,7 @@ fn prepare_media_screens(
                 state.uploaded = false;
                 let generation = state.texture_generation + 1;
                 state.texture = MediaTexture::new(
-                    &device,
+                    &uploads.device,
                     size,
                     generation,
                     scene.gpu_budget_bytes.saturating_sub(others),
@@ -231,7 +230,7 @@ fn prepare_media_screens(
             }
             if let Some(texture) = &state.texture {
                 state.uploaded |=
-                    texture.upload(&queue, size, state.texture_generation, &frame.rgba);
+                    texture.upload(&uploads.queue, size, state.texture_generation, &frame.rgba);
             }
         }
         if screen.frame.is_none() {
@@ -242,7 +241,7 @@ fn prepare_media_screens(
         let textured = state.texture.is_some() && state.uploaded;
         let record = screen_record(screen, textured);
         if state.record != Some(record) {
-            queue.profiled_write_buffer(&state.record_buffer, 0, bytemuck::cast_slice(&record));
+            uploads.write(&state.record_buffer, 0, bytemuck::cast_slice(&record));
             state.record = Some(record);
         }
         if let Some((view_binding, view_buffer)) = view.clone()
@@ -254,7 +253,7 @@ fn prepare_media_screens(
                 .filter(|_| textured)
                 .and_then(|texture| texture.view(state.texture_generation))
                 .unwrap_or(&gpu.placeholder);
-            state.bind_group = Some(device.create_bind_group(
+            state.bind_group = Some(uploads.device.create_bind_group(
                 "media screen bind group",
                 &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
                 &[
@@ -538,6 +537,18 @@ mod tests {
             half_up: [0.0, 1.0, 0.0],
             frame: None,
         }
+    }
+
+    #[test]
+    fn frame_uploads_stage_media_records() {
+        use crate::upload_staging::BufferUploadStaging;
+        let mut app = budget_app();
+        let staging = BufferUploadStaging::new(app.world().resource());
+        app.world_mut().insert_resource(staging);
+        prepared(&mut app, vec![screen(1, 0.0)]);
+        let stats = app.world().resource::<BufferUploadStaging>().stats();
+        assert_eq!(stats.staged_writes, 1);
+        assert_eq!(stats.fallback_writes, 0);
     }
 
     #[test]

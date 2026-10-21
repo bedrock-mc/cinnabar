@@ -653,7 +653,7 @@ impl ViewmodelPublish<'_, '_> {
                 values[4] = 1;
                 values[5] = i128::from(actor.spawn_revision);
                 values[20] |= i128::from(stream.authority().actor_health_by_unique(actor.unique_id).is_some_and(|(health, _)| health <= 0.))
-                    | (i128::from(matches!(actor.metadata.get(&0), Some(protocol::ActorMetadataValue::Flags(flags)) if flags & ((1 << 4) | (1 << 5)) != 0)) << 2)
+                    | (i128::from(actor.is_using_item() || actor.is_invisible()) << 2)
                     | (i128::from(actor.metadata.get(&38).is_some_and(|value| !matches!(value, protocol::ActorMetadataValue::Float(scale) if *scale == 1.0))) << 3);
             }
             values[15] = match stream.network_id_mode() {
@@ -765,8 +765,7 @@ impl ViewmodelPublish<'_, '_> {
                 .gameplay_hud()
                 .air_ticks()
                 .is_some_and(|(air, max)| air < max)
-            || matches!(actor.and_then(|actor| actor.metadata.get(&0)), Some(protocol::ActorMetadataValue::Flags(flags))
-                if flags & ((1 << 4) | (1 << 5)) != 0)
+            || actor.is_some_and(|actor| actor.is_using_item() || actor.is_invisible())
         {
             return Err(HandFallback::KnownActive);
         }

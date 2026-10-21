@@ -7,6 +7,7 @@ use std::{
 use crate::{RuntimeAssets, RuntimeAtmosphereAssets, RuntimeEntityAssets, RuntimeFontCatalog};
 
 mod font_fallback;
+pub use font_fallback::diagnostic_font_catalog;
 mod optional_carriers;
 pub(crate) use optional_carriers::shell_quote_path;
 mod error;

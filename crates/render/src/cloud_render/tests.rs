@@ -384,12 +384,15 @@ fn worker_records_match_direct_meshing_above_inside_and_below_the_layer() {
         );
         let mut gpu = world.resource_mut::<CloudGpu>();
         let prepared = gpu.views.get_mut(&view).unwrap();
-        let (mesh, waited) = prepared.mesh_cache.get(
-            &runtime,
-            prepared.viewport,
-            y >= CLOUD_UNDERSIDE_Y.ceil(),
-            false,
-        );
+        let (mesh, waited) = prepared
+            .mesh_cache
+            .get(
+                &runtime,
+                prepared.viewport,
+                y >= CLOUD_UNDERSIDE_Y.ceil(),
+                false,
+            )
+            .unwrap();
         assert!(!waited);
         assert_ne!(mesh.worker_thread, std::thread::current().id());
         assert_eq!(
@@ -506,4 +509,19 @@ fn retained_storage_handles_growth_empty_windows_and_asset_replacement() {
     assert_ne!(buffer_id(&world, view), small_id);
     assert!(world.resource::<CloudGpu>().views[&view].record_count > 0);
     assert_eq!(world.resource::<CloudGpu>().work.buffer_creations, 2);
+}
+
+#[test]
+fn frame_uploads_stage_cloud_records_and_colour() {
+    use crate::upload_staging::BufferUploadStaging;
+    let mut world = world();
+    world.init_resource::<render_scene::AtmosphereViewInputs>();
+    let staging = BufferUploadStaging::new(world.resource());
+    world.insert_resource(staging);
+    spawn_view(&mut world, Vec3::ZERO);
+    world.run_system_once(prepare_cloud_records).unwrap();
+    world.run_system_once(prepare_cloud_colour).unwrap();
+    let stats = world.resource::<BufferUploadStaging>().stats();
+    assert_eq!(stats.staged_writes, 2);
+    assert_eq!(stats.fallback_writes, 0);
 }

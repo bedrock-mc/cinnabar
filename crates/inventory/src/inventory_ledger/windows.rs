@@ -1,7 +1,7 @@
 //! Admission for windows whose cells are named runs (furnace, brewing stand,
 //! horse, crafter) and for server-pushed window properties.
 
-use protocol::{ContainerDataEvent, ContainerIdentity, NetworkItemStack, OpenCells};
+use protocol::{ContainerDataEvent, ContainerIdentity, NetworkItemStack};
 
 use super::cells::{CellSurface, Held};
 use super::{Cell, PlayerInventoryLedger};
@@ -10,13 +10,12 @@ use super::{Cell, PlayerInventoryLedger};
 const MAX_WINDOW_DATA: usize = 16;
 
 impl PlayerInventoryLedger {
-    /// Separates fixed and dynamic addresses before matching the active named window.
-    fn legacy_named_window(&self, identity: &ContainerIdentity) -> Option<bool> {
+    /// Separates fixed and dynamic addresses before matching an ordinary window.
+    fn ordinary_window(&self, identity: &ContainerIdentity) -> Option<bool> {
         let id = identity.window_id?;
         if matches!(
             id,
             protocol::PLAYER_INVENTORY_WINDOW_ID
-                | protocol::OFFHAND_WINDOW_ID
                 | protocol::ARMOR_WINDOW_ID
                 | protocol::UI_INVENTORY_WINDOW_ID
                 | protocol::DYNAMIC_STORAGE_WINDOW_ID
@@ -24,22 +23,42 @@ impl PlayerInventoryLedger {
             return None;
         }
         let storage = self.storage.as_ref()?;
-        matches!(storage.kind.open_cells(), Some(OpenCells::Named { .. }))
-            .then_some(id == storage.window_id)
+        Some(id == storage.window_id)
     }
 
-    /// Ordinary named windows admit complete content by window ID, ignoring packet names.
-    pub(super) fn apply_legacy_named_content(
+    /// Ordinary windows admit complete content by window ID, ignoring packet names.
+    pub(super) fn apply_ordinary_content(
         &mut self,
         identity: ContainerIdentity,
         slots: &[NetworkItemStack],
     ) -> bool {
-        let Some(matches) = self.legacy_named_window(&identity) else {
+        let Some(matches) = self.ordinary_window(&identity) else {
             return false;
         };
-        let valid_length = self.storage.as_ref().is_some_and(|storage| {
-            matches!(storage.kind.open_cells(), Some(OpenCells::Named { lengths, .. }) if lengths.contains(&slots.len()))
-        });
+        let kind = self
+            .storage
+            .as_ref()
+            .expect("ordinary window observed")
+            .kind;
+        if kind.is_ui_backed() {
+            if !matches
+                || super::screen_actions::input_layout(kind)
+                    .is_none_or(|layout| slots.len() != layout.ordinary_extent)
+            {
+                self.note_unrouted_container();
+                return true;
+            }
+            for (slot, stack) in slots.iter().enumerate() {
+                if let Some(cell) = ordinary_ui_cell(kind, slot) {
+                    self.set_authoritative_cell(cell, Held::new(stack));
+                }
+            }
+            return true;
+        }
+        let valid_length = self
+            .storage
+            .as_ref()
+            .is_some_and(|storage| storage.kind.content_lengths().contains(&slots.len()));
         if !matches || !valid_length {
             self.note_unrouted_container();
             return true;
@@ -47,8 +66,8 @@ impl PlayerInventoryLedger {
         for slot in 0..self.confirmed.storage_len().max(slots.len()) {
             self.prepare_authoritative_cell(Cell::Storage(slot as u8));
         }
-        let storage = self.storage.as_mut().expect("named window observed");
-        storage.identity.get_or_insert(identity);
+        self.bind_storage_request_identity();
+        let storage = self.storage.as_mut().expect("ordinary window observed");
         storage.resync_required = false;
         self.confirmed.replace_storage(slots);
         self.surface_refreshed(CellSurface::Storage);
@@ -56,107 +75,30 @@ impl PlayerInventoryLedger {
     }
 
     /// A legacy slot's index is relative to the whole open window.
-    pub(super) fn apply_legacy_named_slot(
+    pub(super) fn apply_ordinary_slot(
         &mut self,
         identity: ContainerIdentity,
         slot: u16,
         stack: &NetworkItemStack,
     ) -> bool {
-        let Some(matches) = self.legacy_named_window(&identity) else {
+        let Some(matches) = self.ordinary_window(&identity) else {
             return false;
         };
-        if !matches
-            || !u8::try_from(slot).is_ok_and(|slot| {
-                self.set_authoritative_cell(Cell::Storage(slot), Held::new(stack))
-            })
+        let kind = self
+            .storage
+            .as_ref()
+            .expect("ordinary window observed")
+            .kind;
+        let cell = if kind.is_ui_backed() {
+            ordinary_ui_cell(kind, usize::from(slot))
+        } else {
+            u8::try_from(slot).ok().map(Cell::Storage)
+        };
+        if !matches || !cell.is_some_and(|cell| self.set_authoritative_cell(cell, Held::new(stack)))
         {
             self.note_unrouted_container();
         }
         true
-    }
-
-    /// Whether `identity` is unnamed content for the open named window.
-    pub(super) fn bare_named_window_matches(&self, identity: &ContainerIdentity) -> bool {
-        identity.slot_type.is_none()
-            && identity.dynamic_id.is_none()
-            && self.storage.as_ref().is_some_and(|storage| {
-                identity.window_id == Some(storage.window_id)
-                    && matches!(storage.kind.open_cells(), Some(OpenCells::Named { .. }))
-            })
-    }
-
-    /// Admits a content payload for the open named window: the whole window
-    /// when it has the full length, otherwise the run `name` addresses.
-    pub(super) fn apply_window_content(
-        &mut self,
-        identity: ContainerIdentity,
-        name: u8,
-        slots: &[NetworkItemStack],
-    ) {
-        let Some(storage) = self.storage.as_ref() else {
-            self.note_unrouted_container();
-            return;
-        };
-        if identity.window_id != Some(storage.window_id) {
-            return;
-        }
-        let Some(OpenCells::Named { lengths, .. }) = storage.kind.open_cells() else {
-            self.note_unrouted_container();
-            return;
-        };
-        let max_len = lengths.iter().copied().max().unwrap_or(0);
-        let first = if identity.slot_type.is_none() {
-            Some(0)
-        } else {
-            protocol::open_name_first_cell(storage.kind, name)
-        };
-        let Some(first) = first else {
-            self.note_unrouted_container();
-            return;
-        };
-        let whole = slots.len() == max_len;
-        if !whole && slots.len() + usize::from(first) > max_len {
-            self.note_unrouted_container();
-            return;
-        }
-        let start = if whole { 0 } else { usize::from(first) };
-        for slot in start..start + slots.len() {
-            self.prepare_authoritative_cell(Cell::Storage(slot as u8));
-        }
-        let storage = self.storage.as_mut().expect("storage observed above");
-        storage.identity.get_or_insert(identity);
-        storage.resync_required = false;
-        if whole {
-            self.confirmed.replace_storage(slots);
-        } else {
-            self.confirmed
-                .write_storage(usize::from(first), slots, max_len);
-        }
-        self.surface_refreshed(CellSurface::Storage);
-    }
-
-    /// Admits one slot update for the open named window by container name.
-    pub(super) fn apply_window_slot(
-        &mut self,
-        identity: ContainerIdentity,
-        name: u8,
-        slot: u16,
-        stack: &NetworkItemStack,
-    ) {
-        let Some(storage) = self.storage.as_ref() else {
-            self.note_unrouted_container();
-            return;
-        };
-        if identity.window_id.is_some_and(|id| id != storage.window_id) {
-            return;
-        }
-        let index = protocol::open_name_first_cell(storage.kind, name)
-            .zip(u8::try_from(slot).ok())
-            .and_then(|(first, slot)| first.checked_add(slot));
-        match index {
-            Some(index) if self.set_authoritative_cell(Cell::Storage(index), Held::new(stack)) => {}
-            _ => self.note_unrouted_container(),
-        }
     }
 
     /// Records one `ContainerSetData` property for the open window.
@@ -172,4 +114,10 @@ impl PlayerInventoryLedger {
         }
         storage.data.insert(data.property, data.value);
     }
+}
+
+/// Maps incoming manager indices to writable UI inputs; preview cells do not write authority.
+fn ordinary_ui_cell(kind: protocol::WindowKind, index: usize) -> Option<Cell> {
+    let layout = super::screen_actions::input_layout(kind)?;
+    (index < layout.ordinary_inputs).then(|| Cell::Craft(layout.slots[index]))
 }

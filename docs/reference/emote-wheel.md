@@ -1,11 +1,17 @@
-# Emote wheel and custom playback
+# Emote wheel and catalog playback
 
 Cinnabar opens the native JSON-UI wheel with the remappable `key.emote` control.
-The defaults are keyboard B and controller D-pad Left. Digits 1–4 choose its top, right, bottom and left
-slots; pointer selection uses the authored radial control's geometry and dead zone.
-The control is listed in Keyboard & Mouse and Controller settings. Change Emotes equips the
-original custom dance in a chosen slot and persists the complete slot array.
-Equipping an already equipped piece moves/swaps it rather than duplicating it.
+The defaults are keyboard B and controller D-pad Left. Digits 1–4 choose the top,
+right, bottom and left slots; the pointer uses the radial control's dead zone.
+Change Emotes lists supported owned clips in pages of four. Choose a clip, then
+its destination slot. Equipping an equipped clip moves or swaps it.
+
+C or controller Y opens Change Emotes. Controller shortcuts honor the configured
+X/Y and A/B swaps. Tab, controller RB, or Next page advances the catalog.
+Fresh profiles equip owned clips in catalog order, up to four slots. An empty
+catalog leaves empty slots. Saved slot IDs resolve against the current catalog;
+removed or unowned clips cannot play. Catalog rollbacks activate the exact
+admitted revision, including its playback data and ownership metadata.
 
 ## Vanilla rules
 
@@ -26,99 +32,53 @@ Equipping an already equipped piece moves/swaps it rather than duplicating it.
 - Nonzero horizontal movement requests emote cancellation.
 - Emoting keeps the HUD paper doll visible with the existing hold timer.
 
-## Original custom emote
+## Catalog clips
 
-Twerk is an owned animation authored from observing the public
-[Lunar product preview](https://store.lunarclient.com/products/3720241/twerk).
-The listing identifies a repeating dance that stops on movement. The shared
-custom catalog owns its loop period, identifier and label; no Lunar animation
-files or Marketplace entitlement identifiers are included.
+The API repository owns all emote choreography, including Twerk and Breakdance,
+and their reproducible exports. The client contains generic clip playback and
+articulation only. Its optional catalog `emotes` array provides each clip's ID,
+display name, free ownership and content-addressed asset. Free clips are owned
+by every account. Unsupported and unowned entries stay out of Change Emotes.
 
-The revised owned clip follows the public video's sustained deep squat, wide
-stance, level head, hands beside the thighs and hip pulse. Model-space joint
-targets rotate the torso about the hips even on independent, shoulder-pivot
-skin bones; clothing still follows its actual parent hierarchy. Root Y/Z offsets
-anchor the leg bottom-face centers through the loop. Torso counter-tilt keeps
-shoulder/head height steady as the pelvis rocks; varying spread keeps the foot
-centers fixed laterally as well. Rigid tilted foot corners
-are not articulated soles, and exact visual parity remains incomplete.
+The cosmetics worker downloads same-origin assets within bounded byte counts
+and verifies SHA-256 on download and every cache read. Invalid clips are skipped
+and counted. Previously downloaded clips remain available offline.
 
-The user rejected the initial steady-head revision as still reading as a crouch.
-The next owned revision doubles the leg-driven hip excursion, makes the torso
-more upright, adds a small alternating torso twist, and brings the hands toward
-the thighs. Foot centers and head height remain anchored. This is still an
-approximation on the existing rigid limb model, not verified Lunar keyframes
-or an articulated knee rig. The subsequent knee revision below supersedes this
-rigid-leg approximation for supported skins.
+The pinned API schema defines version 1 clips: duration, loop metadata and local
+joint tracks with quaternion XYZW rotations and bind-relative offsets in leg-height
+units. The rig and budgets come from that schema. Rotations use shortest-path
+normalized linear interpolation; offsets interpolate linearly. Single keys are
+constant; longer tracks span the clip duration with strictly increasing times.
+Non-looping clips hold their final pose.
 
-Classic cuboid skins now receive a temporary render-only thigh/shin split during
-playback. Side-face UVs are cropped at the knee rather than stretching or repeating
-the whole leg texture; mirrored legs and clothing retain their source mappings.
-A two-segment solve bends the knees forward while keeping foot centers planted.
-The pelvis pulses beneath steady shoulders. Source models, tick-owned poses,
-first-person hands and actors without shared playback keep their original skeletons; stopping the
-emote restores the original mesh and pose. Unsupported rotated/polygon/custom
-limbs retain the rigid approximation. Rigid armor knee articulation and exact
-Lunar animation parity remain incomplete. The user accepted the installed knee
-revision. A follow-up requested faster playback and more vertical
-pelvis movement. The shared catalog now selects a shorter loop, and the planted
-knee solve permits a larger vertical hip pulse while retaining steady shoulders.
-This follow-up awaits user verification.
-The foot-planting follow-up adds temporary ankle joints and solves thigh/shin
-lengths to a fixed ankle position. Each foot keeps its rest orientation, so all
-four sole corners stay fixed on the floor throughout the faster vertical pulse.
-Foot and clothing UVs are cropped at the ankle; ordinary playback retirement
-still restores the original skeleton. The whole-sole regression runs every loop
-phase, including both vertical hip extremes.
+Classic cuboid skins receive render-only elbows, wrists, knees, ankles and a
+lower torso. Cropped UVs, clothing, face layers and held-item anchors follow the
+joints. All clips share the prepared rig. Contact correction uses visible body
+pieces and is shared with attachments, while preserving authored vertical root
+motion for hops and jumps. Unsupported authored models keep their original mesh.
+Unusual proportions and native/Marketplace animation parity remain incomplete.
 
-Sampling resolves named bones in the player's actual geometry and applies
-channels before skeleton composition. Body, clothing/persona layers and armor
-share that pose. The native first-person hand and actors without shared playback keep their normal
-animation. Render time drives the loop independently of simulation tick speed.
-Movement, jump, attack/use, other modal screens, loss of focus, and actor/session
-reset cancel local playback. F5 perspective remains user controlled.
+Sampling resolves named bones and composes body and attached layers together.
+Render time advances playback independently of simulation tick speed. The native
+first-person hand and actors without shared playback retain their normal poses.
+Gameplay actions, other modal screens and actor/session resets cancel playback.
+Perspective remains user controlled.
 
-Starting or restarting a custom clip reports its owned identifier and current phase through
-the authenticated Cinnabar API. Custom identifiers stay off the Bedrock emote packet channel;
-standard clients do not carry these clips. Nearby Cinnabar players receive the same render-only
-body, clothing and cape poses when both clients report each other nearby. The visibility setting
-controls publishing. Stops, world changes, actor-lifetime changes and expired API leases retire
-the overlay. Local playback remains available offline. Exact Lunar keyframes and native
-Marketplace ownership/playback remain incomplete. The small custom equip flow substitutes for
-native Dressing Room navigation and does not close that parity gate.
-Analog-stick and touch wheel navigation remain incomplete; controller navigation
-currently uses the D-pad and confirm/back buttons.
+Starting or restarting a clip reports its catalog ID and phase through the
+Cinnabar API. Custom playback does not set Bedrock's native Emoting flag or send
+custom IDs over the Bedrock emote packet channel. Nearby Cinnabar players receive
+the shared overlay when both clients report each other nearby. Visibility settings
+control publishing. Stops, world changes, actor-lifetime changes and expired API
+leases retire the overlay.
 
-## Verification checkpoint
+## Coverage and remaining work
 
-The complete JSON-UI suite passes (480 tests), including native wheel state and
-indexed bindings plus square-panel sizing at different aspect ratios. Focused
-tests cover saved slots/bindings, skeleton/clothing sampling, native wheel/equip
-rendering and radial hits, GUI player vertices, current-frame cancellation,
-same-frame input consumption, controller opening, session/focus retirement,
-and production actor publication with native hand/remote ownership preserved.
-Eleven custom-animation tests pass, including native joint landmarks, foot-center
-anchoring, attached arms/head and equivalent flat-biped/clothing retargeting.
-The twist regression also checks level head ownership and planted feet.
-Knee regressions check connected thigh/shin segments, planted feet,
-steady head height, texture cropping, mirroring, clothing and source immutability.
-The user accepted the faster hip pulse but reported a sliced-looking ankle seam.
-The local correction keeps the ankle inside overlapping textured foot/shin
-volumes, with a full-loop overlap regression and unchanged sole corners.
-The user accepted its installed Windows appearance.
-Controller regressions also cover equipping/playing the left slot without
-retriggering the wheel opener, and closing-frame inventory consumption followed
-by fresh real drop/book actions.
-Software-rendered 1280x720 DPI-1 wheel/equip frames were inspected for readable
-text, complete geometry and clipping. This does not replace the required live
-Windows game pass; that acceptance is pending and the feature remains local.
-Strict all-target clippy passes for all six changed packages. The required
-`verify-affected --base origin/dev` run passes formatting, architecture and
-compilation, then stops at the unchanged meshing regression
-`compiled_ice_over_water_preserves_still_source_and_flat_top` in
-`crates/meshing/tests/liquid_barriers.rs` (the touching liquid-face assertion).
-That failure also occurred before this feature; emote work does not modify meshing.
+Synthetic fixtures cover clip validation, revision rollback, owned catalog defaults,
+saved slots, paging, controller mapping, cancellation and native pose isolation.
+Animation tests cover articulated geometry, texture cropping, clothing, face layers,
+held-item anchors, visible contacts and authored root lift at both pose endpoints.
+The API checks reproducible exports and catalog asset hashes and serves each clip
+through its asset endpoint. Production catalog clips stay out of client fixtures.
 
-Articulated geometry now retains its matching prepared mesh for the body and animated clothing,
-instead of registering rigid source vertices under the jointed model identity. Cached meshes
-are shared across playback samples within the existing actor vertex budget.
+Native Dressing Room navigation, Marketplace ownership/playback, analog-stick and
+touch navigation, and exact native animation parity remain incomplete.

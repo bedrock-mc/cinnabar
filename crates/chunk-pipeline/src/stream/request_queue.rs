@@ -1,13 +1,11 @@
 use super::*;
 
-const MAX_PRIORITY_BYPASSES: u8 = 16;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct RequestIdentity {
-    dimension: i32,
     chunk: ChunkKey,
     base_sub_chunk_y: i32,
     count: usize,
+    demand: u64,
 }
 
 impl ColumnOwned for RequestIdentity {
@@ -20,10 +18,10 @@ impl ColumnOwned for RequestIdentity {
 impl From<&PendingSubChunkRequest> for RequestIdentity {
     fn from(request: &PendingSubChunkRequest) -> Self {
         Self {
-            dimension: request.dimension,
             chunk: request.chunk,
             base_sub_chunk_y: request.base_sub_chunk_y,
             count: request.count,
+            demand: request.demand,
         }
     }
 }
@@ -33,21 +31,16 @@ struct RequestPriority {
     sequence: u64,
     retry: bool,
     transport_retry: bool,
-    bypasses: u8,
 }
 
 impl RequestPriority {
+    /// Keeps diagnostic class and rollback identity without changing dispatch order.
     const fn new(sequence: u64, retry: bool) -> Self {
         Self {
             sequence,
             retry,
             transport_retry: false,
-            bypasses: 0,
         }
-    }
-
-    const fn starved(self) -> bool {
-        self.bypasses >= MAX_PRIORITY_BYPASSES
     }
 }
 
@@ -88,15 +81,9 @@ pub(super) struct RequestQueue {
     /// Dispatched priorities kept until transport confirms, so a transport retry keeps its age.
     popped: ColumnRecords<RequestIdentity, RequestPriority>,
     next_sequence: u64,
-    mesh_blockers: BTreeSet<ChunkKey>,
-    last_popped_class: Option<RequestClass>,
 }
 
 impl RequestQueue {
-    pub(super) const fn last_popped_class(&self) -> Option<RequestClass> {
-        self.last_popped_class
-    }
-
     pub(super) fn len(&self) -> usize {
         self.slots.len()
     }
@@ -202,15 +189,6 @@ impl RequestQueue {
         required_columns: &BTreeSet<ChunkKey>,
     ) -> Option<PendingSubChunkRequest> {
         let selected = self.select(player_chunk, required_columns)?;
-        for (position, slot) in self.slots.entries_mut() {
-            match slot {
-                Slot::Reserved { .. } => break,
-                Slot::Ready { priority, .. } if position != selected.index => {
-                    priority.bypasses = priority.bypasses.saturating_add(1);
-                }
-                Slot::Ready { .. } => {}
-            }
-        }
         let Some(Slot::Ready { request, priority }) = self.slots.remove(selected.index) else {
             unreachable!("selection names ready work");
         };
@@ -226,31 +204,14 @@ impl RequestQueue {
             self.popped.remove(&oldest);
         }
         self.popped.insert(identity, priority);
-        self.last_popped_class = Some(selected.class);
         Some(request)
     }
 
-    pub(super) fn confirm_popped(&mut self, request: &PendingSubChunkRequest) {
-        self.popped.remove(&RequestIdentity::from(request));
-    }
-
-    pub(super) fn confirm_popped_identity(
-        &mut self,
-        chunk: ChunkKey,
-        base_sub_chunk_y: i32,
-        count: usize,
-    ) {
-        let identities: Vec<_> = self
-            .popped
-            .keys_in_column(chunk)
-            .filter(|identity| {
-                identity.base_sub_chunk_y == base_sub_chunk_y && identity.count == count
-            })
-            .copied()
-            .collect();
-        for identity in identities {
-            self.popped.remove(&identity);
-        }
+    /// Releases the popped intent and returns its retry classification for telemetry.
+    pub(super) fn confirm_popped(&mut self, request: &PendingSubChunkRequest) -> Option<bool> {
+        self.popped
+            .remove(&RequestIdentity::from(request))
+            .map(|priority| priority.retry)
     }
 
     pub(super) fn cancel_reservation(&mut self, world_sequence: u64) {
@@ -269,7 +230,6 @@ impl RequestQueue {
     pub(super) fn cancel_columns(&mut self, chunks: &BTreeSet<ChunkKey>) {
         for &chunk in chunks {
             self.slots.remove_column(chunk);
-            self.mesh_blockers.remove(&chunk);
             self.popped.remove_column(chunk);
         }
     }
@@ -280,66 +240,32 @@ impl RequestQueue {
         self.slots.take_cleanup_visits() + self.popped.take_cleanup_visits()
     }
 
-    /// Gives requested neighbours preference within their existing request class.
-    pub(super) fn prioritize_mesh_blocker(&mut self, chunk: ChunkKey) {
-        self.mesh_blockers.insert(chunk);
-    }
-
-    /// Removes a dependency once its column has completed.
-    pub(super) fn clear_mesh_blocker(&mut self, chunk: ChunkKey) {
-        self.mesh_blockers.remove(&chunk);
-    }
-
     fn reservation_index(&self, world_sequence: u64) -> Option<i128> {
         self.slots.entries().find_map(|(position, slot)| {
             matches!(slot, Slot::Reserved { world_sequence: reserved, .. } if *reserved == world_sequence).then_some(position)
         })
     }
 
-    /// Dispatch order over ready work ahead of the first reservation: the oldest transport
-    /// retry, then the oldest starved request, then class, mesh blocker, distance and age.
+    /// Returns only the oldest ready intent; an unfilled reservation is a barrier.
     fn select(
         &self,
         player_chunk: Option<ChunkKey>,
         required_columns: &BTreeSet<ChunkKey>,
     ) -> Option<Selection> {
-        let eligible = || {
-            self.slots.entries().map_while(|(index, slot)| match slot {
-                Slot::Ready { request, priority } => Some((index, request, *priority)),
-                Slot::Reserved { .. } => None,
-            })
+        let (index, slot) = self.slots.entries().next()?;
+        let Slot::Ready { request, priority } = slot else {
+            return None;
         };
-        let oldest = |pick: fn(RequestPriority) -> bool| {
-            eligible()
-                .filter(move |(_, _, priority)| pick(*priority))
-                .min_by_key(|(_, _, priority)| priority.sequence)
-        };
-        let class = |request: &PendingSubChunkRequest, priority: RequestPriority| {
-            request_class(
+        Some(Selection {
+            index,
+            class: request_class(
                 priority.retry,
                 request.chunk,
                 player_chunk,
                 required_columns,
-            )
-        };
-        let (index, request, priority) = oldest(|priority| priority.transport_retry)
-            .or_else(|| oldest(RequestPriority::starved))
-            .or_else(|| {
-                eligible().min_by_key(|(_, request, priority)| {
-                    (
-                        class(request, *priority),
-                        !self.mesh_blockers.contains(&request.chunk),
-                        horizontal_distance_squared(request.chunk, player_chunk),
-                        priority.sequence,
-                    )
-                })
-            })?;
-        Some(Selection {
-            index,
-            class: class(request, priority),
+            ),
             transport_retry: priority.transport_retry,
-            // A starved transport retry was chosen as a transport retry.
-            starved: !priority.transport_retry && priority.starved(),
+            starved: false,
         })
     }
 
@@ -353,7 +279,7 @@ impl RequestQueue {
     }
 }
 
-fn request_class(
+pub(super) fn request_class(
     retry: bool,
     chunk: ChunkKey,
     player_chunk: Option<ChunkKey>,
@@ -378,25 +304,14 @@ fn request_class(
     }
 }
 
-fn horizontal_distance_squared(chunk: ChunkKey, player_chunk: Option<ChunkKey>) -> u128 {
-    let Some(player) = player_chunk.filter(|player| player.dimension == chunk.dimension) else {
-        return 0;
-    };
-    let dx = i128::from(chunk.x) - i128::from(player.x);
-    let dz = i128::from(chunk.z) - i128::from(player.z);
-    dx.unsigned_abs()
-        .pow(2)
-        .saturating_add(dz.unsigned_abs().pow(2))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Builds one bounded intent for queue ordering checks.
     fn request(chunk: ChunkKey, y: i32) -> PendingSubChunkRequest {
         PendingSubChunkRequest {
-            packet: request_sub_chunk_column(chunk.dimension, chunk.x, chunk.z, y, 1).unwrap(),
-            dimension: chunk.dimension,
+            demand: 0,
             chunk,
             base_sub_chunk_y: y,
             count: 1,
@@ -432,14 +347,41 @@ mod tests {
     }
 
     #[test]
-    fn continuous_prefetch_cannot_starve_exact_retry() {
+    fn admitted_requests_keep_order_before_player_and_mesh_work() {
+        let player = ChunkKey::new(0, 0, 0);
+        let first = ChunkKey::new(0, 8, 0);
+        let mut queue = RequestQueue::default();
+        queue.push_ready(request(first, -4), false);
+        queue.push_ready(request(player, -4), true);
+
+        assert_eq!(
+            queue
+                .pop_next(Some(player), &BTreeSet::from([player]))
+                .unwrap()
+                .chunk,
+            first,
+            "admitted work keeps its order across request classes"
+        );
+    }
+
+    #[test]
+    fn retry_waits_for_the_previously_admitted_prefix() {
         let player = ChunkKey::new(0, 0, 0);
         let mut queue = RequestQueue::default();
         for x in 1..=32 {
             queue.push_ready(request(ChunkKey::new(0, x, 0), -4), false);
         }
         queue.push_ready(request(player, -4), true);
-
+        for x in 1..=32 {
+            assert_eq!(
+                queue
+                    .pop_next(Some(player), &BTreeSet::new())
+                    .unwrap()
+                    .chunk
+                    .x,
+                x
+            );
+        }
         assert_eq!(
             queue
                 .pop_next(Some(player), &BTreeSet::new())
@@ -447,25 +389,6 @@ mod tests {
                 .chunk,
             player
         );
-    }
-
-    #[test]
-    fn bounded_aging_eventually_services_prefetch_under_continuous_player_work() {
-        let player = ChunkKey::new(0, 0, 0);
-        let prefetch = ChunkKey::new(0, 8, 0);
-        let mut queue = RequestQueue::default();
-        queue.push_ready(request(prefetch, -4), false);
-        for y in 0..=i32::from(MAX_PRIORITY_BYPASSES) {
-            queue.push_ready(request(player, y), true);
-        }
-
-        let mut served_prefetch = false;
-        for _ in 0..=MAX_PRIORITY_BYPASSES {
-            served_prefetch |= queue
-                .pop_next(Some(player), &BTreeSet::new())
-                .is_some_and(|request| request.chunk == prefetch);
-        }
-        assert!(served_prefetch);
     }
 
     #[test]
@@ -483,14 +406,14 @@ mod tests {
                 .pop_next(Some(player), &BTreeSet::new())
                 .unwrap()
                 .chunk,
-            player
+            prefetch
         );
         assert_eq!(
             queue
                 .pop_next(Some(player), &BTreeSet::new())
                 .unwrap()
                 .chunk,
-            prefetch
+            player
         );
     }
 
@@ -563,38 +486,25 @@ mod tests {
         assert!(!retry.next_is_starved);
     }
 
-    /// Blocker preference preserves player, starvation and reservation ordering.
+    /// Required and player columns keep the same insertion order as other work.
     #[test]
-    fn requested_mesh_blocker_precedes_same_class_prefetch() {
+    fn required_columns_do_not_reorder_admitted_intents() {
         let player = ChunkKey::new(0, 0, 0);
         let near = ChunkKey::new(0, 1, 0);
         let blocker = ChunkKey::new(0, 2, 0);
         let mut queue = RequestQueue::default();
-        queue.push_ready(request(near, 0), false);
-        queue.push_ready(request(blocker, 0), false);
-        queue.push_ready(request(player, 0), false);
-        queue.prioritize_mesh_blocker(blocker);
-        assert_eq!(
-            queue
-                .pop_next(Some(player), &BTreeSet::new())
-                .unwrap()
-                .chunk,
-            player
-        );
-        assert_eq!(
-            queue
-                .pop_next(Some(player), &BTreeSet::new())
-                .unwrap()
-                .chunk,
-            blocker
-        );
-        assert_eq!(
-            queue
-                .pop_next(Some(player), &BTreeSet::new())
-                .unwrap()
-                .chunk,
-            near
-        );
+        for chunk in [near, blocker, player] {
+            queue.push_ready(request(chunk, 0), false);
+        }
+        for expected in [near, blocker, player] {
+            assert_eq!(
+                queue
+                    .pop_next(Some(player), &BTreeSet::from([blocker]))
+                    .unwrap()
+                    .chunk,
+                expected
+            );
+        }
         queue.reserve(1);
         queue.push_ready(request(blocker, 0), false);
         assert!(queue.pop_next(Some(player), &BTreeSet::new()).is_none());

@@ -4,7 +4,45 @@ use bedrock_protocol_1_26_51::packets::SubChunkRequest;
 use bedrock_protocol_1_26_51::types::{DimensionType, SubChunkPos, SubChunkPosOffset};
 use bedrock_protocol_1_26_51::wire;
 
-/// Builds one bounded vertical-column SubChunkRequest.
+use render_api::sub_chunk_requests::{
+    MAX_SUB_CHUNK_COLUMN_HEIGHT, MAX_SUB_CHUNK_REQUESTS, sub_chunk_request_offset,
+};
+
+/// Encodes ordered absolute positions around one dispatch-time center.
+pub fn request_sub_chunks(
+    dimension: i32,
+    center: [i32; 3],
+    positions: impl ExactSizeIterator<Item = [i32; 3]>,
+) -> Result<Packet, WorldPacketError> {
+    if positions.len() > MAX_SUB_CHUNK_REQUESTS {
+        return Err(WorldPacketError::TooManySubChunkRequests {
+            count: positions.len(),
+            max: MAX_SUB_CHUNK_REQUESTS,
+        });
+    }
+    let requests = positions
+        .map(|position| {
+            let [x, y, z] = sub_chunk_request_offset(center, position)
+                .ok_or(WorldPacketError::SubChunkRequestOutOfRange { center, position })?;
+            Ok(SubChunkPosOffset {
+                subchunk_offset_x: wire::I8(x),
+                subchunk_offset_y: wire::I8(y),
+                subchunk_offset_z: wire::I8(z),
+            })
+        })
+        .collect::<Result<Vec<_>, WorldPacketError>>()?;
+    Ok(crate::Packet::new(SubChunkRequest {
+        dimension_type: DimensionType(dimension),
+        sub_chunk_position_offset_list: requests,
+        center_pos: SubChunkPos {
+            subchunk_position_x: wire::I32LE(center[0]),
+            subchunk_position_y: wire::I32LE(center[1]),
+            subchunk_position_z: wire::I32LE(center[2]),
+        },
+    }))
+}
+
+/// Builds a single column around its horizontal coordinates with a zero vertical origin.
 pub fn request_sub_chunk_column(
     dimension: i32,
     chunk_x: i32,
@@ -12,13 +50,12 @@ pub fn request_sub_chunk_column(
     base_sub_chunk_y: i32,
     count: usize,
 ) -> Result<Packet, WorldPacketError> {
-    if count > MAX_SUB_CHUNK_REQUESTS {
+    if count > MAX_SUB_CHUNK_COLUMN_HEIGHT {
         return Err(WorldPacketError::TooManySubChunkRequests {
             count,
-            max: MAX_SUB_CHUNK_REQUESTS,
+            max: MAX_SUB_CHUNK_COLUMN_HEIGHT,
         });
     }
-    let mut requests = Vec::with_capacity(count);
     for offset in 0..count {
         let offset_i32 = i32::try_from(offset).expect("request count is capped at 128");
         base_sub_chunk_y.checked_add(offset_i32).ok_or(
@@ -27,21 +64,12 @@ pub fn request_sub_chunk_column(
                 offset,
             },
         )?;
-        requests.push(SubChunkPosOffset {
-            subchunk_offset_x: wire::I8(0),
-            subchunk_offset_y: wire::I8(offset as i8),
-            subchunk_offset_z: wire::I8(0),
-        });
     }
-    Ok(crate::Packet::new(SubChunkRequest {
-        dimension_type: DimensionType(dimension),
-        sub_chunk_position_offset_list: requests,
-        center_pos: SubChunkPos {
-            subchunk_position_x: wire::I32LE(chunk_x),
-            subchunk_position_y: wire::I32LE(base_sub_chunk_y),
-            subchunk_position_z: wire::I32LE(chunk_z),
-        },
-    }))
+    request_sub_chunks(
+        dimension,
+        [chunk_x, 0, chunk_z],
+        (0..count).map(|offset| [chunk_x, base_sub_chunk_y + offset as i32, chunk_z]),
+    )
 }
 
 pub(super) fn normalize_layer(layer: u32) -> Result<usize, WorldPacketError> {

@@ -130,6 +130,7 @@ fn modal_commands_need_the_permission_and_an_indexed_template() {
             origins: BTreeSet::new(),
             memory_bytes: 0,
             gpu_bytes: 0,
+            personal_mods: Default::default(),
         },
         assets: BTreeSet::from(["ui/terminal.json".to_owned(), "ui/other.json".to_owned()]),
         templates: BTreeSet::from(["ui/terminal.json".to_owned()]),

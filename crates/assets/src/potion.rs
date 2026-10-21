@@ -561,12 +561,48 @@ pub fn potion_descriptor(auxiliary: i16) -> Option<&'static PotionDescriptor> {
         .and_then(|index| POTION_DESCRIPTORS.get(index))
 }
 
+/// The language key naming a tipped arrow: its aux is one more than the potion it carries, and
+/// aux 0 is the plain arrow. A water arrow is "Splashing"; a long mundane one is mundane.
+#[must_use]
+pub fn tipped_arrow_name_key(auxiliary: u32) -> Option<String> {
+    let potion = i16::try_from(auxiliary.checked_sub(1)?).ok()?;
+    let stem = match potion_descriptor(potion)?.name_key {
+        "emptyPotion" => "water",
+        "mundane.extended" => "mundane",
+        key => key,
+    };
+    Some(format!("tipped_arrow.effect.{stem}"))
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
     use std::path::{Path, PathBuf};
 
     use super::*;
+
+    #[test]
+    fn tipped_arrows_name_the_potion_they_carry() {
+        assert_eq!(tipped_arrow_name_key(0), None);
+        assert_eq!(
+            tipped_arrow_name_key(1).as_deref(),
+            Some("tipped_arrow.effect.water")
+        );
+        assert_eq!(
+            tipped_arrow_name_key(3).as_deref(),
+            Some("tipped_arrow.effect.mundane")
+        );
+        // Potion 14 is swiftness.
+        assert_eq!(
+            tipped_arrow_name_key(15).as_deref(),
+            Some("tipped_arrow.effect.moveSpeed")
+        );
+        assert_eq!(
+            tipped_arrow_name_key(46).as_deref(),
+            Some("tipped_arrow.effect.oozing")
+        );
+        assert_eq!(tipped_arrow_name_key(999), None);
+    }
 
     fn pinned_pack_file(relative: &str) -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))

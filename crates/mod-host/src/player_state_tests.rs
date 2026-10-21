@@ -2,6 +2,77 @@ use super::*;
 use crate::{ModGrants, PlayerStateEffect, PlayerStateSlot};
 use cinnabar::extension::player_state::Host as _;
 
+/// Effect clocks neither change equipment tokens nor reallocate the retained equipment.
+#[test]
+fn split_observations_isolate_timers_and_fence_disconnects() {
+    let mut state = State::new(
+        ModGrants {
+            player_state: true,
+            ..Default::default()
+        },
+        String::new(),
+        Default::default(),
+    );
+    let mut input = snapshot();
+    state
+        .player_state
+        .set_snapshot(Some(input.clone()))
+        .unwrap();
+    let first = state.read_revisions().unwrap().unwrap().unwrap();
+    assert_eq!(
+        state.read_equipment().unwrap().unwrap().unwrap().inventory,
+        input.inventory
+    );
+    let inventory = state
+        .player_state
+        .split
+        .equipment
+        .as_ref()
+        .unwrap()
+        .inventory
+        .as_ptr();
+    input.effects[0].remaining_ticks = Some(119);
+    state.player_state.begin_frame();
+    state
+        .player_state
+        .set_snapshot(Some(input.clone()))
+        .unwrap();
+    let second = state.read_revisions().unwrap().unwrap().unwrap();
+    assert_eq!(first.equipment, second.equipment);
+    assert_ne!(first.effects, second.effects);
+    assert_eq!(
+        state
+            .player_state
+            .split
+            .equipment
+            .as_ref()
+            .unwrap()
+            .inventory
+            .as_ptr(),
+        inventory
+    );
+    assert_eq!(
+        state.read_effects().unwrap().unwrap().unwrap().effects,
+        input.effects
+    );
+    input.selected_slot = Some(3);
+    state.player_state.set_snapshot(Some(input)).unwrap();
+    let third = state.read_revisions().unwrap().unwrap().unwrap();
+    assert_ne!(second.equipment, third.equipment);
+    assert_eq!(second.effects, third.effects);
+    state.player_state.begin_frame();
+    assert!(state.read_revisions().unwrap().unwrap().is_none());
+    assert!(state.read_equipment().unwrap().unwrap().is_none());
+    assert!(state.read_effects().unwrap().unwrap().is_none());
+    state.player_state.set_snapshot(Some(snapshot())).unwrap();
+    let rejoined = state.read_revisions().unwrap().unwrap().unwrap();
+    assert!(rejoined.equipment > third.equipment && rejoined.effects > third.effects);
+    state.grants.player_state = false;
+    assert!(state.read_revisions().unwrap().is_err());
+    assert!(state.read_equipment().unwrap().is_err());
+    assert!(state.read_effects().unwrap().is_err());
+}
+
 fn snapshot() -> PlayerStateSnapshot {
     PlayerStateSnapshot {
         session: 7,
@@ -450,4 +521,109 @@ fn remote_combat_statuses_obey_actor_grants_while_local_intent_remains_player_ow
     );
     state.grants.entities = true;
     assert_eq!(state.read_combat(0, 4).unwrap().unwrap().len(), 4);
+}
+
+/// A bounded prefix preserves authority filtering and rejects invalid read limits.
+#[test]
+fn limited_actor_reads_keep_permission_filtering_and_validate_limits() {
+    let mut state = State::new(
+        ModGrants {
+            players: true,
+            ..Default::default()
+        },
+        String::new(),
+        Default::default(),
+    );
+    assert!(state.read_actors_limited(0).unwrap().is_err());
+    assert!(
+        state
+            .read_actors_limited(mod_api::MAX_OBSERVED_ACTORS as u32 + 1)
+            .unwrap()
+            .is_err()
+    );
+    assert!(state.read_actors_limited(1).unwrap().unwrap().is_empty());
+    state.grants.players = false;
+    assert!(state.read_actors_limited(1).unwrap().is_err());
+}
+
+/// Supplies one complete actor row with a separately carried replicated maximum.
+fn observed_actor(runtime_id: u64, player: bool) -> crate::ObservedActor {
+    crate::ObservedActor {
+        actor: crate::ActorObservation {
+            session: 7,
+            dimension: 0,
+            runtime_id,
+            player,
+            position: (0., 0., 0.),
+            boxes: vec![],
+            name: String::new(),
+            identifier: "fixture:actor".into(),
+            yaw: 0.,
+            pitch: 0.,
+            pickable: true,
+            hittable: None,
+            look_origin: None,
+            look_direction: None,
+            invisible: false,
+            sneaking: false,
+            hurt: false,
+            health: Some(10.),
+        },
+        max_health: Some(40.),
+    }
+}
+
+#[test]
+fn bounded_actor_reads_preserve_legacy_rows_and_filter_before_limiting() {
+    let mut state = State::new(
+        ModGrants {
+            players: true,
+            ..Default::default()
+        },
+        String::new(),
+        Default::default(),
+    );
+    state.player_state.observations.actors = vec![
+        observed_actor(1, false),
+        observed_actor(2, true),
+        observed_actor(3, true),
+    ];
+    let limited = state.read_actors_limited(1).unwrap().unwrap();
+    assert_eq!(limited.len(), 1);
+    assert_eq!(limited[0].actor.runtime_id, 2);
+    assert_eq!(limited[0].max_health, Some(40.));
+    let legacy = state.read_actors().unwrap().unwrap();
+    assert_eq!(
+        legacy,
+        state.player_state.observations.actors[1..]
+            .iter()
+            .map(|observed| observed.actor.clone())
+            .collect::<Vec<_>>()
+    );
+    state.grants.players = false;
+    state.grants.entities = true;
+    let limited = state.read_actors_limited(1).unwrap().unwrap();
+    assert_eq!(limited[0].actor.runtime_id, 1);
+}
+
+#[test]
+fn legacy_and_bounded_actor_reads_share_one_callback_allowance() {
+    let mut state = State::new(
+        ModGrants {
+            players: true,
+            ..Default::default()
+        },
+        String::new(),
+        Default::default(),
+    );
+    for index in 0..MAX_IMPORT_WRITES {
+        if index % 2 == 0 {
+            assert!(state.read_actors().unwrap().is_ok());
+        } else {
+            assert!(state.read_actors_limited(1).unwrap().is_ok());
+        }
+    }
+    assert!(state.read_actors_limited(1).is_err());
+    state.player_state.begin_frame();
+    assert!(state.read_actors().unwrap().is_ok());
 }

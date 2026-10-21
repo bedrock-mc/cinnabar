@@ -40,6 +40,7 @@ async fn login_reaches_start_game_through_bds() {
             None,
             &Default::default(),
             None,
+            None,
             |packs, game_data| (packs, game_data),
         ),
     )
@@ -149,6 +150,7 @@ async fn offline_core_session_preserves_startup_behaviour() {
                 None,
                 None,
                 &Default::default(),
+                None,
                 None,
                 |packs, game_data| (packs, game_data),
             ),
@@ -429,7 +431,21 @@ impl GoHarness {
                 .env("BEDROCK_BDS_RUNTIME_DIR", &config.runtime_directory);
         }
         if let Some(scenario) = scenario {
-            command.env("CINNABAR_STARTUP_FIXTURE", scenario);
+            let expected = protocol::request_chunk_radius_packet(
+                protocol::LoginSettings::default().view_distance_chunks,
+                render_api::MAX_VIEW_RADIUS_CHUNKS as u8,
+            );
+            let packets::Packet::RequestChunkRadius(radius) = &*expected.data else {
+                unreachable!("the radius builder returns a radius request")
+            };
+            command.env("CINNABAR_STARTUP_FIXTURE", scenario).env(
+                "CINNABAR_STARTUP_RADIUS_REQUEST",
+                serde_json::json!({
+                    "ChunkRadius": radius.chunk_radius.0,
+                    "MaxChunkRadius": radius.max_chunk_radius.0,
+                })
+                .to_string(),
+            );
         }
         let mut child = command.spawn()?;
         let stdin = child

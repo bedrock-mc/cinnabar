@@ -28,6 +28,7 @@ var joinPacketStages = map[uint32]string{
 
 // withJoinStages preserves packet observers and logs each login milestone once per dial attempt.
 func withJoinStages(dialer minecraft.Dialer, logger *slog.Logger) minecraft.Dialer {
+	dialer = withDiagnosticJoinStages(dialer, logger)
 	started, id := time.Now(), nextJoinID.Add(1)
 	var mu sync.Mutex
 	seen := make(map[string]bool)

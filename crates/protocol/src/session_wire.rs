@@ -4,7 +4,6 @@
 //! Each connection carries one upstream session. The Go core's `proxy` package owns the same contract.
 
 use std::fmt;
-use std::path::Path;
 
 use bedrock_protocol_1_26_51::packets::PacketId;
 use bytes::{BufMut, Bytes, BytesMut};
@@ -14,6 +13,8 @@ use zeroize::Zeroize;
 use bridge::{BridgeError, ConnectTarget, MAX_FRAME_LEN};
 
 mod pack_cache;
+mod pack_receiver;
+pub use pack_receiver::HandoffPackReceiver;
 mod server;
 pub use pack_cache::CachedArchive;
 pub use server::{
@@ -32,6 +33,9 @@ const START_GAME_PACKET_ID: u32 = PacketId::StartGame as u32;
 #[serde(deny_unknown_fields)]
 pub struct ConnectRequest {
     pub protocol: i32,
+    /// Optional local diagnostic correlation; omitted in shipping builds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub join_profile_id: Option<u64>,
     /// `None` joins the core's current selection, which follows a pending server transfer.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<ConnectTarget>,
@@ -114,6 +118,9 @@ pub enum CoreMessage {
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SessionHandoff {
+    /// Web join identity whose archives arrive on a separate reliable stream.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pack_stream: Option<u64>,
     /// The upstream login's canonical identity.
     pub identity: SessionIdentity,
     /// Whether the upstream login advertised blob-cache support.
@@ -144,6 +151,9 @@ pub struct SessionIdentity {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct HandoffPack {
+    /// SHA-256 of the complete compressed archive; mandatory for web delivery.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<[u8; 32]>,
     pub uuid: String,
     pub version: String,
     pub sub_pack: String,
@@ -296,73 +306,6 @@ fn read_varuint32(bytes: &[u8]) -> Option<(u32, usize)> {
         }
     }
     None
-}
-
-/// Loads cached archives and reassembles streamed ones; batches follow only after completion.
-pub struct HandoffPackReceiver {
-    sizes: Vec<u64>,
-    archives: Vec<Vec<u8>>,
-    next: usize,
-}
-
-impl HandoffPackReceiver {
-    /// Loads cache references and expects any remaining archives in handoff order.
-    /// Files are opened under the client's configured cache root; call this on a blocking worker.
-    pub fn new(handoff: &SessionHandoff, cache_root: Option<&Path>) -> Result<Self, BridgeError> {
-        let archives = handoff
-            .packs
-            .iter()
-            .map(|pack| match &pack.cache {
-                Some(reference) => reference.read(cache_root, pack.size),
-                None => Ok(Vec::new()),
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut receiver = Self {
-            sizes: handoff.packs.iter().map(|pack| pack.size).collect(),
-            archives,
-            next: 0,
-        };
-        receiver.skip_complete();
-        Ok(receiver)
-    }
-
-    /// Whether every archive has arrived.
-    #[must_use]
-    pub fn is_complete(&self) -> bool {
-        self.next == self.archives.len()
-    }
-
-    /// Appends one PackData chunk, which must continue the first incomplete streamed archive.
-    pub fn accept(&mut self, index: u32, data: &[u8]) -> Result<(), BridgeError> {
-        if self.is_complete() || self.next as u64 != u64::from(index) {
-            return Err(invalid("pack data out of order"));
-        }
-        let archive = &mut self.archives[self.next];
-        let remaining = self.sizes[self.next] - archive.len() as u64;
-        if data.is_empty() || data.len() as u64 > remaining {
-            return Err(invalid("pack data exceeds the archive size"));
-        }
-        archive.extend_from_slice(data);
-        self.skip_complete();
-        Ok(())
-    }
-
-    /// Returns the archives in handoff order once all have arrived.
-    pub fn into_archives(self) -> Result<Vec<Vec<u8>>, BridgeError> {
-        if !self.is_complete() {
-            return Err(invalid("pack data incomplete"));
-        }
-        Ok(self.archives)
-    }
-
-    /// Skips empty and cached archives as well as streams that have finished.
-    fn skip_complete(&mut self) {
-        while self.next < self.archives.len()
-            && self.archives[self.next].len() as u64 == self.sizes[self.next]
-        {
-            self.next += 1;
-        }
-    }
 }
 
 fn invalid(reason: &'static str) -> BridgeError {

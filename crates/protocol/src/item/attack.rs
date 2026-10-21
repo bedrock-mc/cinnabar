@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use super::registry_capacity::{ITEM_TAGS_FIELD, TAGS_COMPONENT, TAGS_LIST};
+use super::registry_properties::{ITEM_TAGS_FIELD, TAGS_COMPONENT, TAGS_LIST};
 use crate::nbt_tree::Nbt;
 
 /// Authored kinetic phases, measured in simulation ticks.

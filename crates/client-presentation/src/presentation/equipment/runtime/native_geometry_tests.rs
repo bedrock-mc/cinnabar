@@ -97,7 +97,6 @@ fn full_texture_weapon_planes_use_sword_extrusion_for_every_stage_and_view() {
                 plane_fixture(identifier, "geometry.item_sprite", side, true),
             );
             assert!(runtime.uses_native_item_mesh(identifier));
-            assert!(!runtime.is_vanilla_attachable(identifier));
             let body = player_body(&mut runtime);
             let weapon = item(identifier);
             let (_, bones) = runtime.body_bones_for(body.input.rig).unwrap();
@@ -235,7 +234,6 @@ fn full_texture_plane_routing_rejects_3d_or_partial_atlas_models() {
         *bytes = serde_json::to_vec(&model).unwrap();
         install(&mut runtime, pages, files);
         assert!(!runtime.uses_native_item_mesh("minecraft:bow"));
-        assert!(runtime.is_vanilla_attachable("minecraft:bow"));
     }
 }
 

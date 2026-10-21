@@ -9,7 +9,7 @@ use super::{
     layer::{UiLayerDraw, draw_batches, model_depth_attachment},
 };
 #[path = "world.rs"]
-mod world;
+pub(crate) mod world;
 use bevy::prelude::SystemSet;
 use bevy::{
     camera::{MainPassResolutionOverride, Viewport},
@@ -131,7 +131,7 @@ pub(crate) fn install_overlay_graph(world: &mut World) {
         .try_schedule_scope(Core3d, |_, schedule| {
             schedule.add_systems((
                 crate::gpu_timing::profiled(
-                    world::ui_world,
+                    world::ui_world::<false>,
                     Some(render_scene::RuntimeStage::GpuUi),
                     "UiWorldLabel",
                 )
@@ -190,6 +190,9 @@ pub(super) fn queue_ui_overlay(
     mut model_depths: ResMut<super::model_depth::UiModelDepths>,
     coverage: Option<Res<UiHandCoverage>>,
 ) {
+    #[cfg(test)]
+    gpu.world_passes
+        .store(0, std::sync::atomic::Ordering::Relaxed);
     // Always clear the previous render-frame coverage, including empty UI and
     // unchanged accepted revisions, before any preparation/queue early return.
     if let Some(coverage) = coverage {
@@ -201,20 +204,12 @@ pub(super) fn queue_ui_overlay(
     gpu.composite_pipelines
         .retain(|view, _| views.contains(*view));
     gpu.world_view_pipelines
-        .retain(|(view, _, _), _| views.contains(*view));
+        .retain(|(view, _, _, _), _| views.contains(*view));
     gpu.model_view_pipelines
         .retain(|(view, _, _), _| views.contains(*view));
     model_depths.synchronize_device(&render_device);
     model_depths.views.retain(|view, _| views.contains(*view));
-    if gpu.batches.is_empty()
-        || gpu
-            .textures
-            .buckets
-            .iter()
-            .any(|bucket| bucket.bind_group.is_none())
-        || gpu.vertex_buffer.is_none()
-        || gpu.index_buffer.is_none()
-    {
+    if gpu.batches.is_empty() || gpu.vertex_buffer.is_none() || gpu.index_buffer.is_none() {
         return;
     }
     let needs_models = gpu
@@ -238,6 +233,7 @@ pub(super) fn queue_ui_overlay(
                 depth_test: false,
                 depth_write: false,
                 isolated_depth: false,
+                attached_depth: false,
             },
         ) else {
             gpu.view_pipelines.remove(&view_entity);
@@ -282,6 +278,7 @@ pub(super) fn queue_ui_overlay(
                     depth_test,
                     depth_write,
                     isolated_depth: true,
+                    attached_depth: false,
                 };
                 let pair = pipeline
                     .variants
@@ -314,7 +311,7 @@ pub(super) fn queue_ui_overlay(
         }
         if !gpu.batches.iter().any(|batch| batch.world_projection != 0) {
             gpu.world_view_pipelines
-                .retain(|(owner, _, _), _| *owner != view_entity);
+                .retain(|(owner, _, _, _), _| *owner != view_entity);
             continue;
         }
         for (depth_test, depth_write) in
@@ -329,38 +326,48 @@ pub(super) fn queue_ui_overlay(
             {
                 continue;
             }
-            let key = UiPipelineKey {
-                msaa: *msaa,
-                hdr: camera.hdr,
-                invert_blend: false,
-                layer: false,
-                depth_test,
-                depth_write,
-                isolated_depth: false,
-            };
-            let pair = pipeline
-                .variants
-                .specialize(&pipeline_cache, key)
-                .and_then(|alpha| {
-                    pipeline
-                        .variants
-                        .specialize(
-                            &pipeline_cache,
-                            UiPipelineKey {
-                                invert_blend: true,
-                                ..key
-                            },
-                        )
-                        .map(|invert| (alpha, invert))
-                });
-            match pair {
-                Ok(pair) => {
-                    gpu.world_view_pipelines
-                        .insert((view_entity, depth_test, depth_write), pair);
+            for attached_depth in [false, true] {
+                if attached_depth && (depth_test || depth_write || depth.is_none()) {
+                    continue;
                 }
-                Err(_) => {
-                    gpu.world_view_pipelines
-                        .remove(&(view_entity, depth_test, depth_write));
+                let key = UiPipelineKey {
+                    msaa: *msaa,
+                    hdr: camera.hdr,
+                    invert_blend: false,
+                    layer: false,
+                    depth_test,
+                    depth_write,
+                    isolated_depth: false,
+                    attached_depth,
+                };
+                let pair = pipeline
+                    .variants
+                    .specialize(&pipeline_cache, key)
+                    .and_then(|alpha| {
+                        pipeline
+                            .variants
+                            .specialize(
+                                &pipeline_cache,
+                                UiPipelineKey {
+                                    invert_blend: true,
+                                    ..key
+                                },
+                            )
+                            .map(|invert| (alpha, invert))
+                    });
+                match pair {
+                    Ok(pair) => {
+                        gpu.world_view_pipelines
+                            .insert((view_entity, depth_test, depth_write, attached_depth), pair);
+                    }
+                    Err(_) => {
+                        gpu.world_view_pipelines.remove(&(
+                            view_entity,
+                            depth_test,
+                            depth_write,
+                            attached_depth,
+                        ));
+                    }
                 }
             }
         }
@@ -438,15 +445,6 @@ pub(crate) fn ui_overlay(
     ) else {
         return Ok(());
     };
-    if gpu.textures.buckets.len() != gpu.textures.allocated_buckets().len()
-        || gpu
-            .textures
-            .buckets
-            .iter()
-            .any(|bucket| bucket.bind_group.is_none())
-    {
-        return Ok(());
-    }
     let Some(batches) = resolved_batches(
         gpu.accepted_revision,
         &gpu.batches,
@@ -455,6 +453,11 @@ pub(crate) fn ui_overlay(
     ) else {
         return Ok(());
     };
+    let batches = batches.filter(|(_, batch, _)| {
+        gpu.textures
+            .page_binding(batch.texture_page as usize)
+            .is_some()
+    });
     let (Some(layer_pipeline), Some(composite_pipeline)) = (
         pipeline_cache.get_render_pipeline(*alpha),
         gpu.composite_pipelines
@@ -541,6 +544,7 @@ pub(crate) fn ui_overlay(
             .and(gpu.accepted_revision)
             .map(|revision| super::composite::UiLayerContent {
                 revision,
+                texture_generation: gpu.textures.residency_generation,
                 skip: skip.clone(),
                 viewport: viewport
                     .as_ref()
@@ -635,7 +639,7 @@ pub(crate) fn ui_overlay(
                     context,
                     world,
                     target,
-                    &raster.view,
+                    raster,
                     composite_pipeline,
                     &composite_layout,
                 );
@@ -724,6 +728,7 @@ pub(super) fn hud_invert_pipeline_key(hdr: bool) -> UiPipelineKey {
         depth_test: false,
         depth_write: false,
         isolated_depth: false,
+        attached_depth: false,
     }
 }
 

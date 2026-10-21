@@ -30,7 +30,7 @@ pub(in crate::chunk) fn install(app: &mut App) {
 }
 
 /// Preserves graph dependencies while selecting the blend colour space per sorted range.
-pub(in crate::chunk) fn install_graph(world: &mut World) {
+pub(crate) fn install_graph(world: &mut World) {
     crate::scene_target::install_graph(world);
     if world.contains_resource::<TransparentInstalled>() {
         return;
@@ -46,7 +46,7 @@ pub(in crate::chunk) fn install_graph(world: &mut World) {
                 .expect("replace the stock transparent pass");
             schedule.add_systems(
                 crate::gpu_timing::profiled(
-                    gamma_transparent::<false>,
+                    gamma_transparent::<false, false>,
                     Some(render_scene::RuntimeStage::GpuTransparent),
                     "MainTransparentPass",
                 )
@@ -72,21 +72,27 @@ type GammaView = (
     Option<&'static render_scene::EnhancedRendering>,
     &'static SceneTarget,
     Option<&'static bevy::anti_alias::smaa::Smaa>,
+    Option<&'static render_scene::shaderpack::ShaderPackRendering>,
 );
 
 type GammaTransparentQuery = GammaView;
 
 /// Keeps sorted transparency in its native blend colour space.
-pub(crate) fn gamma_transparent<const NAMETAGS_ONLY: bool>(
+pub(crate) fn gamma_transparent<const NAMETAGS_ONLY: bool, const AFTER_PACK: bool>(
     world: &World,
     query: bevy::render::renderer::ViewQuery<GammaTransparentQuery>,
     mut render_context: RenderContext,
 ) -> bevy::ecs::error::Result {
     let view_entity = query.entity();
-    let (camera, view, target, depth, resolution, msaa, enhanced, scene, smaa) = query.into_inner();
+    if !crate::shaderpack::native_pass_enabled(world, view_entity, AFTER_PACK) {
+        return Ok(());
+    }
+    let (camera, view, target, depth, resolution, msaa, enhanced, scene, smaa, pack) =
+        query.into_inner();
+    let overlay = crate::nametag_render::overlay::enabled(enhanced.is_some(), pack.is_some());
     let render_context = &mut render_context;
     let blur = crate::motion_blur::applies(world, view_entity);
-    if NAMETAGS_ONLY && !blur {
+    if NAMETAGS_ONLY && (!blur || overlay) {
         return Ok(());
     }
     let Some(phases) = world.get_resource::<ViewSortedRenderPhases<Transparent3d>>() else {
@@ -100,7 +106,7 @@ pub(crate) fn gamma_transparent<const NAMETAGS_ONLY: bool>(
     }
     let gamma = admitted(camera.hdr, *msaa, enhanced.is_some());
     let draws = gamma.then(|| native_draws(world));
-    let filtered = blur || smaa.is_some();
+    let filtered = blur || smaa.is_some() || overlay;
     let nametag = filtered
         .then(|| crate::nametag_render::draw_function(world))
         .flatten();
@@ -126,9 +132,11 @@ pub(crate) fn gamma_transparent<const NAMETAGS_ONLY: bool>(
     if !nametags_only && let Some(client) = tracy_client::Client::running() {
         use tracy_client::plot_name;
         let mut counts = [0_usize; 3];
+        let mut previous = None;
         for (range, gamma) in ranges() {
             counts[usize::from(gamma)] += range.len();
-            counts[2] += 1;
+            counts[2] += usize::from(previous != Some(gamma));
+            previous = Some(gamma);
         }
         let switches = phase
             .items
@@ -152,7 +160,8 @@ pub(crate) fn gamma_transparent<const NAMETAGS_ONLY: bool>(
     );
     // Phase encoding holds the shared draw-functions lock, so worker ranges cannot draw
     // concurrently. Keep their ordered colour-space passes in one encoder without a worker wait.
-    for (range, gamma) in ranges() {
+    let mut ranges = ranges().peekable();
+    while let Some(gamma) = ranges.peek().map(|(_, gamma)| *gamma) {
         let attachments = [Some(scene.color_attachment(target, gamma))];
         let mut pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
             label: Some("sorted ordinary transparent colour-space range"),
@@ -173,12 +182,15 @@ pub(crate) fn gamma_transparent<const NAMETAGS_ONLY: bool>(
             Some(None) => false,
             None => true,
         };
-        if draw && let Err(error) = phase.render_range(&mut pass, world, view_entity, range) {
-            bevy::log::error!("Error rendering sorted transparency: {error:?}");
-        }
         // Even an empty viewport begins one pass so the target's first use still clears it.
         if !draw {
             break;
+        }
+        // Deferred names leave gaps in the phase, but do not change this pass's attachments.
+        while let Some((range, _)) = ranges.next_if(|(_, next_gamma)| *next_gamma == gamma) {
+            if let Err(error) = phase.render_range(&mut pass, world, view_entity, range) {
+                bevy::log::error!("Error rendering sorted transparency: {error:?}");
+            }
         }
     }
     Ok(())
@@ -223,4 +235,16 @@ pub(crate) fn contiguous_ranges<'a, T: 'a, M: Copy + PartialEq + 'a>(
         start = end;
         Some((range, mode))
     })
+}
+
+/// Registers the native material commands needed by isolated transparency raster fixtures.
+#[cfg(all(test, feature = "shaderpacks"))]
+pub(crate) fn register_fixture_commands(app: &mut App) {
+    use bevy::render::render_phase::AddRenderCommand;
+    app.sub_app_mut(RenderApp)
+        .add_render_command::<Transparent3d, DrawTransparentLiquidCommands>()
+        .add_render_command::<Transparent3d, DrawTransparentLiquidDirectCommands>()
+        .add_render_command::<Transparent3d, DrawTransparentLiquidIndirectCommands>()
+        .add_render_command::<Transparent3d, DrawTransparentModelCommands>()
+        .add_render_command::<Transparent3d, crate::chunk::transparent::mixed::DrawMixedTerrainCommands>();
 }

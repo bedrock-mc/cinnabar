@@ -1,6 +1,6 @@
 //! Publishes the current gameplay pick to the native outline/highlight overlay passes.
 use bevy::{ecs::system::SystemParam, prelude::*};
-use gameplay::melee::{Crosshair, classify, pick_actor};
+use gameplay::melee::{Crosshair, classify_block_hit, pick_actor};
 use render_model::{BlockSelectionTarget, CrackShape, crack_shape_for_block};
 use sim::PaletteWorld;
 use simulation_clock::identity::SessionGeneration;
@@ -16,6 +16,10 @@ use {
     client_state::{ClientFrameSet, RuntimeSettings, SemanticInputSnapshot},
     gameplay::mining::{creative_reach, protocol_input_mode, survival_reach},
 };
+
+/// Actor selected by this frame's eye-origin gameplay ray after block occlusion.
+#[derive(Resource, Default)]
+pub(crate) struct CrosshairActor(pub(crate) Option<u64>);
 
 #[derive(SystemParam)]
 pub(crate) struct SelectionContext<'w> {
@@ -33,6 +37,7 @@ pub(crate) struct SelectionContext<'w> {
 /// Updates after the completed pose and interaction authorities have been published.
 pub(crate) fn configure(app: &mut App) {
     app.init_resource::<render_scene::BlockSelectionFrameResource>()
+        .init_resource::<CrosshairActor>()
         .add_systems(Update, publish.in_set(ClientFrameSet::WorldPublication));
 }
 
@@ -40,8 +45,10 @@ pub(crate) fn configure(app: &mut App) {
 pub(crate) fn publish(
     context: SelectionContext,
     mut frame: ResMut<render_scene::BlockSelectionFrameResource>,
+    mut picked: ResMut<CrosshairActor>,
 ) {
-    let target = target(&context.player, &context);
+    let (target, actor) = target(&context.player, &context).unwrap_or_default();
+    picked.0 = actor;
     frame.update(
         target.as_ref(),
         context
@@ -53,12 +60,12 @@ pub(crate) fn publish(
     );
 }
 
-/// Resolves the compiled outline and its runtime context for the admitted pick.
+/// Resolves the block outline or actor selected by the shared gameplay pick.
 /// Model highlighting uses its separate surface geometry.
 fn target(
     player_runtime: &client_state::PlayerRuntime,
     context: &SelectionContext,
-) -> Option<BlockSelectionTarget> {
+) -> Option<(Option<BlockSelectionTarget>, Option<u64>)> {
     if context.focus.menu_visible || context.focus.ui_focused || context.fatal_error.0.is_some() {
         return None;
     }
@@ -97,23 +104,23 @@ fn target(
     let direct = world
         .block_interaction_ray_current(vector(ray.origin()), vector(ray.direction()), reach)
         .ok()?;
+    let actor = pick_actor(
+        stream.authority().remote_actors(),
+        context.ui.gameplay_hud().mount_unique_id(),
+        ray.origin().to_array(),
+        ray.direction().to_array(),
+        reach,
+    );
+    if let Crosshair::Actor(hit) =
+        classify_block_hit(actor, ray.origin().to_array(), direct.as_ref(), reach)
+    {
+        return Some((None, Some(hit.runtime_id)));
+    }
     let hit = match direct {
         Some(hit) => hit,
-        None => {
-            let actor = pick_actor(
-                stream.authority().remote_actors(),
-                context.ui.gameplay_hud().mount_unique_id(),
-                ray.origin().to_array(),
-                ray.direction().to_array(),
-                reach,
-            );
-            if matches!(classify(actor, None, reach), Crosshair::Actor(_)) {
-                return None;
-            }
-            world
-                .block_use_miss_support_current(vector(ray.origin()), vector(ray.direction()))
-                .ok()??
-        }
+        None => world
+            .block_use_miss_support_current(vector(ray.origin()), vector(ray.direction()))
+            .ok()??,
     };
     if !context.collisions.selection_overlay_visible(
         stream.network_id_mode(),
@@ -133,9 +140,12 @@ fn target(
         |position| world.primary_runtime_id(position).ok(),
     )
     .unwrap_or(CrackShape::Cube);
-    Some(BlockSelectionTarget {
-        block: hit.block_pos,
-        bounds: [point(outline.min), point(outline.max)],
-        shape,
-    })
+    Some((
+        Some(BlockSelectionTarget {
+            block: hit.block_pos,
+            bounds: [point(outline.min), point(outline.max)],
+            shape,
+        }),
+        None,
+    ))
 }

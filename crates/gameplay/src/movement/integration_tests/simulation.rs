@@ -468,7 +468,7 @@ fn fast_diagonal_flight_exit_keeps_walking_physics_active() {
         PhysicsSampleContext {
             mode_intent: super::ModeIntent {
                 can_fly: true,
-                server_flying: true,
+                flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(true),
                 creative_flight: true,
                 fly_speed: Some(0.0),
                 ..Default::default()

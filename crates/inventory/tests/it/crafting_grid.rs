@@ -137,7 +137,6 @@ fn cell(identifier: &str, metadata: u32) -> Option<CraftGridItem<'_>> {
         identifier,
         metadata,
         count: 1,
-        plain: true,
         tags: &[],
     })
 }

@@ -14,35 +14,31 @@ type DepthSmaaQuery = (
     &'static SmaaInfoUniformOffset,
 );
 
-/// Filters scene edges and restores the shared samples before sharp world text.
-pub(crate) fn depth_smaa(
+/// Filters scene edges directly into the shared samples before sharp world text.
+pub(crate) fn depth_smaa<const AFTER_PACK: bool>(
     world: &World,
     query: bevy::render::renderer::ViewQuery<DepthSmaaQuery>,
     mut context: RenderContext,
 ) -> bevy::ecs::error::Result {
+    if !crate::shaderpack::native_pass_enabled(world, query.entity(), AFTER_PACK) {
+        return Ok(());
+    }
     let (_, target, scene, view, textures, groups, offset) = query.into_inner();
     let context = &mut context;
     let cache = world.resource::<PipelineCache>();
-    let (Some(edge), Some(weights), Some(blend), Some(restore)) = (
+    let (Some(edge), Some(weights), Some(blend)) = (
         cache.get_render_pipeline(view.ids.edge),
         cache.get_render_pipeline(view.ids.weights),
         cache.get_render_pipeline(view.ids.blend),
-        cache.get_render_pipeline(view.ids.restore),
     ) else {
         return Ok(());
     };
     scene.finish(context, world, target);
-    let output = target.post_process_write();
-    let (_, post, _) = view
+    let (_, post) = view
         .post
         .iter()
-        .find(|(id, _, _)| *id == output.source.id())
+        .find(|(id, _)| *id == target.main_texture_view().id())
         .expect("prepared SMAA source");
-    let (_, _, restored) = view
-        .post
-        .iter()
-        .find(|(id, _, _)| *id == output.destination.id())
-        .expect("prepared SMAA destination");
     {
         let attachments = [Some(RenderPassColorAttachment {
             view: &textures.edge_detection_color_texture.default_view,
@@ -116,7 +112,7 @@ pub(crate) fn depth_smaa(
     }
     {
         let attachments = [Some(RenderPassColorAttachment {
-            view: output.destination,
+            view: scene.color_view(false),
             depth_slice: None,
             resolve_target: None,
             ops: Operations {
@@ -140,31 +136,6 @@ pub(crate) fn depth_smaa(
         pass.set_pipeline(blend);
         pass.set_bind_group(0, post, &[offset.0]);
         pass.set_bind_group(1, &groups.neighborhood_blending_bind_group, &[]);
-        pass.draw(0..3, 0..1);
-    }
-    if view.samples == 1 {
-        context.command_encoder().copy_texture_to_texture(
-            target.main_texture().as_image_copy(),
-            scene.texture.as_image_copy(),
-            scene.texture.size(),
-        );
-    } else {
-        let attachments = [Some(scene.color_attachment(target, false))];
-        let mut pass = context
-            .command_encoder()
-            .begin_render_pass(&RenderPassDescriptor {
-                label: Some("SMAA restore shared scene"),
-                color_attachments: &attachments,
-                depth_stencil_attachment: None,
-                timestamp_writes: crate::gpu_timing::render_pass_timestamps(
-                    world,
-                    render_scene::RuntimeStage::GpuPost,
-                ),
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-        pass.set_pipeline(restore);
-        pass.set_bind_group(0, restored, &[]);
         pass.draw(0..3, 0..1);
     }
     scene.resume();

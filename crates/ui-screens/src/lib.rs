@@ -60,6 +60,8 @@ pub mod smaa_setting;
 pub mod start_feed;
 pub mod text;
 pub mod toast_screen;
+pub mod trading;
+pub mod view_bobbing_setting;
 pub mod vrr_setting;
 pub mod vsync_setting;
 

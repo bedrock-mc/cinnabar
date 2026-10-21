@@ -335,7 +335,6 @@ fn reset_restores_a_shared_default_without_changing_other_actions() {
 fn chat_settings_survive_reload_and_feed_the_chat_renderer() {
     let mut settings = SettingsOptions::default();
     for (name, value) in [
-        ("chat_typeface", 1),
         ("chat_font_size", 15),
         ("chat_line_spacing", 25),
         ("chat_color", 3),
@@ -637,6 +636,36 @@ fn animations_default_to_bedrock_and_persist_both_choices() {
     assert!(!settings.user_settings().video.java_animations);
 }
 
+/// Old toggle values retain their meaning, Minimal persists and Video reset restores Full.
+#[test]
+fn view_bobbing_preserves_toggle_values_and_persists_minimal() {
+    let mut settings = SettingsOptions::default();
+    let id = SettingId::ViewBobbing;
+    assert_eq!(
+        settings.user_settings().video.view_bobbing,
+        ui::ViewBobbing::Full
+    );
+    assert_eq!(VIEW_BOBBING_CHOICES.len(), ui::ViewBobbing::ALL.len());
+    for (value, mode) in ui::ViewBobbing::ALL.into_iter().enumerate() {
+        assert_eq!(mode as usize, value);
+        assert_eq!(VIEW_BOBBING_CHOICES[value].label, mode.label());
+        settings.set(id.index(), mode as i32);
+        let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(loaded.value(id), mode as i32);
+        assert_eq!(loaded.user_settings().video.view_bobbing, mode);
+    }
+    for (toggle, expected) in [(0, ui::ViewBobbing::Off), (1, ui::ViewBobbing::Full)] {
+        let legacy = serde_json::json!({ "schema": 1, "values": { id.name(): toggle } });
+        let loaded = SettingsOptions::decode(&serde_json::to_vec(&legacy).unwrap()).unwrap();
+        assert_eq!(loaded.user_settings().video.view_bobbing, expected);
+    }
+    settings.reset_group(SettingsGroup::Video);
+    assert_eq!(
+        settings.user_settings().video.view_bobbing,
+        ui::ViewBobbing::Full
+    );
+}
+
 #[test]
 fn animations_migrate_legacy_toggle_without_overriding_a_saved_selection() {
     for (toggle, choice) in [(0, 1), (1, 0)] {
@@ -855,6 +884,19 @@ fn automatic_update_opt_out_survives_save_and_reload() {
     settings.set(index, 0);
     let reloaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
     assert!(!reloaded.update_preferences().checks);
+}
+
+#[test]
+fn mod_update_opt_out_persists_independently_of_app_updates() {
+    let mut settings = SettingsOptions::default();
+    assert_eq!(settings.value(SettingId::ModUpdateChecks), 1);
+    assert_eq!(settings.value(SettingId::ModAutoUpdate), 1);
+    settings.set(SettingId::ModAutoUpdate.index(), 0);
+    settings.set(SettingId::ModUpdateChecks.index(), 0);
+    let reloaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert_eq!(reloaded.value(SettingId::ModUpdateChecks), 0);
+    assert_eq!(reloaded.value(SettingId::ModAutoUpdate), 0);
+    assert!(reloaded.update_preferences().checks);
 }
 
 #[test]

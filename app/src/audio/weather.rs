@@ -2,19 +2,14 @@
 
 use bevy::prelude::{Local, Query, Res, ResMut, Transform, With};
 use client_audio::audio::{AudioEngine, weather::RainSoundScheduler};
+use client_presentation::environment::{WorldClock, weather::WeatherTickFrame};
 use client_presentation::{
     camera::{FlyCamera, ServerCameraView},
     local_player::LocalViewPose,
 };
 use launcher::menu::settings_options::SettingId;
 
-use {
-    crate::{
-        environment::{WeatherTickFrame, WorldClock},
-        runtime::world::ClientWorld,
-    },
-    client_shell::menu::MenuRuntime,
-};
+use crate::runtime::world::ClientWorld;
 
 /// Samples rain on the same completed weather ticks that update the atmosphere.
 #[allow(clippy::too_many_arguments)]
@@ -22,7 +17,8 @@ pub(super) fn drive_rain_audio(
     ticks: Res<WeatherTickFrame>,
     clock: Res<WorldClock>,
     world: Res<ClientWorld>,
-    menu: Option<Res<MenuRuntime>>,
+    #[cfg(not(target_arch = "wasm32"))] menu: Option<Res<client_shell::menu::MenuRuntime>>,
+    #[cfg(target_arch = "wasm32")] options: Res<crate::browser_input::BrowserOptions>,
     view: Res<LocalViewPose>,
     camera: Query<&Transform, With<FlyCamera>>,
     server_camera: Option<Res<ServerCameraView>>,
@@ -33,14 +29,19 @@ pub(super) fn drive_rain_audio(
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(render_scene::RuntimeStage::Audio));
+    #[cfg(not(target_arch = "wasm32"))]
+    let fancy = menu
+        .as_ref()
+        .is_none_or(|menu| menu.settings_snapshot().0.value(SettingId::GraphicsMode) != 0);
+    #[cfg(target_arch = "wasm32")]
+    let fancy = options.0.value(SettingId::GraphicsMode) != 0;
     client_audio::audio::weather::drive_rain_audio(
         clock.session_generation(),
         world.stream.as_ref(),
         &world.runtime_assets,
         ticks.current_rain_levels(),
         rain_listener(&view, camera.single().ok(), server_camera.as_deref()),
-        menu.as_ref()
-            .is_none_or(|menu| menu.settings_snapshot().0.value(SettingId::GraphicsMode) != 0),
+        fancy,
         &mut engine,
         &mut state,
     );

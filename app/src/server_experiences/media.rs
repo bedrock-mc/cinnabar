@@ -517,6 +517,7 @@ mod tests {
                         origins: Default::default(),
                         memory_bytes: 0,
                         gpu_bytes: 0,
+                        personal_mods: Default::default(),
                     },
                     packages: Vec::new(),
                     fallback: String::new(),

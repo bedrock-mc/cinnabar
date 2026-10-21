@@ -87,6 +87,12 @@ impl PlayerState {
         }
     }
 
+    /// Applies an external placement, rebuilding contact faces even at the same position.
+    pub fn set_position(&mut self, position: Vec3) {
+        self.position = position;
+        self.collision_shape = None;
+    }
+
     /// Returns retained contact faces, rebuilding after a position correction.
     pub(super) fn collision_box(&self, height: f64) -> Aabb {
         let Some(shape) = self

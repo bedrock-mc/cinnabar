@@ -19,6 +19,7 @@ pub const PRODUCT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub mod accounts;
 pub mod branding;
+pub mod download;
 pub mod dressing_room;
 pub mod global_resources;
 pub mod graphics_backend;
@@ -27,6 +28,7 @@ pub mod local_worlds;
 pub mod menu;
 pub mod minecraft_import;
 pub mod mods;
+pub mod shader_options;
 pub mod skin_import;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;

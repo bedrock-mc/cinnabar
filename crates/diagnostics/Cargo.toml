@@ -16,9 +16,9 @@ reads = [
 ]
 
 [dependencies]
+web-time = "1"
 assets = { path = "../assets" }
 chunk-pipeline = { path = "../chunk-pipeline" }
-crash-report = { path = "../crash-report" }
 env-compat = { path = "../env-compat" }
 meshing = { path = "../meshing" }
 render-model = { path = "../render-model" }
@@ -29,6 +29,9 @@ tracing-error.workspace = true
 tracing-log.workspace = true
 tracing-subscriber.workspace = true
 world = { path = "../world" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+crash-report = { path = "../crash-report" }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_log-sys = "0.3"

@@ -69,9 +69,11 @@ impl ClientRandomId {
     }
 }
 
-/// The player's own settings a login reports, as vanilla's client takes them at join.
+/// Player settings captured once for login claims and the spawn sequence.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LoginSettings {
+    /// The selected server address reported by the client at this join.
+    pub server_address: String,
     /// The active UI language, in the `en_US` form of its lang file.
     pub language_code: String,
     /// The input the player is using now.
@@ -84,6 +86,8 @@ pub struct LoginSettings {
     pub graphics_mode: u8,
     /// Whether the player has enabled profanity filtering.
     pub filter_profanity: bool,
+    /// The selected view radius used by the first spawn request, not a login claim.
+    pub view_distance_chunks: u8,
     /// Trusted local archive directory, never sent in the upstream login claims.
     pub resource_pack_cache_dir: Option<std::path::PathBuf>,
 }
@@ -91,12 +95,14 @@ pub struct LoginSettings {
 impl Default for LoginSettings {
     fn default() -> Self {
         Self {
+            server_address: String::new(),
             language_code: "en_US".to_owned(),
             input_mode: PlayerInputMode::Mouse,
             gui_scale_offset: 0,
             memory_tier: SUPER_HIGH_MEMORY_TIER,
             graphics_mode: 1,
             filter_profanity: false,
+            view_distance_chunks: super::startup::DEFAULT_CHUNK_RADIUS,
             resource_pack_cache_dir: None,
         }
     }
@@ -158,9 +164,8 @@ pub(crate) fn login_client_data(
         "PlatformOnlineId": "",
         "PlatformType": 0,
         "PlayFabId": "",
-        "ServerAddress": "",
+        "ServerAddress": settings.server_address,
         "ThirdPartyName": display_name,
-        "ThirdPartyNameOnly": false,
         "UIProfile": 0,
     });
     let skin_claims = json!({
@@ -176,6 +181,7 @@ pub(crate) fn login_client_data(
         "PersonaSkin": false,
         "PieceTintColors": [],
         "PremiumSkin": false,
+        "ProfileHash": "",
         "SkinAnimationData": "",
         "SkinColor": "#b37b62",
         "SkinData": skin_data,
@@ -327,6 +333,7 @@ mod tests {
             for name in ["First", "Second"] {
                 let claims = login_client_data(name, id, None, &LoginSettings::default());
                 let request = crate::session_wire::ConnectRequest {
+                    join_profile_id: None,
                     protocol: crate::PROTOCOL_VERSION,
                     target: None,
                     client_cache: false,
@@ -377,6 +384,7 @@ mod tests {
             ..Default::default()
         };
         let request = crate::session_wire::ConnectRequest {
+            join_profile_id: None,
             protocol: crate::PROTOCOL_VERSION,
             target: None,
             client_cache: false,
@@ -446,6 +454,19 @@ mod tests {
         assert_eq!(patch["geometry"]["default"], "geometry.humanoid.custom");
         assert_eq!(claims["CapeData"], "");
         assert_eq!(claims["CapeOnClassicSkin"], false);
+    }
+
+    /// Classic skins still need an explicit empty profile hash for PocketMine login validation.
+    #[test]
+    fn classic_skin_logins_include_an_empty_profile_hash() {
+        let claims = login_client_data(
+            "Fixture",
+            ClientRandomId::new(1).unwrap(),
+            None,
+            &LoginSettings::default(),
+        );
+        assert_eq!(claims["PersonaSkin"], false);
+        assert_eq!(claims["ProfileHash"].as_str(), Some(""));
     }
 
     /// Login validation requires a supported memory tier and explicit gameplay editor claims.
@@ -520,6 +541,7 @@ mod tests {
                 ..Default::default()
             };
             let request = crate::session_wire::ConnectRequest {
+                join_profile_id: None,
                 protocol: crate::PROTOCOL_VERSION,
                 target: None,
                 client_cache: false,
@@ -537,6 +559,21 @@ mod tests {
                 Some(filter_profanity),
                 "the selected preference must be present, including false"
             );
+        }
+    }
+
+    /// Modern login names omit the legacy name-only marker, including an offline name.
+    #[test]
+    fn claims_omit_the_legacy_name_only_marker() {
+        for name in ["Fixture", "Player Name", "测试"] {
+            let claims = login_client_data(
+                name,
+                ClientRandomId::new(-7).unwrap(),
+                None,
+                &LoginSettings::default(),
+            );
+            assert_eq!(claims["ThirdPartyName"], name);
+            assert!(claims.get("ThirdPartyNameOnly").is_none());
         }
     }
 

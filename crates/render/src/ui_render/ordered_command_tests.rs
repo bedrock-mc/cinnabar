@@ -23,6 +23,7 @@ fn world_projection_specializes_native_test_and_write_modes_at_each_msaa_sample_
                         depth_test,
                         depth_write,
                         isolated_depth: false,
+                        attached_depth: false,
                     },
                     &mut descriptor,
                 )
@@ -168,6 +169,8 @@ fn actual_rejected_and_empty_preparation_cannot_bind_withheld_texture_resources(
     world.run_system_once(prepare_ui_bind_group).unwrap();
     assert!(
         world.resource::<UiGpu>().textures.buckets[0]
+            .as_ref()
+            .unwrap()
             .bind_group
             .is_none()
     );
@@ -178,6 +181,8 @@ fn actual_rejected_and_empty_preparation_cannot_bind_withheld_texture_resources(
     world.run_system_once(prepare_ui_bind_group).unwrap();
     assert!(
         world.resource::<UiGpu>().textures.buckets[0]
+            .as_ref()
+            .unwrap()
             .bind_group
             .is_none()
     );
@@ -194,6 +199,8 @@ fn actual_rejected_and_empty_preparation_cannot_bind_withheld_texture_resources(
     assert_eq!(world.resource::<UiGpu>().accepted_revision, Some(1));
     assert!(
         world.resource::<UiGpu>().textures.buckets[0]
+            .as_ref()
+            .unwrap()
             .bind_group
             .is_some()
     );

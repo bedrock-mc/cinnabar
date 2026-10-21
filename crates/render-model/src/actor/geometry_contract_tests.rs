@@ -5,6 +5,11 @@ const SOURCE: &str = include_str!("fixtures/cube_defaults.geo.json");
 
 /// Compiles only original geometry into a normally admitted catalog, without local game assets.
 fn catalog() -> RuntimeEntityAssets {
+    catalog_from_source(SOURCE)
+}
+
+/// Compiles one original geometry document with the required empty source families.
+fn catalog_from_source(source: &str) -> RuntimeEntityAssets {
     let scratch = tempfile::tempdir().unwrap();
     for family in [
         "entity",
@@ -18,7 +23,7 @@ fn catalog() -> RuntimeEntityAssets {
     }
     std::fs::write(
         scratch.path().join("models/entity/defaults.geo.json"),
-        SOURCE,
+        source,
     )
     .unwrap();
     let compiled = pack_entity_compiler::compile_entity_assets(
@@ -90,12 +95,34 @@ fn compiled_and_skin_cubes_share_resolved_defaults_overrides_and_inheritance() {
             "attachable cube path: {name}"
         );
         assert_eq!(mesh.vertices.len(), count * 36);
+        let inherited_inflate = if count == 3 { 0.5 } else { 0.25 };
         assert_bounds(
             &mesh.vertices[..36],
-            [-2.25, 0.75, -0.25],
-            [0.25, 3.25, 2.25],
+            [
+                -2.0 - inherited_inflate,
+                1.0 - inherited_inflate,
+                -inherited_inflate,
+            ],
+            [
+                inherited_inflate,
+                3.0 + inherited_inflate,
+                2.0 + inherited_inflate,
+            ],
         );
-        assert_bounds(&mesh.vertices[36..72], [-6.0, 1.0, 0.0], [-4.0, 3.0, 2.0]);
+        let second_inflate = if name == "geometry.defaults" {
+            0.0
+        } else {
+            inherited_inflate
+        };
+        assert_bounds(
+            &mesh.vertices[36..72],
+            [-6.0 - second_inflate, 1.0 - second_inflate, -second_inflate],
+            [
+                -4.0 + second_inflate,
+                3.0 + second_inflate,
+                2.0 + second_inflate,
+            ],
+        );
 
         let bones = resolve_geometry_bones(&catalog, index).unwrap();
         let head = bones
@@ -111,8 +138,8 @@ fn compiled_and_skin_cubes_share_resolved_defaults_overrides_and_inheritance() {
         geometry.bones = bones.into();
         let head_model = HeadModel::build_tree(&geometry, Some("head"), 1.0, false).unwrap();
         assert_eq!(head_model.boxes.len(), count);
-        assert_eq!(head_model.boxes[0].spec.inflate, 0.25);
-        assert_eq!(head_model.boxes[1].spec.inflate, 0.0);
+        assert_eq!(head_model.boxes[0].spec.inflate, inherited_inflate);
+        assert_eq!(head_model.boxes[1].spec.inflate, second_inflate);
         if count == 3 {
             assert_bounds(&mesh.vertices[72..], [-10.5, 0.5, -0.5], [-7.5, 3.5, 2.5]);
             assert_eq!(head_model.boxes[2].spec.inflate, 0.5);
@@ -164,4 +191,19 @@ fn compiled_fin_defaults_and_overrides_validate_every_face_that_gained_area() {
             skin_geometry(&skin, EntityRigId(0)).unwrap().vertices
         );
     }
+}
+
+/// An armour shell inherits its cubes before a derived bone expands them around the skin.
+#[test]
+fn inherited_armour_inflation_keeps_the_shell_outside_the_player_body() {
+    let source = r#"{"format_version":"1.8.0",
+        "geometry.armour_base":{"texturewidth":32,"textureheight":32,"bones":[{
+            "name":"body","pivot":[0,24,0],
+            "cubes":[{"origin":[-4,12,-2],"size":[8,12,4],"uv":[0,0]}]}]},
+        "geometry.armour_shell:geometry.armour_base":{"bones":[{"name":"body","inflate":1.0}]}
+    }"#;
+    let catalog = catalog_from_source(source);
+    let index = find_geometry_index(&catalog, "geometry.armour_shell").unwrap() as usize;
+    let mesh = entity_geometry(&catalog, index, EntityRigId(0)).unwrap();
+    assert_bounds(&mesh.vertices, [-5.0, 11.0, -3.0], [5.0, 25.0, 3.0]);
 }

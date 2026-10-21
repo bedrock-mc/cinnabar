@@ -162,14 +162,16 @@ pub fn compiled_fixture() -> CompiledEntityAssets {
         rig_bindings: vec![EntityRigBinding {
             placement_frame: assets::placement::EntityPlacementFrame::Unresolved,
             entity_symbol: 4,
-            render_controller: 2,
+            render_controller: Some(2),
             first_geometry: 0,
             geometry_count: 1,
             fallback: EntityRigFallback::Skip,
             initialize: None,
             pre_animation: Some(0),
+            item_condition: None,
             scale: scalar(1.0),
             scale_expressions: None,
+            held_item_scale: None,
         }]
         .into_boxed_slice(),
         rig_geometries: vec![EntityRigGeometryBinding {
@@ -200,6 +202,7 @@ pub fn compiled_fixture() -> CompiledEntityAssets {
                 condition: None,
                 first_slot: 0,
                 slot_count: 1,
+                unresolved_textures: false,
                 first_visibility: 0,
                 visibility_count: 0,
                 color: None,
@@ -250,7 +253,7 @@ pub fn counting_random_compiled(identifier: &str) -> assets::CompiledEntityAsset
     compiled.symbols[4].identifier = identifier.into();
     compiled.symbols.rotate_right(1);
     compiled.rig_bindings[0].entity_symbol = 0;
-    compiled.rig_bindings[0].render_controller = 3;
+    compiled.rig_bindings[0].render_controller = Some(3);
     compiled.animation_clips[0].symbol = 2;
     let scalar = |value| EntityGeometryScalar::new(value).unwrap();
     compiled.molang_ops = vec![
@@ -417,3 +420,6 @@ impl ActorAnimationStore {
         self.schedule.world_budget = budget;
     }
 }
+
+mod composition;
+pub use composition::CompositionFixture;

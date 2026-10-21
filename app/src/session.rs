@@ -9,9 +9,7 @@ use bevy::{
 };
 use bridge::CORE_START_TIMEOUT;
 use client_runtime::network::NetworkHandle;
-use client_runtime::session::{
-    begin_session, format_transfer_address, release_off_frame, transfer_handoff_address,
-};
+use client_runtime::session::{format_transfer_address, transfer_handoff_address};
 use launcher::menu::settings_options::SettingId;
 use launcher_host::{
     core_process::{CoreProcessGuard, spawn_core_for_address},
@@ -20,31 +18,21 @@ use launcher_host::{
 };
 
 use client_shell::presence_target::presence_target;
-use client_shell::ui_resources::UiRuntimeResource;
 use {
     crate::runtime::{
         network::{CompiledStacks, session::NetworkConfig},
-        shutdown::{FatalError, record_fatal_error},
-        world::{ClientWorld, TransferNotice},
+        shutdown::record_fatal_error,
+        world::TransferNotice,
     },
-    client_interaction::movement::{LocalPhysicsController, MovementTicker},
-    client_presentation::local_player::{
-        InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset,
-    },
-    client_runtime::pack_admission::ResourcePackAdmissionState,
     client_shell::menu::{LauncherCoreSlot, MenuRuntime},
-    client_state::PlayerRuntime,
 };
 
 use std::{path::PathBuf, time::Instant};
 
 mod client_id;
+mod startup;
 
-/// Bounded number of consecutive automatic transfer-follow hops.
-///
-/// Mirrors the Go core's pre-login transfer-follower limit so a transfer loop
-/// ends in a visible menu state; a user-initiated join starts a fresh chain.
-pub(crate) const MAX_TRANSFER_CHAIN_HOPS: u32 = 8;
+use client_session::MAX_TRANSFER_CHAIN_HOPS;
 
 type BlobCache = client_runtime::blob_cache::ClientBlobCacheOwner;
 type JoinAttempt = client_session::connection::JoinAttempt<SessionDirectoryGuard>;
@@ -67,6 +55,7 @@ pub(crate) struct SessionController {
     /// Where the current session plays, for Discord presence and invites.
     presence: Option<rich_presence::Target>,
     destination_identity: Option<String>,
+    local_world: bool,
     /// Automatic transfer-follow hops remaining in the current chain.
     transfer_hops_remaining: u32,
     connecting: bool,
@@ -94,6 +83,7 @@ impl SessionController {
             client_id_load: None,
             presence: None,
             destination_identity: None,
+            local_world: false,
             transfer_hops_remaining: MAX_TRANSFER_CHAIN_HOPS,
             connecting: false,
             trust: None,
@@ -114,6 +104,11 @@ impl SessionController {
         self.destination_identity =
             address.map(|address| format!("remote:{}", address.trim().to_lowercase()));
         self
+    }
+
+    /// Whether the trusted launcher selected a local world for this connection.
+    pub(crate) fn is_local_world(&self) -> bool {
+        self.local_world
     }
 
     /// Stable selected destination, kept independent from invites and transient session ids.
@@ -168,6 +163,7 @@ impl SessionController {
 
     /// Returns a failed join to the menu, keeping only the newest compiled packs for a retry.
     fn fail_join(&mut self, menu: &mut MenuRuntime, message: String) {
+        bridge::join_profile::JoinProfile::current().finish("failed");
         menu.show_join_failure(message);
         self.connecting = false;
         self.kept_packs.keep_for_rejoin();
@@ -235,6 +231,7 @@ impl SessionController {
     /// Installs a connecting join at the current generation.
     #[cfg(all(test, unix))]
     pub(crate) fn adopt_join(&mut self, address: &str, local_world: bool, stage: JoinStage) {
+        self.local_world = local_world;
         self.client_random_id = Some(protocol::ClientRandomId::new(-7).unwrap());
         self.join = Some(JoinAttempt {
             generation: self.generation,
@@ -257,38 +254,19 @@ impl SessionController {
     }
 }
 
-/// Stops local movement authority and drops the ended session's frame and interaction samples.
-pub(crate) fn quiesce_local_player(
-    movement: &mut MovementTicker,
-    local_physics: &mut LocalPhysicsController,
-    frame: &mut LocalPlayerFrameCarrier,
-    interaction: &mut InteractionOriginSnapshot,
-) {
-    movement.deactivate();
-    local_physics.deactivate();
-    frame.reset(LocalPlayerFrameReset::Session);
-    interaction.invalidate();
-}
-
 #[derive(SystemParam)]
 pub(crate) struct SessionResources<'w> {
     controller: ResMut<'w, SessionController>,
+    state: crate::game_session::SessionWorld<'w>,
     network: ResMut<'w, NetworkHandle<PackApplication>>,
-    resource_packs: ResMut<'w, ResourcePackAdmissionState>,
-    runtime: ResMut<'w, UiRuntimeResource>,
-    player_runtime: ResMut<'w, PlayerRuntime>,
-    client_world: ResMut<'w, ClientWorld>,
-    fatal_error: ResMut<'w, FatalError>,
     collisions: Res<'w, client_interaction::movement::PhysicsCollisionRegistries>,
-    movement: ResMut<'w, MovementTicker>,
-    local_physics: ResMut<'w, LocalPhysicsController>,
-    local_frame: ResMut<'w, LocalPlayerFrameCarrier>,
-    interaction: ResMut<'w, InteractionOriginSnapshot>,
     launcher: Option<Res<'w, LauncherCoreSlot>>,
     actor_artwork: Option<Res<'w, render_scene::ActorArtworkResource>>,
     ui_catalog: Option<Res<'w, crate::runtime::network::PackUiCatalog>>,
     input: Option<Res<'w, client_state::SemanticInputSnapshot>>,
     far_terrain: Option<ResMut<'w, crate::far_terrain::FarTerrain>>,
+    packet_mods: Option<Res<'w, crate::modding::packets::PacketMods>>,
+    mod_registration: Option<Res<'w, crate::modding::registration::Watcher>>,
 }
 
 impl SessionResources<'_> {
@@ -312,29 +290,15 @@ impl SessionResources<'_> {
         controller.connecting = false;
         controller.presence = None;
         controller.destination_identity = None;
+        controller.local_world = false;
         let generation = controller.next_generation();
-        self.resource_packs.begin_generation(generation);
-        begin_session(&mut self.runtime, &mut self.player_runtime, generation);
-        if let (Some(far), Some(stream)) =
-            (self.far_terrain.as_mut(), self.client_world.stream.as_mut())
-        {
+        if let (Some(far), Some(stream)) = (
+            self.far_terrain.as_mut(),
+            self.state.client_world.stream.as_mut(),
+        ) {
             far.retire_stream(stream);
         }
-        release_off_frame((
-            self.client_world.stream.take(),
-            self.client_world.pack_entities.take(),
-            self.client_world.prepared_actor_artwork.take(),
-            self.client_world.session_items.take(),
-        ));
-        self.client_world.pending_surface_spawn = None;
-        self.fatal_error.0 = None;
-        self.client_world.transfer_notice = None;
-        quiesce_local_player(
-            &mut self.movement,
-            &mut self.local_physics,
-            &mut self.local_frame,
-            &mut self.interaction,
-        );
+        self.state.retire(generation);
         generation
     }
 }
@@ -353,6 +317,11 @@ fn attempt_connect(
     cache: &BlobCache,
     intent: JoinIntent,
 ) {
+    let profile = bridge::join_profile::JoinProfile::current();
+    if profile.id().is_none() {
+        bridge::join_profile::JoinProfile::begin();
+    }
+    bridge::join_profile::JoinProfile::current().mark("session_controller");
     let JoinIntent {
         address,
         auth_cache,
@@ -364,7 +333,11 @@ fn attempt_connect(
     menu.show_home();
     let generation = session.retire();
     session.controller.trust = None;
-    session.runtime.experiences.select_destination(&address);
+    session
+        .state
+        .runtime
+        .experiences
+        .select_destination(&address);
     menu.begin_join_progress(&address, local_world);
     let mut presence = presence_target(&address, local_world);
     if local_world {
@@ -375,6 +348,7 @@ fn attempt_connect(
         presence.max_players = menu.destination_max_players(&address);
     }
     session.controller.presence = Some(presence);
+    session.controller.local_world = local_world;
     session.controller.destination_identity = Some(
         if let Some(id) = menu.local_world_identity().filter(|_| local_world) {
             format!("local:{id}")
@@ -435,6 +409,14 @@ fn poll_join(
     if controller.join.is_none() {
         return;
     }
+    // The join must capture admitted mods, including on a cold cache or a transfer.
+    if session
+        .mod_registration
+        .as_ref()
+        .is_some_and(|watcher| watcher.preparing())
+    {
+        return;
+    }
     let client_random_id = match controller.poll_client_random_id() {
         Ok(Some(id)) => id,
         Ok(None) => return,
@@ -446,6 +428,7 @@ fn poll_join(
         }
     };
     let attempt = controller.join.take().expect("pending join");
+    let server_address = attempt.address.clone();
     use client_session::connection::JoinPoll;
     match attempt.poll(controller.generation, controller.connecting, || {
         controller.core.exit_status()
@@ -475,7 +458,8 @@ fn poll_join(
             if let Some(directory) = directory {
                 controller.bind_directory(directory);
             }
-            let login_settings = login_settings(menu, session.input.as_deref());
+            let mut login_settings = login_settings(menu, session.input.as_deref());
+            login_settings.server_address = server_address;
             if let Err(error) = start_network(
                 commands,
                 menu,
@@ -486,8 +470,12 @@ fn poll_join(
                 client_random_id,
                 session.actor_artwork.as_deref().map(|artwork| &artwork.0),
                 session.ui_catalog.as_deref(),
+                session
+                    .packet_mods
+                    .as_ref()
+                    .and_then(|mods| mods.session_relay()),
                 crate::runtime::network::session_registries::RegistryBase::new(
-                    &session.client_world.runtime_assets,
+                    &session.state.client_world.runtime_assets,
                     &session.collisions,
                 ),
             ) {
@@ -507,12 +495,13 @@ fn poll_join(
     }
 }
 
-/// The language, input and GUI scale the player has as the join starts, as vanilla reports them.
+/// Captures the player's settings as the join starts, including a hidden-menu launch.
 pub(crate) fn login_settings(
     menu: &MenuRuntime,
     input: Option<&client_state::SemanticInputSnapshot>,
 ) -> protocol::LoginSettings {
     protocol::LoginSettings {
+        server_address: String::new(),
         language_code: pack_runtime::pack_language::active_language_code(),
         input_mode: input
             .and_then(|input| input.snapshot())
@@ -523,6 +512,7 @@ pub(crate) fn login_settings(
         memory_tier: protocol::login_memory_tier(launcher_host::memory::physical_bytes()),
         graphics_mode: u8::from(menu.settings_snapshot().0.value(SettingId::GraphicsMode) != 0),
         filter_profanity: menu.settings_snapshot().0.value(SettingId::FilterProfanity) != 0,
+        view_distance_chunks: menu.settings_snapshot().0.value(SettingId::RenderDistance) as u8,
         resource_pack_cache_dir: Some(menu.layout().resource_pack_cache_dir()),
     }
 }
@@ -542,22 +532,29 @@ fn start_network(
     client_random_id: protocol::ClientRandomId,
     actor_artwork: Option<&render_model::ActorArtworkPages>,
     ui_catalog: Option<&crate::runtime::network::PackUiCatalog>,
+    packet_relay: Option<std::sync::Arc<dyn protocol::PacketRelay>>,
     registry_base: crate::runtime::network::session_registries::RegistryBase,
 ) -> Result<(), String> {
-    let replacement = crate::runtime::network::session::spawn_network(NetworkConfig {
-        registry_base,
-        session_generation: simulation_clock::identity::SessionGeneration::new(session_generation),
-        socket_dir,
-        display_name: menu.display_name().to_owned(),
-        client_random_id,
-        client_blob_cache: cache.cache(),
-        player_skin: menu.player_skin().clone(),
-        login_settings,
-        actor_artwork: actor_artwork.cloned(),
-        ui_catalog: ui_catalog.map(|base| base.0.clone()),
-        log_dir: menu.layout().log_dir(),
-        record_session: menu.settings_snapshot().0.record_network_session(),
-    })
+    bridge::join_profile::JoinProfile::current().mark("core_ready");
+    let replacement = crate::runtime::network::session::spawn_network(
+        NetworkConfig {
+            registry_base,
+            session_generation: simulation_clock::identity::SessionGeneration::new(
+                session_generation,
+            ),
+            socket_dir,
+            display_name: menu.display_name().to_owned(),
+            client_random_id,
+            client_blob_cache: cache.cache(),
+            player_skin: menu.player_skin().clone(),
+            login_settings,
+            actor_artwork: actor_artwork.cloned(),
+            ui_catalog: ui_catalog.map(|base| base.0.clone()),
+            log_dir: menu.layout().log_dir(),
+            record_session: menu.settings_snapshot().0.record_network_session(),
+        },
+        packet_relay,
+    )
     .map_err(|error| error.to_string())?;
     commands.insert_resource(
         client_interaction::movement::MovementTicker::with_epoch_publisher(
@@ -606,10 +603,14 @@ fn drive_intents(
     session: &mut SessionResources<'_>,
 ) {
     menu.send_respawn_request(|| {
-        let Some(runtime_id) = session.runtime.local_runtime_id(&session.player_runtime) else {
+        let Some(runtime_id) = session
+            .state
+            .runtime
+            .local_runtime_id(&session.state.player_runtime)
+        else {
             return false;
         };
-        let generation = session.runtime.session_id();
+        let generation = session.state.runtime.session_id();
         let packet = protocol::respawn_request_packet(runtime_id);
         session.network.send_form_packet(generation, packet).is_ok()
     });
@@ -621,6 +622,7 @@ fn drive_intents(
         return;
     }
     if menu.take_disconnect_request() {
+        bridge::join_profile::JoinProfile::current().finish("cancelled");
         // Loading and pause screens retain the Play page that opened the session.
         let cancelled_join = menu.is_connecting();
         // Drop the old event receivers as well as stopping their worker: a
@@ -633,7 +635,7 @@ fn drive_intents(
         }
         return;
     }
-    if menu.is_connecting() && session.client_world.stream.is_some() {
+    if menu.is_connecting() && session.state.client_world.stream.is_some() {
         session.controller.connecting = false;
         menu.show_world();
     }
@@ -654,7 +656,7 @@ pub(crate) fn recover_session_failure(
     mut menu: ResMut<MenuRuntime>,
     mut session: SessionResources,
 ) {
-    let Some(error) = session.fatal_error.0.clone() else {
+    let Some(error) = session.state.fatal_error.0.clone() else {
         return;
     };
     if !menu.absorb_session_failure(&error) {
@@ -679,7 +681,7 @@ pub(crate) fn follow_server_transfer(
     client_blob_cache: Res<BlobCache>,
     mut session: SessionResources,
 ) {
-    let Some(notice) = session.client_world.transfer_notice.take() else {
+    let Some(notice) = session.state.client_world.transfer_notice.take() else {
         return;
     };
     follow_transfer(&mut menu, &client_blob_cache, &mut session, notice);
@@ -697,7 +699,7 @@ fn follow_transfer(
         // the server-directed move named explicitly instead of followed.
         session.leave();
         record_fatal_error(
-            &mut session.fatal_error.0,
+            &mut session.state.fatal_error.0,
             format!(
                 "server transferred to {}",
                 format_transfer_address(&notice.host, notice.port)
@@ -808,6 +810,35 @@ mod tests {
         let settings = login_settings(&menu, None);
         assert_eq!(settings.gui_scale_offset, -1);
         assert_eq!(settings.input_mode, protocol::PlayerInputMode::Mouse);
+    }
+
+    #[test]
+    fn login_settings_carry_the_saved_view_radius_without_a_visible_menu() {
+        use launcher::menu::settings_options::{SETTINGS_FILE, SETTINGS_OPTIONS, SettingsOptions};
+
+        let index = SETTINGS_OPTIONS
+            .iter()
+            .position(|option| option.id == SettingId::RenderDistance)
+            .unwrap();
+        for radius in [8, 35] {
+            let layout = launcher::test_support::scratch(&format!("login-radius-{radius}"));
+            let mut saved = SettingsOptions::default();
+            saved.set(index, radius);
+            saved
+                .save(&layout.user_config_root.join(SETTINGS_FILE))
+                .unwrap();
+            let menu = MenuRuntime::new_with_layout(
+                false,
+                None,
+                "Direct".to_owned(),
+                layout,
+                client_shell::player_skin::LocalPlayerSkin::generated_default("Direct"),
+            );
+            assert_eq!(
+                login_settings(&menu, None).view_distance_chunks,
+                radius as u8
+            );
+        }
     }
 
     #[test]

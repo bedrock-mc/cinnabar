@@ -103,6 +103,13 @@ pub(crate) fn overlaps(
 
 const FULL_CELL: BoxBounds = ([0.0; 3], [1.0; 3]);
 
+/// Empty vanilla buckets may pick liquid sources without making liquids selectable for mining.
+pub fn uses_liquid_pick(item: &VerifiedNetworkItemStack, identifier: Option<&str>) -> bool {
+    !item.is_empty()
+        && item.metadata() == 0
+        && identifier == Some(assets::facts::EMPTY_BUCKET_IDENTIFIER)
+}
+
 /// World facts one local use depends on.
 #[derive(Debug, Clone, PartialEq)]
 pub struct UseSurroundings {
@@ -579,6 +586,7 @@ pub fn use_packets(
         packets.push(protocol::swing_arm_packet(local_runtime_id, source));
     }
     let request = BlockUseRequest {
+        hand: protocol::ItemUseHand::Mainhand,
         block_position: observed.target.position,
         face: observed.target.face,
         selected_slot: observed.selection.slot,

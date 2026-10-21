@@ -13,6 +13,8 @@ pub const SPRINT_HUNGER_FLOOR: u16 = 6;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ControlObservation {
     pub now: Duration,
+    /// Held controls are already resolved; physical toggle latches retain their own intent.
+    pub resolved_movement: bool,
     /// Forward axis after device normalization; positive is forward.
     pub forward: f32,
     pub sideways: f32,
@@ -104,9 +106,12 @@ impl ControlModes {
     }
 
     pub fn update(&mut self, observed: ControlObservation) -> ControlOutput {
+        let always_sprint = observed.always_sprint && !observed.resolved_movement;
         let moving_forward = observed.forward >= SPRINT_THRESHOLD;
         let sneaking = if observed.hold_sneak {
             self.sneaking
+        } else if observed.resolved_movement {
+            observed.sneak_held
         } else if observed.toggle_sneak && !observed.flying {
             if observed.sneak_pressed {
                 self.sneak_toggled = !self.sneak_toggled;
@@ -118,13 +123,18 @@ impl ControlModes {
         };
         self.sneaking = sneaking;
 
-        if self.was_always_sprint && !observed.always_sprint && !observed.retain_sprint {
+        if self.was_always_sprint && !always_sprint && !observed.retain_sprint {
             self.sprinting = false;
             self.stop_sprinting = true;
         }
-        self.was_always_sprint = observed.always_sprint;
+        self.was_always_sprint = always_sprint;
 
-        if observed.toggle_sprint {
+        if observed.resolved_movement {
+            if !observed.sprint_held && !observed.retain_sprint {
+                self.stop_sprinting |= self.sprinting;
+                self.sprinting = false;
+            }
+        } else if observed.toggle_sprint {
             if observed.sprint_pressed {
                 self.sprint_toggled = !self.sprint_toggled;
                 if !self.sprint_toggled && !observed.retain_sprint {
@@ -136,8 +146,10 @@ impl ControlModes {
             self.sprint_toggled = false;
         }
 
-        let sprint_down = observed.always_sprint
-            || if observed.toggle_sprint {
+        let sprint_down = always_sprint
+            || if observed.resolved_movement {
+                observed.sprint_held
+            } else if observed.toggle_sprint {
                 self.sprint_toggled
             } else {
                 observed.sprint_held
@@ -156,9 +168,9 @@ impl ControlModes {
             if !observed.retain_sprint {
                 self.sprinting = false;
             }
-        } else if observed.always_sprint
-            || (observed.sprint_held && !observed.toggle_sprint)
-            || self.sprint_toggled
+        } else if always_sprint
+            || (observed.sprint_held && (observed.resolved_movement || !observed.toggle_sprint))
+            || (!observed.resolved_movement && self.sprint_toggled)
         {
             if !self.sprinting {
                 self.started_by_sprint_control = sprint_down;
@@ -470,5 +482,56 @@ mod tests {
         };
         assert!(modes.update(held).sneaking);
         assert!(!modes.update(ControlObservation::default()).sneaking);
+    }
+    #[test]
+    fn resolved_controls_do_not_toggle_or_invert_physical_latches() {
+        let mut modes = ControlModes::default();
+        let held = ControlObservation {
+            resolved_movement: true,
+            toggle_sneak: true,
+            toggle_sprint: true,
+            always_sprint: true,
+            sneak_pressed: true,
+            sneak_held: true,
+            sprint_pressed: true,
+            sprint_held: true,
+            forward: 1.0,
+            ..Default::default()
+        };
+        for _ in 0..2 {
+            let active = modes.update(held);
+            assert!(active.sneaking && active.sprint_request);
+            let released = modes.update(ControlObservation {
+                sneak_held: false,
+                sprint_held: false,
+                sneak_pressed: false,
+                sprint_pressed: false,
+                ..held
+            });
+            assert!(!released.sneaking && !released.sprint_request);
+        }
+        let physical = modes.update(ControlObservation {
+            toggle_sneak: true,
+            toggle_sprint: true,
+            ..Default::default()
+        });
+        assert!(!physical.sneaking && !physical.sprint_down);
+        modes.update(ControlObservation {
+            toggle_sneak: true,
+            sneak_pressed: true,
+            ..Default::default()
+        });
+        modes.update(ControlObservation {
+            sneak_held: false,
+            ..held
+        });
+        let restored = modes.update(ControlObservation {
+            toggle_sneak: true,
+            ..Default::default()
+        });
+        assert!(
+            restored.sneaking,
+            "native ownership lost the physical toggle"
+        );
     }
 }

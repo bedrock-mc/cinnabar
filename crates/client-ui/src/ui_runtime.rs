@@ -25,9 +25,12 @@ pub mod inventory_drag;
 pub mod inventory_ingress;
 
 mod food;
+mod furnace_options;
+mod inventory_options;
 mod item_activation;
 pub mod item_facts;
 pub mod json_ui_assets;
+mod mod_inventory;
 pub mod platform_clipboard;
 pub mod player_roster;
 pub mod presentation;
@@ -42,8 +45,8 @@ pub mod sign_editor;
 pub mod use_on_identity_evidence;
 
 pub use forms::{
-    FormRespondError, FormTransportError, LocalFormAction, MAX_RETAINED_SERVER_FORMS,
-    ServerFormEntry, ServerFormIdentity, ServerFormStore, flush_form_response,
+    FormRespondError, FormTransportError, LocalFormAction, ServerFormEntry, ServerFormIdentity,
+    ServerFormStore, flush_form_response,
 };
 
 pub use gameplay_authority::Translator;
@@ -132,6 +135,7 @@ impl UiAuthorityTransition {
 
 #[derive(Clone, Debug)]
 pub struct UiRuntime {
+    #[cfg(not(target_arch = "wasm32"))]
     pub experiences: crate::experience_session::ExperienceSession,
     pub player_roster: player_roster::PlayerRoster,
     session_id: u64,
@@ -148,6 +152,8 @@ pub struct UiRuntime {
     death_reason: Arc<str>,
     death_rules: protocol::DeathRules,
     toast_display_millis: u64,
+    /// Developer captures never draw toasts.
+    hide_toasts: bool,
     chat: ChatStore,
     scoreboards: ScoreboardStore,
     boss_bars: BossBarStore,
@@ -229,6 +235,7 @@ impl UiRuntime {
         Self {
             item_fuel_catalog: None,
             session_id,
+            #[cfg(not(target_arch = "wasm32"))]
             experiences: Default::default(),
             player_roster: Default::default(),
             last_fifo_sequence: None,
@@ -248,6 +255,7 @@ impl UiRuntime {
             death_reason: Arc::from(""),
             death_rules: protocol::DeathRules::default(),
             toast_display_millis: ui::TOAST_DISPLAY_MILLIS,
+            hide_toasts: false,
             chat: ChatStore::default(),
             scoreboards: ScoreboardStore::default(),
             boss_bars: BossBarStore::default(),
@@ -457,7 +465,7 @@ impl UiRuntime {
         &mut self,
         player_runtime: &'a mut player_state::PlayerState,
     ) -> &'a mut PlayerInventoryLedger {
-        let ledger = player_runtime.inventory.ledger_mut();
+        let ledger = player_runtime.inventory_commands();
         if let Some(catalog) = &self.item_fuel_catalog {
             ledger.set_item_fuel_catalog(Arc::clone(catalog));
         }
@@ -635,6 +643,7 @@ impl UiRuntime {
         self.book_packets.clear();
         self.screen.reset_session();
         self.anvil_cache = Default::default();
+        #[cfg(not(target_arch = "wasm32"))]
         self.experiences.reset();
         self.server_lang = None;
         self.session_icons = None;
@@ -731,9 +740,11 @@ impl UiRuntime {
         }
     }
 
+    /// Toggles the active inventory against the actor authority available at this input edge.
     pub fn toggle_inventory(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
+        authority: Option<&client_world::WorldAuthority>,
     ) -> UiAuthorityTransition {
         self.screen.container_close_armed = false;
         self.chat_focused = false;
@@ -758,11 +769,23 @@ impl UiRuntime {
             self.inventory_open = self
                 .local_runtime_id(player_runtime)
                 .is_some_and(|runtime_id| {
-                    player_runtime
-                        .inventory
-                        .ledger_mut()
-                        .request_personal_open(runtime_id)
+                    let mount = authority
+                        .filter(|world| world.local_player_runtime_id() == runtime_id)
+                        .and_then(|world| {
+                            player_runtime
+                                .facts
+                                .mount_unique_id()
+                                .and_then(|mount| world.actor_by_unique_id(mount))
+                        });
+                    let ledger = player_runtime.inventory.ledger_mut();
+                    ledger.request_personal_open(mount.map_or(runtime_id, |mount| mount.runtime_id))
                 });
+        }
+        self.screen.inventory = None;
+        if self.inventory_open {
+            self.observe_inventory_window(player_runtime);
+        } else {
+            self.screen.search_focused = false;
         }
         UiAuthorityTransition {
             consumes_text: false,
@@ -779,6 +802,8 @@ impl UiRuntime {
         player_runtime: &mut player_state::PlayerState,
     ) -> UiAuthorityTransition {
         self.screen.container_close_armed = false;
+        self.screen.inventory = None;
+        self.screen.search_focused = false;
         player_runtime
             .inventory
             .ledger_mut()
@@ -884,6 +909,7 @@ impl UiRuntime {
             });
         }
         if let (Some(previous), Some(actual)) = (self.last_server_tick, server_tick)
+            && actual != 0
             && actual < previous
         {
             return Err(UiRuntimeError::NonMonotonicServerTick { previous, actual });
@@ -903,6 +929,16 @@ impl UiRuntime {
     /// Applies the toast preference even when this frame cannot publish a viewport.
     pub fn set_toast_lifetime(&mut self, lifetime: u64) {
         self.toast_display_millis = lifetime;
+    }
+
+    /// Stops drawing toasts for the session (developer `--hide-toasts`); they still queue
+    /// and expire as usual, so nothing else changes.
+    pub fn set_hide_toasts(&mut self, hide: bool) {
+        self.hide_toasts = hide;
+    }
+
+    pub fn hides_toasts(&self) -> bool {
+        self.hide_toasts
     }
 
     /// Expires retained HUD output when the app has admitted a valid viewport.

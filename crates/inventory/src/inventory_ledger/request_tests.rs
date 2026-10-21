@@ -177,15 +177,15 @@ fn slot_update(slot: u16, stack: NetworkItemStack) -> InventoryEvent {
     })
 }
 
+/// Restates the cursor through its fixed UI inventory slot.
 fn cursor_content(stack: NetworkItemStack) -> InventoryEvent {
-    InventoryEvent::Content(InventoryContentEvent {
-        container: ContainerIdentity {
-            window_id: Some(-1),
-            slot_type: Some(59),
-            dynamic_id: None,
+    InventoryEvent::Slot(protocol::InventorySlotEvent {
+        identity: protocol::SlotIdentity {
+            container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+            slot: 0,
         },
-        slots: Arc::from([stack]),
-        storage_item: NetworkItemStack::default(),
+        stack,
+        storage_item: None,
     })
 }
 
@@ -355,7 +355,7 @@ fn empty_place_and_occupied_swap_preserve_sparse_state() {
 }
 
 #[test]
-fn short_content_is_partial_and_never_releases_the_resync_gate() {
+fn short_content_replaces_extent_and_retains_unrelated_cursor_recovery() {
     let first = stack(5, 1, 44);
     let mut fresh = PlayerInventoryLedger::default();
     fresh.apply(&InventoryEvent::Authority(InventoryAuthority::Server));
@@ -368,7 +368,7 @@ fn short_content_is_partial_and_never_releases_the_resync_gate() {
     assert_eq!(fresh.displayed_stack(0), Some(&first));
     assert_eq!(
         fresh.begin_click(1),
-        Err(InventoryGestureError::UnknownSlot(1))
+        Err(InventoryGestureError::InvalidSlot(1))
     );
 
     let pending = fresh.begin_click(0).unwrap();

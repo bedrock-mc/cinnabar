@@ -1,9 +1,7 @@
 //! Rate-limited INFO diagnostics for server movement corrections.
 
-use std::{
-    sync::Mutex,
-    time::{Duration, Instant},
-};
+use std::{sync::Mutex, time::Duration};
+use web_time::Instant;
 
 use client_world::{CommittedControlEvent, LocalPlayerFacts};
 use protocol::{MovePlayerMode, PlayerGameMode};
@@ -255,7 +253,7 @@ impl<'a> CorrectionContext<'a> {
         Self {
             game_mode: facts.player_game_mode(),
             can_fly: capabilities.is_some_and(|capabilities| capabilities.can_fly),
-            server_flying: capabilities.is_some_and(|capabilities| capabilities.flying),
+            server_flying: capabilities.is_some_and(|capabilities| capabilities.flight.is_flying()),
             has_gravity: facts.has_gravity(),
             immobile: facts.is_immobile(),
             mount_unique_id: facts.mount_unique_id(),

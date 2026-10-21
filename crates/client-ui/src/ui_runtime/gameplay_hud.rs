@@ -414,15 +414,17 @@ impl GameplayHudState {
         true
     }
 
-    /// Applies one committed inventory event to the retained offhand. Every container
-    /// identity resolves through the canonical container-address projection; identities
-    /// resolving onto no surface and container-UI events are counted skips.
-    pub fn apply_inventory(&mut self, event: &InventoryEvent) {
+    /// Counts inventory diagnostics and copies offhand authority from its owning ledger.
+    pub fn apply_inventory(
+        &mut self,
+        event: &InventoryEvent,
+        ledger: &inventory::PlayerInventoryLedger,
+    ) {
         for slot_event in event.slot_updates() {
             match project_container_cell(&slot_event.identity.container, slot_event.identity.slot) {
                 // The gesture ledger owns player-inventory cells.
                 Some(CanonicalCell::PlayerInventory(_)) => {}
-                Some(CanonicalCell::Offhand) => self.offhand = Some(slot_event.stack.clone()),
+                Some(CanonicalCell::Offhand) => {}
                 Some(_) => {
                     self.diagnostics.dropped_inventory_events =
                         self.diagnostics.dropped_inventory_events.saturating_add(1);
@@ -440,9 +442,7 @@ impl GameplayHudState {
                 match project_container_cell(&content.container, 0) {
                     Some(CanonicalCell::PlayerInventory(_)) => {}
                     Some(CanonicalCell::Offhand) => {
-                        if let Some(stack) = content.slots.first() {
-                            self.offhand = Some(stack.clone());
-                        } else {
+                        if content.slots.is_empty() {
                             self.diagnostics.dropped_inventory_events =
                                 self.diagnostics.dropped_inventory_events.saturating_add(1);
                         }
@@ -459,7 +459,13 @@ impl GameplayHudState {
                     }
                 }
             }
-            InventoryEvent::Slot(_) | InventoryEvent::Transaction(_) => {}
+            InventoryEvent::Slot(_)
+            | InventoryEvent::Transaction(_)
+            | InventoryEvent::FurnaceOptions(_)
+            | InventoryEvent::RecipeUnlocks(_)
+            | InventoryEvent::CraftingRules(_)
+            | InventoryEvent::Options(_) => {}
+            InventoryEvent::Trade(_) => {}
             // SelectedSlot is consumed by the caller's slot-precedence logic;
             // the remaining container events are not modeled yet.
             InventoryEvent::SelectedSlot(_)
@@ -467,12 +473,26 @@ impl GameplayHudState {
             | InventoryEvent::Response(_)
             | InventoryEvent::Open(_)
             | InventoryEvent::Close(_)
+            | InventoryEvent::RegistryCleanup(_)
             | InventoryEvent::Data(_)
             | InventoryEvent::EnchantOptions(_)
             | InventoryEvent::Recipes(_)
             | InventoryEvent::Creative(_) => {
                 self.diagnostics.dropped_inventory_events =
                     self.diagnostics.dropped_inventory_events.saturating_add(1);
+            }
+        }
+        if ledger.offhand_authority_changed() {
+            match ledger.authoritative_gear_slot_state(
+                inventory::inventory_ledger::InventoryTarget::Offhand,
+            ) {
+                Some(inventory::PlayerInventorySlot::Present(stack)) => {
+                    self.offhand = Some(stack.clone())
+                }
+                Some(inventory::PlayerInventorySlot::Empty) => {
+                    self.offhand = Some(NetworkItemStack::empty())
+                }
+                Some(inventory::PlayerInventorySlot::Unknown) | None => {}
             }
         }
     }
