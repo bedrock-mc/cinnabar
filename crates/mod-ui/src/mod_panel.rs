@@ -11,6 +11,7 @@ mod input;
 mod layout;
 mod motion;
 pub(crate) mod prepared;
+mod reveal;
 mod scrolling;
 pub(crate) mod surface;
 mod template;
@@ -75,6 +76,7 @@ pub(super) struct ModPanel {
     text_events: Vec<ui::mod_panel::TextEvent>,
     field_events: Vec<ui::mod_panel::FieldEvent>,
     prepared: Option<Arc<prepared::PreparedRoute>>,
+    collection_reveals: reveal::CollectionReveals,
 }
 
 impl ModUi {
@@ -229,6 +231,12 @@ impl ModUi {
                 current.cancel_edit();
             }
             current.reconcile_editor_value(panel);
+            if !same_shape {
+                current.collection_reveals = reveal::CollectionReveals::default();
+            }
+            current
+                .collection_reveals
+                .publish(Some(&current.panel), panel);
             current.panel = panel.clone();
             current.refresh_data();
         } else {
@@ -258,6 +266,11 @@ impl ModUi {
                 text_events: Vec::new(),
                 field_events: Vec::new(),
                 prepared,
+                collection_reveals: {
+                    let mut requests = reveal::CollectionReveals::default();
+                    requests.publish(None, panel);
+                    requests
+                },
             });
         }
         if (self.reduced_motion || !panel.motion)
@@ -531,10 +544,6 @@ impl ModUi {
                 rest: &mut *caller,
             };
             let language = paint_frame.language;
-            let art = ScreenArt {
-                view: Some(&panel.view),
-                ..Default::default()
-            };
             let catalog = panel.catalog.as_ref().expect("catalog installed above");
             let screen = panel
                 .prepared
@@ -558,9 +567,16 @@ impl ModUi {
                 let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut base];
                 renderer
                     .prepare(
-                        art,
+                        ScreenArt::default(),
                         &mut paint_frame.with_renderers(&mut renderers),
                         |env, root| {
+                            panel.collection_reveals.apply(
+                                &panel.panel,
+                                catalog,
+                                &mut panel.view,
+                                &mut panel.motion,
+                                env,
+                            );
                             screen.render_shared_with(
                                 SCREEN,
                                 catalog,
@@ -597,6 +613,10 @@ impl ModUi {
                 rest: &mut renderers,
             };
             let mut preview_renderers: [&mut dyn CustomRenderer; 1] = [&mut combined];
+            let art = ScreenArt {
+                view: Some(&panel.view),
+                ..Default::default()
+            };
             renderer.draw(
                 art,
                 &mut paint_frame.with_renderers(&mut preview_renderers),
@@ -763,6 +783,7 @@ impl ModPanel {
         self.frame = None;
         self.view = ViewState::default();
         self.motion = motion::PanelMotion::default();
+        self.collection_reveals = reveal::CollectionReveals::default();
         if reset_feedback {
             self.refresh_data();
         }
@@ -834,6 +855,8 @@ impl ModUi {
 mod collection_tests;
 #[cfg(test)]
 mod motion_tests;
+#[cfg(test)]
+mod reveal_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

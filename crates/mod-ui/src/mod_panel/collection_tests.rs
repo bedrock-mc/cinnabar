@@ -6,7 +6,7 @@ use std::{collections::BTreeSet, sync::Arc};
 use ui::mod_panel::{Panel, PanelPatch};
 use ui_engine::cached_screen::CachedScreen;
 
-struct Metrics;
+pub(super) struct Metrics;
 
 /// Native hover values reach an unchanged collection and remain eased between pointer events.
 #[test]
@@ -101,7 +101,7 @@ fn catalogue() -> Panel {
 }
 
 /// Makes four columns of independently bound artwork behind the native viewport.
-fn four_column_catalogue() -> Panel {
+pub(super) fn four_column_catalogue() -> Panel {
     let mut panel = catalogue();
     let surface = panel.surface.as_mut().unwrap();
     surface.document = json!({"namespace":"list","root":{"type":"panel","size":[452,289],

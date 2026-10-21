@@ -14,6 +14,14 @@ pub const MAX_PANEL_PATCH_BYTES: usize = 32 * 1024;
 /// Maximum route documents admitted by one local catalog.
 pub const MAX_PANEL_SURFACES: usize = 128;
 
+/// A one-time request to show an immutable item in an admitted collection.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CollectionReveal {
+    pub collection: String,
+    pub item: u32,
+}
+
 /// An initial control schema with individually validated, reusable local routes.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -164,6 +172,9 @@ pub struct PanelPatch {
     /// Filters or sorts admitted tile data without resending its immutable metadata.
     #[serde(default)]
     collection_order: BTreeMap<String, Vec<usize>>,
+    /// Reveals an immutable item after applying this patch's filtered order.
+    #[serde(default)]
+    pub collection_reveal: Option<CollectionReveal>,
     #[serde(default)]
     capture_key: Option<bool>,
     /// Changes the retained animation preference without replacing the panel schema.
@@ -308,6 +319,17 @@ impl PanelPatch {
                 .ok_or("panel update names an unknown collection")?;
             collection.order = order;
             collection.validate_order()?;
+        }
+        if let Some(reveal) = self.collection_reveal {
+            let collection = panel
+                .surface
+                .as_mut()
+                .and_then(|surface| surface.collections.get_mut(&reveal.collection))
+                .ok_or("panel reveal names an unknown collection")?;
+            if reveal.item as usize >= collection.definition.items.len() {
+                return Err("panel reveal names an unknown item".into());
+            }
+            collection.reveal = Some(std::sync::Arc::new(reveal));
         }
         Ok(panel)
     }

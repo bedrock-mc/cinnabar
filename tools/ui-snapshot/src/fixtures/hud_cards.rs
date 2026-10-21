@@ -62,6 +62,7 @@ pub(super) fn fixture(previews: bool) -> Fixture {
         collections: [(
             "grid".into(),
             SurfaceCollection {
+                reveal: None,
                 definition: Arc::new(CollectionDefinition {
                     template: tile,
                     columns: 2,

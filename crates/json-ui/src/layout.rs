@@ -360,7 +360,7 @@ struct Reuse<'e> {
 
 /// `parent/name`, with `[index]` on factory instances and `~n` on the nth sibling sharing
 /// both, so anonymous array entries keep their own hover and press state.
-pub(crate) fn child_key(parent: &str, control: &ResolvedControl, repeat: usize) -> String {
+pub fn child_key(parent: &str, control: &ResolvedControl, repeat: usize) -> String {
     instance_key(parent, &control.name, collection_index(control), repeat)
 }
 

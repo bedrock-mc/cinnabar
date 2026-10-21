@@ -21,7 +21,8 @@ pub use surface::{
     preview,
 };
 pub use update::{
-    MAX_PANEL_BUNDLE_BYTES, MAX_PANEL_PATCH_BYTES, MAX_PANEL_SURFACES, PanelBundle, PanelPatch,
+    CollectionReveal, MAX_PANEL_BUNDLE_BYTES, MAX_PANEL_PATCH_BYTES, MAX_PANEL_SURFACES,
+    PanelBundle, PanelPatch,
 };
 
 pub const MAX_PANEL_BYTES: usize = 128 * 1024;

@@ -154,6 +154,7 @@ fn panel(collection: bool) -> ui::mod_panel::Panel {
         panel.surface.as_mut().unwrap().collections.insert(
             "cards".into(),
             ui::mod_panel::SurfaceCollection {
+                reveal: None,
                 definition: Arc::new(definition),
                 order: (0..32).collect(),
             },

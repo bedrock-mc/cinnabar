@@ -19,12 +19,20 @@ pub const MAX_VISIBLE_CELLS: usize = 26;
 pub struct SurfaceCollection {
     pub definition: Arc<CollectionDefinition>,
     pub order: Vec<usize>,
+    /// Host-admitted request identity survives publication without replaying on each frame.
+    #[serde(skip)]
+    pub reveal: Option<Arc<crate::mod_panel::CollectionReveal>>,
 }
 
 impl PartialEq for SurfaceCollection {
     /// Admitted immutable metadata can compare by identity during ordinary frame publication.
     fn eq(&self, other: &Self) -> bool {
         self.order == other.order
+            && match (&self.reveal, &other.reveal) {
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                (None, None) => true,
+                _ => false,
+            }
             && (Arc::ptr_eq(&self.definition, &other.definition)
                 || self.definition == other.definition)
     }
@@ -364,6 +372,7 @@ mod tests {
     #[test]
     fn four_column_browser_keeps_a_bounded_retained_window() {
         let mut collection = SurfaceCollection {
+            reveal: None,
             definition: Arc::new(CollectionDefinition {
                 template: Surface {
                     screen: "cards.tile".into(),
