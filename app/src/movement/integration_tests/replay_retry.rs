@@ -188,7 +188,7 @@ fn snap_fallback_invalidates_transport_owned_commands() {
             PhysicsCorrectionMode::ReplayIfRetained,
             &VersionedFloor(1),
         ),
-        Ok(PhysicsCorrectionOutcome::Snapped { tick: 999 })
+        Ok(PhysicsCorrectionOutcome::Snapped { tick: 101 })
     );
     assert!(
         ticker.reanchor_epoch() > admitted_epoch,
