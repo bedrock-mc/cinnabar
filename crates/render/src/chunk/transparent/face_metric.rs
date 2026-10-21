@@ -26,7 +26,7 @@ pub(in crate::chunk) fn quantized_position_bits(camera: Vec3) -> Option<[u32; 3]
 
 /// What one sub-chunk's face order depends on besides its own mesh.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(in crate::chunk) enum FaceOrderClass {
+pub(crate) enum FaceOrderClass {
     /// Radial order around the exact camera; reused only at the same quantized position.
     Near([u32; 3]),
     /// Projection on one of 26 chunk-grid directions; independent of the camera position.
@@ -58,7 +58,7 @@ impl FaceOrderCamera {
 }
 
 #[derive(Clone, Copy)]
-pub(in crate::chunk) struct TransparentFaceMetric {
+pub(crate) struct TransparentFaceMetric {
     camera: Vec3,
     camera_chunk: [i32; 3],
     near_min: [i32; 3],
@@ -67,7 +67,7 @@ pub(in crate::chunk) struct TransparentFaceMetric {
 }
 
 #[derive(Clone, Copy)]
-pub(in crate::chunk) struct TransparentChunkFaceMetric {
+pub(crate) struct TransparentChunkFaceMetric {
     camera: Vec3,
     origin: Vec3,
     direction: Option<Vec3>,
@@ -75,7 +75,7 @@ pub(in crate::chunk) struct TransparentChunkFaceMetric {
 
 impl TransparentChunkFaceMetric {
     /// Larger is drawn first; comparable only between faces of the same sub-chunk.
-    pub(in crate::chunk) fn distance(self, centroid: Vec3) -> f32 {
+    pub(crate) fn distance(self, centroid: Vec3) -> f32 {
         // Vanilla packs the emitted-vertex
         // mean in chunk-local space; vanilla decodes it before face sorting.
         // Quantize only this ordering anchor, never the rendered geometry.
@@ -96,7 +96,7 @@ impl TransparentChunkFaceMetric {
 }
 
 impl TransparentFaceMetric {
-    pub(in crate::chunk) fn new(camera: Vec3) -> Self {
+    pub(crate) fn new(camera: Vec3) -> Self {
         let block = camera.to_array().map(|value| value.floor() as i32);
         Self {
             camera,
@@ -142,7 +142,7 @@ impl TransparentFaceMetric {
         std::array::from_fn(|axis| chunk[axis].cmp(&self.camera_chunk[axis]) as i8)
     }
 
-    pub(in crate::chunk) fn class(self, key: SubChunkKey) -> FaceOrderClass {
+    pub(crate) fn class(self, key: SubChunkKey) -> FaceOrderClass {
         if self.is_near(key) {
             FaceOrderClass::Near(self.position_bits)
         } else {
@@ -167,7 +167,7 @@ impl TransparentFaceMetric {
         }
     }
 
-    pub(in crate::chunk) fn for_chunk(self, key: SubChunkKey) -> TransparentChunkFaceMetric {
+    pub(crate) fn for_chunk(self, key: SubChunkKey) -> TransparentChunkFaceMetric {
         let origin = Vec3::from_array(chunk_origin(key).map(|value| value as f32));
         TransparentChunkFaceMetric {
             camera: self.camera,

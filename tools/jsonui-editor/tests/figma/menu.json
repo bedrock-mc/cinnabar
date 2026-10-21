@@ -1,0 +1,43 @@
+{
+  "id": "8:1", "name": "Main Menu", "type": "FRAME", "width": 480, "height": 270,
+  "fills": [{ "type": "IMAGE", "image": "backdrop", "scale_mode": "FILL" }],
+  "children": [
+    { "id": "8:2", "name": "Title", "type": "TEXT", "x": 0, "y": 48, "width": 480, "height": 16,
+      "constraints": { "horizontal": "STRETCH", "vertical": "MIN" },
+      "fills": [{ "type": "SOLID", "color": [1, 0.87, 0.35] }],
+      "text": { "characters": "Cinnabar", "font_family": "Minecraft Ten", "font_size": 16,
+                "align_h": "CENTER", "auto_resize": "HEIGHT" } },
+    { "id": "8:3", "name": "Buttons", "type": "FRAME", "x": 160, "y": 100, "width": 160, "height": 96,
+      "constraints": { "horizontal": "CENTER", "vertical": "CENTER" },
+      "layout": { "mode": "VERTICAL", "item_spacing": 6 },
+      "children": [
+        { "id": "8:4", "name": "Play @button", "type": "FRAME", "x": 0, "y": 0, "width": 160, "height": 28,
+          "sizing": ["FILL", "FIXED"],
+          "fills": [{ "type": "SOLID", "color": [0.25, 0.25, 0.25] }],
+          "children": [
+            { "id": "8:5", "name": "Label", "type": "TEXT", "x": 0, "y": 10, "width": 160, "height": 8,
+              "constraints": { "horizontal": "STRETCH", "vertical": "CENTER" },
+              "fills": [{ "type": "SOLID", "color": [1, 1, 1] }],
+              "text": { "characters": "Play", "font_family": "Minecraft", "align_h": "CENTER", "auto_resize": "HEIGHT" } }
+          ] },
+        { "id": "8:6", "name": "Settings @button", "type": "FRAME", "x": 0, "y": 34, "width": 160, "height": 28,
+          "sizing": ["FILL", "FIXED"],
+          "fills": [{ "type": "SOLID", "color": [0.25, 0.25, 0.25] }],
+          "children": [
+            { "id": "8:7", "name": "Label", "type": "TEXT", "x": 0, "y": 10, "width": 160, "height": 8,
+              "constraints": { "horizontal": "STRETCH", "vertical": "CENTER" },
+              "fills": [{ "type": "SOLID", "color": [1, 1, 1] }],
+              "text": { "characters": "Settings", "font_family": "Minecraft", "align_h": "CENTER", "auto_resize": "HEIGHT" } }
+          ] },
+        { "id": "8:8", "name": "Quit @button", "type": "FRAME", "x": 0, "y": 68, "width": 160, "height": 28,
+          "sizing": ["FILL", "FIXED"],
+          "fills": [{ "type": "SOLID", "color": [0.25, 0.25, 0.25] }],
+          "children": [
+            { "id": "8:9", "name": "Label", "type": "TEXT", "x": 0, "y": 10, "width": 160, "height": 8,
+              "constraints": { "horizontal": "STRETCH", "vertical": "CENTER" },
+              "fills": [{ "type": "SOLID", "color": [1, 1, 1] }],
+              "text": { "characters": "Quit", "font_family": "Minecraft", "align_h": "CENTER", "auto_resize": "HEIGHT" } }
+          ] }
+      ] }
+  ]
+}

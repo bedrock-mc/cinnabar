@@ -132,7 +132,7 @@ mod tests {
             fixture["max_group_entities"],
             crate::drawing::MAX_MASK_ENTITIES
         );
-        assert!(MAX_BOXES * 12 + MAX_LINES <= crate::MAX_DRAW_INSTANCES);
+        const { assert!(MAX_BOXES * 12 + MAX_LINES <= crate::MAX_DRAW_INSTANCES) };
         let scene: Scene = serde_json::from_value(fixture["scene"].clone()).unwrap();
         assert!(scene.is_valid());
         let encoded = serde_json::to_vec(&scene).unwrap();

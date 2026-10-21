@@ -100,6 +100,178 @@ fn catalogue() -> Panel {
             "order":(0..99).collect::<Vec<_>>()}}}})).unwrap()
 }
 
+/// Makes four columns of independently bound artwork behind the native viewport.
+fn four_column_catalogue() -> Panel {
+    let mut panel = catalogue();
+    let surface = panel.surface.as_mut().unwrap();
+    surface.document = json!({"namespace":"list","root":{"type":"panel","size":[452,289],
+        "controls":[{"tiles":{"type":"panel","cinnabar_collection":"modules"}}]}})
+    .to_string();
+    let collection = surface.collections.get_mut("modules").unwrap();
+    collection.order = (0..66).collect();
+    let definition = Arc::make_mut(&mut collection.definition);
+    definition.columns = 4;
+    definition.viewport = [452., 289.];
+    definition.items.truncate(66);
+    definition.template.document = json!({"namespace":"tile","root":{
+        "type":"button","size":[111,97],
+        "button_mappings":[{"from_button_id":"button.menu_select","mapping_type":"pressed","to_button_id":"mod.item:open"}],
+        "controls":[{"label":{"type":"label","text":"#item_name","size":[105,20],
+            "bindings":[{"binding_name":"#item_name"}]}},
+            {"art":{"type":"custom","renderer":json_ui::vector_path::RENDERER,"size":[105,60],
+                "paths":[[[0,0],[1,1]]],"view_box":[0,0,1,1],"stroke_width":1,"closed":true,
+                "bindings":[
+                    {"binding_name":"(#item_kind = 'armor')","binding_name_override":"#visible"},
+                    {"binding_name":"#item_art_paths","binding_name_override":"#paths"},
+                    {"binding_name":"#item_art_view_box","binding_name_override":"#view_box"},
+                    {"binding_name":"#item_art_stroke_width","binding_name_override":"#stroke_width"},
+                    {"binding_name":"#item_art_closed","binding_name_override":"#closed"}]}}]}})
+        .to_string();
+    for (index, item) in definition.items.iter_mut().enumerate() {
+        item.values.insert(
+            "#item_kind".into(),
+            ui::mod_panel::SurfaceValue::Text(
+                if index % 2 == 0 { "armor" } else { "other" }.into(),
+            ),
+        );
+        item.art = Some(ui::mod_panel::CollectionArt {
+            view_box: [0., 0., 105., 60.],
+            paths: vec![vec![[index as f32, 8.], [72., 28.], [52., 48.]]],
+            stroke_width: 2.,
+            closed: false,
+        });
+    }
+    panel
+}
+
+/// Scrolling and filtering preserve per-item visibility, artwork and cached steady frames.
+#[test]
+fn collection_four_columns_render_item_art_and_reuse_steady_frames() {
+    let panel = four_column_catalogue();
+    panel.validate().unwrap();
+    let surface = panel.surface.as_ref().unwrap();
+    let catalog = Arc::new(super::surface::catalog(surface).unwrap());
+    let context = Context::default();
+    let mut screen = CachedScreen::default();
+    screen.virtualize_clipped_grid("modules", ui::mod_panel::SurfaceCollection::INITIAL_WINDOW);
+    let env = LayoutEnv {
+        text: &Metrics,
+        textures: &Metrics,
+    };
+    let mut view = ViewState::default();
+    let mut data = Arc::new(super::data::control_data(&panel));
+    let mut seen = BTreeSet::new();
+    for row in 0..17 {
+        let render = screen
+            .render_shared_with(
+                &surface.screen,
+                &catalog,
+                &context,
+                Arc::clone(&data),
+                ([452., 289.], 1., [0; 3]),
+                &env,
+                &view,
+            )
+            .unwrap();
+        let grid = render
+            .bound
+            .find(&|c| c.control_type.as_deref() == Some("grid"))
+            .unwrap();
+        assert!(
+            grid.children
+                .iter()
+                .filter(|c| !c.children.is_empty()
+                    && c.properties.get("grid_template_node") != Some(&json!(true)))
+                .count()
+                <= ui::mod_panel::SurfaceCollection::INITIAL_WINDOW
+        );
+        let labels: BTreeSet<_> = render
+            .nodes
+            .iter()
+            .filter_map(|node| match &node.draw {
+                Draw::Text { text, .. } => text.strip_prefix("Module ")?.parse::<usize>().ok(),
+                _ => None,
+            })
+            .collect();
+        seen.extend(labels.iter().copied());
+        let artwork: BTreeSet<_> = render
+            .nodes
+            .iter()
+            .filter_map(|node| match &node.draw {
+                Draw::Custom { renderer, data } if renderer == json_ui::vector_path::RENDERER => {
+                    assert!(json_ui::vector_path::parse(data).is_some());
+                    assert_eq!(data["view_box"], json!([0., 0., 105., 60.]));
+                    assert_eq!(data["stroke_width"], json!(2.));
+                    assert_eq!(data["closed"], false);
+                    Some(data["paths"][0][0][0].as_f64().unwrap() as usize)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            artwork,
+            labels.iter().copied().filter(|i| i % 2 == 0).collect()
+        );
+        let mut hits = render.hits.to_vec();
+        super::surface::resolve_collection_hits(surface, &mut hits);
+        for index in labels {
+            assert!(
+                hits.iter()
+                    .any(|hit| hit.pressed.as_deref() == Some(&format!("mod.control:{index}")))
+            );
+        }
+        let scroll = render.report.scrolls.keys().next().unwrap().clone();
+        let nodes = Arc::clone(&render.nodes);
+        let passes = screen.passes;
+        let (_, allocations) = test_alloc::measure(|| {
+            let render = screen
+                .render_shared_with(
+                    &surface.screen,
+                    &catalog,
+                    &context,
+                    Arc::clone(&data),
+                    ([452., 289.], 1., [0; 3]),
+                    &env,
+                    &view,
+                )
+                .unwrap();
+            assert!(Arc::ptr_eq(&nodes, &render.nodes));
+        });
+        assert_eq!(screen.passes, passes);
+        assert_eq!(allocations.calls, 0);
+        view.scroll.insert(scroll, (row + 1) as f64 * 97.);
+    }
+    assert_eq!(seen, (0..66).collect());
+    let filtered = PanelPatch::parse(r#"{"collection_order":{"modules":[64,4,9]}}"#)
+        .unwrap()
+        .apply(&panel, &Default::default())
+        .unwrap();
+    data = Arc::new(super::data::control_data(&filtered));
+    view.scroll.clear();
+    let render = screen
+        .render_shared_with(
+            &surface.screen,
+            &catalog,
+            &context,
+            data,
+            ([452., 289.], 1., [0; 3]),
+            &env,
+            &view,
+        )
+        .unwrap();
+    let artwork: Vec<_> = render
+        .nodes
+        .iter()
+        .filter_map(|node| match &node.draw {
+            Draw::Custom { renderer, data } if renderer == json_ui::vector_path::RENDERER => {
+                Some(data["paths"][0][0][0].as_f64().unwrap() as usize)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(artwork, [64, 4]);
+}
+
 /// Scrolling reaches every tile while keeping only the viewport's descendants alive.
 #[test]
 fn collection_scrolls_all_items_with_bounded_nodes_and_correct_actions() {

@@ -318,6 +318,7 @@ impl NativeFrames {
         let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if self.available()
             && !self.invalidate.load(Ordering::Acquire)
+            && !self.suspend.load(Ordering::Acquire)
             && input.epoch == state.epoch
             && input.frame.as_ref().map(|frame| frame.attack_held) == state.attack_held
         {
@@ -621,6 +622,59 @@ mod tests {
         mailbox.deactivate();
         mailbox.activate(true);
         assert_eq!(mailbox.exchange(Some(frame())), None);
+    }
+    #[test]
+    fn contended_suspension_retires_cached_and_inflight_rotations() {
+        for cached in [false, true] {
+            let mailbox = NativeFrames::new(Arc::new(AtomicBool::new(true)));
+            mailbox.activate(true);
+            mailbox.exchange(Some(frame()));
+            let mut old = Some(mailbox.take_input().unwrap());
+            let effects = Effects {
+                rotation: Some(mod_api::native_frame::Delta {
+                    yaw: 0.1,
+                    pitch: 0.0,
+                }),
+                hurt_intensity: Some(0.0),
+                ..Default::default()
+            };
+            if cached {
+                mailbox.complete(old.take().unwrap(), Some(effects.clone()));
+            }
+            {
+                let _worker = mailbox.state.lock().unwrap();
+                let mut suspended = frame();
+                suspended.suspended = true;
+                suspended.attack_held = false;
+                suspended.players.clear();
+                let result = mailbox.exchange(Some(suspended)).unwrap().0;
+                assert!(result.is_none_or(|effect| effect.rotation.is_none()));
+                let result = mailbox.exchange(Some(frame())).unwrap().0;
+                assert!(
+                    result.is_none_or(|effect| effect.rotation.is_none()),
+                    "cached pre-suspension rotation escaped"
+                );
+            }
+            if let Some(old) = old {
+                mailbox.complete(old, Some(effects.clone()));
+            }
+            let result = mailbox.exchange(Some(frame())).unwrap().0;
+            assert!(
+                result.is_none_or(|effect| effect.rotation.is_none()),
+                "in-flight pre-suspension rotation escaped"
+            );
+            let fresh = mailbox.take_input().unwrap();
+            mailbox.complete(fresh, Some(effects));
+            assert!(
+                mailbox
+                    .exchange(Some(frame()))
+                    .unwrap()
+                    .0
+                    .unwrap()
+                    .rotation
+                    .is_some()
+            );
+        }
     }
     #[test]
     fn retained_input_survives_relative_step_consumption_and_expires() {

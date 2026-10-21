@@ -30,6 +30,16 @@ impl HudEditor {
             Scalar::Text(if self.snap { "Grid: ON" } else { "Grid: OFF" }.into()),
         );
         write_bounds(&mut data, &self.draft, self.viewport, self.selected);
+        if let Some(drag) = &self.drag {
+            let color = self.draft.editor_style.unwrap_or_default().guide;
+            for index in drag.targets.into_iter().flatten() {
+                data.set_global(
+                    format!("#bounds_{index}_color"),
+                    Scalar::Json(serde_json::json!(color)),
+                );
+            }
+        }
+        feedback::measurements(&mut data, &self.draft, self.viewport, self.selected);
         data
     }
     /// Names the hovered widget or current selection without placing labels over nearby cards.
@@ -135,7 +145,7 @@ mod tests {
         assert_eq!(editor.editor_label(), "Select a widget");
         editor.selected = Some(0);
         assert_eq!(editor.editor_label(), "Frame rate");
-        let catalog = template::catalog(editor, [400., 250.]).unwrap();
+        let catalog = template::catalog(&editor.draft, [400., 250.]).unwrap();
         let root = json_ui::resolve(&catalog, SCREEN, &Context::default())
             .control
             .unwrap();

@@ -239,6 +239,30 @@ fn malformed_script_shapes_drop_the_whole_script_for_entities_and_controllers_al
     assert!(script.is_some() && dropped == 0);
 }
 
+#[test]
+fn block_math_calls_preserve_values_and_stop_at_unknown_arguments() {
+    for (source, expected) in [
+        ("math.abs(q.block_state('test:value'))", Some(2.0)),
+        ("math.max(q.block_state('test:value'), 3)", Some(3.0)),
+        (
+            "math.clamp(math.abs(q.block_state('test:value')), 0, 1)",
+            Some(1.0),
+        ),
+        (
+            "math.max(q.block_state('test:missing'), q.block_state('test:value'))",
+            None,
+        ),
+    ] {
+        let calls = std::cell::Cell::new(0);
+        let value = BlockMolang::parse(source).unwrap().evaluate(&|name| {
+            calls.set(calls.get() + 1);
+            (name == "test:value").then_some(BlockStateValue::Number(-2.0))
+        });
+        assert_eq!(value, expected, "{source}");
+        assert_eq!(calls.get(), 1, "{source}");
+    }
+}
+
 // Block contexts compare strings and read integer/boolean states as numbers.
 #[test]
 fn block_expressions_read_block_states() {

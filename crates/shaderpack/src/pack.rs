@@ -1,6 +1,6 @@
 //! A loaded shader pack, its configuration metadata and whole-pack translation.
 
-use crate::buffers::{BufferDirectives, BufferFormat};
+use crate::buffers::{BufferDirectives, BufferFormat, canonical_sampler_name};
 use crate::dimensions::DimensionSelector;
 use crate::environment::Environment;
 use crate::ids::{BLOCK_FILE, ENTITY_FILE, ITEM_FILE, IdMaps};
@@ -8,7 +8,9 @@ use crate::options::{OptionValues, PackOption, discover_options, property_define
 use crate::programs::{ProgramGroup, ProgramSource, enumerate_programs};
 use crate::properties::ShaderProperties;
 use crate::reflect::output_buffer;
+use crate::reflection::SamplerClass;
 use crate::source::{PackError, PackSource};
+use crate::transform::SamplerClasses;
 use crate::translate::{Context, ProgramTranslation, forcing, translate_program};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::{BTreeMap, HashMap};
@@ -232,12 +234,38 @@ impl ShaderPack {
                 (i.name.clone(), q)
             })
             .collect();
+        // Custom images clamp and filter linearly; custom textures follow their `.mcmeta`
+        // for samplers of their shape, a stage's own binding winning over `texture.noise`.
+        let mut sampler_classes: SamplerClasses = properties
+            .images
+            .iter()
+            .map(|i| {
+                (
+                    (canonical_sampler_name(&i.sampler), None),
+                    SamplerClass::ClampLinear,
+                )
+            })
+            .collect();
+        for noise in [true, false] {
+            for t in &properties.custom_textures {
+                if t.applies_to(program.group) && (t.stage == "noise") == noise {
+                    sampler_classes.insert(
+                        (
+                            canonical_sampler_name(t.uniform()),
+                            Some(t.source.dimension()),
+                        ),
+                        t.sampler_class(&self.source),
+                    );
+                }
+            }
+        }
         let cx = Context {
             source: &self.source,
             options: &self.options,
             values: &values,
             defines: &pp_defines,
             image_formats: &image_formats,
+            sampler_classes: &sampler_classes,
         };
         translate_program(&cx, program, enabled, forced)
     }

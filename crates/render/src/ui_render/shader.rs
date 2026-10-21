@@ -13,6 +13,7 @@ pub(super) struct UiViewportUniform {
 pub(crate) fn source(raw: &str) -> String {
     // Keep the GPU style bits owned by the renderer, with no UI-crate dependency or WGSL copy.
     let raw = raw.replace("UI_REPEAT_DECODER", render_api::ui_repeat::WGSL_DECODER);
+    let raw = raw.replace("UI_SHADOW_DECODER", render_api::ui_shadow::WGSL);
     raw.replace(
         "GLINT_TINT_RGB",
         &crate::material_shader::glint_tint_source(),
@@ -20,6 +21,10 @@ pub(crate) fn source(raw: &str) -> String {
     .replace(
         "UI_STYLE_ALPHA_TEST",
         &format!("{}u", render_model::UI_STYLE_ALPHA_TEST),
+    )
+    .replace(
+        "UI_STYLE_SHADOW",
+        &format!("{}u", render_api::ui_shadow::UI_STYLE_SHADOW),
     )
     .replace(
         "UI_STYLE_COVERAGE_PAINT",

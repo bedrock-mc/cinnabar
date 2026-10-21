@@ -2,9 +2,22 @@ use super::{InventoryPendingState, PlayerInventoryLedger};
 
 #[derive(Debug, Clone, Copy)]
 pub(super) enum PersonalWindow {
-    Opening { generation: u64, admitted: bool },
-    Open { generation: u64 },
-    Closing { generation: u64 },
+    Opening {
+        generation: u64,
+        admitted: bool,
+    },
+    /// The initial open was admitted; a recovery open has not left transport yet.
+    Recovering {
+        generation: u64,
+    },
+    Open {
+        generation: u64,
+    },
+    Closing {
+        generation: u64,
+        /// The initial open has not received a server window yet.
+        awaiting_open: bool,
+    },
 }
 
 impl PersonalWindow {
@@ -12,6 +25,7 @@ impl PersonalWindow {
     pub(super) const fn generation(&self) -> u64 {
         match self {
             Self::Opening { generation, .. }
+            | Self::Recovering { generation }
             | Self::Open { generation, .. }
             | Self::Closing { generation, .. } => *generation,
         }
@@ -41,10 +55,23 @@ impl PlayerInventoryLedger {
                     generation,
                     admitted: true,
                 }
-                | PersonalWindow::Open { generation, .. },
+                | PersonalWindow::Open { generation, .. }
+                | PersonalWindow::Recovering { generation },
             ) => Some(generation),
             _ => None,
         }
+    }
+
+    /// Keeps a closing screen's authority until its queued item returns have settled.
+    pub(super) fn personal_close_pending(&self) -> bool {
+        matches!(self.personal, Some(PersonalWindow::Closing { generation, .. })
+            if self.personal_generation_pending(generation))
+    }
+
+    /// Whether retained item requests still belong to this personal window generation.
+    pub(super) fn personal_generation_pending(&self, generation: u64) -> bool {
+        self.pending_requests()
+            .any(|request| request.personal_generation == Some(generation))
     }
 
     /// Queues inventory input for the runtime actor selected when the user pressed it.
@@ -54,6 +81,17 @@ impl PlayerInventoryLedger {
         }
         self.controls.personal_target = target_runtime_id;
         self.controls.personal.desired_open = true;
+        if let Some(PersonalWindow::Closing {
+            generation,
+            awaiting_open: true,
+        }) = self.personal
+            && self.controls.personal.sent.is_some()
+        {
+            self.personal = Some(PersonalWindow::Opening {
+                generation,
+                admitted: true,
+            });
+        }
         self.reconcile_personal();
         true
     }
@@ -79,14 +117,16 @@ impl PlayerInventoryLedger {
                         && pending.state == InventoryPendingState::AwaitingTransport
                 });
             }
-            if matches!(
-                personal,
-                PersonalWindow::Opening {
-                    admitted: false,
-                    ..
-                }
-            ) {
-                self.personal = None;
+            let retained = match personal {
+                PersonalWindow::Opening { admitted, .. } => Some(admitted || returning),
+                PersonalWindow::Recovering { .. } => Some(true),
+                _ => None,
+            };
+            if let Some(retained) = retained {
+                self.personal = retained.then_some(PersonalWindow::Closing {
+                    generation,
+                    awaiting_open: true,
+                });
             }
         }
         self.reconcile_personal();
@@ -94,7 +134,10 @@ impl PlayerInventoryLedger {
 
     /// Drops an opening screen's gestures without changing its retained intent or wire request.
     pub(super) fn discard_pending_personal_open(&mut self) {
-        let Some(PersonalWindow::Opening { generation, .. }) = self.personal else {
+        let Some(
+            PersonalWindow::Opening { generation, .. } | PersonalWindow::Recovering { generation },
+        ) = self.personal
+        else {
             return;
         };
         self.personal = None;
