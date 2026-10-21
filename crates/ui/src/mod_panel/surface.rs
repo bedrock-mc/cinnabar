@@ -224,7 +224,7 @@ impl Surface {
         Ok(actions)
     }
 
-    /// Compares immutable route artwork and data while excluding filtered item order.
+    /// Compares immutable route artwork and data, excluding filtered order and reveal requests.
     pub fn same_definition(&self, other: &Self) -> bool {
         self.screen == other.screen
             && self.document == other.document
