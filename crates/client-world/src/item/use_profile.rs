@@ -187,6 +187,24 @@ impl ItemStateStore {
 
 /// Converts parsed wire evidence once before applying the common authored overlay.
 fn overlay_components(profile: &mut ItemUseProfile, components: &protocol::ItemComponents) {
+    // A drawing shooter starts a held use that its release ends, as a bow does.
+    if matches!(profile, ItemUseProfile::Unresolved)
+        && components
+            .shooter
+            .is_some_and(protocol::ItemShooter::starts_held_draw)
+    {
+        *profile = ItemUseProfile::Provisional {
+            animation: assets::item_use::ItemUseAnimation::None,
+            kind: ItemUseKind::Hold,
+            duration: ItemUseDurationRule::Declared,
+            requirement: ItemUseRequirement::Nothing,
+            consumption: ItemConsumption::None,
+            movement_bits: DEFAULT_USE_MOVEMENT_MODIFIER.to_bits(),
+            cooldown: None,
+            projectile: ItemProjectileRole::None,
+            duration_alias: None,
+        };
+    }
     let overlay = assets::equipment::CompiledItemUseOverlay {
         identifier: Box::from(""),
         duration_ticks: components.use_duration_ticks,
@@ -477,6 +495,37 @@ mod tests {
         assert_eq!(profile.movement, 1.0);
         assert_eq!(profile.requirement, ItemUseRequirement::Nothing);
         assert_eq!(profile.consumption, ItemConsumption::Unresolved);
+        assert_eq!(store.item_use_profile(15001).kind, None);
+    }
+
+    #[test]
+    fn drawing_shooter_with_a_duration_is_a_held_use() {
+        let shooter = |shooter: protocol::ItemShooter| protocol::ItemComponents {
+            use_duration_ticks: Some(2_000_000_000),
+            use_modifiers_present: true,
+            use_movement_modifier_bits: Some(0.65_f64.to_bits()),
+            shooter: Some(shooter),
+            ..Default::default()
+        };
+        let mut store = ItemStateStore::diagnostic();
+        assert!(store.apply_registry(protocol::ItemRegistryEvent {
+            entries: Arc::from([
+                entry(
+                    15000,
+                    "fixture:blaster",
+                    shooter(protocol::ItemShooter {
+                        draws: true,
+                        ..Default::default()
+                    }),
+                ),
+                entry(15001, "fixture:instant", shooter(Default::default())),
+            ]),
+        }));
+        let profile = store.item_use_profile(15000);
+        assert_eq!(profile.kind, Some(ItemUseKind::Hold));
+        assert_eq!(profile.ticks, Some(2_000_000_000));
+        assert_eq!(profile.requirement, ItemUseRequirement::Nothing);
+        assert_eq!(profile.movement, 0.65);
         assert_eq!(store.item_use_profile(15001).kind, None);
     }
 

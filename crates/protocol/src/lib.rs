@@ -175,6 +175,7 @@ pub use inventory::{
     InventoryLayout, InventoryOptions, InventoryRightTab, InventoryTab, MineBlockRequest,
     MineBlockRequestError, RecipeRegistryError, RecipeRegistrySnapshot, inventory_options_packet,
 };
+pub use item::ItemShooter;
 pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, EquipmentEvent,
     FoodProperties, HOTBAR_SLOT_COUNT, ItemActorEvent, ItemAttackCooldown, ItemAttackTiming,
