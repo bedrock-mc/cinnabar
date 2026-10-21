@@ -33,6 +33,7 @@ fn container_runner(dir: &Path, image: &str, docker_down: bool) -> (BdsRunner, s
     write_script(&docker, FAKE_DOCKER);
     let log = dir.join("docker.log");
     let mut runner = BdsRunner::new(Arc::new(provisioner), image.to_owned());
+    runner.lan_host_port = super::super::ports::free_loopback_port().expect("test discovery port");
     runner.docker = docker.to_string_lossy().into_owned();
     runner
         .env
