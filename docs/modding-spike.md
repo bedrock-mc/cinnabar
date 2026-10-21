@@ -1136,6 +1136,15 @@ through terrain without changing world or packet state. Results share the
 `mod_api::MAX_BLOCK_HIGHLIGHTS` nearest-block budget; the earliest active mod wins.
 `none`, unload, reload, or a trap clears the overlay. Output commits only after a
 successful callback; repeated unchanged input rebuilds no geometry.
+Packet `render-frame` scenes also accept an optional `outline` on each block:
+`{"position":[1,64,2],"colour":[0,1,1,0.3],"outline":{"colour":[0,1,1,0.85],"width":1.5}}`.
+The width is in physical pixels, greater than zero and at most 8. Both colours use
+independent linear RGBA; a zero fill alpha gives an outline-only block. These
+edges share the block-highlight budget and do not consume retained box slots.
+Guests must negotiate `native_render::BLOCK_OUTLINES` before sending `outline`;
+older hosts accept only the existing position and colour fields. The optional
+bit requires the same `block_highlights` consent, not another permission.
+
 ## Fullbright
 
 The separate `fullbright` grant (`CINNABAR_MOD_FULLBRIGHT=1`) permits

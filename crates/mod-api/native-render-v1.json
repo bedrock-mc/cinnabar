@@ -94,6 +94,7 @@
   },
   "entity_capability": 16,
   "block_capability": 32,
+  "block_outline_capability": 128,
   "max_groups": 8,
   "max_group_entities": 32,
   "max_blocks": 1024,
