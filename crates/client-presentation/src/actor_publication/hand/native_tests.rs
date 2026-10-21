@@ -55,7 +55,9 @@ pub(super) fn fixture_with_appearance(
 }
 
 /// Separates the authored first-person hand pose from its full-body preview pose.
-pub(super) fn fixture_with_hidden_body() -> (
+pub(super) fn fixture_with_hidden_body(
+    main: Option<&str>,
+) -> (
     (
         WorldStream,
         EquipmentRuntime,
@@ -64,7 +66,7 @@ pub(super) fn fixture_with_hidden_body() -> (
     ),
     Arc<assets::RuntimeEntityAssets>,
 ) {
-    fixture_with_binding(Some("minecraft:shield"), false, false, true, false, true)
+    fixture_with_binding(main, false, false, true, false, true)
 }
 
 /// Adds clamped head rotation channels to the shared original player fixture.
@@ -151,6 +153,14 @@ fn fixture_with_binding(
         value["animations"]["animation.player_test.swing"]["bones"]["body"] =
             serde_json::json!({"scale":"variable.is_first_person ? 0 : 1"});
         *animation = serde_json::to_vec(&value).unwrap();
+        let (_, controller) = files
+            .iter_mut()
+            .find(|(path, _)| &**path == "render_controllers/test.json")
+            .unwrap();
+        let mut value: serde_json::Value = serde_json::from_slice(controller).unwrap();
+        value["render_controllers"]["controller.render.test"]["part_visibility"] =
+            serde_json::json!([{"body":"!variable.is_first_person"}]);
+        *controller = serde_json::to_vec(&value).unwrap();
     }
     if clock {
         let shield = files

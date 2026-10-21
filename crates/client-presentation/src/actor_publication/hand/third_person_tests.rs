@@ -13,22 +13,25 @@ enum BodyCase {
     InvalidEmote,
     Persona,
     Coverage,
+    CoverageEmpty,
 }
 
 /// Runs the actual early and final publication owners with independent interpolation clocks.
 fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
     for duration in [6.0f32, 4.0, 8.0] {
         for (actor_alpha, physics_alpha) in [(0.1, 0.75), (0.9, 0.25)] {
-            let ((mut stream, equipment, artwork, input), entities) = if case == BodyCase::Coverage
-            {
-                super::native_tests::fixture_with_hidden_body()
-            } else {
-                super::native_tests::fixture_with_appearance(
-                    Some("minecraft:shield"),
-                    false,
-                    case == BodyCase::Persona,
-                )
-            };
+            let ((mut stream, equipment, artwork, input), entities) =
+                if matches!(case, BodyCase::Coverage | BodyCase::CoverageEmpty) {
+                    super::native_tests::fixture_with_hidden_body(
+                        (case == BodyCase::Coverage).then_some("minecraft:shield"),
+                    )
+                } else {
+                    super::native_tests::fixture_with_appearance(
+                        Some("minecraft:shield"),
+                        false,
+                        case == BodyCase::Persona,
+                    )
+                };
             if case == BodyCase::JavaFallback {
                 stream
                     .submit(
@@ -81,7 +84,7 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 1,
             );
             world.insert_resource(avatar);
-            if case == BodyCase::Coverage {
+            if matches!(case, BodyCase::Coverage | BodyCase::CoverageEmpty) {
                 world.insert_resource(render_scene::mod_scene::ActorCoverageRequests {
                     connection: stream.authority().actor_session_id(),
                     dimension: stream.current_dimension(),
@@ -91,11 +94,12 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
             world.init_resource::<crate::local_player::LocalAvatarVisibilityCarrier>();
             let mut settings = crate::camera::CameraSettingsAuthority::default();
             let mut user = ui::UserSettings::default();
-            user.gameplay.default_perspective = if case == BodyCase::Coverage {
-                semantic_input::PerspectiveMode::FirstPerson
-            } else {
-                semantic_input::PerspectiveMode::ThirdPersonBack
-            };
+            user.gameplay.default_perspective =
+                if matches!(case, BodyCase::Coverage | BodyCase::CoverageEmpty) {
+                    semantic_input::PerspectiveMode::FirstPerson
+                } else {
+                    semantic_input::PerspectiveMode::ThirdPersonBack
+                };
             user.video.java_animations = case == BodyCase::JavaFallback;
             settings.replace(1, &user).unwrap();
             world.insert_resource(settings);
@@ -180,7 +184,7 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 .find(|draw| draw.input.identity.layer == render_model::ACTOR_LAYER_BODY)
                 .unwrap()
                 .clone();
-            if case == BodyCase::Coverage {
+            if matches!(case, BodyCase::Coverage | BodyCase::CoverageEmpty) {
                 let full = crate::presentation::actors::convert_bones(
                     stream.authority().actor_ui_pose(1).unwrap(),
                 )
@@ -400,4 +404,5 @@ fn native_third_person_persona_layer_samples_its_own_physics_pose() {
 #[test]
 fn first_person_coverage_uses_full_body_pose_without_changing_hand_or_actor_state() {
     assert_native_body_sample(false, BodyCase::Coverage);
+    assert_native_body_sample(false, BodyCase::CoverageEmpty);
 }

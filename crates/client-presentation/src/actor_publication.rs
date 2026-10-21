@@ -299,6 +299,7 @@ pub fn prepare_actor_render_frame(
             local_emote_pose: bodies.local_emote_pose.as_ref(),
             remote_emote_poses: &bodies.remote_emote_poses,
             native_body_sampled: bodies.native_body_sampled,
+            local_coverage: state.first_person && coverage_local,
             remote_skin_layers: &bodies.remote_skin_layers,
             native_pose: &state.java_hand.native_pose,
         },

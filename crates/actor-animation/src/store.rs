@@ -338,6 +338,18 @@ impl ActorAnimationStore {
         }
     }
 
+    /// Full-body controller output from the same UI evaluation as [`Self::ui_pose`].
+    pub fn ui_layers(&self, runtime_id: u64) -> Option<ActorRenderLayers<'_>> {
+        let state = self.rigs.get(self.runtime_to_lifetime.get(&runtime_id)?)?;
+        self.ui_pose(runtime_id)?;
+        let ui = state.ui_animation.as_ref()?;
+        Some(ActorRenderLayers {
+            render: std::borrow::Cow::Borrowed(&ui.render),
+            skin: std::borrow::Cow::Borrowed(&ui.skin_layers),
+            held_item_scale: ui.held_item_scale,
+        })
+    }
+
     pub fn snapshots(&self) -> impl Iterator<Item = ActorRigSnapshot<'_>> {
         self.rigs
             .iter()
