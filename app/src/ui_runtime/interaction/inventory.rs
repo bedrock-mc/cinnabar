@@ -31,16 +31,23 @@ use {
 
 use launcher::menu::settings_options::BindingId;
 
+/// Whether the vanilla inventory owns Back, independently of an overlaid mod view.
+pub(super) fn accepts_mouse_back(
+    runtime: &UiRuntime,
+    presentation: Option<&UiPresentationRuntime>,
+) -> bool {
+    runtime.inventory_open()
+        && !presentation
+            .is_some_and(|view| view.mod_ui().mod_view_shown() || view.mod_ui().mod_text_focused())
+}
+
 /// Consumes Back on a vanilla inventory, saving book edits before closing it.
 pub(super) fn cancel_from_mouse_back(
     player: &mut player_state::PlayerState,
     runtime: &mut UiRuntime,
     presentation: Option<&UiPresentationRuntime>,
 ) -> bool {
-    if !runtime.inventory_open()
-        || presentation
-            .is_some_and(|view| view.mod_ui().mod_view_shown() || view.mod_ui().mod_text_focused())
-    {
+    if !accepts_mouse_back(runtime, presentation) {
         return false;
     }
     if runtime.commit_book(false) {

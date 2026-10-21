@@ -278,10 +278,14 @@ pub(crate) fn drive_chat_keyboard_input(
     ),
 ) {
     // Only the window event stream keeps keyboard and pointer events in arrival order.
-    let pointer_presses = window_events
+    let mut pointer_presses = window_events
         .as_deref()
         .map(|events| ordered_pointer_presses(window_cursor.read(events)))
         .unwrap_or_default();
+    // Earlier screen owners consume Back in button state before this stream is routed.
+    pointer_presses.retain(|(_, button)| {
+        *button != MouseButton::Back || mouse_buttons.just_pressed(MouseButton::Back)
+    });
     let (window, mut cursor) = window.into_inner();
     let authority = world
         .as_deref()
@@ -776,6 +780,7 @@ pub(crate) fn drive_chat_keyboard_input(
     if routes_presses {
         // The frame's last key changed the screen for every press after it.
         router.observe(runtime.inventory_open());
+        let mut deferred_inventory = Vec::new();
         while let Some(button) = router.next_rest() {
             if command_macros::dispatch_mouse(
                 menu.as_deref(),
@@ -787,6 +792,27 @@ pub(crate) fn drive_chat_keyboard_input(
             ) {
                 mouse_buttons.clear_just_pressed(button);
                 continue;
+            }
+            if button == MouseButton::Back
+                && inventory::accepts_mouse_back(
+                    &runtime,
+                    presentation.as_deref().map(|view| &view.0),
+                )
+            {
+                for earlier in deferred_inventory.drain(..) {
+                    inventory::apply_screen_presses(
+                        &[earlier],
+                        &mut player_runtime,
+                        &mut runtime,
+                        window,
+                        presentation.as_deref().map(|view| &view.0),
+                        menu.as_deref(),
+                        focus.as_deref_mut(),
+                        &time,
+                    );
+                    kept.retain(|candidate| *candidate != earlier);
+                    consumed.push(earlier);
+                }
             }
             let (route, toggled_inventory) = route_press(
                 button,
@@ -809,8 +835,9 @@ pub(crate) fn drive_chat_keyboard_input(
                         dismissed |= !runtime.inventory_open();
                     }
                 }
-                // Apply screen presses in arrival order before a later press can close it.
-                PressRoute::Screen { .. } => {
+                // Newly opened screens act now; existing screens combine releases and presses
+                // in the inventory adapter unless a later Back first flushes their presses.
+                PressRoute::Screen { opening } if opening > 0 => {
                     consumed.push(button);
                     inventory::apply_screen_presses(
                         &[button],
@@ -822,6 +849,10 @@ pub(crate) fn drive_chat_keyboard_input(
                         focus.as_deref_mut(),
                         &time,
                     );
+                }
+                PressRoute::Screen { .. } => {
+                    deferred_inventory.push(button);
+                    kept.push(button);
                 }
                 PressRoute::Gameplay => kept.push(button),
             }
