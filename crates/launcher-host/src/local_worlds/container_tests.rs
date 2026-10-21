@@ -56,7 +56,10 @@ fn the_container_runner_starts_stops_and_removes_its_container() {
     let (runner, log) = container_runner(dir.path(), IMAGE, false);
     assert_eq!(runner.provisioner.status().0.state, SetupState::Ready);
     let world_dir = dir.path().join("world");
-    let spec = spec(&world_dir);
+    let mut spec = spec(&world_dir);
+    spec.world
+        .options
+        .set(launcher::local_worlds::options::WorldOption::LanVisible, 0);
     let instance = runner.start(&spec, &Cancel::never()).expect("start");
     assert!(!instance.can_pause(), "container BDS cannot pause");
     instance.stop(test_time::DEFAULT_TIMEOUT).expect("stop");

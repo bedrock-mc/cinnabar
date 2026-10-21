@@ -265,7 +265,7 @@ fn legacy_worlds_get_their_backend_defaults() {
     }
 }
 
-/// `world.json` keeps the field names and order earlier releases wrote.
+/// `world.json` keeps its existing fields and adds saved option preferences.
 #[test]
 fn saved_metadata_keeps_its_format() {
     let dir = scratch();
@@ -282,7 +282,7 @@ fn saved_metadata_keeps_its_format() {
     let raw =
         fs::read_to_string(store.dir(&world.id).expect("dir").join(META_FILE)).expect("metadata");
     let expected = format!(
-        "{{\n  \"id\": \"{}\",\n  \"name\": \"Kept\",\n  \"game_mode\": \"survival\",\n  \"generator\": \"normal\",\n  \"difficulty\": \"normal\",\n  \"backend\": \"bds\",\n  \"seed\": -5,\n  \"created_unix\": 42,\n  \"last_played_unix\": 42\n}}",
+        "{{\n  \"id\": \"{}\",\n  \"name\": \"Kept\",\n  \"game_mode\": \"survival\",\n  \"generator\": \"normal\",\n  \"difficulty\": \"normal\",\n  \"backend\": \"bds\",\n  \"seed\": -5,\n  \"options\": {{}},\n  \"pending_options\": {{}},\n  \"created_unix\": 42,\n  \"last_played_unix\": 42\n}}",
         world.id
     );
     assert_eq!(raw, expected);
