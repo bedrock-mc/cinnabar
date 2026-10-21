@@ -13,17 +13,15 @@ use crate::{AdmissionError, Subpack};
 pub(crate) struct Version(pub(crate) [u32; 3]);
 
 impl Version {
-    /// Parses a dotted triple; leading zeros are tolerated and a semver
-    /// pre-release or build suffix on the patch is ignored.
+    /// Parses up to three dotted parts, missing ones being zero as in vanilla's
+    /// partial versions; leading zeros and a pre-release or build suffix are ignored.
     pub(crate) fn parse(text: &str) -> Option<Self> {
-        let mut parts = text.trim().splitn(3, '.');
         let mut parsed = [0; 3];
-        for part in &mut parsed {
-            let text = parts.next()?;
+        for (slot, text) in parsed.iter_mut().zip(text.trim().splitn(3, '.')) {
             let digits = text
                 .find(|c: char| !c.is_ascii_digit())
                 .map_or(text, |end| &text[..end]);
-            *part = digits.parse().ok()?;
+            *slot = digits.parse().ok()?;
         }
         Some(Self(parsed))
     }
@@ -55,12 +53,16 @@ pub(crate) fn read_manifest(
     version: &str,
 ) -> Result<Manifest, AdmissionError> {
     let root: Value = parse_jsonc(bytes).map_err(|_| AdmissionError::MalformedManifest)?;
+    // Vanilla reads the format as a version written as a number, string or triple.
     let format = match &root["format_version"] {
-        Value::Number(number) => number.as_f64(),
-        Value::String(text) => text.trim().parse::<u64>().ok().map(|number| number as f64),
-        _ => None,
+        Value::Number(number) => number
+            .as_f64()
+            .filter(|format| format.fract() == 0.0)
+            .map(|format| format as u32),
+        format => Version::from_value(format)
+            .and_then(|Version([major, minor, patch])| (minor == 0 && patch == 0).then_some(major)),
     };
-    if !format.is_some_and(|format| (1.0..=3.0).contains(&format) && format.fract() == 0.0) {
+    if !format.is_some_and(|major| (1..=3).contains(&major)) {
         return Err(AdmissionError::UnsupportedManifestFormat);
     }
     let header = &root["header"];
@@ -115,18 +117,37 @@ mod tests {
     #[test]
     fn accepts_formats_one_to_three_and_ignores_unknown_fields() {
         let resources = r#"{"type": "resources"}, {"type": "script", "language": "js"}"#;
-        for (format, version) in [("1", "[1, 2, 3]"), ("2", "[1, 2, 3]"), ("3", "\"1.2.3\"")] {
+        for (format, version) in [
+            ("1", "[1, 2, 3]"),
+            ("2", "[1, 2, 3]"),
+            ("3", "\"1.2.3\""),
+            ("\"2\"", "[1, 2, 3]"),
+            ("\"2.0\"", "[1, 2, 3]"),
+            ("\"2.0.0\"", "[1, 2, 3]"),
+            ("[2, 0, 0]", "[1, 2, 3]"),
+        ] {
             let text = manifest(format, version, resources);
             assert!(
                 read_manifest(text.as_bytes(), ID, "1.2.3").is_ok(),
                 "format {format}"
             );
         }
-        let text = manifest("4", "[1, 2, 3]", resources);
-        assert_eq!(
-            read_manifest(text.as_bytes(), ID, "1.2.3").err(),
-            Some(AdmissionError::UnsupportedManifestFormat)
-        );
+        for format in [
+            "4",
+            "\"4.0\"",
+            "\"2.5\"",
+            "[4, 0, 0]",
+            "[2, 0]",
+            "\"x\"",
+            "{}",
+        ] {
+            let text = manifest(format, "[1, 2, 3]", resources);
+            assert_eq!(
+                read_manifest(text.as_bytes(), ID, "1.2.3").err(),
+                Some(AdmissionError::UnsupportedManifestFormat),
+                "format {format}"
+            );
+        }
     }
 
     #[test]
@@ -167,6 +188,14 @@ mod tests {
     fn version_parse_tolerates_leading_zeros_and_semver_suffix() {
         assert_eq!(Version::parse("01.0.11"), Some(Version([1, 0, 11])));
         assert_eq!(Version::parse("1.0.0-beta"), Some(Version([1, 0, 0])));
-        assert_eq!(Version::parse("1.0"), None);
+        assert_eq!(Version::parse("1.0"), Some(Version([1, 0, 0])));
+        assert_eq!(Version::parse("2"), Some(Version([2, 0, 0])));
+        assert_eq!(Version::parse("x.0.0"), None);
+    }
+
+    #[test]
+    fn partial_selected_version_matches_the_manifest_triple() {
+        let text = manifest("2", "[1, 0, 0]", r#"{"type": "resources"}"#);
+        assert!(read_manifest(text.as_bytes(), ID, "1.0").is_ok());
     }
 }
