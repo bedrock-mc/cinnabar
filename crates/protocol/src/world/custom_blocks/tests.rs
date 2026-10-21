@@ -958,3 +958,46 @@ fn custom_components_declare_a_player_interact_handler() {
         compound(vec![("hasPlayerPlacing", Nbt::Byte(1))]),
     )])));
 }
+
+// Packs alias faces to shared instances; dropping the alias would draw the `*` texture there.
+#[test]
+fn material_mappings_alias_faces_to_named_instances() {
+    let material = |texture: &str| compound(vec![("texture", text(texture))]);
+    let alias = |target: &str| compound(vec![("value", text(target))]);
+    let root = compound(vec![(
+        "components",
+        compound(vec![(
+            "minecraft:material_instances",
+            compound(vec![
+                (
+                    "materials",
+                    compound(vec![
+                        ("*", material("test_side")),
+                        ("top", material("test_top")),
+                        ("up", material("test_replaced")),
+                    ]),
+                ),
+                (
+                    "mappings",
+                    compound(vec![
+                        ("up", alias("top")),
+                        ("down", alias("top")),
+                        ("north", alias("test:missing")),
+                    ]),
+                ),
+            ]),
+        )]),
+    )]);
+    let block = custom_block("test:aliased", &root);
+    let materials = block.visual.base.materials.as_deref().unwrap();
+    let texture = |name: &str| {
+        materials
+            .iter()
+            .find(|material| material.name.as_ref() == name)
+            .map(|material| material.texture.as_ref())
+    };
+    assert_eq!(texture("up"), Some("test_top"));
+    assert_eq!(texture("down"), Some("test_top"));
+    assert_eq!(texture("north"), None);
+    assert_eq!(materials.len(), 4);
+}

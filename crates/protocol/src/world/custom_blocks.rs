@@ -759,6 +759,38 @@ fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
     )
 }
 
+/// Copies each `mappings` target instance under its alias name, replacing an instance of that
+/// name, as the client builds its material table; an alias to a missing instance is ignored.
+fn alias_materials(instances: &mut Vec<CustomMaterialInstance>, component: Option<&Nbt>) {
+    let Some(Nbt::Compound(mappings)) = component.and_then(|component| component.field("mappings"))
+    else {
+        return;
+    };
+    for (alias, mapping) in mappings.iter().take(MAX_MATERIAL_INSTANCES) {
+        let Some(target) = mapping.field("value").and_then(Nbt::as_str) else {
+            continue;
+        };
+        let Some(instance) = instances
+            .iter()
+            .find(|instance| instance.name.as_ref() == target)
+            .cloned()
+        else {
+            continue;
+        };
+        let aliased = CustomMaterialInstance {
+            name: alias.as_str().into(),
+            ..instance
+        };
+        match instances
+            .iter_mut()
+            .find(|instance| instance.name.as_ref() == alias.as_str())
+        {
+            Some(existing) => *existing = aliased,
+            None => instances.push(aliased),
+        }
+    }
+}
+
 /// Reads geometry and material descriptions shared by placed and inventory visuals.
 fn visual_descriptions(
     components: Option<&Nbt>,
@@ -800,7 +832,7 @@ fn visual_descriptions(
             _ => None,
         })
         .map(|fields| {
-            fields
+            let mut instances: Vec<_> = fields
                 .iter()
                 .take(MAX_MATERIAL_INSTANCES)
                 .filter_map(|(name, material)| {
@@ -839,7 +871,9 @@ fn visual_descriptions(
                             }),
                     })
                 })
-                .collect()
+                .collect();
+            alias_materials(&mut instances, material_component);
+            instances.into_boxed_slice()
         });
     let transformation = transformation_component(components);
     let nibble = |key: &str, field: &str| {
