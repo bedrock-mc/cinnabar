@@ -409,10 +409,11 @@ impl UiRuntime {
         if let InventoryCellHit::CreativeGrid(index) = hit {
             return self.creative_click(player_runtime, index, false, Some(1));
         }
-        if let InventoryCellHit::RecipeBook(index) = hit
-            && player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Creative)
-        {
+        if let InventoryCellHit::RecipeBook(index) = hit {
             return self.recipe_book_click(player_runtime, index, false, Some(1));
+        }
+        if let InventoryCellHit::Widget(widget @ Widget::BookRecipe(_)) = hit {
+            return self.activate_widget(player_runtime, widget);
         }
         let Some(target) = gesture_target(hit) else {
             return Err(InventoryGestureError::InvalidRequest);
@@ -797,7 +798,7 @@ impl UiRuntime {
     }
 
     /// A click on a recipe book entry: a creative item as on the catalog grid,
-    /// else auto-crafting the recipe into the grid.
+    /// else auto-crafting the recipe into the cursor.
     fn recipe_book_click(
         &mut self,
         player_runtime: &mut player_state::PlayerState,

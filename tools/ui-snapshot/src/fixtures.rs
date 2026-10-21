@@ -75,6 +75,7 @@ pub enum Fixture {
     #[cfg(feature = "test-support")]
     CraftOverlap {
         selected: bool,
+        block_identity: i32,
     },
 }
 
@@ -378,14 +379,30 @@ pub const STATES: &[State] = &[
         name: "craft-overlap-ready",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || Fixture::CraftOverlap { selected: false },
+        fixture: || Fixture::CraftOverlap {
+            selected: false,
+            block_identity: 0,
+        },
     },
     #[cfg(feature = "test-support")]
     State {
         name: "craft-overlap-selected",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || Fixture::CraftOverlap { selected: true },
+        fixture: || Fixture::CraftOverlap {
+            selected: true,
+            block_identity: 0,
+        },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "craft-block-identity-selected",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::CraftOverlap {
+            selected: true,
+            block_identity: i32::MIN + 1,
+        },
     },
     State {
         name: "edit-selection-transfer",
