@@ -239,6 +239,13 @@ pub fn prepare_actor_render_frame(
             equipment: params.equipment.as_deref_mut(),
         },
     );
+    let coverage_local = coverage.contains(&bodies.local_runtime_id);
+    if state.first_person
+        && coverage_local
+        && let Some(stream) = stream
+    {
+        bodies::apply_local_coverage_pose(&mut bodies, stream, &mut state.coverage_poses);
+    }
     let visibility = params.presentation.local_visibility.snapshot().copied();
     let (local_visible, local) = bodies::place_local(
         &mut bodies,
@@ -262,7 +269,6 @@ pub fn prepare_actor_render_frame(
         );
     }
     let camera_position = cull_view.map(|view| view.camera_position.to_array());
-    let coverage_local = coverage.contains(&bodies.local_runtime_id);
     // Remote bodies passed frame-model admission before bounded skin registration.
     let mut batch = select_actor_presentations(
         bodies.local_runtime_id,

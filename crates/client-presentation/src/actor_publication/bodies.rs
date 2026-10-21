@@ -399,6 +399,45 @@ pub(super) fn sample<'a>(
     }
 }
 
+/// Reuses the animation owner's full-body preview pose for hidden local coverage.
+/// Call after first-person hand preparation so its camera-only pose remains independent.
+pub(super) fn apply_local_coverage_pose(
+    bodies: &mut SampledBodies<'_>,
+    stream: &WorldStream,
+    cache: &mut PoseConversions,
+) {
+    let id = bodies.local_runtime_id;
+    let Some(body) = bodies.canonical_local.as_mut() else {
+        return;
+    };
+    let Some(mut rig) = stream.authority().actor_rig(id) else {
+        return;
+    };
+    let Some(actor) = stream.authority().actor(id) else {
+        return;
+    };
+    let Some(pose) = stream
+        .authority()
+        .actor_ui_pose(id)
+        .filter(|pose| pose.len() == body.submission.input.current_bones.len())
+    else {
+        return;
+    };
+    rig.previous = pose;
+    rig.current = pose;
+    let Some(full) = crate::presentation::actors::actor_rig_presentation_cached(
+        &rig,
+        actor,
+        stream.authority().actor_player_profile(id),
+        1.,
+        cache,
+    ) else {
+        return;
+    };
+    body.submission.input.previous_bones = full.submission.input.previous_bones;
+    body.submission.input.current_bones = full.submission.input.current_bones;
+}
+
 /// Places the visible local body without changing the canonical pose already used by the hand.
 pub(super) fn place_local(
     bodies: &mut SampledBodies<'_>,
