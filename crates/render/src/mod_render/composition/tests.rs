@@ -344,9 +344,17 @@ fn outlines_and_halos_render_from_actor_coverage_in_ldr_and_hdr_targets() {
     );
     assert_ne!(filled, outlined);
     for ((coverage, original), (outline_pixel, fill_pixel)) in mask
-        .chunks_exact(4)
-        .zip(before.chunks_exact(4))
-        .zip(outlined.chunks_exact(4).zip(filled.chunks_exact(4)))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(before.as_chunks::<4>().0.iter())
+        .zip(
+            outlined
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(filled.as_chunks::<4>().0.iter()),
+        )
     {
         if coverage[0] == 255 {
             assert_ne!(outline_pixel, fill_pixel);
