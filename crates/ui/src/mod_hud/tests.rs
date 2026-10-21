@@ -557,7 +557,11 @@ fn studio_native_placeholder_identity_survives_materialization_and_stays_out_of_
         id: "effects_preview".into(),
         editor_label: "Effects".into(),
         source: Some(super::RowSource {
-            kind: super::NativeRows::Effects { icons: true },
+            kind: super::NativeRows::Effects {
+                icons: true,
+                stacked: false,
+                warnings: false,
+            },
             limit: 4,
             color: [1.; 4],
             brackets: false,
