@@ -1,12 +1,13 @@
 //! The session's read-only items and recipes as the `cinnabar:session` WIT package gives them:
 //! plain data the client builds from what it already decoded, and the host pages to a guest.
 
+use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Arc};
 
 /// Items or recipes one `page` call returns at most.
 pub const MAX_PAGE: usize = 256;
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 pub struct ItemKey {
     pub identifier: String,
     pub aux: u16,
@@ -20,7 +21,7 @@ pub struct Stack {
     pub count: u8,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum Category {
     Construction,
     Nature,
@@ -29,7 +30,7 @@ pub enum Category {
     CommandOnly,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Item {
     pub key: ItemKey,
     pub icon: i64,
@@ -60,6 +61,10 @@ pub enum RecipeCategory {
     Cartography,
     SmithingTransform,
     SmithingTrim,
+    Furnace,
+    BlastFurnace,
+    Smoker,
+    Brewing,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -111,6 +116,36 @@ impl SessionData {
         self.tags
             .get(tag)
             .map_or(&[], |members| &members[..members.len().min(MAX_PAGE * 8)])
+    }
+}
+
+/// The items half of [`SessionData`], as a client part's helper process receives it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionItems {
+    pub revision: u64,
+    pub items: Vec<Item>,
+    pub tags: BTreeMap<String, Vec<String>>,
+}
+
+impl From<&SessionData> for SessionItems {
+    fn from(data: &SessionData) -> Self {
+        Self {
+            revision: data.item_revision,
+            items: data.items.to_vec(),
+            tags: (*data.tags).clone(),
+        }
+    }
+}
+
+impl From<SessionItems> for SessionData {
+    fn from(items: SessionItems) -> Self {
+        Self {
+            item_revision: items.revision,
+            items: items.items.into(),
+            tags: Arc::new(items.tags),
+            ..Self::default()
+        }
     }
 }
 

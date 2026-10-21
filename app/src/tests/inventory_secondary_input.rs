@@ -16,15 +16,15 @@ use bevy::{
 };
 use launcher::menu::settings_options::BindingId;
 use protocol::{
-    CONTAINER_NAME_CURSOR, CONTAINER_NAME_LEVEL_ENTITY, ContainerIdentity, ContainerOpenEvent,
-    InventoryAuthority, InventoryContentEvent, InventoryEvent, NetworkItemStack,
+    CONTAINER_NAME_LEVEL_ENTITY, ContainerIdentity, ContainerOpenEvent, InventoryAuthority,
+    InventoryContentEvent, InventoryEvent, NetworkItemStack,
 };
 use semantic_input::Action;
 use ui::UiPoint;
 
 use {
     crate::{
-        app::configure_client_frame_schedule,
+        game_frame::configure_client_frame_schedule,
         semantic_controls::{
             PendingDeviceFrame, SemanticInputRuntime, SemanticRouteState, SemanticTouchTargets,
             collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
@@ -253,7 +253,7 @@ fn secondary_rejects_busy_empty_occupied_and_outside_targets() {
     unknown
         .inventory_ledger_mut(&mut player_runtime)
         .apply(&cursor_content(None));
-    unknown.toggle_inventory(&mut player_runtime);
+    unknown.toggle_inventory(&mut player_runtime, None);
     assert!(
         unknown
             .inventory_ledger_mut(&mut player_runtime)
@@ -693,7 +693,7 @@ fn personal_runtime(
     runtime
         .inventory_ledger_mut(player_runtime)
         .apply(&cursor_content(cursor));
-    runtime.toggle_inventory(player_runtime);
+    runtime.toggle_inventory(player_runtime, None);
     assert!(runtime.inventory_open());
     assert!(
         runtime
@@ -770,15 +770,15 @@ fn player_content(source: Option<NetworkItemStack>) -> InventoryEvent {
     })
 }
 
+/// Restates the held cursor through the fixed UI inventory slot.
 fn cursor_content(cursor: Option<NetworkItemStack>) -> InventoryEvent {
-    InventoryEvent::Content(InventoryContentEvent {
-        container: ContainerIdentity {
-            window_id: Some(-1),
-            slot_type: Some(CONTAINER_NAME_CURSOR),
-            dynamic_id: None,
+    InventoryEvent::Slot(protocol::InventorySlotEvent {
+        identity: protocol::SlotIdentity {
+            container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+            slot: 0,
         },
-        slots: Arc::from([cursor.unwrap_or_default()]),
-        storage_item: NetworkItemStack::default(),
+        stack: cursor.unwrap_or_default(),
+        storage_item: None,
     })
 }
 

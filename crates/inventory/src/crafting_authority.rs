@@ -1,9 +1,13 @@
 //! Inactive, committed crafting projection. This owns no request, journal or UI.
 mod budget;
 mod observation;
+mod policy;
 mod projection;
 
-use projection::{Observation, Queue, Record, RegistryOwner, StackOwner, transaction_cell_index};
+use projection::{
+    ALL_DOMAINS, AUTHORITY_DOMAIN, CATALOG_DOMAIN, CRAFTING_RULES_DOMAIN, Observation, Queue,
+    REGISTRY_DOMAIN, Record, RegistryOwner, StackOwner, UNLOCKS_DOMAIN, event_domain,
+};
 use protocol::{InventoryAuthority, InventoryEvent, RecipeCatalog, VerifiedNetworkItemStack};
 use std::{num::NonZeroU64, sync::Arc};
 
@@ -40,6 +44,8 @@ pub(super) struct CraftingAuthority {
     epoch: u64,
     barrier: u64,
     observed: u64,
+    /// Latest accepted sequence per domain, including events in the outer FIFO.
+    pending_domains: [u64; u8::BITS as usize],
     consumed: u64,
     authority_loss: u64,
     generation: u64,
@@ -49,7 +55,10 @@ pub(super) struct CraftingAuthority {
     /// Shared so presentation copies never deep-clone the recipe lists.
     catalog: Arc<RecipeCatalog>,
     catalog_lost: bool,
-    grid: [Option<Arc<StackOwner>>; 4],
+    unlocks: protocol::RecipeUnlockState,
+    unlock_component: Option<bool>,
+    rules: protocol::CraftingRules,
+    grid: [Option<Arc<StackOwner>>; crate::inventory_ledger::PERSONAL_INPUT_COUNT],
     cursor: Option<Arc<StackOwner>>,
     queue: Option<Arc<Queue>>,
     revision: u64,
@@ -73,6 +82,7 @@ impl CraftingAuthority {
             epoch: 0,
             barrier: 0,
             observed: 0,
+            pending_domains: [0; u8::BITS as usize],
             consumed: 0,
             authority_loss: 0,
             generation: 0,
@@ -81,6 +91,9 @@ impl CraftingAuthority {
             registry: None,
             catalog: Arc::new(catalog),
             catalog_lost: true,
+            unlocks: Default::default(),
+            unlock_component: Some(false),
+            rules: protocol::CraftingRules::default().resolved(),
             grid: std::array::from_fn(|_| None),
             cursor: None,
             queue: None,
@@ -103,7 +116,11 @@ impl CraftingAuthority {
         self.cache_key = None;
         match self.revision.checked_add(1) {
             Some(next) => self.revision = next,
-            None => self.exhausted = true,
+            None => {
+                self.exhausted = true;
+                self.queue = None;
+                self.retire_domains(ALL_DOMAINS, self.observed);
+            }
         }
     }
 
@@ -119,30 +136,54 @@ impl CraftingAuthority {
         if let Some(queue) = self.queue.take() {
             for record in &queue.records {
                 barrier = barrier.max(record.sequence);
-                domains |= record.observation.domain();
+                domains |= record.domain;
             }
         }
         self.barrier = barrier;
+        for (bit, sequence) in self.pending_domains.iter().enumerate() {
+            if *sequence > self.consumed && *sequence <= barrier {
+                domains |= 1 << bit;
+            }
+        }
         self.clear_cells();
-        if domains & 1 != 0 {
+        self.retire_domains(if self.exhausted { ALL_DOMAINS } else { domains }, barrier);
+    }
+
+    /// Retires selected facts without advancing the cell revision or changing snapshots.
+    fn retire_domains(&mut self, domains: u8, barrier: u64) {
+        if domains & REGISTRY_DOMAIN != 0 {
             self.registry = None;
         }
-        if domains & 2 != 0 {
+        if domains & CATALOG_DOMAIN != 0 {
             Arc::make_mut(&mut self.catalog).begin_session(self.session);
             self.catalog_lost = true;
         }
-        if domains & 4 != 0 {
+        if domains & UNLOCKS_DOMAIN != 0 {
+            self.unlocks.clear();
+            self.unlock_component = None;
+        }
+        if domains & CRAFTING_RULES_DOMAIN != 0 {
+            self.rules = protocol::CraftingRules::default();
+        }
+        if domains & AUTHORITY_DOMAIN != 0 {
             self.authority = None;
             self.authority_loss = self.authority_loss.max(barrier);
         }
     }
 
     pub(super) fn bypass(&mut self, sequence: u64) {
-        self.lose(sequence, 7);
+        self.lose(sequence, ALL_DOMAINS);
     }
 
+    /// Tracks admitted facts before observation, so loss also covers unstaged events.
     pub(super) fn note_ingress(&mut self, sequence: u64, event: &InventoryAuthorityEvent) {
         self.observed = self.observed.max(sequence);
+        let domain = event_domain(event);
+        for (bit, latest) in self.pending_domains.iter_mut().enumerate() {
+            if domain & (1 << bit) != 0 {
+                *latest = (*latest).max(sequence);
+            }
+        }
         if matches!(
             event,
             InventoryAuthorityEvent::Inventory(InventoryEvent::Authority(
@@ -165,6 +206,24 @@ impl CraftingAuthority {
         self.catalog().map(|_| Arc::clone(&self.catalog))
     }
 
+    /// The committed name authority; recipe and unlock observations share one FIFO.
+    pub(super) fn recipe_unlocks(&self) -> &protocol::RecipeUnlockState {
+        &self.unlocks
+    }
+
+    /// Complete rules at the committed frontier; partial recovery cannot restore missing fields.
+    pub(super) fn crafting_rules(&self) -> Option<protocol::CraftingRules> {
+        self.rules.is_complete().then_some(self.rules)
+    }
+
+    /// Publishes startup rules before any session observations can replace them.
+    pub(super) fn bootstrap_rules(&mut self, rules: protocol::CraftingRules) {
+        if self.accepts_bootstrap() {
+            self.rules = rules.resolved();
+            self.changed_cells();
+        }
+    }
+
     pub(super) fn preview(&self) -> Option<CraftingPreview<'_>> {
         self.preview.as_ref().map(|owner| match &owner.value {
             ManualCraftMatch::Unavailable => CraftingPreview::Unavailable,
@@ -183,18 +242,18 @@ impl CraftingAuthority {
         observation::synchronize(self.session, identity);
         let Some((stream, epoch, Some(through))) = identity else {
             self.through = None;
-            self.lose(self.observed, 7);
+            self.lose(self.observed, ALL_DOMAINS);
             return;
         };
         if stream == 0 || epoch > through || self.stream.is_some_and(|old| old != stream) {
-            self.lose(through, 7);
+            self.lose(through, ALL_DOMAINS);
         }
         if stream == 0
             || epoch > through
             || (self.stream == Some(stream) && (epoch < self.epoch || through < self.consumed))
         {
             self.through = None;
-            self.lose(through, 7);
+            self.lose(through, ALL_DOMAINS);
             return;
         }
         self.stream = Some(stream);
@@ -251,26 +310,49 @@ impl CraftingAuthority {
         }
     }
 
-    /// Only the admitted session bootstrap may call this; it grants no cell facts.
+    /// Seeds startup authority and absent discovery without granting cell facts.
     pub(super) fn bootstrap(
         &mut self,
         registry: Option<&protocol::ItemRegistryEvent>,
         authority: InventoryAuthority,
     ) {
-        if self.observed != 0
-            || self.consumed != 0
-            || self.barrier != 0
-            || self.authority_loss != 0
-            || self.epoch != 0
-        {
+        if !self.accepts_bootstrap() {
             return;
         }
         self.registry = registry.and_then(|event| self.registry_owner(event));
         self.authority = Some(authority);
+        self.unlock_component = Some(false);
         observation::bootstrap(self.session, self.registry.is_some());
     }
 
+    /// Bootstrap facts are admissible only before the stream or an authority loss begins.
+    fn accepts_bootstrap(&self) -> bool {
+        self.stream.is_none()
+            && self.observed == 0
+            && self.consumed == 0
+            && self.barrier == 0
+            && self.authority_loss == 0
+            && self.epoch == 0
+    }
+
+    /// Routes fixture events through the same authority owner used by real ingress.
+    #[cfg(test)]
     pub(super) fn observe(&mut self, session: u64, sequence: u64, event: &InventoryAuthorityEvent) {
+        let mut ledger = crate::PlayerInventoryLedger::default();
+        if let InventoryAuthorityEvent::Inventory(event) = event {
+            ledger.apply(event);
+        }
+        self.observe_admitted(session, sequence, event, ledger.personal_updates());
+    }
+
+    /// Retains only authoritative personal writes admitted by the ledger at this FIFO receipt.
+    pub(super) fn observe_admitted(
+        &mut self,
+        session: u64,
+        sequence: u64,
+        event: &InventoryAuthorityEvent,
+        writes: crate::inventory_ledger::PersonalUpdates<'_>,
+    ) {
         if session != self.session || self.exhausted {
             return;
         }
@@ -281,7 +363,7 @@ impl CraftingAuthority {
         let observation = match event {
             InventoryAuthorityEvent::Registry(registry) => {
                 let Some(owner) = self.registry_owner(registry) else {
-                    self.lose(sequence, 1);
+                    self.lose(sequence, REGISTRY_DOMAIN);
                     return;
                 };
                 Observation::Registry(Some(owner))
@@ -292,82 +374,22 @@ impl CraftingAuthority {
             InventoryAuthorityEvent::Inventory(InventoryEvent::Recipes(update)) => {
                 Observation::Recipes(update.clone())
             }
-            InventoryAuthorityEvent::Inventory(InventoryEvent::Slot(update)) => {
-                let index = match protocol::project_container_cell(
-                    &update.identity.container,
-                    update.identity.slot,
-                ) {
-                    Some(protocol::CanonicalCell::CraftInput(index)) => Some(usize::from(index)),
-                    Some(protocol::CanonicalCell::Cursor) => None,
-                    _ => match protocol::personal_craft_slot_index(
-                        &update.identity.container,
-                        update.identity.slot,
-                    ) {
-                        Some(index) => Some(usize::from(index)),
-                        None => return,
-                    },
-                };
-                let Some(stack) = StackOwner::with_credits(&update.stack, &self.credits) else {
+            InventoryAuthorityEvent::Inventory(InventoryEvent::RecipeUnlocks(update)) => {
+                Observation::RecipeUnlocks(update.clone())
+            }
+            InventoryAuthorityEvent::Inventory(InventoryEvent::CraftingRules(rules)) => {
+                Observation::CraftingRules(*rules)
+            }
+            _ if writes.iter().any(Option::is_some) => {
+                let Some(cells) = StackOwner::updates_with_credits(writes, &self.credits) else {
                     self.lose(sequence, 0);
                     return;
                 };
-                if let Some(index) = index {
-                    Observation::Cell { index, stack }
-                } else {
-                    Observation::Cursor(stack)
-                }
-            }
-            InventoryAuthorityEvent::Inventory(event @ InventoryEvent::Transaction(_)) => {
-                let mut cells = std::array::from_fn(|_| None);
-                for update in event.slot_updates() {
-                    let Some(index) = transaction_cell_index(update.identity) else {
-                        continue;
-                    };
-                    let Some(stack) = StackOwner::with_credits(&update.stack, &self.credits) else {
-                        self.lose(sequence, 0);
-                        return;
-                    };
-                    cells[index] = Some(stack);
-                }
-                if cells.iter().all(Option::is_none) {
-                    return;
-                }
                 Observation::Cells(cells)
-            }
-            InventoryAuthorityEvent::Inventory(InventoryEvent::Content(content))
-                if protocol::personal_craft_content_indices(
-                    &content.container,
-                    content.slots.len(),
-                )
-                .is_some() =>
-            {
-                let indices = protocol::personal_craft_content_indices(
-                    &content.container,
-                    content.slots.len(),
-                )
-                .expect("guarded content shape");
-                let Some(grid) = StackOwner::grid_with_credits(
-                    indices.map(|index| &content.slots[index]),
-                    &self.credits,
-                ) else {
-                    self.lose(sequence, 0);
-                    return;
-                };
-                Observation::Grid(grid)
-            }
-            InventoryAuthorityEvent::Inventory(InventoryEvent::Content(content))
-                if content.slots.len() == 1
-                    && content.container.slot_type == Some(protocol::CONTAINER_NAME_CURSOR) =>
-            {
-                let Some(stack) = StackOwner::with_credits(&content.slots[0], &self.credits) else {
-                    self.lose(sequence, 0);
-                    return;
-                };
-                Observation::Cursor(stack)
             }
             _ => return,
         };
-        let domain = observation.domain();
+        let domain = event_domain(event);
         let old = self
             .queue
             .as_ref()
@@ -379,6 +401,7 @@ impl CraftingAuthority {
         let replacement = Queue::replace(
             old.iter().cloned().chain(std::iter::once(Record {
                 sequence,
+                domain,
                 observation,
             })),
             count,
@@ -387,13 +410,19 @@ impl CraftingAuthority {
         match replacement {
             Some(queue) => {
                 self.queue = Some(queue);
-                observation::stage(session, sequence, event);
+                let mask = writes.iter().enumerate().fold(0, |mask, (index, cell)| {
+                    mask | if cell.is_some() { 1 << index } else { 0 }
+                });
+                observation::stage(session, sequence, event, mask);
             }
             None => self.lose(sequence, domain),
         }
     }
 
     pub(super) fn advance(&mut self) {
+        if self.exhausted {
+            return;
+        }
         let Some(through) = self.through else {
             return;
         };
@@ -433,31 +462,26 @@ impl CraftingAuthority {
                         }
                     }
                 }
+                Observation::RecipeUnlocks(update) => {
+                    self.unlock_component = if update.is_unavailable() {
+                        self.unlock_component.filter(|present| *present)
+                    } else {
+                        Some(true)
+                    };
+                    self.unlocks.apply(&self.catalog, update);
+                    self.changed_cells();
+                }
+                Observation::CraftingRules(update) => {
+                    let previous = self.rules;
+                    self.rules.apply(*update);
+                    if self.rules != previous {
+                        self.changed_cells();
+                    }
+                }
                 Observation::Authority(authority) if record.sequence > self.authority_loss => {
                     self.authority = Some(*authority)
                 }
                 Observation::Authority(_) => {}
-                Observation::Cell { index, stack }
-                    if record.sequence > self.epoch.max(self.authority_loss) =>
-                {
-                    self.grid[*index] = Some(Arc::clone(stack));
-                    self.changed_cells();
-                    observation::cells(self.session, record.sequence, self.epoch, 1 << *index);
-                }
-                Observation::Grid(grid)
-                    if record.sequence > self.epoch.max(self.authority_loss) =>
-                {
-                    self.grid = grid.each_ref().map(|stack| Some(Arc::clone(stack)));
-                    self.changed_cells();
-                    observation::cells(self.session, record.sequence, self.epoch, 15);
-                }
-                Observation::Cursor(stack)
-                    if record.sequence > self.epoch.max(self.authority_loss) =>
-                {
-                    self.cursor = Some(Arc::clone(stack));
-                    self.changed_cells();
-                    observation::cells(self.session, record.sequence, self.epoch, 16);
-                }
                 Observation::Cells(cells)
                     if record.sequence > self.epoch.max(self.authority_loss) =>
                 {
@@ -475,12 +499,13 @@ impl CraftingAuthority {
                     self.changed_cells();
                     observation::cells(self.session, record.sequence, self.epoch, mask);
                 }
-                Observation::Grid(_)
-                | Observation::Cell { .. }
-                | Observation::Cursor(_)
-                | Observation::Cells(_) => {}
+                Observation::Cells(_) => {}
             }
             observation::discard(record.sequence);
+            if self.exhausted {
+                self.lose(self.observed, ALL_DOMAINS);
+                return;
+            }
         }
         if split < queue.records.len() {
             self.queue = Queue::replace(
@@ -491,9 +516,7 @@ impl CraftingAuthority {
             if self.queue.is_none() {
                 self.lose(
                     self.observed,
-                    queue.records[split..]
-                        .iter()
-                        .fold(0, |d, r| d | r.observation.domain()),
+                    queue.records[split..].iter().fold(0, |d, r| d | r.domain),
                 );
             }
         }
@@ -536,11 +559,7 @@ impl CraftingAuthority {
         };
         let verified = self.grid.each_ref().map(|cell| {
             let stack = &cell.as_ref().expect("known grid gate").stack;
-            // This inactive plain-item slice never materializes arbitrary NBT
-            // while matching. Ordinary inventory retains its existing validator.
-            if stack.is_empty()
-                || !(stack.extra_data.is_empty() || stack.extra_data.as_ref() == [0; 10])
-            {
+            if stack.is_empty() {
                 return None;
             }
             VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest).ok()
@@ -559,8 +578,17 @@ impl CraftingAuthority {
                     .map_or(ManualCraftCell::Unknown, ManualCraftCell::Present)
             }
         });
-        let value =
-            crate::match_manual_grid(&self.catalog, self.session, &registry.snapshot, &grid);
+        let value = if self.manual_recipes_available() {
+            crate::matching::match_manual_grid_where(
+                &self.catalog,
+                self.session,
+                &registry.snapshot,
+                &grid,
+                |recipe| self.manual_recipe_allowed(recipe),
+            )
+        } else {
+            ManualCraftMatch::Unavailable
+        };
         self.preview = Some(Arc::new(PreviewOwner {
             value,
             _registry: Arc::clone(registry),

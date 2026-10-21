@@ -20,8 +20,9 @@ pub fn loading_words(stage: ui::LoadingStage, tr: &impl Fn(&str, &str) -> String
     }
 }
 
-const MIB: u64 = 1 << 20;
-const GIB: u64 = 1 << 30;
+#[cfg(test)]
+use crate::download::{GIB, MIB};
+use crate::download::{file_size, format_eta};
 
 /// What the screen shows for one join state.
 #[derive(Debug, PartialEq)]
@@ -106,30 +107,6 @@ fn connect_title(kind: JoinKind, tr: &impl Fn(&str, &str) -> String) -> String {
             "Connecting to Realm",
         ),
         JoinKind::Local => tr("progressScreen.title.connectingLocal", "Starting World"),
-    }
-}
-
-/// Vanilla file sizes: MB to two places under 1 MiB and one above, GB from 1 GiB.
-fn file_size(bytes: u64, tr: &impl Fn(&str, &str) -> String) -> String {
-    let megabytes = || tr("playscreen.fileSize.MB", "MB");
-    if bytes < MIB {
-        format!("{:.2}{}", bytes as f64 / MIB as f64, megabytes())
-    } else if bytes < GIB {
-        format!("{:.1}{}", bytes as f64 / MIB as f64, megabytes())
-    } else {
-        let gigabytes = tr("playscreen.fileSize.GB", "GB");
-        format!("{:.1}{gigabytes}", bytes as f64 / GIB as f64)
-    }
-}
-
-/// Short ETA for the download line: seconds, minutes and seconds, or hours and minutes.
-fn format_eta(secs: u64) -> String {
-    if secs < 60 {
-        format!("{secs}s")
-    } else if secs < 3600 {
-        format!("{}m {:02}s", secs / 60, secs % 60)
-    } else {
-        format!("{}h {:02}m", secs / 3600, (secs % 3600) / 60)
     }
 }
 

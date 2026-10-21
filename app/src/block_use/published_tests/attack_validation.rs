@@ -75,7 +75,7 @@ fn actor_event(world: &mut World, event: protocol::ActorEvent) {
 #[test]
 fn attack_validation_shortened_reach_rejects_a_previously_published_actor() {
     let (mut world, mut captured) = attack_fixture(7.5);
-    world.insert_resource(crate::modding::interaction::ModInteraction {
+    world.insert_resource(crate::interaction_override::ModInteraction {
         attack_reach: Some(0.0),
         ..Default::default()
     });
@@ -166,7 +166,7 @@ impl Invalidity {
     fn apply(self, world: &mut World) {
         match self {
             Self::Reach(reach) => {
-                world.insert_resource(crate::modding::interaction::ModInteraction {
+                world.insert_resource(crate::interaction_override::ModInteraction {
                     attack_reach: Some(reach),
                     ..Default::default()
                 });

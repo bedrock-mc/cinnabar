@@ -10,7 +10,9 @@ mod entity_shadow;
 pub mod equipment;
 mod font_atlas;
 pub mod font_shading;
+mod frame_latency;
 mod frame_pacing;
+pub mod hats;
 pub use font_atlas::{
     FONT_ATLAS_GUTTER, FONT_ATLAS_SIDE, FontAtlas, FontAtlasFrame, FontAtlasVertex, FontRect,
 };
@@ -23,6 +25,7 @@ mod presentation;
 pub mod primitive_shapes;
 pub mod terrain_units;
 mod ui;
+pub mod ui_page_uniform;
 mod ui_textures;
 mod visibility;
 pub mod visibility_bounds;
@@ -33,9 +36,9 @@ pub use actor::{
     DEFAULT_SKIN_PROVENANCE, DIAGNOSTIC_RIG_ID, EntityRigId, FrameSlotRecency,
     MAX_ACTOR_CATALOG_VERTEX_BYTES, MAX_ACTOR_CATALOG_VERTICES, MAX_ACTOR_RIG_VERTICES,
     MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, ONE_SIDED_BACK_UV, PLAYER_SKIN_BUDGET_BYTES,
-    RenderBoneTransform, SKIN_CLASS_SIDES, STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES,
-    STANDARD_SKIN_SIDE, UNIT_AXIS_SCALE, actor_catalog_budget_bytes, actor_skin_side,
-    append_entity_cube_vertices, attachable_geometry, attachable_raster_frame,
+    RenderBoneTransform, SKIN_CLASS_SIDES, STANDARD_BIPED_BONES, STANDARD_BIPED_VERTEX_COUNT,
+    STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE, UNIT_AXIS_SCALE, actor_catalog_budget_bytes,
+    actor_skin_side, append_entity_cube_vertices, attachable_geometry, attachable_raster_frame,
     default_actor_skin_rgba8, diagnostic_geometry, entity_geometry, equipment_geometry,
     equipment_rig_id, find_geometry_index, fit_rgba_within, geometry_bone_binding_expressions,
     geometry_bone_names, geometry_bone_pivots, geometry_from_geometry_index,
@@ -56,6 +59,7 @@ pub use entity_shadow::{
     SHADOW_VOLUME_TOP_RADIUS, SHADOW_VOLUME_TOP_Y, SHADOW_VOLUME_VERTICES, entity_shadow_colour,
     shadow_screen_rect, shadow_volume_mesh, unit_volume_contains,
 };
+pub use frame_latency::{FrameLatencyPolicy, FrameWorkSample};
 pub use frame_pacing::{
     Cadence, FrameRate, OCCLUDED_FRAME_RATE, UNFOCUSED_FRAME_RATE, WindowActivity,
     effective_frame_rate,
@@ -76,19 +80,21 @@ pub use presentation::{
 pub use ui::{
     MAX_UI_BATCHES, MAX_UI_DRAW_BYTES, MAX_UI_FIXED_TEXTURE_BYTES, MAX_UI_INDICES,
     MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS, MAX_UI_TEXTURE_SIDE, MAX_UI_VERTICES,
-    UI_BLEND_ALPHA, UI_BLEND_BACKDROP, UI_BLEND_FILTER, UI_BLEND_INVERT, UI_STYLE_ALPHA_TEST,
-    UI_STYLE_COLOR_MASK, UI_STYLE_GLINT, UI_STYLE_RADIAL_GRADIENT, UiRenderBatch, UiRenderInput,
-    UiRenderReject, UiRenderRejectReason, UiRenderScene, UiRenderStats, UiRenderStatsSnapshot,
-    UiRenderTextureArray, UiRenderVertex, UiScissor,
+    UI_BLEND_ALPHA, UI_BLEND_BACKDROP, UI_BLEND_FILTER, UI_BLEND_INVERT, UI_STYLE_ADDITIVE,
+    UI_STYLE_ALPHA_TEST, UI_STYLE_COLOR_MASK, UI_STYLE_GLINT, UI_STYLE_PARTICLE,
+    UI_STYLE_RADIAL_GRADIENT, UiRenderBatch, UiRenderInput, UiRenderReject, UiRenderRejectReason,
+    UiRenderScene, UiRenderStats, UiRenderStatsSnapshot, UiRenderTextureArray, UiRenderVertex,
+    UiScissor, ui_particle_uv,
 };
 pub use ui_textures::{
     MAX_UI_ART_PAGES, MAX_UI_DYNAMIC_PAGES, MAX_UI_MODEL_ATLAS_PAGES, MAX_UI_NATIVE_SHEET_BYTES,
     MAX_UI_NATIVE_SHEET_PAGES, MAX_UI_NATIVE_SHEET_SIDE, MAX_UI_NATIVE_TEXTURE_GROWTH_BYTES,
     MAX_UI_TEXTURE_BUCKETS, UI_ART_PAGE_SIDE, UI_DYNAMIC_PAGE_SIDE, UI_LOCAL_FONT_PAGE_OFFSET,
-    UI_LOCAL_FONT_PAGE_SIDE, UI_MODEL_ATLAS_PAGE_OFFSET, UI_MODEL_ATLAS_SIDE,
-    UI_NATIVE_SHEET_PAGE_OFFSET, UI_PLAYER_SKIN_PAGE_OFFSET, UI_SESSION_ICON_PAGE_OFFSET,
-    UiTextureBucket, UiTextureCatalog, UiTextureFormat, UiTextureLocation, UiTexturePage,
-    UiTexturePlan,
+    UI_LOCAL_FONT_PAGE_SIDE, UI_LOCAL_ICON_FONT_PAGE_SIDE, UI_MODEL_ATLAS_PAGE_OFFSET,
+    UI_MODEL_ATLAS_SIDE, UI_NATIVE_SHEET_PAGE_OFFSET, UI_PARTICLE_PAGE_OFFSET,
+    UI_PLAYER_SKIN_PAGE_OFFSET, UI_SESSION_GLYPH_PAGE_OFFSET, UI_SESSION_GLYPH_PAGE_SIDE,
+    UI_SESSION_GLYPH_PAGES, UI_SESSION_ICON_PAGE_OFFSET, UiTextureBucket, UiTextureCatalog,
+    UiTextureFormat, UiTextureLocation, UiTexturePage, UiTexturePlan,
 };
 pub use visibility::{
     ExtractedCameraIdentity, GraphicsAdapterMetadata, OpaqueDrawMode, VisibilityDiagnosticSnapshot,
@@ -98,6 +104,10 @@ pub use visibility::{
 /// Enhanced is disabled until the GPU faults and system freezes are resolved.
 /// Ordinary settings, launch flags and camera components cannot override this switch.
 pub const ENHANCED_RENDERING_ENABLED: bool = false;
+
+/// The Java shader-pack render mode is opt-in at build time while it is experimental.
+/// Default builds keep settings, launch flags and cameras off it.
+pub const SHADER_PACKS_ENABLED: bool = cfg!(feature = "shaderpacks");
 
 #[cfg(feature = "enhanced-diagnostics")]
 static ENHANCED_DIAGNOSTIC: std::sync::atomic::AtomicBool =
@@ -152,12 +162,13 @@ pub mod viewmodel;
 pub mod weather;
 pub use actor::ActorRigVertexSegments;
 pub use actor::{
-    ACTOR_BONE_MATRIX_BYTES, ACTOR_GPU_INSTANCE_WORDS, ACTOR_LAYER_BODY, ActorDrawManifestEntry,
-    ActorGpuInstance, ActorMaterial, ActorRenderIdentity, ActorRigFrameBuilder,
-    ActorRigGeometrySpan, ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, IDENTITY_UV_ANIM, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RENDER_INSTANCES,
-    actor_bounds_are_visible, actor_rig_submission_is_visible, pack_actor_light,
-    pack_actor_light_without_lightmap, pack_overlay_rgba8,
+    ACTOR_BONE_MATRIX_BYTES, ACTOR_GPU_INSTANCE_WORDS, ACTOR_LAYER_BODY, ACTOR_LAYER_FLAME,
+    ACTOR_LAYER_SKIN_BASE, ActorDrawManifestEntry, ActorGpuInstance, ActorMaterial,
+    ActorRenderIdentity, ActorRigFrameBuilder, ActorRigGeometrySpan, ActorRigRejects,
+    ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, IDENTITY_UV_ANIM,
+    MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RENDER_INSTANCES, actor_bounds_are_visible,
+    actor_rig_submission_is_visible, pack_actor_light, pack_actor_light_without_lightmap,
+    pack_overlay_rgba8,
 };
 pub use actor::{ACTOR_CANDIDATE_RADIUS_BLOCKS, ActorCullView, MAX_ACTOR_RENDER_DISTANCE_BLOCKS};
 pub use actor::{
@@ -221,7 +232,7 @@ pub use dropped_item::{rope_color, rope_point, rope_ribbon};
 pub use hand::{
     HAND_ITEM_LAYER_FLAG, HAND_OFFHAND_LAYER_FLAG, HandItemAlphaMode, HandItemAtlas, HandRigLight,
 };
-pub use lightmap::{LightmapInputs, darkness_pulse};
+pub use lightmap::{LightmapInputs, LightmapUniform, darkness_pulse};
 
 pub use viewmodel::{ViewmodelGeometry, ViewmodelSkin};
 pub use weather::{
@@ -236,3 +247,6 @@ pub use weather::{
 
 pub use block_entity::block_matrix;
 pub use weather::ColumnSampler;
+
+mod actor_bindings;
+pub use actor_bindings::{ActorAttachmentBindings, CapeBoneBinding};

@@ -81,6 +81,7 @@ fn draw(engine: &FormEngine, text: &str, max_width: impl Into<Value>) -> (Vec<Ui
             layer: 5,
             alpha: 0.5,
             anim: None,
+            paint_region: None,
             draw: Draw::Custom {
                 renderer: RENDERER.into(),
                 data: [

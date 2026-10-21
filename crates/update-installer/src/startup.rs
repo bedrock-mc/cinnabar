@@ -34,7 +34,7 @@ pub fn client_command(target: &Path) -> Command {
     #[cfg(target_os = "macos")]
     let executable = target.join("Contents/MacOS/cinnabar");
     #[cfg(windows)]
-    let executable = target.join("cinnabar.exe");
+    let executable = target.join(update_manifest::runtime::executable("CLIENT", "windows"));
     #[cfg(not(any(target_os = "macos", windows)))]
     let executable = target.to_owned();
     let mut command = Command::new(executable);

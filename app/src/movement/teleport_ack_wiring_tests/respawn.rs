@@ -4,6 +4,8 @@ use bevy::prelude::IntoScheduleConfigs;
 use client_runtime::network::NetworkHandle;
 use {super::*, gameplay::movement::flush_player_auth_inputs};
 
+#[path = "respawn/ready_order.rs"]
+mod ready_order;
 #[path = "respawn/riptide.rs"]
 mod riptide;
 

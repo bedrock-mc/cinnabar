@@ -56,6 +56,7 @@ impl UiPresentationRuntime {
         dynamic_textures::observe_session(self, runtime.session_id());
         session_icons::observe(self, runtime.session_icons());
         self.observe_server_ui(runtime.server_ui());
+        self.publish_local_player_identity(runtime.session_id());
         session_glyphs::observe(self, runtime.session_glyphs());
         // Install artwork before any screen resolves its pixel UVs.
         if self.menu_artwork_loader.poll() {
@@ -64,7 +65,9 @@ impl UiPresentationRuntime {
         self.poll_server_ui_images();
         self.menu_seconds = now_millis as f64 / 1_000.0;
         self.configure_oreui_settings();
-        self.configure_mod_ui_motion();
+        self.screens
+            .mod_ui
+            .advance_mod_hud_editor_exit(self.menu_seconds);
         if let Some(view) = &self.menu_view {
             self.menu_scrolls.configure_motion(
                 view.settings_options.value(SettingId::ScreenAnimations) != 0,
@@ -105,6 +108,11 @@ impl UiPresentationRuntime {
             let host = self.scene_host();
             let stack = runtime.scenes_in(player_runtime, host, &self.screen_settings());
             let scenes = stack.visible(false);
+            // Every cursor style belongs to gameplay input, including pack image
+            // replacements. Personal modal surfaces own input outside the scene stack.
+            let crosshair_visible = stack.receives_input(Scene::Gameplay)
+                && !self.screens.mod_ui.mod_panel_open()
+                && !self.screens.mod_ui.experience_modal_open();
             if host.over_world {
                 self.append_item_activation(
                     runtime,
@@ -141,6 +149,9 @@ impl UiPresentationRuntime {
                     }
                     Scene::Crosshair | Scene::Hud => {
                         let crosshair = *scene == Scene::Crosshair;
+                        if crosshair && !crosshair_visible {
+                            continue;
+                        }
                         self.append_engine_hud(
                             player_runtime,
                             runtime,
@@ -316,7 +327,6 @@ impl UiPresentationRuntime {
                 content,
                 now_millis,
             )?;
-            self.sync_server_ui_pages();
             self.append_experience_chrome(
                 runtime,
                 &mut nodes,
@@ -324,7 +334,16 @@ impl UiPresentationRuntime {
                 metrics,
                 [content_width, content_height],
             );
-            self.append_mod_panel(runtime, &mut nodes, &mut next_id, metrics, content);
+            self.append_mod_panel(
+                player_runtime,
+                runtime,
+                &mut nodes,
+                &mut next_id,
+                metrics,
+                content,
+            );
+            // Personal panels can admit host portraits while painting this frame.
+            self.sync_server_ui_pages();
             let mut debug_eligibility =
                 crate::ui_runtime::scene_stack::construction::DebugOverlayEligibility::default();
             for entry in stack.scenes() {
@@ -336,6 +355,7 @@ impl UiPresentationRuntime {
             // Every screen has painted: retire animation state nothing touched.
             self.append_oreui_motion(&mut nodes, &mut next_id, content)?;
             self.end_animation_frame();
+            self.sync_visible_cosmetic_previews(&nodes);
             let palette = self.formatting_palette().copied();
             let effects = TextEffects {
                 palette: palette.as_ref(),

@@ -15,9 +15,11 @@ pub(crate) fn advance_dimension_transfer(
     mut client_world: bevy::prelude::ResMut<super::ClientWorld>,
     mut fatal_error: bevy::prelude::ResMut<super::FatalError>,
     network: bevy::prelude::Res<NetworkHandle<PackApplication>>,
-    clock: bevy::prelude::Res<crate::environment::WorldClock>,
+    clock: bevy::prelude::Res<client_presentation::environment::WorldClock>,
     time: bevy::prelude::Res<bevy::prelude::Time<bevy::time::Real>>,
-    mut menu: Option<bevy::prelude::ResMut<client_shell::menu::MenuRuntime>>,
+    #[cfg(not(target_arch = "wasm32"))] mut menu: Option<
+        bevy::prelude::ResMut<client_shell::menu::MenuRuntime>,
+    >,
 ) {
     let session = client_world
         .stream
@@ -30,6 +32,7 @@ pub(crate) fn advance_dimension_transfer(
         let priority = transferring.then(|| stream.resolved_server_position().position);
         stream.set_dimension_transfer_priority(priority);
     }
+    #[cfg(not(target_arch = "wasm32"))]
     if transferring && let Some(menu) = menu.as_deref_mut() {
         menu.set_visible(false);
     }
@@ -73,6 +76,13 @@ pub(crate) fn advance_dimension_transfer(
 #[derive(Debug, Default)]
 pub(crate) struct DimensionTransfer {
     active: Option<PendingTransfer>,
+    screen: Option<LoadingScreen>,
+}
+
+/// Retains the reported screen while dimension requests replace one another.
+#[derive(Debug)]
+struct LoadingScreen {
+    id: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -99,6 +109,13 @@ impl DimensionTransfer {
         now: Duration,
     ) {
         bevy::log::debug!(session, epoch, dimension = change.dimension, loading_screen_id = ?change.loading_screen_id, "dimension transfer started");
+        if self
+            .active
+            .as_ref()
+            .is_none_or(|pending| pending.session != session || pending.actor != actor)
+        {
+            self.screen = None;
+        }
         self.active = Some(PendingTransfer {
             session,
             epoch,
@@ -130,6 +147,7 @@ impl DimensionTransfer {
             .is_some_and(|pending| Some(pending.session) != session)
         {
             self.active = None;
+            self.screen = None;
         }
     }
 
@@ -183,10 +201,19 @@ impl DimensionTransfer {
             return Ok(());
         };
         if !pending.start_queued {
-            send(protocol::loading_screen_packet(
-                LoadingScreenPhase::Start,
-                pending.change.loading_screen_id,
-            ))?;
+            if let Some(screen) = &mut self.screen {
+                if let Some(id) = pending.change.loading_screen_id {
+                    screen.id = Some(id);
+                }
+            } else {
+                send(protocol::loading_screen_packet(
+                    LoadingScreenPhase::Start,
+                    pending.change.loading_screen_id,
+                ))?;
+                self.screen = Some(LoadingScreen {
+                    id: pending.change.loading_screen_id,
+                });
+            }
             pending.start_queued = true;
             bevy::log::debug!(epoch = pending.epoch, loading_screen_id = ?pending.change.loading_screen_id, "dimension loading screen start queued");
             return Ok(());
@@ -226,12 +253,17 @@ impl DimensionTransfer {
         if !pending.switch_queued {
             return Ok(false);
         }
+        let screen = self
+            .screen
+            .as_ref()
+            .expect("a switched transfer has an active loading screen");
         send(protocol::loading_screen_packet(
             LoadingScreenPhase::End,
-            pending.change.loading_screen_id,
+            screen.id,
         ))?;
-        bevy::log::debug!(epoch = pending.epoch, loading_screen_id = ?pending.change.loading_screen_id, "dimension loading screen end queued after presentation readiness");
+        bevy::log::debug!(epoch = pending.epoch, loading_screen_id = ?screen.id, "dimension loading screen end queued after presentation readiness");
         self.active = None;
+        self.screen = None;
         Ok(true)
     }
 }

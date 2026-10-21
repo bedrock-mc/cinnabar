@@ -21,6 +21,7 @@ pub mod events;
 mod format_generated;
 pub mod identities;
 pub mod items;
+pub mod java_mapping;
 mod light;
 mod manifest;
 mod movement;
@@ -52,6 +53,7 @@ struct BlockFact {
     friction: f64,
     emission: u8,
     filter: u8,
+    can_contain_liquid_source: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

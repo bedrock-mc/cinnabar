@@ -14,7 +14,6 @@ fn placed_actor(runtime_id: u64, position: Vec3) -> ActorSnapshot {
 #[test]
 fn third_person_labels_sort_by_camera_depth_instead_of_viewer_distance() {
     let camera = NametagView {
-        viewer_position: Vec3::ZERO,
         camera_position: Vec3::new(0.0, 1.62, 4.0),
         camera_forward: Vec3::NEG_Z,
     };
@@ -85,7 +84,7 @@ fn camera_depth_ignores_sideways_distance_from_the_view_axis() {
 }
 
 #[test]
-fn camera_changes_refresh_cached_depth_without_changing_viewer_score_range() {
+fn camera_changes_refresh_cached_depth_and_score_range() {
     let mut actor = placed_actor(1, Vec3::Z);
     actor
         .metadata
@@ -94,25 +93,31 @@ fn camera_changes_refresh_cached_depth_without_changing_viewer_score_range() {
     let mut cache = NametagTextCache::default();
     let name = Arc::from("AB");
     let first_view = NametagView {
-        viewer_position: Vec3::ZERO,
-        camera_position: Vec3::Z * 100.0,
+        camera_position: Vec3::Z * 40.0,
         camera_forward: Vec3::NEG_Z,
     };
     let first = cache
-        .extract(&actor, first_view, None, Arc::clone(&name), &boards, 1.0)
+        .extract(
+            &actor,
+            first_view,
+            None,
+            Arc::clone(&name),
+            Some(&boards),
+            1.0,
+        )
         .unwrap();
-    assert_eq!(first.view_depth, 99.0);
-    assert_eq!(first.lines.len(), 2);
+    assert_eq!(first.view_depth, 39.0);
+    assert_eq!(first.lines.len(), 1);
     let turned = NametagView {
         camera_position: Vec3::X * 4.0,
         camera_forward: Vec3::NEG_X,
-        ..first_view
     };
     let next = cache
-        .extract(&actor, turned, None, Arc::clone(&name), &boards, 1.0)
+        .extract(&actor, turned, None, Arc::clone(&name), Some(&boards), 1.0)
         .unwrap();
     assert_eq!(next.view_depth, 4.0);
-    assert!(Arc::ptr_eq(&first.lines, &next.lines));
+    assert_eq!(next.lines.len(), 2);
+    assert!(!Arc::ptr_eq(&first.lines, &next.lines));
     let pitched = cache
         .extract(
             &actor,
@@ -122,19 +127,19 @@ fn camera_changes_refresh_cached_depth_without_changing_viewer_score_range() {
             },
             None,
             Arc::clone(&name),
-            &boards,
+            Some(&boards),
             1.0,
         )
         .unwrap();
     assert!(pitched.camera_forward_y < 0.0);
     assert!(Arc::ptr_eq(&next.lines, &pitched.lines));
-    let viewer_out_of_range = NametagView {
-        viewer_position: Vec3::NEG_Z * 64.0,
+    let camera_out_of_range = NametagView {
+        camera_position: Vec3::NEG_Z * 64.0,
         ..turned
     };
     assert!(
         cache
-            .extract(&actor, viewer_out_of_range, None, name, &boards, 1.0)
+            .extract(&actor, camera_out_of_range, None, name, Some(&boards), 1.0)
             .is_none()
     );
 }
@@ -148,11 +153,13 @@ fn nearer_plates_attenuate_farther_text_in_every_sneak_combination() {
             far.position.z = -8.0;
             far.view_depth = 8.0;
             far.depth_tested = far_sneaking;
+            far.sneaking = far_sneaking;
             far.text_alpha = if far_sneaking { DIM_TEXT_ALPHA } else { 1.0 };
             let mut near = anchor("AB");
             near.position.z = -4.0;
             near.view_depth = 4.0;
             near.depth_tested = near_sneaking;
+            near.sneaking = near_sneaking;
             near.text_alpha = if near_sneaking { DIM_TEXT_ALPHA } else { 1.0 };
             let scene = scene(&[near, far]);
             let mut pixel = 0.0;
@@ -210,6 +217,7 @@ fn pitched_camera_sorts_lifted_multiline_planes_and_keeps_label_passes_together(
             multiline.view_depth = 5.0;
             multiline.camera_forward_y = forward.y;
             multiline.depth_tested = sneaking;
+            multiline.sneaking = sneaking;
             multiline.text_alpha = if sneaking { DIM_TEXT_ALPHA } else { 1.0 };
             let mut single = anchor("A");
             single.runtime_id = 2;
@@ -222,12 +230,12 @@ fn pitched_camera_sorts_lifted_multiline_planes_and_keeps_label_passes_together(
             let far_anchor = single.position.to_array();
             let scene = scaled_scene(&[multiline, single], scale);
             assert!(
-                scene.records[..3]
+                scene.records[..NAMETAG_RECORDS_PER_LINE]
                     .iter()
                     .all(|record| record.anchor == far_anchor)
             );
             assert!(
-                scene.records[3..]
+                scene.records[NAMETAG_RECORDS_PER_LINE..]
                     .iter()
                     .all(|record| record.anchor == near_anchor)
             );
@@ -268,7 +276,7 @@ fn pitched_camera_sorts_lifted_multiline_planes_and_keeps_label_passes_together(
                     depth = at;
                 }
             }
-            assert_eq!(near_text_samples, if sneaking { 1 } else { 2 });
+            assert_eq!(near_text_samples, 1);
             let near_ink = if sneaking { DIM_TEXT_ALPHA } else { 1.0 };
             assert!(
                 (pixel - near_ink).abs() < 1e-6,
@@ -282,8 +290,12 @@ fn pitched_camera_sorts_lifted_multiline_planes_and_keeps_label_passes_together(
 fn lifted_sorting_uses_the_line_count_that_fits_the_record_budget() {
     let forward = Vec3::new(0.0, 1.0, -1.0).normalize();
     let mut single = anchor("A");
-    single.position = forward * 40.0;
-    single.view_depth = 40.0;
+    let placed_lines = (MAX_NAMETAG_RECORDS - NAMETAG_RECORDS_PER_LINE) / NAMETAG_RECORDS_PER_LINE;
+    let full_depth = 5.0 + forward.y * EXTRA_LINE_LIFT * (MAX_NAMETAG_LINES - 1) as f32;
+    let truncated_depth = 5.0 + forward.y * EXTRA_LINE_LIFT * (placed_lines - 1) as f32;
+    single.view_depth = (full_depth + truncated_depth) * 0.5;
+    single.position = forward * single.view_depth;
+    let single_depth = single.view_depth;
     single.camera_forward_y = forward.y;
     let mut multiline = anchor(&vec!["A"; MAX_NAMETAG_LINES].join("\n"));
     multiline.runtime_id = 2;
@@ -296,18 +308,23 @@ fn lifted_sorting_uses_the_line_count_that_fits_the_record_budget() {
     // The requested lift would put the multiline label beyond the single-line plane.
     // Its budget-truncated lift leaves it nearer, so the single label still draws first.
     assert!(
-        scene.records[..3]
+        scene.records[..NAMETAG_RECORDS_PER_LINE]
             .iter()
             .all(|record| record.anchor == far_anchor)
     );
-    let placed_lines = (MAX_NAMETAG_RECORDS - 3) / 3;
-    assert_eq!(scene.records.len(), 3 + placed_lines * 3);
-    for record in &scene.records[3..] {
+    assert_eq!(
+        scene.records.len(),
+        NAMETAG_RECORDS_PER_LINE + placed_lines * NAMETAG_RECORDS_PER_LINE
+    );
+    for record in &scene.records[NAMETAG_RECORDS_PER_LINE..] {
         assert_eq!(record.anchor, near_anchor);
         assert_eq!(
             record.line_lift,
             EXTRA_LINE_LIFT * (placed_lines - 1) as f32
         );
-        assert!(forward.dot(Vec3::from_array(record.anchor) + Vec3::Y * record.line_lift) < 40.0);
+        assert!(
+            forward.dot(Vec3::from_array(record.anchor) + Vec3::Y * record.line_lift)
+                < single_depth
+        );
     }
 }

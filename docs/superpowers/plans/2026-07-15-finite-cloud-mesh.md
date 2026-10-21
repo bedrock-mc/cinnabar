@@ -133,4 +133,4 @@ Require stable record/buffer identity, zero steady-state cloud uploads/rebuilds,
 
 - [ ] **Step 4: Update plan truthfully and commit**
 
-Mark only the finite-cloud acceptance sub-item complete. Leave Phase 2.7 and Phase 2 open if any lighting, visual, platform, or performance gate remains. Commit with `docs: record finite cloud acceptance` and push the reviewed history to `bedrock-mc/cinnabar:phase2-textures`.
+Mark only the finite-cloud acceptance sub-item complete. Leave Phase 2.7 and Phase 2 open if any lighting, visual, platform, or performance gate remains. Commit with `docs: record finite cloud acceptance` and push the reviewed history to `cinnabar-mc/cinnabar:phase2-textures`.

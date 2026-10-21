@@ -332,12 +332,20 @@ fn replayed_mount_closes_the_airborne_jump_arc() {
         .samples
         .remove(0);
     assert!(!mounted.processed.jump_arc_active);
+    let retained = physics
+        .replay_retained_from(jump.tick, &VersionedFloor(1))
+        .unwrap();
+    assert_eq!(retained.replayed_samples, std::slice::from_ref(&mounted));
     let anchor = super::PhysicsAnchor {
         network_position: jump.position,
         tick: jump.tick,
         on_ground: false,
         velocity: Some(jump.velocity),
     };
+    // A wire anchor rounds the jump's feet before the seat displacement is replayed.
+    let mut corrected_mount = mounted.clone();
+    corrected_mount.movement[1] = ride.mode_intent.ride_seat.unwrap()[1]
+        - (anchor.network_position[1] - protocol::PLAYER_NETWORK_OFFSET);
     for _ in 0..2 {
         let replay = physics
             .apply_correction(
@@ -347,6 +355,9 @@ fn replayed_mount_closes_the_airborne_jump_arc() {
                 &VersionedFloor(1),
             )
             .unwrap();
-        assert_eq!(replay.replayed_samples, std::slice::from_ref(&mounted));
+        assert_eq!(
+            replay.replayed_samples,
+            std::slice::from_ref(&corrected_mount)
+        );
     }
 }

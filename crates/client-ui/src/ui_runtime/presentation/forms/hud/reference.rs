@@ -4,6 +4,7 @@ use super::super::super::{HudFrame, bounded_visible_text, resolve_chat_line};
 use super::*;
 use json_ui::{BossBar, HudModel, HudSlot, HudTitle, Sidebar, Timed};
 use ui::{IconRef, TimedText};
+use ui_screens::text::bounded_text;
 
 /// What the player sees, as the HUD templates bind it.
 pub(super) fn hud_model(
@@ -60,9 +61,11 @@ pub(super) fn hud_model(
         let total = title.expires_millis.saturating_sub(title.started_millis);
         HudTitle {
             creation_id: title.fifo_sequence,
-            title: bounded_visible_text(&title.text).to_owned(),
+            title: bounded_text(&title.text, protocol::MAX_UI_TEXT_BYTES).to_owned(),
             subtitle: visible(runtime.hud().subtitle(), now)
-                .map(|subtitle| bounded_visible_text(&subtitle.text).to_owned())
+                .map(|subtitle| {
+                    bounded_text(&subtitle.text, protocol::MAX_UI_TEXT_BYTES).to_owned()
+                })
                 .unwrap_or_default(),
             fade_in: seconds(fade_in),
             stay: seconds(total.saturating_sub(fade_in + fade_out)),
@@ -72,7 +75,7 @@ pub(super) fn hud_model(
         }
     });
     let timed = |text: &TimedText| Timed {
-        text: bounded_visible_text(&text.text).to_owned(),
+        text: bounded_text(&text.text, protocol::MAX_UI_TEXT_BYTES).to_owned(),
         born: seconds(text.started_millis),
     };
     let item_name = runtime
@@ -94,7 +97,7 @@ pub(super) fn hud_model(
         .map(|line| {
             let text = resolve_chat_line(line, |key| runtime.translation(key));
             Timed {
-                text: ui_screens::settings_chat::message_text(settings, text.as_ref()),
+                text: bounded_visible_text(text.as_ref()).to_owned(),
                 // Rows stamped ahead of the local clock stay fresh.
                 born: seconds(line.received_millis.min(now)),
             }
@@ -130,11 +133,18 @@ pub(super) fn hud_model(
             .any(|effect| effect.visible_at_tick(now_tick)),
         spectator: !mode_allows_hotbar,
         title,
+        title_text: Some(
+            bounded_text(runtime.hud().title_text(), protocol::MAX_UI_TEXT_BYTES).to_owned(),
+        ),
+        subtitle_text: Some(
+            bounded_text(runtime.hud().subtitle_text(), protocol::MAX_UI_TEXT_BYTES).to_owned(),
+        ),
         actionbar: visible(runtime.hud().actionbar(), now).map(timed),
         tip: visible(runtime.hud().tip(), now).map(timed),
         item_name,
         chat,
         chat_visible,
+        chat_color: ui_screens::settings_chat::default_color(settings),
         chat_lifetime: settings.chat_lifetime(),
         chat_background_opacity: CHAT_BACKGROUND_OPACITY,
         sidebar,

@@ -131,10 +131,9 @@ fn bamboo_leaf_overlays_survive_front_and_reverse_depth_without_duplicate_quads(
         "production block-overlay pipeline must validate: {validation:?}"
     );
     let words = gpu.words(bytemuck::cast_slice(&vertices), wgpu::BufferUsages::STORAGE);
-    let lightmap = gpu.buffer(
-        bytemuck::cast_slice(&render_model::LightmapInputs::default().build()),
-        wgpu::BufferUsages::UNIFORM,
-    );
+    let lightmap = gpu.lightmap(bytemuck::cast_slice(
+        &render_model::LightmapInputs::default().build(),
+    ));
     let output = gpu.words(
         &[0; 8],
         wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,

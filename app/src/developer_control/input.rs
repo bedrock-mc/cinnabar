@@ -11,7 +11,7 @@ use bevy::{
         mouse::{MouseButtonInput, MouseScrollUnit, MouseWheel},
     },
     prelude::*,
-    window::{CursorMoved, CursorOptions, PrimaryWindow, WindowFocused},
+    window::{CursorMoved, CursorOptions, Ime, PrimaryWindow, WindowEvent, WindowFocused},
 };
 use developer_control::{
     input::{Control, InputPlan, MouseButton as ControlButton, yaw_difference},
@@ -63,7 +63,8 @@ pub(super) struct Driver {
 }
 
 pub(super) fn configure(app: &mut App) {
-    app.init_resource::<Driver>()
+    app.add_message::<WindowEvent>()
+        .init_resource::<Driver>()
         .add_systems(PreUpdate, inject.before(InputSystems))
         .add_systems(
             Update,
@@ -216,6 +217,7 @@ fn inject(
     mut isolation: Option<ResMut<super::cursor_isolation::Isolation>>,
     focus: Res<Messages<WindowFocused>>,
     mut window: Query<(Entity, &mut Window, &mut CursorOptions), With<PrimaryWindow>>,
+    mut ordered: MessageWriter<WindowEvent>,
     mut keys: MessageWriter<KeyboardInput>,
     mut buttons: MessageWriter<MouseButtonInput>,
     mut pointers: MessageWriter<CursorMoved>,
@@ -264,58 +266,93 @@ fn inject(
                 window
                     .bypass_change_detection()
                     .set_cursor_position(Some(position));
-                pointers.write(CursorMoved {
-                    window: entity,
-                    position,
-                    delta,
-                });
+                emit(
+                    CursorMoved {
+                        window: entity,
+                        position,
+                        delta,
+                    },
+                    &mut pointers,
+                    &mut ordered,
+                );
             }
             InputEvent::Wheel(wheel) => {
-                wheels.write(MouseWheel {
-                    unit: match wheel.unit {
-                        WheelUnit::Line => MouseScrollUnit::Line,
-                        WheelUnit::Pixel => MouseScrollUnit::Pixel,
+                emit(
+                    MouseWheel {
+                        unit: match wheel.unit {
+                            WheelUnit::Line => MouseScrollUnit::Line,
+                            WheelUnit::Pixel => MouseScrollUnit::Pixel,
+                        },
+                        x: wheel.x,
+                        y: wheel.y,
+                        window: entity,
+                        phase: bevy::input::touch::TouchPhase::Moved,
                     },
-                    x: wheel.x,
-                    y: wheel.y,
-                    window: entity,
-                    phase: bevy::input::touch::TouchPhase::Moved,
-                });
+                    &mut wheels,
+                    &mut ordered,
+                );
             }
             InputEvent::Button(Physical::Key(key_code), state) => {
-                keys.write(KeyboardInput {
-                    key_code,
-                    logical_key: Key::Unidentified(NativeKey::Unidentified),
-                    state,
-                    text: None,
-                    repeat: false,
-                    window: entity,
-                });
+                emit(
+                    KeyboardInput {
+                        key_code,
+                        logical_key: Key::Unidentified(NativeKey::Unidentified),
+                        state,
+                        text: None,
+                        repeat: false,
+                        window: entity,
+                    },
+                    &mut keys,
+                    &mut ordered,
+                );
             }
             InputEvent::Button(Physical::Mouse(button), state) => {
-                buttons.write(MouseButtonInput {
-                    button,
-                    state,
-                    window: entity,
-                });
+                emit(
+                    MouseButtonInput {
+                        button,
+                        state,
+                        window: entity,
+                    },
+                    &mut buttons,
+                    &mut ordered,
+                );
             }
         }
     }
     while let Some(text) = driver.text.pop_front() {
-        keys.write(KeyboardInput {
-            key_code: KeyCode::Unidentified(NativeKeyCode::Unidentified),
-            logical_key: Key::Character(text.clone().into()),
-            state: ButtonState::Pressed,
-            text: Some(text.into()),
-            repeat: false,
+        // Native fields accept explicit text commits; other editors retain their keyboard mirror.
+        ordered.write(WindowEvent::Ime(Ime::Commit {
             window: entity,
-        });
+            value: text.clone(),
+        }));
+        emit(
+            KeyboardInput {
+                key_code: KeyCode::Unidentified(NativeKeyCode::Unidentified),
+                logical_key: Key::Character(text.clone().into()),
+                state: ButtonState::Pressed,
+                text: Some(text.into()),
+                repeat: false,
+                window: entity,
+            },
+            &mut keys,
+            &mut ordered,
+        );
     }
     for (_, frames) in &mut driver.held {
         if let Some(frames) = frames {
             *frames = frames.saturating_sub(1);
         }
     }
+}
+
+/// Publishes the typed view and ordered view of one synthetic backend event exactly once.
+fn emit<T: Message + Clone + Into<WindowEvent>>(
+    event: T,
+    typed: &mut MessageWriter<T>,
+    ordered: &mut MessageWriter<WindowEvent>,
+) {
+    typed.write(event.clone());
+    ordered.write(event.into());
 }
 
 /// Bedrock yaw and pitch of the player's view, in degrees.
@@ -370,7 +407,7 @@ mod tests {
     use bevy::{
         input::{InputPlugin, keyboard::KeyboardFocusLost},
         prelude::*,
-        window::{CursorMoved, CursorOptions, PrimaryWindow, WindowFocused},
+        window::{CursorMoved, CursorOptions, Ime, PrimaryWindow, WindowEvent, WindowFocused},
     };
 
     use super::{Driver, Physical, apply, inject};
@@ -384,6 +421,7 @@ mod tests {
         app.add_plugins(InputPlugin)
             .add_message::<WindowFocused>()
             .add_message::<CursorMoved>()
+            .add_message::<WindowEvent>()
             .init_resource::<Driver>()
             .init_resource::<DrivenInput>()
             .init_resource::<CursorWrites>()
@@ -461,6 +499,7 @@ mod tests {
         app.add_plugins(InputPlugin)
             .add_message::<WindowFocused>()
             .add_message::<CursorMoved>()
+            .add_message::<WindowEvent>()
             .init_resource::<Driver>()
             .init_resource::<DrivenInput>()
             .add_systems(PreUpdate, inject.before(bevy::input::InputSystems));
@@ -491,6 +530,10 @@ mod tests {
             .filter_map(|event| event.text.as_deref())
             .collect();
         assert_eq!(typed, ["azalea"]);
+        let ordered = app.world().resource::<Messages<WindowEvent>>();
+        assert!(ordered.get_cursor().read(ordered).any(|event|
+            matches!(event, WindowEvent::Ime(Ime::Commit { window, value }) if *window == entity && value == "azalea")));
+
         app.update();
         assert!(app.world().resource::<Driver>().text.is_empty());
     }
@@ -501,6 +544,7 @@ mod tests {
         app.add_plugins(InputPlugin)
             .add_message::<WindowFocused>()
             .add_message::<CursorMoved>()
+            .add_message::<WindowEvent>()
             .init_resource::<Driver>()
             .init_resource::<DrivenInput>()
             .add_systems(PreUpdate, inject.before(bevy::input::InputSystems));
@@ -532,6 +576,7 @@ mod tests {
         app.add_plugins(InputPlugin)
             .add_message::<WindowFocused>()
             .add_message::<CursorMoved>()
+            .add_message::<WindowEvent>()
             .init_resource::<Driver>()
             .add_systems(PreUpdate, inject.before(bevy::input::InputSystems));
         let entity = app

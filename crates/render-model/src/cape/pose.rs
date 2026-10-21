@@ -4,31 +4,22 @@ use super::*;
 /// Retargets animation deltas onto the cape's attachment, independent of the skin's rest markers.
 pub(super) fn cape_pose(
     cape: &CapeRig,
-    body_names: &[Box<str>],
+    bindings: &[crate::CapeBoneBinding],
     body_rest: &impl Fn(usize) -> Option<RenderBoneTransform>,
     body: &[RenderBoneTransform],
 ) -> Arc<[RenderBoneTransform]> {
-    cape.bone_names
+    cape.pose_frames
         .iter()
-        .zip(&cape.pose_frames)
-        .map(|(name, frame)| {
-            let index = body_names
-                .iter()
-                .position(|candidate| candidate.eq_ignore_ascii_case(name));
+        .zip(bindings)
+        .map(|(frame, binding)| {
+            let index = binding.bone;
             let pose = index.and_then(|index| body.get(index).copied());
             match pose {
                 Some(mut pose) => {
-                    let parent_index = if let Some(parent) = &frame.parent {
-                        let Some(index) = body_names
-                            .iter()
-                            .position(|name| name.eq_ignore_ascii_case(parent))
-                        else {
-                            return pose;
-                        };
-                        Some(index)
-                    } else {
-                        None
-                    };
+                    if binding.needs_parent && binding.parent.is_none() {
+                        return pose;
+                    }
+                    let parent_index = binding.parent;
                     let identity = RenderBoneTransform {
                         rotation: Quat::IDENTITY.to_array(),
                         translation_scale: [0.0, 0.0, 0.0, 1.0],
@@ -65,7 +56,7 @@ pub(super) fn cape_pose(
                         }
                     }
                     let mut attached = frame.bind * local * frame.bind.inverse();
-                    if name.eq_ignore_ascii_case("cape") {
+                    if frame.is_cape {
                         attached = bound_cape_rotation(attached);
                     }
                     pose.rotation = (parent * attached).to_array();
@@ -117,19 +108,19 @@ fn total_scale(pose: &RenderBoneTransform) -> Vec3 {
 /// The cape pose with its cape bone placed by Java's cape stack instead of the body's pose.
 pub(super) fn java_cape_pose(
     cape: &CapeRig,
-    body_names: &[Box<str>],
+    bindings: &[crate::CapeBoneBinding],
     body_rest: &impl Fn(usize) -> Option<RenderBoneTransform>,
     body: &[RenderBoneTransform],
     input: &JavaCapeInput,
 ) -> Arc<[RenderBoneTransform]> {
-    let mut pose = cape_pose(cape, body_names, body_rest, body).to_vec();
-    for ((name, bone), pivot) in cape
-        .bone_names
+    let mut pose = cape_pose(cape, bindings, body_rest, body).to_vec();
+    for ((frame, bone), pivot) in cape
+        .pose_frames
         .iter()
         .zip(&mut pose)
         .zip(cape.geometry.bone_pivots.iter())
     {
-        if name.eq_ignore_ascii_case("cape") {
+        if frame.is_cape {
             let (rotation, translation) = java_cape_bone(input, Vec3::from_array(*pivot));
             *bone = RenderBoneTransform {
                 rotation: rotation.to_array(),

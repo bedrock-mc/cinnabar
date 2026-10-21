@@ -4,7 +4,8 @@
 # assets never enter the APK: first launch downloads and compiles them on the device.
 #
 # Needs ANDROID_HOME holding the SDK packages runtime.json pins, the aarch64-linux-android Rust
-# target, cargo-ndk, Go, a JDK and zip. CINNABAR_ANDROID_PROFILE picks the Cargo profile (release).
+# target, cargo-ndk, Go, a JDK, zip and librsvg or ImageMagick for the launcher icon.
+# CINNABAR_ANDROID_PROFILE picks the Cargo profile (release).
 # Signing uses CINNABAR_ANDROID_KEYSTORE and CINNABAR_ANDROID_KEY_ALIAS with passwords in
 # CINNABAR_ANDROID_STORE_PASSWORD and CINNABAR_ANDROID_KEY_PASSWORD, else a generated test key.
 set -euo pipefail
@@ -80,9 +81,9 @@ find "$out/classes" -name '*.class' -print0 |
     xargs -0 "$build_tools/d8" --release --min-api "$min_sdk" --lib "$android_jar" --output "$out/dex"
 cp "$out/dex/classes.dex" "$stage/classes.dex"
 
-"$build_tools/aapt2" link -o "$out/unsigned.apk" -I "$android_jar" \
-    --manifest "$out/AndroidManifest.xml" -A "$stage/assets" \
-    --min-sdk-version "$min_sdk" --target-sdk-version "$(pin target_sdk)"
+# shellcheck source=resources.sh
+source "$here/resources.sh"
+link_apk_resources "$out/AndroidManifest.xml" "$stage/assets" "$out"
 (cd "$stage" && zip -q -r "$out/unsigned.apk" classes.dex lib)
 "$build_tools/zipalign" -P 16 -f 4 "$out/unsigned.apk" "$out/aligned.apk"
 

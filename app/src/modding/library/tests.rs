@@ -1,4 +1,6 @@
+mod native_import;
 use super::*;
+use mod_host::ModHost;
 
 /// Writes a binary component with the host's declared-request custom section.
 fn requested_component(path: &Path, request: &mod_host::ModGrants) {
@@ -23,6 +25,85 @@ fn requested_component(path: &Path, request: &mod_host::ModGrants) {
     length(section.len(), &mut bytes);
     bytes.extend(section);
     fs::write(path, bytes).unwrap();
+}
+
+/// Writes requested permissions and a version into a binary component's declarations.
+fn versioned_component(path: &Path, request: &mod_host::ModGrants, version: &str) {
+    requested_component(path, request);
+    let mut bytes = fs::read(path).unwrap();
+    let section = [&[7u8][..], b"version", version.as_bytes()].concat();
+    bytes.extend([0, u8::try_from(section.len()).unwrap()]);
+    bytes.extend(section);
+    fs::write(path, bytes).unwrap();
+}
+
+#[test]
+fn source_revisions_refresh_cached_declarations() {
+    for external in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let mods = directory.path().join("mods");
+        let registration = directory.path().join("config");
+        fs::create_dir_all(&mods).unwrap();
+        let path = if external {
+            directory.path().join("zoom.wasm")
+        } else {
+            mods.join("zoom.wasm")
+        };
+        let mut requested = mod_host::ModGrants {
+            camera: true,
+            ..Default::default()
+        };
+        versioned_component(&path, &requested, "1.0");
+        select(&registration, &path, true, "enable".into()).unwrap();
+        let mut cache = BTreeMap::new();
+        for version in ["1.0", "2.0-rebuilt", "3.0-replaced"] {
+            if version != "1.0" {
+                requested.settings = true;
+                if version == "3.0-replaced" {
+                    let replacement = directory.path().join("replacement.wasm");
+                    versioned_component(&replacement, &requested, version);
+                    fs::remove_file(&path).unwrap();
+                    fs::rename(replacement, &path).unwrap();
+                } else {
+                    versioned_component(&path, &requested, version);
+                }
+            }
+            let library = scan_cached(&mods, &registration, String::new(), &mut cache);
+            let [item] = library.installed.as_slice() else {
+                panic!("one registered component");
+            };
+            assert_eq!(
+                item.metadata.version.as_deref(),
+                Some(version),
+                "external: {external}"
+            );
+            assert_eq!(library.active[0].id, item.id);
+            for (permission, capability) in item
+                .permissions
+                .iter()
+                .zip(mod_host::ModGrants::CAPABILITIES)
+            {
+                assert_eq!(permission.requested, Some((capability.enabled)(&requested)));
+                assert!(
+                    !permission.enabled,
+                    "refreshing declarations cannot grant permission"
+                );
+            }
+            let unchanged = scan_cached(&mods, &registration, String::new(), &mut cache);
+            assert_eq!(unchanged, library);
+            assert_eq!(cache.len(), 1);
+        }
+        fs::remove_file(&path).unwrap();
+        let missing = scan_cached(&mods, &registration, String::new(), &mut cache);
+        assert_eq!(missing.installed[0].metadata, Default::default());
+        versioned_component(&path, &requested, "4.0");
+        let restored = scan_cached(&mods, &registration, String::new(), &mut cache);
+        assert_eq!(
+            restored.installed[0].metadata.version.as_deref(),
+            Some("4.0")
+        );
+        assert_eq!(cache.len(), 1);
+    }
 }
 
 #[test]
@@ -463,7 +544,7 @@ fn removal_waits_for_pending_settings_before_deleting_files() {
     };
     let (commands, incoming) = unbounded();
     let (outgoing, published) = unbounded();
-    commands.send(Action::Remove(id)).unwrap();
+    commands.send(Command::Action(Action::Remove(id))).unwrap();
     drop(commands);
     run(
         &mods,
@@ -597,8 +678,8 @@ fn cancelling_import_publishes_idle_and_allows_more_commands() {
     let directory = tempfile::tempdir().unwrap();
     let (commands, incoming) = unbounded();
     let (outgoing, published) = unbounded();
-    commands.send(Action::Import).unwrap();
-    commands.send(Action::Import).unwrap();
+    commands.send(Command::Action(Action::Import)).unwrap();
+    commands.send(Command::Action(Action::Import)).unwrap();
     drop(commands);
     run(
         &directory.path().join("mods"),
@@ -880,7 +961,7 @@ fn active_cards_remain_actionable_after_their_source_disappears() {
             serde_json::to_vec(&serde_json::json!({
                 "version": record["version"], "request_id": record["request_id"],
                 "independent_registration": true, "client_pid": std::process::id(),
-                "mods": [{"component": record["mods"][0]["component"], "state": "reload-error", "message": "source missing"}]
+                "mods": [{"component": record["mods"][0]["component"], "state": "reload-error", "message": "source missing", "reload": record["mods"][0]["reload"].as_u64().unwrap_or_default()}]
             })).unwrap()).unwrap();
         let original_id = scan(&mods, &registration, String::new()).active[0].id;
         if rename_directory {
@@ -1008,3 +1089,47 @@ fn scanned_cards_show_declared_metadata_or_the_file_stem() {
     assert_eq!(zoom.name(), "zoom");
     assert_eq!(zoom.metadata.version.as_deref(), Some("1.2.0"));
 }
+
+#[test]
+fn importing_a_large_packet_source_keeps_bytes_and_permissions_default_off() {
+    let root = tempfile::tempdir().unwrap();
+    let mods = root.path().join("mods");
+    let path = root.path().join("large.wasm");
+    let fixture = include_str!("../../../../crates/mod-host/src/packet_mod/tests/guest.wat")
+        .replace("$IMPORTS", "")
+        .replace("$START", "");
+    let mut bytes = wat::parse_str(fixture).unwrap();
+    // A large inert custom section models a runtime's size without changing its guest behavior.
+    let mut section = vec![0; mod_host::MAX_COMPONENT_SOURCE_BYTES + 1];
+    section[0] = 0; // Empty custom-section name.
+    bytes.push(0);
+    let mut length = section.len();
+    loop {
+        let next = (length & 127) as u8;
+        length >>= 7;
+        bytes.push(next | if length != 0 { 128 } else { 0 });
+        if length == 0 {
+            break;
+        }
+    }
+    bytes.extend(section);
+    fs::write(&path, &bytes).unwrap();
+    import(&mods, &path).unwrap();
+    assert_eq!(fs::read(mods.join("large.wasm")).unwrap(), bytes);
+    let declared = mod_host::declarations(&mods.join("large.wasm"))
+        .unwrap()
+        .requested
+        .unwrap()
+        .unwrap();
+    assert!(declared.packets);
+    let selected = root.path().join("config");
+    selection::select(&selected, &mods.join("large.wasm"), true, "enable".into()).unwrap();
+    let entry = selection::registered(&selected).pop().unwrap().entry;
+    assert!(
+        !entry.grants.packets,
+        "importing and enabling never silently grant packet authority"
+    );
+}
+
+#[path = "tests/packet_flow.rs"]
+mod packet_flow;

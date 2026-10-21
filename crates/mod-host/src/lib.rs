@@ -1,8 +1,14 @@
 //! Experimental component host. Only the explicit WIT imports carry authority.
 
 mod declarations;
+mod source;
+pub use source::{SourceKind, read_source, validate_source};
+mod drawing_policy;
+use drawing_policy::DrawingRestart;
 mod grants;
-pub use declarations::{Declarations, REQUESTED_GRANTS_SECTION, declarations};
+pub use declarations::{
+    Declarations, REQUESTED_GRANTS_SECTION, declarations, declarations_snapshot,
+};
 pub mod helper;
 pub use grants::{Capability, ModGrants};
 mod callback_budget;
@@ -17,26 +23,28 @@ pub mod local_files;
 pub mod module_observations;
 mod outputs;
 pub mod package;
+pub mod packet_mod;
 mod runtime;
 mod screens;
 pub mod server;
 mod settings;
 mod terrain;
-pub use settings::settings_companion;
+pub use settings::{SettingsSnapshot, settings_companion};
 
 pub use screens::{DataSource, KeyModifiers, LoadedPackage, ModEvent, ModScreens};
 
 pub use runtime::cinnabar::extension::gameplay::{
     CameraRig as GameplayCameraRig, Mob as GameplayMob,
-    MovementSnapshot as GameplayMovementSnapshot, Player as GameplayPlayer,
+    MovementSnapshot as GameplayMovementSnapshot, MovementToggles, Player as GameplayPlayer,
     Snapshot as GameplaySnapshot, Vector3 as GameplayVector3,
 };
 pub use runtime::cinnabar::extension::player_state::{
     Actor as ActorObservation, Bounds as ActorObservationBounds,
     ChatMessage as ObservedChatMessage, CombatEvent as CombatObservation, CombatKind,
     Effect as PlayerStateEffect, Food as FoodObservation, Item as PlayerStateItem,
-    Motion as MotionObservation, Sidebar as SidebarSnapshot, SidebarRow, Slot as PlayerStateSlot,
-    Snapshot as PlayerStateSnapshot, Vitals as VitalsObservation, WorldObservation,
+    Motion as MotionObservation, ObservedActor, Sidebar as SidebarSnapshot, SidebarRow,
+    Slot as PlayerStateSlot, Snapshot as PlayerStateSnapshot, Vitals as VitalsObservation,
+    WorldObservation,
 };
 pub use runtime::cinnabar::extension::{
     events::Cue as ModCue, input::Controls as ControlFrame, panel::Event as ControlEvent,
@@ -60,6 +68,20 @@ pub use terrain::{
 pub struct InteractionOutput {
     pub attack_reach: Option<f32>,
     pub attack_pulse: bool,
+}
+
+/// A vanilla inventory request a player mod committed, consumed once; the client makes it as
+/// the vanilla screen it stands for would, and the server checks it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InventoryRequest {
+    /// A creative catalog take of `count` of the item `identifier` with `aux`.
+    CreativeTake {
+        identifier: String,
+        aux: u16,
+        count: u8,
+    },
+    /// One recipe book craft of crafting recipe `network_id`.
+    FillRecipe { network_id: u32 },
 }
 
 /// Committed local actor rotation; yaw turns left and pitch turns up, in radians.
@@ -92,7 +114,8 @@ pub(crate) const FRAME_FUEL: u64 = 100_000;
 pub(crate) const MEMORY_BYTES: usize = 16 * 1024 * 1024;
 
 /// Where a mod came from, which reload reads again.
-enum Source {
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Source {
     Component(PathBuf),
     Package(PathBuf),
 }
@@ -108,8 +131,9 @@ pub struct ModHost {
     panel_bundle_override: Option<Arc<ui::mod_panel::PanelBundle>>,
     source: Source,
     attempted: [u8; 32],
+    admitted_digest: [u8; 32],
     grants: ModGrants,
-    /// The loader's authorization before the manifest narrows package permissions.
+    /// The loader's authorization before component or manifest requests narrow it.
     authorized_grants: ModGrants,
     settings_writer: Option<settings::SettingsWriter>,
     settings_seed: Option<String>,
@@ -117,6 +141,8 @@ pub struct ModHost {
     package: Option<LoadedPackage>,
     layout: Option<ScreenLayout>,
     session: Arc<SessionData>,
+    drawing_session: Option<mod_api::drawing::DrawingSession>,
+    drawing_restart: DrawingRestart,
 }
 
 /// Builds an empty, unfocused control snapshot for a frame with no routed input.

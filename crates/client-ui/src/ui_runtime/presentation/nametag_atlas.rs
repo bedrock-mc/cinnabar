@@ -630,31 +630,21 @@ mod tests {
         };
         let plain = build("AB\nA");
         let bold = build("§lAB\n§rA");
-        assert_eq!(plain.records.len(), 6);
-        assert_eq!(bold.records.len(), 6);
+        assert_eq!(plain.records.len(), 4);
+        assert_eq!(bold.records.len(), 4);
         assert_eq!(bold.records[0].rect[0], plain.records[0].rect[0] - 1.0);
         assert_eq!(bold.records[0].rect[2], plain.records[0].rect[2] + 1.0);
         assert_eq!(bold.records[0].color, plain.records[0].color);
         assert_eq!(bold.records[1].rect, plain.records[1].rect);
         assert_eq!(bold.records[3].rect, plain.records[3].rect);
         for scene in [&plain, &bold] {
+            assert!(scene.records.iter().all(|record| record.depth_tested == 0));
             assert!(
-                scene.records[..4]
+                scene.records[2..]
                     .iter()
-                    .all(|record| record.depth_tested == 0)
+                    .all(|record| record.color == [1.0; 4])
             );
-            assert!(
-                scene.records[4..]
-                    .iter()
-                    .all(|record| record.depth_tested != 0)
-            );
-            for (dim, full) in scene.records[2..4].iter().zip(&scene.records[4..]) {
-                assert_eq!(full.rect, dim.rect);
-                assert_eq!(full.uv, dim.uv);
-                assert_eq!(full.color, [1.0; 4]);
-            }
         }
-        assert_eq!(bold.records[5].rect, plain.records[5].rect);
     }
 
     /// Builds the labels used by the original full-atlas timing fixture.
@@ -662,7 +652,7 @@ mod tests {
         let font = ui_engine::test_support::fixture_font();
         let mut layouts = TextLayoutCache::new(256, 1 << 20);
         let mut atlas = NametagAtlas::default();
-        let started = std::time::Instant::now();
+        let started = web_time::Instant::now();
         for index in 0..100 {
             let text = Arc::from(format!("Player {index}"));
             atlas

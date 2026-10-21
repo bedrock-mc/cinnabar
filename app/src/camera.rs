@@ -49,6 +49,7 @@ impl Default for FlyCameraPlugin {
 
 impl Plugin for FlyCameraPlugin {
     fn build(&self, app: &mut App) {
+        #[cfg(not(target_arch = "wasm32"))]
         focus::install(app);
         app.add_plugins(client_interaction::camera::CameraInputPlugin);
         app.add_plugins(CameraPresentationPlugin {
@@ -71,6 +72,7 @@ impl Plugin for FlyCameraPlugin {
             (
                 spawn_fly_camera,
                 overlay_publish::load_overlay_textures,
+                #[cfg(not(target_arch = "wasm32"))]
                 aim_highlight::load_base_textures,
             ),
         )
@@ -108,6 +110,7 @@ impl Plugin for FlyCameraPlugin {
                     .after(ClientFrameSet::Camera)
                     .after(ClientFrameSet::ActorPreparation)
                     .before(ClientFrameSet::UiPreparation),
+                #[cfg(not(target_arch = "wasm32"))]
                 update_cursor_capture
                     .before(client_interaction::camera::update_perspective)
                     .in_set(FlyCameraUpdateSet),

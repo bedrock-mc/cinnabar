@@ -139,10 +139,9 @@ impl Fixture {
         let clock = gpu.words(&[0; 4], uniform);
         let frame = render_scene::AtmosphereFrame::default();
         let atmosphere = gpu.buffer(bytemuck::cast_slice(std::slice::from_ref(&frame)), uniform);
-        let lightmap = gpu.buffer(
-            bytemuck::cast_slice(&render_model::LightmapInputs::default().build()),
-            uniform,
-        );
+        let lightmap = gpu.lightmap(bytemuck::cast_slice(
+            &render_model::LightmapInputs::default().build(),
+        ));
         let eye = Vec3::new(1.0, 4.0, 1.0);
         let world_from_view =
             glam::camera::rh::view::look_at_mat4(eye, Vec3::new(1.0, 0.0, 1.0), Vec3::Z);

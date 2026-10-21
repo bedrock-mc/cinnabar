@@ -99,24 +99,29 @@ fn the_recipe_book_lists_one_usable_recipe_per_output() {
     for count in [4, 1] {
         session.ledger_mut().apply(&held(count));
         for filtering in [false, true] {
-            let listed = session.book_recipes(filtering, 0, usize::MAX);
+            let listed = session.book_recipes(filtering, false, 0, usize::MAX);
             assert_eq!(
                 listed
                     .iter()
-                    .map(RecipeHandle::network_id)
+                    .map(|entry| entry.recipe.network_id())
                     .collect::<Vec<_>>(),
                 [2, 3]
             );
-            assert_eq!(session.book_recipes(filtering, 1, 1)[0].network_id(), 3);
+            assert_eq!(
+                session.book_recipes(filtering, false, 1, 1)[0]
+                    .recipe
+                    .network_id(),
+                3
+            );
         }
     }
     session.ledger_mut().apply(&held(0));
-    assert!(session.book_recipes(true, 0, usize::MAX).is_empty());
+    assert!(session.book_recipes(true, false, 0, usize::MAX).is_empty());
     assert_eq!(
         session
-            .book_recipes(false, 0, usize::MAX)
+            .book_recipes(false, false, 0, usize::MAX)
             .iter()
-            .map(RecipeHandle::network_id)
+            .map(|entry| entry.recipe.network_id())
             .collect::<Vec<_>>(),
         [1, 3]
     );

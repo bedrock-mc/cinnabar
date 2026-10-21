@@ -220,9 +220,20 @@ fn flowers_grass_and_mushrooms_are_pickable_but_remain_passable() {
             assert_eq!(hit.runtime_id, id, "must select {name} above support");
             assert_eq!(hit.block_pos, [8, 8, 8]);
             assert_eq!(hit.face, 1);
-            // Native world-space f32 translation rounds the local fraction;
-            // compare against that translated face, not the pre-translation one.
-            let expected_y = expected.translated(Vec3::new(8.0, 8.0, 8.0)).max.y - 8.0;
+            let offset = if matches!(name, "minecraft:short_grass" | "minecraft:fern") {
+                block_transform::random_offset::SHORT_GRASS.offset([8; 3])
+            } else {
+                [0.0; 3]
+            };
+            let origin = Vec3::new(
+                f64::from(8.0 + offset[0]),
+                f64::from(8.0 + offset[1]),
+                f64::from(8.0 + offset[2]),
+            );
+            assert_eq!(registry.block_shape_offset(id, [8; 3]), Some(origin));
+            // Selection follows the displaced model with world-space f32 rounding.
+            let world_bounds = expected.translated(origin);
+            let expected_y = world_bounds.max.y - 8.0;
             assert_eq!(hit.hit_local.y, expected_y, "native top face for {name}");
             let edge = world
                 .block_interaction_ray_current(
@@ -232,10 +243,10 @@ fn flowers_grass_and_mushrooms_are_pickable_but_remain_passable() {
                 )
                 .unwrap()
                 .unwrap();
-            let edge_is_inside = expected.min.x < 0.01
-                && expected.min.z < 0.01
-                && expected.max.x > 0.01
-                && expected.max.z > 0.01;
+            let edge_is_inside = world_bounds.min.x < 8.01
+                && world_bounds.min.z < 8.01
+                && world_bounds.max.x > 8.01
+                && world_bounds.max.z > 8.01;
             assert_eq!(
                 edge.block_pos,
                 if edge_is_inside { [8, 8, 8] } else { [8, 7, 8] },

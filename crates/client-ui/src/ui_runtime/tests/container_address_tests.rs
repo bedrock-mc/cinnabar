@@ -146,8 +146,25 @@ fn default_descriptor_packets_establish_selected_stack_authority_in_the_ledger()
     runtime.drain_pending_inventory(&mut player_runtime);
     let selected = player_runtime.selected_stack_snapshot().unwrap();
     assert_eq!(selected.slot, 4);
-    assert!(matches!(
+    assert_eq!(
         selected.state,
+        inventory::inventory_ledger::PlayerInventorySlot::Empty,
+        "a Slot outside the replacement Content extent is ignored"
+    );
+    for (sequence, event) in [
+        (
+            4,
+            decode_inventory_event(default_descriptor_full_inventory_fixture()),
+        ),
+        (5, decode_inventory_event(default_descriptor_slot_fixture())),
+    ] {
+        runtime
+            .enqueue_inventory_event(&mut player_runtime, 1, sequence, event)
+            .unwrap();
+    }
+    runtime.drain_pending_inventory(&mut player_runtime);
+    assert!(matches!(
+        player_runtime.selected_stack_snapshot().unwrap().state,
         inventory::inventory_ledger::PlayerInventorySlot::Present(_)
     ));
 }
@@ -163,7 +180,7 @@ fn cursor_slot_type_events_only_reach_the_cursor_cell() {
     runtime
         .enqueue_inventory_event(&mut player_runtime, 1, 1, content(identity(0, None), slots))
         .unwrap();
-    // Cursor Slot and Content events ride the UI window naming the cursor container.
+    // UI Slot zero writes the cursor; a short UI Content payload is ignored.
     runtime
         .enqueue_inventory_event(
             &mut player_runtime,
@@ -182,13 +199,13 @@ fn cursor_slot_type_events_only_reach_the_cursor_cell() {
         .unwrap();
     runtime.drain_pending_inventory(&mut player_runtime);
 
-    // The cursor events belong to the cursor cell only.
+    // The valid Slot update reaches only the cursor cell.
     assert_eq!(
         runtime
             .inventory_ledger(&player_runtime)
             .cursor_stack()
             .map(|stack| stack.network_id),
-        Some(888)
+        Some(777)
     );
     assert_eq!(
         runtime
@@ -515,15 +532,15 @@ fn fixture_named_inventory_slot_updates_land_in_player_cells() {
             .inventory_ledger(&player_runtime)
             .storage_stack(3)
             .map(|stack| stack.network_id),
-        None,
-        "the player-inventory alias never reaches an open storage window"
+        Some(33),
+        "an ordinary packet names the open window by ID"
     );
     assert_eq!(
         runtime
             .inventory_ledger(&player_runtime)
             .skipped_unknown_containers(),
-        3,
-        "the off-window alias resolved onto no retained cell and was counted"
+        2,
+        "the matching ordinary packet was admitted"
     );
     runtime
         .inventory_ledger_mut(&mut player_runtime)
@@ -537,8 +554,8 @@ fn fixture_named_inventory_slot_updates_land_in_player_cells() {
             .inventory_ledger(&player_runtime)
             .storage_stack(3)
             .map(|stack| stack.network_id),
-        None,
-        "a wrong-window storage identity is dropped without mutation"
+        Some(33),
+        "a wrong-window storage identity preserves the admitted cell"
     );
     assert_eq!(
         runtime
@@ -768,4 +785,65 @@ fn accepted_response_corrections_resolve_through_the_same_canonical_projection()
             .map(|stack| stack.network_id),
         Some(404)
     );
+}
+
+/// HUD offhand presentation follows admitted ledger state instead of packet names.
+#[test]
+fn offhand_hud_follows_admitted_inventory_routing() {
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    server_ledger(&mut player, &mut runtime);
+    for (sequence, event, cursor, offhand) in [
+        (
+            1,
+            slot_event(
+                identity(
+                    protocol::UI_INVENTORY_WINDOW_ID,
+                    Some(protocol::CONTAINER_NAME_OFFHAND),
+                ),
+                0,
+                stack(77),
+            ),
+            Some(77),
+            None,
+        ),
+        (
+            2,
+            slot_event(identity(protocol::OFFHAND_WINDOW_ID, None), 0, stack(78)),
+            Some(77),
+            None,
+        ),
+        (
+            3,
+            content(identity(protocol::OFFHAND_WINDOW_ID, None), vec![stack(79)]),
+            Some(77),
+            Some(79),
+        ),
+        (
+            4,
+            slot_event(identity(protocol::OFFHAND_WINDOW_ID, None), 0, stack(80)),
+            Some(77),
+            Some(79),
+        ),
+    ] {
+        runtime
+            .enqueue_inventory_event(&mut player, 1, sequence, event)
+            .unwrap();
+        runtime.drain_pending_inventory(&mut player);
+        assert_eq!(
+            runtime
+                .inventory_ledger(&player)
+                .cursor_stack()
+                .map(|stack| stack.network_id),
+            cursor
+        );
+        assert_eq!(
+            runtime
+                .gameplay_hud()
+                .offhand_stack()
+                .filter(|stack| !stack.is_empty())
+                .map(|stack| stack.network_id),
+            offhand
+        );
+    }
 }

@@ -1,10 +1,11 @@
-//! Camera, actor and equipment presentation over borrowed client observations.
+//! Camera, actor, equipment and environment presentation over borrowed client observations.
 pub mod actor_clock;
 pub mod actor_publication;
 pub mod actor_sampling;
 pub mod aim_assist;
 pub mod dropped_items;
 pub mod entity_shadows;
+pub mod environment;
 pub mod prepared_actor_artwork;
 pub mod presentation;
 pub mod primitive_shapes;
@@ -26,6 +27,9 @@ mod molang_conformance_tests;
 
 #[cfg(test)]
 mod perspective_head_tests;
+
+#[cfg(test)]
+mod selection_test_support;
 
 #[cfg(test)]
 #[global_allocator]

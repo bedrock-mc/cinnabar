@@ -9,7 +9,7 @@ use {
 impl MenuRuntime {
     /// Whether binding capture currently owns desktop input.
     pub fn is_remapping_key(&self) -> bool {
-        self.key_remap.is_some()
+        self.settings.key_remap.is_some()
     }
 
     /// Applies settings navigation and edits without starting a game session.
@@ -17,20 +17,20 @@ impl MenuRuntime {
         match action {
             MenuAction::SettingsResetChat => self.reset_chat_settings(),
             MenuAction::SettingsAdvancedGraphics => {
-                self.settings_advanced_graphics = !self.settings_advanced_graphics;
+                self.settings.advanced_graphics = !self.settings.advanced_graphics;
             }
             MenuAction::SettingsScale(offset) => {
                 self.set_gui_scale_offset(offset);
-                if self.settings_scale_picker {
-                    self.settings_scale_picker = false;
-                    self.settings_focus = vec![MenuAction::SettingsScalePicker];
+                if self.settings.scale_picker {
+                    self.settings.scale_picker = false;
+                    self.settings_input.actions = vec![MenuAction::SettingsScalePicker];
                     self.focused = 0;
                 }
             }
             MenuAction::SettingsScalePicker => {
-                self.settings_dropdown = None;
-                self.settings_scale_picker = !self.settings_scale_picker;
-                self.settings_focus = vec![if self.settings_scale_picker {
+                self.settings.dropdown = None;
+                self.settings.scale_picker = !self.settings.scale_picker;
+                self.settings_input.actions = vec![if self.settings.scale_picker {
                     MenuAction::SettingsScale(self.gui_scale_display_offset)
                 } else {
                     MenuAction::SettingsScalePicker
@@ -42,22 +42,22 @@ impl MenuRuntime {
                 self.fullscreen_change = Some(fullscreen);
             }
             MenuAction::SettingsSection(section) => {
-                self.settings_slider_selected = None;
-                self.settings_section = section;
+                self.settings.slider_selected = None;
+                self.settings.section = section;
                 if section == launcher::menu::settings_storage::SECTION_INDEX {
                     self.refresh_storage();
                 }
-                self.settings_dropdown = None;
-                self.settings_scale_picker = false;
-                self.key_remap = None;
+                self.settings.dropdown = None;
+                self.settings.scale_picker = false;
+                self.settings.key_remap = None;
             }
             MenuAction::SettingsOption(index, value) => {
-                if self.settings_dropdown == Some(index) {
-                    self.settings_focus = vec![MenuAction::SettingsDropdown(index)];
+                if self.settings.dropdown == Some(index) {
+                    self.settings_input.actions = vec![MenuAction::SettingsDropdown(index)];
                     self.focused = 0;
                 }
                 self.set_option(index, value);
-                self.settings_dropdown = None;
+                self.settings.dropdown = None;
             }
             MenuAction::SettingsVideoPreset(preset) => {
                 let overrides = self.session_overrides.len();
@@ -71,15 +71,15 @@ impl MenuRuntime {
                     self.settings_dirty = true;
                     self.settings_apply = true;
                 }
-                self.settings_dropdown = None;
-                self.settings_scale_picker = false;
-                self.settings_slider_selected = None;
+                self.settings.dropdown = None;
+                self.settings.scale_picker = false;
+                self.settings.slider_selected = None;
             }
             MenuAction::SettingsLanguage(index) => self.set_language(index),
             MenuAction::SettingsDropdown(index) => {
-                self.settings_scale_picker = false;
-                self.settings_dropdown = (self.settings_dropdown != Some(index)).then_some(index);
-                self.settings_focus = vec![if self.settings_dropdown.is_some() {
+                self.settings.scale_picker = false;
+                self.settings.dropdown = (self.settings.dropdown != Some(index)).then_some(index);
+                self.settings_input.actions = vec![if self.settings.dropdown.is_some() {
                     MenuAction::SettingsOption(index, self.settings_options.get(usize::from(index)))
                 } else {
                     MenuAction::SettingsDropdown(index)
@@ -99,11 +99,11 @@ impl MenuRuntime {
                 }
                 self.dialog = None;
                 Arc::make_mut(&mut self.settings_options).reset_bindings(gamepad);
-                self.key_remap = None;
+                self.settings.key_remap = None;
                 self.settings_dirty = true;
                 self.settings_apply = true;
             }
-            MenuAction::SettingsKey(index) => self.key_remap = Some(index),
+            MenuAction::SettingsKey(index) => self.settings.key_remap = Some(index),
             MenuAction::SettingsMacroCommand(slot) => {
                 self.focus_field(MenuField::MacroCommand(slot));
             }
@@ -128,7 +128,7 @@ impl MenuRuntime {
 
     /// Captures a desktop key or pointer button for the pending remap operation.
     pub(in crate::menu) fn capture_key(&mut self, control: semantic_input::PhysicalControl) {
-        let Some(index) = self.key_remap.take() else {
+        let Some(index) = self.settings.key_remap.take() else {
             return;
         };
         let settings = Arc::make_mut(&mut self.settings_options);
@@ -149,7 +149,7 @@ impl MenuRuntime {
 
     /// Ends capture, clearing only a selected keyboard row's assignments.
     pub(in crate::menu) fn capture_escape(&mut self) {
-        let Some(index) = self.key_remap.take().map(usize::from) else {
+        let Some(index) = self.settings.key_remap.take().map(usize::from) else {
             return;
         };
         if macro_row(index).is_none() && Arc::make_mut(&mut self.settings_options).unbind_key(index)

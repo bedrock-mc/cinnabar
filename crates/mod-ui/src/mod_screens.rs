@@ -413,7 +413,7 @@ impl ModUi {
 }
 
 /// Every `#item_id_aux` integer the bound values and rows name.
-fn icon_keys(data: &screen::Modal) -> BTreeSet<i64> {
+pub(crate) fn icon_keys(data: &screen::Modal) -> BTreeSet<i64> {
     let key = |name: &String, value: &screen::Value| match value {
         screen::Value::Integer(key) if name == "#item_id_aux" => Some(*key),
         _ => None,

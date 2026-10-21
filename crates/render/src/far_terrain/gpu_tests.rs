@@ -112,6 +112,39 @@ fn a_burst_reserves_once_and_continues_on_unchanged_frames() {
     assert_eq!(writes, (0, 0));
 }
 
+/// An empty scene (far terrain off, or a shader pack drawing the world) gives back the grown
+/// quads, records and colour layers.
+#[test]
+fn an_empty_scene_releases_grown_storage() {
+    use bevy::{ecs::system::RunSystemOnce, prelude::World};
+    let (device, queue) = device();
+    let mut world = World::new();
+    world.insert_resource(FarTerrainGpu::new(&device));
+    world.insert_resource(device);
+    world.insert_resource(queue);
+    let tiles: Arc<[Arc<TileMesh>]> = tiles(UPLOAD_TILES_PER_FRAME).into();
+    world.insert_resource(FarTerrainScene {
+        tiles,
+        ..Default::default()
+    });
+    world.run_system_once(prepare_far_terrain).unwrap();
+    let gpu = world.resource::<FarTerrainGpu>();
+    assert!(gpu.slots > 1 && gpu.quad_capacity > 1);
+    world.insert_resource(FarTerrainScene::default());
+    world.run_system_once(prepare_far_terrain).unwrap();
+    let gpu = world.resource::<FarTerrainGpu>();
+    assert!(gpu.resident.is_empty() && gpu.draws.is_empty());
+    assert_eq!((gpu.slots, gpu.quad_capacity), (1, 1));
+    assert_eq!(
+        (
+            gpu.quads.size(),
+            gpu.records.size(),
+            gpu.colours.depth_or_array_layers()
+        ),
+        (QUAD_BYTES, TILE_RECORD_BYTES, 1)
+    );
+}
+
 #[test]
 fn upload_bytes_are_bounded_and_an_oversized_first_tile_can_progress() {
     let (device, queue) = device();
@@ -324,4 +357,29 @@ fn assert_gpu_bytes(gpu: &FarTerrainGpu, device: &RenderDevice, queue: &RenderQu
     }
     drop(data);
     readback.unmap();
+}
+
+/// A view that drew before far terrain was released drops the bind group holding the old storage.
+#[test]
+fn releasing_a_drawn_view_drops_its_bind_group() {
+    let (device, _) = device();
+    let gpu = FarTerrainGpu::new(&device);
+    let layout = device.create_bind_group_layout("far terrain test layout", &[]);
+    let key = BindGroupKey {
+        view_uniforms: gpu.mask.id(),
+        quads: gpu.quads.id(),
+        records: gpu.records.id(),
+        colours: gpu.colours_view.id(),
+        mask: gpu.mask.id(),
+    };
+    let mut view = FarTerrainView {
+        pipeline: CachedRenderPipelineId::INVALID,
+        visible: Vec::new(),
+        bind_group: Some((
+            key,
+            device.create_bind_group("far terrain test", &layout, &[]),
+        )),
+    };
+    view.release();
+    assert!(view.bind_group.is_none() && view.visible.is_empty());
 }

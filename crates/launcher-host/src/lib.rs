@@ -24,3 +24,6 @@ pub mod video_settings;
 
 pub mod memory;
 pub mod minecraft_import;
+pub mod mod_updates;
+
+pub mod cosmetics;

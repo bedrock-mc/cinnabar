@@ -1,3 +1,4 @@
+use super::vertices::changed_span;
 use super::*;
 use bevy::ecs::system::RunSystemOnce;
 
@@ -105,6 +106,8 @@ fn recurring_vertices_do_not_allocate_native_staging_buffers() {
         return;
     };
     let world = app.sub_app_mut(RenderApp).world_mut();
+    world.init_resource::<render_scene::BlockEntityFrameResource>();
+    world.init_resource::<render_scene::BlockSelectionFrameResource>();
     let mut vertices = vec![BlockEntityVertex::default(); 6];
     world
         .resource_mut::<render_scene::BlockEntityFrameResource>()
@@ -117,10 +120,11 @@ fn recurring_vertices_do_not_allocate_native_staging_buffers() {
         .staged_writes;
     for generation in 1..=3 {
         vertices[0].position[0] = generation as f32;
-        let mut frame = world.resource_mut::<render_scene::BlockEntityFrameResource>();
-        frame.solid = Arc::from(vertices.clone());
-        frame.revision += 1;
-        drop(frame);
+        {
+            let mut frame = world.resource_mut::<render_scene::BlockEntityFrameResource>();
+            frame.solid = Arc::from(vertices.clone());
+            frame.revision += 1;
+        }
         world.run_system_once(prepare_resources).unwrap();
         assert_eq!(crate::upload_allocation_tests::buffers(world), before);
     }

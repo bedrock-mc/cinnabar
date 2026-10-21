@@ -3,8 +3,8 @@ use render_model::{ActorDrawManifestEntry, ActorRigRoute, MAX_ACTOR_RENDER_INSTA
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
-    time::Instant,
 };
+use web_time::Instant;
 pub const MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS: usize = 64;
 
 pub const MAX_ACTOR_PRESENTATION_CALLBACKS: usize = 8;

@@ -79,6 +79,7 @@
     {
       "name": "ContributorRole",
       "default": "Primary",
+      "serde": true,
       "go_prefix": "Contributor",
       "go_max": "maxContributorRole",
       "values": [
@@ -208,6 +209,7 @@
     {
       "name": "BlockFlags",
       "go_all": "allBlockFlags",
+      "serde": true,
       "values": [
         {"name": "AIR", "bit": 0, "go_name": "flagAir", "source": true, "doc": null},
         {"name": "CUBE_GEOMETRY", "bit": 1, "go_name": "flagCubeGeometry", "source": true, "doc": null},
@@ -297,7 +299,8 @@
         {"name": "CANDLE", "bit": 58, "go_name": "traitCandle", "source": true},
         {"name": "CORAL", "bit": 59, "go_name": "traitCoral", "source": true},
         {"name": "BLOCK_ENTITY_BACKING", "bit": 60, "go_name": "traitBlockEntityBacking", "source": true},
-        {"name": "FARMLAND", "bit": 61, "go_name": "traitFarmland", "source": true}
+        {"name": "FARMLAND", "bit": 61, "go_name": "traitFarmland", "source": true},
+        {"name": "CAN_CONTAIN_LIQUID_SOURCE", "bit": 62, "go_name": "traitCanContainLiquidSource", "source": true}
       ]
     }
   ],

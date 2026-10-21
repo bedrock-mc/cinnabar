@@ -122,6 +122,22 @@ fn negotiated_capacity_retains_exact_positive_int_values_and_original_digest() {
 }
 
 #[test]
+fn creative_category_survives_registry_admission_with_its_typed_default() {
+    for (property, expected) in [
+        (int_tag("creative_category", 3), 3),
+        (int_tag("creative_category", 257), 1),
+        (byte_tag("creative_category", 3), 0),
+    ] {
+        let data = root_compound(&[compound_tag(
+            "components",
+            &[compound_tag("item_properties", &[property])],
+        )]);
+        let entry = normalize(registry_entry(data, true, ItemVersion::Datadriven)).unwrap();
+        assert_eq!(entry.components.unwrap().creative_category, Some(expected));
+    }
+}
+
+#[test]
 fn repeated_registry_declaration_retains_its_populated_definition() {
     let populated = capacity_component(16);
     let digest: [u8; 32] = Sha256::digest(&populated.0).into();

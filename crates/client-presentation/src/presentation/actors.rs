@@ -7,7 +7,7 @@ use client_world::{ActorSnapshot, PlayerProfile};
 use protocol::{ActorKind, PlayerSkin};
 use render_api::SkinRgba8;
 use render_model::{
-    ActorSkinPixels, EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform,
+    ACTOR_LAYER_BODY, ActorSkinPixels, EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform,
     default_actor_skin_rgba8,
 };
 use {
@@ -50,6 +50,17 @@ pub struct ActorPresentationBatch {
     /// One native-sized square RGBA8 skin per frame-local texture layer index.
     pub skin_layers: Vec<SkinRgba8>,
     pub artwork: HashMap<ActorRenderIdentity, ActorArtworkLocation>,
+}
+
+impl ActorPresentationBatch {
+    /// The runtime-skin flag for an admitted body, or none when controllers cannot style it.
+    pub(crate) fn body_render_skin(&self, body: &ActorRigSubmission) -> Option<bool> {
+        let catalog_artwork = self.artwork.contains_key(&body.input.identity);
+        let runtime_skin =
+            !catalog_artwork && (body.texture_layer as usize) < self.skin_layers.len();
+        (body.input.identity.layer == ACTOR_LAYER_BODY && (catalog_artwork || runtime_skin))
+            .then_some(runtime_skin)
+    }
 }
 
 /// Publishes `batch`; its frame-local skin indices become the scene's stable skin slots.
@@ -595,17 +606,19 @@ pub fn select_actor_presentations_for_view(
 }
 
 /// Appends the layers `layers_for` builds on each body already in the batch, reading the bodies
-/// in place rather than from a copy.
+/// in place rather than from a copy. The callback also receives its runtime-skin admission.
 pub fn attach_layers<Context>(
     batch: &mut ActorPresentationBatch,
     context: &mut Context,
     mut layers_for: impl for<'a> FnMut(
         &'a mut Context,
         &ActorRigSubmission,
+        Option<bool>,
     ) -> &'a mut [crate::presentation::equipment::EquipmentPresentation],
 ) {
     for index in 0..batch.submissions.len() {
-        for layer in layers_for(context, &batch.submissions[index]) {
+        let body = &batch.submissions[index];
+        for layer in layers_for(context, body, batch.body_render_skin(body)) {
             batch
                 .artwork
                 .insert(layer.submission.input.identity, layer.location);
@@ -954,7 +967,7 @@ mod layer_pass_tests {
             }),
         );
         let mut visited = Vec::new();
-        attach_layers(&mut batch, &mut visited, |visited, body| {
+        attach_layers(&mut batch, &mut visited, |visited, body, _| {
             visited.push((
                 body.input.identity.runtime_id,
                 Arc::strong_count(&body.input.previous_bones),

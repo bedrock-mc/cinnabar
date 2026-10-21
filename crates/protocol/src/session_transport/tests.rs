@@ -57,6 +57,36 @@ pub(crate) mod unix {
         peer.write_all(frame).await.unwrap();
     }
 
+    #[tokio::test]
+    async fn relay_injections_progress_while_upstream_frames_are_ready() {
+        use crate::packet_relay::tests::{FakeRelay, body};
+        let mut pair = pair("fair-injections", &[]).await;
+        pair.transport.set_relay(Arc::new(FakeRelay::default()));
+        let (send, receive) = tokio::sync::mpsc::channel(1);
+        pair.transport.relay.as_mut().unwrap().injected = receive;
+        send.send(Bytes::from(body(&[99]))).await.unwrap();
+        let frame = batch_frame(&[Packet::new(SetTime {
+            time: wire::ZigZag32(1),
+        })])
+        .unwrap();
+        for _ in 0..4 {
+            write_frame(&mut pair.peer, &frame).await;
+            assert!(poll_fn(|cx| pair.transport.poll_read_ahead_one(usize::MAX, cx)).await);
+        }
+        let mut times = Vec::new();
+        for _ in 0..2 {
+            let Inbound::Packet(raw) = pair.transport.recv().await.unwrap() else {
+                panic!("expected a packet");
+            };
+            let packets::Packet::SetTime(time) = *raw.decode().unwrap().data else {
+                panic!("expected SetTime");
+            };
+            times.push(time.time.0);
+        }
+        assert!(times.contains(&1), "upstream must progress");
+        assert!(times.contains(&99), "injections must progress");
+    }
+
     /// Two sends cancelled while the peer is stalled both flush on drain, once each, in order.
     #[tokio::test]
     async fn cancelled_sends_behind_a_pending_send_flush_in_order_on_drain() {
@@ -202,6 +232,13 @@ pub(crate) mod unix {
         write_frame(peer, &time(3)).await;
         transport.read_ahead(usize::MAX).await;
         assert_eq!(transport.ahead.len(), 3, "the terminal ends the read-ahead");
+        let ahead_bytes = transport.ahead_bytes;
+        assert!(matches!(
+            transport.buffered_startup_terminal().unwrap(),
+            Some(Terminal::Transfer(_))
+        ));
+        assert_eq!(transport.ahead.len(), 3);
+        assert_eq!(transport.ahead_bytes, ahead_bytes);
 
         let mut times = Vec::new();
         for _ in 0..2 {

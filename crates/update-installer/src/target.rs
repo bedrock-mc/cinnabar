@@ -58,24 +58,29 @@ pub fn backup(target: &Path) -> Result<PathBuf> {
     Ok(target.with_file_name(name))
 }
 
-/// Whether the helper can write this install without changing user privileges.
+/// How the helper can replace this installation after shutdown.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Access {
     Writable,
+    /// Windows Installer owns writes and any required administrator authorization.
+    Installer,
     Manual,
 }
 
-/// Probes the install filesystem; permission failures become the manual installer action.
+impl Access {
+    /// Whether the update can use the helper's exit barrier and managed relaunch.
+    pub fn permits_update(self) -> bool {
+        matches!(self, Self::Writable | Self::Installer)
+    }
+}
+
+/// Uses Windows Installer for Windows; probes direct replacement rights on other platforms.
 pub fn access(target: &Path) -> Result<Access> {
     ensure!(
         target.is_absolute() && target.exists(),
         "installed target is missing"
     );
-    #[cfg(windows)]
-    if !machine_install_rights() {
-        return Ok(Access::Manual);
-    }
-    let access = access_with(target, |directory| {
+    let access = access_with(target, std::env::consts::OS, |directory| {
         tempfile::NamedTempFile::new_in(directory)
             .and_then(|file| file.close())
             .is_ok()
@@ -89,51 +94,26 @@ pub fn access(target: &Path) -> Result<Access> {
     Ok(access)
 }
 
-#[cfg(windows)]
-/// Requires existing machine-install rights for the per-machine MSI, without requesting them.
-fn machine_install_rights() -> bool {
-    use windows_sys::Win32::{
-        Foundation::CloseHandle,
-        Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation},
-        System::Threading::{GetCurrentProcess, OpenProcessToken},
-    };
-    let mut token = std::ptr::null_mut();
-    let mut elevation = TOKEN_ELEVATION::default();
-    let mut length = 0;
-    // SAFETY: valid output buffers; the opened token is checked and closed exactly once.
-    unsafe {
-        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
-            return false;
-        }
-        let read = GetTokenInformation(
-            token,
-            TokenElevation,
-            std::ptr::from_mut(&mut elevation).cast(),
-            std::mem::size_of::<TOKEN_ELEVATION>() as u32,
-            &mut length,
-        );
-        CloseHandle(token);
-        read != 0 && elevation.TokenIsElevated != 0
-    }
-}
-
 /// Keeps permission decisions testable without chmod, elevation, or a platform-specific account.
-fn access_with(target: &Path, mut probe: impl FnMut(&Path) -> bool) -> Result<Access> {
-    let directory = if cfg!(windows) {
-        target
-    } else {
-        target.parent().context("missing install parent")?
-    };
+fn access_with(target: &Path, os: &str, mut probe: impl FnMut(&Path) -> bool) -> Result<Access> {
+    if os == "windows" {
+        ensure!(
+            target
+                .join(update_manifest::runtime::executable("CLIENT", os))
+                .is_file(),
+            "target is not an installed client"
+        );
+        return Ok(Access::Installer);
+    }
+    let directory = target.parent().context("missing install parent")?;
     if !probe(directory) {
         return Ok(Access::Manual);
     }
-    if !cfg!(windows) {
-        let previous = backup(target)?;
-        if !removable_tree(target, &mut probe)
-            || (previous.exists() && !removable_tree(&previous, &mut probe))
-        {
-            return Ok(Access::Manual);
-        }
+    let previous = backup(target)?;
+    if !removable_tree(target, &mut probe)
+        || (previous.exists() && !removable_tree(&previous, &mut probe))
+    {
+        return Ok(Access::Manual);
     }
     Ok(Access::Writable)
 }
@@ -176,7 +156,9 @@ mod tests {
     #[test]
     fn windows_target_is_the_whole_install_directory() {
         let root = tempfile::tempdir().unwrap();
-        let executable = root.path().join("cinnabar.exe");
+        let executable = root
+            .path()
+            .join(update_manifest::runtime::executable("CLIENT", "windows"));
         assert_eq!(resolve("windows", &executable, None).unwrap(), root.path());
     }
 
@@ -217,8 +199,30 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let target = root.path().join("client");
         fs::write(&target, "installed").unwrap();
-        assert_eq!(access_with(&target, |_| false).unwrap(), Access::Manual);
-        assert_eq!(access_with(&target, |_| true).unwrap(), Access::Writable);
+        assert_eq!(
+            access_with(&target, "linux", |_| false).unwrap(),
+            Access::Manual
+        );
+        assert_eq!(
+            access_with(&target, "linux", |_| true).unwrap(),
+            Access::Writable
+        );
+    }
+
+    #[test]
+    fn windows_updates_use_the_exit_barrier_even_without_direct_write_rights() {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(
+            root.path()
+                .join(update_manifest::runtime::executable("CLIENT", "windows")),
+            "installed client",
+        )
+        .unwrap();
+        let access =
+            access_with(root.path(), "windows", |_| panic!("MSI owns file writes")).unwrap();
+        assert_eq!(access, Access::Installer);
+        assert!(access.permits_update());
+        assert!(!Access::Manual.permits_update());
     }
 
     #[cfg(not(windows))]
@@ -230,7 +234,7 @@ mod tests {
         fs::create_dir_all(&internal).unwrap();
         fs::write(internal.join("client"), "installed").unwrap();
         let mut checked_internal = false;
-        let access = access_with(&target, |directory| {
+        let access = access_with(&target, "macos", |directory| {
             if directory == internal.as_path() {
                 checked_internal = true;
                 false
@@ -241,7 +245,10 @@ mod tests {
         .unwrap();
         assert!(checked_internal);
         assert_eq!(access, Access::Manual);
-        assert_eq!(access_with(&target, |_| true).unwrap(), Access::Writable);
+        assert_eq!(
+            access_with(&target, "macos", |_| true).unwrap(),
+            Access::Writable
+        );
     }
 
     #[cfg(not(windows))]
@@ -253,7 +260,9 @@ mod tests {
         let internal = backup(&target).unwrap().join("Contents/MacOS");
         fs::create_dir_all(&internal).unwrap();
         assert_eq!(
-            access_with(&target, |directory| directory != internal.as_path()).unwrap(),
+            access_with(&target, "macos", |directory| directory
+                != internal.as_path())
+            .unwrap(),
             Access::Manual
         );
     }
@@ -268,7 +277,9 @@ mod tests {
         fs::create_dir(&external).unwrap();
         std::os::unix::fs::symlink(&external, target.join("linked")).unwrap();
         assert_eq!(
-            access_with(&target, |directory| directory != external.as_path()).unwrap(),
+            access_with(&target, "macos", |directory| directory
+                != external.as_path())
+            .unwrap(),
             Access::Writable
         );
     }

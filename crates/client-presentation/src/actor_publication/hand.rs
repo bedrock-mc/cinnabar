@@ -147,7 +147,7 @@ pub(super) struct HandSource {
 
 impl HandSource {
     /// Places the exact body/item submissions shared by validation and final construction.
-    fn submissions(&self) -> [Option<ActorRigSubmission>; 3] {
+    pub(super) fn submissions(&self) -> [Option<ActorRigSubmission>; 3] {
         let placement = hand_camera_from_rig(self.presentation.authored_scale, self.motion);
         let body = self.body.clone().map(|mut body| {
             body.world_from_actor = self
@@ -222,10 +222,14 @@ pub(super) fn vanilla_hand_source(
     hand: FirstPersonHand,
     native_pose: &mut NativePoseCache,
     java_mode: bool,
+    main_selection: Option<(
+        &crate::presentation::equipment::HeldSelection,
+        actor_animation::AttachableAnimationInput<'_>,
+    )>,
 ) -> Option<HandSource> {
     let runtime_id = inputs.presentation.submission.input.identity.runtime_id;
     let stream = inputs.stream;
-    let rig = stream.authority().actor_rig(runtime_id)?;
+    let mut rig = stream.authority().actor_rig(runtime_id)?;
     // Java body, arm and item poses win over the combat profile, including native fallbacks.
     let legacy = !java_mode
         && stream
@@ -235,6 +239,7 @@ pub(super) fn vanilla_hand_source(
     let bare = legacy && inputs.equipment_input.main.is_none();
     if !bare || inputs.equipment_input.off.is_some() {
         native_pose.apply(&mut inputs);
+        rig.held_item_scale = native_pose.held_item_scale;
     }
     let HandInputs {
         stream,
@@ -260,10 +265,24 @@ pub(super) fn vanilla_hand_source(
             render_input.frame_alpha = alpha;
             let render_input =
                 attachable_hand_input(equipment_input, owner_equipment, render_input, index == 1);
+            let actor = stream.authority().actor(runtime_id)?;
+            if index == 0
+                && let Some((selected, selected_input)) = main_selection
+            {
+                return equipment.first_person_selected_attachable(
+                    &presentation.submission,
+                    item,
+                    selected,
+                    actor,
+                    &rig,
+                    selected_input,
+                    None,
+                );
+            }
             equipment.first_person_attachable(
                 &presentation.submission,
                 item,
-                stream.authority().actor(runtime_id)?,
+                actor,
                 &rig,
                 render_input,
                 None,
@@ -280,7 +299,14 @@ pub(super) fn vanilla_hand_source(
                         .map(|input| {
                             attachable_hand_input(equipment_input, owner_equipment, input, false)
                         })
-                        .unwrap_or_default(),
+                        .map(|input| actor_animation::AttachableAnimationInput {
+                            held_item_scale: rig.held_item_scale,
+                            ..input
+                        })
+                        .unwrap_or(actor_animation::AttachableAnimationInput {
+                            held_item_scale: rig.held_item_scale,
+                            ..Default::default()
+                        }),
                 )
             } else {
                 equipment.first_person_offhand(&presentation.submission, item)
@@ -444,6 +470,7 @@ pub(super) fn source(
         hand,
         &mut cache.native_pose,
         java_mode,
+        None,
     )
 }
 

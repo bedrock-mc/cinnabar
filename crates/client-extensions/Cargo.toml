@@ -7,12 +7,16 @@ publish = false
 
 [package.metadata.cinnabar]
 reads = [
+    "assets/fonts/InterVariable.ttf",
     "crates/mod-api/wit/extension.wit",
+    "crates/mod-api/native-frame-v1.json",
+    "crates/mod-host/src/packet_mod/tests/guest.wat",
     "crates/mod-host/src/tests/hud.wat",
 ]
 
 [dependencies]
 anyhow.workspace = true
+arc-swap = "1.9"
 assets = { path = "../assets" }
 bevy.workspace = true
 client-state = { path = "../client-state" }
@@ -22,15 +26,18 @@ fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
 inventory = { path = "../inventory" }
 mod-api = { path = "../mod-api" }
 mod-host = { path = "../mod-host" }
+mod-ui = { path = "../mod-ui" }
 mod-render = { path = "../mod-render" }
 player-state = { path = "../player-state" }
 protocol = { path = "../protocol" }
 render-model = { path = "../render-model" }
+render-api = { path = "../render-api" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 server-experience = { path = "../server-experience" }
 ui = { path = "../ui" }
 sha2 = { workspace = true }
+tracing.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

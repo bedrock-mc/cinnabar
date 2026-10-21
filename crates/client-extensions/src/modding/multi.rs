@@ -2,6 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
+use super::packet_relay::PacketModSelection;
+
 use serde::Deserialize;
 use {
     mod_api::MAX_LOADED_MODS,
@@ -13,24 +15,20 @@ use {
 
 /// Loaded personal components and their merged labels, in load order.
 pub struct ModHosts {
-    pub host: ModHost,
-    pub companions: Vec<Companion>,
+    /// Always contains at least one host, in load order.
+    hosts: Vec<ModHost>,
     panel_selection: usize,
     budget: mod_host::CallbackBudget,
     hud_claims: mod_host::HudClaims,
     label: Option<String>,
     label_inputs: Vec<String>,
     label_rebuilds: u64,
+    hud_merge: ui::mod_hud::HudMergeCache,
 }
 
 /// Selects an ordered set of components and packages, each with its own grants.
 pub const SET_ENV: &str = "CINNABAR_MOD_SET";
 const MAX_SET_BYTES: usize = 16 * 1024;
-
-/// A mod after the first, loaded only from an explicit set.
-pub struct Companion {
-    pub host: ModHost,
-}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -107,9 +105,31 @@ pub fn read_set(path: &Path) -> Result<Vec<(ModSource, ModGrants)>, String> {
         .collect()
 }
 
+/// The set's packet mod: its first component entry with the packets grant. Later ones are
+/// ignored, since a session relays through at most one.
+pub fn packet_mod_entry(mods: &[(ModSource, ModGrants)]) -> Option<PacketModSelection> {
+    let mut entries = mods.iter().filter(|(_, grants)| grants.packets);
+    let selected = entries.find_map(|(source, grants)| match source {
+        ModSource::Component(path) => Some(PacketModSelection {
+            path: path.clone(),
+            grants: grants.clone(),
+        }),
+        ModSource::Package(_) => None,
+    });
+    for (source, _) in entries {
+        let path = source.path().display();
+        tracing::warn!(
+            "Cinnabar packet mod {path} ignored: a session relays through one packet mod"
+        );
+    }
+    selected
+}
+
 /// Loads valid entries in order and reports failures without discarding the other entries.
+/// Packet mods are left to the session's relay.
 pub fn load_entries(mods: Vec<(ModSource, ModGrants)>) -> Vec<ModHost> {
     mods.into_iter()
+        .filter(|(_, grants)| !grants.packets)
         .filter_map(|(source, grants)| {
             source
                 .load(grants)
@@ -123,17 +143,17 @@ pub fn load_entries(mods: Vec<(ModSource, ModGrants)>) -> Vec<ModHost> {
 }
 
 impl ModHosts {
-    /// Keeps the first host and its companions in their original load order.
-    pub fn new(host: ModHost, companions: Vec<Companion>) -> Self {
+    /// Keeps a nonempty collection of hosts in their original load order.
+    pub fn new(host: ModHost, remaining: Vec<ModHost>) -> Self {
         Self {
-            host,
-            companions,
+            hosts: std::iter::once(host).chain(remaining).collect(),
             panel_selection: 0,
             budget: mod_host::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL),
             hud_claims: Default::default(),
             label: None,
             label_inputs: Vec::new(),
             label_rebuilds: 0,
+            hud_merge: Default::default(),
         }
     }
 
@@ -171,13 +191,7 @@ impl ModHosts {
         if left == right {
             return;
         }
-        if left == 0 {
-            std::mem::swap(&mut self.host, &mut self.companions[right - 1].host);
-        } else if right == 0 {
-            std::mem::swap(&mut self.host, &mut self.companions[left - 1].host);
-        } else {
-            self.companions.swap(left - 1, right - 1);
-        }
+        self.hosts.swap(left, right);
         if self.panel_selection == left {
             self.panel_selection = right;
         } else if self.panel_selection == right {
@@ -187,57 +201,61 @@ impl ModHosts {
 
     /// Removes any host while another remains, preserving the surviving order.
     pub fn remove(&mut self, index: usize) -> ModHost {
-        if index == 0 {
-            self.swap(0, 1);
-            self.remove_companion(1)
-        } else {
-            self.remove_companion(index)
+        assert!(
+            self.hosts.len() > 1,
+            "a mod host collection must stay nonempty"
+        );
+        let host = self.hosts.remove(index);
+        if self.panel_selection == index {
+            self.panel_selection = 0;
+        } else if self.panel_selection > index {
+            self.panel_selection -= 1;
         }
+        host
+    }
+
+    /// Appends a host at the lowest load precedence without changing panel selection.
+    pub fn push(&mut self, host: ModHost) {
+        self.hosts.push(host);
+    }
+
+    /// Consumes a collection containing exactly one host when its runtime is removed.
+    pub fn into_single(mut self) -> ModHost {
+        assert_eq!(
+            self.hosts.len(),
+            1,
+            "other mod hosts still belong to this runtime"
+        );
+        self.hosts.pop().expect("nonempty mod hosts")
+    }
+
+    /// Borrows every host in load order without allowing collection changes.
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut ModHost> {
+        self.hosts.iter_mut()
     }
 
     /// Combines distinct HUD slots in precedence order within all shared presentation limits.
-    pub fn merged_hud(&self) -> Option<ui::mod_hud::Hud> {
-        let owner = self.hud_owner()?;
-        let mut hud = self.host(owner).hud()?.clone();
-        let mut rows = hud.cards.iter().map(|card| card.rows.len()).sum::<usize>();
-        let mut cells = hud.cards.iter().map(|card| card.cells.len()).sum::<usize>();
-        for index in owner + 1..self.host_count() {
-            if let Some(other) = self.host(index).hud() {
-                for card in &other.cards {
-                    if !hud.cards.iter().any(|existing| existing.id == card.id)
-                        && hud.cards.len() < ui::mod_hud::MAX_HUD_CARDS
-                        && rows + card.rows.len() <= ui::mod_hud::MAX_HUD_ROWS
-                        && cells + card.cells.len() <= ui::mod_hud::MAX_HUD_CELLS
-                    {
-                        rows += card.rows.len();
-                        cells += card.cells.len();
-                        hud.cards.push(card.clone());
-                    }
-                }
-            }
-        }
-        Some(hud)
+    pub fn merged_hud(&mut self) -> Option<std::sync::Arc<ui::mod_hud::Hud>> {
+        self.hud_merge.update(
+            self.hosts
+                .iter()
+                .filter_map(|host| Some((host.hud_revision()?, host.hud()?))),
+        )
     }
 
-    /// Counts the primary component and every companion.
+    /// Counts every loaded component.
     pub fn host_count(&self) -> usize {
-        1 + self.companions.len()
+        self.hosts.len()
     }
 
-    /// Index 0 is the first-loaded mod; companions follow in load order.
+    /// Borrows a component in load order.
     pub fn host(&self, index: usize) -> &ModHost {
-        match index {
-            0 => &self.host,
-            _ => &self.companions[index - 1].host,
-        }
+        &self.hosts[index]
     }
 
     /// Borrows a component in load order for one callback or host action.
     pub fn host_mut(&mut self, index: usize) -> &mut ModHost {
-        match index {
-            0 => &mut self.host,
-            _ => &mut self.companions[index - 1].host,
-        }
+        &mut self.hosts[index]
     }
 
     /// The selected panel publisher owns the retained panel and its events.
@@ -277,18 +295,6 @@ impl ModHosts {
         false
     }
 
-    /// Removes a companion without changing the remaining components' order.
-    pub fn remove_companion(&mut self, index: usize) -> ModHost {
-        assert!(index > 0);
-        let host = self.companions.remove(index - 1).host;
-        if self.panel_selection == index {
-            self.panel_selection = 0;
-        } else if self.panel_selection > index {
-            self.panel_selection -= 1;
-        }
-        host
-    }
-
     /// The earliest card publisher owns the retained card surface.
     pub fn hud_owner(&self) -> Option<usize> {
         (0..self.host_count()).find(|&index| self.host(index).hud().is_some())
@@ -314,7 +320,7 @@ impl ModHosts {
     /// Every mod's label in load order, joined and cut to the plain-text limit.
     pub fn merged_label(&mut self) -> Option<&str> {
         if self.host_count() == 1 {
-            return self.host.label();
+            return self.host(0).label();
         }
         let mut current = (0..self.host_count()).filter_map(|index| self.host(index).label());
         let unchanged = self
@@ -516,6 +522,7 @@ pub struct Merged {
     pub rig: Option<GameplayCameraRig>,
     pub preserve_teleport_rotation: bool,
     pub view_scale: Option<[f32; 2]>,
+    pub hurt_style: Option<render_api::HurtCameraStyle>,
     pub item_use_delay_fix: Option<(u64, i32)>,
     pub delta: Option<CameraDelta>,
     pub time_override: Option<u32>,
@@ -540,6 +547,7 @@ impl Merged {
         self.rig = self.rig.or(host.camera_rig());
         self.preserve_teleport_rotation |= host.preserves_teleport_rotation();
         self.view_scale = self.view_scale.or(host.camera_view_scale());
+        self.hurt_style = self.hurt_style.or(host.camera_hurt_style());
         self.item_use_delay_fix = self.item_use_delay_fix.or(host.item_use_delay_fix());
         self.time_override = self.time_override.or(host.time_override());
         self.commands.extend(host.take_commands());

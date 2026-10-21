@@ -49,10 +49,9 @@ fn bamboo_offsets_do_not_rotate_enhanced_surface_normals() {
     let templates = gpu.words(&template_words(), storage);
     let geometry = gpu.words(&geometry_words(), storage);
     let frame = gpu.buffer(&[0.0; 256], uniform);
-    let lightmap = gpu.buffer(
-        bytemuck::cast_slice(&render_model::LightmapInputs::default().build()),
-        uniform,
-    );
+    let lightmap = gpu.lightmap(bytemuck::cast_slice(
+        &render_model::LightmapInputs::default().build(),
+    ));
     let classes = gpu
         .device
         .create_texture(&wgpu::TextureDescriptor {

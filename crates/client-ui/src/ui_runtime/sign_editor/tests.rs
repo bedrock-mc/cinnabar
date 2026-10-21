@@ -180,3 +180,55 @@ fn unchanged_close_still_sends_to_release_the_server_lock() {
     assert_eq!(sent, 1);
     assert!(!editor.is_open());
 }
+
+/// Existing line breaks survive the same NBT encoding used when the editor closes.
+#[test]
+fn sign_text_preserves_authored_trailing_blank_lines() {
+    for text in ["", "hello", "hello\n", "\n", "hello\n\n\n"] {
+        let edit = sign(text);
+        assert!(!edit.changed());
+        let bytes = edit.into_encoded_nbt().unwrap();
+        let (encoded, used) = world::BlockEntityNbt::decode_prefix(&bytes).unwrap();
+        assert_eq!(used, bytes.len());
+        assert_eq!(
+            encoded
+                .parse()
+                .unwrap()
+                .compound("FrontText")
+                .unwrap()
+                .string("Text"),
+            Some(text),
+        );
+    }
+}
+
+/// Enter authors a line break even when the following line contains no characters.
+#[test]
+fn sign_text_preserves_enter_without_serializing_unused_editor_lines() {
+    let mut edit = sign("hello");
+    assert_eq!(edit.text(), "hello");
+    assert!(!edit.newline());
+    assert_eq!(edit.text(), "hello\n");
+    assert!(edit.changed());
+    assert!(!edit.newline());
+    assert_eq!(edit.text(), "hello\n\n");
+    assert!(!edit.newline());
+    assert_eq!(edit.text(), "hello\n\n\n");
+    assert!(edit.newline());
+    assert_eq!(edit.text(), "hello\n\n\n");
+}
+
+/// Cursor navigation alone leaves padding inert; writing on a later line authors its separators.
+#[test]
+fn sign_text_distinguishes_cursor_padding_from_edited_lines() {
+    let mut edit = sign("");
+    edit.down();
+    edit.down();
+    assert_eq!(edit.text(), "");
+    assert!(!edit.changed());
+    assert!(edit.insert('é', |_| true));
+    assert_eq!(edit.text(), "\n\né");
+    edit.backspace();
+    assert_eq!(edit.text(), "\n\n");
+    assert!(edit.changed());
+}

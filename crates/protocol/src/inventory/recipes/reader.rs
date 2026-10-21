@@ -1,3 +1,5 @@
+use super::budget::{MAX_STRING_BYTES, MAX_STRING_TOTAL_BYTES};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Refusal {
     Wire,
@@ -62,17 +64,21 @@ impl<'a> Reader<'a> {
         }
         Ok(count)
     }
-    pub(super) fn string(&mut self) -> ReadResult<&'a str> {
+    /// Reads exact UTF-8 text, preserving invalid text as an unsupported value.
+    pub(super) fn text(&mut self) -> ReadResult<Option<&'a str>> {
         let count = self.uint()? as usize;
-        if count > 16384 {
+        if count > MAX_STRING_BYTES {
             return Err(Refusal::Policy);
         }
         self.strings = self.strings.checked_add(count).ok_or(Refusal::Policy)?;
-        if self.strings > 2 * 1024 * 1024 {
+        if self.strings > MAX_STRING_TOTAL_BYTES {
             return Err(Refusal::Policy);
         }
-        // Invalid UTF-8 is semantically unsupported; it is not a wire failure.
-        Ok(std::str::from_utf8(self.take(count)?).unwrap_or(""))
+        Ok(std::str::from_utf8(self.take(count)?).ok())
+    }
+    /// Reads ingredient text with the existing unsupported-empty fallback.
+    pub(super) fn string(&mut self) -> ReadResult<&'a str> {
+        Ok(self.text()?.unwrap_or(""))
     }
     pub(super) fn opaque(&mut self) -> ReadResult<&'a [u8]> {
         let count = self.uint()? as usize;

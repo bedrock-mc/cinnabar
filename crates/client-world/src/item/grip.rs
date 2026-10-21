@@ -1,7 +1,11 @@
 use assets::{RuntimeEntityAssets, item::grip::ItemGrip};
 use protocol::{ItemRegistryEntry, ItemRegistryVersion};
 
-/// Resolves a grip at registry admission; missing or unsupported inputs stay unresolved.
+#[cfg(test)]
+#[path = "grip_empty_native_tests.rs"]
+mod empty_native_tests;
+
+/// Resolves grip overrides; canonical empty component data retains checked native facts.
 pub(super) fn resolve(entry: &ItemRegistryEntry, assets: Option<&RuntimeEntityAssets>) -> ItemGrip {
     if matches!(entry.version, ItemRegistryVersion::Unknown(_)) {
         return ItemGrip::Unresolved;
@@ -23,7 +27,7 @@ pub(super) fn resolve(entry: &ItemRegistryEntry, assets: Option<&RuntimeEntityAs
     compiled.with_hand_equipped(
         components.and_then(|components| components.hand_equipped),
         components.is_some_and(|components| components.hand_equipped_declared),
-        entry.component_based,
+        entry.component_based && !entry.canonical_empty_component_data,
     )
 }
 

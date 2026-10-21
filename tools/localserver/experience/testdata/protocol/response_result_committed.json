@@ -119,6 +119,15 @@
         "stack": null
       },
       {
+        "type": "schedule_update",
+        "pos": {
+          "x": 12,
+          "y": 64,
+          "z": -7
+        },
+        "ticks": 3
+      },
+      {
         "type": "drop_item",
         "pos": {
           "x": 13,

@@ -173,7 +173,7 @@ fn ongoing_migration_does_not_block_uploads_in_existing_capacity() {
         "test stream space",
         4096 * GEOMETRY_STREAM_WORD_BYTES,
     );
-    begin_arena_migration(
+    assert!(begin_arena_migration(
         &mut arena,
         &device,
         ArenaStream::Quads,
@@ -181,7 +181,7 @@ fn ongoing_migration_does_not_block_uploads_in_existing_capacity() {
             new_capacity: capacity * 2,
             gpu_copy_bytes: capacity as u64 * PACKED_QUAD_BYTES,
         },
-    );
+    ));
     advance_arena_migration(
         &mut arena,
         TerrainUploads {

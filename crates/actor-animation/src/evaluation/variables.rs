@@ -5,6 +5,8 @@ use std::cell::RefCell;
 
 use super::*;
 
+pub(crate) mod frame;
+
 /// One stored value. A string names its entry in the owning set's string table.
 #[derive(Clone, Copy, Debug, Default)]
 enum Slot {
@@ -26,6 +28,7 @@ enum SlotView<'a> {
 /// One actor's Molang variables and random stream; an unassigned variable reads as 0.0.
 #[derive(Debug, Default)]
 pub(crate) struct MolangVariables {
+    pub(super) frame: Option<Box<frame::ScratchState>>,
     values: Vec<Slot>,
     temps: Vec<Slot>,
     /// Temporary slots assigned since the last clear; every assigned temporary is listed.
@@ -44,6 +47,7 @@ pub(crate) struct MolangVariables {
 impl Clone for MolangVariables {
     fn clone(&self) -> Self {
         let Self {
+            frame: _,
             values,
             temps,
             live_temps,
@@ -56,6 +60,7 @@ impl Clone for MolangVariables {
             writes,
         } = self;
         Self {
+            frame: None,
             values: values.clone(),
             temps: temps.clone(),
             live_temps: live_temps.clone(),
@@ -72,6 +77,7 @@ impl Clone for MolangVariables {
     /// Copies into this set's existing buffers instead of allocating new ones.
     fn clone_from(&mut self, source: &Self) {
         let Self {
+            frame: _,
             values,
             temps,
             live_temps,
@@ -83,6 +89,7 @@ impl Clone for MolangVariables {
             capture_writes,
             writes,
         } = source;
+        self.frame = None;
         self.values.clone_from(values);
         self.temps.clone_from(temps);
         self.live_temps.clone_from(live_temps);
@@ -97,6 +104,49 @@ impl Clone for MolangVariables {
 }
 
 impl MolangVariables {
+    /// Clears scratch values and string ownership while retaining their allocated buffers.
+    pub(crate) fn reset(&mut self, seed: u64) {
+        #[cfg(test)]
+        super::selection_work::record(|work| work.reset += self.values.len() + self.temps.len());
+        self.values.fill(Slot::Unset);
+        self.temps.fill(Slot::Unset);
+        self.live_temps.clear();
+        self.strings.clear();
+        self.free_strings.clear();
+        self.restore_random(seed | 1);
+    }
+
+    /// Returns the random state used to validate an observed scratch evaluation.
+    pub(super) fn random_state(&self) -> u64 {
+        self.random
+    }
+
+    /// Restores a scratch random stream before another predicate uses it.
+    pub(super) fn restore_random(&mut self, state: u64) {
+        self.random = state;
+        self.random_draws = 0;
+    }
+
+    /// Marks the temporary-list prefix retained before a scratch predicate assigns new slots.
+    pub(super) fn temporary_checkpoint(&self) -> usize {
+        self.live_temps.len()
+    }
+
+    /// Restores journaled slots and drops the temporary-list suffix added by their writes.
+    /// Scratch evaluation keeps the original prefix intact until this restoration.
+    pub(super) fn restore(
+        &mut self,
+        journal: impl IntoIterator<Item = (Place, Option<MolangValue>)>,
+        temporary_checkpoint: usize,
+    ) {
+        for (place, value) in journal {
+            #[cfg(test)]
+            super::selection_work::record(|work| work.restored += 1);
+            self.put(place, value);
+        }
+        self.live_temps.truncate(temporary_checkpoint);
+    }
+
     /// An unassigned set sized for one layout's variables and temporaries.
     pub(super) fn fresh(layout: &VariableLayout, seed: u64) -> Self {
         Self {
@@ -149,6 +199,22 @@ impl MolangVariables {
     /// string slot. Returns whether the slot was unassigned before; `None` when out of range.
     fn put(&mut self, place: Place, value: Option<MolangValue>) -> Option<bool> {
         let old = self.slot(place)?;
+        if self
+            .frame
+            .as_ref()
+            .is_some_and(|frame| frame.undo.is_some())
+        {
+            let value = self.load(old);
+            self.frame
+                .as_mut()
+                .unwrap()
+                .undo
+                .as_mut()
+                .unwrap()
+                .push((place, value));
+        }
+        #[cfg(test)]
+        super::selection_work::record(|work| work.assigned += 1);
         let new = match value {
             None => Slot::Unset,
             Some(MolangValue::Number(value)) => Slot::Number(value),
@@ -195,11 +261,24 @@ impl MolangVariables {
         self.read(Place::Variable(slot))
     }
 
+    /// Reads a numeric variable without constructing a tagged value; unset slots read zero.
+    pub(super) fn numeric_variable(&self, slot: usize) -> Option<f32> {
+        match self.values.get(slot)? {
+            Slot::Unset => Some(0.0),
+            Slot::Number(value) => Some(*value),
+            Slot::String(_) | Slot::ActorReference(_) => None,
+        }
+    }
+
     /// Every assigned variable as `(slot, value)`, in slot order.
     pub(super) fn assigned_variables(&self) -> impl Iterator<Item = (usize, MolangValue)> + '_ {
         self.values
             .iter()
             .enumerate()
+            .inspect(|_| {
+                #[cfg(test)]
+                super::selection_work::record(|work| work.inherited += 1);
+            })
             .filter_map(|(slot, value)| Some((slot, self.load(*value)?)))
     }
 
@@ -420,12 +499,13 @@ impl MolangVariables {
 
     /// Unassigns every temporary; only slots assigned since the last clear are visited.
     pub(crate) fn clear_temporaries(&mut self) {
-        for slot in self.live_temps.drain(..) {
-            if let Slot::String(index) = std::mem::take(&mut self.temps[slot]) {
-                self.strings[index as usize] = None;
-                self.free_strings.push(index);
-            }
+        #[cfg(test)]
+        super::selection_work::record(|work| work.reset += self.live_temps.len());
+        let mut live = std::mem::take(&mut self.live_temps);
+        for slot in live.drain(..) {
+            self.put(Place::Temporary(slot), None);
         }
+        self.live_temps = live;
     }
 
     #[cfg(test)]
@@ -467,69 +547,112 @@ impl MolangVariables {
     }
 }
 
-thread_local! {
-    /// Buffers of finished scratch copies on this thread, reused by the next copies.
-    static SPARE: RefCell<Vec<MolangVariables>> = const { RefCell::new(Vec::new()) };
-}
-
-/// Most spare buffers a thread keeps; a frame holds at most a few scratch copies at once.
-const MAX_SPARE: usize = 8;
-
-/// A frame-local copy of retained variables. Its buffers come from and return to this thread's
-/// pool, so per-frame sampling copies values into warm storage instead of allocating.
-pub(crate) struct ScratchVariables(MolangVariables);
-
-impl ScratchVariables {
-    /// A copy of `source` identical to `source.clone()`.
-    pub(crate) fn copy_of(source: &MolangVariables) -> Self {
-        let mut scratch = SPARE
-            .try_with(|spare| {
-                spare
-                    .try_borrow_mut()
-                    .ok()
-                    .and_then(|mut spare| spare.pop())
-            })
-            .ok()
-            .flatten()
-            .unwrap_or_default();
-        scratch.clone_from(source);
-        Self(scratch)
-    }
-}
-
-impl std::ops::Deref for ScratchVariables {
-    type Target = MolangVariables;
-
-    fn deref(&self) -> &MolangVariables {
-        &self.0
-    }
-}
-
-impl std::ops::DerefMut for ScratchVariables {
-    fn deref_mut(&mut self) -> &mut MolangVariables {
-        &mut self.0
-    }
-}
-
-impl Drop for ScratchVariables {
-    /// Releases held strings at once and pools the buffers; every pooled field is overwritten
-    /// by the next [`ScratchVariables::copy_of`].
-    fn drop(&mut self) {
-        let mut variables = std::mem::take(&mut self.0);
-        variables.strings.clear();
-        let _ = SPARE.try_with(|spare| {
-            if let Ok(mut spare) = spare.try_borrow_mut()
-                && spare.len() < MAX_SPARE
-            {
-                spare.push(variables);
-            }
-        });
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn observed_predicates_restore_many_temporaries_with_linear_slot_work() {
+        for count in [1, 100, 1_000] {
+            let layout = VariableLayout {
+                variable_count: 1,
+                temp_count: count + 2,
+                ..Default::default()
+            };
+            let mut variables = layout.fresh(7);
+            variables
+                .store(
+                    Place::Temporary(0),
+                    MolangValue::String(Arc::from("retained")),
+                )
+                .unwrap();
+            variables
+                .store(Place::Temporary(1), MolangValue::ActorReference(42))
+                .unwrap();
+            for _ in 0..3 {
+                let mut observed = ObservedInputs::new(&variables);
+                for slot in 0..count + 1 {
+                    let place = Place::Temporary(slot);
+                    observed.written(slot as u32, place, &variables);
+                    variables
+                        .store(place, MolangValue::String(Arc::from("scratch")))
+                        .unwrap();
+                }
+                // The untouched final slot checks that cleanup does not scan the whole layout.
+                super::super::selection_work::take();
+                observed.restore(&mut variables);
+                let work = super::super::selection_work::take();
+                assert!(
+                    work.restored <= 2 * (count + 1),
+                    "count={count}, work={work:?}"
+                );
+                assert_eq!(
+                    variables.read(Place::Temporary(0)),
+                    Some(MolangValue::String(Arc::from("retained")))
+                );
+                assert_eq!(
+                    variables.read(Place::Temporary(1)),
+                    Some(MolangValue::ActorReference(42))
+                );
+                assert_eq!(variables.live_temps, [0, 1]);
+                assert_eq!(variables.strings.iter().flatten().count(), 1);
+                for slot in 2..count + 2 {
+                    assert_eq!(variables.read(Place::Temporary(slot)), None);
+                }
+            }
+            variables.clear_temporaries();
+            assert!(variables.live_temps.is_empty());
+            assert!(variables.strings.iter().all(Option::is_none));
+        }
+    }
+
+    #[test]
+    fn observed_predicates_restore_strings_references_and_sparse_temporaries() {
+        let layout = VariableLayout {
+            variable_count: 2,
+            temp_count: 1,
+            ..Default::default()
+        };
+        let mut variables = layout.fresh(7);
+        variables.set_string(Some(0), "owner");
+        variables.set_actor_reference(Some(1), 42);
+        for _ in 0..3 {
+            let mut observed = ObservedInputs::new(&variables);
+            for (symbol, place) in [
+                (0, Place::Variable(0)),
+                (1, Place::Variable(1)),
+                (2, Place::Temporary(0)),
+            ] {
+                observed.written(symbol, place, &variables);
+                variables
+                    .store(place, MolangValue::String(Arc::from("scratch")))
+                    .unwrap();
+            }
+            variables.next_random();
+            observed.restore(&mut variables);
+            assert_eq!(
+                variables.variable(0),
+                Some(MolangValue::String(Arc::from("owner")))
+            );
+            assert_eq!(variables.variable(1), Some(MolangValue::ActorReference(42)));
+            assert_eq!(variables.read(Place::Temporary(0)), None);
+            assert!(variables.live_temps.is_empty());
+            assert_eq!(variables.strings.iter().flatten().count(), 1);
+            assert_eq!(variables.random_state(), 7);
+            assert_eq!(variables.random_draws, 0);
+        }
+        variables.reset(8);
+        assert_eq!(variables.variable(0), None);
+        assert_eq!(variables.variable(1), None);
+        assert_eq!(variables.read(Place::Temporary(0)), None);
+        assert!(variables.strings.is_empty());
+        variables.set_string(Some(0), "next owner");
+        assert_eq!(
+            variables.variable(0),
+            Some(MolangValue::String(Arc::from("next owner")))
+        );
+        assert_eq!(variables.random_state(), 9);
+    }
 
     #[test]
     fn strings_keep_one_entry_per_slot_and_copies_compare_by_content() {
@@ -562,9 +685,11 @@ mod tests {
         for symbol in 0..3 {
             assert!(!variables.read_changed(&other, &layout, symbol));
         }
-        let copy = ScratchVariables::copy_of(&variables);
+        let mut pool = frame::FrameVariables::default();
+        let copy = pool.lease(&variables);
         drop(copy);
-        let copy = ScratchVariables::copy_of(&other);
+        let mut pool = frame::FrameVariables::default();
+        let copy = pool.lease(&other);
         assert_eq!(copy.variable(0), other.variable(0));
         assert_eq!(copy.variable(2), other.variable(2));
     }

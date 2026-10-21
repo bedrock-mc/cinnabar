@@ -57,6 +57,28 @@ fn ordinary_local_movement_bounds_residency_without_server_echoes() {
 }
 
 #[test]
+fn local_retention_forgets_columns_with_only_unencodable_requests() {
+    for serviced in [false, true] {
+        let mut stream = stream();
+        stream.between_frames_service = serviced;
+        let chunk = ChunkKey::new(0, 0, 0);
+        stream.enqueue_request(chunk, -4, 1, None);
+        assert!(stream.prepare_sub_chunk_request([0, 124, 0], 1).is_none());
+        assert_eq!(stream.outstanding_sub_chunk_count(), 0);
+        assert!(stream.requests.unencodable.contains_key(&chunk));
+
+        assert!(stream.retain_local([320.5, 70.0, 0.5]));
+        test_time::eventually("retired request retention", || {
+            stream.poll([320.5, 70.0, 0.5], 0);
+            !stream.retention_due
+        });
+
+        assert!(!stream.requests.collision_failures.contains(&chunk));
+        assert!(!stream.requests.unencodable.contains_key(&chunk));
+    }
+}
+
+#[test]
 fn local_grid_eviction_cancels_out_of_range_requests() {
     let mut stream = stream();
     let old = ChunkKey::new(0, 0, 0);

@@ -188,6 +188,19 @@ impl Children {
             .retain(|entry| running(&mut lock(&entry.child)));
     }
 
+    /// Allows an installer handoff only after every owned worker has actually exited.
+    fn handoff_after_stopping<T>(&self, handoff: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
+        self.stop_all(EXIT_GRACE);
+        if lock(&self.live)
+            .entries
+            .iter()
+            .any(|entry| !entry.outlives && running(&mut lock(&entry.child)))
+        {
+            return Err(io::Error::other("a client worker is still running"));
+        }
+        handoff()
+    }
+
     /// Counts the children still registered by the Unix process-lifecycle tests.
     #[cfg(all(test, unix))]
     fn tracked(&self) -> usize {
@@ -248,6 +261,11 @@ pub fn stop_all(graceful: Duration) {
     CHILDREN.stop_all(graceful);
 }
 
+/// Stops and reaps owned workers before starting a helper that will wait for the client's exit.
+pub fn handoff_after_stopping<T>(handoff: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
+    CHILDREN.handoff_after_stopping(handoff)
+}
+
 /// Runs `hook` when this process's children are stopped on exit, until the guard drops.
 pub fn on_exit(hook: impl Fn() + Send + Sync + 'static) -> ExitHookGuard<'static> {
     CHILDREN.on_exit(hook)
@@ -272,7 +290,7 @@ pub fn install_exit_hooks(flush_logs: fn()) {
             stop_all(Duration::ZERO);
         }
     }));
-    let installed = ctrlc::try_set_handler(move || {
+    let installed = ctrlc::set_handler(move || {
         crate::renderer_startup::termination::cancel_on_termination();
         stop_all(EXIT_GRACE);
         flush_logs();
@@ -288,6 +306,13 @@ impl Spawned {
     /// The child's process id.
     pub fn id(&self) -> u32 {
         lock(&self.0.child).id()
+    }
+
+    /// Duplicates this child's Windows process handle without looking its PID up again.
+    #[cfg(windows)]
+    pub(crate) fn process_handle(&self) -> io::Result<std::os::windows::io::OwnedHandle> {
+        use std::os::windows::io::AsHandle;
+        lock(&self.0.child).as_handle().try_clone_to_owned()
     }
 
     pub fn try_wait(&self) -> io::Result<Option<ExitStatus>> {
@@ -427,6 +452,45 @@ fn running(child: &mut Child) -> bool {
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+#[cfg(test)]
+mod update_tests {
+    use super::*;
+    use std::{io::Read, process::Stdio};
+
+    #[test]
+    fn updater_handoff_observes_the_core_exit_after_graceful_stdin_close() {
+        let children = Children::new();
+        let mut command = if cfg!(windows) {
+            let mut command = Command::new("cmd");
+            command.args(["/Q", "/C", "set /p hold= & echo stopped & exit /b 0"]);
+            command
+        } else {
+            let mut command = Command::new("sh");
+            command.args(["-c", "read -r hold; echo stopped"]);
+            command
+        };
+        command.stdin(Stdio::piped()).stdout(Stdio::piped());
+        let core = children.spawn(&mut command, Duration::ZERO, false).unwrap();
+        let mut output = core.take_stdout().unwrap();
+        let mut handed_off = false;
+        children
+            .handoff_after_stopping(|| {
+                assert!(core.try_wait()?.unwrap().success());
+                let mut saved = String::new();
+                output.read_to_string(&mut saved)?;
+                assert!(
+                    saved.contains("stopped"),
+                    "the core must finish its EOF path"
+                );
+                handed_off = true;
+                Ok(())
+            })
+            .unwrap();
+        assert!(handed_off);
+        assert!(children.spawn(&mut command, Duration::ZERO, false).is_err());
+    }
 }
 
 #[cfg(all(test, unix))]

@@ -27,6 +27,8 @@ pub struct DragDistribution {
     storage: Option<u64>,
     mode: DistributeMode,
     remaining: u16,
+    /// Any other admitted gesture ends this drag; authoritative updates do not.
+    next_request_id: i32,
 }
 
 impl PlayerInventoryLedger {
@@ -72,6 +74,7 @@ impl PlayerInventoryLedger {
             storage: self.storage.as_ref().map(|window| window.generation),
             mode,
             remaining,
+            next_request_id: self.next_request_id,
         })
     }
 
@@ -109,12 +112,14 @@ impl PlayerInventoryLedger {
                     .view()
                     .get(Cell::Cursor)
                     .map_or(0, |held| held.stack.count),
+                next_request_id: self.next_request_id,
             },
         };
         if state.session != self.session_generation
             || state.personal != personal
             || state.storage != self.storage.as_ref().map(|window| window.generation)
             || state.mode != mode
+            || state.next_request_id != self.next_request_id
         {
             return Err(InventoryGestureError::InvalidRequest);
         }
@@ -124,27 +129,27 @@ impl PlayerInventoryLedger {
             .map(u16::from)
             .unwrap_or(state.template.count);
         let cursor = self.named(self.view().get(Cell::Cursor).cloned())?;
-        if cursor.as_ref().is_some_and(|held| {
-            !PlayerInventoryLedger::same_item(&held.stack, &state.template)
-                || has_meaningful_overlay(held.overlay.as_ref())
-        }) {
+        if cursor
+            .as_ref()
+            .is_some_and(|held| !PlayerInventoryLedger::same_item(&held.stack, &state.template))
+        {
             return Err(InventoryGestureError::InvalidRequest);
         }
-        for contribution in &state.cells {
+        for contribution in &mut state.cells {
             self.check_target(contribution.cell)?;
             self.check_surfaces([contribution.cell])?;
             let held = self.named(self.view().get(contribution.cell).cloned())?;
-            if held.as_ref().map_or(0, |held| held.stack.count)
-                != contribution.baseline + contribution.placed
-                || held.as_ref().is_some_and(|held| {
-                    !PlayerInventoryLedger::same_item(&held.stack, &state.template)
-                        || has_meaningful_overlay(held.overlay.as_ref())
-                })
+            if held
+                .as_ref()
+                .is_some_and(|held| !PlayerInventoryLedger::same_item(&held.stack, &state.template))
             {
-                // A server correction or another gesture invalidates this drag's
-                // accounting; never take unrelated items to repair it.
                 return Err(InventoryGestureError::InvalidRequest);
             }
+            let count = held.as_ref().map_or(0, |held| held.stack.count);
+            contribution.placed = contribution
+                .placed
+                .min(count.saturating_sub(contribution.baseline));
+            contribution.baseline = count - contribution.placed;
         }
         for target in targets {
             let cell = target.cell();
@@ -152,13 +157,13 @@ impl PlayerInventoryLedger {
                 || state.cells.iter().any(|entry| entry.cell == cell)
                 || self.check_target(cell).is_err()
                 || self.check_surfaces([cell]).is_err()
+                || self.placement_capacity(cell, &state.template) == Some(0)
             {
                 continue;
             }
             let held = self.view().get(cell);
             if held.is_some_and(|held| {
                 self.awaiting_identity(held)
-                    || has_meaningful_overlay(held.overlay.as_ref())
                     || !PlayerInventoryLedger::same_item(&held.stack, &state.template)
                     || held.stack.count >= capacity
             }) {
@@ -192,7 +197,10 @@ impl PlayerInventoryLedger {
             .cells
             .iter()
             .map(|entry| {
-                let count = share.min(capacity.saturating_sub(entry.baseline)).min(left);
+                let limit = self
+                    .placement_capacity(entry.cell, &state.template)
+                    .map_or(capacity, |limit| limit.min(capacity));
+                let count = share.min(limit.saturating_sub(entry.baseline)).min(left);
                 left -= count;
                 count
             })
@@ -266,6 +274,7 @@ impl PlayerInventoryLedger {
             state.cells[index].placed -= amount;
         }
         state.remaining = remaining;
+        state.next_request_id = staged.next_request_id;
         *self = staged;
         *retained = Some(state);
         Ok(request)
@@ -297,7 +306,7 @@ impl PlayerInventoryLedger {
             ),
             Some(into) => {
                 let OccupiedStackRelation::Compatible { capacity } =
-                    self.occupied_stack_relation(&from.stack, &into.stack)
+                    self.occupied_stack_relation(from, into)
                 else {
                     return Err(InventoryGestureError::InvalidRequest);
                 };

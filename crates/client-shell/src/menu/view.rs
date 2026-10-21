@@ -10,13 +10,14 @@ impl MenuRuntime {
             return view;
         }
         let auth_state = self.current_auth().into_owned();
-        let catalog_loading = matches!(
-            &auth_state,
-            AuthState::Checking
-                | AuthState::AwaitingCode { .. }
-                | AuthState::AwaitingXboxSignup { .. }
-        ) || (auth_state == AuthState::Authenticated
-            && (!self.catalog_started || self.catalog.is_running()));
+        let catalog_loading = self.external.is_none()
+            && (matches!(
+                &auth_state,
+                AuthState::Checking
+                    | AuthState::AwaitingCode { .. }
+                    | AuthState::AwaitingXboxSignup { .. }
+            ) || (auth_state == AuthState::Authenticated
+                && (!self.catalog_started || self.catalog.is_running())));
         let auth_state = if self.presentation_accounts {
             AuthState::Authenticated
         } else {
@@ -52,6 +53,14 @@ impl MenuRuntime {
             gui_scale_choices: self.gui_scale_choices.clone(),
             fullscreen: self.fullscreen,
             render_mode: self.render_mode,
+            shader_packs: std::sync::Arc::clone(&self.shader_packs),
+            shader_packs_revision: self.shader_packs_revision,
+            shader_pack: (self.render_mode == ui::RenderMode::ShaderPack)
+                .then(|| self.shader_pack.clone())
+                .flatten(),
+            renderer: self.renderer_choice(),
+            shader_options_available: self.shader_options_available(),
+            renderer_failure: self.renderer_failure(),
             vsync_override: self.vsync_override,
             display_name: self.presented_display_name(),
             servers: self.servers.clone(),
@@ -64,12 +73,15 @@ impl MenuRuntime {
             saved_icon: None,
             profile_icon: None,
             catalog_loading,
-            catalog_message: self.catalog_message.clone(),
+            catalog_message: if self.external.is_some() {
+                Some(external::SERVICE_JOINS_UNAVAILABLE.into())
+            } else {
+                self.catalog_message.clone()
+            },
             sign_in_browser: self.sign_in_browser.state(&auth_state),
             sign_in_requested: self.sign_in_requested,
             auth_state,
             connecting: self.is_connecting(),
-            settings_section: self.settings_section,
             dressing_room: self.dressing_room.clone(),
             player_skin: Some(self.player_skin.standard_skin()),
             player_skin_model: self.player_skin.model(),
@@ -78,18 +90,10 @@ impl MenuRuntime {
             editing: self.editing,
             local_worlds: self.local_worlds.clone(),
             local: self.local_view(),
+            settings: self.settings,
             settings_options: std::sync::Arc::clone(&self.settings_options),
             storage: std::sync::Arc::clone(&self.storage),
-            settings_dropdown: self.settings_dropdown,
-            settings_scale_picker: self.settings_scale_picker,
-            settings_control_activation: self.settings_control_activation,
-            settings_control_activation_navigation: self.settings_control_activation_navigation,
-            settings_slider_pointer: self.settings_slider_pointer,
-            settings_slider_hovered: self.settings_slider_hovered,
-            settings_slider_selected: self.settings_slider_selected,
             language_choices: std::sync::Arc::clone(&self.language_choices),
-            key_remap: self.key_remap,
-            settings_advanced_graphics: self.settings_advanced_graphics,
             feeds: self.presented_feeds(),
             hosting: self.hosting_world(),
             invite: self.invite_view(),
@@ -97,6 +101,7 @@ impl MenuRuntime {
             join_request: self.join_request_view(),
             global_resources: self.global_resources.clone(),
             mods: self.mods.clone(),
+            shader_options: self.shader_options_view(),
             minecraft_import: self.minecraft_import.clone(),
         }
     }

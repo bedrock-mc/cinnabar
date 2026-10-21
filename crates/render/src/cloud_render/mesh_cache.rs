@@ -58,7 +58,7 @@ impl CloudMeshCache {
         }
     }
 
-    /// Returns exact records, waiting only when speculation has not completed.
+    /// Returns exact records, waiting for native workers or yielding a pending browser view.
     /// Cold views and teleports must not publish a late or different window.
     pub fn get(
         &mut self,
@@ -66,11 +66,17 @@ impl CloudMeshCache {
         viewport: CloudViewport,
         above: bool,
         diagnostics: bool,
-    ) -> (Arc<CloudMesh>, bool) {
+    ) -> Option<(Arc<CloudMesh>, bool)> {
         let key = WindowKey::new(viewport, above);
         self.start(runtime, viewport, above, diagnostics);
         if let MeshJob::Ready(mesh) = &self.jobs[&key] {
-            return (Arc::clone(mesh), false);
+            return Some((Arc::clone(mesh), false));
+        }
+        #[cfg(target_arch = "wasm32")]
+        if let Some(MeshJob::Pending(task)) = self.jobs.get_mut(&key) {
+            let mesh = block_on(bevy::tasks::poll_once(task))?;
+            self.jobs.insert(key, MeshJob::Ready(Arc::clone(&mesh)));
+            return Some((mesh, false));
         }
         let Some(MeshJob::Pending(task)) = self.jobs.remove(&key) else {
             unreachable!("requested cloud window has a job")
@@ -78,11 +84,11 @@ impl CloudMeshCache {
         let waited = !task.is_finished();
         let mesh = block_on(task);
         self.jobs.insert(key, MeshJob::Ready(Arc::clone(&mesh)));
-        (mesh, waited)
+        Some((mesh, waited))
     }
 
     /// Keeps the current cell and its eight neighbours ready on both sides of
-    /// the layer. Recentring every cell gives ordinary movement a cell of lead.
+    /// the layer on native workers. Browser turns only prepare the requested window.
     pub fn prefetch(
         &mut self,
         runtime: &Arc<RuntimeAtmosphereAssets>,
@@ -99,7 +105,11 @@ impl CloudMeshCache {
                 old.abs_diff(new) <= CLOUD_CELL_BLOCKS as u64 * PREFETCH_RADIUS as u64
             })
         });
+        #[cfg(target_arch = "wasm32")]
+        let _ = (runtime, diagnostics);
+        #[cfg(not(target_arch = "wasm32"))]
         let config = CloudRenderConfig::legacy_fancy();
+        #[cfg(not(target_arch = "wasm32"))]
         for z in -PREFETCH_RADIUS..=PREFETCH_RADIUS {
             for x in -PREFETCH_RADIUS..=PREFETCH_RADIUS {
                 for above in [false, true] {

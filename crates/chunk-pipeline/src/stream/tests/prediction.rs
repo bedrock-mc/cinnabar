@@ -417,7 +417,7 @@ fn place_behind_queued_removal(invalidate_tints: bool) -> (WorldStream, SubChunk
     server_update(&mut stream, next_sequence, position, 1);
     complete_pending_decode_jobs(&mut stream);
     if invalidate_tints {
-        stream.invalidate_resident_biome_tints(Instant::now());
+        stream.invalidate_meshes(Instant::now());
     }
     let generation = stream.revisions.dirty(key).unwrap().revision;
     poll_until_queued(&mut stream, camera_position, |change| {

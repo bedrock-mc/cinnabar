@@ -20,20 +20,20 @@
       "overlay_sha256": "f7cc20dd63cc799381368b55104d8a7b7dd20fc654a655a2188833db9f663339"
     },
     "protocolgen": {
-      "module": "github.com/bedrock-mc/protocolgen/generated/data",
-      "source_lock_sha256": "7672d394035aade326e9f36edb00d6414911e1f841137bc2eef871781a088f97",
+      "module": "github.com/cinnabar-mc/protocolgen/generated/data",
+      "source_lock_sha256": "62824ba020f9c4d0eec51455a7b3398dc0e3d5d4ba964bc5770a65b2e4d478d4",
       "cloudburst_ref": "659ce1e2eee3a67045693f4fd5515c6ccf571953"
     }
   },
   "projection_bindings": {
     "block": {
-      "sha256": "f9ac5559b318fc2395a362e74b3bad9a2cfa0618204cfab47016b63aa048700c"
+      "sha256": "38b45931675c91da339ef1e916e684da541d706d622b4399937f49e91feced82"
     },
     "biome": {
       "sha256": "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a"
     },
     "light": {
-      "sha256": "8b39c689ceab4f3de18110e558e2afde45b015aae91bd82ae21c68c6a100804f"
+      "sha256": "659f0a87c0c375324f9e34efcd4540d84a0ae59ce51a321dc7636d6032598b00"
     }
   }
 }

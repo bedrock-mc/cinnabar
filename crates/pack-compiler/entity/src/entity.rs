@@ -8,8 +8,8 @@ use assets::{
     AssetError, CompiledEntityAssets, EntityAssetKind, EntityAssetSource, EntityAssetSymbol,
     EntityDependency, EntityDependencyKind, EntityDependencyResolution, EntityGeometry,
     EntityGeometryBone, EntityGeometryInheritance, EquipmentBinding, MAX_ENTITY_ASSET_SOURCES,
-    MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_DEPENDENCIES, MAX_ENTITY_GEOMETRIES,
-    MAX_ENTITY_TOTAL_SOURCE_BYTES, validate_entity_geometry_inheritance,
+    MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_DEPENDENCIES, MAX_ENTITY_TOTAL_SOURCE_BYTES,
+    validate_entity_geometry_inheritance,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -37,9 +37,10 @@ mod policy_sources;
 mod sanitize;
 mod vanilla_refs;
 mod versions;
-pub use molang::{BlockMolang, BlockStateValue, compile_molang_expression};
+pub use molang::{BlockMolang, BlockStateValue, ItemTagMolang, compile_molang_expression};
 pub use vanilla_refs::compile_vanilla_entity_refs;
 
+pub(crate) use pack::compile_entity_pack_unless;
 pub use pack::{
     EntityPackCompilation, EntityPackSkips, MAX_PACK_ENTITY_BYTES, MAX_PACK_ENTITY_SOURCES,
     compile_entity_pack,
@@ -96,7 +97,15 @@ struct PendingGeometry {
     bones: Box<[EntityGeometryBone]>,
 }
 
+mod documents;
+use documents::SourceDocuments;
+
 type SourcePayloads = BTreeMap<Box<str>, Box<[u8]>>;
+
+#[cfg(test)]
+thread_local! {
+    static DOCUMENT_PARSES: std::cell::RefCell<BTreeMap<String, usize>> = const { std::cell::RefCell::new(BTreeMap::new()) };
+}
 
 /// Validates a complete geometry document with the compiler's version and schema checks.
 pub(crate) fn validate_geometry_document(value: &Value) -> Result<(), AssetError> {
@@ -397,9 +406,6 @@ fn assemble(
             };
         }
     }
-    if geometries.len() > MAX_ENTITY_GEOMETRIES {
-        return Err(invalid("entity geometry count exceeds bound"));
-    }
     let pending_geometries = geometries.into_values().collect::<Vec<_>>();
     let local_bob_flags = pending_geometries
         .iter()
@@ -460,10 +466,11 @@ fn assemble(
             false,
         )?;
     }
+    let documents = SourceDocuments::new(source_payloads);
     let mut molang_compiler = molang::MolangCompiler::default();
     let animation = animation::compile(
         root,
-        source_payloads,
+        &documents,
         &sources,
         &symbols,
         &geometries,
@@ -476,7 +483,7 @@ fn assemble(
     let controller_resources =
         attachable::controller_resources(&animation, &symbols, &sources, &geometries);
     let equipment_bindings = attachable::compile_bindings(
-        source_payloads,
+        &documents,
         &symbols,
         &sources,
         &controller_resources,

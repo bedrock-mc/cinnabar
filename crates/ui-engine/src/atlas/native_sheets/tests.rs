@@ -106,3 +106,57 @@ fn source_limit_regions_keep_clamped_and_constant_sampling_covered() {
         assert_eq!(allocations, 0);
     }
 }
+
+#[test]
+fn repeated_source_bounds_remain_in_original_image_units_across_pages() {
+    let sheet = resident([8192, 16]);
+    let uv = UvRect {
+        u0: -0.25,
+        v0: 0.0,
+        u1: 1.25,
+        v1: 1.0,
+    };
+    for quad in sheet.quads(uv, [0.0, 0.0, 1.0, 1.0], 0) {
+        let origin = sheet.tiles[quad.page].spec.origin;
+        assert_eq!(
+            quad.repeat_source[0] + origin[0] as f32,
+            uv.u0 * sheet.size[0] as f32
+        );
+        assert_eq!(
+            quad.repeat_source[2] + origin[0] as f32,
+            uv.u1 * sheet.size[0] as f32
+        );
+        assert_eq!(
+            quad.repeat_source[3] - quad.repeat_source[1],
+            sheet.size[1] as f32
+        );
+    }
+}
+
+#[test]
+fn full_native_sheet_table_still_prepares_source_outline() {
+    use crate::{atlas::ServerAtlas, sources::ImageWork};
+    let path = "textures/ui/hunger_outline";
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(512, 9, image::Rgba([255; 4]))
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+    let mut atlas = ServerAtlas::new(&[(format!("{path}.png"), png.into_inner())], None, 1)
+        .with_image_work(ImageWork::inline());
+    for index in 0..MAX_UI_NATIVE_SHEET_PAGES {
+        atlas
+            .native
+            .publish(format!("occupied-{index}"), Some(resident([1; 2])));
+    }
+    atlas.require([path]);
+    assert!(
+        atlas.placement(path).is_some(),
+        "the ordinary sprite remains drawable"
+    );
+    atlas.prepare_outline(path, [18; 2]);
+    assert!(
+        atlas.original_outline(path, [18; 2]).is_some(),
+        "GPU page admission must not suppress CPU outlines"
+    );
+    assert_eq!(atlas.native.pages().len(), MAX_UI_NATIVE_SHEET_PAGES);
+}

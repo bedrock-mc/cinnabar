@@ -1,10 +1,12 @@
 //! Response correlation and the per-cell overlay of server-stated names and
 //! durability; unstated fields stay absent rather than defaulted.
 
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 use protocol::{ItemStackResponseEvent, StackResponseSlot, StackResponseStatus};
 
+use super::cells::Held;
 use super::{Cell, PlayerInventoryLedger};
 
 /// Names and durability an accepted correction stated for one cell; `None`
@@ -100,6 +102,12 @@ impl PlayerInventoryLedger {
         false
     }
 
+    /// The overlay travelling with the cursor's presented stack during prediction.
+    #[must_use]
+    pub fn presented_cursor_overlay(&self) -> Option<&StackResponseOverlay> {
+        self.view().get(Cell::Cursor)?.overlay.as_ref()
+    }
+
     /// The authoritative response overlay retained for the cursor cell.
     #[must_use]
     pub fn cursor_overlay(&self) -> Option<&StackResponseOverlay> {
@@ -144,13 +152,17 @@ impl PlayerInventoryLedger {
                 continue;
             };
             let request = self.queue.remove(index).expect("index observed");
+            let current = self.request_is_current(&request);
             if response.status == StackResponseStatus::Accepted {
+                self.accept_trade_purchase(&request);
                 self.settle(&request, &response.containers);
-            } else if response.status == StackResponseStatus::Rejected
-                && self.request_is_current(&request)
-            {
+            } else if response.status == StackResponseStatus::Rejected && current {
                 self.reject_request(&request);
             }
+            self.finish_request_retirement(
+                request.request_id,
+                current && response.status == StackResponseStatus::Accepted,
+            );
         }
         self.refold();
         // Settlement may have released the last request of a closing window.
@@ -168,11 +180,49 @@ pub(super) fn merge_response_overlay(
     let overlay = entry.get_or_insert_with(Default::default);
     if !correction.custom_name.is_empty() {
         overlay.custom_name = Some(Arc::clone(&correction.custom_name));
-    }
-    if !correction.filtered_custom_name.is_empty() {
         overlay.filtered_custom_name = Some(Arc::clone(&correction.filtered_custom_name));
     }
-    if correction.durability_correction >= 0 {
-        overlay.durability_correction = Some(correction.durability_correction);
+    let damage = i32::from(correction.durability_correction as i16);
+    overlay.durability_correction = (damage >= 0).then_some(damage);
+}
+
+/// Applies response identity fields to retained NBT before future gestures compare it.
+/// Normalizes the response damage while retaining the stored integer's full width.
+/// Malformed or oversized edits leave the retained item and its overlay unchanged.
+pub(super) fn apply_response_item_data(
+    held: &mut Held,
+    correction: &StackResponseSlot,
+) -> Option<()> {
+    let damage = i32::from(correction.durability_correction as i16);
+    let previous = protocol::item_extra_damage_integer(&held.stack.extra_data).unwrap_or(0);
+    let rename = !correction.custom_name.is_empty()
+        && (protocol::item_custom_name(&held.stack.extra_data).as_deref()
+            != Some(correction.custom_name.as_ref())
+            || protocol::item_filtered_custom_name(&held.stack.extra_data).as_deref()
+                != (!correction.filtered_custom_name.is_empty())
+                    .then_some(correction.filtered_custom_name.as_ref()));
+    if previous != damage || rename {
+        let extra_data = protocol::edit_item_extra(
+            &held.stack.extra_data,
+            &protocol::ItemNbtEdit {
+                damage: (previous != damage).then_some(damage),
+                custom_name: rename.then(|| Some(correction.custom_name.to_string())),
+                filtered_custom_name: rename.then(|| {
+                    (!correction.filtered_custom_name.is_empty())
+                        .then(|| correction.filtered_custom_name.to_string())
+                }),
+                ..Default::default()
+            },
+        )?;
+        if extra_data.len() > protocol::MAX_ITEM_EXTRA_BYTES {
+            tracing::warn!(target: "cinnabar::inventory_requests",
+                bytes = extra_data.len(), max = protocol::MAX_ITEM_EXTRA_BYTES,
+                "skipping oversized response item data");
+            return None;
+        }
+        held.stack.nbt_digest = Sha256::digest(&extra_data).into();
+        held.stack.extra_data = extra_data;
     }
+    merge_response_overlay(&mut held.overlay, correction);
+    Some(())
 }

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bedrock-mc/protocolgen/generated/data/registry"
+	"github.com/cinnabar-mc/protocolgen/generated/data/registry"
 )
 
 // TestSharedPaletteRejectsTruncatedFinalCompound covers EOF at a nonempty final record.

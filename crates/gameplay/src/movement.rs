@@ -71,7 +71,7 @@ pub use physics::{
     MovementEffectSource, PhysicsCorrectionMode, PhysicsCorrectionOutcome, PhysicsMotionSample,
     PhysicsMovementSample, PhysicsSampleContext, physics_movement_input,
 };
-pub use prediction_sync::{PredictionSyncState, send_movement_prediction_sync};
+pub use prediction_sync::send_movement_prediction_sync;
 use sim::WorldCollisionIdentity;
 pub use speed_authority::LocalMovementSpeedAuthority;
 pub use state::ProcessedMovementState;

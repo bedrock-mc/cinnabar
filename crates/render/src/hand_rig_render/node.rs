@@ -16,15 +16,24 @@ type HandRigViewQuery = (
     &'static crate::scene_target::SceneTarget,
     &'static Msaa,
     Has<render_scene::EnhancedRendering>,
+    Has<render_scene::shaderpack::ShaderPackRendering>,
 );
 
-/// Draws the first-person rig over the scene with its own depth attachment.
+/// Draws the first-person rig over the scene with its own depth attachment, except on
+/// shader-pack cameras whose pack draws the hand itself.
 pub(crate) fn hand_rig(
     world: &World,
     query: bevy::render::renderer::ViewQuery<HandRigViewQuery>,
     mut context: RenderContext,
 ) -> bevy::ecs::error::Result {
-    let (target, scene_target, msaa, enhanced) = query.into_inner();
+    let (target, scene_target, msaa, enhanced, pack_view) = query.into_inner();
+    if pack_view
+        && world
+            .get_resource::<render_scene::shaderpack::ShaderPackDrawnCategories>()
+            .is_some_and(|drawn| drawn.hand)
+    {
+        return Ok(());
+    }
     let context = &mut context;
     let (Some(gpu), Some(cache)) = (
         world.get_resource::<HandRigGpu>(),

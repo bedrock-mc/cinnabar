@@ -46,6 +46,8 @@ pub(crate) struct Catalog {
     pub blocks: HashMap<String, Vec<StateDef>>,
     pub items: HashMap<String, u8>,
     pub server: HashMap<String, HashMap<u16, protocol::ServerItem>>,
+    /// The server's crafting-table recipes, in the order it tries them.
+    pub recipes: Vec<protocol::Recipe>,
 }
 
 /// A verified artifact: its manifest, its validated blocks, and the component pre-linked against
@@ -146,6 +148,7 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
             .map(|item| (item.id.clone(), item.max_stack))
             .collect(),
         server: HashMap::new(),
+        recipes: Vec::new(),
     };
     Ok(Loaded {
         manifest,
@@ -228,6 +231,16 @@ impl Loaded {
     pub fn with_server_items(mut self, items: Vec<protocol::ServerItem>) -> Result<Self> {
         let mut catalog = (*self.catalog).clone();
         catalog.server = items::server_items(items)?;
+        self.catalog = Arc::new(catalog);
+        Ok(self)
+    }
+
+    /// The loaded artifact whose callbacks match crafting grids against the server's `recipes`,
+    /// as the adapter lists them at load.
+    pub fn with_recipes(mut self, recipes: Vec<protocol::Recipe>) -> Result<Self> {
+        items::check_recipes(&recipes)?;
+        let mut catalog = (*self.catalog).clone();
+        catalog.recipes = recipes;
         self.catalog = Arc::new(catalog);
         Ok(self)
     }

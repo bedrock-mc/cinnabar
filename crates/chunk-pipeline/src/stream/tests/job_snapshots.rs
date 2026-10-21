@@ -616,3 +616,140 @@ fn snapshot_knows_exactly_the_blocks_it_can_sample() {
         }
     }
 }
+
+#[test]
+fn quality_toggles_capture_new_settings_and_reject_late_meshes_after_a_round_trip() {
+    for resident in [false, true] {
+        let (mut stream, key) = fixture();
+        if resident {
+            stream.resident.insert(key);
+        }
+        let now = Instant::now();
+        let original = stream.mesh_render_settings();
+        let revision = stream.mark_dirty_exact(key, now);
+        let snapshot = capture_mesh(&stream, key);
+        let tint_identity = stream.biome_tint_identity();
+        let completion = MeshCompletion {
+            output_permit: None,
+            _job_permit: None,
+            key,
+            revision,
+            mesh: snapshot.mesh(
+                stream.classifier,
+                stream.authority.runtime_assets(),
+                stream.network_id_mode(),
+                &PackedBiomeRecord::fallback(),
+            ),
+            source: Arc::clone(&snapshot.center),
+            biome_sources: snapshot.biomes.clone(),
+            biome: PackedBiomeRecord::fallback(),
+            tint_identity,
+            dependency_mask: MeshDependencyMask::default(),
+            light_halo: snapshot.light_halo,
+            queue_wait: Duration::ZERO,
+            dispatch_wait: Duration::ZERO,
+            duration: Duration::ZERO,
+            urgent: false,
+        };
+        stream.mesh_jobs.in_flight.insert(key, revision);
+        let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        stream
+            .mesh_cancellations
+            .insert(key, Arc::clone(&cancelled));
+        stream.staged_mesh_bytes = chunk_publication_byte_len(&completion.mesh, &completion.biome);
+        stream.staged_mesh_completions.push_back(completion);
+        let cheap = ::meshing::MeshRenderSettings {
+            smooth_lighting: false,
+            transparent_leaves: false,
+        };
+        assert!(stream.set_mesh_render_settings(cheap, now));
+        assert_eq!(capture_mesh(&stream, key).rendering, cheap);
+        assert_eq!(snapshot.rendering, original);
+        assert!(stream.mesh_jobs.in_flight.is_empty());
+        assert!(cancelled.load(std::sync::atomic::Ordering::Acquire));
+        assert!(stream.staged_mesh_completions.is_empty());
+        assert_eq!(stream.staged_mesh_bytes, 0);
+        let changed = stream.revisions.dirty(key).unwrap().revision;
+        let quality_revision = stream.mesh_render_revision();
+        assert!(!stream.set_mesh_render_settings(cheap, now));
+        assert_eq!(stream.revisions.dirty(key).unwrap().revision, changed);
+        assert_eq!(stream.mesh_render_revision(), quality_revision);
+        assert!(stream.set_mesh_render_settings(original, now));
+        assert!(!stream.revisions.is_current(key, revision));
+        assert!(stream.mesh_render_revision() > quality_revision);
+        assert_eq!(capture_mesh(&stream, key).rendering, original);
+    }
+}
+
+#[test]
+fn java_mode_toggles_withdraw_old_meshes_and_reject_late_round_trip_results() {
+    for resident in [false, true] {
+        let (mut stream, key) = fixture();
+        if resident {
+            stream.resident.insert(key);
+        }
+        let now = Instant::now();
+        let original = stream.java_meshing.clone();
+        let revision = stream.mark_dirty_exact(key, now);
+        let snapshot = capture_mesh(&stream, key);
+        let tint_identity = stream.biome_tint_identity();
+        let completion = MeshCompletion {
+            output_permit: None,
+            _job_permit: None,
+            key,
+            revision,
+            mesh: snapshot.mesh(
+                stream.classifier,
+                stream.authority.runtime_assets(),
+                stream.network_id_mode(),
+                &PackedBiomeRecord::fallback(),
+            ),
+            source: Arc::clone(&snapshot.center),
+            biome_sources: snapshot.biomes.clone(),
+            biome: PackedBiomeRecord::fallback(),
+            tint_identity,
+            dependency_mask: MeshDependencyMask::default(),
+            light_halo: snapshot.light_halo,
+            queue_wait: Duration::ZERO,
+            dispatch_wait: Duration::ZERO,
+            duration: Duration::ZERO,
+            urgent: false,
+        };
+        stream.mesh_jobs.in_flight.insert(key, revision);
+        let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        stream
+            .mesh_cancellations
+            .insert(key, Arc::clone(&cancelled));
+        stream.staged_mesh_bytes = chunk_publication_byte_len(&completion.mesh, &completion.biome);
+        stream.staged_mesh_completions.push_back(completion);
+        stream.queue_mesh_change(WorldMeshChange::Upsert {
+            output_permit: None,
+            key,
+            mesh: ChunkMesh::default(),
+            biome: PackedBiomeRecord::fallback(),
+            tint_identity,
+            generation: revision,
+            dirty_since: now,
+            urgent: false,
+            permit: None,
+        });
+        let java = Some(Arc::from([1_u32, 2]));
+        stream.set_java_meshing(java.clone(), now);
+        assert_eq!(capture_mesh(&stream, key).java_meshing, java);
+        assert_eq!(snapshot.java_meshing, original);
+        assert!(stream.take_mesh_changes().is_empty());
+        assert!(stream.mesh_jobs.in_flight.is_empty());
+        assert!(cancelled.load(std::sync::atomic::Ordering::Acquire));
+        assert!(stream.staged_mesh_completions.is_empty());
+        assert_eq!(stream.staged_mesh_bytes, 0);
+        let changed = stream.revisions.dirty(key).unwrap().revision;
+        let quality_revision = stream.mesh_render_revision();
+        stream.set_java_meshing(java, now);
+        assert_eq!(stream.revisions.dirty(key).unwrap().revision, changed);
+        assert_eq!(stream.mesh_render_revision(), quality_revision);
+        stream.set_java_meshing(original.clone(), now);
+        assert!(!stream.revisions.is_current(key, revision));
+        assert!(stream.mesh_render_revision() > quality_revision);
+        assert_eq!(capture_mesh(&stream, key).java_meshing, original);
+    }
+}

@@ -1,7 +1,7 @@
 //! Bounded component and package admission and deferred settings activation.
 
 use crate::{
-    DataSource, MAX_COMPONENT_SOURCE_BYTES, ModEvent, ModGrants, ModHost, Source,
+    DataSource, DrawingRestart, MAX_COMPONENT_SOURCE_BYTES, ModEvent, ModGrants, ModHost, Source,
     component_assets::ComponentAssets,
     execution, local_files,
     package::{self, Package},
@@ -50,6 +50,12 @@ impl ModHost {
             items: true,
             recipes: true,
             keys: true,
+            // The settings file is the environment opt-in's, or the manifest's ask.
+            settings: extra.settings
+                || package
+                    .manifest
+                    .permissions
+                    .contains(&ModPermission::Settings),
             ..extra
         };
         Self::load_read_package(dir, package, grants)
@@ -64,6 +70,19 @@ impl ModHost {
 
     /// Loads a verified package under the loader's original authorization policy.
     fn load_read_package(dir: &Path, package: Package, grants: ModGrants) -> Result<Self> {
+        let mut host = Self::prepare_package_in_session(dir, package, grants, None, None)?;
+        host.activate_settings(None);
+        Ok(host)
+    }
+
+    /// Prepares one verified package under its drawing fence without activating settings writes.
+    pub fn prepare_package_in_session(
+        dir: &Path,
+        package: Package,
+        grants: ModGrants,
+        current_settings: Option<(&Path, &str)>,
+        session: Option<mod_api::drawing::DrawingSession>,
+    ) -> Result<Self> {
         let source = Source::Package(dir.to_owned());
         let authorized_grants = grants;
         let grants = authorized_grants.with_manifest(&package.manifest);
@@ -72,13 +91,13 @@ impl ModHost {
             source,
             &package.component,
             grants,
-            None,
+            current_settings,
             declared,
             package.digest,
+            session,
         )?;
         host.package = Some(loaded(package));
         host.authorized_grants = authorized_grants;
-        host.activate_settings(None);
         Ok(host)
     }
 
@@ -90,6 +109,17 @@ impl ModHost {
         grants: ModGrants,
         current_settings: Option<(&Path, &str)>,
     ) -> Result<Self> {
+        Self::prepare_snapshot_in_session(path, bytes, grants, current_settings, None)
+    }
+
+    /// Prepares a candidate with its drawing fence installed before guest initialization.
+    pub fn prepare_snapshot_in_session(
+        path: &Path,
+        bytes: &[u8],
+        grants: ModGrants,
+        current_settings: Option<(&Path, &str)>,
+        session: Option<mod_api::drawing::DrawingSession>,
+    ) -> Result<Self> {
         let source = Source::Component(path.to_owned());
         let digest = Sha256::digest(bytes).into();
         Self::prepare(
@@ -99,9 +129,11 @@ impl ModHost {
             current_settings,
             Declared::default(),
             digest,
+            session,
         )
     }
 
+    /// Initializes one bounded snapshot while retaining the loader authorization ceiling.
     fn prepare(
         source: Source,
         bytes: &[u8],
@@ -109,7 +141,18 @@ impl ModHost {
         current_settings: Option<(&Path, &str)>,
         declared: Declared,
         digest: [u8; 32],
+        session: Option<mod_api::drawing::DrawingSession>,
     ) -> Result<Self> {
+        let authorized_grants = grants.clone();
+        let grants = if matches!(source, Source::Component(_)) {
+            let request = crate::declarations::declarations_snapshot(bytes)?
+                .requested?
+                .map(|request| request.drawing_permissions())
+                .unwrap_or_default();
+            grants.with_drawing_request(request)
+        } else {
+            grants
+        };
         let assets = ComponentAssets::read(bytes)?;
         grants.validate()?;
         let path = &source.settings_anchor();
@@ -134,13 +177,14 @@ impl ModHost {
             read_settings(path, &grants)?
         };
         let settings_seed = grants.settings.then(|| seed.clone());
-        let instance = Instance::new(
+        let instance = Instance::new_with_drawing_policy(
             &engine,
             &assets.executable,
             grants.clone(),
             seed,
             declared,
             assets.panel_bundle.filter(|_| grants.controls),
+            session,
         )?;
         Ok(Self {
             engine,
@@ -153,7 +197,8 @@ impl ModHost {
             panel_bundle_override: None,
             source,
             attempted: digest,
-            authorized_grants: grants.clone(),
+            admitted_digest: digest,
+            authorized_grants,
             grants,
             settings_writer,
             settings_seed,
@@ -161,6 +206,8 @@ impl ModHost {
             package: None,
             layout: None,
             session: Arc::default(),
+            drawing_session: session,
+            drawing_restart: DrawingRestart::None,
         })
     }
 
@@ -183,6 +230,9 @@ impl ModHost {
     /// re-read whole; the new instance gets the current layout and session, and
     /// `screen-changed` and `data-changed` when it has events.
     pub fn reload_if_changed(&mut self) -> Result<bool> {
+        if self.is_revoked() && !self.needs_drawing_restart() {
+            return Ok(false);
+        }
         let (bytes, digest, package) = match &self.source {
             Source::Component(path) => {
                 let bytes = read_component(path)?;
@@ -194,21 +244,34 @@ impl ModHost {
                 (Vec::new(), package.digest, Some(package))
             }
         };
-        if self.attempted == digest {
+        let pending_fence = matches!(self.drawing_restart, DrawingRestart::Pending);
+        if self.attempted == digest && !pending_fence {
             return Ok(false);
         }
         if !self.instance.can_reload() {
             return Ok(false);
         }
         self.attempted = digest;
+        if self.needs_drawing_restart() {
+            self.drawing_restart = DrawingRestart::Attempted;
+        }
         let (bytes, declared) = match &package {
             Some(package) => (&package.component, declared(package)),
             None => (&bytes, Declared::default()),
         };
         let grants = package.as_ref().map_or_else(
-            || self.grants.clone(),
+            || self.authorized_grants.clone(),
             |package| self.authorized_grants.with_manifest(&package.manifest),
         );
+        let grants = if package.is_none() {
+            let request = crate::declarations::declarations_snapshot(bytes)?
+                .requested?
+                .map(|request| request.drawing_permissions())
+                .unwrap_or_default();
+            grants.with_drawing_request(request)
+        } else {
+            grants
+        };
         let assets = ComponentAssets::read(bytes)?;
         let bundle = self
             .panel_bundle_override
@@ -228,6 +291,8 @@ impl ModHost {
             .context("reload rejected; previous mod retained")?;
         candidate.set_session(Arc::clone(&self.session));
         self.instance = candidate;
+        self.admitted_digest = digest;
+        self.drawing_restart = DrawingRestart::None;
         self.embedded_font = assets.font;
         self.embedded_logo = assets.logo;
         self.embedded_title = assets.title;
@@ -256,8 +321,13 @@ impl ModHost {
         self.grants.settings.then(|| self.instance.settings())
     }
 
+    /// Returns the loader's consent before component requests or session ceilings narrow it.
+    pub fn authorized_grants(&self) -> &ModGrants {
+        &self.authorized_grants
+    }
+
     pub fn grants(&self) -> &ModGrants {
-        &self.grants
+        self.instance.grants()
     }
 
     pub fn settings_seed(&self) -> Option<&str> {
@@ -290,24 +360,21 @@ impl ModHost {
         self.embedded_notices.as_deref()
     }
 
-    /// Identifies a bare local component for its caller's off-frame reload worker.
-    pub fn component_source(&self) -> Option<&Path> {
-        match &self.source {
-            Source::Component(path) => Some(path),
-            Source::Package(_) => None,
-        }
+    /// Identifies either source kind for off-frame snapshot admission.
+    pub fn source(&self) -> &Source {
+        &self.source
     }
 
-    /// The last attempted full source identity, including embedded static presentation data.
+    /// The admitted source identity, including embedded static presentation data.
     pub fn source_digest(&self) -> [u8; 32] {
-        self.attempted
+        self.admitted_digest
     }
 }
 
 impl Source {
     /// The path whose `.settings.json` companion holds the mod's settings: a component's own
     /// path, or for a package one beside its directory, never inside the hashed package.
-    fn settings_anchor(&self) -> std::path::PathBuf {
+    pub fn settings_anchor(&self) -> std::path::PathBuf {
         match self {
             Self::Component(path) => path.clone(),
             Self::Package(dir) => package::settings_anchor(dir),
@@ -321,21 +388,38 @@ impl ModGrants {
         let asked = Self::from_manifest(manifest);
         Self {
             screen: asked.screen && self.screen,
+            world_draw: asked.world_draw && self.world_draw,
+            entity_observe: asked.entity_observe && self.entity_observe,
+            entity_highlight: asked.entity_highlight && self.entity_highlight,
+            render_through_walls: asked.render_through_walls && self.render_through_walls,
+            render_material: asked.render_material && self.render_material,
+            render_post: asked.render_post && self.render_post,
+
             items: asked.items && self.items,
             recipes: asked.recipes && self.recipes,
             keys: asked.keys && self.keys,
+            inventory: asked.inventory && self.inventory,
             ..self.clone()
         }
     }
 
-    /// What a package's manifest asks for, except `inventory`, which no import carries yet.
+    /// What a package's manifest asks for.
     pub fn from_manifest(manifest: &ModManifest) -> Self {
         let asks = |permission| manifest.permissions.contains(&permission);
         Self {
             screen: asks(ModPermission::Screen),
+            world_draw: asks(ModPermission::WorldDraw),
+            entity_observe: asks(ModPermission::EntityObserve),
+            entity_highlight: asks(ModPermission::EntityHighlight),
+            render_through_walls: asks(ModPermission::RenderThroughWalls),
+            render_material: asks(ModPermission::RenderMaterial),
+            render_post: asks(ModPermission::RenderPost),
+
             items: asks(ModPermission::Items),
             recipes: asks(ModPermission::Recipes),
             keys: asks(ModPermission::Keys),
+            inventory: asks(ModPermission::Inventory),
+            settings: asks(ModPermission::Settings),
             ..Self::default()
         }
     }

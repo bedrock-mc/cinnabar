@@ -104,6 +104,7 @@ fn diagnostic_for_unmatched_record(
 
 #[derive(Default)]
 struct VisualCompiler {
+    authored_templates: BTreeMap<(u32, Box<str>, u8), u32>,
     model_templates: Vec<ModelTemplate>,
     model_quads: Vec<ModelQuad>,
     cross_templates: BTreeMap<super::cross::TemplateKey, u32>,
@@ -149,6 +150,7 @@ struct VisualCompiler {
     tripwire_hook_templates: BTreeMap<([u32; 6], u8, bool, bool), u32>,
     coral_templates: BTreeMap<(u32, super::coral::Shape), u32>,
     barrel_templates: BTreeMap<([u32; 6], usize), u32>,
+    command_block_templates: BTreeMap<([u32; 6], usize), u32>,
     brewing_stand_templates: BTreeMap<([u32; 6], [bool; 3]), u32>,
     campfire_templates: BTreeMap<([u32; 6], bool, u8), u32>,
     bubble_column_templates: BTreeMap<[u32; 9], u32>,
@@ -179,6 +181,15 @@ impl VisualCompiler {
             return Ok(CompileRuleResult::Compiled(visual));
         }
 
+        ordered_rule!(super::authored::compile_rule(
+            record,
+            inputs,
+            &mut self.authored_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads
+            },
+        ));
         ordered_rule!(super::bubble_column::compile_rule(
             record,
             inputs,
@@ -201,6 +212,15 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.barrel_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads
+            },
+        ));
+        ordered_rule!(super::command_block::compile_rule(
+            record,
+            inputs,
+            &mut self.command_block_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads

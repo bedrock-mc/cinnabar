@@ -1,7 +1,10 @@
 //! Real ordered-stream commit-to-authority witnesses, not network-ingress tests.
+
 use super::*;
 #[cfg(not(feature = "acceptance"))]
 use crate::acceptance::AcceptanceRun;
+use crate::app::authority::configure_client_authority_systems;
+use crate::game_frame::configure_client_frame_schedule;
 use crate::runtime::network::resource_packs::PackApplication;
 #[cfg(feature = "acceptance")]
 use ::acceptance::AcceptanceRun;
@@ -14,6 +17,7 @@ use bevy::{
     prelude::*,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow},
 };
+use client_presentation::environment::{WeatherState, bind_session_generation};
 use client_presentation::server_camera::ServerCameraInstructions;
 use client_runtime::network::NetworkHandle;
 use client_shell::ui_resources::UiPresentationResource;
@@ -29,8 +33,6 @@ use semantic_input::Action;
 use std::sync::Arc;
 use {
     crate::{
-        app::{configure_client_authority_systems, configure_client_frame_schedule},
-        environment::{WeatherState, bind_session_generation},
         runtime::movement_evidence::MovementEvidenceEmitter,
         semantic_controls::{
             PendingDeviceFrame, SemanticInputRuntime, SemanticRouteState, SemanticTouchTargets,
@@ -55,6 +57,7 @@ use {
 
 mod boss_lifetime;
 mod credits_identity;
+mod npc_identity;
 mod player_authority;
 
 #[derive(Clone, Copy, Debug)]
@@ -68,7 +71,7 @@ enum InputCase {
 }
 
 /// Builds a complete authority schedule with independent player and UI owners.
-fn fixture_app() -> (App, Entity) {
+pub(crate) fn fixture_app() -> (App, Entity) {
     let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
     let mut clock = WorldClock::default();
     let mut weather = WeatherState::default();
@@ -256,7 +259,7 @@ fn transition_retires_full_local_and_busy_answers_and_stale_same_id_actions() {
             .respond_to_server_form(old, LocalFormAction::SubmitButton(1))
             .unwrap();
         assert_eq!(
-            flush_form_response(&mut runtime, |_| Err(FormTransportError::Full)),
+            flush_form_response(&mut runtime, |_| false, |_| Err(FormTransportError::Full)),
             Err(FormTransportError::Full)
         );
         assert_eq!(runtime.server_forms().queued_busy_count(), 1);
@@ -276,21 +279,32 @@ fn transition_retires_full_local_and_busy_answers_and_stale_same_id_actions() {
         Err(FormRespondError::StaleIdentity)
     );
     assert!(
-        !flush_form_response(&mut runtime, |_| panic!("retired answers must not enqueue")).unwrap()
+        !flush_form_response(
+            &mut runtime,
+            |_| false,
+            |_| panic!("retired answers must not enqueue")
+        )
+        .unwrap()
     );
     runtime
         .respond_to_server_form(current, LocalFormAction::SubmitButton(0))
         .unwrap();
     let mut packets = Vec::new();
     assert!(
-        flush_form_response(&mut runtime, |packet| {
-            packets.push(packet);
-            Ok(())
-        })
+        flush_form_response(
+            &mut runtime,
+            |_| false,
+            |packet| {
+                packets.push(packet);
+                Ok(())
+            }
+        )
         .unwrap()
     );
     assert_eq!(packets.len(), 1);
-    assert!(!flush_form_response(&mut runtime, |_| panic!("no duplicate answer")).unwrap());
+    assert!(
+        !flush_form_response(&mut runtime, |_| false, |_| panic!("no duplicate answer")).unwrap()
+    );
 }
 
 #[test]
@@ -338,9 +352,11 @@ fn new_session_with_same_initial_epoch_retires_old_form_authority() {
         Err(client_ui::ui_runtime::FormRespondError::StaleIdentity)
     );
     assert!(
-        !flush_form_response(&mut runtime, |_| panic!(
-            "old-session pending response retired"
-        ))
+        !flush_form_response(
+            &mut runtime,
+            |_| false,
+            |_| panic!("old-session pending response retired")
+        )
         .unwrap()
     );
 }
@@ -355,7 +371,7 @@ fn transition_without_successor_clears_display_and_definitely_unsent_busy_reply(
     {
         let mut runtime = app.world_mut().resource_mut::<UiRuntimeResource>();
         assert_eq!(
-            flush_form_response(&mut runtime, |_| Err(FormTransportError::Full)),
+            flush_form_response(&mut runtime, |_| false, |_| Err(FormTransportError::Full)),
             Err(FormTransportError::Full)
         );
         assert!(runtime.server_forms().active().is_some());
@@ -370,9 +386,11 @@ fn transition_without_successor_clears_display_and_definitely_unsent_busy_reply(
         assert!(!runtime.server_forms().owns_input());
         assert_eq!(runtime.server_forms().queued_busy_count(), 0);
         assert!(
-            !flush_form_response(&mut runtime, |_| panic!(
-                "retired busy response must not enqueue"
-            ))
+            !flush_form_response(
+                &mut runtime,
+                |_| false,
+                |_| panic!("retired busy response must not enqueue")
+            )
             .unwrap()
         );
     }
@@ -504,8 +522,8 @@ fn committed_form_owns_first_visible_frame_and_recovers_each_real_input_consumer
                 .respond_to_server_form(identity, LocalFormAction::Dismiss)
                 .unwrap();
         }
-        assert!(flush_form_response(&mut runtime, |_| Ok(())).unwrap());
-        assert!(!flush_form_response(&mut runtime, |_| Ok(())).unwrap());
+        assert!(flush_form_response(&mut runtime, |_| false, |_| Ok(())).unwrap());
+        assert!(!flush_form_response(&mut runtime, |_| false, |_| Ok(())).unwrap());
         app.insert_resource(runtime);
         app.update(); // Restore cursor/input without replaying the old edge.
         let cursor = app.world().get::<CursorOptions>(window).unwrap();

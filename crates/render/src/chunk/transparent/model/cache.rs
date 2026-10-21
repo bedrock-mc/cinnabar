@@ -79,12 +79,13 @@ impl TransparentModelPreparationCache {
         self.invalidate_all = true;
     }
 
-    /// Starts a visibility scan and invalidates all centroids when the asset input changes.
+    /// Starts a visibility scan retaining only the carrier used by geometry.
+    /// Carrier changes invalidate every centroid page.
     pub(super) fn begin_frame(&mut self, assets: &ChunkTextureAssets) {
         if self.assets.as_ref().map(ChunkTextureAssets::identity) != Some(assets.identity()) {
             self.invalidate_all |= self.assets.is_some();
             self.pages.clear();
-            self.assets = Some(assets.clone());
+            self.assets = Some(assets.with_updated_enhanced(None));
             self.dirty = true;
         }
         self.observed.clear();

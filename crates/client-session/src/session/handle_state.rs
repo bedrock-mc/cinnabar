@@ -61,7 +61,9 @@ impl CapturedPackets {
         while let Ok(command) = self.commands.try_recv() {
             match command {
                 NetworkCommand::Send { packet, .. } => self.pending.push(packet),
-                NetworkCommand::FlushFrame => return Some(std::mem::take(&mut self.pending)),
+                NetworkCommand::FlushFrame { .. } => {
+                    return Some(std::mem::take(&mut self.pending));
+                }
                 NetworkCommand::FinishLoading => {}
             }
         }
@@ -71,9 +73,15 @@ impl CapturedPackets {
 
 #[cfg(any(test, feature = "test-support"))]
 impl<P> NetworkHandle<P> {
+    /// Captures packets from the normal bounded command FIFO.
     pub fn stub_capturing_packets() -> (Self, CapturedPackets) {
+        Self::stub_capturing_packets_with_capacity(COMMAND_CAPACITY)
+    }
+
+    /// Captures real command admission with a chosen payload capacity.
+    pub fn stub_capturing_packets_with_capacity(capacity: usize) -> (Self, CapturedPackets) {
         let (mut handle, _) = Self::stub();
-        let (commands, command_rx) = frame_flush::command_channel(COMMAND_CAPACITY);
+        let (commands, command_rx) = frame_flush::command_channel(capacity);
         handle.commands = commands;
         (
             handle,

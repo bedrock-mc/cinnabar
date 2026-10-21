@@ -17,7 +17,7 @@ pub fn step_and_send(
         frame.selection.as_ref(),
         frame.riptide_facing,
     );
-    if let Some(expected) = &runtime.deferred_selection {
+    if let Some(expected) = &runtime.pending.deferred_selection {
         match &frame.selection {
             Some(current) if current != expected => runtime.cancel_pending_input(),
             None if !runtime.release_pending => return false,
@@ -26,25 +26,25 @@ pub fn step_and_send(
     }
     let mut candidate = runtime.clone();
     let mut candidate_swings = swings.clone();
-    let defer_click_until_verified = runtime.deferred_selection.is_some()
+    let defer_click_until_verified = runtime.pending.deferred_selection.is_some()
         && frame.selection.is_none()
         && runtime.release_pending;
-    candidate.deferred_selection = None;
+    candidate.pending.deferred_selection = None;
     if defer_click_until_verified {
-        candidate.latched_press = false;
+        candidate.pending.latched_press = false;
     }
     let outcome = candidate.step(frame);
     if defer_click_until_verified {
-        candidate.latched_press = true;
-        candidate.deferred_selection = runtime.deferred_selection.clone();
+        candidate.pending.latched_press = true;
+        candidate.pending.deferred_selection = runtime.pending.deferred_selection.clone();
     }
     if outcome.swung
         && swings.tick_is_published(frame.tick)
-        && runtime.rejected_swing_tick != Some((frame.tick, swings.authority_identity()))
+        && runtime.pending.rejected_swing_tick != Some((frame.tick, swings.authority_identity()))
     {
         return false;
     }
-    candidate.rejected_swing_tick = None;
+    candidate.pending.rejected_swing_tick = None;
     let mut packets = outcome.packets;
     if outcome.swung && candidate_swings.try_swing(frame.tick, swing_duration) {
         packets.insert(
@@ -66,11 +66,12 @@ pub fn step_and_send(
         Err(BatchSendError::Full) => {
             swings.defer_unadmitted_attempt(&candidate_swings);
             if outcome.swung {
-                runtime.rejected_swing_tick = Some((frame.tick, swings.authority_identity()));
+                runtime.pending.rejected_swing_tick =
+                    Some((frame.tick, swings.authority_identity()));
             }
             if outcome.used {
-                runtime.latched_press = true;
-                runtime.deferred_selection = frame.selection.clone();
+                runtime.pending.latched_press = true;
+                runtime.pending.deferred_selection = frame.selection.clone();
             }
             runtime.release_pending |= outcome.released;
             false

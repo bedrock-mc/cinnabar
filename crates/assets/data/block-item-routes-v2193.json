@@ -5,7 +5,7 @@
   "dragonfly_module": "github.com/df-mc/dragonfly",
   "dragonfly_version": "v0.11.5",
   "dragonfly_module_sum": "h1:amqepXVBRBi/e5j1K2H8GjNFgpMs6FP1RQgNH0Myfn0=",
-  "breg_sha256": "f9ac5559b318fc2395a362e74b3bad9a2cfa0618204cfab47016b63aa048700c",
+  "breg_sha256": "38b45931675c91da339ef1e916e684da541d706d622b4399937f49e91feced82",
   "routes": [
     {
       "identifier": "minecraft:acacia_door",
@@ -9506,6 +9506,22 @@
         }
       },
       "block_visual": 14190
+    },
+    {
+      "identifier": "minecraft:shelf_mushroom",
+      "metadata": 0,
+      "block_name": "minecraft:shelf_mushroom",
+      "block_state": {
+        "growth": {
+          "type": "int",
+          "value": 0
+        },
+        "minecraft:cardinal_direction": {
+          "type": "string",
+          "value": "north"
+        }
+      },
+      "block_visual": 13485
     },
     {
       "identifier": "minecraft:short_grass",

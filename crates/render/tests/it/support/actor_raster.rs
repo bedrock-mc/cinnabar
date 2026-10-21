@@ -10,6 +10,30 @@ use bevy::math::{Mat4, Vec3, Vec4};
 use gpu_snapshot::{Draw, Gpu};
 use render_model::ActorGpuInstance;
 use render_model::{ActorRigVertex, EntityRigId};
+use std::ops::Range;
+
+/// Geometry and ordered instance ranges submitted to the production actor shader.
+pub(crate) struct RasterBatch<'a> {
+    pub vertices: &'a [ActorRigVertex],
+    pub geometry: &'a [render_model::ActorRigGeometrySpan],
+    pub instances: &'a [ActorGpuInstance],
+    pub draws: &'a [(Range<u32>, Range<u32>)],
+}
+
+/// Renders an opaque actor batch with its exact per-instance geometry selection.
+pub(crate) fn raster_batch(gpu: &Gpu, batch: RasterBatch<'_>, scene: RasterScene<'_>) -> Vec<u8> {
+    raster_batch_in_scene(
+        gpu,
+        batch,
+        Default::default(),
+        scene,
+        false,
+        false,
+        &[],
+        Default::default(),
+        None,
+    )
+}
 
 /// Camera, actor transform and original texture inputs for a production shader raster.
 pub(crate) struct RasterScene<'a> {
@@ -72,6 +96,7 @@ fn source_with_definitions(gamma: bool, definitions: &[&str]) -> String {
     shader_source::standalone(&actor, &definitions)
         .replace("@group(1) @binding(0)", "@group(0) @binding(20)")
         .replace("@group(1) @binding(1)", "@group(0) @binding(21)")
+        .replace("@group(3) @binding(0)", "@group(0) @binding(22)")
 }
 
 pub(crate) fn raster(
@@ -242,21 +267,56 @@ pub(crate) fn raster_material_in_scene(
     overlay_rgba8: u32,
     tint_rgba8: u32,
     definitions: &[&str],
-    state: gpu_snapshot::RasterState,
+    mut state: gpu_snapshot::RasterState,
 ) -> Vec<u8> {
     assert_eq!(
         scene.texels.len(),
         (scene.texture_size[0] * scene.texture_size[1]) as usize
     );
-    let view = gpu.buffer(
-        &gpu_snapshot::view(scene.clip_from_world, scene.camera_position),
-        wgpu::BufferUsages::UNIFORM,
-    );
-    let affine: [[f32; 4]; 3] = [
-        [1.0, 0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-    ];
+    let companion = state.actor_companion.take().map(|material| {
+        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("actor mask companion fixture"),
+            size: wgpu::Extent3d {
+                width: gpu_snapshot::SNAPSHOT_SIDE,
+                height: gpu_snapshot::SNAPSHOT_SIDE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: state.multisample.count,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        raster_material_in_scene(
+            gpu,
+            vertices,
+            material,
+            RasterScene { ..scene },
+            srgb,
+            gamma,
+            light,
+            overlay_rgba8,
+            tint_rgba8,
+            &[],
+            gpu_snapshot::RasterState {
+                depth_target: Some(texture.clone()),
+                multisample: wgpu::MultisampleState {
+                    alpha_to_coverage_enabled: false,
+                    ..state.multisample
+                },
+                ..Default::default()
+            },
+        );
+        texture.create_view(&Default::default())
+    });
+    let mut definitions = definitions.to_vec();
+    if companion.is_some() {
+        definitions.push("MASK_DISSOLVE");
+        if state.multisample.count > 1 {
+            definitions.push("MASK_DISSOLVE_MSAA");
+        }
+    }
     let instance = ActorGpuInstance {
         world_from_actor: scene.world_from_actor,
         partial_tick: 1.0,
@@ -266,18 +326,67 @@ pub(crate) fn raster_material_in_scene(
         tint: tint_rgba8,
         multitexture_layers: [u32::MAX; 2],
         material: material.gpu_word(),
-        dissolve_multiplier: 1.0,
+        dissolve_multiplier: material.dissolve_multiplier,
         light_color_multiplier: material.light_color_multiplier,
         glint: material.glint.parameters(),
         ..Default::default()
     };
+    raster_batch_in_scene(
+        gpu,
+        RasterBatch {
+            vertices,
+            geometry: &[render_model::ActorRigGeometrySpan {
+                first_vertex: 0,
+                vertex_count: vertices.len() as u32,
+            }],
+            instances: &[instance],
+            draws: &[(0..vertices.len() as u32, 0..1)],
+        },
+        material,
+        scene,
+        srgb,
+        gamma,
+        &definitions,
+        state,
+        companion,
+    )
+}
+
+/// Binds shared artwork and independent geometry, bones and draw ranges for an actor batch.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "preserves the existing independent raster inputs"
+)]
+fn raster_batch_in_scene(
+    gpu: &Gpu,
+    batch: RasterBatch<'_>,
+    material: render_model::ActorMaterial,
+    scene: RasterScene<'_>,
+    srgb: bool,
+    gamma: bool,
+    definitions: &[&str],
+    mut state: gpu_snapshot::RasterState,
+    companion: Option<wgpu::TextureView>,
+) -> Vec<u8> {
+    let view = gpu.buffer(
+        &gpu_snapshot::view(scene.clip_from_world, scene.camera_position),
+        wgpu::BufferUsages::UNIFORM,
+    );
+    let affine: [[f32; 4]; 3] = [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+    ];
     let instance = gpu.buffer(
-        bytemuck::cast_slice(&[instance]),
+        bytemuck::cast_slice(batch.instances),
         wgpu::BufferUsages::STORAGE,
     );
-    let mesh = gpu.buffer(bytemuck::cast_slice(vertices), wgpu::BufferUsages::STORAGE);
+    let mesh = gpu.buffer(
+        bytemuck::cast_slice(batch.vertices),
+        wgpu::BufferUsages::STORAGE,
+    );
     let spans = gpu.buffer(
-        &[f32::from_bits(0), f32::from_bits(vertices.len() as u32)],
+        bytemuck::cast_slice(batch.geometry),
         wgpu::BufferUsages::STORAGE,
     );
     let bones = gpu.buffer(bytemuck::cast_slice(&affine), wgpu::BufferUsages::STORAGE);
@@ -315,7 +424,7 @@ pub(crate) fn raster_material_in_scene(
         ..Default::default()
     });
     let class = gpu.buffer(&[0.0; 4], wgpu::BufferUsages::UNIFORM);
-    let lightmap = gpu.buffer(&[1.0; 256 * 4], wgpu::BufferUsages::UNIFORM);
+    let lightmap = gpu.lightmap(&[1.0; 256 * 4]);
     let mut atmosphere = [0.0; 32];
     atmosphere[19] = 1000.0;
     atmosphere[20] = 1001.0;
@@ -392,13 +501,29 @@ pub(crate) fn raster_material_in_scene(
         binding: 14,
         resource: wgpu::BindingResource::TextureView(&glint_view),
     });
-    let draws = [Draw {
-        fragment: "actor_fragment",
-        vertices: 0..vertices.len() as u32,
-        bindings: &bindings,
-        blend: material.state.and_then(render::actor_material_blend_state),
-        write_depth: material.state.is_none_or(|state| state.depth_write),
-    }];
+    if let Some(view) = &companion {
+        bindings.push(wgpu::BindGroupEntry {
+            binding: 22,
+            resource: wgpu::BindingResource::TextureView(view),
+        });
+    }
+    let draws: Vec<_> = batch
+        .draws
+        .iter()
+        .map(|(vertices, _)| Draw {
+            fragment: state.actor_fragment.unwrap_or("actor_fragment"),
+            vertices: vertices.clone(),
+            bindings: &bindings,
+            blend: material.state.and_then(render::actor_material_blend_state),
+            write_depth: state.actor_fragment.is_none()
+                && material.state.is_none_or(|state| state.depth_write),
+        })
+        .collect();
+    state.instance_ranges = batch
+        .draws
+        .iter()
+        .map(|(_, instances)| instances.clone())
+        .collect();
     // Automatic stage inference treats a dimensions-only vertex texture as unfilterable.
     let entries: Vec<_> = bindings
         .iter()
@@ -419,13 +544,17 @@ pub(crate) fn raster_material_in_scene(
                     wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering)
                 }
                 wgpu::BindingResource::TextureView(view) => wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    sample_type: if entry.binding == 22 {
+                        wgpu::TextureSampleType::Depth
+                    } else {
+                        wgpu::TextureSampleType::Float { filterable: true }
+                    },
                     view_dimension: if std::ptr::eq(*view, &skin) {
                         wgpu::TextureViewDimension::D2Array
                     } else {
                         wgpu::TextureViewDimension::D2
                     },
-                    multisampled: false,
+                    multisampled: entry.binding == 22 && state.multisample.count > 1,
                 },
                 _ => panic!("unsupported actor fixture binding"),
             },

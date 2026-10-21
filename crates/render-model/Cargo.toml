@@ -14,8 +14,13 @@ reads = [
 [features]
 test-support = []
 enhanced-diagnostics = []
+# Compiles the experimental Java shader-pack render mode.
+shaderpacks = []
 
 [dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+cosmetics = { path = "../cosmetics" }
 simulation-clock = { path = "../simulation-clock" }
 hashbrown = { version = "0.16.1", default-features = false }
 foldhash = { version = "0.2.0", default-features = false }
@@ -38,7 +43,6 @@ sha2 = { workspace = true, features = ["asm"] }
 test-alloc = { path = "../test-alloc" }
 pack-compiler = { path = "../pack-compiler" }
 pack-entity-compiler = { path = "../pack-compiler/entity" }
-serde_json = "1"
 tempfile = "3"
 
 [lints]

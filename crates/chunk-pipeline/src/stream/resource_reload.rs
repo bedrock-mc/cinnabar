@@ -45,6 +45,39 @@ impl ResourceMeshSnapshot {
 }
 
 impl WorldStream {
+    /// The render choices captured by new mesh jobs and resource-pack snapshots.
+    pub fn mesh_render_settings(&self) -> ::meshing::MeshRenderSettings {
+        self.mesh_render_settings
+    }
+
+    /// Identifies the quality generation, including changes that return to an earlier value.
+    pub fn mesh_render_revision(&self) -> u64 {
+        self.mesh_render_revision
+    }
+
+    /// Rebuilds resident meshes when quality changes, cancelling old jobs and withdrawing
+    /// queued results. Forced revisions reject late completions even after an A/B/A toggle.
+    pub fn set_mesh_render_settings(
+        &mut self,
+        settings: ::meshing::MeshRenderSettings,
+        now: Instant,
+    ) -> bool {
+        if self.mesh_render_settings == settings {
+            return false;
+        }
+        self.mesh_render_settings = settings;
+        self.mesh_policy_changed(now);
+        true
+    }
+
+    /// Advances the mesh generation and withdraws work captured under the previous policy.
+    fn mesh_policy_changed(&mut self, now: Instant) {
+        self.mesh_render_revision += 1;
+        self.invalidate_meshes(now);
+        self.staged_mesh_completions.clear();
+        self.staged_mesh_bytes = 0;
+    }
+
     /// Captures resident render neighbourhoods only when their lighting is ready.
     pub fn resource_mesh_snapshot(
         &self,
@@ -99,5 +132,24 @@ impl WorldStream {
         for key in resident {
             self.mark_dirty_exact(key, now);
         }
+    }
+
+    /// Meshes as Java does for a shader pack while `water_filled` (the sorted network values
+    /// of the blocks Java fills with water: seagrass, kelp, bubble columns) is set: every leaf
+    /// with its cutout, two-sided material, as Java's fancy leaves, and no water faces toward
+    /// water-filled blocks. `None` restores Bedrock's opaque deep leaves and water faces.
+    /// A change remeshes every resident sub-chunk.
+    pub fn set_java_meshing(&mut self, water_filled: Option<Arc<[u32]>>, now: Instant) {
+        if self.java_meshing == water_filled {
+            return;
+        }
+        self.java_meshing = water_filled;
+        self.mesh_policy_changed(now);
+    }
+
+    /// The water-filled network values of Java meshing ([`Self::set_java_meshing`]), if on.
+    #[must_use]
+    pub fn java_meshing(&self) -> Option<&[u32]> {
+        self.java_meshing.as_deref()
     }
 }

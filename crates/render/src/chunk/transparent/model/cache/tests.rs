@@ -294,6 +294,35 @@ fn retained_mesh_pointers_keep_their_sources_alive_until_eviction() {
 }
 
 #[test]
+fn authored_changes_retain_geometry_but_release_authored_maps() {
+    let mut f = fixture(1);
+    let array = f.assets.assets().texture_array().clone();
+    let maps = Arc::new(
+        render_scene::EnhancedTextureAssets::new(
+            [array.clone(), array.clone()],
+            [array.clone(), array.clone()],
+            [array.clone(), array],
+            vec![u32::MAX; render_scene::EnhancedTextureAssets::REFERENCE_BASE_WORDS]
+                .into_boxed_slice(),
+        )
+        .unwrap(),
+    );
+    let source = Arc::downgrade(&maps);
+    f.assets = f.assets.with_updated_enhanced(Some(maps));
+    let (authored, candidates) = f.prepare();
+    let counts = f.cache.counts;
+    f.assets = f.assets.with_updated_enhanced(None);
+    let (detached, retained) = f.prepare();
+    assert_eq!(authored, detached);
+    assert!(Arc::ptr_eq(&candidates, &retained));
+    assert_eq!(f.cache.counts, counts);
+    assert!(
+        source.upgrade().is_none(),
+        "geometry retains only its carrier"
+    );
+}
+
+#[test]
 fn asset_revisions_and_asset_pointer_changes_rebuild_all_pages() {
     let mut f = fixture(2);
     let (old, _) = f.prepare();

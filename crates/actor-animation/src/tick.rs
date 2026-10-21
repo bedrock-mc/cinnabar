@@ -3,6 +3,7 @@ use assets::EntityControllerAnimationTarget;
 use protocol_ids::ActorFlag;
 
 pub(super) mod controller;
+pub(super) mod scale;
 pub(super) mod selection;
 use controller::ControllerWalk;
 
@@ -432,17 +433,7 @@ pub(super) fn evaluate_state(
     let observed = state.history.back().copied().ok_or(EvalError::Invalid)?;
     // The first-person draw zeroes the actor's rotations, so the view-following target, body
     // and head rotation queries read 0 there; the camera placement carries the view instead.
-    let input = if context.is_local_first_person {
-        ActorTickInput {
-            body_yaw: 0.0,
-            yaw: 0.0,
-            head_yaw: 0.0,
-            pitch: 0.0,
-            ..observed
-        }
-    } else {
-        observed
-    };
+    let input = evaluation_input(observed, context);
     let motion = state.motion;
     let evaluator = Evaluator {
         assets,
@@ -498,16 +489,7 @@ pub(super) fn evaluate_state(
             variables.set(layout.named_slot(assets, name), value);
         }
     }
-    if let Some(attachable) = context.attachable {
-        variables.set_actor_reference(engine.context_owning_entity, actor.runtime_id());
-        variables.set(
-            engine.context_first_person,
-            f32::from(attachable.first_person),
-        );
-        variables.set(engine.context_paperdoll, f32::from(attachable.is_paperdoll));
-        variables.set_string(engine.context_item_slot, attachable.item_slot());
-        variables.set(engine.attack_time, observed.attack_time);
-    }
+    attachable::apply_context_variables(engine, &mut variables, actor, context, &observed);
     variables.clear_temporaries();
     variables.clear(engine.first_person_item_rotation_factor);
     let samples_motion = state.motion_sampling.as_ref().is_some_and(|sampling| {
@@ -522,6 +504,7 @@ pub(super) fn evaluate_state(
         || (state.samples_swing_poses
             && (state.local_swing.is_some() || state.remote_swing().is_some())))
     .then(|| super::render_frame::FrameState {
+        cache: Default::default(),
         previous_rotation: if context.is_local_first_person {
             input
         } else {
@@ -561,6 +544,7 @@ pub(super) fn evaluate_state(
         motion_layers: BTreeMap::new(),
         swelling: [actor.creeper_swell_amount(context.frame_alpha); 2],
     });
+    let held_item_scale = scale::evaluate_held_item(&evaluator, rig, &mut variables, budget)?;
     if let Some(script) = rig.pre_animation {
         let static_draw = budget.static_draw.take().map(|cacheable| {
             cacheable
@@ -578,7 +562,7 @@ pub(super) fn evaluate_state(
             .spear
             .apply(&mut variables, actor, context, &input, input.attack_time);
     }
-    let scale = evaluate_scale(&evaluator, rig, &mut variables, budget)?;
+    let scale = scale::evaluate_model(&evaluator, rig, &mut variables, budget)?;
     set_item_rotation_factor(engine, &mut variables);
     let mut controllers = topology
         .map_or(&state.controllers, |replay| &replay.controllers)
@@ -698,18 +682,22 @@ pub(super) fn evaluate_state(
         .as_ref()
         .filter(|frame| !frame.samples_camera_poses)
         .map(|_| variables.begin_effects());
-    let local = sample_clips(
+    let local = pose::sample_clips_reused(
         &evaluator,
         &mut variables,
         &state.bones,
-        &state.bone_names,
+        pose::ChannelBones::bound(&state.bone_names, &state.channel_bindings),
         &weighted_clips,
         budget,
-    )?;
+    )?
+    .into_vec();
     if let Some(capture) = pose_capture {
         render_frame.as_mut().unwrap().retained_pose_effects = variables.finish_effects(capture);
     }
-    let pose = state.compose(&local).ok_or(EvalError::Invalid)?;
+    let mut pose = vec![BoneTransform::default(); state.posed_bones().len()];
+    state
+        .compose_into(&local, &mut pose)
+        .ok_or(EvalError::Invalid)?;
     // Initial publication needs a complete selection; later ticks can retain completed layers.
     let mut motion_layers = BTreeMap::new();
     let render = super::render::evaluate_render(
@@ -727,10 +715,13 @@ pub(super) fn evaluate_state(
         },
         budget,
     )
-    .and_then(|mut layers| {
+    .and_then(|layers| {
+        let Some(mut layers) = layers else {
+            return Ok(None);
+        };
         let posed = super::render::pose_layers(
             &evaluator,
-            &variables,
+            &mut variables,
             &state.layer_skeletons,
             &weighted_clips,
             &mut layers,
@@ -740,10 +731,10 @@ pub(super) fn evaluate_state(
         if !state.initialized {
             posed?;
         }
-        Ok(layers)
+        Ok(Some(layers))
     });
     let render = match render {
-        Ok(layers) => Some(layers),
+        Ok(layers) => layers,
         Err(error) if !state.initialized => return Err(error),
         Err(_) => None,
     };
@@ -791,6 +782,7 @@ pub(super) fn evaluate_state(
         skin_layers,
         render,
         scale,
+        held_item_scale,
         controllers,
         server_animations,
         clip_clocks,
@@ -970,21 +962,20 @@ fn blend_weight(
     // A non-finite weight propagates, as in vanilla, and fails the pose closed.
     Ok(parent * weight)
 }
-
-/// Scale scripts share the variable and random stream that later animation channels read.
-pub(super) fn evaluate_scale(
-    evaluator: &Evaluator<'_>,
-    rig: &assets::EntityRigBinding,
-    variables: &mut MolangVariables,
-    budget: &mut EvalBudget<'_>,
-) -> Result<Option<[f32; 4]>, EvalError> {
-    let Some(expressions) = rig.scale_expressions else {
-        return Ok(None);
-    };
-    let mut scale = [1.0; 4];
-    for (slot, expression) in scale.iter_mut().zip(expressions) {
-        let value = evaluator.number(expression as usize, variables, 1.0, budget)?;
-        *slot = if value.is_finite() { value } else { 1.0 };
+/// Uses neutral owner rotations for view-following queries in the camera-space hand.
+pub(super) fn evaluation_input(
+    input: ActorTickInput,
+    context: &ActorTickContext,
+) -> ActorTickInput {
+    if context.is_local_first_person {
+        ActorTickInput {
+            body_yaw: 0.0,
+            yaw: 0.0,
+            head_yaw: 0.0,
+            pitch: 0.0,
+            ..input
+        }
+    } else {
+        input
     }
-    Ok(Some(scale))
 }

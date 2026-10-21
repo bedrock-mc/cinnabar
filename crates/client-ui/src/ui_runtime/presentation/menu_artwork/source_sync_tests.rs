@@ -444,6 +444,7 @@ fn simultaneous_mod_modal_and_server_pages_all_publish_without_an_artwork_change
         runtime.engine.as_deref(),
         &mut paint,
         true,
+        &[],
         |_| Default::default(),
     );
     runtime.screens.mod_ui.paint_mod_screens(

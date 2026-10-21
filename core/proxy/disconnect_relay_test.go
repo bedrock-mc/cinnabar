@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
@@ -200,19 +201,21 @@ func TestRelayPreLoginDisconnectForwardsServerReason(t *testing.T) {
 	}
 }
 
-// A failed join reads as vanilla's lang key; a cancelled one gets no packet.
+// A failed join reads as vanilla's lang key, or a clock key when the local clock rejects the
+// sign-in token; a cancelled one gets no packet.
 func TestRelayPreLoginDisconnectWordsJoinFailuresAsVanilla(t *testing.T) {
 	var rec recordingDisconnecter
 	relayPreLoginDisconnect(&rec, errors.New("dial raknet: i/o timeout"))
 	relayPreLoginDisconnect(&rec, &realmJoinError{err: errors.New("remote peer notified connection failure (code: 37)")})
-	relayPreLoginDisconnect(&rec, fmt.Errorf("dial: %w", errResourcePackTransferTooLarge))
+	relayPreLoginDisconnect(&rec, fmt.Errorf("dial: %w", errResourcePackSizeUnsupported))
+	relayPreLoginDisconnect(&rec, &net.OpError{Op: "dial", Net: "minecraft", Err: fmt.Errorf("validate ID token: %w", jwt.ErrIssuedInTheFuture)})
 	relayPreLoginDisconnect(&rec, &preparationCancellationError{cause: context.Canceled})
 	relayPreLoginDisconnect(&rec, nil)
 	var got []string
 	for _, pk := range rec.got {
 		got = append(got, pk.Message)
 	}
-	want := []string{"disconnectionScreen.cantConnect", "disconnectionScreen.cantConnectToRealm", "disconnectionScreen.resourcePack"}
+	want := []string{"disconnectionScreen.cantConnect", "disconnectionScreen.cantConnectToRealm", "disconnectionScreen.resourcePack", "cinnabar.disconnect.deviceClock"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("messages = %q, want %q", got, want)
 	}

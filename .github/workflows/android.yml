@@ -1,13 +1,15 @@
 name: Android
 
-# Builds the experimental arm64 APK for Android packaging changes, on CI's schedule and on
+# Builds the experimental arm64 APK for Android packaging/release workflow changes, on CI's schedule and on
 # demand, so the Android target keeps compiling. The APK is signed with a throwaway key per run;
 # installing a later build means uninstalling first.
 on:
   pull_request:
     paths:
       - packaging/android/**
+      - packaging/icons/**
       - .github/workflows/android.yml
+      - .github/workflows/package.yml
   schedule:
     - cron: "41 */6 * * *"
   workflow_dispatch:
@@ -51,6 +53,10 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$(pin ndk)" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/$(pin ndk)" >> "$GITHUB_ENV"
           cargo install cargo-ndk --version "$(pin cargo_ndk)" --locked
+      - name: Install the icon renderer
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends librsvg2-bin
       - name: Build the APK
         run: bash packaging/android/build-apk.sh
       - uses: actions/upload-artifact@v7

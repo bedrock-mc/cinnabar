@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -23,6 +24,10 @@ func TestProxyRustStartupHarness(t *testing.T) {
 	scenario := os.Getenv("CINNABAR_STARTUP_FIXTURE")
 	if scenario == "" {
 		t.Skip("started by the Rust protocol integration test")
+	}
+	var radius packet.RequestChunkRadius
+	if err := json.Unmarshal([]byte(os.Getenv("CINNABAR_STARTUP_RADIUS_REQUEST")), &radius); err != nil {
+		t.Fatal(err)
 	}
 	socketDir, err := externalRustClientSocketDir()
 	if err != nil {
@@ -50,7 +55,7 @@ func TestProxyRustStartupHarness(t *testing.T) {
 			return
 		}
 		conn := accepted.(*minecraft.Conn)
-		err = runRustStartupScript(conn, scenario)
+		err = runRustStartupScript(conn, scenario, &radius)
 		_ = conn.Close()
 		serverDone <- err
 	}()
@@ -103,7 +108,7 @@ func rustStartupPacks(t *testing.T, scenario string) []*resource.Pack {
 }
 
 // runRustStartupScript asserts each client message at the upstream end of the session.
-func runRustStartupScript(conn *minecraft.Conn, scenario string) error {
+func runRustStartupScript(conn *minecraft.Conn, scenario string, radius *packet.RequestChunkRadius) error {
 	startup := relayFixtureStartup()
 	transfer := &packet.Transfer{Address: "next.example.test", Port: 19133}
 	switch scenario {
@@ -121,7 +126,7 @@ func runRustStartupScript(conn *minecraft.Conn, scenario string) error {
 	case "disconnect":
 		return conn.WritePacketImmediate(&packet.Disconnect{Message: "fixture kicked during spawn"})
 	}
-	for _, expected := range []packet.Packet{&packet.RequestChunkRadius{ChunkRadius: 16, MaxChunkRadius: 16}, &packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeStart}} {
+	for _, expected := range []packet.Packet{radius, &packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeStart}} {
 		if err := expectStartupPacket(conn, expected); err != nil {
 			return err
 		}

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	shared "github.com/bedrock-mc/protocolgen/generated/data"
+	shared "github.com/cinnabar-mc/protocolgen/generated/data"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/targetpin"
 	"github.com/segmentio/fasthash/fnv1"
@@ -206,11 +206,15 @@ func TestV2193ManifestPublishesOnlyDeniedAggregate(t *testing.T) {
 		t.Fatal(err)
 	}
 	projection := manifest.Projection
-	if projection.DeniedCount != v2193PhysicsReservedCount || projection.EducationStates != v2193EducationStateCount || len(projection.DeniedFingerprint) != 64 || projection.TwinNames != len(v2193Twins) ||
-		projection.States != projection.LegacyExactStates+projection.LegacyReducedStates+projection.TwinStates+projection.DeniedCount+projection.EducationStates {
+	classified := projection.LegacyExactStates + projection.LegacyReducedStates +
+		projection.AuthoredStates + projection.TwinStates + projection.DeniedCount + projection.EducationStates
+	invalidCensus := projection.DeniedCount != v2193PhysicsReservedCount ||
+		projection.EducationStates != v2193EducationStateCount || projection.AuthoredStates != 8
+	invalidTwins := projection.TwinNames != len(v2193Twins)
+	if invalidCensus || invalidTwins || len(projection.DeniedFingerprint) != 64 || projection.States != classified {
 		t.Fatalf("projection aggregate = %+v", projection)
 	}
-	if manifest.Source.Module != "github.com/bedrock-mc/protocolgen/generated/data" || manifest.Source.SourceLockSHA256 != shared.SourceLockSHA256 || manifest.Source.CloudburstRef != shared.CloudburstRef {
+	if manifest.Source.Module != shared.ModulePath || manifest.Source.SourceLockSHA256 != shared.SourceLockSHA256 || manifest.Source.CloudburstRef != shared.CloudburstRef {
 		t.Fatalf("source identity = %+v", manifest.Source)
 	}
 	if bytes.Contains(bytes.ToLower(payload), []byte("denied_names")) || bytes.Contains(bytes.ToLower(payload), []byte("unresolved_names")) {
@@ -248,4 +252,27 @@ func fmtSHA(digest [32]byte) string {
 		out[i*2], out[i*2+1] = digits[value>>4], digits[value&15]
 	}
 	return string(out)
+}
+
+// TestV2193AuthoredAdmissionPreservesSourceIdentity keeps authored states independent of legacy models.
+func TestV2193AuthoredAdmissionPreservesSourceIdentity(t *testing.T) {
+	source := []Record{{SequentialID: 0, NetworkHash: 17, Name: "minecraft:shelf_mushroom", StateJSON: []byte(`{"growth":{"type":"int","value":0}}`), Provenance: ProvenanceDragonfly}}
+	allowed := map[string]struct{}{"minecraft:shelf_mushroom": {}}
+	projection, stats, err := projectV2193BlocksForTest(source, nil, allowed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.authored != 1 || projection.classes[0] != v2193ClassAuthored || projection.facts[0] != -1 {
+		t.Fatalf("authored projection = %+v", stats)
+	}
+	if !recordsEqual(projection.records[0], source[0]) {
+		t.Fatal("authored admission replaced source identity or borrowed model facts")
+	}
+	denied, stats, err := projectV2193BlocksForTest(source, nil, map[string]struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.authored != 0 || denied.records[0].Name != retailReservedName {
+		t.Fatal("authored state admitted without a retail item")
+	}
 }

@@ -12,10 +12,7 @@ use bevy::{
     },
     window::PrimaryWindow,
 };
-use server_experience::{
-    session::State,
-    trust::{Choice, Settings},
-};
+use server_experience::{policy::Choice, session::State, trust::Settings};
 
 use client_extensions::server_experiences::consent::{can_disable, chrome};
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
@@ -32,6 +29,13 @@ pub(super) struct ExperienceService {
     attempted: bool,
     download: Option<server_experience::download::Download>,
     live: Option<super::live::Live>,
+    /// The session's items that client parts granted `items` read.
+    items: client_ui::ui_runtime::session_data::SessionDataCache,
+    /// This frame's keys pressed over a slot of the focused modal's inventory rows.
+    hotbar: Option<(
+        ui_screens::container_actions::InventoryCellHit,
+        Vec<KeyCode>,
+    )>,
 }
 
 /// Registers a silent controller; disk and network work wait for a valid marker.
@@ -47,11 +51,15 @@ pub(crate) fn configure(app: &mut App) {
         attempted: false,
         download: None,
         live: None,
+        items: Default::default(),
+        hotbar: None,
     })
     .add_systems(
         Update,
         (
+            share_items,
             drive.before(client_state::ExperienceInputSet),
+            modal_hotbar.before(client_state::ExperienceInputSet),
             present_media.after(client_state::ExperienceInputSet),
         )
             .chain()
@@ -59,6 +67,59 @@ pub(crate) fn configure(app: &mut App) {
             .after(ClientFrameSet::RawInput)
             .after(crate::runtime::world::drain_committed_ui_before_authority),
     );
+}
+
+/// Hands the session's items to the client parts when one may read them.
+fn share_items(
+    mut service: ResMut<ExperienceService>,
+    runtime: Res<UiRuntimeResource>,
+    player: Res<client_state::PlayerRuntime>,
+) {
+    let ExperienceService {
+        live: Some(live),
+        items,
+        ..
+    } = &mut *service
+    else {
+        return;
+    };
+    if live.reads_items() {
+        let session = client_ui::ui_runtime::session_data::session_data(items, &player, &runtime);
+        live.set_session(session);
+    }
+}
+
+/// A hotbar key pressed over a slot of the focused modal's inventory rows swaps that slot with
+/// the hotbar slot, as in a container screen; over anything else it does nothing.
+fn modal_hotbar(
+    mut service: ResMut<ExperienceService>,
+    menu: Option<Res<MenuRuntime>>,
+    mut player: ResMut<client_state::PlayerRuntime>,
+    mut runtime: ResMut<UiRuntimeResource>,
+) {
+    let Some((hit, keys)) = service.hotbar.take() else {
+        return;
+    };
+    for key in keys {
+        let Some(code) = client_shell::physical_input::keyboard_usage(key) else {
+            continue;
+        };
+        let control = semantic_input::PhysicalControl::KeyboardUsage(code);
+        for slot in client_shell::menu::settings_options::control_bindings::hotbar_control_slots(
+            menu.as_deref(),
+            control,
+        ) {
+            let result = client_ui::ui_runtime::interaction::dispatch_modal_hotbar(
+                &mut player,
+                &mut runtime,
+                hit,
+                slot,
+            );
+            if let Some(Err(error)) = result {
+                bevy::log::debug!(?error, ?hit, slot, "modal hotbar swap refused");
+            }
+        }
+    }
 }
 
 /// Handles trusted choices before ordinary UI input, so clicks cannot fall through.
@@ -190,7 +251,15 @@ fn drive(
             }
         }
     }
+    if let Some(live) = service.live.as_mut() {
+        let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+        live.shift_changed(modal_focus && shift);
+    }
+    service.hotbar = None;
     if modal_focus {
+        service.hotbar = cursor
+            .and_then(|point| presentation.experience_modal_inventory_hit(point))
+            .map(|hit| (hit, keys.get_just_pressed().copied().collect()));
         let notches = wheel_events
             .iter()
             .map(|(y, unit)| match unit {

@@ -423,6 +423,14 @@ impl DroppedItemPublisher<'_, '_> {
         cache.begin_frame();
         // Protect all current consumers before admitting new models, regardless of iteration order.
         for view in dropped.iter() {
+            if let Some(sheet) = view
+                .item
+                .identifier
+                .as_deref()
+                .and_then(|id| icons.session_block_sheet(id, view.item.identity.metadata))
+            {
+                cache.request(&ModelKey::session_block(sheet));
+            }
             if let Some((mode, id)) = item_block_id(stream, view.item.visual) {
                 let hashed = mode == NetworkIdMode::Hashed;
                 cache.request(&ModelKey::CarriedBlock { hashed, id });
@@ -481,23 +489,52 @@ impl DroppedItemPublisher<'_, '_> {
                 camera,
                 frustum: frustum.as_ref(),
             };
-            let cube = block_id.zip(assets).and_then(|((mode, id), assets)| {
-                let hashed = mode == NetworkIdMode::Hashed;
-                preparation
-                    .model(
+            let session_block = icons
+                .session_block_sheet(identifier, view.item.identity.metadata)
+                .and_then(|sheet| {
+                    preparation.model(
                         cache,
-                        &ModelKey::CarriedBlock { hashed, id },
+                        &ModelKey::session_block(sheet),
                         DroppedItemShape::Cube,
-                        |cache| Self::carried_block_model(cache, icons, assets, mode, id),
+                        |cache| {
+                            cache.model(
+                                ModelKey::session_block(sheet),
+                                || {
+                                    icons.session_block_texture_layers(
+                                        identifier,
+                                        view.item.identity.metadata,
+                                    )
+                                },
+                                || {
+                                    icons.session_block_model(
+                                        identifier,
+                                        view.item.identity.metadata,
+                                        sheet,
+                                    )
+                                },
+                            )
+                        },
                     )
-                    .or_else(|| {
-                        preparation.model(
+                });
+            let cube = session_block.or_else(|| {
+                block_id.zip(assets).and_then(|((mode, id), assets)| {
+                    let hashed = mode == NetworkIdMode::Hashed;
+                    preparation
+                        .model(
                             cache,
-                            &ModelKey::Block { hashed, id },
+                            &ModelKey::CarriedBlock { hashed, id },
                             DroppedItemShape::Cube,
-                            |cache| Self::block_model(cache, assets, mode, id),
+                            |cache| Self::carried_block_model(cache, icons, assets, mode, id),
                         )
-                    })
+                        .or_else(|| {
+                            preparation.model(
+                                cache,
+                                &ModelKey::Block { hashed, id },
+                                DroppedItemShape::Cube,
+                                |cache| Self::block_model(cache, assets, mode, id),
+                            )
+                        })
+                })
             });
             let prepared = cube.or_else(|| {
                 let (icon_identifier, variant) = dropped_icon_key(icons, identifier, &view.item);

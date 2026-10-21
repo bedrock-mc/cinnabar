@@ -71,6 +71,14 @@ fn accepting_a_sent_drop_rebuilds_the_next_unsent_drop() {
     assert_eq!(ledger.displayed_stack(2).unwrap().count, 2);
     let transaction = queued_transaction(&ledger);
     assert_eq!(transaction.actions[0].from_item.count, 3);
+    assert_eq!(
+        protocol::item_custom_name(&transaction.actions[0].from_item.user_data).as_deref(),
+        Some("corrected")
+    );
+    assert_eq!(
+        protocol::item_extra_damage_value(&transaction.actions[0].from_item.user_data),
+        Some(-1)
+    );
     assert_eq!(transaction.actions[0].from_item.stack_network_id, Some(91));
     assert_eq!(transaction.actions[0].to_item.count, 2);
     assert_eq!(transaction.actions[1].to_item.stack_network_id, Some(91));

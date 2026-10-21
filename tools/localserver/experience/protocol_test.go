@@ -43,6 +43,10 @@ type fixtureLimits struct {
 	MaxStackSize     int `json:"max_stack_size"`
 	MaxItemDataBytes int `json:"max_item_data_bytes"`
 	MaxServerItems   int `json:"max_server_items"`
+	MaxRecipes       int `json:"max_recipes"`
+	MaxRecipeInputs  int `json:"max_recipe_input_items"`
+	MaxScheduleTicks int `json:"max_schedule_ticks"`
+	MaxScheduled     int `json:"max_scheduled_updates"`
 }
 
 // rustLimits reads the limits fixture.
@@ -339,13 +343,13 @@ func TestFrameLimitMatchesRust(t *testing.T) {
 	})
 
 	t.Run("write", func(t *testing.T) {
-		const head, tail = `{"type":"load","dir":"`, `","items":[]}`
+		const head, tail = `{"type":"load","dir":"`, `","items":[],"recipes":[]}`
 		dir := strings.Repeat("d", maxFrameBytes-len(head)-len(tail))
-		body, err := encodeFrame(Request{Load: &LoadRequest{Dir: dir, Items: []ServerItem{}}})
+		body, err := encodeFrame(Request{Load: &LoadRequest{Dir: dir, Items: []ServerItem{}, Recipes: []Recipe{}}})
 		if err != nil || len(body) != maxFrameBytes {
 			t.Fatalf("a body of exactly maxFrameBytes: %d bytes, %v", len(body), err)
 		}
-		if _, err := encodeFrame(Request{Load: &LoadRequest{Dir: dir + "d", Items: []ServerItem{}}}); err == nil {
+		if _, err := encodeFrame(Request{Load: &LoadRequest{Dir: dir + "d", Items: []ServerItem{}, Recipes: []Recipe{}}}); err == nil {
 			t.Fatal("a body of maxFrameBytes+1 was encoded")
 		}
 	})
@@ -381,6 +385,10 @@ func TestCommitLimitsMatchRust(t *testing.T) {
 		{"maxStackSize", maxStackSize, rust.MaxStackSize},
 		{"maxItemDataBytes", maxItemDataBytes, rust.MaxItemDataBytes},
 		{"maxServerItems", maxServerItems, rust.MaxServerItems},
+		{"maxRecipes", maxRecipes, rust.MaxRecipes},
+		{"maxRecipeInputItems", maxRecipeInputItems, rust.MaxRecipeInputs},
+		{"maxScheduleTicks", maxScheduleTicks, rust.MaxScheduleTicks},
+		{"maxScheduledUpdates", maxScheduledUpdates, rust.MaxScheduled},
 	} {
 		if limit.goV != limit.rust {
 			t.Errorf("%s = %d, Rust has %d", limit.name, limit.goV, limit.rust)

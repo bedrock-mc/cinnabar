@@ -1,3 +1,5 @@
+use crate::game_frame::configure_client_frame_schedule;
+use crate::ui_runtime::outbound::flush_inventory_network;
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use client_state::PlayerRuntime;
 use std::{collections::HashSet, sync::Arc};
@@ -24,7 +26,7 @@ use ui::UiPoint;
 use ui_screens::container_actions::InventoryCellHit;
 use {
     crate::{
-        app::{configure_client_frame_schedule, configure_client_production_frame_systems},
+        app::configure_client_production_frame_systems,
         runtime::network::receive_network_events,
         semantic_controls::{
             PendingDeviceFrame, SemanticInputRuntime, SemanticRouteState, SemanticTouchTargets,
@@ -33,7 +35,6 @@ use {
         },
         ui_runtime::{
             drain_inventory_authority, drive_chat_keyboard_input, drive_inventory_ui_actions,
-            flush_inventory_network,
         },
     },
     client_shell::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
@@ -1106,7 +1107,7 @@ fn open_personal_inventory(player_runtime: &mut PlayerRuntime, runtime: &mut UiR
     runtime
         .publish_local_runtime_id(player_runtime, runtime.session_id(), 42)
         .unwrap();
-    runtime.toggle_inventory(player_runtime);
+    runtime.toggle_inventory(player_runtime, None);
     assert!(runtime.inventory_open());
     assert!(
         runtime
@@ -1149,15 +1150,15 @@ fn partial_content(first: NetworkItemStack) -> InventoryEvent {
     })
 }
 
+/// Restates the held cursor through the fixed UI inventory slot.
 fn cursor_content(stack: NetworkItemStack) -> InventoryEvent {
-    InventoryEvent::Content(InventoryContentEvent {
-        container: ContainerIdentity {
-            window_id: Some(-1),
-            slot_type: Some(protocol::CONTAINER_NAME_CURSOR),
-            dynamic_id: None,
+    InventoryEvent::Slot(protocol::InventorySlotEvent {
+        identity: protocol::SlotIdentity {
+            container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+            slot: 0,
         },
-        slots: Arc::from([stack]),
-        storage_item: NetworkItemStack::default(),
+        stack,
+        storage_item: None,
     })
 }
 

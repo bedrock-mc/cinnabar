@@ -384,9 +384,9 @@ fn bones(value: Option<&Value>) -> Vec<EntityGeometryBone> {
                 pivot: vector(bone.get("pivot")),
                 rotation: vector(bone.get("rotation")),
                 bind_pose_rotation: vector(bone.get("bind_pose_rotation")),
-                // Cubes carry the resolved mirror and inflate; the bone keeps none of its own.
+                // Cube values are resolved locally; inflation also affects inherited cubes.
                 mirror: None,
-                inflate: None,
+                inflate,
                 never_render: bone.get("neverRender").and_then(Value::as_bool),
                 reset: bone.get("reset").and_then(Value::as_bool),
                 binding: None,

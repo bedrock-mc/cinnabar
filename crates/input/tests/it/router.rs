@@ -64,3 +64,6 @@ include!("router/controller_arbitration.rs");
 include!("router/movement_lanes.rs");
 
 include!("router/control_consumption.rs");
+
+#[path = "router/ordered_desktop.rs"]
+mod ordered_desktop;

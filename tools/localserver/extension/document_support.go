@@ -9,7 +9,10 @@ import (
 
 // Permissions is a Rust BTreeSet<Permission>: one bit per Permission. It encodes in declaration
 // order, which is the set's order.
-type Permissions uint8
+type Permissions uint64
+
+// The highest declared permission must fit in the set storage.
+const _ Permissions = 1 << (len(permissionNames) - 1)
 
 // NewPermissions returns the set of ps.
 func NewPermissions(ps ...Permission) Permissions {
@@ -38,7 +41,7 @@ func (s Permissions) List() []Permission {
 
 func (s Permissions) appendJSON(b []byte) ([]byte, error) {
 	if s>>len(permissionNames) != 0 {
-		return nil, fmt.Errorf("permissions %#x hold a permission Rust does not have", uint8(s))
+		return nil, fmt.Errorf("permissions %#x hold a permission Rust does not have", uint64(s))
 	}
 	b = append(b, '[')
 	first := true

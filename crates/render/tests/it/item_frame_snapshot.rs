@@ -217,7 +217,7 @@ fn render_face(
     );
     let texture = texture.create_view(&Default::default());
     let sampler = gpu.device.create_sampler(&Default::default());
-    let lightmap = gpu.buffer(&[1.0; 256 * 4], wgpu::BufferUsages::UNIFORM);
+    let lightmap = gpu.lightmap(&[1.0; 256 * 4]);
     let atmosphere = gpu.buffer(&[0.0; 32], wgpu::BufferUsages::UNIFORM);
     let bindings = [
         wgpu::BindGroupEntry {

@@ -227,7 +227,10 @@ impl CompiledStacks {
     #[cfg(test)]
     pub(crate) fn release(&self) {
         let released = self.take();
+        #[cfg(not(target_arch = "wasm32"))]
         rayon::spawn(move || drop(released));
+        #[cfg(target_arch = "wasm32")]
+        client_runtime::session::release_off_frame(released);
     }
 
     /// Keeps only the newest stack, for a rejoin from the menu to reuse, unless its archives
@@ -251,7 +254,10 @@ impl CompiledStacks {
             });
             kept.drain(usize::from(keep)..).collect()
         };
+        #[cfg(not(target_arch = "wasm32"))]
         rayon::spawn(move || drop(released));
+        #[cfg(target_arch = "wasm32")]
+        client_runtime::session::release_off_frame(released);
     }
 
     /// How many stacks are kept.
@@ -295,6 +301,8 @@ pub(in crate::runtime::network) fn compile_reusing(
                 packs = compiled.packs().len(),
                 recompile_blocks = changes.blocks,
                 recompile_icons = changes.icons,
+                icon_pairs_changed = previous.inputs.icons != inputs.icons,
+                block_item_pairs_changed = previous.inputs.block_items != inputs.block_items,
                 "reusing a recent compile of the same server packs"
             );
             compile_application(compiled, inputs, Some(&previous), changes, cancelled)

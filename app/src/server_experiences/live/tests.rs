@@ -1,4 +1,6 @@
 use super::*;
+
+mod shift;
 use mod_host::helper::{CallFailure, FailureKind};
 use server_experience::screen::GuiSize;
 use server_experience::{
@@ -21,6 +23,8 @@ struct FakeWorker {
     dispatched: Vec<Event>,
     /// The modal size each dispatch carried.
     sizes: Vec<Option<GuiSize>>,
+    /// The revision of the session items each dispatch carried.
+    items: Vec<Option<u64>>,
     owner: Principal,
 }
 
@@ -33,6 +37,7 @@ impl Worker for FakeWorker {
             fail: false,
             dispatched: Vec::new(),
             sizes: Vec::new(),
+            items: Vec::new(),
             owner,
         })
     }
@@ -52,6 +57,8 @@ impl Worker for FakeWorker {
     /// or fails them when the test asks.
     fn dispatch(&mut self, request: Dispatch) -> Result<()> {
         self.sizes.push(request.gui);
+        self.items
+            .push(request.items.as_ref().map(|items| items.revision));
         if self.fail {
             self.failure = Some(CallFailure {
                 bundle: self.owner.bundle.clone(),
@@ -85,6 +92,7 @@ fn fixture(count: usize) -> Live<FakeWorker> {
         origins: BTreeSet::new(),
         memory_bytes: 0,
         gpu_bytes: 0,
+        personal_mods: Default::default(),
     };
     let packages = (0..count)
         .map(|i| PackageOffer {
@@ -163,6 +171,8 @@ fn fixture(count: usize) -> Live<FakeWorker> {
                     strikes: VecDeque::new(),
                     stopped: None,
                     callback: "init",
+                    items_sent: None,
+                    shift: Some(false),
                 },
             )
         })
@@ -186,6 +196,7 @@ fn fixture(count: usize) -> Live<FakeWorker> {
         epoch: 1,
         modal_order: 0,
         gui: None,
+        session: None,
     };
     live.initialize().unwrap();
     live
@@ -244,6 +255,58 @@ fn modal_presses_reach_only_declared_actions_of_the_open_screen() {
     assert!(!live.press("bundle0.pick", None));
 }
 
+/// A guest granted `items` gets the session's items with its first dispatch and again only when
+/// their revision changes; one without the grant never does.
+#[test]
+fn session_items_reach_only_granted_guests_once_per_revision() {
+    let mut live = fixture(2);
+    live.instances
+        .get_mut("bundle0")
+        .unwrap()
+        .capabilities
+        .scope
+        .permissions
+        .insert(Permission::Items);
+    assert!(live.reads_items());
+    let session = |revision| {
+        Arc::new(SessionData {
+            item_revision: revision,
+            ..SessionData::default()
+        })
+    };
+    live.set_session(session(1));
+    for id in ["bundle0", "bundle1"] {
+        let instance = live.instances.get_mut(id).unwrap();
+        instance.helper.as_mut().unwrap().response = Some(Transaction {
+            owner: instance.owner.clone(),
+            epoch: live.epoch,
+            commands: vec![Command::Screen {
+                template: Some(SCREEN.into()),
+            }],
+        });
+    }
+    live.poll(1, 0).unwrap();
+    let mut now = 0;
+    let mut press = |live: &mut Live<FakeWorker>, id: &str| {
+        let bundle = id.split('.').next().unwrap().to_owned();
+        live.modal_order += 1;
+        live.instances.get_mut(&bundle).unwrap().opened = live.modal_order;
+        assert!(live.press(id, None));
+        now += CALLBACK_INTERVAL_MS;
+        live.poll(1, now).unwrap();
+        now += CALLBACK_INTERVAL_MS;
+        live.poll(1, now).unwrap();
+    };
+    press(&mut live, "bundle0.pick");
+    press(&mut live, "bundle0.pick");
+    live.set_session(session(2));
+    press(&mut live, "bundle0.pick");
+    press(&mut live, "bundle1.pick");
+    let carried = |id: &str| live.instances[id].helper.as_ref().unwrap().items.clone();
+    assert_eq!(carried("bundle0"), [Some(1), None, Some(2)]);
+    assert_eq!(carried("bundle1"), [None]);
+}
+
 /// Queues a reliable event through the real schema, sequence and rate validators.
 fn receive(live: &mut Live<FakeWorker>, id: &str, sequence: u64) {
     let message = Envelope {
@@ -287,6 +350,30 @@ fn staggered_initialization_retains_sends_and_publishes_ready_first() {
     assert_eq!(sends[0].bundle, "bundle0");
     assert_eq!(sends[1].bundle, "bundle1");
     assert_eq!(live.pending_send_bytes, 0);
+}
+
+/// Outbound guest messages consume shared rate credit and resume when the caller advances time.
+#[test]
+fn outbound_sends_enforce_the_shared_rate_limit() {
+    let mut live = fixture(1);
+    for sequence in 1..=MAX_MESSAGES_PER_SECOND {
+        complete(&mut live, "bundle0");
+        let packets = live.poll(1, 0).unwrap();
+        let send: Envelope = serde_json::from_slice(packets.last().unwrap()).unwrap();
+        assert_eq!(send.sequence, sequence);
+    }
+
+    complete(&mut live, "bundle0");
+    assert_eq!(
+        live.poll(1, 0).unwrap_err().to_string(),
+        "channel rate exceeded"
+    );
+
+    complete(&mut live, "bundle0");
+    let packets = live.poll(1, 1000).unwrap();
+    assert_eq!(packets.len(), 1);
+    let send: Envelope = serde_json::from_slice(&packets[0]).unwrap();
+    assert_eq!(send.payload, vec![Scalar::Bool(true)]);
 }
 
 #[test]
@@ -806,8 +893,7 @@ fn scroll_ranges_coalesce_for_declared_views_only() {
     assert!(!live.scroll_changed("bundle0.pick", range(54.0)));
 }
 
-/// A secondary press (a right click) reaches the open bundle as its own event, only for a
-/// declared action, as primary presses do.
+/// A secondary press reaches only declared actions.
 #[test]
 fn secondary_presses_reach_only_declared_actions() {
     let mut live = opened();

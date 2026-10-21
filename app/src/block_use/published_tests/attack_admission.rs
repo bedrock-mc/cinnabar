@@ -7,6 +7,9 @@ use super::*;
 use client_presentation::aim_assist::{AimAssistFrame, AimAssistTarget, TargetKind};
 use protocol::test_support::transactions::observe_transaction;
 
+#[path = "ordered_mouse.rs"]
+mod ordered_mouse_tests;
+
 /// Publishes attack input with an explicit logical input mode.
 fn press(world: &mut World, mode: semantic_input::InputMode) {
     let mut snapshot = world
@@ -95,6 +98,96 @@ fn actor_attacks(
         .filter_map(|tx| tx.actor_use().cloned())
         .filter(|tx| tx.action == Some(protocol::ActorUseAction::Attack))
         .collect()
+}
+
+#[test]
+fn attack_press_waits_for_backing_drop_admission() {
+    let (mut world, mut captured) = unpublished_attack_fixture(7.5);
+    world.resource_scope(|world, mut player: Mut<client_state::PlayerRuntime>| {
+        world
+            .resource_mut::<UiRuntimeResource>()
+            .publish_local_runtime_id(&mut player, 7, 42)
+            .unwrap();
+    });
+    {
+        let mut player = world.resource_mut::<client_state::PlayerRuntime>();
+        let ledger = player.inventory.ledger_mut();
+        ledger.apply(&InventoryEvent::Authority(
+            protocol::InventoryAuthority::Server,
+        ));
+        let entries = protocol::vanilla_item_registry();
+        let network_id = entries
+            .iter()
+            .find(|entry| entry.identifier.as_ref() == "minecraft:stone")
+            .unwrap()
+            .network_id;
+        ledger.apply_registry(&protocol::ItemRegistryEvent { entries });
+        ledger.apply(&InventoryEvent::Slot(InventorySlotEvent {
+            identity: SlotIdentity {
+                container: protocol::ContainerIdentity::window(
+                    protocol::PLAYER_INVENTORY_WINDOW_ID,
+                ),
+                slot: 0,
+            },
+            stack: protocol::NetworkItemStack {
+                network_id,
+                stack_network_id: 9,
+                count: 1,
+                ..protocol::NetworkItemStack::empty()
+            },
+            storage_item: None,
+        }));
+        ledger.begin_world_drop(0, None).unwrap();
+    }
+    press(&mut world, semantic_input::InputMode::KeyboardMouse);
+    produce(&mut world);
+    assert!(actor_attacks(&mut captured).is_empty());
+    assert!(world.resource::<MeleeRuntime>().press_pending());
+
+    {
+        let mut player = world.resource_mut::<client_state::PlayerRuntime>();
+        player.inventory.set_local_selected_slot(1);
+        let mode = player.facts.player_game_mode();
+        player.inventory.queue_local_hotbar_selection(0, mode);
+    }
+    assert!(
+        world
+            .resource_mut::<client_state::PlayerRuntime>()
+            .inventory
+            .ledger_mut()
+            .mark_transport_enqueued(1)
+    );
+    let idle = world
+        .resource_mut::<crate::semantic_controls::SemanticInputRuntime>()
+        .route_and_finalize(semantic_input::DeviceFrame {
+            keyboard_mouse: Some(Default::default()),
+            ..Default::default()
+        })
+        .unwrap();
+    world.insert_resource(client_state::SemanticInputSnapshot(
+        semantic_input::finalized::FinalizedInput::from_finalized(idle),
+    ));
+    produce(&mut world);
+    assert!(actor_attacks(&mut captured).is_empty());
+    assert!(world.resource::<MeleeRuntime>().press_pending());
+    world
+        .run_system_cached(crate::hotbar::flush_hotbar_selection)
+        .unwrap();
+    assert_eq!(
+        world
+            .resource::<client_state::PlayerRuntime>()
+            .inventory
+            .pending_hotbar_selection(),
+        None
+    );
+    produce(&mut world);
+    let attacks = actor_attacks(&mut captured);
+    assert_eq!(attacks.len(), 1);
+    assert_eq!(
+        attacks[0].item.network_id, 0,
+        "the admitted drop leaves an empty hand"
+    );
+    assert!(!world.resource::<MeleeRuntime>().press_pending());
 }
 
 #[test]
@@ -203,7 +296,7 @@ fn attack_admission_assisted_touch_target_within_both_limits_is_retained() {
 #[test]
 fn attack_admission_assisted_target_cannot_bypass_a_shorter_personal_reach() {
     let (mut world, mut captured) = assisted_fixture(1.5, true);
-    world.insert_resource(crate::modding::interaction::ModInteraction {
+    world.insert_resource(crate::interaction_override::ModInteraction {
         attack_reach: Some(1.0),
         ..Default::default()
     });

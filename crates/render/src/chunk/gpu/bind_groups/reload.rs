@@ -18,7 +18,7 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
     reload: Res<ChunkTextureReload>,
     mut coverage: Option<ResMut<TerrainCoverage>>,
 ) {
-    let identity = assets.identity();
+    let identity = assets.binding_identity();
     if gpu_assets
         .pending
         .as_ref()
@@ -99,23 +99,68 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
             gpu_assets._attempted_assets = Some(Arc::clone(assets.assets()));
             *stats = uploaded;
             reload.published(&request);
+            #[cfg(feature = "enhanced")]
+            {
+                gpu_assets.authored_pending = AuthoredUpload::for_assets(
+                    &assets,
+                    gpu_assets
+                        .prepared
+                        .as_ref()
+                        .expect("published carrier atlas"),
+                    &render_device,
+                );
+            }
         }
     }
+    #[cfg(feature = "enhanced")]
+    if gpu_assets
+        .authored_pending
+        .as_ref()
+        .is_some_and(|pending| !pending.matches(identity))
+    {
+        gpu_assets.authored_pending = None;
+    }
+    #[cfg(feature = "enhanced")]
+    let authored_only = gpu_assets
+        .prepared
+        .as_ref()
+        .is_some_and(|prepared| same_carrier(prepared.identity, identity));
+    #[cfg(not(feature = "enhanced"))]
+    let authored_only = false;
     // Bootstrap may publish without an optional reload transaction.
     if texture_asset_needs_rebuild(gpu_assets.attempted_identity, identity)
         && requested
             .as_ref()
-            .is_none_or(|candidate| candidate.assets().identity() != identity)
+            .is_none_or(|candidate| candidate.assets().binding_identity() != identity)
         && (gpu_assets.prepared.is_none()
+            || authored_only
             || arena.allocations.is_empty() && arena.retired_allocations.is_empty())
     {
         gpu_assets.attempted_identity = Some(identity);
         gpu_assets._attempted_assets = Some(Arc::clone(assets.assets()));
-        if let Some((prepared, uploaded)) =
-            build_chunk_texture_assets(&assets, &render_device, &render_queue)
-        {
-            gpu_assets.prepared = Some(prepared);
-            *stats = uploaded;
+        rebuild_bootstrap_atlas(
+            &assets,
+            &mut gpu_assets,
+            &mut stats,
+            &render_device,
+            &render_queue,
+        );
+    }
+    #[cfg(feature = "enhanced")]
+    if let Some(pending) = gpu_assets.authored_pending.as_mut() {
+        pending.step(&render_queue, authored_upload::FRAME_UPLOAD_BYTES);
+        if pending.complete() {
+            let completed = gpu_assets
+                .authored_pending
+                .take()
+                .expect("complete authored upload");
+            completed.publish(
+                gpu_assets
+                    .prepared
+                    .as_mut()
+                    .expect("retained carrier atlas"),
+                &mut stats,
+            );
         }
     }
     let Some(candidate) = reload.preparation() else {
@@ -123,7 +168,9 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
     };
     if gpu_assets.staged.is_some()
         || gpu_assets.pending.is_some()
-        || reload.status(candidate.assets().identity()).is_some()
+        || reload
+            .status(candidate.assets().binding_identity())
+            .is_some()
     {
         return;
     }
@@ -147,9 +194,10 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
                 sort_order_independent: view_displaces_water(enhanced),
             },
         );
-    std::thread::spawn(move || {
-        let result =
-            build_chunk_texture_assets(&candidate, &device, &queue).and_then(|(atlas, stats)| {
+    let previous = gpu_assets.prepared.clone();
+    let work = move || {
+        let result = build_carrier_texture_assets(&candidate, previous.as_ref(), &device, &queue)
+            .and_then(|(atlas, stats)| {
                 let geometry = match geometry {
                     Some(instances) => Some({
                         let _zone = bevy::log::info_span!(
@@ -164,7 +212,73 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
                 Some((atlas, stats, geometry))
             });
         let _ = sender.send(result);
-    });
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    std::thread::spawn(work);
+    #[cfg(target_arch = "wasm32")]
+    crate::browser_jobs::submit(crate::browser_jobs::Lane::Textures, work);
+}
+
+/// Installs the current atlas without a reload transaction. Enhanced keeps an unchanged carrier
+/// and replaces only its authored maps, which upload over later frames.
+fn rebuild_bootstrap_atlas(
+    assets: &ChunkTextureAssets,
+    gpu_assets: &mut ChunkGpuTextureAssets,
+    stats: &mut ChunkTextureUploadStats,
+    render_device: &RenderDevice,
+    render_queue: &RenderQueue,
+) {
+    #[cfg(feature = "enhanced")]
+    let identity = assets.binding_identity();
+    #[cfg(feature = "enhanced")]
+    if gpu_assets
+        .prepared
+        .as_ref()
+        .is_some_and(|prepared| same_carrier(prepared.identity, identity))
+    {
+        if let Some(authored) = assets.enhanced() {
+            gpu_assets.authored_pending =
+                AuthoredUpload::new(identity, authored.clone(), render_device);
+            if gpu_assets.authored_pending.is_none() {
+                bevy::log::warn!("invalid authored terrain upload; retained previous bindings");
+            }
+        } else {
+            authored_upload::detach(
+                gpu_assets
+                    .prepared
+                    .as_mut()
+                    .expect("existing carrier atlas"),
+                identity,
+                render_device,
+                stats,
+            );
+        }
+        return;
+    }
+    #[cfg(feature = "enhanced")]
+    {
+        gpu_assets.authored_pending = None;
+    }
+    if let Some((prepared, uploaded)) = build_carrier_texture_assets(
+        assets,
+        gpu_assets.prepared.as_ref(),
+        render_device,
+        render_queue,
+    ) {
+        gpu_assets.prepared = Some(prepared);
+        *stats = uploaded;
+        #[cfg(feature = "enhanced")]
+        {
+            gpu_assets.authored_pending = AuthoredUpload::for_assets(
+                assets,
+                gpu_assets
+                    .prepared
+                    .as_ref()
+                    .expect("published carrier atlas"),
+                render_device,
+            );
+        }
+    }
 }
 
 #[cfg(test)]

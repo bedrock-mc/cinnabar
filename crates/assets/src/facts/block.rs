@@ -17,6 +17,20 @@ pub const AIR_IDENTIFIER: &str = "minecraft:air";
 /// Placeholder identity for a block state the client has not admitted.
 pub const RESERVED_BLOCK_NAME: &str = "cinnabar:reserved";
 
+/// Resolves the ordinary digging tools a custom block's declared tags accelerate.
+pub fn custom_block_effective_tools<'a>(tags: impl IntoIterator<Item = &'a str>) -> u8 {
+    use crate::compiled::block_destroy::ToolKind;
+    tags.into_iter().fold(0, |mask, tag| {
+        mask | match tag {
+            "minecraft:is_pickaxe_item_destructible" => ToolKind::Pickaxe.bit(),
+            "minecraft:is_hatchet_item_destructible" => ToolKind::Axe.bit(),
+            "minecraft:is_shovel_item_destructible" => ToolKind::Shovel.bit(),
+            "minecraft:is_hoe_item_destructible" => ToolKind::Hoe.bit(),
+            _ => 0,
+        }
+    })
+}
+
 /// Identity, placement and support metadata for one runtime ID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockFact {
@@ -27,6 +41,8 @@ pub struct BlockFact {
     pub survival: SurvivalRule,
     pub render: super::BlockRenderFact,
     pub ambient: super::presentation::AmbientBlock,
+    /// Species-authored falling leaves; ordinary biome-tinted leaves use their world material.
+    pub leaf_particle: Option<super::ParticleEffect>,
     pub placement: super::PlacementRule,
     pub support: super::SupportKind,
     /// Sequential identity of the admitted double slab or matching sign.
@@ -45,6 +61,7 @@ impl Default for BlockFact {
             survival: SurvivalRule::Unresolved,
             render: super::BlockRenderFact::default(),
             ambient: super::presentation::AmbientBlock::Other,
+            leaf_particle: None,
             placement: super::PlacementRule::Unresolved,
             support: super::SupportKind::Unresolved,
             alternate: None,
@@ -102,6 +119,9 @@ impl BlockFacts {
                         survival: r.survival,
                         render: super::block_render_fact(&r.name),
                         ambient: super::presentation_generated::ambient_block(&r.name),
+                        leaf_particle: (r.model_family == ModelFamily::Leaves)
+                            .then(|| super::presentation::leaf_particle(&r.name))
+                            .flatten(),
                         ..BlockFact::default()
                     };
                     fact.identity = names.get(r.name.as_ref()).copied();

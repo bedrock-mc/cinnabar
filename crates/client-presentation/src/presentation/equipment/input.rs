@@ -50,7 +50,8 @@ pub(super) fn worn_item(
             _ => HeldKind::Other,
         },
         dye_rgb,
-        enchanted: item.enchanted || item.glint.enabled().unwrap_or(false),
+        enchanted: item.enchanted,
+        glint: item.glint,
         variant: (&item.identity).into(),
     })
 }
@@ -147,6 +148,32 @@ pub fn local_input(
     }
 }
 
+/// Builds a canonical test stack with independent enchantment and intrinsic shine.
+#[cfg(test)]
+pub(super) fn canonical_fixture(
+    identifier: &str,
+    enchanted: bool,
+    intrinsic: bool,
+) -> CanonicalItemStack {
+    CanonicalItemStack {
+        identity: assets::ItemStackIdentity {
+            network_id: 1,
+            count: 1,
+            ..assets::ItemStackIdentity::empty()
+        },
+        identifier: Some(identifier.into()),
+        enchanted,
+        glint: assets::item::glint::ItemGlint::Session { enabled: intrinsic },
+        visual: assets::ItemVisualRoute::Missing,
+        grip: assets::item::grip::ItemGrip::Unresolved,
+        use_animation: assets::item_use::ItemUseAnimation::None,
+        charged_projectile: None,
+        charged_projectile_role: assets::item_use::ItemProjectileRole::None,
+        damage: None,
+        durability: assets::item::durability::ItemDurability::NotDamageable,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,6 +222,7 @@ mod tests {
             kind: HeldKind::Other,
             dye_rgb: None,
             enchanted: false,
+            glint: Default::default(),
             variant: Default::default(),
         };
         let equipment = ActorEquipmentInput {
@@ -246,25 +274,25 @@ mod tests {
         assert!(
             worn_item(&item, None, Default::default())
                 .unwrap()
-                .enchanted
+                .has_glint()
         );
         item.glint = assets::item::glint::ItemGlint::Unresolved;
         assert!(
             !worn_item(&item, None, Default::default())
                 .unwrap()
-                .enchanted
+                .has_glint()
         );
         item.enchanted = true;
         assert!(
             worn_item(&item, None, Default::default())
                 .unwrap()
-                .enchanted
+                .has_glint()
         );
         item.glint = assets::item::glint::ItemGlint::Session { enabled: false };
         assert!(
             worn_item(&item, None, Default::default())
                 .unwrap()
-                .enchanted
+                .has_glint()
         );
     }
 }

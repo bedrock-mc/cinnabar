@@ -150,3 +150,12 @@ fn comments_do_not_count_towards_statement_tokens() {
     );
     compose(&source, false).unwrap();
 }
+#[test]
+fn mask_sampling_requires_declarations_and_cannot_add_resources() {
+    let source = "fn effect(uv: vec2<f32>) -> vec3<f32> { return vec3<f32>(mask(0u, uv)); }";
+    assert!(super::compose(source, false).is_err());
+    assert!(super::compose_masked(source, false, 1).is_ok());
+    assert!(super::compose_masked(source, false, mod_api::drawing::MAX_MASKS + 1).is_err());
+    let foreign = "@group(0) @binding(8) var stolen: texture_2d<f32>; fn effect(uv: vec2<f32>) -> vec3<f32> { return vec3<f32>(mask(0u, uv)); }";
+    assert!(super::compose_masked(foreign, false, 1).is_err());
+}

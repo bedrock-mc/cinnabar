@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/bedrock-mc/cinnabar-api/main/schema/v1.json",
+  "$id": "https://raw.githubusercontent.com/cinnabar-mc/cinnabar-api/main/schema/v1.json",
   "title": "Cinnabar API v1",
   "description": "HTTP bodies and WebSocket messages of the Cinnabar API. Receivers ignore unknown fields and, after authentication, unknown message types.",
   "x-protocol": 1,
@@ -8,75 +8,178 @@
     "4429": "Stay away: reason retry_after=<seconds>; reconnect only after that delay plus jitter. HTTP 429 Retry-After has the same meaning on dial."
   },
   "anyOf": [
-    { "$ref": "#/$defs/ClientMessage" },
-    { "$ref": "#/$defs/ServerMessage" },
-    { "$ref": "#/$defs/HealthResponse" },
-    { "$ref": "#/$defs/ReleaseHookRequest" },
-    { "$ref": "#/$defs/ReleaseRecord" }
+    {
+      "$ref": "#/$defs/ClientMessage"
+    },
+    {
+      "$ref": "#/$defs/ServerMessage"
+    },
+    {
+      "$ref": "#/$defs/HealthResponse"
+    },
+    {
+      "$ref": "#/$defs/ReleaseHookRequest"
+    },
+    {
+      "$ref": "#/$defs/ReleaseRecord"
+    },
+    {
+      "$ref": "#/$defs/CosmeticsCatalog"
+    },
+    {
+      "$ref": "#/$defs/OnlineCountResponse"
+    },
+    {
+      "$ref": "#/$defs/OnlineNamesResponse"
+    },
+    {
+      "$ref": "#/$defs/EmoteClip"
+    },
+    {
+      "$ref": "#/$defs/OnlineHistoryResponse"
+    }
   ],
   "$defs": {
-    "Channel": { "enum": ["stable", "beta", "nightly"] },
+    "Channel": {
+      "enum": [
+        "stable",
+        "beta",
+        "nightly"
+      ]
+    },
     "Version": {
       "type": "string",
       "maxLength": 64,
       "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$"
     },
-    "Xuid": { "type": "string", "pattern": "^[0-9]{1,20}$" },
-    "U32": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-    "Build": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "Xuid": {
+      "type": "string",
+      "pattern": "^[0-9]{1,20}$"
+    },
+    "U32": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "Build": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
     "Timestamp": {
       "description": "RFC 3339 UTC timestamp with millisecond precision.",
       "type": "string",
       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
     },
-
     "HealthResponse": {
       "description": "GET /v1/health response.",
       "type": "object",
-      "required": ["ok", "api"],
-      "properties": { "ok": { "const": true }, "api": { "const": "v1" } }
+      "required": [
+        "ok",
+        "api"
+      ],
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "api": {
+          "const": "v1"
+        }
+      }
     },
     "ReleaseHookRequest": {
       "description": "POST /v1/releases body.",
       "type": "object",
-      "required": ["channel", "version"],
+      "required": [
+        "channel",
+        "version"
+      ],
       "properties": {
-        "channel": { "$ref": "#/$defs/Channel" },
-        "version": { "$ref": "#/$defs/Version" },
-        "build": { "$ref": "#/$defs/Build" }
+        "channel": {
+          "$ref": "#/$defs/Channel"
+        },
+        "version": {
+          "$ref": "#/$defs/Version"
+        },
+        "build": {
+          "$ref": "#/$defs/Build"
+        }
       }
     },
     "ReleaseRecord": {
       "description": "Latest accepted release identity for a channel.",
       "type": "object",
-      "required": ["channel", "version", "published_at"],
+      "required": [
+        "channel",
+        "version",
+        "published_at"
+      ],
       "properties": {
-        "channel": { "$ref": "#/$defs/Channel" },
-        "version": { "$ref": "#/$defs/Version" },
-        "build": { "$ref": "#/$defs/Build" },
-        "published_at": { "$ref": "#/$defs/Timestamp" }
+        "channel": {
+          "$ref": "#/$defs/Channel"
+        },
+        "version": {
+          "$ref": "#/$defs/Version"
+        },
+        "build": {
+          "$ref": "#/$defs/Build"
+        },
+        "published_at": {
+          "$ref": "#/$defs/Timestamp"
+        }
       }
     },
-
     "ClientMessage": {
       "anyOf": [
-        { "$ref": "#/$defs/Hello" },
-        { "$ref": "#/$defs/Proof" },
-        { "$ref": "#/$defs/Visibility" },
-        { "$ref": "#/$defs/Lookup" },
-        { "$ref": "#/$defs/EmoteState" }
+        {
+          "$ref": "#/$defs/Hello"
+        },
+        {
+          "$ref": "#/$defs/Proof"
+        },
+        {
+          "$ref": "#/$defs/Visibility"
+        },
+        {
+          "$ref": "#/$defs/Lookup"
+        },
+        {
+          "$ref": "#/$defs/EmoteState"
+        },
+        {
+          "$ref": "#/$defs/LoadoutState"
+        }
       ]
     },
     "Hello": {
       "type": "object",
-      "required": ["type", "protocol", "client_version", "channel", "visible", "token"],
+      "required": [
+        "type",
+        "protocol",
+        "client_version",
+        "channel",
+        "visible",
+        "token"
+      ],
       "properties": {
-        "type": { "const": "hello" },
-        "protocol": { "const": 1 },
-        "client_version": { "$ref": "#/$defs/Version" },
-        "client_build": { "$ref": "#/$defs/Build" },
-        "channel": { "$ref": "#/$defs/Channel" },
-        "visible": { "type": "boolean" },
+        "type": {
+          "const": "hello"
+        },
+        "protocol": {
+          "const": 1
+        },
+        "client_version": {
+          "$ref": "#/$defs/Version"
+        },
+        "client_build": {
+          "$ref": "#/$defs/Build"
+        },
+        "channel": {
+          "$ref": "#/$defs/Channel"
+        },
+        "visible": {
+          "type": "boolean"
+        },
         "token": {
           "description": "Minecraft multiplayer token (compact JWS).",
           "type": "string",
@@ -87,9 +190,14 @@
     },
     "Proof": {
       "type": "object",
-      "required": ["type", "signature"],
+      "required": [
+        "type",
+        "signature"
+      ],
       "properties": {
-        "type": { "const": "proof" },
+        "type": {
+          "const": "proof"
+        },
         "signature": {
           "description": "Unpadded base64url of the 96-byte raw r||s ES384 signature over \"cinnabar-api/v1/auth:\" + nonce.",
           "type": "string",
@@ -99,10 +207,17 @@
     },
     "Visibility": {
       "type": "object",
-      "required": ["type", "visible"],
+      "required": [
+        "type",
+        "visible"
+      ],
       "properties": {
-        "type": { "const": "visibility" },
-        "visible": { "type": "boolean" }
+        "type": {
+          "const": "visibility"
+        },
+        "visible": {
+          "type": "boolean"
+        }
       }
     },
     "Uuid": {
@@ -112,30 +227,71 @@
     "Lookup": {
       "description": "Both identifier arrays are optional and may be empty. Their combined length must not exceed lookup_batch_max (128); the server enforces the combined limit.",
       "type": "object",
-      "required": ["type", "id"],
+      "required": [
+        "type",
+        "id"
+      ],
       "properties": {
-        "type": { "const": "lookup" },
-        "id": { "$ref": "#/$defs/U32" },
-        "xuids": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/Xuid" } },
-        "uuids": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/Uuid" } }
+        "type": {
+          "const": "lookup"
+        },
+        "id": {
+          "$ref": "#/$defs/U32"
+        },
+        "xuids": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/Xuid"
+          }
+        },
+        "uuids": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/Uuid"
+          }
+        }
       }
     },
-
     "ServerMessage": {
       "anyOf": [
-        { "$ref": "#/$defs/Challenge" },
-        { "$ref": "#/$defs/Welcome" },
-        { "$ref": "#/$defs/Error" },
-        { "$ref": "#/$defs/LookupResult" },
-        { "$ref": "#/$defs/Release" },
-        { "$ref": "#/$defs/Emote" }
+        {
+          "$ref": "#/$defs/Challenge"
+        },
+        {
+          "$ref": "#/$defs/Welcome"
+        },
+        {
+          "$ref": "#/$defs/Error"
+        },
+        {
+          "$ref": "#/$defs/LookupResult"
+        },
+        {
+          "$ref": "#/$defs/Release"
+        },
+        {
+          "$ref": "#/$defs/Emote"
+        },
+        {
+          "$ref": "#/$defs/Loadout"
+        },
+        {
+          "$ref": "#/$defs/CosmeticOwnership"
+        }
       ]
     },
     "Challenge": {
       "type": "object",
-      "required": ["type", "nonce"],
+      "required": [
+        "type",
+        "nonce"
+      ],
       "properties": {
-        "type": { "const": "challenge" },
+        "type": {
+          "const": "challenge"
+        },
         "nonce": {
           "description": "Unpadded base64url of 32 random bytes.",
           "type": "string",
@@ -145,48 +301,138 @@
     },
     "Welcome": {
       "type": "object",
-      "required": ["type", "xuid"],
+      "required": [
+        "type",
+        "xuid"
+      ],
       "properties": {
-        "type": { "const": "welcome" },
-        "xuid": { "$ref": "#/$defs/Xuid" },
-        "lookup_batch_max": { "type": "integer", "minimum": 1, "default": 128 },
-        "lookup_bucket_capacity": { "type": "integer", "minimum": 1, "default": 1024 },
-        "lookup_refill_per_min": { "type": "integer", "minimum": 1, "default": 512 },
-        "cache_ttl_ms": { "type": "integer", "minimum": 1, "default": 120000 },
-        "ping_interval_ms": { "type": "integer", "minimum": 1, "default": 30000 },
-        "reconnect_max_ms": { "type": "integer", "minimum": 1, "default": 300000 }
+        "type": {
+          "const": "welcome"
+        },
+        "xuid": {
+          "$ref": "#/$defs/Xuid"
+        },
+        "lookup_batch_max": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 128
+        },
+        "lookup_bucket_capacity": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1024
+        },
+        "lookup_refill_per_min": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 512
+        },
+        "cache_ttl_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 120000
+        },
+        "ping_interval_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 30000
+        },
+        "reconnect_max_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 300000
+        },
+        "loadout_revision": {
+          "$ref": "#/$defs/Build"
+        },
+        "owned_cosmetics": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/CosmeticItemId"
+          }
+        }
       }
     },
     "Error": {
       "description": "rate_limited carries the id of the refused lookup; unauthorized is followed by close code 4401.",
       "type": "object",
-      "required": ["type", "code"],
+      "required": [
+        "type",
+        "code"
+      ],
       "properties": {
-        "type": { "const": "error" },
-        "code": { "enum": ["unauthorized", "rate_limited"] },
-        "id": { "$ref": "#/$defs/U32" }
+        "type": {
+          "const": "error"
+        },
+        "code": {
+          "enum": [
+            "unauthorized",
+            "rate_limited",
+            "invalid_loadout"
+          ]
+        },
+        "id": {
+          "$ref": "#/$defs/U32"
+        }
       }
     },
     "LookupResult": {
       "description": "Each array contains only matches from the corresponding request array. cinnabar_uuids may be omitted when no UUID array was requested.",
       "type": "object",
-      "required": ["type", "id", "cinnabar"],
+      "required": [
+        "type",
+        "id",
+        "cinnabar"
+      ],
       "properties": {
-        "type": { "const": "lookup_result" },
-        "id": { "$ref": "#/$defs/U32" },
-        "cinnabar": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/Xuid" } },
-        "cinnabar_uuids": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/Uuid" } }
+        "type": {
+          "const": "lookup_result"
+        },
+        "id": {
+          "$ref": "#/$defs/U32"
+        },
+        "cinnabar": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/Xuid"
+          }
+        },
+        "cinnabar_uuids": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/Uuid"
+          }
+        }
       }
     },
     "Release": {
       "type": "object",
-      "required": ["type", "channel", "version", "published_at"],
+      "required": [
+        "type",
+        "channel",
+        "version",
+        "published_at"
+      ],
       "properties": {
-        "type": { "const": "release" },
-        "channel": { "$ref": "#/$defs/Channel" },
-        "version": { "$ref": "#/$defs/Version" },
-        "build": { "$ref": "#/$defs/Build" },
-        "published_at": { "$ref": "#/$defs/Timestamp" }
+        "type": {
+          "const": "release"
+        },
+        "channel": {
+          "$ref": "#/$defs/Channel"
+        },
+        "version": {
+          "$ref": "#/$defs/Version"
+        },
+        "build": {
+          "$ref": "#/$defs/Build"
+        },
+        "published_at": {
+          "$ref": "#/$defs/Timestamp"
+        }
       }
     },
     "EmoteId": {
@@ -263,6 +509,654 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 15000
+        }
+      }
+    },
+    "CosmeticSlot": {
+      "type": "string",
+      "maxLength": 48,
+      "pattern": "^([a-z0-9_.-]+:)?[a-z0-9_.-]+$",
+      "description": "Known slots are head, back, face, body, pet and aura. Receivers ignore unknown slots.",
+      "x-known-slots": [
+        "head",
+        "back",
+        "face",
+        "body",
+        "pet",
+        "aura"
+      ]
+    },
+    "CosmeticItemId": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^[a-z0-9_.-]+:[a-z0-9_./-]+$"
+    },
+    "CosmeticSlots": {
+      "type": "object",
+      "maxProperties": 16,
+      "propertyNames": {
+        "$ref": "#/$defs/CosmeticSlot"
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/CosmeticItemId"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "LoadoutState": {
+      "type": "object",
+      "required": [
+        "type",
+        "revision",
+        "slots"
+      ],
+      "properties": {
+        "type": {
+          "const": "loadout"
+        },
+        "revision": {
+          "$ref": "#/$defs/Build"
+        },
+        "slots": {
+          "$ref": "#/$defs/CosmeticSlots"
+        }
+      },
+      "description": "Replaces the session loadout. A strictly newer account revision wins across sockets. Unknown slots and items are ignored; wrong-slot or unowned items reject the whole replacement."
+    },
+    "Loadout": {
+      "type": "object",
+      "required": [
+        "type",
+        "revision",
+        "slots",
+        "xuid",
+        "uuid"
+      ],
+      "properties": {
+        "type": {
+          "const": "loadout"
+        },
+        "revision": {
+          "$ref": "#/$defs/Build"
+        },
+        "slots": {
+          "$ref": "#/$defs/CosmeticSlots"
+        },
+        "xuid": {
+          "$ref": "#/$defs/Xuid"
+        },
+        "uuid": {
+          "$ref": "#/$defs/Uuid"
+        }
+      },
+      "description": "Authenticated session loadout without a lease. Empty slots withdraw it. Revisions may repeat for withdrawal or replay after a visibility or nearby-subscription change."
+    },
+    "CosmeticAsset": {
+      "type": "object",
+      "required": [
+        "url",
+        "sha256",
+        "bytes"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^(/v1/cosmetics/assets/|https://)"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1048576
+        }
+      }
+    },
+    "CosmeticItem": {
+      "type": "object",
+      "required": [
+        "id",
+        "slot",
+        "display_name",
+        "tags",
+        "free",
+        "assets",
+        "geometry_id",
+        "attachment_bone",
+        "offset",
+        "render_flags",
+        "license"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/CosmeticItemId"
+        },
+        "slot": {
+          "$ref": "#/$defs/CosmeticSlot"
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "tags": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "maxLength": 32
+          }
+        },
+        "free": {
+          "type": "boolean"
+        },
+        "assets": {
+          "type": "object",
+          "required": [
+            "geometry",
+            "texture"
+          ],
+          "properties": {
+            "geometry": {
+              "$ref": "#/$defs/CosmeticAsset"
+            },
+            "texture": {
+              "$ref": "#/$defs/CosmeticAsset"
+            },
+            "animation": {
+              "$ref": "#/$defs/CosmeticAsset"
+            }
+          }
+        },
+        "geometry_id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "attachment_bone": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "offset": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "number",
+            "minimum": -4,
+            "maximum": 4
+          }
+        },
+        "render_flags": {
+          "type": "object",
+          "required": [
+            "double_sided"
+          ],
+          "properties": {
+            "double_sided": {
+              "type": "boolean"
+            },
+            "emissive": {
+              "type": "boolean",
+              "description": "Draws every opaque texel fullbright in the world; galleries and previews are unchanged. Clients that predate it draw the item normally lit."
+            }
+          }
+        },
+        "license": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^https://",
+          "description": "License terms supplied with the original asset."
+        }
+      }
+    },
+    "CosmeticsCatalog": {
+      "type": "object",
+      "required": [
+        "version",
+        "items"
+      ],
+      "properties": {
+        "version": {
+          "$ref": "#/$defs/Build"
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/CosmeticItem"
+          }
+        },
+        "emotes": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/CatalogEmote"
+          }
+        }
+      }
+    },
+    "OnlineCountResponse": {
+      "description": "GET /v1/presence/count: unique visible accounts with an open authenticated socket; excludes retained offline presence.",
+      "type": "object",
+      "required": [
+        "online"
+      ],
+      "properties": {
+        "online": {
+          "$ref": "#/$defs/U32"
+        }
+      },
+      "additionalProperties": true
+    },
+    "OnlineNamesResponse": {
+      "description": "Authenticated GET /v1/presence/players: verified names for the same visible online accounts as the count, without identifiers.",
+      "type": "object",
+      "required": ["names"],
+      "properties": {
+        "names": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 64 }
+        }
+      },
+      "additionalProperties": false
+    },
+    "EmoteClip": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "duration",
+        "loop",
+        "tracks"
+      ],
+      "description": "Local articulated-rig transforms. Seconds; offsets are relative to the logical parent bind offset in leg-height units, on mirrored client model axes. Quaternion xyzw rotations use shortest-path normalized linear interpolation. Offsets interpolate linearly. Missing tracks use identity rotation and zero offset. Non-looping playback holds its final pose.",
+      "x-max-bytes": 1048576,
+      "x-max-total-keyframes": 8192,
+      "x-quaternion-tolerance": 0.001,
+      "x-rig": [
+        {
+          "joint": "root",
+          "parent": null,
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "joint": "body",
+          "parent": "root",
+          "pivot": [
+            0,
+            24,
+            0
+          ]
+        },
+        {
+          "joint": "body.cinnabar_spine",
+          "parent": "body",
+          "pivot": [
+            0,
+            18,
+            0
+          ]
+        },
+        {
+          "joint": "waist",
+          "parent": "body.cinnabar_spine",
+          "pivot": [
+            0,
+            12,
+            0
+          ]
+        },
+        {
+          "joint": "head",
+          "parent": "body",
+          "pivot": [
+            0,
+            24,
+            0
+          ]
+        },
+        {
+          "joint": "leftarm",
+          "parent": "body",
+          "pivot": [
+            -5,
+            22,
+            0
+          ]
+        },
+        {
+          "joint": "rightarm",
+          "parent": "body",
+          "pivot": [
+            5,
+            22,
+            0
+          ]
+        },
+        {
+          "joint": "leftleg",
+          "parent": "body.cinnabar_spine",
+          "pivot": [
+            -1.9,
+            12,
+            0
+          ]
+        },
+        {
+          "joint": "rightleg",
+          "parent": "body.cinnabar_spine",
+          "pivot": [
+            1.9,
+            12,
+            0
+          ]
+        },
+        {
+          "joint": "leftarm.cinnabar_elbow",
+          "parent": "leftarm",
+          "pivot": [
+            -5,
+            16,
+            0
+          ]
+        },
+        {
+          "joint": "leftarm.cinnabar_wrist",
+          "parent": "leftarm.cinnabar_elbow",
+          "pivot": [
+            -5,
+            12,
+            0
+          ]
+        },
+        {
+          "joint": "rightarm.cinnabar_elbow",
+          "parent": "rightarm",
+          "pivot": [
+            5,
+            16,
+            0
+          ]
+        },
+        {
+          "joint": "rightarm.cinnabar_wrist",
+          "parent": "rightarm.cinnabar_elbow",
+          "pivot": [
+            5,
+            12,
+            0
+          ]
+        },
+        {
+          "joint": "leftleg.cinnabar_knee",
+          "parent": "leftleg",
+          "pivot": [
+            -1.9,
+            6,
+            0
+          ]
+        },
+        {
+          "joint": "leftleg.cinnabar_ankle",
+          "parent": "leftleg.cinnabar_knee",
+          "pivot": [
+            -1.9,
+            2,
+            0
+          ]
+        },
+        {
+          "joint": "rightleg.cinnabar_knee",
+          "parent": "rightleg",
+          "pivot": [
+            1.9,
+            6,
+            0
+          ]
+        },
+        {
+          "joint": "rightleg.cinnabar_ankle",
+          "parent": "rightleg.cinnabar_knee",
+          "pivot": [
+            1.9,
+            2,
+            0
+          ]
+        }
+      ],
+      "x-invariants": [
+        "Unique tracks; strictly increasing key times from zero to duration, or a single constant key at zero.",
+        "Unit quaternions within tolerance; finite values. Total keyframes and encoded bytes obey budgets."
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "duration": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 60
+        },
+        "loop": {
+          "type": "boolean"
+        },
+        "tracks": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 17,
+          "items": {
+            "$ref": "#/$defs/EmoteTrack"
+          }
+        }
+      },
+      "x-max-cache-bytes": 33554432
+    },
+    "EmoteTrack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "joint",
+        "keys"
+      ],
+      "properties": {
+        "joint": {
+          "enum": [
+            "root",
+            "body",
+            "body.cinnabar_spine",
+            "waist",
+            "head",
+            "leftarm",
+            "rightarm",
+            "leftleg",
+            "rightleg",
+            "leftarm.cinnabar_elbow",
+            "leftarm.cinnabar_wrist",
+            "rightarm.cinnabar_elbow",
+            "rightarm.cinnabar_wrist",
+            "leftleg.cinnabar_knee",
+            "leftleg.cinnabar_ankle",
+            "rightleg.cinnabar_knee",
+            "rightleg.cinnabar_ankle"
+          ]
+        },
+        "keys": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1025,
+          "items": {
+            "$ref": "#/$defs/EmoteKey"
+          }
+        }
+      }
+    },
+    "EmoteKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "time",
+        "rotation",
+        "offset"
+      ],
+      "properties": {
+        "time": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 60
+        },
+        "rotation": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "number",
+            "minimum": -1,
+            "maximum": 1
+          }
+        },
+        "offset": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "number",
+            "minimum": -4,
+            "maximum": 4
+          }
+        }
+      }
+    },
+    "CatalogEmote": {
+      "type": "object",
+      "required": [
+        "id",
+        "display_name",
+        "free",
+        "clip",
+        "license"
+      ],
+      "properties": {
+        "id": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/CosmeticItemId"
+            },
+            {
+              "$ref": "#/$defs/EmoteId"
+            }
+          ]
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "free": {
+          "type": "boolean"
+        },
+        "license": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^https://",
+          "description": "License terms supplied with the original asset."
+        },
+        "clip": {
+          "$ref": "#/$defs/CosmeticAsset"
+        }
+      }
+    },
+    "OnlineHistoryResponse": {
+      "description": "GET /v1/presence/history?range=24h|7d|30d. Anonymous minute observations, averaged into chart buckets. Times and intervals are milliseconds since the Unix epoch. Missing buckets mean unavailable data, not zero players.",
+      "type": "object",
+      "required": [
+        "range",
+        "interval_ms",
+        "from",
+        "to",
+        "points"
+      ],
+      "properties": {
+        "range": {
+          "enum": [
+            "24h",
+            "7d",
+            "30d"
+          ]
+        },
+        "interval_ms": {
+          "type": "integer",
+          "minimum": 60000
+        },
+        "from": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "to": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "points": {
+          "type": "array",
+          "maxItems": 1441,
+          "items": {
+            "type": "object",
+            "required": [
+              "at",
+              "online",
+              "peak",
+              "samples"
+            ],
+            "properties": {
+              "at": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "online": {
+                "type": "number",
+                "minimum": 0
+              },
+              "peak": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "samples": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "CosmeticOwnership": {
+      "type": "object",
+      "required": [
+        "type",
+        "owned_cosmetics"
+      ],
+      "properties": {
+        "type": {
+          "const": "cosmetic_ownership"
+        },
+        "owned_cosmetics": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/CosmeticItemId"
+          }
         }
       }
     }

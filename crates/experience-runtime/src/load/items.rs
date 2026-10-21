@@ -1,5 +1,5 @@
 //! Server WIT 0.5's items: an Experience's own, which `register` declares, and the server's,
-//! which the adapter lists at load.
+//! which the adapter lists at load with its crafting recipes.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -8,8 +8,11 @@ use anyhow::{Context, Result, bail, ensure};
 
 use super::{asset_path, check_display_name, is_block_name};
 use crate::host::cinnabar::experience_server::types as wit;
-use crate::limits::{MAX_BLOCK_NAME_BYTES, MAX_ITEMS, MAX_SERVER_ITEMS, MAX_STACK_SIZE};
-use crate::protocol::{BlockDef, ItemDef, ServerItem};
+use crate::limits::{
+    MAX_BLOCK_NAME_BYTES, MAX_ITEMS, MAX_RECIPE_INPUT_ITEMS, MAX_RECIPES, MAX_SERVER_ITEMS,
+    MAX_STACK_SIZE,
+};
+use crate::protocol::{BlockDef, ItemDef, Recipe, ServerItem};
 
 /// Checks the items an Experience declares: at most [`MAX_ITEMS`], each `<id>:<name>` like a
 /// block and distinct from every block, with a display name like a block's, an indexed icon and
@@ -68,6 +71,50 @@ pub(super) fn validate_items(
         });
     }
     Ok(checked)
+}
+
+/// Checks the server's crafting recipes against the recipe bounds: each takes 1 to 9 inputs, a
+/// shaped one exactly its shape's cells, and makes a stack of 1 to [`MAX_STACK_SIZE`].
+pub(super) fn check_recipes(recipes: &[Recipe]) -> Result<()> {
+    ensure!(
+        recipes.len() <= MAX_RECIPES,
+        "the server lists {} recipes; the limit is {MAX_RECIPES}",
+        recipes.len()
+    );
+    for (at, recipe) in recipes.iter().enumerate() {
+        let cells = match recipe.shape {
+            Some([width, height]) => {
+                ensure!(
+                    (1..=3).contains(&width) && (1..=3).contains(&height),
+                    "recipe {at} has a {width}x{height} shape"
+                );
+                usize::from(width) * usize::from(height)
+            }
+            None => recipe.inputs.len(),
+        };
+        ensure!(
+            (1..=9).contains(&cells) && recipe.inputs.len() == cells,
+            "recipe {at} has {} inputs for {cells} cells",
+            recipe.inputs.len()
+        );
+        for input in &recipe.inputs {
+            ensure!(
+                input.len() <= MAX_RECIPE_INPUT_ITEMS,
+                "recipe {at} has an input of {} items; the limit is {MAX_RECIPE_INPUT_ITEMS}",
+                input.len()
+            );
+            ensure!(
+                recipe.shape.is_some() || !input.is_empty(),
+                "shapeless recipe {at} has an empty input"
+            );
+        }
+        ensure!(
+            (1..=MAX_STACK_SIZE).contains(&recipe.output.count),
+            "recipe {at} makes {} items; it needs 1 to {MAX_STACK_SIZE}",
+            recipe.output.count
+        );
+    }
+    Ok(())
 }
 
 /// Checks the server's item variants and stack limits, rejecting repeated id/metadata pairs.

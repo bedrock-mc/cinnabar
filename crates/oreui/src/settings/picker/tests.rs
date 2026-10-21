@@ -13,7 +13,7 @@ fn channel_picker_actions(updates: launcher::menu::updates::View) -> (u16, Vec<M
         .position(|option| option.name == UPDATE_CHANNEL_OPTION.name)
         .unwrap() as u16;
     let mut view = MenuView::new(true, "Player".into());
-    view.settings_dropdown = Some(index);
+    view.settings.dropdown = Some(index);
     view.updates = updates;
     let (_, hits, _) = paint(HashMap::new(), |canvas| {
         draw(canvas, &view, [1280.0, 720.0], &|_| None).unwrap();

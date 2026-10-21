@@ -102,6 +102,11 @@ fn control_point(presentation: &UiPresentationRuntime, action: InventoryCellHit)
             (presentation.engine_container_hit(gui) == Some(action)).then_some(gui)
         })
         .expect("fixture control is reachable");
+    window_point(presentation, gui)
+}
+
+/// Converts a GUI hit point into logical window coordinates.
+fn window_point(presentation: &UiPresentationRuntime, gui: [f32; 2]) -> Vec2 {
     let origin = presentation
         .inventory_gui_point(UiPoint::new(0.0, 0.0).unwrap(), SIZE, 1.0)
         .unwrap();
@@ -152,6 +157,53 @@ fn pointer_edge(
         None,
         0,
     );
+}
+
+#[test]
+fn fallback_recipe_hits_follow_the_controller_layout() {
+    use client_ui::ui_runtime::presentation::screens;
+
+    let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
+    let mut runtime = client_ui::test_support::inventory_session(&mut player);
+    runtime.toggle_inventory(&mut player, None);
+    let mut presentation = UiPresentationRuntime::with_hud(
+        ui_engine::test_support::fixture_font(),
+        client_ui::test_support::fixture_hud(),
+    )
+    .unwrap();
+    let gui_size = presentation
+        .inventory_gui_point(
+            UiPoint::new(SIZE[0] as f32, SIZE[1] as f32).unwrap(),
+            SIZE,
+            1.0,
+        )
+        .unwrap();
+    let origin = screens::panel_origin(InventoryScreen::Personal, gui_size);
+    let cell = screens::book_cell_origin(4, screens::book_origin(origin));
+    let window = window(window_point(&presentation, [cell[0] + 1.0, cell[1] + 1.0]));
+    for (layout, expected) in [
+        (2, Some(InventoryCellHit::Widget(Widget::BookRecipe(4)))),
+        (1, None),
+        (2, Some(InventoryCellHit::Widget(Widget::BookRecipe(4)))),
+    ] {
+        runtime.perform_pointer_action(
+            &mut player,
+            client_ui::ui_runtime::inventory_drag::PointerAction::Click(InventoryCellHit::Widget(
+                Widget::InventoryLayout(layout),
+            )),
+        );
+        redraw(&mut presentation, &player, &runtime);
+        assert!(presentation.engine_container_frame().is_none());
+        pointer_edge(
+            &mut player,
+            &mut runtime,
+            &window,
+            &presentation,
+            false,
+            false,
+        );
+        assert_eq!(runtime.screen_state().hover, expected);
+    }
 }
 
 #[test]
@@ -208,7 +260,7 @@ fn book_exit_retains_written_pages_before_closing() {
 fn hidden_inventory_close_control_does_not_take_a_mod_views_pointer() {
     let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = client_ui::test_support::inventory_session(&mut player);
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     let mut presentation = presentation(&player, &runtime);
     let at = control_point(&presentation, InventoryCellHit::Widget(Widget::Close));
     let window = window(at);
@@ -286,7 +338,7 @@ fn ordered_close_press_survives_keyboard_dispatch_until_frame_release() {
     use bevy::input::{keyboard::KeyboardInput, mouse::MouseButtonInput};
     let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = client_ui::test_support::inventory_session(&mut player);
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     let presentation = presentation(&player, &runtime);
     let at = control_point(&presentation, InventoryCellHit::Widget(Widget::Close));
     let mut app = App::new();
@@ -372,7 +424,7 @@ fn batched_tap(
 fn a_batched_touch_lifted_over_close_does_not_close() {
     let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = client_ui::test_support::inventory_session(&mut player);
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     let presentation = presentation(&player, &runtime);
     let close = control_point(&presentation, InventoryCellHit::Widget(Widget::Close));
     let off_close = Vec2::new(1.0, 1.0);

@@ -11,12 +11,13 @@ mod input;
 mod macos;
 mod scoreboards;
 mod state;
+mod surface;
 
 use std::path::PathBuf;
 
 use bevy::{prelude::*, window::WindowResolution};
 use developer_control::{
-    ENDPOINT_ENV, HIDDEN_WINDOW_ENV, WINDOW_SIZE_ENV,
+    ENDPOINT_ENV, HIDDEN_WINDOW_ENV, WINDOW_SCALE_ENV, WINDOW_SIZE_ENV,
     protocol::Command,
     server::{ControlServer, Pending},
 };
@@ -32,7 +33,12 @@ pub(crate) fn primary_window(window: Window) -> Window {
     let size = std::env::var(WINDOW_SIZE_ENV)
         .ok()
         .and_then(|value| developer_control::parse_size(&value));
-    window_options(window, size, hidden_window_requested())
+    let scale = std::env::var(WINDOW_SCALE_ENV)
+        .ok()
+        .and_then(|value| value.parse::<f32>().ok())
+        .filter(|scale| scale.is_finite() && (0.5..=4.).contains(scale))
+        .unwrap_or(1.);
+    window_options(window, size, hidden_window_requested(), scale)
 }
 
 /// Only the explicit developer switch suppresses native application activation.
@@ -65,9 +71,10 @@ pub(crate) fn prepare_native_application(connection_requested: bool) -> anyhow::
 }
 
 /// Hidden developer surfaces never request native focus; presentation policy owns pacing.
-fn window_options(mut window: Window, size: Option<[u32; 2]>, hidden: bool) -> Window {
+fn window_options(mut window: Window, size: Option<[u32; 2]>, hidden: bool, scale: f32) -> Window {
     if let Some(size) = size {
-        window.resolution = WindowResolution::new(size[0], size[1]).with_scale_factor_override(1.0);
+        window.resolution =
+            WindowResolution::new(size[0], size[1]).with_scale_factor_override(scale);
         window.resizable = false;
     }
     if hidden {
@@ -80,6 +87,7 @@ fn window_options(mut window: Window, size: Option<[u32; 2]>, hidden: bool) -> W
 /// Starts the endpoint when `CINNABAR_DEVELOPER_CONTROL` names its file.
 pub(crate) fn configure(app: &mut App) {
     cursor_isolation::configure(app, hidden_window_requested());
+    surface::configure(app, hidden_window_requested());
     #[cfg(target_os = "macos")]
     if hidden_window_requested() {
         macos::verify_after_launch(app);
@@ -110,7 +118,10 @@ fn dispatch(world: &mut World) {
     let pending: Vec<Pending> = world.resource::<Control>().server.drain().collect();
     for Pending { command, reply } in pending {
         let outcome = match command {
-            Command::Connect { address } => connect(world, address),
+            Command::Connect {
+                address,
+                auth_cache,
+            } => connect(world, address, auth_cache),
             Command::Disconnect => disconnect(world),
             Command::Input(command) => input::apply(world, &command),
             Command::ImportSkin { path } => {
@@ -188,11 +199,18 @@ fn dispatch(world: &mut World) {
     }
 }
 
-fn connect(world: &mut World, address: String) -> Result<Value, String> {
+fn connect(
+    world: &mut World,
+    address: String,
+    auth_cache: Option<std::path::PathBuf>,
+) -> Result<Value, String> {
     let mut menu = world
         .get_resource_mut::<client_shell::menu::MenuRuntime>()
         .ok_or("the launcher menu is unavailable")?;
     menu.request_connect(address.clone());
+    if let Some(auth_cache) = auth_cache {
+        menu.use_auth_cache_for_pending_join(auth_cache);
+    }
     if !menu.is_connecting() {
         return Err("the launcher refused the join (account change pending?)".into());
     }
@@ -291,7 +309,7 @@ mod tests {
 
     #[test]
     fn hidden_surface_starts_without_native_focus() {
-        let window = super::window_options(Window::default(), Some([1920, 1080]), true);
+        let window = super::window_options(Window::default(), Some([1920, 1080]), true, 1.);
         assert!(!window.visible);
         assert!(!window.focused);
         assert!(!window.resizable);
@@ -302,11 +320,22 @@ mod tests {
     #[test]
     fn normal_surface_retains_its_native_window_policy() {
         let original = Window::default();
-        let window = super::window_options(original.clone(), None, false);
+        let window = super::window_options(original.clone(), None, false, 1.);
         assert_eq!(window.visible, original.visible);
         assert_eq!(window.focused, original.focused);
         assert_eq!(window.present_mode, original.present_mode);
         assert_eq!(window.resizable, original.resizable);
+    }
+
+    /// Physical capture dimensions stay fixed while the native logical window uses Retina density.
+    #[test]
+    fn hidden_surface_can_exercise_retina_scale_without_a_visible_window() {
+        let window = super::window_options(Window::default(), Some([2560, 1600]), true, 2.);
+        assert!(!window.visible);
+        assert_eq!(window.resolution.physical_size(), UVec2::new(2560, 1600));
+        assert_eq!(window.resolution.width(), 1280.);
+        assert_eq!(window.resolution.height(), 800.);
+        assert_eq!(window.resolution.scale_factor(), 2.);
     }
 
     #[test]

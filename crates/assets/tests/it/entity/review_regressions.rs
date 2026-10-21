@@ -49,7 +49,7 @@ fn carrier_v4_rejects_every_extended_cross_index_relationship() {
     assert_mutation_rejected(|c| c.controller_transitions[0].condition = u32::MAX);
     assert_mutation_rejected(|c| c.rig_bindings[0].entity_symbol = 1);
     assert_mutation_rejected(|c| c.rig_geometries[0].geometry = u32::MAX);
-    assert_mutation_rejected(|c| c.rig_bindings[0].render_controller = 0);
+    assert_mutation_rejected(|c| c.rig_bindings[0].render_controller = Some(0));
     assert_mutation_rejected(|c| c.rig_bindings[0].first_geometry = u32::MAX);
     assert_mutation_rejected(|c| c.rig_geometries[0].condition = Some(u32::MAX));
     assert_mutation_rejected(|c| c.rig_geometries[0].first_animation = u32::MAX);
@@ -131,7 +131,7 @@ fn inherited_rig_fixture() -> entity::CompiledEntityAssets {
     compiled.symbols = symbols.into_boxed_slice();
     compiled.animation_clips[0].symbol += 1;
     compiled.controllers[0].symbol += 1;
-    compiled.rig_bindings[0].render_controller += 1;
+    *compiled.rig_bindings[0].render_controller.as_mut().unwrap() += 1;
     compiled.rig_geometries[0].geometry = 1;
     compiled.geometries = vec![parent_geometry, child_geometry].into_boxed_slice();
     compiled

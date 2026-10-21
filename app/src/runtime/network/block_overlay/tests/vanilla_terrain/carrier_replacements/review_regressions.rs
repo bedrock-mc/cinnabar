@@ -174,6 +174,7 @@ fn failed_carried_faces_and_change_probes_release_unpublished_admissions() {
         let sheet = render_model::equipment::blocks::overlay_face_sheet(
             &compiled.overlay,
             compiled.vanilla_carried[0].faces,
+            None,
         )
         .unwrap();
         assert!(

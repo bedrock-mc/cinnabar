@@ -137,4 +137,15 @@ const (
 	// maxServerItems is the most items the adapter lists as the server's: Rust's
 	// MAX_SERVER_ITEMS.
 	maxServerItems = 16_384
+	// maxRecipes is the most crafting recipes the adapter sends: Rust's MAX_RECIPES.
+	maxRecipes = 8192
+	// maxRecipeInputItems is the most items one recipe input accepts: Rust's
+	// MAX_RECIPE_INPUT_ITEMS.
+	maxRecipeInputItems = 512
+	// maxScheduleTicks is the most ticks ahead a guest schedules an update: Rust's
+	// MAX_SCHEDULE_TICKS.
+	maxScheduleTicks = 72_000
+	// maxScheduledUpdates is the most updates one result schedules: Rust's
+	// MAX_SCHEDULED_UPDATES.
+	maxScheduledUpdates = 64
 )

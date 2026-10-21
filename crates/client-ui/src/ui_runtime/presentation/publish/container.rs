@@ -22,7 +22,7 @@ pub(super) fn capture(
     let mut window_text = WindowText::default();
     if runtime.inventory_open() {
         capture_titles(
-            runtime.inventory_ledger(player_runtime),
+            player_runtime,
             runtime,
             stream,
             inventory_screen,
@@ -45,23 +45,33 @@ pub(super) fn capture(
 
 /// Captures untranslated custom titles and the screen's localized labels.
 fn capture_titles(
-    ledger: &inventory::inventory_ledger::PlayerInventoryLedger,
+    player_runtime: &player_state::PlayerState,
     runtime: &UiRuntime,
     stream: Option<&chunk_pipeline::WorldStream>,
     inventory_screen: InventoryScreen,
     window_text: &mut WindowText,
 ) {
+    let ledger = runtime.inventory_ledger(player_runtime);
     // Actor-backed server menus carry their raw title on the owning actor.
     // Keep formatting markers intact: resource-pack layouts use them.
     let stated_title = ledger
-        .window_actor()
-        .and_then(|actor| stream?.authority().actor_name_tag(actor))
-        .filter(|name| !name.is_empty())
-        .map(|name| name.to_string())
+        .trading()
+        .map(|trade| {
+            runtime
+                .translation(&trade.title)
+                .map_or_else(|| trade.title.to_string(), |title| title.to_string())
+        })
         .or_else(|| {
             ledger
-                .window_position()
-                .and_then(|position| stream?.block_entity_custom_name(position))
+                .window_actor()
+                .and_then(|actor| stream?.authority().actor_name_tag(actor))
+                .filter(|name| !name.is_empty())
+                .map(|name| name.to_string())
+                .or_else(|| {
+                    ledger
+                        .window_position()
+                        .and_then(|position| stream?.block_entity_custom_name(position))
+                })
         });
     window_text.custom_title.clone_from(&stated_title);
     window_text.block_entity = ledger
@@ -92,7 +102,7 @@ fn capture_titles(
                 .map(|text| text.to_string())
         }),
         InventoryScreen::Creative => {
-            let key = match runtime.screen_state().creative_tab {
+            let key = match runtime.creative_tab(player_runtime) {
                 0 => "itemGroup.name.construction",
                 1 => "itemGroup.name.nature",
                 2 => "itemGroup.name.equipment",

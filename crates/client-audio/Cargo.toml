@@ -29,11 +29,19 @@ protocol = { path = "../protocol" }
 resource-pack = { path = "../resource-pack" }
 rodio = { version = "=0.20.1", default-features = false }
 serde_json = "1"
-server-experience = { path = "../server-experience" }
+tokio.workspace = true
 sha2.workspace = true
 sim = { path = "../sim" }
 test-time = { path = "../test-time", optional = true }
 world = { path = "../world" }
+web-time.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+server-experience = { path = "../server-experience" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+rodio = { version = "=0.20.1", default-features = false, features = ["wasm-bindgen"] }
+web-sys = { version = "0.3.104", features = ["AudioContext", "AudioContextState"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }

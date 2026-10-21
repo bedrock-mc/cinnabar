@@ -159,9 +159,9 @@ fn published_persona_layers_follow_the_sampled_local_emote_only() {
     let native_pose = native_layer.current.clone();
     let emote = actor_animation::sample_custom_emote(
         &rig,
-        actor_animation::CustomEmote::Twerk,
+        cosmetics::test_support::playback_emote(),
         0.0,
-        actor_animation::CustomEmote::Twerk.duration_seconds() / 4.0,
+        cosmetics::test_support::playback_emote().duration_seconds() / 4.0,
     )
     .unwrap();
     assert_ne!(emote.skin_layers[0].current, native_pose);
@@ -343,6 +343,7 @@ fn native_and_modern_items_stay_retained_until_equip_adopts_them() {
         kind: crate::presentation::equipment::HeldKind::Sprite,
         dye_rgb: None,
         enchanted: false,
+        glint: Default::default(),
         variant: Default::default(),
     };
     for modern in [FILLED_MAP, "minecraft:crossbow", "minecraft:shield"] {
@@ -374,6 +375,7 @@ fn outgoing_main_use_is_idle_while_offhand_keeps_the_actual_owner_use() {
         kind: crate::presentation::equipment::HeldKind::Sprite,
         dye_rgb: None,
         enchanted: false,
+        glint: Default::default(),
         variant: Default::default(),
     };
     let owner = ActorEquipmentInput {
@@ -450,6 +452,7 @@ fn mixed_native_map_swaps_publish_the_outgoing_mesh_until_adoption() {
         kind: crate::presentation::equipment::HeldKind::Sprite,
         dye_rgb: None,
         enchanted: false,
+        glint: Default::default(),
         variant: Default::default(),
     };
     for (old, new) in [(ids[0], ids[1]), (ids[1], ids[0])] {
@@ -578,6 +581,7 @@ fn worn(identifier: &str) -> WornItem {
         kind: crate::presentation::equipment::HeldKind::Sprite,
         dye_rgb: None,
         enchanted: false,
+        glint: Default::default(),
     }
 }
 
@@ -596,7 +600,7 @@ fn held(item: &WornItem) -> JavaHeldItem {
 fn mixed_swaps_change_hands_at_the_bottom_of_the_dip() {
     const CROSSBOW: &str = "minecraft:crossbow";
     const SHIELD: &str = "minecraft:shield";
-    let vanilla = |identifier: &str| matches!(identifier, CROSSBOW | SHIELD);
+    let vanilla = |item: &WornItem| matches!(item.identifier.as_ref(), CROSSBOW | SHIELD);
     let id = |item: Option<WornItem>| item.map(|item| item.identifier);
     for (old, new) in [
         ("minecraft:iron_sword", CROSSBOW),
@@ -612,13 +616,13 @@ fn mixed_swaps_change_hands_at_the_bottom_of_the_dip() {
         let dipping = cache.displayed_main(Some(&held(&old)), Some(&new));
         assert_eq!(
             vanilla_draws(dipping.as_ref(), None, vanilla),
-            vanilla(&old.identifier)
+            vanilla(&old)
         );
         assert_eq!(id(dipping), Some(Arc::clone(&old.identifier)));
         let adopted = cache.displayed_main(Some(&held(&new)), Some(&new));
         assert_eq!(
             vanilla_draws(adopted.as_ref(), None, vanilla),
-            vanilla(&new.identifier)
+            vanilla(&new)
         );
         assert_eq!(id(adopted), Some(Arc::clone(&new.identifier)));
     }

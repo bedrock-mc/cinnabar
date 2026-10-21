@@ -49,7 +49,7 @@ fn forwarded(stream: &mut chunk_pipeline::WorldStream, sequence: u64) -> Vec<Seq
 fn app(stream: chunk_pipeline::WorldStream, enabled: bool) -> bevy::prelude::App {
     let mut app = bevy::prelude::App::new();
     app.add_message::<SequencedAudioEvent>()
-        .init_resource::<crate::environment::WorldClock>()
+        .init_resource::<client_presentation::environment::WorldClock>()
         .insert_resource(crate::runtime::world::ClientWorld {
             stream: Some(stream),
             ..crate::runtime::world::ClientWorld::default()

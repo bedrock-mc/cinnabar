@@ -16,6 +16,7 @@ reads = [
 test-support = []
 
 [dependencies]
+cosmetics = { path = "../cosmetics" }
 anyhow.workspace = true
 bridge = { path = "../bridge" }
 crash-handler = "0.8.1"
@@ -74,6 +75,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 test-time = { path = "../test-time" }
 launcher = { path = "../launcher", features = ["test-support"] }
 

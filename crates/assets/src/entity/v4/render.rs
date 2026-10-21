@@ -175,6 +175,9 @@ pub struct EntityRenderLayer {
     pub condition: Option<u32>,
     pub first_slot: u32,
     pub slot_count: u16,
+    /// Authored texture references could not resolve; activation still controls fallback.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub unresolved_textures: bool,
     pub first_visibility: u32,
     pub visibility_count: u16,
     /// `[r, g, b, a]` expressions multiplying the texture.
@@ -291,6 +294,7 @@ pub(super) fn validate_render_payload(compiled: &CompiledEntityAssets) -> Result
     let mut previous_rig = 0;
     for layer in render.layers.iter() {
         if layer.rig < previous_rig
+            || (layer.unresolved_textures && layer.slot_count != 0)
             || layer.rig as usize >= compiled.rig_bindings.len()
             || layer.condition.is_some_and(|index| !expression(index))
             || !range_in_bounds(

@@ -12,8 +12,9 @@ use std::{
         Arc, Mutex,
         mpsc::{Receiver, SyncSender, sync_channel},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use assets::{Material, ModelTemplate, RuntimeAssets, TextureArray, TextureRef};
 #[cfg(test)]
@@ -111,6 +112,8 @@ mod presentation;
 #[cfg(feature = "publication-test-support")]
 mod publication_test_support;
 mod queue;
+#[cfg(feature = "shaderpacks")]
+pub(crate) mod shaderpack_sources;
 pub(crate) use coverage::TerrainCoverage;
 
 use render_scene::chunk::texture_reload::ChunkTextureReload;
@@ -145,7 +148,7 @@ use gpu::bind_groups::{
     biome_tint_gpu_buffer_needs_rebuild, chunk_sampler_descriptor, encode_model_template_words,
     init_chunk_gpu_animation_clock, pack_linear_rgb10, prepare_biome_tint_entries,
     prepare_chunk_animation_clock, prepare_chunk_bind_group, prepare_chunk_biome_tints,
-    prepare_chunk_texture_assets, storage_table_fits, upload_texture_page,
+    prepare_chunk_texture_assets, storage_table_fits,
 };
 #[allow(unused_imports)]
 use gpu::layout::{
@@ -153,7 +156,7 @@ use gpu::layout::{
     ArenaRequiredLengths, ArenaStream, GeometryStreamCounts, GeometryStreamLayout,
     GpuUploadReservation, SHARED_GEOMETRY_ALIGNMENT_WORDS, TerrainUploadQueue, TerrainUploads,
     account_chunk_gpu_uploads, advance_arena_migration, arena_capacities, begin_arena_migration,
-    buffer_byte_len, checked_align_up, first_arena_growth, plan_arena_growth,
+    buffer_byte_len, checked_align_up, first_arena_growth, plan_arena_growth, round_arena_capacity,
     write_geometry_stream_words,
 };
 #[allow(unused_imports)]

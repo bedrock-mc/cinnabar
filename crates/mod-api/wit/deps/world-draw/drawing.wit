@@ -1,0 +1,63 @@
+package cinnabar:world-draw@0.1.0;
+
+/// Owner and connection scoped resources. Every mutation is a callback transaction.
+interface drawing {
+    flags permissions {
+        world-draw, entity-observe, entity-highlight, render-through-walls,
+        render-material, render-post,
+    }
+    record handle { owner: u64, generation: u64, slot: u64 }
+    enum error-code { denied, invalid, budget-exceeded, stale-handle, unsupported, in-use }
+    record draw-error { code: error-code, detail: string }
+
+    record vertex { position: tuple<f32, f32, f32>, color: tuple<f32, f32, f32, f32>, uv: tuple<f32, f32>, data: tuple<f32, f32, f32, f32> }
+    record mesh { vertices: list<vertex>, indices: list<u32> }
+    record polyline { vertices: list<vertex>, closed: bool }
+    variant geometry-spec { triangles(mesh), line(polyline) }
+    record world-anchor { dimension: s32, origin: tuple<f64, f64, f64> }
+    record block-anchor { dimension: s32, position: tuple<s32, s32, s32> }
+    record entity-anchor { entity: handle, body-rotation: bool }
+    variant anchor { %world(world-anchor), block(block-anchor), camera, entity(entity-anchor) }
+    record transform { translation: tuple<f32, f32, f32>, rotation: tuple<f32, f32, f32, f32>, scale: tuple<f32, f32, f32> }
+    enum depth { test, always }
+    enum blend { premultiplied, additive }
+    enum width-mode { %world, pixels }
+    enum join { bevel, miter, round }
+    enum cap { butt, round }
+    record instance {
+        geometry: handle, material: option<handle>, params: list<f32>, anchor: anchor, transform: transform,
+        tint: tuple<f32, f32, f32, f32>, depth: depth, blend: blend,
+        width: f32, width-mode: width-mode, join: join, cap: cap,
+    }
+    /// Custom procedural fragments use the render-material grant, without textures or depth output.
+    /// Successful creation means source validation succeeded; native compilation may still fail.
+    create-material: func(source: string) -> result<handle, draw-error>;
+    capabilities: func() -> permissions;
+    record observed-entity { entity: handle, runtime-id: u64 }
+    /// Returns bounded host-selected actor references; retained references need explicit release.
+    observe-entities: func() -> result<list<observed-entity>, draw-error>;
+    create-geometry: func(spec: geometry-spec) -> result<handle, draw-error>;
+    create: func(spec: instance) -> result<handle, draw-error>;
+    update: func(id: handle, spec: instance) -> result<_, draw-error>;
+    replace-frame-group: func(name: string, draws: list<instance>) -> result<_, draw-error>;
+    remove: func(id: handle) -> result<_, draw-error>;
+}
+
+/// Retained union silhouettes. Tokens are private to one component and session.
+interface masks {
+    use drawing.{handle, draw-error};
+    enum depth-policy { test, always }
+    record rgba { r: f32, g: f32, b: f32, a: f32 }
+    /// Display-space colours and physical-pixel radii; zero alpha disables a layer.
+    record style { outline: rgba, outline-radius: f32, glow: rgba, glow-radius: f32 }
+    record effect-spec { name: string, order: s32, source: string, masks: list<handle> }
+    /// Resolves an already authorized actor. Unfiltered lookup requires observation authority.
+    entity: func(runtime-id: u64) -> result<handle, draw-error>;
+    create: func(depth: depth-policy) -> result<handle, draw-error>;
+    /// Atomically replaces membership; an empty selection clears coverage.
+    select: func(mask: handle, entities: list<handle>) -> result<_, draw-error>;
+    remove: func(mask: handle) -> result<_, draw-error>;
+    set-style: func(mask: handle, appearance: option<style>) -> result<_, draw-error>;
+    /// Arbitrary sampling also requires the separately negotiated render-post capability.
+    register-effect: func(spec: effect-spec) -> result<_, draw-error>;
+}

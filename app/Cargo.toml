@@ -8,7 +8,7 @@ publish = false
 [package.metadata.cinnabar]
 platform-specific = ["macos", "windows"]
 reads = [
-    "assets/bedrock-target.json",
+    "crates/mod-api/native-render-v1.json",
     "assets/cinnangles-sans-source.json",
     "assets/vanilla-source.json",
     "crates/assets/data/*",
@@ -16,7 +16,10 @@ reads = [
     "crates/mod-api/wit/extension.wit",
     "crates/mod-host/src/tests/gameplay.wat",
     "crates/mod-host/src/tests/guest.wat",
+    "crates/mod-host/src/packet_mod/tests/guest.wat",
+    "crates/mod-host/src/tests/render.wat",
     "crates/protocol/fixtures/crafting_data_manual_named_1x1.bin",
+    "crates/protocol/fixtures/start_game.bin",
     "crates/render/src/atmosphere.wesl",
     "crates/render/src/cloud.wesl",
     "examples/mods/screen-probe",
@@ -37,9 +40,11 @@ test = false
 alloc-stats = ["dep:test-alloc", "test-alloc/global-stats", "render/alloc-stats", "render-scene/alloc-stats"]
 # Developer runs and client MCP keep acceptance; packaging opts out with --no-default-features.
 default = ["acceptance"]
-acceptance = ["dep:acceptance"]
+acceptance = ["dep:acceptance", "bridge/join-profile"]
 enhanced = ["render/enhanced"]
 enhanced-diagnostics = ["enhanced", "developer-control", "acceptance", "render/enhanced-diagnostics"]
+# Experimental Java (OptiFine/Iris) shader packs as a third Video renderer.
+shaderpacks = ["render/shaderpacks", "dep:shaderpack", "launcher/shaderpacks"]
 # Loopback control endpoint for scripted driving and recording; never in release builds.
 developer-control = ["dep:developer-control", "dep:sadness-generator", "client-shell/developer-control"]
 # Records Bevy schedules, systems, render graph, submission and presentation spans as a
@@ -54,90 +59,101 @@ reports = []
 mimalloc = ["dep:mimalloc"]
 
 [dependencies]
-test-alloc = { path = "../crates/test-alloc", optional = true }
-protocol-ids = { path = "../crates/protocol-ids" }
-mimalloc = { workspace = true, optional = true }
-pack-json = { path = "../crates/pack-json" }
-env-compat = { path = "../crates/env-compat" }
+tokio.workspace = true
+image.workspace = true
+server-experience = { path = "../crates/server-experience", default-features = false, features = ["data"] }
+sha2.workspace = true
+anyhow.workspace = true
+bytes.workspace = true
+glam.workspace = true
+bevy.workspace = true
 simulation-clock = { path = "../crates/simulation-clock" }
 render-scene = { path = "../crates/render-scene" }
+bridge = { path = "../crates/bridge" }
+client-session = { path = "../crates/client-session" }
+assets = { path = "../crates/assets" }
+chunk-pipeline = { path = "../crates/chunk-pipeline" }
+client-world = { path = "../crates/client-world" }
+protocol = { path = "../crates/protocol" }
+render = { path = "../crates/render" }
+render-api = { path = "../crates/render-api" }
+render-model = { path = "../crates/render-model" }
+semantic-input = { path = "../crates/input" }
+world = { path = "../crates/world" }
+
+web-time.workspace = true
+cosmetics = { path = "../crates/cosmetics" }
+protocol-ids = { path = "../crates/protocol-ids" }
+pack-json = { path = "../crates/pack-json" }
+env-compat = { path = "../crates/env-compat" }
 client-shell = { path = "../crates/client-shell" }
 client-interaction = { path = "../crates/client-interaction" }
 client-runtime = { path = "../crates/client-runtime" }
-client-extensions = { path = "../crates/client-extensions" }
 client-state = { path = "../crates/client-state" }
 client-audio = { path = "../crates/client-audio" }
 pack-runtime = { path = "../crates/pack-runtime" }
+block-transform = { path = "../crates/block-transform" }
+diagnostics = { path = "../crates/diagnostics" }
+client-presentation = { path = "../crates/client-presentation" }
+gameplay = { path = "../crates/gameplay" }
+client-ui = { path = "../crates/client-ui" }
+launcher = { path = "../crates/launcher" }
+player-state = { path = "../crates/player-state" }
+inventory = { path = "../crates/inventory" }
+pack-compile-input = { path = "../crates/pack-compiler/input" }
+pack-compiler = { path = "../crates/pack-compiler" }
+pack-entity-compiler = { path = "../crates/pack-compiler/entity" }
+crossbeam-channel = "0.5"
+fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
+far-terrain = { path = "../crates/far-terrain" }
+actor-animation = { path = "../crates/actor-animation" }
+json-ui = { path = "../crates/json-ui" }
+meshing = { path = "../crates/meshing" }
+oreui = { path = "../crates/oreui" }
+mod-ui = { path = "../crates/mod-ui" }
+particles = { path = "../crates/particles" }
+resource-pack = { path = "../crates/resource-pack" }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+sim = { path = "../crates/sim" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2"
+ui = { path = "../crates/ui" }
+ui-engine = { path = "../crates/ui-engine" }
+ui-screens = { path = "../crates/ui-screens" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+test-alloc = { path = "../crates/test-alloc", optional = true }
+mimalloc = { workspace = true, optional = true }
+client-extensions = { path = "../crates/client-extensions" }
 bootstrap-ui = { path = "../crates/bootstrap-ui" }
 crash-monitor = { path = "../crates/crash-monitor" }
 first-run = { path = "../crates/first-run" }
 launcher-host = { path = "../crates/launcher-host" }
-bridge = { path = "../crates/bridge" }
 experience-sdk = { path = "../crates/experience-sdk", default-features = false, features = ["declarations"] }
 mod-api = { path = "../crates/mod-api" }
 mod-render = { path = "../crates/mod-render" }
-block-transform = { path = "../crates/block-transform" }
 tracing-tracy = { version = "=0.12.0", default-features = false, features = ["enable", "only-localhost", "ondemand"], optional = true }
 tracing-chrome = { version = "=0.7.2", optional = true }
 profiling = { version = "=1.0.18", default-features = false, features = ["profile-with-tracing"], optional = true }
 acceptance = { path = "../crates/acceptance", optional = true }
 crash-report = { path = "../crates/crash-report" }
-diagnostics = { path = "../crates/diagnostics" }
 developer-control = { path = "../crates/developer-control", optional = true }
 sadness-generator = { version = "0.7", optional = true }
-client-presentation = { path = "../crates/client-presentation" }
-gameplay = { path = "../crates/gameplay" }
-client-session = { path = "../crates/client-session" }
-client-ui = { path = "../crates/client-ui" }
-launcher = { path = "../crates/launcher" }
+tempfile = "3"
 update-manifest = { path = "../crates/update-manifest" }
 rich-presence = { path = "../crates/rich-presence" }
-player-state = { path = "../crates/player-state" }
-inventory = { path = "../crates/inventory" }
-bytes.workspace = true
-anyhow.workspace = true
-pack-compile-input = { path = "../crates/pack-compiler/input" }
-pack-compiler = { path = "../crates/pack-compiler" }
-pack-entity-compiler = { path = "../crates/pack-compiler/entity" }
-assets = { path = "../crates/assets" }
-bevy.workspace = true
-glam.workspace = true
-crossbeam-channel = "0.5"
-fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
-chunk-pipeline = { path = "../crates/chunk-pipeline" }
-far-terrain = { path = "../crates/far-terrain" }
-client-world = { path = "../crates/client-world" }
-actor-animation = { path = "../crates/actor-animation" }
-image.workspace = true
-json-ui = { path = "../crates/json-ui" }
-meshing = { path = "../crates/meshing" }
-oreui = { path = "../crates/oreui" }
-mod-ui = { path = "../crates/mod-ui" }
 mod-host = { path = "../crates/mod-host" }
-particles = { path = "../crates/particles" }
-protocol = { path = "../crates/protocol" }
-resource-pack = { path = "../crates/resource-pack" }
 server-experience = { path = "../crates/server-experience" }
+shaderpack = { path = "../crates/shaderpack", optional = true }
 rayon.workspace = true
-render = { path = "../crates/render" }
-render-api = { path = "../crates/render-api" }
-render-model = { path = "../crates/render-model" }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
-semantic-input = { path = "../crates/input" }
-sim = { path = "../crates/sim" }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-sha2.workspace = true
 thiserror.workspace = true
-url = "2"
 uuid.workspace = true
-tokio.workspace = true
-ui = { path = "../crates/ui" }
-ui-engine = { path = "../crates/ui-engine" }
-ui-screens = { path = "../crates/ui-screens" }
 wgpu.workspace = true
 winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
-world = { path = "../crates/world" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wgpu = { workspace = true, features = ["webgpu"] }
 
 [target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
 wgpu = { workspace = true, features = ["gles"] }
@@ -158,7 +174,9 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+resource-pack = { path = "../crates/resource-pack", features = ["test-support"] }
 mimalloc.workspace = true
+render-model = { path = "../crates/render-model", features = ["test-support"] }
 wat = "1"
 actor-animation = { path = "../crates/actor-animation", features = ["test-support"] }
 test-alloc = { path = "../crates/test-alloc" }
@@ -172,7 +190,6 @@ launcher-host = { path = "../crates/launcher-host", features = ["test-support"] 
 launcher = { path = "../crates/launcher", features = ["test-support"] }
 test-time = { path = "../crates/test-time" }
 wit-component.workspace = true
-tempfile = "3"
 rodio = { version = "=0.20.1", default-features = false }
 acceptance = { path = "../crates/acceptance", features = ["test-support"] }
 client-presentation = { path = "../crates/client-presentation", features = ["test-support"] }

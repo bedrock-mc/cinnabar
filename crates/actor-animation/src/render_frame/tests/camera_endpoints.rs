@@ -80,7 +80,7 @@ fn camera_rig(controller: bool) -> Arc<RuntimeEntityAssets> {
             },
         );
         compiled.symbols = symbols.into();
-        compiled.rig_bindings[0].render_controller += 1;
+        *compiled.rig_bindings[0].render_controller.as_mut().unwrap() += 1;
         compiled.controllers = vec![EntityAnimationController {
             symbol: 3,
             first_state: 0,

@@ -2,6 +2,15 @@ use std::sync::Arc;
 
 use render_model::ActorVertex;
 
+#[cfg(target_arch = "wasm32")]
+mod browser;
+#[cfg(not(target_arch = "wasm32"))]
+mod native;
+#[cfg(target_arch = "wasm32")]
+use browser::spawn as spawn_model;
+#[cfg(not(target_arch = "wasm32"))]
+use native::spawn as spawn_model;
+
 use super::{PlayerPreviewPose, PreviewEquipment, skin::validated_ui_skin};
 
 #[derive(Default)]
@@ -9,6 +18,7 @@ pub(crate) struct MenuPreviewModel {
     source: Option<Arc<render_api::SkinGeometrySource>>,
     pub(crate) vertices: Option<Arc<[ActorVertex]>>,
     pub(crate) cape: Option<render_api::CapeImage>,
+    pub(crate) cosmetics: Vec<cosmetics::Item>,
     pub(crate) cape_key: Option<String>,
     pub(super) bounds: Option<super::fitting::OrbitBounds>,
     body_bounds: Option<super::fitting::OrbitBounds>,
@@ -21,6 +31,15 @@ pub(crate) struct MenuPreviewModel {
 struct PendingModel {
     source: Option<Arc<render_api::SkinGeometrySource>>,
     receiver: crossbeam_channel::Receiver<Option<PreparedModel>>,
+    cancelled: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl Drop for PendingModel {
+    /// Stops retained browser work when its runtime or request is discarded.
+    fn drop(&mut self) {
+        self.cancelled
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 struct PreparedModel {
@@ -49,8 +68,37 @@ impl MenuPreviewModel {
 }
 
 impl super::UiPresentationRuntime {
+    /// Updates headwear without reloading skin geometry or regenerating skin textures.
+    pub fn set_preview_cosmetics(&mut self, items: &[cosmetics::Item]) {
+        if self.menu_preview_model.cosmetics == items {
+            return;
+        }
+        self.menu_preview_model.cosmetics = items.to_vec();
+        let mut bounds = self
+            .menu_preview_model
+            .body_bounds
+            .unwrap_or_else(super::fitting::standard);
+        if self.menu_preview_model.cape.is_some() {
+            bounds = bounds.with_static_geometry(super::cape::rest_vertices());
+        }
+        for &hat in items {
+            bounds = bounds.with_static_geometry(&render_model::hats::rig(hat).rest_vertices);
+        }
+        self.menu_preview_model.bounds = Some(bounds);
+        self.last_frame = None;
+        self.player_preview_source_hash = None;
+        self.sync_equipped_cosmetic_artwork();
+    }
+
     /// Publishes a worker-built model, retaining the previous preview while a changed source prepares.
     pub fn set_menu_preview_skin(&mut self, skin: &render_api::StandardSkin) -> bool {
+        if let Some(pending) = &self.menu_preview_model.pending
+            && !same_source(pending.source.as_ref(), skin.geometry.as_ref())
+        {
+            pending
+                .cancelled
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+        }
         let cape = skin.cape.as_ref().filter(|cape| cape.is_valid());
         let body_matches = self.menu_preview_model.body_matches(skin);
         let cape_matches = super::cape::same(self.menu_preview_model.cape.as_ref(), cape);
@@ -76,7 +124,15 @@ impl super::UiPresentationRuntime {
                     .with_static_geometry(super::cape::rest_vertices()),
             );
         }
+        for &hat in &self.menu_preview_model.cosmetics {
+            bounds = Some(
+                bounds
+                    .unwrap_or_else(super::fitting::standard)
+                    .with_static_geometry(&render_model::hats::rig(hat).rest_vertices),
+            );
+        }
         self.menu_preview_model = MenuPreviewModel {
+            cosmetics: self.menu_preview_model.cosmetics.clone(),
             source: skin.geometry.clone(),
             cape_key: if cape_matches {
                 self.menu_preview_model.cape_key.clone()
@@ -106,7 +162,9 @@ impl MenuPreviewModel {
         if let Some(pending) = &self.pending {
             match pending.receiver.try_recv() {
                 Ok(prepared) => {
-                    if prepared.is_none() {
+                    if prepared.is_none()
+                        && !pending.cancelled.load(std::sync::atomic::Ordering::Relaxed)
+                    {
                         self.rejected = pending.source.clone();
                     }
                     self.completed = prepared;
@@ -129,25 +187,16 @@ impl MenuPreviewModel {
         let source = skin.geometry.clone();
         let skin = skin.clone();
         let (sender, receiver) = crossbeam_channel::bounded(1);
-        if std::thread::Builder::new()
-            .name("menu-skin-model".into())
-            .spawn(move || {
-                let prepared = model_vertices(&skin).map(|vertices| PreparedModel {
-                    bounds: skin
-                        .geometry
-                        .as_ref()
-                        .map(|_| super::fitting::OrbitBounds::new(&vertices)),
-                    source: skin.geometry,
-                    vertices,
-                });
-                let _ = sender.send(prepared);
-            })
-            .is_err()
-        {
+        let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        if spawn_model(skin, sender, cancelled.clone()).is_err() {
             self.rejected = source;
             return None;
         }
-        self.pending = Some(PendingModel { source, receiver });
+        self.pending = Some(PendingModel {
+            source,
+            receiver,
+            cancelled,
+        });
         None
     }
 }
@@ -170,15 +219,19 @@ fn model_vertices(skin: &render_api::StandardSkin) -> Option<Arc<[ActorVertex]>>
     Some(
         rig.vertices
             .iter()
-            .map(|vertex| ActorVertex {
-                // The preview faces +Z and places the actor's right side at -X.
-                position: [-vertex.position[0], vertex.position[1], -vertex.position[2]],
-                uv: vertex.uv,
-                part: parts[vertex.bone_index as usize],
-            })
+            .map(|vertex| preview_vertex(vertex, &parts))
             .collect::<Vec<_>>()
             .into(),
     )
+}
+
+/// Converts the actor rig into the preview's facing and body-part convention.
+fn preview_vertex(vertex: &render_model::ActorRigVertex, parts: &[u32]) -> ActorVertex {
+    ActorVertex {
+        position: [-vertex.position[0], vertex.position[1], -vertex.position[2]],
+        uv: vertex.uv,
+        part: parts[vertex.bone_index as usize],
+    }
 }
 
 /// Maps a custom bone to its nearest named player part for the preview pose.
@@ -295,6 +348,52 @@ mod tests {
             &ready,
             runtime.menu_preview_model.vertices.as_ref().unwrap()
         ));
+    }
+
+    #[test]
+    fn superseded_preview_work_never_replaces_the_latest_selected_model() {
+        let mut runtime =
+            super::super::UiPresentationRuntime::new(ui_engine::test_support::fixture_font())
+                .unwrap();
+        let initial = skin(4.0);
+        select(&mut runtime, &initial);
+        let previous = runtime.menu_preview_model.vertices.clone().unwrap();
+        let obsolete = skin(3.0);
+        let latest = skin(2.0);
+        assert!(!runtime.set_menu_preview_skin(&obsolete));
+        test_time::eventually("latest selected preview replaces superseded work", || {
+            let ready = runtime.set_menu_preview_skin(&latest);
+            if !ready {
+                assert!(Arc::ptr_eq(
+                    &previous,
+                    runtime.menu_preview_model.vertices.as_ref().unwrap()
+                ));
+            }
+            ready
+        });
+        assert_eq!(
+            runtime.menu_preview_model.vertices.as_deref(),
+            model_vertices(&latest).as_deref()
+        );
+    }
+
+    #[test]
+    fn returning_to_the_displayed_skin_cancels_obsolete_preview_work() {
+        let mut runtime =
+            super::super::UiPresentationRuntime::new(ui_engine::test_support::fixture_font())
+                .unwrap();
+        let displayed = skin(4.0);
+        select(&mut runtime, &displayed);
+        assert!(!runtime.set_menu_preview_skin(&skin(3.0)));
+        let cancelled = runtime
+            .menu_preview_model
+            .pending
+            .as_ref()
+            .unwrap()
+            .cancelled
+            .clone();
+        assert!(runtime.set_menu_preview_skin(&displayed));
+        assert!(cancelled.load(std::sync::atomic::Ordering::Relaxed));
     }
 
     #[test]

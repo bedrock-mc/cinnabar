@@ -5,7 +5,7 @@ use super::overlay::DeltaGroup;
 use super::registry::OccupiedStackRelation;
 use super::{
     Cell, InventoryGestureError, InventoryPendingState, PLAYER_INVENTORY_SLOT_COUNT,
-    PendingRequest, PlayerInventoryLedger, StackResponseOverlay,
+    PendingRequest, PlayerInventoryLedger,
 };
 
 /// One pointer gesture against a single cell and the cursor.
@@ -185,16 +185,6 @@ pub(super) fn swap(
     })
 }
 
-pub(super) fn has_meaningful_overlay(overlay: Option<&StackResponseOverlay>) -> bool {
-    overlay.is_some_and(|overlay| {
-        overlay.custom_name.is_some()
-            || overlay.filtered_custom_name.is_some()
-            || overlay
-                .durability_correction
-                .is_some_and(|damage| damage > 0)
-    })
-}
-
 impl PlayerInventoryLedger {
     /// Queues one gesture on any retained target cell.
     pub fn begin_target_gesture(
@@ -263,21 +253,17 @@ impl PlayerInventoryLedger {
             return Err(InventoryGestureError::AwaitingIdentity);
         }
         let storage_identity = self.window_address();
-        let target_overlay = target_held.as_ref().and_then(|held| held.overlay.as_ref());
-        let cursor_overlay = cursor_held.as_ref().and_then(|held| held.overlay.as_ref());
-        let target_stack = target_held.as_ref().map(|held| &held.stack);
-        let cursor_stack = cursor_held.as_ref().map(|held| &held.stack);
-        let plain_overlays =
-            !has_meaningful_overlay(target_overlay) && !has_meaningful_overlay(cursor_overlay);
+        let target_stack = target_held.as_ref();
+        let cursor_stack = cursor_held.as_ref();
         // Equipment cells refuse foreign items going in, never items coming out.
         let equipment_limit = match gesture {
             CellGesture::TakeCount(_) => None,
             CellGesture::Click | CellGesture::PlaceCount(_) => {
-                cursor_stack.and_then(|cursor| self.equipment_capacity(target, cursor))
+                cursor_stack.and_then(|cursor| self.placement_capacity(target, &cursor.stack))
             }
         };
         if equipment_limit == Some(0) {
-            return Err(InventoryGestureError::EquipmentRefused);
+            return Err(super::validation::placement_refused(target));
         }
         let limit = |capacity: u16| equipment_limit.map_or(capacity, |limit| limit.min(capacity));
         let built = match gesture {
@@ -286,7 +272,7 @@ impl PlayerInventoryLedger {
                     StackRequestActionKind::Take,
                     target,
                     Cell::Cursor,
-                    stack,
+                    &stack.stack,
                     storage_identity,
                     None,
                 )?,
@@ -294,36 +280,44 @@ impl PlayerInventoryLedger {
                     StackRequestActionKind::Place,
                     Cell::Cursor,
                     target,
-                    stack,
+                    &stack.stack,
                     storage_identity,
-                    equipment_limit.filter(|limit| *limit < stack.count),
+                    equipment_limit.filter(|limit| *limit < stack.stack.count),
                 )?,
                 (Some(inventory), Some(cursor)) => {
                     match self.occupied_stack_relation(cursor, inventory) {
-                        OccupiedStackRelation::Compatible { capacity } if plain_overlays => {
+                        OccupiedStackRelation::Compatible { capacity } => {
                             let capacity = limit(capacity);
-                            let amount = cursor.count.min(capacity.saturating_sub(inventory.count));
+                            let amount = cursor
+                                .stack
+                                .count
+                                .min(capacity.saturating_sub(inventory.stack.count));
                             counted_merge(
                                 StackRequestActionKind::Place,
                                 Cell::Cursor,
                                 target,
-                                cursor,
-                                inventory,
+                                &cursor.stack,
+                                &inventory.stack,
                                 storage_identity,
                                 amount,
                                 capacity,
                             )?
                         }
                         OccupiedStackRelation::Incompatible
-                            if equipment_limit.is_none_or(|limit| cursor.count <= limit) =>
+                            if equipment_limit.is_none_or(|limit| cursor.stack.count <= limit) =>
                         {
-                            swap(Cell::Cursor, target, cursor, inventory, storage_identity)?
+                            swap(
+                                Cell::Cursor,
+                                target,
+                                &cursor.stack,
+                                &inventory.stack,
+                                storage_identity,
+                            )?
                         }
                         OccupiedStackRelation::Incompatible => {
-                            return Err(InventoryGestureError::EquipmentRefused);
+                            return Err(super::validation::placement_refused(target));
                         }
-                        OccupiedStackRelation::Compatible { .. }
-                        | OccupiedStackRelation::Unsupported => {
+                        OccupiedStackRelation::Unsupported => {
                             return Err(InventoryGestureError::InvalidRequest);
                         }
                     }
@@ -339,15 +333,12 @@ impl PlayerInventoryLedger {
                         else {
                             return Err(InventoryGestureError::InvalidRequest);
                         };
-                        if !plain_overlays {
-                            return Err(InventoryGestureError::InvalidRequest);
-                        }
                         counted_merge(
                             StackRequestActionKind::Take,
                             target,
                             Cell::Cursor,
-                            stack,
-                            cursor,
+                            &stack.stack,
+                            &cursor.stack,
                             storage_identity,
                             amount,
                             capacity,
@@ -357,7 +348,7 @@ impl PlayerInventoryLedger {
                         StackRequestActionKind::Take,
                         target,
                         Cell::Cursor,
-                        stack,
+                        &stack.stack,
                         storage_identity,
                         Some(amount),
                     )?,
@@ -372,15 +363,12 @@ impl PlayerInventoryLedger {
                         else {
                             return Err(InventoryGestureError::InvalidRequest);
                         };
-                        if !plain_overlays {
-                            return Err(InventoryGestureError::InvalidRequest);
-                        }
                         counted_merge(
                             StackRequestActionKind::Place,
                             Cell::Cursor,
                             target,
-                            stack,
-                            inventory,
+                            &stack.stack,
+                            &inventory.stack,
                             storage_identity,
                             amount,
                             limit(capacity),
@@ -390,7 +378,7 @@ impl PlayerInventoryLedger {
                         StackRequestActionKind::Place,
                         Cell::Cursor,
                         target,
-                        stack,
+                        &stack.stack,
                         storage_identity,
                         Some(limit(amount)),
                     )?,
@@ -411,7 +399,7 @@ impl PlayerInventoryLedger {
         match target {
             Cell::Inventory(slot) => {
                 let index = usize::from(slot);
-                if index >= PLAYER_INVENTORY_SLOT_COUNT {
+                if index >= PLAYER_INVENTORY_SLOT_COUNT || !self.confirmed.contains(target) {
                     return Err(InventoryGestureError::InvalidSlot(slot));
                 }
                 if !self.known[index] {
@@ -432,6 +420,12 @@ impl PlayerInventoryLedger {
             }
             Cell::Armor(_) | Cell::Offhand | Cell::Craft(_) => {
                 if !self.confirmed.contains(target) {
+                    return Err(InventoryGestureError::InvalidRequest);
+                }
+                if matches!(target, Cell::Craft(_))
+                    && !super::crafting_close::screen_input_cells(self.window_kind())
+                        .any(|cell| cell == target)
+                {
                     return Err(InventoryGestureError::InvalidRequest);
                 }
             }
@@ -500,7 +494,18 @@ impl PlayerInventoryLedger {
         Ok(request_id)
     }
 
+    /// Submits a screen gesture using its current presentation snapshot.
     pub(super) fn submit(&mut self, submission: Submission) -> Result<i32, InventoryGestureError> {
+        self.submit_request(submission, None)
+    }
+
+    /// Submits a gesture with its transport kind known before capturing transaction snapshots.
+    pub(super) fn submit_request(
+        &mut self,
+        submission: Submission,
+        world_drop: Option<super::queue::WorldDrop>,
+    ) -> Result<i32, InventoryGestureError> {
+        self.validate_submission(&submission)?;
         if self.authority == Some(protocol::InventoryAuthority::Client) {
             self.validate_legacy_submission(&submission)?;
         }
@@ -521,13 +526,15 @@ impl PlayerInventoryLedger {
             storage_generation: self.storage.as_ref().map(|storage| storage.generation),
             personal_generation: submission.personal_generation,
             storage_identity: self.storage_identity(),
-            storage_detached: false,
+            trade_purchase: None,
             requires_distinct_stack_ids: submission.requires_distinct_stack_ids,
             registry_bound_merge: submission.registry_bound_merge,
             quick_move_route: None,
             predicted: Vec::new(),
+            placements: Vec::new(),
             mining: None,
-            world_drop: None,
+            world_drop,
+            consumed_after: Vec::new(),
         });
         Ok(request_id)
     }

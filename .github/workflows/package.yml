@@ -1,8 +1,8 @@
 name: Package
 
 # A daily schedule or a manual `nightly` run refreshes the default branch's nightly prerelease;
-# other manual runs and v* tags publish tagged Beta releases as latest. Signing is optional: missing secrets yield unsigned artifacts,
-# and without CINNABAR_UPDATE_SIGNING_KEY the channel's update manifest is left unchanged.
+# other manual runs and v* tags publish tagged Beta releases as latest. Android requires its release
+# keystore; desktop signing is optional. Without CINNABAR_UPDATE_SIGNING_KEY the channel's update manifest is left unchanged.
 on:
   schedule:
     - cron: "30 3 * * *"
@@ -541,9 +541,81 @@ jobs:
           path: source/target/cargo-timings/cargo-timing.html
           if-no-files-found: warn
 
+  android:
+    name: Android arm64 APK
+    needs: prepare
+    environment: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      CINNABAR_ANDROID_PROFILE: release
+      # Android APKs do not use the desktop symbol archive pipeline.
+      CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO: "off"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
+          persist-credentials: false
+          path: source
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: release-tools
+          persist-credentials: false
+      - name: Resolve the downloadable artifact name
+        run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env android arm64 --version "${{ needs.prepare.outputs.version }}" >> "$GITHUB_ENV"
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup toolchain install
+          rustup target add aarch64-linux-android
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 'stable'
+          cache: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install the pinned Android SDK packages and cargo-ndk
+        run: |
+          pin() { python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' packaging/android/runtime.json "$1"; }
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
+            "platforms;android-$(pin target_sdk)" "build-tools;$(pin build_tools)" "ndk;$(pin ndk)" >/dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$(pin ndk)" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/$(pin ndk)" >> "$GITHUB_ENV"
+          cargo install cargo-ndk --version "$(pin cargo_ndk)" --locked
+      - name: Install the Android icon renderer
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends librsvg2-bin
+      - name: Build and sign the release APK
+        env:
+          CINNABAR_ANDROID_KEYSTORE_BASE64: ${{ secrets.CINNABAR_ANDROID_KEYSTORE_BASE64 }}
+          CINNABAR_ANDROID_KEY_ALIAS: ${{ secrets.CINNABAR_ANDROID_KEY_ALIAS }}
+          CINNABAR_ANDROID_STORE_PASSWORD: ${{ secrets.CINNABAR_ANDROID_STORE_PASSWORD }}
+          CINNABAR_ANDROID_KEY_PASSWORD: ${{ secrets.CINNABAR_ANDROID_KEY_PASSWORD }}
+        run: |
+          # Android updates require the same signing identity. Never publish a throwaway test key.
+          : "${CINNABAR_ANDROID_KEYSTORE_BASE64:?Configure the Android release keystore secret}"
+          : "${CINNABAR_ANDROID_KEY_ALIAS:?Configure the Android release key alias secret}"
+          : "${CINNABAR_ANDROID_STORE_PASSWORD:?Configure the Android release store password secret}"
+          : "${CINNABAR_ANDROID_KEY_PASSWORD:?Configure the Android release key password secret}"
+          umask 077
+          keystore="$(mktemp "$RUNNER_TEMP/android-release.XXXXXX.keystore")"
+          trap 'rm -f "$keystore"' EXIT
+          printf '%s' "$CINNABAR_ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          export CINNABAR_ANDROID_KEYSTORE="$keystore"
+          bash packaging/android/build-apk.sh
+          mv target/android/*-arm64-v8a.apk "$RUNNER_TEMP/$RELEASE_ASSET"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android-arm64
+          path: ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
+          if-no-files-found: error
+
   release:
     name: Publish
-    needs: [prepare, macos, windows, linux]
+    needs: [prepare, macos, windows, linux, android]
     if: ${{ github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v') }}
     environment: release
     runs-on: ubuntu-24.04
@@ -576,7 +648,7 @@ jobs:
         with:
           path: source/dist
           # Timing reports are CI diagnostics, never release downloads; symbol archives are.
-          pattern: "{macos-*,windows-x64,linux-x86_64,symbols-*}"
+          pattern: "{macos-*,windows-x64,linux-x86_64,android-arm64,symbols-*}"
           merge-multiple: true
       - name: Resolve release metadata names
         run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env --channel "$RELEASE_CHANNEL" --tag "$RELEASE_TAG" >> "$GITHUB_ENV"

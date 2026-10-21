@@ -1,19 +1,12 @@
 //! Retained vertex buffers upload bounded disjoint changes through reusable staging.
 
 use super::*;
-use crate::upload_staging::{BufferUploadStaging, write_batch};
+use crate::upload_staging::FrameUploads;
 
 /// Maximum copy ranges per list, bounding preparation and staging metadata.
 const MAX_UPLOAD_RANGES: usize = 16;
 /// Whole vertices compared together before refining each dirty page's endpoints.
 const COMPARE_VERTICES: usize = COMPARE_BLOCK_BYTES / VERTEX_BYTES as usize;
-
-/// Upload dependencies shared by all lists prepared in one frame.
-pub(super) struct VertexUpload<'a> {
-    pub(super) device: &'a RenderDevice,
-    pub(super) queue: &'a RenderQueue,
-    pub(super) staging: Option<&'a BufferUploadStaging>,
-}
 
 /// One storage buffer of vertices with its live count and bind group.
 pub(super) struct VertexList {
@@ -42,7 +35,7 @@ impl VertexList {
         &mut self,
         previous: &[BlockEntityVertex],
         vertices: &[BlockEntityVertex],
-        upload: &VertexUpload<'_>,
+        upload: &FrameUploads<'_>,
         label: &'static str,
     ) {
         self.count = u32::try_from(vertices.len()).unwrap_or(0);
@@ -69,18 +62,15 @@ impl VertexList {
         }
         render_model::block_entity::draw_ranges::rebuild_runs(&mut self.runs, vertices);
         if let Some(buffer) = &self.buffer {
-            for range in &self.dirty {
-                write_batch(
-                    upload.staging,
-                    upload.device,
-                    upload.queue,
-                    &[(
-                        buffer,
-                        range.start as u64 * VERTEX_BYTES,
-                        bytemuck::cast_slice(&vertices[range.clone()]),
-                    )],
+            let mut writes = [(&**buffer, 0, &[][..]); MAX_UPLOAD_RANGES];
+            for (write, range) in writes.iter_mut().zip(&self.dirty) {
+                *write = (
+                    buffer,
+                    range.start as u64 * VERTEX_BYTES,
+                    bytemuck::cast_slice(&vertices[range.clone()]),
                 );
             }
+            upload.write_batch(&writes[..self.dirty.len()]);
         }
     }
 }
@@ -88,6 +78,7 @@ impl VertexList {
 /// Vertices of `vertices` that must be written over a buffer holding `previous`, or `None`
 /// when both lists are bytewise identical. Bytes, not float values, are compared, so signed
 /// zeros and NaN payloads are never skipped.
+#[cfg(test)]
 pub(super) fn changed_span(
     previous: &[BlockEntityVertex],
     vertices: &[BlockEntityVertex],
@@ -110,6 +101,8 @@ fn matching_prefix(left: &[BlockEntityVertex], right: &[BlockEntityVertex]) -> u
     let right: &[u8] = bytemuck::cast_slice(&right[..shared]);
     let mut start = 0;
     while start < left.len() {
+        #[cfg(test)]
+        PREFIX_PAGES.with(|count| count.set(count.get() + 1));
         let end = (start + COMPARE_BLOCK_BYTES).min(left.len());
         if left[start..end] != right[start..end] {
             let byte = left[start..end]
@@ -153,18 +146,16 @@ fn changed_ranges(
     ranges: &mut Vec<Range<usize>>,
 ) -> bool {
     ranges.clear();
-    let Some(span) = changed_span(previous, vertices) else {
-        return false;
-    };
     if previous.len() != vertices.len() {
-        if !span.is_empty() {
-            ranges.push(span);
+        let start = matching_prefix(previous, vertices);
+        if start < vertices.len() {
+            ranges.push(start..vertices.len());
         }
         return true;
     }
-    let mut first = span.start;
-    while first < span.end {
-        let end = (first + COMPARE_VERTICES).min(span.end);
+    let mut first = 0;
+    while first < vertices.len() {
+        let end = (first + COMPARE_VERTICES).min(vertices.len());
         let left = &previous[first..end];
         let right = &vertices[first..end];
         let skip = matching_prefix(left, right);
@@ -180,14 +171,60 @@ fn changed_ranges(
                 ranges.push(start..end);
             }
         }
-        first = (first + COMPARE_VERTICES).min(span.end);
+        first = end;
     }
-    true
+    !ranges.is_empty()
+}
+
+#[cfg(test)]
+thread_local! {
+    static PREFIX_PAGES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sparse_pages_are_compared_once() {
+        let original = vec![BlockEntityVertex::default(); COMPARE_VERTICES * 12];
+        let mut next = original.clone();
+        next[0].position[0] = 1.0;
+        next[COMPARE_VERTICES * 11].position[0] = 1.0;
+        PREFIX_PAGES.with(|count| count.set(0));
+        assert!(changed_ranges(&original, &next, &mut Vec::new()));
+        assert_eq!(
+            PREFIX_PAGES.with(std::cell::Cell::get),
+            next.len().div_ceil(COMPARE_VERTICES)
+        );
+    }
+
+    #[test]
+    fn dirty_vertex_ranges_take_one_pool_lock() {
+        use crate::upload_staging::BufferUploadStaging;
+        use bevy::ecs::system::SystemState;
+        let (device, queue) = wgpu::Device::noop(&Default::default());
+        let device = RenderDevice::from(device);
+        let mut world = World::new();
+        world.insert_resource(BufferUploadStaging::new(&device));
+        world.insert_resource(device);
+        world.insert_resource(RenderQueue::new(queue));
+        let mut state = SystemState::<FrameUploads>::new(&mut world);
+        let upload = state.get(&world).unwrap();
+        let staging = world.resource::<BufferUploadStaging>();
+        let mut list = VertexList::new();
+        let original = vec![BlockEntityVertex::default(); COMPARE_VERTICES * 12];
+        list.upload(&[], &original, &upload, "dirty vertex fixture");
+        let mut next = original.clone();
+        next[0].position[0] = 1.0;
+        next[COMPARE_VERTICES * 10].position[0] = 1.0;
+        let before = staging.stats();
+        list.upload(&original, &next, &upload, "dirty vertex fixture");
+        let after = staging.stats();
+        assert_eq!(after.staged_writes - before.staged_writes, 2);
+        assert_eq!(after.batches - before.batches, 1);
+        assert_eq!(after.fallback_writes, 0);
+    }
 
     #[test]
     fn sparse_updates_reconstruct_all_bytes_without_copying_the_unchanged_gap() {

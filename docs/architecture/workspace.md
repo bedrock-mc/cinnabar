@@ -15,7 +15,7 @@ and relays packets over a local stream.
 
 | Library | Used for |
 | --- | --- |
-| [protocolgen](https://github.com/bedrock-mc/protocolgen) | Generates the Bedrock packet codec vendored in `crates/protocol/vendor`. |
+| [protocolgen](https://github.com/cinnabar-mc/protocolgen) | Generates the Bedrock packet codec vendored in `crates/protocol/vendor`. |
 | [Axolotl Stack](https://github.com/axolotl-stack/axolotl-stack) | Jolyne (client session library), whose raw packet entries and spawn sequence `crates/protocol` adapts. MIT; see `THIRD_PARTY_NOTICES.md`. |
 | [gophertunnel](https://github.com/Sandertv/gophertunnel) | Bedrock login, encryption, resource packs and the packet relay. |
 | [go-raknet](https://github.com/Sandertv/go-raknet) | RakNet transport to servers, plus server-list pings. |
@@ -46,7 +46,7 @@ coordinates work that crosses these owners.
 | Workspace member | Package | Ownership and caller guidance | Related owners |
 | --- | --- | --- | --- |
 | `app` | `cinnabar` | Client executable and Bevy composition; use it to launch the client and assemble its plugins. | `client-*` crates own subsystem adapters; domain crates own game rules. |
-| `web/client` | `web-client` | Browser page control, delivery admission and physical input translation. | `assets` owns carrier validation; `web-transport` owns relay sessions; `semantic-input` owns device frames. |
+| `web/client` | `web-client` | Browser page control, delivery admission and physical input translation. | `assets` owns carrier validation; `web-transport` owns relay sessions; `semantic-input` owns device frames; `cinnabar` owns application startup. |
 | `web/transport` | `web-transport` | Browser WebTransport and WebSocket channels, bounded control and reconnect state; the browser host drives timers and passes prepared play I/O to the existing session. | `bridge` owns framing and the shared relay contract. |
 | `packaging/android/client` | `cinnabar-android` | Android NativeActivity entry and setup-activity natives; build it with `packaging/android/build-apk.sh`. | `cinnabar` runs the client; `launcher` owns the Android install layout; `first-run` prepares carriers. |
 | `crates/client-state` | `client-state` | Shared ECS resource wrappers, frame sets and observations; use these contracts to connect plugins. | Domain crates own transitions; the other `client-*` crates own systems. |
@@ -55,7 +55,7 @@ coordinates work that crosses these owners.
 | `crates/client-shell` | `client-shell` | Menu input, launcher services and desktop settings; install its shell plugin. | `launcher-host` owns services; `launcher` owns models; screen crates draw the menus. |
 | `crates/client-interaction` | `client-interaction` | Input-to-movement, camera and interaction adapters; install its interaction plugin. | `gameplay`, `sim` and `inventory` own decisions; `client-presentation` owns visual results. |
 | `crates/client-ui` | `client-ui` | Retained client UI state, input routing and frame publication; call its UI runtime from client adapters. | `ui-screens`, `oreui` and `mod-ui` draw screen families; `ui-engine` retains their nodes. |
-| `crates/client-presentation` | `client-presentation` | Camera, actor and equipment frame preparation; use its plugin and borrowed observation inputs. | `actor-animation` evaluates poses; `render-model` defines CPU data; `render` submits it. |
+| `crates/client-presentation` | `client-presentation` | Camera, actor, equipment and environment frame preparation; use its plugin, environment state and borrowed observation inputs. | `actor-animation` evaluates poses; `render-model` defines CPU data; `render` submits it. |
 | `crates/client-audio` | `client-audio` | Sound admission, playback and local audio cues; install its audio plugin. | `assets` supplies sound data; interaction and session adapters publish observations. |
 | `crates/client-extensions` | `client-extensions` | Local mod and server Experience adapters, including consent input; install its extension plugin. | `mod-host` executes guests; `server-experience` negotiates them; `mod-ui` draws their surfaces. |
 
@@ -65,7 +65,7 @@ coordinates work that crosses these owners.
 | --- | --- | --- | --- |
 | `crates/world` | `world` | Palette-native chunks and world storage; use its block, chunk and coordinate types. | `client-world` admits network state; `meshing` produces geometry. |
 | `crates/client-world` | `client-world` | Authoritative world, actor and local-player facts, decoding and ordered commits; use its ingestion and committed views. | `world` owns storage; `inventory` admits numeric session item facts; `chunk-pipeline` schedules terrain; `player-state` joins player authorities. |
-| `crates/chunk-pipeline` | `chunk-pipeline` | Bounded terrain residency, worker scheduling and publication; use its world stream and publication snapshots. | `client-world` owns admitted state; `meshing` builds geometry; `render` consumes publications. |
+| `crates/chunk-pipeline` | `chunk-pipeline` | Bounded terrain residency, worker scheduling and publication; use its world stream and publication snapshots. | `client-world` owns admitted state; `render-api` owns shared request bounds and receipts; the app encodes outbound requests through `protocol`; `meshing` builds geometry; `render` consumes publications. |
 | `crates/far-terrain` | `far-terrain` | Far-terrain level of detail from received terrain: per-column surface summaries, their caches and bounds; use its summaries and config. | `chunk-pipeline` extracts summaries on its workers; `render` draws the far pass. |
 | `crates/inventory` | `inventory` | Inventory authority, prediction, crafting and commands; use its session, ledger and router APIs. | `player-state` shares it with gameplay and UI; `protocol` defines wire requests. |
 | `crates/player-state` | `player-state` | Shared inventory and local-player authority; use `PlayerState` to keep both on one session generation. | `inventory` owns stacks and crafting; `client-world` owns player facts. |
@@ -86,7 +86,9 @@ coordinates work that crosses these owners.
 | `crates/protocol` | `protocol` | Bedrock packet codecs, shared wire contracts and session adapters; use its packet and codec APIs. | `bridge` owns local framing; `client-session` owns client transport; the codec lives in its vendored tree. |
 | `crates/protocol-ids` | `protocol-ids` | Dependency-free named wire IDs and pinned air identities; import its constants and enums directly. | `protocol` and `assets` share these facts; the editor can consume them on WebAssembly. |
 | `crates/pack-json` | `pack-json` | Shared pack text decoding and JSONC parsing; use its decoder before reading authored pack documents. | Pack admission, compilers and UI readers share this format policy. |
+| `crates/zip-footer` | `zip-footer` | ZIP end-record admission for in-memory archives; run `prepare_zip_bytes` before handing bytes to a ZIP parser. | `resource-pack` and `shaderpack` share this archive policy. |
 | `crates/resource-pack` | `resource-pack` | Bounded archive admission, decryption and pack-stack views; use its read-only admitted packs. | The Go core downloads packs; `pack-runtime` prepares them; the pack compiler owners compile them. |
+| `crates/shaderpack` | `shaderpack` | Java Edition OptiFine/Iris shader-pack loading, configuration and translation; `ShaderPack` owns options, dimensions, property parsing, program discovery, enable rules and translation to validated naga modules with their binding reflection, while `PackSource` owns bounded source/asset reads and `discover_packs` lists installed packs. See its [contract](../../crates/shaderpack/README.md). | `render` creates pipelines from the modules; `app` lists installed packs for the Video renderer picker; `resource-pack` owns Bedrock packs. |
 | `crates/assets` | `assets` | Pack source readers, compiled carrier formats and the pinned item- and entity-facts owner; use bounded loaders and typed asset data. | The pack compiler owners write carriers; `protocol-ids` supplies query metadata IDs; `pack-runtime` prepares active session stacks. |
 | `crates/pack-compiler` | `pack-compiler` | Terrain, materials and independent carriers such as atmosphere, audio and UI; import its compiler APIs directly. | `pack-compile-input` owns shared inputs; `assets` owns formats. |
 | `crates/pack-compiler/input` | `pack-compile-input` | Bounded pack sources, source validation, JSON and texture decoding; use its shared input APIs. | Terrain and entity compilers consume these inputs; `assets` owns formats. |
@@ -104,6 +106,16 @@ through the item-facts compiler; runtime pack carriers remain local inputs.
 from pinned entity component metadata and typed compatibility rules. It contains
 identifiers and constructor facts with a checked schema and hash. Runtime artwork
 and pack carriers remain local inputs.
+
+`assets` also owns `crates/assets/data/java-mapping-v2193.bin`, generated by `registryc --kind
+java-mapping` from the GeyserMC mappings and Geyser sources pinned in
+`assets/geyser-mappings-source.json`. It maps block-registry states to Java block states, lists
+Java block tags, the Java biome registry (climate values and sky, fog and water fog colour
+attributes, in network registry order), the overworld, nether and end dimension types' colour
+attributes and Java biome tags, and maps Bedrock biome ids to Java biomes and Bedrock entity
+and item identifiers to Java entity types and items, for Java shader packs; its hash and
+registry bindings are checked when it loads, and a carrier that fails them leaves everything
+unmapped.
 
 ### UI layers
 
@@ -134,6 +146,7 @@ the prepared visual data to the GPU.
 | --- | --- | --- | --- |
 | `crates/meshing` | `meshing` | CPU chunk, fluid, biome and cloud geometry; use its mesh builders over world and asset inputs. | `chunk-pipeline` schedules terrain work; `render` uploads the results. |
 | `crates/render-api` | `render-api` | Dependency-free publication, pacing and skin-layout contracts; use these values across publication boundaries. | `render-model` owns richer CPU geometry; `render-scene` owns ECS submission resources. |
+| `crates/cosmetics` | `cosmetics` | Bounded catalog metadata, admitted item handles and slot loadouts; resolve catalog IDs here before rendering. | `launcher-host` fetches verified assets; `render-model` bakes attachment geometry; the API owns entitlements. |
 | `crates/render-model` | `render-model` | Engine-free render data and CPU geometry for actors, equipment and text; use its frame and geometry types. | `client-presentation` prepares data; `render-scene` carries submissions; `render` owns GPU work. |
 | `crates/render-scene` | `render-scene` | Shared ECS render submission resources and frame acknowledgments; use these at the presentation/backend boundary. | `render-model` defines CPU data; `client-presentation` publishes; `render` consumes it. |
 | `crates/render` | `render` | Bevy/wgpu terrain, actor and UI rendering; install its GPU plugins and submit prepared frames. | `meshing` builds CPU terrain; `client-presentation` prepares actors; `client-ui` prepares UI. |

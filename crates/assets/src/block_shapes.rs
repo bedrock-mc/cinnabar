@@ -92,6 +92,7 @@ bitflags! {
         const END_STONE = 1 << 11;
         const VINE_SUPPORT = 1 << 12;
         const FULL_TOP_SUPPORT = 1 << 13;
+        const GRASS_OFFSET = 1 << 14;
     }
 }
 

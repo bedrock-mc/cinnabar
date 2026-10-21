@@ -140,6 +140,7 @@ impl Fixture {
                 server_item(PEARL, 0, 16, false),
             ]
             .into(),
+            recipes: Vec::new(),
         };
         let (res, _) = prepare(&Arc::new(own), &request).unwrap();
         res
@@ -173,6 +174,7 @@ impl Fixture {
             blocks: [(COUNTER.to_owned(), Vec::new())].into(),
             items: [(CELL.to_owned(), 1)].into(),
             server: [server_item(STONE, 0, 64, false)].into(),
+            recipes: Vec::new(),
         };
         prepare(&Arc::new(own), &request).map(|(res, _)| res)
     }

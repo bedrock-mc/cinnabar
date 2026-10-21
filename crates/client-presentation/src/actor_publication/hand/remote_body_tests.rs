@@ -143,6 +143,7 @@ fn remote_body_and_persona_publish_sampled_clamps_and_preserve_java_overrides() 
         for java_mode in [false, true] {
             for alpha in [0.05, 0.75] {
                 let input = super::super::ActorFrameInput {
+                    cosmetics: Vec::new(),
                     local_feed: None,
                     predicted_eye: None,
                     predicted_feet: None,
@@ -151,6 +152,7 @@ fn remote_body_and_persona_publish_sampled_clamps_and_preserve_java_overrides() 
                     renders_game: true,
                     hide_hand: false,
                     remote_emotes: Vec::new(),
+                    remote_hats: Vec::new(),
                     custom_emote: None,
                 };
                 let mut poses = crate::presentation::actors::PoseConversions::default();
@@ -174,6 +176,7 @@ fn remote_body_and_persona_publish_sampled_clamps_and_preserve_java_overrides() 
                     ),
                     &artwork,
                     super::super::bodies::BodyCaches {
+                        coverage: &[],
                         poses: &mut poses,
                         java_poses: &mut java_poses,
                         native_pose: &mut native_pose,
@@ -211,6 +214,7 @@ fn remote_body_and_persona_publish_sampled_clamps_and_preserve_java_overrides() 
                         local_emote_pose: None,
                         remote_emote_poses: &bodies.remote_emote_poses,
                         native_body_sampled: false,
+                        local_coverage: false,
                         native_pose: &native_pose,
                         remote_skin_layers: &bodies.remote_skin_layers,
                     },
@@ -326,6 +330,90 @@ fn remote_body_and_persona_publish_sampled_clamps_and_preserve_java_overrides() 
 }
 
 #[test]
+fn cloth_contacts_include_the_rendered_emote_spine_and_limb_segments() {
+    let ((stream, _, _, _), _) = super::native_tests::fixture_with_rotation(true);
+    let skin = assets::parse_skin_geometry(
+        r#"{"geometry":{"default":"geometry.cloth_emote"}}"#,
+        r#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{
+            "identifier":"geometry.cloth_emote","texture_width":64,"texture_height":64},"bones":[
+            {"name":"body","pivot":[0,24,0],"cubes":[{"origin":[-4,12,-2],"size":[8,12,4],"uv":[0,0]}]},
+            {"name":"head","parent":"body","pivot":[0,24,0],"cubes":[{"origin":[-4,24,-4],"size":[8,8,8],"uv":[0,0]}]},
+            {"name":"leftarm","parent":"body","pivot":[5,22,0],"cubes":[{"origin":[4,12,-2],"size":[4,12,4],"uv":[0,0]}]},
+            {"name":"rightarm","parent":"body","pivot":[-5,22,0],"cubes":[{"origin":[-8,12,-2],"size":[4,12,4],"uv":[0,0]}]},
+            {"name":"leftleg","pivot":[2,12,0],"cubes":[{"origin":[0,0,-2],"size":[4,12,4],"uv":[0,0]}]},
+            {"name":"rightleg","pivot":[-2,12,0],"cubes":[{"origin":[-4,0,-2],"size":[4,12,4],"uv":[0,0]}]}]}]}"#,
+    ).unwrap().unwrap();
+    let skin = Arc::new(skin);
+    let names: Vec<Box<str>> = skin.bones.iter().map(|bone| bone.name.clone()).collect();
+    let rest: Vec<_> = skin
+        .bones
+        .iter()
+        .map(|bone| {
+            let pivot = bone.pivot.unwrap().map(|value| value.get() / 16.0);
+            actor_animation::BoneTransform {
+                rotation: [0.0, 0.0, 0.0, 1.0],
+                translation_scale: [pivot[0], pivot[1], pivot[2], 1.0],
+                axis_scale: [1.0; 3],
+            }
+        })
+        .collect();
+    let original = actor_animation::ActorRigSnapshot {
+        bone_names: &names,
+        previous: &rest,
+        current: &rest,
+        rest: &rest,
+        skin_geometry: Some(&skin),
+        skin_mesh: None,
+        skin_layers: &[],
+        ..stream.authority().actor_rig(1).unwrap()
+    };
+    let pose = actor_animation::sample_custom_emote(
+        &original,
+        cosmetics::test_support::playback_emote(),
+        0.25,
+        0.3,
+    )
+    .unwrap();
+    let poses = bevy::platform::collections::HashMap::from_iter([(1, pose)]);
+    for local in [false, true] {
+        let frame = super::super::hats::AttachmentFrame {
+            local_emote: poses.get(&1),
+            remote_emotes: Some(&poses),
+            ..Default::default()
+        };
+        let rendered = frame.rig(original, local);
+        let mesh = rendered.skin_mesh.unwrap();
+        assert!(rendered.bone_names.len() > original.bone_names.len());
+        let mut body = crate::presentation::actors::actor_rig_presentation(
+            &rendered,
+            stream.authority().actor(1).unwrap(),
+            stream.authority().actor_player_profile(1),
+            0.5,
+        )
+        .unwrap()
+        .submission;
+        body.input.rig = mesh.id;
+        let contacts = super::super::cloth_contacts::collect(
+            &body,
+            &rendered,
+            &[],
+            &Default::default(),
+            0.5,
+            (std::slice::from_ref(mesh), None),
+        );
+        let expected = (0..rendered.bone_names.len())
+            .filter(|&index| mesh.bone_bounds(index).is_some())
+            .count();
+        assert_eq!(
+            contacts.len(),
+            expected,
+            "every rendered torso and limb segment must provide cloth contact"
+        );
+        assert!(contacts.len() > original.bone_names.len());
+    }
+}
+
+#[test]
 fn shared_emotes_override_only_the_matching_remote_lifetime_and_restore_native_or_java() {
     let ((mut stream, _, artwork, local_equipment), _) =
         super::native_tests::fixture_with_rotation(true);
@@ -333,7 +421,7 @@ fn shared_emotes_override_only_the_matching_remote_lifetime_and_restore_native_o
     let rig = stream.authority().actor_rig(2).unwrap();
     let native = rig.current.to_vec();
     let revision = rig.actor.spawn_revision;
-    let clip = actor_animation::CustomEmote::Twerk;
+    let clip = cosmetics::test_support::playback_emote();
     for java_mode in [false, true] {
         let ordinary =
             sample_shared_bodies(&stream, &artwork, &local_equipment, java_mode, Vec::new());
@@ -429,6 +517,7 @@ fn sample_shared_bodies<'a>(
     remote_emotes: Vec<super::super::RemoteEmote>,
 ) -> super::super::bodies::SampledBodies<'a> {
     let input = super::super::ActorFrameInput {
+        cosmetics: Vec::new(),
         local_feed: None,
         predicted_eye: None,
         predicted_feet: None,
@@ -438,6 +527,7 @@ fn sample_shared_bodies<'a>(
         hide_hand: false,
         custom_emote: None,
         remote_emotes,
+        remote_hats: Vec::new(),
     };
     super::super::bodies::sample(
         Some(stream),
@@ -455,6 +545,7 @@ fn sample_shared_bodies<'a>(
         ),
         artwork,
         super::super::bodies::BodyCaches {
+            coverage: &[],
             poses: &mut Default::default(),
             java_poses: &mut Default::default(),
             native_pose: &mut Default::default(),
@@ -465,4 +556,284 @@ fn sample_shared_bodies<'a>(
         |_, _, _, _| false,
         &mut Vec::new(),
     )
+}
+
+#[test]
+fn shared_hats_follow_remote_heads_share_textures_and_reject_stale_spawns() {
+    let ((mut stream, _, artwork, local_equipment), _) =
+        super::native_tests::fixture_with_rotation(true);
+    spawn_remotes(&mut stream);
+    let selections: Vec<_> = [2, 3]
+        .map(|runtime_id| super::super::RemoteHat {
+            runtime_id,
+            spawn_revision: stream.authority().actor(runtime_id).unwrap().spawn_revision,
+            hat: render_model::hats::fixture::rigid(),
+        })
+        .into();
+    let mut hats = super::super::hats::HatState::default();
+    let mut scene = render_scene::ActorRenderScene::default();
+    for selected in [
+        selections.clone(),
+        vec![
+            super::super::RemoteHat {
+                spawn_revision: selections[0].spawn_revision + 1,
+                ..selections[0]
+            },
+            selections[1],
+        ],
+        Vec::new(),
+    ] {
+        let bodies = sample_shared_bodies(&stream, &artwork, &local_equipment, false, Vec::new());
+        let mut batch =
+            crate::presentation::actors::select_actor_presentations(1, false, None, bodies.remotes);
+        let body_count = batch.submissions.len();
+        let textures = batch.skin_layers.len();
+        hats.advance(&[], 0.0, 1.0 / 60.0);
+        hats.attach(
+            &mut batch,
+            Some(&stream),
+            &selected,
+            &mut scene,
+            0.5,
+            Default::default(),
+        );
+        let expected = selected
+            .iter()
+            .filter(|hat| {
+                stream
+                    .authority()
+                    .actor(hat.runtime_id)
+                    .unwrap()
+                    .spawn_revision
+                    == hat.spawn_revision
+            })
+            .count();
+        assert_eq!(batch.submissions.len(), body_count + expected);
+        assert_eq!(
+            batch.skin_layers.len(),
+            textures + usize::from(expected > 0)
+        );
+        for attachment in &batch.submissions[body_count..] {
+            let id = attachment.input.identity.runtime_id;
+            let head = stream
+                .authority()
+                .actor_rig(id)
+                .unwrap()
+                .bone_names
+                .iter()
+                .position(|name| name.eq_ignore_ascii_case("head"))
+                .unwrap();
+            let body = batch.submissions[..body_count]
+                .iter()
+                .find(|body| body.input.identity.runtime_id == id)
+                .unwrap();
+            assert_eq!(
+                attachment.input.current_bones[0],
+                body.input.current_bones[head]
+            );
+            assert_eq!(
+                attachment.input.previous_bones[0],
+                body.input.previous_bones[head]
+            );
+            assert_eq!(
+                attachment.input.rig,
+                render_model::hats::rig(render_model::hats::fixture::rigid())
+                    .geometry
+                    .id
+            );
+        }
+    }
+}
+
+#[test]
+fn shared_hats_render_multiple_catalog_slots_on_one_actor() {
+    let ((mut stream, _, artwork, local_equipment), _) =
+        super::native_tests::fixture_with_rotation(true);
+    spawn_remotes(&mut stream);
+    let items = [
+        render_model::hats::fixture::bunny(),
+        render_model::hats::fixture::dragon_wings(),
+        render_model::hats::fixture::shoulder_parrot(),
+    ];
+    let selections: Vec<_> = items
+        .into_iter()
+        .map(|hat| super::super::RemoteHat {
+            runtime_id: 2,
+            spawn_revision: stream.authority().actor(2).unwrap().spawn_revision,
+            hat,
+        })
+        .collect();
+    let bodies = sample_shared_bodies(&stream, &artwork, &local_equipment, false, Vec::new());
+    let mut batch =
+        crate::presentation::actors::select_actor_presentations(1, false, None, bodies.remotes);
+    let before = batch.submissions.len();
+    let mut state = super::super::hats::HatState::default();
+    state.advance(&[], 0.0, 0.0);
+    let mut scene = render_scene::ActorRenderScene::default();
+    state.attach(
+        &mut batch,
+        Some(&stream),
+        &selections,
+        &mut scene,
+        0.5,
+        Default::default(),
+    );
+    assert_eq!(batch.submissions.len(), before + items.len());
+    let layers: std::collections::HashSet<_> = batch.submissions[before..]
+        .iter()
+        .map(|draw| draw.input.identity.layer)
+        .collect();
+    assert_eq!(layers.len(), items.len());
+    for item in items {
+        assert!(
+            batch.submissions[before..]
+                .iter()
+                .any(|draw| draw.input.rig == render_model::hats::rig(item).geometry.id)
+        );
+    }
+    let initial: std::collections::HashMap<_, _> = batch.submissions[before..]
+        .iter()
+        .map(|draw| (draw.input.rig, draw.input.current_bones.clone()))
+        .collect();
+    let bodies = sample_shared_bodies(&stream, &artwork, &local_equipment, false, Vec::new());
+    let mut next =
+        crate::presentation::actors::select_actor_presentations(1, false, None, bodies.remotes);
+    let bodies = next.submissions.len();
+    state.advance(&[], 0.0, 0.7);
+    state.attach(
+        &mut next,
+        Some(&stream),
+        &selections,
+        &mut scene,
+        0.5,
+        Default::default(),
+    );
+    for item in items {
+        let model = render_model::hats::rig(item);
+        let draw = next.submissions[bodies..]
+            .iter()
+            .find(|draw| draw.input.rig == model.geometry.id)
+            .unwrap();
+        if ["back", "pet"].contains(&item.descriptor().slot.as_str()) {
+            assert_ne!(
+                initial[&model.geometry.id], draw.input.current_bones,
+                "a stationary remote player's cosmetic animations keep advancing"
+            );
+        } else {
+            assert_eq!(
+                initial[&model.geometry.id], draw.input.current_bones,
+                "animated cosmetics cannot move rigid headwear"
+            );
+        }
+    }
+}
+
+#[test]
+fn emissive_cosmetics_draw_their_world_raster_fullbright_and_place_emitters() {
+    let ((mut stream, _, artwork, local_equipment), _) =
+        super::native_tests::fixture_with_rotation(true);
+    spawn_remotes(&mut stream);
+    let glowing = render_model::hats::fixture::glowing_crown();
+    let plain = render_model::hats::fixture::crown();
+    let spawn_revision = stream.authority().actor(2).unwrap().spawn_revision;
+    let selections: Vec<_> = [glowing, plain]
+        .map(|hat| super::super::RemoteHat {
+            runtime_id: 2,
+            spawn_revision,
+            hat,
+        })
+        .into();
+    let bodies = sample_shared_bodies(&stream, &artwork, &local_equipment, false, Vec::new());
+    let mut batch =
+        crate::presentation::actors::select_actor_presentations(1, false, None, bodies.remotes);
+    let before = batch.submissions.len();
+    let mut state = super::super::hats::HatState::default();
+    state.advance(&[], 0.0, 0.0);
+    let mut scene = render_scene::ActorRenderScene::default();
+    state.attach(
+        &mut batch,
+        Some(&stream),
+        &selections,
+        &mut scene,
+        0.5,
+        Default::default(),
+    );
+    let body = batch
+        .submissions
+        .iter()
+        .find(|body| body.input.identity.runtime_id == 2)
+        .unwrap()
+        .clone();
+    let rig = render_model::hats::rig(glowing);
+    let lit_index = before
+        + batch.submissions[before..]
+            .iter()
+            .position(|draw| draw.input.rig == rig.geometry.id)
+            .unwrap();
+    let lit = batch.submissions[lit_index].clone();
+    let material = lit.material.state.unwrap();
+    assert!(material.emissive && material.alpha_test && material.depth_write);
+    assert!(!material.blend);
+    assert_eq!(lit.material.kind, body.material.kind);
+    assert!(lit.material.allows_overlay(), "hurt tint still applies");
+    assert_eq!(
+        batch.skin_layers[lit.texture_layer as usize].pixels(),
+        rig.world_pixels().pixels()
+    );
+    let unlit = batch.submissions[before..]
+        .iter()
+        .find(|draw| draw.input.rig == render_model::hats::rig(plain).geometry.id)
+        .unwrap();
+    assert_eq!(unlit.material, body.material);
+    assert_eq!(
+        batch.skin_layers[unlit.texture_layer as usize].pixels(),
+        render_model::hats::rig(plain).pixels.pixels()
+    );
+
+    let mut placements = Vec::new();
+    state.place_emitters(&batch, 0.25, &mut placements);
+    assert_eq!(placements.len(), 1);
+    let placement = &placements[0];
+    assert_eq!(
+        placement.key,
+        super::super::CosmeticEmitterKey {
+            runtime_id: 2,
+            spawn_revision,
+            item: glowing,
+            emitter: 0,
+        }
+    );
+    assert_eq!(placement.identifier, rig.emitters()[0].identifier);
+    let expected = rig
+        .emitter_transform(
+            0,
+            &lit.input.previous_bones,
+            &lit.input.current_bones,
+            lit.world_from_actor,
+            0.25,
+        )
+        .unwrap();
+    assert_eq!(placement.transform, expected);
+    let head = lit.input.current_bones[0].translation_scale;
+    let pivot = lit
+        .world_from_actor
+        .map(|row| row[0] * head[0] + row[1] * head[1] + row[2] * head[2] + row[3]);
+    assert!(
+        placement.transform.position[1] > pivot[1] + 0.5,
+        "the emitter rises above the posed head pivot"
+    );
+
+    batch.submissions[lit_index].route = render_model::ActorRigRoute::NoDraw;
+    state.place_emitters(&batch, 0.25, &mut placements);
+    assert!(placements.is_empty(), "hidden cosmetics stop emitting");
+    state.attach(
+        &mut batch,
+        None,
+        &selections,
+        &mut scene,
+        0.5,
+        Default::default(),
+    );
+    state.place_emitters(&batch, 0.25, &mut placements);
+    assert!(placements.is_empty(), "leaving the world clears placements");
 }

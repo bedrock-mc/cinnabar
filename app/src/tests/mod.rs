@@ -307,12 +307,14 @@ pub(crate) mod actor_frame_allocations;
 mod actor_pack_publication;
 pub(crate) mod actor_rest_presentation;
 mod allocation_stats;
+mod armor_render_regression;
 mod audio;
 mod audio_camera;
 mod camera;
 mod camera_controls;
 mod cohort_epoch;
 mod core;
+mod remote_equipment_path;
 
 mod actor_presentation;
 mod crafting_authority_schedule;

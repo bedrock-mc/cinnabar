@@ -2,6 +2,13 @@
 
 use super::cells::{Cell, Cells, Held};
 
+/// The incoming item at one insertion, before a merge retains the destination's alias.
+#[derive(Debug, Clone)]
+pub(super) struct PlacementInput {
+    pub(super) destination: Cell,
+    pub(super) incoming: protocol::NetworkItemStack,
+}
+
 /// One atomic prediction step. A group either applies whole or is skipped.
 ///
 /// Every group names the exact stack network ids its request carried, so a
@@ -37,6 +44,36 @@ pub(super) enum DeltaGroup {
 }
 
 impl DeltaGroup {
+    /// Maps a result's item data to its input owner without replaying counts or wire actions.
+    /// Empty destinations inherit the source, occupied ones keep their data, and sets start fresh.
+    pub(super) fn item_data_source(&self, result: Cell) -> Option<Cell> {
+        match self {
+            Self::Transfer {
+                source,
+                destination,
+                destination_id,
+                ..
+            } => Some(if result == *destination && destination_id.is_none() {
+                *source
+            } else {
+                result
+            }),
+            Self::Swap {
+                source,
+                destination,
+                ..
+            } => Some(if result == *source {
+                *destination
+            } else if result == *destination {
+                *source
+            } else {
+                result
+            }),
+            Self::Shrink { .. } => Some(result),
+            Self::Set { cell, .. } => (result != *cell).then_some(result),
+        }
+    }
+
     /// Names the current source cells when rebuilding an unsent request.
     pub(super) fn rebind(&mut self, cells: &Cells) {
         let name = |cell| {
@@ -88,6 +125,35 @@ impl DeltaGroup {
             Self::Set { cell, .. } => (*cell, None),
         };
         std::iter::once(first).chain(second)
+    }
+
+    /// Captures operation inputs from its pre-state; generated result writes are separate.
+    pub(super) fn placement_inputs<'a>(
+        &'a self,
+        cells: &'a Cells,
+    ) -> impl Iterator<Item = PlacementInput> + 'a {
+        let (first, second) = match self {
+            Self::Transfer {
+                source,
+                destination,
+                ..
+            } => (Some((*source, *destination)), None),
+            Self::Swap {
+                source,
+                destination,
+                ..
+            } => (Some((*source, *destination)), Some((*destination, *source))),
+            Self::Shrink { .. } | Self::Set { .. } => (None, None),
+        };
+        first
+            .into_iter()
+            .chain(second)
+            .filter_map(|(source, destination)| {
+                Some(PlacementInput {
+                    destination,
+                    incoming: cells.get(source)?.stack.clone(),
+                })
+            })
     }
 
     /// Whether a touched cell keeps its original item while this operation changes its count.
@@ -197,6 +263,7 @@ fn transfer(
             if partial {
                 // The split-off stack gets a new identity when its prediction is stamped.
                 moved.source_stack_id = None;
+                moved.source_origin = None;
                 moved.acknowledged_request_id = None;
             }
             moved.stack.count = amount;

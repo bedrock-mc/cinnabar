@@ -586,6 +586,7 @@ pub fn use_packets(
         packets.push(protocol::swing_arm_packet(local_runtime_id, source));
     }
     let request = BlockUseRequest {
+        hand: protocol::ItemUseHand::Mainhand,
         block_position: observed.target.position,
         face: observed.target.face,
         selected_slot: observed.selection.slot,

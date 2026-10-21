@@ -17,6 +17,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
+	"github.com/hashimthearab/rust-mcbe/core/internal/joinprofile"
 	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/p2p"
@@ -64,7 +65,9 @@ func dialTransportWithin(ctx context.Context, network minecraft.Network, address
 	bounded, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 	started := time.Now()
+	dialDone := joinprofile.Stage(ctx, "transport_dial")
 	conn, err := network.DialContext(bounded, address)
+	dialDone()
 	if err == nil {
 		// Separates a transport stall from a login stall when a join hangs.
 		slog.Info("upstream transport connected", "target", redact.Private(address), "elapsed_ms", time.Since(started).Milliseconds())

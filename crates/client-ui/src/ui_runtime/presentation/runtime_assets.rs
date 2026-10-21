@@ -109,6 +109,11 @@ impl UiPresentationRuntime {
         let set = menu_artwork::ArtworkSet {
             paths,
             oversized: self.oversized_ui_textures(),
+            cosmetics: menu_artwork::cosmetic_requests::requested(
+                &self.menu_preview_model.cosmetics,
+                &[],
+                false,
+            ),
             ..Default::default()
         };
         self.sync_artwork_set(set);

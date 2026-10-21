@@ -37,7 +37,7 @@ fn assets_for(identifier: &str) -> Arc<RuntimeEntityAssets> {
         },
     );
     compiled.symbols = symbols.into();
-    compiled.rig_bindings[0].render_controller += 1;
+    *compiled.rig_bindings[0].render_controller.as_mut().unwrap() += 1;
     compiled.molang_symbols = vec![
         MolangSymbol {
             kind: MolangSymbolKind::Name,

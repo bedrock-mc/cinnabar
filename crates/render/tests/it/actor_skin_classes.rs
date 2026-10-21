@@ -128,7 +128,7 @@ fn raster(
         ..Default::default()
     });
     let class = gpu.buffer(&[0.0; 4], wgpu::BufferUsages::UNIFORM);
-    let lightmap = gpu.buffer(&[1.0; 256 * 4], wgpu::BufferUsages::UNIFORM);
+    let lightmap = gpu.lightmap(&[1.0; 256 * 4]);
     let mut atmosphere = [0.0; 32];
     atmosphere[19] = 1000.0;
     atmosphere[20] = 1001.0;

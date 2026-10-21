@@ -251,6 +251,14 @@
     {
       "path": "textures/entity/wind_charge.png",
       "source_sha256": "986ef362fe5c6d555ca1812fe07d8faa080618263f182a7abd68a7e0ef387563"
+    },
+    {
+      "path": "textures/entity/sulfur_cube/sulfur_cube_outer.png",
+      "source_sha256": "d65bce7b779303087d302e16096182646c21b0e5d6908af9fc13f73f59dd68c3"
+    },
+    {
+      "path": "textures/entity/sulfur_cube/sulfur_cube_outer_small.png",
+      "source_sha256": "1721c25dae3cf42fe35a0cd3096810b0b562e73027d71d12aeccb44d58d2c1e4"
     }
   ],
   "multitexture_reference": {

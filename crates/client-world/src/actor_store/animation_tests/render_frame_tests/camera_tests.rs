@@ -46,7 +46,7 @@ fn camera_compiled() -> assets::CompiledEntityAssets {
     geometries.push(title);
     compiled.geometries = geometries.into_boxed_slice();
     compiled.rig_bindings[0].entity_symbol = 0;
-    compiled.rig_bindings[0].render_controller = 4;
+    compiled.rig_bindings[0].render_controller = Some(4);
     compiled.rig_bindings[0].pre_animation = None;
     compiled.molang_symbols = vec![
         MolangSymbol {
@@ -307,7 +307,7 @@ fn inactive_camera_compiled() -> assets::CompiledEntityAssets {
         },
     );
     compiled.symbols = symbols.into_boxed_slice();
-    compiled.rig_bindings[0].render_controller += 1;
+    *compiled.rig_bindings[0].render_controller.as_mut().unwrap() += 1;
     let mut clips = compiled.animation_clips.into_vec();
     let clip = clips.len() as u32;
     clips.push(EntityAnimationClip {
@@ -553,7 +553,7 @@ fn server_camera_animation_outside_rig_bindings_samples_between_ticks() {
         },
     );
     compiled.symbols = symbols.into_boxed_slice();
-    compiled.rig_bindings[0].render_controller += 1;
+    *compiled.rig_bindings[0].render_controller.as_mut().unwrap() += 1;
     let mut keyframes = compiled.animation_keyframes.into_vec();
     let first_keyframe = keyframes.len() as u32;
     keyframes.push(keyframes[compiled.animation_channels[2].first_keyframe as usize]);
@@ -933,7 +933,7 @@ fn local_swing_wrap_resamples_controller_weight_without_advancing_tick_state() {
         clip.source += 1;
     }
 
-    compiled.rig_bindings[0].render_controller = 5;
+    compiled.rig_bindings[0].render_controller = Some(5);
     for candidate in &mut compiled.render.candidates {
         candidate.source = 5;
     }

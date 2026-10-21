@@ -216,6 +216,15 @@ pub(super) fn project(
         let mut record = if let Some(record) = education(f)? {
             stats.education_states += 1;
             record
+        } else if allowed.contains(&f.name)
+            && policy.block_rules.iter().any(|rule| {
+                rule.fact == "render:AuthoredModel"
+                    && serde_json::from_str(&f.state)
+                        .is_ok_and(|state| rule.matches(&f.name, &state, ModelFamily::Unknown))
+            })
+        {
+            stats.authored_states += 1;
+            identity(f)
         } else {
             let exact = old.get(&key(&f.name, &f.state));
             let reduced = reduced(&f.state)?;
@@ -281,6 +290,16 @@ pub(super) fn project(
     check(
         stats.education_states == 2 + 3usize.pow(4) * 2,
         "Education construction palette count mismatch",
+    )?;
+    check(
+        stats.states
+            == stats.legacy_exact_states
+                + stats.legacy_reduced_states
+                + stats.authored_states
+                + stats.twin_states
+                + stats.denied_count
+                + stats.education_states,
+        "projection classifications do not account for every source state",
     )?;
     stats.denied_fingerprint = format!("{:x}", denied.finalize());
     Ok((records, stats))

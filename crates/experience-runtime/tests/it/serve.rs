@@ -147,6 +147,7 @@ fn load_request(dir: &Path) -> Request {
     Request::Load {
         dir: dir.to_str().expect("a UTF-8 path").to_owned(),
         items: server_items(),
+        recipes: Vec::new(),
     }
 }
 

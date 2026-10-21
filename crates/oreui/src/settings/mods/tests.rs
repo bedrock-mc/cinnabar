@@ -26,6 +26,60 @@ fn installed(id: u64, name: &str) -> InstalledMod {
     }
 }
 
+#[test]
+fn update_actions_target_only_the_mod_with_a_newer_release() {
+    let mut snapshot = Snapshot::default();
+    snapshot.library.installed = vec![installed(1, "zoom"), installed(2, "minimap")];
+    snapshot
+        .library
+        .updates
+        .push(launcher::mods::AvailableUpdate {
+            id: 2,
+            version: "v1.1.0".into(),
+            release_url: "https://github.com/example/minimap/releases/tag/v1.1.0".into(),
+        });
+    let (hits, labels) = render(snapshot);
+    assert!(hits.contains(&command(Action::OpenUpdate(2))));
+    assert!(!hits.contains(&command(Action::OpenUpdate(1))));
+    assert!(
+        labels
+            .iter()
+            .any(|label| label == "Update available · v1.1.0")
+    );
+}
+
+#[test]
+fn downloadable_mod_update_button_installs_instead_of_opening_a_browser() {
+    let mut snapshot = Snapshot::default();
+    let mut item = installed(2, "zoom");
+    item.metadata.update_url = Some(
+        "https://github.com/example/zoom/releases/latest/download/zoom.wasm"
+            .parse()
+            .unwrap(),
+    );
+    snapshot.library.installed.push(item);
+    snapshot
+        .library
+        .updates
+        .push(launcher::mods::AvailableUpdate {
+            id: 2,
+            version: "1.1.0".into(),
+            release_url: String::new(),
+        });
+    let (hits, labels) = render(snapshot.clone());
+    assert!(hits.contains(&command(Action::Update(2))));
+    assert!(!hits.contains(&command(Action::OpenUpdate(2))));
+    assert!(labels.iter().any(|label| label == "Update"));
+    snapshot.library.update_progress = vec![launcher::mods::UpdateProgress::stage(
+        2,
+        launcher::mods::UpdatePhase::Downloading,
+    )];
+    snapshot.library.busy = true;
+    let (hits, labels) = render(snapshot);
+    assert!(!hits.contains(&command(Action::Update(2))));
+    assert!(labels.iter().any(|label| label == "Downloading…"));
+}
+
 /// Paints the page and exposes its visible text and identity-scoped hit actions.
 fn render(snapshot: Snapshot) -> (Vec<MenuAction>, Vec<String>) {
     let (hits, labels, _) = render_with(snapshot, &HashMap::new());
@@ -324,11 +378,19 @@ fn each_active_card_exposes_its_own_reload_permissions_and_reorder_direction() {
 #[test]
 fn selecting_the_registered_mods_section_opens_its_controls() {
     let mut view = MenuView::new(true, "Player".into());
-    view.settings_section = launcher::menu::settings_sections::SettingSection::Mods
+    view.settings.section = launcher::menu::settings_sections::SettingSection::Mods
         .definition()
         .index;
     let (_, hits, _) = paint(HashMap::new(), |canvas| {
-        super::super::draw(canvas, &view, [1280.0, 720.0], &|_| None, None).unwrap();
+        super::super::draw(
+            canvas,
+            &view,
+            [1280.0, 720.0],
+            &|_| None,
+            None,
+            &mut Default::default(),
+        )
+        .unwrap();
     });
     assert!(
         hits.iter()
@@ -346,6 +408,8 @@ fn declared_metadata_names_the_card_and_its_icon_replaces_the_placeholder() {
         authors: Some("Alex".into()),
         licenses: Some("MIT".into()),
         icon: Some(Arc::from([0u8].as_slice())),
+        update_repository: None,
+        update_url: None,
     };
     let artwork = HashMap::from([(
         item.icon_key().unwrap(),
@@ -384,4 +448,47 @@ fn declared_metadata_names_the_card_and_its_icon_replaces_the_placeholder() {
             ..
         }
     )));
+}
+
+#[test]
+fn update_progress_shows_download_stats_and_distinguishes_installing_from_reloading() {
+    use launcher::mods::{UpdatePhase, UpdateProgress};
+    for phase in [
+        UpdatePhase::Downloading,
+        UpdatePhase::Verifying,
+        UpdatePhase::Installing,
+        UpdatePhase::Reloading,
+    ] {
+        let mut snapshot = Snapshot::default();
+        let mut item = installed(2, "zoom");
+        item.metadata.update_url = Some(
+            "https://github.com/example/zoom/releases/latest/download/zoom.wasm"
+                .parse()
+                .unwrap(),
+        );
+        snapshot.library.installed.push(item);
+        let mut progress = UpdateProgress::stage(2, phase);
+        if phase == UpdatePhase::Downloading {
+            progress.received_bytes = 512 * 1024;
+            progress.total_bytes = 1024 * 1024;
+            progress.bytes_per_sec = Some(256 * 1024);
+            progress.eta_secs = Some(2);
+        }
+        snapshot.library.update_progress.push(progress);
+        snapshot.library.busy = true;
+        // Runtime reload progress remains visible after the newer-version offer has cleared.
+        let (hits, labels) = render(snapshot);
+        assert!(!hits.contains(&command(Action::Update(2))));
+        assert!(labels.iter().any(|label| label.contains(phase.label())));
+        assert_eq!(
+            labels.iter().any(|label| label.contains("50%")),
+            phase == UpdatePhase::Downloading
+        );
+        assert_eq!(
+            labels
+                .iter()
+                .any(|label| label.contains("0.25MB/s") && label.contains("2s left")),
+            phase == UpdatePhase::Downloading
+        );
+    }
 }

@@ -19,31 +19,65 @@ pub fn sampled_locator_transform(
     world: [[f32; 4]; 3],
     alpha: f32,
 ) -> Option<ActorEmitterTransform> {
+    let [x, y, z] = locator.offset.map(|value| value.get());
+    let local = Vec3::new(-x, y, z) / 16.0 - Vec3::from_array(pivot);
+    let [x, y, z] = locator.rotation.map(|value| value.get().to_radians());
+    let rotation = Quat::from_euler(EulerRot::ZYX, z, -y, -x);
+    let mut result = sampled_frame(local, rotation, previous, current, world, alpha)?;
+    if locator.ignore_inherited_scale {
+        for axis in &mut result.basis {
+            *axis = Vec3::from_array(*axis).try_normalize()?.to_array();
+        }
+    }
+    Some(result)
+}
+
+/// Samples a point fixed in a posed bone, given as its offset from the bone's bind pivot in the
+/// rig frame (blocks, authored X mirrored), with the same interpolation as the actor vertex path.
+/// The basis is the bone's posed axes in world space, including inherited scale.
+pub fn sampled_bone_offset(
+    local: [f32; 3],
+    previous: RenderBoneTransform,
+    current: RenderBoneTransform,
+    world: [[f32; 4]; 3],
+    alpha: f32,
+) -> Option<ActorEmitterTransform> {
+    sampled_frame(
+        Vec3::from_array(local),
+        Quat::IDENTITY,
+        previous,
+        current,
+        world,
+        alpha,
+    )
+}
+
+/// Places a pivot-relative point and rotated axes, rejecting any non-finite input or result.
+fn sampled_frame(
+    local: Vec3,
+    rotation: Quat,
+    previous: RenderBoneTransform,
+    current: RenderBoneTransform,
+    world: [[f32; 4]; 3],
+    alpha: f32,
+) -> Option<ActorEmitterTransform> {
     if !previous.is_finite()
         || !current.is_finite()
         || !alpha.is_finite()
+        || !local.is_finite()
         || world.iter().flatten().any(|x| !x.is_finite())
     {
         return None;
     }
     let alpha = alpha.clamp(0.0, 1.0);
-    let [x, y, z] = locator.offset.map(|value| value.get());
-    let local = Vec3::new(-x, y, z) / 16.0 - Vec3::from_array(pivot);
     let position = to_world(world, sample(previous, current, local, alpha, true), true);
-    let [x, y, z] = locator.rotation.map(|value| value.get().to_radians());
-    let rotation = Quat::from_euler(EulerRot::ZYX, z, -y, -x);
-    let mut basis = [Vec3::X, Vec3::Y, Vec3::Z].map(|axis| {
+    let basis = [Vec3::X, Vec3::Y, Vec3::Z].map(|axis| {
         to_world(
             world,
             sample(previous, current, rotation * axis, alpha, false),
             false,
         )
     });
-    if locator.ignore_inherited_scale {
-        for axis in &mut basis {
-            *axis = axis.try_normalize()?;
-        }
-    }
     let result = ActorEmitterTransform {
         position: position.to_array(),
         basis: basis.map(|axis| axis.to_array()),

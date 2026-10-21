@@ -18,6 +18,8 @@ use {
 
 mod atlas;
 mod block_models;
+mod cosmetic_particles;
+mod cosmetic_previews;
 mod fire;
 mod held;
 mod live_player;
@@ -95,6 +97,8 @@ pub(super) struct GuiModels {
     pub(super) skin: Option<UiTexturePage>,
     pub(super) pack_equipment: pack_equipment::PackEquipment,
     live_player: live_player::LivePlayer,
+    cosmetics: cosmetic_previews::Previews,
+    pub(super) particles: cosmetic_particles::PreviewParticles,
     cape: Option<render_model::cape::CapeRig>,
     pub(super) wearing_elytra: bool,
     models: BTreeMap<IconKey, Arc<UiMesh>>,
@@ -104,12 +108,18 @@ pub(super) struct GuiModels {
     textures: BTreeMap<atlas::TextureKey, IconRef>,
     held: BTreeMap<assets::ItemVisualKey, held::HeldModel>,
     hand_pivots: Option<[[f32; 3]; 2]>,
+    selected_held: [Option<held::SelectedModel>; 2],
     fire: fire::FireAtlas,
     /// Tinted copies of `models`, kept while frames draw them.
     modulated: std::sync::Mutex<ModulatedMeshes>,
 }
 
 impl GuiModels {
+    /// Clears selected hand models when their equipment catalog changes.
+    pub(super) fn clear_selected_hands(&mut self) {
+        self.selected_held = [None, None];
+    }
+
     /// Drops optional block meshes and restores required pages. Returns whether anything was dropped;
     /// callers reinstall fire frames after a discard.
     fn discard_optional_models(&mut self, first: usize) -> bool {
@@ -195,7 +205,11 @@ impl UiPresentationRuntime {
             for texture in equipment.textures() {
                 atlas.insert([texture.width, texture.height], &texture.rgba8)?;
             }
-            if let Some(binding) = equipment.binding(assets::gui_item::SHIELD_IDENTIFIER)
+            if let Some(binding) = equipment
+                .bindings_for(assets::gui_item::SHIELD_IDENTIFIER)
+                .iter()
+                .rev()
+                .find(|binding| player_preview::selection::unrestricted(binding, Some(entities)))
                 && let Some(geometry) = entities
                     .geometries()
                     .iter()
@@ -242,6 +256,18 @@ impl UiPresentationRuntime {
             if models.contains_key(&key) {
                 continue;
             }
+            // Native cube meshes bake directional lighting; preserve unshaded thumbnails.
+            let block = world.resolve(assets::NetworkIdMode::Sequential, block_visual.0);
+            if assets::BlockFace::ALL.into_iter().any(|face| {
+                world
+                    .materials()
+                    .get(block.face(face).material_id() as usize)
+                    .is_some_and(|material| {
+                        material.flags & assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING != 0
+                    })
+            }) {
+                continue;
+            }
             let mesh = if let Some(mesh) = meshes.get(&block_visual.0) {
                 Arc::clone(mesh)
             } else {
@@ -261,7 +287,7 @@ impl UiPresentationRuntime {
                     continue;
                 }
                 // Normalize alpha-tested faces using their material mode. Fractional blended
-                // faces retain the thumbnail's composited front and rear contributions.
+                // faces retain the thumbnail's composited texels.
                 let Some(sprite) = gui_cube_sheet(world, block_visual, sprite) else {
                     continue;
                 };
@@ -314,10 +340,14 @@ impl UiPresentationRuntime {
         self.gui_models.required_pages = required_pages;
         self.gui_models.textures = textures;
         self.gui_models.held = held;
+        self.gui_models.clear_selected_hands();
         self.gui_models.hand_pivots = held::player_hands(entities);
         self.gui_models.cape = render_model::cape::CapeRig::resolve(entities);
         self.gui_models.fire.pages_start = None;
         self.install_gui_fire()?;
+        for hat in cosmetics::Item::all() {
+            render_model::hats::rig(hat);
+        }
         self.gui_models.enabled = true;
         self.place_pack_armor();
         Ok(())
@@ -378,7 +408,6 @@ impl UiPresentationRuntime {
         if !self.gui_models.enabled {
             return;
         }
-        let preview = self.player_preview_icon.map(icon_key);
         let mut modulated_meshes = self
             .gui_models
             .modulated
@@ -399,6 +428,19 @@ impl UiPresentationRuntime {
         );
         modulated_meshes.retain_drawn();
         drop(modulated_meshes);
+        self.apply_gui_player_model_in(nodes, viewport, safe_area, effects);
+        self.apply_cosmetic_gallery_models(nodes);
+    }
+
+    /// Admits the equipped character before optional gallery meshes consume the remaining budget.
+    fn apply_gui_player_model_in(
+        &self,
+        nodes: &mut [UiNode],
+        viewport: UiRect,
+        safe_area: SafeArea,
+        effects: TextEffects<'_>,
+    ) {
+        let preview = self.player_preview_icon.map(icon_key);
         let is_preview = |visual: &UiVisual| match visual {
             UiVisual::Sprite {
                 texture_page, uv, ..
@@ -529,6 +571,19 @@ impl UiPresentationRuntime {
                 return None;
             }
             let hand = hand.as_ref()?;
+            if let Some(selected) = self.gui_models.selected_held[index].as_ref()
+                && selected.ready
+                && selected.item.identifier.as_ref() == hand.identifier.as_ref()
+                && selected.item.metadata == hand.metadata
+            {
+                return Some(
+                    selected
+                        .model
+                        .as_ref()?
+                        .with_grip(hand.grip)
+                        .with_glint(hand.glint),
+                );
+            }
             let (identifier, metadata) = Self::item_icon_key(
                 &hand.identifier,
                 hand.metadata,
@@ -543,7 +598,16 @@ impl UiPresentationRuntime {
                 })
             };
             let base = held(metadata).or_else(|| held(0));
-            let model = if base.is_none_or(held::HeldModel::is_sprite)
+            let model = if let Some((source, vertices)) =
+                self.session_icons.held_block(identifier, metadata)
+            {
+                player_preview::PreviewHeldModel {
+                    source,
+                    vertices,
+                    hand_pivots: self.gui_models.hand_pivots?,
+                    placements: [player_preview::PreviewHeldPlacement::Block; 2],
+                }
+            } else if base.is_none_or(held::HeldModel::is_sprite)
                 && self.session_item_icon(identifier, metadata).is_some()
             {
                 let (source, vertices) = self.session_icons.held_sprite(identifier, metadata)?;
@@ -623,14 +687,31 @@ impl UiPresentationRuntime {
             };
             self.menu_artwork_icon(key).map(|icon| (vertices, icon))
         });
-        Some(player_preview::geometry::MeshSources::new(
+        let mut sources = player_preview::geometry::MeshSources::new(
             body,
             skin,
             &self.player_preview_gear,
             armor,
             self.gui_fire_frame(),
             cape,
-        ))
+        );
+        for &hat in &self.menu_preview_model.cosmetics {
+            let Some(icon) = self.menu_artwork_icon(&hat.texture_key()) else {
+                continue;
+            };
+            let vertices = if self.player_preview_view == player_preview::PreviewView::Hud {
+                self.gui_models
+                    .live_player
+                    .hat_vertices
+                    .get(&hat)
+                    .map_or(&[][..], Vec::as_slice)
+            } else {
+                self.gui_models.cosmetics.vertices(hat)
+            };
+            sources = sources.with_attachment(vertices, icon);
+        }
+        sources = sources.with_particles(self.gui_models.particles.mesh.as_deref());
+        Some(sources)
     }
 
     /// Projects the prepared body and only the hand models admitted for this frame.

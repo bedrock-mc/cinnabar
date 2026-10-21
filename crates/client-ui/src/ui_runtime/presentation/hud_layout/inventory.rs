@@ -75,7 +75,7 @@ impl HudLayout<'_> {
                 WORKBENCH_OUTPUT,
             )?;
             self.player_cells(player_runtime, runtime, frame, origin)?;
-            self.recipe_book(runtime, frame, screen, origin)?;
+            self.recipe_book(player_runtime, runtime, frame, screen, origin)?;
             return self.carried_item(player_runtime, runtime, frame);
         }
 
@@ -135,7 +135,7 @@ impl HudLayout<'_> {
             [152.0, 28.0],
         )?;
         self.player_cells(player_runtime, runtime, frame, origin)?;
-        self.recipe_book(runtime, frame, screen, origin)?;
+        self.recipe_book(player_runtime, runtime, frame, screen, origin)?;
         self.carried_item(player_runtime, runtime, frame)
     }
 
@@ -278,7 +278,7 @@ impl HudLayout<'_> {
                 frame.cursor_icon,
                 [pointer[0] - 8.0, pointer[1] - 8.0],
                 Some(stack),
-                None,
+                frame.cursor_durability,
             )?;
         }
         Ok(())
@@ -293,7 +293,7 @@ impl HudLayout<'_> {
     ) -> Result<(), UiPresentationError> {
         let g = self.geometry;
         self.solid_gui([0.0, 0.0], [g.gui_width, g.gui_height], [0, 0, 0, 150])?;
-        let rows = slot_count / 9;
+        let rows = slot_count.div_ceil(9);
         let panel_size = [176.0, 114.0 + rows as f32 * SLOT_SIZE];
         let origin = [
             ((g.gui_width - panel_size[0]) * 0.5).floor(),
@@ -364,7 +364,7 @@ impl HudLayout<'_> {
                 frame.cursor_icon,
                 [pointer[0] - 8.0, pointer[1] - 8.0],
                 Some(stack),
-                None,
+                frame.cursor_durability,
             )?;
         }
         Ok(())

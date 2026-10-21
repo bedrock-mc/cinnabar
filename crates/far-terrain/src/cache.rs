@@ -8,8 +8,8 @@
 use std::{
     collections::{BTreeMap, HashSet},
     path::PathBuf,
-    time::Instant,
 };
+use web_time::Instant;
 
 use crate::{
     ColumnPos, ColumnSummary, EncodedSummary, FarTerrainConfig, NamespaceKey, ServerKey,

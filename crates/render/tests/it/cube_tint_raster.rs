@@ -405,10 +405,9 @@ fn render_fixture(cache_admission: bool) {
     atmosphere[16..19].copy_from_slice(&[0.13, 0.22, 0.31]);
     atmosphere[20] = 64.0;
     let atmosphere = gpu.buffer(&atmosphere, uniform);
-    let lightmap = gpu.buffer(
-        bytemuck::cast_slice(&render_model::LightmapInputs::default().build()),
-        uniform,
-    );
+    let lightmap = gpu.lightmap(bytemuck::cast_slice(
+        &render_model::LightmapInputs::default().build(),
+    ));
     let native_atlas = atlas(&gpu);
     let sampler = gpu.device.create_sampler(&Default::default());
     let native_sampler = gpu

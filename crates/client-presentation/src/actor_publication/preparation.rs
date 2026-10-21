@@ -19,10 +19,12 @@ pub struct ActorFrameState {
     published_artwork: Option<Arc<crate::prepared_actor_artwork::PreparedActorArtwork>>,
     pub(super) actor_clock: ActorFrameClock,
     pub(super) session_artwork: Option<render_model::ActorArtworkPages>,
+    pub(super) hat_state: super::hats::HatState,
     pub(super) cape_state: crate::presentation::cape::CapeState,
     pub(super) skin_rigs: crate::presentation::skin_rig::SkinRigCache,
     pub(super) skin_layers: crate::presentation::skin_layers::SkinLayerCache,
     pub(super) poses: crate::presentation::actors::PoseConversions,
+    pub(super) coverage_poses: crate::presentation::actors::PoseConversions,
     pub(super) layer_poses: crate::presentation::entity_layers::LayerPoseCache,
     pub(super) hand_revision: u64,
     pub(super) java_hand: java::HandCache,
@@ -47,6 +49,11 @@ pub struct ActorFrameState {
 }
 
 impl ActorFrameState {
+    /// Cosmetic motion shared by the world attachment and the HUD paperdoll for this frame.
+    pub fn cosmetic_motion(&self) -> Vec<(cosmetics::Item, render_model::hats::Motion)> {
+        self.hat_state.local_motion()
+    }
+
     /// Shares the exact accepted artwork snapshot with client-owned actor publishers.
     pub fn actor_artwork<'a>(
         &'a self,
@@ -71,8 +78,8 @@ impl ActorFrameState {
     }
 }
 
-/// Steps the actor clock once for the frame and predicts remote actor positions for this
-/// frame's picks; [`advance_actor_frame`] then advances the live actors by the same step.
+/// Predicts remote poses from the supplied interval, independently of local physics.
+/// Live actor publication later consumes the same step.
 pub fn advance_actor_motion(
     state: &mut ActorFrameState,
     stream: Option<&mut WorldStream>,
@@ -131,7 +138,9 @@ pub fn advance_actor_frame(
         skin_rigs,
         skin_layers,
         cape_state,
+        hat_state,
         poses,
+        coverage_poses,
         layer_poses,
         java_hand,
         java_poses,
@@ -174,8 +183,13 @@ pub fn advance_actor_frame(
         }
         *skin_layers = Default::default();
         *cape_state = Default::default();
+        *hat_state = Default::default();
         *published_session = session_id;
     }
+    let speed = input.local_feed.as_ref().map_or(0.0, |feed| {
+        render_model::hats::forward_speed(feed.velocity, feed.yaw)
+    });
+    hat_state.advance(&input.cosmetics, speed, time.delta_secs());
     let pack = session_id.and_then(|_| client_world.pack_entities.clone());
     let items = session_id.and_then(|_| client_world.session_items.clone());
     let same = |left: Option<*const ()>, right: Option<*const ()>| left == right;
@@ -236,6 +250,7 @@ pub fn advance_actor_frame(
     partial_tick.0 = step.partial_tick;
     skin_rigs.begin_frame();
     poses.begin_frame();
+    coverage_poses.begin_frame();
     java_poses.begin_frame();
     if let Some(equipment) = equipment.as_deref_mut() {
         equipment.begin_frame();

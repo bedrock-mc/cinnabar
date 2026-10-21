@@ -38,4 +38,5 @@ if [[ "${WINDOWS_SIGNED:-}" != true ]]; then
 else
     printf -- '- Windows: run `Cinnabar-x64-setup.exe`.\n'
 fi
+printf -- '- Android (experimental): download the arm64-v8a APK and open it on an Android 8+ device with Vulkan. Allow installation from that download source when prompted. Uninstall earlier CI test builds first (this clears app data); release APKs can update earlier release APKs.\n'
 printf '\nVerify downloads against `SHA256SUMS.txt`.\n'

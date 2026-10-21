@@ -11,6 +11,9 @@ world server-bundle {
     import cinnabar:server-experience/messaging@1.3.0;
     import cinnabar:server-experience/scene@1.3.0;
     import cinnabar:server-experience/media@1.3.0;
+    /// The session's items, under the `items` permission; a component built without this
+    /// import still runs.
+    import cinnabar:session/items@0.1.0;
     export init: func();
     /// A typed message or host-owned input edge; no raw packet or keyboard data.
     export dispatch: func(channel: string, record-json: list<u8>);
@@ -36,4 +39,8 @@ world server-bundle {
     /// shows `range`: it scrolled, or its viewport or content changed length. Changes coalesce,
     /// so this is the latest range, not each step of a scroll.
     export scroll-changed: func(view: string, range: scroll-range);
+    /// Shift was pressed or released while the modal had focus, or the modal gained or lost
+    /// focus with Shift held: `held` is whether it is held now. A screen can show what it shows
+    /// on Shift, as Java screens' `hasShiftDown` does.
+    export shift-changed: func(held: bool);
 }

@@ -40,7 +40,7 @@ pub(super) fn lookup_icon(
 }
 
 /// One server item icon in straight-alpha RGBA8.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SessionIcon {
     pub identifier: Arc<str>,
     pub metadata: u32,
@@ -50,11 +50,13 @@ pub struct SessionIcon {
 }
 
 /// The session's server item icons; later entries for an identifier are ignored.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SessionIcons {
     pub icons: Vec<SessionIcon>,
-    /// Six-face sheets (`assets::BLOCK_ITEM_SHEET_SIZE`) for custom held cubes.
+    /// Material sheets (`assets::BLOCK_ITEM_SHEET_SIZE`) for custom block items.
     pub block_sheets: Vec<SessionIcon>,
+    /// Exact held models with UVs relative to the item's matching material sheet.
+    pub block_models: BTreeMap<Arc<str>, Arc<[render_model::ActorRigVertex]>>,
     /// Admitted face material flags for each custom block item's sheet.
     pub block_material_flags: BTreeMap<Arc<str>, u32>,
     /// Why an item's icon key did not resolve to an image, for diagnostics.
@@ -66,6 +68,7 @@ pub struct SessionIcons {
 pub(super) struct SessionIconPage {
     source: Option<Arc<SessionIcons>>,
     refs: IconRefs,
+    pub(super) sheets: IconRefs,
     /// Only admitted sprites get meshes; replacing the page replaces this lazy cache.
     held_sprites: BTreeMap<IconKey, HeldSprite>,
     held_meshes: Mutex<held::HeldMeshes>,
@@ -124,6 +127,18 @@ impl SessionIconPage {
         };
         let vertices: Arc<[render_model::ActorRigVertex]> = vertices.into();
         cache.insert(icon_key(source), Arc::clone(&vertices))?;
+        Some((source, vertices))
+    }
+
+    /// Shares exact block geometry with the admitted material sheet for player previews.
+    pub(super) fn held_block(
+        &self,
+        identifier: &str,
+        metadata: u32,
+    ) -> Option<(IconRef, Arc<[render_model::ActorRigVertex]>)> {
+        let source = self.sheets.get(identifier)?;
+        let source = *source.get(&metadata).or_else(|| source.get(&0))?;
+        let vertices = self.source.as_ref()?.block_models.get(identifier)?.clone();
         Some((source, vertices))
     }
 
@@ -275,9 +290,13 @@ pub(super) fn observe(runtime: &mut UiPresentationRuntime, icons: Option<&Arc<Se
             }
             let (sender, done) = crossbeam_channel::bounded(1);
             let source = Arc::clone(icons);
-            rayon::spawn(move || {
+            let work = move || {
                 let _ = sender.send(pack(&source, 0));
-            });
+            };
+            #[cfg(not(target_arch = "wasm32"))]
+            rayon::spawn(work);
+            #[cfg(target_arch = "wasm32")]
+            crate::browser_jobs::submit(crate::browser_jobs::Lane::Icons, work);
             Packing {
                 source: Arc::clone(icons),
                 done,
@@ -309,9 +328,10 @@ fn install(
         .as_ref()
         .map(|(icons, packed)| block_cubes(icons, packed))
         .unwrap_or_default();
-    let (page, refs) = packed.map_or((None, HashMap::new()), |(_, packed)| {
-        (Some(packed.page), packed.refs)
-    });
+    let (page, refs, sheets) = packed
+        .map_or((None, HashMap::new(), HashMap::new()), |(_, packed)| {
+            (Some(packed.page), packed.refs, packed.sheets)
+        });
     let mut held_sprites = BTreeMap::new();
     if let Some(icons) = icons {
         let policy = device_policy();
@@ -338,6 +358,7 @@ fn install(
     runtime.session_icons = SessionIconPage {
         source: icons.cloned(),
         refs,
+        sheets,
         held_sprites,
         held_meshes: Mutex::default(),
         models,
@@ -375,7 +396,7 @@ fn inline_pack_fits(icons: &SessionIcons) -> bool {
 struct PackedIcons {
     page: UiTexturePage,
     refs: IconRefs,
-    sheets: HashMap<Arc<str>, IconRef>,
+    sheets: IconRefs,
 }
 
 impl PackedIcons {
@@ -385,7 +406,7 @@ impl PackedIcons {
             .refs
             .values_mut()
             .flat_map(BTreeMap::values_mut)
-            .chain(self.sheets.values_mut())
+            .chain(self.sheets.values_mut().flat_map(BTreeMap::values_mut))
         {
             icon.page = page;
         }
@@ -399,7 +420,10 @@ fn block_cubes(icons: &SessionIcons, packed: &PackedIcons) -> BTreeMap<IconKey, 
     let mut models = BTreeMap::new();
     for sheet in &icons.block_sheets {
         let (Some(placed), Some(thumbnail)) = (
-            packed.sheets.get(&sheet.identifier),
+            packed
+                .sheets
+                .get(&sheet.identifier)
+                .and_then(|variants| variants.get(&sheet.metadata)),
             packed
                 .refs
                 .get(&sheet.identifier)
@@ -407,7 +431,15 @@ fn block_cubes(icons: &SessionIcons, packed: &PackedIcons) -> BTreeMap<IconKey, 
         ) else {
             continue;
         };
-        if !ordinary_cube_sheet(&sheet.rgba8) {
+        if icons.block_models.contains_key(&sheet.identifier) {
+            continue;
+        }
+        if icons
+            .block_material_flags
+            .get(&sheet.identifier)
+            .is_some_and(|flags| flags & assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING != 0)
+            || !ordinary_cube_sheet(&sheet.rgba8)
+        {
             continue;
         }
         if let Some(mesh) = item_gui::cube(sheet_faces(*placed)) {
@@ -451,17 +483,15 @@ fn pack(icons: &SessionIcons, page_index: u16) -> Option<PackedIcons> {
     let side = page_side(ordered.iter().map(|(icon, _)| *icon), policy)?;
     let mut rgba8 = vec![0u8; (side * side * 4) as usize];
     let mut refs: IconRefs = HashMap::new();
-    let mut sheets = HashMap::new();
+    let mut sheets: IconRefs = HashMap::new();
     let (mut cursor, mut row_height) = ([0u32; 2], 0u32);
     for (icon, sheet) in ordered {
         let padded = [icon.width + GUTTER * 2, icon.height + GUTTER * 2];
-        let placed = if sheet {
-            sheets.contains_key(&icon.identifier)
-        } else {
-            refs.get(&icon.identifier)
-                .is_some_and(|variants| variants.contains_key(&icon.metadata))
-        };
-        if placed {
+        let placements = if sheet { &mut sheets } else { &mut refs };
+        if placements
+            .get(&icon.identifier)
+            .is_some_and(|variants| variants.contains_key(&icon.metadata))
+        {
             continue;
         }
         if cursor[0] + padded[0] > side {
@@ -491,13 +521,10 @@ fn pack(icons: &SessionIcons, page_index: u16) -> Option<PackedIcons> {
             ],
             glint: false,
         };
-        if sheet {
-            sheets.insert(Arc::clone(&icon.identifier), placement);
-        } else {
-            refs.entry(Arc::clone(&icon.identifier))
-                .or_default()
-                .insert(icon.metadata, placement);
-        }
+        placements
+            .entry(Arc::clone(&icon.identifier))
+            .or_default()
+            .insert(icon.metadata, placement);
         cursor[0] += padded[0];
         row_height = row_height.max(padded[1]);
     }

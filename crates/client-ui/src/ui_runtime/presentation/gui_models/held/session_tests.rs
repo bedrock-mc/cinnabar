@@ -597,7 +597,7 @@ fn preview_batch_admission_includes_surrounding_sprite_batches() {
                 texture_page: 0,
                 index_range: 0..3,
                 blend: UiBlendMode::Alpha,
-                depth_test: false,
+                depth_test: true,
                 depth_write: false,
                 alpha_cutoff: None,
             }]),
@@ -644,5 +644,57 @@ fn preview_batch_admission_includes_surrounding_sprite_batches() {
         player_preview::geometry::take_held_projection_work(),
         0,
         "rejected held work stays out of projection"
+    );
+}
+
+#[test]
+fn custom_content_preview_uses_authored_mesh_and_matching_sheet() {
+    let mut presentation = presentation();
+    let mut vertices =
+        render_model::textured_cube_vertices(render_model::equipment::blocks::face_rects([
+            0.0, 0.0, 1.0, 1.0,
+        ]));
+    for vertex in &mut vertices {
+        vertex.position[0] *= 0.25;
+        vertex.position[2] *= 0.25;
+    }
+    let vertices: Arc<[render_model::ActorRigVertex]> = vertices.into();
+    let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE.map(u32::from);
+    let icons = Arc::new(SessionIcons {
+        icons: vec![sword(0, [220, 30, 40])],
+        block_sheets: vec![SessionIcon {
+            identifier: Arc::from(ITEM),
+            metadata: 0,
+            width,
+            height,
+            rgba8: vec![255; (width * height * 4) as usize].into(),
+        }],
+        block_models: BTreeMap::from([(Arc::from(ITEM), Arc::clone(&vertices))]),
+        ..Default::default()
+    });
+    session_icons::observe(&mut presentation, Some(&icons));
+    presentation.set_player_preview_gear([None; 4], Some((ITEM, 0)));
+    let held = presentation.preview_held_models([true; 2])[0]
+        .clone()
+        .unwrap();
+    assert_eq!(&*held.vertices, &*vertices);
+    assert_eq!(
+        held.source,
+        presentation.session_block_sheet(ITEM, 0).unwrap()
+    );
+    let layers = presentation.session_block_texture_layers(ITEM, 0).unwrap();
+    let dropped = presentation
+        .session_block_model(ITEM, 0, held.source)
+        .unwrap();
+    assert_eq!(layers, assets::BlockFace::ALL.len());
+    assert_eq!(layers, dropped.texture_layers());
+    assert!(
+        held.placements
+            .iter()
+            .all(|placement| matches!(placement, player_preview::PreviewHeldPlacement::Block))
+    );
+    assert!(
+        presentation.session_icons.models.is_empty(),
+        "shaped items keep their authored thumbnail instead of drawing as cubes"
     );
 }

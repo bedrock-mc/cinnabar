@@ -108,6 +108,8 @@ pub const MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN: u32 = 1 << 16;
 pub const MODEL_TEMPLATE_FLAG_TORCH: u32 = 1 << 17;
 /// Templates retain all poses and both texture halves for one door class.
 pub const MODEL_TEMPLATE_FLAG_DOOR: u32 = 1 << 18;
+/// Native grass crosses use a coordinate-derived three-axis component displacement.
+pub const MODEL_TEMPLATE_FLAG_SHORT_GRASS: u32 = 1 << 19;
 /// Number of positional sprite variants in each bubble-column surface group.
 pub const BUBBLE_COLUMN_POSITION_VARIANTS: u32 = 4;
 /// Submerged and exposed bubble-column templates, in that order.
@@ -169,6 +171,7 @@ pub(crate) const fn model_template_flags_are_valid(flags: u32) -> bool {
             | MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN
             | MODEL_TEMPLATE_FLAG_TORCH
             | MODEL_TEMPLATE_FLAG_DOOR
+            | MODEL_TEMPLATE_FLAG_SHORT_GRASS
     ) || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_X
         || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
 }
@@ -186,7 +189,9 @@ const TEXTURE_RESERVED_MASK: u32 =
 /// texture-array pages: page zero is the base carrier, higher pages are
 /// overlay shards in order.
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize,
+)]
 pub struct TextureRef(u32);
 
 impl TextureRef {
@@ -245,7 +250,7 @@ impl TexturePage {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum VisualKind {
     Diagnostic = 0,
     Cube = 1,
@@ -271,7 +276,7 @@ impl VisualKind {
 
 /// Evidence status of a compiled canonical block visual.
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum VisualSupport {
     Exact = 0,
     VanillaFallback = 1,
@@ -291,7 +296,7 @@ impl VisualSupport {
 
 /// A bounded span of immutable model quads.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ModelTemplate {
     pub quad_start: u32,
     pub quad_count: u32,
@@ -312,9 +317,14 @@ pub fn model_template_parts(templates: &[ModelTemplate], first: u32) -> Option<&
     }
 }
 
+/// Fixed-point position units in one model block.
+pub const MODEL_POSITION_SCALE: i16 = 256;
+/// Fixed-point UV units in one texture tile.
+pub const MODEL_UV_SCALE: u16 = 4096;
+
 /// Fixed-point template quad. Position coordinates use 1/256 block units.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ModelQuad {
     pub positions: [[i16; 3]; 4],
     /// Per-vertex UV coordinates in 1/4096 texture-tile units. Values above
@@ -342,7 +352,7 @@ pub(crate) const fn model_quad_flags_are_valid(flags: u32) -> bool {
 
 /// Immutable animation timeline descriptor.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Animation {
     pub frame_start: u32,
     pub frame_count: u32,

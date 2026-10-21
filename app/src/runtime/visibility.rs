@@ -1,10 +1,12 @@
 use bevy::platform::collections::HashMap;
 
 use bevy::prelude::{
-    Add, Entity, On, Query, Remove, Res, ResMut, Resource, Transform, Visibility, With,
+    Add, Entity, Has, On, Query, Remove, Res, ResMut, Resource, Transform, Visibility, With,
 };
 use chunk_pipeline::{CaveVisibilityWork, CaveVisibleSet, WorldStream};
-use render_scene::{ChunkRenderInstance, RuntimeStage, RuntimeStageProfiler};
+use render_scene::{
+    ChunkRenderInstance, RuntimeStage, RuntimeStageProfiler, shaderpack::ShaderPackRendering,
+};
 use world::SubChunkKey;
 
 use diagnostics::metrics::{DiagnosticQuadTracker, MetricsCollector};
@@ -143,9 +145,11 @@ pub(crate) struct AppMetrics(pub(crate) MetricsCollector);
 #[derive(Resource, Default)]
 pub(crate) struct DiagnosticQuads(pub(crate) DiagnosticQuadTracker);
 
+/// Shader-pack cameras cull by Sodium's rule, as Java Iris draws; see
+/// [`chunk_pipeline::CaveVisibilityScratch::set_outward_only`].
 pub(crate) fn refresh_cave_visibility(
     client_world: Res<ClientWorld>,
-    camera: Query<&Transform, With<FlyCamera>>,
+    camera: Query<(&Transform, Has<ShaderPackRendering>), With<FlyCamera>>,
     mut cache: ResMut<CaveVisibilityCache>,
     mut chunks: Query<&mut Visibility, With<ChunkRenderInstance>>,
     profiler: Option<Res<RuntimeStageProfiler>>,
@@ -154,14 +158,18 @@ pub(crate) fn refresh_cave_visibility(
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::CaveVisibility));
     #[cfg(feature = "developer-control")]
-    let started = std::time::Instant::now();
+    let started = web_time::Instant::now();
     let work = match (client_world.stream.as_ref(), camera.single()) {
-        (Some(stream), Ok(camera)) => refresh_visible(
-            stream,
-            camera_sub_chunk_key(stream.current_dimension(), camera.translation),
-            &mut cache,
-            &mut chunks,
-        ),
+        (Some(stream), Ok((camera, shader_pack))) => {
+            cache.scratch.set_outward_only(shader_pack);
+            refresh_visible(
+                stream,
+                camera_sub_chunk_key(stream.current_dimension(), camera.translation),
+                shader_pack,
+                &mut cache,
+                &mut chunks,
+            )
+        }
         _ => CaveVisibilityWork::default(),
     };
     #[cfg(feature = "developer-control")]
@@ -177,12 +185,14 @@ pub(crate) fn refresh_cave_visibility(
 fn refresh_visible(
     stream: &WorldStream,
     camera_key: SubChunkKey,
+    outward_only: bool,
     cache: &mut CaveVisibilityCache,
     chunks: &mut Query<&mut Visibility, With<ChunkRenderInstance>>,
 ) -> CaveVisibilityWork {
     let generation = stream.connectivity_generation();
     if cache.camera == Some(camera_key)
         && cache.graph_generation == Some(generation)
+        && cache.scratch.built_outward_only() == outward_only
         && cache.initialized
     {
         return CaveVisibilityWork::default();

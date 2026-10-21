@@ -1,6 +1,6 @@
 //! The host side of the `server` world: generated bindings, per-store state and the imports.
 //! The current WIT is `crates/experience-sdk/wit/server/server.wit`; [`v0_1`], [`v0_2`],
-//! [`v0_3`] and [`v0_4`] keep the worlds that older artifacts target.
+//! [`v0_3`], [`v0_4`] and [`v0_5`] keep the worlds that older artifacts target.
 
 use std::fmt;
 use std::time::{Duration, Instant};
@@ -21,6 +21,7 @@ pub(crate) mod v0_1;
 pub(crate) mod v0_2;
 pub(crate) mod v0_3;
 pub(crate) mod v0_4;
+pub(crate) mod v0_5;
 
 wasmtime::component::bindgen!({
     path: "../experience-sdk/wit/server",
@@ -30,8 +31,8 @@ wasmtime::component::bindgen!({
 });
 
 use cinnabar::experience_server::types::{
-    BlockDef, BlockState, BlockType, CallbackInfo, Inventory, LogLevel, Network, NewStack,
-    PlacementStates, WorldError,
+    BlockDef, BlockState, BlockType, CallbackInfo, Crafted, Inventory, ItemKey, LogLevel, Network,
+    NewStack, PlacementStates, WorldError,
 };
 use cinnabar::experience_server::{diagnostics, types, world_access};
 
@@ -52,18 +53,27 @@ pub(crate) enum Api {
     V0_3,
     /// The 0.4 world: plain cube blocks, and the player's focus.
     V0_4,
-    /// The current world.
+    /// The 0.5 world: no crafting recipes or scheduled updates.
     V0_5,
+    /// The current world.
+    V0_6,
 }
 
 impl Api {
-    pub(crate) const ALL: [Api; 5] = [Api::V0_1, Api::V0_2, Api::V0_3, Api::V0_4, Api::V0_5];
+    pub(crate) const ALL: [Api; 6] = [
+        Api::V0_1,
+        Api::V0_2,
+        Api::V0_3,
+        Api::V0_4,
+        Api::V0_5,
+        Api::V0_6,
+    ];
 
     /// Whether this world's client messages and epochs take their player's focus.
     pub(crate) fn focus(self) -> bool {
         match self {
             Api::V0_1 | Api::V0_2 | Api::V0_3 => false,
-            Api::V0_4 | Api::V0_5 => true,
+            Api::V0_4 | Api::V0_5 | Api::V0_6 => true,
         }
     }
 
@@ -79,7 +89,8 @@ impl Api {
             Api::V0_2 => v0_2::WIT,
             Api::V0_3 => v0_3::WIT,
             Api::V0_4 => v0_4::WIT,
-            Api::V0_5 => WIT,
+            Api::V0_5 => v0_5::WIT,
+            Api::V0_6 => WIT,
         };
         wit.lines()
             .find_map(|line| line.strip_prefix("package ")?.strip_suffix(';'))
@@ -102,7 +113,8 @@ pub(crate) enum Pre {
     V0_2(v0_2::ServerPre<HostState>),
     V0_3(v0_3::ServerPre<HostState>),
     V0_4(v0_4::ServerPre<HostState>),
-    V0_5(ServerPre<HostState>),
+    V0_5(v0_5::ServerPre<HostState>),
+    V0_6(ServerPre<HostState>),
 }
 
 impl Pre {
@@ -126,8 +138,12 @@ impl Pre {
                 Self::V0_4(v0_4::ServerPre::new(linker.instantiate_pre(component)?)?)
             }
             Api::V0_5 => {
+                v0_5::Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
+                Self::V0_5(v0_5::ServerPre::new(linker.instantiate_pre(component)?)?)
+            }
+            Api::V0_6 => {
                 Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
-                Self::V0_5(ServerPre::new(linker.instantiate_pre(component)?)?)
+                Self::V0_6(ServerPre::new(linker.instantiate_pre(component)?)?)
             }
         })
     }
@@ -162,6 +178,10 @@ impl Pre {
                 .call_register(store)
                 .map(plain),
             Self::V0_5(pre) => pre
+                .instantiate(&mut *store)
+                .with_context(instantiating)?
+                .call_register(store),
+            Self::V0_6(pre) => pre
                 .instantiate(&mut *store)
                 .with_context(instantiating)?
                 .call_register(store),
@@ -509,6 +529,23 @@ impl world_access::HostCallback for HostState {
         self.table
             .get_mut(&ctx)?
             .drop_item(pos.into(), stack.into())
+    }
+
+    fn crafting_result(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        grid: Vec<Option<ItemKey>>,
+    ) -> Result<Option<Crafted>> {
+        self.table.get_mut(&ctx)?.crafting_result(&grid)
+    }
+
+    fn schedule_update(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        pos: BlockPos,
+        ticks: u32,
+    ) -> Result<Result<(), WorldError>> {
+        self.table.get_mut(&ctx)?.schedule_update(pos.into(), ticks)
     }
 
     /// Only reachable for an owned handle, and the guest is only ever lent a callback.

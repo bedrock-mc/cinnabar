@@ -174,8 +174,8 @@ fn composite(ui: &[[u8; 4]], scene: &[[f32; 4]]) -> Option<Vec<[f32; 4]>> {
 }
 
 #[test]
-fn empty_ui_preserves_scene_color_and_alpha_exactly() {
-    let scene = [[0.125, 0.5, 0.875, 0.25], [-0.25, 1.5, 4.0, 0.75]];
+fn empty_ui_preserves_in_range_scene_color_and_alpha_exactly() {
+    let scene = [[0.125, 0.5, 0.875, 0.25], [0.0, 1.0, 0.25, 0.75]];
     let Some(pixels) = composite(&[[0; 4]; 2], &scene) else {
         return;
     };
@@ -214,4 +214,16 @@ fn opaque_and_translucent_ui_keep_premultiplied_gamma_blending() {
             );
         }
     }
+}
+
+#[test]
+fn empty_and_translucent_pixels_share_the_scene_clamp() {
+    let scene = [[2.0, -0.5, 0.25, 0.7]; 2];
+    let Some(pixels) = composite(&[[0; 4], [0, 0, 0, 1]], &scene) else {
+        return;
+    };
+    assert_eq!(pixels[0], [1.0, 0.0, 0.25, 0.7]);
+    assert!(pixels[1][0] <= 1.0);
+    assert!(pixels[1][1].abs() < 0.00001);
+    assert!((pixels[1][0] - pixels[0][0]).abs() < 0.01);
 }

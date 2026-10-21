@@ -1,0 +1,5 @@
+{
+  "namespace": "scoreboard",
+  "sidebar_frame": {"type": "panel"},
+  "scoreboard_sidebar@scoreboard.sidebar_frame": {}
+}

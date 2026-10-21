@@ -4,7 +4,10 @@ use std::mem::size_of;
 
 use super::super::{
     model::Record,
-    screen::{MAX_SCREEN_RECIPES, MultiRecipe, ScreenIngredient, ScreenRecipe, ScreenRecipes},
+    screen::{
+        BrewingRecipe, MAX_SCREEN_RECIPES, MultiRecipe, ScreenIngredient, ScreenRecipe,
+        ScreenRecipes,
+    },
 };
 
 /// Whether a record needs a decoded owner after its update leaves the queue.
@@ -36,7 +39,10 @@ pub(super) fn merged_charge(
             )
         })?;
     let multi = merged_views(&old.multi, &incoming.multi, records, |recipe| recipe.id).count();
-    recipes.checked_add(multi.checked_mul(size_of::<MultiRecipe>())?)
+    let brewing = brewing(old, incoming).len();
+    recipes
+        .checked_add(multi.checked_mul(size_of::<MultiRecipe>())?)?
+        .checked_add(brewing.checked_mul(size_of::<BrewingRecipe>())?)
 }
 
 /// Copies structural vectors only after the caller holds their complete reservation.
@@ -69,11 +75,26 @@ pub(super) fn merge(
     let mut multi = Vec::new();
     multi.try_reserve_exact(count).ok()?;
     multi.extend(merged_views(&old.multi, &incoming.multi, records, |recipe| recipe.id).copied());
+    let mut brewing_recipes = Vec::new();
+    brewing_recipes
+        .try_reserve_exact(brewing(old, incoming).len())
+        .ok()?;
+    brewing_recipes.extend_from_slice(brewing(old, incoming));
     Some(ScreenRecipes {
         recipes,
         multi,
+        brewing: brewing_recipes,
         skipped: 0,
     })
+}
+
+/// Brewing recipes have no IDs to merge by: an update that lists any replaces them all.
+fn brewing<'a>(old: &'a ScreenRecipes, incoming: &'a ScreenRecipes) -> &'a [BrewingRecipe] {
+    if incoming.brewing.is_empty() {
+        &old.brewing
+    } else {
+        &incoming.brewing
+    }
 }
 
 /// Merges sorted borrowed views while every advertised ID, including a tombstone, replaces old data.

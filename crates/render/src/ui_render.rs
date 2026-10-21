@@ -46,12 +46,17 @@ mod font_atlas;
 mod font_atlas_tests;
 #[path = "ui_render/item_glint.rs"]
 mod item_glint;
+#[cfg(test)]
+#[path = "ui_render/page_uniform_tests.rs"]
+mod page_uniform_tests;
 #[path = "ui_render/textures.rs"]
 mod textures;
 pub(crate) use textures::DeviceObservation;
 use textures::{UiGpuTextures, prepare_ui_bind_group};
 #[path = "ui_render/backdrop.rs"]
 pub(crate) mod backdrop;
+#[path = "ui_render/backdrop_levels.rs"]
+mod backdrop_levels;
 #[path = "ui_render/batches.rs"]
 mod batches;
 #[path = "ui_render/composite.rs"]
@@ -204,17 +209,21 @@ pub(crate) struct UiGpu {
     viewport_uploads: viewport::ViewportUploads,
     #[cfg(test)]
     geometry_writes: [usize; 2],
+    #[cfg(test)]
+    pub(crate) world_passes: std::sync::atomic::AtomicUsize,
     viewport_size: [u32; 2],
-    started: std::time::Instant,
+    started: web_time::Instant,
     textures: UiGpuTextures,
     sampler: Sampler,
     /// `bilinear` sprites sample through this instead.
     linear_sampler: Sampler,
     item_glint: item_glint::GpuItemGlint,
-    batches: Arc<[UiRenderBatch]>,
+    pub(crate) batches: Arc<[UiRenderBatch]>,
     accepted_revision: Option<u64>,
     /// The accepted revision draws glint, which animates without a new revision.
     animated: bool,
+    /// Maximum physical-pixel blur in the accepted backdrop geometry.
+    backdrop_blur: f32,
     /// Conservative glint coverage prepared once per accepted publication batch.
     animation_damage: Arc<[damage::UiDamage]>,
     // Admission watermark survives every draw rejection, even after payload drop.
@@ -226,8 +235,8 @@ pub(crate) struct UiGpu {
         std::collections::BTreeMap<Entity, (CachedRenderPipelineId, CachedRenderPipelineId)>,
     /// Each view's UI-layer composite pipelines.
     composite_pipelines: std::collections::BTreeMap<Entity, composite::CompositePipelines>,
-    world_view_pipelines: std::collections::BTreeMap<
-        (Entity, bool, bool),
+    pub(crate) world_view_pipelines: std::collections::BTreeMap<
+        (Entity, bool, bool, bool),
         (CachedRenderPipelineId, CachedRenderPipelineId),
     >,
     model_view_pipelines: std::collections::BTreeMap<
@@ -235,6 +244,10 @@ pub(crate) struct UiGpu {
         (CachedRenderPipelineId, CachedRenderPipelineId),
     >,
 }
+
+#[cfg(test)]
+#[path = "ui_render/geometry_tests.rs"]
+mod geometry_tests;
 
 #[cfg(test)]
 #[path = "ui_render/ordered_command_tests.rs"]

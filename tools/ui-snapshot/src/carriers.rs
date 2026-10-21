@@ -97,6 +97,7 @@ pub fn load(dir: &Path, menu: bool) -> Result<Carriers, Error> {
     } else {
         Arc::new(font)
     };
+    let font = mod_ui::fonts::install(font)?;
     let ui = RuntimeUiAssets::decode(&read(
         &dir.join(carriers::UI.output),
         assets::MAX_UI_CARRIER_BYTES,
@@ -125,6 +126,7 @@ pub fn load(dir: &Path, menu: bool) -> Result<Carriers, Error> {
         .pages()
         .iter()
         .map(|page| Page {
+            repeat_content: None,
             width: page.width,
             height: page.height,
             rgba: (0..page.width as usize * page.height as usize)
@@ -136,6 +138,7 @@ pub fn load(dir: &Path, menu: bool) -> Result<Carriers, Error> {
     pages.push(Page::white());
     let ui_page = pages.len() as u16;
     pages.extend(ui.atlas_pages().iter().map(|page| Page {
+        repeat_content: None,
         width: page.width,
         height: page.height,
         rgba: Arc::clone(&page.rgba8),
@@ -148,4 +151,19 @@ pub fn load(dir: &Path, menu: bool) -> Result<Carriers, Error> {
         solid_page,
         ui_page,
     })
+}
+
+/// Installs the same runtime Steve fallback used by the client, without embedding game art.
+pub fn install_default_skin(dir: &Path) -> Result<(), Error> {
+    let bytes = read(
+        &dir.join(carriers::STARTER_SKINS.output),
+        assets::starter_skins::MAX_STARTER_SKINS_BYTES,
+    )?;
+    let skins = assets::starter_skins::decode_starter_skins(&bytes).map_err(|e| e.to_string())?;
+    let default = skins
+        .skins
+        .first()
+        .ok_or_else(|| Error::Invalid("starter skin carrier has no default".into()))?;
+    render_model::install_default_player_skin(default.rgba8.to_vec().into());
+    Ok(())
 }

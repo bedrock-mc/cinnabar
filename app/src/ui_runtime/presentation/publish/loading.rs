@@ -108,8 +108,16 @@ pub(super) fn prepare_loading(
                 ),
             stream_work_drained,
             render_work_drained: observation.render_work_drained,
-            world_entry_held: runtime.experiences.holds_world_entry()
-                || !observation.pipelines_ready
+            world_entry_held: {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    runtime.experiences.holds_world_entry()
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    false
+                }
+            } || !observation.pipelines_ready
                 || client_world.dimension_transfer.waiting_for_switch()
                 || (client_world.dimension_transfer.active() && !local_terrain_ready),
         },
@@ -138,6 +146,12 @@ pub(super) fn prepare_loading(
         // Keep completion pending if either readiness command needs queue capacity.
         presentation.startup_mut().completion_queued =
             transfer_finished && network.finish_loading();
+    }
+    if released
+        && presentation.startup_mut().completion_queued
+        && !client_world.dimension_transfer.active()
+    {
+        bridge::join_profile::JoinProfile::current().ready_for_presentation();
     }
     diagnostics.set_startup_probe_enabled(presentation.startup_mut().probe_enabled(connected));
     presentation.set_loading_stage(if !connected {

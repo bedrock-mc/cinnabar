@@ -166,6 +166,7 @@ pub fn apply_hud(settings: &SettingsOptions, model: &mut HudModel) {
     }
     model.chat_background_opacity = background_opacity(settings);
     model.chat_lifetime = settings.chat_lifetime();
+    model.chat_color = default_color(settings);
 }
 
 /// The saved percentage shared by closed-chat notifications and the open chat screen.
@@ -173,14 +174,18 @@ pub(crate) fn background_opacity(settings: &SettingsOptions) -> f64 {
     f64::from(settings.value(SettingId::ChatBackgroundOpacity)) / 100.0
 }
 
-/// Applies the selected default color without discarding server-authored formatting codes.
-pub fn message_text(settings: &SettingsOptions, text: &str) -> String {
-    let text = crate::text::bounded_visible_text(text);
-    if settings.chat_color_code() == 'f' {
-        text.to_owned()
-    } else {
-        format!("§{}{text}", settings.chat_color_code())
-    }
+/// The optional presentation prefix; white keeps the pack's own default text color.
+pub fn default_color(settings: &SettingsOptions) -> Option<char> {
+    let code = settings.chat_color_code();
+    (ui::BedrockColor::from_code(code) != Some(ui::BedrockColor::White)).then_some(code)
+}
+
+/// Selects history descendants without tinting the editor, buttons or other HUD text.
+pub(crate) fn message_color(key: &str, root: &str, color: Option<char>) -> Option<char> {
+    color.filter(|_| {
+        key.split('/')
+            .any(|part| part.split(['[', '~']).next() == Some(root))
+    })
 }
 
 #[cfg(test)]

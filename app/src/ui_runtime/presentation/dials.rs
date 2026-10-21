@@ -103,7 +103,7 @@ pub(crate) struct DialResources<'w> {
     client_world: Res<'w, ClientWorld>,
     physics: Res<'w, client_interaction::movement::LocalPhysicsController>,
     view: Res<'w, client_presentation::local_player::LocalViewPose>,
-    clock: Res<'w, crate::environment::WorldClock>,
+    clock: Res<'w, client_presentation::environment::WorldClock>,
     time: Res<'w, Time<Real>>,
     presentation: ResMut<'w, UiPresentationResource>,
     equipment: Option<ResMut<'w, client_presentation::presentation::equipment::EquipmentRuntime>>,
@@ -150,10 +150,9 @@ pub(crate) fn advance_dials(
     {
         needles.advanced_tick = None;
     }
-    let celestial_angle = render_model::celestial_angle(crate::environment::visual_world_time(
-        *clock,
-        time.elapsed_secs_f64(),
-    ));
+    let celestial_angle = render_model::celestial_angle(
+        client_presentation::environment::visual_world_time(*clock, time.elapsed_secs_f64()),
+    );
     let (yaw, _, _) = view.camera_rotation().to_euler(EulerRot::YXZ);
     let yaw = (180.0 - yaw.to_degrees()).rem_euclid(360.0);
     let after = needles.advanced_tick;

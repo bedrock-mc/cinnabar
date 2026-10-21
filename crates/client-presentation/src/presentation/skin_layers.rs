@@ -7,20 +7,19 @@ use bevy::platform::collections::{HashMap, hash_map::Entry};
 use actor_animation::ActorRigSnapshot;
 use render_model::ActorRigGeometry;
 use render_model::{
-    ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigRoute, ActorRigSubmission,
-    EquipmentRaster,
+    ACTOR_LAYER_BODY, ACTOR_LAYER_SKIN_BASE, ActorArtworkLocation, ActorArtworkPages,
+    ActorRigRoute, ActorRigSubmission, EquipmentRaster,
 };
 
 use super::{
     actors::ActorPresentationBatch, entity_layers::LayerPoseCache, skin_rig::SkinRigCache,
 };
 
-/// Animated skin layers follow the cape and precede generic render-controller layers.
-pub const SKIN_LAYER_BASE: u8 = super::cape::ACTOR_LAYER_CAPE + 1;
+const _: () = assert!(ACTOR_LAYER_SKIN_BASE > super::cape::ACTOR_LAYER_CAPE);
 
 /// Whether an instance belongs to a player's animated skin, rather than equipment.
 pub fn is_skin_layer(layer: u8) -> bool {
-    (SKIN_LAYER_BASE..SKIN_LAYER_BASE + render_api::MAX_SKIN_ANIMATION_LAYERS as u8)
+    (ACTOR_LAYER_SKIN_BASE..ACTOR_LAYER_SKIN_BASE + render_api::MAX_SKIN_ANIMATION_LAYERS as u8)
         .contains(&layer)
 }
 
@@ -270,7 +269,8 @@ impl SkinLayerCache {
                     continue;
                 };
                 let mut submission = body.clone();
-                submission.input.identity.layer = SKIN_LAYER_BASE + layer.image.kind.slot() as u8;
+                submission.input.identity.layer =
+                    ACTOR_LAYER_SKIN_BASE + layer.image.kind.slot() as u8;
                 submission.input.rig = geometry;
                 submission.input.previous_bones = if layer.hidden_bones.is_empty() {
                     previous

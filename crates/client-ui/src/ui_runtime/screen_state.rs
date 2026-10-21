@@ -23,7 +23,6 @@ pub struct ScreenState {
     pub hover: Option<InventoryCellHit>,
     /// Chosen beacon effects; `0` means none.
     pub beacon: (i32, i32),
-    pub creative_tab: u8,
     /// First visible row of the creative grid.
     pub creative_row: usize,
     pub search: String,
@@ -44,15 +43,10 @@ pub struct ScreenState {
     pub mount_identifier: Option<std::sync::Arc<str>>,
     /// Admitted equipment facts; an unknown mount is not assumed to be a horse.
     pub mount_equipment: assets::entity::mount::MountEquipment,
-    /// An explicit layout choice; otherwise the current game mode selects its default.
-    pub book_open: Option<bool>,
-    pub furnace_book_open: bool,
-    /// Furnace tabs have their own food/items/blocks/search indexes.
-    pub furnace_tab: Option<u8>,
-    /// Creative's wide list stands in for its recipe book layout.
-    pub creative_wide: bool,
-    /// The recipe book's filter toggle, once flipped on this screen.
-    pub recipe_filtering: Option<bool>,
+    /// The open Classic inventory controller's complete preference snapshot.
+    pub inventory: Option<inventory::InventoryController>,
+    /// Preferences owned by the open furnace controller, independent of later server updates.
+    pub furnace: Option<protocol::FurnaceOptions>,
     /// The book, sign-off or lectern reader being shown, if any.
     pub book: Option<super::book_screen::BookState>,
     /// Page of the recipe book, in whole grids.
@@ -105,13 +99,14 @@ impl CrafterView {
 }
 
 impl ScreenState {
-    /// Drops session-owned input and window data while retaining the chosen inventory layout.
+    /// Drops all session-owned input and window preferences.
     pub(super) fn reset_session(&mut self) {
-        *self = Self {
-            book_open: self.book_open,
-            creative_wide: self.creative_wide,
-            ..Default::default()
-        };
+        *self = Self::default();
+    }
+
+    /// Whether the retained input state belongs to this window generation.
+    pub(super) fn observes_window(&self, generation: Option<u64>) -> bool {
+        self.window == generation
     }
 
     /// Clears per-window choices when a different window becomes current.
@@ -123,7 +118,8 @@ impl ScreenState {
             self.beacon = (0, 0);
             self.search_focused = false;
             self.recipe_choice = None;
-            self.furnace_tab = None;
+            self.furnace = None;
+            self.inventory = None;
             self.loom_pattern = None;
             self.loom_row = 0;
             self.anvil_name.clear();
@@ -135,13 +131,32 @@ impl ScreenState {
             self.mount_equipment = assets::entity::mount::MountEquipment::Unresolved;
             self.container_scroll.clear();
             self.creative_expanded.clear();
-            self.recipe_filtering = None;
         }
     }
 
+    /// Installs a preference snapshot with every inventory list at its first page.
+    pub(super) fn set_inventory_controller(&mut self, controller: inventory::InventoryController) {
+        self.inventory = Some(controller);
+        self.creative_row = 0;
+        self.book_page = 0;
+        self.container_scroll.clear();
+    }
+
+    /// Selects a UI category and resets the list position and search focus.
     pub fn select_tab(&mut self, tab: u8) {
+        if let Some(tab) = ui_screens::container_actions::inventory_tab(tab) {
+            self.inventory
+                .get_or_insert_with(|| {
+                    inventory::InventoryController::new(
+                        Default::default(),
+                        inventory::InventoryContext::Personal,
+                        false,
+                    )
+                })
+                .options
+                .left_tab = tab;
+        }
         self.search_focused = tab == SEARCH_TAB;
-        self.creative_tab = tab;
         self.creative_row = 0;
         self.container_scroll.clear();
     }

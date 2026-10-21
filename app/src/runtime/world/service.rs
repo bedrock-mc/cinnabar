@@ -2,7 +2,8 @@
 //! takes it back before the next frame's first, so commits and light and mesh scheduling
 //! overlap render extraction and frame pacing instead of the next frame's critical path.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 use bevy::{
     app::App,

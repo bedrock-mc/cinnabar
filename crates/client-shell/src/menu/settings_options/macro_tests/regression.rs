@@ -14,10 +14,10 @@ fn command_field() -> (App, Entity, ui::UiPoint, usize) {
     {
         let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
         menu.screen = MenuScreen::Settings;
-        menu.settings_section =
+        menu.settings.section =
             client_ui::test_support::settings_section_index("keyboard_and_mouse_forced_index")
                 .unwrap();
-        menu.settings_focus = vec![MenuAction::SettingsMacroCommand(0)];
+        menu.settings_input.actions = vec![MenuAction::SettingsMacroCommand(0)];
         menu.activate(MenuAction::SettingsMacroCommand(0));
         menu.edit_text("time set day");
     }

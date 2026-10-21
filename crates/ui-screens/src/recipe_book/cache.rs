@@ -17,7 +17,7 @@ use {
 /// The creative rows last published, with every input they were built from.
 pub struct BookCache {
     catalog: CreativeContentEvent,
-    tab: u8,
+    tab: protocol::InventoryTab,
     search: String,
     registry: Option<Arc<BTreeMap<i32, protocol::ItemRegistryEntry>>>,
     name_generation: u64,
@@ -50,7 +50,7 @@ impl BookCache {
         let state = source.screen();
         if !Arc::ptr_eq(&cache.catalog.items, &catalog.items)
             || !Arc::ptr_eq(&cache.catalog.groups, &catalog.groups)
-            || cache.tab != state.creative_tab
+            || cache.tab != state.inventory.options.left_tab
             || cache.search != state.search
             || !same_registry(
                 cache.registry.as_ref(),
@@ -80,7 +80,7 @@ impl BookCache {
         let state = source.screen();
         Some(Self {
             catalog: catalog.clone(),
-            tab: state.creative_tab,
+            tab: state.inventory.options.left_tab,
             search: state.search.to_owned(),
             registry: source
                 .player()

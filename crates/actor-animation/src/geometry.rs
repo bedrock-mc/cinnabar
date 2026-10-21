@@ -48,6 +48,7 @@ pub(super) fn resolve_binding(
     let first = rig.first_geometry as usize;
     let end = first.checked_add(rig.geometry_count as usize)?;
     let candidates = assets.rig_geometries().get(first..end)?;
+    candidates.first()?;
     let mut world_left = MAX_MOLANG_OPS_PER_ACTOR_TICK;
     let mut budget = EvalBudget {
         actor_left: MAX_MOLANG_OPS_PER_ACTOR_TICK,
@@ -120,9 +121,10 @@ pub(super) fn resolve_binding(
     motion.horse = super::horse::AnimationState::new(random_seed);
     let samples_camera_poses = plan.camera;
     let samples_swing_poses = plan.swing;
-    // Camera and swing rigs keep tick endpoints so frame-sampled inputs still blend motion.
+    // Live camera, swing and authored motion inputs need retained tick endpoints.
     let motion_sampling = (samples_camera_poses
         || samples_swing_poses
+        || render_frame::sampling::needs_motion_sampling(assets, rig_binding)
         || actor.is_creeper()
         || matches!(actor.kind(), ActorKind::Player { .. }))
     .then(|| layout.motion_plan(assets, rig_binding, geometry_binding, &controllers, &[]));
@@ -135,11 +137,15 @@ pub(super) fn resolve_binding(
         rig_binding,
         geometry_binding,
         bones,
+        composition: Arc::clone(&plan.composition),
         bone_names,
+        attachment_bindings: Arc::clone(&plan.attachments),
+        channel_bindings: Arc::clone(&plan.channels),
         render: Vec::new(),
         may_use_always_depth_material: plan.always_depth,
         scale: None,
-        layer_skeletons: BTreeMap::new(),
+        held_item_scale: None,
+        layer_skeletons: plan.skeletons.iter().cloned().collect(),
         controllers,
         server_animations: Vec::new(),
         previous: current.clone(),
@@ -516,6 +522,7 @@ fn reselect_geometry_with_checkpoint(
     state.samples_swing_poses = plan.swing;
     state.motion_sampling = (state.samples_camera_poses
         || state.samples_swing_poses
+        || render_frame::sampling::needs_motion_sampling(assets, state.rig_binding)
         || actor.is_creeper()
         || matches!(actor.kind(), ActorKind::Player { .. }))
     .then(|| {
@@ -530,7 +537,10 @@ fn reselect_geometry_with_checkpoint(
     state.samples_render_frames = plan.frames;
     state.geometry_binding = selected;
     state.bones = bones;
+    state.composition = Arc::clone(&plan.composition);
     state.bone_names = bone_names;
+    state.channel_bindings = Arc::clone(&plan.channels);
+    state.attachment_bindings = Arc::clone(&plan.attachments);
     state.controllers = controllers;
     state.reset_to_skeleton(pose);
     checkpoint

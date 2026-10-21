@@ -91,6 +91,12 @@ impl Experience for Probe {
         Ok(())
     }
 
+    /// Counts the update in the block's data, as x=0 counts interactions.
+    fn on_scheduled_update(ctx: &Callback, pos: BlockPos) -> Result<(), GuestError> {
+        log(LogLevel::Info, &format!("scheduled {}", count(ctx, pos)));
+        Ok(())
+    }
+
     fn epoch(ctx: &Callback, player: PlayerId) -> Result<(), GuestError> {
         let access = world_access(ctx);
         let channel = channels::ITEMS;
@@ -218,6 +224,8 @@ fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), GuestError>
         25 => tell(&contract::toggle_lamp(ctx, p)),
         26 => tell(&contract::mark_network(ctx)),
         27 => tell(&contract::make_stacks(ctx, up)),
+        28 => tell(&contract::craft(ctx)),
+        29 => tell(&contract::schedule(ctx, p)),
         x => return Err(GuestError::Rejected(format!("no probe behavior for x={x}"))),
     }
     Ok(())

@@ -44,7 +44,7 @@ def declarations(manifest, root=ROOT):
             if len(values) != len(set(values)):
                 raise ValueError(f'duplicate enum {key} in {enum["rust_name"]}')
         constants.extend({"rust_name": "", "go_name": variant["go_name"],
-                          "value": variant["value"], "rust_type": "str",
+                          "value": variant["value"], "rust_type": "str", "enum_value": True,
                           "doc": f'{enum["doc"]} {variant["rust_name"]}.'}
                          for variant in enum["variants"])
     for key in ("rust_name", "go_name"):
@@ -67,8 +67,9 @@ def declarations(manifest, root=ROOT):
             resolved[row["rust_name"]] = value
         rust_type = row["rust_type"]
         if rust_type == "str":
-            if not isinstance(value, str) or not value or not value.isascii():
-                raise ValueError("bridge string constants must be nonempty ASCII")
+            if (not isinstance(value, str) or not value.isascii()
+                    or (not value and not row.get("enum_value", False))):
+                raise ValueError("bridge strings must be ASCII and named constants must be nonempty")
             value = json.dumps(value)
             rust_type = "&str"
         else:
@@ -110,16 +111,26 @@ def declarations(manifest, root=ROOT):
             payload = "(String)" if enum.get("content") else ""
             rust += [f'    {variant["rust_name"]}{payload},']
         rust += ["}"]
+    def field_types(field):
+        """Resolve primitive fields or lists of declared contract records in both languages."""
+        kind = field["type"]
+        if kind in STRUCT_TYPES:
+            return STRUCT_TYPES[kind]
+        if kind.startswith("list:"):
+            name = kind.removeprefix("list:")
+            record = next((row for row in manifest.get("structs", []) if row["rust_name"] == name), None)
+            if record is not None:
+                return f"Vec<{name}>", f"[]{record['go_name']}"
+        raise ValueError(f"unsupported field type: {kind}")
+
     for struct in manifest.get("structs", []):
         rust += ["", f'/// {struct["doc"]}', f'#[derive({", ".join(struct["derive"])})]',
                  f'pub struct {struct["rust_name"]} {{']
         for field in struct["fields"]:
-            if field["type"] not in STRUCT_TYPES:
-                raise ValueError(f'unsupported field type in {struct["rust_name"]}')
             rust += [f'    /// {field["doc"]}']
             if field.get("default"):
                 rust += ["    #[serde(default)]"]
-            rust_type = STRUCT_TYPES[field["type"]][0]
+            rust_type = field_types(field)[0]
             rust += [f'    pub {field["name"]}: {rust_type},']
         rust += ["}"]
     go.append(")")
@@ -127,7 +138,7 @@ def declarations(manifest, root=ROOT):
         go += ["", f'// {struct["go_name"]}: {struct["doc"]}', f'type {struct["go_name"]} struct {{']
         for field in struct["fields"]:
             go += [f'    // {field["go_name"]}: {field["doc"]}',
-                   f'    {field["go_name"]} {STRUCT_TYPES[field["type"]][1]} `json:"{field["name"]}"`']
+                   f'    {field["go_name"]} {field_types(field)[1]} `json:"{field["name"]}"`']
         go.append("}")
     for row in manifest.get("string_lists", []):
         values = ", ".join(json.dumps(value) for value in string_list_values(row, resolved))

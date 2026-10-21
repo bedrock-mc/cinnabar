@@ -319,7 +319,7 @@ fn custom_fallback_uses_the_first_catalog_variant_after_sidecar_roundtrip() {
 }
 
 #[test]
-fn custom_fallback_rejects_redirected_catalog_routes_without_pack_pixels() {
+fn custom_catalog_redirects_resolve_the_selected_pack_or_carrier_path() {
     use assets::material_keys::{MaterialKeys, MaterialTextureSource};
     use serde_json::json;
 
@@ -354,7 +354,7 @@ fn custom_fallback_rejects_redirected_catalog_routes_without_pack_pixels() {
         ..Default::default()
     };
     for (path, expected_missing, replaces_base) in [
-        ("textures/blocks/birch_planks", true, true),
+        ("textures/blocks/birch_planks", false, true),
         ("textures/blocks/absent", true, false),
         ("textures/blocks/oak_planks", false, false),
         ("textures/blocks/lucky", false, true),
@@ -468,5 +468,55 @@ fn custom_fallback_preserves_catalog_tint_or_stays_diagnostic() {
         }
         assert_eq!(session.material(1), base.material(1));
         assert_eq!(session.material(2), base.material(2));
+    }
+}
+
+/// Custom terrain keys can name built-in raster files without shipping their own copies.
+#[test]
+fn custom_texture_aliases_resolve_carrier_pixels_for_blocks_and_items() {
+    let keys = oak_keys().with_sources(
+        [],
+        [(
+            1,
+            assets::material_keys::MaterialTextureSource {
+                key: "oak_planks".into(),
+                variant: 0,
+                path: "textures/blocks/oak_planks".into(),
+                raster: "textures/blocks/oak_planks.png".into(),
+                baked_tint: None,
+            },
+        )],
+        [],
+    );
+    let view = view_with_catalog(
+        GEOMETRY.as_bytes(),
+        r#"{"texture_data":{"fixture:wood":{"textures":"textures/blocks/oak_planks"}}}"#,
+    );
+    let base = base(base_materials());
+    let blocks = CustomBlocks {
+        blocks: vec![chair("fixture:chair", "fixture:wood")].into(),
+        ..Default::default()
+    };
+    for hashed in [false, true] {
+        let compiled = super::super::compile_block_overlay(
+            &view,
+            &blocks,
+            hashed,
+            Some(&keys),
+            assets::MAX_TEXTURE_LAYERS as u32,
+            Some(&base),
+        )
+        .unwrap();
+        assert_eq!(compiled.gaps.missing_textures, 0);
+        let icons = crate::runtime::network::item_icons::custom_block_icons(
+            &compiled.overlay,
+            &blocks,
+            hashed,
+            &[("fixture:chair".into(), "fixture:chair".into())],
+            None,
+        );
+        assert_eq!(icons.icons.len(), 1);
+        assert_eq!(icons.block_sheets.len(), 1);
+        assert!(icons.misses.is_empty());
     }
 }

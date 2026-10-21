@@ -46,6 +46,26 @@ fn row(index: usize) -> (MenuAction, ui::UiRect) {
 }
 
 #[test]
+fn first_world_list_paint_requests_a_bounded_preview_batch_without_row_geometry() {
+    for count in [0, 1, FIRST_BATCH, FIRST_BATCH + 1] {
+        let mut view = catalog();
+        view.local_worlds.truncate(count);
+        let images = view_images(&view, &[]);
+        let expected: Vec<_> = view
+            .local_worlds
+            .iter()
+            .take(FIRST_BATCH)
+            .filter_map(|world| world.thumbnail.as_ref())
+            .map(|thumbnail| thumbnail.key.clone())
+            .collect();
+        assert_eq!(
+            images.into_iter().map(|(key, _)| key).collect::<Vec<_>>(),
+            expected
+        );
+    }
+}
+
+#[test]
 fn scrolling_past_the_atlas_budget_installs_the_revealed_world_preview() {
     let view = catalog();
     let mut presentation =

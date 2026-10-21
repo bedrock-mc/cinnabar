@@ -15,6 +15,7 @@ reads = [
 test-support = []
 
 [dependencies]
+cosmetics = { path = "../cosmetics" }
 protocol-ids = { path = "../protocol-ids" }
 simulation-clock = { path = "../simulation-clock" }
 anyhow.workspace = true
@@ -46,6 +47,8 @@ sha2.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+render-model = { path = "../render-model", features = ["test-support"] }
+assets = { path = "../assets", features = ["test-support"] }
 actor-animation = { path = "../actor-animation", features = ["test-support"] }
 protocol = { path = "../protocol", features = ["test-support"] }
 test-time = { path = "../test-time" }

@@ -18,7 +18,8 @@ pub fn set_base_equipment_catalog(catalog: Arc<RuntimeEquipmentCatalog>) {
 }
 use collect::collect_files;
 
-use crate::{StackFingerprint, pack_textures::parse_pack_json};
+use crate::pack_textures::parse_pack_json;
+use resource_pack::StackFingerprint;
 
 use assets::SessionEntityPack;
 

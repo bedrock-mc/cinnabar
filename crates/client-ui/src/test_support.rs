@@ -182,7 +182,7 @@ pub fn creative_with(player_runtime: &mut player_state::PlayerState, count: u32)
             skipped: 0,
         }));
     runtime.screen_state_mut().creative_expanded.insert(5);
-    runtime.toggle_inventory(player_runtime);
+    runtime.toggle_inventory(player_runtime, None);
     runtime
 }
 

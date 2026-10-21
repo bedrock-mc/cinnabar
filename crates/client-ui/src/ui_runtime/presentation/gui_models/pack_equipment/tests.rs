@@ -11,6 +11,7 @@ fn catalog(color: [u8; 4]) -> Arc<assets::RuntimeEquipmentCatalog> {
             [1; 32],
             vec![EquipmentBinding {
                 identifier: "fixture:chestplate".into(),
+                attachable: None,
                 category: EquipmentCategory::Armor {
                     slot: ArmorSlot::Chestplate,
                 },

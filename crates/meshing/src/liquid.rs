@@ -295,6 +295,20 @@ impl<'chunk, 'assets> Sampler<'chunk, 'assets> {
         self.facts[index].set(updated);
         Some(updated)
     }
+
+    /// Whether the primary block at `coordinate` is one of the sorted `water_filled` values.
+    fn water_filled(
+        &self,
+        neighbourhood: &MeshNeighbourhood<'_>,
+        coordinate: [i32; 3],
+        water_filled: &[u32],
+    ) -> bool {
+        !water_filled.is_empty()
+            && self
+                .contributors(neighbourhood, coordinate)
+                .and_then(ResolvedContributors::primary_network_value)
+                .is_some_and(|value| water_filled.binary_search(&value).is_ok())
+    }
 }
 
 trait LiquidSampler {
@@ -545,12 +559,17 @@ pub fn sample_camera_medium(
     }
 }
 
+/// Meshes the liquid faces of the centre sub-chunk. `water_filled` lists, sorted, the network
+/// values of blocks Java fills with water (seagrass, kelp, bubble columns): when not empty,
+/// as while a shader pack renders the world, water draws no face toward them, as Java
+/// draws none between two water-filled cells.
 pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
     classifier: BlockClassifier,
     assets: &RuntimeAssets,
     mode: NetworkIdMode,
     neighbourhood: &MeshNeighbourhood<'_>,
     lighting_inputs: &L,
+    water_filled: &[u32],
 ) -> (Vec<PackedLiquidQuad>, Vec<PackedQuadLighting>) {
     let center = neighbourhood
         .sub_chunk([0, 0, 0])
@@ -597,9 +616,16 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
                 let heights = corner_heights(&sampler, neighbourhood, block, cell.identity);
                 let gradient = flow_gradient(&sampler, neighbourhood, block, cell);
                 let origin = [x as u8, y as u8, z as u8];
+                let java_water = |coordinate| {
+                    !cell.depth_writing
+                        && sampler.water_filled(neighbourhood, coordinate, water_filled)
+                };
                 let above = add(block, [0, 1, 0]);
+                // A roof only covers surfaces raised to its bottom boundary.
                 let top_emitted = !compatible(&sampler, neighbourhood, above, cell.identity)
-                    && !sampler.solid(neighbourhood, above, Face::NegativeY);
+                    && !java_water(above)
+                    && (heights != [LiquidLevel::FULL_HEIGHT; 4]
+                        || !sampler.solid(neighbourhood, above, Face::NegativeY));
                 if top_emitted {
                     let material = cell.top_material(gradient != [0, 0]);
                     push_quad(
@@ -628,6 +654,7 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
                         || sampler.solid(neighbourhood, adjacent, opposite_face(face))
                         || (!cell.depth_writing
                             && !layer_is_air(classifier, neighbourhood, 1, adjacent))
+                        || java_water(adjacent)
                     {
                         continue;
                     }
@@ -656,6 +683,7 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
                 if !compatible(&sampler, neighbourhood, below, cell.identity)
                     && !sampler.solid(neighbourhood, below, Face::PositiveY)
                     && (cell.depth_writing || layer_is_air(classifier, neighbourhood, 1, below))
+                    && !java_water(below)
                 {
                     push_quad(pack(
                         origin,

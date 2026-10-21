@@ -117,11 +117,12 @@ impl WorldStream {
         let mut prepared = Vec::with_capacity(updates.len());
         for (&key, blocks) in &updates {
             let previous = self.authority.terrain().sub_chunk(key);
-            let Ok(mutation) = ChunkStore::prepare_sub_chunk_blocks(
+            let Ok(mutation) = client_world::ingestion::prepare_block_mutation(
                 key,
                 previous.as_deref(),
                 blocks,
                 self.classifier.air_network_id(),
+                self.network_id_mode(),
             ) else {
                 return false;
             };
@@ -159,11 +160,12 @@ impl WorldStream {
     /// Replays a single deferred cell over a server batch that preceded the local action.
     fn commit_prediction(&mut self, key: SubChunkKey, update: BlockUpdate) -> bool {
         let previous = self.authority.terrain().sub_chunk(key);
-        ChunkStore::prepare_sub_chunk_blocks(
+        client_world::ingestion::prepare_block_mutation(
             key,
             previous.as_deref(),
             &[update],
             self.classifier.air_network_id(),
+            self.network_id_mode(),
         )
         .is_ok_and(|prepared| self.commit_block_mutations(vec![prepared]))
     }

@@ -34,6 +34,7 @@ pub(super) fn shape(record: &RegistryRecord, shapes: ShapeTraits) -> Option<Shap
         ),
         _ if shapes.contains(ShapeTraits::KELP) => bounds([0.125, 0.0, 0.125], [0.875, 1.0, 0.875]),
         _ if shapes.contains(ShapeTraits::GRASS) => bounds([0.1, 0.0, 0.1], [0.9, 0.8, 0.9]),
+        _ if shapes.contains(ShapeTraits::SHELF_MUSHROOM) => shelf(record)?,
         _ if shapes.intersects(ShapeTraits::SMALL_DRIPLEAF | ShapeTraits::FLOWER) => {
             bounds([0.15, 0.0, 0.15], [0.7, 0.6, 0.7])
         }
@@ -121,4 +122,22 @@ fn stem(record: &RegistryRecord) -> Option<ShapeBox> {
         _ => {}
     }
     Some(shape)
+}
+
+/// Selects a growth-sized shelf cap against its supporting face, independently of collision.
+fn shelf(record: &RegistryRecord) -> Option<ShapeBox> {
+    let state = State::read(record)?;
+    let (inset, lower, depth) = match state.number(BlockProperty::Growth)? {
+        0 => (0.1875, 0.5, 0.4375),
+        1 => (0.0625, 0.375, 0.625),
+        _ => return None,
+    };
+    let (min, max) = match state.direction()? {
+        0 => ([inset, lower, 0.0], [1.0 - inset, 0.6875, depth]),
+        1 => ([1.0 - depth, lower, inset], [1.0, 0.6875, 1.0 - inset]),
+        2 => ([inset, lower, 1.0 - depth], [1.0 - inset, 0.6875, 1.0]),
+        3 => ([0.0, lower, inset], [depth, 0.6875, 1.0 - inset]),
+        _ => return None,
+    };
+    Some(bounds(min, max))
 }

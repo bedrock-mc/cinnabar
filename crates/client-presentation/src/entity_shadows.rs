@@ -29,6 +29,9 @@ pub fn drawn_bodies(frame: &ActorRenderFrame, session_id: Option<u64>, out: &mut
             .filter(|entry| {
                 entry.identity.layer == ACTOR_LAYER_BODY
                     && Some(entry.identity.session_id) == session_id
+                    && !frame
+                        .mask_only_runtime_ids
+                        .contains(&entry.identity.runtime_id)
             })
             .map(|entry| entry.identity.runtime_id),
     );

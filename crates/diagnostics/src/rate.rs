@@ -5,8 +5,9 @@
 
 use std::{
     sync::atomic::{AtomicBool, Ordering},
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 /// Re-exports used by the logging macros, so callers need no direct `tracing` dependency.
 #[doc(hidden)]

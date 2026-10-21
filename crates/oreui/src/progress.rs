@@ -333,7 +333,12 @@ pub(super) fn loader(canvas: &mut Canvas<'_>, bounds: Bounds) -> Result<(), Pain
     Ok(())
 }
 
-fn track(canvas: &mut Canvas<'_>, bounds: Bounds, fraction: Option<f32>) -> Result<(), PaintError> {
+/// Draws the shared determinate transfer bar with the existing progress motion.
+pub(super) fn track(
+    canvas: &mut Canvas<'_>,
+    bounds: Bounds,
+    fraction: Option<f32>,
+) -> Result<(), PaintError> {
     canvas.fill(bounds, theme::NEUTRAL100)?;
     let edge = canvas.r(theme::EDGE);
     let inner = [

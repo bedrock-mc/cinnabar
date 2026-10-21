@@ -15,7 +15,9 @@ pub(crate) struct PreparedSkin {
     pub(crate) geometry: Arc<SkinGeometry>,
     pub(crate) mesh: Option<render_model::ActorRigGeometry>,
     pub(crate) bones: Vec<RuntimeBone>,
+    pub(crate) composition: Option<super::super::pose::Composition>,
     pub(crate) names: Vec<Box<str>>,
+    pub(crate) attachments: Arc<render_model::ActorAttachmentBindings>,
     pub(crate) layers: Vec<skin_layers::SkinLayerSkeleton>,
     pub(crate) rest: Option<Arc<[BoneTransform]>>,
 }
@@ -179,8 +181,12 @@ fn prepare(
                     mesh: render_model::skin_geometry(&geometry, render_model::DIAGNOSTIC_RIG_ID)
                         .ok(),
                     geometry: Arc::new(geometry),
+                    composition: super::super::pose::Composition::new(&bones),
                     bones,
                     layers: skin_layers::parse(source, &names),
+                    attachments: Arc::new(render_model::ActorAttachmentBindings::new(
+                        assets, &names,
+                    )),
                     names,
                     rest,
                 })),

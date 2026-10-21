@@ -10,7 +10,7 @@ pub(super) fn is_unused(id: PacketId) -> bool {
     )
 }
 
-impl PlaySession {
+impl<R: bridge::FrameRead> PlaySession<R> {
     /// Counts well-formed unused packets after decoding; malformed wire still ends the session.
     pub(super) fn discard_unused_packet(&mut self, raw: RawPacket) -> Result<(), ProtocolError> {
         let id = raw.id;

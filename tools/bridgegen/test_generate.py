@@ -52,6 +52,24 @@ class ContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             declarations(self.manifest)
 
+    def test_record_lists_require_a_declared_record(self):
+        """Reject list element names that cannot be emitted in both languages."""
+        self.manifest["structs"][-1]["fields"][0]["type"] = "list:MissingRecord"
+        with self.assertRaises(ValueError):
+            declarations(self.manifest)
+
+    def test_empty_enum_spelling_is_supported_without_empty_constants(self):
+        """Idle progress has an empty wire tag; named string constants still require a value."""
+        manifest = copy.deepcopy(self.manifest)
+        stage = next(row for row in manifest["enums"] if row["rust_name"] == "ConnectStage")
+        stage["variants"] = [row for row in stage["variants"] if row["rust_name"] != "Idle"]
+        stage["variants"].insert(0, {"rust_name": "Idle", "go_name": "ConnectStageIdle", "value": ""})
+        declarations(manifest)
+        row = next(row for row in manifest["constants"] if row["rust_name"] == "RELAY_EVENT_WELCOME")
+        row["value"] = ""
+        with self.assertRaises(ValueError):
+            declarations(manifest)
+
     def test_wire_values_remain_bounded(self):
         """Reject zero frame limits, port overflow, and signed error overflow."""
         for name, value in [("MAX_FRAME_LEN", 0), ("DEFAULT_BEDROCK_PORT", 65536),

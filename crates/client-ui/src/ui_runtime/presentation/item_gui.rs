@@ -54,11 +54,10 @@ pub(super) fn cube(faces: [IconRef; 6]) -> Option<Arc<UiMesh>> {
         .map(Arc::new)
 }
 
-/// Draws all six alpha-tested faces so rear texels remain visible through front-face holes.
+/// Draws the cube's camera-facing surfaces with alpha-tested texels.
 /// The caller normalizes non-blended texels and retains thumbnails for fractional blending.
 pub(super) fn cutout_cube(faces: [IconRef; 6]) -> Option<Arc<UiMesh>> {
-    let quads = assets::BlockFace::ALL.map(|face| {
-        let (corners, uvs) = assets::gui_item::cube_face(face);
+    let quads = CUBE_FACES.map(|(face, corners, uvs, _)| {
         (
             assets::gui_item::GuiBlockQuad {
                 corners,

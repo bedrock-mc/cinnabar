@@ -2,6 +2,25 @@
 
 use super::*;
 
+impl CustomPhysicalComponents {
+    /// Whether this override can change collision, targeting or movement, independently of mining.
+    pub fn affects_physics(&self) -> bool {
+        let Self {
+            mining: _,
+            random_offset,
+            collision,
+            selection,
+            transformation,
+            friction,
+        } = self;
+        random_offset.is_some()
+            || collision.is_some()
+            || selection.is_some()
+            || transformation.is_some()
+            || friction.is_some()
+    }
+}
+
 pub(super) fn collision_enabled(component: Option<&Nbt>) -> bool {
     match component {
         Some(Nbt::Byte(enabled)) => *enabled != 0,
@@ -33,13 +52,19 @@ pub(super) fn selection_component(component: Option<&Nbt>) -> CustomSelection {
     }
 }
 
-pub(super) fn physical_components(components: Option<&Nbt>) -> (CustomPhysicalComponents, usize) {
+/// Retains state overrides and reports physical omissions and mining omissions separately.
+pub(super) fn physical_components(
+    components: Option<&Nbt>,
+) -> (CustomPhysicalComponents, usize, usize) {
+    let (mining, mining_skips) =
+        mining::component(components.and_then(|set| set.field(mining::COMPONENT)));
     let collision = components.and_then(|set| set.field("minecraft:collision_box"));
     let (boxes, collision_skips) = collision_components(collision);
     let (friction, friction_skips) =
         friction_component(components.and_then(|set| set.field("minecraft:friction")));
     (
         CustomPhysicalComponents {
+            mining,
             random_offset: components
                 .and_then(|set| set.field("minecraft:random_offset"))
                 .and_then(random_offset_component),
@@ -59,7 +84,13 @@ pub(super) fn physical_components(components: Option<&Nbt>) -> (CustomPhysicalCo
                 components
                     .and_then(|set| set.field("minecraft:random_offset"))
                     .is_some_and(|value| random_offset_component(value).is_none()),
+            )
+            + usize::from(
+                components
+                    .and_then(|set| set.field("minecraft:transformation"))
+                    .is_some_and(|_| transformation_component(components).is_none()),
             ),
+        mining_skips,
     )
 }
 

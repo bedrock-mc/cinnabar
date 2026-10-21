@@ -272,11 +272,17 @@ fn carrier_source_identity_retains_the_filename_selected_by_the_image_loader() {
         "textures/fixture.tga"
     );
     std::fs::write(root.path().join("textures/fixture.png"), []).unwrap();
-    for path in [
-        "textures/fixture",
-        "textures/fixture.png",
-        "./textures/fixture.png",
-    ] {
+    let preferred = format!(
+        "textures/fixture.{}",
+        pack_compile_input::texture_path::IMAGE_EXTENSIONS[0].0
+    );
+    assert_eq!(
+        raster_identity(root.path(), "textures/fixture")
+            .unwrap()
+            .as_ref(),
+        preferred.as_str()
+    );
+    for path in ["textures/fixture.png", "./textures/fixture.png"] {
         assert_eq!(
             raster_identity(root.path(), path).unwrap().as_ref(),
             "textures/fixture.png"

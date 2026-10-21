@@ -4,7 +4,15 @@ use launcher::dressing_room::{Action, DressingRoomView, SkinModel};
 use std::sync::Arc;
 use {super::*, launcher::install_layout::InstallLayout, launcher::menu::MenuAction};
 
+#[cfg(target_arch = "wasm32")]
+mod browser;
+/// Command admission shared by the native and browser catalog executors.
+const MAX_SKIN_COMMANDS: usize = 4;
+
 mod editor;
+#[cfg(any(target_arch = "wasm32", test))]
+mod memory;
+#[cfg(not(target_arch = "wasm32"))]
 mod picker;
 #[cfg(test)]
 mod tests;
@@ -14,6 +22,8 @@ pub(super) struct Worker {
     commands: crossbeam_channel::Sender<Job>,
     results: crossbeam_channel::Receiver<Outcome>,
     pending: usize,
+    #[cfg(target_arch = "wasm32")]
+    alive: Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[derive(Debug)]
@@ -24,9 +34,15 @@ enum Job {
     Rename(usize, String),
     Delete(usize),
     SelectCape(Option<usize>),
+    SelectCosmetic(Option<cosmetics::Item>),
     ImportCape(Option<PathBuf>),
     RenameCape(usize, String),
     DeleteCape(usize),
+    #[cfg(target_arch = "wasm32")]
+    Pick(
+        bool,
+        crossbeam_channel::Receiver<Result<Vec<launcher::skin_import::picked::PickedFile>, String>>,
+    ),
 }
 
 #[derive(Debug)]
@@ -88,11 +104,15 @@ fn selection_key(
 }
 
 impl Worker {
+    #[cfg(not(target_arch = "wasm32"))]
+    /// Starts the native catalog thread and its optional catalog refresh.
     fn start(
         layout: InstallLayout,
         fallback: crate::player_skin::LocalPlayerSkin,
     ) -> Result<Self, String> {
         Self::start_with_refresh(layout, fallback, |layout| {
+            #[cfg(not(any(test, feature = "test-support")))]
+            crate::player_skin::catalog::refresh_cosmetics(layout);
             #[cfg(not(any(test, feature = "test-support")))]
             crate::player_skin::catalog::refresh_default_capes(layout);
             #[cfg(any(test, feature = "test-support"))]
@@ -100,12 +120,14 @@ impl Worker {
         })
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    /// Runs native I/O away from the frame loop while keeping command admission bounded.
     fn start_with_refresh(
         layout: InstallLayout,
         fallback: crate::player_skin::LocalPlayerSkin,
         refresh: impl FnOnce(&InstallLayout) + Send + 'static,
     ) -> Result<Self, String> {
-        let (commands, incoming) = crossbeam_channel::bounded(4);
+        let (commands, incoming) = crossbeam_channel::bounded(MAX_SKIN_COMMANDS);
         let (outgoing, results) = crossbeam_channel::unbounded();
         std::thread::Builder::new()
             .name("skin-selection".to_owned())
@@ -178,6 +200,8 @@ impl Worker {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+/// Applies a native command through the durable catalog owner.
 fn apply_job(layout: &InstallLayout, view: &mut DressingRoomView, job: Job) -> Result<(), String> {
     use crate::player_skin::catalog;
     match job {
@@ -189,6 +213,7 @@ fn apply_job(layout: &InstallLayout, view: &mut DressingRoomView, job: Job) -> R
         Job::Rename(index, name) => catalog::rename(layout, view, index, &name),
         Job::Delete(index) => catalog::delete(layout, view, index),
         Job::SelectCape(index) => catalog::select_cape(layout, view, index),
+        Job::SelectCosmetic(hat) => catalog::select_cosmetic(layout, view, hat),
         Job::ImportCape(None) => picker::pick(true)
             .and_then(|path| path.map_or(Ok(()), |path| catalog::import_cape(layout, view, &path))),
         Job::ImportCape(Some(path)) => catalog::import_cape(layout, view, &path),
@@ -240,16 +265,26 @@ impl MenuRuntime {
         }
         match action {
             Action::SetSection(section) => {
-                Arc::make_mut(&mut self.dressing_room).section = section;
+                let view = Arc::make_mut(&mut self.dressing_room);
+                view.section = section;
+                view.cosmetic_filter_open = false;
                 self.field = None;
                 self.hovered = None;
                 self.pressed = None;
                 self.focused = 0;
             }
+            Action::ToggleCosmeticFilter => {
+                self.set_cosmetic_filter_open(!self.dressing_room.cosmetic_filter_open);
+            }
+            Action::SetCosmeticCategory(category) => {
+                Arc::make_mut(&mut self.dressing_room).cosmetic_category = category;
+                self.set_cosmetic_filter_open(false);
+            }
             Action::Select(index) => self.queue_skin_job(Job::Select(index)),
             Action::Import => self.queue_skin_job(Job::Import(None)),
             Action::ImportCape => self.queue_skin_job(Job::ImportCape(None)),
             Action::SelectCape(index) => self.queue_skin_job(Job::SelectCape(index)),
+            Action::SelectCosmetic(hat) => self.queue_skin_job(Job::SelectCosmetic(hat)),
             Action::SetModel(model) => self.queue_skin_job(Job::Model(model)),
             Action::BeginRename(index) => self.begin_skin_editor(
                 index,
@@ -277,6 +312,25 @@ impl MenuRuntime {
         }
     }
 
+    /// Opens category choices or restores focus to their filter button after dismissal.
+    fn set_cosmetic_filter_open(&mut self, open: bool) {
+        Arc::make_mut(&mut self.dressing_room).cosmetic_filter_open = open;
+        self.field = None;
+        self.hovered = None;
+        self.pressed = None;
+        let action = MenuAction::DressingRoom(if open {
+            Action::SetCosmeticCategory(self.dressing_room.cosmetic_category)
+        } else {
+            Action::ToggleCosmeticFilter
+        });
+        self.focused = self
+            .dressing_room_focus()
+            .iter()
+            .position(|candidate| *candidate == action)
+            .unwrap_or_default();
+        self.navigation_focus.record_input(Some(action));
+    }
+
     /// Uses the same skin importer as the Dressing Room file picker.
     #[cfg(any(test, feature = "developer-control"))]
     pub fn import_skin_path(&mut self, path: PathBuf) {
@@ -296,18 +350,25 @@ impl MenuRuntime {
     /// Publishes completed appearance work to local state and retries the current skin packet.
     pub fn poll_dressing_room(
         &mut self,
-        local: Option<&mut crate::player_skin::LocalPlayerSkin>,
+        mut local: Option<&mut crate::player_skin::LocalPlayerSkin>,
         stream: Option<&mut chunk_pipeline::WorldStream>,
         send: Option<&SkinPacketSender<'_>>,
         session: u64,
     ) {
+        #[cfg(not(any(test, feature = "test-support")))]
+        self.ensure_dressing_room();
         if let Some(worker) = self.dressing_room_worker.as_mut() {
-            while let Ok(mut result) = worker.results.try_recv() {
+            for _ in 0..MAX_SKIN_COMMANDS + 2 {
+                let Ok(mut result) = worker.results.try_recv() else {
+                    break;
+                };
                 if result.completed_command {
                     worker.pending = worker.pending.saturating_sub(1);
                 }
                 result.view.busy = worker.pending != 0;
                 result.view.section = self.dressing_room.section;
+                result.view.cosmetic_category = self.dressing_room.cosmetic_category;
+                result.view.cosmetic_filter_open = self.dressing_room.cosmetic_filter_open;
                 if !result.completed_command {
                     result.view.editor = self.dressing_room.editor.clone();
                     result.view.message = self.dressing_room.message.clone();
@@ -329,7 +390,24 @@ impl MenuRuntime {
                     self.skin_outbound = None;
                     self.skin_packet_pending = result.packet;
                 }
+                if self.player_skin.cosmetics
+                    != cosmetics::resolve(&result.view.selected_cosmetics, cosmetics::owns)
+                {
+                    self.player_skin.cosmetics =
+                        cosmetics::resolve(&result.view.selected_cosmetics, cosmetics::owns);
+                    if let Some(local) = local.as_deref_mut() {
+                        local.cosmetics.clone_from(&self.player_skin.cosmetics);
+                    }
+                }
                 self.dressing_room = Arc::new(result.view);
+            }
+        }
+        // Account grant changes also update an already-open wardrobe without a new appearance job.
+        let resolved = cosmetics::resolve(&self.dressing_room.selected_cosmetics, cosmetics::owns);
+        if self.player_skin.cosmetics != resolved {
+            self.player_skin.cosmetics = resolved;
+            if let Some(local) = local.as_deref_mut() {
+                local.cosmetics.clone_from(&self.player_skin.cosmetics);
             }
         }
         if !self.skin_update_pending {
@@ -414,14 +492,20 @@ impl MenuRuntime {
         if self.dressing_room.busy {
             return actions;
         }
+        if self.dressing_room.cosmetic_filter_open {
+            return std::iter::once(MenuAction::DressingRoom(Action::ToggleCosmeticFilter))
+                .chain(
+                    launcher::dressing_room::CosmeticCategory::ALL.map(|category| {
+                        MenuAction::DressingRoom(Action::SetCosmeticCategory(category))
+                    }),
+                )
+                .collect();
+        }
         actions.extend(
-            [
-                launcher::dressing_room::DressingRoomSection::Skins,
-                launcher::dressing_room::DressingRoomSection::Capes,
-            ]
-            .into_iter()
-            .filter(|section| *section != self.dressing_room.section)
-            .map(|section| MenuAction::DressingRoom(Action::SetSection(section))),
+            launcher::dressing_room::DressingRoomSection::ALL
+                .into_iter()
+                .filter(|section| *section != self.dressing_room.section)
+                .map(|section| MenuAction::DressingRoom(Action::SetSection(section))),
         );
         if self.dressing_room.section == launcher::dressing_room::DressingRoomSection::Capes {
             actions.extend([
@@ -443,6 +527,21 @@ impl MenuRuntime {
                     MenuAction::DressingRoom(Action::BeginDeleteCape(index)),
                 ]);
             }
+            return actions;
+        }
+        if self.dressing_room.section == launcher::dressing_room::DressingRoomSection::Cosmetics {
+            actions.push(MenuAction::DressingRoom(Action::ToggleCosmeticFilter));
+            actions.push(MenuAction::DressingRoom(Action::SelectCosmetic(None)));
+            actions.extend(
+                cosmetics::Item::all()
+                    .iter()
+                    .filter(|item| {
+                        self.dressing_room
+                            .cosmetic_category
+                            .includes_slot(&item.descriptor().slot)
+                    })
+                    .map(|hat| MenuAction::DressingRoom(Action::SelectCosmetic(Some(*hat)))),
+            );
             return actions;
         }
         actions.push(MenuAction::DressingRoom(Action::Import));

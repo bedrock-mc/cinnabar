@@ -126,7 +126,9 @@ fn load(
             FontRendering::NativeCoverage => {
                 sizes.insert(em, raster);
             }
-            FontRendering::Coverage => return Err("face bundle holds a pixel-grid raster".into()),
+            FontRendering::Coverage | FontRendering::OutlineCoverage => {
+                return Err("face bundle holds a non-native raster".into());
+            }
         }
     }
     Ok((

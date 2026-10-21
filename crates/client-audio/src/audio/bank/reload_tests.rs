@@ -17,6 +17,7 @@ fn replacing_a_pack_preserves_the_pool_and_discards_stale_completion() {
         generation: Arc::clone(&generation),
         encoded_bytes: Arc::new(AtomicUsize::new(0)),
         server: Arc::new(Mutex::new((0, None))),
+        external: false,
     });
     bank.install_server(Some(Arc::new(ServerSoundPack::default())));
     let decoder = bank.decoder.as_ref().expect("one pool survives reload");
@@ -30,10 +31,10 @@ fn replacing_a_pack_preserves_the_pool_and_discards_stale_completion() {
         samples: vec![value; 2].into(),
     };
     results
-        .send((0, "sounds/shared".into(), Some(pcm(1234))))
+        .blocking_send((0, "sounds/shared".into(), Some(pcm(1234))))
         .unwrap();
     results
-        .send((epoch, "sounds/shared".into(), Some(pcm(-2345))))
+        .blocking_send((epoch, "sounds/shared".into(), Some(pcm(-2345))))
         .unwrap();
     bank.poll();
     let PcmLookup::Ready(loaded) = bank.lookup("sounds/shared", false) else {
@@ -69,6 +70,7 @@ fn stale_queued_sounds_do_not_retain_previous_pack_archives() {
         generation: Arc::new(AtomicU64::new(0)),
         encoded_bytes: Arc::new(AtomicUsize::new(0)),
         server: Arc::new(Mutex::new((0, None))),
+        external: false,
     });
     let mut retired = Vec::new();
     for _ in 0..4 {

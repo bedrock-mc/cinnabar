@@ -1,6 +1,7 @@
 use super::*;
 
-struct NetworkPumpRuntime<F, W> {
+struct NetworkPumpRuntime<F, W, E> {
+    executor: E,
     readiness_ingress: Arc<ReadinessIngressCounter>,
     experience_gate: Arc<experience::ExperienceGate>,
     trace_line: F,
@@ -26,6 +27,7 @@ pub(super) async fn run_network_pump<S: NetworkSession>(
         shutdown_rx,
         (Arc::default(), Arc::default()),
         SessionTrace::default(),
+        execution::NativeNetworkExecutor::default(),
     )
     .await;
 }
@@ -58,6 +60,7 @@ pub(super) async fn run_network_pump_with_trace<S, F, W>(
             trace_line,
             write_trace,
             observation: SessionTrace::default(),
+            executor: execution::NativeNetworkExecutor::default(),
         },
     )
     .await;
@@ -67,6 +70,7 @@ pub(super) async fn run_network_pump_with_trace<S, F, W>(
 pub(super) async fn run_network_pump_with_readiness_ingress<
     S: NetworkSession,
     P: Send + 'static,
+    E: NetworkExecutor,
 >(
     session: S,
     sequencer: NetworkSequencer,
@@ -79,6 +83,7 @@ pub(super) async fn run_network_pump_with_readiness_ingress<
         Arc<experience::ExperienceGate>,
     ),
     observation: SessionTrace,
+    executor: E,
 ) {
     let (readiness_ingress, experience_gate) = gates;
     run_network_pump_with_readiness_ingress_and_trace(
@@ -94,24 +99,26 @@ pub(super) async fn run_network_pump_with_readiness_ingress<
             trace_line: observation.movement_line,
             write_trace: observation.write_movement,
             observation,
+            executor,
         },
     )
     .await;
 }
 
-async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W, P>(
+async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W, P, E>(
     mut session: S,
     mut sequencer: NetworkSequencer,
     command_rx: mpsc::Receiver<NetworkCommand>,
     control_event_tx: mpsc::Sender<NetworkControlEvent<P>>,
     world_event_tx: mpsc::Sender<WorldIngress>,
     mut shutdown_rx: watch::Receiver<bool>,
-    runtime: NetworkPumpRuntime<F, W>,
+    runtime: NetworkPumpRuntime<F, W, E>,
 ) where
     S: NetworkSession,
     F: FnMut(u64, &Packet) -> Option<String> + Send + 'static,
     W: FnMut(&str) + Send + 'static,
     P: Send + 'static,
+    E: NetworkExecutor,
 {
     let NetworkPumpRuntime {
         readiness_ingress,
@@ -119,7 +126,9 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W, P>(
         trace_line,
         write_trace,
         observation,
+        executor,
     } = runtime;
+    let timers = executor.timers();
     let outbound = match session.outbound() {
         Ok(outbound) => outbound,
         Err(error) => {
@@ -138,7 +147,7 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W, P>(
         }
     };
     let (hooks, mut hook_rx) = mpsc::unbounded_channel();
-    let _outbound_task = OutboundTask(tokio::spawn(run_outbound(OutboundRuntime {
+    let _outbound_task = executor.spawn_outbound(run_outbound(OutboundRuntime {
         outbound,
         commands: command_rx,
         control_event_tx: control_event_tx.clone(),
@@ -148,7 +157,7 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W, P>(
         trace_line,
         write_trace,
         fast_transfer_action_marker: observation.fast_transfer_action_marker,
-    })));
+    }));
     // Holds the command receiver after a write failure until the terminal event is queued.
     let mut _failed_commands = None;
     // Between arming a transfer trace and its write result, nothing inbound is decoded, so
@@ -183,13 +192,14 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W, P>(
         world_event_tx: &mpsc::Sender<WorldIngress>,
         control_event_tx: &mpsc::Sender<NetworkControlEvent<P>>,
         shutdown_rx: &mut watch::Receiver<bool>,
+        timers: bridge::tasks::Timers,
     ) {
         if let Some(pending) = pending
             && !send_event_or_cancel(world_event_tx, shutdown_rx, pending).await
         {
             return;
         }
-        send_final_blob_cache_telemetry(session, control_event_tx).await;
+        send_final_blob_cache_telemetry(session, control_event_tx, timers).await;
         let target = SessionTransferTarget {
             host: transfer.host,
             port: transfer.port,
@@ -271,9 +281,9 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W, P>(
                 }
                 // A core that ended the session closes it, so the write can fail before the
                 // Transfer or Disconnect behind unread packets is read.
-                let _ = tokio::time::timeout(
-                    protocol::WRITE_FAILURE_DRAIN,
+                let _ = bridge::tasks::until(
                     session.drain_to_boundary(),
+                    timers.sleep(protocol::WRITE_FAILURE_DRAIN),
                 )
                 .await;
                 if let Some(transfer) = session.take_server_transfer() {
@@ -284,6 +294,7 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W, P>(
                         &world_event_tx,
                         &control_event_tx,
                         &mut shutdown_rx,
+                        timers,
                     )
                     .await;
                     return;
@@ -307,7 +318,7 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W, P>(
                     session.decode_error_count(),
                     server_disconnect.as_ref(),
                 );
-                send_final_blob_cache_telemetry(&session, &control_event_tx).await;
+                send_final_blob_cache_telemetry(&session, &control_event_tx, timers).await;
                 let _ = send_control_event_or_cancel(
                     &control_event_tx,
                     &mut shutdown_rx,
@@ -334,6 +345,7 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W, P>(
                         &world_event_tx,
                         &control_event_tx,
                         &mut shutdown_rx,
+                        timers,
                     )
                     .await;
                     return;
@@ -363,6 +375,7 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W, P>(
                         &world_event_tx,
                         &control_event_tx,
                         &mut shutdown_rx,
+                        timers,
                     )
                     .await;
                     return;
@@ -377,6 +390,7 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W, P>(
                         &world_event_tx,
                         &control_event_tx,
                         &mut shutdown_rx,
+                        timers,
                     )
                     .await;
                     return;
@@ -388,7 +402,7 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W, P>(
                     session.decode_error_count(),
                     server_disconnect.as_ref(),
                 );
-                send_final_blob_cache_telemetry(&session, &control_event_tx).await;
+                send_final_blob_cache_telemetry(&session, &control_event_tx, timers).await;
                 let _ = send_control_event_or_cancel(
                     &control_event_tx,
                     &mut shutdown_rx,
@@ -405,7 +419,7 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W, P>(
         }
     }
 
-    send_final_blob_cache_telemetry(&session, &control_event_tx).await;
+    send_final_blob_cache_telemetry(&session, &control_event_tx, timers).await;
     let _ = send_control_event_or_cancel(
         &control_event_tx,
         &mut shutdown_rx,

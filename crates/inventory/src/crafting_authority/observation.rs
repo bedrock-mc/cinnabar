@@ -68,67 +68,46 @@ impl Source {
             epoch: None,
         }
     }
-    fn from_event(event: &InventoryAuthorityEvent, sequence: u64) -> Option<Self> {
+    /// Records wire provenance for cells the ledger admitted, without routing them again.
+    fn from_admission(event: &InventoryAuthorityEvent, sequence: u64, mask: u8) -> Option<Self> {
+        if mask == 0 {
+            return None;
+        }
         match event {
-            InventoryAuthorityEvent::Inventory(InventoryEvent::Slot(slot)) => {
-                let container = &slot.identity.container;
-                let index = match protocol::project_container_cell(container, slot.identity.slot) {
-                    Some(protocol::CanonicalCell::CraftInput(index)) => Some(index),
-                    Some(protocol::CanonicalCell::Cursor) => Some(4),
-                    _ => protocol::personal_craft_slot_index(container, slot.identity.slot),
-                }?;
-                Some(Self::new(
-                    1,
-                    *container,
-                    [slot.identity.slot, 0, 0, 0],
-                    1 << index,
-                    sequence,
-                ))
-            }
+            InventoryAuthorityEvent::Inventory(InventoryEvent::Slot(slot)) => Some(Self::new(
+                1,
+                slot.identity.container,
+                [slot.identity.slot, 0, 0, 0],
+                mask,
+                sequence,
+            )),
             InventoryAuthorityEvent::Inventory(InventoryEvent::Content(content)) => {
-                if let Some(indices) = protocol::personal_craft_content_indices(
+                let slots = protocol::personal_craft_content_indices(
                     &content.container,
                     content.slots.len(),
-                ) {
-                    Some(Self::new(
-                        2,
-                        content.container,
-                        indices.map(|index| index as u16),
-                        15,
-                        sequence,
-                    ))
-                } else if content.slots.len() == 1
-                    && content.container.slot_type == Some(protocol::CONTAINER_NAME_CURSOR)
-                {
-                    Some(Self::new(2, content.container, [0; 4], 16, sequence))
-                } else {
-                    None
-                }
+                )
+                .map_or([0; 4], |indices| indices.map(|index| index as u16));
+                Some(Self::new(2, content.container, slots, mask, sequence))
             }
             InventoryAuthorityEvent::Inventory(event @ InventoryEvent::Transaction(_)) => {
-                let mut mask = 0;
                 let mut slots = [0; 4];
                 for slot in event.slot_updates() {
-                    if let Some(index) = super::projection::transaction_cell_index(slot.identity) {
-                        mask |= 1 << index;
-                        if let Some(position) = slots.get_mut(index) {
-                            *position = slot.identity.slot;
-                        }
+                    if let Some(index) = slot
+                        .identity
+                        .slot
+                        .checked_sub(u16::from(*protocol::CRAFTING_INPUT_SLOTS.start()))
+                        && let Some(position) = slots.get_mut(usize::from(index))
+                    {
+                        *position = slot.identity.slot;
                     }
                 }
-                (mask != 0).then(|| {
-                    Self::new(
-                        3,
-                        ContainerIdentity {
-                            window_id: Some(protocol::UI_INVENTORY_WINDOW_ID),
-                            slot_type: Some(0),
-                            dynamic_id: None,
-                        },
-                        slots,
-                        mask,
-                        sequence,
-                    )
-                })
+                Some(Self::new(
+                    3,
+                    ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+                    slots,
+                    mask,
+                    sequence,
+                ))
             }
             _ => None,
         }
@@ -230,11 +209,11 @@ impl Probe {
         self.epoch = epoch;
         self.through = through;
     }
-    fn stage(&mut self, session: u64, sequence: u64, event: &InventoryAuthorityEvent) {
+    fn stage(&mut self, session: u64, sequence: u64, event: &InventoryAuthorityEvent, mask: u8) {
         if self.retired || self.session != Some(session) {
             return;
         }
-        let Some(source) = Source::from_event(event, sequence) else {
+        let Some(source) = Source::from_admission(event, sequence, mask) else {
             return;
         };
         if self
@@ -669,8 +648,8 @@ pub(super) fn bootstrap(session: u64, registry: bool) {
 pub(super) fn synchronize(session: u64, identity: Option<(u64, u64, Option<u64>)>) {
     with_probe(|probe| probe.synchronize(session, identity));
 }
-pub(super) fn stage(session: u64, sequence: u64, event: &InventoryAuthorityEvent) {
-    with_probe(|probe| probe.stage(session, sequence, event));
+pub(super) fn stage(session: u64, sequence: u64, event: &InventoryAuthorityEvent, mask: u8) {
+    with_probe(|probe| probe.stage(session, sequence, event, mask));
 }
 pub(super) fn cells(session: u64, sequence: u64, epoch: u64, mask: u8) {
     with_probe(|probe| probe.applied_cells(session, sequence, epoch, mask));

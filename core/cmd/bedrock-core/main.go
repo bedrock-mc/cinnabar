@@ -50,6 +50,14 @@ var (
 )
 
 func main() {
+	code := runMain()
+	if code != 0 {
+		os.Exit(code)
+	}
+}
+
+// runMain owns the core's runtime settings, lifeline and services.
+func runMain() int {
 	configureRuntime(os.Getenv)
 	args := os.Args[1:]
 	var stdin io.Reader
@@ -64,9 +72,7 @@ func main() {
 	exitCode := execute(ctx, args, os.Stdout, os.Stderr, authcache.Source, proxy.Serve)
 	latencytrace.Finish()
 	stop()
-	if exitCode != 0 {
-		os.Exit(exitCode)
-	}
+	return exitCode
 }
 
 // configureRuntime caps scheduler threads and sets a soft memory limit unless GOMAXPROCS or
@@ -251,7 +257,7 @@ func runWithResourcePackCacheFactory(
 			return errors.New("auth-events mode cannot be combined with proxy or catalog options")
 		}
 		return authflow.Run(ctx, authflow.Config{
-			Path: opts.authCache, Writer: stdout,
+			Path: opts.authCache, Writer: stdout, Logger: logger,
 			CompleteSignIn: func(ctx context.Context, path string, source oauth2.TokenSource) error {
 				return authcache.CompleteSignIn(ctx, path, source, logger)
 			},

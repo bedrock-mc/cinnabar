@@ -1,18 +1,21 @@
 use std::collections::VecDeque;
 use std::future::{Future, poll_fn};
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, ready};
 
 use crate::codec::SessionFailure;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::packet_relay::PacketRelay;
+use crate::packet_relay::{BatchWriter, RelayLink, put_entry};
 use crate::packet_tap::{PacketBody, PacketDirection, PacketOutcome, PacketRecordId, PacketTap};
 use crate::raw_packet::{MAX_RAW_BATCH_PACKETS, RawPacket, decode_batch_body};
 use crate::session_wire::{CoreMessage, SessionDisconnect, SessionTransfer};
 use crate::{Packet, ProtocolError, SessionError};
 use bridge::{BridgeError, FrameQueue, FramedReader};
-use bytes::{BufMut, Bytes, BytesMut};
-use futures::{Stream, StreamExt};
+use bytes::{Bytes, BytesMut};
 
 /// A server may batch a whole pack transfer, or a large item registry, into one batch,
 /// so the local leg accepts batches far larger than a typical client's 16 MiB default.
@@ -23,6 +26,7 @@ pub(crate) const MAX_READ_AHEAD_BYTES: usize = 64 * 1024 * 1024;
 
 /// Best-effort: tells the core whether this client applied (or reverted) the
 /// newest attempt's handed-off packs; returns whether the core recorded it.
+#[cfg(not(target_arch = "wasm32"))]
 pub async fn report_pack_application(socket_dir: &Path, applied: bool) -> bool {
     let Ok(status) = bridge::read_status(socket_dir).await else {
         return false;
@@ -51,14 +55,18 @@ pub(crate) enum Terminal {
 /// poll until flushed, strictly in order, so cancellation neither loses nor repeats it. An
 /// optional [`PacketTap`] sees each received packet once, as its batch is read and split (see
 /// [`crate::packet_tap`] for what that time measures), and each sent packet once.
-pub(crate) struct SessionTransport {
-    reader: FramedReader,
-    frames: FrameQueue,
+pub(crate) struct SessionTransport<R = FramedReader> {
+    reader: R,
+    timers: bridge::tasks::Timers,
+    writer: BatchWriter,
+    relay: Option<RelayLink>,
+    prefer_injected: bool, // alternate ready upstream frames and relay injections
     startup: VecDeque<Bytes>, // startup batch bodies, read before any core frame
     received: VecDeque<RawPacket>, // packets split from a batch but not yet read
     ahead: VecDeque<Option<Result<Bytes, BridgeError>>>, // reader items `read_ahead` took
-    ahead_bytes: usize,       // frame bytes held in `ahead`
-    ended: bool,              // a terminal message was delivered
+    joining: bool,         // retain the relay startup budget through spawn
+    ahead_bytes: usize,    // frame bytes held in `ahead`
+    ended: bool,           // a terminal message was delivered
     sending: VecDeque<InFlightSend>,
     tap: Option<Arc<dyn PacketTap>>,
     current: Option<CurrentPacket>, // the tapped packet the session is processing
@@ -72,6 +80,12 @@ struct CurrentPacket {
     record: PacketRecordId,
     packet_id: u32,
     body: Bytes,
+}
+
+/// The next upstream frame or synthetic batch, selected without starving either source.
+enum IncomingFrame {
+    Core(Option<Result<Bytes, BridgeError>>),
+    Injected(Bytes),
 }
 
 type FrameSend = Pin<Box<dyn Future<Output = Result<(), BridgeError>> + Send>>;
@@ -92,16 +106,31 @@ impl InFlightSend {
     }
 }
 
-impl SessionTransport {
+impl<R: bridge::FrameRead> SessionTransport<R> {
     /// Continues a handed-off session; the `startup` packets, each with its header, come first.
-    pub(crate) fn new(reader: FramedReader, frames: FrameQueue, startup: &[Bytes]) -> Self {
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    pub(crate) fn new(reader: R, frames: FrameQueue, startup: &[Bytes]) -> Self {
+        Self::with_timers(reader, frames, startup, bridge::tasks::Timers::tokio())
+    }
+
+    /// Continues prepared I/O with deadlines registered by its host.
+    pub(crate) fn with_timers(
+        reader: R,
+        frames: FrameQueue,
+        startup: &[Bytes],
+        timers: bridge::tasks::Timers,
+    ) -> Self {
         Self {
             reader,
-            frames,
+            timers,
+            writer: BatchWriter::direct(frames),
+            relay: None,
+            prefer_injected: false,
             startup: startup_batches(startup).into(),
             received: VecDeque::new(),
             ahead: VecDeque::new(),
             ahead_bytes: 0,
+            joining: true,
             ended: false,
             sending: VecDeque::new(),
             tap: None,
@@ -109,6 +138,30 @@ impl SessionTransport {
             split_frames: 0,
             delivered: (0, 0),
         }
+    }
+
+    /// Passes later batches through `relay` and starts its timed work on this runtime.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn set_relay(&mut self, relay: Arc<dyn PacketRelay>) {
+        let (link, writer) = RelayLink::start(relay, self.writer.queue(), self.tap.clone());
+        self.relay = Some(link);
+        self.writer = writer;
+    }
+
+    /// Switches later server batches to the play budget after the login owner observes spawn.
+    pub(crate) fn finish_startup(&mut self) {
+        self.joining = false;
+    }
+
+    /// Registers one host deadline without restarting it on each packet.
+    pub(crate) fn sleep(&self, duration: std::time::Duration) -> bridge::tasks::Timer {
+        self.timers.sleep(duration)
+    }
+
+    /// Exposes the queue for capacity-controlled transport fixtures.
+    #[cfg(test)]
+    pub(crate) fn frame_queue(&self) -> FrameQueue {
+        self.writer.queue()
     }
 
     /// The latency-trace connection, frame and in-frame index of the packet [`Self::recv`]
@@ -119,18 +172,14 @@ impl SessionTransport {
 
     /// Reports every packet this transport delivers or sends to `tap`.
     pub(crate) fn with_tap(mut self, tap: Option<Arc<dyn PacketTap>>) -> Self {
+        self.writer = self.writer.clone().with_tap(tap.clone());
         self.tap = tap;
         self
     }
 
-    /// The tap shared with detached outbound batches.
-    pub(crate) fn tap(&self) -> Option<Arc<dyn PacketTap>> {
-        self.tap.clone()
-    }
-
-    /// The FIFO this transport's own sends share with detached outbound batches.
-    pub(crate) fn frame_queue(&self) -> FrameQueue {
-        self.frames.clone()
+    /// The writer this transport's own sends share with detached outbound batches.
+    pub(crate) fn batch_writer(&self) -> BatchWriter {
+        self.writer.clone()
     }
 
     /// Returns the next packet or terminal message; cancelling the wait loses nothing.
@@ -146,21 +195,18 @@ impl SessionTransport {
                 return Ok(Inbound::Packet(packet));
             }
             if let Some(batch) = self.startup.pop_front() {
-                let packets = self.split_batch(batch, 0)?;
-                self.received.extend(packets);
+                self.receive_server_batch(batch, 0)?;
                 continue;
             }
             if self.ended {
                 return Err(SessionFailure::ConnectionClosed.into());
             }
-            let next = match self.ahead.pop_front() {
-                Some(next) => {
-                    if let Some(Ok(frame)) = &next {
-                        self.ahead_bytes -= frame.len();
-                    }
-                    next
+            let next = match poll_fn(|cx| self.poll_next_frame(cx)).await {
+                IncomingFrame::Core(next) => next,
+                IncomingFrame::Injected(body) => {
+                    self.receive_relayed(body, 0);
+                    continue;
                 }
-                None => self.reader.next().await,
             };
             let frame = match next {
                 Some(Ok(frame)) => frame,
@@ -169,8 +215,7 @@ impl SessionTransport {
             };
             if let Some(body) = crate::session_wire::batch_frame_body(&frame) {
                 self.split_frames += 1;
-                let packets = self.split_batch(body, self.split_frames)?;
-                self.received.extend(packets);
+                self.receive_server_batch(body, self.split_frames)?;
                 continue;
             }
             let terminal = match crate::session_wire::decode_core_message(frame)
@@ -190,6 +235,82 @@ impl SessionTransport {
             self.ended = true;
             return Ok(Inbound::Terminal(terminal));
         }
+    }
+
+    /// Inspects the core terminal retained by read-ahead without consuming or reordering frames.
+    /// Startup may abandon preparation on this boundary; play must retain ordinary FIFO delivery.
+    pub(crate) fn buffered_startup_terminal(&self) -> Result<Option<Terminal>, SessionError> {
+        let Some(Some(Ok(frame))) = self.ahead.back() else {
+            return Ok(None);
+        };
+        if crate::session_wire::batch_frame_body(frame).is_some() {
+            return Ok(None);
+        }
+        Ok(
+            match crate::session_wire::decode_core_message(frame.clone())
+                .map_err(SessionFailure::Transport)?
+            {
+                CoreMessage::Transfer(transfer) => Some(Terminal::Transfer(transfer)),
+                CoreMessage::Disconnect(disconnect) => Some(Terminal::Disconnect(disconnect)),
+                _ => None,
+            },
+        )
+    }
+
+    /// Alternates ready sources, including upstream frames retained during read-ahead.
+    fn poll_next_frame(&mut self, cx: &mut Context<'_>) -> Poll<IncomingFrame> {
+        if self.prefer_injected
+            && let Some(relay) = &mut self.relay
+            && let Poll::Ready(Some(body)) = relay.injected.poll_recv(cx)
+        {
+            self.prefer_injected = false;
+            return Poll::Ready(IncomingFrame::Injected(body));
+        }
+        let upstream = match self.ahead.pop_front() {
+            Some(next) => {
+                if let Some(Ok(frame)) = &next {
+                    self.ahead_bytes -= frame.len();
+                }
+                Poll::Ready(next)
+            }
+            None => Pin::new(&mut self.reader).poll_next(cx),
+        };
+        if let Poll::Ready(next) = upstream {
+            self.prefer_injected = true;
+            return Poll::Ready(IncomingFrame::Core(next));
+        }
+        if let Some(relay) = &mut self.relay
+            && let Poll::Ready(Some(body)) = relay.injected.poll_recv(cx)
+        {
+            self.prefer_injected = false;
+            return Poll::Ready(IncomingFrame::Injected(body));
+        }
+        Poll::Pending
+    }
+
+    /// Queues a relay-produced body, logging malformed relay output instead of ending the session.
+    /// Synthetic injections have frame 0 because they have no upstream frame position.
+    fn receive_relayed(&mut self, body: Bytes, frame: u64) {
+        match self.split_batch(body, frame) {
+            Ok(packets) => self.received.extend(packets),
+            Err(error) => tracing::warn!(%error, "dropping a relayed batch that does not decode"),
+        }
+    }
+
+    /// Startup and live server bodies share the same relay before packet decoding and observation.
+    fn receive_server_batch(&mut self, body: Bytes, frame: u64) -> Result<(), SessionError> {
+        let replaced = self
+            .relay
+            .as_ref()
+            .and_then(|relay| relay.inbound(&body, self.joining));
+        match replaced {
+            Some(replaced) => self.receive_relayed(replaced, frame),
+            None => {
+                let packets = self.split_batch(body, frame)?;
+                self.received.extend(packets);
+            }
+        }
+        Ok(())
     }
 
     /// Reads core frames ahead of [`Self::recv`], unparsed, until `max_bytes` are held or the core
@@ -302,12 +423,9 @@ impl SessionTransport {
         let Some(frame) = batch_frame(packets) else {
             return Ok(());
         };
-        if let Some(tap) = &self.tap {
-            crate::packet_tap::record_serverbound(tap.as_ref(), &frame);
-        }
-        let frames = self.frames.clone();
+        let writer = self.writer.clone();
         self.sending.push_back(InFlightSend {
-            write: Mutex::new(Box::pin(async move { frames.send(frame).await })),
+            write: Mutex::new(Box::pin(async move { writer.send(frame).await })),
         });
         self.drain_send().await
     }
@@ -366,13 +484,7 @@ fn startup_batches(packets: &[Bytes]) -> Vec<Bytes> {
             batches.push(std::mem::take(&mut batch).freeze());
             count = 0;
         }
-        let mut length = length;
-        while length >= 0x80 {
-            batch.put_u8(length as u8 | 0x80);
-            length >>= 7;
-        }
-        batch.put_u8(length as u8);
-        batch.extend_from_slice(packet);
+        put_entry(&mut batch, packet);
         count += 1;
     }
     if count != 0 {

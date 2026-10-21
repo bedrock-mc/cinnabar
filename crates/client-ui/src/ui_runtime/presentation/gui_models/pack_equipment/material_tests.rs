@@ -26,6 +26,7 @@ fn chestplate(
     };
     EquipmentBinding {
         identifier: identifier.into(),
+        attachable: None,
         category: EquipmentCategory::Armor {
             slot: ArmorSlot::Chestplate,
         },
@@ -77,7 +78,7 @@ fn vanilla() -> Arc<RuntimeEquipmentCatalog> {
 }
 
 /// A preview whose GUI model pages hold the base equipment art, as `set_gui_models` places it.
-fn presentation(base: &Arc<RuntimeEquipmentCatalog>) -> UiPresentationRuntime {
+pub(super) fn presentation(base: &Arc<RuntimeEquipmentCatalog>) -> UiPresentationRuntime {
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     let first = (presentation.textures.dynamic_start() + MODEL_PAGE) as u16;
@@ -98,7 +99,7 @@ fn presentation(base: &Arc<RuntimeEquipmentCatalog>) -> UiPresentationRuntime {
 }
 
 /// The preview views that dress the local player: inventory, pause screen and HUD.
-fn views() -> [PreviewView; 3] {
+pub(super) fn views() -> [PreviewView; 3] {
     let pause = MenuPreviewConfig::MENU;
     [
         PreviewView::Live { offset: [0.0; 2] },
@@ -112,7 +113,7 @@ fn views() -> [PreviewView; 3] {
 }
 
 /// The armor batch's vertex colours and whether any vertex enables the dye mask.
-fn armor_shading(presentation: &UiPresentationRuntime) -> (Vec<[u8; 4]>, bool) {
+pub(super) fn armor_shading(presentation: &UiPresentationRuntime) -> (Vec<[u8; 4]>, bool) {
     let mesh = presentation.gui_player_mesh().unwrap();
     // The skin draws first; the chestplate is the only armor batch.
     let [_, armor] = mesh.batches() else {

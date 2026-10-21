@@ -311,9 +311,7 @@ fn pending_inventory_prediction_and_required_recovery_are_not_authority_rows() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     use inventory::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE;
-    use protocol::{
-        CONTAINER_NAME_CURSOR, ContainerOpenEvent, InventoryAuthority, InventoryContentEvent,
-    };
+    use protocol::{ContainerOpenEvent, InventoryAuthority};
 
     let mut runtime = runtime(&mut player_runtime, true);
     player_runtime
@@ -331,14 +329,13 @@ fn pending_inventory_prediction_and_required_recovery_are_not_authority_rows() {
     player_runtime
         .inventory
         .ledger_mut()
-        .apply(&InventoryEvent::Content(InventoryContentEvent {
-            container: ContainerIdentity {
-                window_id: Some(-1),
-                slot_type: Some(CONTAINER_NAME_CURSOR),
-                dynamic_id: None,
+        .apply(&InventoryEvent::Slot(InventorySlotEvent {
+            identity: SlotIdentity {
+                container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+                slot: 0,
             },
-            slots: Arc::from([NetworkItemStack::default()]),
-            storage_item: NetworkItemStack::default(),
+            stack: NetworkItemStack::default(),
+            storage_item: None,
         }));
     assert!(
         player_runtime

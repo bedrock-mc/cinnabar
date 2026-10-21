@@ -15,7 +15,7 @@ fn attack_assets(property: EntityAnimationProperty) -> Arc<RuntimeEntityAssets> 
     .into();
     compiled.symbols.rotate_right(1);
     compiled.rig_bindings[0].entity_symbol = 0;
-    compiled.rig_bindings[0].render_controller = 3;
+    compiled.rig_bindings[0].render_controller = Some(3);
     compiled.rig_bindings[0].pre_animation = None;
     compiled.animation_clips[0].symbol = 2;
     compiled.geometries[0].bones[0].name = "strike_arm".into();

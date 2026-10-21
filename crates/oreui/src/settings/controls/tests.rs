@@ -18,8 +18,8 @@ fn animated_switch(
     let font = fixture_font();
     let metrics = TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(2));
     transitions.begin_frame(
-        view.settings_control_activation,
-        view.settings_control_activation_navigation,
+        view.settings.control_activation,
+        view.settings.control_activation_navigation,
         seconds,
     );
     let mut canvas = Canvas::new(&mut nodes, &mut next, &mut layouts, &font, metrics, 0, None);
@@ -57,7 +57,7 @@ fn interactive_switch_publishes_timed_geometry_without_widening_its_visible_thum
     let mut transitions = Transitions::default();
     let mut view = MenuView::new(true, "Player".into());
     animated_switch(&mut transitions, &view, false, -1.0);
-    view.settings_control_activation = Some((MenuAction::SettingsOption(7, 1), 1));
+    view.settings.control_activation = Some((MenuAction::SettingsOption(7, 1), 1));
     let (rem, nodes) = animated_switch(&mut transitions, &view, true, 0.0);
     let start = switch_thumb(&nodes, rem);
     let (_, nodes) = animated_switch(&mut transitions, &view, true, 0.03);
@@ -81,7 +81,7 @@ fn moving_switch_reveals_both_permanent_rail_glyphs() {
     let mut transitions = Transitions::default();
     let mut view = MenuView::new(true, "Player".into());
     animated_switch(&mut transitions, &view, false, -1.0);
-    view.settings_control_activation = Some((MenuAction::SettingsOption(7, 1), 1));
+    view.settings.control_activation = Some((MenuAction::SettingsOption(7, 1), 1));
     let (rem, nodes) = animated_switch(&mut transitions, &view, true, 0.0);
     let point = [100.0 + 4.5 * rem, 100.0 + 1.05 * rem];
     let visible = solids(&nodes)
@@ -95,7 +95,7 @@ fn moving_switch_reveals_both_permanent_rail_glyphs() {
                 .then_some(color)
         });
     assert_eq!(visible, Some([36, 36, 37, 255]));
-    view.settings_control_activation = Some((MenuAction::SettingsOption(7, 0), 2));
+    view.settings.control_activation = Some((MenuAction::SettingsOption(7, 0), 2));
     let (_, nodes) = animated_switch(&mut transitions, &view, false, 0.4);
     assert!(
         solids(&nodes)
@@ -109,8 +109,8 @@ fn switch_navigation_press_keeps_identity_after_its_next_value_action_changes() 
     let mut transitions = Transitions::default();
     let mut view = MenuView::new(true, "Player".into());
     animated_switch(&mut transitions, &view, false, -1.0);
-    view.settings_control_activation = Some((MenuAction::SettingsOption(7, 1), 1));
-    view.settings_control_activation_navigation = true;
+    view.settings.control_activation = Some((MenuAction::SettingsOption(7, 1), 1));
+    view.settings.control_activation_navigation = true;
     view.hovered = Some(MenuAction::SettingsOption(7, 1));
     animated_switch(&mut transitions, &view, true, 0.0);
     assert!(transitions.pressed_switch(MenuAction::SettingsOption(7, 0), 0.0));
@@ -159,7 +159,7 @@ fn slider_drag_geometry_retains_full_endpoints_and_clips_only_its_animated_thumb
         )
         .unwrap();
         let (index, track, thumb) = canvas.slider_tracks[0];
-        assert_eq!(index, 7);
+        assert_eq!(index, MenuAction::SettingsOption(7, 0));
         assert!((track.min().x() - 100.0 - half).abs() < 0.001);
         assert!((track.max().x() - 300.0 + half).abs() < 0.001);
         let thumb = thumb.unwrap();
@@ -179,7 +179,7 @@ fn selected_slider_uses_hover_face_without_a_pressed_face() {
         .unwrap() as u16;
     let actions = [0, 1, 2].map(|value| MenuAction::SettingsOption(index, value));
     let mut view = MenuView::new(true, "Player".into());
-    view.settings_slider_selected = Some(index);
+    view.settings.slider_selected = Some(index);
     view.pressed = Some(actions[1]);
     let (_, _, nodes) = paint(Default::default(), |canvas| {
         slider(
@@ -237,14 +237,14 @@ fn rail_hover_does_not_highlight_the_thumb_but_thumb_hover_does() {
             .iter()
             .any(|(_, color)| *color == theme::SECONDARY.hovered)
     );
-    view.settings_slider_hovered = Some(7);
+    view.settings.slider_hovered = Some(7);
     let nodes = draw(&view);
     assert!(
         solids(&nodes)
             .iter()
             .any(|(_, color)| *color == theme::SECONDARY.hovered)
     );
-    view.settings_slider_pointer = Some(launcher::menu::view::SettingsSliderPointer {
+    view.settings.slider_pointer = Some(launcher::menu::view::SettingsSliderPointer {
         option: 8,
         fraction: 0.5,
         mouse_input: true,

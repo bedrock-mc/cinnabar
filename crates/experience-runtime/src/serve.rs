@@ -13,8 +13,8 @@ use crate::callback;
 use crate::load::{self, EpochTicker, Loaded};
 use crate::manifest::Manifest;
 use crate::protocol::{
-    BlockDef, Call, FailKind, ItemDef, Outcome, PROTOCOL_VERSION, Request, Response, ServerItem,
-    bounded_reason, read_frame, write_frame,
+    BlockDef, Call, FailKind, ItemDef, Outcome, PROTOCOL_VERSION, Recipe, Request, Response,
+    ServerItem, bounded_reason, read_frame, write_frame,
 };
 
 /// The session ended with `shutdown`, or with the end of input between frames.
@@ -40,8 +40,12 @@ const OVERSIZED_LOAD_FAILED: &str = "the load failure exceeds the frame limit";
     reason = "`fuel <id> <call> <n>` lines on stderr are the --report-fuel interface"
 )]
 pub fn serve(mut input: impl Read, mut output: impl Write, report_fuel: bool) -> Result<i32> {
-    let (dir, items) = match read_frame(&mut input) {
-        Ok(Some(Request::Load { dir, items })) => (dir, items),
+    let (dir, items, recipes) = match read_frame(&mut input) {
+        Ok(Some(Request::Load {
+            dir,
+            items,
+            recipes,
+        })) => (dir, items, recipes),
         Ok(Some(Request::Callback { .. } | Request::Shutdown {})) => {
             return Ok(protocol_error("the first frame is not load"));
         }
@@ -49,7 +53,7 @@ pub fn serve(mut input: impl Read, mut output: impl Write, report_fuel: bool) ->
         Err(error) => return Ok(protocol_error(error)),
     };
     // The ticker drives every deadline, so it lives as long as the session.
-    let (engine, _ticker, loaded) = match start(Path::new(&dir), items) {
+    let (engine, _ticker, loaded) = match start(Path::new(&dir), items, recipes) {
         Ok(started) => started,
         Err(error) => {
             answer_load_failed(&mut output, format!("{error:#}"))?;
@@ -85,10 +89,16 @@ pub fn serve(mut input: impl Read, mut output: impl Write, report_fuel: bool) ->
 }
 
 /// The engine with its ticker, and the artifact in `dir` loaded on it, which may make stacks of
-/// the server's `items`.
-fn start(dir: &Path, items: Vec<ServerItem>) -> Result<(Engine, EpochTicker, Loaded)> {
+/// the server's `items` and match grids against its `recipes`.
+fn start(
+    dir: &Path,
+    items: Vec<ServerItem>,
+    recipes: Vec<Recipe>,
+) -> Result<(Engine, EpochTicker, Loaded)> {
     let (engine, ticker) = load::engine()?;
-    let loaded = load::load(&engine, dir)?.with_server_items(items)?;
+    let loaded = load::load(&engine, dir)?
+        .with_server_items(items)?
+        .with_recipes(recipes)?;
     Ok((engine, ticker, loaded))
 }
 
@@ -186,6 +196,7 @@ fn call_kind(call: &Call) -> &'static str {
         Call::Neighbor { .. } => "neighbor",
         Call::ClientMessage { .. } => "client_message",
         Call::Epoch { .. } => "epoch",
+        Call::ScheduledUpdate { .. } => "scheduled_update",
     }
 }
 

@@ -68,7 +68,7 @@ impl WorldStream {
             .then_some((
                 PendingSchedulerCandidate::new(key, pending.revision, view, pending.urgent),
                 pending,
-                false,
+                MeshCandidateOrigin::Probe,
             ))
         };
         let mut resident_candidates = if probe_near {
@@ -89,14 +89,21 @@ impl WorldStream {
                 resident_candidates.push(candidate);
             }
         }
+        if view.startup_center.is_none() {
+            let already_probed = resident_candidates
+                .iter()
+                .map(|(candidate, _, _)| candidate.key)
+                .collect();
+            resident_candidates.extend(self.mesh_retry_candidates(view, &already_probed));
+        }
         resident_candidates.sort_unstable_by_key(|candidate| std::cmp::Reverse(candidate.0));
         let truncated = resident_candidates.split_off(
             resident_candidates
                 .len()
                 .min(MAX_PENDING_SCHEDULER_SCANS_PER_POLL),
         );
-        for (candidate, _, _) in truncated {
-            self.mesh_jobs.refresh.requeue_woken(candidate.key);
+        for (candidate, _, origin) in truncated {
+            self.requeue_mesh_candidate(candidate, origin);
         }
         let mut dispatch = workers::WORKERS.batch(workers::Lane::Mesh);
         let mut dispatched = 0;
@@ -115,7 +122,7 @@ impl WorldStream {
                     .ready
                     .peek()
                     .is_some_and(|ready| probed.peek().is_none_or(|(next, _, _)| ready > next));
-            let (candidate, pending, queued) = if ready_first {
+            let (candidate, pending, origin) = if ready_first {
                 ready_pops += 1;
                 let mut candidate = self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
                     .ready
@@ -159,7 +166,7 @@ impl WorldStream {
                         .push(candidate);
                     continue;
                 }
-                (candidate, pending, true)
+                (candidate, pending, MeshCandidateOrigin::Queued)
             } else if let Some(next) = probed.next() {
                 next
             } else {
@@ -167,7 +174,7 @@ impl WorldStream {
             };
             let key = candidate.key;
             if !seen.insert(key) {
-                if queued {
+                if origin == MeshCandidateOrigin::Queued {
                     self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
                         .deferred
                         .push(candidate);
@@ -178,20 +185,20 @@ impl WorldStream {
                 || dispatched >= worker_budget
                 || (examined && self.poll_budget_exhausted());
             if exhausted || (dispatched >= regular_budget && !candidate.urgent) {
-                self.requeue_mesh_candidate(candidate, queued);
+                self.requeue_mesh_candidate(candidate, origin);
                 // Only a transfer candidate can rank above urgent work still to come.
                 if !exhausted && candidate.transfer {
                     continue;
                 }
-                for (candidate, _, queued) in probed {
-                    self.requeue_mesh_candidate(candidate, queued);
+                for (candidate, _, origin) in probed {
+                    self.requeue_mesh_candidate(candidate, origin);
                 }
                 break;
             }
             if !self.revisions.is_current(key, pending.revision)
                 || self.mesh_jobs.in_flight.contains_key(&key)
             {
-                if queued {
+                if origin == MeshCandidateOrigin::Queued {
                     self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
                         .deferred
                         .push(candidate);
@@ -199,8 +206,10 @@ impl WorldStream {
                 continue;
             }
             examined = true;
+            self.mesh_jobs.retries.enqueue(key, pending.revision);
             if self.mesh_neighbour_is_due(key, now) {
-                if queued {
+                self.mesh_jobs.retries.block(key, pending.revision);
+                if origin == MeshCandidateOrigin::Queued {
                     self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
                         .deferred
                         .push(candidate);
@@ -208,7 +217,8 @@ impl WorldStream {
                 continue;
             }
             let Some(center) = self.authority.terrain().sub_chunk(key) else {
-                if queued {
+                self.mesh_jobs.retries.block(key, pending.revision);
+                if origin == MeshCandidateOrigin::Queued {
                     self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
                         .deferred
                         .push(candidate);
@@ -216,7 +226,8 @@ impl WorldStream {
                 continue;
             };
             let Some(light_halo) = self.mesh_light_halo(key) else {
-                if queued {
+                self.mesh_jobs.retries.block(key, pending.revision);
+                if origin == MeshCandidateOrigin::Queued {
                     self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
                         .deferred
                         .push(candidate);
@@ -228,7 +239,8 @@ impl WorldStream {
                 self.authority.runtime_assets(),
                 self.authority.network_id_mode(),
             ) else {
-                if queued {
+                self.mesh_jobs.retries.block(key, pending.revision);
+                if origin == MeshCandidateOrigin::Queued {
                     self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
                         .deferred
                         .push(candidate);
@@ -236,7 +248,7 @@ impl WorldStream {
                 continue;
             };
             let snapshot = self.mesh_snapshot(key, center, light_halo);
-            self.mesh_jobs.pending.remove(&key);
+            self.mesh_jobs.remove_pending(&key);
             self.mesh_jobs.in_flight.insert(key, pending.revision);
             if pending.urgent {
                 self.urgent_mesh_in_flight.insert(key);
@@ -415,7 +427,7 @@ impl WorldStream {
                 }
                 None => None,
             };
-            self.mesh_jobs.pending.remove(&key);
+            self.mesh_jobs.remove_pending(&key);
             removed = true;
             let resident_air = self.resident.contains(&key)
                 && self
@@ -550,15 +562,18 @@ impl WorldStream {
             key,
         )
     }
-    /// Returns an undispatched candidate to the ready lane it came from, or to the woken set when
-    /// it was probed or woken outside any queue.
-    fn requeue_mesh_candidate(&mut self, candidate: PendingSchedulerCandidate, queued: bool) {
-        if queued {
-            self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+    /// Returns an unexamined lane or probe record; FIFO retries are already retained.
+    fn requeue_mesh_candidate(
+        &mut self,
+        candidate: PendingSchedulerCandidate,
+        origin: MeshCandidateOrigin,
+    ) {
+        match origin {
+            MeshCandidateOrigin::Queued => self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
                 .ready
-                .push(candidate);
-        } else {
-            self.mesh_jobs.refresh.requeue_woken(candidate.key);
+                .push(candidate),
+            MeshCandidateOrigin::Probe => self.mesh_jobs.refresh.requeue_woken(candidate.key),
+            MeshCandidateOrigin::Retry => {}
         }
     }
     /// Faces, AO and smooth light sample all 26 neighbours; meshing before one the server still
@@ -571,8 +586,6 @@ impl WorldStream {
         // The 26 neighbours share nine columns, so each column's facts are read once; a loaded
         // column with no outstanding requests owes nothing, whatever the height.
         let mut columns = [None::<ColumnDue>; 9];
-        let mut blockers = [key; 26];
-        let mut count = 0;
         for neighbour in key.mesh_neighbourhood_dependents() {
             if neighbour == key {
                 continue;
@@ -582,18 +595,10 @@ impl WorldStream {
             let column = *columns[index as usize]
                 .get_or_insert_with(|| self.column_due(neighbour.chunk(), now));
             if !column.settled() && self.sub_chunk_is_due_in(neighbour, || column) {
-                blockers[count] = neighbour;
-                count += 1;
+                return true;
             }
         }
-        for &neighbour in &blockers[..count] {
-            if self.requests.is_expected(neighbour) {
-                self.requests
-                    .queue
-                    .prioritize_mesh_blocker(neighbour.chunk());
-            }
-        }
-        count != 0
+        false
     }
     pub(in crate::stream) fn mesh_snapshot(
         &self,
@@ -616,6 +621,7 @@ impl WorldStream {
             adjacent[mesh_offset_index(offset)] = neighbour;
         }
         MeshSnapshot {
+            rendering: self.mesh_render_settings,
             center,
             biomes: self.biome_neighbourhood(key),
             adjacent,
@@ -626,6 +632,7 @@ impl WorldStream {
                 .map(world::Chunk::shared_sub_chunks),
             center_y: key.y,
             light_halo,
+            java_meshing: self.java_meshing.clone(),
         }
     }
     pub(in crate::stream) fn biome_neighbourhood(&self, key: SubChunkKey) -> BiomeNeighbourhood {

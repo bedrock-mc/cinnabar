@@ -156,6 +156,71 @@ fn deep_leaves_are_opaque_with_unchanged_fancy_texture_and_keep_faces_against_no
     }
 }
 
+/// Shader-pack leaves stay cutout even when enclosed, with one two-sided quad per shared plane.
+#[test]
+fn cutout_leaves_keep_enclosed_leaves_cutout_without_duplicate_shared_planes() {
+    let assets = seasonal_leaf_fixture();
+    let origin = [8, 8, 8];
+    let mode = NetworkIdMode::Sequential;
+    let mut placements = vec![(origin, 1)];
+    placements.extend(Face::ALL.map(|face| (leaf_neighbour(origin, face), 1)));
+    let chunk = seasonal_leaf_chunk(mode, &placements);
+    let mesh = meshing::mesh_sub_chunk_in_neighbourhood_with_options(
+        &BlockClassifier::new(0),
+        &assets,
+        mode,
+        &MeshNeighbourhood::new(&chunk),
+        &meshing::lighting::FullBrightLightSampler,
+        meshing::MeshOptions {
+            cutout_leaves: true,
+            ..meshing::MeshOptions::default()
+        },
+    );
+    for cell in std::iter::once(origin).chain(Face::ALL.map(|face| leaf_neighbour(origin, face))) {
+        assert_leaf_layer(&mesh, &assets, cell, false);
+    }
+    for (face, opposite) in [
+        (Face::PositiveX, Face::NegativeX),
+        (Face::PositiveY, Face::NegativeY),
+        (Face::PositiveZ, Face::NegativeZ),
+    ] {
+        // Seven cubes have fourteen faces on each axis, with two shared planes.
+        let faces: u32 = mesh
+            .cube_quads()
+            .iter()
+            .filter(|quad| [face, opposite].contains(&quad.face()))
+            .map(|quad| u32::from(quad.width()) * u32::from(quad.height()))
+            .sum();
+        assert_eq!(faces, 12, "{face:?}");
+        for (cell, direction) in [(origin, face), (leaf_neighbour(origin, opposite), face)] {
+            let neighbour = leaf_neighbour(cell, direction);
+            let shared: u32 = mesh
+                .cube_quads()
+                .iter()
+                .filter(|quad| {
+                    (quad.face() == direction
+                        && leaf_span_covers_cell(
+                            quad.origin(),
+                            quad.face(),
+                            quad.width(),
+                            quad.height(),
+                            cell,
+                        ))
+                        || (quad.face() == opposite
+                            && leaf_span_covers_cell(
+                                quad.origin(),
+                                quad.face(),
+                                quad.width(),
+                                quad.height(),
+                                neighbour,
+                            ))
+                })
+                .count() as u32;
+            assert_eq!(shared, 1, "{cell:?} {direction:?}");
+        }
+    }
+}
+
 #[test]
 fn deep_leaves_above_exception_is_top_snow_only_and_primary_layer_only() {
     let assets = seasonal_leaf_fixture();
@@ -272,11 +337,7 @@ fn deep_leaf_predicate_and_shared_plane_cross_every_primary_subchunk_boundary() 
             let neighbour = seasonal_leaf_chunk(mode, &[(adjacent, 1)]);
             let offset = std::array::from_fn(|test_axis| {
                 if test_axis == axis {
-                    if negative {
-                        -1
-                    } else {
-                        1
-                    }
+                    if negative { -1 } else { 1 }
                 } else {
                     0
                 }
@@ -312,5 +373,53 @@ fn deep_leaf_predicate_and_shared_plane_cross_every_primary_subchunk_boundary() 
             );
             assert_leaf_layer(&open, &assets, origin, false);
         }
+    }
+}
+
+#[test]
+fn opaque_leaves_use_solid_materials_and_remove_both_shared_faces() {
+    let assets = seasonal_leaf_fixture();
+    let classifier = BlockClassifier::new(0);
+    let origin = [8, 8, 8];
+    for face in Face::ALL {
+        let neighbour = leaf_neighbour(origin, face);
+        let chunk = seasonal_leaf_chunk(NetworkIdMode::Sequential, &[(origin, 1), (neighbour, 1)]);
+        let mesh = meshing::mesh_sub_chunk_in_neighbourhood_with_options(
+            &classifier,
+            &assets,
+            NetworkIdMode::Sequential,
+            &MeshNeighbourhood::new(&chunk),
+            &meshing::FullBrightLightSampler,
+            meshing::MeshOptions {
+                rendering: meshing::MeshRenderSettings {
+                    transparent_leaves: false,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        assert_leaf_layer(&mesh, &assets, origin, true);
+        assert_leaf_layer(&mesh, &assets, neighbour, true);
+        let shared_axis = match face {
+            Face::NegativeX | Face::PositiveX => 0,
+            Face::NegativeY | Face::PositiveY => 1,
+            _ => 2,
+        };
+        let plane = origin[shared_axis].max(neighbour[shared_axis]);
+        assert!(
+            !mesh.cube_quads().iter().any(|quad| {
+                let same_axis = match quad.face() {
+                    Face::NegativeX | Face::PositiveX => 0,
+                    Face::NegativeY | Face::PositiveY => 1,
+                    _ => 2,
+                };
+                let positive = matches!(
+                    quad.face(),
+                    Face::PositiveX | Face::PositiveY | Face::PositiveZ
+                );
+                same_axis == shared_axis && quad.origin()[shared_axis] + u8::from(positive) == plane
+            }),
+            "{face:?} shared plane must disappear"
+        );
     }
 }

@@ -112,6 +112,19 @@ fn assert_shares_stack_outputs(left: &PackApplication, right: &PackApplication) 
     assert!(unshared.is_empty(), "compiled again: {unshared:?}");
 }
 
+/// Hashes compiled payloads without read ledgers or empty UI source layers.
+fn payload_fingerprint(application: &PackApplication) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut payload = application.clone();
+    payload.dependencies.clear();
+    if let Some(ui) = &mut payload.server_ui {
+        Arc::make_mut(ui)
+            .ui_layers
+            .retain(|layer| !layer.is_empty());
+    }
+    Sha256::digest(summary(&payload).as_bytes()).into()
+}
+
 // A transfer to a server offering the same packs reuses everything the last join compiled, so
 // downstream atlases see the same outputs and one copy of the archives stays alive.
 #[test]
@@ -232,7 +245,11 @@ fn different_custom_blocks_recompile_only_blocks_and_icons() {
     let with_block = Arc::new(PackInputs {
         blocks: protocol::CustomBlocks {
             blocks: vec![protocol::CustomBlock {
+                mining: Default::default(),
+                state_physics_complete: false,
                 state_physics: Default::default(),
+                state_mining: Default::default(),
+                player_interact: false,
                 name: "reuse:block".into(),
                 tags: Default::default(),
                 state_count: 1,
@@ -392,6 +409,81 @@ fn the_post_join_reload_reuses_the_join() {
     assert!(Arc::ptr_eq(stack(&joined), stack(&reloaded)));
 }
 
+#[test]
+fn reconnect_reuses_icons_when_registry_order_changes() {
+    let _cache = overlay_cache();
+    let kept = CompiledStacks::new();
+    let archive = every_subscriber_archive(145, b"a=b");
+    let mut inputs = (*every_input()).clone();
+    inputs.icons.push(("x:other".into(), "gem".into()));
+    let environment = CompileEnvironment::current();
+    let first = compile_reusing(
+        &kept,
+        admitted(&archive),
+        Arc::new(inputs.clone()),
+        &environment,
+        &|| false,
+    )
+    .unwrap();
+    kept.remember(
+        environment.clone(),
+        &first,
+        first.server_ui.clone(),
+        &|| false,
+    );
+    inputs.icons.reverse();
+    let next = compile_reusing(
+        &kept,
+        admitted(&archive),
+        Arc::new(inputs.clone()),
+        &environment,
+        &|| false,
+    )
+    .unwrap();
+    let fresh = super::super::prepare_validated_application(admitted(&archive), Arc::new(inputs));
+    assert!(same(&first.item_icons, &next.item_icons));
+    assert_eq!(summary(&next), summary(&fresh));
+}
+
+#[test]
+fn composing_globals_preserves_unchanged_compiled_payloads() {
+    let _cache = overlay_cache();
+    let joined = super::super::prepare_validated_application(
+        admitted(&every_subscriber_archive(146, b"a=b")),
+        every_input(),
+    );
+    let globals = crate::runtime::network::pack_reload_tests::stack(&[
+        ("texts/en_US.lang", b"global=value"),
+        ("extras/global.txt", b"global-only"),
+    ]);
+    let composed = Arc::new(ValidatedPackStack::compose(&globals, stack(&joined)).unwrap());
+    let reused = super::super::prepare_changed_application(
+        &CompiledStacks::new(),
+        composed.clone(),
+        joined.inputs.clone(),
+        Some(&joined),
+    );
+    let fresh = super::super::prepare_validated_application(composed, joined.inputs.clone());
+    assert_eq!(recompiled(&joined, &reused), ["language", "sounds"]);
+    assert!(same(&joined.item_icons, &reused.item_icons));
+    assert_eq!(payload_fingerprint(&reused), payload_fingerprint(&fresh));
+    for application in [&reused, &fresh] {
+        let pack = application
+            .entities
+            .as_ref()
+            .expect("fixture compiles entities");
+        assert_eq!(
+            pack.encode(&pack.assets.encode().unwrap()).unwrap(),
+            joined
+                .entities
+                .as_ref()
+                .unwrap()
+                .encode(&joined.entities.as_ref().unwrap().assets.encode().unwrap())
+                .unwrap()
+        );
+    }
+}
+
 // The reload every join starts publishes the join's outputs, so the UI keeps its packed atlases.
 #[test]
 fn the_post_join_reload_publishes_the_join_outputs() {
@@ -451,7 +543,7 @@ fn a_join_compiles_on_the_idle_world_cores() {
     );
 }
 
-// Comparing archives reads every byte; a release from the frame must not wait behind it.
+// Comparing layered contents runs outside the cache lock, so a release from the frame stays free.
 #[test]
 fn kept_stacks_compare_archives_without_holding_their_lock() {
     let archive = ResourcePackArchive::unencrypted(

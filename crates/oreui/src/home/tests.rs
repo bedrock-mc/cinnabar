@@ -40,7 +40,7 @@ fn desktop_preview_stays_between_the_identity_and_dressing_room_action() {
 }
 
 #[test]
-fn brand_sits_above_both_panels_and_versions_name_the_app_and_protocol() {
+fn brand_sits_above_translucent_panels_and_footer_names_game_and_protocol() {
     let view = view();
     let (_, _, nodes) = paint(HashMap::new(), |c| {
         c.title_artwork = Some(IconRef {
@@ -63,7 +63,7 @@ fn brand_sits_above_both_panels_and_versions_name_the_app_and_protocol() {
         })
         .unwrap();
     let panels = nodes.iter().filter(|node| node.parent().is_none()
-        && matches!(node.visual(), UiVisual::Solid { color, .. } if *color == NEUTRAL80.fill))
+        && matches!(node.visual(), UiVisual::Solid { color, .. } if color[..3] == NEUTRAL80.fill[..3] && color[3] < 255))
         .collect::<Vec<_>>();
     assert!(!panels.is_empty());
     for panel in panels {
@@ -89,7 +89,11 @@ fn brand_sits_above_both_panels_and_versions_name_the_app_and_protocol() {
         launcher::PRODUCT_VERSION
     )));
     assert!(text.contains(protocol::GAME_VERSION));
-    assert!(text.contains(&format!("Protocol{}", protocol::PROTOCOL_VERSION)));
+    assert!(text.contains(&format!(
+        "Minecraft{}/Protocol{}",
+        protocol::GAME_VERSION,
+        protocol::PROTOCOL_VERSION
+    )));
 }
 
 #[test]
@@ -157,6 +161,23 @@ fn signed_out_home_has_a_direct_sign_in_action() {
         hits.iter()
             .any(|(action, _)| *action == MenuAction::StartSignIn)
     );
+    let signin = hits
+        .iter()
+        .find(|(action, _)| *action == MenuAction::StartSignIn)
+        .unwrap()
+        .1;
+    let wardrobe = hits
+        .iter()
+        .find(|(action, _)| *action == MenuAction::Navigate(MenuScreen::DressingRoom))
+        .unwrap()
+        .1;
+    let friends = hits
+        .iter()
+        .find(|(action, _)| *action == MenuAction::Navigate(MenuScreen::Friends))
+        .unwrap()
+        .1;
+    assert!(signin.min().y() > wardrobe.max().y());
+    assert_eq!(signin.min().y(), friends.min().y());
     assert!(
         hits.iter()
             .any(|(action, _)| *action == MenuAction::Navigate(MenuScreen::Play))
@@ -196,14 +217,15 @@ fn update_ready_notice_leaves_quit_and_play_reachable() {
         })
         .collect::<String>()
         .replace(' ', "");
-    assert!(text.contains("Updateready(2.0.0)"));
-    for action in [
-        launcher::menu::updates::Action::Restart,
-        launcher::menu::updates::Action::Later,
-    ] {
-        assert!(
-            hits.iter()
-                .any(|(found, _)| *found == MenuAction::Update(action))
-        );
-    }
+    assert!(text.contains("Updateavailable"));
+    assert!(
+        hits.iter()
+            .any(|(action, _)| *action
+                == MenuAction::Update(launcher::menu::updates::Action::Restart))
+    );
+    assert!(
+        !hits.iter().any(
+            |(action, _)| *action == MenuAction::Update(launcher::menu::updates::Action::Later)
+        )
+    );
 }

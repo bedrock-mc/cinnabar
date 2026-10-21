@@ -16,10 +16,10 @@ pub(super) fn brewing_slots(fact: &ItemFact) -> &'static [u8] {
 
 /// The loom UI slot for a banner (9), dye (10) or pattern item (11).
 #[must_use]
-pub(super) fn loom_slot(fact: &ItemFact) -> Option<u8> {
+pub(super) fn loom_slot(fact: &ItemFact, banner: bool) -> Option<u8> {
     if fact.roles.contains(ContainerRoles::LOOM_PATTERN) {
         Some(11)
-    } else if fact.roles.contains(ContainerRoles::LOOM_BANNER) {
+    } else if banner {
         Some(9)
     } else if fact.roles.contains(ContainerRoles::LOOM_DYE) {
         Some(10)

@@ -28,6 +28,28 @@ fn unchanged_source_shares_facts_and_changed_source_refreshes_damage() {
 }
 
 #[test]
+fn damage_integer_tags_publish_their_signed_item_value() {
+    for (raw, signed, shown) in [
+        (32_767, 32_767, Some(32_767)),
+        (32_768, -32_768, None),
+        (65_535, -1, None),
+        (65_536, 0, Some(0)),
+        (-32_769, 32_767, Some(32_767)),
+        (i32::MAX, -1, None),
+        (i32::MIN, 0, Some(0)),
+    ] {
+        let extra = source(raw);
+        assert_eq!(crate::item_extra_damage_integer(&extra), Some(raw));
+        assert_eq!(crate::item_extra_damage_value(&extra), Some(signed));
+        assert_eq!(crate::item_extra_damage(&extra), shown);
+        assert_eq!(
+            ItemStackFactsCache::default().get(&extra, false).damage,
+            shown
+        );
+    }
+}
+
+#[test]
 fn tail_is_borrowed_and_projectile_work_is_limited_to_crossbows() {
     let source = source(7);
     assert_eq!(

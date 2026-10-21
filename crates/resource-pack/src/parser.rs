@@ -15,48 +15,42 @@ use uuid::Uuid;
 use zip::{CompressionMethod, ZipArchive};
 
 use crate::{
-    AdmissionError, MAX_ARCHIVE_BYTES, MAX_DECLARED_BYTES_PER_PACK, MAX_ENTRIES_PER_PACK,
-    MAX_FILE_BYTES, MAX_MANIFEST_BYTES, MAX_PATH_BYTES,
+    AdmissionError, MAX_DECLARED_BYTES_PER_PACK, MAX_ENTRIES_PER_PACK,
     crypto::{ContentKey, contents_file_keys},
     manifest::read_manifest,
-    pack::{EntryIndex, ValidatedPack, read_entry},
+    pack::{ArchiveBytes, EntryIndex, ValidatedPack, read_entry},
+    read_cache::ReadCache,
 };
 #[cfg(feature = "handoff")]
 use crate::{
-    MAX_DECLARED_BYTES_PER_STACK, MAX_ENTRIES_PER_STACK, MAX_PACKS, MAX_STACK_ARCHIVE_BYTES,
-    PackRejection, ValidatedPackStack,
+    MAX_DECLARED_BYTES_PER_STACK, MAX_ENTRIES_PER_STACK, PackRejection, ValidatedPackStack,
 };
 
-const EOCD_MIN_BYTES: usize = 22;
-const EOCD_MAX_SEARCH_BYTES: usize = EOCD_MIN_BYTES + u16::MAX as usize;
 const MAX_CONTENTS_INDEX_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Validates one unencrypted archive under a nil identity; used by fuzzing.
 pub fn validate_archive_bytes(bytes: &[u8]) -> Result<(), AdmissionError> {
-    if bytes.len() > MAX_ARCHIVE_BYTES {
-        return Err(AdmissionError::ArchiveTooLarge);
-    }
     validate_archive_parts(Uuid::nil(), "0.0.0", "", bytes.to_vec(), None, None).map(|_| ())
 }
 
 /// Admits highest-priority-first server entries, then stores layers lowest priority first.
-/// Stack-wide bounds drop later entries; rejection indexes retain the server order.
+/// Structural checks retain rejection indexes in the server order.
 #[cfg(feature = "handoff")]
 pub(super) fn validate_stack(
     archives: Vec<ResourcePackArchive>,
     memory: Option<u32>,
 ) -> ValidatedPackStack {
-    let mut packs = Vec::with_capacity(archives.len().min(MAX_PACKS));
+    let mut packs = Vec::with_capacity(archives.len());
     let mut rejections = Vec::new();
-    let (mut archive_bytes, mut entry_count, mut declared_bytes) = (0usize, 0usize, 0u64);
+    let (mut entry_count, mut declared_bytes) = (0usize, 0u64);
     let mut seen = HashSet::with_capacity(archives.len());
+    let reads = Arc::new(ReadCache::default());
     for (stack_index, archive) in archives.into_iter().enumerate() {
         let admitted = admit_stack_entry(
             archive,
             &mut seen,
-            packs.len(),
-            archive_bytes,
             memory,
+            Arc::clone(&reads),
             |pack, declared| {
                 let entries = entry_count.saturating_add(pack.entry_count());
                 let bytes = declared_bytes.saturating_add(declared);
@@ -70,8 +64,7 @@ pub(super) fn validate_stack(
             },
         );
         match admitted {
-            Ok((pack, size, (entries, declared))) => {
-                archive_bytes += size;
+            Ok((pack, (entries, declared))) => {
                 (entry_count, declared_bytes) = (entries, declared);
                 packs.push(pack);
             }
@@ -82,31 +75,23 @@ pub(super) fn validate_stack(
         }
     }
     packs.reverse();
-    ValidatedPackStack {
+    let stack = ValidatedPackStack {
         packs: packs.into_boxed_slice(),
         rejections: rejections.into_boxed_slice(),
-    }
+        fingerprint: Default::default(),
+    };
+    let _ = stack.fingerprint();
+    stack
 }
 
 #[cfg(feature = "handoff")]
 fn admit_stack_entry<T>(
     archive: ResourcePackArchive,
     seen: &mut HashSet<Uuid>,
-    admitted: usize,
-    archive_bytes: usize,
     memory: Option<u32>,
+    reads: Arc<ReadCache>,
     stack_bounds: impl FnOnce(&ValidatedPack, u64) -> Result<T, AdmissionError>,
-) -> Result<(ValidatedPack, usize, T), AdmissionError> {
-    if admitted >= MAX_PACKS {
-        return Err(AdmissionError::TooManyPacks);
-    }
-    let size = archive.archive.len();
-    if size > MAX_ARCHIVE_BYTES {
-        return Err(AdmissionError::ArchiveTooLarge);
-    }
-    if archive_bytes.saturating_add(size) > MAX_STACK_ARCHIVE_BYTES {
-        return Err(AdmissionError::StackArchiveTooLarge);
-    }
+) -> Result<(ValidatedPack, T), AdmissionError> {
     if seen.contains(&archive.pack_id) {
         return Err(AdmissionError::DuplicatePack);
     }
@@ -116,33 +101,53 @@ fn admit_stack_entry<T>(
     } else {
         Some(ContentKey::new(key).ok_or(AdmissionError::InvalidContentKey)?)
     };
-    let (pack, declared) = validate_archive_parts(
+    let (pack, declared) = validate_archive_parts_cached(
         archive.pack_id,
         &archive.version,
         &archive.sub_pack_name,
         archive.archive,
         key,
         memory,
+        reads,
     )?;
     let bounds = stack_bounds(&pack, declared)?;
     seen.insert(pack.pack_id);
-    Ok((pack, size, bounds))
+    Ok((pack, bounds))
 }
 
+/// Admits one archive with its own bounded read cache.
 pub(crate) fn validate_archive_parts(
+    pack_id: Uuid,
+    version: &str,
+    sub_pack_name: &str,
+    archive_bytes: Vec<u8>,
+    key: Option<ContentKey>,
+    memory: Option<u32>,
+) -> Result<(ValidatedPack, u64), AdmissionError> {
+    validate_archive_parts_cached(
+        pack_id,
+        version,
+        sub_pack_name,
+        archive_bytes,
+        key,
+        memory,
+        Arc::default(),
+    )
+}
+
+/// Admits a pack whose plaintext storage shares the caller's byte budget.
+pub(crate) fn validate_archive_parts_cached(
     pack_id: Uuid,
     version: &str,
     sub_pack_name: &str,
     mut archive_bytes: Vec<u8>,
     key: Option<ContentKey>,
     memory: Option<u32>,
+    reads: Arc<ReadCache>,
 ) -> Result<(ValidatedPack, u64), AdmissionError> {
-    if archive_bytes.len() > MAX_ARCHIVE_BYTES {
-        return Err(AdmissionError::ArchiveTooLarge);
-    }
     let expected_entries = prepare_zip_bytes(&mut archive_bytes)?;
-    let bytes: Arc<[u8]> = archive_bytes.into();
-    let mut zip = ZipArchive::new(Cursor::new(Arc::clone(&bytes)))
+    let bytes = Arc::new(archive_bytes);
+    let mut zip = ZipArchive::new(Cursor::new(ArchiveBytes(Arc::clone(&bytes))))
         .map_err(|_| AdmissionError::MalformedZip)?;
     if zip.len() != expected_entries || zip.len() > MAX_ENTRIES_PER_PACK {
         return Err(AdmissionError::TooManyEntries);
@@ -172,14 +177,14 @@ pub(crate) fn validate_archive_parts(
             && matches!(
                 file.compression(),
                 CompressionMethod::Stored | CompressionMethod::Deflated
-            )
-            && file.size() <= MAX_FILE_BYTES;
+            );
         match path {
             Some(path) if usable && folded_seen.insert(path.to_ascii_lowercase()) => {
                 let entry = EntryIndex {
                     archive_index,
                     uncompressed_size: file.size(),
                     key: None,
+                    cached: reads.entry(),
                 };
                 physical.insert(path, entry);
             }
@@ -209,6 +214,8 @@ pub(crate) fn validate_archive_parts(
         archive_bytes,
         declared_bytes: declared,
         zip,
+        content_hash: Arc::default(),
+        reads,
         files: rooted,
         folded: HashMap::new(),
         file_order: Box::default(),
@@ -217,11 +224,7 @@ pub(crate) fn validate_archive_parts(
         skipped_entries: skipped,
     };
     let manifest_bytes = pack
-        .read_file_with_limit(manifest_path, MAX_MANIFEST_BYTES as u64)
-        .map_err(|error| match error {
-            AdmissionError::FileTooLarge => AdmissionError::ManifestTooLarge,
-            other => other,
-        })?
+        .read_file(manifest_path)?
         .ok_or(AdmissionError::MissingManifest)?;
     let manifest = read_manifest(&manifest_bytes, pack_id, version)?;
     let selected = if let Some(memory) = memory {
@@ -349,97 +352,14 @@ pub(crate) const MANIFEST_NAMES: [&str; 2] = ["manifest.json", "pack_manifest.js
 /// Checks fixture footer bounds without changing its comment bytes.
 #[cfg(test)]
 fn preflight_eocd(bytes: &[u8]) -> Result<usize, AdmissionError> {
-    find_eocd(bytes).map(|(_, entries)| entries)
+    zip_footer::find_eocd(bytes, MAX_ENTRIES_PER_PACK)
+        .map(|(_, entries)| entries)
+        .map_err(AdmissionError::from)
 }
 
 /// Removes only the validated ZIP comment so downstream footer searches cannot select its bytes.
 pub(crate) fn prepare_zip_bytes(bytes: &mut Vec<u8>) -> Result<usize, AdmissionError> {
-    let (footer, entries) = find_eocd(bytes)?;
-    bytes[footer + 20..footer + 22].fill(0);
-    bytes.truncate(footer + EOCD_MIN_BYTES);
-    Ok(entries)
-}
-
-/// Finds the last structurally valid footer rather than an arbitrary signature in its comment.
-fn find_eocd(bytes: &[u8]) -> Result<(usize, usize), AdmissionError> {
-    if bytes.len() < EOCD_MIN_BYTES {
-        return Err(AdmissionError::InvalidZipFooter);
-    }
-    let start = bytes.len().saturating_sub(EOCD_MAX_SEARCH_BYTES);
-    let signature = b"PK\x05\x06";
-    let mut failure = AdmissionError::InvalidZipFooter;
-    for eocd in (start..=bytes.len() - EOCD_MIN_BYTES)
-        .rev()
-        .filter(|offset| bytes[*offset..].starts_with(signature))
-    {
-        match validate_eocd_at(bytes, eocd) {
-            Ok(entries) => return Ok((eocd, entries)),
-            Err(error) => failure = error,
-        }
-    }
-    Err(failure)
-}
-
-/// Validates one footer candidate, including its central directory and exact comment extent.
-fn validate_eocd_at(bytes: &[u8], eocd: usize) -> Result<usize, AdmissionError> {
-    let tail = &bytes[eocd..];
-    let disk = le_u16(tail, 4)?;
-    let central_disk = le_u16(tail, 6)?;
-    let disk_entries = le_u16(tail, 8)?;
-    let total_entries = le_u16(tail, 10)?;
-    let central_size = le_u32(tail, 12)?;
-    let central_offset = le_u32(tail, 16)?;
-    let comment_len = usize::from(le_u16(tail, 20)?);
-    if eocd + EOCD_MIN_BYTES + comment_len != bytes.len() || disk != 0 || central_disk != 0 {
-        return Err(AdmissionError::InvalidZipFooter);
-    }
-    if disk_entries == u16::MAX
-        || total_entries == u16::MAX
-        || central_size == u32::MAX
-        || central_offset == u32::MAX
-        || eocd >= 20 && bytes[eocd - 20..eocd].starts_with(b"PK\x06\x07")
-    {
-        return Err(AdmissionError::UnsupportedZip64);
-    }
-    if disk_entries != total_entries || usize::from(total_entries) > MAX_ENTRIES_PER_PACK {
-        return Err(AdmissionError::TooManyEntries);
-    }
-    let central_end = usize::try_from(central_offset)
-        .ok()
-        .and_then(|offset| {
-            usize::try_from(central_size)
-                .ok()
-                .and_then(|size| offset.checked_add(size))
-        })
-        .ok_or(AdmissionError::InvalidZipFooter)?;
-    if central_end > eocd {
-        return Err(AdmissionError::InvalidZipFooter);
-    }
-    if central_end != eocd {
-        let gap = &bytes[central_end..eocd];
-        if gap
-            .windows(4)
-            .any(|window| window == b"PK\x06\x06" || window == b"PK\x06\x07")
-        {
-            return Err(AdmissionError::UnsupportedZip64);
-        }
-        return Err(AdmissionError::InvalidZipFooter);
-    }
-    Ok(usize::from(total_entries))
-}
-
-fn le_u16(bytes: &[u8], offset: usize) -> Result<u16, AdmissionError> {
-    let value = bytes
-        .get(offset..offset + 2)
-        .ok_or(AdmissionError::InvalidZipFooter)?;
-    Ok(u16::from_le_bytes([value[0], value[1]]))
-}
-
-fn le_u32(bytes: &[u8], offset: usize) -> Result<u32, AdmissionError> {
-    let value = bytes
-        .get(offset..offset + 4)
-        .ok_or(AdmissionError::InvalidZipFooter)?;
-    Ok(u32::from_le_bytes([value[0], value[1], value[2], value[3]]))
+    Ok(zip_footer::prepare_zip_bytes(bytes, MAX_ENTRIES_PER_PACK)?)
 }
 
 pub(crate) fn is_regular_file(mode: Option<u32>) -> bool {
@@ -452,7 +372,7 @@ pub(crate) fn is_regular_file(mode: Option<u32>) -> bool {
 /// Normalizes separators and a leading `./`; paths that could escape the pack
 /// root or carry control characters are refused.
 pub(crate) fn canonical_path(raw: &[u8]) -> Option<Box<str>> {
-    if raw.is_empty() || raw.len() > MAX_PATH_BYTES || raw.contains(&0) {
+    if raw.is_empty() || raw.contains(&0) {
         return None;
     }
     let path = std::str::from_utf8(raw).ok()?.replace('\\', "/");

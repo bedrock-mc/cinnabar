@@ -10,11 +10,16 @@ use serde_json::{Map, Value};
 
 use crate::json5;
 
+mod scope;
+pub use scope::ControlScope;
+
 /// A control exactly as authored, with its `@base` recorded from the key.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RawControl {
     /// Namespace of the file this control was authored in; qualifies bare refs.
     pub owner_ns: String,
+    /// Application-owned definition snapshot; absent on parsed pack controls.
+    pub definition_scope: Option<ControlScope>,
     /// Local instance name (the part before `@`).
     pub name: String,
     /// The raw `@base` reference (after `@`), possibly a bare name or a `$var`.
@@ -29,6 +34,20 @@ pub struct RawControl {
 }
 
 impl RawControl {
+    /// Parses a reference after variable evaluation in this control's definition snapshot.
+    pub(crate) fn reference(&self, text: &str) -> crate::ControlRef {
+        self.reference_in(text, &self.owner_ns)
+    }
+
+    /// Parses a reference whose default namespace came from another definition in the scope.
+    pub(crate) fn reference_in(&self, text: &str, namespace: &str) -> crate::ControlRef {
+        let reference = crate::ControlRef::parse(text, namespace);
+        match &self.definition_scope {
+            Some(scope) => scope.reference(&reference),
+            None => reference,
+        }
+    }
+
     pub(crate) fn from_entry(
         owner_ns: &str,
         key: &str,
@@ -61,6 +80,7 @@ impl RawControl {
         }
         Self {
             owner_ns: owner_ns.to_owned(),
+            definition_scope: None,
             name,
             base,
             props,
@@ -142,19 +162,20 @@ struct FileRead {
 #[derive(Clone, Debug, Default)]
 pub struct Catalog {
     globals: BTreeMap<String, Value>,
+    scopes: BTreeMap<String, std::sync::Arc<BTreeMap<String, String>>>,
     /// Every `_ui_defs` path loaded so far; a pack file loads only when listed.
     ui_defs: std::collections::BTreeSet<String>,
     defs: BTreeMap<String, BTreeMap<String, RawControl>>,
     /// First-file parse state and namespace inherited by later layers at that path.
     files: BTreeMap<String, FileRead>,
     diagnostics: Vec<String>,
-    /// Keeps Cinnabar paint transforms and filters; pack and server catalogs drop them.
+    /// Keeps Cinnabar transforms, normalized placement and filters for opted-in catalogs.
     paint_transforms: bool,
 }
 
 impl Catalog {
     /// Opts this catalog into [`crate::transform::TRANSFORM_PROPERTY`] and
-    /// [`crate::filter::FILTER_PROPERTY`], for Cinnabar extension surfaces only. Other
+    /// [`crate::filter::FILTER_PROPERTY`] and [`crate::position::PROPERTY`]. Other
     /// catalogs resolve as if the properties were never authored.
     pub fn with_paint_transforms(mut self) -> Self {
         self.paint_transforms = true;
@@ -292,7 +313,8 @@ impl Catalog {
         self.defs.values_mut().flat_map(|table| table.values_mut())
     }
 
-    pub(crate) fn lookup_mut(&mut self, namespace: &str, name: &str) -> Option<&mut RawControl> {
+    /// Mutates one definition for an application-owned presentation policy.
+    pub fn lookup_mut(&mut self, namespace: &str, name: &str) -> Option<&mut RawControl> {
         self.defs.get_mut(namespace)?.get_mut(name)
     }
 

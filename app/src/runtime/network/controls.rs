@@ -1,10 +1,10 @@
 use super::{PackReload, session::NetworkControlEvent};
 use crate::{
+    game_session::quiesce_local_player,
     runtime::{
         shutdown::record_fatal_error,
         world::{ClientWorld, TransferNotice},
     },
-    session::quiesce_local_player,
 };
 use bevy::{
     log::{error, info, warn},
@@ -43,14 +43,9 @@ pub(super) fn apply(
         NetworkControlEvent::Bootstrap { .. } => {
             unreachable!("bootstrap is applied before control routing")
         }
-        NetworkControlEvent::SubChunkRequestSent {
-            chunk,
-            base_sub_chunk_y,
-            count,
-            sent_at,
-        } => {
+        NetworkControlEvent::SubChunkRequestSent { receipt, sent_at } => {
             if let Some(stream) = client_world.stream.as_mut() {
-                stream.acknowledge_sub_chunk_request_sent(chunk, base_sub_chunk_y, count, sent_at);
+                stream.acknowledge_sub_chunk_request_sent(&receipt, sent_at);
             }
             return None;
         }
@@ -193,6 +188,7 @@ impl Retirement<'_> {
         client_world.network_decode_errors = decode_error_count;
         match end {
             SessionEnd::Failed { failure, .. } => {
+                bridge::join_profile::JoinProfile::current().finish("failed");
                 error!(decode_error_count, "{failure}");
                 record_fatal_error(fatal_error, failure);
             }

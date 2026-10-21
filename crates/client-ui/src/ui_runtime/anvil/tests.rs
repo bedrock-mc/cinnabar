@@ -231,7 +231,7 @@ fn repairs_preview_the_mended_result_and_its_cost() {
 }
 
 #[test]
-fn repair_predictions_use_retained_server_damage_instead_of_raw_nbt() {
+fn repair_predictions_use_materialized_server_damage() {
     for corrected_damage in [0, 1000] {
         let (mut runtime, mut player) = anvil();
         let raw_damage = if corrected_damage == 0 { 1000 } else { 0 };
@@ -255,7 +255,10 @@ fn repair_predictions_use_retained_server_damage_instead_of_raw_nbt() {
             .inventory_ledger(&player)
             .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))
             .unwrap();
-        assert_eq!(protocol::item_stack_damage(raw), Some(raw_damage as u32));
+        assert_eq!(
+            protocol::item_stack_damage(raw),
+            Some(corrected_damage as u32)
+        );
         runtime.sync_anvil_name(&player);
         let preview = runtime.anvil_preview(&player);
         if corrected_damage == 0 {
@@ -584,11 +587,7 @@ fn taking_a_book_merge_without_renaming_sends_the_take() {
 }
 
 #[test]
-fn server_outputs_are_taken_even_when_prediction_differs_or_is_unavailable() {
-    use protocol::{
-        CraftResult, StackRequestAction as Action, StackRequestContainer as Container,
-        StackRequestSlot,
-    };
+fn ui_result_slot_packets_publish_the_retained_server_preview() {
     for (predictable, repair_cost) in [(false, 0), (true, 0), (true, 63)] {
         let (mut runtime, mut player) = anvil();
         edit_input(
@@ -596,145 +595,39 @@ fn server_outputs_are_taken_even_when_prediction_differs_or_is_unavailable() {
             &mut player,
             ANVIL_TARGET_SLOT,
             protocol::ItemNbtEdit {
-                custom_name: Some(Some(" Blade ".into())),
+                damage: (!predictable).then_some(0),
                 repair_cost: Some(repair_cost),
                 ..Default::default()
             },
         );
-        if !predictable {
-            edit_input(
-                &mut runtime,
-                &mut player,
-                ANVIL_TARGET_SLOT,
-                protocol::ItemNbtEdit {
-                    damage: Some(0),
-                    ..Default::default()
-                },
-            );
-        }
         runtime.sync_anvil_name(&player);
-        assert_eq!(runtime.anvil_preview(&player).is_some(), predictable);
-        assert_eq!(
-            runtime
-                .anvil_preview(&player)
-                .is_some_and(|preview| preview.outcome.too_expensive),
-            repair_cost >= inventory::ANVIL_TOO_EXPENSIVE
-        );
-        let extra_data = protocol::edit_item_extra(
-            &[],
-            &protocol::ItemNbtEdit {
-                custom_name: Some(Some("Server result".into())),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        let output = NetworkItemStack {
+        runtime.screen_state_mut().hover =
+            Some(ui_screens::container_actions::InventoryCellHit::CraftOutput);
+        let pending = runtime.inventory_ledger(&player).pending_request_count();
+        let result = NetworkItemStack {
             network_id: DIAMOND,
             count: 2,
             stack_network_id: 70,
-            nbt_digest: Sha256::digest(&extra_data).into(),
-            extra_data,
             ..NetworkItemStack::empty()
         };
         place(
             &mut runtime,
             &mut player,
             u16::from(protocol::CREATED_OUTPUT_SLOT),
-            output.clone(),
+            result.clone(),
         );
-        runtime.screen_state_mut().hover =
-            Some(ui_screens::container_actions::InventoryCellHit::CraftOutput);
-        assert_eq!(runtime.anvil_output(&player), Some(output.clone()));
+        assert_eq!(runtime.anvil_output(&player), Some(result.clone()));
         assert_eq!(
             crate::ui_runtime::presentation::publish::hovered_stack(&player, &runtime),
-            Some((output.clone(), None))
-        );
-        let source = crate::ui_runtime::presentation::forms::containers::ContainerAuthority::new(
-            &player, &runtime,
-        );
-        assert!(
-            ui_screens::container_source::ContainerSource::screen(&source)
-                .anvil_cost
-                .is_none()
-        );
-        runtime.perform_pointer_action(
-            &mut player,
-            crate::ui_runtime::inventory_drag::PointerAction::Click(
-                ui_screens::container_actions::InventoryCellHit::CraftOutput,
-            ),
-        );
-        let ledger = runtime.inventory_ledger(&player);
-        let cursor = ledger
-            .cursor_stack()
-            .expect("a server result can be taken without a local cost");
-        assert_eq!(
-            (cursor.network_id, cursor.count),
-            (output.network_id, output.count)
-        );
-        assert_eq!(cursor.extra_data, output.extra_data);
-        let (actual, count) = ledger.pending_batch().unwrap().unwrap();
-        assert_eq!(count, 1);
-        let expected = protocol::item_stack_request_packet_filtered(
-            -3,
-            &[
-                Action::CraftRecipeOptional {
-                    recipe_network_id: 0,
-                    filtered_string_index: -1,
-                },
-                Action::CraftResultsDeprecated {
-                    results: Arc::from([CraftResult {
-                        identifier: Arc::from("minecraft:diamond"),
-                        aux: 0,
-                        count: output.count,
-                        block_runtime_id: 0,
-                        user_data: output.extra_data,
-                    }]),
-                    crafts: 1,
-                },
-                Action::Consume {
-                    amount: 1,
-                    source: StackRequestSlot {
-                        container: protocol::ui_slot_request_container(ANVIL_TARGET_SLOT).unwrap(),
-                        slot: ANVIL_TARGET_SLOT,
-                        stack_network_id: 30,
-                    },
-                },
-                Action::Consume {
-                    amount: 1,
-                    source: StackRequestSlot {
-                        container: protocol::ui_slot_request_container(ANVIL_MATERIAL_SLOT)
-                            .unwrap(),
-                        slot: ANVIL_MATERIAL_SLOT,
-                        stack_network_id: 31,
-                    },
-                },
-                Action::Take {
-                    amount: 2,
-                    source: StackRequestSlot {
-                        container: Container::CreatedOutput,
-                        slot: protocol::CREATED_OUTPUT_SLOT,
-                        stack_network_id: 70,
-                    },
-                    destination: StackRequestSlot {
-                        container: Container::Cursor,
-                        slot: 0,
-                        stack_network_id: 0,
-                    },
-                },
-            ],
-            &[],
-        )
-        .unwrap();
-        assert_eq!(
-            actual, expected,
-            "the request submits the displayed server stack"
+            Some((result.clone(), None))
         );
         assert_eq!(
-            ledger
-                .target_stack(InventoryTarget::Craft(ANVIL_MATERIAL_SLOT))
-                .unwrap()
-                .count,
-            9
+            runtime.inventory_ledger(&player).pending_request_count(),
+            pending
+        );
+        assert_eq!(
+            runtime.inventory_ledger(&player).created_output_stack(),
+            Some(&result)
         );
     }
 }
@@ -884,4 +777,187 @@ fn full_custom_names_are_kept_when_repairing_without_a_rename() {
             .as_deref(),
         Some(name.as_str())
     );
+}
+
+#[test]
+fn filtered_names_follow_actual_anvil_name_edits() {
+    use protocol::{
+        CraftResult, StackRequestAction as Action, StackRequestContainer as Container,
+        StackRequestSlot,
+    };
+
+    for typed in [None, Some("Renamed"), Some("")] {
+        let (mut runtime, mut player) = anvil();
+        edit_input(
+            &mut runtime,
+            &mut player,
+            ANVIL_TARGET_SLOT,
+            protocol::ItemNbtEdit {
+                custom_name: Some(Some(" Raw blade ".into())),
+                filtered_custom_name: Some(Some("Filtered blade".into())),
+                ..Default::default()
+            },
+        );
+        runtime.sync_anvil_name(&player);
+        assert_eq!(runtime.screen_state().anvil_name, " Raw blade ");
+        if let Some(name) = typed {
+            runtime.screen_state_mut().anvil_name = name.into();
+        }
+        player
+            .facts
+            .publish_player_game_mode(protocol::PlayerGameMode::Creative);
+
+        let input_slot = |slot| {
+            let ledger = runtime.inventory_ledger(&player);
+            StackRequestSlot {
+                container: protocol::ui_slot_request_container(slot).unwrap(),
+                slot,
+                stack_network_id: ledger
+                    .target_stack(InventoryTarget::Craft(slot))
+                    .unwrap()
+                    .stack_network_id,
+            }
+        };
+        let target = input_slot(ANVIL_TARGET_SLOT);
+        let material = input_slot(ANVIL_MATERIAL_SLOT);
+        let input = runtime
+            .inventory_ledger(&player)
+            .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))
+            .unwrap();
+
+        let expected_name = match typed {
+            None => Some(" Raw blade "),
+            Some("") => None,
+            Some(name) => Some(name),
+        };
+        let expected_filtered = typed.is_none().then_some("Filtered blade");
+        let expected_extra = protocol::edit_item_extra(
+            &input.extra_data,
+            &protocol::ItemNbtEdit {
+                damage: Some(0),
+                repair_cost: Some(1),
+                custom_name: Some(expected_name.map(str::to_owned)),
+                filtered_custom_name: Some(expected_filtered.map(str::to_owned)),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let preview = runtime.anvil_preview(&player).unwrap();
+        assert_eq!(preview.outcome.material_used, 3);
+        assert_eq!(
+            preview.outcome.custom_name,
+            typed.map(|name| (!name.is_empty()).then(|| name.to_owned()))
+        );
+        assert_eq!(
+            (
+                protocol::item_custom_name(&preview.stack.extra_data).as_deref(),
+                protocol::item_filtered_custom_name(&preview.stack.extra_data).as_deref(),
+            ),
+            (expected_name, expected_filtered)
+        );
+        assert_eq!(preview.stack.extra_data, expected_extra);
+
+        runtime.perform_pointer_action(
+            &mut player,
+            crate::ui_runtime::inventory_drag::PointerAction::Click(
+                ui_screens::container_actions::InventoryCellHit::CraftOutput,
+            ),
+        );
+        let ledger = runtime.inventory_ledger(&player);
+        assert_eq!(ledger.cursor_stack().unwrap().extra_data, expected_extra);
+        let (packet, requests) = ledger.pending_batch().unwrap().unwrap();
+        assert_eq!(requests, 1);
+        let request_id = ledger.pending_request_id().unwrap();
+        let filter_strings: Vec<String> = typed.into_iter().map(str::to_owned).collect();
+        let expected = protocol::item_stack_request_packet_filtered(
+            request_id,
+            &[
+                Action::CraftRecipeOptional {
+                    recipe_network_id: 0,
+                    filtered_string_index: if typed.is_some() { 0 } else { -1 },
+                },
+                Action::CraftResultsDeprecated {
+                    results: Arc::from([CraftResult {
+                        identifier: Arc::from("minecraft:diamond_sword"),
+                        aux: 0,
+                        count: 1,
+                        block_runtime_id: 0,
+                        user_data: expected_extra,
+                    }]),
+                    crafts: 1,
+                },
+                Action::Consume {
+                    amount: 1,
+                    source: target,
+                },
+                Action::Consume {
+                    amount: 3,
+                    source: material,
+                },
+                Action::Take {
+                    amount: 1,
+                    source: StackRequestSlot {
+                        container: Container::CreatedOutput,
+                        slot: protocol::CREATED_OUTPUT_SLOT,
+                        stack_network_id: request_id,
+                    },
+                    destination: StackRequestSlot {
+                        container: Container::Cursor,
+                        slot: 0,
+                        stack_network_id: 0,
+                    },
+                },
+            ],
+            &filter_strings,
+        )
+        .unwrap();
+        assert_eq!(packet, expected);
+    }
+}
+
+#[test]
+fn overlay_only_names_survive_until_an_actual_rename() {
+    let (runtime, player) = anvil();
+    let input = runtime
+        .inventory_ledger(&player)
+        .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))
+        .unwrap();
+    assert_eq!(protocol::item_custom_name(&input.extra_data), None);
+    assert_eq!(protocol::item_filtered_custom_name(&input.extra_data), None);
+
+    for filtered in [None, Some(""), Some("Filtered server blade")] {
+        let overlay = inventory::inventory_ledger::StackResponseOverlay {
+            custom_name: Some(Arc::from("Server blade")),
+            filtered_custom_name: filtered.map(Arc::from),
+            durability_correction: None,
+        };
+        let corrected = protocol::edit_item_extra(
+            &input.extra_data,
+            &anvil_name_edit(&input.extra_data, Some(&overlay), None),
+        )
+        .unwrap();
+        assert_eq!(
+            protocol::item_custom_name(&corrected).as_deref(),
+            Some("Server blade")
+        );
+        assert_eq!(
+            protocol::item_filtered_custom_name(&corrected).as_deref(),
+            filtered.filter(|name| !name.is_empty())
+        );
+        assert_eq!(protocol::item_extra_damage_value(&corrected), Some(1000));
+
+        for name in [Some("Renamed".to_owned()), None] {
+            let edited = protocol::edit_item_extra(
+                &corrected,
+                &anvil_name_edit(&corrected, Some(&overlay), Some(name.clone())),
+            )
+            .unwrap();
+            assert_eq!(
+                protocol::item_custom_name(&edited).as_deref(),
+                name.as_deref()
+            );
+            assert_eq!(protocol::item_filtered_custom_name(&edited), None);
+        }
+    }
 }

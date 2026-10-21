@@ -1,6 +1,8 @@
 //! Anonymous Chat section states rendered by the production settings painter.
 
-use super::{Arc, Fixture, MenuAction, SettingId, SettingSection, settings};
+use super::{
+    Arc, Fixture, GUI_SCALE, MenuAction, SIZE, SettingId, SettingSection, State, settings,
+};
 use launcher::menu::{MenuDialog, settings_options::SettingsGroup};
 
 /// Shows defaults or nondefault values, optionally opening one of the chat pickers.
@@ -17,7 +19,7 @@ pub(super) fn panel(changed: bool, picker: Option<SettingId>) -> Fixture {
             options.set(option.id.index(), value);
         }
     }
-    view.settings_dropdown = picker.map(|id| id.index() as u16);
+    view.settings.dropdown = picker.map(|id| id.index() as u16);
     Fixture::Menu(Box::new(view))
 }
 
@@ -54,3 +56,60 @@ pub(super) fn minimum() -> Fixture {
     }
     Fixture::Menu(view)
 }
+
+pub(super) const STATES: &[State] = &[
+    State {
+        name: "settings-chat",
+        size: [1280, 1360],
+        gui_scale: GUI_SCALE,
+        fixture: || panel(false, None),
+    },
+    State {
+        name: "settings-chat-top",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || panel(false, None),
+    },
+    State {
+        name: "settings-chat-bottom",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || bottom(false),
+    },
+    State {
+        name: "settings-chat-changed",
+        size: [1280, 1360],
+        gui_scale: GUI_SCALE,
+        fixture: || panel(true, None),
+    },
+    State {
+        name: "settings-chat-minimum",
+        size: [1280, 1360],
+        gui_scale: GUI_SCALE,
+        fixture: minimum,
+    },
+    State {
+        name: "settings-chat-narrow",
+        size: [800, 720],
+        gui_scale: GUI_SCALE,
+        fixture: || panel(false, None),
+    },
+    State {
+        name: "settings-chat-reset",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: reset,
+    },
+    State {
+        name: "settings-chat-color",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || panel(false, Some(SettingId::ChatColor)),
+    },
+    State {
+        name: "settings-chat-mentions",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || panel(false, Some(SettingId::MentionsColor)),
+    },
+];

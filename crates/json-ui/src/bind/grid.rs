@@ -12,15 +12,11 @@ use serde_json::Value;
 use super::feed::collection_name;
 use super::spec::{Binding, Kind};
 use super::{Binder, Node, Scope, Src, with_index};
-use crate::layout::{GRID_PLACEHOLDER_KEY, GRID_TEMPLATE_KEY};
+use crate::layout::{GRID_CLIPPED_CELL_KEY, GRID_PLACEHOLDER_KEY, GRID_TEMPLATE_KEY};
 use crate::tree::{ControlRef, ResolvedControl};
 
 #[cfg(test)]
 mod tests;
-
-/// Collection grids with fewer cells always build every cell; a virtualized grid no layout
-/// has shown yet builds this many first, as a list opens scrolled to its start.
-const VIRTUAL_GRID_CELLS: usize = 64;
 
 impl Binder<'_> {
     /// One `grid_item_template` instance per cell the grid holds (columns × rows,
@@ -48,10 +44,12 @@ impl Binder<'_> {
             ));
             return Vec::new();
         };
-        let window = (self.state.virtualizes(collection) && count >= VIRTUAL_GRID_CELLS)
-            .then(|| self.grid_window(scope.parent_key, &resolved))
+        let initial = self.state.initial_grid_window(collection);
+        let clipped = self.state.clips_grid_cells(collection);
+        let window = (self.state.virtualizes(collection) && count >= initial)
+            .then(|| self.grid_window(scope.parent_key, &resolved, initial, clipped))
             .flatten();
-        let mut cells = Vec::with_capacity(count);
+        let mut cells = Vec::with_capacity(count.min(self.remaining_nodes()));
         for index in 0..count {
             if !self.can_create() {
                 break;
@@ -68,6 +66,11 @@ impl Binder<'_> {
                 _ => inner.clone(),
             };
             let cell = with_index(Src::root(Arc::clone(&resolved)), index).patched(|patch| {
+                if clipped {
+                    patch
+                        .properties
+                        .insert(GRID_CLIPPED_CELL_KEY.into(), Value::Bool(true));
+                }
                 if let Some(name) = collection {
                     patch.properties.insert(
                         "collection_scope".to_owned(),
@@ -97,11 +100,16 @@ impl Binder<'_> {
         &mut self,
         grid: u64,
         template: &Arc<ResolvedControl>,
+        initial: usize,
+        clipped: bool,
     ) -> Option<(Range<usize>, Arc<ResolvedControl>)> {
         if binds_size(template) {
             return None;
         }
         let mut geometry = BTreeMap::new();
+        if clipped {
+            geometry.insert(GRID_CLIPPED_CELL_KEY.into(), Value::Bool(true));
+        }
         for key in ["size", "min_size", "max_size"] {
             match template.properties.get(key) {
                 Some(value) if pixel_pair(value).is_some() => {
@@ -140,7 +148,7 @@ impl Binder<'_> {
             .state
             .grid_windows
             .entry(grid)
-            .or_insert(0..VIRTUAL_GRID_CELLS)
+            .or_insert(0..initial)
             .clone();
         Some((built, placeholder))
     }
@@ -286,7 +294,10 @@ pub(super) fn grid_cell_index(control: &ResolvedControl, columns: u64) -> Option
     if control.properties.contains_key("collection_index") {
         return None;
     }
-    let position = control.properties.get("grid_position")?.as_array()?;
+    let Some(position) = control.properties.get("grid_position") else {
+        return Some(0);
+    };
+    let position = position.as_array()?;
     let (column, row) = (position.first()?.as_u64()?, position.get(1)?.as_u64()?);
     usize::try_from(row.checked_mul(columns)?.checked_add(column)?).ok()
 }

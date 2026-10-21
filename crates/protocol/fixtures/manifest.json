@@ -143,8 +143,8 @@
     "name": "ModalFormResponseButton",
     "file": "modal_form_response_button.bin",
     "id": 101,
-    "byte_length": 9,
-    "sha256": "7f03491c9c39214c52fc608799a4f5694da9f9b7eece50d298d481ab86912001"
+    "byte_length": 10,
+    "sha256": "6b89b941127b88673b3719d6ec33fccf61b4bbdc7eee537a28d3f2910ec7dacb"
   },
   {
     "name": "ModalFormResponseClosed",

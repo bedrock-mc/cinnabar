@@ -212,9 +212,7 @@ fn quick_move_from_player_targets_open_storage() {
     };
     assert_eq!(
         destination.container,
-        StackRequestContainer::LevelEntity {
-            dynamic_id: Some(91)
-        }
+        StackRequestContainer::LevelEntity { dynamic_id: None }
     );
     assert_eq!(ledger.storage_stack(0).unwrap().stack_network_id, -3);
 }

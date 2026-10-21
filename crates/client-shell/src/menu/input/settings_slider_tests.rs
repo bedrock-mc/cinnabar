@@ -18,6 +18,201 @@ use {
 
 const PHYSICAL: [u32; 2] = [1920, 1080];
 
+/// Opens a shader slider using the redistributable font fixture and native menu painter.
+fn shader_fixture() -> (App, Entity) {
+    use launcher::shader_options::{Control, Element, Status, View};
+    let mut menu = MenuRuntime::new(true, 2, "Player".into());
+    menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+    menu.activate(MenuAction::SettingsSection(
+        launcher::menu::settings_sections::SettingSection::Shaders
+            .definition()
+            .index,
+    ));
+    let mut view = View::loading("Fixture");
+    view.screen = 7;
+    view.status = Status::Ready;
+    view.elements = vec![Element {
+        label: "Quality".into(),
+        comment: None,
+        control: Control::Slider {
+            value: "2".into(),
+            index: 1,
+            count: 4,
+        },
+        modified: false,
+    }];
+    menu.sync_shader_options(Some(view));
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .add_message::<KeyboardInput>()
+        .add_message::<MouseButtonInput>()
+        .add_message::<TouchInput>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<Touches>()
+        .init_resource::<MenuClipboard>()
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
+        .insert_resource(menu)
+        .insert_resource(UiPresentationResource(
+            UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap(),
+        ))
+        .add_systems(PreUpdate, touch_screen_input_system)
+        .add_systems(Update, drive_menu_input);
+    let window = app
+        .world_mut()
+        .spawn((
+            Window {
+                focused: true,
+                resolution: WindowResolution::new(PHYSICAL[0], PHYSICAL[1]),
+                ..Default::default()
+            },
+            CursorOptions::default(),
+            PrimaryWindow,
+        ))
+        .id();
+    app.update();
+    build(&mut app);
+    (app, window)
+}
+
+#[test]
+fn shader_slider_drag_changes_steps_outside_the_track_and_releases_capture() {
+    use launcher::shader_options::{Action, Input};
+    if !render_model::SHADER_PACKS_ENABLED {
+        return;
+    }
+    let (mut app, window) = shader_fixture();
+    let action = |step| {
+        MenuAction::ShaderOptions(Action::Element {
+            screen: 7,
+            index: 0,
+            input: Input::Select(step),
+        })
+    };
+    let bounds = |step| {
+        app.world()
+            .resource::<UiPresentationResource>()
+            .menu_action_bounds(action(step))
+            .unwrap()
+    };
+    let first = bounds(0);
+    let last = bounds(3);
+    let start = Vec2::new(
+        (first.min().x() + first.max().x()) * 0.5,
+        (first.min().y() + first.max().y()) * 0.5,
+    );
+    let end = Vec2::new(last.max().x() + 100.0, last.max().y() + 100.0);
+    mouse(&mut app, window, start, Some(ButtonState::Pressed));
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .take_shader_option_actions();
+    mouse(&mut app, window, end, None);
+    assert_eq!(
+        app.world_mut()
+            .resource_mut::<MenuRuntime>()
+            .take_shader_option_actions(),
+        [Action::Element {
+            screen: 7,
+            index: 0,
+            input: Input::Select(3)
+        }]
+    );
+    mouse(&mut app, window, end, None);
+    assert!(
+        app.world_mut()
+            .resource_mut::<MenuRuntime>()
+            .take_shader_option_actions()
+            .is_empty()
+    );
+    mouse(&mut app, window, end, Some(ButtonState::Released));
+    mouse(&mut app, window, start, None);
+    assert!(
+        app.world_mut()
+            .resource_mut::<MenuRuntime>()
+            .take_shader_option_actions()
+            .is_empty()
+    );
+}
+
+#[test]
+fn shader_slider_touch_drag_updates_steps_and_mouse_capture_rejects_new_screens() {
+    use launcher::shader_options::{Action, Input};
+    if !render_model::SHADER_PACKS_ENABLED {
+        return;
+    }
+    let (mut app, window) = shader_fixture();
+    let action = |step| {
+        MenuAction::ShaderOptions(Action::Element {
+            screen: 7,
+            index: 0,
+            input: Input::Select(step),
+        })
+    };
+    let bounds = app
+        .world()
+        .resource::<UiPresentationResource>()
+        .menu_action_bounds(action(1))
+        .unwrap();
+    let start = Vec2::new(
+        (bounds.min().x() + bounds.max().x()) * 0.5,
+        (bounds.min().y() + bounds.max().y()) * 0.5,
+    );
+    let end = Vec2::new(PHYSICAL[0] as f32, PHYSICAL[1] as f32);
+    touch(&mut app, window, start, TouchPhase::Started);
+    touch(&mut app, window, end, TouchPhase::Moved);
+    assert_eq!(
+        app.world_mut()
+            .resource_mut::<MenuRuntime>()
+            .take_shader_option_actions(),
+        [Action::Element {
+            screen: 7,
+            index: 0,
+            input: Input::Select(3)
+        }]
+    );
+    touch(&mut app, window, end, TouchPhase::Moved);
+    assert!(
+        app.world_mut()
+            .resource_mut::<MenuRuntime>()
+            .take_shader_option_actions()
+            .is_empty()
+    );
+    touch(&mut app, window, end, TouchPhase::Ended);
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .take_shader_option_actions();
+    mouse(&mut app, window, start, Some(ButtonState::Pressed));
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu.take_shader_option_actions();
+        let mut next = (*menu.shader_options_view().unwrap()).clone();
+        next.screen += 1;
+        menu.sync_shader_options(Some(next));
+    }
+    build(&mut app);
+    mouse(&mut app, window, end, None);
+    let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+    assert!(menu.take_shader_option_actions().is_empty());
+    assert!(menu.settings_input.shader_slider_drag.is_none());
+    assert_eq!(
+        native_release_action(action(0), Some(action(3))),
+        Some(action(3))
+    );
+    assert_eq!(
+        native_release_action(
+            action(0),
+            Some(MenuAction::ShaderOptions(Action::Element {
+                screen: 8,
+                index: 0,
+                input: Input::Select(3),
+            }))
+        ),
+        None
+    );
+}
+
 struct Rail {
     left: f32,
     right: f32,
@@ -217,7 +412,8 @@ fn assert_pointer(app: &App, fraction: f32, mouse_input: bool) {
         .world()
         .resource::<MenuRuntime>()
         .view()
-        .settings_slider_pointer
+        .settings
+        .slider_pointer
         .expect("a held thumb retains continuous pointer state");
     assert_eq!(pointer.option, gamma());
     assert_eq!(pointer.mouse_input, mouse_input);
@@ -257,7 +453,8 @@ fn native_slider_thumb_retains_raw_mouse_position_until_release() {
         app.world()
             .resource::<MenuRuntime>()
             .view()
-            .settings_slider_pointer
+            .settings
+            .slider_pointer
             .unwrap()
             .fraction,
         (persisted(&app) - option.min) as f32 / (option.max - option.min) as f32,
@@ -285,7 +482,8 @@ fn native_slider_thumb_retains_raw_mouse_position_until_release() {
         app.world()
             .resource::<MenuRuntime>()
             .view()
-            .settings_slider_pointer
+            .settings
+            .slider_pointer
             .is_none()
     );
     assert_eq!(persisted(&app), option.max);
@@ -312,7 +510,8 @@ fn native_slider_track_click_commits_on_release_without_capturing_motion() {
         app.world()
             .resource::<MenuRuntime>()
             .view()
-            .settings_slider_pointer
+            .settings
+            .slider_pointer
             .is_none()
     );
     mouse(&mut app, window, Vec2::ONE, None);
@@ -324,12 +523,12 @@ fn native_slider_track_click_commits_on_release_without_capturing_motion() {
     mouse(&mut app, window, click, Some(ButtonState::Released));
     assert_eq!(persisted(&app), quantized(0.8));
     let view = app.world().resource::<MenuRuntime>().view();
-    assert!(view.settings_slider_pointer.is_none());
+    assert!(view.settings.slider_pointer.is_none());
     assert_eq!(
-        view.settings_control_activation.map(|(action, _)| action),
+        view.settings.control_activation.map(|(action, _)| action),
         Some(MenuAction::SettingsOption(gamma(), quantized(0.8)))
     );
-    assert!(!view.settings_control_activation_navigation);
+    assert!(!view.settings.control_activation_navigation);
 }
 
 #[test]
@@ -363,7 +562,8 @@ fn native_slider_touch_drag_keeps_continuous_position_and_releases_capture() {
         app.world()
             .resource::<MenuRuntime>()
             .view()
-            .settings_slider_pointer
+            .settings
+            .slider_pointer
             .is_none()
     );
     assert_eq!(persisted(&app), quantized(0.5833));
@@ -394,12 +594,12 @@ fn native_slider_rail_hover_keeps_focus_and_thumb_hover_is_independent() {
         Some(category),
         "the rail has no mouse-enter focus listener"
     );
-    assert_eq!(view.settings_slider_hovered, None);
+    assert_eq!(view.settings.slider_hovered, None);
     let option = &SETTINGS_OPTIONS[usize::from(gamma())];
     let selected = (persisted(&app) - option.min) as f32 / (option.max - option.min) as f32;
     mouse(&mut app, window, rail.point(selected, rail.middle), None);
     let view = app.world().resource::<MenuRuntime>().view();
-    assert_eq!(view.settings_slider_hovered, Some(gamma()));
+    assert_eq!(view.settings.slider_hovered, Some(gamma()));
     assert!(
         matches!(view.focused_action, Some(MenuAction::SettingsOption(index, _)) if index == gamma())
     );
@@ -409,7 +609,8 @@ fn native_slider_rail_hover_keeps_focus_and_thumb_hover_is_independent() {
         app.world()
             .resource::<MenuRuntime>()
             .view()
-            .settings_slider_hovered,
+            .settings
+            .slider_hovered,
         Some(gamma()),
         "keyboard modality does not synthesize a thumb mouse-leave event"
     );
@@ -421,25 +622,25 @@ fn settings_activation_revisions_distinguish_input_from_external_setters() {
     menu.activate(MenuAction::Navigate(MenuScreen::Settings));
     let option = &SETTINGS_OPTIONS[usize::from(gamma())];
     menu.set_option(gamma(), option.min);
-    assert_eq!(menu.view().settings_control_activation, None);
+    assert_eq!(menu.view().settings.control_activation, None);
     let action = MenuAction::SettingsOption(gamma(), option.max);
     menu.activate_from_input(action);
-    let first = menu.view().settings_control_activation.unwrap();
+    let first = menu.view().settings.control_activation.unwrap();
     assert_eq!(first.0, action);
-    assert!(!menu.view().settings_control_activation_navigation);
+    assert!(!menu.view().settings.control_activation_navigation);
     menu.set_option(gamma(), option.min);
-    assert_eq!(menu.view().settings_control_activation, Some(first));
+    assert_eq!(menu.view().settings.control_activation, Some(first));
     menu.activate(MenuAction::SettingsOption(gamma(), option.default));
-    assert_eq!(menu.view().settings_control_activation, Some(first));
+    assert_eq!(menu.view().settings.control_activation, Some(first));
     menu.activate_from_navigation(action);
-    let navigation = menu.view().settings_control_activation.unwrap();
+    let navigation = menu.view().settings.control_activation.unwrap();
     assert_eq!(navigation.0, action);
     assert!(navigation.1 > first.1);
-    assert!(menu.view().settings_control_activation_navigation);
+    assert!(menu.view().settings.control_activation_navigation);
     menu.activate_from_input(MenuAction::SettingsOption(gamma(), option.min));
-    let pointer = menu.view().settings_control_activation.unwrap();
+    let pointer = menu.view().settings.control_activation.unwrap();
     assert!(pointer.1 > navigation.1);
-    assert!(!menu.view().settings_control_activation_navigation);
+    assert!(!menu.view().settings.control_activation_navigation);
 }
 
 #[test]
@@ -455,12 +656,13 @@ fn native_slider_space_selects_adjustment_without_committing_a_value() {
         .world()
         .resource::<MenuRuntime>()
         .view()
-        .settings_control_activation;
+        .settings
+        .control_activation;
     key(&mut app, window, KeyCode::Space);
     let view = app.world().resource::<MenuRuntime>().view();
-    assert_eq!(view.settings_slider_selected, Some(gamma()));
+    assert_eq!(view.settings.slider_selected, Some(gamma()));
     assert_eq!(persisted(&app), original);
-    assert_eq!(view.settings_control_activation, activation);
+    assert_eq!(view.settings.control_activation, activation);
     key(&mut app, window, KeyCode::ArrowRight);
     assert_eq!(
         persisted(&app),
@@ -472,7 +674,8 @@ fn native_slider_space_selects_adjustment_without_committing_a_value() {
         app.world()
             .resource::<MenuRuntime>()
             .view()
-            .settings_slider_selected,
+            .settings
+            .slider_selected,
         None
     );
 }
@@ -491,25 +694,26 @@ fn native_slider_backspace_cancels_adjustment_before_page_navigation() {
         app.world()
             .resource::<MenuRuntime>()
             .view()
-            .settings_slider_selected,
+            .settings
+            .slider_selected,
         Some(gamma())
     );
     key(&mut app, window, KeyCode::Backspace);
     let after = app.world().resource::<MenuRuntime>().view();
-    assert_eq!(after.settings_slider_selected, None);
+    assert_eq!(after.settings.slider_selected, None);
     assert_eq!(after.screen, MenuScreen::Settings);
-    assert_eq!(after.settings_section, before.settings_section);
+    assert_eq!(after.settings.section, before.settings.section);
     assert_eq!(
-        after.settings_advanced_graphics,
-        before.settings_advanced_graphics
+        after.settings.advanced_graphics,
+        before.settings.advanced_graphics
     );
     assert_eq!(
         persisted(&app),
         before.settings_options.get(usize::from(gamma()))
     );
     assert_eq!(
-        after.settings_control_activation,
-        before.settings_control_activation
+        after.settings.control_activation,
+        before.settings.control_activation
     );
 }
 
@@ -540,13 +744,13 @@ fn native_picker_space_commits_the_focused_choice() {
     }
     key(&mut app, window, KeyCode::Space);
     let view = app.world().resource::<MenuRuntime>().view();
-    assert_eq!(view.settings_dropdown, None);
+    assert_eq!(view.settings.dropdown, None);
     assert_eq!(view.settings_options.get(usize::from(index)), 1);
     assert_eq!(
-        view.settings_control_activation.map(|(action, _)| action),
+        view.settings.control_activation.map(|(action, _)| action),
         Some(MenuAction::SettingsOption(index, 1))
     );
-    assert!(view.settings_control_activation_navigation);
+    assert!(view.settings.control_activation_navigation);
 }
 
 #[test]
@@ -565,7 +769,8 @@ fn native_release_action_preserves_live_toggle_and_fullscreen_callbacks() {
     assert_eq!(menu.view().settings_options.get(usize::from(index)), 0);
     assert_eq!(
         menu.view()
-            .settings_control_activation
+            .settings
+            .control_activation
             .map(|(action, _)| action),
         Some(hovered)
     );

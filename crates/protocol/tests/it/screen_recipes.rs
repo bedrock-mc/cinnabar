@@ -298,3 +298,51 @@ fn multiple_repair_ids_are_ambiguous() {
     catalog.apply(1, 1, &update);
     assert!(catalog.repair_multi_recipe_id().is_none());
 }
+
+/// Potion and container mixes reach the catalog, and an update without any keeps them.
+#[test]
+fn brewing_recipes_are_retained_until_an_update_lists_new_ones() {
+    use ::protocol::{BrewingItem, BrewingRecipe};
+    use bedrock_protocol_1_26_51::types::{ContainerMixDataEntry, PotionMixDataEntry};
+    let z = wire::ZigZag32;
+    let mut catalog = RecipeCatalog::default();
+    catalog.begin_session(1);
+    let brewing = update(CraftingData {
+        potion_mixes: vec![PotionMixDataEntry {
+            from_potion_id: z(400),
+            from_item_aux: z(0),
+            reagent_item_id: z(401),
+            reagent_item_aux: z(0),
+            to_potion_id: z(400),
+            to_item_aux: z(4),
+        }],
+        container_mixes: vec![ContainerMixDataEntry {
+            from_item_id: z(400),
+            reagent_item_id: z(402),
+            to_item_id: z(403),
+        }],
+        clear_recipes: true,
+        ..Default::default()
+    });
+    assert!(catalog.apply(1, 1, &brewing));
+    let item = |network_id, aux| BrewingItem { network_id, aux };
+    let expected = [
+        BrewingRecipe {
+            input: item(400, Some(0)),
+            reagent: item(401, Some(0)),
+            output: item(400, Some(4)),
+        },
+        BrewingRecipe {
+            input: item(400, None),
+            reagent: item(402, None),
+            output: item(403, None),
+        },
+    ];
+    assert_eq!(catalog.brewing_recipes(), expected);
+    let crafting_only = update(CraftingData {
+        shapeless_recipes: vec![stonecutter(5)],
+        ..Default::default()
+    });
+    assert!(catalog.apply(1, 2, &crafting_only));
+    assert_eq!(catalog.brewing_recipes(), expected);
+}

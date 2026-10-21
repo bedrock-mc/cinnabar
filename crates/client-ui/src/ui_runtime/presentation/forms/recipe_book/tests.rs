@@ -129,7 +129,7 @@ fn an_empty_recipe_tab_clears_the_retained_grid_size() {
     let mut state = BindState::new();
     let mut cache = None;
     for (tab, expected) in [(0, 1), (1, 0), (0, 1), (1, 0)] {
-        runtime.screen_state_mut().creative_tab = tab;
+        runtime.screen_state_mut().select_tab(tab);
         let mut data = DataSource::new();
         book_data(
             &ContainerAuthority::new(&player, &runtime),

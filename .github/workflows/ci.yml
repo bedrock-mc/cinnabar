@@ -162,6 +162,11 @@ jobs:
       - name: Enforce architecture boundaries
         if: ${{ !cancelled() }}
         run: cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml
+      - name: Check the wgpu fork pin is on its release branch
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/wgpu_fork_pin.py Cargo.toml
 
   # Full runs retain every diagnostic and cache writer even when preflight fails.
   verify:
@@ -207,9 +212,11 @@ jobs:
           affected() { [ "$FULL" = true ] || [[ " $AFFECTED " == *" $1 "* ]]; }
           if affected render; then
             cargo clippy -p render --features enhanced --all-targets --locked -- -D warnings
+            cargo clippy -p render --features shaderpacks --all-targets --locked -- -D warnings
           fi
           if affected cinnabar; then
             cargo clippy -p cinnabar --features enhanced,developer-control,tracy --locked -- -D warnings
+            cargo clippy -p cinnabar --features shaderpacks --locked -- -D warnings
             cargo clippy -p cinnabar --features reports --tests --locked -- -D warnings
           fi
       - name: Test developer control adapters
@@ -224,6 +231,25 @@ jobs:
       - name: Test acceptance dry run and protocol provenance
         if: ${{ !cancelled() }}
         run: bash scripts/tests/acceptance_test.sh
+
+  browser:
+    name: Browser target and JavaScript edges
+    needs: changes
+    if: needs.changes.outputs.run == 'true' && needs.changes.outputs.runtime == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Restore Rust build cache
+        uses: ./.github/actions/build-cache
+      - name: Check browser crates and JavaScript edges
+        run: cargo run -p devtool --locked -- check-web
 
   rust-tests:
     permissions:
@@ -533,6 +559,7 @@ jobs:
       - preflight
       - verify
       - rust-tests
+      - browser
       - go
       - platform
       - packaging

@@ -1,8 +1,15 @@
+#[cfg(test)]
+mod armour_tests;
 mod bodies;
+#[cfg(test)]
+mod cape_tests;
+mod cloth_contacts;
 mod commit;
 mod flames;
 mod geometry;
 mod hand_frame;
+mod hats;
+pub use hats::{CosmeticEmitterKey, CosmeticEmitterPlacement, CosmeticEmitterPlacements};
 mod layers;
 mod occlusion;
 mod paintings;
@@ -53,6 +60,9 @@ pub struct ActorWorld<'a> {
 
 /// Gameplay and screen observations captured at the actor preparation boundary.
 pub struct ActorFrameInput {
+    pub cosmetics: Vec<cosmetics::Item>,
+    /// Authenticated nearby hats bound to current actor lifetimes.
+    pub remote_hats: Vec<RemoteHat>,
     pub local_feed: Option<LocalPlayerFeed>,
     pub predicted_eye: Option<[f32; 3]>,
     pub predicted_feet: Option<[f32; 3]>,
@@ -60,7 +70,7 @@ pub struct ActorFrameInput {
     pub swing_progress: Option<actor_animation::LocalSwingProgress>,
     pub renders_game: bool,
     pub hide_hand: bool,
-    pub custom_emote: Option<(actor_animation::CustomEmote, f64)>,
+    pub custom_emote: Option<(cosmetics::emotes::Item, f64)>,
     /// API-authenticated playback already resolved to this session's actor lifetimes.
     pub remote_emotes: Vec<RemoteEmote>,
 }
@@ -70,8 +80,16 @@ pub struct ActorFrameInput {
 pub struct RemoteEmote {
     pub runtime_id: u64,
     pub spawn_revision: u64,
-    pub emote: actor_animation::CustomEmote,
+    pub emote: cosmetics::emotes::Item,
     pub elapsed: f64,
+}
+
+/// A built-in hat bound to one remote spawn, independent of server skin handling.
+#[derive(Clone, Copy, Debug)]
+pub struct RemoteHat {
+    pub runtime_id: u64,
+    pub spawn_revision: u64,
+    pub hat: cosmetics::Item,
 }
 
 /// Presentation-owned resources that determine the avatar's current view.
@@ -111,6 +129,7 @@ pub struct ActorFramePublication<'w, 's> {
     time: Res<'w, Time<Real>>,
     actor_style: Option<Res<'w, ActorPresentationStyle>>,
     state: ResMut<'w, ActorFrameState>,
+    coverage: Option<Res<'w, render_scene::mod_scene::ActorCoverageRequests>>,
     scene: ResMut<'w, ActorRenderScene>,
     prepared: ResMut<'w, PreparedActorPublication>,
     presentation: ActorPresentationState<'w, 's>,
@@ -124,6 +143,7 @@ pub struct ActorFramePublication<'w, 's> {
     profiler: Option<Res<'w, render_scene::RuntimeStageProfiler>>,
     partial_tick: ResMut<'w, ActorFramePartialTick>,
     flames: Option<ResMut<'w, WorldActorFlames>>,
+    cosmetic_emitters: Option<ResMut<'w, CosmeticEmitterPlacements>>,
 }
 
 /// Builds final actor and hand poses after admission, without advancing remote actor ticks.
@@ -136,6 +156,9 @@ pub fn prepare_actor_render_frame(
 ) {
     let state = &mut *params.state;
     let Some(input) = state.input.take() else {
+        if let Some(placements) = params.cosmetic_emitters.as_deref_mut() {
+            placements.0.clear();
+        }
         return;
     };
     let step = state
@@ -169,12 +192,23 @@ pub fn prepare_actor_render_frame(
     let cull_view = params.presentation.cull_view();
     let mut new_geometries = Vec::new();
     // The hand and body share controller sampling before local placement.
+    let coverage = params
+        .coverage
+        .as_deref()
+        .filter(|requests| {
+            stream.is_some_and(|stream| {
+                requests.connection == stream.authority().actor_session_id()
+                    && requests.dimension == stream.current_dimension()
+            })
+        })
+        .map_or(&[][..], |requests| requests.runtime_ids.as_slice());
     let mut bodies = bodies::sample(
         stream,
         &input,
         (pose_view, cull_view),
         artwork,
         bodies::BodyCaches {
+            coverage,
             poses: &mut state.poses,
             java_poses: &mut state.java_poses,
             native_pose: &mut state.java_hand.native_pose,
@@ -206,6 +240,13 @@ pub fn prepare_actor_render_frame(
             equipment: params.equipment.as_deref_mut(),
         },
     );
+    let coverage_local = coverage.contains(&bodies.local_runtime_id);
+    if state.first_person
+        && coverage_local
+        && let Some(stream) = stream
+    {
+        bodies::apply_local_coverage_pose(&mut bodies, stream, &mut state.coverage_poses);
+    }
     let visibility = params.presentation.local_visibility.snapshot().copied();
     let (local_visible, local) = bodies::place_local(
         &mut bodies,
@@ -217,11 +258,45 @@ pub fn prepare_actor_render_frame(
         &mut new_geometries,
     );
     let local_flame_feet = flames::LocalFlameFeet::capture(local.as_ref(), visibility);
+    if !local_visible
+        && state.hat_state.has_local_cloth()
+        && let (Some(body), Some(stream)) = (local.as_ref(), stream)
+        && let Some(rig) = stream.authority().actor_rig(bodies.local_runtime_id)
+    {
+        let rig = emote_geometry::skin_layer_snapshot(
+            rig,
+            bodies.local_emote_pose.as_ref(),
+            java::posed(&bodies.java_posed, bodies.local_runtime_id)
+                .map(|posed| posed.skin_layers.as_slice()),
+            bodies
+                .native_body_sampled
+                .then(|| state.java_hand.native_pose.skin_layers())
+                .flatten(),
+        );
+        let contacts = cloth_contacts::hidden(
+            &body.submission,
+            &rig,
+            (stream, &input.local_equipment, state.combat_visuals),
+            (
+                &params.scene,
+                &mut new_geometries,
+                params.equipment.as_deref_mut(),
+            ),
+            (step.partial_tick, params.time.delta_secs()),
+        );
+        state.hat_state.advance_hidden_local(
+            &body.submission,
+            rig.bone_names,
+            rig.attachments,
+            step.partial_tick,
+            Some(&contacts),
+        );
+    }
     let camera_position = cull_view.map(|view| view.camera_position.to_array());
     // Remote bodies passed frame-model admission before bounded skin registration.
     let mut batch = select_actor_presentations(
         bodies.local_runtime_id,
-        local_visible,
+        local_visible || coverage_local,
         local,
         bodies.remotes,
     );
@@ -248,6 +323,7 @@ pub fn prepare_actor_render_frame(
             local_emote_pose: bodies.local_emote_pose.as_ref(),
             remote_emote_poses: &bodies.remote_emote_poses,
             native_body_sampled: bodies.native_body_sampled,
+            local_coverage: state.first_person && coverage_local,
             remote_skin_layers: &bodies.remote_skin_layers,
             native_pose: &state.java_hand.native_pose,
         },
@@ -268,7 +344,28 @@ pub fn prepare_actor_render_frame(
         ),
         &mut new_geometries,
     );
+    if let Some(equipment) = params.equipment.as_deref_mut() {
+        new_geometries.extend(equipment.take_pending_geometries());
+    }
+    state.hat_state.attach(
+        &mut batch,
+        stream,
+        &input.remote_hats,
+        &mut params.scene,
+        step.partial_tick,
+        hats::AttachmentFrame {
+            geometries: &new_geometries,
+            equipment: params.equipment.as_deref(),
+            local_emote: bodies.local_emote_pose.as_ref(),
+            remote_emotes: Some(&bodies.remote_emote_poses),
+        },
+    );
     layers::apply_style_and_visibility(&mut batch, stream, params.actor_style.as_deref());
+    if let Some(placements) = params.cosmetic_emitters.as_deref_mut() {
+        state
+            .hat_state
+            .place_emitters(&batch, step.partial_tick, &mut placements.0);
+    }
     state
         .body_scratch
         .recycle(bodies.java_posed, bodies.remote_skin_layers);
@@ -283,9 +380,6 @@ pub fn prepare_actor_render_frame(
             local_flame_feet,
             &mut batch,
         );
-    }
-    if let Some(equipment) = params.equipment.as_deref_mut() {
-        new_geometries.extend(equipment.take_pending_geometries());
     }
     drop(preparation);
     register_geometries(
@@ -306,6 +400,12 @@ pub fn prepare_actor_render_frame(
         selected_count,
         bodies.unrigged_actors,
     ));
+    if let Some(pending) = params.prepared.0.as_mut() {
+        pending.mask_only_runtime_ids = bodies.mask_only_runtime_ids;
+        if !local_visible && coverage_local {
+            pending.mask_only_runtime_ids.push(bodies.local_runtime_id);
+        }
+    }
     let hand_light = hand_frame::lighting(
         stream,
         bodies.local_runtime_id,

@@ -214,6 +214,8 @@ mod tests {
     /// A surface with one transitioned binding and no document, enough for the sampler.
     fn surface(value: SurfaceValue, transition: SurfaceTransition) -> Surface {
         Surface {
+            collections: Default::default(),
+            previews: Default::default(),
             screen: "fixture.root".into(),
             document: String::new(),
             bindings: BTreeMap::from([("#value".into(), value)]),

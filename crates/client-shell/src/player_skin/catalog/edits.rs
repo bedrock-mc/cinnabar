@@ -53,9 +53,7 @@ pub fn delete(
     let mut skins = view.skins.to_vec();
     skins.remove(index);
     next.selected = match view.selected {
-        Some(selected) if selected == index => Some(skins.iter().position(|entry|
-            !entry.imported && entry.name == launcher::dressing_room::STARTER_SKIN_NAMES[0])
-            .ok_or("Steve is unavailable. Install the vanilla skin assets before deleting the equipped skin.")?),
+        Some(selected) if selected == index => Some(deletion_fallback(&skins)?),
         Some(selected) if selected > index => Some(selected - 1),
         selected => selected,
     };

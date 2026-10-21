@@ -59,7 +59,7 @@ fn in_session_snap_preserves_flight_and_server_ability_edges() {
         let world = VersionedFloor(1);
         let intent = ModeIntent {
             can_fly: true,
-            server_flying,
+            flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(server_flying),
             ..Default::default()
         };
         if !server_flying {
@@ -138,7 +138,7 @@ fn in_session_snap_preserves_flight_and_server_ability_edges() {
                 &mut physics,
                 input,
                 ModeIntent {
-                    server_flying: false,
+                    flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(false),
                     ..intent
                 },
                 &world,
@@ -344,7 +344,7 @@ fn server_clearing_flight_stops_an_airborne_player_with_jump_held() {
         input,
         ModeIntent {
             can_fly: true,
-            server_flying: true,
+            flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(true),
             ..Default::default()
         },
         &world,
@@ -356,7 +356,7 @@ fn server_clearing_flight_stops_an_airborne_player_with_jump_held() {
         input,
         ModeIntent {
             can_fly: true,
-            server_flying: false,
+            flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(false),
             ..Default::default()
         },
         &world,
@@ -609,9 +609,11 @@ fn riding_sample(kind: RideKind, move_vector: [f32; 2]) -> PhysicsMovementSample
 }
 
 #[test]
-fn boat_paddles_follow_steering_and_other_rides_never_paddle() {
+fn other_boat_input_retains_its_provisional_steering_mapping() {
     let paddles = |kind, vector| {
-        let flags = input_flags(&riding_sample(kind, vector), HeldInput::default());
+        let mut sample = riding_sample(kind, vector);
+        sample.input_mode = protocol::PlayerInputMode::Touch;
+        let flags = input_flags(&sample, HeldInput::default());
         (
             has(flags, PlayerInputFlags::PADDLING_LEFT),
             has(flags, PlayerInputFlags::PADDLING_RIGHT),
@@ -622,6 +624,40 @@ fn boat_paddles_follow_steering_and_other_rides_never_paddle() {
     assert_eq!(paddles(RideKind::Boat, [1.0, 0.0]), (false, true));
     assert_eq!(paddles(RideKind::Boat, [0.0, 0.0]), (false, false));
     assert_eq!(paddles(RideKind::Horse, [0.0, 1.0]), (false, false));
+}
+
+/// Forward motion must not invent either request for the mouse boating path.
+#[test]
+fn mouse_boat_paddles_do_not_derive_from_forward_motion() {
+    for (kind, vector, expected) in [
+        (RideKind::Boat, [0.0, 1.0], (false, false)),
+        (RideKind::Boat, [-0.7, 0.7], (true, false)),
+        (RideKind::Boat, [0.7, 0.7], (false, true)),
+        (RideKind::Boat, [0.0, -1.0], (false, false)),
+        (RideKind::Boat, [-1.0, 0.0], (true, false)),
+        (RideKind::Boat, [1.0, 0.0], (false, true)),
+        (RideKind::Boat, [0.0, 0.0], (false, false)),
+        (RideKind::Horse, [0.0, 1.0], (false, false)),
+        (RideKind::Horse, [-1.0, 0.0], (false, false)),
+    ] {
+        let mut sample = riding_sample(kind, vector);
+        sample.input_mode = protocol::PlayerInputMode::Mouse;
+        sample.input.movement_buttons = semantic_input::MovementButtons {
+            forward: vector[1] > 0.0,
+            backward: vector[1] < 0.0,
+            left: vector[0] < 0.0,
+            right: vector[0] > 0.0,
+        };
+        let flags = input_flags(&sample, HeldInput::default());
+        assert_eq!(
+            (
+                has(flags, PlayerInputFlags::PADDLING_LEFT),
+                has(flags, PlayerInputFlags::PADDLING_RIGHT)
+            ),
+            expected,
+            "kind={kind:?} movement={vector:?}"
+        );
+    }
 }
 
 #[test]

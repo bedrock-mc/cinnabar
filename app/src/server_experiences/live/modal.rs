@@ -2,7 +2,7 @@
 
 use super::{Instance, Live, Worker};
 use anyhow::Result;
-use mod_host::helper::{Dispatch, Event};
+use mod_host::helper::Event;
 use mod_ui::experience_modal::ExperienceModal;
 use server_experience::{
     runtime::{Command, Transaction},
@@ -51,6 +51,7 @@ impl<H: Worker> Live<H> {
 
     /// Escape closes the open modal on the host side; its bound data stays for the next open.
     pub(in crate::server_experiences) fn close_modal(&mut self) {
+        self.shift_changed(false);
         if let Some(instance) = self.open_instance() {
             instance.contributions.modal.open(None);
         }
@@ -139,6 +140,24 @@ impl<H: Worker> Live<H> {
         true
     }
 
+    /// Updates the focused bundle and releases bundles that lost focus, subject to `input`.
+    /// A waiting transition is replaced; a full queue retains its state for retry.
+    pub(in crate::server_experiences) fn shift_changed(&mut self, held: bool) -> bool {
+        if !self.ready {
+            return false;
+        }
+        let focused = self
+            .modal()
+            .filter(|modal| modal.modal.template.is_some())
+            .map(|modal| modal.bundle.to_owned());
+        let mut queued = false;
+        for (bundle, instance) in &mut self.instances {
+            let held = held && focused.as_deref() == Some(bundle.as_str());
+            queued |= queue_shift(instance, held);
+        }
+        queued
+    }
+
     /// Queues the open modal's scroll view `view` showing `range` for its bundle, only when the
     /// manifest declares `view` as an action and `input` is granted; a later range of the same
     /// view replaces one still waiting, so a fast scroll queues one callback, not one per frame.
@@ -217,19 +236,35 @@ impl<H: Worker> Live<H> {
             {
                 continue;
             }
-            let Some(helper) = &mut instance.helper else {
+            if instance.helper.is_none() {
                 continue;
-            };
+            }
             let event = instance.events.pop_front().expect("events checked");
             self.budget.dispatch(&instance.owner)?;
-            instance.callback = event.callback();
             let gui = size_for(&self.gui, &instance.owner.bundle);
-            helper.dispatch(Dispatch { event, epoch, gui })?;
-            instance.busy = true;
-            instance.epoch = epoch;
+            instance.dispatch(self.session.as_deref(), event, epoch, gui)?;
         }
         Ok(())
     }
+}
+
+/// Coalesces one bundle's transition, retaining its old state when a full queue needs retry.
+fn queue_shift<H>(instance: &mut Instance<H>, held: bool) -> bool {
+    if !instance.capabilities.may_read_input() || instance.shift == Some(held) {
+        return false;
+    }
+    let waiting = instance
+        .events
+        .iter()
+        .position(|event| matches!(event, Event::Shift { .. }));
+    if let Some(at) = waiting {
+        instance.events.remove(at);
+    } else if instance.events.len() >= MAX_PENDING_EVENTS {
+        return false;
+    }
+    instance.shift = Some(held);
+    instance.events.push_back(Event::Shift { held });
+    true
 }
 
 /// The modal size a dispatch to `bundle` carries: the drawn open modal's, if it is `bundle`'s.

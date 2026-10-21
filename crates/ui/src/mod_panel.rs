@@ -4,13 +4,25 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-mod surface;
+pub use surface::{hud_card, local_player_head};
+
+mod axis;
+mod control;
+pub use control::{
+    Control, Event, FIELD_NAVIGATION_KEYS, FieldEvent, FieldKey, FieldModifiers,
+    MAX_PANEL_VALUE_CHARS, TextEvent, is_field_navigation_key, validate_text_value,
+};
+pub(crate) mod surface;
 mod update;
+pub use axis::{AxisExtent, AxisRoute};
 pub use surface::{
-    MAX_TRANSITION_SECONDS, Surface, SurfaceTransition, SurfaceValue, TransitionEasing, backdrop,
+    CollectionArt, CollectionDefinition, CollectionItem, MAX_SURFACE_NODES, MAX_TRANSITION_SECONDS,
+    Surface, SurfaceCollection, SurfaceTransition, SurfaceValue, TransitionEasing, backdrop,
+    preview,
 };
 pub use update::{
-    MAX_PANEL_BUNDLE_BYTES, MAX_PANEL_PATCH_BYTES, MAX_PANEL_SURFACES, PanelBundle, PanelPatch,
+    CollectionReveal, CollectionRevealRequest, MAX_PANEL_BUNDLE_BYTES, MAX_PANEL_PATCH_BYTES,
+    MAX_PANEL_SURFACES, PanelBundle, PanelPatch,
 };
 
 pub const MAX_PANEL_BYTES: usize = 128 * 1024;
@@ -23,6 +35,12 @@ pub const MAX_PANEL_CHOICES: usize = 8;
 pub const MAX_PANEL_SECTIONS: usize = 32;
 pub const MAX_PANEL_CATEGORIES: usize = 4;
 pub const FONT_NAME: &str = "mod_panel";
+/// Glyph records in one bounded private atlas, including text, punctuation and icons.
+pub const MAX_FONT_GLYPHS: usize = 512;
+/// A shipped, smoothly sampled sans face for authored native panels.
+pub const SANS_FONT_NAME: &str = "mod_panel_sans";
+/// Opens the selected personal panel when its authored hotkey is unavailable on a keyboard.
+pub const FALLBACK_TOGGLE_KEY: &str = "F10";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -71,7 +89,11 @@ pub struct Panel {
     /// Lets a binding control receive Escape instead of dismissing the panel.
     #[serde(default)]
     pub capture_key: bool,
-    /// Opts into native hover/toggle easing and smooth discrete wheel scrolling.
+    /// Keeps the resource-pack gameplay HUD visible behind this panel.
+    /// Hide HUD and death screens still apply; focused panels always hide the crosshair.
+    #[serde(default)]
+    pub show_gameplay_hud: bool,
+    /// Enables native feedback easing, smooth wheel scrolling and surface transitions.
     #[serde(default)]
     pub motion: bool,
     #[serde(default)]
@@ -91,71 +113,11 @@ pub struct Section {
     pub controls: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum Control {
-    Toggle {
-        id: String,
-        label: String,
-        value: bool,
-    },
-    Slider {
-        id: String,
-        label: String,
-        value: f32,
-        min: f32,
-        max: f32,
-        step: f32,
-    },
-    Button {
-        id: String,
-        label: String,
-    },
-    Keybind {
-        id: String,
-        label: String,
-        key: String,
-        #[serde(default)]
-        capturing: bool,
-    },
-    Choice {
-        id: String,
-        label: String,
-        index: u32,
-        options: Vec<String>,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Event {
-    pub id: String,
-    pub value: f32,
-}
-
-impl Control {
-    pub fn id(&self) -> &str {
-        match self {
-            Self::Toggle { id, .. }
-            | Self::Slider { id, .. }
-            | Self::Button { id, .. }
-            | Self::Keybind { id, .. }
-            | Self::Choice { id, .. } => id,
-        }
-    }
-
-    pub fn label(&self) -> &str {
-        match self {
-            Self::Toggle { label, .. }
-            | Self::Slider { label, .. }
-            | Self::Button { label, .. }
-            | Self::Keybind { label, .. }
-            | Self::Choice { label, .. } => label,
-        }
-    }
-}
-
 impl Panel {
+    /// Accepts the authored binding or the native keyboard-independent fallback.
+    pub fn is_toggle_key(&self, key: &str) -> bool {
+        key == self.toggle_key || key == FALLBACK_TOGGLE_KEY
+    }
     /// Validates before retaining any guest-controlled text or input geometry.
     pub fn validate(&self) -> Result<(), String> {
         self.validate_inner(true)
@@ -198,14 +160,17 @@ impl Panel {
                         .parse::<usize>()
                         .ok()
                         .is_some_and(|index| index < self.controls.len())
-                } else if let Some(axis) = action.strip_prefix("mod.axis:") {
-                    axis.split_once(':').is_some_and(|(index, axis)| {
-                        matches!(axis, "x" | "y")
-                            && index.parse::<usize>().ok().is_some_and(|i| {
-                                matches!(self.controls.get(i), Some(Control::Slider { .. }))
-                            })
-                    })
-                } else if let Some(indices) = action.strip_prefix("mod.vector:") {
+                } else if let Some(axis) = AxisRoute::parse(&action) {
+                    matches!(
+                        self.controls.get(axis.control),
+                        Some(Control::Slider { .. })
+                    ) && axis
+                        .extent
+                        .is_none_or(|extent| extent.resolve(&surface.bindings).is_some())
+                } else if let Some(indices) = action
+                    .strip_prefix("mod.vector:")
+                    .or_else(|| action.strip_prefix("mod.drag:"))
+                {
                     indices.split_once(':').is_some_and(|(x, y)| {
                         let index = |s: &str| {
                             s.parse::<usize>().ok().filter(|i| {
@@ -219,7 +184,10 @@ impl Panel {
                     })
                 } else if let Some(index) = action.strip_prefix("mod.edit:") {
                     index.parse::<usize>().ok().is_some_and(|index| {
-                        matches!(self.controls.get(index), Some(Control::Slider { .. }))
+                        matches!(
+                            self.controls.get(index),
+                            Some(Control::Slider { .. } | Control::Text { .. })
+                        )
                     })
                 } else {
                     false
@@ -255,6 +223,12 @@ impl Panel {
             }
             text(control.label(), "control label")?;
             match control {
+                Control::Text {
+                    value,
+                    min_chars,
+                    max_chars,
+                    ..
+                } => validate_text_value(value, *min_chars, *max_chars)?,
                 Control::Keybind { key, .. } => {
                     if key.len() > MAX_PANEL_ID_BYTES || key.chars().any(char::is_control) {
                         return Err("panel keybind requires a bounded key label".into());

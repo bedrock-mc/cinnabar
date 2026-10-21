@@ -69,6 +69,10 @@ impl MenuRuntime {
         let language_pending = settings_options.language().is_some();
         let language_choices = SettingsOptions::language_choices(&layout.resource_root);
         let mut initial = MenuView::new(visible, display_name);
+        // Folder buttons outside Storage (the Shaders tab folder) need this before
+        // Storage is first measured.
+        std::sync::Arc::make_mut(&mut initial.storage).opens_folders =
+            launcher_host::desktop::opens_folders();
         if visible && minecraft_import.phase == launcher::minecraft_import::Phase::Offered {
             initial.dialog = Some(launcher::menu::MenuDialog::MinecraftImport);
         }
@@ -127,12 +131,16 @@ impl MenuRuntime {
             fullscreen: saved_video_settings.fullscreen,
             fullscreen_change: saved_video_settings.fullscreen.then_some(true),
             video_settings_writer: None,
-            settings_focus: Vec::new(),
-            settings_focus_geometry: focus::SettingsFocusGeometry::default(),
             last_saved_video_settings: saved_video_settings,
             failed_video_settings_save: None,
             render_mode: initial.render_mode,
             render_mode_request: None,
+            shader_packs: initial.shader_packs,
+            shader_packs_revision: initial.shader_packs_revision,
+            shader_pack: None,
+            shader_pack_request: None,
+            shader_pack_status: Default::default(),
+            shader_pack_reload: false,
             vsync_override: None,
             display_name: initial.display_name,
             servers: loaded.servers.into(),
@@ -159,7 +167,6 @@ impl MenuRuntime {
             skin_outbound: None,
             skin_packet_pending: None,
             editing: initial.editing,
-            settings_section: initial.settings_section,
             disconnect_message: initial.disconnect_message,
             death_shown: false,
             death_loading: false,
@@ -177,17 +184,19 @@ impl MenuRuntime {
             sign_in_fixture,
             presentation_accounts: false,
             sign_out_requested: false,
+            external: None,
             accounts: Default::default(),
             global_resource_actions: Vec::new(),
             global_resources: initial.global_resources,
             mod_actions: Vec::new(),
             mods: initial.mods,
+            shader_options: Default::default(),
             minecraft_import: std::sync::Arc::new(minecraft_import),
             minecraft_import_requests: Vec::new(),
+            settings: initial.settings,
+            settings_input: focus::SettingsInput::default(),
             settings_options: std::sync::Arc::new(settings_options),
             storage: initial.storage,
-            settings_dropdown: initial.settings_dropdown,
-            settings_scale_picker: initial.settings_scale_picker,
             settings_dirty: false,
             settings_writer: None,
             settings_retry_at: None,
@@ -197,16 +206,7 @@ impl MenuRuntime {
             language_choices,
             language_pending,
             language_asset_path,
-            settings_slider_drag: None,
-            settings_slider_pointer: None,
-            settings_slider_hovered: None,
-            settings_slider_selected: None,
-            settings_control_activation: None,
-            settings_control_activation_navigation: false,
-            settings_input_revision: 0,
             input_mode: input::MenuInputMode::default(),
-            key_remap: initial.key_remap,
-            settings_advanced_graphics: initial.settings_advanced_graphics,
             local_world_joined: false,
             local_world_active: false,
             feeds: initial.feeds,

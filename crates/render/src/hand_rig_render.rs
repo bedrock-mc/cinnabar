@@ -42,6 +42,8 @@ use {
 pub(crate) mod bindings;
 mod gpu;
 mod node;
+#[cfg(feature = "shaderpacks")]
+pub(crate) mod shaderpack_source;
 use gpu::*;
 #[cfg(test)]
 mod tests;
@@ -93,6 +95,7 @@ fn install(app: &mut App) {
         return;
     }
     app.add_plugins(ExtractResourcePlugin::<HandRigScene>::default());
+    crate::actor_render::load_rig_shader(app);
     load_internal_asset!(
         app,
         HAND_RIG_SHADER,

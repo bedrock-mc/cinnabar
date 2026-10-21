@@ -33,12 +33,14 @@ pub(super) fn rest_bone(pivot: [f32; 3]) -> RenderBoneTransform {
 impl EquipmentRuntime {
     /// The main-hand item in Java's third-person grip on the right arm; `false` when the body
     /// lacks the arm or the item has no drawable mesh.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn push_java_held(
         &mut self,
         body: &ActorRigSubmission,
         item: &WornItem,
         bones: &BodyBones,
         grip: JavaGrip,
+        scale: f32,
         layers: &mut Vec<EquipmentPresentation>,
     ) -> bool {
         let Some(arm) = bones.right_arm else {
@@ -66,8 +68,9 @@ impl EquipmentRuntime {
             JavaHeldItem::Flat
         };
         // The arm frame, not the hand bone, which vanilla animations still turn.
-        let display =
+        let mut display =
             ItemDisplay::from_matrix(java::third_person_item(grip_kind, mesh_kind(block)));
+        display.scale *= scale;
         let (Some(previous), Some(current)) = (
             attach_to_bone(*previous, display),
             attach_to_bone(*current, display),
@@ -83,20 +86,6 @@ impl EquipmentRuntime {
             span,
         ));
         true
-    }
-
-    /// Authored pack attachables and held items Java never had keep their own hand animation.
-    pub fn is_vanilla_attachable(&self, identifier: &str) -> bool {
-        if self.uses_native_item_mesh(identifier) {
-            return false;
-        }
-        self.binding_source(identifier)
-            .and_then(|(catalog, from_pack)| {
-                catalog
-                    .binding(identifier)
-                    .map(|binding| keep_authored_hand(identifier, binding.category, from_pack))
-            })
-            .unwrap_or(false)
     }
 
     /// The main-hand item placed by Java's first-person stack in camera space.
@@ -118,7 +107,8 @@ impl EquipmentRuntime {
         input: actor_animation::AttachableAnimationInput<'_>,
     ) -> Option<FirstPersonItem> {
         let (mesh, location, block, span) = self.held_mesh_with_use(item, input)?;
-        let camera = java::first_person_item(hand, mesh_kind(block), item.grip.mirrored_art());
+        let camera = java::first_person_item(hand, mesh_kind(block), item.grip.mirrored_art())
+            * bevy::math::Mat4::from_scale(bevy::math::Vec3::splat(input.main_hand_scale()));
         let rest = [rest_bone([0.0; 3])];
         let poses = self
             .poses
@@ -137,14 +127,16 @@ impl EquipmentRuntime {
     }
 }
 
-/// Camera from a raster attachable's rig frame under Java's first-person stack.
+/// Removes authored raster placement before scaling the image under Java's first-person stack.
 pub(super) fn java_raster_camera(
     hand: JavaHand,
     image_to_rig: Mat4,
     width: u16,
     height: u16,
+    held_scale: f32,
 ) -> Mat4 {
     java::first_person_item(hand, JavaItemMesh::Raster { width, height }, false)
+        * Mat4::from_scale(bevy::math::Vec3::splat(held_scale))
         * image_to_rig.inverse()
 }
 
@@ -154,7 +146,11 @@ pub fn java_draws_attachable(identifier: &str) -> bool {
 }
 
 /// Server-pack attachables own their hand poses, including replacements for Java's bow.
-fn keep_authored_hand(identifier: &str, category: EquipmentCategory, from_pack: bool) -> bool {
+pub(super) fn keep_authored_hand(
+    identifier: &str,
+    category: EquipmentCategory,
+    from_pack: bool,
+) -> bool {
     matches!(
         category,
         EquipmentCategory::Held | EquipmentCategory::Shield
@@ -192,7 +188,7 @@ mod tests {
             * Mat4::from_rotation_y(1.0)
             * Mat4::from_scale(Vec3::splat(1.0 / 16.0));
         let point = Vec4::new(3.5, 0.0, 9.5, 1.0);
-        let through = java_raster_camera(hand, image_to_rig, 16, 16) * (image_to_rig * point);
+        let through = java_raster_camera(hand, image_to_rig, 16, 16, 1.0) * (image_to_rig * point);
         let direct = java::first_person_item(
             hand,
             JavaItemMesh::Raster {

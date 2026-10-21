@@ -446,3 +446,72 @@ fn wide_short_hd_icons_grow_the_page_for_their_width() {
     assert!(packed.page.dimensions()[0] >= 512 + GUTTER * 2);
     assert!(packed.refs.contains_key("test:wide"));
 }
+
+#[test]
+fn carried_sheets_keep_exact_variants_and_only_fall_back_to_zero() {
+    let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE.map(u32::from);
+    let sheet = |metadata, color| SessionIcon {
+        identifier: "test:cube".into(),
+        metadata,
+        width,
+        height,
+        rgba8: [color, 50, 80, 255]
+            .repeat((width * height) as usize)
+            .into(),
+    };
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    for variants in [vec![sheet(0, 90), sheet(7, 160)], vec![sheet(7, 160)]] {
+        let has_default = variants.len() == 2;
+        install_landed(
+            &mut presentation,
+            &Arc::new(SessionIcons {
+                block_sheets: variants,
+                ..Default::default()
+            }),
+        );
+        for metadata in [0, 7, 29] {
+            let resolved = presentation.session_block_sheet("test:cube", metadata);
+            if metadata != 7 && !has_default {
+                assert!(resolved.is_none());
+                continue;
+            }
+            let cube = presentation.block_sheet_cube(resolved.unwrap()).unwrap();
+            let color = if metadata == 7 { 160 } else { 90 };
+            assert!(cube.faces.iter().all(|face| {
+                face.as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|pixel| *pixel == [color, 50, 80, 255])
+            }));
+        }
+    }
+}
+
+#[test]
+fn unshaded_session_cubes_keep_their_baked_thumbnail_and_held_sheet() {
+    let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE.map(u32::from);
+    let mut icons = SessionIcons {
+        icons: vec![sprite(0)],
+        block_sheets: vec![SessionIcon {
+            identifier: Arc::from("test:variant"),
+            metadata: 0,
+            width,
+            height,
+            rgba8: vec![255; (width * height * 4) as usize].into(),
+        }],
+        ..Default::default()
+    };
+    let packed = pack(&icons, 7).unwrap();
+    assert_eq!(block_cubes(&icons, &packed).len(), 1);
+    icons.block_material_flags.insert(
+        "test:variant".into(),
+        assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING,
+    );
+    assert!(
+        block_cubes(&icons, &packed).is_empty(),
+        "a shaded mesh must not replace the unshaded icon"
+    );
+    assert!(packed.refs["test:variant"].contains_key(&0));
+    assert!(packed.sheets["test:variant"].contains_key(&0));
+}

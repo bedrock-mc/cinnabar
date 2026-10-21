@@ -28,6 +28,7 @@ fn binding(identifier: &str, slot: ArmorSlot, texture: &str, material: &str) -> 
     };
     EquipmentBinding {
         identifier: identifier.into(),
+        attachable: None,
         category: EquipmentCategory::Armor { slot },
         geometry: reference("geometry.fixture"),
         texture: reference(texture),

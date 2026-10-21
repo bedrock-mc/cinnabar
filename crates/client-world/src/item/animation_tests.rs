@@ -1,6 +1,56 @@
 use super::*;
 use assets::facts::ItemTraits;
 
+#[test]
+fn registry_admission_and_replacement_keep_retained_chestplates_and_leggings() {
+    let mut chest = retail_entry("minecraft:iron_chestplate");
+    let mut legs = retail_entry("minecraft:iron_leggings");
+    chest.network_id = 12_001;
+    legs.network_id = 12_002;
+    let stack = |network_id| NetworkItemStack {
+        network_id,
+        count: 1,
+        stack_network_id: -1,
+        ..NetworkItemStack::empty()
+    };
+    let mut store = ItemStateStore::diagnostic();
+    let lifetime = ActorLifetimeId {
+        session_id: 1,
+        dimension: 0,
+        runtime_id: 2,
+        spawn_revision: 1,
+    };
+    assert!(store.apply_armor(
+        lifetime,
+        1,
+        &ArmorEquipmentEvent {
+            actor_runtime_id: 2,
+            helmet: NetworkItemStack::empty(),
+            chestplate: stack(chest.network_id),
+            leggings: stack(legs.network_id),
+            boots: NetworkItemStack::empty(),
+            body: NetworkItemStack::empty(),
+        }
+    ));
+    for entries in [
+        vec![chest.clone(), legs.clone()],
+        vec![legs.clone(), chest.clone()],
+    ] {
+        assert!(store.apply_registry(ItemRegistryEvent {
+            entries: entries.into()
+        }));
+        let armour = store.armor(2).unwrap();
+        for (piece, entry) in [(&armour.chestplate, &chest), (&armour.leggings, &legs)] {
+            assert_eq!(
+                piece.item.identifier.as_deref(),
+                Some(entry.identifier.as_ref())
+            );
+            assert!(!piece.item.identity.is_empty());
+            assert!(store.animation_fact(entry.network_id).armour_slot.is_some());
+        }
+    }
+}
+
 /// Clones a pinned retail declaration without changing its admission evidence.
 fn retail_entry(identifier: &str) -> ItemRegistryEntry {
     protocol::vanilla_item_registry()

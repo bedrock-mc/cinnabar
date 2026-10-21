@@ -16,7 +16,9 @@ pub(super) mod controller;
 mod equipment;
 mod fitting;
 pub mod geometry;
+pub(super) mod hats;
 pub(super) mod model;
+pub(super) mod selection;
 mod skin;
 pub use cape::render_cape_thumbnail;
 pub use controller::MenuPreviewConfig;
@@ -25,6 +27,7 @@ pub use equipment::{
 };
 pub use model::render_skin_thumbnail;
 use render_model::{ActorVertex, standard_biped_overlay_vertices, standard_biped_vertices};
+pub use selection::PreviewEquipmentOwner;
 pub use skin::local_preview_skin;
 
 impl UiPresentationRuntime {
@@ -75,6 +78,7 @@ impl UiPresentationRuntime {
 
     /// Where worn armor textures come from; without it the model wears none.
     pub fn set_equipment_catalog(&mut self, catalog: Option<Arc<RuntimeEquipmentCatalog>>) {
+        self.gui_models.clear_selected_hands();
         self.equipment_catalog = catalog;
     }
 
@@ -83,6 +87,8 @@ impl UiPresentationRuntime {
         &mut self,
         player_runtime: &player_state::PlayerState,
         runtime: &crate::ui_runtime::UiRuntime,
+        stream: Option<&chunk_pipeline::WorldStream>,
+        input: actor_animation::AttachableAnimationInput<'_>,
         resolve: impl Fn(&protocol::NetworkItemStack) -> Option<client_world::CanonicalItemStack>,
     ) {
         use inventory::inventory_ledger::InventoryTarget;
@@ -101,92 +107,150 @@ impl UiPresentationRuntime {
                 .selected_hotbar_slot()
                 .and_then(|slot| ledger.displayed_stack(slot)),
         );
-        self.set_player_preview_gear(
+        let off_hand = named(ledger.target_stack(InventoryTarget::Offhand));
+        let owner = stream.and_then(|stream| {
+            let authority = stream.authority();
+            let id = stream.local_player_runtime_id();
+            let actor = authority.actor(id)?;
+            let rig = authority.actor_rig(id)?;
+            let facts = held
+                .as_ref()
+                .map(|(_, stack, _)| authority.item_use_profile(stack.network_id))
+                .unwrap_or_default();
+            let elapsed = actor.is_using_item().then_some(rig.hand[1].use_ticks);
+            let duration = facts.ticks.unwrap_or_default();
+            Some(PreviewEquipmentOwner {
+                actor,
+                rig,
+                input: actor_animation::AttachableAnimationInput {
+                    is_local_player: true,
+                    first_person: false,
+                    use_elapsed_ticks: elapsed,
+                    max_use_ticks: duration,
+                    animation_frame: inventory::ranged_animation_frame(
+                        facts.animation,
+                        elapsed,
+                        duration,
+                    ),
+                    owner_main_hand: held.as_ref().map(|(id, _, _)| id.as_ref()),
+                    owner_off_hand: off_hand.as_ref().map(|(id, _, _)| id.as_ref()),
+                    ..input
+                },
+            })
+        });
+        let hands = [held.as_ref(), off_hand.as_ref()].map(|item| {
+            let (identifier, stack, item) = item?;
+            Some((
+                PreviewHandItem {
+                    grip: Some(item.grip),
+                    glint: Some(runtime.item_glint(stack, item.glint)),
+                    identifier: Arc::clone(identifier),
+                    metadata: stack.metadata,
+                    use_animation: item.use_animation,
+                    charged_projectile: item.charged_projectile_role,
+                },
+                item.enchanted,
+            ))
+        });
+        self.set_preview_gear(
             armor.each_ref().map(|worn| {
-                worn.as_ref()
-                    .map(|(id, stack, _)| (&**id, runtime.stack_facts(stack).custom_color))
+                worn.as_ref().map(|(id, stack, item)| {
+                    (
+                        &**id,
+                        runtime.stack_facts(stack).custom_color,
+                        item.enchanted,
+                    )
+                })
             }),
-            held.as_ref().map(|(id, stack, _)| (&**id, stack.metadata)),
+            hands,
+            owner,
         );
         self.player_preview_gear.armor_glint = armor.each_ref().map(|worn| {
             worn.as_ref()
                 .is_some_and(|(_, stack, item)| runtime.item_glint(stack, item.glint))
         });
-        let off_hand = named(ledger.target_stack(InventoryTarget::Offhand));
-        self.player_preview_gear.hands = [held, off_hand].map(|item| {
-            let (identifier, stack, item) = item?;
-            Some(PreviewHandItem {
-                grip: Some(item.grip),
-                glint: Some(runtime.item_glint(&stack, item.glint)),
-                identifier,
-                metadata: stack.metadata,
-                use_animation: item.use_animation,
-                charged_projectile: item.charged_projectile_role,
-            })
-        });
     }
 
     /// Dresses armor and held items using session attachables first, then the base catalog.
-    /// Armor follows world-player material rules; only leather applies the stack dye.
+    /// Without an actor context, only unrestricted ordinary definitions are admitted.
     pub fn set_player_preview_gear(
         &mut self,
         armor: [Option<(&str, Option<u32>)>; 4],
         held: Option<(&str, u32)>,
     ) {
+        self.set_preview_gear(
+            armor.map(|item| item.map(|(id, dye)| (id, dye, false))),
+            selection::standalone_hands(held),
+            None,
+        );
+    }
+
+    /// Shares owner selection, artwork fallback and atlas placement for every preview caller.
+    fn set_preview_gear(
+        &mut self,
+        armor: [Option<(&str, Option<u32>, bool)>; 4],
+        hands: [Option<(PreviewHandItem, bool)>; 2],
+        owner: Option<PreviewEquipmentOwner<'_>>,
+    ) {
         let pack = self.gui_models.pack_equipment.source.clone();
         let base = self.equipment_catalog.clone();
-        self.gui_models.wearing_elytra = armor[1].is_some_and(|(identifier, _)| {
-            pack.as_deref()
-                .and_then(|catalog| catalog.binding(identifier))
-                .or_else(|| base.as_deref()?.binding(identifier))
-                .is_some_and(|binding| binding.category == assets::EquipmentCategory::Elytra)
-        });
-        let from_pack: [bool; 4] = std::array::from_fn(|slot| {
-            armor[slot].is_some_and(|(identifier, _)| {
-                pack.as_deref()
-                    .is_some_and(|pack| pack.binding(identifier).is_some())
-            })
-        });
-        let resolved: [_; 4] = std::array::from_fn(|slot| {
-            let catalog = if from_pack[slot] { &pack } else { &base };
-            worn_armor(
-                catalog.as_deref(),
-                pack.as_deref(),
+        self.gui_models.wearing_elytra = false;
+        let selected: [_; 4] = std::array::from_fn(|slot| {
+            let (identifier, _, enchanted) = armor[slot]?;
+            let mut budget = actor_animation::MAX_MOLANG_OPS_PER_ACTOR_TICK;
+            self.preview_equipment_selection.binding(
                 base.as_deref(),
-                armor[slot],
+                pack.as_deref(),
+                identifier,
+                enchanted,
+                owner,
+                Some(slot),
+                &mut budget,
             )
         });
-        self.wear_pack_armor(std::array::from_fn(|slot| {
-            let (_, texture) = resolved[slot].as_ref()?;
-            pack.as_deref()?.texture(texture)?;
-            Some(*texture)
-        }));
+        let resolved: [_; 4] = std::array::from_fn(|slot| {
+            let (_, dye, _) = armor[slot]?;
+            worn_armor(
+                selected[slot].as_ref()?.binding,
+                pack.as_deref(),
+                base.as_deref(),
+                dye,
+            )
+        });
+        self.prepare_preview_hands(
+            &hands,
+            owner,
+            std::array::from_fn(|slot| {
+                let (_, texture) = resolved[slot].as_ref()?;
+                pack.as_deref()?.texture(texture)?;
+                Some(*texture)
+            }),
+        );
         let armor = std::array::from_fn(|slot| {
+            let selection = selected[slot].as_ref()?;
             // A supplied image that could not fit the GUI atlas retains base artwork.
-            if self.gui_models.enabled
+            let (binding, preview) = if self.gui_models.enabled
                 && resolved[slot].as_ref().is_some_and(|(_, texture)| {
                     pack.as_deref()
                         .is_some_and(|pack| pack.texture(texture).is_some())
                 })
                 && self.gui_models.pack_equipment.region(slot).is_none()
             {
-                return worn_armor(base.as_deref(), None, base.as_deref(), armor[slot])
-                    .map(|(preview, _)| preview);
+                let (_, dye, _) = armor[slot]?;
+                let binding = selection.startup?;
+                (binding, worn_armor(binding, None, base.as_deref(), dye)?.0)
+            } else {
+                (selection.binding, resolved[slot].as_ref()?.0.clone())
+            };
+            if slot == assets::ArmorSlot::Chestplate as usize {
+                self.gui_models.wearing_elytra =
+                    binding.category == assets::EquipmentCategory::Elytra;
             }
-            resolved[slot].as_ref().map(|(preview, _)| preview.clone())
+            Some(preview)
         });
-        let hands = [
-            held.map(|(identifier, metadata)| PreviewHandItem {
-                grip: None,
-                glint: None,
-                identifier: Arc::from(identifier),
-                metadata,
-                use_animation: assets::item_use::ItemUseAnimation::None,
-                charged_projectile: assets::item_use::ItemProjectileRole::None,
-            }),
-            None,
-        ];
-        let held = held.and_then(|(identifier, metadata)| {
+        let held = hands[0].as_ref().and_then(|(hand, _)| {
+            let identifier = hand.identifier.as_ref();
+            let metadata = hand.metadata;
             if let Some(sprite) = self.session_icons.sprite(identifier, metadata) {
                 return Some(PreviewTexture {
                     rgba: self.session_icons.sprite_pixels(identifier, metadata)?,
@@ -207,7 +271,7 @@ impl UiPresentationRuntime {
             armor,
             armor_glint: [false; 4],
             held,
-            hands,
+            hands: hands.map(|hand| hand.map(|(hand, _)| hand)),
         };
     }
 
@@ -220,20 +284,16 @@ impl UiPresentationRuntime {
     }
 }
 
-/// The texture `catalog` binds to a worn `(item, dye)`, tinted only when the binding's
+/// The selected worn texture, tinted only when the binding's
 /// material is a color mask, and that texture's identifier.
 fn worn_armor<'a>(
-    catalog: Option<&'a RuntimeEquipmentCatalog>,
+    binding: &assets::EquipmentBinding,
     artwork: Option<&'a RuntimeEquipmentCatalog>,
     base: Option<&'a RuntimeEquipmentCatalog>,
-    worn: Option<(&str, Option<u32>)>,
+    dye: Option<u32>,
 ) -> Option<(PreviewTexture, &'a str)> {
-    let (identifier, dye) = worn?;
-    let catalog = catalog?;
-    let binding = catalog.binding(identifier)?;
     let texture = artwork
         .and_then(|artwork| artwork.texture(&binding.texture.identifier))
-        .or_else(|| catalog.texture(&binding.texture.identifier))
         .or_else(|| base?.texture(&binding.texture.identifier))?;
     let tint = binding
         .color_mask_rgb(dye)
@@ -450,20 +510,21 @@ impl PlayerPreviewPose {
         else {
             return Self::default();
         };
-        let sneaking = matches!(
-            actor.metadata.get(&0),
-            Some(protocol::ActorMetadataValue::Flags(flags)) if flags & (1_u64 << 1) != 0
-        );
-        Self::new(actor.body_yaw, actor.head_yaw, actor.pitch, sneaking)
+        Self::new(
+            actor.body_yaw,
+            actor.head_yaw,
+            actor.pitch,
+            actor.is_sneaking(),
+        )
     }
 }
 
 #[derive(Clone, Copy)]
-struct ProjectedVertex {
+pub(super) struct ProjectedVertex {
     screen: [f32; 2],
     depth: f32,
     uv: [f32; 2],
-    world: [f32; 3],
+    pub(super) world: [f32; 3],
 }
 
 /// Renders a nearest-neighbour, orthographic 3-D biped preview from a
@@ -531,7 +592,7 @@ pub(super) fn render_body_with_cape(
 }
 
 /// A posed, viewer-facing biped.
-struct Rig {
+pub(super) struct Rig {
     parts: [Option<glam::Affine3A>; 6],
     body: f32,
     head_yaw: f32,
@@ -544,7 +605,12 @@ struct Rig {
 }
 
 impl Rig {
-    fn new(pose: PlayerPreviewPose, view: PreviewView, bob: f32, holding: [bool; 2]) -> Self {
+    pub(super) fn new(
+        pose: PlayerPreviewPose,
+        view: PreviewView,
+        bob: f32,
+        holding: [bool; 2],
+    ) -> Self {
         let [body, head_yaw, head_pitch, model_pitch] = view.angles();
         // A vanilla paper doll sets variable.is_paperdoll=1. The vanilla player
         // controller's paperdoll branch excludes holding, sneak and idle bob.
@@ -570,7 +636,7 @@ impl Rig {
         }
     }
 
-    fn project(&self, vertex: ActorVertex) -> ProjectedVertex {
+    pub(super) fn project(&self, vertex: ActorVertex) -> ProjectedVertex {
         let mut local = vertex.position;
         if let Some(Some(transform)) = self.parts.get(vertex.part as usize) {
             local = transform

@@ -17,6 +17,8 @@ pub enum TextureSource {
     Path(Box<str>),
     Terrain,
     Items,
+    /// A catalog cosmetic's own sprite, supplied with each spawn request; UVs are texture-relative.
+    Cosmetic,
 }
 
 pub enum Direction {
@@ -258,6 +260,7 @@ pub fn parse_effect(bytes: &[u8]) -> Option<EffectDef> {
     let texture = match render.get("texture").and_then(Value::as_str)? {
         "atlas.terrain" => TextureSource::Terrain,
         "atlas.items" => TextureSource::Items,
+        render_model::hats::COSMETIC_PARTICLE_TEXTURE => TextureSource::Cosmetic,
         path => TextureSource::Path(path.into()),
     };
     let mut interner = Interner::with_builtins();

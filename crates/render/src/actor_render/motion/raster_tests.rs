@@ -97,7 +97,7 @@ fn velocity_pixel(
     let current_bones = storage(bytemuck::cast_slice(&current.current_bones));
     let motion = storage(bytemuck::cast_slice(&history.instances));
     let rendered_bones = storage(bytemuck::cast_slice(&history.bones));
-    let lightmap = gpu.buffer(&[1.0; 256 * 4], wgpu::BufferUsages::UNIFORM);
+    let lightmap = gpu.lightmap(&[1.0; 256 * 4]);
     let bindings = [
         (0, &view),
         (1, &instances),

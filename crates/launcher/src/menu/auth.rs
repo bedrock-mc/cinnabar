@@ -1,5 +1,13 @@
 //! Account status reported to launcher screens.
 
+/// An interactive account request consumed by the host that owns sign-in.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AccountIntent {
+    SignIn,
+    Cancel,
+    SignOut,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AuthState {
     SignedOut,

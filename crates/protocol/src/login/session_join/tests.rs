@@ -16,16 +16,18 @@ use crate::Packet;
 const RUNTIME_ID: u64 = 7;
 
 /// A core that speaks the session endpoint's frames to one client.
-struct FakeCore {
-    stream: UnixStream,
+struct FakeCore<S = UnixStream> {
+    stream: S,
 }
 
-impl FakeCore {
+impl FakeCore<UnixStream> {
     async fn accept(listener: &UnixListener) -> Self {
         let (stream, _) = listener.accept().await.expect("client connects");
         Self { stream }
     }
+}
 
+impl<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin> FakeCore<S> {
     async fn send(&mut self, frame: Bytes) {
         self.stream.write_u32(frame.len() as u32).await.unwrap();
         self.stream.write_all(&frame).await.expect("core writes");
@@ -187,6 +189,7 @@ async fn check_handed_off_packs(cached: bool) {
     let reference = cached.then(|| serde_json::json!({"path": archive, "sha256": <[u8; 32]>::from(Sha256::digest(b"abcde"))}));
     let settings = LoginSettings {
         resource_pack_cache_dir: Some(cache_root),
+        view_distance_chunks: if cached { 35 } else { 8 },
         ..Default::default()
     };
     let listener = listen(dir.path());
@@ -219,12 +222,19 @@ async fn check_handed_off_packs(cached: bool) {
         }
         core.send(pack_frame(1, b"xyz")).await;
         let spawn_requests = core.receive_packets().await;
-        assert!(
-            spawn_requests
-                .iter()
-                .any(|packet| matches!(&*packet.data, packets::Packet::RequestChunkRadius(_))),
-            "the client runs its own spawn sequence"
+        let expected = crate::request_chunk_radius_packet(
+            settings.view_distance_chunks,
+            render_api::MAX_VIEW_RADIUS_CHUNKS as u8,
         );
+        assert_eq!(spawn_requests.len(), 2);
+        assert_eq!(
+            spawn_requests[0], expected,
+            "the first request uses the selected radius"
+        );
+        assert!(matches!(
+            &*spawn_requests[1].data,
+            packets::Packet::ServerboundLoadingScreen(_)
+        ));
         core.send(batch_frame(&spawn_prerequisites())).await;
         core
     };
@@ -235,6 +245,7 @@ async fn check_handed_off_packs(cached: bool) {
         Some(ClientBlobCache::default()),
         None,
         &settings,
+        None,
         None,
         keep_prepared,
     );
@@ -328,6 +339,7 @@ async fn a_startup_longer_than_one_batch_still_joins() {
             None,
             &settings,
             None,
+            None,
             keep_prepared,
         ),
         core
@@ -368,6 +380,7 @@ async fn pack_preparation_starts_before_player_spawn() {
         None,
         None,
         &settings,
+        None,
         None,
         move |_, game_data| {
             let _ = started.send(game_data.world.local_player_runtime_id);
@@ -425,6 +438,7 @@ async fn the_session_is_read_while_packs_prepare() {
         None,
         &settings,
         None,
+        None,
         move |_, _| released.recv().unwrap(),
     );
     let (joined, _core) = tokio::join!(join, core);
@@ -469,6 +483,7 @@ async fn a_disconnect_before_the_handoff_is_a_server_disconnect() {
             None,
             &settings,
             None,
+            None,
             keep_prepared,
         ),
         core
@@ -506,6 +521,7 @@ async fn a_transfer_before_the_handoff_is_a_server_transfer() {
             None,
             None,
             &settings,
+            None,
             None,
             keep_prepared,
         ),
@@ -550,6 +566,7 @@ async fn invalid_cached_archive_is_reported_as_a_join_error() {
         None,
         None,
         &settings,
+        None,
         None,
         keep_prepared,
     );
@@ -609,6 +626,7 @@ async fn invalid_spawn_prerequisites_are_recorded_as_failed() {
                 None,
                 None,
                 &settings,
+                None,
                 Some(tap.clone()),
                 keep_prepared,
             ),
@@ -625,3 +643,129 @@ async fn invalid_spawn_prerequisites_are_recorded_as_failed() {
         );
     }
 }
+
+/// A relay starts from the identity, the Connect's client data and the startup packets as one
+/// body, adds its packs to the handoff, and sees the client's own spawn sequence.
+#[tokio::test]
+async fn a_relay_starts_with_the_session_and_adds_its_packs() {
+    use crate::packet_relay::tests::FakeRelay;
+    use crate::packet_tap::PacketDirection;
+    use crate::session_transport::tests::{RecordingTap, TapEvent};
+    let dir = SocketDir::new("relay");
+    let settings = LoginSettings {
+        server_address: "game.example.test:19132".into(),
+        ..Default::default()
+    };
+    let listener = listen(dir.path());
+    let startup = [
+        crate::Packet::new(SetTime {
+            time: wire::ZigZag32(4),
+        }),
+        start_game(),
+    ];
+    let core = async {
+        let mut core = FakeCore::accept(&listener).await;
+        core.receive().await;
+        core.send(handoff_frame(
+            serde_json::json!({"identity": identity("Fixture"), "client_cache": false, "packs_required": false, "packs": []}),
+            &startup,
+        ))
+        .await;
+        core.receive_packets().await;
+        core.send(batch_frame(&spawn_prerequisites())).await;
+        core
+    };
+    let relay = Arc::new(FakeRelay::default());
+    let tap = Arc::new(RecordingTap::default());
+    relay.state().packs = vec![(b"pack".to_vec(), true)];
+    let (joined, mut core) = tokio::join!(
+        LoginSequence::connect_session(
+            dir.path(),
+            "Fixture",
+            crate::ClientRandomId::new(-7).unwrap(),
+            None,
+            None,
+            &settings,
+            Some(relay.clone()),
+            Some(tap.clone()),
+            keep_prepared,
+        ),
+        core
+    );
+    let (mut session, (mut handoff, _)) = joined.expect("a relayed session joins");
+    let packs = handoff.take_relay_packs();
+    assert_eq!(packs.len(), 1);
+    assert_eq!(
+        (packs[0].archive.as_slice(), packs[0].above_server),
+        (&b"pack"[..], true)
+    );
+    {
+        let state = relay.state();
+        let (identity, client_data, body) = state.started.as_ref().expect("the relay started");
+        assert_eq!(identity.display_name, "Fixture");
+        let client_data: serde_json::Value = serde_json::from_str(client_data).unwrap();
+        assert_eq!(client_data["ThirdPartyName"], "Fixture");
+        assert_eq!(
+            client_data["ServerAddress"],
+            settings.server_address.as_str()
+        );
+        let expected = batch_frame(&startup);
+        assert_eq!(
+            &body[..],
+            &expected[1..],
+            "the startup arrives as one batch body"
+        );
+        assert_eq!(
+            state.inbound.first().map(Vec::as_slice),
+            Some(&expected[1..]),
+            "startup must pass through the inbound handler before the spawn sequence"
+        );
+        let spawn_batch = batch_frame(&spawn_prerequisites());
+        assert_eq!(
+            state.startup_inbound,
+            vec![body.clone(), spawn_batch[1..].to_vec()],
+            "registry and spawn packets after the handoff still belong to login"
+        );
+        assert!(
+            !state.outbound.is_empty() && !state.inbound.is_empty(),
+            "the relay sees the spawn sequence both ways"
+        );
+    }
+
+    let live = [crate::Packet::new(SetTime {
+        time: wire::ZigZag32(99),
+    })];
+    core.send(batch_frame(&live)).await;
+    loop {
+        let packet = session.recv().await.expect("live packet after login");
+        if matches!(&*packet.data, packets::Packet::SetTime(value) if value.time.0 == 99) {
+            break;
+        }
+    }
+    let state = relay.state();
+    assert_eq!(
+        state.startup_inbound.len(),
+        2,
+        "play does not keep the startup budget"
+    );
+    assert_eq!(state.inbound.last().unwrap(), &batch_frame(&live)[1..]);
+    let received_times = tap
+        .events()
+        .into_iter()
+        .filter_map(|event| match event {
+            TapEvent::Record(PacketDirection::Clientbound, id, _)
+                if id == packets::PacketId::SetTime as u32 =>
+            {
+                Some(id)
+            }
+            _ => None,
+        })
+        .count();
+    assert_eq!(
+        received_times, 2,
+        "startup and live relay packets are each recorded once"
+    );
+}
+mod prepared;
+
+mod preparation_terminal;

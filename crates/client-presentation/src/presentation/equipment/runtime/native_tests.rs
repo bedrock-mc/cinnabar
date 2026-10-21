@@ -1,5 +1,8 @@
 //! Original pack fixtures for native weapon routing, artwork, and placement.
 
+#[path = "held_scale_native_tests.rs"]
+mod held_scale;
+
 use super::NativeItem;
 use crate::presentation::equipment::tests::held_animation_tests::{owner, owner_rig};
 use crate::presentation::equipment::tests::{pack_catalog, player_body, startup_runtime};
@@ -9,6 +12,12 @@ use render_model::equipment::{attach_to_bone, held_sprite_display};
 
 #[path = "native_geometry_tests.rs"]
 mod geometry;
+
+#[path = "native_variant_tests.rs"]
+mod variants;
+
+#[path = "routing_tests.rs"]
+mod routing;
 
 /// Reads the selected equipment image's first pixel from its retained artwork page.
 fn selected_pixel(
@@ -152,6 +161,7 @@ fn item(identifier: &str) -> WornItem {
         kind: HeldKind::Sprite,
         dye_rgb: None,
         enchanted: true,
+        glint: Default::default(),
     }
 }
 
@@ -168,7 +178,6 @@ fn texture_only_bow_uses_native_mesh_and_pack_stages_over_the_use_duration() {
     let body = player_body(&mut runtime);
     let item = item(identifier);
     assert!(runtime.uses_native_item_mesh(identifier));
-    assert!(!runtime.is_vanilla_attachable(identifier));
     let owner = owner();
     let names = [Box::from("rightItem")];
     let rig = owner_rig(&owner, &names);
@@ -428,7 +437,6 @@ fn custom_models_including_overrides_of_stock_names_keep_attachable_routing() {
         *bytes = serde_json::to_vec(&model).unwrap();
         install(&mut runtime, pages, files);
         assert!(!runtime.uses_native_item_mesh("minecraft:bow"));
-        assert!(runtime.is_vanilla_attachable("minecraft:bow"));
         let body = player_body(&mut runtime);
         let owner = owner();
         let names = [Box::from("rightItem")];
@@ -742,7 +750,6 @@ fn cube_backed_weapons_use_item_sprites_in_both_views_and_hands() {
                 runtime.set_session_items(Some(&items), Some(staged), locations);
             }
             assert!(runtime.uses_native_item_mesh(identifier));
-            assert!(!runtime.is_vanilla_attachable(identifier));
             let item = item(identifier);
             let body = player_body(&mut runtime);
             assert_eq!(
@@ -831,7 +838,6 @@ fn cube_backed_weapons_keep_model_rendering_when_no_item_sprite_exists() {
         let (mut runtime, pages) = cube_runtime(identifier, geometry, None);
         let pages = install(&mut runtime, pages, cube_fixture(identifier, geometry, 80));
         assert!(!runtime.uses_native_item_mesh(identifier));
-        assert!(runtime.is_vanilla_attachable(identifier));
         let body = player_body(&mut runtime);
         let owner = owner();
         let names = [Box::from("rightItem")];
@@ -1115,7 +1121,6 @@ fn version_five_carriers_recognize_single_stage_texture_overrides() {
                 locations,
             )));
             assert!(runtime.uses_native_item_mesh(identifier));
-            assert!(!runtime.is_vanilla_attachable(identifier));
             let (rig, location, _, span) = runtime
                 .held_mesh_with_use(
                     &item(identifier),

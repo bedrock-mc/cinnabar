@@ -5,10 +5,18 @@ use std::io::Read;
 use std::path::{Component, Path};
 
 use assets::VanillaEntityRefs;
+use rayon::prelude::*;
 use resource_pack::LayeredPackView;
 use serde_json::{Map, Value};
 
 use crate::pack_textures::parse_pack_json;
+
+#[cfg(test)]
+thread_local! {
+    static PEAK_ENTITY_PAYLOAD_BYTES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static PEAK_DEFINITION_DOCUMENTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static PEAK_GEOMETRY_BATCH_BYTES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
 
 const DEFINITION_FAMILIES: [(&str, &str, &str); 3] = [
     ("animations/", "animations", "animations/_pack.json"),
@@ -31,15 +39,35 @@ struct References {
     animations: BTreeSet<String>,
     animation_controllers: BTreeSet<String>,
     geometry: BTreeSet<String>,
+    textures: BTreeSet<String>,
+}
+
+/// Selected entity payloads and references extracted during the same collection parse.
+struct CollectedEntities {
+    files: Vec<(Box<str>, Vec<u8>)>,
+    references: References,
 }
 
 impl References {
+    /// Extracts all actor references while its document is available.
     fn read(&mut self, actor: &Value) {
+        collect_texture_strings(actor, &mut self.textures);
         for kind in ["minecraft:client_entity", "minecraft:attachable"] {
             self.read_description(&actor[kind]["description"]);
         }
     }
 
+    /// Combines references without retaining either source document.
+    fn extend(&mut self, other: Self) {
+        self.render_controllers.extend(other.render_controllers);
+        self.animations.extend(other.animations);
+        self.animation_controllers
+            .extend(other.animation_controllers);
+        self.geometry.extend(other.geometry);
+        self.textures.extend(other.textures);
+    }
+
+    /// Extracts the definition families named by one actor description.
     fn read_description(&mut self, description: &Value) {
         for entry in description["render_controllers"]
             .as_array()
@@ -98,12 +126,19 @@ pub fn collect_files(
     vanilla_pack_dir: Option<&Path>,
 ) -> Vec<(Box<str>, Vec<u8>)> {
     let mut files = Vec::new();
-    let entities = unique_entities(view);
+    let CollectedEntities {
+        files: entities,
+        mut references,
+    } = unique_entities(view);
     let mut geometry = unshadowed_geometry(view);
-    let pack_geometry = geometry
-        .iter()
-        .flat_map(|(_, bytes)| geometry_identifiers(bytes))
-        .collect::<BTreeSet<_>>();
+    let mut pack_geometry = BTreeSet::new();
+    for batch in bounded_batches(&geometry, |(_, bytes)| bytes.len() as u64) {
+        pack_geometry.par_extend(
+            batch
+                .par_iter()
+                .flat_map_iter(|(_, bytes)| geometry_identifiers(bytes)),
+        );
+    }
     let definitions = DEFINITION_FAMILIES
         .map(|(prefix, key, merged)| (key, merged, merged_definitions(view, prefix, key)));
     let mut overrides = pack_geometry.clone();
@@ -127,8 +162,7 @@ pub fn collect_files(
         vanilla,
         binding_inputs.as_ref(),
     );
-    let mut references = References::default();
-    for (_, bytes) in entities.iter().chain(&attachables) {
+    for (_, bytes) in &attachables {
         if let Ok(actor) = pack_json::parse_jsonc::<Value>(bytes) {
             references.read(&actor);
         }
@@ -184,13 +218,14 @@ pub fn collect_files(
             wanted.extend(vanilla.geometry_parent.get(&identifier).cloned());
         }
     }
+    let mut textures = referenced_textures(&files);
+    textures.extend(references.textures);
     files.extend(entities);
     if let Some(materials) = materials {
         files.push(("materials/_pack.material".into(), materials));
     }
     files.extend(attachables);
     files.extend(geometry);
-    let mut textures = referenced_textures(&files);
     textures.extend(assets::entity::GLINT_TEXTURE_IDENTIFIERS.map(str::to_owned));
     let paintings = assets::painting::PAINTING_MOTIVES
         .iter()
@@ -295,68 +330,159 @@ fn material_definitions(view: &LayeredPackView) -> Option<Vec<u8>> {
     serde_json::to_vec(&serde_json::json!({"materials": materials})).ok()
 }
 
+/// Splits `items` into parallel batches bounded by workers and one source's byte budget;
+/// a larger item runs alone.
+fn bounded_batches<T>(mut items: &[T], size: impl Fn(&T) -> u64) -> Vec<&[T]> {
+    let mut batches = Vec::new();
+    while !items.is_empty() {
+        let end = items.len().min(rayon::current_num_threads());
+        let mut bytes = 0u64;
+        let mut len = end;
+        for (index, item) in items[..end].iter().enumerate() {
+            let next = bytes.saturating_add(size(item));
+            if index > 0 && next > assets::MAX_ENTITY_SOURCE_BYTES as u64 {
+                len = index;
+                break;
+            }
+            bytes = next;
+        }
+        let (batch, rest) = items.split_at(len);
+        batches.push(batch);
+        items = rest;
+    }
+    batches
+}
+
+/// A JSON source's stored size bounds its parse; other files are not parsed.
+fn json_size(path: &str, size: Option<u64>) -> u64 {
+    if path.ends_with(".json") {
+        size.unwrap_or(0)
+    } else {
+        0
+    }
+}
+
 /// Named definitions of `prefix` files, lowest layer first so a higher one replaces a name.
 fn merged_definitions(view: &LayeredPackView, prefix: &str, key: &str) -> Map<String, Value> {
     let mut merged = Map::new();
     for layer in view.layers() {
-        for path in layer.files_under(prefix) {
-            if !path.ends_with(".json") {
-                continue;
-            }
-            let Ok(Some(bytes)) = layer.read_file(path) else {
-                continue;
-            };
-            let Some(Value::Object(root)) = parse_pack_json(&bytes) else {
-                continue;
-            };
-            if let Some(Value::Object(definitions)) = root.get(key) {
-                merged.extend(
-                    definitions
-                        .iter()
-                        .map(|(name, value)| (name.clone(), value.clone())),
-                );
+        let paths = layer.files_under(prefix);
+        for batch in bounded_batches(&paths, |path| json_size(path, layer.file_size(path))) {
+            let definitions = batch
+                .par_iter()
+                .copied()
+                .map(|path| {
+                    if !path.ends_with(".json") {
+                        return None;
+                    }
+                    let bytes = layer.read_file(path).ok()??;
+                    let Value::Object(mut root) = parse_pack_json(&bytes)? else {
+                        return None;
+                    };
+                    match root.remove(key) {
+                        Some(Value::Object(definitions)) => Some(definitions),
+                        _ => None,
+                    }
+                })
+                .collect::<Vec<_>>();
+            #[cfg(test)]
+            PEAK_DEFINITION_DOCUMENTS.update(|peak| {
+                peak.max(definitions.iter().flatten().count() + usize::from(!merged.is_empty()))
+            });
+            for definitions in definitions.into_iter().flatten() {
+                merged.extend(definitions);
             }
         }
     }
     merged
 }
 
-/// The highest layer's `entity/` file for each client entity identifier.
-fn unique_entities(view: &LayeredPackView) -> Vec<(Box<str>, Vec<u8>)> {
-    let mut owners = BTreeMap::<String, (Box<str>, Vec<u8>)>::new();
+/// The highest layer's entity file and extracted references for each client entity identifier.
+fn unique_entities(view: &LayeredPackView) -> CollectedEntities {
+    let mut owners = BTreeMap::new();
     for layer in view.layers() {
-        for path in layer.files_under("entity/") {
-            if !path.ends_with(".json") {
-                continue;
-            }
-            let Ok(Some(bytes)) = layer.read_file(path) else {
-                continue;
-            };
-            if let Some(identifier) = super::entity_identifier(&bytes)
-                && let Some(canonical) = canonical_json(&bytes)
-            {
-                owners.insert(identifier, (path.into(), canonical));
+        let paths = layer.files_under("entity/");
+        for batch in bounded_batches(&paths, |path| json_size(path, layer.file_size(path))) {
+            let entities = batch
+                .par_iter()
+                .copied()
+                .map(|path| {
+                    if !path.ends_with(".json") {
+                        return None;
+                    }
+                    let bytes = layer.read_file(path).ok()??;
+                    let document = parse_pack_json(&bytes)?;
+                    let identifier = document
+                        .pointer("/minecraft:client_entity/description/identifier")?
+                        .as_str()?
+                        .to_owned();
+                    let canonical = serde_json::to_vec(&document).ok()?;
+                    let mut references = References::default();
+                    references.read(&document);
+                    Some((identifier, (Box::<str>::from(path), canonical, references)))
+                })
+                .collect::<Vec<_>>();
+            #[cfg(test)]
+            PEAK_ENTITY_PAYLOAD_BYTES.update(|peak| {
+                peak.max(
+                    entities
+                        .iter()
+                        .flatten()
+                        .map(|(_, (_, bytes, _))| bytes.len())
+                        .sum::<usize>()
+                        + owners
+                            .values()
+                            .map(|(_, bytes, _): &(Box<str>, Vec<u8>, References)| bytes.len())
+                            .sum::<usize>(),
+                )
+            });
+            for (identifier, file) in entities.into_iter().flatten() {
+                owners.insert(identifier, file);
             }
         }
     }
     let mut seen = BTreeSet::new();
-    owners
+    let mut references = References::default();
+    let files = owners
         .into_values()
-        .filter(|(path, _)| seen.insert(path.clone()))
-        .collect()
+        .filter_map(|(path, bytes, extracted)| {
+            if !seen.insert(path.clone()) {
+                return None;
+            }
+            references.extend(extracted);
+            Some((path, bytes))
+        })
+        .collect();
+    CollectedEntities { files, references }
 }
 
 /// Collect geometry documents in layer order for identifier selection by the compiler.
 fn unshadowed_geometry(view: &LayeredPackView) -> Vec<(Box<str>, Vec<u8>)> {
     let mut files = Vec::new();
     for layer in view.layers() {
-        for path in layer.files_under("models/") {
-            if path.ends_with(".json")
-                && let Ok(Some(bytes)) = layer.read_file(path)
-                && let Some(canonical) = canonical_json(&bytes)
-            {
-                files.push((path.into(), canonical));
-            }
+        let paths = layer.files_under("models/");
+        for batch in bounded_batches(&paths, |path| json_size(path, layer.file_size(path))) {
+            #[cfg(test)]
+            PEAK_GEOMETRY_BATCH_BYTES.update(|peak| {
+                peak.max(
+                    batch
+                        .iter()
+                        .filter_map(|path| layer.file_size(path))
+                        .sum::<u64>(),
+                )
+            });
+            let parsed = batch
+                .par_iter()
+                .copied()
+                .map(|path| {
+                    if !path.ends_with(".json") {
+                        return None;
+                    }
+                    let bytes = layer.read_file(path).ok()??;
+                    Some((path.into(), canonical_json(&bytes)?))
+                })
+                .collect::<Vec<_>>();
+            files.extend(parsed.into_iter().flatten());
         }
     }
     pack_entity_compiler::select_entity_geometry(files)
@@ -386,20 +512,34 @@ fn geometry_identifiers(bytes: &[u8]) -> Vec<String> {
 /// Texture path stems (no extension) named by any string in the entity sources.
 fn referenced_textures(files: &[(Box<str>, Vec<u8>)]) -> BTreeSet<String> {
     let mut stems = BTreeSet::new();
-    for (path, bytes) in files {
-        if !(path.starts_with("entity/")
-            || path.starts_with("attachables/")
-            || path.starts_with("render_controllers/"))
-        {
-            continue;
-        }
-        if let Some(root) = parse_pack_json(bytes) {
-            collect_texture_strings(&root, &mut stems);
-        }
+    for batch in bounded_batches(files, |(_, bytes)| bytes.len() as u64) {
+        stems.extend(batch_texture_stems(batch));
     }
     stems
 }
 
+/// Texture stems named by one bounded batch of sources.
+fn batch_texture_stems(files: &[(Box<str>, Vec<u8>)]) -> BTreeSet<String> {
+    files
+        .par_iter()
+        .map(|(path, bytes)| {
+            let mut stems = BTreeSet::new();
+            if (path.starts_with("entity/")
+                || path.starts_with("attachables/")
+                || path.starts_with("render_controllers/"))
+                && let Some(root) = parse_pack_json(bytes)
+            {
+                collect_texture_strings(&root, &mut stems);
+            }
+            stems
+        })
+        .reduce(BTreeSet::new, |mut left, right| {
+            left.extend(right);
+            left
+        })
+}
+
+/// Finds texture stems recursively while a source document is available.
 fn collect_texture_strings(value: &Value, stems: &mut BTreeSet<String>) {
     match value {
         Value::String(text) if text.starts_with("textures/") => {

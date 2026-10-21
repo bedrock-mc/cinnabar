@@ -422,7 +422,7 @@ fn assert_controller_entry_effects_survive_deactivation(nested: bool) {
                 },
             );
             compiled.symbols = symbols.into();
-            compiled.rig_bindings[0].render_controller += 1;
+            *compiled.rig_bindings[0].render_controller.as_mut().unwrap() += 1;
             let mut controllers = compiled.controllers.to_vec();
             controllers.push(assets::EntityAnimationController {
                 symbol: 4,

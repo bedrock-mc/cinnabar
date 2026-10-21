@@ -122,7 +122,7 @@ pub(crate) const PROFILE_BANNERS: [&str; 8] = [
     "assets/screenshot_7-6cfec1e1e1009ea73447.jpg",
     "assets/screenshot_8-b5f240429090c0ddd613.jpg",
 ];
-/// Profile error art, loaded only from an install at runtime.
+/// Art for empty and failed profile views.
 pub(crate) const PROFILE_ERRORS: [&str; 3] = [
     "assets/nothing_to_see-1107fc6902173eb98f28.png",
     "assets/generic_error-aa90619c4c1746eb7ac0.png",

@@ -24,6 +24,7 @@ struct Sources {
     server_lang: Option<Arc<assets::ServerLangOverlay>>,
     items: Option<Arc<crate::ui_runtime::item_facts::SessionItemComponents>>,
     recipes: Option<Arc<protocol::RecipeCatalog>>,
+    crafting_revision: u64,
 }
 
 impl InventoryCache {
@@ -49,6 +50,7 @@ impl InventoryCache {
             server_lang: runtime.server_lang.clone(),
             items: runtime.session_items.clone(),
             recipes: player.inventory.crafting_catalog_snapshot(),
+            crafting_revision: player.inventory.crafting_revision(),
         };
         let refresh = next.refresh(self.sources.as_ref());
         self.sources = Some(next);
@@ -106,7 +108,9 @@ impl Sources {
                 || !same(&self.active_lang, &previous.active_lang)
                 || !same(&self.server_lang, &previous.server_lang)
                 || !same(&self.items, &previous.items),
-            recipes: registry || !same(&self.recipes, &previous.recipes),
+            recipes: registry
+                || !same(&self.recipes, &previous.recipes)
+                || self.crafting_revision != previous.crafting_revision,
         }
     }
 }

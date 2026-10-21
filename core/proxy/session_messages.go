@@ -17,9 +17,10 @@ var errMalformedSession = errors.New("proxy: malformed session message")
 
 // sessionConnectRequest is the client's only setup message: where to join and its login client data.
 type sessionConnectRequest struct {
-	Protocol    int32          `json:"protocol"`
-	Target      *sessionTarget `json:"target,omitempty"` // nil keeps the core's current selection
-	ClientCache bool           `json:"client_cache"`     // the client resolves blob-cache chunks
+	JoinProfileID uint64         `json:"join_profile_id,omitempty"` // local diagnostics only
+	Protocol      int32          `json:"protocol"`
+	Target        *sessionTarget `json:"target,omitempty"` // nil keeps the core's current selection
+	ClientCache   bool           `json:"client_cache"`     // the client resolves blob-cache chunks
 	// ClientData holds the Bedrock login client-data claims, as gophertunnel's login.ClientData names them.
 	// Its ThirdPartyName names an offline login; a signed-in core joins as its account.
 	ClientData json.RawMessage `json:"client_data"`
@@ -33,6 +34,7 @@ type sessionTarget struct {
 
 // sessionHandoff is everything the client needs before play; StartGame travels in the startup packets.
 type sessionHandoff struct {
+	PackStream    uint64          `json:"pack_stream,omitempty"` // web join whose archives arrive on a separate stream
 	Identity      sessionIdentity `json:"identity"`
 	ClientCache   bool            `json:"client_cache"`         // the upstream login advertised blob-cache support
 	PacksRequired bool            `json:"packs_required"`       // the offer or the stack required the packs
@@ -49,6 +51,7 @@ type sessionIdentity struct {
 
 // sessionPack describes one selected archive; ContentKey is secret.
 type sessionPack struct {
+	SHA256     *[32]byte             `json:"sha256,omitempty"` // digest of streamed web archive bytes
 	UUID       string                `json:"uuid"`
 	Version    string                `json:"version"`
 	SubPack    string                `json:"sub_pack"`

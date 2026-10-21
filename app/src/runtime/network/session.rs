@@ -1,14 +1,21 @@
 //! Bevy ownership and presentation hooks for the session domain.
 
 use crate::runtime::network::resource_packs::PackApplication;
+#[cfg(not(target_arch = "wasm32"))]
 use client_runtime::network::NetworkHandle;
+#[cfg(not(target_arch = "wasm32"))]
 use std::ffi::OsStr;
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
+
+mod preparation;
+pub(crate) use preparation::Preparation;
 
 pub type NetworkControlEvent = client_session::NetworkControlEvent<PackApplication>;
 
 /// Startup snapshot supplied by application composition.
 #[derive(Debug, Clone)]
+#[cfg(not(target_arch = "wasm32"))]
 pub struct NetworkConfig {
     /// Immutable world and collision inputs captured for this join.
     pub(crate) registry_base: super::session_registries::RegistryBase,
@@ -32,15 +39,22 @@ pub struct NetworkConfig {
 }
 
 /// Starts the domain worker with presentation preparation at its original bootstrap boundary.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn spawn_network(
     config: NetworkConfig,
+    packet_relay: Option<std::sync::Arc<dyn protocol::PacketRelay>>,
 ) -> Result<NetworkHandle<PackApplication>, std::io::Error> {
+    if bridge::join_profile::JoinProfile::current().id().is_none() {
+        bridge::join_profile::JoinProfile::begin();
+    }
     let socket_dir = config.socket_dir.clone();
-    let registry_base = config.registry_base;
-    let session_generation = config.session_generation;
-    let actor_artwork = config.actor_artwork;
-    let ui_catalog = config.ui_catalog;
-    let physical_memory_bytes = launcher_host::memory::physical_bytes();
+    let preparation = Preparation {
+        registry_base: config.registry_base,
+        session_generation: config.session_generation,
+        actor_artwork: config.actor_artwork,
+        ui_catalog: config.ui_catalog,
+        physical_memory_bytes: launcher_host::memory::physical_bytes(),
+    };
     client_session::spawn_network(
         client_session::NetworkConfig {
             session_generation: config.session_generation,
@@ -57,51 +71,14 @@ pub fn spawn_network(
                 unix_time_ms(),
             ),
         },
-        move |handoff, game_data, cancelled| {
-            let started = std::time::Instant::now();
-            let preparation =
-                pack_runtime::prepare_session_packs(handoff, game_data, physical_memory_bytes);
-            if cancelled() {
-                return None;
-            }
-            let prepared = super::resource_packs::prepare_join(
-                &preparation,
-                game_data,
-                cancelled,
-                super::resource_packs::JoinBases {
-                    actor_artwork: actor_artwork.as_ref(),
-                    ui_catalog: ui_catalog.as_ref(),
-                },
-            );
-            if preparation.has_applied_packs() && prepared.is_some() {
-                bevy::log::info!(
-                    elapsed_ms = started.elapsed().as_secs_f64() * 1e3,
-                    "server resource packs prepared for the join"
-                );
-            }
-            let mut packs = match prepared? {
-                Ok(packs) => packs,
-                Err(error) => return Some(Err(error.to_string())),
-            };
-            packs.registries = Some(registry_base.prepare(
-                session_generation,
-                game_data.world.block_network_ids_are_hashes,
-                &preparation.inputs.blocks,
-                &packs,
-                cancelled,
-            )?);
-            Some(Ok(client_session::PreparedSession {
-                custom_blocks: preparation.inputs.blocks.clone(),
-                packs_applied: preparation.has_applied_packs(),
-                packs,
-            }))
-        },
+        move |handoff, game_data, cancelled| preparation.run(handoff, game_data, cancelled),
         client_session::SessionTrace {
             movement_line: gameplay::movement::pending_trace_line,
             write_movement: gameplay::movement::write_trace_line,
             packet_trace: emit_packet_trace,
             fast_transfer_action_marker: Some(client_ui::diagnostic_markers::FAST_TRANSFER_ACTION),
         },
+        packet_relay,
     )
     .map(|inner| NetworkHandle::connected(inner, socket_dir))
 }
@@ -109,6 +86,7 @@ pub fn spawn_network(
 /// The session's capture: [`client_session::markers::PACKET_CAPTURE`] decides when set
 /// non-empty, even to `0`; otherwise the Record network session setting records into
 /// `log_dir`.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn packet_capture_request(
     environment: Option<&OsStr>,
     record_setting: bool,
@@ -129,6 +107,7 @@ pub(crate) struct CaptureChoice {
     pub(crate) by_variable: bool,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl std::fmt::Display for CaptureChoice {
     /// `on` or `off`, followed by the variable's name in parentheses when it decided.
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -142,6 +121,7 @@ impl std::fmt::Display for CaptureChoice {
 
 /// Whether new sessions record a capture, by the same precedence as
 /// [`packet_capture_request`].
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn packet_capture_choice(
     environment: Option<&OsStr>,
     record_setting: bool,
@@ -159,6 +139,7 @@ pub(crate) fn packet_capture_choice(
 }
 
 /// Wall-clock milliseconds since the Unix epoch, as a capture header records its start.
+#[cfg(not(target_arch = "wasm32"))]
 fn unix_time_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

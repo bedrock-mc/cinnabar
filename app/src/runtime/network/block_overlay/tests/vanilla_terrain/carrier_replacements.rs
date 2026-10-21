@@ -215,7 +215,7 @@ fn cube_bindings_resolve_new_catalog_keys_from_existing_carrier_raster_paths() {
     }
     let carried = &overlay.vanilla_carried[0];
     let sheet =
-        render_model::equipment::blocks::overlay_face_sheet(&overlay.overlay, carried.faces)
+        render_model::equipment::blocks::overlay_face_sheet(&overlay.overlay, carried.faces, None)
             .unwrap();
     assert!(
         sheet
@@ -396,8 +396,8 @@ fn carrier_and_pack_sources_share_grid_tint_and_carried_art_preparation() {
         .find(|entry| entry.visual == 0)
         .unwrap()
         .faces;
-    let sheet =
-        render_model::equipment::blocks::overlay_face_sheet(&fallback.overlay, faces).unwrap();
+    let sheet = render_model::equipment::blocks::overlay_face_sheet(&fallback.overlay, faces, None)
+        .unwrap();
     let packed_faces = pack
         .vanilla_carried
         .iter()
@@ -405,7 +405,8 @@ fn carrier_and_pack_sources_share_grid_tint_and_carried_art_preparation() {
         .unwrap()
         .faces;
     let packed_sheet =
-        render_model::equipment::blocks::overlay_face_sheet(&pack.overlay, packed_faces).unwrap();
+        render_model::equipment::blocks::overlay_face_sheet(&pack.overlay, packed_faces, None)
+            .unwrap();
     assert_eq!(sheet, packed_sheet);
     assert!(
         sheet
@@ -415,7 +416,7 @@ fn carrier_and_pack_sources_share_grid_tint_and_carried_art_preparation() {
             .iter()
             .all(|pixel| *pixel == [200, 0, 0, 255])
     );
-    let icon = pack_entity_compiler::overlay_cube_icon(&fallback.overlay, faces).unwrap();
+    let icon = pack_entity_compiler::overlay_cube_icon(&fallback.overlay, faces, None).unwrap();
     assert!(
         icon.rgba8
             .as_chunks::<4>()
@@ -658,7 +659,8 @@ fn raster_only_world_and_carried_routes_reuse_layers_at_the_device_limit() {
             .unwrap()
             .faces;
         let sheet =
-            render_model::equipment::blocks::overlay_face_sheet(&compiled.overlay, faces).unwrap();
+            render_model::equipment::blocks::overlay_face_sheet(&compiled.overlay, faces, None)
+                .unwrap();
         assert!(
             sheet
                 .rgba8
@@ -667,7 +669,7 @@ fn raster_only_world_and_carried_routes_reuse_layers_at_the_device_limit() {
                 .iter()
                 .all(|pixel| *pixel == color)
         );
-        assert!(pack_entity_compiler::overlay_cube_icon(&compiled.overlay, faces).is_some());
+        assert!(pack_entity_compiler::overlay_cube_icon(&compiled.overlay, faces, None).is_some());
     }
 }
 

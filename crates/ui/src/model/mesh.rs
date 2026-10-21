@@ -20,7 +20,8 @@ pub struct UiMeshVertex {
     pub color: [u8; 4],
     /// Interpolated linear lighting; coverage paint uses this field for the border area.
     pub model_light: f32,
-    /// Entity overlay RGB and mix amount, or the coverage paint's packed constant colors.
+    /// Entity overlay RGB and mix amount, coverage paint colors, or particle source bounds
+    /// (x, y, width, height) in texture-page texels.
     pub overlay_color: [f32; 4],
     pub style_flags: u16,
     pub alpha_test: bool,
@@ -42,6 +43,7 @@ pub struct UiMesh {
     vertices: Arc<[UiMeshVertex]>,
     indices: Arc<[u32]>,
     batches: Arc<[UiMeshBatch]>,
+    draw_vertex_count: usize,
 }
 
 /// Meshes compare by contents. [`UiMesh::new`] admits only finite floats, so buffers shared
@@ -82,6 +84,41 @@ impl fmt::Display for UiMeshError {
 impl std::error::Error for UiMeshError {}
 
 impl UiMesh {
+    /// Builds a normal textured quad with explicit tint and blend mode.
+    pub fn sprite(
+        texture_page: u16,
+        uv: [f32; 4],
+        color: [u8; 4],
+        blend: UiBlendMode,
+    ) -> Result<Self, UiMeshError> {
+        let vertices = [[0., 0.], [1., 0.], [1., 1.], [0., 1.]].map(|position| UiMeshVertex {
+            position,
+            clip_z: 0.,
+            clip_w: 1.,
+            uv: [
+                uv[0] + position[0] * (uv[2] - uv[0]),
+                uv[1] + position[1] * (uv[3] - uv[1]),
+            ],
+            color,
+            model_light: 1.,
+            overlay_color: [0.; 4],
+            style_flags: 0,
+            alpha_test: false,
+        });
+        Self::new(
+            vertices.into(),
+            Arc::from([0, 1, 2, 0, 2, 3]),
+            Arc::from([UiMeshBatch {
+                texture_page,
+                index_range: 0..6,
+                blend,
+                depth_test: false,
+                depth_write: false,
+                alpha_cutoff: None,
+            }]),
+        )
+    }
+
     /// Fades vertex tint while retaining topology and texture bindings.
     pub fn with_opacity(mut self, opacity: f32) -> Self {
         let opacity = if opacity.is_finite() {
@@ -114,7 +151,7 @@ impl UiMesh {
         if indices > UiLimits::MAX_UI_INDICES {
             return Err(UiMeshError::IndexLimit);
         }
-        // Draw emission gives each triangle corner its batch material value.
+        // Keep source triangle references within the existing per-mesh admission cap.
         if indices > UiLimits::MAX_UI_VERTICES {
             return Err(UiMeshError::VertexLimit);
         }
@@ -193,11 +230,30 @@ impl UiMesh {
         if expected as usize != indices.len() {
             return Err(UiMeshError::InvalidBatchRange);
         }
+        let mut seen = vec![0; vertices.len()];
+        let mut draw_vertex_count = 0;
+        for (index, batch) in batches.iter().enumerate() {
+            let generation = index + 1;
+            for &source in
+                &indices[batch.index_range.start as usize..batch.index_range.end as usize]
+            {
+                if seen[source as usize] != generation {
+                    seen[source as usize] = generation;
+                    draw_vertex_count += 1;
+                }
+            }
+        }
         Ok(Self {
             vertices,
             indices,
             batches,
+            draw_vertex_count,
         })
+    }
+
+    /// Reserves each referenced vertex once per material, keeping material cutoffs independent.
+    pub(super) fn draw_vertex_count(&self) -> usize {
+        self.draw_vertex_count
     }
 
     pub fn vertices(&self) -> &[UiMeshVertex] {

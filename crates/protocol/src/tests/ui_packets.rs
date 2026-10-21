@@ -17,10 +17,10 @@ use bedrock_protocol_1_26_51::wire::{self, Decode, Encode};
 use bytes::{BufMut, BytesMut};
 use protocol::{
     BossAction, BossColor, ChatAutocompleteAction, CustomFormValue, FormButtonImage, FormKind,
-    MAX_CHAT_AUTOCOMPLETE, MAX_FORM_JSON_BYTES, MAX_FORM_JSON_DEPTH, MAX_SCORE_ENTRIES_PER_PACKET,
-    MAX_UI_TEXT_BYTES, ModalFormResponseSelection, ProtocolError, UiEvent, UiPacketError,
-    WorldEvent, custom_form_submit_response, decode_batch, into_world_event,
-    modal_form_cancel_response, modal_form_submit_response,
+    MAX_CHAT_AUTOCOMPLETE, MAX_FORM_JSON_BYTES, MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES,
+    ModalFormResponseSelection, ProtocolError, UiEvent, UiPacketError, WorldEvent,
+    custom_form_submit_response, decode_batch, into_world_event, modal_form_cancel_response,
+    modal_form_submit_response,
 };
 
 const TEXT_FIXTURE: &[u8] = include_bytes!("../../fixtures/text.bin");
@@ -363,12 +363,12 @@ fn absent_removal_objective_differs_from_an_empty_name() {
 
 #[test]
 fn oversized_text_scores_and_form_json_fail_closed() {
-    let text = raw_text_packet("x".repeat(MAX_UI_TEXT_BYTES + 1));
+    let text = raw_text_packet("x".repeat(crate::ui::MAX_TEXT_MESSAGE_BYTES + 1));
     assert_eq!(
         ui(text).unwrap_err(),
         UiPacketError::TextTooLong {
-            bytes: MAX_UI_TEXT_BYTES + 1,
-            max: MAX_UI_TEXT_BYTES,
+            bytes: crate::ui::MAX_TEXT_MESSAGE_BYTES + 1,
+            max: crate::ui::MAX_TEXT_MESSAGE_BYTES,
         }
     );
 
@@ -638,15 +638,15 @@ fn element_button_forms_reject_ambiguous_or_unsupported_controls_without_renumbe
 }
 
 #[test]
-fn element_button_forms_keep_the_existing_text_limits() {
+fn element_button_forms_keep_long_display_strings() {
     let long = "x".repeat(MAX_UI_TEXT_BYTES + 1);
     let json = format!(
         r#"{{"type":"form","elements":[{{"type":"button","text":"{long}","image":null}}]}}"#
     );
-    assert_eq!(
-        form_event(&json).unwrap().model,
-        protocol::ServerFormModel::Unsupported(protocol::UnsupportedForm::Limit)
-    );
+    let protocol::ServerFormModel::TextMenu(menu) = form_event(&json).unwrap().model else {
+        panic!("long element button text");
+    };
+    assert_eq!(menu.buttons[0].as_ref(), long);
 }
 
 #[test]
@@ -735,7 +735,7 @@ fn valid_button_images_are_retained_by_kind_without_changing_indexes() {
     let packets::Packet::ModalFormResponse(response) = *response.data else {
         panic!("response packet")
     };
-    assert_eq!(response.json_response, Some("1".into()));
+    assert_eq!(response.json_response, Some("1\n".into()));
 }
 
 #[test]
@@ -768,8 +768,8 @@ fn modal_and_custom_form_responses_round_trip() {
     // Modal button1/button2 answer with true/false, not an index.
     let yes = modal_form_submit_response(5, ModalFormResponseSelection::ModalButton(true));
     let no = modal_form_submit_response(5, ModalFormResponseSelection::ModalButton(false));
-    assert_eq!(json_of(&yes), Some("true"));
-    assert_eq!(json_of(&no), Some("false"));
+    assert_eq!(json_of(&yes), Some("true\n"));
+    assert_eq!(json_of(&no), Some("false\n"));
 
     // A custom form answers with an ordered JSON array of typed values; a null holds
     // a non-input element's slot.
@@ -784,7 +784,7 @@ fn modal_and_custom_form_responses_round_trip() {
             CustomFormValue::Input("Steve".into()),
         ],
     );
-    assert_eq!(json_of(&submit), Some(r#"[null,true,3.5,2,1,"Steve"]"#));
+    assert_eq!(json_of(&submit), Some("[null,true,3.5,2,1,\"Steve\"]\n"));
 
     // The custom answer survives an encode/decode wire round trip.
     submit.header.from_subclient = 1;
@@ -795,20 +795,15 @@ fn modal_and_custom_form_responses_round_trip() {
 }
 
 #[test]
-fn text_button_form_model_refuses_string_overflow_without_truncating_indices() {
+fn text_button_form_images_keep_their_own_reference_limit() {
     let text = "x".repeat(MAX_UI_TEXT_BYTES + 1);
-    for json in [
-        format!(r#"{{"type":"form","content":"{text}","buttons":[]}}"#),
-        format!(r#"{{"type":"form","buttons":[{{"text":"{text}"}}]}}"#),
-        format!(
-            r#"{{"type":"form","buttons":[{{"text":"Icon","image":{{"type":"url","data":"{text}"}}}}]}}"#
-        ),
-    ] {
-        assert!(matches!(
-            form_event(&json).unwrap().model,
-            protocol::ServerFormModel::Unsupported(_)
-        ));
-    }
+    let json = format!(
+        r#"{{"type":"form","buttons":[{{"text":"Icon","image":{{"type":"url","data":"{text}"}}}}]}}"#
+    );
+    assert!(matches!(
+        form_event(&json).unwrap().model,
+        protocol::ServerFormModel::Unsupported(_)
+    ));
 }
 
 #[test]
@@ -870,48 +865,29 @@ fn oversized_or_malformed_form_json_is_a_semantic_error_not_wire_fault() {
 }
 
 #[test]
-fn form_json_nesting_is_bounded_before_any_parse() {
-    let mut json = String::new();
-    for _ in 0..=MAX_FORM_JSON_DEPTH {
-        json.push('[');
-    }
-    for _ in 0..=MAX_FORM_JSON_DEPTH {
-        json.push(']');
-    }
-    assert_eq!(
-        form_event(&json).unwrap_err(),
-        UiPacketError::FormJsonDepthExceeded {
-            depth: MAX_FORM_JSON_DEPTH + 1,
-            max: MAX_FORM_JSON_DEPTH,
-        }
-    );
-}
-
-#[test]
-fn oversized_form_titles_fail_the_shared_ui_text_budget() {
+fn form_titles_keep_long_display_strings() {
     let title = "x".repeat(MAX_UI_TEXT_BYTES + 1);
-    let json = format!(r#"{{"type":"form","title":"{title}"}}"#);
-    assert_eq!(
-        form_event(&json).unwrap_err(),
-        UiPacketError::TextTooLong {
-            bytes: MAX_UI_TEXT_BYTES + 1,
-            max: MAX_UI_TEXT_BYTES,
-        }
-    );
+    let json = format!(r#"{{"type":"form","title":"{title}","buttons":[]}}"#);
+    let event = form_event(&json).unwrap();
+    assert_eq!(event.title.as_deref(), Some(title.as_str()));
+    let protocol::ServerFormModel::TextMenu(menu) = event.model else {
+        panic!("long title");
+    };
+    assert_eq!(menu.title.as_ref(), title);
 }
 
 #[test]
 fn modal_form_responses_encode_exact_submit_and_cancel_markers() {
     // Submitting button 2 of form 7: batch header, length, packet id 101, then
-    // id, present(1), len 1, '2', cancel absent(0).
+    // id, present(1), len 2, '2' and its line break, cancel absent(0).
     let submit = modal_form_submit_response(7, ModalFormResponseSelection::ButtonIndex(2));
     assert_eq!(
         protocol::encode(&submit).unwrap().as_ref(),
-        &[0xfe, 0x06, 101, 0x07, 0x01, 0x01, b'2', 0x00]
+        &[0xfe, 0x07, 101, 0x07, 0x01, 0x02, b'2', b'\n', 0x00]
     );
     let direct = ModalFormResponse {
         form_id: wire::VarUInt(7),
-        json_response: Some("2".into()),
+        json_response: Some("2\n".into()),
         form_cancel_reason: None,
     };
     assert_eq!(
@@ -1077,4 +1053,42 @@ fn custom_form_elements_start_from_vanilla_defaults() {
             if placeholder.as_ref() == "name" && default.is_empty()
     ));
     assert_eq!(FormNumber::new(f64::NAN), None);
+}
+
+/// Submitted scalars retain the line terminator inside the encoded JSON string.
+#[test]
+fn form_response_payloads_terminate_scalar_json() {
+    for (selection, expected) in [
+        (ModalFormResponseSelection::ButtonIndex(2), "2\n"),
+        (ModalFormResponseSelection::ModalButton(true), "true\n"),
+        (ModalFormResponseSelection::ModalButton(false), "false\n"),
+    ] {
+        let bytes = protocol::encode(&modal_form_submit_response(7, selection)).unwrap();
+        let packet = decode_batch(bytes).unwrap().pop().unwrap();
+        let packets::Packet::ModalFormResponse(response) = *packet.data else {
+            panic!("expected form response");
+        };
+        assert_eq!(response.json_response, Some(expected.into()));
+        assert!(response.form_cancel_reason.is_none());
+    }
+}
+
+/// A submitted array has one final newline while preserving its typed values and escaped input.
+#[test]
+fn form_response_payloads_terminate_custom_json() {
+    let values = [
+        CustomFormValue::Null,
+        CustomFormValue::Toggle(false),
+        CustomFormValue::Input("one\ntwo".into()),
+    ];
+    let bytes = protocol::encode(&custom_form_submit_response(9, &values)).unwrap();
+    let packet = decode_batch(bytes).unwrap().pop().unwrap();
+    let packets::Packet::ModalFormResponse(response) = *packet.data else {
+        panic!("expected form response");
+    };
+    assert_eq!(
+        response.json_response,
+        Some("[null,false,\"one\\ntwo\"]\n".into())
+    );
+    assert!(response.form_cancel_reason.is_none());
 }

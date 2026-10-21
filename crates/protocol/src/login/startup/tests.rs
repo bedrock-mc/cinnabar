@@ -10,6 +10,54 @@ fn body(packets: &[Packet]) -> Bytes {
     batch_frame(packets).unwrap().slice(1..)
 }
 
+/// A live reader with no incoming frames; only the host can end its drain deadline.
+struct IdleFrames;
+
+impl futures::Stream for IdleFrames {
+    type Item = Result<Bytes, bridge::BridgeError>;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        std::task::Poll::Pending
+    }
+}
+
+impl bridge::FrameRead for IdleFrames {
+    fn trace_conn(&self) -> u64 {
+        0
+    }
+    fn set_trace_conn(&self, _: u64) {}
+}
+
+#[test]
+fn startup_write_failure_uses_the_host_deadline_without_a_runtime() {
+    use std::future::Future;
+    let (_, frames, _writer) = bridge::tasks::prepare_connection(
+        tokio::io::empty(),
+        tokio::io::sink(),
+        bridge::MAX_FRAME_LEN,
+    );
+    let timers = bridge::tasks::Timers(|duration| {
+        assert_eq!(duration, super::super::WRITE_FAILURE_DRAIN);
+        Box::pin(std::future::ready(()))
+    });
+    let mut transport = SessionTransport::with_timers(IdleFrames, frames, &[], timers);
+    let mut drain = std::pin::pin!(startup_write_failure(
+        &mut transport,
+        SessionFailure::ConnectionClosed.into(),
+        super::super::WRITE_FAILURE_DRAIN,
+    ));
+    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    assert!(matches!(
+        drain.as_mut().poll(&mut context),
+        std::task::Poll::Ready(ProtocolError::Session(SessionError(
+            SessionFailure::ConnectionClosed
+        )))
+    ));
+}
+
 /// A deferred packet no longer shares its batch, and the queue refuses more than its byte bound.
 #[test]
 fn deferred_packets_are_detached_and_bounded() {
@@ -112,7 +160,8 @@ mod session {
         pair
     }
 
-    async fn next_time(transport: &mut SessionTransport) -> i32 {
+    /// Reads the next deferred time update from a native or injected session transport.
+    async fn next_time<R: bridge::FrameRead>(transport: &mut SessionTransport<R>) -> i32 {
         let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
             panic!("a deferred packet arrives before any terminal message")
         };
@@ -121,6 +170,94 @@ mod session {
             panic!("expected SetTime, got {id:?}")
         };
         time.time.0
+    }
+
+    /// Malformed relay framing cannot consume either irreplaceable spawn prerequisite.
+    #[tokio::test]
+    async fn malformed_replacements_preserve_start_game_and_item_registry() {
+        use crate::packet_relay::tests::FakeRelay;
+        use std::sync::Arc;
+        for (name, replies) in [
+            ("invalid-start-game", vec![Some(vec![0xff])]),
+            ("invalid-item-registry", vec![None, Some(vec![0xff])]),
+        ] {
+            let relay = Arc::new(FakeRelay::default());
+            relay.state().inbound_replies = replies.into();
+            let mut pair = handed_off(
+                name,
+                &[vec![
+                    registry("minecraft:shield", 355),
+                    radius(16),
+                    player_spawn(),
+                    set_time(9),
+                ]],
+            )
+            .await;
+            pair.transport.set_relay(relay.clone());
+            await_spawn(&mut pair.transport, DEFAULT_CHUNK_RADIUS, |_, _| {})
+                .await
+                .expect("the original prerequisites still complete spawn");
+            let Inbound::Packet(radius) = pair.transport.recv().await.unwrap() else {
+                panic!("the deferred radius update arrives before SetTime")
+            };
+            assert_eq!(radius.id, PacketId::ChunkRadiusUpdated);
+            assert_eq!(next_time(&mut pair.transport).await, 9);
+            assert!(relay.state().stopped);
+            assert_eq!(
+                relay.state().inbound.len(),
+                if name == "invalid-start-game" { 1 } else { 2 }
+            );
+        }
+    }
+
+    /// Options received during spawn retain their position in the play ingress stream.
+    #[tokio::test]
+    async fn inventory_options_survive_startup_and_reach_world_ingress() {
+        let options = Packet::new(packets::SetPlayerInventoryOptions::default());
+        let Pair { transport, .. } = &mut handed_off(
+            "inventory-options-startup",
+            &[vec![
+                options,
+                registry("minecraft:shield", 355),
+                radius(16),
+                player_spawn(),
+                crate::inventory_options_packet(crate::InventoryOptions {
+                    filtering: true,
+                    ..Default::default()
+                }),
+                set_time(9),
+            ]],
+        )
+        .await;
+        await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {})
+            .await
+            .unwrap();
+        let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
+            panic!("options packet")
+        };
+        let event =
+            crate::login::decode_world_raw_with(raw, 0, crate::login::decode_test_raw).unwrap();
+        assert!(
+            matches!(event, Some(crate::WorldEvent::Inventory(_))),
+            "inventory options must reach play ingress"
+        );
+        let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
+            panic!("radius packet")
+        };
+        assert_eq!(raw.id, PacketId::ChunkRadiusUpdated);
+        let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
+            panic!("later options packet")
+        };
+        assert_eq!(
+            crate::login::decode_world_raw_with(raw, 0, crate::login::decode_test_raw).unwrap(),
+            Some(crate::WorldEvent::Inventory(
+                crate::InventoryEvent::Options(crate::InventoryOptions {
+                    filtering: true,
+                    ..Default::default()
+                })
+            ))
+        );
+        assert_eq!(next_time(transport).await, 9);
     }
 
     /// A terminal core message of `kind` with its JSON body.
@@ -148,13 +285,67 @@ mod session {
         )
         .await;
         let mut first = None;
-        let spawned = await_spawn(transport, |_, registry| first = Some(registry))
-            .await
-            .expect("repeats stay nonfatal");
+        let spawned = await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, registry| {
+            first = Some(registry)
+        })
+        .await
+        .expect("repeats stay nonfatal");
         assert_eq!(spawned.runtime_id, RUNTIME_ID);
         let first = first.expect("the startup facts were delivered");
         assert_eq!(first.item_data.len(), 1);
         assert_eq!(first.item_data[0].item_id.0, 355);
+    }
+
+    /// A missing radius reply does not hold terrain or delay spawn after the required packets.
+    #[tokio::test]
+    async fn spawn_without_radius_reply_preserves_terrain_and_request() {
+        use tokio::io::AsyncReadExt;
+
+        let chunk = Packet::new(LevelChunk::default());
+        let startup = [
+            start_game(RUNTIME_ID),
+            start_game(RUNTIME_ID),
+            registry("minecraft:shield", 355),
+            set_time(1),
+            chunk.clone(),
+            player_spawn(),
+            set_time(2),
+        ]
+        .iter()
+        .map(packet_bytes)
+        .collect::<Vec<_>>();
+        let (output, mut sent) = tokio::io::duplex(8192);
+        let (reader, frames, writer) =
+            bridge::tasks::prepare_connection(tokio::io::empty(), output, bridge::MAX_FRAME_LEN);
+        let writer = tokio::spawn(writer);
+        let mut transport = SessionTransport::new(reader, frames, &startup);
+        let view_distance = 23;
+        let mut delivered = 0;
+        let spawned = await_spawn(&mut transport, view_distance, |start, registry| {
+            delivered += 1;
+            assert_eq!(start.runtime_id.0, RUNTIME_ID);
+            assert_eq!(registry.item_data[0].item_id.0, 355);
+        })
+        .await
+        .expect("spawn must complete without reading past the required packets to EOF");
+        assert_eq!(spawned.runtime_id, RUNTIME_ID);
+        assert!(spawned.terrain_before_spawn);
+        assert_eq!(delivered, 1);
+        assert_eq!(next_time(&mut transport).await, 1);
+        let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
+            panic!("deferred terrain precedes unread packets");
+        };
+        assert_eq!(raw.decode().unwrap(), chunk);
+        assert_eq!(next_time(&mut transport).await, 2);
+
+        drop(transport);
+        writer.await.unwrap();
+        let mut actual = Vec::new();
+        sent.read_to_end(&mut actual).await.unwrap();
+        let frame = batch_frame(&loading_started(view_distance)).unwrap();
+        let mut expected = (frame.len() as u32).to_be_bytes().to_vec();
+        expected.extend_from_slice(&frame);
+        assert_eq!(actual, expected, "request and loading start are sent once");
     }
 
     /// The startup facts reach the owner while the spawn sequence still waits for PlayerSpawn.
@@ -164,7 +355,7 @@ mod session {
             transport, peer, ..
         } = &mut handed_off("early-facts", &[vec![registry("minecraft:shield", 355)]]).await;
         let (delivered, facts) = tokio::sync::oneshot::channel();
-        let spawn = await_spawn(transport, move |start, _| {
+        let spawn = await_spawn(transport, DEFAULT_CHUNK_RADIUS, move |start, _| {
             let _ = delivered.send(start.runtime_id.0);
         });
         let core = async {
@@ -195,7 +386,9 @@ mod session {
         ]);
         let first = (0..half).map(|time| set_time(time as i32)).collect();
         let Pair { transport, .. } = &mut handed_off("fifo", &[first, second]).await;
-        await_spawn(transport, |_, _| {}).await.expect("spawn");
+        await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {})
+            .await
+            .expect("spawn");
         for expected in 0..=MAX_RAW_BATCH_PACKETS {
             assert_eq!(next_time(transport).await, expected as i32);
         }
@@ -224,7 +417,9 @@ mod session {
                 player_spawn(),
             ]);
             let Pair { transport, .. } = &mut handed_off(name, &[batch]).await;
-            let spawned = await_spawn(transport, |_, _| {}).await.expect("spawn");
+            let spawned = await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {})
+                .await
+                .expect("spawn");
             assert_eq!(spawned.terrain_before_spawn, expected);
         }
     }
@@ -245,11 +440,16 @@ mod session {
             ]],
         )
         .await;
-        await_spawn(transport, |_, _| {}).await.expect("spawn");
+        await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {})
+            .await
+            .expect("spawn");
         let length = peer.read_u32().await.unwrap();
         let mut frame = vec![0; length as usize];
         peer.read_exact(&mut frame).await.unwrap();
-        assert_eq!(frame, batch_frame(&loading_started()).unwrap());
+        assert_eq!(
+            frame,
+            batch_frame(&loading_started(DEFAULT_CHUNK_RADIUS)).unwrap()
+        );
         let more = tokio::time::timeout(Duration::from_millis(100), peer.read_u8()).await;
         assert!(more.is_err(), "the radius request is sent once");
     }
@@ -269,7 +469,7 @@ mod session {
             ),
         ] {
             let Pair { transport, .. } = &mut handed_off(name, &[batch]).await;
-            let error = match await_spawn(transport, |_, _| {}).await {
+            let error = match await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {}).await {
                 Ok(_) => panic!("{name} spawned"),
                 Err(error) => error,
             };
@@ -300,7 +500,10 @@ mod session {
             ];
             write_frame(peer, &batch_frame(&rest).unwrap()).await;
         };
-        let (spawned, ()) = tokio::join!(await_spawn(transport, |_, _| {}), core);
+        let (spawned, ()) = tokio::join!(
+            await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {}),
+            core
+        );
         assert!(matches!(
             spawned,
             Err(ProtocolError::Session(SessionError(
@@ -332,10 +535,11 @@ mod session {
                 let batch = [transfer(""), transfer("next.example.test")];
                 write_frame(&mut pair.peer, &batch_frame(&batch).unwrap()).await;
             }
-            let target = match await_spawn(&mut pair.transport, |_, _| {}).await {
-                Ok(_) => panic!("a startup transfer spawned"),
-                Err(error) => error.server_transfer().expect("a server transfer"),
-            };
+            let target =
+                match await_spawn(&mut pair.transport, DEFAULT_CHUNK_RADIUS, |_, _| {}).await {
+                    Ok(_) => panic!("a startup transfer spawned"),
+                    Err(error) => error.server_transfer().expect("a server transfer"),
+                };
             assert_eq!(
                 (target.host.as_str(), target.port),
                 ("next.example.test", 19133)
@@ -353,10 +557,11 @@ mod session {
                 r#"{{"reason":25,"message":"full","filtered_message":"","hide_screen":{hide_screen}}}"#
             );
             write_frame(&mut pair.peer, &terminal(6, &json)).await;
-            let disconnect = match await_spawn(&mut pair.transport, |_, _| {}).await {
-                Ok(_) => panic!("a startup disconnect spawned"),
-                Err(error) => error.server_disconnect().expect("a server disconnect"),
-            };
+            let disconnect =
+                match await_spawn(&mut pair.transport, DEFAULT_CHUNK_RADIUS, |_, _| {}).await {
+                    Ok(_) => panic!("a startup disconnect spawned"),
+                    Err(error) => error.server_disconnect().expect("a server disconnect"),
+                };
             assert_eq!(disconnect.reason, "Serverfull");
             let expected = (!hide_screen).then_some("full");
             assert_eq!(disconnect.message.as_deref(), expected);
@@ -369,7 +574,7 @@ mod session {
         let Pair { transport, .. } = &mut handed_off("cancellable", &[]).await;
         let wait = tokio::time::timeout(
             Duration::from_millis(100),
-            await_spawn(transport, |_, _| {}),
+            await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {}),
         )
         .await;
         assert!(wait.is_err(), "the wait ended without spawn prerequisites");

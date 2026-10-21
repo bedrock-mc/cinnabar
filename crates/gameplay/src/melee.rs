@@ -8,11 +8,11 @@ use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration}
 const ATTACK_BUILD_BLOCK_MILLIS: u64 = 200;
 
 #[cfg(test)]
-mod painting_tests;
+mod actor_pick_tests;
 mod target;
 pub use target::{
-    ActorHit, Crosshair, actor_is_pickable, block_pick_distance, classify, classify_block_hit,
-    obstructs_placement, painting_pick_unique_id, pick_actor, pick_actor_by, pick_distance,
+    ActorHit, Crosshair, actor_is_pickable, actor_pick_unique_id, block_pick_distance, classify,
+    classify_block_hit, obstructs_placement, pick_actor, pick_actor_by, pick_distance,
     ray_box_entry,
 };
 
@@ -35,7 +35,9 @@ pub fn java_swing_duration(effects: MiningEffects) -> i32 {
 
 mod admission;
 mod queue;
-pub use admission::{AttackAdmission, AttackEffects, AttackFrame, admit_attack_frame};
+pub use admission::{
+    AttackAdmission, AttackEffects, AttackFrame, admit_attack_frame, admit_attack_press,
+};
 
 mod swing;
 pub use swing::SwingTracker;
@@ -89,6 +91,14 @@ pub struct MeleeRuntime {
 }
 
 impl MeleeRuntime {
+    /// Whether a press or mining carrier still waits to enter the outbound FIFO.
+    pub fn has_queued_work(&self, movement: &crate::movement::MovementTicker) -> bool {
+        self.queue.entries.iter().any(|entry| match entry.work {
+            queue::Work::Carrying { tick } => movement.unsent_sample_at(tick).is_some(),
+            _ => true,
+        })
+    }
+
     /// Latest successfully queued local actor attack in the current position authority.
     pub const fn admitted_attack(&self) -> Option<AdmittedActorAttack> {
         self.admitted_attack
@@ -96,6 +106,19 @@ impl MeleeRuntime {
 
     pub const fn actor_in_front(&self) -> bool {
         self.actor_in_front
+    }
+
+    /// Remaining fraction of an admitted attack category at the completed player tick.
+    pub fn cooldown_progress(&self, cooldown: &protocol::ItemAttackCooldown, tick: u64) -> f32 {
+        if cooldown.ticks == 0 {
+            return 0.0;
+        }
+        self.attack_cooldowns
+            .iter()
+            .find(|(category, _)| *category == cooldown.category)
+            .map_or(0.0, |(_, until)| {
+                (until.saturating_sub(tick) as f32 / cooldown.ticks as f32).min(1.0)
+            })
     }
 
     /// An attack press not yet resolved; a use press waits for it, as an attack handled first
@@ -160,9 +183,14 @@ impl MeleeRuntime {
         target
     }
 
-    /// Cancels unadmitted presses without removing an earlier accepted break.
-    pub fn cancel(&mut self) {
+    /// Cancels unadmitted presses while keeping the current target competition.
+    pub fn cancel_press(&mut self) {
         self.queue.cancel_pending();
+    }
+
+    /// Cancels input and its target without removing an earlier accepted break.
+    pub fn cancel(&mut self) {
+        self.cancel_press();
         self.actor_in_front = false;
     }
 
@@ -251,6 +279,7 @@ impl MeleeRuntime {
             });
             let Ok(packet) = protocol::use_item_as_attack_packet(
                 protocol::HeldItemRequest {
+                    hand: protocol::ItemUseHand::Mainhand,
                     selected_slot: selection.slot,
                     selected_item: selection.item.clone(),
                     player_position: press.player_position,
@@ -317,13 +346,9 @@ pub fn resolve_and_send(
     now_millis: u64,
     send: impl FnOnce(Vec<protocol::Packet>) -> Result<(), BatchSendError>,
 ) -> bool {
-    if runtime.queue.front_pending().is_some()
+    if let Some(pending) = runtime.queue.front_pending()
         && swings.tick_is_published(press.tick)
-        && (runtime
-            .queue
-            .front_pending()
-            .and_then(|pending| pending.rejected_tick)
-            != Some(press.tick)
+        && (pending.rejected_tick != Some(press.tick)
             || (crosshair == Crosshair::Block && !swings.tick_is_current_publication(press.tick)))
     {
         runtime.observe_attack_target(crosshair, press.item_attack.is_some());

@@ -289,7 +289,7 @@ mod tests {
             panic!("storage cell contract");
         };
         for &count in lengths {
-            let rows = count / 9;
+            let rows = count.div_ceil(9);
             let panel_height = 114.0 + rows as f32 * SLOT_SIZE;
             let origin = [
                 ((geometry.gui_width - PANEL_SIZE[0]) * 0.5).floor(),

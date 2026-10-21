@@ -7,11 +7,20 @@ restarts safely if the server does not support ranges.
 
 Only one running client per install handles updates; other windows stay passive until they take over on a due check tick.
 
-When the download is ready, choose **Restart and update** or **Later**. Later defers installation
-for this session; periodic checks continue, and a newer release replaces the waiting one. In
-**Settings → General**, you can turn off update checks, select a channel, or enable **Install
-updates when I quit**. Installation on quit is off by default. The in-game pause menu only shows
-a small ready badge; update actions remain in the launcher.
+When the download is ready, a compact card in the home screen's top-right corner shows the
+release version and **Restart and update** button. The card stays outside the Play panel, and
+installation only starts when you choose the button. An update required to connect uses stronger
+wording. Periodic checks continue, and a newer release replaces the waiting one. In **Settings**,
+select **Updates** under **Application** at the bottom of the sidebar. You can select a channel,
+turn off automatic checks, or enable **Install updates when I quit**. The section shows the installed version and build, the current check
+or download status, and a **Check now** button. Check now always fetches fresh release metadata, even
+when automatic checks are off. It is available from the home menu while no check is running.
+Installation on quit is off by default. The in-game pause menu only shows a small ready badge;
+update actions remain in the launcher.
+
+Mods may independently opt into [GitHub release notifications](modding-spike.md#optional-github-update-checks).
+These launch-time checks have a separate **Check for mod updates** setting. A mod
+update uses the same corner card and links to its GitHub release for manual installation.
 
 Beta follows the latest tagged `vX.Y.Z` release. Nightly follows the rolling `nightly`
 prerelease. Stable is reserved for a future release track and stays hidden until that track

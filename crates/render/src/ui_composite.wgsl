@@ -31,9 +31,9 @@ fn composite_fragment(@builtin(position) position: vec4<f32>) -> @location(0) ve
         return vec4<f32>(srgb_to_linear(ui.rgb), 1.0);
     }
     let under = textureLoad(scene, pixel, 0);
-    // Empty layer pixels preserve the scene without a full-screen color round trip.
+    // Empty pixels share the scene clamp without a full-screen color round trip.
     if all(ui == vec4<f32>(0.0)) {
-        return under;
+        return vec4<f32>(clamp(under.rgb, vec3<f32>(0.0), vec3<f32>(1.0)), under.a);
     }
     let gamma = ui.rgb + linear_to_srgb(under.rgb) * (1.0 - ui.a);
     return vec4<f32>(srgb_to_linear(gamma), ui.a + under.a * (1.0 - ui.a));

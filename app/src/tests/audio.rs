@@ -1,3 +1,4 @@
+use crate::game_frame::configure_client_frame_schedule;
 use crate::runtime::network::resource_packs::PackApplication;
 use client_runtime::network::NetworkHandle;
 use client_shell::ui_resources::UiRuntimeResource;
@@ -17,10 +18,7 @@ use client_audio::audio_ingress::drain_committed_audio;
 use client_ui::ui_runtime::UiRuntime;
 use {
     crate::{
-        app::{
-            configure_client_frame_schedule, configure_client_production_frame_systems,
-            session::configure_finish_system,
-        },
+        app::{configure_client_production_frame_systems, session::configure_finish_system},
         runtime::world::{ClientWorld, TransferNotice, reconcile_world_stream_before_physics},
         session::{drive_session, follow_server_transfer, recover_session_failure},
         session_audio::drain_sequenced_audio_into_session,
@@ -116,7 +114,7 @@ fn live_playback_reader_consumes_commit_epoch_fences_without_diagnostic_ring() {
     let mut app = App::new();
     app.add_message::<SequencedAudioEvent>()
         .insert_resource(world)
-        .init_resource::<crate::environment::WorldClock>()
+        .init_resource::<client_presentation::environment::WorldClock>()
         .init_resource::<client_presentation::local_player_camera_receipt::CameraPublicationAttempt>()
         .init_resource::<client_presentation::local_player::LocalPlayerFrameCarrier>()
         .init_resource::<client_presentation::local_player::CameraPose>()
@@ -257,7 +255,7 @@ fn session_audio_reader_consumes_each_sequenced_event_exactly_once() {
     assert_ne!(stream_session, previous_session);
     let mut app = App::new();
     app.add_message::<SequencedAudioEvent>()
-        .init_resource::<crate::environment::WorldClock>()
+        .init_resource::<client_presentation::environment::WorldClock>()
         .init_resource::<SessionAudio>()
         .insert_resource(SessionAudioCatalog(Some(Arc::new(fixture_catalog()))))
         .insert_resource(world)
@@ -296,7 +294,7 @@ fn production_audio_reader_clears_disconnect_state_and_drops_stale_messages() {
         .actor_session_id();
     let mut app = App::new();
     app.add_message::<SequencedAudioEvent>()
-        .init_resource::<crate::environment::WorldClock>()
+        .init_resource::<client_presentation::environment::WorldClock>()
         .init_resource::<SessionAudio>()
         .insert_resource(SessionAudioCatalog(Some(Arc::new(fixture_catalog()))))
         .insert_resource(world)
@@ -358,7 +356,7 @@ fn retained_session_audio() -> SessionAudio {
 
 fn add_audio_teardown_resources(app: &mut App, client_world: ClientWorld, menu: MenuRuntime) {
     app.add_message::<SequencedAudioEvent>()
-        .init_resource::<crate::environment::WorldClock>()
+        .init_resource::<client_presentation::environment::WorldClock>()
         .insert_resource(SessionAudioCatalog(None))
         .insert_resource(retained_session_audio())
         .insert_resource(client_world)

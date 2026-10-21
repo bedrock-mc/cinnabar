@@ -8,16 +8,27 @@ use super::registration::{
 use bevy::prelude::*;
 use client_shell::menu::MenuRuntime;
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, unbounded};
-use launcher::mods::{Action, ActiveMod, COMPONENT_EXTENSION, InstalledMod, Library, Permission};
+use launcher::mods::{
+    Action, ActiveMod, COMPONENT_EXTENSION, InstalledMod, Library, Permission, UpdatePhase,
+    UpdateProgress,
+};
 use launcher_host::desktop::picker::{self, Filter};
-use mod_host::ModHost;
 use sha2::{Digest, Sha256};
 use std::{
+    collections::BTreeMap,
     fs,
     io::Write,
     path::{Path, PathBuf},
     sync::Arc,
 };
+
+mod update;
+
+enum Command {
+    Action(Action),
+    Update(launcher_host::mod_updates::Downloaded, Sender<()>),
+    Message(String),
+}
 
 const FILTER: Filter = Filter {
     title: "Import mod",
@@ -28,8 +39,14 @@ const FILTER: Filter = Filter {
 
 #[derive(Resource)]
 pub(super) struct ModLibrary {
-    commands: Sender<Action>,
+    commands: Sender<Command>,
     published: Receiver<Library>,
+    updates: Option<launcher_host::mod_updates::Checker>,
+    checks: bool,
+    automatic: bool,
+    busy: bool,
+    progress: Vec<UpdateProgress>,
+    installing: Vec<(u64, Receiver<()>)>,
 }
 
 /// Starts the library worker and the system that connects it to the Mods tab.
@@ -60,20 +77,112 @@ pub(super) fn configure(
     app.insert_resource(ModLibrary {
         commands,
         published,
+        updates: launcher_host::mod_updates::Checker::start(
+            mod_host::packet_mod::MAX_PACKET_MOD_BYTES,
+        )
+        .map_err(|error| {
+            warn!("Mod update checks unavailable: {error}");
+        })
+        .ok(),
+        checks: false,
+        automatic: false,
+        busy: false,
+        progress: Vec::new(),
+        installing: Vec::new(),
     })
     .add_systems(Update, drive);
 }
 
 /// Forwards Mods-tab work and publishes the newest library.
-fn drive(library: Res<ModLibrary>, menu: Option<ResMut<MenuRuntime>>) {
+fn drive(mut library: ResMut<ModLibrary>, menu: Option<ResMut<MenuRuntime>>) {
     let Some(mut menu) = menu else { return };
-    if !menu.mod_actions.is_empty() {
-        for action in std::mem::take(&mut menu.mod_actions) {
-            let _ = library.commands.send(action);
+    let mut requested = None;
+    for action in std::mem::take(&mut menu.mod_actions) {
+        if let Action::Update(id) = action {
+            requested = Some(id);
+        } else {
+            let _ = library.commands.send(Command::Action(action));
         }
     }
-    if let Some(latest) = library.published.try_iter().last() {
+    let latest = library.published.try_iter().last();
+    let changed = latest.is_some();
+    if let Some(latest) = latest {
+        library.busy = latest.busy;
+        library.progress = latest.update_progress.clone();
         Arc::make_mut(&mut menu.mods).publish(latest);
+    }
+    let checks = menu
+        .settings_snapshot()
+        .0
+        .value(launcher::menu::settings_options::SettingId::ModUpdateChecks)
+        != 0;
+    let automatic = menu
+        .settings_snapshot()
+        .0
+        .value(launcher::menu::settings_options::SettingId::ModAutoUpdate)
+        != 0;
+    let configure = changed || checks != library.checks || automatic != library.automatic;
+    library.checks = checks;
+    library.automatic = automatic;
+    if let Some(checker) = &mut library.updates {
+        if configure {
+            checker.configure(&menu.mods.library.installed, checks, automatic);
+        }
+        let updates = checker.updates();
+        let updates = (menu.mods.library.updates != updates).then(|| updates.to_vec());
+        let started = requested.is_some_and(|id| checker.install(id));
+        let pending = checker.pending();
+        let message = checker.take_message().or_else(|| started.then(String::new));
+        let downloads = checker.take_downloads();
+        let progress = checker.progress();
+        for download in downloads {
+            let id = download.id;
+            let (finished, completion) = unbounded();
+            if library
+                .commands
+                .send(Command::Update(download, finished))
+                .is_ok()
+            {
+                library.installing.push((id, completion));
+            }
+        }
+        library.installing.retain(|(_, completion)| {
+            matches!(
+                completion.try_recv(),
+                Err(crossbeam_channel::TryRecvError::Empty)
+            )
+        });
+        let mut shown = library.progress.clone();
+        shown.extend(progress);
+        for (id, _) in &library.installing {
+            if menu
+                .mods
+                .library
+                .installed
+                .iter()
+                .any(|item| item.id == *id)
+                && !shown.iter().any(|progress| progress.id == *id)
+            {
+                shown.push(UpdateProgress::stage(*id, UpdatePhase::Installing));
+            }
+        }
+        let busy = library.busy || pending.is_some() || !library.installing.is_empty();
+        if updates.is_some()
+            || menu.mods.library.update_progress != shown
+            || menu.mods.library.busy != busy
+            || message.is_some()
+        {
+            let snapshot = Arc::make_mut(&mut menu.mods);
+            if let Some(updates) = updates {
+                snapshot.library.updates = updates;
+            }
+            snapshot.library.update_progress = shown;
+            snapshot.library.busy = busy;
+            if let Some(message) = message {
+                snapshot.library.message = message.clone();
+                let _ = library.commands.send(Command::Message(message));
+            }
+        }
     }
 }
 
@@ -81,17 +190,64 @@ fn drive(library: Res<ModLibrary>, menu: Option<ResMut<MenuRuntime>>) {
 fn run(
     mods: &Path,
     registration: &Path,
-    incoming: &Receiver<Action>,
+    incoming: &Receiver<Command>,
     outgoing: &Sender<Library>,
     mut pick: impl FnMut() -> Result<Option<PathBuf>, String>,
     mut retire: impl FnMut(&Receipt) -> Result<removal::Permit, String>,
 ) {
     let mut requests = 0;
-    let mut library = scan(mods, registration, String::new());
+    let mut metadata = BTreeMap::new();
+    let mut reloads = Vec::<update::PendingReload>::new();
+    let mut library = scan_cached(mods, registration, String::new(), &mut metadata);
     let _ = outgoing.send(library.clone());
     loop {
         let message = match incoming.recv_timeout(super::RELOAD_INTERVAL) {
-            Ok(action) => {
+            Ok(Command::Message(message)) => message,
+            Ok(Command::Update(download, finished)) => {
+                library.busy = true;
+                library.update_progress =
+                    vec![UpdateProgress::stage(download.id, UpdatePhase::Installing)];
+                let _ = outgoing.send(library.clone());
+                match update::install(mods, &download) {
+                    Ok(installed) => {
+                        let message = format!(
+                            "Installed update {}. Reloading enabled mods…",
+                            download.version
+                        );
+                        requests += 1;
+                        let request = format!("mod-update-{}-{requests}", std::process::id());
+                        match update::PendingReload::start(
+                            mods,
+                            registration,
+                            installed,
+                            request,
+                            finished,
+                            std::time::Instant::now(),
+                        ) {
+                            Ok(Some(pending)) => {
+                                reloads.push(pending);
+                                message
+                            }
+                            Ok(None) => format!(
+                                "Updated {} to {}.",
+                                library
+                                    .installed
+                                    .iter()
+                                    .find(|item| item.id == download.id)
+                                    .map(|item| item.file.as_str())
+                                    .unwrap_or("mod"),
+                                download.version
+                            ),
+                            Err(error) => error,
+                        }
+                    }
+                    Err(error) => {
+                        let _ = finished.send(());
+                        error
+                    }
+                }
+            }
+            Ok(Command::Action(action)) => {
                 if matches!(action, Action::Import | Action::Remove(_)) {
                     library.busy = true;
                     let _ = outgoing.send(library.clone());
@@ -109,7 +265,22 @@ fn run(
             Err(RecvTimeoutError::Timeout) => library.message.clone(),
             Err(RecvTimeoutError::Disconnected) => return,
         };
-        let next = scan(mods, registration, message);
+        let mut next = scan_cached(mods, registration, message, &mut metadata);
+        let now = std::time::Instant::now();
+        reloads.retain_mut(|pending| {
+            if let Some(result) = pending.poll(&next, now) {
+                next.message = result.unwrap_or_else(|error| error);
+                pending.finish();
+                false
+            } else {
+                true
+            }
+        });
+        next.update_progress = reloads
+            .iter()
+            .map(|pending| UpdateProgress::stage(pending.id, UpdatePhase::Reloading))
+            .collect();
+        next.busy = !reloads.is_empty();
         if next != library {
             library = next;
             let _ = outgoing.send(library.clone());
@@ -199,6 +370,9 @@ fn perform(
             .map(|()| String::new())
         }
         Action::ReadMore(_)
+        | Action::Update(_)
+        | Action::ViewUpdates
+        | Action::OpenUpdate(_)
         | Action::ToggleActive
         | Action::ToggleAvailable
         | Action::Customize(_)
@@ -216,9 +390,9 @@ fn import(mods: &Path, source: &Path) -> Result<String, String> {
     if name.starts_with('.') {
         return Err("Mod file names must not start with a dot.".into());
     }
-    let bytes = mod_host::local_files::read(source, mod_host::MAX_COMPONENT_SOURCE_BYTES)
-        .map_err(|error| format!("Could not read {name}: {error}"))?;
-    ModHost::validate_component(&bytes)
+    let bytes =
+        mod_host::read_source(source).map_err(|error| format!("Could not read {name}: {error}"))?;
+    mod_host::validate_source(&bytes)
         .map_err(|error| format!("{name} is not a valid mod: {error:#}"))?;
     publish_component(mods, name, &bytes)?;
     Ok(name.to_owned())
@@ -289,27 +463,8 @@ fn installed(mods: &Path) -> Vec<(InstalledMod, PathBuf)> {
                 .ok()
                 .filter(fs::Metadata::is_file)?;
             (!file.starts_with('.') && is_component(&path)).then(|| {
-                let mut digest = Sha256::new();
-                digest.update(file.as_bytes());
-                digest.update(metadata.len().to_le_bytes());
-                for timestamp in [metadata.created(), metadata.modified()]
-                    .into_iter()
-                    .flatten()
-                {
-                    if let Ok(elapsed) = timestamp.duration_since(std::time::UNIX_EPOCH) {
-                        digest.update(elapsed.as_nanos().to_le_bytes());
-                    }
-                }
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::MetadataExt;
-                    digest.update(metadata.dev().to_le_bytes());
-                    digest.update(metadata.ino().to_le_bytes());
-                }
-                let digest = digest.finalize();
-                let id = u64::from_le_bytes(digest[..8].try_into().expect("eight digest bytes"));
                 let item = InstalledMod {
-                    id,
+                    id: file_identity(&path, &metadata),
                     file,
                     bytes: metadata.len(),
                     permissions: Vec::new(),
@@ -323,7 +478,30 @@ fn installed(mods: &Path) -> Vec<(InstalledMod, PathBuf)> {
     found
 }
 
-/// Retains enabled registrations without directory entries under their own path identity.
+/// Identifies a component's path and file revision without rereading its contents.
+fn file_identity(path: &Path, metadata: &fs::Metadata) -> u64 {
+    let mut digest = Sha256::new();
+    digest.update(path.as_os_str().as_encoded_bytes());
+    digest.update(metadata.len().to_le_bytes());
+    for timestamp in [metadata.created(), metadata.modified()]
+        .into_iter()
+        .flatten()
+    {
+        if let Ok(elapsed) = timestamp.duration_since(std::time::UNIX_EPOCH) {
+            digest.update(elapsed.as_nanos().to_le_bytes());
+        }
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        digest.update(metadata.dev().to_le_bytes());
+        digest.update(metadata.ino().to_le_bytes());
+    }
+    let digest = digest.finalize();
+    u64::from_le_bytes(digest[..8].try_into().expect("eight digest bytes"))
+}
+
+/// Includes enabled external sources with file revisions, and missing sources by path alone.
 fn include_active(entries: &mut Vec<(InstalledMod, PathBuf)>, current: &[selection::Registered]) {
     for current in current.iter().filter(|current| current.entry.enabled) {
         let path = &current.entry.component;
@@ -333,15 +511,21 @@ fn include_active(entries: &mut Vec<(InstalledMod, PathBuf)>, current: &[selecti
         {
             continue;
         }
+        let metadata = fs::symlink_metadata(path)
+            .ok()
+            .filter(fs::Metadata::is_file);
         entries.push((
             InstalledMod {
-                id: selection::component_id(path),
+                id: metadata.as_ref().map_or_else(
+                    || selection::component_id(path),
+                    |metadata| file_identity(path, metadata),
+                ),
                 file: path
                     .file_name()
                     .unwrap_or_default()
                     .to_string_lossy()
                     .into_owned(),
-                bytes: 0,
+                bytes: metadata.as_ref().map_or(0, fs::Metadata::len),
                 permissions: Vec::new(),
                 metadata: Default::default(),
             },
@@ -352,10 +536,22 @@ fn include_active(entries: &mut Vec<(InstalledMod, PathBuf)>, current: &[selecti
 
 /// Builds card metadata, permissions and statuses from each component's declarations and the
 /// host's canonical registration and grants.
+#[cfg(test)]
 fn scan(mods: &Path, registration: &Path, message: String) -> Library {
+    scan_cached(mods, registration, message, &mut BTreeMap::new())
+}
+
+/// File identities invalidate cached declarations so unchanged large mods are not reread on polls.
+fn scan_cached(
+    mods: &Path,
+    registration: &Path,
+    message: String,
+    metadata: &mut BTreeMap<u64, (Option<mod_host::ModGrants>, ui::mod_metadata::ModMetadata)>,
+) -> Library {
     let mut installed = installed(mods);
     let current = registered(registration);
     include_active(&mut installed, &current);
+    metadata.retain(|id, _| installed.iter().any(|(item, _)| item.id == *id));
     let active = current
         .iter()
         .filter(|current| current.entry.enabled)
@@ -374,11 +570,14 @@ fn scan(mods: &Path, registration: &Path, message: String) -> Library {
             .iter()
             .find(|current| same_path(path, &current.entry.component))
             .map(|current| &current.entry.grants);
-        let (requested, metadata) = match mod_host::declarations(path) {
-            Ok(declared) => (declared.requested.ok().flatten(), declared.metadata),
-            Err(_) => (None, Default::default()),
-        };
-        item.metadata = metadata;
+        let (requested, declared_metadata) =
+            metadata
+                .entry(item.id)
+                .or_insert_with(|| match mod_host::declarations(path) {
+                    Ok(declared) => (declared.requested.ok().flatten(), declared.metadata),
+                    Err(_) => (None, Default::default()),
+                });
+        item.metadata = declared_metadata.clone();
         item.permissions = mod_host::ModGrants::CAPABILITIES
             .iter()
             .map(|capability| Permission {
@@ -394,10 +593,12 @@ fn scan(mods: &Path, registration: &Path, message: String) -> Library {
             .collect();
     }
     Library {
+        update_progress: Vec::new(),
         installed: installed.into_iter().map(|(item, _)| item).collect(),
         active,
         busy: false,
         message,
+        updates: Vec::new(),
     }
 }
 

@@ -239,10 +239,16 @@ impl UiPresentationRuntime {
         let gui_pixel = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let origin = [self.safe_area.left(), self.safe_area.top()];
         let frame = if config.fit_to_control {
-            self.menu_preview_model
+            let mut bounds = self
+                .menu_preview_model
                 .bounds
-                .unwrap_or_else(super::fitting::standard)
-                .frame(control, config.camera_tilt_degrees)
+                .unwrap_or_else(super::fitting::standard);
+            for &item in &self.menu_preview_model.cosmetics {
+                if let Some(frame) = render_model::hats::thumbnail::prepared_frame(item) {
+                    bounds = bounds.with_box(frame.model_bounds());
+                }
+            }
+            bounds.frame(control, config.camera_tilt_degrees)
         } else {
             let data = std::collections::BTreeMap::new();
             renderer_frame("paper_doll_renderer", &data, control, gui_pixel, None).1

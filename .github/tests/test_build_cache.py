@@ -375,7 +375,10 @@ class ArchiveTests(unittest.TestCase):
 class ProvenanceTests(unittest.TestCase):
     """Release jobs restore only artifacts this repository's own workflow saved on dev."""
 
-    ENV = {"GITHUB_WORKFLOW_REF": "bedrock-mc/cinnabar/.github/workflows/package.yml@refs/heads/dev",
+    REPOSITORY = json.loads(
+        (Path(__file__).resolve().parents[2] / "packaging/release-assets.json").read_text()
+    )["repository"]
+    ENV = {"GITHUB_WORKFLOW_REF": f"{REPOSITORY}/.github/workflows/package.yml@refs/heads/dev",
            "GITHUB_REPOSITORY_ID": "7", "CACHE_BRANCH": "dev"}
 
     def run_(self, **changes):

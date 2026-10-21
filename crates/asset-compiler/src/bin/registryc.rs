@@ -1,3 +1,8 @@
+#![expect(
+    clippy::print_stdout,
+    reason = "registryc reports Java mapping coverage on stdout"
+)]
+
 //! Compiles exported library facts into the active client registry carriers.
 
 use asset_compiler::registry_policy::{self, Result};
@@ -14,6 +19,7 @@ enum Kind {
     BlockEntities,
     Events,
     Identities,
+    JavaMapping,
     Presentation,
     All,
 }
@@ -48,6 +54,32 @@ struct Args {
 /// Dispatches a compiler pass or regenerates every carrier for an exact byte comparison.
 fn main() -> Result<()> {
     let args = Args::parse();
+    if matches!(args.kind, Kind::JavaMapping) {
+        let summary =
+            registry_policy::java_mapping::write(&args.root, args.archive.as_deref(), &args.out)?;
+        println!(
+            "Mapped {} of {} block states ({} from a similar state) and {} of {} biomes to the {} Java Edition biomes, {} Java entity types to {} Bedrock entities and {} Java items to {} Bedrock items",
+            summary.mapped_states,
+            summary.states,
+            summary.approximate_states,
+            summary.mapped_biomes,
+            summary.biomes,
+            summary.java_biomes,
+            summary.entities,
+            summary.bedrock_entities,
+            summary.items,
+            summary.bedrock_items
+        );
+        if args.check {
+            let expected = args.root.join(assets::facts::java_mapping::SOURCE_PATH);
+            compare(&args.out, &expected)?;
+            compare(
+                &args.out.with_extension("sha256"),
+                &expected.with_extension("sha256"),
+            )?;
+        }
+        return Ok(());
+    }
     if matches!(args.kind, Kind::BlockEntities) {
         registry_policy::block_entities::write(
             &args.root,
@@ -130,7 +162,9 @@ fn main() -> Result<()> {
     }
     let facts = registry_policy::read_facts(required(&args.facts, "--facts")?)?;
     match args.kind {
-        Kind::Entities | Kind::Identities | Kind::Presentation => unreachable!(),
+        Kind::Entities | Kind::Identities | Kind::Presentation | Kind::JavaMapping => {
+            unreachable!()
+        }
         Kind::Blocks => registry_policy::blocks(
             &args.root,
             &facts,

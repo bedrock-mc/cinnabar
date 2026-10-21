@@ -93,7 +93,7 @@ fn hd_icon_variants_respect_the_remaining_retained_pixel_budget() {
         vec!["textures/items/huge".to_owned(); 3],
     )]);
     let bytes = 128 * 96 * 4;
-    let textures = super::resolve_key(&view(), &paths, "hd", 3, bytes * 2).unwrap();
+    let textures = super::resolve_key(&view(), &paths, "hd", 3, bytes * 2, true).unwrap();
     assert_eq!(textures.len(), 2);
     assert_eq!(
         textures
@@ -102,6 +102,51 @@ fn hd_icon_variants_respect_the_remaining_retained_pixel_budget() {
             .collect::<Vec<_>>(),
         [(0, 128, 96), (1, 128, 96)]
     );
+}
+
+#[test]
+fn browser_startup_item_alias_inherits_base_sprite_without_pack_raster() {
+    let entities = assets::RuntimeEntityAssets::from_compiled(
+        assets::carriers::startup::test_carriers::synthetic_entity_assets(147),
+    )
+    .unwrap();
+    let sprite = assets::IconSprite {
+        width: 16,
+        height: 16,
+        rgba8: Arc::from([12, 34, 56, 255].repeat(16 * 16)),
+    };
+    let encoded = assets::encode_icon_catalog_with_sources(
+        entities.source_manifest_sha256(),
+        std::slice::from_ref(&sprite),
+        &[],
+        &[],
+        &[],
+        &[assets::icon::IconSource {
+            path: "textures/items/canvas_base.png".into(),
+            sprite: 0,
+        }],
+    )
+    .unwrap();
+    let icons = assets::RuntimeIconCatalog::decode(&encoded).unwrap();
+    crate::runtime::network::install_vanilla_item_assets(&entities, &icons);
+
+    let icons = compile_session_icons(
+        &stack(&[&[(
+            "textures/item_texture.json",
+            br#"{"texture_data":{"alias":{"textures":"textures/items/canvas_base"}}}"#.to_vec(),
+        )]]),
+        &[(Arc::from("fixture:canvas_alias"), Arc::from("alias"))],
+        BlockIcons::default(),
+    )
+    .expect("base sprite must satisfy a server alias without a bundled raster");
+    assert!(super::vanilla_item_paths_installed());
+    let inherited = icons
+        .icons
+        .iter()
+        .find(|icon| icon.identifier.as_ref() == "fixture:canvas_alias")
+        .expect("server alias artwork");
+    assert_eq!((inherited.width, inherited.height), (16, 16));
+    assert_eq!(inherited.rgba8.as_ref(), sprite.rgba8.as_ref());
 }
 
 fn stack(packs: &[&[(&str, Vec<u8>)]]) -> LayeredPackView {
@@ -280,7 +325,11 @@ fn custom_block_sheet_material_flags_survive_session_icon_compilation() {
         };
         let blocks = protocol::CustomBlocks {
             blocks: vec![protocol::CustomBlock {
+                mining: Default::default(),
+                state_physics_complete: false,
                 state_physics: Default::default(),
+                state_mining: Default::default(),
+                player_interact: false,
                 name: Arc::from("test:custom_cube"),
                 tags: Default::default(),
                 state_count: 1,
@@ -295,7 +344,7 @@ fn custom_block_sheet_material_flags_survive_session_icon_compilation() {
             skipped: 0,
         };
         let items = [(Arc::from("test:custom_cube"), Arc::from("test:custom_cube"))];
-        let compiled = super::custom_block_icons(&overlay, &blocks, false, &items);
+        let compiled = super::custom_block_icons(&overlay, &blocks, false, &items, None);
         assert_eq!(compiled.block_sheets.len(), 1);
         let icons = compile_session_icons(&view(), &[], compiled).unwrap();
         assert_eq!(
@@ -313,7 +362,11 @@ fn registry_items_named_after_custom_blocks_are_block_items() {
     items.identifiers = ["t:crate", "t:sword"].map(Arc::<str>::from).into();
     let blocks = protocol::CustomBlocks {
         blocks: vec![protocol::CustomBlock {
+            mining: Default::default(),
+            state_physics_complete: false,
             state_physics: Default::default(),
+            state_mining: Default::default(),
+            player_interact: false,
             name: "t:crate".into(),
             tags: Default::default(),
             state_count: 1,
@@ -442,6 +495,7 @@ fn review_variant_decoding_respects_remaining_capacity_and_metadata_indices() {
         "variants",
         1,
         assets::texture::policy::MAX_SUBSCRIBER_BYTES,
+        true,
     )
     .unwrap();
     assert_eq!(

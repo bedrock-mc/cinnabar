@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	shared "github.com/bedrock-mc/protocolgen/generated/data"
-	sharedbiome "github.com/bedrock-mc/protocolgen/generated/data/biome"
-	sharedblock "github.com/bedrock-mc/protocolgen/generated/data/block"
+	shared "github.com/cinnabar-mc/protocolgen/generated/data"
+	sharedbiome "github.com/cinnabar-mc/protocolgen/generated/data/biome"
+	sharedblock "github.com/cinnabar-mc/protocolgen/generated/data/block"
 )
 
 // exportCompilerFacts emits source identities and library facts without client admission or movement policy.
@@ -52,5 +52,5 @@ func blockFact(r Record, p sharedblock.Properties, boxes []sharedblock.Box) map[
 		}
 		wide = append(wide, w)
 	}
-	return map[string]any{"sequential_id": r.SequentialID, "network_hash": r.NetworkHash, "name": r.Name, "state": string(r.StateJSON), "shape_id": p.CollisionShape, "boxes": wide, "friction": float64(p.Friction), "emission": p.LightEmission, "filter": p.LightDampening}
+	return map[string]any{"sequential_id": r.SequentialID, "network_hash": r.NetworkHash, "name": r.Name, "state": string(r.StateJSON), "shape_id": p.CollisionShape, "boxes": wide, "friction": float64(p.Friction), "emission": p.LightEmission, "filter": p.LightDampening, "can_contain_liquid_source": p.CanContainLiquidSource}
 }

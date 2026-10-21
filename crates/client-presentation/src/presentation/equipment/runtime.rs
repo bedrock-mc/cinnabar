@@ -26,13 +26,17 @@ mod combat;
 mod diagnostics;
 mod dials;
 mod elytra;
+mod external_armor;
 mod held_block_entities;
 mod java;
 mod modern;
+pub(crate) use modern::HeldSelection;
 mod native;
 mod pack;
+mod placement_cache;
 mod push;
 mod readiness;
+mod routing;
 mod session;
 mod style;
 mod types;
@@ -41,8 +45,8 @@ pub use java::java_draws_attachable;
 pub use pack::PackEquipment;
 pub use session::StagedSessionIcons;
 pub use types::{
-    ActorEquipmentInput, EquipmentAnimation, EquipmentPresentation, FirstPersonArms,
-    FirstPersonItem, HeldKind, JavaGrip, WornItem,
+    ActorEquipmentInput, EquipmentAnimation, EquipmentLayers, EquipmentPresentation,
+    FirstPersonArms, FirstPersonItem, HeldKind, JavaGrip, WornItem,
 };
 use types::{ArmorGeometry, AttachableMeshKey, BodyBones, JavaRasterFrame, MeshKey};
 
@@ -100,11 +104,12 @@ pub struct EquipmentRuntime {
     blocks: crate::prepared_actor_artwork::PlacedBlockItems,
     startup_blocks: crate::prepared_actor_artwork::PlacedBlockItems,
     atlas_locations: Vec<Option<ActorArtworkLocation>>,
-    texture_locations: BTreeMap<Box<str>, ActorArtworkLocation>,
+    texture_locations: BTreeMap<Box<str>, pack::TextureArtwork>,
     body_bones: BTreeMap<u32, Option<Arc<BodyBones>>>,
     /// Bones of player skins' own models, by skin rig id.
     skin_bones: BTreeMap<EntityRigId, Arc<BodyBones>>,
     armor_geometry: BTreeMap<Box<str>, Option<Arc<ArmorGeometry>>>,
+    external_armor: external_armor::ExternalArmor,
     armor_maps: BTreeMap<(u32, Box<str>), ArmorBoneMap>,
     meshes: BTreeMap<MeshKey, Option<EntityRigId>>,
     pending: Vec<ActorRigGeometry>,
@@ -131,6 +136,7 @@ pub struct EquipmentRuntime {
     /// `(identifier, reason)` pairs already logged as drawing no layer.
     logged_misses: std::collections::HashSet<(Box<str>, &'static str)>,
     poses: PoseMemo,
+    attachment_poses: placement_cache::PlacementCache,
     /// Reused output storage for one actor, bounded by held and worn layer counts.
     layers: Vec<EquipmentPresentation>,
     attachables: actor_animation::AttachablesRuntime,
@@ -148,6 +154,7 @@ impl EquipmentRuntime {
     /// Releases memoized poses of layers no recent frame drew.
     pub fn begin_frame(&mut self) {
         self.poses.begin_frame();
+        self.attachment_poses.retain(self.poses.frame);
     }
 
     /// Places the item atlas and attachable textures on new artwork pages. Returns the runtime,
@@ -200,11 +207,8 @@ impl EquipmentRuntime {
             None => artwork,
         };
         let (mut artwork, locations) = artwork.with_equipment_rasters(&rasters);
-        let texture_locations = textures
-            .iter()
-            .zip(&locations[texture_start..])
-            .filter_map(|(texture, location)| Some((texture.identifier.clone(), (*location)?)))
-            .collect();
+        let texture_locations =
+            pack::placed_textures(textures, locations[texture_start..].iter().copied());
         let blocks = crate::prepared_actor_artwork::PlacedBlockItems {
             source: blocks,
             locations: locations[atlas_layers..texture_start].to_vec(),
@@ -285,6 +289,7 @@ impl EquipmentRuntime {
             java_rasters: BTreeMap::new(),
             selected_geometries: Default::default(),
             dial_frames: Default::default(),
+            external_armor: external_armor::ExternalArmor::new(catalog.as_deref()),
             assets,
             icons,
             placements: atlas.placements,
@@ -313,6 +318,7 @@ impl EquipmentRuntime {
             pack: None,
             logged_misses: Default::default(),
             poses: PoseMemo::default(),
+            attachment_poses: placement_cache::PlacementCache::default(),
             layers: Vec::new(),
         };
         (runtime, artwork, geometries)
@@ -349,6 +355,7 @@ impl EquipmentRuntime {
         animation: Option<EquipmentAnimation<'_>>,
     ) -> &mut [EquipmentPresentation] {
         self.layers_for_profile(body, input, render_api::DEFAULT_COMBAT_VISUALS, animation)
+            .layers
     }
 
     /// Selects combat visuals for worn slots without changing held items or Java poses.
@@ -358,13 +365,16 @@ impl EquipmentRuntime {
         input: &ActorEquipmentInput,
         profile: render_api::CombatVisuals,
         animation: Option<EquipmentAnimation<'_>>,
-    ) -> &mut [EquipmentPresentation] {
+    ) -> EquipmentLayers<'_> {
         let mut layers = std::mem::take(&mut self.layers);
         layers.clear();
-        self.fill_layers(body, input, profile, animation, &mut layers);
+        let wearing_elytra = self.fill_layers(body, input, profile, animation, &mut layers);
         combat::apply(&mut layers, body, input, profile, animation);
         self.layers = layers;
-        &mut self.layers
+        EquipmentLayers {
+            layers: &mut self.layers,
+            wearing_elytra,
+        }
     }
 
     /// Appends one body's equipment while retaining the caller's output capacity.
@@ -375,29 +385,44 @@ impl EquipmentRuntime {
         profile: render_api::CombatVisuals,
         animation: Option<EquipmentAnimation<'_>>,
         layers: &mut Vec<EquipmentPresentation>,
-    ) {
+    ) -> bool {
         if !matches!(
             body.route,
             ActorRigRoute::Compiled | ActorRigRoute::StaticFallback
         ) || body.input.identity.layer != ACTOR_LAYER_BODY
         {
-            return;
+            return false;
         }
         let Some((geometry, bones)) = self.body_bones_for(body.input.rig) else {
-            return;
+            return false;
         };
         let pose_len = bones.names.len();
         if body.input.previous_bones.len() != pose_len || body.input.current_bones.len() != pose_len
         {
-            return;
+            return false;
         }
         for (item, layer, bone) in [
             (&input.main, LAYER_MAIN_HAND, bones.right_item),
             (&input.off, LAYER_OFF_HAND, bones.left_item),
         ] {
             let Some(item) = item else { continue };
+            let held_item_scale = animation.and_then(|animation| animation.rig.held_item_scale);
+            let scale = actor_animation::AttachableAnimationInput {
+                off_hand: layer == LAYER_OFF_HAND,
+                held_item_scale,
+                ..Default::default()
+            }
+            .main_hand_scale();
             let before = layers.len();
-            if self.uses_native_item_mesh(&item.identifier) {
+            let route = self.equipment_route(
+                item,
+                input,
+                animation,
+                routing::EquipmentSlot::Held {
+                    off_hand: layer == LAYER_OFF_HAND,
+                },
+            );
+            if matches!(route, routing::EquipmentRoute::NativeHeld) {
                 let elapsed = animation
                     .filter(|animation| animation.owner.is_using_item())
                     .map(|animation| animation.rig.hand[1].use_ticks);
@@ -409,6 +434,7 @@ impl EquipmentRuntime {
                     input.java,
                     actor_animation::AttachableAnimationInput {
                         off_hand: layer == LAYER_OFF_HAND,
+                        held_item_scale,
                         animation_frame: inventory::crossbow_animation_frame(
                             elapsed,
                             item.use_facts.ticks.unwrap_or_default(),
@@ -429,69 +455,17 @@ impl EquipmentRuntime {
                 }
                 continue;
             }
-            // Authored item poses use the owning actor and the same sampled body as equipment.
-            let animated = animation
-                .filter(|_| {
-                    if layer == LAYER_MAIN_HAND
-                        && input.java.is_some()
-                        && !self.is_vanilla_attachable(&item.identifier)
-                    {
-                        return false;
-                    }
-                    self.binding_source(&item.identifier)
-                        .is_some_and(|(catalog, _)| {
-                            catalog.binding(&item.identifier).is_some_and(|binding| {
-                                matches!(
-                                    self.effective_category(&item.identifier, binding.category),
-                                    EquipmentCategory::Held | EquipmentCategory::Shield
-                                ) && (input.java.is_none()
-                                    || binding.third_person.literal().is_none())
-                            })
-                        })
-                })
-                .and_then(|animation| {
-                    let elapsed = animation
-                        .owner
-                        .is_using_item()
-                        .then_some(animation.rig.hand[1].use_ticks);
-                    let use_facts = input
-                        .main
-                        .as_ref()
-                        .map(|main| main.use_facts)
-                        .unwrap_or_default();
-                    let duration = use_facts.ticks.unwrap_or_default();
-                    self.held_attachable(
-                        body,
-                        item,
-                        animation.owner,
-                        animation.rig,
-                        input.attachable_input(actor_animation::AttachableAnimationInput {
-                            off_hand: layer == LAYER_OFF_HAND,
-                            frame_alpha: animation.frame_alpha,
-                            use_elapsed_ticks: elapsed,
-                            delta_seconds: Some(animation.delta_seconds),
-                            animation_frame: inventory::ranged_animation_frame(
-                                use_facts.animation,
-                                elapsed,
-                                duration,
-                            ),
-                            max_use_ticks: duration,
-                            ..Default::default()
-                        }),
-                        None,
-                    )
-                });
-            if let Some(animated) = animated {
-                layers.push(animated.presentation);
-                continue;
-            }
-            match input.java.filter(|_| layer == LAYER_MAIN_HAND) {
-                Some(grip) => {
-                    if !self.push_attachable(body, item, layer, bone, false, layers) {
-                        self.push_java_held(body, item, &bones, grip, layers);
-                    }
-                }
-                None => self.push_held(body, item, layer, bone, layers),
+            if let routing::EquipmentRoute::Held(source) = route {
+                self.push_held(
+                    body,
+                    item,
+                    layer,
+                    &bones,
+                    source.as_ref(),
+                    (input, animation),
+                    scale,
+                    layers,
+                );
             }
             if layers.len() == before {
                 self.note_missing_layer(item, None, bone);
@@ -503,35 +477,45 @@ impl EquipmentRuntime {
             (ArmorSlot::Leggings, LAYER_LEGGINGS),
             (ArmorSlot::Boots, LAYER_BOOTS),
         ];
+        let mut wearing_elytra = false;
         for ((slot, layer), item) in slots.into_iter().zip(&input.armor) {
             if let Some(item) = item {
-                if slot == ArmorSlot::Helmet
-                    && let Some(kind) = skull_kind(&item.identifier)
-                {
-                    self.push_skull(body, kind, layer, bones.head, layers);
-                    continue;
-                }
-                // A block worn in the helmet slot (a carved pumpkin) sits on the head bone.
-                if slot == ArmorSlot::Helmet
-                    && matches!(item.kind, HeldKind::Block(_))
-                    && !self.has_armor_binding(&item.identifier)
-                {
-                    self.push_attached(
-                        body,
-                        item,
-                        layer,
-                        bones.head,
-                        Some(head_block_display()),
-                        layers,
-                    );
-                    continue;
-                }
-                if slot == ArmorSlot::Chestplate && self.is_elytra(&item.identifier) {
-                    if let Some(animation) = animation {
-                        self.push_elytra(body, item, input, animation, layers);
+                let route = self.equipment_route(
+                    item,
+                    input,
+                    animation,
+                    routing::EquipmentSlot::Worn(slot),
+                );
+                let source = match route {
+                    routing::EquipmentRoute::Skull(kind) => {
+                        self.push_skull(body, kind, layer, bones.head, layers);
+                        continue;
                     }
-                    continue;
-                }
+                    routing::EquipmentRoute::HeadBlock => {
+                        self.push_attached(
+                            body,
+                            item,
+                            layer,
+                            bones.head,
+                            Some(head_block_display()),
+                            1.0,
+                            layers,
+                        );
+                        continue;
+                    }
+                    routing::EquipmentRoute::Elytra(source) => {
+                        wearing_elytra = true;
+                        if let Some(animation) = animation {
+                            self.push_elytra(body, item, source, input, animation, layers);
+                        }
+                        continue;
+                    }
+                    routing::EquipmentRoute::Armor(source) => source,
+                    _ => {
+                        self.note_missing_layer(item, Some(slot), bones.head);
+                        continue;
+                    }
+                };
                 let before = layers.len();
                 self.push_armor(
                     body,
@@ -539,6 +523,7 @@ impl EquipmentRuntime {
                     geometry,
                     (slot, layer),
                     item,
+                    source,
                     (input, animation, profile),
                     layers,
                 );
@@ -547,6 +532,21 @@ impl EquipmentRuntime {
                 }
             }
         }
+        wearing_elytra
+    }
+
+    /// Bone identities of an armor rig already selected for rendering this frame.
+    pub(crate) fn armor_bone_names(&self, rig: EntityRigId) -> Option<&[Box<str>]> {
+        self.armor_geometry
+            .values()
+            .chain(
+                self.pack
+                    .iter()
+                    .flat_map(|pack| pack.armor_geometry.values()),
+            )
+            .filter_map(Option::as_ref)
+            .find(|geometry| geometry.rig == rig)
+            .map(|geometry| geometry.names.as_slice())
     }
 
     /// Records the bones of a skin model registered under `rig`, replacing any earlier model.
@@ -575,19 +575,6 @@ impl EquipmentRuntime {
             )?)))
         });
         entry.clone().map(|bones| (geometry, bones))
-    }
-
-    /// Identifies wing equipment through its resolved attachable rather than its item name.
-    pub fn is_elytra(&self, identifier: &str) -> bool {
-        self.binding_source(identifier).is_some_and(|(catalog, _)| {
-            catalog
-                .binding(identifier)
-                .is_some_and(|binding| binding.category == EquipmentCategory::Elytra)
-        })
-    }
-
-    fn has_armor_binding(&self, identifier: &str) -> bool {
-        self.binding_source(identifier).is_some()
     }
 
     pub(super) fn armor_geometry_for(
@@ -657,10 +644,15 @@ impl EquipmentRuntime {
             MeshKey::Session(index) => self.session_sprite_pixels(index),
             MeshKey::Block(_) | MeshKey::SessionBlock(_) => None,
         };
+        let model = match key {
+            MeshKey::Block(visual) => self.block_model(visual),
+            MeshKey::SessionBlock(index) => self.session_block_model(index),
+            _ => None,
+        };
         let vertices = match (key, sprite) {
-            (MeshKey::Block(visual), _) if self.block_model(visual).is_some() => {
+            (_, _) if model.is_some() => {
                 let rect = placement.uv_rect();
-                self.block_model(visual)?
+                model?
                     .iter()
                     .copied()
                     .map(|mut vertex| {

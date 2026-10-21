@@ -1,14 +1,25 @@
 //! Callback-scoped native motion, food, actor and combat evidence, and its validation.
-use crate::{ActorObservation, CombatObservation, MotionObservation, VitalsObservation};
+use crate::{CombatObservation, MotionObservation, ObservedActor, VitalsObservation};
 use anyhow::{Result, ensure};
+
+/// One day of the server clock, fenced to the currently presented session and dimension.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WorldDay {
+    pub session: u64,
+    pub dimension: i32,
+    pub day: u64,
+}
 
 /// Callback-scoped read-only facts captured by native owning adapters.
 #[derive(Clone, Default)]
 pub struct ModuleObservations {
+    pub world_day: Option<WorldDay>,
+    /// Confirmed activations in the current native counting interval; absent while tracking is disabled.
+    pub local_totem_uses: Option<u32>,
     pub motion: Option<MotionObservation>,
     pub vitals: Option<VitalsObservation>,
     pub ping_ms: Option<u32>,
-    pub actors: Vec<ActorObservation>,
+    pub actors: Vec<ObservedActor>,
     pub combat: Vec<CombatObservation>,
 }
 
@@ -19,6 +30,10 @@ fn finite(point: (f32, f32, f32)) -> bool {
 
 /// Rejects malformed or oversized native facts before any sandbox import can read them.
 pub(super) fn validate(facts: &ModuleObservations) -> Result<()> {
+    ensure!(
+        facts.world_day.is_none_or(|day| day.session != 0),
+        "invalid world day observation"
+    );
     ensure!(
         facts.motion.as_ref().is_none_or(|m| m.session != 0
             && m.yaw.is_finite()
@@ -46,24 +61,30 @@ pub(super) fn validate(facts: &ModuleObservations) -> Result<()> {
     );
     ensure!(
         facts.actors.len() <= mod_api::MAX_OBSERVED_ACTORS
-            && facts.actors.iter().all(|a| a.session != 0
-                && a.runtime_id != 0
-                && finite(a.position)
-                && a.look_origin.is_none_or(finite)
-                && a.look_direction.is_none_or(finite)
-                && a.yaw.is_finite()
-                && a.pitch.is_finite()
-                && a.identifier.len() <= 128
-                && !a.identifier.chars().any(char::is_control)
-                && a.name.len() <= mod_api::MAX_OBSERVED_ACTOR_NAME_BYTES
-                && !a.name.chars().any(char::is_control)
-                && a.health.is_none_or(|n| n.is_finite() && n >= 0.)
-                && a.boxes.len() <= mod_api::MAX_OBSERVED_ACTOR_BOXES
-                && a.boxes.iter().all(|b| finite(b.min)
-                    && finite(b.max)
-                    && b.min.0 <= b.max.0
-                    && b.min.1 <= b.max.1
-                    && b.min.2 <= b.max.2)),
+            && facts.actors.iter().all(|observed| {
+                let a = &observed.actor;
+                a.session != 0
+                    && a.runtime_id != 0
+                    && finite(a.position)
+                    && a.look_origin.is_none_or(finite)
+                    && a.look_direction.is_none_or(finite)
+                    && a.yaw.is_finite()
+                    && a.pitch.is_finite()
+                    && a.identifier.len() <= 128
+                    && !a.identifier.chars().any(char::is_control)
+                    && a.name.len() <= mod_api::MAX_OBSERVED_ACTOR_NAME_BYTES
+                    && !a.name.chars().any(char::is_control)
+                    && a.health.is_none_or(|n| n.is_finite() && n >= 0.)
+                    && observed.max_health.is_none_or(|n| n.is_finite() && n > 0.)
+                    && a.boxes.len() <= mod_api::MAX_OBSERVED_ACTOR_BOXES
+                    && a.boxes.iter().all(|b| {
+                        finite(b.min)
+                            && finite(b.max)
+                            && b.min.0 <= b.max.0
+                            && b.min.1 <= b.max.1
+                            && b.min.2 <= b.max.2
+                    })
+            }),
         "invalid actor observation"
     );
     ensure!(
@@ -86,32 +107,35 @@ pub(super) fn validate(facts: &ModuleObservations) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ActorObservationBounds, CombatKind};
+    use crate::{ActorObservation, ActorObservationBounds, CombatKind};
     /// Creates native facts whose actor and event share an explicit session fence.
     fn facts() -> ModuleObservations {
         ModuleObservations {
-            actors: vec![ActorObservation {
-                session: 1,
-                dimension: 0,
-                runtime_id: 5,
-                identifier: "minecraft:player".into(),
-                yaw: 0.,
-                pitch: 0.,
-                pickable: true,
-                hittable: None,
-                look_origin: None,
-                look_direction: None,
-                player: true,
-                position: (0., 0., 0.),
-                boxes: vec![ActorObservationBounds {
-                    min: (-0.3, 0., -0.3),
-                    max: (0.3, 1.8, 0.3),
-                }],
-                name: "Player".into(),
-                invisible: false,
-                sneaking: false,
-                hurt: false,
-                health: Some(20.),
+            actors: vec![ObservedActor {
+                actor: ActorObservation {
+                    session: 1,
+                    dimension: 0,
+                    runtime_id: 5,
+                    identifier: "minecraft:player".into(),
+                    yaw: 0.,
+                    pitch: 0.,
+                    pickable: true,
+                    hittable: None,
+                    look_origin: None,
+                    look_direction: None,
+                    player: true,
+                    position: (0., 0., 0.),
+                    boxes: vec![ActorObservationBounds {
+                        min: (-0.3, 0., -0.3),
+                        max: (0.3, 1.8, 0.3),
+                    }],
+                    name: "Player".into(),
+                    invisible: false,
+                    sneaking: false,
+                    hurt: false,
+                    health: Some(20.),
+                },
+                max_health: Some(20.),
             }],
             combat: vec![CombatObservation {
                 sequence: 1,
@@ -131,7 +155,13 @@ mod tests {
     fn malformed_boxes_and_repeated_evidence_are_rejected() {
         let mut facts = facts();
         assert!(validate(&facts).is_ok());
-        facts.actors[0].boxes[0].min.0 = f32::NAN;
+        facts.actors[0].max_health = Some(f32::NAN);
+        assert!(validate(&facts).is_err());
+        facts.actors[0].max_health = Some(0.);
+        assert!(validate(&facts).is_err());
+        facts.actors[0].max_health = None;
+        assert!(validate(&facts).is_ok());
+        facts.actors[0].actor.boxes[0].min.0 = f32::NAN;
         assert!(validate(&facts).is_err());
         facts.actors.clear();
         facts.combat.push(facts.combat[0]);

@@ -88,7 +88,7 @@ fn menus_and_other_screens_hide_debug_until_gameplay_resumes() {
         assert_eq!(vertex_count(&player, &mut presentation, &runtime), gameplay);
     }
 
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     assert!(runtime.inventory_open());
     assert_hidden(&mut presentation, &runtime, &player);
     runtime.close_inventory(&mut player);
@@ -698,7 +698,7 @@ fn diagnostic_eligibility_matches_the_rendered_stack_without_allocations() {
                 runtime.open_chat(&mut player);
             }
             "inventory" => {
-                runtime.toggle_inventory(&mut player);
+                runtime.toggle_inventory(&mut player, None);
             }
             "disconnected" => runtime = UiRuntime::new(0),
             _ => (),

@@ -242,7 +242,7 @@ fn animated_skin_uses_its_own_rectangular_texture_geometry_and_uv_frame() {
     assert_eq!(frame.rig.manifest.len(), 2);
     assert_eq!(
         frame.rig.manifest[1].identity.layer,
-        skin_layers::SKIN_LAYER_BASE + render_api::SkinAnimationKind::Body32.slot() as u8
+        render_model::ACTOR_LAYER_SKIN_BASE + render_api::SkinAnimationKind::Body32.slot() as u8
     );
     assert_eq!(frame.rig.manifest[1].bone_count, 2);
     assert_ne!(frame.instance_pages()[1], 0);

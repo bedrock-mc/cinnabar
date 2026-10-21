@@ -9,6 +9,7 @@ type ActorQueueView = (
     &'static bevy::render::camera::ExtractedCamera,
     &'static Msaa,
     Option<&'static render_scene::EnhancedRendering>,
+    bevy::ecs::query::Has<render_scene::shaderpack::ShaderPackRendering>,
 );
 
 #[derive(SystemParam)]
@@ -22,6 +23,8 @@ pub(super) struct QueueActorParams<'w, 's> {
     views: Query<'w, 's, ActorQueueView>,
     draw_tracker: Res<'w, ActorDrawTracker>,
     witness: Res<'w, ActorRuntimeWitness>,
+    /// Shader-pack cameras whose pack draws actors itself take no Vanilla actor draws.
+    pack_drawn: Option<Res<'w, render_scene::shaderpack::ShaderPackDrawnCategories>>,
 }
 
 pub(super) fn queue_actors(
@@ -52,7 +55,13 @@ pub(super) fn queue_actors(
         .id::<DrawTransparentActorCommands>();
     let mut queued = false;
     let mut intended_view = None;
-    for (view_entity, main_entity, view, extracted_camera, msaa, enhanced) in &params.views {
+    let pack_draws_actors = params.pack_drawn.as_ref().is_some_and(|drawn| drawn.actors);
+    for (view_entity, main_entity, view, extracted_camera, msaa, enhanced, pack_view) in
+        &params.views
+    {
+        if pack_view && pack_draws_actors {
+            continue;
+        }
         let Some(phase) = params.phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -147,7 +156,7 @@ pub(super) fn queue_actors(
                 geometry_revision: params.gpu.geometry_revision,
                 frame_generation: params.gpu.frame_generation,
                 draw_generation,
-                manifest: std::sync::Arc::clone(&params.gpu.manifest),
+                manifest: std::sync::Arc::clone(&params.gpu.main_manifest),
             },
             intended_view.expect("queued view exists"),
             &params.gpu.spans,
@@ -195,7 +204,7 @@ impl ActorGpu {
             && draw.skin_revision == self.skin_revision
             && draw.geometry_revision == self.geometry_revision
             && draw.frame_generation == self.frame_generation
-            && std::sync::Arc::ptr_eq(&draw.manifest, &self.manifest))
+            && std::sync::Arc::ptr_eq(&draw.manifest, &self.main_manifest))
         .then(|| batch.clone())
     }
 }
@@ -286,8 +295,7 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
                     gpu.bind_group.as_ref()
                 } else {
                     gpu.artwork
-                        .pages
-                        .get(usize::from(span.page) - 1)
+                        .page(usize::from(span.page) - 1)
                         .and_then(|page| page.bind_group.as_ref())
                 };
                 let Some(bind_group) = bind_group else {

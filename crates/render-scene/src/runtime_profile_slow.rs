@@ -7,8 +7,9 @@ use std::{
         Mutex,
         atomic::{AtomicU8, AtomicU64, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 const STAGES: usize = RuntimeStage::ALL.len();
 const LOG_INTERVAL: Duration = Duration::from_secs(1);
@@ -140,7 +141,7 @@ impl Default for SlowFrameRecorder {
             totals: std::array::from_fn(|_| AtomicU64::new(0)),
             interval_nanos: AtomicU64::new(0),
             violations: AtomicU8::new(0),
-            frame: Mutex::new(FrameWindow::default()),
+            frame: crate::runtime_profile::initialized_mutex(FrameWindow::default()),
         }
     }
 }

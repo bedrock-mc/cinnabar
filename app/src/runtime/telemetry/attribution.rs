@@ -1,6 +1,7 @@
 //! Keeps attribution metrics current while bounding the diagnostic log volume.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 use diagnostics::{
     metrics::{DiagnosticQuadTracker, MetricsCollector},

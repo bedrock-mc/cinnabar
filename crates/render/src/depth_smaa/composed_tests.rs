@@ -72,6 +72,16 @@ fn moving_frames(app: &mut App, camera: Entity) {
 
 #[test]
 fn hud_stays_sharp_over_spatial_filters_and_camera_exposure_in_either_toggle_order() {
+    hud_filter_composition(Msaa::Off);
+}
+
+#[test]
+fn hud_stays_sharp_with_smaa_and_four_scene_samples() {
+    hud_filter_composition(Msaa::Sample4);
+}
+
+/// Exercises filter toggles and authored HUD pixels at the requested scene sample count.
+fn hud_filter_composition(msaa: Msaa) {
     let Some(render) = renderer() else {
         return;
     };
@@ -84,11 +94,12 @@ fn hud_stays_sharp_over_spatial_filters_and_camera_exposure_in_either_toggle_ord
             crate::GpuTimingPlugin,
         ));
     });
+    *app.world_mut().get_mut::<Msaa>(camera).unwrap() = msaa;
     let device = app.sub_app(RenderApp).world().resource::<RenderDevice>();
     let fixture = FixturePipelines {
-        checker: fixture_pipeline(device, 1, "checker"),
-        sloped_checker: fixture_pipeline(device, 1, "sloped_checker"),
-        silhouette: fixture_pipeline(device, 1, "silhouette"),
+        checker: fixture_pipeline(device, msaa.samples(), "checker"),
+        sloped_checker: fixture_pipeline(device, msaa.samples(), "sloped_checker"),
+        silhouette: fixture_pipeline(device, msaa.samples(), "silhouette"),
         scene: 0,
     };
     app.sub_app_mut(RenderApp)

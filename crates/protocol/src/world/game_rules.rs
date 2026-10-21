@@ -69,6 +69,21 @@ impl crate::HudRules {
     }
 }
 
+/// Reads only boolean declarations of the two independent crafting rules.
+pub(super) fn crafting_rules(rules: &[GameRule]) -> crate::CraftingRules {
+    crate::CraftingRules {
+        recipes_unlock: bool_rule(rules, "recipesunlock"),
+        limited_crafting: bool_rule(rules, "dolimitedcrafting"),
+    }
+}
+
+impl crate::CraftingRules {
+    /// Retains explicit startup values and resolves omitted rules before play begins.
+    pub(crate) fn from_start_game(start_game: &StartGame) -> Self {
+        crafting_rules(&start_game.settings.rule_data.rules_list).resolved()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

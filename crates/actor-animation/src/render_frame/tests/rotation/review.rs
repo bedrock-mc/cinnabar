@@ -96,8 +96,10 @@ fn camera_clip(compiled: &mut CompiledEntityAssets, active: bool) {
     );
     compiled.symbols = symbols.into();
     for binding in &mut compiled.rig_bindings {
-        if binding.render_controller >= index {
-            binding.render_controller += 1;
+        if let Some(controller) = binding.render_controller.as_mut()
+            && *controller >= index
+        {
+            *controller += 1;
         }
     }
     let mut keys = compiled.animation_keyframes.to_vec();

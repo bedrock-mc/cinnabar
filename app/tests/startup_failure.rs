@@ -79,7 +79,12 @@ fn startup_errors_reach_client_log_before_process_exit() {
         .env("STARTUP_FAILURE_LOG", dir.path())
         .output()
         .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "startup fixture failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let text = fs::read_to_string(dir.path().join("client.log")).unwrap();
-    assert_eq!(output.status.code(), Some(1));
     assert!(text.contains("cinnabar failed: first-time setup fixture failed"));
 }

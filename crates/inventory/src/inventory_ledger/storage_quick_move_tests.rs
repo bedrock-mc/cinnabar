@@ -17,7 +17,7 @@ fn chest(slots: &[(usize, NetworkItemStack)], source: NetworkItemStack) -> Playe
         container: ContainerIdentity {
             window_id: Some(7),
             slot_type: Some(CONTAINER_NAME_LEVEL_ENTITY),
-            dynamic_id: Some(91),
+            dynamic_id: None,
         },
         slots: storage.into(),
         storage_item: NetworkItemStack::default(),
@@ -43,9 +43,7 @@ fn placements(ledger: &PlayerInventoryLedger) -> Vec<(u8, u8)> {
             };
             assert_eq!(
                 source.container,
-                StackRequestContainer::LevelEntity {
-                    dynamic_id: Some(91)
-                }
+                StackRequestContainer::LevelEntity { dynamic_id: None }
             );
             assert_eq!(source.slot, 2);
             assert_eq!(source.stack_network_id, 100);

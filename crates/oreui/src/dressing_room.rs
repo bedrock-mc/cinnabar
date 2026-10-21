@@ -2,6 +2,8 @@
 
 mod character;
 mod editor;
+mod filter;
+mod hats;
 mod library;
 #[cfg(test)]
 mod tests;
@@ -18,6 +20,8 @@ pub(super) struct PreviewArea {
     pub(super) clip: Bounds,
     pub(super) visible_skins: Vec<usize>,
     pub(super) visible_capes: Vec<usize>,
+    pub(super) visible_cosmetics: Vec<usize>,
+    pub(super) filter_anchor: Option<Bounds>,
 }
 
 fn command(action: Action) -> MenuAction {
@@ -48,14 +52,7 @@ pub(super) fn draw(
     if grid.narrow || bottom - top < canvas.r(44.0) {
         let [left, right] = grid.span(0, if grid.narrow { 8 } else { 12 });
         let viewport = [left, top, right, bottom.max(top + canvas.r(4.0))];
-        let scroll = canvas.begin_scroll(
-            if view.dressing_room.section == launcher::dressing_room::DressingRoomSection::Capes {
-                "dressing_room_capes"
-            } else {
-                "dressing_room"
-            },
-            viewport,
-        )?;
+        let scroll = canvas.begin_scroll(&scroll_key(view, true), viewport)?;
         let start = top - scroll.offset;
         let height = if view
             .dressing_room
@@ -105,14 +102,7 @@ pub(super) fn draw(
         library_right - pad,
         bottom - pad,
     ];
-    let scroll = canvas.begin_scroll(
-        if view.dressing_room.section == launcher::dressing_room::DressingRoomSection::Capes {
-            "cape_library"
-        } else {
-            "skin_library"
-        },
-        viewport,
-    )?;
+    let scroll = canvas.begin_scroll(&scroll_key(view, false), viewport)?;
     let start = viewport[1] - scroll.offset;
     let end = library::collection(
         canvas,
@@ -125,10 +115,41 @@ pub(super) fn draw(
     Ok(preview)
 }
 
-pub(super) fn draw_editor(
+/// Retains separate scroll positions for sections, layouts and cosmetic categories.
+fn scroll_key(view: &MenuView, stacked: bool) -> std::borrow::Cow<'static, str> {
+    use launcher::dressing_room::{CosmeticCategory, DressingRoomSection};
+    let base = match (view.dressing_room.section, stacked) {
+        (DressingRoomSection::Skins, true) => "dressing_room",
+        (DressingRoomSection::Capes, true) => "dressing_room_capes",
+        (DressingRoomSection::Cosmetics, true) => "dressing_room_hats",
+        (DressingRoomSection::Skins, false) => "skin_library",
+        (DressingRoomSection::Capes, false) => "cape_library",
+        (DressingRoomSection::Cosmetics, false) => "hat_library",
+    };
+    let category = view.dressing_room.cosmetic_category;
+    if view.dressing_room.section == DressingRoomSection::Cosmetics
+        && category != CosmeticCategory::All
+    {
+        return format!("{base}:{}", category.label()).into();
+    }
+    base.into()
+}
+
+/// Paints the active wardrobe overlay after the character preview.
+pub(super) fn draw_overlay(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
+    filter_anchor: Option<Bounds>,
 ) -> Result<(), PaintError> {
-    editor::draw(canvas, view, size)
+    if view.dressing_room.editor.is_some() {
+        editor::draw(canvas, view, size)
+    } else if view.dressing_room.cosmetic_filter_open
+        && enabled(view)
+        && let Some(anchor) = filter_anchor
+    {
+        filter::popup(canvas, view, size, anchor)
+    } else {
+        Ok(())
+    }
 }

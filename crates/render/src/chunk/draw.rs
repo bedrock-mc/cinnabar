@@ -51,7 +51,7 @@ pub(in crate::chunk) fn queue_chunks(
     mut probes: QueueFrameProbeParams,
     mut indirect_batch_sets: ParamSet<IndirectBatches>,
     mut gpu_culling: gpu_cull::GpuCullQueue,
-
+    pack: render_scene::shaderpack::ShaderPackDrawnViews,
     mut unsupported_reported: Local<bool>,
 ) {
     let _timer = probes
@@ -171,24 +171,36 @@ pub(in crate::chunk) fn queue_chunks(
     // A frame probe filters the lists by its own manifest, so they are neither reused nor kept.
     let reusable = !frame_probe.is_active();
     let direct_streams = draw_mode == ChunkDrawMode::Direct;
+    // A shader pack that draws terrain shows nothing where it has not expanded a section yet,
+    // so its cameras get no Vanilla terrain to show through its overlay.
+    let pack_terrain = |view: Entity| pack.replaces(view, |drawn| drawn.terrain);
     let gpu_cull_view = gpu_culling.select(
         draw_mode,
         probing,
-        views.iter().map(|(entity, main, view, _, _, enhanced, _)| {
-            (entity, main, view, enhanced.is_some())
-        }),
+        views
+            .iter()
+            .filter(|(entity, ..)| !pack_terrain(*entity))
+            .map(|(entity, main, view, _, _, enhanced, _)| {
+                (entity, main, view, enhanced.is_some())
+            }),
     );
     let direct_view = gpu_culling.select_direct(
         draw_mode,
         probing,
-        views.iter().map(|(entity, main, view, _, _, enhanced, _)| {
-            (entity, main, view, enhanced.is_some())
-        }),
+        views
+            .iter()
+            .filter(|(entity, ..)| !pack_terrain(*entity))
+            .map(|(entity, main, view, _, _, enhanced, _)| {
+                (entity, main, view, enhanced.is_some())
+            }),
     );
     let frame_probe = &frame_probe.scope();
     for (view_entity, view_main_entity, view, visible_entities, msaa, enhanced, extracted_camera) in
         &views
     {
+        if pack_terrain(view_entity) {
+            continue;
+        }
         let Some(phase) = opaque_phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -562,11 +574,12 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     texture_assets: Res<ChunkTextureAssets>,
     biome_tints: Res<ChunkBiomeTints>,
     mut mixed: ResMut<crate::chunk::transparent::mixed::MixedTerrainRuntime>,
-    (arena, mut unsorted, mut water_order, mut scratch): (
+    (arena, mut unsorted, mut water_order, mut scratch, pack): (
         Res<ChunkGpuArena>,
         Local<UnsortedWaterDiagnostics>,
         Local<VisibleWaterOrder>,
         Local<TransparentQueueScratch>,
+        render_scene::shaderpack::ShaderPackDrawnViews,
     ),
     profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
@@ -592,7 +605,9 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     for (view_entity, main_entity, view, visible_entities, msaa, enhanced, extracted_camera) in
         &views
     {
-        if runtime.view_entity != Some(view_entity) {
+        if runtime.view_entity != Some(view_entity)
+            || pack.replaces(view_entity, |drawn| drawn.terrain)
+        {
             continue;
         }
         let Some(phase) = transparent_phases.get_mut(&view.retained_view_entity) else {

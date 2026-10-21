@@ -19,8 +19,8 @@ client.
 
 ## Download
 
-- **Stable:** [latest release](https://github.com/bedrock-mc/cinnabar/releases/latest)
-- **Nightly:** daily builds of `dev` for macOS, Windows and Linux ([nightly](https://github.com/bedrock-mc/cinnabar/releases/tag/nightly))
+- **Stable:** [latest release](https://github.com/cinnabar-mc/cinnabar/releases/latest)
+- **Nightly:** daily builds of `dev` for macOS, Windows and Linux ([nightly](https://github.com/cinnabar-mc/cinnabar/releases/tag/nightly))
 
 On first launch, Cinnabar downloads the vanilla resource pack after you accept the Minecraft EULA.
 No Mojang assets are bundled. The release notes explain how to open unsigned builds.
@@ -38,6 +38,11 @@ every target.
 
 On Debian/Ubuntu, install `libwayland-dev` and `libudev-dev` first.
 
+Experimental Java (OptiFine/Iris) shader packs build with `cargo run -p cinnabar --features shaderpacks`.
+Put pack zips or folders in the `shaderpacks` folder of the client's data directory and pick one
+under Settings > Video > Renderer, or run a pack for one session with `--shader-pack <path>`.
+A pack that fails to load draws Vanilla.
+
 ## What's different
 
 Vanilla behaviour is the default. Everything below is extra:
@@ -52,7 +57,8 @@ Vanilla behaviour is the default. Everything below is extra:
 | **Discord** | Rich presence, plus joining and inviting friends through Discord. See [docs/discord.md](docs/discord.md). |
 | **Cinnabar players** | A badge on other Cinnabar players in the tab list, and update notices as soon as a release ships. See [docs/cinnabar-api.md](docs/cinnabar-api.md). |
 | **Mods** *(preview)* | Sandboxed WebAssembly mods that hot-reload, for your own client and for servers. Servers can use it as a Roblox-style game engine, shipping client code that replaces the UI, rendering, input and game logic (in-world video included) to turn a server into an entirely different game. See [docs/modding-spike.md](docs/modding-spike.md) and [docs/server-experiences.md](docs/server-experiences.md). |
-| **JSON-UI editor** | Preview and edit pack UI exactly as Cinnabar renders it, at [bedrock-mc.github.io/cinnabar](https://bedrock-mc.github.io/cinnabar/). |
+| **JSON-UI editor** | Preview and edit pack UI exactly as Cinnabar renders it, at [jsonui.cinnabar.gg](https://jsonui.cinnabar.gg/). |
+| **Figma to JSON-UI** | A Figma plugin that turns a frame into a JSON-UI screen and resource pack. [Download it](https://jsonui.cinnabar.gg/figma-plugin.zip), or see [tools/figma-plugin](tools/figma-plugin/README.md). |
 
 ## How it works
 
@@ -69,7 +75,7 @@ Built on these libraries:
 
 | Library | Used for |
 | --- | --- |
-| [protocolgen](https://github.com/bedrock-mc/protocolgen) | Generates the Bedrock packet codec vendored in `crates/protocol/vendor`. |
+| [protocolgen](https://github.com/cinnabar-mc/protocolgen) | Generates the Bedrock packet codec vendored in `crates/protocol/vendor`. |
 | [Axolotl Stack](https://github.com/axolotl-stack/axolotl-stack) | Jolyne (client session library), whose raw packet entries and spawn sequence `crates/protocol` adapts. MIT; see `THIRD_PARTY_NOTICES.md`. |
 | [gophertunnel](https://github.com/Sandertv/gophertunnel) | Bedrock login, encryption, resource packs and the packet relay. |
 | [go-raknet](https://github.com/Sandertv/go-raknet) | RakNet transport to servers, plus server-list pings. |
@@ -80,6 +86,7 @@ Built on these libraries:
 
 Crate-by-crate layout: [docs/architecture/workspace.md](docs/architecture/workspace.md).
 Benchmarks: [docs/benchmarks.md](docs/benchmarks.md).
+Roadmap: [plan.md](plan.md). Change history: [CHANGELOG.md](CHANGELOG.md).
 
 ## Contributing
 

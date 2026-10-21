@@ -99,7 +99,7 @@ fn reach_missing_column(
 fn boundary_flight() -> ModeIntent {
     ModeIntent {
         can_fly: true,
-        server_flying: true,
+        flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(true),
         creative_flight: true,
         ..Default::default()
     }
@@ -263,6 +263,7 @@ fn flight_frame(
         now: TICK * index as u32,
         active,
         input_authority_released: !active,
+        resolved_movement: false,
         movement: [0.0, forward],
         raw_movement: [0.0, forward],
         analogue_movement: [0.0, forward],
@@ -289,7 +290,7 @@ fn flight_frame(
         toggle_sneak: true,
         facts: super::super::local_facts::LocalMovementFacts {
             can_fly: true,
-            server_flying: true,
+            flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(true),
             creative_flight: true,
             ..Default::default()
         },
@@ -618,3 +619,6 @@ fn flight_toggles_at_unloaded_boundary_keep_ticks_and_edges() {
     assert_eq!(physics.state().unwrap().tick, tick + 10);
     assert_eq!(physics.mode(), MovementMode::Flying);
 }
+
+#[path = "ability_axes_tests.rs"]
+mod ability_axes_tests;

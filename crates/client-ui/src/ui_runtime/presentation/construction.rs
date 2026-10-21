@@ -28,6 +28,8 @@ impl UiPresentationRuntime {
         hud: Option<Arc<RuntimeHudCatalog>>,
         icons: Option<Arc<RuntimeIconCatalog>>,
     ) -> Result<Self, UiPresentationError> {
+        let font =
+            mod_ui::fonts::install(font).map_err(|_| UiPresentationError::InvalidFontTexture)?;
         let (textures, solid_texture_page, hud_textures, icon_refs) =
             match (hud.as_deref(), icons.as_deref()) {
                 (Some(hud), None) => {
@@ -46,6 +48,7 @@ impl UiPresentationRuntime {
             obfuscation: ObfuscationGlyphs::from_catalog(&font),
             base_font: Arc::clone(&font),
             mod_panel_font: None,
+            local_player_identity: Default::default(),
             font,
             blank_dynamic_page: textures.pages()[textures.dynamic_start()].clone(),
             textures,
@@ -78,6 +81,8 @@ impl UiPresentationRuntime {
             hud_frame: HudFrame::default(),
             inventory_cache: Some(Box::default()),
             hud_cache: Default::default(),
+            mod_hud_bindings: Default::default(),
+            control_previews: Default::default(),
             last_hud_diagnostics: Default::default(),
             nametag_anchors: Vec::new(),
             nametag_local_actor: None,
@@ -95,6 +100,7 @@ impl UiPresentationRuntime {
             player_preview_bob: 0.0,
             player_preview_gear: player_preview::PreviewEquipment::default(),
             equipment_catalog: None,
+            preview_equipment_selection: Default::default(),
             gui_models: Default::default(),
             player_preview_pixels: None,
             preview_dirty: false,
@@ -122,6 +128,7 @@ impl UiPresentationRuntime {
             menu_hit_targets: Vec::new(),
             menu_skin_thumbnail_indices: Vec::new(),
             menu_cape_thumbnail_indices: Vec::new(),
+            menu_cosmetic_thumbnail_indices: Vec::new(),
             settings_slider_drag_targets: Vec::new(),
             menu_scrolls: Default::default(),
             engine: None,

@@ -20,6 +20,26 @@ const FACE_MASK: u64 = 0x3f;
 /// Per-node state: bits 0..6 are exits already explored, this bit marks the node reached.
 const REACHED: u8 = 1 << 6;
 
+/// Exits of the node at `key` that lead away from, or level with, the `camera` node on
+/// every axis: Sodium's occlusion graph walk never steps back toward the camera's section.
+fn outward_exits(key: SubChunkKey, camera: SubChunkKey) -> u64 {
+    let mut mask = 0;
+    for face in Face::ALL {
+        let outward = match face {
+            Face::NegativeX => key.x <= camera.x,
+            Face::PositiveX => key.x >= camera.x,
+            Face::NegativeY => key.y <= camera.y,
+            Face::PositiveY => key.y >= camera.y,
+            Face::NegativeZ => key.z <= camera.z,
+            Face::PositiveZ => key.z >= camera.z,
+        };
+        if outward {
+            mask |= 1 << face as u64;
+        }
+    }
+    mask
+}
+
 /// Conservative face-connectivity BFS used before Bevy's per-entity frustum culling.
 #[must_use]
 pub(crate) fn cave_visible_sub_chunks(
@@ -59,12 +79,38 @@ pub struct CaveVisibilityScratch {
     camera_present: bool,
     added_visible: Vec<SubChunkKey>,
     work: CaveVisibilityWork,
+    /// The rule requested for the next update; see [`CaveVisibilityScratch::set_outward_only`].
+    outward_only: bool,
+    /// The rule the retained traversal was built with.
+    built_outward_only: bool,
 }
 
 impl CaveVisibilityScratch {
     /// Work counters exclude unchanged frames skipped by the caller.
     pub fn work(&self) -> CaveVisibilityWork {
         self.work
+    }
+
+    /// Selects Sodium's rule, which shader-pack cameras use to draw what Java Iris draws:
+    /// the traversal never steps back toward the camera's section on any axis, and only the
+    /// sections it reaches are visible. Otherwise every face-connected section is reached and
+    /// one loaded neighbour shell around them stays visible, so models never float over
+    /// hidden support. A change takes effect at the next update, which rebuilds.
+    pub fn set_outward_only(&mut self, outward_only: bool) {
+        self.outward_only = outward_only;
+    }
+
+    /// The rule the latest update used.
+    pub fn built_outward_only(&self) -> bool {
+        self.built_outward_only
+    }
+
+    /// Exits of the node at `key` the active rule lets the traversal leave through.
+    fn allowed_exits(&self, key: SubChunkKey) -> u64 {
+        match self.camera {
+            Some(camera) if self.built_outward_only => outward_exits(key, camera),
+            _ => FACE_MASK,
+        }
     }
 
     /// Dense id for `key`: its grid cell, or a slot past the cells for an overflow key.
@@ -118,7 +164,8 @@ impl CaveVisibilityScratch {
     }
 }
 
-/// Reuses traversal and output storage without changing portal or support-shell rules.
+/// Reuses traversal and output storage, rebuilding with the rule last selected through
+/// [`CaveVisibilityScratch::set_outward_only`].
 pub(crate) fn fill_visible(
     camera: SubChunkKey,
     grid: &ConnectivityGrid,
@@ -133,6 +180,7 @@ pub(crate) fn fill_visible(
     scratch.touched.clear();
     scratch.added_visible.clear();
     scratch.camera = Some(camera);
+    scratch.built_outward_only = scratch.outward_only;
     scratch.checkpoint = grid.checkpoint();
     scratch.camera_present = grid.contains_key(&camera);
     scratch.work = CaveVisibilityWork {
@@ -157,11 +205,16 @@ pub(crate) fn fill_visible(
     let cells = grid.cell_count() as u32;
     scratch.reach(cells, camera_node, touched_faces(camera_bits));
     propagate(grid, scratch);
-    // Visibility is per entity: retain exactly one loaded neighbour shell around reached nodes.
+    // Visibility is per entity: retain exactly one loaded neighbour shell around reached nodes,
+    // except under Sodium's rule, which shows only what it reaches.
+    let shell = !scratch.built_outward_only;
     for index in 0..scratch.touched.len() {
         let node = scratch.touched[index];
         let (key, _) = scratch.describe(grid, node);
         visible.insert(key);
+        if !shell {
+            continue;
+        }
         for face in Face::ALL {
             if let Some(neighbour) = adjacent(key, face)
                 && grid.contains_key(&neighbour)
@@ -191,7 +244,8 @@ fn propagate(grid: &ConnectivityGrid, scratch: &mut CaveVisibilityScratch) {
                 continue;
             };
             let entered = opposite(exit) as u64;
-            scratch.reach(cells, next_node, (next_bits >> (entered * 6)) & FACE_MASK);
+            let leaves = (next_bits >> (entered * 6)) & FACE_MASK & scratch.allowed_exits(next);
+            scratch.reach(cells, next_node, leaves);
         }
     }
 }

@@ -47,7 +47,12 @@ impl WorldAuthority {
     pub fn player_list_roster(&self) -> Vec<(std::sync::Arc<str>, std::sync::Arc<str>, [u8; 16])> {
         self.actors.player_list_roster()
     }
-    /// How many players are on the player list, without allocating.
+    /// Borrows a listed player's admitted skin without requiring a spawned actor.
+    pub fn player_list_skin(&self, uuid: &[u8; 16]) -> Option<&protocol::PlayerSkin> {
+        self.actors.player_list_skin(uuid)
+    }
+
+    /// Counts named players on the authoritative roster.
     pub fn player_count(&self) -> usize {
         self.actors.player_list_count()
     }
@@ -348,6 +353,13 @@ impl WorldAuthority {
     /// Full-body pose for HUD rendering, independent of the local first-person hand pose.
     pub fn actor_ui_pose(&self, runtime_id: u64) -> Option<&[actor_animation::BoneTransform]> {
         self.actors.actor_ui_pose(runtime_id)
+    }
+    /// Full-body controller layers paired with the actor's UI pose.
+    pub fn actor_ui_layers(
+        &self,
+        runtime_id: u64,
+    ) -> Option<actor_animation::ActorRenderLayers<'_>> {
+        self.actors.actor_ui_layers(runtime_id)
     }
     /// The rig's pose at the frame fraction with `targets` replacing their joints in model space;
     /// other bones keep their animated offsets from their parents.

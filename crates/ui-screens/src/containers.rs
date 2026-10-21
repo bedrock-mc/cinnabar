@@ -7,10 +7,7 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use json_ui::{
-    CollectionItem, DataSource, Draw, DrawNode, RectOut, Scalar, TextAlign, ViewState, hit_test,
-    press_region,
-};
+use json_ui::{CollectionItem, DataSource, Scalar, ViewState, hit_test, press_region};
 use protocol::NetworkItemStack;
 use serde_json::Value;
 use ui::IconRef;
@@ -31,8 +28,10 @@ use inventory::inventory_ledger::InventoryTarget;
 /// First UI inventory slot of the personal 2x2 and the workbench 3x3 grids.
 const PERSONAL_CRAFT_SLOT: u8 = 28;
 const WORKBENCH_CRAFT_SLOT: u8 = 32;
-/// A clip wide enough to never cut the held stack (virtual px).
-const UNCLIPPED: f64 = 1.0e5;
+mod held_stack;
+#[cfg(test)]
+mod held_stack_tests;
+use held_stack::held_stack;
 
 /// Which screen the engine drew, for mapping its cells back to ledger targets.
 #[derive(Clone, Copy, Debug)]
@@ -92,10 +91,12 @@ impl ScreenLayout {
         else {
             return widget();
         };
+        if let Some(player) = player_cell(collection, index) {
+            return Some(player);
+        }
         let small = u8::try_from(index).ok();
         Some(match collection {
-            "inventory_items" => InventoryCellHit::Player(small?.checked_add(9)?),
-            "hotbar_items" => InventoryCellHit::Player(small?),
+            "inventory_items" | "hotbar_items" => return None,
             "armor_items" => InventoryCellHit::Armor(small?),
             "offhand_items" => InventoryCellHit::Offhand,
             "crafting_input_items" => {
@@ -110,6 +111,17 @@ impl ScreenLayout {
                 _ => return widget(),
             },
         })
+    }
+}
+
+/// The player inventory slot that row `index` of the `inventory_items` or `hotbar_items` rows
+/// shows; `None` for any other collection.
+pub fn player_cell(collection: &str, index: usize) -> Option<InventoryCellHit> {
+    let index = u8::try_from(index).ok()?;
+    match collection {
+        "inventory_items" => Some(InventoryCellHit::Player(index.checked_add(9)?)),
+        "hotbar_items" => Some(InventoryCellHit::Player(index)),
+        _ => None,
     }
 }
 
@@ -247,6 +259,7 @@ impl ContainerScreen {
         let overlay = held_stack(
             source.player().inventory.ledger().cursor_stack(),
             items.cursor_icon,
+            items.cursor_durability,
             pointer,
             &mut icons,
         );
@@ -601,7 +614,10 @@ impl Cells<'_> {
         }
         let count = stack.map_or(0, |stack| stack.count);
         let name = stack
-            .and_then(|stack| self.names.get(&(stack.network_id, stack.metadata)))
+            .and_then(|stack| {
+                protocol::item_custom_name(&stack.extra_data)
+                    .or_else(|| self.names.get(&(stack.network_id, stack.metadata)).cloned())
+            })
             .map_or_else(String::new, |name| name.to_string());
         item.with(
             "#inventory_stack_count",
@@ -772,11 +788,11 @@ pub fn screen_data(
 }
 
 #[cfg(test)]
-mod anvil_output_tests;
-#[cfg(test)]
 mod empty_cells_tests;
 #[cfg(test)]
 mod press_drop_tests;
+#[cfg(test)]
+mod station_output_tests;
 
 /// The stack, icon, and durability a station cell shows.
 fn station_cell<'a>(
@@ -803,6 +819,14 @@ fn station_cell<'a>(
             )
         }
         Cell::Output => {
+            if matches!(
+                ledger.window_kind(),
+                Some(protocol::WindowKind::Trade { .. })
+            ) {
+                return frame.recipe_output.map_or((None, None, None), |output| {
+                    (Some(&output.stack), output.icon, output.durability)
+                });
+            }
             let index = usize::from(protocol::CREATED_OUTPUT_SLOT);
             match (ledger.created_output_stack(), frame.recipe_output) {
                 // The anvil's result is the client's prediction until the server states one.
@@ -843,74 +867,6 @@ fn survival_globals(data: &mut DataSource, title: &str) {
         data.set_global(name, Scalar::Bool(value));
     }
     data.set_global("#crafting_label_text", Scalar::Text(title.to_owned()));
-}
-
-/// The held stack drawn under the pointer, above the screen.
-fn held_stack(
-    stack: Option<&NetworkItemStack>,
-    icon: Option<IconRef>,
-    pointer: Option<[f32; 2]>,
-    icons: &mut Vec<IconRef>,
-) -> Vec<DrawNode> {
-    let (Some(stack), Some(icon), Some(point)) = (stack, icon, pointer) else {
-        return Vec::new();
-    };
-    icons.push(icon);
-    let clip = RectOut {
-        x: -UNCLIPPED,
-        y: -UNCLIPPED,
-        w: UNCLIPPED * 2.0,
-        h: UNCLIPPED * 2.0,
-    };
-    let (x, y) = (f64::from(point[0]) - 8.0, f64::from(point[1]) - 8.0);
-    let node = |dest: RectOut, draw: Draw| DrawNode {
-        name: "held_item".to_owned(),
-        key: String::new(),
-        dest,
-        clip,
-        layer: i32::MAX,
-        alpha: 1.0,
-        anim: None,
-        draw,
-        gates: Vec::new(),
-    };
-    let mut nodes = vec![node(
-        RectOut {
-            x,
-            y,
-            w: 16.0,
-            h: 16.0,
-        },
-        Draw::Custom {
-            renderer: "inventory_item_renderer".to_owned(),
-            data: [(
-                "#item_renderer_data".to_owned(),
-                Value::from((icons.len() - 1) as u64),
-            )]
-            .into_iter()
-            .collect(),
-        },
-    )];
-    if stack.count > 1 {
-        nodes.push(node(
-            RectOut {
-                x,
-                y: y + 8.0,
-                w: 17.0,
-                h: 9.0,
-            },
-            Draw::Text {
-                text: stack.count.to_string(),
-                color: [255; 4],
-                shadow: true,
-                align: TextAlign::Right,
-                scale: 1.0,
-                localize: false,
-                options: Default::default(),
-            },
-        ));
-    }
-    nodes
 }
 
 #[cfg(test)]

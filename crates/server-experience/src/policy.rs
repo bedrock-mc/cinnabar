@@ -1,3 +1,4 @@
+// BEGIN GENERATED EXTENSION CONTRACT
 // Generated from crates/server-experience/schema/extension.json; do not edit.
 pub const MARKER_PATH: &str = "cinnabar/extension-offer.json";
 
@@ -96,3 +97,14 @@ pub const MAX_UI_VALUES: usize = 256;
 pub const MAX_UI_NUMBERS: usize = 4;
 
 pub const MAX_EDIT_TEXT_BYTES: usize = 512;
+// END GENERATED EXTENSION CONTRACT
+
+/// A local consent action; remote messages cannot create one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Choice {
+    Once,
+    Always,
+    Never,
+    Cancel,
+    Disable,
+}

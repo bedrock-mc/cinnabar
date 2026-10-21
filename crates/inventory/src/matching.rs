@@ -39,6 +39,17 @@ pub fn match_manual_grid(
     registry: &RecipeRegistrySnapshot,
     grid: &[ManualCraftCell<'_>; 4],
 ) -> ManualCraftMatch {
+    match_manual_grid_where(catalog, session, registry, grid, |_| true)
+}
+
+/// Applies player discovery before deriving a passive preview from ingredient matches.
+pub(crate) fn match_manual_grid_where(
+    catalog: &RecipeCatalog,
+    session: u64,
+    registry: &RecipeRegistrySnapshot,
+    grid: &[ManualCraftCell<'_>; 4],
+    allowed: impl Fn(&protocol::RecipeHandle) -> bool,
+) -> ManualCraftMatch {
     if session == 0 || catalog.session() != session || !catalog.is_available() {
         return ManualCraftMatch::Unavailable;
     }
@@ -54,6 +65,9 @@ pub fn match_manual_grid(
     });
     let mut unique = None;
     for handle in catalog.crafting_recipes() {
+        if !allowed(handle) {
+            continue;
+        }
         let recipe = handle.recipe();
         let Ok((output, _)) = validate_grid(recipe, &grid, |id| {
             binding_entry(registry.get(id).ok_or(ManualCraftError::Unsupported)?)

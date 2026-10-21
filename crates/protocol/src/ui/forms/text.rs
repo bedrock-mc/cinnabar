@@ -1,6 +1,7 @@
 //! Display text retains its wire shape until the presentation resolves it.
 
-use super::{MAX_UI_TEXT_BYTES, UnsupportedForm};
+use super::UnsupportedForm;
+use crate::ui::MAX_UI_TEXT_BYTES;
 use serde_json::{Map, Value};
 use std::{ops::Deref, sync::Arc};
 
@@ -23,7 +24,7 @@ impl Deref for FormText {
 }
 
 impl From<Arc<str>> for FormText {
-    /// Retains an already bounded literal label.
+    /// Retains a literal label without changing its contents.
     fn from(text: Arc<str>) -> Self {
         Self::Literal(text)
     }
@@ -57,7 +58,7 @@ pub(super) fn optional_text(
 /// Reads strings, boolean labels and structured text; other values display empty text.
 pub(super) fn text_value(value: &Value) -> Result<FormText, UnsupportedForm> {
     match value {
-        Value::String(_) => return literal_value(value).map(FormText::from),
+        Value::String(text) => return Ok(FormText::Literal(Arc::from(text.as_str()))),
         Value::Bool(value) => return Ok(if *value { "true" } else { "false" }.into()),
         Value::Object(_) => {}
         _ => return Ok("".into()),
@@ -65,11 +66,8 @@ pub(super) fn text_value(value: &Value) -> Result<FormText, UnsupportedForm> {
     let Some(rawtext) = value.get("rawtext") else {
         return Ok("".into());
     };
-    let json = form_text_document(rawtext).to_string();
-    if json.len() > MAX_UI_TEXT_BYTES {
-        return Err(UnsupportedForm::Limit);
-    }
-    match crate::parse_raw_text(&json) {
+    let json = form_text_document(rawtext, 0)?.to_string();
+    match crate::raw_text::parse_form_raw_text(&json) {
         Ok(document) => Ok(FormText::Raw(document)),
         Err(crate::UiPacketError::InvalidRawText) => Ok("".into()),
         Err(_) => Err(UnsupportedForm::Limit),
@@ -93,18 +91,26 @@ impl AsRef<str> for FormText {
 }
 
 /// Keeps recognized components before the bounded display parser validates the document.
-fn form_text_document(rawtext: &Value) -> Value {
+fn form_text_document(rawtext: &Value, depth: usize) -> Result<Value, UnsupportedForm> {
+    if depth > crate::MAX_RAW_TEXT_DEPTH {
+        return Err(UnsupportedForm::Limit);
+    }
     let parts = match rawtext {
-        Value::Array(parts) => Value::Array(parts.iter().map(form_text_component).collect()),
-        other => other.clone(),
+        Value::Array(parts) => Value::Array(
+            parts
+                .iter()
+                .map(|part| form_text_component(part, depth))
+                .collect::<Result<_, _>>()?,
+        ),
+        _ => Value::Null,
     };
-    serde_json::json!({"rawtext": parts})
+    Ok(serde_json::json!({"rawtext": parts}))
 }
 
 /// Normalizes component precedence, nested text and translation arguments, ignoring metadata.
-fn form_text_component(value: &Value) -> Value {
+fn form_text_component(value: &Value, depth: usize) -> Result<Value, UnsupportedForm> {
     let Some(object) = value.as_object() else {
-        return Value::Null;
+        return Ok(Value::Null);
     };
     if ["text", "translate", "selector"].iter().any(|key| {
         object
@@ -117,7 +123,7 @@ fn form_text_component(value: &Value) -> Value {
             .get("rawtext")
             .is_some_and(|value| !value.is_null() && !value.is_array())
     {
-        return Value::Null;
+        return Ok(Value::Null);
     }
     let main = if let Some(key) = object.get("translate").and_then(Value::as_str) {
         let mut component = serde_json::json!({"translate": key});
@@ -131,9 +137,9 @@ fn form_text_component(value: &Value) -> Value {
                         .collect(),
                 ),
                 Value::Object(parts) => {
-                    form_text_document(parts.get("rawtext").unwrap_or(&Value::Null))
+                    form_text_document(parts.get("rawtext").unwrap_or(&Value::Null), depth + 1)?
                 }
-                _ => return Value::Null,
+                _ => return Ok(Value::Null),
             };
             component
                 .as_object_mut()
@@ -150,7 +156,7 @@ fn form_text_component(value: &Value) -> Value {
             score.get("name").and_then(Value::as_str),
             score.get("objective").and_then(Value::as_str),
         ) else {
-            return Value::Null;
+            return Ok(Value::Null);
         };
         Some(serde_json::json!({"score":{"name":name,"objective":objective}}))
     } else {
@@ -159,10 +165,11 @@ fn form_text_component(value: &Value) -> Value {
     let nested = object
         .get("rawtext")
         .filter(|value| value.is_array())
-        .map(form_text_document);
-    match (main, nested) {
+        .map(|rawtext| form_text_document(rawtext, depth + 1))
+        .transpose()?;
+    Ok(match (main, nested) {
         (Some(main), Some(nested)) => serde_json::json!({"rawtext":[main,nested]}),
         (Some(component), None) | (None, Some(component)) => component,
         (None, None) => serde_json::json!({"text":""}),
-    }
+    })
 }

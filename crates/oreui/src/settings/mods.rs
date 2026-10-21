@@ -5,6 +5,7 @@ use super::super::transitions::resources::{Group, Listing, Mods};
 use super::super::widgets::Variant;
 use super::Content;
 mod permissions;
+mod update;
 use super::resources::{
     Face, accordion, actions, caption, card_with_summary, cards, empty, note, reveal,
 };
@@ -176,6 +177,7 @@ fn mod_card(
     let state = match (active, status) {
         (false, _) => "Ready to enable",
         (true, Some(Status::Running)) => "Running",
+        (true, Some(Status::NextJoin)) => "Ready for your next server join",
         (true, Some(Status::ReloadFailed(_))) => "Reload failed · previous instance running",
         (true, Some(Status::Failed(_))) => "Failed",
         (true, Some(Status::Starting) | None) => "Starting…",
@@ -203,6 +205,16 @@ fn mod_card(
         face,
         |content| {
             let available = interactive && !library.busy;
+            let update = library.updates.iter().find(|update| update.id == item.id);
+            let progress = library
+                .update_progress
+                .iter()
+                .find(|progress| progress.id == item.id);
+            if let Some(progress) = progress {
+                update::draw(content, progress)?;
+            } else if let Some(update) = update {
+                caption(content, &format!("Update available · {}", update.version))?;
+            }
             let toggle = if active {
                 (
                     "Disable",
@@ -217,6 +229,31 @@ fn mod_card(
                 )
             };
             let mut buttons = vec![toggle];
+            if update.is_some() || progress.is_some() {
+                let installable = item.metadata.update_url.is_some();
+                let updating = progress.is_some();
+                let label = if let Some(progress) = progress {
+                    progress.phase.label()
+                } else if installable {
+                    "Update"
+                } else {
+                    "View release"
+                };
+                let action = if installable {
+                    Action::Update(item.id)
+                } else {
+                    Action::OpenUpdate(item.id)
+                };
+                buttons.push((
+                    label,
+                    if installable {
+                        Variant::Primary
+                    } else {
+                        Variant::Secondary
+                    },
+                    (available && !updating).then_some(command(action)),
+                ));
+            }
             if active {
                 buttons.push((
                     "Reload",

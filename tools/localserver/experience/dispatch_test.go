@@ -203,6 +203,22 @@ func (f *hostFixture) waitTells(within time.Duration, want ...string) {
 	}
 }
 
+// waitData waits until the store holds want for exp at pos.
+func (f *hostFixture) waitData(exp string, pos BlockPos, want []byte) {
+	f.t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if got, ok := f.store.Data(exp, overworldKey(pos)); ok && slices.Equal(got, want) {
+			return
+		}
+		if time.Now().After(deadline) {
+			f.assertData(exp, pos, want)
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 // assertData checks the data that the store holds for exp at pos.
 func (f *hostFixture) assertData(exp string, pos BlockPos, want []byte) {
 	f.t.Helper()

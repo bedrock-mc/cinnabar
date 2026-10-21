@@ -85,6 +85,7 @@ pub(crate) fn drive_gameplay_touch_targets(
     presentation: Option<ResMut<UiPresentationResource>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut state: Local<TouchControlState>,
+    world: Option<Res<crate::runtime::world::ClientWorld>>,
 ) {
     targets.release_all();
     // Every event is consumed each frame, so none replays once gameplay regains input.
@@ -122,7 +123,11 @@ pub(crate) fn drive_gameplay_touch_targets(
         Ok(frame) => frame,
         Err(hit_id) => {
             if hit_id == touch::INVENTORY {
-                let _ = ui.toggle_inventory(&mut player);
+                let authority = world
+                    .as_deref()
+                    .and_then(|world| world.stream.as_ref())
+                    .map(|stream| stream.authority());
+                let _ = ui.toggle_inventory(&mut player, authority);
             } else if let Some(menu) = menu.as_mut() {
                 menu.open_pause();
             }

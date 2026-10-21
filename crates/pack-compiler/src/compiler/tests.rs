@@ -8,6 +8,8 @@ use assets::{RegistryRecord, TILE_SIZE, VisualKind, VisualSupport};
 
 #[path = "tests/anvil.rs"]
 mod anvil;
+#[path = "tests/authored_models.rs"]
+mod authored_models;
 #[path = "tests/barrel.rs"]
 pub(crate) mod barrel;
 #[path = "tests/brewing_stand.rs"]
@@ -18,6 +20,10 @@ mod bubble_column;
 mod campfire;
 #[path = "tests/candle_cake.rs"]
 mod candle_cake;
+#[path = "tests/command_block.rs"]
+mod command_block;
+#[path = "tests/component_cross.rs"]
+mod component_cross;
 #[path = "tests/coral.rs"]
 mod coral;
 #[path = "tests/crop_families.rs"]
@@ -28,6 +34,8 @@ mod crops;
 mod dragon_egg;
 #[path = "tests/end_rod.rs"]
 mod end_rod;
+#[path = "tests/flowerbed.rs"]
+mod flowerbed;
 #[path = "tests/grass_side_mips.rs"]
 mod grass_side_mips;
 #[path = "tests/grindstone.rs"]

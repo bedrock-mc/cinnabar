@@ -137,6 +137,7 @@ const fn diagnostic_visual() -> BlockVisual {
 }
 
 pub struct RuntimeAssets {
+    carrier_identity: Option<[u8; 32]>,
     visuals: Box<[BlockVisual]>,
     light_properties: Box<[LightProperties]>,
     hashed: hashed_ids::HashedIds,
@@ -203,6 +204,7 @@ impl RuntimeAssets {
             overlay_page_layer_counts: Box::new([]),
             biomes: CompiledBiomeAssets::diagnostic(),
             provenance: BlobProvenance::ZEROED,
+            carrier_identity: None,
             missing: AtomicU64::new(0),
         }
     }
@@ -406,6 +408,11 @@ impl RuntimeAssets {
             .binary_search_by_key(&template, |entry| entry.0)
             .ok()
             .map(|index| self.model_random_offsets[index].1)
+            .or_else(|| {
+                let model = self.model_templates.get(template as usize)?;
+                (model.flags & crate::model::MODEL_TEMPLATE_FLAG_SHORT_GRASS != 0)
+                    .then_some(block_transform::random_offset::SHORT_GRASS)
+            })
     }
 
     #[must_use]
@@ -457,6 +464,11 @@ impl RuntimeAssets {
     #[must_use]
     pub const fn biome_assets(&self) -> &CompiledBiomeAssets {
         &self.biomes
+    }
+
+    /// Returns the validated carrier identity; synthetic and composed assets have none.
+    pub const fn carrier_identity(&self) -> Option<[u8; 32]> {
+        self.carrier_identity
     }
 
     /// Returns the exact source identities embedded by the compiler: the

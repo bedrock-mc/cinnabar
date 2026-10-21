@@ -49,14 +49,13 @@ pub(crate) fn nametags_after_smaa(
     };
     let gamma =
         crate::chunk::transparent::gamma_pass::admitted(camera.hdr, *msaa, enhanced.is_some());
-    for (range, deferred) in
+    let mut ranges =
         crate::chunk::transparent::gamma_pass::contiguous_ranges(phase.items.values(), |item| {
             crate::nametag_render::deferred_by_world_filter(true, Some(draw), item.draw_function())
         })
-    {
-        if !deferred {
-            continue;
-        }
+        .filter_map(|(range, deferred)| deferred.then_some(range))
+        .peekable();
+    if ranges.peek().is_some() {
         let attachments = [Some(scene.color_attachment(target, gamma))];
         let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
             label: Some("world text after spatial anti-aliasing"),
@@ -80,7 +79,9 @@ pub(crate) fn nametags_after_smaa(
             };
             pass.set_camera_viewport(&viewport);
         }
-        phase.render_range(&mut pass, world, view_entity, range)?;
+        for range in ranges {
+            phase.render_range(&mut pass, world, view_entity, range)?;
+        }
     }
     Ok(())
 }

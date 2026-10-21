@@ -66,14 +66,12 @@ pub(super) fn observe(path: &Path) -> Observation {
     }
 }
 
-/// Captures source bytes and authority together so admission never rereads a changed file.
+/// Captures immutable guest and presentation bytes together with a bounded settings observation.
 pub(super) fn source_snapshot(registration: Entry) -> Result<SourceSnapshot, String> {
     let mut digest = Sha256::new();
     digest.update(serde_json::to_vec(&registration).map_err(|error| error.to_string())?);
-    let component = read_bounded_source(
-        &registration.component,
-        mod_host::MAX_COMPONENT_SOURCE_BYTES,
-    )?;
+    let component = mod_host::read_source(&registration.component)
+        .map_err(|error| format!("Mod could not be read: {error}"))?;
     digest.update(Sha256::digest(&component));
     let font = if registration.grants.controls {
         registration
@@ -99,12 +97,19 @@ pub(super) fn source_snapshot(registration: Entry) -> Result<SourceSnapshot, Str
     if let Some(ui) = &ui {
         digest.update(Sha256::digest(ui));
     }
+    let settings = crate::modding::admission::settings_seed(
+        registration.grants.settings,
+        None,
+        &registration.component,
+    );
     Ok(SourceSnapshot {
         registration,
+        drawing: None,
         identity: digest.finalize().into(),
         component,
         font,
         ui,
+        settings,
     })
 }
 

@@ -24,6 +24,11 @@ pub const ANVIL_MATERIAL_SLOT: u8 = 2;
 /// The craft action a screen's result take is announced with.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ScreenCraft {
+    Trade {
+        recipe_network_id: u32,
+        output: protocol::NetworkItemStack,
+        consumed: [u16; 2],
+    },
     /// Anvil result; `rename` is the typed item name, if any. `output` supplies a prediction
     /// when no server result exists; `material_used` is its second-input consumption.
     Anvil {
@@ -53,6 +58,10 @@ pub enum ScreenCraft {
 impl ScreenCraft {
     const fn kinds(&self) -> &'static [WindowKind] {
         match self {
+            Self::Trade { .. } => &[
+                WindowKind::Trade { modern: true },
+                WindowKind::Trade { modern: false },
+            ],
             Self::Anvil { .. } => &[WindowKind::Anvil],
             Self::Grindstone { .. } => &[WindowKind::Grindstone],
             Self::Loom { .. } => &[WindowKind::Loom],
@@ -65,16 +74,45 @@ impl ScreenCraft {
     }
 }
 
-/// The UI input slots one screen consumes when its result is taken.
-const fn input_slots(kind: WindowKind) -> &'static [u8] {
-    match kind {
-        WindowKind::Anvil => &[ANVIL_TARGET_SLOT, ANVIL_MATERIAL_SLOT],
-        WindowKind::Grindstone => &[16, 17],
-        WindowKind::Loom => &[9, 10, 11],
-        WindowKind::Stonecutter => &[3],
-        WindowKind::Smithing => &[51, 52, 53],
-        WindowKind::Cartography => &[12, 13],
-        _ => &[],
+/// Temporary inputs and the ordinary manager's distinct network projection.
+#[derive(Clone, Copy)]
+pub(super) struct ScreenInputs {
+    pub(super) slots: &'static [u8],
+    pub(super) ordinary_inputs: usize,
+    pub(super) ordinary_extent: usize,
+}
+
+/// Declares each screen's inputs once, including ignored ordinary network cells.
+pub(super) const fn input_layout(kind: WindowKind) -> Option<ScreenInputs> {
+    let (slots, preview, ignored_tail): (&'static [u8], bool, usize) = match kind {
+        WindowKind::Trade { modern: true } => (&protocol::MODERN_TRADE_SLOTS, true, 0),
+        WindowKind::Trade { modern: false } => (&protocol::LEGACY_TRADE_SLOTS, true, 0),
+        WindowKind::Anvil => (&[ANVIL_TARGET_SLOT, ANVIL_MATERIAL_SLOT], true, 0),
+        WindowKind::Grindstone => (&[16, 17], true, 0),
+        WindowKind::Loom => (&[9, 10, 11], true, 0),
+        WindowKind::Stonecutter => (&[3], true, 0),
+        // The template is returnable, but incoming ordinary traffic does not write it.
+        WindowKind::Smithing => (&[51, 52, 53], true, 1),
+        WindowKind::Cartography => (&[12, 13], true, 0),
+        WindowKind::Enchanting => (&[ENCHANT_INPUT_SLOT, ENCHANT_INPUT_SLOT + 1], false, 0),
+        WindowKind::Beacon => (&[BEACON_PAYMENT_SLOT], false, 0),
+        // Workbench cells use UI traffic; its ordinary manager has no writable cells.
+        WindowKind::Workbench => (&[], false, 0),
+        _ => return None,
+    };
+    let ordinary_inputs = slots.len() - ignored_tail;
+    Some(ScreenInputs {
+        slots,
+        ordinary_inputs,
+        ordinary_extent: ordinary_inputs + preview as usize,
+    })
+}
+
+/// The temporary UI input slots owned by one screen, excluding its crafting grid.
+pub(super) const fn input_slots(kind: WindowKind) -> &'static [u8] {
+    match input_layout(kind) {
+        Some(layout) => layout.slots,
+        None => &[],
     }
 }
 
@@ -90,8 +128,7 @@ const fn consume_amount(slot: u8, count: u16) -> u16 {
 }
 
 impl PlayerInventoryLedger {
-    /// Selects an offered enchanting option for the input item. The server
-    /// charges levels and lapis and restates the cells, so nothing is predicted.
+    /// Selects an offered enchanting option without predicting its item mutation.
     pub fn begin_enchant(&mut self, option_network_id: u32) -> Result<i32, InventoryGestureError> {
         let personal_generation = self.gesture_preflight(true)?;
         if self.window_kind() != Some(WindowKind::Enchanting) {
@@ -178,7 +215,8 @@ impl PlayerInventoryLedger {
         let request_id = self.peek_request_id()?;
         let predicted_distinct = matches!(
             craft,
-            ScreenCraft::Predicted { .. }
+            ScreenCraft::Trade { .. }
+                | ScreenCraft::Predicted { .. }
                 | ScreenCraft::Loom { .. }
                 | ScreenCraft::Anvil {
                     output: Some(_),
@@ -207,6 +245,7 @@ impl PlayerInventoryLedger {
                 };
                 let held = Held {
                     source_stack_id: Some(stack.stack_network_id),
+                    source_origin: None,
                     stack,
                     overlay: None,
                     acknowledged_request_id: None,
@@ -216,12 +255,14 @@ impl PlayerInventoryLedger {
             ScreenCraft::Anvil {
                 output: Some(output),
                 ..
-            } => {
+            }
+            | ScreenCraft::Trade { output, .. } => {
                 let mut stack = output.clone();
                 stack.stack_network_id = request_id;
                 stack.nbt_digest = Sha256::digest(&stack.extra_data).into();
                 let held = Held {
                     source_stack_id: Some(stack.stack_network_id),
+                    source_origin: None,
                     stack,
                     overlay: None,
                     acknowledged_request_id: None,
@@ -246,6 +287,7 @@ impl PlayerInventoryLedger {
                 stack.nbt_digest = Sha256::digest([]).into();
                 let held = Held {
                     source_stack_id: Some(stack.stack_network_id),
+                    source_origin: None,
                     stack,
                     overlay: None,
                     acknowledged_request_id: None,
@@ -308,6 +350,9 @@ impl PlayerInventoryLedger {
                 Vec::new(),
             ),
             ScreenCraft::Recipe { recipe_network_id }
+            | ScreenCraft::Trade {
+                recipe_network_id, ..
+            }
             | ScreenCraft::Predicted {
                 recipe_network_id, ..
             } => (
@@ -329,6 +374,12 @@ impl PlayerInventoryLedger {
                 continue;
             };
             let amount = match craft {
+                ScreenCraft::Trade { consumed, .. } => {
+                    consumed[input_slots(kind)
+                        .iter()
+                        .position(|input| input == slot)
+                        .expect("trade input")]
+                }
                 ScreenCraft::Anvil {
                     output: Some(_),
                     material_used,

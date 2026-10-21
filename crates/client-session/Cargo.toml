@@ -9,18 +9,22 @@ publish = false
 test-support = []
 
 [dependencies]
+render-api = { path = "../render-api" }
 simulation-clock = { path = "../simulation-clock" }
 bridge = { path = "../bridge" }
-crash-report = { path = "../crash-report" }
 crossbeam-channel = "0.5"
 bytes.workspace = true
 protocol = { path = "../protocol" }
-server-experience = { path = "../server-experience" }
+server-experience = { path = "../server-experience", default-features = false }
 serde_json = "1"
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+web-time.workspace = true
 world = { path = "../world" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+crash-report = { path = "../crash-report" }
 
 [dev-dependencies]
 protocol-ids = { path = "../protocol-ids" }

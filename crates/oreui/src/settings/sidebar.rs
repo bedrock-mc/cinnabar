@@ -13,6 +13,9 @@ use ui::IconRef;
 use ui_engine::engine::screen::PaintError;
 use ui_engine::engine::screen::Translate;
 
+/// Height of one group label, excluding its divider.
+const GROUP_HEIGHT: f32 = 4.8;
+
 /// One sidebar category; installed `art` is drawn when present, else the pixel `fill` and
 /// `glyph`.
 struct Tab {
@@ -37,6 +40,7 @@ enum Glyph {
     Shelves,
     Puzzle,
     Chat,
+    Download,
 }
 
 /// Adds OreUI artwork to the shared section metadata.
@@ -70,6 +74,7 @@ const fn tab(section: launcher::menu::settings_sections::SettingSection) -> Tab 
             Glyph::Grid,
             Some("options.general"),
         ),
+        Updates => (None, [64, 113, 78], Glyph::Download, None),
         Video => (
             Some(SETTINGS_ICONS[6]),
             [193, 142, 62],
@@ -79,6 +84,7 @@ const fn tab(section: launcher::menu::settings_sections::SettingSection) -> Tab 
         Sound => (Some(SETTINGS_ICONS[7]), [141, 90, 59], Glyph::Grid, None),
         Account => (Some(SETTINGS_ICONS[8]), [121, 76, 45], Glyph::Face, None),
         GlobalTexturePack => (Some(SETTINGS_ICONS[9]), [159, 108, 44], Glyph::Chest, None),
+        Shaders => (None, [193, 142, 62], Glyph::Landscape, None),
         Mods => (None, [112, 76, 160], Glyph::Puzzle, None),
         StorageManagement => (
             Some(SETTINGS_ICONS[10]),
@@ -88,6 +94,7 @@ const fn tab(section: launcher::menu::settings_sections::SettingSection) -> Tab 
         ),
         Language => (Some(SETTINGS_ICONS[11]), [55, 110, 187], Glyph::Grid, None),
         Creator => (Some(SETTINGS_ICONS[12]), [159, 105, 65], Glyph::Grid, None),
+        Server => (None, [65, 99, 216], Glyph::Grid, None),
         _ => panic!("visible settings section needs artwork"),
     };
     let definition = section.definition();
@@ -150,16 +157,26 @@ pub(super) fn draw(
         true,
     )?;
     canvas.focus_delegate(
-        Some(MenuAction::SettingsSection(if view.settings_section == 0 {
+        Some(MenuAction::SettingsSection(if view.settings.section == 0 {
             section_index(TABS[0].section)
         } else {
-            view.settings_section
+            view.settings.section
         })),
         None,
     );
     let right = viewport[2] - canvas.r(1.6);
     let width = (right - viewport[0] - canvas.r(6.4)).max(1.0);
-    let labels: Vec<_> = TABS
+    let tabs: Vec<_> = TABS
+        .iter()
+        .filter(|tab| {
+            tab.section
+                != launcher::menu::settings_sections::SettingSection::Server
+                    .definition()
+                    .name
+                || view.over_world
+        })
+        .collect();
+    let labels: Vec<_> = tabs
         .iter()
         .map(|Tab { title: key, .. }| {
             translate(key).map_or_else(
@@ -176,7 +193,8 @@ pub(super) fn draw(
                 .map(|height| canvas.r(4.8).max(height + canvas.r(1.6)))
         })
         .collect::<Result<_, _>>()?;
-    let content = heights.iter().sum::<f32>() + canvas.r(1.6 + 3.0 * (4.8 + EDGE));
+    let groups = tabs.iter().filter(|tab| tab.group.is_some()).count() as f32;
+    let content = heights.iter().sum::<f32>() + canvas.r(1.6 + groups * (GROUP_HEIGHT + EDGE));
     let max = (content - (viewport[3] - viewport[1])).max(0.0);
     let key = "oreui_settings_sidebar";
     if let Some(offset) = canvas.offsets.get_mut(key) {
@@ -185,7 +203,7 @@ pub(super) fn draw(
     let scroll = canvas.begin_scroll(key, viewport)?;
     let mut y = viewport[1] + canvas.r(1.6) - scroll.offset;
     let mut focused_outline = None;
-    for (index, (tab, label)) in TABS.iter().zip(&labels).enumerate() {
+    for (index, (tab, label)) in tabs.iter().zip(&labels).enumerate() {
         let selector = tab.section;
         if let Some(group) = tab.group {
             let text = translate(group).map_or_else(
@@ -197,8 +215,8 @@ pub(super) fn draw(
         let action = MenuAction::SettingsSection(section_index(selector));
         let mut state = canvas.interaction(view, Some(action));
         state.pressed &= state.hovered;
-        let selected = view.settings_section == section_index(selector)
-            || view.settings_section == 0 && index == 0;
+        let selected = view.settings.section == section_index(selector)
+            || view.settings.section == 0 && index == 0;
         let row = [viewport[0], y, right, y + heights[index]];
         let motion = canvas.feedback(state, true, selected, Kind::Surface);
         row_background(canvas, row, motion)?;
@@ -253,7 +271,7 @@ fn group_label(
     span: [f32; 2],
     top: f32,
 ) -> Result<f32, PaintError> {
-    let bottom = top + canvas.r(4.8);
+    let bottom = top + canvas.r(GROUP_HEIGHT);
     let edge = canvas.r(EDGE);
     let pad = canvas.r(1.6);
     canvas.text_line(
@@ -351,6 +369,16 @@ fn icon(canvas: &mut Canvas<'_>, tab: &Tab, at: [f32; 2]) -> Result<(), PaintErr
             block(3.0, 4.0, 10.0, 5.0, [230, 230, 230, 255])?;
             block(4.0, 10.0, 4.0, 2.0, theme::BORDER)?;
             block(4.0, 10.0, 2.0, 1.0, [230, 230, 230, 255])?;
+        }
+        Glyph::Download => {
+            block(7.0, 2.0, 2.0, 7.0, TEXT)?;
+            block(4.0, 6.0, 2.0, 2.0, TEXT)?;
+            block(10.0, 6.0, 2.0, 2.0, TEXT)?;
+            block(6.0, 8.0, 4.0, 2.0, TEXT)?;
+            block(7.0, 10.0, 2.0, 1.0, TEXT)?;
+            block(3.0, 10.0, 2.0, 2.0, TEXT)?;
+            block(11.0, 10.0, 2.0, 2.0, TEXT)?;
+            block(3.0, 12.0, 10.0, 2.0, TEXT)?;
         }
         Glyph::Grid => {
             for row in 0..3 {

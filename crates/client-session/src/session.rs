@@ -1,24 +1,23 @@
 use protocol::identity::FifoSequence;
+use render_api::sub_chunk_requests::SubChunkRequestReceipt;
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 use std::{
     io::Write,
-    path::PathBuf,
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
     thread::{self, JoinHandle},
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use bytes::Bytes;
 use protocol::{
-    BlobCacheStats, ClientBlobCache, CustomBlocks, InventoryEvent, ItemRegistryEvent,
-    LoginSequence, Packet, PacketIdTraceSnapshot, PlayerGameMode, ServerDisconnectEvent,
-    WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent,
+    BlobCacheStats, CustomBlocks, InventoryEvent, ItemRegistryEvent, Packet, PacketIdTraceSnapshot,
+    PlayerGameMode, ServerDisconnectEvent, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent,
 };
 use tokio::sync::{mpsc, watch};
-use world::ChunkKey;
 
 use crate::SessionTrace;
 use protocol::{FastTransferAction, InteractionPacketGuard, PhysicsSendIdentity};
@@ -31,15 +30,16 @@ const COMMAND_CAPACITY: usize = 64;
 const FINAL_CONTROL_FLUSH_TIMEOUT: Duration = Duration::from_millis(250);
 const NETWORK_PUMP_TERMINAL_MARKER: &str = "CINNABAR_NETWORK_PUMP_TERMINAL";
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone)]
 pub struct NetworkConfig {
     pub session_generation: SessionGeneration,
-    pub socket_dir: PathBuf,
+    pub socket_dir: std::path::PathBuf,
     pub display_name: String,
     /// The user storage owner's opaque persisted login identifier.
     pub client_random_id: protocol::ClientRandomId,
     /// Verified blobs outlive a Play session; each login creates a fresh resolver around this cache.
-    pub client_blob_cache: ClientBlobCache,
+    pub client_blob_cache: protocol::ClientBlobCache,
     /// The client's own skin, uploaded in the ClientData login payload.
     pub player_skin: protocol::ClientSkin,
     /// The player's language, input mode and GUI scale, reported at login.
@@ -97,6 +97,7 @@ pub enum NetworkControlEvent<P = ()> {
         hardcore: bool,
         hud_rules: protocol::HudRules,
         death_rules: protocol::DeathRules,
+        crafting_rules: protocol::CraftingRules,
         packs: P,
         /// Whether the server sent terrain before spawn; Dragonfly sends none until initialized.
         terrain_before_spawn: bool,
@@ -104,9 +105,7 @@ pub enum NetworkControlEvent<P = ()> {
         level_identity: Option<u64>,
     },
     SubChunkRequestSent {
-        chunk: ChunkKey,
-        base_sub_chunk_y: i32,
-        count: usize,
+        receipt: SubChunkRequestReceipt,
         sent_at: Instant,
     },
     ChatPacketSent {
@@ -297,22 +296,17 @@ fn wrap_inbound_world_event(
 enum NetworkCommand {
     FinishLoading,
     /// Ends the frame: everything queued since the previous flush leaves as one batch.
-    FlushFrame,
+    FlushFrame {
+        cache_opportunity: bool,
+    },
     Send {
         packet: Packet,
-        sub_chunk: Option<SubChunkRequestSend>,
+        sub_chunk: Option<SubChunkRequestReceipt>,
         chat: Option<ChatPacketSend>,
         physics: Option<PhysicsSendIdentity>,
         physics_reanchor: Option<watch::Receiver<PositionAuthorityGeneration>>,
         interaction: Option<InteractionPacketGuard>,
     },
-}
-
-#[derive(Debug, Clone, Copy)]
-struct SubChunkRequestSend {
-    chunk: ChunkKey,
-    base_sub_chunk_y: i32,
-    count: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -384,10 +378,21 @@ impl<P> NetworkHandle<P> {
     }
 
     /// Ends the frame's batch without waiting for capacity or another frame.
-    /// A frame that accepted no commands sends nothing.
+    /// A clean frame submits only a retained simulation opportunity.
     pub fn flush_frame(&self) {
         let _ = self.flush_latency_reply();
-        self.unflushed.lock().expect("outbound frame lock").flush();
+        self.unflushed
+            .lock()
+            .expect("outbound frame lock")
+            .flush(&self.commands);
+    }
+
+    /// Records normal simulation progress independently of player movement and packet traffic.
+    pub fn advance_simulation(&self, elapsed: Duration) {
+        self.unflushed
+            .lock()
+            .expect("outbound frame lock")
+            .advance_simulation(elapsed);
     }
 
     /// A live Bevy app still owns a network resource while it is sitting at
@@ -549,31 +554,19 @@ impl<P> NetworkHandle<P> {
         )
     }
 
+    /// Queues one terrain request with the membership echoed after its successful write.
     pub fn send_sub_chunk_request(
         &self,
-        chunk: ChunkKey,
-        base_sub_chunk_y: i32,
-        count: usize,
+        receipt: SubChunkRequestReceipt,
         packet: Packet,
     ) -> Result<(), PacketSendError> {
-        self.send_packet_with_confirmation(
-            packet,
-            Some(SubChunkRequestSend {
-                chunk,
-                base_sub_chunk_y,
-                count,
-            }),
-            None,
-            None,
-            None,
-            None,
-        )
+        self.send_packet_with_confirmation(packet, Some(receipt), None, None, None, None)
     }
 
     fn send_packet_with_confirmation(
         &self,
         packet: Packet,
-        sub_chunk: Option<SubChunkRequestSend>,
+        sub_chunk: Option<SubChunkRequestReceipt>,
         chat: Option<ChatPacketSend>,
         physics: Option<PhysicsSendIdentity>,
         physics_reanchor: Option<watch::Receiver<PositionAuthorityGeneration>>,
@@ -664,11 +657,15 @@ impl<P> Drop for NetworkHandle<P> {
     }
 }
 
+pub(crate) mod execution;
 mod start;
+pub use execution::{NetworkExecutor, SessionRead};
+#[cfg(not(target_arch = "wasm32"))]
 pub use start::spawn_network;
+pub use start::{PreparedLogin, prepare_network};
 
 /// The inbound half of a play session; its write half runs on its own task.
-trait NetworkSession: Send {
+trait NetworkSession: execution::SessionOwner {
     type Error: std::fmt::Display + Send;
     type Outbound: OutboundSession;
 
@@ -678,12 +675,12 @@ trait NetworkSession: Send {
     fn receive_world_event(
         &mut self,
         current_dimension: i32,
-    ) -> impl Future<Output = Result<WorldEvent, Self::Error>> + Send;
+    ) -> impl execution::SessionFuture<Output = Result<WorldEvent, Self::Error>>;
 
     fn receive_world_ingress(
         &mut self,
         current_dimension: i32,
-    ) -> impl Future<Output = Result<InboundWorldEvent, Self::Error>> + Send {
+    ) -> impl execution::SessionFuture<Output = Result<InboundWorldEvent, Self::Error>> {
         async move {
             self.receive_world_event(current_dimension)
                 .await
@@ -694,13 +691,13 @@ trait NetworkSession: Send {
     fn decode_error_count(&self) -> u64;
 
     /// Buffers bounded raw input without decoding world events while their consumer is full.
-    fn read_ahead(&mut self) -> impl Future<Output = ()> + Send {
+    fn read_ahead(&mut self) -> impl execution::SessionFuture<Output = ()> {
         std::future::pending()
     }
 
     /// Reads inbound until it ends, so a Transfer or Disconnect the core sent before closing is
     /// retained when a write fails first; the caller bounds the wait.
-    fn drain_to_boundary(&mut self) -> impl Future<Output = ()> + Send {
+    fn drain_to_boundary(&mut self) -> impl execution::SessionFuture<Output = ()> {
         async move { while self.receive_world_ingress(0).await.is_ok() {} }
     }
 
@@ -736,7 +733,7 @@ trait NetworkSession: Send {
     }
 }
 
-impl NetworkSession for protocol::PlaySession {
+impl<R: execution::SessionRead> NetworkSession for protocol::PlaySession<R> {
     type Error = protocol::ProtocolError;
     type Outbound = protocol::PlayOutbound;
 
@@ -747,14 +744,14 @@ impl NetworkSession for protocol::PlaySession {
     fn receive_world_event(
         &mut self,
         current_dimension: i32,
-    ) -> impl Future<Output = Result<WorldEvent, Self::Error>> + Send {
+    ) -> impl execution::SessionFuture<Output = Result<WorldEvent, Self::Error>> {
         self.recv_world_event(current_dimension)
     }
 
     fn receive_world_ingress(
         &mut self,
         current_dimension: i32,
-    ) -> impl Future<Output = Result<InboundWorldEvent, Self::Error>> + Send {
+    ) -> impl execution::SessionFuture<Output = Result<InboundWorldEvent, Self::Error>> {
         self.recv_world_event_mapped(
             current_dimension,
             InboundWorldEvent::Event,
@@ -767,11 +764,11 @@ impl NetworkSession for protocol::PlaySession {
     }
 
     /// Reads into the play session's bounded raw transport buffer.
-    fn read_ahead(&mut self) -> impl Future<Output = ()> + Send {
+    fn read_ahead(&mut self) -> impl execution::SessionFuture<Output = ()> {
         protocol::PlaySession::read_ahead(self)
     }
 
-    fn drain_to_boundary(&mut self) -> impl Future<Output = ()> + Send {
+    fn drain_to_boundary(&mut self) -> impl execution::SessionFuture<Output = ()> {
         protocol::PlaySession::drain_to_boundary(self)
     }
 
@@ -923,6 +920,7 @@ mod frame_flush;
 pub(crate) mod handle_state;
 mod latency_reply;
 mod outbound;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod packet_log;
 use bootstrap::{send_startup_failure, start_game_inventory_authority, start_game_item_registry};
 use outbound::*;

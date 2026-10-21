@@ -8,6 +8,7 @@
     <uses-feature android:name="android.hardware.vulkan.version" android:version="0x400003" android:required="true" />
     <application
         android:label="@PRODUCT_NAME@"
+        android:icon="@mipmap/ic_launcher"
         android:hasCode="true"
         android:allowBackup="false"
         android:extractNativeLibs="true"

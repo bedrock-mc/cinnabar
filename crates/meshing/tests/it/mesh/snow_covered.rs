@@ -56,7 +56,26 @@ fn covered_snow_keeps_all_five_observed_plant_families_on_every_height() {
                         .find(|reference| reference.words()[1] == plant_template)
                         .expect("covered plant survives as its own crossed model");
                     assert_eq!(plant_ref.words()[3], 0b11);
-                    assert_eq!(plant_ref.words()[0], 8 | (8 << 4) | (8 << 8));
+                    let offset = fixture.assets.model_random_offset(plant_template);
+                    let transform = 8 | (8 << 4) | (8 << 8);
+                    assert_eq!(
+                        plant_ref.words()[0],
+                        transform
+                            | if offset.is_some() {
+                                meshing::MODEL_REF_FLAG_RANDOM_OFFSET
+                            } else {
+                                0
+                            }
+                    );
+                    if let Some(offset) = offset {
+                        let base = plant_ref.words()[2] as usize;
+                        assert_eq!(
+                            meshing::PackedQuadLighting::offset_from_prefix(
+                                mesh.model_lighting()[base - 2..base].try_into().unwrap()
+                            ),
+                            offset.offset([8; 3])
+                        );
+                    }
                     assert_eq!(
                         mesh.cube_quads().len(),
                         if expected_models == 1 { 6 } else { 0 }

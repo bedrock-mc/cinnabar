@@ -1,4 +1,5 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 use assets::facts::entity::NativeEntityClass;
 use protocol::ActorBlockSyncMessage;

@@ -40,51 +40,52 @@ pub(super) fn toolbar(
         TEXT,
     )?;
     let description_height = canvas.text(
-        "Choose your skin and cape.",
+        "Choose your skin, cape and cosmetics.",
         [left, y + canvas.r(3.0)],
         width - canvas.r(16.0),
         CAPTION,
         TEXT_DIMMER,
         false,
     )?;
-    let import_bounds = [right - canvas.r(14.8), y, right, y + canvas.r(4.4)];
-    let import_action = command(if cape_tab {
-        Action::ImportCape
-    } else {
-        Action::Import
-    });
-    let interaction = canvas.interaction(view, Some(import_action));
-    widgets::button_face(
-        canvas,
-        import_bounds,
-        Variant::Primary,
-        if cape_tab {
-            "+ Import cape"
+    if view.dressing_room.section != DressingRoomSection::Cosmetics {
+        let import_bounds = [right - canvas.r(14.8), y, right, y + canvas.r(4.4)];
+        let import_action = command(if cape_tab {
+            Action::ImportCape
         } else {
-            "+ Import skin"
-        },
-        interaction,
-        true,
-    )?;
-    if enabled(view) {
-        canvas.hit(import_action, import_bounds)?;
+            Action::Import
+        });
+        let interaction = canvas.interaction(view, Some(import_action));
+        widgets::button_face(
+            canvas,
+            import_bounds,
+            Variant::Primary,
+            if cape_tab {
+                "+ Import cape"
+            } else {
+                "+ Import skin"
+            },
+            interaction,
+            true,
+        )?;
+        if enabled(view) {
+            canvas.hit(import_action, import_bounds)?;
+        }
     }
     y += canvas.r(6.0).max(canvas.r(4.4) + description_height);
     widgets::tabs(
         canvas,
         view,
         [left, y, right, y + canvas.r(4.4)],
-        &[
+        &DressingRoomSection::ALL.map(|section| {
             (
-                "Skins",
-                enabled(view).then_some(command(Action::SetSection(DressingRoomSection::Skins))),
-            ),
-            (
-                "Capes",
-                enabled(view).then_some(command(Action::SetSection(DressingRoomSection::Capes))),
-            ),
-        ],
-        usize::from(cape_tab),
+                section.label(),
+                enabled(view).then_some(command(Action::SetSection(section))),
+            )
+        }),
+        DressingRoomSection::ALL
+            .iter()
+            .position(|section| *section == view.dressing_room.section)
+            .unwrap_or_default(),
     )?;
     y += canvas.r(6.2);
     Ok(y)
@@ -97,9 +98,7 @@ pub(super) fn collection(
     viewport: Bounds,
     preview: &mut PreviewArea,
 ) -> Result<f32, PaintError> {
-    let entrance = canvas.begin_entrance(Surface::Wardrobe(
-        view.dressing_room.section == DressingRoomSection::Capes,
-    ));
+    let entrance = canvas.begin_entrance(Surface::Wardrobe(view.dressing_room.section));
     let [left, mut y, right, _] = b;
     let width = right - left;
     let cape_tab = view.dressing_room.section == DressingRoomSection::Capes;
@@ -118,6 +117,11 @@ pub(super) fn collection(
             false,
         )?;
         y = note[3] + space(canvas, 4);
+    }
+    if view.dressing_room.section == DressingRoomSection::Cosmetics {
+        let end = super::hats::collection(canvas, view, [left, y, right, b[3]], viewport, preview)?;
+        canvas.end_entrance(entrance, [viewport[2], viewport[3]])?;
+        return Ok(end);
     }
     if cape_tab {
         let no_cape = [left, y, right, y + canvas.r(5.8)];
@@ -423,7 +427,11 @@ fn card(
     Ok(())
 }
 
-fn thumbnail(canvas: &mut Canvas<'_>, icon: IconRef, b: Bounds) -> Result<(), PaintError> {
+pub(super) fn thumbnail(
+    canvas: &mut Canvas<'_>,
+    icon: IconRef,
+    b: Bounds,
+) -> Result<(), PaintError> {
     let width = (icon.uv[2] - icon.uv[0]) as f32;
     let height = (icon.uv[3] - icon.uv[1]) as f32;
     let scale = ((b[2] - b[0]) / width).min((b[3] - b[1]) / height);

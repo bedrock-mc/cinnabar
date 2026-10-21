@@ -7,14 +7,13 @@ use std::sync::Arc;
 
 use anyhow::{Result, bail};
 use serde::Serialize;
-use wasmtime::component::Resource;
-use wasmtime::{Engine, Store, Trap};
+use wasmtime::{Engine, Trap};
 
 use crate::hex::{self, HexError};
 use crate::host::cinnabar::experience_server::types::{
     self as wit, CallbackInfo, ChangeCause, GuestError, ValueNode, WorldError,
 };
-use crate::host::{HostState, LimitExceeded, Pre};
+use crate::host::{HostState, LimitExceeded};
 use crate::limits::{
     CALLBACK_DEADLINE, CALLBACK_FUEL, MAX_BLOCK_DATA_BYTES, MAX_CLIENT_SEND_BYTES,
     MAX_CLIENT_SENDS, MAX_HOST_CALLS, MAX_NETWORK_BLOCKS, MAX_NETWORK_DATA_BYTES,
@@ -49,7 +48,7 @@ pub fn run_metered(engine: &Engine, loaded: &Loaded, request: &Request) -> (Outc
             return (Outcome::Rejected { reason }, 0);
         }
     };
-    if let Some(missing) = unsupported(&loaded.pre, &export, res.focus.is_some()) {
+    if let Some(missing) = invoke::unsupported(&loaded.pre, &export, res.focus.is_some()) {
         let reason = format!(
             "malformed callback request: api {} has {missing}",
             loaded.manifest.api
@@ -61,7 +60,7 @@ pub fn run_metered(engine: &Engine, loaded: &Loaded, request: &Request) -> (Outc
         Ok(store) => store,
         Err(error) => return (failed(&error), 0),
     };
-    let outcome = match invoke(&mut store, loaded, res, &export) {
+    let outcome = match invoke::invoke(&mut store, loaded, res, &export) {
         Ok((Ok(()), ops)) => Outcome::Committed { ops },
         Ok((Err(GuestError::Rejected(reason) | GuestError::Failed(reason)), _)) => {
             Outcome::Rejected {
@@ -73,154 +72,6 @@ pub fn run_metered(engine: &Engine, loaded: &Loaded, request: &Request) -> (Outc
     // The store meters fuel, so it always reports what is left.
     let fuel = store.get_fuel().map_or(0, |left| CALLBACK_FUEL - left);
     (outcome, fuel)
-}
-
-/// Instantiates the guest in `store`, lends it `res` for one export call, and returns the
-/// export's result with the ops `res` staged. An error is a trap, or a failure to start.
-fn invoke(
-    store: &mut Store<HostState>,
-    loaded: &Loaded,
-    res: CallbackRes,
-    export: &Export<'_>,
-) -> Result<(Result<(), GuestError>, Vec<Op>)> {
-    let owned = store.data_mut().table.push(res)?;
-    // The guest only borrows the callback, for this call; the host keeps `owned`.
-    let ctx = Resource::new_borrow(owned.rep());
-    let result = match &loaded.pre {
-        Pre::V0_1(pre) => {
-            let server = pre.instantiate(&mut *store)?;
-            match export {
-                Export::Place(change) => server.call_on_place(&mut *store, ctx, change),
-                Export::Break(change) => server.call_on_break(&mut *store, ctx, change),
-                Export::Interact { player, pos, face } => {
-                    server.call_on_interact(&mut *store, ctx, player, *pos, *face)
-                }
-                Export::Neighbor { pos, neighbor } => {
-                    server.call_on_neighbor_changed(&mut *store, ctx, *pos, *neighbor)
-                }
-                // `run_metered` answers them without running anything.
-                Export::ClientMessage { .. } | Export::Epoch { .. } => {
-                    bail!("the 0.1 world has neither client-message nor epoch")
-                }
-            }
-        }
-        Pre::V0_2(pre) => {
-            let server = pre.instantiate(&mut *store)?;
-            match export {
-                Export::Place(change) => server.call_on_place(&mut *store, ctx, change),
-                Export::Break(change) => server.call_on_break(&mut *store, ctx, change),
-                Export::Interact { player, pos, face } => {
-                    server.call_on_interact(&mut *store, ctx, player, *pos, *face)
-                }
-                Export::Neighbor { pos, neighbor } => {
-                    server.call_on_neighbor_changed(&mut *store, ctx, *pos, *neighbor)
-                }
-                Export::ClientMessage {
-                    player,
-                    channel,
-                    schema,
-                    payload,
-                } => {
-                    // `run_metered` answers a payload with lists or records without running it.
-                    let Some(leaves) = payload
-                        .iter()
-                        .map(value::leaf_of)
-                        .collect::<Option<Vec<_>>>()
-                    else {
-                        bail!("the 0.2 world has no list or record values")
-                    };
-                    server.call_client_message(&mut *store, ctx, player, channel, *schema, &leaves)
-                }
-                Export::Epoch { .. } => bail!("the 0.2 world has no epoch"),
-            }
-        }
-        Pre::V0_3(pre) => {
-            let server = pre.instantiate(&mut *store)?;
-            match export {
-                Export::Place(change) => server.call_on_place(&mut *store, ctx, change),
-                Export::Break(change) => server.call_on_break(&mut *store, ctx, change),
-                Export::Interact { player, pos, face } => {
-                    server.call_on_interact(&mut *store, ctx, player, *pos, *face)
-                }
-                Export::Neighbor { pos, neighbor } => {
-                    server.call_on_neighbor_changed(&mut *store, ctx, *pos, *neighbor)
-                }
-                Export::ClientMessage {
-                    player,
-                    channel,
-                    schema,
-                    payload,
-                } => {
-                    let nodes = value::encode(payload);
-                    server.call_client_message(&mut *store, ctx, player, channel, *schema, &nodes)
-                }
-                Export::Epoch { player } => server.call_epoch(&mut *store, ctx, player),
-            }
-        }
-        Pre::V0_4(pre) => {
-            let server = pre.instantiate(&mut *store)?;
-            match export {
-                Export::Place(change) => server.call_on_place(&mut *store, ctx, change),
-                Export::Break(change) => server.call_on_break(&mut *store, ctx, change),
-                Export::Interact { player, pos, face } => {
-                    server.call_on_interact(&mut *store, ctx, player, *pos, *face)
-                }
-                Export::Neighbor { pos, neighbor } => {
-                    server.call_on_neighbor_changed(&mut *store, ctx, *pos, *neighbor)
-                }
-                Export::ClientMessage {
-                    player,
-                    channel,
-                    schema,
-                    payload,
-                } => {
-                    let nodes = value::encode(payload);
-                    server.call_client_message(&mut *store, ctx, player, channel, *schema, &nodes)
-                }
-                Export::Epoch { player } => server.call_epoch(&mut *store, ctx, player),
-            }
-        }
-        Pre::V0_5(pre) => {
-            let server = pre.instantiate(&mut *store)?;
-            match export {
-                Export::Place(change) => server.call_on_place(&mut *store, ctx, change),
-                Export::Break(change) => server.call_on_break(&mut *store, ctx, change),
-                Export::Interact { player, pos, face } => {
-                    server.call_on_interact(&mut *store, ctx, player, *pos, *face)
-                }
-                Export::Neighbor { pos, neighbor } => {
-                    server.call_on_neighbor_changed(&mut *store, ctx, *pos, *neighbor)
-                }
-                Export::ClientMessage {
-                    player,
-                    channel,
-                    schema,
-                    payload,
-                } => {
-                    let nodes = value::encode(payload);
-                    server.call_client_message(&mut *store, ctx, player, channel, *schema, &nodes)
-                }
-                Export::Epoch { player } => server.call_epoch(&mut *store, ctx, player),
-            }
-        }
-    }?;
-    let res = store.data_mut().table.delete(owned)?;
-    Ok((result, res.ops))
-}
-
-/// What the world of `pre` lacks to run `export`, `focused` when it has its player's focus, if
-/// anything: 0.1 has no client-message, 0.2 no list or record values, neither has epoch, and
-/// only 0.4 and later have a focus.
-fn unsupported(pre: &Pre, export: &Export<'_>, focused: bool) -> Option<&'static str> {
-    match (pre, export) {
-        (Pre::V0_1(_), Export::ClientMessage { .. }) => Some("no client-message"),
-        (Pre::V0_1(_) | Pre::V0_2(_), Export::Epoch { .. }) => Some("no epoch"),
-        (Pre::V0_2(_), Export::ClientMessage { payload, .. }) if value::depth(payload) > 0 => {
-            Some("no list or record values")
-        }
-        (Pre::V0_1(_) | Pre::V0_2(_) | Pre::V0_3(_), _) if focused => Some("no focus"),
-        _ => None,
-    }
 }
 
 /// The outcome of a callback that trapped or could not start: fuel, the deadline and limits
@@ -325,6 +176,9 @@ enum Export<'a> {
     Epoch {
         player: &'a wit::PlayerId,
     },
+    ScheduledUpdate {
+        pos: wit::BlockPos,
+    },
 }
 
 /// The callback's host value and export for `request`, an Experience whose blocks are `own`.
@@ -403,6 +257,9 @@ fn prepare<'a>(
             player_call("an epoch", player, actor.as_deref(), snapshot, *focus)?;
             focused = *focus;
             (*focus, Export::Epoch { player })
+        }
+        Call::ScheduledUpdate { pos } => {
+            (Some(*pos), Export::ScheduledUpdate { pos: (*pos).into() })
         }
     };
     let cells = snapshot
@@ -953,6 +810,8 @@ impl From<protocol::Cause> for ChangeCause {
     }
 }
 
+mod craft;
+mod invoke;
 mod items;
 #[cfg(test)]
 mod tests;

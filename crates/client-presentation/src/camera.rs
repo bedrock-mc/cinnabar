@@ -22,6 +22,8 @@ pub mod actor_effects;
 pub mod antialiasing;
 mod bob;
 mod controls;
+mod detached;
+pub use detached::DetachedView;
 #[cfg(test)]
 mod death_view_tests;
 mod easing;
@@ -202,3 +204,12 @@ impl Plugin for CameraPresentationPlugin {
 #[cfg(test)]
 #[path = "camera/rig_tests.rs"]
 mod rig_tests;
+
+/// CPU hand carriers follow the same camera capability as the animated hand rig.
+pub fn hand_first_person(
+    perspective: semantic_input::PerspectiveMode,
+    server: Option<&ServerCameraView>,
+) -> bool {
+    let fallback = perspective == semantic_input::PerspectiveMode::FirstPerson;
+    server.map_or(fallback, |camera| camera.renders_first_person(fallback))
+}

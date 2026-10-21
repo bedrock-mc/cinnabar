@@ -1,3 +1,5 @@
+//! Account and utility controls beneath the home panels.
+
 use super::super::icons::{self, Icon};
 use super::super::theme::SECONDARY_BUTTON;
 use launcher::menu::auth::AuthState;
@@ -7,6 +9,7 @@ use {
     ui::IconRef,
 };
 
+/// Draws account and utility controls with their original widths and compact wrapping.
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
@@ -75,6 +78,7 @@ pub(super) fn draw(
     Ok(())
 }
 
+/// Draws the account picture and sign-in or account action.
 fn account(
     canvas: &mut Canvas<'_>,
     view: &MenuView,

@@ -19,15 +19,15 @@ fn stack(stack_network_id: i32, count: u16) -> NetworkItemStack {
     }
 }
 
+/// Restates the cursor through its fixed UI inventory slot.
 fn cursor_content(value: Option<NetworkItemStack>) -> InventoryEvent {
-    InventoryEvent::Content(InventoryContentEvent {
-        container: ContainerIdentity {
-            window_id: Some(-1),
-            slot_type: Some(CONTAINER_NAME_CURSOR),
-            dynamic_id: None,
+    InventoryEvent::Slot(protocol::InventorySlotEvent {
+        identity: protocol::SlotIdentity {
+            container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+            slot: 0,
         },
-        slots: Arc::from([value.unwrap_or_default()]),
-        storage_item: NetworkItemStack::default(),
+        stack: value.unwrap_or_default(),
+        storage_item: None,
     })
 }
 
@@ -159,10 +159,7 @@ fn partial_take_and_place_split_counts_ids_and_overlays() {
     assert_eq!(take.cursor_stack().unwrap().count, 5);
     assert_eq!(take.cursor_stack().unwrap().stack_network_id, -3);
     assert_eq!(take.presented_slot_overlay(0), Some(&original_overlay));
-    assert_eq!(
-        take.view().get(Cell::Cursor).unwrap().overlay.as_ref(),
-        Some(&original_overlay)
-    );
+    assert_eq!(take.presented_cursor_overlay(), Some(&original_overlay));
 
     let mut place = player_ledger(None, Some(original));
     place.set_confirmed_overlay(Cell::Cursor, original_overlay.clone());
@@ -514,6 +511,11 @@ fn rejection_deletes_prediction_and_timeout_keeps_it_pending_refresh() {
 fn storage_count_operations_bind_generation_and_close_or_reset_safely() {
     let original = stack(91, 8);
     let mut take = storage_ledger(Some(original.clone()), None);
+    take.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity::window(protocol::PLAYER_INVENTORY_WINDOW_ID),
+        slots: vec![NetworkItemStack::empty(); super::PLAYER_INVENTORY_SLOT_COUNT].into(),
+        storage_item: NetworkItemStack::empty(),
+    }));
     assert_eq!(take.begin_storage_take_count(2, 3).unwrap(), -3);
     assert_eq!(take.storage_stack(2).unwrap().count, 5);
     assert_eq!(take.cursor_stack().unwrap().count, 3);
@@ -522,6 +524,11 @@ fn storage_count_operations_bind_generation_and_close_or_reset_safely() {
         take.storage_generation()
     );
     take.request_storage_close();
+    assert_eq!(take.pending_request_count(), 2);
+    assert!(take.cursor_stack().is_none());
+    // The take and its cursor return roll back together if neither can leave.
+    take.note_transport_pressure(10);
+    take.note_transport_pressure(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS);
     assert!(take.newest_request().is_none());
     assert!(take.storage_generation().is_none());
     assert!(take.cursor_stack().is_none());

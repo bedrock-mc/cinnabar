@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"math"
+	"time"
 
 	"github.com/df-mc/dragonfly/server/cmd"
 	"github.com/df-mc/dragonfly/server/player"
@@ -29,6 +30,37 @@ func registerChatCommands() {
 	cmd.Register(cmd.New("fly", "Toggles being allowed to fly", nil, flyToggle{}))
 	cmd.Register(cmd.New("tp", "Teleports to a position", []string{"teleport"}, teleport{}))
 	cmd.Register(cmd.New("give", "Adds a vanilla item to your inventory", nil, giveItem{}))
+	cmd.Register(cmd.New("fixture_totem", "Applies server damage while holding a protective totem", nil, totemFixture{}))
+	cmd.Register(cmd.New("weather", "Sets the weather: clear, rain or thunder", nil, weatherSet{}))
+}
+
+// weatherKind is the /weather argument.
+type weatherKind string
+
+func (weatherKind) Type() string { return "WeatherType" }
+
+func (weatherKind) Options(cmd.Source) []string { return []string{"clear", "rain", "thunder"} }
+
+// weatherSet holds the requested weather until the next /weather, so captures stay deterministic.
+type weatherSet struct {
+	Kind weatherKind `cmd:"type"`
+}
+
+func (w weatherSet) Run(_ cmd.Source, o *cmd.Output, tx *world.Tx) {
+	level := tx.World()
+	// Dragonfly only clears thunder while it rains, so rain first to drop any latent thunder flag.
+	level.StartRaining(time.Hour)
+	if w.Kind != "thunder" {
+		level.StopThundering()
+	}
+	switch w.Kind {
+	case "clear":
+		level.StopRaining()
+	case "thunder":
+		level.StartThundering(time.Hour)
+	}
+	level.StopWeatherCycle()
+	o.Printf("Weather set to %s until the next /weather", w.Kind)
 }
 
 // speedMultiplier clamps m to the accepted range.

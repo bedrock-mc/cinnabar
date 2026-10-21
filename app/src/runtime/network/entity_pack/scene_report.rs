@@ -104,7 +104,6 @@ fn render_captured_scene() {
             extract_nametag(
                 actor,
                 NametagView {
-                    viewer_position: eye,
                     camera_position: eye,
                     camera_forward: rotation * Vec3::NEG_Z,
                 },

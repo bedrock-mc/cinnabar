@@ -2,7 +2,7 @@
 
 use bevy::ecs::system::RunSystemOnce;
 use bevy::{
-    core_pipeline::core_3d::Transparent3d,
+    core_pipeline::core_3d::{Opaque3d, Transparent3d},
     prelude::*,
     render::{
         ExtractSchedule, Render, RenderApp, RenderStartup,
@@ -62,6 +62,7 @@ pub(crate) fn app(plugin: impl Plugin) -> Option<App> {
         .insert_resource(device)
         .insert_resource(RenderQueue::new(queue))
         .add_schedule(RenderGraph::base_schedule())
+        .init_resource::<DrawFunctions<Opaque3d>>()
         .init_resource::<DrawFunctions<Transparent3d>>()
         .add_schedule(Schedule::new(RenderStartup))
         .add_schedule(Render::base_schedule())

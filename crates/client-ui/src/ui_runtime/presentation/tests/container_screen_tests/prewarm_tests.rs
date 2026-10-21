@@ -95,7 +95,7 @@ fn prewarmed_once_binding_reads_the_name_at_first_open() {
     assert!(warm.engine_container_frame().is_none());
     assert!(warm.hud_frame().item_names.is_empty());
 
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     for presentation in [&mut warm, &mut cold] {
         presentation
             .hud_frame_mut()
@@ -135,17 +135,17 @@ fn prewarmed_once_binding_reads_the_name_at_first_open() {
 fn closing_an_inventory_opened_without_prewarm_keeps_its_once_binding() {
     let (mut presentation, mut runtime, mut player) = inventory_fixture(once_name_screen());
     populate(&mut runtime, &mut player);
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     presentation
         .hud_frame_mut()
         .item_names
         .insert((1, 0), Arc::from("200"));
     let first = draw(&mut presentation, &runtime, &player, 0);
     assert!(!first.vertices.is_empty());
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     presentation.hud_frame_mut().item_names.clear();
     draw(&mut presentation, &runtime, &player, 100);
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     presentation
         .hud_frame_mut()
         .item_names
@@ -172,7 +172,7 @@ fn prewarmed_inventory_animation_starts_at_the_real_open() {
         draw(&mut warm, &runtime, &player, 0);
         assert_eq!(warm.engine_container_resolves(), 1);
         assert!(warm.engine_container_frame().is_none());
-        runtime.toggle_inventory(&mut player);
+        runtime.toggle_inventory(&mut player, None);
         let mut first = None;
         for now in [100, 300, 600] {
             let expected = draw(&mut cold, &runtime, &player, now);

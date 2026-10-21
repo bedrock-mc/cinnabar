@@ -207,7 +207,7 @@ mod tests {
                 Update,
                 advance_actor.in_set(ClientFrameSet::ActorPreparation),
             );
-        crate::app::configure_client_frame_schedule(&mut app);
+        crate::game_frame::configure_client_frame_schedule(&mut app);
         schedule_publication(&mut app);
         let before = rendered(&app);
         app.update();

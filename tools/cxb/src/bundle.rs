@@ -176,6 +176,7 @@ pub fn build(
         origins: BTreeSet::new(),
         memory_bytes: 0,
         gpu_bytes: 0,
+        personal_mods: Default::default(),
     };
     VerifiedBundle::read(&bytes, &offer, &scope, MAX_EXPANDED_BYTES)
         .context("the client would reject this bundle")?;

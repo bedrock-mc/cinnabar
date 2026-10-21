@@ -45,7 +45,8 @@ fn gpu_growth_plan_copies_the_old_allocation_without_a_host_shadow_upload() {
     let growth = plan_arena_growth(8, 9, PACKED_QUAD_BYTES, 16)
         .unwrap()
         .unwrap();
-    assert_eq!(growth.new_capacity, 16);
+    // A quarter more than the old capacity, rounded to an eighth of 16.
+    assert_eq!(growth.new_capacity, 10);
     assert_eq!(growth.gpu_copy_bytes, 64);
 
     let stats = account_chunk_gpu_uploads(
@@ -61,6 +62,25 @@ fn gpu_growth_plan_copies_the_old_allocation_without_a_host_shadow_upload() {
     assert_eq!(stats.gpu_copy_bytes, 64);
     assert_eq!(stats.full_shadow_bytes, 0);
     assert_eq!(stats.total_bytes, 136);
+}
+
+#[test]
+fn arena_growth_rounds_to_an_eighth_of_the_enclosing_power_of_two() {
+    for items in [1_usize, 7, 9, 1000, 33 << 20, (64 << 20) + 1, 100_000_007] {
+        let capacity = round_arena_capacity(items, usize::MAX);
+        assert!(capacity >= items);
+        assert!(
+            (capacity - items) * 8 <= items.next_power_of_two(),
+            "{items} items took {capacity}"
+        );
+    }
+    // The adapter limit still caps it.
+    assert_eq!(round_arena_capacity(1000, 1001), 1001);
+    // Small growth past a full stream still adds a quarter, so streaming growth stays rare.
+    let growth = plan_arena_growth(1 << 20, (1 << 20) + 1, PACKED_QUAD_BYTES, usize::MAX)
+        .unwrap()
+        .unwrap();
+    assert_eq!(growth.new_capacity, (1 << 20) + (1 << 18));
 }
 
 #[test]
@@ -121,7 +141,7 @@ fn first_arena_growth_names_the_first_short_stream_and_rejects_adapter_overflow(
         Ok(Some((
             ArenaStream::GeometryStreams,
             ArenaGrowthPlan {
-                new_capacity: 32,
+                new_capacity: 20,
                 gpu_copy_bytes: 16 * GEOMETRY_STREAM_WORD_BYTES,
             }
         )))

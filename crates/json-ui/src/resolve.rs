@@ -98,7 +98,7 @@ impl<'a> Resolver<'a> {
         self.root = Some(root_env.clone());
         let env = self.build_env(root_env, &owner.props);
         let content = evaluate(&Value::String(variable.to_owned()), &env);
-        let reference = ControlRef::parse(content.as_str()?, namespace);
+        let reference = owner.reference(content.as_str()?);
         self.resolve(&reference.namespace, &reference.name, &env)
     }
 
@@ -150,7 +150,7 @@ impl<'a> Resolver<'a> {
             &mut missing,
             self.catalog,
         );
-        self.resolve_anims(&mut properties, env, &control.owner_ns);
+        self.resolve_anims(&mut properties, env, control);
         // A grid's items and a `control_name` template resolve in this scope;
         // `control_ids` creations see only their own and captured variables.
         let template = factory
@@ -198,10 +198,11 @@ impl<'a> Resolver<'a> {
         &self,
         properties: &mut std::collections::BTreeMap<String, Value>,
         env: &Env,
-        owner_ns: &str,
+        control: &RawControl,
     ) {
         properties.remove(anim::GRAPH_KEY);
         let catalog = self.catalog;
+        let owner_ns = &control.owner_ns;
         let mut load = |target: &ControlRef| {
             let (def, _) = flatten_def(catalog, &target.namespace, &target.name, &mut Vec::new())?;
             // A referenced animation's own `$` declarations scope its values.
@@ -211,7 +212,8 @@ impl<'a> Resolver<'a> {
                 _ => None,
             }
         };
-        let mut builder = anim::GraphBuilder::new(&mut load);
+        let reference = |text: &str, namespace: &str| control.reference_in(text, namespace);
+        let mut builder = anim::GraphBuilder::new(&mut load, &reference);
         for key in anim::ANIMATED_PROPERTIES {
             let Some(value) = properties.get(key).cloned() else {
                 continue;
@@ -282,6 +284,14 @@ impl<'a> Resolver<'a> {
                 ));
                 break;
             }
+            let mut scoped_child;
+            let child = if child.definition_scope.is_none() && control.definition_scope.is_some() {
+                scoped_child = child.clone();
+                scoped_child.definition_scope = control.definition_scope.clone();
+                &scoped_child
+            } else {
+                child
+            };
             let (mut working, provenance, unresolved) = self.resolve_child_base(child, env);
             if child.base.is_none() && !child.name.starts_with('$') {
                 working.name = crate::catalog::unqualified(&child.name).to_owned();
@@ -346,7 +356,7 @@ impl<'a> Resolver<'a> {
         {
             let mut named = child.clone();
             named.name = if name.is_empty() {
-                ControlRef::parse(reference, &child.owner_ns).name
+                child.reference(reference).name
             } else {
                 name.to_owned()
             };
@@ -367,7 +377,7 @@ impl<'a> Resolver<'a> {
             },
             None => base.clone(),
         };
-        let base_ref = ControlRef::parse(&reference, &child.owner_ns);
+        let base_ref = child.reference(&reference);
         match flatten_def(
             self.catalog,
             &base_ref.namespace,
@@ -462,7 +472,6 @@ impl<'a> Resolver<'a> {
         control_type: Option<&str>,
         env: &Env,
     ) -> (Option<Factory>, bool) {
-        let owner = &control.owner_ns;
         if control_type == Some("factory") {
             let names = |key: &str| {
                 control
@@ -472,14 +481,14 @@ impl<'a> Resolver<'a> {
             };
             if names("control_name") || names("control_ids") {
                 let name = instance_name(&control.name, env);
-                let factory = self.factory_from(&control.props, Some(name), owner, env);
+                let factory = self.factory_from(&control.props, Some(name), control, env);
                 return (Some(factory), true);
             }
         }
         if let Some(spec) = control.props.get("factory")
             && let Value::Object(spec) = evaluate(spec, env)
         {
-            return (Some(self.factory_from(&spec, None, owner, env)), false);
+            return (Some(self.factory_from(&spec, None, control, env)), false);
         }
         (None, false)
     }
@@ -489,9 +498,10 @@ impl<'a> Resolver<'a> {
         &mut self,
         fields: &Map<String, Value>,
         name: Option<String>,
-        owner: &str,
+        control: &RawControl,
         env: &Env,
     ) -> Factory {
+        let owner = &control.owner_ns;
         let field = |key: &str| fields.get(key).map(|value| evaluate(value, env));
         let name = name.or_else(|| field("name").and_then(value_string));
         if name.as_deref().is_none_or(str::is_empty) {
@@ -505,7 +515,7 @@ impl<'a> Resolver<'a> {
         // A `control_name` template takes priority; `control_ids` then go unread.
         match field("control_name").and_then(value_string) {
             Some(reference) if !reference.is_empty() => {
-                factory.control_name = Some(ControlRef::parse(&reference, owner));
+                factory.control_name = Some(control.reference(&reference));
             }
             _ => {
                 if let Some(Value::Object(entries)) = field("control_ids") {
@@ -522,7 +532,7 @@ impl<'a> Resolver<'a> {
                         }
                         factory
                             .control_ids
-                            .insert(role, ControlRef::parse(&reference, owner));
+                            .insert(role, control.reference(&reference));
                     }
                 }
             }
@@ -581,8 +591,16 @@ fn build_properties(
         }
         properties.insert(key.clone(), substitute(value, env, missing));
     }
+    if control.definition_scope.is_some()
+        && let Some(template) = properties.get("grid_item_template").and_then(Value::as_str)
+        && !template.is_empty()
+    {
+        let template = control.reference(template).to_string();
+        properties.insert("grid_item_template".to_owned(), Value::String(template));
+    }
     if !catalog.paint_transforms() {
         properties.remove(crate::transform::TRANSFORM_PROPERTY);
+        properties.remove(crate::position::PROPERTY);
         properties.remove(crate::filter::FILTER_PROPERTY);
     }
     properties
@@ -717,6 +735,7 @@ mod tests {
         let mut resolver = Resolver::new(&catalog);
         let leaf = RawControl {
             owner_ns: "a".into(),
+            definition_scope: None,
             name: "leaf".into(),
             base: None,
             props: serde_json::Map::new(),

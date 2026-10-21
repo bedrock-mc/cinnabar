@@ -64,7 +64,7 @@ pub(super) fn pack_swell_fixture_with(
     compiled.symbols[4].identifier = "minecraft:creeper".into();
     compiled.symbols.rotate_right(1);
     compiled.rig_bindings[0].entity_symbol = 0;
-    compiled.rig_bindings[0].render_controller = 3;
+    compiled.rig_bindings[0].render_controller = Some(3);
     compiled.rig_bindings[0].pre_animation = pre_animation.then_some(0);
     compiled.animation_clips[0].symbol = 2;
     compiled.molang_symbols = vec![
@@ -178,7 +178,7 @@ pub(super) fn pack_swell_fixture_with(
         let mut geometries = compiled.geometries.into_vec();
         geometries.push(geometry);
         compiled.geometries = geometries.into_boxed_slice();
-        compiled.rig_bindings[0].render_controller = 4;
+        compiled.rig_bindings[0].render_controller = Some(4);
         compiled.animation_clips[0].symbol = 3;
         let clip = compiled.animation_clips[0];
         compiled.animation_clips = vec![
@@ -315,7 +315,7 @@ pub(super) fn swell_controller_fixture_with(
                 g.source_index += 1;
             }
             compiled.animation_clips[0].source += 1;
-            compiled.rig_bindings[0].render_controller = 4;
+            compiled.rig_bindings[0].render_controller = Some(4);
             for c in &mut compiled.render.candidates {
                 c.source = 5;
             }
@@ -450,7 +450,7 @@ pub(super) fn swell_override_fixture(
             symbol.identifier = "animation.zz_override".into();
             symbols.insert(3, symbol);
             compiled.symbols = symbols.into_boxed_slice();
-            compiled.rig_bindings[0].render_controller = 4;
+            compiled.rig_bindings[0].render_controller = Some(4);
             compiled.render.candidates[0].source = 4;
             let mut first_clip = compiled.animation_clips[0];
             first_clip.channel_count = 3;

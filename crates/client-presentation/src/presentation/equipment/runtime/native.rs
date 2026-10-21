@@ -149,11 +149,24 @@ pub(super) fn recognize(
         .iter()
         .chain(inherited)
         .filter_map(|binding| {
-            let candidate_assets = if catalog.binding(&binding.identifier).is_some() {
-                pack
+            let (candidate_assets, candidates) = if catalog.binding(&binding.identifier).is_some() {
+                (pack, catalog)
             } else {
-                base
+                (base, startup)
             };
+            // An item-wide shortcut cannot represent owner-selected definitions.
+            if candidates.bindings_for(&binding.identifier).len() != 1
+                || binding.attachable.is_some()
+                || candidate_assets
+                    .attachable_rig_binding(binding.attachable_identifier())
+                    .is_some_and(|rig| {
+                        candidate_assets.rig_bindings()[rig]
+                            .item_condition
+                            .is_some()
+                    })
+            {
+                return None;
+            }
             let kind = NativeItem::from_identifier(&binding.identifier)?;
             let stock = startup.binding(&binding.identifier)?;
             let mut references = geometry_names(base, stock);
@@ -391,7 +404,7 @@ impl EquipmentRuntime {
             if let Some(texture) = pack.catalog.as_ref()?.texture(&identifier)
                 && let Some(location) = pack.texture_locations.get(&identifier)
             {
-                return Some((texture.clone(), *location));
+                return Some((texture.clone(), location.location));
             }
             if artwork.startup_texture_is_sprite
                 && let Some(texture) = self
@@ -400,7 +413,7 @@ impl EquipmentRuntime {
                     .and_then(|catalog| catalog.texture(&identifier))
                 && let Some(location) = self.texture_locations.get(&identifier)
             {
-                return Some((texture.clone(), *location));
+                return Some((texture.clone(), location.location));
             }
         }
         // A raised spear may reuse its normal texture when the pack has no raised alias.
@@ -463,7 +476,7 @@ impl EquipmentRuntime {
             bones.right_item
         };
         let Some(hand) = hand else { return };
-        let display = if java.is_some() {
+        let mut display = if java.is_some() {
             let grip = if item.identifier.as_ref() == assets::facts::VanillaItem::Bow.identifier() {
                 render_model::java_animation::JavaHeldItem::Bow
             } else {
@@ -476,6 +489,7 @@ impl EquipmentRuntime {
         } else {
             held_sprite_display(item.grip.upright().unwrap_or(false))
         };
+        display.scale *= input.main_hand_scale();
         let (Some(previous), Some(current)) = (
             body.input.previous_bones.get(hand),
             body.input.current_bones.get(hand),

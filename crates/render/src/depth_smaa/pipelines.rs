@@ -7,21 +7,17 @@ use bevy::{
 };
 
 pub(super) const EDGE_SHADER: Handle<Shader> = uuid_handle!("f07777f3-8f47-4673-abca-02296cbd4521");
-pub(super) const RESTORE_SHADER: Handle<Shader> =
-    uuid_handle!("8c730613-b95d-4dbf-956d-d1fb35e56f17");
 
 #[derive(Clone, Copy)]
 pub(super) struct PipelineIds {
     pub edge: CachedRenderPipelineId,
     pub weights: CachedRenderPipelineId,
     pub blend: CachedRenderPipelineId,
-    pub restore: CachedRenderPipelineId,
 }
 
 #[derive(Resource)]
 pub(super) struct DepthSmaaPipelines {
     pub post_layout: BindGroupLayoutDescriptor,
-    pub restore_layout: BindGroupLayoutDescriptor,
     weights_layout: BindGroupLayoutDescriptor,
     blend_layout: BindGroupLayoutDescriptor,
     shader: Handle<Shader>,
@@ -56,10 +52,6 @@ pub(super) fn init(mut commands: Commands, server: Res<AssetServer>) {
                 ShaderStages::FRAGMENT,
                 (float, sampler(SamplerBindingType::Filtering)),
             ),
-        ),
-        restore_layout: BindGroupLayoutDescriptor::new(
-            "SMAA restore",
-            &BindGroupLayoutEntries::single(ShaderStages::FRAGMENT, float),
         ),
         shader: server.load("embedded://bevy_anti_alias/smaa/smaa.wesl"),
         variants: Vec::new(),
@@ -106,9 +98,8 @@ impl DepthSmaaPipelines {
         }
         let ids = PipelineIds {
             edge: cache.queue_render_pipeline(self.edge_descriptor(samples)),
-            weights: cache.queue_render_pipeline(self.blend_descriptor(true, format)),
-            blend: cache.queue_render_pipeline(self.blend_descriptor(false, format)),
-            restore: cache.queue_render_pipeline(self.restore_descriptor(samples, format)),
+            weights: cache.queue_render_pipeline(self.blend_descriptor(true, samples, format)),
+            blend: cache.queue_render_pipeline(self.blend_descriptor(false, samples, format)),
         };
         self.variants.push((samples, format, ids));
         ids
@@ -133,8 +124,13 @@ impl DepthSmaaPipelines {
         descriptor
     }
 
-    /// Runs stock SMAA 1x with fixed High quality and no temporal subsamples.
-    fn blend_descriptor(&self, weights: bool, format: TextureFormat) -> RenderPipelineDescriptor {
+    /// Keeps weights single-sampled and broadcasts the filtered colour to every scene sample.
+    fn blend_descriptor(
+        &self,
+        weights: bool,
+        samples: u32,
+        format: TextureFormat,
+    ) -> RenderPipelineDescriptor {
         let (define, vertex, fragment, layout) = if weights {
             (
                 "SMAA_BLENDING_WEIGHT_CALCULATION",
@@ -164,21 +160,9 @@ impl DepthSmaaPipelines {
         );
         if weights {
             descriptor.depth_stencil = Some(stencil(false));
+        } else {
+            descriptor.multisample.count = samples;
         }
-        descriptor
-    }
-
-    /// Broadcasts the filtered world back to existing samples so overlays stay outside SMAA.
-    fn restore_descriptor(&self, samples: u32, format: TextureFormat) -> RenderPipelineDescriptor {
-        let mut descriptor = descriptor(
-            RESTORE_SHADER,
-            "vertex",
-            "fragment",
-            vec![],
-            vec![self.restore_layout.clone()],
-            format,
-        );
-        descriptor.multisample.count = samples;
         descriptor
     }
 }
@@ -196,12 +180,7 @@ impl PrewarmPipelines for DepthSmaaPipelines {
             render_scene::SCENE_COLOR_FORMAT
         };
         let pipelines = self.ids(cache, view.msaa.samples(), format);
-        ids.extend([
-            pipelines.edge,
-            pipelines.weights,
-            pipelines.blend,
-            pipelines.restore,
-        ]);
+        ids.extend([pipelines.edge, pipelines.weights, pipelines.blend]);
         Ok(())
     }
 }

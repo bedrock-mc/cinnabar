@@ -152,7 +152,7 @@ fn inventory_source_readiness_rebuilds_static_crop_coordinates() {
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = crate::test_support::inventory_session(&mut player);
     runtime.set_server_ui(Some(Arc::new(pack)));
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     let mut presentation = crate::test_support::mini_engine_presentation();
     presentation.gui_scale_preference = Some(1);
     let build = |presentation: &mut crate::ui_runtime::presentation::UiPresentationRuntime| {
@@ -298,7 +298,7 @@ fn retained_inventory_animation_advances_and_repeats_two_loops() {
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = crate::test_support::inventory_session(&mut player);
     runtime.set_server_ui(Some(Arc::new(pack)));
-    runtime.toggle_inventory(&mut player);
+    runtime.toggle_inventory(&mut player, None);
     let build = |presentation: &mut crate::ui_runtime::presentation::UiPresentationRuntime, now| {
         presentation
             .build(

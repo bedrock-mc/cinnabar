@@ -34,6 +34,11 @@ pub const WINDOW_TYPE_CARTOGRAPHY: i8 = WindowType::Cartography.wire_value();
 pub const WINDOW_TYPE_SMITHING_TABLE: i8 = WindowType::SmithingTable.wire_value();
 pub const WINDOW_TYPE_CHEST_BOAT: i8 = WindowType::ChestBoat.wire_value();
 pub const WINDOW_TYPE_CRAFTER: i8 = WindowType::Crafter.wire_value();
+pub const WINDOW_TYPE_TRADE: i8 = WindowType::Trade.wire_value();
+
+/// Fixed UI inventory cells used by each trading screen's two inputs.
+pub const MODERN_TRADE_SLOTS: [u8; 2] = [4, 5];
+pub const LEGACY_TRADE_SLOTS: [u8; 2] = [6, 7];
 
 const NAME_ANVIL_INPUT: u8 = ContainerName::AnvilInput.wire_value();
 const NAME_ANVIL_MATERIAL: u8 = ContainerName::AnvilMaterial.wire_value();
@@ -66,7 +71,7 @@ const NAME_SMITHING_TEMPLATE: u8 = ContainerName::SmithingTableTemplate.wire_val
 const NAME_CRAFTER: u8 = ContainerName::CrafterLevelEntity.wire_value();
 
 /// Result-preview container names; each shows the screen's output at UI slot 50.
-const RESULT_PREVIEW_NAMES: [u8; 8] = [
+const RESULT_PREVIEW_NAMES: [u8; 9] = [
     ContainerName::AnvilResultPreview.wire_value(),
     ContainerName::SmithingTableResultPreview.wire_value(),
     ContainerName::CraftingOutputPreview.wire_value(),
@@ -75,10 +80,27 @@ const RESULT_PREVIEW_NAMES: [u8; 8] = [
     ContainerName::StonecutterResultPreview.wire_value(),
     ContainerName::CartographyResultPreview.wire_value(),
     ContainerName::TradeResultPreview.wire_value(),
+    ContainerName::TradeTwoResultPreview.wire_value(),
 ];
 
 /// Slots of the personal UI inventory (cursor, inputs, grids, output).
 pub const UI_SLOT_COUNT: usize = 54;
+
+/// Storage cells addressable by the protocol's one-byte stack-request slot.
+pub const MAX_GENERIC_STORAGE_SLOTS: usize = u8::MAX as usize + 1;
+
+/// Derives every nonempty container length that the retained slot address can represent.
+const fn generic_storage_lengths() -> [usize; MAX_GENERIC_STORAGE_SLOTS] {
+    let mut lengths = [0; MAX_GENERIC_STORAGE_SLOTS];
+    let mut index = 0;
+    while index < lengths.len() {
+        lengths[index] = index + 1;
+        index += 1;
+    }
+    lengths
+}
+
+const GENERIC_STORAGE_LENGTHS: [usize; MAX_GENERIC_STORAGE_SLOTS] = generic_storage_lengths();
 
 /// The screen a container window opens.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -104,6 +126,9 @@ pub enum WindowKind {
     Smithing,
     Crafter,
     Lectern,
+    Trade {
+        modern: bool,
+    },
 }
 
 /// One run of a window's own cells that share a container name.
@@ -184,6 +209,7 @@ impl WindowKind {
             WINDOW_TYPE_SMITHING_TABLE => Self::Smithing,
             WINDOW_TYPE_CRAFTER => Self::Crafter,
             WINDOW_TYPE_LECTERN => Self::Lectern,
+            WINDOW_TYPE_TRADE => Self::Trade { modern: true },
             _ => return None,
         })
     }
@@ -192,8 +218,8 @@ impl WindowKind {
     #[must_use]
     pub const fn open_cells(self) -> Option<OpenCells> {
         Some(match self {
-            // Vanilla chest models use the reported container size.
-            Self::Storage => OpenCells::Generic(&[9, 18, 27, 36, 45, 54]),
+            // Server menus can use non-row sizes and cells beyond the vanilla chest grids.
+            Self::Storage => OpenCells::Generic(&GENERIC_STORAGE_LENGTHS),
             Self::Dispenser | Self::Dropper => OpenCells::Generic(&[9]),
             Self::Hopper => OpenCells::Generic(&[5]),
             Self::Furnace => OpenCells::Named {
@@ -231,6 +257,7 @@ impl WindowKind {
             | Self::Cartography
             | Self::Smithing
             | Self::Lectern => return None,
+            Self::Trade { .. } => return None,
         })
     }
 
@@ -340,6 +367,10 @@ pub const fn ui_slot_container_name(slot: u8) -> Option<u8> {
         1 => NAME_ANVIL_INPUT,
         2 => NAME_ANVIL_MATERIAL,
         3 => NAME_STONECUTTER_INPUT,
+        slot if slot == MODERN_TRADE_SLOTS[0] => ContainerName::TradeTwoIngredientOne.wire_value(),
+        slot if slot == MODERN_TRADE_SLOTS[1] => ContainerName::TradeTwoIngredientTwo.wire_value(),
+        slot if slot == LEGACY_TRADE_SLOTS[0] => ContainerName::TradeIngredientOne.wire_value(),
+        slot if slot == LEGACY_TRADE_SLOTS[1] => ContainerName::TradeIngredientTwo.wire_value(),
         9 => NAME_LOOM_INPUT,
         10 => NAME_LOOM_DYE,
         11 => NAME_LOOM_MATERIAL,
@@ -522,11 +553,11 @@ mod tests {
     }
 
     #[test]
-    fn named_containers_project_onto_screen_cells() {
+    fn windowless_responses_project_named_containers_onto_screen_cells() {
         use super::super::ContainerIdentity;
         use super::super::address::{CanonicalCell, project_container_cell};
         let at = |name: u8, dynamic_id: Option<u32>| ContainerIdentity {
-            window_id: Some(5),
+            window_id: None,
             slot_type: Some(name),
             dynamic_id,
         };

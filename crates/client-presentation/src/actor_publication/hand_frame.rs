@@ -59,7 +59,11 @@ pub(super) fn prepare(
             let (consume_ticks, item_animation) = hand_use;
             let motion = hand_motion.map_or(Mat4::IDENTITY, hand_motion_matrix);
             let key = hand::source_key(stream, consume_ticks, item_animation, partial_tick);
-            if key == *ready_hand_key {
+            let samples_item_scale = stream
+                .authority()
+                .actor_rig(local_runtime_id)
+                .is_some_and(|rig| rig.held_item_scale.is_some());
+            if key == *ready_hand_key && !samples_item_scale {
                 reused_hand = true;
                 return ready_hand_source.take().map(|mut source| {
                     source.motion = motion;

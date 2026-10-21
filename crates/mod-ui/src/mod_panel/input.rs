@@ -23,6 +23,9 @@ impl ModPanel {
         self.view.hovered = None;
         self.view.pressed = None;
         self.view.pointer = None;
+        if let Some(edit::Editor::Field { state, .. }) = &mut self.edit {
+            state.dragging = false;
+        }
     }
 
     /// Routes one pointer sample through the last frame's hits; `exit` lets a close action
@@ -37,6 +40,17 @@ impl ModPanel {
         if !self.open || !position.iter().all(|value| value.is_finite()) {
             self.cancel_pointer_input();
             return Vec::new();
+        }
+        if let Some(edit::Editor::Field { state, .. }) = &mut self.edit
+            && state.dragging
+        {
+            if !pressed {
+                state.place_cursor(position[0], true);
+                if held {
+                    return Vec::new();
+                }
+            }
+            state.dragging = false;
         }
         let Some(frame) = self.frame.as_ref() else {
             return Vec::new();
@@ -67,10 +81,7 @@ impl ModPanel {
         let Some(frame) = self.frame.as_ref() else {
             return Vec::new();
         };
-        let hit =
-            frame.hits.iter().rev().find(|region| {
-                region.enabled && region.pressed.is_some() && region.contains(point)
-            });
+        let hit = json_ui::hit_test(&frame.hits, point);
         let hovered = hit.map(|hit| hit.key.as_str());
         if self.view.hovered.as_deref() != hovered {
             self.view.hovered = hovered.map(str::to_owned);
@@ -93,6 +104,10 @@ impl ModPanel {
                 return Vec::new();
             }
             if action == Some("mod.editor") {
+                if let Some(edit::Editor::Field { state, .. }) = &mut self.edit {
+                    state.place_cursor(position[0], false);
+                    state.dragging = held;
+                }
                 return Vec::new();
             }
             if let Some(index) = action
@@ -105,7 +120,9 @@ impl ModPanel {
                 .and_then(|action| action.strip_prefix("mod.edit:"))
                 .and_then(|index| index.parse::<usize>().ok())
             {
-                if !self.panel.capture_key {
+                if !self.panel.capture_key
+                    || matches!(self.panel.controls.get(index), Some(Control::Text { .. }))
+                {
                     let rect = hit.map(|hit| [hit.rect.x, hit.rect.y, hit.rect.w, hit.rect.h]);
                     if let Some(rect) = rect {
                         self.open_editor(index, rect);
@@ -116,9 +133,14 @@ impl ModPanel {
             if let Some(index) = action
                 .and_then(|action| action.strip_prefix("mod.control:"))
                 .and_then(|index| index.parse::<usize>().ok())
-                && matches!(self.panel.controls.get(index), Some(Control::Choice { .. }))
+                && matches!(
+                    self.panel.controls.get(index),
+                    Some(Control::Choice { .. } | Control::Text { .. })
+                )
             {
-                if !self.panel.capture_key {
+                if !self.panel.capture_key
+                    || matches!(self.panel.controls.get(index), Some(Control::Text { .. }))
+                {
                     let rect = hit.map(|hit| [hit.rect.x, hit.rect.y, hit.rect.w, hit.rect.h]);
                     if let Some(rect) = rect {
                         self.open_editor(index, rect);

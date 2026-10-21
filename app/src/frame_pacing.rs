@@ -64,6 +64,7 @@ impl FramePacingRuntime {
     fn pacing(
         &self,
         intent: PresentationIntent,
+        present_mode: PresentMode,
         limit: FrameRateLimit,
         display: DisplayTiming,
         focused: bool,
@@ -88,7 +89,10 @@ impl FramePacingRuntime {
         FramePacing {
             rate,
             precise: activity == WindowActivity::Focused,
-            display_sync: intent == PresentationIntent::Synchronized,
+            display_sync: matches!(
+                present_mode,
+                PresentMode::Fifo | PresentMode::FifoRelaxed | PresentMode::AutoVsync
+            ),
         }
     }
 
@@ -133,17 +137,14 @@ pub(crate) fn update_frame_pacing(
         }
     }
     let focused = primary.is_none_or(|(_, window)| window.focused);
-    let mut next = runtime.pacing(
+    let next = runtime.pacing(
         presentation.intent(),
+        presentation.window_present_mode(),
         presentation.limit(),
         display
             .0
             .with_vrr_preference(settings.user_settings_update().1.video.vrr),
         focused,
-    );
-    next.display_sync = matches!(
-        presentation.window_present_mode(),
-        PresentMode::Fifo | PresentMode::FifoRelaxed | PresentMode::AutoVsync
     );
     if *pacing != next {
         *pacing = next;

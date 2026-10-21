@@ -150,6 +150,16 @@ pub fn require_icon_assets(
             rebuild_command: world_icon_rebuild_command(world_asset_path, &path),
         }
     })?;
+    if runtime.sources().is_none() {
+        return Err(AssetStartupError::IconAssetsDecode {
+            path: path.clone(),
+            source: Box::new(crate::AssetError::InvalidCompiledAssets {
+                detail: "item icon carrier lacks raw source bindings; rebuild with make assets"
+                    .into(),
+            }),
+            rebuild_command: world_icon_rebuild_command(world_asset_path, &path),
+        });
+    }
     let expected = canonical_source_manifest_sha256(vanilla_source_json);
     if runtime.source_manifest_sha256() != expected {
         return Err(AssetStartupError::IconAssetsProvenance {

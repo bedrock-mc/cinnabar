@@ -6,6 +6,8 @@ pub const SECTION: &str = crate::menu::settings_sections::SettingSection::Mods
     .name;
 /// File extension of an importable mod component.
 pub const COMPONENT_EXTENSION: &str = "wasm";
+/// Release tags share the installed metadata version's display bound.
+pub const MAX_UPDATE_VERSION_BYTES: usize = ui::mod_metadata::MAX_VERSION_BYTES;
 
 /// Commands name the card's own identity so list changes cannot retarget a press.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -17,6 +19,9 @@ pub enum Action {
     Disable(u64),
     Remove(u64),
     Import,
+    ViewUpdates,
+    OpenUpdate(u64),
+    Update(u64),
     Reload(u64),
     ReloadAll,
     MoveUp(u64),
@@ -115,6 +120,7 @@ impl InstalledMod {
 pub enum Status {
     Starting,
     Running,
+    NextJoin,
     Failed(String),
     ReloadFailed(String),
 }
@@ -126,13 +132,24 @@ pub struct ActiveMod {
     pub status: Status,
 }
 
+/// A newer GitHub release for one installed file revision; installation stays manual.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AvailableUpdate {
+    pub id: u64,
+    pub version: String,
+    pub release_url: String,
+}
+
 /// Directory contents and the ordered Active list, published off-frame by the app.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Library {
+    /// Live update operations, retained through the runtime reload acknowledgement.
+    pub update_progress: Vec<UpdateProgress>,
     pub installed: Vec<InstalledMod>,
     pub active: Vec<ActiveMod>,
     pub busy: bool,
     pub message: String,
+    pub updates: Vec<AvailableUpdate>,
 }
 impl Library {
     /// Preserves Active-list precedence and directory order for available components.
@@ -265,6 +282,52 @@ impl Snapshot {
         self.library = library;
     }
 }
+/// The operation currently owning a mod update, without pretending to know later work's fraction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UpdatePhase {
+    Downloading,
+    Verifying,
+    Installing,
+    Reloading,
+}
+
+impl UpdatePhase {
+    /// The actual operation shown beside its progress indicator.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Downloading => "Downloading…",
+            Self::Verifying => "Verifying…",
+            Self::Installing => "Installing…",
+            Self::Reloading => "Reloading…",
+        }
+    }
+}
+
+/// Bounded download counters and stage information for one file revision.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UpdateProgress {
+    pub id: u64,
+    pub phase: UpdatePhase,
+    pub received_bytes: u64,
+    pub total_bytes: u64,
+    pub bytes_per_sec: Option<u64>,
+    pub eta_secs: Option<u64>,
+}
+
+impl UpdateProgress {
+    /// Starts a stage without carrying misleading download estimates into installation or reload.
+    pub fn stage(id: u64, phase: UpdatePhase) -> Self {
+        Self {
+            id,
+            phase,
+            received_bytes: 0,
+            total_bytes: 0,
+            bytes_per_sec: None,
+            eta_secs: None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

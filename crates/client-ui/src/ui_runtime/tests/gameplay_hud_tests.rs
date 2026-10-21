@@ -13,6 +13,7 @@ use super::*;
 use crate::ui_runtime::gameplay_hud::{HeartVariant, MAX_HUD_EFFECTS};
 
 mod effect_clock_tests;
+mod equipment_selection;
 
 #[test]
 fn session_language_overrides_per_key_and_restores_the_immutable_base() {
@@ -457,6 +458,65 @@ fn offhand_equipment_echo_does_not_clobber_the_main_hand_slot() {
             .offhand_stack()
             .map(|stack| stack.network_id),
         Some(60)
+    );
+}
+
+/// Unrelated inventory traffic must not replay an older offhand snapshot over equipment.
+#[test]
+fn newer_offhand_equipment_survives_unrelated_inventory_events() {
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    let update = |id| {
+        InventoryEvent::Content(InventoryContentEvent {
+            container: inventory_container(protocol::OFFHAND_WINDOW_ID),
+            slots: Arc::from([stack(id)]),
+            storage_item: NetworkItemStack::empty(),
+        })
+    };
+    runtime
+        .enqueue_inventory_event(&mut player, 1, 1, update(50))
+        .unwrap();
+    runtime.drain_pending_inventory(&mut player);
+    assert_eq!(
+        runtime.gameplay_hud().offhand_stack().unwrap().network_id,
+        50
+    );
+    runtime.retain_local_selected_equipment(
+        &mut player,
+        2,
+        EquipmentEvent {
+            actor_runtime_id: 7,
+            stack: stack(60),
+            inventory_slot: 0,
+            selected_slot: 0,
+            window_id: protocol::OFFHAND_WINDOW_ID as u8,
+            handedness: Some(ActorHandedness::Left),
+        },
+    );
+    runtime
+        .enqueue_inventory_event(
+            &mut player,
+            1,
+            3,
+            InventoryEvent::SelectedSlot(SelectedSlotEvent {
+                container: inventory_container(0),
+                slot: 2,
+                select_slot: true,
+            }),
+        )
+        .unwrap();
+    runtime.drain_pending_inventory(&mut player);
+    assert_eq!(
+        runtime.gameplay_hud().offhand_stack().unwrap().network_id,
+        60
+    );
+    runtime
+        .enqueue_inventory_event(&mut player, 1, 4, update(70))
+        .unwrap();
+    runtime.drain_pending_inventory(&mut player);
+    assert_eq!(
+        runtime.gameplay_hud().offhand_stack().unwrap().network_id,
+        70
     );
 }
 
@@ -946,157 +1006,6 @@ fn mount_jump_charge_ramps_while_held_and_resets_on_release_or_dismount() {
     assert_eq!(runtime.mount_jump_charge(3_300), 0.0);
 }
 
-#[test]
-fn the_selected_slot_presents_the_equipment_echo_before_inventory_content() {
-    let mut player_runtime = player_state::PlayerState::new(1);
-
-    let mut runtime = UiRuntime::new(1);
-    runtime.retain_local_selected_equipment(
-        &mut player_runtime,
-        1,
-        EquipmentEvent {
-            actor_runtime_id: 7,
-            stack: stack(41),
-            inventory_slot: 2,
-            selected_slot: 2,
-            window_id: 0,
-            handedness: Some(ActorHandedness::Right),
-        },
-    );
-    // No inventory content has arrived: the MobEquipment echo is the
-    // authoritative selected stack, and only for its own slot.
-    assert_eq!(
-        player_runtime
-            .presented_hotbar_stack(2)
-            .map(|stack| stack.network_id),
-        Some(41)
-    );
-    assert_eq!(player_runtime.presented_hotbar_stack(1), None);
-}
-
-#[test]
-fn known_selected_ledger_state_overrides_the_equipment_bootstrap() {
-    let mut player_runtime = player_state::PlayerState::new(1);
-
-    let mut runtime = UiRuntime::new(1);
-    player_runtime.inventory.set_local_selected_slot(2);
-    runtime.retain_local_selected_equipment(
-        &mut player_runtime,
-        1,
-        EquipmentEvent {
-            actor_runtime_id: 7,
-            stack: stack(41),
-            inventory_slot: 2,
-            selected_slot: 2,
-            window_id: 0,
-            handedness: Some(ActorHandedness::Right),
-        },
-    );
-    runtime
-        .inventory_ledger_mut(&mut player_runtime)
-        .apply(&InventoryEvent::Slot(InventorySlotEvent {
-            identity: SlotIdentity {
-                container: inventory_container(0),
-                slot: 2,
-            },
-            stack: NetworkItemStack::empty(),
-            storage_item: None,
-        }));
-
-    let empty_snapshot = player_runtime.selected_stack_snapshot().unwrap();
-    assert_eq!(empty_snapshot.slot, 2);
-    assert_eq!(
-        empty_snapshot.state,
-        inventory::inventory_ledger::PlayerInventorySlot::Empty
-    );
-    assert_eq!(player_runtime.selected_stack(), None);
-    assert_eq!(player_runtime.presented_hotbar_stack(2), None);
-
-    runtime
-        .inventory_ledger_mut(&mut player_runtime)
-        .apply(&InventoryEvent::Slot(InventorySlotEvent {
-            identity: SlotIdentity {
-                container: inventory_container(0),
-                slot: 2,
-            },
-            stack: stack(77),
-            storage_item: None,
-        }));
-
-    assert_eq!(
-        player_runtime.selected_stack().map(|item| item.network_id),
-        Some(77)
-    );
-    assert_eq!(
-        player_runtime
-            .presented_hotbar_stack(2)
-            .map(|item| item.network_id),
-        Some(77)
-    );
-}
-
-#[test]
-fn equipment_bootstrap_requires_a_matching_valid_selected_slot() {
-    let mut player_runtime = player_state::PlayerState::new(1);
-
-    let mut runtime = UiRuntime::new(1);
-    player_runtime.inventory.set_local_selected_slot(2);
-    runtime.retain_local_selected_equipment(
-        &mut player_runtime,
-        1,
-        EquipmentEvent {
-            actor_runtime_id: 7,
-            stack: stack(41),
-            inventory_slot: 3,
-            selected_slot: 3,
-            window_id: 0,
-            handedness: Some(ActorHandedness::Right),
-        },
-    );
-    assert_eq!(player_runtime.selected_stack(), None);
-
-    let mut player_runtime = player_state::PlayerState::new(1);
-    let mut equipment_only = UiRuntime::new(1);
-    equipment_only.retain_local_selected_equipment(
-        &mut player_runtime,
-        1,
-        EquipmentEvent {
-            actor_runtime_id: 7,
-            stack: stack(41),
-            inventory_slot: 250,
-            selected_slot: 250,
-            window_id: 0,
-            handedness: Some(ActorHandedness::Right),
-        },
-    );
-    assert_eq!(player_runtime.selected_hotbar_slot(), None);
-    assert_eq!(player_runtime.selected_stack(), None);
-}
-
-#[test]
-fn non_forcing_server_selection_does_not_override_local_prediction() {
-    let mut player_runtime = player_state::PlayerState::new(1);
-
-    let mut runtime = UiRuntime::new(1);
-    player_runtime.inventory.set_local_selected_slot(2);
-    runtime
-        .enqueue_inventory_event(
-            &mut player_runtime,
-            1,
-            1,
-            InventoryEvent::SelectedSlot(SelectedSlotEvent {
-                container: inventory_container(0),
-                slot: 6,
-                select_slot: false,
-            }),
-        )
-        .unwrap();
-
-    runtime.drain_pending_inventory(&mut player_runtime);
-
-    assert_eq!(player_runtime.selected_hotbar_slot(), Some(2));
-}
-
 /// New toasts keep their configured duration and queue behind the preceding toast.
 #[test]
 fn toast_duration_setting_reaches_the_notification_queue() {
@@ -1136,6 +1045,40 @@ fn toast_duration_setting_reaches_the_notification_queue() {
     assert!(toasts[0].visible_at(toasts[0].started_millis + ui::TOAST_DISPLAY_MILLIS));
 }
 
+/// Client toasts take the player's duration and wait their turn behind server toasts.
+#[test]
+fn client_toasts_queue_with_the_configured_duration() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_toast_lifetime(ui::TOAST_DISPLAY_MILLIS * 2);
+    runtime
+        .apply(
+            &mut player_runtime,
+            envelope(
+                1,
+                1,
+                UiEvent::Hud(HudEvent::Toast {
+                    title: Arc::from("Server"),
+                    message: Arc::from(""),
+                }),
+            ),
+        )
+        .unwrap();
+    let server = runtime.hud().toasts()[0].clone();
+    runtime.push_client_toast(
+        Arc::from("Client"),
+        Arc::from("Message"),
+        server.started_millis,
+    );
+    let client = &runtime.hud().toasts()[1];
+    assert_eq!(&*client.title, "Client");
+    assert_eq!(client.started_millis, server.expires_millis);
+    assert_eq!(
+        client.expires_millis - client.started_millis,
+        ui::TOAST_DISPLAY_MILLIS * 2 + ui::TOAST_SLIDE_OUT_MILLIS
+    );
+}
+
 #[test]
 fn malformed_absorption_preserves_the_last_authoritative_stat() {
     let mut player_runtime = player_state::PlayerState::new(1);
@@ -1172,17 +1115,22 @@ fn empty_offhand_content_preserves_known_equipment() {
         slot_type: None,
         dynamic_id: None,
     };
-    state.apply_inventory(&InventoryEvent::Slot(InventorySlotEvent {
-        identity: SlotIdentity { container, slot: 0 },
-        stack: stack(77),
-        storage_item: None,
-    }));
+    let mut ledger = inventory::PlayerInventoryLedger::default();
+    let initial = InventoryEvent::Content(InventoryContentEvent {
+        container,
+        slots: vec![stack(77)].into(),
+        storage_item: NetworkItemStack::empty(),
+    });
+    ledger.apply(&initial);
+    state.apply_inventory(&initial, &ledger);
     assert!(state.offhand_stack().is_some());
-    state.apply_inventory(&InventoryEvent::Content(InventoryContentEvent {
+    let empty = InventoryEvent::Content(InventoryContentEvent {
         container,
         slots: Arc::from([]),
         storage_item: NetworkItemStack::empty(),
-    }));
+    });
+    ledger.apply(&empty);
+    state.apply_inventory(&empty, &ledger);
     assert_eq!(state.offhand_stack().unwrap().network_id, 77);
 }
 

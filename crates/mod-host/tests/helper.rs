@@ -72,6 +72,7 @@ fn spawn(component: Vec<u8>) -> Helper {
             origins: BTreeSet::new(),
             memory_bytes: MAX_GUEST_MEMORY,
             gpu_bytes: 0,
+            personal_mods: Default::default(),
         },
         assets: BTreeSet::new(),
         templates: BTreeSet::new(),
@@ -110,6 +111,7 @@ fn call(helper: &mut Helper, channel: &str) -> Reply {
             },
             epoch: 1,
             gui: None,
+            items: None,
         })
         .unwrap();
     reply(helper)

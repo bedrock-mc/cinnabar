@@ -1,6 +1,8 @@
+pub(crate) mod cache;
+
 use super::{
     evaluation::Evaluator,
-    pose::{compose_pose, sample_clips},
+    pose::{compose_pose, sample_clips_reused},
     *,
 };
 use assets::entity_render_pattern_matches as pattern_matches;
@@ -44,6 +46,7 @@ pub struct RenderTextureLayer {
 pub(super) struct LayerSkeleton {
     pub(super) bones: Vec<RuntimeBone>,
     pub(super) names: Vec<Box<str>>,
+    pub(super) channels: Arc<pose::ChannelBindings>,
 }
 
 pub(super) fn bind_attachable_roots(state: &mut ActorRigState, owner_names: &[Box<str>]) {
@@ -64,10 +67,14 @@ pub(super) struct RenderRig<'a> {
     pub skeletons: &'a BTreeMap<u32, Option<Arc<LayerSkeleton>>>,
 }
 
-/// Resolves, once per actor, every geometry the rig's controllers can choose.
-pub(super) fn cache_layer_skeletons(assets: &RuntimeEntityAssets, state: &mut ActorRigState) {
+/// Prepares every geometry choice once for its shared rig plan.
+pub(super) fn layer_skeletons(
+    assets: &RuntimeEntityAssets,
+    binding: usize,
+) -> Box<[(u32, Option<Arc<LayerSkeleton>>)]> {
+    let mut skeletons = BTreeMap::new();
     let render = assets.render_data();
-    for layer in assets.render_layers(state.rig_binding) {
+    for layer in assets.render_layers(binding) {
         let first = layer.first_geometry as usize;
         let Some(choices) = render
             .geometries
@@ -76,15 +83,17 @@ pub(super) fn cache_layer_skeletons(assets: &RuntimeEntityAssets, state: &mut Ac
             continue;
         };
         for choice in choices {
-            state
-                .layer_skeletons
-                .entry(choice.geometry)
-                .or_insert_with(|| {
-                    let (bones, names) = resolve_bones(assets, choice.geometry as usize)?;
-                    Some(Arc::new(LayerSkeleton { bones, names }))
-                });
+            skeletons.entry(choice.geometry).or_insert_with(|| {
+                let (bones, names) = resolve_bones(assets, choice.geometry as usize)?;
+                Some(Arc::new(LayerSkeleton {
+                    channels: Arc::new(pose::ChannelBindings::new(&names)),
+                    bones,
+                    names,
+                }))
+            });
         }
     }
+    skeletons.into_iter().collect()
 }
 
 /// Poses each layer drawing its own geometry: the actor's clips, recompiled for that geometry,
@@ -93,7 +102,7 @@ pub(super) fn cache_layer_skeletons(assets: &RuntimeEntityAssets, state: &mut Ac
 /// for callers that already have a completed presentation.
 pub(super) fn pose_layers(
     evaluator: &Evaluator<'_>,
-    variables: &MolangVariables,
+    variables: &mut MolangVariables,
     skeletons: &BTreeMap<u32, Option<Arc<LayerSkeleton>>>,
     clips: &[super::tick::WeightedClip],
     layers: &mut [RenderTextureLayer],
@@ -121,7 +130,7 @@ pub(super) fn pose_layers(
                 .and_then(|local| {
                     let pose = compose_pose(&skeleton.bones, &local).map(Arc::from);
                     if let Some(locals) = locals.as_deref_mut() {
-                        locals.insert(geometry, local);
+                        locals.insert(geometry, local.into_vec());
                     }
                     pose
                 })
@@ -139,12 +148,12 @@ pub(super) fn pose_layers(
 /// Samples a selected geometry without mutating the rig variables.
 pub(super) fn sample_layer_local(
     evaluator: &Evaluator<'_>,
-    variables: &MolangVariables,
+    variables: &mut MolangVariables,
     skeletons: &BTreeMap<u32, Option<Arc<LayerSkeleton>>>,
     clips: &[super::tick::WeightedClip],
     geometry: u32,
     budget: &mut EvalBudget<'_>,
-) -> Result<Vec<pose::LocalDelta>, EvalError> {
+) -> Result<pose::PoseBuffer, EvalError> {
     let skeleton = skeletons
         .get(&geometry)
         .and_then(Option::as_ref)
@@ -155,12 +164,12 @@ pub(super) fn sample_layer_local(
         .filter_map(|weighted| clip_for_layer(assets, *weighted, geometry))
         .collect();
     // Keyframe scripts already ran for the rig; scratch variables keep their writes isolated.
-    let mut scratch = ScratchVariables::copy_of(variables);
-    let local = sample_clips(
+    let mut scratch = variables.isolate();
+    let local = sample_clips_reused(
         evaluator,
         &mut scratch,
         &skeleton.bones,
-        &skeleton.names,
+        pose::ChannelBones::bound(&skeleton.names, &skeleton.channels),
         &mapped,
         budget,
     )?;
@@ -239,170 +248,71 @@ fn color(
 }
 
 /// Evaluates the rig's render controllers against the actor's Molang state.
+/// Unavailable attachable artwork returns `None` without invalidating authored state.
 pub(super) fn evaluate_render(
     evaluator: &Evaluator<'_>,
     variables: &mut MolangVariables,
     rig: RenderRig<'_>,
     budget: &mut EvalBudget<'_>,
-) -> Result<Vec<RenderTextureLayer>, EvalError> {
+) -> Result<Option<Vec<RenderTextureLayer>>, EvalError> {
+    evaluate_render_cached(evaluator, variables, rig, budget, None)
+}
+
+/// Uses endpoint-owned caches only during read-only frame sampling.
+pub(super) fn evaluate_render_cached(
+    evaluator: &Evaluator<'_>,
+    variables: &mut MolangVariables,
+    rig: RenderRig<'_>,
+    budget: &mut EvalBudget<'_>,
+    mut cache: Option<&mut cache::RenderCache>,
+) -> Result<Option<Vec<RenderTextureLayer>>, EvalError> {
     let assets = evaluator.assets;
-    let render = assets.render_data();
     let mut output = Vec::new();
+    let mut unresolved_artwork = false;
     let multitexture = assets::native_actor_uses_multitexture(assets, rig.binding);
-    let actor_color = assets
+    let symbol = assets
         .rig_bindings()
         .get(rig.binding)
-        .and_then(|binding| assets.symbols().get(binding.entity_symbol as usize))
+        .and_then(|binding| assets.symbols().get(binding.entity_symbol as usize));
+    let actor_color = symbol
         .filter(|symbol| symbol.kind == EntityAssetKind::Entity)
         .map_or([1.0; 4], |_| {
             super::query::wolf::default_render_color(evaluator.actor)
         });
-    for layer in assets.render_layers(rig.binding) {
-        budget.charge_work()?;
-        if let Some(condition) = layer.condition
-            && !evaluator
-                .run(condition as usize, variables, 0.0, budget)?
-                .truthy()
-        {
-            continue;
-        }
-        let choices = render
-            .geometries
-            .get(
-                layer.first_geometry as usize
-                    ..layer.first_geometry as usize + usize::from(layer.geometry_count),
-            )
-            .ok_or(EvalError::Invalid)?;
-        let mut chosen = None;
-        for choice in choices {
-            budget.charge_work()?;
-            let selected = match choice.condition {
-                None => true,
-                Some(condition) => evaluator
-                    .run(condition as usize, variables, 0.0, budget)?
-                    .truthy(),
-            };
-            if selected {
-                chosen = Some(choice.geometry);
-                break;
-            }
-        }
-        let (geometry, bone_names) = match chosen.filter(|geometry| *geometry != rig.geometry) {
-            None => (None, rig.bone_names),
-            Some(geometry) => match rig.skeletons.get(&geometry) {
-                Some(Some(skeleton)) => (Some(geometry), skeleton.names.as_slice()),
-                // A geometry without a usable skeleton cannot be drawn.
-                _ => continue,
-            },
-        };
-        let rules = render
-            .visibility
-            .get(
-                layer.first_visibility as usize
-                    ..layer.first_visibility as usize + usize::from(layer.visibility_count),
-            )
-            .ok_or(EvalError::Invalid)?;
-        let mut hidden = vec![false; bone_names.len()];
-        for rule in rules {
-            let visible = evaluator
-                .run(rule.condition as usize, variables, 0.0, budget)?
-                .truthy();
-            for (index, name) in bone_names.iter().enumerate() {
-                if pattern_matches(&rule.pattern, name) {
-                    hidden[index] = !visible;
-                }
-            }
-        }
-        let hidden_bones: Arc<[u32]> = hidden
-            .iter()
-            .enumerate()
-            .filter(|(_, hidden)| **hidden)
-            .map(|(index, _)| index as u32)
-            .collect();
-        let tint = color(evaluator, variables, layer.color, actor_color, budget)?;
-        let overlay = color(evaluator, variables, layer.overlay_color, [0.0; 4], budget)?;
-        let overlay = color(evaluator, variables, layer.hurt_color, overlay, budget)?;
-        let uv_anim = color(
-            evaluator,
-            variables,
-            layer.uv_anim,
-            IDENTITY_UV_ANIM,
-            budget,
-        )?;
-        let light_color_multiplier = match layer.light_color_multiplier {
-            None => 1.0,
-            Some(expression) => {
-                let value = evaluator.number(expression as usize, variables, 1.0, budget)?;
-                if value.is_finite() { value } else { 1.0 }
-            }
-        };
-        let slots = render
-            .slots
-            .get(
-                layer.first_slot as usize
-                    ..layer.first_slot as usize + usize::from(layer.slot_count),
-            )
-            .ok_or(EvalError::Invalid)?;
-        let mut selected_sources = Vec::with_capacity(slots.len());
-        for (texture_slot, slot) in slots.iter().enumerate() {
-            let candidates = render
-                .candidates
-                .get(
-                    slot.first_candidate as usize
-                        ..slot.first_candidate as usize + usize::from(slot.candidate_count),
-                )
-                .ok_or(EvalError::Invalid)?;
-            for candidate in candidates {
-                budget.charge_work()?;
-                let selected = match candidate.condition {
-                    None => true,
-                    Some(condition) => evaluator
-                        .run(condition as usize, variables, 0.0, budget)?
-                        .truthy(),
-                };
-                if selected {
-                    // Later slots are samplers for this draw, not additional mesh layers.
-                    if multitexture || texture_slot == 0 {
-                        selected_sources.push(candidate.source);
-                    }
-                    break;
-                }
-            }
-        }
-        if multitexture && selected_sources.len() != 3 {
-            continue;
-        }
-        let grouped = if multitexture {
-            Some([selected_sources[1], selected_sources[2]])
+    for (index, layer) in assets.render_layers(rig.binding).iter().enumerate() {
+        if let Some(cache) = cache.as_deref_mut() {
+            let evaluated = cache.sample(
+                index,
+                evaluator,
+                variables,
+                rig,
+                layer,
+                actor_color,
+                multitexture,
+                budget,
+            )?;
+            unresolved_artwork |= evaluated.unresolved_artwork;
+            output.extend(evaluated.layers);
         } else {
-            None
-        };
-        let count = if grouped.is_some() {
-            1
-        } else {
-            selected_sources.len()
-        };
-        for (texture_slot, &source) in selected_sources.iter().take(count).enumerate() {
-            output.push(RenderTextureLayer {
-                material: layer.material,
-                material_state: layer.material_state,
-                source,
-                texture_slot: texture_slot as u16,
-                multitexture: grouped,
-                color: tint,
-                overlay,
-                hidden_bones: Arc::clone(&hidden_bones),
-                uv_anim,
-                geometry,
-                previous_pose: empty_pose(),
-                pose: empty_pose(),
-                ignore_lighting: layer.ignore_lighting,
-                light_color_multiplier,
-                sampled_scale: None,
-            });
+            unresolved_artwork |= evaluate_layer_into(
+                evaluator,
+                variables,
+                rig,
+                layer,
+                (actor_color, multitexture),
+                &mut output,
+                budget,
+            )?;
         }
     }
-    Ok(output)
+    if output.is_empty()
+        && unresolved_artwork
+        && symbol.is_some_and(|symbol| symbol.kind == EntityAssetKind::Attachable)
+    {
+        Ok(None)
+    } else {
+        Ok(Some(output))
+    }
 }
 
 #[cfg(test)]
@@ -431,3 +341,203 @@ mod multitexture_tests;
 #[cfg(test)]
 #[path = "render/projectile_tests.rs"]
 mod projectile_tests;
+
+/// One authored controller layer and whether its selected artwork is unavailable.
+#[derive(Clone, Debug)]
+pub(crate) struct LayerOutput {
+    layers: Vec<RenderTextureLayer>,
+    unresolved_artwork: bool,
+}
+
+/// Evaluates one controller independently while preserving its authored script order.
+fn evaluate_layer(
+    evaluator: &Evaluator<'_>,
+    variables: &mut MolangVariables,
+    rig: RenderRig<'_>,
+    layer: &assets::EntityRenderLayer,
+    actor_color: [f32; 4],
+    multitexture: bool,
+    budget: &mut EvalBudget<'_>,
+) -> Result<LayerOutput, EvalError> {
+    let mut output = Vec::new();
+    let unresolved_artwork = evaluate_layer_into(
+        evaluator,
+        variables,
+        rig,
+        layer,
+        (actor_color, multitexture),
+        &mut output,
+        budget,
+    )?;
+    Ok(LayerOutput {
+        layers: output,
+        unresolved_artwork,
+    })
+}
+
+/// Appends one controller directly so ordinary tick draws retain their single output buffer.
+fn evaluate_layer_into(
+    evaluator: &Evaluator<'_>,
+    variables: &mut MolangVariables,
+    rig: RenderRig<'_>,
+    layer: &assets::EntityRenderLayer,
+    (actor_color, multitexture): ([f32; 4], bool),
+    output: &mut Vec<RenderTextureLayer>,
+    budget: &mut EvalBudget<'_>,
+) -> Result<bool, EvalError> {
+    let assets = evaluator.assets;
+    let render = assets.render_data();
+    let mut unresolved_artwork = false;
+    budget.charge_work()?;
+    if let Some(condition) = layer.condition
+        && !evaluator
+            .run(condition as usize, variables, 0.0, budget)?
+            .truthy()
+    {
+        return Ok(unresolved_artwork);
+    }
+    let choices = render
+        .geometries
+        .get(
+            layer.first_geometry as usize
+                ..layer.first_geometry as usize + usize::from(layer.geometry_count),
+        )
+        .ok_or(EvalError::Invalid)?;
+    let mut chosen = None;
+    for choice in choices {
+        budget.charge_work()?;
+        let selected = match choice.condition {
+            None => true,
+            Some(condition) => evaluator
+                .run(condition as usize, variables, 0.0, budget)?
+                .truthy(),
+        };
+        if selected {
+            chosen = Some(choice.geometry);
+            break;
+        }
+    }
+    let (geometry, bone_names) = match chosen.filter(|geometry| *geometry != rig.geometry) {
+        None => (None, rig.bone_names),
+        Some(geometry) => match rig.skeletons.get(&geometry) {
+            Some(Some(skeleton)) => (Some(geometry), skeleton.names.as_slice()),
+            // A geometry without a usable skeleton cannot be drawn.
+            _ => {
+                return Ok(unresolved_artwork);
+            }
+        },
+    };
+    let rules = render
+        .visibility
+        .get(
+            layer.first_visibility as usize
+                ..layer.first_visibility as usize + usize::from(layer.visibility_count),
+        )
+        .ok_or(EvalError::Invalid)?;
+    let mut hidden = vec![false; bone_names.len()];
+    for rule in rules {
+        let visible = evaluator
+            .run(rule.condition as usize, variables, 0.0, budget)?
+            .truthy();
+        for (index, name) in bone_names.iter().enumerate() {
+            if pattern_matches(&rule.pattern, name) {
+                hidden[index] = !visible;
+            }
+        }
+    }
+    let visible = hidden.iter().any(|hidden| !hidden);
+    if layer.unresolved_textures {
+        unresolved_artwork |= visible;
+        return Ok(unresolved_artwork);
+    }
+    let hidden_bones: Arc<[u32]> = hidden
+        .iter()
+        .enumerate()
+        .filter(|(_, hidden)| **hidden)
+        .map(|(index, _)| index as u32)
+        .collect();
+    let tint = color(evaluator, variables, layer.color, actor_color, budget)?;
+    let overlay = color(evaluator, variables, layer.overlay_color, [0.0; 4], budget)?;
+    let overlay = color(evaluator, variables, layer.hurt_color, overlay, budget)?;
+    let uv_anim = color(
+        evaluator,
+        variables,
+        layer.uv_anim,
+        IDENTITY_UV_ANIM,
+        budget,
+    )?;
+    let light_color_multiplier = match layer.light_color_multiplier {
+        None => 1.0,
+        Some(expression) => {
+            let value = evaluator.number(expression as usize, variables, 1.0, budget)?;
+            if value.is_finite() { value } else { 1.0 }
+        }
+    };
+    let slots = render
+        .slots
+        .get(layer.first_slot as usize..layer.first_slot as usize + usize::from(layer.slot_count))
+        .ok_or(EvalError::Invalid)?;
+    let mut selected_sources = Vec::with_capacity(slots.len());
+    for (texture_slot, slot) in slots.iter().enumerate() {
+        let candidates = render
+            .candidates
+            .get(
+                slot.first_candidate as usize
+                    ..slot.first_candidate as usize + usize::from(slot.candidate_count),
+            )
+            .ok_or(EvalError::Invalid)?;
+        let mut resolved = false;
+        for candidate in candidates {
+            budget.charge_work()?;
+            let selected = match candidate.condition {
+                None => true,
+                Some(condition) => evaluator
+                    .run(condition as usize, variables, 0.0, budget)?
+                    .truthy(),
+            };
+            if selected {
+                resolved = true;
+                // Later slots are samplers for this draw, not additional mesh layers.
+                if multitexture || texture_slot == 0 {
+                    selected_sources.push(candidate.source);
+                }
+                break;
+            }
+        }
+        // A live selector with no source is missing artwork, not a disabled controller.
+        unresolved_artwork |= texture_slot == 0 && !resolved && visible;
+    }
+    if multitexture && selected_sources.len() != 3 {
+        return Ok(unresolved_artwork);
+    }
+    let grouped = if multitexture {
+        Some([selected_sources[1], selected_sources[2]])
+    } else {
+        None
+    };
+    let count = if grouped.is_some() {
+        1
+    } else {
+        selected_sources.len()
+    };
+    for (texture_slot, &source) in selected_sources.iter().take(count).enumerate() {
+        output.push(RenderTextureLayer {
+            material: layer.material,
+            material_state: layer.material_state,
+            source,
+            texture_slot: texture_slot as u16,
+            multitexture: grouped,
+            color: tint,
+            overlay,
+            hidden_bones: Arc::clone(&hidden_bones),
+            uv_anim,
+            geometry,
+            previous_pose: empty_pose(),
+            pose: empty_pose(),
+            ignore_lighting: layer.ignore_lighting,
+            light_color_multiplier,
+            sampled_scale: None,
+        });
+    }
+    Ok(unresolved_artwork)
+}

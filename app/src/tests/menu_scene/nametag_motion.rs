@@ -1,10 +1,8 @@
 //! Own labels follow the frozen body pose while remote labels retain actor interpolation.
 
 use super::*;
-use crate::{
-    environment::{WeatherState, WorldClock, bind_session_generation},
-    ui_runtime::presentation::prepare_ui_runtime,
-};
+use crate::ui_runtime::presentation::prepare_ui_runtime;
+use client_presentation::environment::{WeatherState, WorldClock, bind_session_generation};
 use client_presentation::{
     actor_publication::ActorFramePartialTick,
     camera::{CameraSettingsAuthority, FlyCamera, perspective_pose},
@@ -149,12 +147,18 @@ fn prepare_actor_motion(world: &mut World) {
             WorldEvent::Actor(ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
                 dimension: 0,
                 runtime_id: 1,
-                metadata: Arc::from([protocol::ActorMetadata {
-                    key: 0,
-                    value: protocol::ActorMetadataValue::Flags(
-                        1 << ActorFlag::ShowName.wire_value(),
-                    ),
-                }]),
+                metadata: Arc::from([
+                    protocol::ActorMetadata {
+                        key: protocol_ids::ActorDataKey::Flags.wire_value(),
+                        value: protocol::ActorMetadataValue::Flags(
+                            1 << ActorFlag::ShowName.wire_value(),
+                        ),
+                    },
+                    protocol::ActorMetadata {
+                        key: protocol_ids::ActorDataKey::AlwaysShowNameTag.wire_value(),
+                        value: protocol::ActorMetadataValue::Byte(1),
+                    },
+                ]),
                 properties: Arc::from([]),
                 tick: 0,
             })),
@@ -473,8 +477,8 @@ fn own_score_remains_visible_after_body_correction_with_stale_player_frame() {
         assert!(own.iter().all(|record| record.line_lift == 0.0));
         let remote = glyph_anchors(&mut world, REMOTE_COLOR);
         assert!(
-            !remote.is_empty(),
-            "remote range must keep using the player-frame viewer"
+            remote.is_empty(),
+            "remote range must use the current camera"
         );
 
         // The server's synced score text is the only additional line in this plain-name fixture.
@@ -515,7 +519,7 @@ fn own_score_remains_visible_after_body_correction_with_stale_player_frame() {
         );
         assert!(
             scored.iter().all(|record| record.line_lift > 0.0),
-            "{perspective:?}: score range must use the current body's viewer feet"
+            "{perspective:?}: score range must use the current camera"
         );
         assert!(
             scored
@@ -525,4 +529,99 @@ fn own_score_remains_visible_after_body_correction_with_stale_player_frame() {
         );
         assert_eq!(glyph_anchors(&mut world, REMOTE_COLOR), remote);
     }
+}
+
+/// Commits one metadata update without advancing the actor's rendered pose.
+fn set_tag_metadata(
+    world: &mut World,
+    runtime_id: u64,
+    key: protocol_ids::ActorDataKey,
+    value: protocol::ActorMetadataValue,
+    feet: Vec3,
+) {
+    let mut client = world.resource_mut::<ClientWorld>();
+    let stream = client.stream.as_mut().unwrap();
+    stream
+        .submit(
+            stream.committed_sequence() + 1,
+            WorldEvent::Actor(ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
+                dimension: 0,
+                runtime_id,
+                metadata: Arc::from([protocol::ActorMetadata {
+                    key: key.wire_value(),
+                    value,
+                }]),
+                properties: Arc::from([]),
+                tick: 0,
+            })),
+        )
+        .unwrap();
+    stream.poll(feet.to_array(), 0);
+}
+
+#[test]
+fn empty_own_name_tag_does_not_fall_back_to_the_username() {
+    let perspective = PerspectiveMode::ThirdPersonBack;
+    let mut world = fixture_world(perspective);
+    prepare_actor_motion(&mut world);
+    let feet = Vec3::new(0.0, 64.0, 0.0);
+    prepare_local_frame(&mut world, perspective, feet, 1);
+    publish_visibility(&mut world, perspective, feet, 1, 1);
+    world.run_system_cached(prepare_ui_runtime).unwrap();
+    assert!(!glyph_anchors(&mut world, OWN_COLOR).is_empty());
+    set_tag_metadata(
+        &mut world,
+        1,
+        protocol_ids::ActorDataKey::Name,
+        protocol::ActorMetadataValue::String("".into()),
+        feet,
+    );
+    world.run_system_cached(prepare_ui_runtime).unwrap();
+    assert!(glyph_anchors(&mut world, OWN_COLOR).is_empty());
+}
+
+#[test]
+fn nametag_publication_uses_the_shared_eye_ray_pick_in_third_person() {
+    let perspective = PerspectiveMode::ThirdPersonBack;
+    let mut world = fixture_world(perspective);
+    prepare_actor_motion(&mut world);
+    let feet = Vec3::new(0.0, 64.0, 0.0);
+    prepare_local_frame(&mut world, perspective, feet, 1);
+    publish_visibility(&mut world, perspective, feet, 1, 1);
+    set_tag_metadata(
+        &mut world,
+        2,
+        protocol_ids::ActorDataKey::AlwaysShowNameTag,
+        protocol::ActorMetadataValue::Byte(0),
+        feet,
+    );
+    world.insert_resource(crate::block_selection::CrosshairActor(Some(2)));
+    world.run_system_cached(prepare_ui_runtime).unwrap();
+    assert!(!glyph_anchors(&mut world, REMOTE_COLOR).is_empty());
+    world
+        .resource_mut::<crate::block_selection::CrosshairActor>()
+        .0 = None;
+    world.run_system_cached(prepare_ui_runtime).unwrap();
+    assert!(glyph_anchors(&mut world, REMOTE_COLOR).is_empty());
+}
+
+#[test]
+fn own_tag_setting_does_not_override_server_visibility() {
+    let perspective = PerspectiveMode::ThirdPersonBack;
+    let mut world = fixture_world(perspective);
+    prepare_actor_motion(&mut world);
+    let feet = Vec3::new(0.0, 64.0, 0.0);
+    prepare_local_frame(&mut world, perspective, feet, 1);
+    publish_visibility(&mut world, perspective, feet, 1, 1);
+    world.run_system_cached(prepare_ui_runtime).unwrap();
+    assert!(!glyph_anchors(&mut world, OWN_COLOR).is_empty());
+    set_tag_metadata(
+        &mut world,
+        1,
+        protocol_ids::ActorDataKey::AlwaysShowNameTag,
+        protocol::ActorMetadataValue::Byte(0),
+        feet,
+    );
+    world.run_system_cached(prepare_ui_runtime).unwrap();
+    assert!(glyph_anchors(&mut world, OWN_COLOR).is_empty());
 }

@@ -3,8 +3,9 @@ use std::{
         Arc, Mutex, OnceLock,
         atomic::{AtomicU64, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use bevy::prelude::{Res, ResMut, Resource};
 
@@ -57,6 +58,12 @@ pub enum RuntimeStage {
     Particles,
     Audio,
     BlockEntities,
+    /// Shader-pack terrain expansion planning and per-view draw lists, in the render world.
+    ShaderpackGeometry,
+    /// Shader-pack per-view uniform evaluation and packing for every program and draw.
+    ShaderpackUniforms,
+    /// Recording a view's shader-pack frame: shadow, geometry and full-screen passes.
+    ShaderpackRecord,
     /// Render-world wall time for one frame, excluding the drawable-acquisition wait.
     RenderFrame,
     /// Update start, when input is sampled, to the end of that frame's render extraction.
@@ -84,6 +91,11 @@ pub enum RuntimeStage {
     GpuTonemapping,
     GpuFxaa,
     GpuBlit,
+    /// Owned GPU-cull passes, measured during per-pass profiling outside Metal.
+    GpuCullEarly,
+    GpuCullHiz,
+    GpuCullLate,
+    GpuTerrainLate,
     /// Draw categories timed inside passes; only with aggregate profiling on capable adapters.
     GpuTerrainOpaque,
     GpuTerrainTransparent,
@@ -108,12 +120,27 @@ pub enum RuntimeStage {
     GpuModPass7,
     GpuModPrimitives,
     GpuFarTerrain,
+    /// Shader-pack terrain expansion compute and vertex page growth copies.
+    GpuShaderpackExpansion,
+    /// Shader-pack shadow pass with its depth copies and `shadowcomp` passes.
+    GpuShaderpackShadow,
+    /// Shader-pack `prepare`, sky, opaque geometry, actors, effects and depth copies.
+    GpuShaderpackOpaque,
+    /// Shader-pack `deferred` passes.
+    GpuShaderpackDeferred,
+    /// Shader-pack translucent geometry, late effects and the Vanilla overlay.
+    GpuShaderpackTranslucent,
+    /// Shader-pack `composite`, `final`, copy-back and presentation.
+    GpuShaderpackComposite,
+    /// GPU time between the previous frame's last timestamp and this frame's first, when both
+    /// frames were timed; untimed work between them (uploads, presentation) counts as idle.
+    GpuIdle,
     /// CPU time from submission admission to its completion callback, including queue and poll delay.
     GpuFrameCompletionLatency,
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 79] = [
+    pub const ALL: [Self; 93] = [
         Self::ActorSessionSetup,
         Self::PackReload,
         Self::WorldPoll,
@@ -152,6 +179,9 @@ impl RuntimeStage {
         Self::Particles,
         Self::Audio,
         Self::BlockEntities,
+        Self::ShaderpackGeometry,
+        Self::ShaderpackUniforms,
+        Self::ShaderpackRecord,
         Self::RenderFrame,
         Self::InputAge,
         Self::InputPacingWait,
@@ -171,6 +201,10 @@ impl RuntimeStage {
         Self::GpuTonemapping,
         Self::GpuFxaa,
         Self::GpuBlit,
+        Self::GpuCullEarly,
+        Self::GpuCullHiz,
+        Self::GpuCullLate,
+        Self::GpuTerrainLate,
         Self::GpuTerrainOpaque,
         Self::GpuTerrainTransparent,
         Self::GpuTerrainSolid,
@@ -192,11 +226,18 @@ impl RuntimeStage {
         Self::GpuModPass7,
         Self::GpuModPrimitives,
         Self::GpuFarTerrain,
+        Self::GpuShaderpackExpansion,
+        Self::GpuShaderpackShadow,
+        Self::GpuShaderpackOpaque,
+        Self::GpuShaderpackDeferred,
+        Self::GpuShaderpackTranslucent,
+        Self::GpuShaderpackComposite,
+        Self::GpuIdle,
         Self::GpuFrameCompletionLatency,
     ];
 
     /// GPU diagnostics, including labelled completion latency, in the tail of [`Self::ALL`].
-    pub const GPU: [Self; 37] = [
+    pub const GPU: [Self; 48] = [
         Self::GpuFrame,
         Self::GpuShadows,
         Self::GpuOpaque,
@@ -212,6 +253,10 @@ impl RuntimeStage {
         Self::GpuTonemapping,
         Self::GpuFxaa,
         Self::GpuBlit,
+        Self::GpuCullEarly,
+        Self::GpuCullHiz,
+        Self::GpuCullLate,
+        Self::GpuTerrainLate,
         Self::GpuTerrainOpaque,
         Self::GpuTerrainTransparent,
         Self::GpuTerrainSolid,
@@ -233,6 +278,13 @@ impl RuntimeStage {
         Self::GpuModPass7,
         Self::GpuModPrimitives,
         Self::GpuFarTerrain,
+        Self::GpuShaderpackExpansion,
+        Self::GpuShaderpackShadow,
+        Self::GpuShaderpackOpaque,
+        Self::GpuShaderpackDeferred,
+        Self::GpuShaderpackTranslucent,
+        Self::GpuShaderpackComposite,
+        Self::GpuIdle,
         Self::GpuFrameCompletionLatency,
     ];
 
@@ -310,12 +362,16 @@ impl RuntimeStage {
             Self::Particles => "particles",
             Self::Audio => "audio",
             Self::BlockEntities => "block_entities",
+            Self::ShaderpackGeometry => "shaderpack_geometry",
+            Self::ShaderpackUniforms => "shaderpack_uniforms",
+            Self::ShaderpackRecord => "shaderpack_record",
             Self::RenderFrame => "render_frame",
             Self::InputAge => "input_age",
             Self::InputPacingWait => "input_pacing_wait",
             Self::FramePacingLateness => "frame_pacing_lateness",
             Self::GpuFrame => "gpu_frame",
             Self::GpuFrameCompletionLatency => "gpu_frame_completion_latency",
+            Self::GpuIdle => "gpu_idle",
             Self::GpuShadows => "gpu_shadows",
             Self::GpuOpaque => "gpu_opaque",
             Self::GpuTransparent => "gpu_transparent",
@@ -330,6 +386,10 @@ impl RuntimeStage {
             Self::GpuTonemapping => "gpu_tonemapping",
             Self::GpuFxaa => "gpu_fxaa",
             Self::GpuBlit => "gpu_blit",
+            Self::GpuCullEarly => "gpu_cull_early",
+            Self::GpuCullHiz => "gpu_cull_hiz",
+            Self::GpuCullLate => "gpu_cull_late",
+            Self::GpuTerrainLate => "gpu_terrain_late",
             Self::GpuTerrainOpaque => "gpu_terrain_opaque",
             Self::GpuTerrainTransparent => "gpu_terrain_transparent",
             Self::GpuTerrainSolid => "gpu_terrain_solid",
@@ -351,6 +411,12 @@ impl RuntimeStage {
             Self::GpuModPass7 => "gpu_mod_pass_7",
             Self::GpuModPrimitives => "gpu_mod_primitives",
             Self::GpuFarTerrain => "gpu_far_terrain",
+            Self::GpuShaderpackExpansion => "gpu_shaderpack_expansion",
+            Self::GpuShaderpackShadow => "gpu_shaderpack_shadow",
+            Self::GpuShaderpackOpaque => "gpu_shaderpack_opaque",
+            Self::GpuShaderpackDeferred => "gpu_shaderpack_deferred",
+            Self::GpuShaderpackTranslucent => "gpu_shaderpack_translucent",
+            Self::GpuShaderpackComposite => "gpu_shaderpack_composite",
         }
     }
 }
@@ -368,9 +434,29 @@ pub struct RuntimeStageProfileSnapshot {
     pub samples: [RuntimeStageSample; RuntimeStage::ALL.len()],
 }
 
-#[derive(Debug, Default)]
+/// Creates the native lock during setup so its first timed use cannot allocate.
+pub(super) fn initialized_mutex<T>(value: T) -> Mutex<T> {
+    let mutex = Mutex::new(value);
+    drop(
+        mutex
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    );
+    mutex
+}
+
+#[derive(Debug)]
 struct StageSampleAccumulator {
     sample: Mutex<RuntimeStageSample>,
+}
+
+impl Default for StageSampleAccumulator {
+    /// Prepares the sample and its lock before any timed stage runs.
+    fn default() -> Self {
+        Self {
+            sample: initialized_mutex(RuntimeStageSample::default()),
+        }
+    }
 }
 
 impl StageSampleAccumulator {
@@ -455,7 +541,7 @@ impl RuntimeStageProfiler {
                 started,
                 last_snapshot_nanos: AtomicU64::new(0),
                 stages: std::array::from_fn(|_| StageSampleAccumulator::default()),
-                latest_gpu: Mutex::new(None),
+                latest_gpu: initialized_mutex(None),
                 #[cfg(any(test, feature = "alloc-stats"))]
                 allocations: crate::runtime_profile_alloc::AllocationProfiler::default(),
             }),
@@ -581,7 +667,9 @@ impl RuntimeStageProfiler {
         if frame.iter().any(|(stage, _)| {
             !matches!(
                 stage,
-                RuntimeStage::GpuFrame | RuntimeStage::GpuFrameCompletionLatency
+                RuntimeStage::GpuFrame
+                    | RuntimeStage::GpuIdle
+                    | RuntimeStage::GpuFrameCompletionLatency
             )
         }) {
             *self

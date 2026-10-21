@@ -311,6 +311,18 @@ impl InstallLayout {
         self.user_data_root.join("mods")
     }
 
+    /// Java shader packs (zips or folders) the player drops in to pick from the Shaders tab.
+    #[must_use]
+    pub fn shader_packs_dir(&self) -> PathBuf {
+        self.user_data_root.join("shaderpacks")
+    }
+
+    /// Translated shader-pack programs reused across launches; safe to delete.
+    #[must_use]
+    pub fn shader_pack_cache_dir(&self) -> PathBuf {
+        self.user_data_root.join("cache/shaderpacks")
+    }
+
     #[must_use]
     pub fn resource_pack_cache_dir(&self) -> PathBuf {
         self.user_data_root.join("resource-packs/v1/objects")
@@ -698,6 +710,9 @@ mod tests {
                     .compiled_pack_cache_dir()
                     .starts_with(root.join("data"))
             );
+            for dir in [layout.shader_packs_dir(), layout.shader_pack_cache_dir()] {
+                assert!(dir.starts_with(root.join("data")));
+            }
             assert!(
                 layout
                     .skin_selection_file()

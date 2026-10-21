@@ -4,8 +4,18 @@ import (
 	"encoding/json"
 	"testing"
 
-	sharedblock "github.com/bedrock-mc/protocolgen/generated/data/block"
+	sharedblock "github.com/cinnabar-mc/protocolgen/generated/data/block"
 )
+
+// TestBlockFactExportsLiquidContainment keeps source booleans intact across the language boundary.
+func TestBlockFactExportsLiquidContainment(t *testing.T) {
+	for _, value := range []bool{false, true} {
+		fact := blockFact(Record{}, sharedblock.Properties{CanContainLiquidSource: value}, nil)
+		if got, ok := fact["can_contain_liquid_source"].(bool); !ok || got != value {
+			t.Fatalf("liquid containment = %v, want %v", fact["can_contain_liquid_source"], value)
+		}
+	}
+}
 
 // TestBlockFactKeepsExactFloat32Values covers float32 values shortened by JSON, which shifts fixed-point collision and friction.
 func TestBlockFactKeepsExactFloat32Values(t *testing.T) {

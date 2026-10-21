@@ -6,7 +6,12 @@
 mod scene_policy;
 pub mod tooltip;
 
-use std::{borrow::Borrow, sync::Arc};
+pub(crate) mod masks;
+
+use std::{
+    borrow::{Borrow, Cow},
+    sync::Arc,
+};
 
 use assets::{RuntimeFontCatalog, RuntimeUiAssets};
 use json_ui::{
@@ -22,12 +27,16 @@ mod dependencies;
 mod fill_renderers;
 mod filter;
 mod formatting_colors;
+mod fragment;
+pub use fragment::{CachedFragment, CachedFragmentTextures, normalize_fragment};
 pub mod glass;
 pub mod host_edit;
 pub mod item_renderer;
 #[cfg(test)]
 mod ownership_tests;
 pub mod pack_catalog;
+mod paint_bounds;
+pub use paint_bounds::{PaintBounds, PaintObserver};
 mod paint_transform;
 pub mod pixel_snap;
 mod render;
@@ -491,12 +500,20 @@ pub fn rect(left: f32, top: f32, right: f32, bottom: f32) -> Result<UiRect, Pain
     .map_err(PaintError::Geometry)
 }
 
+/// Selects a label's optional default formatting color after binding and localization.
+pub type TextColor<'a> = &'a dyn Fn(&DrawNode) -> Option<char>;
+
 /// What the engine paints a screen against besides its layout: the interaction state, the
 /// hover tooltip and pointer (virtual px), transition clocks, artwork and edit feedback.
 #[derive(Clone, Copy, Default)]
 pub struct ScreenArt<'a> {
     /// Keeps this screen's sprites on the shared nearest sampler, including pack overrides.
     pub nearest_sampling: bool,
+    /// Optional bounds observation of selected screen artwork, across renderer types.
+    pub paint_bounds: Option<PaintObserver<'a>>,
+    /// GUI offset into the source coordinate system used for physical-pixel snapping.
+    /// Cached artwork adds this before snapping each control and removes it afterward.
+    pub pixel_snap_offset: [f64; 2],
     /// Native replacements retain the pack's backdrop while omitting the replaced controls.
     pub omit_controls: &'a [&'a str],
     /// The interaction state gated nodes ([`json_ui::render_bound_gated`]) paint under.
@@ -504,6 +521,8 @@ pub struct ScreenArt<'a> {
     /// Text a shown hover tooltip draws instead of its bound `#hover_text`.
     pub tooltip: Option<&'a str>,
     pub pointer: Option<[f32; 2]>,
+    /// Default formatting color chosen per label after binding and localization.
+    pub text_color: Option<TextColor<'a>>,
     /// Creation times that fades naming a clock read instead of their own.
     pub clocks: Option<&'a std::collections::BTreeMap<String, f64>>,
     pub images: Option<&'a std::collections::HashMap<String, ui::IconRef>>,
@@ -525,6 +544,7 @@ impl ScreenArt<'_> {
 /// Turns draw nodes into retained UI nodes, opening a clip group per clip change to keep
 /// order; custom renderers draw through it.
 pub struct Canvas<'a> {
+    prepared: masks::PreparedRasters,
     edit: Option<host_edit::Target<'a>>,
     textures: Textures<'a>,
     solid_page: u16,
@@ -545,6 +565,8 @@ pub struct Canvas<'a> {
     length_scale: f32,
     /// The paint transform left for the current draw's nodes, in logical px.
     residual: Option<json_ui::transform::Affine>,
+    /// An optional scoped observer of clipped, transformed logical paint bounds.
+    paint_bounds: Option<Option<[f32; 4]>>,
     /// The filter group receiving the current draws.
     filter: Option<filter::OpenFilter>,
 }
@@ -605,20 +627,22 @@ impl Canvas<'_> {
     /// `rect` as logical bounds on whole physical pixels, where vanilla places
     /// an image ([`pixel_snap`]).
     fn snapped(&self, rect: &RectOut) -> [f32; 4] {
-        pixel_snap::snapped(
+        pixel_snap::translated(
             [rect.x, rect.y, rect.w, rect.h],
-            self.metrics.gui_scale,
+            self.art.pixel_snap_offset,
             self.px,
+            |rect| pixel_snap::snapped(rect, self.metrics.gui_scale, self.px),
         )
     }
 
     /// `rect` as logical bounds moved to a whole physical pixel, where vanilla
     /// places text ([`pixel_snap`]).
     fn positioned(&self, rect: &RectOut) -> [f32; 4] {
-        pixel_snap::positioned(
+        pixel_snap::translated(
             [rect.x, rect.y, rect.w, rect.h],
-            self.metrics.gui_scale,
+            self.art.pixel_snap_offset,
             self.px,
+            |rect| pixel_snap::positioned(rect, self.metrics.gui_scale, self.px),
         )
     }
 
@@ -666,9 +690,11 @@ impl Canvas<'_> {
             json_ui::vector_path::RENDERER => self
                 .vector_path(data, dest, &alpha)
                 .map(|visual| (visual, dest)),
-            "cinnabar_rounded_rectangle" => self
-                .rounded_rectangle(data, dest, &alpha)
-                .map(|visual| (visual, dest)),
+            json_ui::rounded::RENDERER => {
+                self.rounded_shadow(data, dest, &alpha)?;
+                self.rounded_rectangle(data, dest, &alpha)
+                    .map(|visual| (visual, dest))
+            }
             "progress_bar_renderer" => {
                 self.progress_bar(data, dest, &alpha);
                 None
@@ -694,11 +720,16 @@ impl Canvas<'_> {
         let Some((clip, parent)) = self.clip else {
             return Ok(());
         };
-        if self.art.nearest_sampling
-            && let UiVisual::StyledSprite { style, .. } = &mut visual
-        {
-            *style &= !ui::UI_STYLE_BILINEAR;
+        if self.art.nearest_sampling {
+            match &mut visual {
+                UiVisual::StyledSprite { style, .. } => *style &= !ui::UI_STYLE_BILINEAR,
+                UiVisual::RepeatedSprite { style, .. } => {
+                    *style &= !u16::from(ui::UI_STYLE_BILINEAR)
+                }
+                _ => {}
+            }
         }
+        self.observe_paint_bounds(bounds, clip);
         let id = self.id();
         self.nodes.push(
             UiNode::new(
@@ -767,14 +798,27 @@ impl Canvas<'_> {
             self.art.clocks,
             Some(&self.textures),
         );
-        let clip = self.logical(&drawn.clip);
+        let floats =
+            matches!(&node.draw, Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER);
+        let clip = if floats {
+            self.screen
+        } else {
+            self.logical(&drawn.clip)
+        };
         let dest = if let Draw::Text { options, .. } = &node.draw {
-            text_paint::label_positioned(
+            pixel_snap::translated(
                 [drawn.dest.x, drawn.dest.y, drawn.dest.w, drawn.dest.h],
-                self.font,
-                options,
-                self.metrics.gui_scale,
+                self.art.pixel_snap_offset,
                 self.px,
+                |rect| {
+                    text_paint::label_positioned(
+                        rect,
+                        self.font,
+                        options,
+                        self.metrics.gui_scale,
+                        self.px,
+                    )
+                },
             )
         } else {
             self.snapped(&drawn.dest)
@@ -798,8 +842,7 @@ impl Canvas<'_> {
             || drawn.hidden
             || clip[2] <= clip[0]
             || clip[3] <= clip[1]
-            || dest[2] <= dest[0]
-            || dest[3] <= dest[1]
+            || (!floats && (dest[2] <= dest[0] || dest[3] <= dest[1]))
             || opacity <= 0.0
         {
             return Ok(());
@@ -807,11 +850,6 @@ impl Canvas<'_> {
         let alpha = |color: [u8; 4]| {
             let a = (f32::from(color[3]) * opacity.clamp(0.0, 1.0)).round() as u8;
             [color[0], color[1], color[2], a]
-        };
-        // Tooltips ignore the hovered control's clip.
-        let clip = match &node.draw {
-            Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER => self.screen,
-            _ => clip,
         };
         if let Draw::Text {
             text,
@@ -827,6 +865,21 @@ impl Canvas<'_> {
                 .edit
                 .filter(|edit| edit.text == node.key)
                 .map(|edit| edit.feedback);
+            let colored = self
+                .art
+                .text_color
+                .and_then(|color| color(node))
+                .map(|code| {
+                    let text = if *localize {
+                        text_paint::localized(text, self.translate)
+                    } else {
+                        Cow::Borrowed(text.as_str())
+                    };
+                    format!("§{code}{text}")
+                });
+            let (text, localize) = colored
+                .as_deref()
+                .map_or((text.as_str(), *localize), |text| (text, false));
             let style = TextPaint {
                 edit: feedback,
                 color: alpha(*color),
@@ -837,7 +890,7 @@ impl Canvas<'_> {
                 },
                 align: *align,
                 scale: *scale,
-                localize: *localize,
+                localize,
                 options,
             };
             return self.text(text, dest, clip, style);
@@ -856,13 +909,23 @@ impl Canvas<'_> {
                 uv,
                 color,
                 filter,
+                ..
             } => {
                 let uv = drawn.uv.unwrap_or(*uv);
                 let color = drawn.color.unwrap_or(*color);
-                if self.paint_native_sprite(texture, uv, alpha(color), *filter, dest)? {
+                if self.paint_native_sprite(
+                    texture,
+                    uv,
+                    alpha(color),
+                    *filter,
+                    dest,
+                    drawn.repeat,
+                )? {
                     return Ok(());
                 }
-                let Some(visual) = self.sprite(texture, uv, alpha(color), *filter) else {
+                let Some(visual) =
+                    self.sprite_with_repeat(texture, uv, alpha(color), *filter, drawn.repeat)
+                else {
                     return Ok(());
                 };
                 (visual, dest)

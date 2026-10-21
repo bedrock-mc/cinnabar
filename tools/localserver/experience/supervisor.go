@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -358,8 +359,8 @@ func helperEnv() []string {
 // helper is one running helper process, connected by pipes that belong to it alone.
 type helper struct {
 	cmd    *exec.Cmd
-	stdin  *os.File // the write end of the helper's stdin
-	stdout *os.File // the read end of the helper's stdout
+	stdin  io.WriteCloser // the write end of the helper's stdin
+	stdout io.ReadCloser  // the read end of the helper's stdout
 	// exited is closed once the process has exited and been reaped; err is then Wait's result.
 	exited chan struct{}
 	err    error
@@ -440,7 +441,7 @@ func forwardStderr(stderr *os.File, log *atomic.Pointer[slog.Logger]) {
 // load sends the load request and waits loadDeadline for loaded, which must speak
 // protocolVersion.
 func (h *helper) load(dir string) (Loaded, error) {
-	body, err := encodeFrame(Request{Load: &LoadRequest{Dir: dir, Items: serverItems()}})
+	body, err := encodeFrame(Request{Load: &LoadRequest{Dir: dir, Items: serverItems(), Recipes: serverRecipes()}})
 	if err != nil {
 		return Loaded{}, err
 	}

@@ -21,8 +21,10 @@ use ui::{DpiScale, LoadingStage, SafeArea};
 use client_ui::ui_runtime::presentation::{HudFrame, menu_artwork};
 use client_ui::ui_runtime::presentation::{UiPresentationError, UiPresentationRuntime};
 pub(crate) mod dials;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod forms;
 pub mod publish;
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) use forms::drive_menu_panorama;
 pub(crate) use publish::{
     observe_mount_jump_input, platform_safe_area_insets, prepare_ui_runtime, publish_ui_runtime,

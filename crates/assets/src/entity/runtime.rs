@@ -4,6 +4,21 @@ use std::sync::Arc;
 
 use super::*;
 
+#[cfg(any(test, feature = "test-support"))]
+thread_local! {
+    static GEOMETRY_LOOKUP_WORK: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) };
+}
+
+/// Compares exact identifiers in the admitted geometry order and counts real probes in tests.
+fn compare_geometry_identifier(candidate: &str, identifier: &str) -> std::cmp::Ordering {
+    #[cfg(any(test, feature = "test-support"))]
+    GEOMETRY_LOOKUP_WORK.with(|work| {
+        let (lookups, comparisons) = work.get();
+        work.set((lookups, comparisons + 1));
+    });
+    candidate.cmp(identifier)
+}
+
 #[derive(Clone, Debug)]
 pub struct RuntimeEntityAssets {
     pub(super) item_use_profiles: Arc<[item_use::ItemUseDescriptor]>,
@@ -32,6 +47,7 @@ pub struct RuntimeEntityAssets {
     pub(super) controller_animations: Arc<[EntityControllerAnimation]>,
     pub(super) controller_transitions: Arc<[EntityControllerTransition]>,
     pub(super) rig_bindings: Arc<[EntityRigBinding]>,
+    pub(super) attachable_rigs: Arc<[usize]>,
     pub(super) rig_geometries: Arc<[EntityRigGeometryBinding]>,
     pub(super) rig_animations: Arc<[EntityRigAnimationBinding]>,
     pub(super) rig_controllers: Arc<[EntityRigControllerBinding]>,
@@ -62,7 +78,6 @@ impl RuntimeEntityAssets {
         if source_count == 0
             || source_count > MAX_ENTITY_ASSET_SOURCES
             || symbol_count > MAX_ENTITY_ASSET_SYMBOLS
-            || geometry_count > MAX_ENTITY_GEOMETRIES
             || animation_clip_count > MAX_ENTITY_ANIMATION_CLIPS
             || controller_count > MAX_ENTITY_CONTROLLERS
             || rig_binding_count > MAX_ENTITY_RIG_BINDINGS
@@ -161,6 +176,7 @@ impl RuntimeEntityAssets {
     pub fn from_compiled(compiled: CompiledEntityAssets) -> Result<Self, AssetError> {
         let geometry_parents = validate_compiled(&compiled)?;
         let locator_catalog = locator::compile(&compiled.geometries, &geometry_parents)?;
+        let attachable_rigs = attachable::compile(&compiled.symbols, &compiled.rig_bindings);
         let multitexture_rigs = crate::actor::color_mask::multitexture_rigs(
             &compiled.rig_bindings,
             &compiled.symbols,
@@ -192,6 +208,7 @@ impl RuntimeEntityAssets {
             controller_animations: Arc::from(compiled.controller_animations),
             controller_transitions: Arc::from(compiled.controller_transitions),
             rig_bindings: Arc::from(compiled.rig_bindings),
+            attachable_rigs,
             rig_geometries: Arc::from(compiled.rig_geometries),
             rig_animations: Arc::from(compiled.rig_animations),
             rig_controllers: Arc::from(compiled.rig_controllers),
@@ -248,15 +265,28 @@ impl RuntimeEntityAssets {
         &self.geometry_parents
     }
 
+    /// Finds exact identifier matches in the immutable catalog's validated sort order.
     #[must_use]
     pub fn geometry_candidates(&self, identifier: &str) -> &[EntityGeometry] {
-        let start = self
-            .geometries
-            .partition_point(|geometry| geometry.identifier.as_ref() < identifier);
+        #[cfg(any(test, feature = "test-support"))]
+        GEOMETRY_LOOKUP_WORK.with(|work| {
+            let (lookups, comparisons) = work.get();
+            work.set((lookups + 1, comparisons));
+        });
+        let start = self.geometries.partition_point(|geometry| {
+            compare_geometry_identifier(&geometry.identifier, identifier).is_lt()
+        });
         let matching = &self.geometries[start..];
-        let length =
-            matching.partition_point(|geometry| geometry.identifier.as_ref() == identifier);
+        let length = matching.partition_point(|geometry| {
+            compare_geometry_identifier(&geometry.identifier, identifier).is_eq()
+        });
         &matching[..length]
+    }
+
+    /// Returns and resets this thread's geometry lookup calls and actual identifier comparisons.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn take_geometry_lookup_work() -> (usize, usize) {
+        GEOMETRY_LOOKUP_WORK.with(|work| work.replace((0, 0)))
     }
 
     #[must_use]

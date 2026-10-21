@@ -86,31 +86,41 @@ type Client struct {
 	parameters parameters   // guarded by mu
 	budget     lookupBudget // guarded by mu
 
-	mu         sync.Mutex
-	config     Config
-	configured bool
-	reconnect  context.CancelFunc // ends the current session; guarded by mu
-	live       *session           // authenticated session; guarded by mu
+	mu              sync.Mutex
+	config          Config
+	configured      bool
+	reconnect       context.CancelFunc // ends the current session; guarded by mu
+	loadoutRevision uint64
+	ownershipXUID   string
+	ownedCosmetics  []string
+	live            *session // authenticated session; guarded by mu
 }
 
 // session is one authenticated connection.
 type session struct {
-	emoteSent      bool       // guarded by Client.mu
-	emoteWatchSent time.Time  // guarded by Client.mu
-	emoteSentXUIDs []string   // guarded by Client.mu
-	emoteSentUUIDs []string   // guarded by Client.mu
-	emoteState     EmoteState // guarded by Client.mu
-	emoteQueued    time.Time  // guarded by Client.mu
-	emoteDirty     chan struct{}
-	emotes         map[string]receivedEmote // guarded by Client.mu
-	conn           *websocket.Conn
-	out            chan []byte
-	dirty          chan struct{} // visibility changed
-	visible        bool          // what the server holds; written only by the writer
-	nextID         uint32
-	pending        map[uint32]chan lookupReply // guarded by Client.mu
-	closed         chan struct{}
-	parameters     parameters
+	ownershipXUID   string
+	ownedCosmetics  []string
+	loadoutDirty    chan struct{}
+	loadoutSent     bool
+	loadoutSlots    []bridgecontract.CinnabarCosmeticSlot
+	loadoutRevision uint64
+	emoteSent       bool        // guarded by Client.mu
+	emoteWatchSent  time.Time   // guarded by Client.mu
+	emoteSentXUIDs  []string    // guarded by Client.mu
+	emoteSentUUIDs  []string    // guarded by Client.mu
+	emoteState      PlayerState // guarded by Client.mu
+	emoteQueued     time.Time   // guarded by Client.mu
+	emoteDirty      chan struct{}
+	loadouts        map[string]bridgecontract.CinnabarRemoteLoadout // guarded by Client.mu
+	emotes          map[string]receivedEmote                        // guarded by Client.mu
+	conn            *websocket.Conn
+	out             chan []byte
+	dirty           chan struct{} // visibility changed
+	visible         bool          // what the server holds; written only by the writer
+	nextID          uint32
+	pending         map[uint32]chan lookupReply // guarded by Client.mu
+	closed          chan struct{}
+	parameters      parameters
 }
 
 // LookupResult contains matches in each requested identifier namespace.
@@ -346,10 +356,13 @@ func (c *Client) session(ctx context.Context, config Config) (bool, string, erro
 	defer conn.CloseNow()
 	s := &session{
 		conn: conn, out: make(chan []byte, 8), dirty: make(chan struct{}, 1),
+		loadoutDirty: make(chan struct{}, 1), loadouts: make(map[string]bridgecontract.CinnabarRemoteLoadout),
 		emoteDirty: make(chan struct{}, 1), emotes: make(map[string]receivedEmote),
 		parameters: c.parameters, visible: config.Visible, pending: make(map[uint32]chan lookupReply), closed: make(chan struct{}),
 	}
 	c.mu.Lock()
+	s.ownershipXUID = c.ownershipXUID
+	s.ownedCosmetics = append([]string(nil), c.ownedCosmetics...)
 	c.live = s
 	if c.config.Visible != config.Visible {
 		s.dirty <- struct{}{}
@@ -429,6 +442,15 @@ func (c *Client) handshake(ctx context.Context, conn *websocket.Conn, key *ecdsa
 			}
 		case typeWelcome:
 			c.mu.Lock()
+			c.loadoutRevision = max(c.loadoutRevision, min(msg.LoadoutRevision, uint64(maxBuildNumber)))
+			c.ownershipXUID = ""
+			c.ownedCosmetics = nil
+			if ValidXUID(msg.XUID) {
+				c.ownershipXUID = msg.XUID
+				c.ownedCosmetics = admittedOwnership(msg.OwnedCosmetics)
+			}
+			c.mu.Unlock()
+			c.mu.Lock()
 			c.parameters = msg.parameters.normalized()
 			c.mu.Unlock()
 			return nil
@@ -457,6 +479,12 @@ func (c *Client) read(ctx context.Context, s *session) error {
 		switch msg.Type {
 		case typeRelease:
 			c.release(msg)
+		case typeCosmeticOwnership:
+			c.mu.Lock()
+			s.ownedCosmetics = admittedOwnership(msg.OwnedCosmetics)
+			c.mu.Unlock()
+		case typeLoadout:
+			c.receiveLoadout(s, msg)
 		case typeEmote:
 			c.receiveEmote(s, msg)
 		case typeLookupResult:
@@ -483,6 +511,8 @@ func (c *Client) write(ctx context.Context, stop context.CancelFunc, s *session)
 		case <-ctx.Done():
 			return
 		case payload = <-s.out:
+		case <-s.loadoutDirty:
+			payload = c.loadoutPayload(s)
 		case <-s.emoteDirty:
 			payload = c.emotePayload(s)
 		case <-s.dirty:
@@ -493,6 +523,9 @@ func (c *Client) write(ctx context.Context, stop context.CancelFunc, s *session)
 				continue
 			}
 			s.visible = visible
+			c.mu.Lock()
+			s.loadoutSent = false
+			c.mu.Unlock()
 			visibilityChanged = true
 			payload, _ = json.Marshal(visibilityMessage{Type: typeVisibility, Visible: visible})
 		case <-ticker.C:

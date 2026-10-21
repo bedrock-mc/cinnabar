@@ -14,6 +14,8 @@ pub struct AttackFrame<'a> {
     pub mining_target: Option<&'a crate::survival_mining::DestroyTarget>,
     /// Current button state, independent of queued presses and target eligibility.
     pub attack_held: bool,
+    /// Existing progress and cleanup continue while fresh held mining is fenced.
+    pub allow_mining_start: bool,
     pub authority: BlockBreakingAuthority,
     pub now_millis: u64,
     pub local_runtime_id: u64,
@@ -37,7 +39,46 @@ pub struct AttackAdmission {
 
 /// Advances the queue in order before movement drains. A later pending press never blocks
 /// delivery of an earlier admitted break, and expiry only removes unadmitted entries.
+/// Admits a press and advances held mining exactly once for the frame.
 pub fn admit_attack_frame(
+    runtime: &mut MeleeRuntime,
+    mining: &mut SurvivalMiningRuntime,
+    swings: &mut SwingTracker,
+    movement: &mut MovementTicker,
+    frame: AttackFrame<'_>,
+    effects: AttackEffects<
+        impl FnMut(Vec<protocol::Packet>) -> Result<(), BatchSendError>,
+        impl Fn(u64) -> i32,
+        impl FnMut(u8, i32) -> Option<i32>,
+        impl FnMut([i32; 3]),
+    >,
+) -> AttackAdmission {
+    admit(runtime, mining, swings, movement, frame, effects, true)
+}
+
+/// Attempts one ordered press once, preserving only accepted mining work.
+pub fn admit_attack_press(
+    runtime: &mut MeleeRuntime,
+    mining: &mut SurvivalMiningRuntime,
+    swings: &mut SwingTracker,
+    movement: &mut MovementTicker,
+    frame: AttackFrame<'_>,
+    effects: AttackEffects<
+        impl FnMut(Vec<protocol::Packet>) -> Result<(), BatchSendError>,
+        impl Fn(u64) -> i32,
+        impl FnMut(u8, i32) -> Option<i32>,
+        impl FnMut([i32; 3]),
+    >,
+) -> AttackAdmission {
+    let result = admit(runtime, mining, swings, movement, frame, effects, false);
+    if runtime.press_pending() {
+        runtime.cancel_press();
+    }
+    result
+}
+
+/// Shares carrier admission between per-event work and frame maintenance.
+fn admit(
     runtime: &mut MeleeRuntime,
     mining: &mut SurvivalMiningRuntime,
     swings: &mut SwingTracker,
@@ -49,6 +90,7 @@ pub fn admit_attack_frame(
         impl FnMut(u8, i32) -> Option<i32>,
         impl FnMut([i32; 3]),
     >,
+    maintain: bool,
 ) -> AttackAdmission {
     runtime.synchronize(movement.interaction_authority_identity());
     mining.synchronize(movement.interaction_authority_identity());
@@ -149,11 +191,9 @@ pub fn admit_attack_frame(
                 let Some((crosshair, press)) = frame.attack.as_ref() else {
                     break;
                 };
-                let before_input = movement.is_first_unsent_tick(press.tick);
-                let between = movement
-                    .between_ticks_sample()
-                    .is_some_and(|sample| sample.tick == press.tick);
-                if (!before_input && !between) || movement.carries_survival_mining(press.tick) {
+                if !movement.interaction_tick_available(press.tick)
+                    || movement.carries_survival_mining(press.tick)
+                {
                     break;
                 }
                 attempted = true;
@@ -185,22 +225,16 @@ pub fn admit_attack_frame(
             }
         }
     }
+    if !maintain {
+        return result;
+    }
     // Only a fresh mining start waits; existing progress, aborts and held delay still advance.
-    let held_input = if frame.attack_held {
+    let input = if !frame.attack_held {
+        DestroyInput::Released
+    } else if frame.allow_mining_start && !runtime.queue.pending() {
         DestroyInput::Held(frame.mining_target)
     } else {
-        DestroyInput::Released
-    };
-    let input = match held_input {
-        DestroyInput::Held(Some(target))
-            if runtime.queue.pending()
-                && mining
-                    .destroying_target()
-                    .is_none_or(|(position, _)| position != target.position) =>
-        {
-            DestroyInput::Held(None)
-        }
-        input => input,
+        DestroyInput::Continue(frame.mining_target)
     };
     let unsent = mining.step_ticks(
         movement,

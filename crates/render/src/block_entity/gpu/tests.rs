@@ -8,6 +8,61 @@ fn vertex_lists_track_counts_without_a_device() {
     assert!(list.buffer.is_none() && list.bind_group.is_none());
 }
 
+#[test]
+fn cracks_start_on_the_same_frame_when_a_selection_highlight_already_exists() {
+    let (mut app, view) = crate::queue_review_support::app();
+    app.init_resource::<BlockEntityPipeline>()
+        .init_resource::<render_scene::BlockEntityFrameResource>()
+        .init_resource::<render_scene::BlockSelectionFrameResource>()
+        .add_render_command::<Transparent3d, DrawCrackCommands>()
+        .add_render_command::<Transparent3d, DrawHighlightCommands>();
+    app.world_mut().run_system_once(init_gpu).unwrap();
+    {
+        let mut selection = app
+            .world_mut()
+            .resource_mut::<render_scene::BlockSelectionFrameResource>();
+        selection.highlight = Arc::from([BlockEntityVertex::default(); 6]);
+        selection.revision += 1;
+    }
+    app.world_mut().run_system_once(prepare_resources).unwrap();
+    let device = app.world().resource::<RenderDevice>();
+    let layout = device.create_bind_group_layout("crack queue fixture", &[]);
+    let group = device.create_bind_group("crack queue fixture", &layout, &[]);
+    app.world_mut()
+        .resource_mut::<BlockEntityGpu>()
+        .crack
+        .bind_group = Some(group);
+    {
+        let mut frame = app
+            .world_mut()
+            .resource_mut::<render_scene::BlockEntityFrameResource>();
+        frame.crack = Arc::from([BlockEntityVertex::default(); 6]);
+        frame.revision += 1;
+    }
+    app.world_mut().run_system_once(queue_crack).unwrap();
+    app.world_mut().run_system_once(prepare_resources).unwrap();
+    let functions = app
+        .world()
+        .resource::<DrawFunctions<Transparent3d>>()
+        .read();
+    let items = crate::queue_review_support::items(&app, view);
+    for draw in [
+        functions.id::<DrawCrackCommands>(),
+        functions.id::<DrawHighlightCommands>(),
+    ] {
+        assert!(items.iter().any(|item| item.draw_function == draw));
+    }
+    let gpu = app.world().resource::<BlockEntityGpu>();
+    assert_eq!(
+        crack_vertices(gpu.crack.count, gpu.frame_crack_count, false),
+        0..6
+    );
+    assert_eq!(
+        crack_vertices(gpu.crack.count, gpu.frame_crack_count, true),
+        6..12
+    );
+}
+
 /// Queues the production crack and cutout particle draws beside translucent terrain.
 fn overlapping_draws() -> (
     Vec<Transparent3d>,
@@ -18,6 +73,7 @@ fn overlapping_draws() -> (
     let (mut app, view) = crate::queue_review_support::app();
     app.init_resource::<BlockEntityPipeline>()
         .add_render_command::<Transparent3d, DrawCrackCommands>()
+        .add_render_command::<Transparent3d, DrawHighlightCommands>()
         .add_render_command::<Transparent3d, DrawOverlayCommands>();
     app.world_mut().run_system_once(init_gpu).unwrap();
     let device = app.world().resource::<RenderDevice>();
@@ -26,6 +82,7 @@ fn overlapping_draws() -> (
     {
         let mut gpu = app.world_mut().resource_mut::<BlockEntityGpu>();
         gpu.crack.count = 6;
+        gpu.frame_crack_count = 6;
         gpu.crack.bind_group = Some(group);
     }
     app.world_mut().run_system_once(queue_crack).unwrap();
@@ -105,4 +162,12 @@ fn mining_particles_occlude_cracks_and_cracks_remain_on_translucent_targets() {
             }
         );
     }
+}
+
+#[test]
+fn damage_and_selection_keep_independent_ranges_in_the_shared_buffer() {
+    assert_eq!(crack_vertices(18, 12, false), 0..12);
+    assert_eq!(crack_vertices(18, 12, true), 12..18);
+    assert!(crack_vertices(12, 12, true).is_empty());
+    assert!(crack_vertices(6, 0, false).is_empty());
 }

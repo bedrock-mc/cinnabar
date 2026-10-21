@@ -1,7 +1,7 @@
 //! Host-owned consent and status chrome, resolved from a private JSON-UI catalog.
 
 use json_ui::{Catalog, CollectionItem, Context, DataSource, Scalar, ViewState};
-use server_experience::trust::Choice;
+use server_experience::policy::Choice;
 use std::sync::Arc;
 use ui::FONT_DESIGN_PIXEL_TEXELS;
 use ui_engine::frame::EngineFrame;

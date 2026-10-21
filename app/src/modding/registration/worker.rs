@@ -4,6 +4,51 @@ use super::*;
 use sha2::{Digest, Sha256};
 use std::time::Instant;
 
+/// Distinguishes a complete admission from inputs that changed while retirement was pending.
+pub(super) enum LoadResult {
+    Ready(Update),
+    Reobserve(u64),
+}
+
+/// Validates the observed preferences after saves drain, without admitting a different input.
+pub(super) fn load_request(
+    request: LoadRequest,
+    settings: &Mutex<BTreeMap<PathBuf, SettingsSnapshot>>,
+    admissions: &mut candidate::Admissions,
+) -> LoadResult {
+    for (entry, snapshot) in &request.sources {
+        let Ok(snapshot) = snapshot else { continue };
+        let current = settings
+            .lock()
+            .expect("mod settings snapshots")
+            .get(&entry.component)
+            .cloned();
+        let actual = crate::modding::admission::settings_seed(
+            entry.grants.settings,
+            current.as_ref(),
+            &entry.component,
+        );
+        if actual != snapshot.settings {
+            return LoadResult::Reobserve(request.generation);
+        }
+    }
+    let changes = request
+        .sources
+        .into_iter()
+        .map(|(entry, snapshot)| Change {
+            entry,
+            result: snapshot
+                .and_then(|snapshot| admissions.prepare(snapshot, None))
+                .map(Box::new),
+        })
+        .collect();
+    LoadResult::Ready(Update {
+        generation: request.generation,
+        registration: request.registration,
+        changes,
+    })
+}
+
 /// Runs one coordinator and one bounded loader, sharing no guest instances with the frame.
 #[allow(
     clippy::too_many_arguments,
@@ -13,32 +58,33 @@ pub(super) fn run(
     directory: PathBuf,
     messages: Receiver<Message>,
     updates: Sender<Update>,
-    retired: Receiver<ModHost>,
+    retired: Receiver<Retired>,
     latest: Arc<AtomicU64>,
     desired: Arc<Mutex<Desired>>,
     settings: Arc<Mutex<BTreeMap<PathBuf, SettingsSnapshot>>>,
+    drawing: Arc<Mutex<BTreeMap<PathBuf, super::super::admission::DrawingContext>>>,
 ) {
     let (loads, receive_loads) = bounded::<LoadRequest>(1);
     let (results, receive_results) = bounded(1);
     let (fences, receive_fences) = crossbeam_channel::unbounded();
     let generation = latest.clone();
     let root = directory.clone();
+    let current_settings = settings.clone();
     let loader=thread::Builder::new().name("local-mod-loader".into()).spawn(move || {
+        let mut admissions = candidate::Admissions::default();
         loop {
             crossbeam_channel::select! {
                 recv(receive_loads) -> request => {
                     let Ok(request)=request else {break};
                     if request.generation!=generation.load(Ordering::Acquire){continue;}
-                    let changes=after_retirement(&retired,||request.sources.into_iter().map(|(entry,snapshot)|{
-                        let current=settings.lock().expect("mod settings snapshots").get(&entry.component).cloned();
-                        let result=snapshot.and_then(|snapshot|build_candidate_with_settings(snapshot,current.as_ref())).map(Box::new);
-                        Change {entry,result}
-                    }).collect());
-                    if request.generation==generation.load(Ordering::Acquire) {
-                        let _=results.send(Update{generation:request.generation,registration:request.registration,changes});
+                    admissions.retain(&request.registration);
+                    let requested = request.generation;
+                    let result=after_retirement(&retired,||load_request(request,&settings,&mut admissions));
+                    if requested==generation.load(Ordering::Acquire) {
+                        let _=results.send(result);
                     }
                 }
-                recv(retired) -> host => {let Ok(host)=host else {break};drop(host);}
+                recv(retired) -> host => {let Ok(host)=host else {break};host.dispose();}
                 recv(receive_fences) -> fence => {let Ok(fence)=fence else {break};removal::finish(&retired,fence,&root,&generation);}
             }
         }
@@ -64,20 +110,36 @@ pub(super) fn run(
             let mut digest = Sha256::new();
             digest.update(observed.fingerprint);
             let mut sources = Vec::new();
+            let mut settings_inputs = BTreeMap::new();
+            let fences = drawing.lock().expect("mod drawing fences").clone();
             for entry in registration.mods.iter().filter(|entry| entry.enabled) {
-                let snapshot = source::source_snapshot(entry.clone());
+                let mut snapshot = source::source_snapshot(entry.clone()).map(|mut snapshot| {
+                    snapshot.drawing = fences.get(&entry.component).cloned();
+                    snapshot
+                });
                 match &snapshot {
                     Ok(snapshot) => digest.update(snapshot.identity),
                     Err(error) => digest.update(error.as_bytes()),
                 }
                 if snapshot.as_ref().map_or(true, |snapshot| {
-                    installed.get(&entry.component) != Some(&snapshot.identity)
+                    snapshot.needs_admission(installed.get(&entry.component))
                 }) {
+                    if let Ok(snapshot) = &mut snapshot
+                        && entry.grants.settings
+                    {
+                        let current = current_settings
+                            .lock()
+                            .expect("mod settings snapshots")
+                            .get(&entry.component)
+                            .cloned();
+                        snapshot.settings = snapshot.settings_seed(current.as_ref());
+                        settings_inputs.insert(entry.component.clone(), snapshot.settings.clone());
+                    }
                     sources.push((entry.clone(), snapshot));
                 }
             }
-            let current: [u8; 32] = digest.finalize().into();
-            if fingerprint != Some(current) {
+            let current = (<[u8; 32]>::from(digest.finalize()), fences, settings_inputs);
+            if fingerprint.as_ref() != Some(&current) {
                 fingerprint = Some(current);
                 let mut selection = desired.lock().expect("mod desired list");
                 let generation = latest.fetch_add(1, Ordering::AcqRel) + 1;
@@ -109,9 +171,20 @@ pub(super) fn run(
         {
             pending_load = Some(request);
         }
-        for update in receive_results.try_iter() {
-            if update.generation == latest.load(Ordering::Acquire) {
-                pending_update = Some(update);
+        for result in receive_results.try_iter() {
+            match result {
+                LoadResult::Ready(update)
+                    if update.generation == latest.load(Ordering::Acquire) =>
+                {
+                    pending_update = Some(update);
+                }
+                LoadResult::Reobserve(generation)
+                    if generation == latest.load(Ordering::Acquire) =>
+                {
+                    fingerprint = None;
+                    pending_update = None;
+                }
+                _ => {}
             }
         }
         if let Some(update) = pending_update.take()
@@ -150,9 +223,12 @@ pub(super) fn run(
                     &StatusList::new(id, statuses.clone()),
                 );
             }
-            Ok(Message::Failed { component, error }) => {
-                statuses.retain(|status| status.component != component);
-                statuses.push(Status::new(component, "error", Some(error)));
+            Ok(Message::Failed {
+                component,
+                error,
+                reload,
+            }) => {
+                status::record_trap(&mut statuses, component, error, reload);
                 let _ = status::write_json(
                     &directory.join(STATUS_FILE),
                     &StatusList::new(request_id.clone(), statuses.clone()),

@@ -1,24 +1,30 @@
 //! Transactional server-bundle host. Production callers must use a restricted helper.
 
-use crate::helper::Event;
+use crate::{helper::Event, runtime::cinnabar::session::items};
 use anyhow::{Result, ensure};
 use server_experience::{
+    manifest::Permission,
     policy::*,
     runtime::{CALLBACK_FUEL, Capabilities, Command, MediaOperation, Principal, Transaction},
     screen,
+    session_data::{ItemKey, SessionData},
 };
+use std::sync::Arc;
 use wasmtime::{
     Store, StoreLimits, StoreLimitsBuilder,
     component::{Component, Func, HasSelf, Instance, Linker},
 };
 
 wasmtime::component::bindgen!({
-    path: "../experience-sdk/wit/client",
-    world: "server-bundle",
+    path: ["../experience-sdk/wit/session", "../experience-sdk/wit/client"],
+    world: "cinnabar:extension/server-bundle@0.1.0",
     imports: { default: trappable },
+    with: { "cinnabar:session/items@0.1.0": crate::runtime::cinnabar::session::items },
 });
 
 struct State {
+    /// The session's items as the client last sent them; empty until it does.
+    session: Arc<SessionData>,
     limits: StoreLimits,
     owner: Principal,
     epoch: u64,
@@ -199,9 +205,64 @@ impl cinnabar::server_experience::media::Host for State {
     }
 }
 
+impl State {
+    /// Charges the call and refuses it without the `items` permission.
+    fn read_items(&mut self) -> Result<Result<(), String>> {
+        self.charge()?;
+        Ok(
+            if self
+                .capabilities
+                .scope
+                .permissions
+                .contains(&Permission::Items)
+            {
+                Ok(())
+            } else {
+                Err("items permission denied".into())
+            },
+        )
+    }
+}
+
+impl items::Host for State {
+    fn revision(&mut self) -> Result<Result<u64, String>> {
+        Ok(self.read_items()?.map(|()| self.session.item_revision))
+    }
+
+    fn count(&mut self) -> Result<Result<u32, String>> {
+        let count = u32::try_from(self.session.items.len()).unwrap_or(u32::MAX);
+        Ok(self.read_items()?.map(|()| count))
+    }
+
+    fn page(&mut self, start: u32, count: u32) -> Result<Result<Vec<items::Item>, String>> {
+        Ok(self.read_items()?.map(|()| {
+            let page = self.session.item_page(start, count);
+            page.iter().map(crate::runtime::player_mod::item).collect()
+        }))
+    }
+
+    fn lookup(&mut self, key: items::ItemKey) -> Result<Result<Option<items::Item>, String>> {
+        let key = ItemKey {
+            identifier: key.identifier,
+            aux: key.aux,
+        };
+        Ok(self.read_items()?.map(|()| {
+            self.session
+                .lookup(&key)
+                .map(crate::runtime::player_mod::item)
+        }))
+    }
+
+    fn tag_members(&mut self, tag: String) -> Result<Result<Vec<String>, String>> {
+        Ok(self
+            .read_items()?
+            .map(|()| self.session.tag_members(&tag).to_vec()))
+    }
+}
+
 /// The guest's callbacks. A component built against 1.0 exports only `init` and `dispatch`;
 /// 1.1 adds `action` and `epoch`, both or neither; 1.2 its three editing callbacks, all or none;
-/// 1.3 `scroll-changed`.
+/// 1.3 `scroll-changed`; then `shift-changed`.
 struct Exports {
     dispatch: Func,
     events: Option<(Func, Func)>,
@@ -209,6 +270,7 @@ struct Exports {
     editing: Option<(Func, Func, Func)>,
     /// 1.3's `scroll-changed`.
     scrolled: Option<Func>,
+    shift: Option<Func>,
 }
 
 impl Exports {
@@ -227,6 +289,7 @@ impl Exports {
             find("secondary-action"),
         );
         let scrolled = find("scroll-changed");
+        let shift = find("shift-changed");
         let (Some(init), Some(dispatch)) = (init, dispatch) else {
             anyhow::bail!("component lacks init or dispatch");
         };
@@ -256,6 +319,9 @@ impl Exports {
         if let Some(scrolled) = &scrolled {
             scrolled.typed::<(&str, ScrollRange), ()>(&*store)?;
         }
+        if let Some(shift) = &shift {
+            shift.typed::<(bool,), ()>(&*store)?;
+        }
         Ok((
             init,
             Self {
@@ -263,6 +329,7 @@ impl Exports {
                 events,
                 editing,
                 scrolled,
+                shift,
             },
         ))
     }
@@ -350,6 +417,7 @@ impl BundleHost {
         epoch: u64,
     ) -> Result<(Store<State>, Exports)> {
         let mut state = State {
+            session: Arc::default(),
             limits: StoreLimitsBuilder::new()
                 .memory_size(capabilities.scope.memory_bytes as usize)
                 .table_elements(4096)
@@ -396,6 +464,9 @@ impl BundleHost {
         {
             ensure!(state.capabilities.may_deliver(id), "action not granted");
         }
+        if let Event::Shift { .. } = event {
+            ensure!(state.capabilities.may_read_input(), "input not granted");
+        }
         if let Event::Resized { size } = event {
             state.gui = Some(*size);
         }
@@ -422,6 +493,11 @@ impl BundleHost {
         self.store.data_mut().gui = size;
     }
 
+    /// Sets the session's items that `items` reads from the next callback on.
+    pub fn set_session(&mut self, session: Arc<SessionData>) {
+        self.store.data_mut().session = session;
+    }
+
     /// The fuel that the last `init` or callback consumed, of the `CALLBACK_FUEL` each gets; a
     /// failed callback's included, which is all of it when it ran out.
     pub fn last_fuel_used(&self) -> u64 {
@@ -443,11 +519,13 @@ impl BundleHost {
         let state = self.store.data();
         let (owner, capabilities, epoch) =
             (state.owner.clone(), state.capabilities.clone(), state.epoch);
+        let session = Arc::clone(&state.session);
         let bundle = owner.bundle.clone();
         match Self::start(&self.linker, &self.component, owner, capabilities, epoch) {
             Ok((store, exports)) => {
                 (self.store, self.exports) = (store, exports);
                 self.store.data_mut().commands.clear();
+                self.set_session(session);
                 eprintln!(
                     "bundle {bundle} restarted after a failed callback; its guest state is lost"
                 );
@@ -509,6 +587,14 @@ impl BundleHost {
                     };
                     scrolled.call(&mut *store, (view, range))?;
                     scrolled.post_return(store)
+                }
+                None => Ok(()),
+            },
+            (Event::Shift { held }, _) => match &self.exports.shift {
+                Some(shift) => {
+                    let shift = shift.typed::<(bool,), ()>(&*store)?;
+                    shift.call(&mut *store, (*held,))?;
+                    shift.post_return(store)
                 }
                 None => Ok(()),
             },

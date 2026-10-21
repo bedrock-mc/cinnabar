@@ -443,3 +443,39 @@ fn ability_flight_in_water_keeps_flight_controls_and_drag() {
         assert_eq!(wet_tick.position, dry_tick.position);
     }
 }
+
+/// Ground survives only an exact-zero vertical request while collisions are enabled.
+#[test]
+fn flight_retains_ground_only_for_exact_zero_vertical_request() {
+    for no_clip in [false, true] {
+        for requested_y in [0.0, -0.0, f32::EPSILON / 2.0, -f32::EPSILON / 2.0] {
+            let mut state = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
+            state.on_ground = true;
+            state.velocity = Vec3::new(0.0, f64::from(requested_y), 1.0);
+            let result = Simulator::default()
+                .tick(
+                    &mut state,
+                    MovementInput {
+                        no_clip,
+                        forward: 1.0,
+                        fly_speed: Some(0.0),
+                        creative_flight: false,
+                        ..flying()
+                    },
+                    &FlightSurface {
+                        height: 1.0,
+                        surface_block_y: 0,
+                        friction: 0.6,
+                    },
+                )
+                .unwrap();
+            assert_eq!(state.requested_movement.y, f64::from(requested_y));
+            assert!(!result.collisions.y);
+            assert_eq!(
+                result.on_ground,
+                !no_clip && requested_y == 0.0,
+                "request {requested_y}, no_clip {no_clip}"
+            );
+        }
+    }
+}

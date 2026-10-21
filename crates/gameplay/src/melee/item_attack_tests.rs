@@ -97,6 +97,7 @@ fn piercing_attacks_report_aim_for_air_actor_and_block_targets_without_mining() 
 fn shared_attack_cooldown_expires_on_its_tick_and_full_queue_does_not_start_it() {
     let mut runtime = MeleeRuntime::default();
     let mut swings = SwingTracker::default();
+    let cooldown = press(100).item_attack.unwrap().cooldown.unwrap();
     runtime.observe_input(true, true);
     resolve_and_send(
         &mut runtime,
@@ -107,6 +108,7 @@ fn shared_attack_cooldown_expires_on_its_tick_and_full_queue_does_not_start_it()
         |_| Err(BatchSendError::Full),
     );
     assert!(runtime.attack_cooldowns.is_empty());
+    assert_eq!(runtime.cooldown_progress(&cooldown, 100), 0.0);
     assert_eq!(swings.take_started(), None);
     resolve_and_send(
         &mut runtime,
@@ -120,6 +122,29 @@ fn shared_attack_cooldown_expires_on_its_tick_and_full_queue_does_not_start_it()
         },
     );
     assert_eq!(runtime.attack_cooldowns.len(), 1);
+    for (tick, expected) in [(99, 1.0), (100, 1.0), (118, 1.0 / 19.0), (119, 0.0)] {
+        assert_eq!(runtime.cooldown_progress(&cooldown, tick), expected);
+    }
+    assert_eq!(
+        runtime.cooldown_progress(
+            &protocol::ItemAttackCooldown {
+                category: cooldown.category.clone(),
+                ticks: 0,
+            },
+            100
+        ),
+        0.0
+    );
+    assert_eq!(
+        runtime.cooldown_progress(
+            &protocol::ItemAttackCooldown {
+                category: "test:unrelated".into(),
+                ticks: cooldown.ticks,
+            },
+            100
+        ),
+        0.0
+    );
     for (tick, cooldown_active, packet_count) in [(118, true, 1), (119, false, 2)] {
         runtime.observe_input(true, true);
         let outcome = runtime.resolve(Crosshair::Miss, &press(tick), &mut swings);
@@ -144,6 +169,7 @@ fn shared_attack_cooldown_expires_on_its_tick_and_full_queue_does_not_start_it()
         PositionAuthorityGeneration::new(1),
     ));
     assert!(runtime.attack_cooldowns.is_empty());
+    assert_eq!(runtime.cooldown_progress(&cooldown, 119), 0.0);
 }
 
 #[test]

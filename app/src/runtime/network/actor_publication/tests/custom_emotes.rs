@@ -240,7 +240,8 @@ fn native_pose(world: &World) -> (u64, Vec<actor_animation::BoneTransform>) {
 }
 
 #[test]
-fn custom_emote_knees_use_matching_mesh_and_retire_with_playback() {
+fn catalog_emotes_use_matching_mesh_and_retire_with_playback() {
+    let _catalog = cosmetics::test_support::playback_catalog();
     let (mut world, mut plain) = (fixture_with_skin(true), fixture_with_skin(true));
     for world in [&mut world, &mut plain] {
         perspective(world, PerspectiveMode::ThirdPersonBack, 1);
@@ -257,10 +258,7 @@ fn custom_emote_knees_use_matching_mesh_and_retire_with_playback() {
     prepare(&mut plain, 10);
     let dance = body(&world, 1);
     assert_ne!(dance.input.rig, ordinary.input.rig);
-    assert_eq!(
-        dance.input.current_bones.len(),
-        ordinary.input.current_bones.len() + 4
-    );
+    assert!(dance.input.current_bones.len() > ordinary.input.current_bones.len());
     assert_eq!(native_pose(&world), native);
     assert_unaffected(&world, &plain, 2);
     world
@@ -276,6 +274,7 @@ fn custom_emote_knees_use_matching_mesh_and_retire_with_playback() {
 
 #[test]
 fn custom_emote_publication_advances_between_ticks_without_changing_native_hand_or_remote_pose() {
+    let _catalog = cosmetics::test_support::playback_catalog();
     let (mut world, mut plain) = (fixture(), fixture());
     for world in [&mut world, &mut plain] {
         perspective(world, PerspectiveMode::ThirdPersonBack, 1);
@@ -288,7 +287,7 @@ fn custom_emote_publication_advances_between_ticks_without_changing_native_hand_
         ui.emotes_mut().open();
         assert_eq!(
             ui.emotes_mut().activate_slot(0, 100),
-            Some(actor_animation::CustomEmote::Twerk)
+            Some(cosmetics::test_support::playback_emote())
         );
     }
     prepare(&mut world, 10);
@@ -344,6 +343,7 @@ fn custom_emote_publication_advances_between_ticks_without_changing_native_hand_
 /// The Java toggle leaves both native emote postures and local emote playback unchanged.
 #[test]
 fn emotes_keep_vanilla_bones_with_java_enabled() {
+    let _catalog = cosmetics::test_support::playback_catalog();
     for custom in [false, true] {
         let mut worlds = [fixture_with_skin(true), fixture_with_skin(true)];
         for (world, java) in worlds.iter_mut().zip([false, true]) {
@@ -424,8 +424,8 @@ struct SwingAdmission(bool);
 #[test]
 fn production_actor_preparation_preserves_same_frame_swing_admission() {
     let mut app = App::new();
-    crate::app::configure_client_frame_schedule(&mut app);
-    crate::app::configure_actor_render_systems(&mut app);
+    crate::game_frame::configure_client_frame_schedule(&mut app);
+    crate::game_frame::configure_actor_render_systems(&mut app);
     app.add_systems(
         Update,
         admit_frame_swing.in_set(client_state::ClientFrameSet::NetworkSend),
@@ -489,6 +489,13 @@ fn production_actor_preparation_preserves_same_frame_swing_admission() {
         world
             .resource_mut::<Time<Real>>()
             .advance_by(Duration::from_millis(50));
+        {
+            use gameplay::movement::MovementEffectSource;
+            let mut effects =
+                world.resource_mut::<client_interaction::movement::LocalMovementEffectTimeline>();
+            effects.begin_frame();
+            effects.commit_successful_tick();
+        }
         schedule.run(&mut world);
         assert_eq!(
             world.resource::<SwingAdmission>().0,
@@ -528,8 +535,8 @@ struct HandReadiness(bool);
 #[test]
 fn production_early_ui_readiness_matches_the_current_hand_source() {
     let mut app = App::new();
-    crate::app::configure_client_frame_schedule(&mut app);
-    crate::app::configure_actor_render_systems(&mut app);
+    crate::game_frame::configure_client_frame_schedule(&mut app);
+    crate::game_frame::configure_actor_render_systems(&mut app);
     app.add_systems(
         Update,
         observe_hand_readiness.in_set(client_state::ClientFrameSet::UiPreparation),

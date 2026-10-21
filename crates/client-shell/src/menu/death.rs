@@ -13,7 +13,7 @@ impl MenuRuntime {
         if self.is_connecting() || self.death_shown || self.visible && !self.over_world() {
             return false;
         }
-        self.key_remap = None;
+        self.settings.key_remap = None;
         self.death_shown = true;
         self.death_loading = false;
         self.death_retry_remaining = None;

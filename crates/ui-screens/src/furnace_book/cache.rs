@@ -15,7 +15,7 @@ pub struct FurnaceBookCache {
     projection: Arc<[usize]>,
     shown: bool,
     filtering: bool,
-    tab: Option<u8>,
+    tab: Option<i32>,
     search: String,
     names: NameSources,
     source_icons: Arc<[Option<IconRef>]>,

@@ -20,6 +20,31 @@ fn key(paths: Value, stroke: Option<f32>, size: f32, dpi: f32) -> Key {
     }
 }
 
+/// Culling uses painted coverage rather than layout boxes, and does no raster allocation.
+#[test]
+fn clipped_paths_skip_work_without_losing_caps_outside_art_or_transformed_edges() {
+    let path = key(json!([[[0, 0], [16, 0]]]), Some(2.), 16., 1.);
+    let dest = [0., 0., 16., 16.];
+    let (draws, allocations) =
+        test_alloc::count(|| visible(&path, dest, [0., 32., 16., 48.], None));
+    assert!(!draws);
+    assert_eq!(allocations, 0);
+    assert!(
+        visible(&path, dest, [16.5, -1., 18., 1.], None),
+        "round cap remains visible"
+    );
+    let moved = json_ui::transform::Affine {
+        translation: [0., 40.],
+        ..json_ui::transform::Affine::IDENTITY
+    };
+    assert!(visible(&path, dest, [0., 39., 16., 41.], Some(moved)));
+    let outside = key(json!([[[0, 32], [16, 32]]]), Some(2.), 16., 1.);
+    assert!(
+        visible(&outside, dest, [0., 31., 16., 33.], None),
+        "outside-view-box artwork remains visible"
+    );
+}
+
 #[test]
 fn diagonal_strokes_have_continuous_round_coverage_without_overdraw() {
     let key = key(
@@ -294,12 +319,12 @@ fn hot_path_meshes_remain_retained_when_cold_entries_expire() {
     assert!(cache.entries.len() <= MAX_CACHED_PATHS);
 }
 
-/// Produces varying edge cells that pass raster admission but exceed the expanded-index budget.
+/// Slanted stripes vary coverage across each row and exceed the index budget after packing.
 fn striped_key() -> Key {
     let stripes: Vec<_> = (0..16)
         .map(|index| {
             let y = index as f32;
-            [[0.0, y], [16.0, y], [16.0, y + 0.5], [0.0, y + 0.5]]
+            [[0.0, y], [16.0, y + 0.25], [16.0, y + 0.75], [0.0, y + 0.5]]
         })
         .collect();
     key(json!(stripes), None, 80.0, 1.0)
