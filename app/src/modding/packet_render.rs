@@ -310,16 +310,15 @@ pub(super) fn coverage_requests(
     if drawing.session.permissions.entity_observe
         && drawing.session.permissions.entity_highlight
         && drawing.session.permissions.render_through_walls
+        && let Some(scene) = &drawing.source
     {
-        if let Some(scene) = &drawing.source {
-            requests.runtime_ids.extend(
-                scene
-                    .entities
-                    .iter()
-                    .filter(|e| e.position.is_some())
-                    .flat_map(|e| e.runtime_ids.iter().copied()),
-            );
-        }
+        requests.runtime_ids.extend(
+            scene
+                .entities
+                .iter()
+                .filter(|e| e.position.is_some())
+                .flat_map(|e| e.runtime_ids.iter().copied()),
+        );
     }
 }
 

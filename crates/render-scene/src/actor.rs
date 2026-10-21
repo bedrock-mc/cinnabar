@@ -693,3 +693,5 @@ pub use presentation::{
     ActorDrawFrame, ActorPresentationGate, ActorPresentedFrameAck,
     MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS,
 };
+
+mod coverage;
