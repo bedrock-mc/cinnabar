@@ -245,6 +245,10 @@ fn prepare_lightning_bind_group(
     gpu.view_buffer_id = Some(view_buffer.id());
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "a queue system's render-world inputs"
+)]
 fn queue_lightning(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<LightningPipeline>,
@@ -258,12 +262,16 @@ fn queue_lightning(
         &bevy::render::camera::ExtractedCamera,
         &Msaa,
     )>,
+    pack: render_scene::shaderpack::ShaderPackDrawnEffects,
 ) {
     if scene.records.is_empty() {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawLightningCommands>();
     for (view_entity, main_entity, view, extracted_camera, msaa) in &views {
+        if pack.replaces(view_entity, |drawn| drawn.lightning) {
+            continue;
+        }
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };

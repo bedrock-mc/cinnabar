@@ -6,8 +6,8 @@
 //! - group 0, binding 0: the program's loose uniforms as one std140 block ([`UniformBlock`]);
 //!   further pack-declared uniform blocks follow from binding 1.
 //! - group 1: binding 0 is the shared filtering sampler, binding 1 the shared comparison
-//!   sampler, bindings 2–4 the other [`SamplerClass`]es; sampled textures start at binding 5,
-//!   numbered per program by first declaration.
+//!   sampler, followed by the other [`SamplerClass`]es; sampled textures start at
+//!   [`FIRST_TEXTURE_BINDING`], numbered per program by first declaration.
 //! - group 2: storage images from binding 0.
 //! - group 3: storage buffers at the pack's own `binding`.
 
@@ -25,7 +25,18 @@ pub const SAMPLER_BINDING: u32 = 0;
 /// Binding of the shared depth-comparison sampler in [`TEXTURE_GROUP`].
 pub const SHADOW_SAMPLER_BINDING: u32 = 1;
 /// First sampled-texture binding in [`TEXTURE_GROUP`].
-pub const FIRST_TEXTURE_BINDING: u32 = 5;
+pub const FIRST_TEXTURE_BINDING: u32 = {
+    let mut next = SHADOW_SAMPLER_BINDING + 1;
+    let mut index = 0;
+    while index < SamplerClass::ALL.len() {
+        let binding = SamplerClass::ALL[index].binding();
+        if binding >= next {
+            next = binding + 1;
+        }
+        index += 1;
+    }
+    next
+};
 /// Group of storage images.
 pub const IMAGE_GROUP: u32 = 2;
 /// Group of storage buffers.
@@ -70,6 +81,8 @@ sampler_classes! {
     ClampNearest => (3, "iris_samplerClampNearest"),
     /// Repeat, nearest: the block atlas and its PBR companions.
     RepeatNearest => (4, "iris_samplerRepeatNearest"),
+    /// Repeat with nearest texels and nearest mips, for integer textures.
+    RepeatNonFiltering => (5, "iris_samplerRepeatNonFiltering"),
 }
 
 impl SamplerClass {
@@ -93,9 +106,17 @@ impl SamplerClass {
         matches!(self, SamplerClass::ClampLinear | SamplerClass::ClampNearest)
     }
 
-    /// Filters linearly (including between mip levels) rather than taking the nearest texel.
+    /// Filters linearly within a mip level rather than taking the nearest texel.
     pub const fn linear(self) -> bool {
         matches!(self, SamplerClass::RepeatLinear | SamplerClass::ClampLinear)
+    }
+
+    /// Blends neighbouring mip levels, including the atlas's nearest-texel class.
+    pub const fn mipmap_linear(self) -> bool {
+        match self {
+            Self::RepeatLinear | Self::ClampLinear | Self::RepeatNearest => true,
+            Self::ClampNearest | Self::RepeatNonFiltering => false,
+        }
     }
 
     /// The class of a built-in sampler name: depth textures are nearest, colour and shadow
@@ -145,11 +166,13 @@ pub const LEGACY_UNIFORMS: &[(&str, &str, &str)] = &[
 
 /// Declares supplied vertex inputs, names and location order together.
 macro_rules! vertex_attributes {
-    ($( $(#[$doc:meta])* $kind:ident => [$($name:literal),+]),+ $(,)?) => {
+    ($( $(#[$doc:meta])* $kind:ident => [$($name:literal),+]),+ $(,)?;
+     $($(#[$dynamic_doc:meta])* $dynamic:ident => [$($dynamic_name:literal),+]),+ $(,)?) => {
         /// A per-vertex input the host's vertex buffers must provide.
         #[derive(Clone, Debug, PartialEq, Eq, Hash)]
         pub enum VertexAttribute {
             $($(#[$doc])* $kind,)+
+            $($(#[$dynamic_doc])* $dynamic,)+
             /// An input the pack declares that Iris does not supply.
             Other(String),
         }
@@ -157,6 +180,7 @@ macro_rules! vertex_attributes {
         /// GLSL input aliases in location order.
         const ATTRIBUTE_NAMES: &[(&str, VertexAttribute)] = &[
             $($(($name, VertexAttribute::$kind),)+)+
+            $($(($dynamic_name, VertexAttribute::$dynamic),)+)+
         ];
 
         /// Supplied attributes in location order.
@@ -195,10 +219,24 @@ vertex_attributes! {
     ChunkFade => ["mc_chunkFade"],
     /// `dhMaterialId`.
     DhMaterialId => ["dhMaterialId"],
+    ;
+    /// Position in unsigned fixed point, with lightmap bytes in `w`; dynamically located.
+    /// Reads as `stored + origin.xyz + vec3(packed.xyz) * origin.w` for positions and
+    /// `stored + vec2(packed.w & 255, packed.w >> 8)` for lightmaps.
+    PackedPosition => ["iris_PackedPosition"],
+    /// Per-draw origin (`xyz`) and scale (`w`) of the packed position input.
+    DrawOrigin => ["iris_DrawOrigin"],
 }
 
 /// First location used for [`VertexAttribute::Other`] inputs.
 pub const FIRST_OTHER_ATTRIBUTE_LOCATION: u32 = SUPPLIED.len() as u32;
+
+/// Whether the host's vertex stream stores an attribute as floats or as integers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum StoredNumbers {
+    Float,
+    Int,
+}
 
 impl VertexAttribute {
     /// The attribute a translated vertex input name stands for.
@@ -210,9 +248,26 @@ impl VertexAttribute {
             .unwrap_or_else(|| VertexAttribute::Other(name.to_string()))
     }
 
-    /// The fixed shader location of a supplied attribute; `None` for `Other`.
+    /// The fixed shader location of a supplied attribute; `None` for `Other` and the raw
+    /// position parts, which take free locations.
     pub fn location(&self) -> Option<u32> {
         SUPPLIED.iter().position(|a| a == self).map(|i| i as u32)
+    }
+
+    /// How the host's vertex stream stores this attribute, for those a declaration of the
+    /// other kind reads converted rather than as declared, as GL converts integer vertex
+    /// data for float inputs. The lightmap is stored as exact floats or bytes, summed into
+    /// floats (`in ivec2 vaUV2` reads them and rounds); `mc_Entity` and `at_midBlock` as the
+    /// integers Iris stores
+    /// (`in vec4 mc_Entity` reads them and converts). `None` for every other attribute.
+    pub fn stored_numbers(&self) -> Option<StoredNumbers> {
+        match self {
+            VertexAttribute::Lightmap | VertexAttribute::MultiTexCoord2 => {
+                Some(StoredNumbers::Float)
+            }
+            VertexAttribute::BlockId | VertexAttribute::MidBlock => Some(StoredNumbers::Int),
+            _ => None,
+        }
     }
 }
 
@@ -438,8 +493,13 @@ mod tests {
 
     #[test]
     fn every_named_attribute_has_a_location_and_every_location_a_name() {
+        let position_parts = [VertexAttribute::PackedPosition, VertexAttribute::DrawOrigin];
         for (name, attribute) in ATTRIBUTE_NAMES {
-            assert!(attribute.location().is_some(), "{name} has no location");
+            assert_eq!(
+                attribute.location().is_some(),
+                !position_parts.contains(attribute),
+                "{name}: only the position parts take free locations"
+            );
             assert_eq!(&VertexAttribute::from_glsl_name(name), attribute);
         }
         for attribute in SUPPLIED {
@@ -453,5 +513,22 @@ mod tests {
             VertexAttribute::Other("myInput".to_string())
         );
         assert_eq!(VertexAttribute::Other("x".into()).location(), None);
+    }
+}
+
+#[cfg(test)]
+mod sampler_tests {
+    use super::*;
+
+    #[test]
+    fn sampler_catalog_keeps_texture_bindings_separate() {
+        let mut bindings = std::collections::BTreeSet::from([SHADOW_SAMPLER_BINDING]);
+        for class in SamplerClass::ALL {
+            assert!(bindings.insert(class.binding()));
+            assert!(class.binding() < FIRST_TEXTURE_BINDING);
+        }
+        assert_eq!(bindings.last().copied().unwrap() + 1, FIRST_TEXTURE_BINDING);
+        assert!(SamplerClass::RepeatNearest.mipmap_linear());
+        assert!(!SamplerClass::RepeatNonFiltering.mipmap_linear());
     }
 }

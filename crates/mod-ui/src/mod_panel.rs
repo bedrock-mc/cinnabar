@@ -3,11 +3,15 @@
 mod compact;
 mod data;
 mod edit;
+mod field;
+mod field_paint;
+mod hud_cards;
 mod icons;
 mod input;
 mod layout;
 mod motion;
 pub(crate) mod prepared;
+mod reveal;
 mod scrolling;
 pub(crate) mod surface;
 mod template;
@@ -16,11 +20,13 @@ mod vector;
 mod widgets;
 
 #[cfg(any(test, feature = "test-support"))]
-pub(crate) use {template::same_shape, widgets::Palette};
+pub(crate) use template::same_shape;
 
+#[cfg(test)]
+use json_ui::Context;
 use std::sync::Arc;
 
-use json_ui::{Catalog, Context, DataSource, ViewState};
+use json_ui::{Catalog, DataSource, ViewState};
 use ui::{
     FONT_DESIGN_PIXEL_TEXELS, UiScale,
     mod_panel::{Control, Event, Panel},
@@ -37,13 +43,15 @@ use ui_engine::{
         screen::{CustomRenderer, PaintFrame},
     },
 };
+pub(crate) use widgets::Palette;
 
 const SCREEN: &str = "cinnabar_personal.panel";
 const ROW_HEIGHT: f64 = 26.0;
 const CHROME_HEIGHT: f64 = 88.0;
 
 pub(super) struct ModPanel {
-    owner: PanelUiOwner,
+    pub(super) owner: PanelUiOwner,
+    hud_previews: hud_cards::Previews,
     panel: Panel,
     open: bool,
     catalog: Option<Arc<Catalog>>,
@@ -66,10 +74,20 @@ pub(super) struct ModPanel {
     motion: motion::PanelMotion,
     motion_data_dirty: bool,
     text_events: Vec<ui::mod_panel::TextEvent>,
+    field_events: Vec<ui::mod_panel::FieldEvent>,
     prepared: Option<Arc<prepared::PreparedRoute>>,
+    collection_reveals: reveal::CollectionReveals,
 }
 
 impl ModUi {
+    /// Reports distinct unknown HUD selectors for rendering regressions.
+    #[cfg(test)]
+    pub(crate) fn hud_preview_unknowns(&self) -> usize {
+        self.mod_panel
+            .as_ref()
+            .map_or(0, |panel| panel.hud_previews.unknown_ids)
+    }
+
     /// Preview declarations of the active or exiting panel; other owners remain inaccessible.
     pub fn control_previews(
         &self,
@@ -77,7 +95,7 @@ impl ModUi {
         PanelUiOwner,
         &std::collections::BTreeMap<String, ui::mod_panel::preview::ControlPreview>,
     )> {
-        if self.mod_hud_editor_open() {
+        if self.mod_hud_editor_painting() {
             return None;
         }
         let panel = self
@@ -97,6 +115,17 @@ impl ModUi {
             .filter(|panel| panel.owner == owner)
             .map_or_else(Vec::new, |panel| std::mem::take(&mut panel.text_events))
     }
+    /// Drains live edits, submissions and navigation once for the matching panel owner.
+    pub fn take_mod_panel_field_events(
+        &mut self,
+        owner: PanelUiOwner,
+    ) -> Vec<ui::mod_panel::FieldEvent> {
+        self.mod_panel
+            .as_mut()
+            .filter(|panel| panel.owner == owner)
+            .map_or_else(Vec::new, |panel| panel.drain_field_events())
+    }
+
     /// Drops the panel's laid-out text and pointer capture after its private font changed.
     pub fn invalidate_mod_panel_font(&mut self) {
         self.cancel_mod_hud_editor();
@@ -160,17 +189,22 @@ impl ModUi {
         } else {
             panel.validate()?;
         }
+        if !same_shape {
+            self.cancel_mod_hud_editor();
+        }
         if let Some(current) = self.mod_panel.as_mut() {
+            let data_changed = !same_shape || !data::same_values(&current.panel, panel);
+            if current.owner != owner {
+                current.hud_previews = hud_cards::Previews::default();
+            }
             if !same_shape {
                 let transitions = (current.owner == owner
-                    && current
-                        .panel
-                        .surface
-                        .as_ref()
-                        .zip(panel.surface.as_ref())
-                        .is_some_and(|(previous, next)| previous.screen == next.screen))
+                    && current.open
+                    && current.panel.surface.is_some()
+                    && panel.surface.is_some())
                 .then(|| std::mem::take(&mut current.motion.transitions));
                 current.text_events.clear();
+                current.field_events.clear();
                 current.owner = owner;
                 current.edit = None;
                 current.screen = CachedScreen::default();
@@ -197,11 +231,19 @@ impl ModUi {
             if panel.capture_key && !current.editing_text() {
                 current.cancel_edit();
             }
+            current.reconcile_editor_value(panel);
+            if !same_shape {
+                current.collection_reveals = reveal::CollectionReveals::default();
+            }
+            current.collection_reveals.publish(panel);
             current.panel = panel.clone();
-            current.refresh_data();
+            if data_changed {
+                current.refresh_data();
+            }
         } else {
             self.mod_panel = Some(ModPanel {
                 owner,
+                hud_previews: hud_cards::Previews::default(),
                 panel: panel.clone(),
                 open: false,
                 catalog: prepared.as_ref().map(|route| Arc::clone(&route.catalog)),
@@ -223,25 +265,40 @@ impl ModUi {
                 motion: motion::PanelMotion::default(),
                 motion_data_dirty: false,
                 text_events: Vec::new(),
+                field_events: Vec::new(),
                 prepared,
+                collection_reveals: {
+                    let mut requests = reveal::CollectionReveals::default();
+                    requests.publish(panel);
+                    requests
+                },
             });
+        }
+        if (self.reduced_motion || !panel.motion)
+            && let Some(current) = self.mod_panel.as_mut()
+        {
+            current.snap_motion();
         }
         Ok(())
     }
 
     /// Changes visibility once per transition and restores animated feedback when closing.
     /// Closing releases input at once; a painted surface whose transitions declare exit values
-    /// keeps drawing until they settle, unless the HUD editor owned the panel surface.
+    /// keeps drawing until they settle, including authored HUD editor chrome.
     /// Reopening during that exit eases back from the displayed values.
     pub fn set_mod_panel_open(&mut self, open: bool) {
-        let exit = !self.reduced_motion && !self.mod_hud_editor_open();
-        if !open {
-            self.cancel_mod_hud_editor();
+        let editor_owned = self.mod_hud_editor_open();
+        let exit = !self.reduced_motion && !editor_owned;
+        if !open && let Some(editor) = self.mod_hud_editor.as_mut() {
+            editor.close(!self.reduced_motion);
         }
         if let Some(panel) = self.mod_panel.as_mut() {
             if open {
                 panel.open = true;
                 panel.motion.transitions.cancel_exit();
+                if self.reduced_motion || !panel.panel.motion {
+                    panel.snap_motion();
+                }
             } else {
                 panel.close(exit);
             }
@@ -255,7 +312,7 @@ impl ModUi {
 
     /// Whether the active panel retains resource-pack HUD content for placement or inspection.
     pub fn mod_panel_shows_gameplay_hud(&self) -> bool {
-        self.mod_hud_editor_open()
+        self.mod_hud_editor_painting()
             || self
                 .mod_panel
                 .as_ref()
@@ -271,24 +328,40 @@ impl ModUi {
 
     /// Whether the panel draws: open, or closed while bindings ease to their exit values.
     pub fn mod_panel_painting(&self) -> bool {
-        self.mod_panel
-            .as_ref()
-            .is_some_and(|panel| panel.open || panel.exiting())
+        self.mod_hud_editor_painting()
+            || self
+                .mod_panel
+                .as_ref()
+                .is_some_and(|panel| panel.open || panel.exiting())
     }
 
     /// Native feedback, surface transitions and exits need frames only while they are moving.
     pub fn mod_panel_motion_active(&self) -> bool {
-        self.mod_panel.as_ref().is_some_and(|panel| {
-            panel.exiting()
-                || panel.open
-                    && (panel.motion.active() || panel.motion_data_dirty && panel.animated())
-        })
+        self.mod_hud_editor_motion_active()
+            || self.mod_panel.as_ref().is_some_and(|panel| {
+                panel.exiting()
+                    || panel.open
+                        && (panel.motion.active()
+                            || panel.motion_data_dirty && panel.animated()
+                            || matches!(panel.edit, Some(edit::Editor::Field { .. })))
+            })
     }
 
     /// Explicitly overrides mod surface motion, independently of built-in screen preferences.
     /// Disabling settles transitions, exits and opted-in feedback, including values already moving.
     pub fn configure_motion(&mut self, enabled: bool) {
-        self.reduced_motion = !enabled;
+        let reduced_motion = !enabled;
+        if self.reduced_motion == reduced_motion {
+            return;
+        }
+        self.reduced_motion = reduced_motion;
+        if !enabled && let Some(panel) = self.mod_panel.as_mut() {
+            panel.snap_motion();
+        }
+        if !enabled && let Some(editor) = self.mod_hud_editor.as_mut().filter(|editor| !editor.open)
+        {
+            editor.stop_exit();
+        }
     }
 
     pub fn mod_panel_toggle_key(&self) -> Option<&str> {
@@ -306,10 +379,16 @@ impl ModUi {
     ) -> Vec<Event> {
         let controls = self
             .mod_panel
-            .as_ref()
-            .map_or(&[][..], |panel| panel.panel.controls.as_slice());
+            .as_mut()
+            .map_or(&mut [][..], |panel| panel.panel.controls.as_mut_slice());
         if let Some(editor) = self.mod_hud_editor.as_mut().filter(|e| e.open) {
             let events = editor.pointer(position, pressed, held, controls);
+            if !events.is_empty()
+                && let Some(panel) = self.mod_panel.as_mut()
+            {
+                panel.refresh_data();
+            }
+            let editor = self.mod_hud_editor.as_ref().expect("retained editor");
             if editor.close_requested {
                 self.set_mod_panel_open(false);
             }
@@ -328,6 +407,17 @@ impl ModUi {
         engine: Option<&FormEngine>,
         paint_frame: &mut PaintFrame<'_>,
     ) {
+        self.paint_mod_panel_with_icons(engine, paint_frame, &|_, _| None);
+    }
+
+    /// Paints live previews using the caller's current item atlas, resolving only requested rows.
+    pub fn paint_mod_panel_with_icons(
+        &mut self,
+        engine: Option<&FormEngine>,
+        paint_frame: &mut PaintFrame<'_>,
+        icon: &dyn Fn(&str, u32) -> Option<ui::IconRef>,
+    ) {
+        let hud_metrics = paint_frame.metrics;
         let animate = !self.reduced_motion;
         let Some(panel) = self
             .mod_panel
@@ -409,43 +499,7 @@ impl ModUi {
                 }
             }
         }
-        let mut changed = false;
-        if panel.panel.motion {
-            if let Some(frame) = &panel.frame {
-                for (key, metrics) in &frame.report.scrolls {
-                    panel.motion.scroll_extent(key, metrics.max_offset());
-                }
-            }
-            let hovered = panel
-                .frame
-                .as_ref()
-                .and_then(|frame| {
-                    frame
-                        .hits
-                        .iter()
-                        .find(|hit| panel.view.hovered.as_deref() == Some(hit.key.as_str()))
-                })
-                .and_then(|hit| hit.pressed.as_deref())
-                .and_then(|action| {
-                    action
-                        .strip_prefix("mod.control:")
-                        .or_else(|| action.strip_prefix("mod.edit:"))
-                })
-                .and_then(|index| index.parse().ok());
-            changed = panel.motion.advance(
-                &panel.panel,
-                &mut panel.view,
-                hovered,
-                paint_frame.now,
-                animate,
-            );
-        }
-        if let Some(surface) = &panel.panel.surface {
-            changed |= panel
-                .motion
-                .transitions
-                .advance(surface, paint_frame.now, animate);
-        }
+        let changed = panel.advance_motion(paint_frame.now, animate);
         if !panel.open && !panel.motion.transitions.active() {
             // The exit has settled: remove the surface without drawing its final values.
             panel.close(false);
@@ -457,6 +511,7 @@ impl ModUi {
                 .write(&panel.panel, Arc::make_mut(&mut panel.data));
             panel.motion_data_dirty = false;
         }
+        self.local_player_identity.write(&mut panel.data);
         let data = Arc::clone(&panel.data);
         let rollback = (paint_frame.nodes.len(), *paint_frame.next);
         let world = panel
@@ -471,25 +526,30 @@ impl ModUi {
             return;
         }
         let caller = std::mem::take(&mut paint_frame.renderers);
-        {
+        let result = {
             let mut glass = GlassRenderer::new(world);
-            let mut renderers: Vec<&mut dyn CustomRenderer> = caller
-                .iter_mut()
-                .map(|renderer| &mut **renderer as &mut dyn CustomRenderer)
-                .collect();
-            renderers.push(&mut glass);
-            let mut nested_frame = paint_frame.with_renderers(&mut renderers);
-            let paint_frame = &mut nested_frame;
-            let language = paint_frame.language;
-            let art = ScreenArt {
-                view: Some(&panel.view),
-                ..Default::default()
+            let editing = panel.edit.is_some();
+            let mut field = field_paint::FieldRenderer::new(
+                panel.edit.as_mut(),
+                paint_frame.now,
+                Palette::for_panel(&panel.panel),
+                [paint_frame.safe_area.left(), paint_frame.safe_area.top()],
+            );
+            let mut field_slot: [&mut dyn CustomRenderer; 1] = [&mut field];
+            let mut host = RendererChain {
+                first: &mut glass,
+                rest: &mut field_slot,
             };
+            let mut base = RendererChain {
+                first: &mut host,
+                rest: &mut *caller,
+            };
+            let language = paint_frame.language;
             let catalog = panel.catalog.as_ref().expect("catalog installed above");
             let screen = panel
                 .prepared
                 .as_ref()
-                .filter(|_| panel.edit.is_none())
+                .filter(|_| !editing)
                 .and_then(|route| {
                     self.prepared_panel_ui
                         .get_mut(&panel.owner)
@@ -504,39 +564,131 @@ impl ModUi {
                     );
                 }
             }
-            match renderer.draw(art, paint_frame, |env, root| {
-                screen.render_shared_with(
-                    SCREEN,
-                    catalog,
-                    &Context::default(),
-                    data,
-                    (root, px, language),
-                    env,
+            let laid = {
+                let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut base];
+                renderer
+                    .prepare(
+                        ScreenArt::default(),
+                        &mut paint_frame.with_renderers(&mut renderers),
+                        |env, root| {
+                            panel.collection_reveals.apply(
+                                &panel.panel,
+                                catalog,
+                                &mut panel.view,
+                                &mut panel.motion,
+                                env,
+                            );
+                            screen.render_shared_with(
+                                SCREEN,
+                                catalog,
+                                crate::personal_context(),
+                                Arc::clone(&data),
+                                (root, px, language),
+                                env,
+                                &panel.view,
+                            )
+                        },
+                    )
+                    .map(|render| Arc::clone(&render.nodes))
+            };
+            if let Some(laid) = laid {
+                let panel_metrics = paint_frame.metrics;
+                paint_frame.metrics = hud_metrics;
+                panel.hud_previews.prepare(
+                    &laid,
                     &panel.view,
-                )
-            }) {
-                Ok(Some(mut frame)) => {
-                    if let Some(surface) = &panel.panel.surface
-                        && !surface.collections.is_empty()
-                    {
-                        surface::resolve_collection_hits(surface, Arc::make_mut(&mut frame.hits));
-                    }
-                    for (key, metrics) in &frame.report.scrolls {
-                        if let Some(offset) = panel.view.scroll.get_mut(key) {
-                            *offset = metrics.offset;
-                        }
-                    }
-                    panel.frame = Some(frame);
+                    panel.owner,
+                    &mut self.hud_sources,
+                    renderer,
+                    paint_frame,
+                    icon,
+                );
+                paint_frame.metrics = panel_metrics;
+            }
+            let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut base];
+            let mut previews = panel
+                .hud_previews
+                .renderer(panel.owner, &mut self.hud_sources);
+            let mut combined = RendererChain {
+                first: &mut previews,
+                rest: &mut renderers,
+            };
+            let mut preview_renderers: [&mut dyn CustomRenderer; 1] = [&mut combined];
+            let art = ScreenArt {
+                view: Some(&panel.view),
+                ..Default::default()
+            };
+            renderer.draw(
+                art,
+                &mut paint_frame.with_renderers(&mut preview_renderers),
+                |env, root| {
+                    screen.render_shared_with(
+                        SCREEN,
+                        catalog,
+                        crate::personal_context(),
+                        data,
+                        (root, px, language),
+                        env,
+                        &panel.view,
+                    )
+                },
+            )
+        };
+        paint_frame.renderers = caller;
+        match result {
+            Ok(Some(mut frame)) => {
+                if let Some(surface) = &panel.panel.surface
+                    && !surface.collections.is_empty()
+                {
+                    surface::resolve_collection_hits(surface, Arc::make_mut(&mut frame.hits));
                 }
-                result => {
-                    out_of_render(panel, paint_frame, rollback);
-                    if let Err(error) = result {
-                        tracing::warn!(%error, "personal extension panel disabled after rendering failure");
+                for (key, metrics) in &frame.report.scrolls {
+                    if let Some(offset) = panel.view.scroll.get_mut(key) {
+                        *offset = metrics.offset;
                     }
+                }
+                panel.frame = Some(frame);
+            }
+            result => {
+                out_of_render(panel, paint_frame, rollback);
+                if let Err(error) = result {
+                    tracing::warn!(%error, "personal extension panel disabled after rendering failure");
                 }
             }
         }
-        paint_frame.renderers = caller;
+    }
+}
+
+/// Borrows a host renderer and the caller's renderers without allocating a dispatch list.
+struct RendererChain<'a, 'b> {
+    first: &'a mut dyn CustomRenderer,
+    rest: &'a mut [&'b mut dyn CustomRenderer],
+}
+
+impl CustomRenderer for RendererChain<'_, '_> {
+    /// Tries the host renderer first, then the caller's borrowed renderers.
+    fn paint(
+        &mut self,
+        node: &ui_engine::engine::screen::CustomDraw<'_>,
+        canvas: &mut ui_engine::engine::Canvas<'_>,
+    ) -> Result<bool, ui_engine::engine::screen::PaintError> {
+        if self.first.paint(node, canvas)? {
+            return Ok(true);
+        }
+        for renderer in self.rest.iter_mut() {
+            if renderer.paint(node, canvas)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Preserves every renderer's texture residency declarations.
+    fn textures<'s>(&'s self, drawn: &dyn Fn(&str) -> bool, texture: &mut dyn FnMut(&'s str)) {
+        self.first.textures(drawn, texture);
+        for renderer in self.rest.iter() {
+            renderer.textures(drawn, texture);
+        }
     }
 }
 
@@ -547,11 +699,71 @@ fn out_of_render(panel: &mut ModPanel, paint_frame: &mut PaintFrame<'_>, rollbac
 }
 
 impl ModPanel {
+    /// Samples native feedback and surface transitions under both animation preferences.
+    fn advance_motion(&mut self, now: f64, animate: bool) -> bool {
+        let animate = animate && self.panel.motion;
+        let mut changed = false;
+        if self.panel.motion {
+            if let Some(frame) = &self.frame {
+                for (key, metrics) in &frame.report.scrolls {
+                    self.motion.scroll_extent(key, metrics.max_offset());
+                }
+            }
+            let hovered = self
+                .frame
+                .as_ref()
+                .and_then(|frame| {
+                    frame
+                        .hits
+                        .iter()
+                        .find(|hit| self.view.hovered.as_deref() == Some(hit.key.as_str()))
+                })
+                .and_then(|hit| hit.pressed.as_deref())
+                .and_then(|action| {
+                    action
+                        .strip_prefix("mod.control:")
+                        .or_else(|| action.strip_prefix("mod.edit:"))
+                })
+                .and_then(|index| index.parse().ok());
+            changed = self
+                .motion
+                .advance(&self.panel, &mut self.view, hovered, now, animate);
+        }
+        if let Some(surface) = &self.panel.surface {
+            changed |= self.motion.transitions.advance(surface, now, animate);
+        }
+        changed
+    }
+
+    /// Completes pending feedback and surface motion without restarting the current entrance.
+    /// A closed panel's pending exit is removed immediately instead of being retained for paint.
+    fn snap_motion(&mut self) {
+        if !self.open {
+            self.close(false);
+            return;
+        }
+        let mut changed =
+            self.motion
+                .advance(&self.panel, &mut self.view, None, self.motion.now, false);
+        if let Some(surface) = &self.panel.surface {
+            changed |= self
+                .motion
+                .transitions
+                .advance(surface, self.motion.now, false);
+        }
+        if changed || self.motion_data_dirty {
+            self.motion
+                .write(&self.panel, Arc::make_mut(&mut self.data));
+        }
+        self.motion_data_dirty = false;
+    }
+
     /// Closes an open panel once, releasing input at once. With `exit`, a painted surface whose
     /// transitions declare exit values keeps its frame and scroll while they ease there; the
     /// panel is otherwise removed at once, clearing scroll state and animated feedback. Without
     /// `exit`, this also ends an exit in progress, which a repeated animated close continues.
     fn close(&mut self, exit: bool) {
+        let exit = exit && self.panel.motion;
         if !self.open && (exit || !self.exiting()) {
             return;
         }
@@ -572,6 +784,7 @@ impl ModPanel {
         self.frame = None;
         self.view = ViewState::default();
         self.motion = motion::PanelMotion::default();
+        self.collection_reveals = reveal::CollectionReveals::default();
         if reset_feedback {
             self.refresh_data();
         }
@@ -582,13 +795,16 @@ impl ModPanel {
         !self.open && self.motion.transitions.exiting()
     }
 
-    /// Publishes typed control values and host viewport dimensions together.
+    /// Synchronizes disabled feedback after local edits, then publishes values and viewport size.
     fn refresh_data(&mut self) {
+        if !self.panel.motion {
+            self.motion
+                .advance(&self.panel, &mut self.view, None, self.motion.now, false);
+        }
         let mut data = control_data(&self.panel);
         if self.panel.surface.is_some() {
             surface::viewport(&mut data, self.viewport);
         }
-        self.write_editor_data(&mut data);
         self.data = Arc::new(data);
         self.motion_data_dirty = true;
     }
@@ -638,6 +854,10 @@ impl ModUi {
 
 #[cfg(test)]
 mod collection_tests;
+#[cfg(test)]
+mod motion_tests;
+#[cfg(test)]
+mod reveal_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

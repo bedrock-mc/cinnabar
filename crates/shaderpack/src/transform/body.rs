@@ -2,7 +2,10 @@
 //! integer-backed bool uniforms.
 
 use super::TransformError;
-use super::items::{arr_len, mat_cols, matching, sampler_info, shadowed_bindings, struct_body_end};
+use super::declare::integer_bool;
+use super::items::{
+    arr_len, assignment_end, mat_cols, matching, sampler_info, shadowed_bindings, struct_body_end,
+};
 use crate::reflection::{SHADOW_SAMPLER_NAME, SamplerClass};
 use crate::token::{Tok, TokKind, id, int, p};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -88,9 +91,11 @@ pub(super) fn rewrite_body(toks: &[Tok], cx: &BodyContext<'_>, used: &mut Sample
             .chain(cx.bools.keys())
             .map(String::as_str),
     );
-    let mut read_ends: Vec<(usize, bool)> = Vec::new();
     let mut out = vec![];
     let mut calls: Vec<Option<String>> = vec![];
+    let mut writes: Vec<usize> = vec![];
+    let mut read_ends: Vec<(usize, bool)> = Vec::new();
+    let mut write_starts: HashMap<usize, String> = HashMap::new();
     let mut type_end = 0;
     for (i, t) in toks.iter().enumerate() {
         if let Some(end) = struct_body_end(toks, i) {
@@ -106,6 +111,19 @@ pub(super) fn rewrite_body(toks: &[Tok], cx: &BodyContext<'_>, used: &mut Sample
                 out.extend([p("!=").at(t.line), int(0).at(t.line)]);
             }
             out.push(p(")").at(t.line));
+        }
+        while writes.last() == Some(&i) {
+            writes.pop();
+            out.extend([p(")").at(t.line), p(")").at(t.line)]);
+        }
+        if let Some(ctor) = write_starts.remove(&i) {
+            out.extend([
+                t.clone(),
+                id(&integer_bool(&ctor)).at(t.line),
+                p("(").at(t.line),
+            ]);
+            writes.push(assignment_end(toks, i + 1));
+            continue;
         }
         if t.is("(") {
             calls.push(
@@ -143,7 +161,16 @@ pub(super) fn rewrite_body(toks: &[Tok], cx: &BodyContext<'_>, used: &mut Sample
                     used.comparison = true;
                     SHADOW_SAMPLER_NAME
                 } else {
-                    used.filtering.insert(*class);
+                    let class = if ctor.starts_with("isampler") || ctor.starts_with("usampler") {
+                        if class.clamps() {
+                            SamplerClass::ClampNearest
+                        } else {
+                            SamplerClass::RepeatNonFiltering
+                        }
+                    } else {
+                        *class
+                    };
+                    used.filtering.insert(class);
                     class.glsl_name()
                 };
                 out.extend([
@@ -162,12 +189,17 @@ pub(super) fn rewrite_body(toks: &[Tok], cx: &BodyContext<'_>, used: &mut Sample
                 out.push(t.clone());
                 continue;
             };
-            let scalar = ctor == "bool";
-            if !scalar {
-                out.push(id(&ctor).at(line));
+            if toks.get(end).is_some_and(|token| token.is("=")) {
+                out.extend([id(&ctor).at(line), p("(").at(line), t.clone()]);
+                write_starts.insert(end, ctor);
+            } else {
+                let scalar = ctor == "bool";
+                if !scalar {
+                    out.push(id(&ctor).at(line));
+                }
+                out.extend([p("(").at(line), t.clone()]);
+                read_ends.push((end, scalar));
             }
-            out.extend([p("(").at(line), t.clone()]);
-            read_ends.push((end, scalar));
             continue;
         }
         out.push(t.clone());
@@ -205,6 +237,45 @@ fn boolean_access(toks: &[Tok], start: usize, storage: &BoolStorage) -> Option<(
         }
     }
     Some((end, ty))
+}
+
+/// The return type of a function header (`vec3 f(…)` → `vec3`), empty if there is none.
+pub(super) fn return_type(header: &[Tok]) -> String {
+    header
+        .iter()
+        .position(|t| t.is("("))
+        .and_then(|lp| lp.checked_sub(2))
+        .and_then(|i| header[i].ident())
+        .unwrap_or_default()
+        .to_owned()
+}
+
+/// GLSL converts a returned value to the function's type (Eclipse returns `0` from a
+/// `uint` function); naga's parser does not, so every return of a numeric scalar or vector
+/// function constructs the type, which is free when the value already has it.
+pub(super) fn convert_returns(body: Vec<Tok>, ty: &str) -> Vec<Tok> {
+    let numeric = matches!(ty, "float" | "int" | "uint")
+        || ["vec", "ivec", "uvec"].iter().any(|v| {
+            ty.strip_prefix(v)
+                .is_some_and(|n| matches!(n, "2" | "3" | "4"))
+        });
+    if !numeric {
+        return body;
+    }
+    let mut out = Vec::with_capacity(body.len());
+    let mut open = false;
+    for (i, t) in body.iter().enumerate() {
+        if open && t.is(";") {
+            out.extend([p(")").at(t.line), p(")").at(t.line)]);
+            open = false;
+        }
+        out.push(t.clone());
+        if t.ident() == Some("return") && body.get(i + 1).is_some_and(|n| !n.is(";")) {
+            out.extend([id(ty).at(t.line), p("(").at(t.line), p("(").at(t.line)]);
+            open = true;
+        }
+    }
+    out
 }
 
 /// Struct name → members as (type, name, array tokens).
@@ -406,6 +477,37 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(error.line, 7);
+    }
+    #[test]
+    fn integer_gathers_use_nearest_classes_without_changing_float_filtering() {
+        let mut samplers = samplers();
+        for (name, ctor, class) in [
+            ("signedTex", "isampler2D", SamplerClass::ClampLinear),
+            ("unsignedTex", "usampler2D", SamplerClass::RepeatLinear),
+        ] {
+            samplers.insert(name.into(), (ctor.into(), false, class));
+        }
+        let cx = BodyContext {
+            samplers: &samplers,
+            bools: &HashMap::new(),
+            user_funcs: &HashSet::new(),
+        };
+        let mut used = SamplerUse::default();
+        rewrite_body(
+            &lex(
+                "textureGather(signedTex, uv); textureGather(unsignedTex, uv); texture(colortex0, uv);",
+            ),
+            &cx,
+            &mut used,
+        );
+        assert_eq!(
+            used.filtering,
+            BTreeSet::from([
+                SamplerClass::ClampNearest,
+                SamplerClass::RepeatNonFiltering,
+                SamplerClass::ClampLinear,
+            ])
+        );
     }
 
     #[test]

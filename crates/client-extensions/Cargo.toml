@@ -7,6 +7,7 @@ publish = false
 
 [package.metadata.cinnabar]
 reads = [
+    "assets/fonts/InterVariable.ttf",
     "crates/mod-api/wit/extension.wit",
     "crates/mod-api/native-frame-v1.json",
     "crates/mod-host/src/packet_mod/tests/guest.wat",
@@ -15,6 +16,7 @@ reads = [
 
 [dependencies]
 anyhow.workspace = true
+arc-swap = "1.9"
 assets = { path = "../assets" }
 bevy.workspace = true
 client-state = { path = "../client-state" }

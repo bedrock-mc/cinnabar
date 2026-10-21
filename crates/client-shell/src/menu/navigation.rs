@@ -194,6 +194,9 @@ impl MenuRuntime {
             self.intents.disconnect |= self.feeds.join.cancellable();
             return;
         }
+        if self.shader_options_back() {
+            return;
+        }
         match self.screen {
             MenuScreen::Death => self.activate(MenuAction::OpenDeathGameMenu),
             _ if self.history.screens().len() > 1 => {

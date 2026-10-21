@@ -234,11 +234,17 @@ impl<'a> Expander<'a> {
             let line = rewritten.as_deref().unwrap_or(line);
             let logical = line.replace("\\\n", "");
             let scan = scan_line(&logical, &mut false);
+            let undef = defined_name(scan.code.trim_start()).map(|name| format!("#undef {name}"));
             let comment_bytes = scan.comments.iter().map(|(_, text)| text.len() + 1).sum();
             // Include lines count too: duplicating empty files still spends traversal work.
             self.remaining = self
                 .remaining
-                .checked_sub(line.len().saturating_add(1).max(comment_bytes))
+                .checked_sub(
+                    line.len()
+                        .saturating_add(1)
+                        .max(comment_bytes)
+                        .saturating_add(undef.as_ref().map_or(0, |text| text.len() + 1)),
+                )
                 .ok_or_else(|| {
                     Diagnostic::new(Phase::Include, "expanded GLSL exceeds byte limit")
                         .at(Some(here.clone()))
@@ -247,6 +253,9 @@ impl<'a> Expander<'a> {
             if is_unknown_directive(code.trim_start()) {
                 self.append("", frame.file, n as u32 + 1);
                 continue;
+            }
+            if let Some(undef) = undef {
+                self.append(&undef, frame.file, n as u32 + 1);
             }
             let directive = code.trim_start().strip_prefix('#').map(str::trim_start);
             if let Some(rest) = directive
@@ -298,6 +307,20 @@ impl<'a> Expander<'a> {
             .lines
             .extend((0..text.split('\n').count()).map(|index| (file, line + index as u32)));
     }
+}
+
+/// The macro name a `#define` line defines.
+fn defined_name(trimmed: &str) -> Option<&str> {
+    let rest = trimmed.strip_prefix('#')?.trim_start();
+    let rest = rest.strip_prefix("define")?;
+    if !rest.starts_with([' ', '\t']) {
+        return None;
+    }
+    let rest = rest.trim_start();
+    let end = rest
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or(rest.len());
+    (end > 0).then(|| &rest[..end])
 }
 
 /// A `#` line whose directive name GLSL doesn't define. A lone `#` is the null directive.
@@ -541,6 +564,7 @@ fn preprocess_limited(
     };
     let mut pp = Preprocessor::new(text);
     pp.set_work_limit(work);
+    pp.set_iris_conditions(true);
     pp.set_preserve_glsl_text();
     pp.set_source_lines(expanded.map.lines.iter().map(|(_, line)| *line).collect());
     for (k, v) in defines {

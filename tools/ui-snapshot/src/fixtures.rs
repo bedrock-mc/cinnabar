@@ -1,11 +1,19 @@
 //! Named, anonymous screen fixtures. Add a state here when a PR needs a new capture.
 
 mod chat;
+mod collection_reveal;
 #[cfg(feature = "test-support")]
 mod cosmetics;
+mod hud_card_fit;
+mod hud_cards;
+mod hud_editor;
+mod local_identity;
 mod minecraft_import;
 mod mods;
 mod out_of_game;
+mod roster;
+mod shader_options;
+mod shader_pack;
 mod updates;
 
 use std::sync::Arc;
@@ -37,6 +45,8 @@ pub enum Fixture {
         crop: bool,
         source_alpha: u8,
     },
+    /// A label whose unavailable primary face selects its installed backup.
+    BackupFont,
     /// An original checker repeated beyond a small sprite's former draw cutoff.
     TiledImage {
         scale: f64,
@@ -64,7 +74,16 @@ pub enum Fixture {
     /// Two original custom-form inputs after selection moves from the first to the second.
     EditSelection,
     /// An externally supplied bounded native mod panel.
-    ModPanel(Box<ui::mod_panel::Panel>),
+    ModPanel(
+        Box<ui::mod_panel::Panel>,
+        Option<Box<ui::mod_hud::Hud>>,
+        Option<(&'static str, render_model::UiTexturePage)>,
+    ),
+    /// A selected HUD card before or after retained placement and visibility edits.
+    HudEditor {
+        hud: Box<ui::mod_hud::Hud>,
+        edited: bool,
+    },
     /// Two same-ID requests arriving while the first menu is still open.
     #[cfg(feature = "test-support")]
     FormOverlap,
@@ -79,6 +98,11 @@ pub enum Fixture {
     CraftOverlap {
         selected: bool,
     },
+    /// A client toast as the toast screen shows it once slid in.
+    Toast {
+        title: String,
+        message: String,
+    },
 }
 
 const SIZE: [u32; 2] = [1280, 720];
@@ -88,52 +112,124 @@ const SMALL_SIZE: [u32; 2] = [360, 240];
 const TALL_SIZE: [u32; 2] = [1280, 900];
 /// Keeps the first hotbar rows visible below the keyboard options.
 const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
+/// Reaches the Video pane's Renderer row below the general options.
+const SHADER_PACK_ROW_SIZE: [u32; 2] = [SIZE[0], 1600];
+
+/// A capture at GUI scale 1 that needs no game assets.
+const fn asset_free(name: &'static str, size: [u32; 2], fixture: fn() -> Fixture) -> State {
+    State {
+        name,
+        size,
+        gui_scale: 1,
+        fixture,
+    }
+}
 
 pub const STATES: &[State] = &[
-    State {
-        name: "sprite-outline-before",
-        size: [800, 240],
-        gui_scale: 1,
-        fixture: || Fixture::SpriteOutline { outline: false },
-    },
-    State {
-        name: "sprite-outline",
-        size: [800, 240],
-        gui_scale: 1,
-        fixture: || Fixture::SpriteOutline { outline: true },
-    },
-    State {
-        name: "saturation-overlap-before",
-        size: [640, 240],
-        gui_scale: 1,
-        fixture: || Fixture::SaturationOverlap {
+    asset_free("sprite-outline-before", [800, 240], || {
+        Fixture::SpriteOutline { outline: false }
+    }),
+    asset_free("sprite-outline", [800, 240], || Fixture::SpriteOutline {
+        outline: true,
+    }),
+    asset_free("saturation-overlap-before", [640, 240], || {
+        Fixture::SaturationOverlap {
             crop: true,
             source_alpha: 255,
-        },
-    },
-    State {
-        name: "saturation-overlap",
-        size: [640, 240],
-        gui_scale: 1,
-        fixture: || Fixture::SaturationOverlap {
+        }
+    }),
+    asset_free("saturation-overlap", [640, 240], || {
+        Fixture::SaturationOverlap {
             crop: false,
             source_alpha: 255,
-        },
-    },
-    State {
-        name: "saturation-mask-regressions",
-        size: [640, 240],
-        gui_scale: 1,
-        fixture: || Fixture::MaskRegression,
-    },
-    State {
-        name: "saturation-translucent-overlap",
-        size: [640, 240],
-        gui_scale: 1,
-        fixture: || Fixture::SaturationOverlap {
+        }
+    }),
+    asset_free("saturation-mask-regressions", [640, 240], || {
+        Fixture::MaskRegression
+    }),
+    asset_free("saturation-translucent-overlap", [640, 240], || {
+        Fixture::SaturationOverlap {
             crop: false,
             source_alpha: 64,
-        },
+        }
+    }),
+    State {
+        name: "mod-hud-card-fit-before",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || hud_card_fit::fixture(false),
+    },
+    State {
+        name: "mod-hud-card-fit-after",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || hud_card_fit::fixture(true),
+    },
+    State {
+        name: "collection-reveal-before",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || collection_reveal::fixture(false),
+    },
+    State {
+        name: "collection-reveal-after",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || collection_reveal::fixture(true),
+    },
+    State {
+        name: "hud-editor-before",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || hud_editor::fixture(false),
+    },
+    State {
+        name: "hud-editor-after",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || hud_editor::fixture(true),
+    },
+    State {
+        name: "mod-local-player-neutral",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || local_identity::fixture(false),
+    },
+    State {
+        name: "mod-local-player-head",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || local_identity::fixture(true),
+    },
+    State {
+        name: "mod-hud-card-previews",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || hud_cards::fixture(true),
+    },
+    State {
+        name: "mod-hud-card-previews-empty",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || hud_cards::fixture(false),
+    },
+    State {
+        name: "sign-in-cache-error",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || out_of_game::sign_in_recovery(false),
+    },
+    State {
+        name: "sign-in-device-code",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || out_of_game::sign_in_recovery(true),
+    },
+    State {
+        name: "backup-font",
+        size: [640, 360],
+        gui_scale: 2,
+        fixture: || Fixture::BackupFont,
     },
     State {
         name: "jsonui-tiled-image",
@@ -612,25 +708,25 @@ pub const STATES: &[State] = &[
         name: "tab-list-badges",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || tab_list_badges(true),
+        fixture: || roster::badges(true),
     },
     State {
         name: "tab-list-heads",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: tab_list_heads,
+        fixture: roster::heads,
     },
     State {
         name: "tab-list-heads-columns",
         size: [640, 360],
         gui_scale: 3,
-        fixture: tab_list_head_columns,
+        fixture: roster::head_columns,
     },
     State {
         name: "tab-list-expired-badges",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || tab_list_badges(false),
+        fixture: || roster::badges(false),
     },
     State {
         name: "settings-session-navigation",
@@ -647,6 +743,12 @@ pub const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: settings_video,
+    },
+    State {
+        name: "settings-video-shader-packs",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_pack::video_picker,
     },
     State {
         name: "settings-storage",
@@ -766,90 +868,61 @@ pub const STATES: &[State] = &[
         gui_scale: GUI_SCALE,
         fixture: mods::undeclared_permissions,
     },
+    State {
+        name: "settings-video-shader-options-button",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_options::renderer_row,
+    },
+    State {
+        name: "settings-shader-options",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_options::main_screen,
+    },
+    State {
+        name: "settings-shader-options-lighting",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_options::lighting,
+    },
+    State {
+        name: "settings-shader-options-rest",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_options::rest,
+    },
+    State {
+        name: "toast-shader-pack-loading",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_pack::loading,
+    },
+    State {
+        name: "toast-shader-pack-loaded",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_pack::loaded,
+    },
+    State {
+        name: "toast-shader-pack-failed",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_pack::failed,
+    },
+    State {
+        name: "settings-video-shader-pack",
+        size: SHADER_PACK_ROW_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || shader_pack::settings_video(false),
+    },
+    State {
+        name: "settings-video-shader-pack-failed",
+        size: SHADER_PACK_ROW_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || shader_pack::settings_video(true),
+    },
 ];
-
-/// Badges two Cinnabar players, one of them sharing a name with an unbadged player.
-fn tab_list_badges(visible: bool) -> Fixture {
-    Fixture::TabList(
-        [
-            ("Alex", true),
-            ("Alex", false),
-            ("Riley", false),
-            ("Steve", visible),
-            ("Zoe", false),
-        ]
-        .map(|(name, badged)| RosterRow {
-            name: Arc::from(name),
-            badged,
-            annotation: None,
-            skin: None,
-        })
-        .into(),
-    )
-}
-
-/// Distinct original head texels alongside missing and invalid skins that must show Steve.
-fn tab_list_heads() -> Fixture {
-    let Fixture::TabList(mut rows) = tab_list_badges(true) else {
-        unreachable!()
-    };
-    for (index, row) in rows
-        .iter_mut()
-        .enumerate()
-        .filter(|(i, _)| matches!(i, 0 | 2))
-    {
-        let side = assets::starter_skins::STARTER_SKIN_SIDE;
-        let mut pixels = vec![0; (side * side * 4) as usize];
-        for y in 8..16 {
-            for x in 8..16 {
-                let color = if (y == 11 || y == 12) && (x == 9 || x == 10 || x == 13 || x == 14) {
-                    [240, 240, 255, 255]
-                } else if index == 0 {
-                    [60, 155, 100, 255]
-                } else {
-                    [110, 80, 180, 255]
-                };
-                let offset = ((y * side + x) * 4) as usize;
-                pixels[offset..offset + 4].copy_from_slice(&color);
-                if y < 10 {
-                    let hat = ((y * side + x + 32) * 4) as usize;
-                    pixels[hat..hat + 4].copy_from_slice(&[35, 60, 110, 255]);
-                }
-            }
-        }
-        row.skin = Some(render_api::StandardSkin {
-            width: side,
-            height: side,
-            rgba8: pixels.into(),
-            cape: None,
-            geometry: None,
-        });
-    }
-    rows.last_mut().unwrap().skin = Some(render_api::StandardSkin {
-        width: 1,
-        height: 1,
-        rgba8: vec![0; 4].into(),
-        cape: None,
-        geometry: None,
-    });
-    Fixture::TabList(rows)
-}
-
-/// Exercises every roster column at the maximum list size and a larger GUI scale.
-fn tab_list_head_columns() -> Fixture {
-    let Fixture::TabList(rows) = tab_list_heads() else {
-        unreachable!()
-    };
-    Fixture::TabList(
-        (0..80)
-            .map(|index| {
-                let mut row = rows[index % rows.len()].clone();
-                row.name = format!("Player{index:02}").into();
-                row
-            })
-            .collect(),
-    )
-}
 
 /// Opens a settings category by its registered name rather than a copied index.
 pub fn settings(section: &str) -> MenuView {

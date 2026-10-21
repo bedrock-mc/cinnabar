@@ -133,6 +133,7 @@ fn factory_notifications_paint_selected_colors_after_message_parsing() {
                     .paint(
                         &engine,
                         HudInput {
+                            capture_keep_out: false,
                             crosshair: false,
                             catalog: engine.catalog(),
                             context: &context,

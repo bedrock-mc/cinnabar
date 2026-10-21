@@ -2,7 +2,24 @@
 
 use super::*;
 
+/// Reserved texture for the host local player portrait, including its hat layer; it is its own namespace.
+pub const LOCAL_PLAYER_HEAD: &str = "client-raster:local-player-head";
+
 impl ServerAtlas {
+    /// Updates the single host-owned local head without replacing other painters' rasters.
+    pub fn set_local_player_head(&mut self, image: Option<&UiTexturePage>) {
+        let previous = self.client_rasters.get(LOCAL_PLAYER_HEAD);
+        if previous.map(|p| (p.identity(), p.dimensions()))
+            == image.map(|p| (p.identity(), p.dimensions()))
+        {
+            return;
+        }
+        let images = image
+            .map(|image| BTreeMap::from([(LOCAL_PLAYER_HEAD.to_owned(), image.clone())]))
+            .unwrap_or_default();
+        self.set_client_rasters(LOCAL_PLAYER_HEAD, &images);
+    }
+
     /// Checks the shared tile and byte budget before a painter allocates a namespace's pixels.
     pub(crate) fn admits_client_rasters(
         &self,
@@ -142,6 +159,35 @@ mod tests {
             "client-raster:test".into(),
             UiTexturePage::owned([8; 2], vec![color; 8 * 8 * 4].into()).unwrap(),
         )])
+    }
+
+    #[test]
+    fn local_player_head_survives_roster_replacement_and_clears_independently() {
+        let roster_namespace = "client-raster:test";
+        let mut atlas = ServerAtlas::new(&[], None, 1);
+        let portrait = images(50).remove("client-raster:test").unwrap();
+        atlas.set_local_player_head(Some(&portrait));
+        atlas.set_client_rasters(roster_namespace, &images(20));
+        atlas.require([LOCAL_PLAYER_HEAD, "client-raster:test"]);
+        assert_eq!(
+            atlas.client_rasters[LOCAL_PLAYER_HEAD].identity(),
+            portrait.identity()
+        );
+        assert!(atlas.placement(LOCAL_PLAYER_HEAD).is_some());
+        assert!(atlas.placement("client-raster:test").is_some());
+        let roster = images(20);
+        atlas.take_dirty();
+        let (_, allocation) = test_alloc::measure(|| {
+            atlas.set_local_player_head(Some(&portrait));
+            atlas.set_client_rasters(roster_namespace, &roster);
+        });
+        assert_eq!(allocation.calls, 0);
+        assert!(!atlas.take_dirty());
+        atlas.set_client_rasters(roster_namespace, &BTreeMap::new());
+        assert!(atlas.placement(LOCAL_PLAYER_HEAD).is_some());
+        assert!(atlas.placement("client-raster:test").is_none());
+        atlas.set_local_player_head(None);
+        assert!(atlas.placement(LOCAL_PLAYER_HEAD).is_none());
     }
 
     #[test]

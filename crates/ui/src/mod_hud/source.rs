@@ -18,6 +18,8 @@ pub struct RowSource {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NativeRows {
+    /// Displays the current server-clock day, independently of cosmetic time overrides.
+    WorldDays,
     /// Displays native local wall-clock time; no game clock or guest polling is involved.
     Clock {
         military: bool,
@@ -102,7 +104,7 @@ impl RowSource {
         }
         if matches!(
             self.kind,
-            NativeRows::Clock { .. } | NativeRows::TotemUses { .. }
+            NativeRows::Clock { .. } | NativeRows::TotemUses { .. } | NativeRows::WorldDays
         ) && (self.limit != 1 || self.brackets)
         {
             return Err(

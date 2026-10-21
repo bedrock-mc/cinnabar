@@ -1,8 +1,6 @@
-//! Anonymous chat inputs for repeatable screen captures.
+//! Anonymous chat screens for message, background and completion captures.
 
-use super::Fixture;
-use launcher::menu::settings_options::{SettingId, SettingsOptions};
-use std::sync::Arc;
+use super::*;
 
 /// Exercises the native chat collection with an unfinished mention.
 pub(super) fn mentions() -> Fixture {
@@ -28,6 +26,7 @@ pub(super) fn command_targets() -> Fixture {
 
 /// Shows readable history and a draft under a selected background-opacity setting.
 pub(super) fn background(percent: i32) -> Fixture {
+    use launcher::menu::settings_options::{SettingId, SettingsOptions};
     let mut options = SettingsOptions::default();
     options.set(SettingId::ChatBackgroundOpacity.index(), percent);
     let messages = [
@@ -77,6 +76,8 @@ pub(super) fn history_width() -> Fixture {
 
 /// Shows completions after an anonymous draft with transparent message backgrounds.
 pub(super) fn completion(draft: &'static str, suggestions: &[&str]) -> Fixture {
+    use launcher::menu::settings_options::SettingsOptions;
+
     let mut options = SettingsOptions::default();
     options.set(SettingId::ChatBackgroundOpacity.index(), 0);
     Fixture::Chat {

@@ -258,7 +258,15 @@ impl Canvas {
                         .round() as u8
                 });
                 let flags = style_flags(v[0]);
-                let (texel, tint) = if flags & render_api::UI_STYLE_COVERAGE_PAINT != 0 {
+                let (texel, tint) = if flags & render_api::ui_shadow::UI_STYLE_SHADOW != 0 {
+                    let shape = std::array::from_fn(|channel| {
+                        (0..3).map(|k| w[k] * v[k].overlay_color[channel]).sum()
+                    });
+                    let [dx, dy] = texel_derivatives(&v);
+                    let pixel = dx[0].hypot(dx[1]).max(dy[0].hypot(dy[1]));
+                    let area = render_api::ui_shadow::coverage([u, t], shape, pixel);
+                    (straight([area; 4]), color)
+                } else if flags & render_api::UI_STYLE_COVERAGE_PAINT != 0 {
                     let overlay = std::array::from_fn(|channel| {
                         (0..3).map(|k| w[k] * v[k].overlay_color[channel]).sum()
                     });
@@ -330,6 +338,7 @@ fn axis_aligned(v: &[&UiVertex; 4]) -> bool {
 /// The span fast path only handles uniformly tinted ordinary texture quads.
 fn flat_texture(v: &[&UiVertex; 4]) -> bool {
     v[0].style_flags & render_api::UI_STYLE_COVERAGE_PAINT == 0
+        && v[0].style_flags & render_api::ui_shadow::UI_STYLE_SHADOW == 0
         && u32::from(v[0].style_flags) & render_model::UI_STYLE_RADIAL_GRADIENT == 0
         && v.iter().all(|vertex| vertex.color == v[0].color)
         && v[0].uv[1] == v[1].uv[1]
@@ -695,6 +704,45 @@ mod tests {
         let mut canvas = Canvas::new(4, 4);
         canvas.draw(&list, |_| Some(&white));
         assert_eq!(&canvas.into_rgba()[..4], &[64, 0, 191, 255]);
+    }
+
+    #[test]
+    fn rounded_shadows_sample_the_analytic_shape_and_respect_the_clip() {
+        for blur in [0.0, 0.75] {
+            let mut list = quad();
+            for vertex in &mut list.vertices {
+                vertex.style_flags = render_api::ui_shadow::UI_STYLE_SHADOW;
+                vertex.uv = vertex.position.map(|axis| axis - 2.0);
+                vertex.overlay_color = [1.0, 1.0, 0.5, blur];
+                vertex.color = [200, 80, 20, 128];
+            }
+            list.batches[0].clip = rect(1.0, 0.0, 4.0, 4.0);
+            for draw in [&list, &triangle(list.clone())] {
+                let white = Page::white();
+                let mut canvas = Canvas::new(4, 4);
+                canvas.draw(draw, |_| Some(&white));
+                let rgba = canvas.into_rgba();
+                for y in 0..4 {
+                    for x in 0..4 {
+                        let pixel = &rgba[(y * 4 + x) * 4..(y * 4 + x + 1) * 4];
+                        let coverage = render_api::ui_shadow::coverage(
+                            [x as f32 - 1.5, y as f32 - 1.5],
+                            [1.0, 1.0, 0.5, blur],
+                            1.0,
+                        );
+                        let alpha = if x == 0 || (draw.indices.len() == 3 && y > x) {
+                            0
+                        } else {
+                            (coverage * 128.0).round() as u8
+                        };
+                        assert!(
+                            (i16::from(pixel[3]) - i16::from(alpha)).abs() <= 1,
+                            "{pixel:?} {alpha}"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]

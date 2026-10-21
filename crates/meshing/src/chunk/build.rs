@@ -70,12 +70,19 @@ pub fn mesh_sub_chunk_in_neighbourhood(
 
 /// Meshing choices that depend on data outside the block snapshot.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct MeshOptions {
+pub struct MeshOptions<'a> {
     /// User choices that change the emitted geometry or lighting.
     pub rendering: crate::MeshRenderSettings,
     /// Keeps every biome-tinted cube face one block wide. Set when the sub-chunk's biome
     /// record is mixed, so the renderer can blend its tint once per face instead of per pixel.
     pub split_tinted_faces: bool,
+    /// Draws every leaf with its cutout, two-sided material, keeping one quad per shared
+    /// plane instead of opaque deep leaves. Set while a shader pack renders the world.
+    pub cutout_leaves: bool,
+    /// Network values, sorted, of the blocks Java fills with water (seagrass, kelp, bubble
+    /// columns), toward which water then draws no face, as Java's. Set while a shader pack
+    /// renders the world; empty keeps Bedrock's faces beside them.
+    pub water_filled: &'a [u32],
 }
 
 /// Greedy-mesh the bounded palette snapshot with solved block/sky light.
@@ -109,7 +116,7 @@ pub fn mesh_sub_chunk_in_neighbourhood_with_options<
     network_id_mode: NetworkIdMode,
     neighbourhood: &MeshNeighbourhood<'_>,
     light_sampler: &S,
-    options: MeshOptions,
+    options: MeshOptions<'_>,
 ) -> ChunkMesh {
     mesh_sub_chunk_core(
         classifier,
@@ -129,7 +136,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
     neighbourhood: &MeshNeighbourhood<'_>,
     light_sampler: &S,
     include_liquids: bool,
-    options: MeshOptions,
+    options: MeshOptions<'_>,
 ) -> ChunkMesh {
     let sub_chunk = neighbourhood
         .sub_chunk([0, 0, 0])
@@ -179,8 +186,11 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
             .seasonal_foliage
             .then(|| super::seasonal_foliage::SeasonalCoverage::new(palette_context));
 
-    let leaves =
-        super::leaves::LeafOcclusion::new(&block_bits, options.rendering.transparent_leaves);
+    let leaves = super::leaves::LeafOcclusion::new(
+        &block_bits,
+        options.rendering.transparent_leaves,
+        options.cutout_leaves,
+    );
     let mut cube_streams = CubeQuadStreams::default();
     let mut diagnostic_geometry = DiagnosticGeometryAccumulator::default();
     // Greedy merging reads lighting only at the current slice's visible cells, which are
@@ -489,6 +499,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
             network_id_mode,
             neighbourhood,
             &lighting,
+            options.water_filled,
         )
     } else {
         (Vec::new(), Vec::new())

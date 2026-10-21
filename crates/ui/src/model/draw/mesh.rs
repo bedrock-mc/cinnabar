@@ -40,7 +40,14 @@ pub(super) fn emit_mesh(
         });
     }
     // Reuse vertices inside each material while keeping different material cutoffs independent.
-    let mut remap = vec![VertexMapping::EMPTY; mesh.vertices().len()];
+    let mut quad_remap = [const { VertexMapping::EMPTY }; 4];
+    let mut large_remap;
+    let remap = if mesh.vertices().len() <= quad_remap.len() {
+        &mut quad_remap[..mesh.vertices().len()]
+    } else {
+        large_remap = vec![VertexMapping::EMPTY; mesh.vertices().len()];
+        &mut large_remap[..]
+    };
     let depth_scope = mesh
         .batches()
         .iter()

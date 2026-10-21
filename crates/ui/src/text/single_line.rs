@@ -20,17 +20,17 @@ impl TextLayoutCache {
         }
         let mut normalized = String::new();
         for word in request.text.split_whitespace() {
-            let bytes = normalized.len() + word.len() + usize::from(!normalized.is_empty());
-            if bytes > crate::UiLimits::MAX_TEXT_BYTES {
-                return Err(TextError::TextBytesExceeded {
-                    actual: bytes,
-                    limit: crate::UiLimits::MAX_TEXT_BYTES,
-                });
+            if normalized.len() == crate::UiLimits::MAX_TEXT_BYTES {
+                break;
             }
             if !normalized.is_empty() {
                 normalized.push(' ');
             }
-            normalized.push_str(word);
+            let prefix = text_prefix(word, crate::UiLimits::MAX_TEXT_BYTES - normalized.len());
+            normalized.push_str(prefix);
+            if prefix.len() < word.len() {
+                break;
+            }
         }
         let layout = self.layout(TextLayoutRequest {
             text: &normalized,

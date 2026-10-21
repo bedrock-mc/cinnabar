@@ -399,6 +399,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-swap"
+version = "1.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "380962b3d93b99642e50b9febf72c071e97e8b32d86eae9cf4ef582bb960ae6e"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "architecture"
 version = "0.1.22"
 dependencies = [
@@ -2353,6 +2362,7 @@ dependencies = [
  "serde_json",
  "server-experience",
  "sha2",
+ "shaderpack",
  "sim",
  "simulation-clock",
  "tempfile",
@@ -2531,6 +2541,7 @@ name = "client-extensions"
 version = "0.1.22"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "assets",
  "bevy",
  "client-state",
@@ -5226,6 +5237,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "shaderpack",
  "thiserror 2.0.18",
  "ui",
  "update-manifest",
@@ -5881,6 +5893,7 @@ dependencies = [
 name = "mod-api"
 version = "0.1.22"
 dependencies = [
+ "render-api",
  "serde",
  "serde_json",
  "wit-bindgen",
@@ -6809,6 +6822,7 @@ dependencies = [
  "sha2",
  "sim",
  "tempfile",
+ "test-alloc",
  "thiserror 2.0.18",
  "tracing",
  "zip",
@@ -7698,12 +7712,14 @@ dependencies = [
  "objc2-quartz-core 0.3.2",
  "pack-compiler",
  "particles",
+ "png",
  "rayon",
  "render-api",
  "render-model",
  "render-scene",
  "serde_json",
  "sha2",
+ "shaderpack",
  "tempfile",
  "test-alloc",
  "test-time",
@@ -8301,6 +8317,7 @@ dependencies = [
  "pp-rs",
  "rayon",
  "serde_json",
+ "tempfile",
  "zip",
  "zip-footer",
 ]
@@ -9288,6 +9305,7 @@ dependencies = [
  "render-model",
  "resource-pack",
  "serde_json",
+ "shaderpack",
  "tempfile",
  "tracing-subscriber",
  "ui",

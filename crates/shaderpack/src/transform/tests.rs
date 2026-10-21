@@ -4,6 +4,7 @@ use super::*;
 use crate::compile::{OutputMap, compile};
 use crate::options::OptionValues;
 use crate::preprocess::{expand, preprocess};
+use crate::reflection::VertexAttribute;
 use crate::source::PackSource;
 
 const VERTEX: &str = "#version 120
@@ -64,7 +65,17 @@ fn a_version_120_program_becomes_vulkan_glsl_naga_validates() {
         .iter()
         .map(|(_, n)| n.as_str())
         .collect();
-    assert_eq!(inputs, ["iris_Vertex", "iris_Color", "iris_MultiTexCoord0"]);
+    // `ftransform()` reads the position, so the raw packed-position parts follow the inputs.
+    assert_eq!(
+        inputs,
+        [
+            "iris_Vertex",
+            "iris_Color",
+            "iris_MultiTexCoord0",
+            "iris_PackedPosition",
+            "iris_DrawOrigin",
+        ]
+    );
     assert_eq!(fragment.0.frag_outputs, [(0, "iris_FragData0".to_owned())]);
     assert!(
         fragment
@@ -106,13 +117,58 @@ void main() { id = mc_Entity.x; gl_Position = gl_Vertex; }
         .iter()
         .map(|(location, name)| (name.as_str(), Some(*location)))
         .collect();
+    // The position also reads the raw packed-position parts, at the next free locations.
     assert_eq!(
-        inputs,
+        inputs[..2],
         [
             ("mc_Entity", VertexAttribute::BlockId.location()),
             ("iris_Vertex", VertexAttribute::Position.location()),
         ]
     );
+    let parts: Vec<_> = inputs[2..].iter().map(|(name, _)| *name).collect();
+    assert_eq!(parts, ["iris_PackedPosition", "iris_DrawOrigin"]);
+}
+
+#[test]
+fn integer_and_float_gathers_compile_with_separate_sampler_bindings() {
+    let mut iface = ProgramInterface::default();
+    let (fragment, lines) = draft("composite.fsh", "#version 400 compatibility
+uniform usampler2D colortex0;
+uniform isampler2D customInteger;
+uniform sampler2D colortex1;
+void main() { gl_FragData[0] = vec4(textureGather(colortex0, vec2(0.5))) + vec4(textureGather(customInteger, vec2(0.5))) + textureGather(colortex1, vec2(0.5)); }
+", StageKind::Fragment, &mut iface);
+    let (glsl, origins) = assemble(&fragment, &[], &iface.location_defines().unwrap());
+    let compiled = compile(
+        StageKind::Fragment,
+        &OutputMap {
+            glsl: &glsl,
+            origins: &origins,
+            lines: &lines,
+        },
+    )
+    .expect("mixed gathers compile");
+    let mut bindings: Vec<_> = compiled
+        .module
+        .global_variables
+        .iter()
+        .filter(|(_, variable)| {
+            matches!(
+                compiled.module.types[variable.ty].inner,
+                naga::TypeInner::Sampler { comparison: false }
+            )
+        })
+        .map(|(_, variable)| variable.binding.as_ref().unwrap().binding)
+        .collect();
+    bindings.sort_unstable();
+    let mut expected = [
+        SamplerClass::ClampNearest,
+        SamplerClass::RepeatNonFiltering,
+        SamplerClass::ClampLinear,
+    ]
+    .map(SamplerClass::binding);
+    expected.sort_unstable();
+    assert_eq!(bindings, expected);
 }
 
 #[test]

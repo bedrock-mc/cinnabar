@@ -18,6 +18,7 @@ pub mod sub_chunk_requests;
 mod ui_backdrop;
 mod ui_coverage_paint;
 pub mod ui_repeat;
+pub mod ui_shadow;
 mod vrr;
 
 pub use ui_backdrop::{UI_BACKDROP_MAX_BLUR_PIXELS, UI_BACKDROP_MAX_FACTOR, UiBackdropPaint};

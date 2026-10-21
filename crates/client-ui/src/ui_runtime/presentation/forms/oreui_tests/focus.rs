@@ -209,7 +209,10 @@ fn slider_focus_uses_its_inset_track_anchor_while_pointer_steps_keep_distinct_ac
         .projections
         .oreui_slider_tracks
         .iter()
-        .find_map(|(index, track, _)| (*index == option).then_some(*track))
+        .find_map(|(action, track, _)| {
+            matches!(action, MenuAction::SettingsOption(index, _) if *index == option)
+                .then_some(*track)
+        })
         .unwrap();
     assert_eq!(targets[0].bounds, track);
     assert_eq!(targets[0].bounds.height(), steps[0].1.height());

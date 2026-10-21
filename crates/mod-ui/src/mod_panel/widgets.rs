@@ -1,6 +1,9 @@
 use serde_json::{Value, json};
 use ui::mod_panel::{Control, FONT_NAME, Panel, Style, Theme};
 
+/// Body labels and their native editor use the same font scale.
+pub(super) const LABEL_SCALE: f64 = 0.85;
+
 #[derive(Clone, Copy)]
 pub struct Palette {
     pub background: [f64; 4],
@@ -105,7 +108,7 @@ pub(super) fn label(
 ) -> Value {
     let mut label = json!({"type":"label","size":size,"offset":offset,
         "anchor_from":"top_left","anchor_to":"top_left","text":text,"text_alignment":"left",
-        "color":color,"shadow":false,"clip_children":true,"hide_hyphen":true,"localize":false,"font_type":FONT_NAME,"font_scale_factor":0.85});
+        "color":color,"shadow":false,"clip_children":true,"hide_hyphen":true,"localize":false,"font_type":FONT_NAME,"font_scale_factor":LABEL_SCALE});
     if binding {
         label["bindings"] = json!([{"binding_name":text}]);
     }

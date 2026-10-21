@@ -1,8 +1,9 @@
 //! Typed parsing of the recognised `shaders.properties` keys.
 
 use super::{
-    BufferSize, CustomImage, CustomTexture, CustomUniform, CustomUniformKind, FlipRule, ImageSize,
-    ProgramRule, PropertiesDiagnostic, ScaleRule, ShaderProperties, SizeValue, TextureSource,
+    AlphaTest, AlphaTestRule, BlendFactor, BlendMode, BlendRule, BufferSize, CompareFunction,
+    CustomImage, CustomTexture, CustomUniform, CustomUniformKind, FlipRule, ImageSize, ProgramRule,
+    PropertiesDiagnostic, ScaleRule, ShaderProperties, SizeValue, TextureSource,
 };
 use crate::expr::Expr;
 
@@ -37,6 +38,13 @@ fn apply_rule(
             buffer: name(buffer, "buffer")?,
             width: size_value(width)?,
             height: size_value(height)?,
+        });
+    } else if let Some(target) = key.strip_prefix("blend.") {
+        properties.blends.push(blend_rule(target, value)?);
+    } else if let Some(program) = key.strip_prefix("alphaTest.") {
+        properties.alpha_tests.push(AlphaTestRule {
+            program: name(program, "program")?,
+            test: alpha_test(value)?,
         });
     } else if let Some(target) = key.strip_prefix("flip.") {
         let (program, buffer) = split_target(target, "program", "buffer")?;
@@ -162,7 +170,80 @@ fn size_value(text: &str) -> Result<SizeValue, String> {
     }
 }
 
-/// Parses a positive viewport scale and its optional offset.
+/// Reads a program or buffer blend override: `off` or four blend factors.
+fn blend_rule(target: &str, value: &str) -> Result<BlendRule, String> {
+    let (program, buffer) = match target.split_once('.') {
+        Some((program, buffer)) => (program, Some(name(buffer, "buffer")?)),
+        None => (target, None),
+    };
+    let mode = if value.eq_ignore_ascii_case("off") {
+        BlendMode::Off
+    } else {
+        let factors = value
+            .split_whitespace()
+            .map(blend_factor)
+            .collect::<Result<Vec<_>, _>>()?;
+        let &[src_color, dst_color, src_alpha, dst_alpha] = factors.as_slice() else {
+            return Err(format!(
+                "expected `off` or four blend factors, found `{value}`"
+            ));
+        };
+        BlendMode::Factors {
+            src_color,
+            dst_color,
+            src_alpha,
+            dst_alpha,
+        }
+    };
+    Ok(BlendRule {
+        program: name(program, "program")?,
+        buffer,
+        mode,
+    })
+}
+
+/// Reads one supported source or destination blend factor.
+fn blend_factor(text: &str) -> Result<BlendFactor, String> {
+    Ok(match text {
+        "ZERO" => BlendFactor::Zero,
+        "ONE" => BlendFactor::One,
+        "SRC_COLOR" => BlendFactor::SrcColor,
+        "ONE_MINUS_SRC_COLOR" => BlendFactor::OneMinusSrcColor,
+        "DST_COLOR" => BlendFactor::DstColor,
+        "ONE_MINUS_DST_COLOR" => BlendFactor::OneMinusDstColor,
+        "SRC_ALPHA" => BlendFactor::SrcAlpha,
+        "ONE_MINUS_SRC_ALPHA" => BlendFactor::OneMinusSrcAlpha,
+        "DST_ALPHA" => BlendFactor::DstAlpha,
+        "ONE_MINUS_DST_ALPHA" => BlendFactor::OneMinusDstAlpha,
+        "SRC_ALPHA_SATURATE" => BlendFactor::SrcAlphaSaturate,
+        _ => return Err(format!("unknown blend factor `{text}`")),
+    })
+}
+
+/// Reads an alpha comparison and reference, or disables the test with `off` or `false`.
+fn alpha_test(value: &str) -> Result<Option<AlphaTest>, String> {
+    if value.eq_ignore_ascii_case("off") || value.eq_ignore_ascii_case("false") {
+        return Ok(None);
+    }
+    let (function, reference) = first_of_two(value)?;
+    let function = match function {
+        "NEVER" => CompareFunction::Never,
+        "LESS" => CompareFunction::Less,
+        "EQUAL" => CompareFunction::Equal,
+        "LEQUAL" => CompareFunction::LessEqual,
+        "GREATER" => CompareFunction::Greater,
+        "NOTEQUAL" => CompareFunction::NotEqual,
+        "GEQUAL" => CompareFunction::GreaterEqual,
+        "ALWAYS" => CompareFunction::Always,
+        _ => return Err(format!("unknown alpha test function `{function}`")),
+    };
+    Ok(Some(AlphaTest {
+        function,
+        reference: parse_f32(reference)?,
+    }))
+}
+
+/// Reads a positive program scale with optional X and Y offsets.
 fn scale_rule(program: &str, value: &str) -> Result<ScaleRule, String> {
     let numbers = value
         .split_whitespace()

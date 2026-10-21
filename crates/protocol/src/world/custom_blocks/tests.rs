@@ -7,12 +7,16 @@ fn parse_definition(bytes: &[u8]) -> Option<Definition> {
     super::parse_definition(&crate::nbt_tree::read_root(bytes)?)
 }
 
+mod mining;
+
 // Every state appears once, in palette order, with a distinct hash.
 #[test]
 fn hashed_states_enumerate_axes_and_hash_distinctly() {
     let block = CustomBlock {
+        mining: Default::default(),
         state_physics_complete: false,
         state_physics: Default::default(),
+        state_mining: Default::default(),
         player_interact: false,
         name: "ns:b".into(),
         tags: Default::default(),
@@ -49,8 +53,10 @@ fn hashed_states_enumerate_axes_and_hash_distinctly() {
     let hashes: std::collections::HashSet<_> = states.iter().map(|state| state.hash).collect();
     assert_eq!(hashes.len(), 6);
     let plain = CustomBlock {
+        mining: Default::default(),
         state_physics_complete: false,
         state_physics: Default::default(),
+        state_mining: Default::default(),
         player_interact: false,
         visual: std::sync::Arc::new(CustomBlockVisuals::default()),
         ..block
@@ -199,8 +205,10 @@ fn placement_traits(direction_first: bool) -> Vec<Nbt> {
 fn custom_block(name: &str, root: &Nbt) -> CustomBlock {
     let definition = super::parse_definition(root).expect("definition");
     CustomBlock {
+        mining: definition.mining,
         state_physics_complete: false,
         state_physics: Default::default(),
+        state_mining: Default::default(),
         player_interact: definition.player_interact,
         name: name.into(),
         tags: definition.tags,

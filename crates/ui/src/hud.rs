@@ -229,7 +229,8 @@ pub struct StandingToast {
     pub id: u64,
     pub title: Arc<str>,
     pub message: Arc<str>,
-    pub press: ToastPress,
+    /// What pressing it opens; `None` for a notice that only informs.
+    pub press: Option<ToastPress>,
     pub since_millis: u64,
     /// When its cause ends and it slides out.
     pub until_millis: u64,
@@ -581,7 +582,7 @@ impl HudStore {
         (entered <= now_millis && now_millis < leaves).then(|| ShownToast {
             title: &toast.title,
             message: &toast.message,
-            press: Some(toast.press),
+            press: toast.press,
             started_millis: entered,
             slide: slide_between(entered, leaves, now_millis),
         })

@@ -217,3 +217,26 @@ fn appearance_is_bounded_and_foreign_bindings_are_rejected() {
     store.remove(mask).unwrap();
     assert_eq!(store.bindings(&[mask]), Err(MaskError::StaleHandle));
 }
+
+/// Production mask stores and retained geometry cannot allocate overlapping owner namespaces.
+#[test]
+fn production_resource_owners_are_unique_across_kinds() {
+    let mut geometry = crate::retained::Store::default();
+    let vertex = |x| crate::retained::Vertex {
+        position: [x, 0., 0.],
+        color: [1.; 4],
+        uv: [0.; 2],
+        data: [0.; 4],
+    };
+    let handle = geometry
+        .create_geometry(crate::retained::GeometrySpec::Polyline {
+            vertices: vec![vertex(0.), vertex(1.)],
+            closed: false,
+        })
+        .unwrap();
+    let a = MaskStore::default();
+    let b = MaskStore::default();
+    assert_ne!(a.owner, b.owner);
+    assert_ne!(a.owner, handle.owner);
+    assert_ne!(b.owner, handle.owner);
+}

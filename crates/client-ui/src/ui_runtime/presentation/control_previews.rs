@@ -287,7 +287,7 @@ impl Previews {
                 )
                 .ok()
                 .flatten()
-                .map(|size| size.map(|value| value / px))
+                .map(|bounds| [bounds.width() / px, bounds.height() / px])
             });
             entry.nodes = nodes;
             entry.needs_player = entry.screen.nodes().iter().any(|node|matches!(&node.draw,json_ui::Draw::Custom {renderer,..} if PreviewRenderer::handles(renderer)));

@@ -98,15 +98,25 @@ fn attachment_support(
     ))
 }
 
-/// Updates world-camera coverage and spatial smoothing only when their settings change.
+/// World cameras whose coverage depends on settings and the shader-pack depth path.
+type AntiAliasedCamera<'a> = (
+    Entity,
+    &'a mut Msaa,
+    Option<&'a Smaa>,
+    Has<render_scene::shaderpack::ShaderPackRendering>,
+);
+
+/// Updates world-camera coverage and spatial smoothing only when their settings change;
+/// shader-pack cameras draw single-sampled.
 pub fn apply_camera_antialiasing(
     mut commands: Commands,
     settings: Res<CameraSettingsAuthority>,
     support: Res<CameraAntiAliasingSupport>,
-    mut cameras: Query<(Entity, &mut Msaa, Option<&Smaa>), With<FlyCamera>>,
+    mut cameras: Query<AntiAliasedCamera, With<FlyCamera>>,
 ) {
-    let desired = support.msaa(settings.anti_aliasing_samples());
-    for (entity, mut msaa, smaa) in &mut cameras {
+    let vanilla = support.msaa(settings.anti_aliasing_samples());
+    for (entity, mut msaa, smaa, shader_pack) in &mut cameras {
+        let desired = if shader_pack { Msaa::Off } else { vanilla };
         if *msaa != desired {
             *msaa = desired;
         }
@@ -209,6 +219,36 @@ mod tests {
                 .unwrap()
                 .is_changed()
         );
+    }
+
+    #[test]
+    fn shader_pack_cameras_draw_single_sampled_and_restore_vanilla_msaa() {
+        let mut app = App::new();
+        app.init_resource::<CameraSettingsAuthority>()
+            .insert_resource(CameraAntiAliasingSupport(
+                ui::AntiAliasingSupport::from_counts([1, 4]),
+            ))
+            .add_systems(Update, apply_camera_antialiasing);
+        let mut settings = ui::UserSettings::default();
+        settings.video.anti_aliasing_samples = 4;
+        app.world_mut()
+            .resource_mut::<CameraSettingsAuthority>()
+            .replace(1, &settings)
+            .unwrap();
+        let camera = app
+            .world_mut()
+            .spawn((FlyCamera::default(), Msaa::Sample4))
+            .id();
+        app.world_mut()
+            .entity_mut(camera)
+            .insert(render_scene::shaderpack::ShaderPackRendering);
+        app.update();
+        assert_eq!(app.world().get::<Msaa>(camera).unwrap().samples(), 1);
+        app.world_mut()
+            .entity_mut(camera)
+            .remove::<render_scene::shaderpack::ShaderPackRendering>();
+        app.update();
+        assert_eq!(app.world().get::<Msaa>(camera).unwrap().samples(), 4);
     }
 
     #[test]

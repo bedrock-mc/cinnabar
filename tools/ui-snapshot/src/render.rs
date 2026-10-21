@@ -1,5 +1,6 @@
 //! Production screen painting into the JSON-UI editor's existing CPU target.
 
+mod backup_font;
 mod character;
 #[cfg(feature = "test-support")]
 mod control_locked;
@@ -10,6 +11,7 @@ mod crafting;
 mod edit_selection;
 #[cfg(feature = "test-support")]
 mod form_overlap;
+mod hud_editor;
 mod panorama;
 mod saturation_overlap;
 #[cfg(feature = "test-support")]
@@ -99,7 +101,7 @@ pub fn panel_png(
     };
     png_fixture(
         &state,
-        Fixture::ModPanel(Box::new(panel)),
+        Fixture::ModPanel(Box::new(panel), None, None),
         dir,
         seconds,
         resource_pack,
@@ -152,8 +154,11 @@ fn png_fixture(
         | Fixture::MaskRegression
         | Fixture::SaturationOverlap { .. }
         | Fixture::SpriteOutline { .. }
+        | Fixture::Toast { .. }
+        | Fixture::BackupFont
         | Fixture::TiledImage { .. }
-        | Fixture::ModPanel(_) => false,
+        | Fixture::ModPanel(..)
+        | Fixture::HudEditor { .. } => false,
         #[cfg(feature = "test-support")]
         Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
@@ -162,7 +167,7 @@ fn png_fixture(
         | Fixture::ControlLocked
         | Fixture::CosmeticParticles { .. } => false,
     };
-    let mut carriers = carriers::load(dir, menu)?;
+    let mut carriers = carriers::load(dir, menu || matches!(&fixture, Fixture::BackupFont))?;
     #[cfg(feature = "test-support")]
     let craft_icons = matches!(
         &fixture,
@@ -195,6 +200,10 @@ fn png_fixture(
         renderers: &mut [],
     };
     match fixture {
+        Fixture::BackupFont => {
+            let engine = json_engine(&carriers)?;
+            backup_font::paint(&engine, &mut frame)?;
+        }
         Fixture::SpriteOutline { .. }
         | Fixture::MaskRegression
         | Fixture::SaturationOverlap { .. }
@@ -226,7 +235,31 @@ fn png_fixture(
             )?;
             add_server_pages(&mut engine, &mut carriers.pages);
         }
-        Fixture::ModPanel(panel) => {
+        Fixture::Toast { title, message } => {
+            let mut engine = json_engine(&carriers)?;
+            let shown = ui::ShownToast {
+                title: &title,
+                message: &message,
+                press: None,
+                started_millis: 0,
+                slide: 1.0,
+            };
+            frame.now = seconds;
+            ui_screens::toast_screen::paint(
+                &mut ui_engine::cached_screen::CachedScreen::default(),
+                &engine,
+                &shown,
+                &mut frame,
+            )
+            .map_err(|error| error.to_string())?;
+            add_server_pages(&mut engine, &mut carriers.pages);
+        }
+        Fixture::HudEditor { hud, edited } => {
+            let mut engine = json_engine(&carriers)?;
+            hud_editor::paint(&engine, &mut frame, &hud, edited)?;
+            add_server_pages(&mut engine, &mut carriers.pages);
+        }
+        Fixture::ModPanel(panel, hud, identity) => {
             let mut engine = json_engine(&carriers)?;
             if let Some(root) = resource_pack {
                 let files = panel_textures(&panel, root)?;
@@ -241,6 +274,18 @@ fn png_fixture(
                 );
             }
             let mut ui = mod_ui::ModUi::default();
+            if let Some((name, portrait)) = identity {
+                engine
+                    .textures
+                    .lock()
+                    .set_local_player_head(Some(&portrait));
+                ui.set_local_player_panel_identity(name, true);
+            }
+            if let Some(hud) = &hud {
+                ui.set_mod_hud_sources(
+                    [(mod_ui::PanelUiOwner::Environment(0), 1, hud.as_ref())].into_iter(),
+                )?;
+            }
             ui.set_mod_panel(mod_ui::PanelUiOwner::Environment(0), Some(&panel))?;
             ui.set_mod_panel_open(true);
             for now in [0.0, seconds] {

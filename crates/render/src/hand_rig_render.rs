@@ -42,6 +42,8 @@ use {
 pub(crate) mod bindings;
 mod gpu;
 mod node;
+#[cfg(feature = "shaderpacks")]
+pub(crate) mod shaderpack_source;
 use gpu::*;
 #[cfg(test)]
 mod tests;

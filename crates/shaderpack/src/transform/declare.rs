@@ -11,8 +11,8 @@ use super::{ProgramInterface, ResourceNames, TransformError, UboMember};
 use crate::buffers::canonical_sampler_name;
 use crate::programs::StageKind;
 use crate::reflection::{
-    FIRST_OTHER_ATTRIBUTE_LOCATION, IMAGE_GROUP, STORAGE_BUFFER_GROUP, SamplerClass, TEXTURE_GROUP,
-    TextureDimension, UNIFORM_GROUP, VertexAttribute,
+    FIRST_OTHER_ATTRIBUTE_LOCATION, IMAGE_GROUP, STORAGE_BUFFER_GROUP, SamplerClass, StoredNumbers,
+    TEXTURE_GROUP, TextureDimension, UNIFORM_GROUP, VertexAttribute,
 };
 use crate::token::{Tok, id, lex, p};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -45,11 +45,164 @@ pub(super) struct Collected {
     pub frag_outputs: Vec<(u32, String)>,
     /// Pack-visible resource names as (group, binding, name).
     pub resource_names: Vec<(u32, u32, String)>,
+    /// The next location an `Other` vertex input would take.
+    pub next_attribute: u32,
+    /// A position or lightmap input was declared, so the raw position parts must be too.
+    pub reads_packed_parts: bool,
+    identifiers: HashSet<String>,
+    next_name: usize,
+}
+
+impl Collected {
+    /// Allocates a private identifier without hiding a source or generated declaration.
+    fn fresh_name(&mut self, base: String) -> String {
+        if self.identifiers.insert(base.clone()) {
+            return base;
+        }
+        loop {
+            let name = format!("{base}_{}", self.next_name);
+            self.next_name += 1;
+            if self.identifiers.insert(name.clone()) {
+                return name;
+            }
+        }
+    }
 }
 
 /// Finds the first non-generated source line in a declaration.
 fn first_line(toks: &[Tok]) -> u32 {
     toks.iter().map(|t| t.line).find(|l| *l != 0).unwrap_or(0)
+}
+
+/// Name of the raw packed-position input ([`VertexAttribute::PackedPosition`]).
+const PACKED_POSITION_INPUT: &str = "iris_PackedPosition";
+/// Name of the per-draw origin input ([`VertexAttribute::DrawOrigin`]).
+const DRAW_ORIGIN_INPUT: &str = "iris_DrawOrigin";
+
+/// The expression a position input of type `ty` reads: the float position `stored` plus the
+/// packed position scaled and offset by the draw origin. A vertex stream supplies one of the
+/// two and zero for the other (and for the origin), so either sum is exact.
+fn position_unpack(stored: &str, ty: &str) -> String {
+    let position = format!(
+        "({stored} + {DRAW_ORIGIN_INPUT}.xyz + vec3({PACKED_POSITION_INPUT}.xyz) * {DRAW_ORIGIN_INPUT}.w)"
+    );
+    match ty {
+        "vec4" => format!("vec4({position}, 1.0)"),
+        "vec2" => format!("{position}.xy"),
+        "float" => format!("{position}.x"),
+        _ => position,
+    }
+}
+
+/// The lightmap coordinates a packed vertex stores in the `w` of its packed position: block
+/// light in the low byte, sky light in the high byte, as Java's level × 16. (Generated GLSL
+/// keeps to the operators `token::lex` knows.)
+const PACKED_LIGHTMAP: &str = "vec2(float(iris_PackedPosition.w - iris_PackedPosition.w / 256u * 256u), float(iris_PackedPosition.w / 256u))";
+
+/// Whether input `attribute` reads the raw position parts ([`position_parts`]).
+fn reads_packed_parts(attribute: &VertexAttribute) -> bool {
+    matches!(
+        attribute,
+        VertexAttribute::Position | VertexAttribute::Lightmap | VertexAttribute::MultiTexCoord2
+    )
+}
+
+/// An input whose declared type differs from what the vertex stream stores for its
+/// attribute: positions, which are unpacked ([`position_unpack`]), lightmap coordinates,
+/// stored as floats or in the packed position ([`PACKED_LIGHTMAP`]), and attributes stored
+/// as the other kind of number ([`VertexAttribute::stored_numbers`]). Returns the name and
+/// type of the input the stage reads instead, and the expression converting that into the
+/// declared type `ty`.
+fn converted_input(
+    c: &mut Collected,
+    attribute: &VertexAttribute,
+    name: &str,
+    ty: &str,
+    arr: &[Tok],
+) -> Option<(String, String, String)> {
+    if !arr.is_empty() {
+        return None;
+    }
+    if *attribute == VertexAttribute::Position {
+        if ty != "float" && !ty.starts_with("vec") {
+            return None;
+        }
+        let stored = c.fresh_name(format!("iris_float_{name}"));
+        let convert = position_unpack(&stored, ty);
+        return Some((stored, "vec3".to_string(), convert));
+    }
+    let size = ty
+        .trim_start_matches(['i', 'u'])
+        .trim_start_matches("vec")
+        .parse::<u8>()
+        .ok();
+    if matches!(
+        attribute,
+        VertexAttribute::Lightmap | VertexAttribute::MultiTexCoord2
+    ) {
+        if !is_integer(ty) && ty != "float" && !ty.starts_with("vec") {
+            return None;
+        }
+        // A vertex stream supplies either float coordinates or packed ones and zero for the
+        // other, so the sum is exact; integers round it back.
+        let stored = c.fresh_name(format!("iris_float_{name}"));
+        let (read, sum) = match size {
+            None => (
+                "float".to_string(),
+                format!("({stored} + {PACKED_LIGHTMAP}.x)"),
+            ),
+            Some(2) => (
+                "vec2".to_string(),
+                format!("({stored} + {PACKED_LIGHTMAP})"),
+            ),
+            Some(3) => (
+                "vec3".to_string(),
+                format!("({stored} + vec3({PACKED_LIGHTMAP}, 0.0))"),
+            ),
+            Some(_) => (
+                "vec4".to_string(),
+                format!("vec4({stored}.xy + {PACKED_LIGHTMAP}, {stored}.z, 1.0)"),
+            ),
+        };
+        let convert = if is_integer(ty) {
+            format!("{ty}(round({sum}))")
+        } else {
+            sum
+        };
+        return Some((stored, read, convert));
+    }
+    match attribute.stored_numbers()? {
+        StoredNumbers::Int if ty == "float" || ty.starts_with("vec") => {
+            let read = size.map_or("int".to_string(), |size| format!("ivec{size}"));
+            let stored = c.fresh_name(format!("iris_int_{name}"));
+            let convert = format!("{ty}({stored})");
+            Some((stored, read, convert))
+        }
+        _ => None,
+    }
+}
+
+/// Declares the raw position parts at the first locations the stage's inputs leave free,
+/// once a position or lightmap input reads them.
+pub(super) fn position_parts(io: &mut String, c: &mut Collected) {
+    if !c.reads_packed_parts {
+        return;
+    }
+    let others =
+        FIRST_OTHER_ATTRIBUTE_LOCATION..c.next_attribute.max(FIRST_OTHER_ATTRIBUTE_LOCATION);
+    let mut free = (0..).filter(|location| {
+        !others.contains(location) && c.vertex_inputs.iter().all(|(used, _)| used != location)
+    });
+    let mut parts = vec![];
+    for (name, ty) in [
+        (PACKED_POSITION_INPUT, "uvec4"),
+        (DRAW_ORIGIN_INPUT, "vec4"),
+    ] {
+        let location = free.next().expect("locations are unbounded");
+        io.push_str(&format!("layout(location = {location}) in {ty} {name};\n"));
+        parts.push((location, name.to_string()));
+    }
+    c.vertex_inputs.extend(parts);
 }
 
 /// Collects declarations of `items` for `stage`.
@@ -59,7 +212,18 @@ pub(super) fn collect(
     iface: &mut ProgramInterface,
     names: &ResourceNames<'_>,
 ) -> Result<Collected, TransformError> {
-    let mut c = Collected::default();
+    let identifiers = items
+        .iter()
+        .flat_map(|item| match item {
+            Item::Func { toks, .. } | Item::Decl(_, toks) | Item::Other(toks) => toks.iter(),
+        })
+        .filter_map(Tok::ident)
+        .map(str::to_string)
+        .collect();
+    let mut c = Collected {
+        identifiers,
+        ..Collected::default()
+    };
     let mut structs: Structs = HashMap::new();
     let mut next_attr = FIRST_OTHER_ATTRIBUTE_LOCATION;
     let mut frag_out_next = 0u32;
@@ -107,6 +271,17 @@ pub(super) fn collect(
                 block(&mut c, &d, bname, members, inst, iface, line)?;
                 continue;
             }
+            let between_stages = (stage == StageKind::Vertex && d.has("out"))
+                || (stage == StageKind::Fragment && d.has("in"));
+            if between_stages && !inst.iter().any(|t| t.is("[")) {
+                let dir = if stage == StageKind::Vertex {
+                    "out"
+                } else {
+                    "in"
+                };
+                interface_block(&mut c, iface, &structs, &d, bname, members, inst, dir, line)?;
+                continue;
+            }
             if d.has("in") || d.has("out") {
                 return Err(TransformError::new(
                     format!("interface block `{bname}` is not supported"),
@@ -125,7 +300,8 @@ pub(super) fn collect(
         let is_out = d.has("out") || (d.has("varying") && stage == StageKind::Vertex);
         if stage == StageKind::Vertex && is_in && !d.has("varying") {
             for (name, arr, _) in &d.decls {
-                let loc = if let Some(loc) = VertexAttribute::from_glsl_name(name).location() {
+                let attribute = VertexAttribute::from_glsl_name(name);
+                let loc = if let Some(loc) = attribute.location() {
                     loc
                 } else {
                     let overflow = || TransformError::new("attribute location overflow", line);
@@ -144,6 +320,23 @@ pub(super) fn collect(
                     loc
                 };
                 c.vertex_inputs.push((loc, name.clone()));
+                if let Some((stored, read, convert)) =
+                    converted_input(&mut c, &attribute, name, &d.ty, arr)
+                {
+                    c.io.extend(
+                        lex(&format!("layout(location = {loc}) in {read} {stored};"))
+                            .into_iter()
+                            .map(|t| t.at(line)),
+                    );
+                    c.split_globals.extend(
+                        lex(&format!("{} {name};", d.ty))
+                            .into_iter()
+                            .map(|t| t.at(line)),
+                    );
+                    c.before_main.push(format!("{name} = {convert};"));
+                    c.reads_packed_parts |= reads_packed_parts(&attribute);
+                    continue;
+                }
                 c.io.extend(
                     lex(&format!("layout(location = {loc}) in {} {name}", d.ty))
                         .into_iter()
@@ -165,7 +358,7 @@ pub(super) fn collect(
                 let mut a = d.ty_arr.clone();
                 a.extend(arr.iter().cloned());
                 let size = varying(
-                    &mut c, iface, &structs, name, &d.ty, &a, &d.quals, dir, explicit, line,
+                    &mut c, iface, &structs, name, name, &d.ty, &a, &d.quals, dir, explicit, line,
                 )?;
                 explicit = explicit
                     .map(|start| {
@@ -221,6 +414,7 @@ pub(super) fn collect(
         }
         c.body.push(Item::Decl(d, toks));
     }
+    c.next_attribute = next_attr;
     Ok(c)
 }
 
@@ -266,7 +460,31 @@ fn block(
         c.resources.push(id(q));
     }
     c.resources.extend([id(bname), p("{")]);
-    c.resources.extend(members.iter().cloned());
+    // GLSL stores a block's bools as 32-bit integers, and WGSL has no host-shareable bool:
+    // the members are declared as integers and accessed through conversions, as bool
+    // uniforms are. A named instance's members are reached through `.` and stay bools.
+    let anonymous = inst.iter().all(|t| t.ident().is_none());
+    for m in split_items(members) {
+        match parse_decl(&m).filter(|md| anonymous && is_bool(&md.ty)) {
+            Some(md) => {
+                let integer = integer_bool(&md.ty);
+                for (name, array, _) in &md.decls {
+                    c.bools.insert(
+                        name.clone(),
+                        BoolStorage::new(&md.ty, md.ty_arr.iter().chain(array)),
+                    );
+                }
+                c.resources.extend(m.iter().map(|t| {
+                    if t.ident() == Some(md.ty.as_str()) {
+                        id(&integer).at(t.line)
+                    } else {
+                        t.clone()
+                    }
+                }));
+            }
+            None => c.resources.extend(m),
+        }
+    }
     c.resources.push(p("}"));
     c.resources.extend(inst.iter().cloned());
     c.resources.push(p(";"));
@@ -277,6 +495,41 @@ fn block(
 /// without them a store is still visible after the barriers packs pair them with.
 fn supported_qualifier(q: &str) -> bool {
     !matches!(q, "coherent" | "volatile")
+}
+
+/// Whether `ty` is `bool` or a `bvecN`.
+fn is_bool(ty: &str) -> bool {
+    ty == "bool" || ty.starts_with("bvec")
+}
+
+/// The integer type storing a bool type in a block (`int`, `ivecN`).
+pub(super) fn integer_bool(ty: &str) -> String {
+    if ty == "bool" {
+        "int".to_owned()
+    } else {
+        format!("i{}", &ty[1..])
+    }
+}
+
+/// Declares built-in vertex input `name` of type `ty` in `io` at its fixed attribute
+/// location (read converted, as declared inputs are) and records it in `c`; names without a
+/// fixed location are skipped.
+pub(super) fn vertex_input(io: &mut String, c: &mut Collected, name: &str, ty: &str) {
+    let attribute = VertexAttribute::from_glsl_name(name);
+    let Some(loc) = attribute.location() else {
+        return;
+    };
+    c.vertex_inputs.push((loc, name.to_string()));
+    match converted_input(c, &attribute, name, ty, &[]) {
+        Some((stored, read, convert)) => {
+            io.push_str(&format!(
+                "layout(location = {loc}) in {read} {stored};\n{ty} {name};\n"
+            ));
+            c.before_main.push(format!("{name} = {convert};"));
+            c.reads_packed_parts |= reads_packed_parts(&attribute);
+        }
+        None => io.push_str(&format!("layout(location = {loc}) in {ty} {name};\n")),
+    }
 }
 
 /// Lowers loose uniforms, sampled textures and storage images.
@@ -343,22 +596,14 @@ fn uniforms(
             }
             continue;
         }
-        let ty = match d.ty.as_str() {
-            "bool" => {
-                c.bools.insert(
-                    name.clone(),
-                    BoolStorage::new("bool", d.ty_arr.iter().chain(arr)),
-                );
-                "int".to_string()
-            }
-            b if b.starts_with("bvec") => {
-                c.bools.insert(
-                    name.clone(),
-                    BoolStorage::new(b, d.ty_arr.iter().chain(arr)),
-                );
-                format!("i{}", &b[1..])
-            }
-            t => t.to_string(),
+        let ty = if is_bool(&d.ty) {
+            c.bools.insert(
+                name.clone(),
+                BoolStorage::new(&d.ty, d.ty_arr.iter().chain(arr)),
+            );
+            integer_bool(&d.ty)
+        } else {
+            d.ty.clone()
         };
         let mut toks = vec![id(&ty).at(line)];
         toks.extend(d.ty_arr.iter().cloned());
@@ -393,7 +638,8 @@ fn varying(
     c: &mut Collected,
     iface: &mut ProgramInterface,
     structs: &Structs,
-    name: &str,
+    key: &str,
+    path: &str,
     ty: &str,
     arr: &[Tok],
     quals: &[String],
@@ -418,31 +664,37 @@ fn varying(
         }
         q.join(" ")
     };
-    if arr.is_empty() && mat_cols(ty).is_none() && !structs.contains_key(ty) {
+    if key == path && arr.is_empty() && mat_cols(ty).is_none() && !structs.contains_key(ty) {
         let size = loc_size(ty);
-        let loc = iface.varying(stage, name, size, explicit);
+        let loc = iface.varying(stage, key, size, explicit);
         let q = if dir == "in" {
             qualifiers(ty)
         } else {
             interp.join(" ")
         };
         c.io.extend(
-            lex(&format!("layout(location = {loc}) {q} {dir} {ty} {name};"))
+            lex(&format!("layout(location = {loc}) {q} {dir} {ty} {path};"))
                 .into_iter()
                 .map(|t| t.at(line)),
         );
         return Ok(size);
     }
     let mut leaves = vec![];
-    flatten_leaves(name.to_string(), ty, arr, structs, line, &mut leaves)?;
-    c.split_globals.extend([id(ty).at(line), id(name).at(line)]);
-    c.split_globals.extend_from_slice(arr);
-    c.split_globals.push(p(";"));
+    flatten_leaves(path.to_string(), ty, arr, structs, line, &mut leaves)?;
+    if key == path {
+        c.split_globals.extend([id(ty).at(line), id(path).at(line)]);
+        c.split_globals.extend_from_slice(arr);
+        c.split_globals.push(p(";"));
+    }
     let size = leaves.iter().map(|(_, ty)| loc_size(ty)).sum();
-    let base = iface.varying(stage, name, size, explicit);
+    let base = iface.varying(stage, key, size, explicit);
     let mut offset = 0;
-    for (k, (path, leaf_ty)) in leaves.iter().enumerate() {
-        let vname = format!("iris_v_{name}_{k}");
+    for (k, (leaf_path, leaf_ty)) in leaves.iter().enumerate() {
+        let vname = c.fresh_name(if key == path {
+            format!("iris_v_{key}_{k}")
+        } else {
+            format!("iris_b_{}_{k}", key.replace('.', "_"))
+        });
         let loc = format!("{base} + {offset}");
         offset += loc_size(leaf_ty);
         c.io.extend(
@@ -454,12 +706,83 @@ fn varying(
             .map(|t| t.at(line)),
         );
         if dir == "out" {
-            c.after_main.push(format!("{vname} = {path};"));
+            c.after_main.push(format!("{vname} = {leaf_path};"));
         } else {
-            c.before_main.push(format!("{path} = {vname};"));
+            c.before_main.push(format!("{leaf_path} = {vname};"));
         }
     }
     Ok(size)
+}
+
+/// Declares an `in`/`out` interface block between the vertex and fragment stages. GLSL
+/// matches blocks by block and member names whatever their instance names, so each member
+/// is a varying keyed `Block.member`; a named instance (`out DATA { … } data_out;`) is a
+/// private global of a struct with the block's members.
+#[allow(clippy::too_many_arguments)]
+fn interface_block(
+    c: &mut Collected,
+    iface: &mut ProgramInterface,
+    structs: &Structs,
+    d: &Decl,
+    bname: &str,
+    members: &[Tok],
+    inst: &[Tok],
+    dir: &str,
+    line: u32,
+) -> Result<(), TransformError> {
+    let mut fields = vec![];
+    for m in split_items(members) {
+        if let Some(md) = parse_decl(&m) {
+            for (name, arr, _) in md.decls {
+                let mut a = md.ty_arr.clone();
+                a.extend(arr);
+                fields.push((
+                    md.quals.clone(),
+                    md.ty.clone(),
+                    name,
+                    a,
+                    layout_key(&md.layout, "location"),
+                ));
+            }
+        }
+    }
+    let instance = inst.iter().find_map(|t| t.ident());
+    if let Some(instance) = instance {
+        let sname = c.fresh_name(format!("iris_block_{bname}"));
+        c.hoisted
+            .extend([id("struct").at(line), id(&sname).at(line), p("{").at(line)]);
+        for (_, ty, name, arr, _) in &fields {
+            c.hoisted.extend([id(ty).at(line), id(name).at(line)]);
+            c.hoisted.extend(arr.iter().cloned());
+            c.hoisted.push(p(";").at(line));
+        }
+        c.hoisted.extend([p("}").at(line), p(";").at(line)]);
+        c.split_globals
+            .extend([id(&sname).at(line), id(instance).at(line), p(";").at(line)]);
+    }
+    let mut explicit = layout_key(&d.layout, "location");
+    for (quals, ty, name, arr, member_location) in &fields {
+        if instance.is_none() {
+            c.split_globals.extend([id(ty).at(line), id(name).at(line)]);
+            c.split_globals.extend(arr.iter().cloned());
+            c.split_globals.push(p(";").at(line));
+        }
+        let key = format!("{bname}.{name}");
+        let path = instance.map_or_else(|| name.clone(), |i| format!("{i}.{name}"));
+        let quals: Vec<_> = d.quals.iter().chain(quals).cloned().collect();
+        let location = member_location.or(explicit);
+        let size = varying(
+            c, iface, structs, &key, &path, ty, arr, &quals, dir, location, line,
+        )?;
+        explicit = location
+            .map(|start| {
+                start
+                    .checked_add(size)
+                    .ok_or_else(|| TransformError::new("varying location overflow", line))
+            })
+            .transpose()?;
+    }
+    Ok(())
 }
 
 /// Declares a fragment output. GL lets a vec3 output feed an RGBA buffer; WebGPU needs at
@@ -479,7 +802,7 @@ fn fragment_output(c: &mut Collected, name: &str, ty: &str, loc: u32, line: u32)
     };
     match pad {
         Some((wide, rest)) => {
-            let wname = format!("iris_out_{name}");
+            let wname = c.fresh_name(format!("iris_out_{name}"));
             c.split_globals.extend(
                 lex(&format!("{ty} {name};"))
                     .into_iter()
@@ -624,5 +947,42 @@ void main() {}";
                 "layout ( rgba16f , set = {IMAGE_GROUP} , binding = 0 ) uniform writeonly image2D colorimg0 ;"
             )
         );
+    }
+
+    #[test]
+    fn matrix_transformed_lightmap_keeps_homogeneous_coordinate_for_both_streams() {
+        for attribute in [VertexAttribute::Lightmap, VertexAttribute::MultiTexCoord2] {
+            for (float, packed) in [("vec4(32.0, 160.0, 0.0, 1.0)", 0), ("vec4(0.0)", 40992)] {
+                let (stored, read, convert) =
+                    converted_input(&mut Collected::default(), &attribute, "light", "vec4", &[])
+                        .unwrap();
+                let source = format!(
+                    "#version 450\nconst {read} {stored} = {float};\n\
+                     const uvec4 {PACKED_POSITION_INPUT} = uvec4(0u, 0u, 0u, {packed}u);\n\
+                     const mat4 textureMatrix = mat4(0.0625, 0, 0, 0, 0, 0.03125, 0, 0, 0, 0, 1, 0, 0.25, 0.5, 0, 1);\n\
+                     const float resultX = (textureMatrix * {convert}).x;\n\
+                     const float resultY = (textureMatrix * {convert}).y;\n\
+                     void main() {{ gl_Position = vec4(resultX, resultY, 0.0, 1.0); }}"
+                );
+                let module = naga::front::glsl::Frontend::default()
+                    .parse(
+                        &naga::front::glsl::Options::from(naga::ShaderStage::Vertex),
+                        &source,
+                    )
+                    .expect("the converted lightmap is valid GLSL");
+                for (name, expected) in [("resultX", 2.25), ("resultY", 5.5)] {
+                    let (_, constant) = module
+                        .constants
+                        .iter()
+                        .find(|(_, constant)| constant.name.as_deref() == Some(name))
+                        .unwrap();
+                    assert!(
+                        matches!(module.global_expressions[constant.init], naga::Expression::Literal(naga::Literal::F32(value)) if value == expected),
+                        "{attribute:?}, {float}, {packed}: {name} = {:?}",
+                        module.global_expressions[constant.init]
+                    );
+                }
+            }
+        }
     }
 }

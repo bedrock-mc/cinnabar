@@ -156,6 +156,71 @@ fn deep_leaves_are_opaque_with_unchanged_fancy_texture_and_keep_faces_against_no
     }
 }
 
+/// Shader-pack leaves stay cutout even when enclosed, with one two-sided quad per shared plane.
+#[test]
+fn cutout_leaves_keep_enclosed_leaves_cutout_without_duplicate_shared_planes() {
+    let assets = seasonal_leaf_fixture();
+    let origin = [8, 8, 8];
+    let mode = NetworkIdMode::Sequential;
+    let mut placements = vec![(origin, 1)];
+    placements.extend(Face::ALL.map(|face| (leaf_neighbour(origin, face), 1)));
+    let chunk = seasonal_leaf_chunk(mode, &placements);
+    let mesh = meshing::mesh_sub_chunk_in_neighbourhood_with_options(
+        &BlockClassifier::new(0),
+        &assets,
+        mode,
+        &MeshNeighbourhood::new(&chunk),
+        &meshing::lighting::FullBrightLightSampler,
+        meshing::MeshOptions {
+            cutout_leaves: true,
+            ..meshing::MeshOptions::default()
+        },
+    );
+    for cell in std::iter::once(origin).chain(Face::ALL.map(|face| leaf_neighbour(origin, face))) {
+        assert_leaf_layer(&mesh, &assets, cell, false);
+    }
+    for (face, opposite) in [
+        (Face::PositiveX, Face::NegativeX),
+        (Face::PositiveY, Face::NegativeY),
+        (Face::PositiveZ, Face::NegativeZ),
+    ] {
+        // Seven cubes have fourteen faces on each axis, with two shared planes.
+        let faces: u32 = mesh
+            .cube_quads()
+            .iter()
+            .filter(|quad| [face, opposite].contains(&quad.face()))
+            .map(|quad| u32::from(quad.width()) * u32::from(quad.height()))
+            .sum();
+        assert_eq!(faces, 12, "{face:?}");
+        for (cell, direction) in [(origin, face), (leaf_neighbour(origin, opposite), face)] {
+            let neighbour = leaf_neighbour(cell, direction);
+            let shared: u32 = mesh
+                .cube_quads()
+                .iter()
+                .filter(|quad| {
+                    (quad.face() == direction
+                        && leaf_span_covers_cell(
+                            quad.origin(),
+                            quad.face(),
+                            quad.width(),
+                            quad.height(),
+                            cell,
+                        ))
+                        || (quad.face() == opposite
+                            && leaf_span_covers_cell(
+                                quad.origin(),
+                                quad.face(),
+                                quad.width(),
+                                quad.height(),
+                                neighbour,
+                            ))
+                })
+                .count() as u32;
+            assert_eq!(shared, 1, "{cell:?} {direction:?}");
+        }
+    }
+}
+
 #[test]
 fn deep_leaves_above_exception_is_top_snow_only_and_primary_layer_only() {
     let assets = seasonal_leaf_fixture();

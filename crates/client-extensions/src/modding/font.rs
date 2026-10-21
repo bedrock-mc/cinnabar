@@ -15,6 +15,10 @@ const ATLAS_SIDE: u32 = render_model::UI_LOCAL_FONT_PAGE_SIDE;
 const FONT_EM: f32 = mod_api::PANEL_FONT_EM_GUI_PIXELS * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
 const RASTER_SCALE: u32 = 2;
 const ICON_RASTER_SCALE: u32 = RASTER_SCALE * 4;
+const PRINTABLE_ASCII: std::ops::RangeInclusive<char> = ' '..='~';
+const PRINTABLE_LATIN_1: std::ops::RangeInclusive<char> = '\u{a0}'..='\u{ff}';
+// Exclude the General Punctuation block's leading spacing and directional controls.
+const GENERAL_PUNCTUATION: std::ops::RangeInclusive<char> = '\u{2010}'..='\u{205e}';
 
 /// Reads and rasterizes a bounded local source on the registration worker.
 pub fn load(path: &Path) -> Result<RuntimeFontCatalog, String> {
@@ -46,12 +50,15 @@ fn rasterize_at(bytes: &[u8], raster_scale: u32) -> Result<RuntimeFontCatalog, S
         render_model::UI_LOCAL_ICON_FONT_PAGE_SIDE
     };
     let mut cells = Vec::new();
-    let characters = (0x20..=0x7e)
-        .filter_map(char::from_u32)
-        .chain([
-            '\u{b7}', '\u{d7}', '\u{2014}', '\u{2022}', '\u{2039}', '\u{203a}', '\u{2212}',
-            '\u{fffd}',
-        ])
+    let characters = PRINTABLE_ASCII
+        .chain(
+            PRINTABLE_LATIN_1
+                .chain(GENERAL_PUNCTUATION)
+                .filter(|codepoint| font.lookup_glyph_index(*codepoint) != 0),
+        )
+        // Keep the established minus and replacement outside the punctuation ranges.
+        .chain(std::iter::once('\u{2212}'))
+        .chain(std::iter::once(char::REPLACEMENT_CHARACTER))
         .chain(icons);
     for codepoint in characters {
         let is_icon = (mod_api::PANEL_ICON_GLYPH_START
@@ -175,6 +182,103 @@ fn rasterize_at(bytes: &[u8], raster_scale: u32) -> Result<RuntimeFontCatalog, S
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    /// Covered punctuation keeps its own outline and survives layout without replacement.
+    #[test]
+    fn panel_font_preserves_typographic_punctuation() {
+        let bytes = include_bytes!("../../../../assets/fonts/InterVariable.ttf");
+        let source =
+            fontdue::Font::from_bytes(bytes.as_slice(), fontdue::FontSettings::default()).unwrap();
+        let font = rasterize(bytes).unwrap();
+        let mut cache = ui::TextLayoutCache::new(8, 64 * 1024);
+        let layout = cache
+            .layout(ui::TextLayoutRequest {
+                text: "Tune Orbit’s ‘effects’ “smoothly”… – ready",
+                style: ui::TextStyle::default(),
+                width_64: 1000 * 64,
+                line_height_64: ui::TEXT_LINE_HEIGHT_64,
+                baseline_64: ui::TEXT_BASELINE_64,
+                scale: ui::UiScale::new_display(1.).unwrap(),
+                font: &font,
+                wrap: Default::default(),
+            })
+            .unwrap();
+        for codepoint in "’‘“”…–".chars() {
+            assert_ne!(source.lookup_glyph_index(codepoint), 0);
+            let glyph = font.glyph(codepoint).expect("covered punctuation glyph");
+            let metrics = source.metrics(codepoint, FONT_EM);
+            assert_eq!(
+                glyph.advance_64,
+                (metrics.advance_width * 64.).round() as i16
+            );
+            let coverage = glyph_coverage(&font, codepoint);
+            assert!(coverage.iter().any(|alpha| *alpha > 0));
+            assert_ne!(coverage, glyph_coverage(&font, '?'));
+            assert!(layout.glyphs().iter().any(|glyph| {
+                glyph.codepoint == codepoint && glyph.resolved_codepoint == codepoint
+            }));
+        }
+    }
+
+    /// Coverage admission stays bounded and missing characters use the existing replacement.
+    #[test]
+    fn panel_font_bounds_coverage_and_preserves_missing_glyph_fallback() {
+        let bytes = include_bytes!("../../../../assets/fonts/InterVariable.ttf");
+        let source =
+            fontdue::Font::from_bytes(bytes.as_slice(), fontdue::FontSettings::default()).unwrap();
+        let font = rasterize(bytes).unwrap();
+        assert_eq!(font.pages().len(), 1);
+        assert_eq!(
+            [font.pages()[0].width, font.pages()[0].height],
+            [ATLAS_SIDE; 2]
+        );
+        assert_ne!(source.lookup_glyph_index('Ω'), 0);
+        for codepoint in ['\u{1f}', '\u{7f}', '\u{9f}', 'Ω', '漢', '🙂', '\u{10ffff}'] {
+            assert!(font.glyph(codepoint).is_none());
+        }
+        for codepoint in ('\u{a0}'..='\u{ff}').chain('\u{2010}'..='\u{205e}') {
+            assert_eq!(
+                font.glyph(codepoint).is_some(),
+                source.lookup_glyph_index(codepoint) != 0,
+                "coverage for {codepoint:?}"
+            );
+        }
+        let mut cache = ui::TextLayoutCache::new(8, 64 * 1024);
+        let layout = cache
+            .layout(ui::TextLayoutRequest {
+                text: "Ω🙂",
+                style: ui::TextStyle::default(),
+                width_64: 100 * 64,
+                line_height_64: ui::TEXT_LINE_HEIGHT_64,
+                baseline_64: ui::TEXT_BASELINE_64,
+                scale: ui::UiScale::new_display(1.).unwrap(),
+                font: &font,
+                wrap: Default::default(),
+            })
+            .unwrap();
+        assert_eq!(layout.glyphs().len(), 2);
+        for glyph in layout.glyphs() {
+            assert_eq!(glyph.resolved_codepoint, char::REPLACEMENT_CHARACTER);
+            assert_eq!(
+                glyph.uv,
+                font.glyph(char::REPLACEMENT_CHARACTER).unwrap().uv
+            );
+        }
+    }
+
+    /// Reads a glyph's atlas rectangle to distinguish real ink from a fallback outline.
+    fn glyph_coverage(font: &RuntimeFontCatalog, codepoint: char) -> Vec<u8> {
+        let glyph = font.glyph(codepoint).unwrap();
+        let page = &font.pages()[glyph.page as usize];
+        let [left, top, right, bottom] = glyph.uv.map(usize::from);
+        (top..bottom)
+            .flat_map(|y| {
+                page.pixels.bytes()[y * page.width as usize + left..y * page.width as usize + right]
+                    .iter()
+                    .copied()
+            })
+            .collect()
+    }
 
     #[test]
     fn invalid_and_oversized_optional_fonts_fail_before_attachment() {

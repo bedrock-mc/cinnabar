@@ -92,6 +92,7 @@ mod prediction;
 mod publication;
 #[cfg(feature = "publication-test-support")]
 mod publication_test_support;
+mod ray_queries;
 mod request_queue;
 mod requests;
 mod residency;
@@ -370,6 +371,9 @@ pub struct WorldStream {
     /// Whether the server sent terrain before spawn; when it did not, startup
     /// has no view to wait for until the server publishes one.
     startup_terrain_announced: bool,
+    /// Java meshing for shader packs, with the sorted network values of the blocks Java fills
+    /// with water; see [`WorldStream::set_java_meshing`].
+    java_meshing: Option<Arc<[u32]>>,
     seasonal_foliage: seasonal_foliage::SeasonalFoliage,
     /// Dimension at the newest admitted wire position; commits may still lag behind it.
     ingress_dimension: i32,
