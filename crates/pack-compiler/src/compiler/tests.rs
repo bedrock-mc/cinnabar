@@ -36,6 +36,8 @@ mod dragon_egg;
 mod end_rod;
 #[path = "tests/flowerbed.rs"]
 mod flowerbed;
+#[path = "tests/furnace.rs"]
+mod furnace;
 #[path = "tests/grass_side_mips.rs"]
 mod grass_side_mips;
 #[path = "tests/grindstone.rs"]
