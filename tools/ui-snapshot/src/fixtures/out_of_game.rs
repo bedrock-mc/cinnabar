@@ -8,6 +8,26 @@ fn menu() -> MenuView {
     MenuView::new(true, "Player".into())
 }
 
+/// Shows invalid-cache failure or the fresh sign-in prompt with anonymous credentials.
+pub(super) fn sign_in_recovery(recovered: bool) -> Fixture {
+    use launcher::menu::{auth::AuthState, sign_in::BrowserState};
+
+    let mut view = menu();
+    view.sign_in_requested = true;
+    if recovered {
+        view.auth_state = AuthState::AwaitingCode {
+            uri: "https://example.invalid/sign-in".into(),
+            code: "DEMO-CODE".into(),
+        };
+        view.sign_in_browser = BrowserState::Opened;
+        view.focused_action = Some(MenuAction::OpenSignInLink);
+    } else {
+        view.auth_state = AuthState::Failed("Could not validate the saved account.".into());
+        view.focused_action = Some(MenuAction::StartSignIn);
+    }
+    Fixture::Menu(Box::new(view))
+}
+
 /// Wraps a launcher dialog over settings.
 fn dialog(value: MenuDialog) -> Fixture {
     let mut view = menu();

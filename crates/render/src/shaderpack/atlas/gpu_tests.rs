@@ -153,11 +153,8 @@ fn animated_display_sprites_show_the_clock_frame_after_an_update() {
         refs[(static_sprite_slot(0, layer) - ATLAS_HEADER_SLOTS) as usize] = flags | layer;
     }
     for authored in [false, true] {
-        let pbr = authored.then(|| AuthoredPbr {
-            normal_pages: [&normals, &normals],
-            mer_pages: [&normals, &normals],
-            refs: &refs,
-        });
+        let pbr =
+            authored.then(|| AuthoredPbr::new([&normals, &normals], [&normals, &normals], &refs));
         let (plan, images) = fixture.with_inputs(pbr, |inputs| {
             let plan = plan_atlas(inputs, gpu.device.limits().max_texture_dimension_2d).unwrap();
             let images = build_images(inputs, &plan);

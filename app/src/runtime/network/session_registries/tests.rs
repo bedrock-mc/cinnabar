@@ -61,6 +61,43 @@ fn prepare(
 }
 
 #[test]
+fn custom_mining_filters_are_prepared_with_the_session_registries() {
+    let mut blocks = custom("test:prepared_mining");
+    Arc::make_mut(&mut blocks.blocks)[0].mining = Arc::new(protocol::CustomBlockMining {
+        seconds_to_destroy: 4.0,
+        item_specific_speeds: [protocol::CustomMiningSpeed {
+            item: protocol::CustomMiningItem::Tags("q.any_tag('test:tools')".into()),
+            destroy_speed: 0.5,
+        }]
+        .into(),
+    });
+    for hashed in [false, true] {
+        let prepared = prepare(registry_base(), hashed, &blocks);
+        assert_eq!(
+            pack_runtime::custom_mining_seconds(
+                &blocks.blocks[0].mining,
+                &prepared.mining_filters,
+                Some("test:tool"),
+                0,
+                &|tag| tag == "test:tools",
+            ),
+            Some(0.5)
+        );
+    }
+    let replacement = prepare(registry_base(), false, &protocol::CustomBlocks::default());
+    assert_eq!(
+        pack_runtime::custom_mining_seconds(
+            &blocks.blocks[0].mining,
+            &replacement.mining_filters,
+            Some("test:tool"),
+            0,
+            &|_| true,
+        ),
+        None
+    );
+}
+
+#[test]
 fn preparation_preserves_base_and_matches_direct_collision_registration() {
     let base = registry_base();
     let blocks = custom("example:prepared_session");

@@ -72,6 +72,8 @@ const _: () = assert!(std::mem::size_of::<SkinParams>() as u64 == SKIN_PARAMS_BY
 pub(crate) fn skin_shader_source(source: &str) -> String {
     substitute_layout_constants(
         &crate::material_shader::source(source)
+            .replace("JOB_VIEW_SPACE_FLAG", &format!("{JOB_VIEW_SPACE}u"))
+            .replace("JOB_ONE_SIDED_FLAG", &format!("{JOB_ONE_SIDED}u"))
             .replace("JOB_GLINT_FLAG", &format!("{JOB_GLINT}u"))
             .replace(
                 "ACTOR_GLINT_WORD",

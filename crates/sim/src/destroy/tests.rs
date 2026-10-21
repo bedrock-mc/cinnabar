@@ -23,6 +23,78 @@ const DESTROY_TABLE: &str = assets::compiled::block_destroy::DESTROY_SOURCE;
 
 use super::*;
 
+/// Resolves a server component through the same facts path as the client.
+fn custom(seconds: f32) -> BlockDestroyInfo {
+    BlockDestroyInfo::from_facts(BlockDestroyFacts::Custom {
+        seconds_to_destroy_bits: seconds.to_bits(),
+        effective_tools: 0,
+    })
+    .unwrap()
+}
+
+#[test]
+fn custom_mining_uses_component_value_and_preserves_instant_and_disabled() {
+    assert_eq!(
+        destroy_progress_per_tick(&custom(2.0), &grounded(None)),
+        Some(1.0 / 60.0)
+    );
+    assert_eq!(
+        destroy_progress_per_tick(&custom(0.5), &grounded(None)),
+        Some(1.0 / 15.0)
+    );
+    assert_eq!(
+        destroy_progress_per_tick(&custom(0.0), &grounded(None)),
+        Some(1.0)
+    );
+    assert_eq!(
+        destroy_progress_per_tick(&custom(-1.0), &grounded(None)),
+        None
+    );
+}
+
+#[test]
+fn custom_mining_ordinary_tools_do_not_imply_an_effective_tool() {
+    let mut conditions = grounded(Some("minecraft:diamond_pickaxe"));
+    conditions.efficiency_level = 5;
+    assert_eq!(
+        destroy_progress_per_tick(&custom(2.0), &conditions),
+        Some(1.0 / 60.0)
+    );
+    conditions.haste_amplifier = Some(0);
+    let rate = destroy_progress_per_tick(&custom(2.0), &conditions).unwrap();
+    assert!((rate - (1.2_f32 / 60.0 * 1.2)).abs() < f32::EPSILON);
+    conditions.haste_amplifier = None;
+    conditions.eyes_in_water = true;
+    assert_eq!(
+        destroy_progress_per_tick(&custom(2.0), &conditions),
+        Some(0.2 / 60.0)
+    );
+}
+
+#[test]
+fn custom_mining_declared_tool_tags_apply_tier_and_enchantment_speed() {
+    let facts = BlockDestroyFacts::Custom {
+        seconds_to_destroy_bits: 2.0_f32.to_bits(),
+        effective_tools: ToolKind::Pickaxe.bit(),
+    };
+    let block = BlockDestroyInfo::from_facts(facts).unwrap();
+    let mut conditions = grounded(Some("minecraft:diamond_pickaxe"));
+    assert_eq!(
+        destroy_progress_per_tick(&block, &conditions),
+        Some(8.0 / 60.0)
+    );
+    conditions.efficiency_level = 2;
+    assert_eq!(
+        destroy_progress_per_tick(&block, &conditions),
+        Some(13.0 / 60.0)
+    );
+    conditions.tool = None;
+    assert_eq!(
+        destroy_progress_per_tick(&block, &conditions),
+        Some(1.0 / 60.0)
+    );
+}
+
 fn ticks(identifier: &str, conditions: DestroyConditions) -> Option<u32> {
     let block = block_destroy_info(identifier).expect("known block");
     destroy_progress_per_tick(&block, &conditions).map(|rate| (1.0 / rate).ceil() as u32)

@@ -115,13 +115,20 @@ fn resolve_destination(path: &Path) -> io::Result<PathBuf> {
 /// Rejects directory copies whose source and destination are ancestors of one another.
 fn reject_overlap(source: &Path, target: &Path) -> io::Result<()> {
     if source.is_dir() {
-        let source = source.canonicalize()?;
         let target = resolve_destination(target)?;
-        if target.starts_with(&source) || source.starts_with(&target) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "pack source and destination overlap",
-            ));
+        let folder = pack_folder(source.to_path_buf());
+        let shaders = folder.as_ref().map(|folder| folder.join("shaders"));
+        for root in std::iter::once(source)
+            .chain(folder.as_deref())
+            .chain(shaders.as_deref())
+        {
+            let root = root.canonicalize()?;
+            if target.starts_with(&root) || root.starts_with(&target) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "pack source and destination overlap",
+                ));
+            }
         }
     }
     Ok(())
@@ -136,22 +143,25 @@ fn copy_pack(source: &Path, target: &Path) -> io::Result<()> {
         .tempdir_in(target.parent().unwrap_or_else(|| Path::new(".")))?;
     let payload = staging.path().join("pack");
     if source.is_dir() {
-        copy_folder(source, &payload)?;
+        let folder = pack_folder(source.to_path_buf()).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::NotFound, "pack shaders folder is missing")
+        })?;
+        copy_folder(source, &payload, &folder.join("shaders"))?;
     } else {
         fs::copy(source, &payload)?;
     }
     assets::rename_no_replace(&payload, target)
 }
 
-/// Copies a folder tree; symlinks are skipped, as [`crate::PackSource::open`] skips them.
-fn copy_folder(from: &Path, to: &Path) -> io::Result<()> {
+/// Copies a folder tree, following only links along the selected shader root's path.
+fn copy_folder(from: &Path, to: &Path, shaders: &Path) -> io::Result<()> {
     fs::create_dir(to)?;
     for entry in fs::read_dir(from)? {
         let entry = entry?;
         let kind = entry.file_type()?;
         let destination = to.join(entry.file_name());
-        if kind.is_dir() {
-            copy_folder(&entry.path(), &destination)?;
+        if kind.is_dir() || (shaders.starts_with(entry.path()) && entry.path().is_dir()) {
+            copy_folder(&entry.path(), &destination, shaders)?;
         } else if kind.is_file() {
             fs::copy(entry.path(), destination)?;
         }

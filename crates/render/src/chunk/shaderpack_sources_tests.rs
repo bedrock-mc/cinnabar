@@ -78,3 +78,122 @@ fn expansion_requires_matching_instance_allocation_and_active_tint_tables() {
             .unwrap();
     }
 }
+
+/// Builds two model planes with distinct centroids and sidedness, without local carriers.
+fn model_assets() -> ChunkTextureAssets {
+    let mut visual = assets::BlockVisual::diagnostic(
+        assets::BlockFlags::empty(),
+        assets::ContributorRole::Primary,
+    );
+    visual.kind = assets::VisualKind::Model;
+    visual.support = assets::VisualSupport::Exact;
+    visual.model_template = 0;
+    let overlay = assets::BlockOverlay {
+        visuals: vec![visual],
+        light_properties: vec![assets::LightProperties::default()],
+        materials: vec![assets::Material {
+            texture: assets::TextureRef::DIAGNOSTIC,
+            animation: assets::NO_ANIMATION,
+            ..assets::Material::unvaried()
+        }],
+        model_templates: vec![assets::ModelTemplate {
+            quad_start: 0,
+            quad_count: 2,
+            flags: 0,
+        }],
+        model_quads: [0, 256]
+            .into_iter()
+            .map(|y| assets::ModelQuad {
+                positions: [[0, y, 0], [256, y, 0], [256, y, 256], [0, y, 256]],
+                uvs: [[0; 2]; 4],
+                material: 0,
+                flags: if y == 0 {
+                    0
+                } else {
+                    assets::MODEL_QUAD_FLAG_TWO_SIDED
+                },
+            })
+            .collect(),
+        ..Default::default()
+    };
+    let assets = RuntimeAssets::diagnostic()
+        .with_block_overlay(1, &overlay)
+        .unwrap();
+    ChunkTextureAssets::with_revision(Arc::new(assets), 1)
+}
+
+/// Reordering uploaded draw refs cannot change expansion slots or their sorting centroids.
+#[test]
+fn expansion_model_jobs_do_not_depend_on_uploaded_draw_order() {
+    use crate::chunk::transparent::face_metric::FaceOrderClass;
+    use crate::shaderpack::geometry::jobs::{
+        JOB_REVERSE_FACE, JobKind, MaterialTables, plan_section,
+    };
+    let tint = ChunkBiomeTintIdentity::new(4, 5);
+    let (mut instance, mut allocation) = section(tint);
+    instance.model_refs = Arc::from([PackedModelRef::new(0, 0, 0, 3)]);
+    instance.model_lighting = Arc::from([meshing::PackedQuadLighting::default(); 2]);
+    instance.transparent_model_draw_refs =
+        Arc::from([PackedModelDrawRef::new(0, 0), PackedModelDrawRef::new(0, 1)]);
+    allocation.model_range = Some(100..104);
+    allocation.transparent_model_draw_range = Some(200..204);
+    let mut world = World::new();
+    let entity = world.spawn((instance, allocation.clone())).id();
+    let identity = TransparentModelAllocationIdentity {
+        entity,
+        key: allocation.key,
+        generation: allocation.generation,
+        model_range: allocation.model_range.clone().unwrap(),
+        draw_range: allocation.transparent_model_draw_range.clone().unwrap(),
+    };
+    let assets = model_assets();
+    let address = TransparentModelAddressIdentity {
+        asset_identity: assets.identity(),
+        allocations: Arc::from([identity]),
+        revision: 1,
+        _retained_assets: Some(Arc::clone(assets.assets())),
+    };
+    let mut runtime = TransparentModelSortRuntime::default();
+    runtime.draw_orders.publish(
+        &address,
+        TransparentModelSortBatch {
+            draw_range: 200..204,
+            class: FaceOrderClass::Far([0, 1, 0]),
+            words: Box::new([[25, 1], [25, 0]]),
+        },
+    );
+    world.insert_resource(runtime);
+    world
+        .run_system_once(move |sections: ResidentSections| {
+            let section = sections.get(entity, tint).unwrap();
+            assert_eq!(
+                section
+                    .geometry
+                    .transparent_model_draw_refs
+                    .first()
+                    .unwrap()
+                    .words(),
+                [0, 0]
+            );
+            let plan = plan_section(
+                &section.geometry,
+                &MaterialTables {
+                    materials: assets.assets().materials(),
+                    model_templates: assets.assets().model_templates(),
+                    model_quads: assets.assets().model_quads(),
+                },
+            );
+            let jobs = &plan.jobs[JobKind::Model as usize];
+            assert_eq!(jobs[0], [25, 7, 0, 0]);
+            assert_eq!(jobs[1], [25, 7, 1, JOB_REVERSE_FACE | 1]);
+            let faces = section.translucent_faces(&plan, &assets);
+            assert_eq!(faces.len(), 3);
+            assert_eq!(
+                faces.iter().map(|face| face.stable).collect::<Vec<_>>(),
+                [[0, 0], [0, 1], [0, 1]]
+            );
+            assert_eq!(faces[1].centroid, faces[2].centroid);
+            assert_eq!(faces[1].centroid.y, faces[0].centroid.y + 1.0);
+        })
+        .unwrap();
+}

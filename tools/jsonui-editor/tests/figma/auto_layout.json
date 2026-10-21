@@ -1,0 +1,24 @@
+{
+  "id": "5:1", "name": "Stack Test", "type": "FRAME", "width": 120, "height": 100,
+  "children": [
+    { "id": "5:2", "name": "Column", "type": "FRAME", "x": 0, "y": 0, "width": 60, "height": 100,
+      "fills": [{ "type": "SOLID", "color": [0.2, 0.2, 0.2] }],
+      "layout": { "mode": "VERTICAL", "item_spacing": 4, "padding": [5, 6, 5, 6], "counter_align": "CENTER" },
+      "children": [
+        { "id": "5:3", "name": "A", "type": "FRAME", "x": 15, "y": 6, "width": 30, "height": 20 },
+        { "id": "5:4", "name": "B", "type": "FRAME", "x": 5, "y": 30, "width": 50, "height": 10,
+          "sizing": ["FILL", "FIXED"] },
+        { "id": "5:5", "name": "Hidden", "type": "FRAME", "visible": false, "x": 20, "y": 44, "width": 20, "height": 20 },
+        { "id": "5:6", "name": "C", "type": "FRAME", "x": 20, "y": 44, "width": 20, "height": 20 },
+        { "id": "5:7", "name": "Badge", "type": "FRAME", "x": 40, "y": 80, "width": 10, "height": 10,
+          "positioning": "ABSOLUTE", "constraints": { "horizontal": "MAX", "vertical": "MAX" } }
+      ] },
+    { "id": "5:8", "name": "Row", "type": "FRAME", "x": 60, "y": 0, "width": 60, "height": 20,
+      "layout": { "mode": "HORIZONTAL", "item_spacing": 2 },
+      "children": [
+        { "id": "5:9", "name": "D", "type": "FRAME", "x": 0, "y": 0, "width": 10, "height": 20 },
+        { "id": "5:10", "name": "E", "type": "FRAME", "x": 12, "y": 0, "width": 48, "height": 20,
+          "sizing": ["FILL", "FILL"] }
+      ] }
+  ]
+}

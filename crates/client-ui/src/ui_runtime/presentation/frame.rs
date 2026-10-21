@@ -56,6 +56,7 @@ impl UiPresentationRuntime {
         dynamic_textures::observe_session(self, runtime.session_id());
         session_icons::observe(self, runtime.session_icons());
         self.observe_server_ui(runtime.server_ui());
+        self.publish_local_player_identity(runtime.session_id());
         session_glyphs::observe(self, runtime.session_glyphs());
         // Install artwork before any screen resolves its pixel UVs.
         if self.menu_artwork_loader.poll() {
@@ -64,6 +65,9 @@ impl UiPresentationRuntime {
         self.poll_server_ui_images();
         self.menu_seconds = now_millis as f64 / 1_000.0;
         self.configure_oreui_settings();
+        self.screens
+            .mod_ui
+            .advance_mod_hud_editor_exit(self.menu_seconds);
         if let Some(view) = &self.menu_view {
             self.menu_scrolls.configure_motion(
                 view.settings_options.value(SettingId::ScreenAnimations) != 0,
@@ -323,7 +327,6 @@ impl UiPresentationRuntime {
                 content,
                 now_millis,
             )?;
-            self.sync_server_ui_pages();
             self.append_experience_chrome(
                 runtime,
                 &mut nodes,
@@ -339,6 +342,8 @@ impl UiPresentationRuntime {
                 metrics,
                 content,
             );
+            // Personal panels can admit host portraits while painting this frame.
+            self.sync_server_ui_pages();
             let mut debug_eligibility =
                 crate::ui_runtime::scene_stack::construction::DebugOverlayEligibility::default();
             for entry in stack.scenes() {

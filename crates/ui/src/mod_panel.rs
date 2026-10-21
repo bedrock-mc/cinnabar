@@ -4,9 +4,14 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
+pub use surface::{hud_card, local_player_head};
+
 mod axis;
 mod control;
-pub use control::{Control, Event, MAX_PANEL_VALUE_CHARS, TextEvent, validate_text_value};
+pub use control::{
+    Control, Event, FIELD_NAVIGATION_KEYS, FieldEvent, FieldKey, FieldModifiers,
+    MAX_PANEL_VALUE_CHARS, TextEvent, is_field_navigation_key, validate_text_value,
+};
 pub(crate) mod surface;
 mod update;
 pub use axis::{AxisExtent, AxisRoute};
@@ -85,7 +90,7 @@ pub struct Panel {
     /// Hide HUD and death screens still apply; focused panels always hide the crosshair.
     #[serde(default)]
     pub show_gameplay_hud: bool,
-    /// Opts into native hover/toggle easing and smooth discrete wheel scrolling.
+    /// Enables native feedback easing, smooth wheel scrolling and surface transitions.
     #[serde(default)]
     pub motion: bool,
     #[serde(default)]
