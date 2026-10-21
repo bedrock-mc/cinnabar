@@ -647,13 +647,13 @@ fn beacon_level(
         Default::default(),
     );
     let states = assets::block_presentation_state::pinned_block_presentation_states();
-    Some(
-        client_ui::ui_runtime::presentation::forms::beacon_pyramid_level(position, |block| {
-            world
-                .primary_runtime_id(block)
-                .is_ok_and(|runtime_id| states.get(mode, runtime_id).beacon_base)
-        }),
-    )
+    // Unloaded terrain leaves the level unknown rather than reading as a broken pyramid.
+    client_ui::ui_runtime::presentation::forms::beacon_pyramid_level(position, |block| {
+        world
+            .primary_runtime_id(block)
+            .ok()
+            .map(|runtime_id| states.get(mode, runtime_id).beacon_base)
+    })
 }
 
 #[cfg(test)]

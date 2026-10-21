@@ -220,15 +220,30 @@ pub(super) fn player_rows(
 }
 
 /// The beacon pyramid level under `position`: how many full layers of base blocks, up to four,
-/// sit directly beneath it.
-pub fn beacon_pyramid_level(position: [i32; 3], beacon_base: impl Fn([i32; 3]) -> bool) -> u8 {
+/// sit directly beneath it. `beacon_base` answers `None` for an unreadable cell, and the level
+/// is `None` when such a cell decides it.
+pub fn beacon_pyramid_level(
+    position: [i32; 3],
+    beacon_base: impl Fn([i32; 3]) -> Option<bool>,
+) -> Option<u8> {
     let [x, y, z] = position;
-    (1..=4)
-        .take_while(|&layer| {
-            (-layer..=layer)
-                .all(|dx| (-layer..=layer).all(|dz| beacon_base([x + dx, y - layer, z + dz])))
-        })
-        .count() as u8
+    for layer in 1..=4 {
+        let cells = (-layer..=layer)
+            .flat_map(|dx| (-layer..=layer).map(move |dz| [x + dx, y - layer, z + dz]));
+        let mut unknown = false;
+        for cell in cells {
+            match beacon_base(cell) {
+                Some(true) => {}
+                // Every lower layer is complete, so a known gap settles the level.
+                Some(false) => return u8::try_from(layer - 1).ok(),
+                None => unknown = true,
+            }
+        }
+        if unknown {
+            return None;
+        }
+    }
+    Some(4)
 }
 
 /// Reads the open station's block for its screen: the beacon's pyramid level,
