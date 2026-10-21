@@ -1371,6 +1371,81 @@ baselines = [
 ]
 
 [[identifier_literal_exceptions]]
+path = "crates/mod-host/src/hud/samples.rs"
+literal = "minecraft:arrow"
+reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
+
+[[identifier_literal_exceptions]]
+path = "crates/mod-host/src/hud/samples.rs"
+literal = "minecraft:clock"
+reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
+
+[[identifier_literal_exceptions]]
+path = "crates/mod-host/src/hud/samples.rs"
+literal = "minecraft:diamond_boots"
+reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
+
+[[identifier_literal_exceptions]]
+path = "crates/mod-host/src/hud/samples.rs"
+literal = "minecraft:diamond_chestplate"
+reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
+
+[[identifier_literal_exceptions]]
+path = "crates/mod-host/src/hud/samples.rs"
+literal = "minecraft:diamond_helmet"
+reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
+
+[[identifier_literal_exceptions]]
+path = "crates/mod-host/src/hud/samples.rs"
+literal = "minecraft:diamond_leggings"
+reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
+
+[[identifier_literal_exceptions]]
+path = "crates/mod-host/src/hud/samples.rs"
+literal = "minecraft:diamond_pickaxe"
+reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
+
+[[identifier_literal_exceptions]]
+path = "crates/mod-host/src/hud/samples.rs"
+literal = "minecraft:diamond_sword"
+reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
+
+[[identifier_literal_exceptions]]
+path = "crates/mod-host/src/hud/samples.rs"
+literal = "minecraft:ender_pearl"
+reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
+
+[[identifier_literal_exceptions]]
+path = "crates/mod-host/src/hud/samples.rs"
+literal = "minecraft:golden_apple"
+reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
+
+[[identifier_literal_exceptions]]
+path = "crates/mod-host/src/hud/samples.rs"
+literal = "minecraft:potion"
+reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
+
+[[identifier_literal_exceptions]]
+path = "crates/mod-host/src/hud/samples.rs"
+literal = "minecraft:shield"
+reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
+
+[[identifier_literal_exceptions]]
+path = "crates/mod-host/src/hud/samples.rs"
+literal = "minecraft:stone"
+reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
+
+[[identifier_literal_exceptions]]
+path = "crates/mod-host/src/hud/samples.rs"
+literal = "minecraft:torch"
+reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
+
+[[identifier_literal_exceptions]]
+path = "crates/mod-host/src/hud/samples.rs"
+literal = "minecraft:totem_of_undying"
+reason = "Authored preview-only item fixture; native facts still own item properties and live observations never use this sample."
+
+[[identifier_literal_exceptions]]
 path = "crates/mod-ui/src/mod_hud_editor/feedback.rs"
 literal = "height"
 reason = "Suffix of the editor's own #measurement_<axis>_height data binding, not a vanilla UI property."
