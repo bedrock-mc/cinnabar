@@ -427,14 +427,17 @@ impl PlayerInventoryLedger {
                     .ok_or(InventoryGestureError::InvalidRequest)?;
                 for (cell, amount, into) in plan {
                     registry_bound_merge |= into.is_some();
+                    let Cell::Inventory(slot) = cell else {
+                        return Err(InventoryGestureError::InvalidRequest);
+                    };
+                    // Results auto-placed into the inventory use its combined name.
                     actions.push(StackRequestAction::Place {
                         amount: u8::try_from(amount)
                             .map_err(|_| InventoryGestureError::InvalidRequest)?,
                         source: output_slot,
-                        destination: helpers::request_slot(
-                            cell,
+                        destination: helpers::combined_request_slot(
+                            slot,
                             into.map_or(0, |(id, _)| id),
-                            None,
                         )?,
                     });
                     groups.push(DeltaGroup::Transfer {
