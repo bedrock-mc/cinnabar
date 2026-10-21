@@ -334,7 +334,7 @@ pub(crate) fn feed_far_terrain(
         return;
     };
     let far = &mut *far;
-    let video = settings.user_settings_update().1.video;
+    let video = &settings.user_settings_update().1.video;
     let tier = menu.as_ref().map_or(DeviceTier::Mid, |menu| {
         DeviceTier::from_recommended_render_distance(
             menu.settings_snapshot()
@@ -466,7 +466,7 @@ pub(crate) fn feed_far_terrain(
         .stream
         .as_ref()
         .filter(|_| wanted)
-        .and_then(|stream| full_detail_radius(stream, &video, tier));
+        .and_then(|stream| full_detail_radius(stream, video, tier));
     if world
         .stream
         .as_ref()
@@ -509,7 +509,7 @@ pub(crate) fn feed_far_terrain(
         }
     }
     let centre = stream.far_terrain_centre();
-    let loaded = loaded_radius(stream, &video);
+    let loaded = loaded_radius(stream, video);
     let reach = far_reach_chunks(
         u32::from(video.render_distance_chunks),
         loaded.max(0) as u32,

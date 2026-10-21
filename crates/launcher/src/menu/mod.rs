@@ -104,6 +104,16 @@ pub enum MenuField {
     MacroCommand(usize),
 }
 
+/// One Video-section renderer choice. Shader packs index the menu's discovered pack list,
+/// which keeps the action `Copy`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum RendererChoice {
+    /// The vanilla renderer ("Off").
+    Vanilla,
+    Enhanced,
+    ShaderPack(u16),
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MenuAction {
     MinecraftImport(crate::minecraft_import::Action),
@@ -166,7 +176,10 @@ pub enum MenuAction {
     SettingsConfirmResetGroup(settings_options::SettingsGroup),
     SettingsResetChat,
     SettingsAdvancedGraphics,
+    /// The JSON-UI Enhanced switch: Vanilla and Enhanced flip; a shader pack turns into Enhanced.
     ToggleRenderMode,
+    /// The OreUI Video renderer picker.
+    SelectRenderer(RendererChoice),
     PauseResume,
     PauseDisconnect,
     OpenDeathQuit,

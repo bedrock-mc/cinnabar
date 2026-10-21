@@ -38,6 +38,11 @@ every target.
 
 On Debian/Ubuntu, install `libwayland-dev` and `libudev-dev` first.
 
+Experimental Java (OptiFine/Iris) shader packs build with `cargo run -p cinnabar --features shaderpacks`.
+Put pack zips or folders in the `shaderpacks` folder of the client's data directory and pick one
+under Settings > Video > Renderer, or run a pack for one session with `--shader-pack <path>`.
+A pack that fails to load draws Vanilla.
+
 ## What's different
 
 Vanilla behaviour is the default. Everything below is extra:

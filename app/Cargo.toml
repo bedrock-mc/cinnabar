@@ -43,6 +43,8 @@ default = ["acceptance"]
 acceptance = ["dep:acceptance", "bridge/join-profile"]
 enhanced = ["render/enhanced"]
 enhanced-diagnostics = ["enhanced", "developer-control", "acceptance", "render/enhanced-diagnostics"]
+# Experimental Java (OptiFine/Iris) shader packs as a third Video renderer.
+shaderpacks = ["render/shaderpacks", "dep:shaderpack"]
 # Loopback control endpoint for scripted driving and recording; never in release builds.
 developer-control = ["dep:developer-control", "dep:sadness-generator", "client-shell/developer-control"]
 # Records Bevy schedules, systems, render graph, submission and presentation spans as a
@@ -143,6 +145,7 @@ update-manifest = { path = "../crates/update-manifest" }
 rich-presence = { path = "../crates/rich-presence" }
 mod-host = { path = "../crates/mod-host" }
 server-experience = { path = "../crates/server-experience" }
+shaderpack = { path = "../crates/shaderpack", optional = true }
 rayon.workspace = true
 thiserror.workspace = true
 uuid.workspace = true

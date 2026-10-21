@@ -53,6 +53,8 @@ impl MenuRuntime {
             gui_scale_choices: self.gui_scale_choices.clone(),
             fullscreen: self.fullscreen,
             render_mode: self.render_mode,
+            shader_packs: std::sync::Arc::clone(&self.shader_packs),
+            renderer: self.renderer_choice(),
             vsync_override: self.vsync_override,
             display_name: self.presented_display_name(),
             servers: self.servers.clone(),
