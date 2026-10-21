@@ -11,6 +11,14 @@ use ui::{
 use super::UiPresentationRuntime;
 
 impl UiPresentationRuntime {
+    /// Returns native hotbar and status artwork bounds for the host's HUD editor inputs.
+    /// The completed frame supplies pack placement, clipping, transforms and GUI scale.
+    pub fn mod_hud_editor_native_keep_out(&self, expected_session: u64) -> Option<[f64; 4]> {
+        (self.screens.touch.hud_session == Some(expected_session))
+            .then_some(self.screens.touch.hud_keep_out)
+            .flatten()
+    }
+
     /// Reads unique inert HUD roots from the last completed frame of `expected_session`.
     /// Results use the same safe-content GUI basis as native personal panels.
     pub fn mod_hud_geometry(

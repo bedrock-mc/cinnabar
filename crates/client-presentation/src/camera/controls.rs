@@ -176,7 +176,7 @@ pub fn update_look(
 ) {
     let death_view = settings.death_view();
     let camera_locked = input_locks.blocks(protocol::ClientInputLock::Camera);
-    let held = input.phase(Action::Freelook).held
+    let held = (input.phase(Action::Freelook).held || settings.detached_view().is_some())
         && (!camera_locked || settings.freelook)
         && !auto_fly.presentation_paused()
         && !death_view;
@@ -254,6 +254,7 @@ pub fn update_movement(
     mut auto_fly: ResMut<AutoFly>,
     local_physics: Option<&dyn crate::observations::PhysicsObservation>,
     camera: Single<&FlyCamera>,
+    settings: Res<CameraSettingsAuthority>,
     mut view: ResMut<LocalViewPose>,
 ) {
     if auto_fly.presentation_paused() {
@@ -276,6 +277,25 @@ pub fn update_movement(
             view.set_rotation(look_at_target(next, target));
         }
         auto_fly.last_path_position = Some(next);
+        return;
+    }
+
+    if let Some(mode @ super::DetachedView::Fly { .. }) = settings.detached_view() {
+        let movement = input_locks.movement(input.movement());
+        let vertical = f32::from(u8::from(
+            input.phase(Action::Jump).held && !input_locks.blocks(protocol::ClientInputLock::Jump),
+        )) - f32::from(u8::from(
+            input.phase(Action::Sneak).held
+                && !input_locks.blocks(protocol::ClientInputLock::Sneak),
+        ));
+        let next = mode.advance(
+            view.detached_eye(),
+            view.look_rotation(),
+            movement,
+            vertical,
+            time.delta_secs(),
+        );
+        view.move_detached_eye(next);
         return;
     }
 

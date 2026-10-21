@@ -267,12 +267,16 @@ fn apply_menu_render_mode(
     mut config: ResMut<RenderModeConfig>,
     menu: Option<ResMut<MenuRuntime>>,
     mut settings: ResMut<RuntimeSettings>,
+    mut request: ResMut<ShaderPackRequest>,
 ) {
     let Some(mut menu) = menu else {
         return;
     };
     let mode_request = menu.take_render_mode_request();
     let pack_request = menu.take_shader_pack_request();
+    if pack_request.is_some() {
+        request.reload_generation = request.reload_generation.wrapping_add(1);
+    }
     if mode_request.is_some() || pack_request.is_some() {
         if config.cli_shader_pack.is_some() {
             config.cli_shader_pack = None;

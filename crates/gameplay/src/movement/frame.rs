@@ -47,6 +47,8 @@ pub struct PhysicsFrameInput {
     pub active: bool,
     /// Cancels retained presses when the semantic router releases input ownership.
     pub input_authority_released: bool,
+    /// Mod-held controls bypass physical toggle latches.
+    pub resolved_movement: bool,
     pub movement: [f32; 2],
     pub raw_movement: [f32; 2],
     pub analogue_movement: [f32; 2],
@@ -192,6 +194,7 @@ impl LocomotionState {
                 .unwrap_or_else(|_| physics.mode() == sim::MovementMode::Swimming);
             let controlled = self.controls.update(ControlObservation {
                 now,
+                resolved_movement: frame.resolved_movement,
                 forward: movement[1],
                 sideways: movement[0],
                 touch_input: input_mode == protocol::PlayerInputMode::Touch,

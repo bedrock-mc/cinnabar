@@ -21,7 +21,6 @@ pub(super) fn same_template(a: &Panel, b: &Panel) -> bool {
     a.title == b.title
         && a.toggle_key == b.toggle_key
         && a.reference_size == b.reference_size
-        && a.motion == b.motion
         && a.style == b.style
         && a.theme == b.theme
         && a.dark == b.dark

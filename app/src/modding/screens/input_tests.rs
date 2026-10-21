@@ -48,6 +48,7 @@ fn input_app() -> (App, Entity) {
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
         .init_resource::<Observed>()
+        .init_resource::<crate::modding::packet_render::Drawing>()
         .init_resource::<render_scene::mod_scene::retained::DrawingFrame>()
         .insert_resource(player)
         .insert_resource(UiRuntimeResource(ui))

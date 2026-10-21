@@ -1,6 +1,17 @@
 use super::*;
 
 #[test]
+fn declared_float32_storage_formats_survive_without_filtering_support() {
+    for (declared, format) in [
+        (BufferFormat::R32f, TextureFormat::R32Float),
+        (BufferFormat::Rg32f, TextureFormat::Rg32Float),
+        (BufferFormat::Rgba32f, TextureFormat::Rgba32Float),
+    ] {
+        assert_eq!(texture_format(declared, FormatSupport::default()), format);
+    }
+}
+
+#[test]
 fn every_pack_format_maps_to_a_renderable_format_of_the_same_kind() {
     let device_formats = [
         FormatSupport::default(),
@@ -24,7 +35,15 @@ fn every_pack_format_maps_to_a_renderable_format_of_the_same_kind() {
             assert_eq!(format_kind(mapped), expected, "{name} → {mapped:?}");
             if expected == Kind::Float {
                 assert!(
-                    support.float32_filterable || filterable(mapped),
+                    support.float32_filterable
+                        || filterable(mapped)
+                        || matches!(
+                            format,
+                            BufferFormat::R32f
+                                | BufferFormat::Rg32f
+                                | BufferFormat::Rgb32f
+                                | BufferFormat::Rgba32f
+                        ),
                     "{name} must stay filterable without float32 filtering"
                 );
             }

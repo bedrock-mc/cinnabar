@@ -575,3 +575,42 @@ fn masks_split_shared_coverage_after_membership_changes() {
         mod_render::masks::attachment_bytes(64, 64, 1).unwrap()
     );
 }
+
+#[test]
+fn attachment_pressure_preserves_fitting_groups_and_shares_owner_turns() {
+    let masks: Vec<_> = [1, 1, 1, 1, 1, 1, 2, 3]
+        .into_iter()
+        .enumerate()
+        .map(|(i, owner)| mod_render::masks::Mask {
+            handle: DrawingHandle {
+                owner,
+                generation: owner,
+                slot: i as u64 + 1,
+            },
+            session: mod_api::drawing::DrawingSession::default(),
+            depth: MaskDepth::Always,
+            entities: Vec::new(),
+            style: None,
+        })
+        .collect();
+    for (width, height, expected) in [(1920, 1080, 6), (2560, 1440, 3), (3840, 2160, 1)] {
+        let mut groups: Vec<_> = masks.iter().collect();
+        let bytes = mod_render::masks::attachment_bytes(width, height, 2);
+        let charged = admit_groups(&mut groups, bytes);
+        assert_eq!(groups.len(), expected);
+        assert!(charged <= MAX_MASK_ATTACHMENT_BYTES);
+        if expected >= 3 {
+            assert_eq!(
+                groups
+                    .iter()
+                    .take(3)
+                    .map(|mask| mask.handle.owner)
+                    .collect::<Vec<_>>(),
+                [1, 2, 3]
+            );
+        }
+    }
+    let mut groups: Vec<_> = masks.iter().collect();
+    assert_eq!(admit_groups(&mut groups, None), 0);
+    assert!(groups.is_empty());
+}

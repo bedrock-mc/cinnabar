@@ -52,7 +52,7 @@ impl PacketMods {
     pub(super) fn native_frame(
         &self,
         frame: Option<mod_api::native_frame::Frame>,
-    ) -> Option<mod_host::CameraDelta> {
+    ) -> Option<client_extensions::modding::packet_relay::FrameOutput> {
         self.loader.native_frame(frame)
     }
 

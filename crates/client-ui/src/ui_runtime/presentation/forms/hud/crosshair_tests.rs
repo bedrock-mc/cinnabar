@@ -97,6 +97,7 @@ fn draw_custom(
                     &mut HudRenderer {
                         hud: &hud,
                         hunger_update: None,
+                        bounds: None,
                     },
                 ],
             },
