@@ -73,7 +73,9 @@ pub(super) fn replacement_ready(
         && geometry.is_some_and(|geometry| {
             geometry.supported() && geometry.origin().is_some() && geometry.all_sections_fit()
         })
-        && super::draws::complete_terrain(|kind| pack.draws.iter().any(|draw| draw.kind == kind))
+        && super::super::draws::complete_terrain(|kind| {
+            pack.draws.iter().any(|draw| draw.kind == kind)
+        })
         && cameras.peek().is_some()
         && cameras.all(|entity| {
             states.get(&entity).is_some_and(|state| {
