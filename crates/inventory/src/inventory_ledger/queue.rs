@@ -34,6 +34,8 @@ pub(super) struct PendingRequest {
     pub(super) timed_out: bool,
     /// Surfaces a timed-out request still needs a complete refresh of.
     pub(super) awaiting_refresh: Vec<CellSurface>,
+    /// Whether those surfaces still refuse gestures; a recovery window lifts this.
+    pub(super) refresh_gates: bool,
     pub(super) session_generation: u64,
     pub(super) storage_generation: Option<u64>,
     pub(super) personal_generation: Option<u64>,
@@ -765,6 +767,7 @@ impl PlayerInventoryLedger {
                 && overdue(request)
             {
                 request.timed_out = true;
+                request.refresh_gates = true;
                 request.awaiting_refresh = request.touched().map(Cell::surface).collect();
                 request.awaiting_refresh.dedup();
                 changed = true;
@@ -799,7 +802,7 @@ impl PlayerInventoryLedger {
     pub(super) fn surface_awaiting_refresh(&self, surface: CellSurface) -> bool {
         self.queue
             .iter()
-            .any(|request| request.awaiting_refresh.contains(&surface))
+            .any(|request| request.refresh_gates && request.awaiting_refresh.contains(&surface))
     }
 
     /// Queues a mine-block prediction at its wire position: after every
@@ -836,6 +839,7 @@ impl PlayerInventoryLedger {
                 deadline_millis: None,
                 timed_out: false,
                 awaiting_refresh: Vec::new(),
+                refresh_gates: false,
                 session_generation: self.session_generation,
                 storage_generation: None,
                 personal_generation: None,

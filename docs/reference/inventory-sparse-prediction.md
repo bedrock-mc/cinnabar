@@ -74,3 +74,7 @@ Existing bounded transport-pressure,
 timeout/refresh recovery, registry-change recovery, and multi-screen UI admission
 policies remain Cinnabar safety policies, not a claim that every vanilla inventory
 manager lifecycle and arbitrary container has been reproduced.
+Vanilla keeps no response deadline, so these refusals are bounded: when no
+authoritative restatement arrives within `INVENTORY_RECOVERY_WINDOW_MILLIS`, the
+ledger trusts its retained cells again. Unanswered predictions stay presented and
+still settle on a late answer, as vanilla's do.
