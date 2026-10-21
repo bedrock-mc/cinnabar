@@ -343,6 +343,7 @@ pub fn drive_menu_input(
         gui_scale_drag.preview_touch = None;
         menu.settings.slider_pointer = None;
         menu.settings_input.slider_drag = None;
+        menu.settings_input.shader_slider_drag = None;
         gui_scale_drag.pending_press = None;
         gui_scale_drag.touch_press = None;
         gui_scale_drag.touch_slider = None;
@@ -406,6 +407,7 @@ pub fn drive_menu_input(
         gui_scale_drag.preview_touch = None;
         menu.settings.slider_pointer = None;
         menu.settings_input.slider_drag = None;
+        menu.settings_input.shader_slider_drag = None;
         gui_scale_drag.pending_press = None;
         gui_scale_drag.touch_press = None;
         gui_scale_drag.touch_slider = None;
@@ -423,6 +425,7 @@ pub fn drive_menu_input(
         gui_scale_drag.preview_touch = None;
         menu.settings.slider_pointer = None;
         menu.settings_input.slider_drag = None;
+        menu.settings_input.shader_slider_drag = None;
         gui_scale_drag.pending_press = None;
         gui_scale_drag.touch_press = None;
         gui_scale_drag.touch_slider = None;
@@ -468,6 +471,7 @@ pub fn drive_menu_input(
         gui_scale_drag.preview_touch = None;
         menu.settings.slider_pointer = None;
         menu.settings_input.slider_drag = None;
+        menu.settings_input.shader_slider_drag = None;
         gui_scale_drag.pending_press = None;
         gui_scale_drag.touch_press = None;
         gui_scale_drag.touch_slider = None;
@@ -678,8 +682,9 @@ pub fn drive_menu_input(
         && let Some(action) = menu.hovered
     {
         if native_settings {
-            gui_scale_drag.pending_press =
-                menu.settings_input.slider_drag.is_none().then_some(action);
+            gui_scale_drag.pending_press = (menu.settings_input.slider_drag.is_none()
+                && menu.settings_input.shader_slider_drag.is_none())
+            .then_some(action);
             menu.pressed = Some(action);
             if pointer_can_focus(action) {
                 menu.focus_pointer(action);
@@ -769,13 +774,26 @@ pub fn drive_menu_input(
             menu.settings.slider_pointer = None;
         }
     }
-    if let Some((id, action)) = gui_scale_drag.touch_press {
+    if let Some((id, mut action)) = gui_scale_drag.touch_press {
         if let Some(touch) = touches.get_released(id) {
             let position = touch.position();
             let hovered = UiPoint::new(position.x, position.y)
                 .ok()
                 .and_then(|point| presentation.hit_test_menu(point));
-            if native_settings && let Some(action) = native_release_action(action, hovered) {
+            if native_settings
+                && !UiPoint::new(position.x, position.y)
+                    .ok()
+                    .is_some_and(|point| {
+                        settings_pointer::shader_touch_drag(
+                            &mut menu,
+                            &presentation,
+                            &mut action,
+                            point,
+                            true,
+                        )
+                    })
+                && let Some(action) = native_release_action(action, hovered)
+            {
                 press(&mut menu, action);
                 caret_press = UiPoint::new(position.x, position.y)
                     .ok()
@@ -787,7 +805,20 @@ pub fn drive_menu_input(
             let hovered = UiPoint::new(position.x, position.y)
                 .ok()
                 .and_then(|point| presentation.hit_test_menu(point));
-            if native_release_action(action, hovered).is_some() {
+            let shader_dragged = UiPoint::new(position.x, position.y)
+                .ok()
+                .is_some_and(|point| {
+                    settings_pointer::shader_touch_drag(
+                        &mut menu,
+                        &presentation,
+                        &mut action,
+                        point,
+                        false,
+                    )
+                });
+            if shader_dragged {
+                gui_scale_drag.touch_press = Some((id, action));
+            } else if native_release_action(action, hovered).is_some() {
                 menu.pressed = Some(action);
             }
         } else {

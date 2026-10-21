@@ -69,6 +69,10 @@ impl MenuRuntime {
         let language_pending = settings_options.language().is_some();
         let language_choices = SettingsOptions::language_choices(&layout.resource_root);
         let mut initial = MenuView::new(visible, display_name);
+        // Folder buttons outside Storage (the Video shader-pack folder) need this before
+        // Storage is first measured.
+        std::sync::Arc::make_mut(&mut initial.storage).opens_folders =
+            launcher_host::desktop::opens_folders();
         if visible && minecraft_import.phase == launcher::minecraft_import::Phase::Offered {
             initial.dialog = Some(launcher::menu::MenuDialog::MinecraftImport);
         }
@@ -131,6 +135,12 @@ impl MenuRuntime {
             failed_video_settings_save: None,
             render_mode: initial.render_mode,
             render_mode_request: None,
+            shader_packs: initial.shader_packs,
+            shader_packs_revision: initial.shader_packs_revision,
+            shader_pack: None,
+            shader_pack_request: None,
+            shader_pack_status: Default::default(),
+            shader_pack_reload: false,
             vsync_override: None,
             display_name: initial.display_name,
             servers: loaded.servers.into(),
@@ -180,6 +190,7 @@ impl MenuRuntime {
             global_resources: initial.global_resources,
             mod_actions: Vec::new(),
             mods: initial.mods,
+            shader_options: Default::default(),
             minecraft_import: std::sync::Arc::new(minecraft_import),
             minecraft_import_requests: Vec::new(),
             settings: initial.settings,

@@ -16,6 +16,8 @@ pub(crate) mod phase;
 pub(crate) mod pipeline;
 #[cfg(feature = "publication-test-support")]
 pub(crate) mod publication_test_support;
+#[cfg(feature = "shaderpacks")]
+pub(crate) mod shaderpack_source;
 mod skins;
 use crate::gpu_allocation;
 use artwork::{GpuArtwork, draw_spans};

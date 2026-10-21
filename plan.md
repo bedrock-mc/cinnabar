@@ -55,6 +55,9 @@ The Go core and local stream boundary are implemented. Keep authentication,
 encryption and upstream transports with the core, and client behavior with Rust.
 Changes still need current protocol conformance, bounded framing and lifecycle coverage.
 The pinned target comes from [the target manifest](assets/bedrock-target.json).
+Invalid saved-token contents recover through device sign-in, preserving the cache
+until authentication succeeds. Filesystem failures retain credential-free operation
+and numeric OS diagnostics. Live Windows recovery acceptance remains open.
 
 ## Phase 2 — World rendering
 
@@ -287,14 +290,25 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   safe areas, focus/navigation and keyboard/mouse/controller/touch acceptance. Prove
   stable retained resources and correct supported DPI/aspect behavior. Labels share primary/backup
   face selection across measurement and painting; broader text acceptance remains open.
+  Rounded JSON-UI chrome supports bounded analytic box shadows with cached geometry;
+  full menu visual and hardware frame-work acceptance remains open.
+  Client-owned panel collections support bounded four-column card grids with
+  item-scoped expressions, vector artwork and one-time guest requests to reveal filtered
+  items without rebuilding the catalog; hardware frame-work acceptance remains open.
   stable retained resources and correct supported DPI/aspect behavior. Tiled images
   retain full coverage with bounded repeat geometry across cropped regions and sliced
   borders; large collection admission and hardware frame-work acceptance remain incomplete.
   stable retained resources and correct supported DPI/aspect behavior. Form JSON
   container parsing and cleanup use heap stacks and accept line/block comments.
-  Structured text keeps its separate
-  container parsing and cleanup use heap stacks; structured text keeps its separate
-  validation limits. Extreme structured-text and rendered-form acceptance remain open.
+  Form display strings retain ordinary long literal and translated text separately
+  from chat byte budgets. Structured text keeps its component/depth validation limits;
+  extreme structured-text and live rendered-form acceptance remain open.
+  The per-form expansion budget (`MAX_FORM_TEXT_EXPANSION_BYTES`), shared by all display strings
+  and their nested arguments, is an unverified parity bound.
+  Rendering text beyond `MAX_TEXT_BYTES` remains an unverified parity gap.
+  Tiled images retain full coverage with bounded repeat geometry across cropped
+  regions and sliced borders; large collection admission and hardware frame-work
+  acceptance remain incomplete.
 - [ ] `P5.2-HUD` — Close received text, titles, actionbar, toasts, survival/status HUD
   and lifecycle behavior without leaking UI-owned input into movement.
 - [ ] `P5.3-CHAT` — Close history/autocomplete, formatting, bounded UTF-8 editing,
@@ -306,7 +320,14 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   combat, hotbar selection, stack/network-ID reconciliation and container/crafting
   prediction, acknowledgements, rollback and stale-session behavior.
   Native block requirements now cover every catalog identifier, including no-tool
-  beds; recipe tags share the pinned native catalog. Sword/shears speed rules,
+  beds; recipe tags share the pinned native catalog. Custom block mining retains
+  default, disabled and item-specific component values, including state overrides.
+  Discarded mining data stays unresolved, and item-tag filters compile during
+  session preparation for allocation-free evaluation.
+  Mining uncertainty leaves known physics and local placement prediction usable.
+  Mining states use separate storage and admission, preserving the physical state budget.
+  Complex item-tag scripts and live custom-block mining acceptance remain incomplete.
+  Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
 - [ ] `P5.6-FORMS` — Close modal/menu/custom form navigation, validation, cancellation
   and responses, including server-pack definitions, structured text, custom controls,
@@ -418,38 +439,74 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   blur, element blur, route exits and current-world visual integration remain incomplete.
 - Native extension UI and HUD APIs (retained modules, profile fields, text plates,
   compass markers, totem annotations and bounded camera overrides) still need
+  displayed-frame pacing and complete rendering acceptance. Packet extensions now
+  negotiate bounded detached-view and passive camera effects through the shared
+  camera owners; interactive movement, perspective release, teleport and hurt-view
+  acceptance remain unverified in a displayed client. Panel previews now
+  select owner-scoped HUD cards, including preview-only cards, and share retained
+  gameplay artwork. Optional measured fitting sizes and aligns their painted bounds
+  within tiles and sheet stages, retaining each visible instance's multiplier.
+  Focused rendering and cache regressions cover visible previews;
+  populated-world and displayed-frame acceptance remain pending.
+  Personal panels and HUD editor surfaces can bind the host local player's name
+  and skin head, with neutral artwork when the identity is unavailable. Skin and
+  session changes retire the previous portrait; full in-world acceptance remains pending.
+  Embedded panel fonts admit covered Latin-1 and General Punctuation glyphs within
+  the existing atlas bounds. Active native fields retain an accent focus border;
+  focused regressions cover glyph fallback and steady-frame geometry reuse.
+  populated-world and displayed-frame acceptance remain pending. Panel motion
+  preferences now settle feedback, wheel scrolling and surface transitions
+  immediately, retain prepared routes and apply across route changes.
   displayed-frame pacing and complete rendering acceptance.
+  HUD layout editing stores nine anchors and GUI-pixel offsets after completed
+  moves, resizes and nudges, with an additive anchored-layout read and normalized
+  compatibility reads. Editor drags snap to neighboring cards, stacking gaps and
+  host-supplied native HUD bounds, with edge distances and Shift snap bypass.
+  The editor also retains bounded undo/redo history, per-card draft visibility,
+  anchor and scale actions, live owner-scoped card updates and inspector bindings.
+  Grid display and snapping have independent controls. Published cards can start
+  hidden, and optional inspector dimensions place settings beside the selected
+  card with viewport clamping and retained geometry bindings.
+  Hidden card IDs have an additive result read; toast and anchor motion use the
+  presentation clock. Displayed-frame pacing and populated-world Studio acceptance
+  remain pending.
   Backdrop and element blur now limit downsampling to referenced mip levels and
   cache the admitted maximum blur. Pixel-equivalence regressions are included;
   executed GPU checks and measured frame-budget acceptance remain pending.
   Server-day HUD rows now consume scoped native clock observations and leave missing
   or stale clocks unknown. Clock/host regressions are included; executed checks and
   populated-world acceptance remain pending.
+  acceptance remain unverified in a displayed client. Packet-extension world
+  drawing uses the retained geometry/depth owners, actor-mask compositor and
+  full-block highlight renderer. Headless camera, box/tracer and menu captures
+  exist; actor silhouettes, coloured full-block highlights and broad platform /
+  hardware-performance acceptance still require validation.
 - Enhanced rendering remains restricted until its GPU faults and freezes are resolved.
-  Diagnostics or bounded fixtures do not establish safe general gameplay use. Java
-  shader-pack source loading and configuration metadata are implemented in
-  `shaderpack`, including options, dimensions, parsed properties, program discovery
-  and enable rules, and its programs translate to validated naga modules with a binding
-  contract. Pack-specific translation fixes, render-host integration and in-game
-  acceptance remain incomplete; parsed custom uniform expressions are not executed or
-  rendered.
-  acceptance remain incomplete.
-  and enable rules. Translation, render-host integration and in-game acceptance
-  remain incomplete; parsed custom uniform expressions are not executed or rendered.
-  Pack block, item and entity ids, Java biome values and Java sky and fog colours are
-  computed from the pinned Bedrock→Java mappings but not yet uploaded to shaders.
-  Sky/fog time curves and sunrise colours remain provisional; lightning, status effects,
-  underwater colour easing and the water-vision ramp are not implemented.
-  and enable rules. Custom uniform expressions evaluate per frame, including numeric
-  operations and smoothing. Complete Iris type checking and target-dependent function
-  return overloads remain incomplete, as do translation, render-host integration and
-  in-game acceptance; evaluated custom uniforms are not uploaded or rendered.
+  Diagnostics or bounded fixtures do not establish safe general gameplay use.
+- Java shader packs (Iris/OptiFine format) run behind the off-by-default `shaderpacks`
+  feature. `shaderpack` loads packs, parses `shaders.properties`, options, Iris option
+  menus, profiles and option files, evaluates custom uniforms and translates programs to
+  validated naga modules, with calls ordered after forward declarations and generated
+  helpers. The render host runs Iris's frame (shadow, gbuffers for terrain, actors, block
+  entities and the hand, deferred, composite and final passes, compute, custom textures and
+  images) plus the pack-drawn sky, particles, clouds, weather, lightning, cracks and selection.
+  Block, item, entity and biome ids and Java sky and fog colours come from the pinned
+  Bedrock→Java mappings. Settings offers pack import, a reload key, load status and a Shader
+  Pack Settings screen. Incomplete: in-game acceptance across packs and platforms (Metal is
+  unverified); stage pre-flips (`flip.<stage>_pre.<buffer>`) and Iris's explicit-flip
+  ordering; drawing the solid hand's glint before deferred passes; geometry-host composition
+  of celestial layers, effects without depth writes and private-depth first-person scenes,
+  which keep the native scene copy; actor colour masks, multitexture materials, dissolve
+  pairs, beacon beams and additive rays, which keep native composition; autofocus on cutout
+  pixels, liquids and entities; complete Iris type checking and target-dependent return
+  overloads; constant folding for half-float packing and bit casts. Java sky and fog time
+  curves and sunrise colours remain provisional.
 - `registryc --kind java-mapping` generates `crates/assets/data/java-mapping-v2193.bin` from
   the GeyserMC data pinned in `assets/geyser-mappings-source.json`: Java block states, block
   tags, biomes and their colours, entity types and items for every Bedrock id Geyser maps.
   States Geyser never produces take the closest same-block state and are flagged approximate;
-  Bedrock-only biomes and blocks stay unmapped. Nothing reads the carrier yet; Java shader
-  packs' ids, biome uniforms and sky colours are its first consumers.
+  Bedrock-only biomes and blocks stay unmapped. Java shader packs read it for their ids,
+  biome uniforms and sky colours.
 - Runtime pack compatibility still includes custom texture inheritance/tints, authored
   geometry and block/item component behavior beyond the currently supported cases.
 

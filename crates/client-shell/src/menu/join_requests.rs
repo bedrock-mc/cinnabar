@@ -63,7 +63,10 @@ impl MenuRuntime {
     ) {
         let millis = |at: Duration| u64::try_from(at.as_millis()).unwrap_or(u64::MAX);
         let now = millis(now);
-        let standing = runtime.hud().standing_toast();
+        let standing = runtime
+            .hud()
+            .standing_toast()
+            .filter(|toast| toast.press == Some(ToastPress::JoinRequests));
         let Some(request) = self
             .join_requests
             .requests
@@ -89,7 +92,7 @@ impl MenuRuntime {
             id: request.user_id,
             title: Arc::from(join_requests::title(&request.name)),
             message: Arc::from(hint),
-            press: ToastPress::JoinRequests,
+            press: Some(ToastPress::JoinRequests),
             since_millis: now,
             until_millis: until,
         });

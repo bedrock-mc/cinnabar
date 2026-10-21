@@ -444,6 +444,17 @@ pub struct MenuView {
     pub gui_scale_choices: Vec<ui::DesktopGuiScaleChoice>,
     pub fullscreen: bool,
     pub render_mode: ui::RenderMode,
+    /// Names of the discovered shader packs that [`super::RendererChoice::ShaderPack`] indexes.
+    pub shader_packs: std::sync::Arc<[String]>,
+    /// Revision of the discovered list carried by shader-pack picker actions.
+    pub shader_packs_revision: u64,
+    /// The highlighted Video renderer; `None` while the selected shader pack is missing.
+    pub renderer: Option<super::RendererChoice>,
+    /// The requested pack has an option screen, including a command-line pack not listed.
+    pub shader_options_available: bool,
+    /// Why the selected shader pack failed to load, for the Renderer row; see
+    /// [`super::shader_pack_status::failure_description`].
+    pub renderer_failure: Option<std::sync::Arc<str>>,
     /// Session VSync forced by a launch flag; the saved toggle is shown locked to it.
     pub vsync_override: Option<bool>,
     pub display_name: String,
@@ -469,6 +480,8 @@ pub struct MenuView {
     pub player_skin_model: crate::dressing_room::SkinModel,
     pub global_resources: std::sync::Arc<crate::global_resources::Snapshot>,
     pub mods: std::sync::Arc<crate::mods::Snapshot>,
+    /// The Shader Pack Settings screen over Video settings, while open.
+    pub shader_options: Option<std::sync::Arc<crate::shader_options::View>>,
     pub minecraft_import: std::sync::Arc<crate::minecraft_import::Snapshot>,
     /// Why the last session ended, shown until acknowledged.
     pub disconnect_message: Option<String>,
@@ -692,6 +705,11 @@ impl MenuView {
             gui_scale_choices: ui::DesktopGuiScale::for_window([1, 1]).choices().collect(),
             fullscreen: false,
             render_mode: ui::RenderMode::Vanilla,
+            shader_packs: std::sync::Arc::from([]),
+            shader_packs_revision: 0,
+            renderer: Some(super::RendererChoice::Vanilla),
+            shader_options_available: false,
+            renderer_failure: None,
             vsync_override: None,
             display_name,
             servers: MenuList::default(),
@@ -714,6 +732,7 @@ impl MenuView {
             player_skin_model: Default::default(),
             global_resources: Default::default(),
             mods: Default::default(),
+            shader_options: None,
             minecraft_import: Default::default(),
             disconnect_message: None,
             can_reconnect: false,

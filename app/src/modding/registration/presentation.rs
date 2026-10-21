@@ -21,6 +21,9 @@ pub(in crate::modding) fn refresh_presentation(world: &mut World) {
         presentation
             .mod_ui_mut()
             .set_mod_panel_open(runtime.hosts.host(owner).panel_open());
+        let _ = presentation
+            .mod_ui_mut()
+            .set_mod_hud_sources(runtime.hud_sources());
         let hud = runtime.hosts.merged_hud();
         let _ = presentation.set_shared_mod_hud(hud);
         let crosshair = runtime
@@ -60,12 +63,16 @@ pub(super) fn clear_presentation(world: &mut World) {
     {
         camera.set_rig(None);
         camera.set_preserve_teleport_rotation(false);
+        camera.set_detached_view(None);
         camera.set_view_scale(1.0, 1.0);
         camera.set_hurt_camera_style(None);
     }
     if let Some(mut presentation) = world.get_resource_mut::<UiPresentationResource>() {
         presentation.set_mod_menu_branding(None);
         presentation.mod_ui_mut().clear_mod_panels();
+        let _ = presentation
+            .mod_ui_mut()
+            .set_mod_hud_sources(std::iter::empty());
         let _ = presentation.mod_ui_mut().set_mod_label(None);
         let _ = presentation.set_mod_hud(None);
         let _ = presentation.mod_ui_mut().set_mod_crosshair(None);

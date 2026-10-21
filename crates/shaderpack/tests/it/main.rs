@@ -13,6 +13,7 @@ mod draw_buffers;
 mod includes;
 mod legacy;
 mod options;
+mod progress;
 mod samplers;
 mod zip_source;
 

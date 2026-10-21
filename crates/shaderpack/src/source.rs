@@ -330,6 +330,14 @@ fn shaders_prefix<'a>(names: impl Iterator<Item = &'a str>) -> Option<String> {
     best
 }
 
+/// Whether the zip at `path` opens within the ingestion limits and holds `shaders/` at its
+/// root or under one top-level folder, the archives [`PackSource::open`] accepts. Reads only
+/// the entry names.
+pub(crate) fn zip_holds_pack(path: &Path) -> bool {
+    open_archive(path, LoadLimits::DEFAULT)
+        .is_ok_and(|archive| shaders_prefix(archive.file_names()).is_some())
+}
+
 /// Recognises binary asset extensions without regard to case.
 fn is_binary_name(path: &str) -> bool {
     path.rsplit_once('.')

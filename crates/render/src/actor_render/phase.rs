@@ -9,6 +9,7 @@ type ActorQueueView = (
     &'static bevy::render::camera::ExtractedCamera,
     &'static Msaa,
     Option<&'static render_scene::EnhancedRendering>,
+    bevy::ecs::query::Has<render_scene::shaderpack::ShaderPackRendering>,
 );
 
 #[derive(SystemParam)]
@@ -22,6 +23,8 @@ pub(super) struct QueueActorParams<'w, 's> {
     views: Query<'w, 's, ActorQueueView>,
     draw_tracker: Res<'w, ActorDrawTracker>,
     witness: Res<'w, ActorRuntimeWitness>,
+    /// Shader-pack cameras whose pack draws actors itself take no Vanilla actor draws.
+    pack_drawn: Option<Res<'w, render_scene::shaderpack::ShaderPackDrawnCategories>>,
 }
 
 pub(super) fn queue_actors(
@@ -52,7 +55,13 @@ pub(super) fn queue_actors(
         .id::<DrawTransparentActorCommands>();
     let mut queued = false;
     let mut intended_view = None;
-    for (view_entity, main_entity, view, extracted_camera, msaa, enhanced) in &params.views {
+    let pack_draws_actors = params.pack_drawn.as_ref().is_some_and(|drawn| drawn.actors);
+    for (view_entity, main_entity, view, extracted_camera, msaa, enhanced, pack_view) in
+        &params.views
+    {
+        if pack_view && pack_draws_actors {
+            continue;
+        }
         let Some(phase) = params.phases.get_mut(&view.retained_view_entity) else {
             continue;
         };

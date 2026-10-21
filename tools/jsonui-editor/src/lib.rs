@@ -1,12 +1,14 @@
 //! A JSON-UI editor core over Cinnabar's own engine: layered packs, the
 //! engine's resolve/bind/layout/emit pipeline, `ui-engine`'s label text and
 //! pixel placement over the client's draw-list stack, a CPU rasterizer,
-//! provenance and diagnostics. The browser editor (`wasm`) and the `jsonui-mcp`
-//! server are thin front ends over [`api`].
+//! provenance and diagnostics. The browser editor and Figma plugin (`wasm`) and
+//! the `jsonui-mcp` server are thin front ends over [`api`]; [`figma`] converts
+//! Figma frames into packs.
 
 pub mod api;
 pub mod diagnose;
 pub mod export;
+pub mod figma;
 pub mod index;
 pub mod mock;
 pub mod outline;

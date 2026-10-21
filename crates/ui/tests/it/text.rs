@@ -289,10 +289,10 @@ fn explicit_newlines_and_layout_bounds_fail_closed() {
         Err(TextError::WrapLineLimitExceeded { .. })
     ));
 
-    let too_many_glyphs = "A".repeat(MAX_GLYPHS_PER_LAYOUT + 1);
-    assert!(matches!(
-        cache.layout(TextLayoutRequest {
-            text: &too_many_glyphs,
+    let long = "A".repeat(MAX_GLYPHS_PER_LAYOUT + 1);
+    let prefix = cache
+        .layout(TextLayoutRequest {
+            text: &long,
             style: TextStyle::default(),
             width_64: u32::MAX,
             line_height_64: 64,
@@ -300,32 +300,52 @@ fn explicit_newlines_and_layout_bounds_fail_closed() {
             scale: UiScale::default(),
             font: &font,
             wrap: Default::default(),
-        }),
-        Err(TextError::GlyphLimitExceeded { .. }) | Err(TextError::TextBytesExceeded { .. })
-    ));
+        })
+        .unwrap();
+    assert_eq!(prefix.glyphs().len(), UiLimits::MAX_TEXT_BYTES);
 }
 
 #[test]
-fn rejected_unbounded_text_does_not_hash_or_advance_cache_identity() {
+fn oversized_layout_keeps_complete_utf8_prefixes_and_reuses_their_cache_entry() {
     let font = font([0x23; 32]);
-    let mut cache = TextLayoutCache::new(8, 64 * 1024);
-    let oversized = "A".repeat(UiLimits::MAX_TEXT_BYTES + 1);
-    assert!(matches!(
-        cache.layout(TextLayoutRequest {
-            text: &oversized,
-            style: TextStyle::default(),
-            width_64: 64,
-            line_height_64: 64,
-            baseline_64: 0,
-            scale: UiScale::default(),
-            font: &font,
-            wrap: Default::default(),
-        }),
-        Err(TextError::TextBytesExceeded { .. })
-    ));
-
-    let accepted = layout(&mut cache, &font, "A", 1.0, 64);
-    assert_eq!(accepted.id(), 1);
+    let mut cache = TextLayoutCache::new(8, 4 * 1024 * 1024);
+    for character in ['é', '界', '🙂'] {
+        for room in [character.len_utf8() - 1, character.len_utf8()] {
+            let mut prefix = "A".repeat(UiLimits::MAX_TEXT_BYTES - room);
+            let source = format!("{prefix}{character}tail");
+            if room == character.len_utf8() {
+                prefix.push(character);
+            }
+            let request = TextLayoutRequest {
+                text: &source,
+                style: TextStyle::default(),
+                width_64: u32::MAX,
+                line_height_64: 64,
+                baseline_64: 0,
+                scale: UiScale::default(),
+                font: &font,
+                wrap: Default::default(),
+            };
+            let result = cache.layout(request).unwrap();
+            assert_eq!(
+                result
+                    .glyphs()
+                    .iter()
+                    .map(|glyph| glyph.codepoint)
+                    .collect::<String>(),
+                prefix
+            );
+            assert!(Arc::ptr_eq(
+                &result,
+                &cache
+                    .layout(TextLayoutRequest {
+                        text: &prefix,
+                        ..request
+                    })
+                    .unwrap()
+            ));
+        }
+    }
 }
 
 #[test]
@@ -787,16 +807,17 @@ fn single_line_results_share_the_bounded_cache_and_validate_style() {
         Err(TextError::ZeroLineHeight)
     ));
     let oversized = "A".repeat(ui::UiLimits::MAX_TEXT_BYTES + 1);
-    assert!(matches!(
-        cache.single_line(
+    let clipped = cache
+        .single_line(
             TextLayoutRequest {
                 text: &oversized,
+                width_64: u32::MAX,
                 ..request
             },
-            128
-        ),
-        Err(TextError::TextBytesExceeded { .. })
-    ));
+            4096,
+        )
+        .unwrap();
+    assert!(clipped.glyphs().iter().any(|glyph| glyph.codepoint == 'A'));
 }
 
 #[test]

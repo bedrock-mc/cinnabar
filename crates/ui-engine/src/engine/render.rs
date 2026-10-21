@@ -120,6 +120,7 @@ pub(super) fn render_with<R: Borrow<FormRender>>(
         clip: None,
         length_scale: 1.0,
         residual: None,
+        paint_bounds: None,
         filter: None,
         animator: textures
             .animator
@@ -134,7 +135,19 @@ pub(super) fn render_with<R: Borrow<FormRender>>(
         if !art.omits(node) && view.is_none_or(|view| node.shown(view)) {
             canvas.enter_filter(node)?;
             let start = canvas.nodes.len();
-            canvas.paint(node, renderers)?;
+            if let Some(observer) = art
+                .paint_bounds
+                .filter(|observer| node.paint_region == Some(observer.region))
+            {
+                let (painted, bounds) =
+                    canvas.capture_paint_bounds(|canvas| canvas.paint(node, renderers));
+                if let Some(bounds) = bounds {
+                    observer.bounds.include(bounds);
+                }
+                painted?;
+            } else {
+                canvas.paint(node, renderers)?;
+            }
             let lifted = index >= overlay_start
                 || matches!(&node.draw, Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER);
             if lifted && canvas.nodes.len() > start {

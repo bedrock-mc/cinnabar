@@ -51,6 +51,7 @@ mod physics_registry;
 mod pinned_content;
 pub mod potion;
 mod provenance;
+mod publication;
 pub mod registry;
 mod runtime;
 pub mod seasonal_foliage;
@@ -264,6 +265,7 @@ pub use provenance::{
     BlobProvenance, VANILLA_SOURCE_MANIFEST, VanillaSource, canonical_source_manifest_sha256,
     vanilla_source, vanilla_source_manifest_sha256,
 };
+pub use publication::rename_no_replace;
 pub use registry::{
     BeaconTint, BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed, ContributorRole,
     ModelFamily, ModelState, ModelStateField, RegistryProvenance, RegistryRecord,
@@ -274,8 +276,6 @@ pub use runtime::{
     SequentialIdRemap, ServerDefinedBlock, VanillaFallback, server_defined_blocks,
     server_defined_blocks_for_registry,
 };
-pub use server_lang::ServerLangOverlay;
-pub use session_entities::SessionEntityPack;
 pub use skin_geometry::{
     MAX_SKIN_GEOMETRY_BONES, MAX_SKIN_GEOMETRY_CUBES, MAX_SKIN_GEOMETRY_VERTICES, SkinGeometry,
     SkinGeometryBounds, SkinGeometryError, SkinPolyMesh, SkinPolyVertex, parse_skin_geometry,
@@ -297,3 +297,4 @@ pub use ui::{
 };
 pub use vanilla_refs::{MAX_VANILLA_REFS_BYTES, VanillaEntityRefs, VanillaGeometryFile};
 pub use {fog_layers::resolve_fog_layers, fog_transition::FogTransition};
+pub use {server_lang::ServerLangOverlay, session_entities::SessionEntityPack};

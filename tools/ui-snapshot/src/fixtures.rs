@@ -1,10 +1,19 @@
 //! Named, anonymous screen fixtures. Add a state here when a PR needs a new capture.
 
+mod chat;
+mod collection_reveal;
 #[cfg(feature = "test-support")]
 mod cosmetics;
+mod hud_card_fit;
+mod hud_cards;
+mod hud_editor;
+mod local_identity;
 mod minecraft_import;
 mod mods;
 mod out_of_game;
+mod roster;
+mod shader_options;
+mod shader_pack;
 mod updates;
 
 use std::sync::Arc;
@@ -54,7 +63,16 @@ pub enum Fixture {
     /// Two original custom-form inputs after selection moves from the first to the second.
     EditSelection,
     /// An externally supplied bounded native mod panel.
-    ModPanel(Box<ui::mod_panel::Panel>),
+    ModPanel(
+        Box<ui::mod_panel::Panel>,
+        Option<Box<ui::mod_hud::Hud>>,
+        Option<(&'static str, render_model::UiTexturePage)>,
+    ),
+    /// A selected HUD card before or after retained placement and visibility edits.
+    HudEditor {
+        hud: Box<ui::mod_hud::Hud>,
+        edited: bool,
+    },
     /// Two same-ID requests arriving while the first menu is still open.
     #[cfg(feature = "test-support")]
     FormOverlap,
@@ -69,6 +87,11 @@ pub enum Fixture {
     CraftOverlap {
         selected: bool,
     },
+    /// A client toast as the toast screen shows it once slid in.
+    Toast {
+        title: String,
+        message: String,
+    },
 }
 
 const SIZE: [u32; 2] = [1280, 720];
@@ -78,8 +101,82 @@ const SMALL_SIZE: [u32; 2] = [360, 240];
 const TALL_SIZE: [u32; 2] = [1280, 900];
 /// Keeps the first hotbar rows visible below the keyboard options.
 const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
+/// Reaches the Video pane's Renderer row below the general options.
+const SHADER_PACK_ROW_SIZE: [u32; 2] = [SIZE[0], 1600];
 
 pub const STATES: &[State] = &[
+    State {
+        name: "mod-hud-card-fit-before",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || hud_card_fit::fixture(false),
+    },
+    State {
+        name: "mod-hud-card-fit-after",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || hud_card_fit::fixture(true),
+    },
+    State {
+        name: "collection-reveal-before",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || collection_reveal::fixture(false),
+    },
+    State {
+        name: "collection-reveal-after",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || collection_reveal::fixture(true),
+    },
+    State {
+        name: "hud-editor-before",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || hud_editor::fixture(false),
+    },
+    State {
+        name: "hud-editor-after",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || hud_editor::fixture(true),
+    },
+    State {
+        name: "mod-local-player-neutral",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || local_identity::fixture(false),
+    },
+    State {
+        name: "mod-local-player-head",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || local_identity::fixture(true),
+    },
+    State {
+        name: "mod-hud-card-previews",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || hud_cards::fixture(true),
+    },
+    State {
+        name: "mod-hud-card-previews-empty",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || hud_cards::fixture(false),
+    },
+    State {
+        name: "sign-in-cache-error",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || out_of_game::sign_in_recovery(false),
+    },
+    State {
+        name: "sign-in-device-code",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || out_of_game::sign_in_recovery(true),
+    },
     State {
         name: "backup-font",
         size: [640, 360],
@@ -215,14 +312,14 @@ pub const STATES: &[State] = &[
         name: "chat-server-content-idle",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || chat_server_content(false),
+        fixture: || chat::server_content(false),
     },
     #[cfg(feature = "test-support")]
     State {
         name: "chat-server-content-hover",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || chat_server_content(true),
+        fixture: || chat::server_content(true),
     },
     State {
         name: "home-update-compact",
@@ -474,50 +571,50 @@ pub const STATES: &[State] = &[
         name: "chat-background-transparent",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || chat_background(0),
+        fixture: || chat::background(0),
     },
     State {
         name: "chat-background-half",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || chat_background(50),
+        fixture: || chat::background(50),
     },
     State {
         name: "chat-background-opaque",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || chat_background(100),
+        fixture: || chat::background(100),
     },
     State {
         name: "chat-history-width",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: chat_history_width,
+        fixture: chat::history_width,
     },
     State {
         name: "chat-history-width-small",
         size: SMALL_SIZE,
         gui_scale: 1,
-        fixture: chat_history_width,
+        fixture: chat::history_width,
     },
     State {
         name: "chat-command-background-transparent",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: chat_command_background,
+        fixture: chat::command_background,
     },
     State {
         name: "chat-command-completion",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || chat_completion("/give @", &["@a", "@e", "@p"]),
+        fixture: || chat::completion("/give @", &["@a", "@e", "@p"]),
     },
     State {
         name: "chat-command-completion-small",
         size: SMALL_SIZE,
         gui_scale: 1,
         fixture: || {
-            chat_completion(
+            chat::completion(
                 "/tell ExamplePlayer AnotherPlayerWithALongName @",
                 &["@Alex", "@ExamplePlayerWithALongName", "@Bo"],
             )
@@ -551,37 +648,37 @@ pub const STATES: &[State] = &[
         name: "chat-mentions",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: chat_mentions,
+        fixture: chat::mentions,
     },
     State {
         name: "chat-command-targets",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: chat_command_targets,
+        fixture: chat::command_targets,
     },
     State {
         name: "tab-list-badges",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || tab_list_badges(true),
+        fixture: || roster::badges(true),
     },
     State {
         name: "tab-list-heads",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: tab_list_heads,
+        fixture: roster::heads,
     },
     State {
         name: "tab-list-heads-columns",
         size: [640, 360],
         gui_scale: 3,
-        fixture: tab_list_head_columns,
+        fixture: roster::head_columns,
     },
     State {
         name: "tab-list-expired-badges",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || tab_list_badges(false),
+        fixture: || roster::badges(false),
     },
     State {
         name: "settings-session-navigation",
@@ -598,6 +695,12 @@ pub const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: settings_video,
+    },
+    State {
+        name: "settings-video-shader-packs",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_pack::video_picker,
     },
     State {
         name: "settings-storage",
@@ -717,197 +820,61 @@ pub const STATES: &[State] = &[
         gui_scale: GUI_SCALE,
         fixture: mods::undeclared_permissions,
     },
+    State {
+        name: "settings-video-shader-options-button",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_options::renderer_row,
+    },
+    State {
+        name: "settings-shader-options",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_options::main_screen,
+    },
+    State {
+        name: "settings-shader-options-lighting",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_options::lighting,
+    },
+    State {
+        name: "settings-shader-options-rest",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_options::rest,
+    },
+    State {
+        name: "toast-shader-pack-loading",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_pack::loading,
+    },
+    State {
+        name: "toast-shader-pack-loaded",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_pack::loaded,
+    },
+    State {
+        name: "toast-shader-pack-failed",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_pack::failed,
+    },
+    State {
+        name: "settings-video-shader-pack",
+        size: SHADER_PACK_ROW_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || shader_pack::settings_video(false),
+    },
+    State {
+        name: "settings-video-shader-pack-failed",
+        size: SHADER_PACK_ROW_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || shader_pack::settings_video(true),
+    },
 ];
-
-/// Exercises the native chat collection with an unfinished mention.
-fn chat_mentions() -> Fixture {
-    Fixture::Chat {
-        server_hover: None,
-        draft: "@",
-        suggestions: ["@here", "@Alex", "@Steve"].map(Arc::from).into(),
-        messages: Default::default(),
-        options: Default::default(),
-    }
-}
-
-/// Exercises the native command completion collection with target candidates.
-fn chat_command_targets() -> Fixture {
-    Fixture::Chat {
-        server_hover: None,
-        draft: "/give @",
-        suggestions: ["@a", "@e", "@p", "@r", "@s"].map(Arc::from).into(),
-        messages: Default::default(),
-        options: Default::default(),
-    }
-}
-
-/// Shows readable history and a draft under a selected background-opacity setting.
-fn chat_background(percent: i32) -> Fixture {
-    use launcher::menu::settings_options::{SettingId, SettingsOptions};
-    let mut options = SettingsOptions::default();
-    options.set(SettingId::ChatBackgroundOpacity.index(), percent);
-    let messages = [
-        format!("Chat background opacity: {percent}%"),
-        "The chat text stays visible.".into(),
-    ]
-    .into_iter()
-    .enumerate()
-    .map(|(index, message)| ui::ChatMessage {
-        fifo_sequence: index as u64 + 1,
-        received_millis: 0,
-        kind: ui::ChatMessageKind::System,
-        source: None,
-        message: message.into(),
-        parameters: Arc::from([]),
-    })
-    .collect();
-    Fixture::Chat {
-        server_hover: None,
-        draft: "Typing a message",
-        suggestions: Vec::new(),
-        messages,
-        options: Arc::new(options),
-    }
-}
-
-/// Shows the command input and suggestions with chat backgrounds set to zero percent.
-fn chat_command_background() -> Fixture {
-    chat_completion("/", &["/give", "/help", "/say"])
-}
-
-/// Shows equal-width history backgrounds and a message that wraps inside them.
-fn chat_history_width() -> Fixture {
-    let mut fixture = chat_background(50);
-    if let Fixture::Chat { messages, .. } = &mut fixture {
-        messages.push_back(ui::ChatMessage {
-            fifo_sequence: messages.len() as u64 + 1,
-            received_millis: 0,
-            kind: ui::ChatMessageKind::System,
-            source: None,
-            message: "A longer chat message wraps inside the history box while every visible line keeps the same background width.".into(),
-            parameters: Arc::from([]),
-        });
-    }
-    fixture
-}
-
-/// Shows completions after an anonymous draft with transparent message backgrounds.
-fn chat_completion(draft: &'static str, suggestions: &[&str]) -> Fixture {
-    use launcher::menu::settings_options::SettingsOptions;
-
-    let mut options = SettingsOptions::default();
-    options.set(SettingId::ChatBackgroundOpacity.index(), 0);
-    Fixture::Chat {
-        server_hover: None,
-        draft,
-        suggestions: suggestions.iter().map(|text| Arc::from(*text)).collect(),
-        messages: Default::default(),
-        options: Arc::new(options),
-    }
-}
-
-/// Keeps encoded message metadata out of history and reveals it through a hover renderer.
-#[cfg(feature = "test-support")]
-fn chat_server_content(hover: bool) -> Fixture {
-    Fixture::Chat {
-        draft: "",
-        suggestions: Vec::new(),
-        messages: [ui::ChatMessage {
-            fifo_sequence: 1,
-            received_millis: 0,
-            kind: ui::ChatMessageKind::System,
-            source: None,
-            message: ui_screens::test_support::hover_chat::message().into(),
-            parameters: Arc::from([]),
-        }]
-        .into(),
-        options: Default::default(),
-        server_hover: Some(hover),
-    }
-}
-
-/// Badges two Cinnabar players, one of them sharing a name with an unbadged player.
-fn tab_list_badges(visible: bool) -> Fixture {
-    Fixture::TabList(
-        [
-            ("Alex", true),
-            ("Alex", false),
-            ("Riley", false),
-            ("Steve", visible),
-            ("Zoe", false),
-        ]
-        .map(|(name, badged)| RosterRow {
-            name: Arc::from(name),
-            badged,
-            annotation: None,
-            skin: None,
-        })
-        .into(),
-    )
-}
-
-/// Distinct original head texels alongside missing and invalid skins that must show Steve.
-fn tab_list_heads() -> Fixture {
-    let Fixture::TabList(mut rows) = tab_list_badges(true) else {
-        unreachable!()
-    };
-    for (index, row) in rows
-        .iter_mut()
-        .enumerate()
-        .filter(|(i, _)| matches!(i, 0 | 2))
-    {
-        let side = assets::starter_skins::STARTER_SKIN_SIDE;
-        let mut pixels = vec![0; (side * side * 4) as usize];
-        for y in 8..16 {
-            for x in 8..16 {
-                let color = if (y == 11 || y == 12) && (x == 9 || x == 10 || x == 13 || x == 14) {
-                    [240, 240, 255, 255]
-                } else if index == 0 {
-                    [60, 155, 100, 255]
-                } else {
-                    [110, 80, 180, 255]
-                };
-                let offset = ((y * side + x) * 4) as usize;
-                pixels[offset..offset + 4].copy_from_slice(&color);
-                if y < 10 {
-                    let hat = ((y * side + x + 32) * 4) as usize;
-                    pixels[hat..hat + 4].copy_from_slice(&[35, 60, 110, 255]);
-                }
-            }
-        }
-        row.skin = Some(render_api::StandardSkin {
-            width: side,
-            height: side,
-            rgba8: pixels.into(),
-            cape: None,
-            geometry: None,
-        });
-    }
-    rows.last_mut().unwrap().skin = Some(render_api::StandardSkin {
-        width: 1,
-        height: 1,
-        rgba8: vec![0; 4].into(),
-        cape: None,
-        geometry: None,
-    });
-    Fixture::TabList(rows)
-}
-
-/// Exercises every roster column at the maximum list size and a larger GUI scale.
-fn tab_list_head_columns() -> Fixture {
-    let Fixture::TabList(rows) = tab_list_heads() else {
-        unreachable!()
-    };
-    Fixture::TabList(
-        (0..80)
-            .map(|index| {
-                let mut row = rows[index % rows.len()].clone();
-                row.name = format!("Player{index:02}").into();
-                row
-            })
-            .collect(),
-    )
-}
 
 /// Opens a settings category by its registered name rather than a copied index.
 pub fn settings(section: &str) -> MenuView {

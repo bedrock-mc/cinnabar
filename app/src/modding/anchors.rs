@@ -79,13 +79,21 @@ pub(super) fn reconcile(hosts: &mut ModHosts, context: &GameplayContext<'_>) {
 /// Publishes only exact, still-live body roots after the actor renderer's same-frame commit.
 pub(super) fn publish(
     runtime: Option<ResMut<ModRuntime>>,
+    packet_drawing: Option<Res<super::packet_render::Drawing>>,
     context: GameplayContext,
     mut scene: ResMut<render_scene::ModRenderScene>,
     actors: Option<Res<render_scene::ActorRenderFrame>>,
     mut drawing: ResMut<DrawingFrame>,
     cameras: Query<&GlobalTransform, With<client_presentation::camera::FlyCamera>>,
 ) {
-    let Some(mut runtime) = runtime else { return };
+    let Some(mut runtime) = runtime else {
+        *drawing = Default::default();
+        if let Some(packet_drawing) = packet_drawing.as_deref() {
+            super::packet_render::publish_frame(packet_drawing, &context, &mut drawing);
+            super::packet_render::publish_alone(&mut scene, packet_drawing);
+        }
+        return;
+    };
     let changed = super::drawing_policy::bind(&mut runtime.hosts, &context);
     if changed {
         scene.clear();
@@ -93,7 +101,10 @@ pub(super) fn publish(
     }
     reconcile(&mut runtime.hosts, &context);
     super::drawing_policy::publish_frame(&runtime.hosts, &context, &mut drawing);
-    super::render::publish(Some(scene), &mut runtime);
+    if let Some(packet_drawing) = packet_drawing.as_deref() {
+        super::packet_render::publish_frame(packet_drawing, &context, &mut drawing);
+    }
+    super::render::publish(Some(scene), &mut runtime, packet_drawing.as_deref());
     let Some(actors) = actors else { return };
     let Some(world) = context
         .world

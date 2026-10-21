@@ -6,6 +6,10 @@ use crate::programs::StageKind;
 use naga::valid::ModuleInfo;
 
 mod inputs;
+mod order;
+
+#[cfg(test)]
+mod tests;
 
 /// A validated stage module.
 #[derive(Clone, Debug)]
@@ -80,6 +84,16 @@ pub(crate) fn compile(
                 })
                 .collect::<Vec<_>>()
         })?;
+    order::functions(&mut module).map_err(|span| {
+        let line = span
+            .is_defined()
+            .then(|| span.location(map.glsl).line_number);
+        vec![map.diagnostic(
+            Phase::Validate,
+            "recursive function calls are not supported".to_string(),
+            line,
+        )]
+    })?;
     let info = inputs::validate(&mut module).map_err(|e| {
         let line = e
             .spans()
