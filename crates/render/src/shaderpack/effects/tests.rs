@@ -494,6 +494,69 @@ fn snow_streaks_stop_at_the_column_surface() {
 }
 
 #[test]
+fn rain_columns_preserve_the_selected_sprite_u_coordinates() {
+    let mut grid = OcclusionGrid::default();
+    grid.origin = [-32, -32];
+    grid.heights.fill(render_model::OCCLUSION_OPEN);
+    for sheet in [
+        render_model::RAIN_PARAMS.uv_rect,
+        [0.5, 0.125, 0.125, 0.5],
+        [0.625, 0.125, -0.125, 0.5],
+    ] {
+        let mut mesh = Mesh::default();
+        rain_columns(
+            &mut mesh,
+            &grid,
+            sheet,
+            Vec3::new(0.5, 70.5, 0.5),
+            1.0,
+            37.25,
+        );
+        assert!(!mesh.indices.is_empty());
+        for quad in uvs(&mesh).as_chunks::<4>().0 {
+            for (uv, u) in
+                quad.iter()
+                    .zip([sheet[0], sheet[0] + sheet[2], sheet[0] + sheet[2], sheet[0]])
+            {
+                assert!((uv[0] - u).abs() < 1e-4, "{uv:?} must sample U {u}");
+            }
+        }
+        for vertex in mesh.words.as_chunks::<WORDS>().0 {
+            let mid_u = (vertex[5] & 0xffff) as f32 / 65535.0;
+            assert!((mid_u - (sheet[0] + 0.5 * sheet[2])).abs() < 1e-4);
+        }
+    }
+}
+
+#[test]
+fn rain_columns_keep_non_degenerate_repeats_at_large_camera_heights() {
+    let mut grid = OcclusionGrid::default();
+    grid.origin = [-32, -32];
+    grid.heights.fill(render_model::OCCLUSION_OPEN);
+    for height in [134_217_728.0, -134_217_728.0] {
+        let mut mesh = Mesh::default();
+        rain_columns(
+            &mut mesh,
+            &grid,
+            render_model::RAIN_PARAMS.uv_rect,
+            Vec3::new(0.5, height, 0.5),
+            1.0,
+            37.25,
+        );
+        let corners = positions(&mesh);
+        assert!(!corners.is_empty());
+        let lowest = corners.iter().map(|p| p.y).fold(f32::MAX, f32::min);
+        let highest = corners.iter().map(|p| p.y).fold(f32::MIN, f32::max);
+        assert!((lowest + 10.0).abs() < 1e-4, "{lowest}");
+        assert!((highest - 10.0).abs() < 1e-4, "{highest}");
+        for quad in corners.as_chunks::<4>().0 {
+            let height = quad[0].y - quad[3].y;
+            assert!(height > 0.0 && height <= 4.0 + 1e-4, "{height}");
+        }
+    }
+}
+
+#[test]
 fn rain_falls_in_javas_columns_down_to_the_surface() {
     let sheet = [0.0, 0.125, 0.125, 0.5];
     let grid = |height: i32| {

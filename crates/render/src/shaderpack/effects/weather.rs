@@ -65,7 +65,7 @@ pub(super) fn rain_columns(
     if level <= 0.0 || !level.is_finite() || !ticks.is_finite() {
         return;
     }
-    let [_, sheet_v, _, sheet_height] = uv_rect;
+    let [sheet_u, sheet_v, sheet_width, sheet_height] = uv_rect;
     let column = |axis: f32| axis.floor() as i32;
     let (cam_x, cam_y, cam_z) = (column(camera.x), column(camera.y), column(camera.z));
     let whole_ticks = ticks.floor();
@@ -107,21 +107,24 @@ pub(super) fn rain_columns(
             let half = Vec3::new(-dz as f32 / length, 0.0, dx as f32 / length) * 0.5;
             let normal = -Vec3::new(dx as f32, 0.0, dz as f32) / length;
             // Java maps the top of the column to `v = bottom / 4` and the bottom to `top / 4`.
-            let (top_y, bottom_y) = (top as f32, bottom as f32);
-            let v_top = bottom_y / RAIN_SHEET_BLOCKS + v_offset;
-            let v_bottom = top_y / RAIN_SHEET_BLOCKS + v_offset;
-            let y_at = |v: f32| top_y - (v - v_top) * RAIN_SHEET_BLOCKS - camera.y;
+            // f64 keeps whole sheet repeats distinct at any finite height; only the small
+            // camera-relative results narrow to f32.
+            let blocks = f64::from(RAIN_SHEET_BLOCKS);
+            let (top_y, bottom_y) = (f64::from(top), f64::from(bottom));
+            let v_top = bottom_y / blocks + f64::from(v_offset);
+            let v_bottom = top_y / blocks + f64::from(v_offset);
+            let y_at = |v: f64| (top_y - (v - v_top) * blocks - f64::from(camera.y)) as f32;
             let mut start = v_top;
             while start < v_bottom {
                 let repeat = start.floor();
                 let end = (repeat + 1.0).min(v_bottom);
-                let sheet = |v: f32| sheet_v + (v - repeat) * sheet_height;
-                let corner = |side: f32, v: f32| Vertex {
+                let sheet = |v: f64| sheet_v + (v - repeat) as f32 * sheet_height;
+                let corner = |side: f32, v: f64| Vertex {
                     position: Vec3::new(relative.x, y_at(v), relative.z) + half * side,
                     colour: [1.0, 1.0, 1.0, alpha],
                     normal,
-                    uv: [(side + 1.0) * 0.5, sheet(v)],
-                    mid_uv: [0.5, sheet_v + 0.5 * sheet_height],
+                    uv: [sheet_u + (side + 1.0) * 0.5 * sheet_width, sheet(v)],
+                    mid_uv: [sheet_u + 0.5 * sheet_width, sheet_v + 0.5 * sheet_height],
                     light: LIGHT,
                 };
                 mesh.quad([
