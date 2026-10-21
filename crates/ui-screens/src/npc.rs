@@ -12,6 +12,7 @@ use ui_engine::engine::{
 use ui_engine::frame::EngineFrame;
 
 pub const NPC_SCREEN: &str = "npc_interact.npc_screen";
+const ACTION_COLUMNS: usize = 3;
 
 /// Paints `npc` under the server form's `view`.
 pub fn paint(
@@ -36,6 +37,7 @@ pub fn paint(
     )
 }
 
+/// Supplies the player-facing dialogue text and visible action collection.
 fn npc_data(npc: &NpcDialogueForm) -> DataSource {
     let mut data = DataSource::new();
     data.set_strict(true);
@@ -43,6 +45,17 @@ fn npc_data(npc: &NpcDialogueForm) -> DataSource {
     data.set_global("#title_text", Scalar::Text(npc.npc_name.to_string()));
     data.set_global("#dialogtext", Scalar::Text(npc.dialogue.to_string()));
     data.set_global("#action_count", Scalar::Num(npc.buttons.len() as f64));
+    data.set_grid_dimensions(
+        "#student_button_grid_dimensions",
+        [
+            if npc.buttons.is_empty() {
+                0
+            } else {
+                ACTION_COLUMNS as u32
+            },
+            npc.buttons.len().div_ceil(ACTION_COLUMNS) as u32,
+        ],
+    );
     let buttons = npc
         .buttons
         .iter()
@@ -53,6 +66,8 @@ fn npc_data(npc: &NpcDialogueForm) -> DataSource {
                     Scalar::Text(button.text.to_string()),
                 )
                 .with("#student_button_visible", Scalar::Bool(true))
+                .with("#is_command_button", Scalar::Bool(!button.is_url))
+                .with("#is_url_button", Scalar::Bool(button.is_url))
         })
         .collect();
     data.set_collection("student_buttons_collection", buttons);

@@ -375,6 +375,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Server settings retain drafts across tabs and submit their final values when
   settings close. Embedding their controls within the settings panel instead of a
   separate form remains incomplete.
+  NPC dialogue actions expose command/URL labels and pointer hit targets through
+  their JSON-UI collection. Actor portraits, matched acceptance for larger action
+  lists and touch/console behavior remain incomplete.
   URL images use the UI texture-file allowance; aggregate encoded-image cache bounds
   and remaining image admission and download-deadline parity remain incomplete.
 - [ ] `P5.7-PARITY-PERF` — Qualify combined chat, scoreboard, boss bars, inventory and

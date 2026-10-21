@@ -26,6 +26,7 @@ fn dialogue_actions_have_labels_and_clickable_regions() {
             buttons: (0..count)
                 .map(|index| protocol::NpcButton {
                     text: format!("Task {index}").into(),
+                    is_url: index % 2 == 1,
                     action_index: index as u8,
                 })
                 .collect(),
