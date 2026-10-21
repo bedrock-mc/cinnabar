@@ -217,6 +217,8 @@ pub enum MenuAction {
     Invite(invite::Action),
     /// Answers the oldest Discord join request: Accept (true) or Decline.
     JoinRequest(bool),
+    /// A press on the Shader Pack Settings screen or its Renderer-row button.
+    ShaderOptions(crate::shader_options::Action),
 }
 
 impl MenuAction {

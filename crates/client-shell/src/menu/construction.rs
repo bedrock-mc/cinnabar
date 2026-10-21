@@ -190,6 +190,7 @@ impl MenuRuntime {
             global_resources: initial.global_resources,
             mod_actions: Vec::new(),
             mods: initial.mods,
+            shader_options: Default::default(),
             minecraft_import: std::sync::Arc::new(minecraft_import),
             minecraft_import_requests: Vec::new(),
             settings: initial.settings,

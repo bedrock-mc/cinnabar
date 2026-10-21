@@ -15,7 +15,8 @@ fn video_actions(view: &MenuView) -> Vec<MenuAction> {
     let mut seen = Vec::new();
     for _ in 0..512 {
         let (areas, hits, _) = crate::review_tests::paint(scrolls.offsets().clone(), |canvas| {
-            crate::settings::draw(canvas, view, size, &|_| None, None).unwrap();
+            crate::settings::draw(canvas, view, size, &|_| None, None, &mut Default::default())
+                .unwrap();
         });
         for (action, _) in hits {
             if !seen.contains(&action) {
@@ -60,6 +61,20 @@ fn shader_pack_builds_offer_the_pack_folder_when_the_host_opens_folders() {
             "opens folders: {opens_folders}"
         );
     }
+}
+
+#[test]
+fn a_requested_pack_without_a_picker_entry_offers_its_options() {
+    let mut view = settings_view("video_forced_index");
+    view.render_mode = ui::RenderMode::ShaderPack;
+    view.renderer = None;
+    view.shader_options_available = true;
+    assert_eq!(
+        video_actions(&view).contains(&MenuAction::ShaderOptions(
+            launcher::shader_options::Action::Open
+        )),
+        render_model::SHADER_PACKS_ENABLED,
+    );
 }
 
 #[test]

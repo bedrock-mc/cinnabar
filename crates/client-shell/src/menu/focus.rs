@@ -19,6 +19,7 @@ pub(super) struct SettingsInput {
     pub(super) actions: Vec<MenuAction>,
     pub(super) geometry: SettingsFocusGeometry,
     pub(super) slider_drag: Option<u16>,
+    pub(super) shader_slider_drag: Option<(u32, u16, u16)>,
 }
 
 impl MenuRuntime {

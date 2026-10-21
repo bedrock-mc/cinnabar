@@ -190,3 +190,15 @@ fn opted_in_cameras_admit_single_sample_depth_sampling() {
     app.update();
     assert_eq!(*app.world().get::<Msaa>(camera).unwrap(), Msaa::Off);
 }
+
+#[test]
+fn changing_the_option_file_starts_a_new_load() {
+    let mut request = ShaderPackRequest {
+        pack: Some(PathBuf::from("Outer/Inner")),
+        options: Some(PathBuf::from("Outer/Inner.txt")),
+        ..default()
+    };
+    let command_line = loader_key(&request, 0);
+    request.options = Some(PathBuf::from("Outer.txt"));
+    assert_ne!(loader_key(&request, 0), command_line);
+}

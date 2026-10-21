@@ -8,18 +8,29 @@ use launcher::menu::{
     settings_storage::{StorageAction, StorageFolder},
     shader_pack_status::pack_label,
 };
+use launcher::shader_options::Action;
 use ui_engine::engine::screen::PaintError;
 
 #[cfg(test)]
 mod tests;
 
-/// Draws nothing unless this build compiles an optional renderer. Shader-pack builds add
-/// the shader-pack folder's Open folder button when the host can open folders.
+/// Draws nothing unless this build compiles an optional renderer. Shader-pack builds add a
+/// row opening the selected pack's options, and the shader-pack folder's Open folder button
+/// when the host can open folders.
 pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     if !render_model::ENHANCED_RENDERING_ENABLED && !render_model::SHADER_PACKS_ENABLED {
         return Ok(());
     }
     renderer(content)?;
+    if render_model::SHADER_PACKS_ENABLED && content.view.shader_options_available {
+        super::services::action_row(
+            content,
+            "options.cinnabar.shaderOptions",
+            "options.cinnabar.shaderOptions.description",
+            "options.cinnabar.shaderOptions.buttonLabel",
+            Some(MenuAction::ShaderOptions(Action::Open)),
+        )?;
+    }
     if render_model::SHADER_PACKS_ENABLED && content.view.storage.opens_folders {
         super::services::action_row(
             content,

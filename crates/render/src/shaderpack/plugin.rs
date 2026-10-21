@@ -63,11 +63,26 @@ pub(crate) struct LoadedShaderPack(pub Option<Arc<PackGpu>>);
 
 type LoadResult = Result<PackGpu, String>;
 
-/// The pack being loaded or shown, identified by path, dimension and request revision.
+/// Pack path, option-file path, dimension and revision of one load.
+type LoaderKey = (PathBuf, Option<PathBuf>, i32, u64);
+
+/// The pack being loaded or shown, including the option file it reads.
 #[derive(Resource, Default)]
 struct Loader {
-    key: Option<(PathBuf, i32, u64)>,
+    key: Option<LoaderKey>,
     job: Option<Mutex<mpsc::Receiver<LoadResult>>>,
+}
+
+/// Identifies the request whose load can be reused in the current dimension.
+fn loader_key(request: &ShaderPackRequest, dimension: i32) -> Option<LoaderKey> {
+    request.pack.clone().map(|path| {
+        (
+            path,
+            request.options.clone(),
+            dimension.clamp(0, 2),
+            request.revision,
+        )
+    })
 }
 
 /// The render device, queue and adapter Bevy also publishes in the main world.
@@ -96,12 +111,9 @@ fn drive_loader(
     gpu: MainWorldGpu,
     atmosphere: Option<Res<render_scene::AtmosphereTextureAssets>>,
 ) {
-    let wanted = request
-        .pack
-        .clone()
-        .map(|path| (path, inputs.dimension.clamp(0, 2), request.revision));
+    let wanted = loader_key(&request, inputs.dimension);
     if wanted != loader.key {
-        let Some((path, dimension, _)) = wanted.clone() else {
+        let Some((path, _, dimension, _)) = wanted.clone() else {
             loader.key = None;
             loader.job = None;
             progress.finish();
@@ -125,6 +137,7 @@ fn drive_loader(
             loaded.0 = None;
         }
         let cache_dir = request.cache_dir.clone();
+        let options = request.options.clone();
         let vanilla = atmosphere
             .as_deref()
             .map(VanillaTextures::from_atmosphere)
@@ -137,6 +150,7 @@ fn drive_loader(
                 let id = JAVA_DIMENSIONS[dimension as usize];
                 let outcome = load(
                     &path,
+                    options.as_deref(),
                     id,
                     cache_dir.as_deref(),
                     &gpu,
@@ -149,7 +163,7 @@ fn drive_loader(
             Ok(_) => loader.job = Some(Mutex::new(receive)),
             Err(error) => {
                 progress.finish();
-                if let Some((path, _, revision)) = &loader.key {
+                if let Some((path, _, _, revision)) = &loader.key {
                     *status = ShaderPackStatus::Failed {
                         pack: path.clone(),
                         reason: error.to_string(),
@@ -171,7 +185,7 @@ fn drive_loader(
     };
     loader.job = None;
     progress.finish();
-    let Some((path, _, revision)) = loader.key.clone() else {
+    let Some((path, _, _, revision)) = loader.key.clone() else {
         return;
     };
     settled.0 = revision;

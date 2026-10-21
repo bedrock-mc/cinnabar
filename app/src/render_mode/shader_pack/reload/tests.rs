@@ -6,6 +6,7 @@ fn request(pack: Option<&str>) -> ShaderPackRequest {
         pack: pack.map(PathBuf::from),
         cache_dir: None,
         revision: 2,
+        options: None,
     }
 }
 

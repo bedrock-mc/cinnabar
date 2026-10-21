@@ -69,6 +69,56 @@ fn discover(_dir: &Path) -> Vec<(String, PathBuf)> {
     Vec::new()
 }
 
+/// Where Iris saves the options of the pack at `entry` (its zip or folder in the pack folder).
+#[cfg(feature = "shaderpacks")]
+fn option_file(entry: &Path) -> Option<PathBuf> {
+    shaderpack::option_file(entry)
+}
+
+/// Builds without shader packs save no options.
+#[cfg(not(feature = "shaderpacks"))]
+fn option_file(_entry: &Path) -> Option<PathBuf> {
+    None
+}
+
+/// The pack the settings select, by the name the player sees.
+pub(super) struct SelectedPack {
+    pub(super) name: String,
+    /// What the render host opens.
+    pub(super) path: PathBuf,
+    /// The pack's Iris option file.
+    pub(super) options: Option<PathBuf>,
+}
+
+/// The launch `--shader-pack`, else the selected pack in the shader-pack folder, while
+/// Shader pack is the requested renderer.
+pub(super) fn selected_pack(
+    config: &RenderModeConfig,
+    video: &ui::VideoSettings,
+) -> Option<SelectedPack> {
+    if compiled_render_mode(video.render_mode) != RenderMode::ShaderPack {
+        return None;
+    }
+    if let Some(path) = &config.cli_shader_pack {
+        return Some(SelectedPack {
+            name: path.file_name().map_or_else(
+                || path.display().to_string(),
+                |name| name.to_string_lossy().into_owned(),
+            ),
+            path: path.clone(),
+            options: option_file(path),
+        });
+    }
+    let name = video.shader_pack.as_deref()?;
+    let dirs = config.shader_packs.as_ref()?;
+    let path = dirs.pack_path(name)?;
+    Some(SelectedPack {
+        name: name.to_owned(),
+        path,
+        options: option_file(&dirs.packs.join(name)),
+    })
+}
+
 /// Re-lists the shader-pack folder into the menu's picker when this build compiles shader
 /// packs and the install layout is known.
 pub(super) fn refresh(config: &mut RenderModeConfig, menu: &mut MenuRuntime) {
@@ -102,20 +152,13 @@ pub(super) fn refresh_shader_packs(
     *settings_open = open;
 }
 
-/// The pack the render host should load: the launch `--shader-pack`, else the selected pack
-/// in the shader-pack folder, while Shader pack is the requested renderer.
+/// The request for the [`selected_pack`].
 fn desired_request(config: &RenderModeConfig, video: &ui::VideoSettings) -> ShaderPackRequest {
-    let pack = if compiled_render_mode(video.render_mode) == RenderMode::ShaderPack {
-        config.cli_shader_pack.clone().or_else(|| {
-            let name = video.shader_pack.as_deref()?;
-            config.shader_packs.as_ref()?.pack_path(name)
-        })
-    } else {
-        None
-    };
+    let selected = selected_pack(config, video);
     ShaderPackRequest {
-        pack,
+        pack: selected.as_ref().map(|pack| pack.path.clone()),
         cache_dir: config.shader_packs.as_ref().map(|dirs| dirs.cache.clone()),
+        options: selected.and_then(|pack| pack.options),
         revision: config.shader_pack_revision,
     }
 }

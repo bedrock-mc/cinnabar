@@ -37,6 +37,7 @@ pub mod screen_focus;
 #[cfg(test)]
 mod server_input_tests;
 mod services;
+mod shader_options;
 pub use services::sync_cinnabar_players;
 pub mod settings_options;
 mod settings_paths;
@@ -200,6 +201,7 @@ pub struct MenuRuntime {
     /// Mods-tab work for the mod runtime; disclosure toggles apply in place.
     pub mod_actions: Vec<launcher::mods::Action>,
     pub mods: std::sync::Arc<launcher::mods::Snapshot>,
+    shader_options: shader_options::ShaderOptions,
     minecraft_import: std::sync::Arc<launcher::minecraft_import::Snapshot>,
     minecraft_import_requests: Vec<launcher_host::minecraft_import::Request>,
     settings: launcher::menu::view::SettingsInteraction,
@@ -760,10 +762,10 @@ impl MenuRuntime {
             }
             MenuAction::SettingsStorage(action) => self.activate_storage(action),
             MenuAction::SettingsSupport(action) => self.activate_support(action),
+            MenuAction::SettingsSection(section) => self.activate_settings_section(section),
             action @ (MenuAction::SettingsScale(_)
             | MenuAction::SettingsScalePicker
             | MenuAction::SettingsFullscreen(_)
-            | MenuAction::SettingsSection(_)
             | MenuAction::SettingsOption(..)
             | MenuAction::SettingsVideoPreset(_)
             | MenuAction::SettingsLanguage(_)
@@ -827,6 +829,7 @@ impl MenuRuntime {
             MenuAction::ServerTrust(trusted) => self.answer_server_trust(trusted),
             MenuAction::Invite(action) => self.activate_invite(action),
             MenuAction::JoinRequest(accept) => self.answer_join_request(accept),
+            MenuAction::ShaderOptions(action) => self.activate_shader_options(action),
         }
     }
 

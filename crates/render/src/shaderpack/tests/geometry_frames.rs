@@ -54,6 +54,7 @@ fn geometry_draws_refresh_custom_image_feedback_before_opening_the_pass() {
             &source,
             "fixture",
             JAVA_DIMENSIONS[0],
+            &Default::default(),
             None,
             &gpu,
             &Default::default(),

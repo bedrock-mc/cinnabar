@@ -12,6 +12,7 @@ mod minecraft_import;
 mod mods;
 mod out_of_game;
 mod roster;
+mod shader_options;
 mod shader_pack;
 mod updates;
 
@@ -699,7 +700,7 @@ pub const STATES: &[State] = &[
         name: "settings-video-shader-packs",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: settings_video_shader_packs,
+        fixture: shader_pack::video_picker,
     },
     State {
         name: "settings-storage",
@@ -820,6 +821,30 @@ pub const STATES: &[State] = &[
         fixture: mods::undeclared_permissions,
     },
     State {
+        name: "settings-video-shader-options-button",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_options::renderer_row,
+    },
+    State {
+        name: "settings-shader-options",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_options::main_screen,
+    },
+    State {
+        name: "settings-shader-options-lighting",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_options::lighting,
+    },
+    State {
+        name: "settings-shader-options-rest",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_options::rest,
+    },
+    State {
         name: "toast-shader-pack-loading",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -865,19 +890,6 @@ pub fn settings(section: &str) -> MenuView {
 /// Shows an ordinary OreUI route without account, world or network services.
 fn settings_video() -> Fixture {
     Fixture::Menu(Box::new(settings(SettingSection::Video.definition().name)))
-}
-
-/// Scrolls Video to the renderer picker of a `shaderpacks` build listing two packs, with the
-/// shader-pack folder's Open folder button a desktop host shows below it.
-fn settings_video_shader_packs() -> Fixture {
-    use launcher::menu::settings_storage::{StorageAction, StorageFolder};
-    let mut view = settings(SettingSection::Video.definition().name);
-    view.shader_packs = Arc::from(["Dusk.zip".to_owned(), "Lumen".to_owned()]);
-    Arc::make_mut(&mut view.storage).opens_folders = true;
-    view.focused_action = Some(MenuAction::SettingsStorage(StorageAction::OpenFolder(
-        StorageFolder::ShaderPacks,
-    )));
-    Fixture::Menu(Box::new(view))
 }
 
 /// Shows Storage as a desktop host fills it, with the folder buttons.

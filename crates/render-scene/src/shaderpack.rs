@@ -27,6 +27,8 @@ pub struct ShaderPackRequest {
     pub pack: Option<PathBuf>,
     /// Private directory for cached translations; `None` disables the cache.
     pub cache_dir: Option<PathBuf>,
+    /// The pack's saved option values (Iris's `<pack>.txt` beside it), read on every load.
+    pub options: Option<PathBuf>,
     /// Bumped to reload `pack` from disk. A reload of the shown pack keeps drawing it until
     /// the reloaded pipelines are ready.
     pub revision: u64,

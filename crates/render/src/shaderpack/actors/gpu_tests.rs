@@ -816,6 +816,7 @@ fn actor_stream_failure_disables_native_queue_replacement() {
         &pack,
         "actor allocation",
         "",
+        &Default::default(),
         None,
         &gpu,
         &Default::default(),
