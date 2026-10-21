@@ -704,3 +704,198 @@ fn server_previewed_grindstone_result_can_be_taken() {
         assert!(ledger.target_stack(InventoryTarget::Craft(16)).is_none());
     }
 }
+
+/// An open anvil holding a one-item target and a stack of three materials.
+fn anvil_with_inputs() -> (PlayerInventoryLedger, NetworkItemStack) {
+    let mut ledger = ledger_with(&[]);
+    open(&mut ledger, 5, WINDOW_TYPE_ANVIL);
+    ledger.apply(&slot_update(named(124, 0), 1, stack(30, 1)));
+    ledger.apply(&slot_update(named(124, 1), 2, stack(31, 3)));
+    (ledger, stack(0, 1))
+}
+
+/// Rejects the newest request and asserts the anvil, cursor and inventory are as before.
+fn reject_and_assert_restored(ledger: &mut PlayerInventoryLedger, request_id: i32) {
+    ledger.apply(&InventoryEvent::Response(
+        protocol::ItemStackResponseEvent {
+            responses: Arc::from([protocol::StackResponse {
+                request_id,
+                status: protocol::StackResponseStatus::Rejected,
+                containers: Arc::from([]),
+            }]),
+        },
+    ));
+    assert_eq!(ledger.pending_request_count(), 0);
+    assert!(ledger.cursor_stack().is_none());
+    assert_eq!(
+        ledger.target_stack(InventoryTarget::Craft(1)),
+        Some(&stack(30, 1))
+    );
+    assert_eq!(
+        ledger.target_stack(InventoryTarget::Craft(2)),
+        Some(&stack(31, 3))
+    );
+    assert!(
+        (0..PLAYER_INVENTORY_SLOT_COUNT as u8).all(|slot| ledger.displayed_stack(slot).is_none())
+    );
+    assert!(!ledger.resync_required());
+    assert!(
+        ledger.begin_quick_move(InventoryTarget::Craft(2)).is_ok(),
+        "the restored material moves again"
+    );
+}
+
+/// The anvil take carries no result list (a dedicated server crashes on one), consumes the
+/// material before the target, and a rejection restores every cell.
+#[test]
+fn anvil_take_matches_the_native_request_and_rolls_back_on_rejection() {
+    let (mut ledger, result) = anvil_with_inputs();
+    let request_id = ledger
+        .begin_screen_output(&ScreenCraft::Anvil {
+            rename: None,
+            recipe_network_id: 0,
+            output: Some(result),
+            material_used: 2,
+        })
+        .unwrap();
+    let slot = |container, slot, stack_network_id| protocol::StackRequestSlot {
+        container,
+        slot,
+        stack_network_id,
+    };
+    let window = |name| StackRequestContainer::OpenWindow {
+        name,
+        dynamic_id: None,
+    };
+    assert_eq!(
+        ledger.newest_request().unwrap().actions,
+        vec![
+            StackRequestAction::CraftRecipeOptional {
+                recipe_network_id: 0,
+                filtered_string_index: 0,
+            },
+            StackRequestAction::Consume {
+                amount: 2,
+                source: slot(window(1), 2, 31),
+            },
+            StackRequestAction::Consume {
+                amount: 1,
+                source: slot(window(0), 1, 30),
+            },
+            StackRequestAction::Take {
+                amount: 1,
+                source: slot(
+                    StackRequestContainer::CreatedOutput,
+                    protocol::CREATED_OUTPUT_SLOT,
+                    request_id
+                ),
+                destination: slot(StackRequestContainer::Cursor, 0, 0),
+            },
+        ]
+    );
+    assert_eq!(ledger.cursor_stack().unwrap().count, 1);
+    assert_eq!(
+        ledger
+            .target_stack(InventoryTarget::Craft(2))
+            .unwrap()
+            .count,
+        1
+    );
+    reject_and_assert_restored(&mut ledger, request_id);
+}
+
+/// A shift-click places the anvil result into the inventory instead of the cursor.
+#[test]
+fn anvil_shift_take_places_into_the_inventory_and_rolls_back() {
+    let (mut ledger, result) = anvil_with_inputs();
+    let request_id = ledger
+        .begin_screen_output_into(
+            &ScreenCraft::Anvil {
+                rename: Some(Arc::from("Named")),
+                recipe_network_id: 0,
+                output: Some(result),
+                material_used: 3,
+            },
+            CraftSink::Inventory,
+        )
+        .unwrap();
+    let request = ledger.newest_request().unwrap();
+    let Some(StackRequestAction::Place {
+        amount: 1,
+        source,
+        destination,
+    }) = request.actions.last()
+    else {
+        panic!("the result is placed: {:?}", request.actions);
+    };
+    assert_eq!(source.container, StackRequestContainer::CreatedOutput);
+    assert_eq!(
+        destination.container,
+        StackRequestContainer::PlayerInventory
+    );
+    assert_eq!(destination.stack_network_id, 0);
+    assert!(
+        request
+            .actions
+            .iter()
+            .all(|action| !matches!(action, StackRequestAction::CraftResultsDeprecated { .. }))
+    );
+    assert!(ledger.cursor_stack().is_none());
+    assert_eq!(ledger.displayed_stack(destination.slot).unwrap().count, 1);
+    assert!(ledger.target_stack(InventoryTarget::Craft(2)).is_none());
+    reject_and_assert_restored(&mut ledger, request_id);
+}
+
+/// The stonecutter and cartography table derive their results on the server, so their takes
+/// send no result list.
+#[test]
+fn server_derived_screens_send_no_result_list() {
+    for (window_type, input) in [
+        (protocol::WINDOW_TYPE_STONECUTTER, 3),
+        (protocol::WINDOW_TYPE_CARTOGRAPHY, 12),
+        (protocol::WINDOW_TYPE_GRINDSTONE, 16),
+    ] {
+        let mut ledger = ledger_with(&[]);
+        open(&mut ledger, 7, window_type);
+        let name = protocol::ui_slot_container_name(input).unwrap();
+        ledger.apply(&slot_update(
+            named(124, name),
+            u16::from(input),
+            stack(40, 2),
+        ));
+        let craft = if window_type == protocol::WINDOW_TYPE_GRINDSTONE {
+            ledger.apply(&slot_update(
+                ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+                u16::from(protocol::CREATED_OUTPUT_SLOT),
+                stack(41, 1),
+            ));
+            ScreenCraft::Grindstone {
+                recipe_network_id: 40,
+                repair_cost: 0,
+            }
+        } else {
+            ScreenCraft::Predicted {
+                recipe_network_id: 9,
+                output: protocol::RecipeOutput {
+                    network_id: 6,
+                    aux: 0,
+                    count: 1,
+                    block_runtime_id: 0,
+                    empty_envelope: false,
+                },
+            }
+        };
+        ledger.begin_screen_output(&craft).unwrap();
+        let sends_results = ledger
+            .newest_request()
+            .unwrap()
+            .actions
+            .iter()
+            .any(|action| matches!(action, StackRequestAction::CraftResultsDeprecated { .. }));
+        assert_eq!(
+            sends_results,
+            window_type == protocol::WINDOW_TYPE_GRINDSTONE,
+            "window type {window_type}"
+        );
+    }
+}

@@ -462,7 +462,7 @@ impl PlayerInventoryLedger {
     /// then empty cells, both in hotbar-first player slot order.
     /// Each entry is `(cell, amount, occupied destination
     /// stack id and count)`; `None` when the inventory cannot hold it all.
-    fn spread_plan(
+    pub(super) fn spread_plan(
         &self,
         created: &NetworkItemStack,
         capacity: u8,

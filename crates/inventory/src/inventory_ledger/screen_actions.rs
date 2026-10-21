@@ -9,9 +9,11 @@ use protocol::{CraftResult, RecipeOutput, StackRequestAction, WindowKind};
 use sha2::{Digest, Sha256};
 
 use super::cells::{Cell, Held};
+use super::crafting::CraftSink;
 use super::gesture::Submission;
 use super::helpers::request_slot;
 use super::overlay::DeltaGroup;
+use super::registry::entry_capacity;
 use super::{InventoryGestureError, PlayerInventoryLedger};
 
 const ENCHANT_INPUT_SLOT: u8 = 14;
@@ -29,11 +31,13 @@ pub enum ScreenCraft {
         output: protocol::NetworkItemStack,
         consumed: [u16; 2],
     },
-    /// Anvil result; `rename` is the typed item name, if any. `output` supplies a prediction
-    /// when no server result exists; `material_used` is its second-input consumption.
+    /// Anvil result. `rename` is the name-box text, sent as the filter string; the server reads
+    /// its absence as no name, which clears a custom one. `recipe_network_id` is 0 unless a
+    /// recipe drives the result. `output` supplies a prediction when no server result exists;
+    /// `material_used` is its second-input consumption.
     Anvil {
         rename: Option<Arc<str>>,
-        multi_recipe_id: u32,
+        recipe_network_id: u32,
         output: Option<protocol::NetworkItemStack>,
         material_used: u16,
     },
@@ -114,6 +118,25 @@ pub(super) const fn input_slots(kind: WindowKind) -> &'static [u8] {
         Some(layout) => layout.slots,
         None => &[],
     }
+}
+
+/// Screens whose server computes the result from the inputs itself. Vanilla sends them no
+/// result list, and a dedicated server crashes on one.
+const fn server_derives_result(kind: WindowKind) -> bool {
+    matches!(
+        kind,
+        WindowKind::Anvil | WindowKind::Stonecutter | WindowKind::Cartography
+    )
+}
+
+/// The order a result take consumes the screen's inputs in: the anvil uses up its
+/// second item before the target.
+fn consume_order(kind: WindowKind) -> Vec<u8> {
+    let mut slots = input_slots(kind).to_vec();
+    if kind == WindowKind::Anvil {
+        slots.reverse();
+    }
+    slots
 }
 
 /// Items one result take consumes from an input slot (provisional).
@@ -203,14 +226,30 @@ impl PlayerInventoryLedger {
         &mut self,
         craft: &ScreenCraft,
     ) -> Result<i32, InventoryGestureError> {
+        self.begin_screen_output_into(craft, CraftSink::Cursor)
+    }
+
+    /// Takes the open screen's result into an empty cursor, or spreads it over the player
+    /// inventory like a shift-click; the whole result must fit.
+    pub fn begin_screen_output_into(
+        &mut self,
+        craft: &ScreenCraft,
+        sink: CraftSink,
+    ) -> Result<i32, InventoryGestureError> {
         let personal_generation = self.gesture_preflight(true)?;
         let kind = self
             .window_kind()
             .filter(|kind| craft.kinds().contains(kind))
             .ok_or(InventoryGestureError::InvalidRequest)?;
-        self.check_surfaces([Cell::Cursor, Cell::CreatedOutput])?;
-        if self.view().get(Cell::Cursor).is_some() {
-            return Err(InventoryGestureError::InvalidRequest);
+        match sink {
+            CraftSink::Cursor => {
+                self.check_surfaces([Cell::Cursor, Cell::CreatedOutput])?;
+                if self.view().get(Cell::Cursor).is_some() {
+                    return Err(InventoryGestureError::InvalidRequest);
+                }
+            }
+            CraftSink::Inventory => self.check_surfaces([Cell::CreatedOutput])?,
+            CraftSink::Player(_) => return Err(InventoryGestureError::InvalidRequest),
         }
         let request_id = self.peek_request_id()?;
         let predicted_distinct = matches!(
@@ -316,14 +355,15 @@ impl PlayerInventoryLedger {
             user_data: Arc::clone(&preview.stack.extra_data),
         }]);
         let (first, filter_strings) = match craft {
+            // The index names the first filter string even when the request carries none.
             ScreenCraft::Anvil {
                 rename,
-                multi_recipe_id,
+                recipe_network_id,
                 ..
             } => (
                 StackRequestAction::CraftRecipeOptional {
-                    recipe_network_id: *multi_recipe_id,
-                    filtered_string_index: if rename.is_some() { 0 } else { -1 },
+                    recipe_network_id: *recipe_network_id,
+                    filtered_string_index: 0,
                 },
                 rename
                     .iter()
@@ -362,13 +402,13 @@ impl PlayerInventoryLedger {
                 Vec::new(),
             ),
         };
-        let mut actions = vec![
-            first,
-            StackRequestAction::CraftResultsDeprecated { results, crafts: 1 },
-        ];
+        let mut actions = vec![first];
+        if !server_derives_result(kind) {
+            actions.push(StackRequestAction::CraftResultsDeprecated { results, crafts: 1 });
+        }
         let mut groups = Vec::new();
-        for slot in input_slots(kind) {
-            let cell = Cell::Craft(*slot);
+        for slot in consume_order(kind) {
+            let cell = Cell::Craft(slot);
             let Some(held) = self.view().get(cell) else {
                 continue;
             };
@@ -376,15 +416,15 @@ impl PlayerInventoryLedger {
                 ScreenCraft::Trade { consumed, .. } => {
                     consumed[input_slots(kind)
                         .iter()
-                        .position(|input| input == slot)
+                        .position(|input| *input == slot)
                         .expect("trade input")]
                 }
                 ScreenCraft::Anvil {
                     output: Some(_),
                     material_used,
                     ..
-                } if *slot == ANVIL_MATERIAL_SLOT => *material_used,
-                _ => consume_amount(*slot, held.stack.count),
+                } if slot == ANVIL_MATERIAL_SLOT => *material_used,
+                _ => consume_amount(slot, held.stack.count),
             }
             .min(held.stack.count);
             if amount == 0 {
@@ -404,34 +444,61 @@ impl PlayerInventoryLedger {
                 source_id: id,
             });
         }
-        let take =
-            u8::try_from(preview.stack.count).map_err(|_| InventoryGestureError::InvalidRequest)?;
-        actions.push(StackRequestAction::Take {
-            amount: take,
-            source: request_slot(Cell::CreatedOutput, preview.stack.stack_network_id, None)?,
-            destination: request_slot(Cell::Cursor, 0, None)?,
-        });
+        let source_id = preview.stack.stack_network_id;
+        let output_slot = request_slot(Cell::CreatedOutput, source_id, None)?;
         if let Some(held) = predicted_set {
             groups.push(DeltaGroup::Set {
                 cell: Cell::CreatedOutput,
                 held,
             });
         }
-        groups.push(DeltaGroup::Transfer {
-            source: Cell::CreatedOutput,
-            destination: Cell::Cursor,
-            amount: preview.stack.count,
-            source_id: preview.stack.stack_network_id,
-            destination_id: None,
-            capacity: None,
-        });
+        let mut registry_bound_merge = false;
+        if sink == CraftSink::Cursor {
+            let take = u8::try_from(preview.stack.count)
+                .map_err(|_| InventoryGestureError::InvalidRequest)?;
+            actions.push(StackRequestAction::Take {
+                amount: take,
+                source: output_slot,
+                destination: request_slot(Cell::Cursor, 0, None)?,
+            });
+            groups.push(DeltaGroup::Transfer {
+                source: Cell::CreatedOutput,
+                destination: Cell::Cursor,
+                amount: preview.stack.count,
+                source_id,
+                destination_id: None,
+                capacity: None,
+            });
+        } else {
+            let capacity = entry_capacity(entry).ok_or(InventoryGestureError::InvalidRequest)?;
+            let plan = self
+                .spread_plan(&preview.stack, capacity)
+                .ok_or(InventoryGestureError::InvalidRequest)?;
+            for (cell, amount, into) in plan {
+                registry_bound_merge |= into.is_some();
+                actions.push(StackRequestAction::Place {
+                    amount: u8::try_from(amount)
+                        .map_err(|_| InventoryGestureError::InvalidRequest)?,
+                    source: output_slot,
+                    destination: request_slot(cell, into.map_or(0, |(id, _)| id), None)?,
+                });
+                groups.push(DeltaGroup::Transfer {
+                    source: Cell::CreatedOutput,
+                    destination: cell,
+                    amount,
+                    source_id,
+                    destination_id: into.map(|(id, _)| id),
+                    capacity: into.map(|_| u16::from(capacity)),
+                });
+            }
+        }
         self.submit_filtered(
             Submission {
                 actions,
                 groups,
                 personal_generation,
                 requires_distinct_stack_ids: predicted_distinct,
-                registry_bound_merge: false,
+                registry_bound_merge,
             },
             filter_strings,
         )

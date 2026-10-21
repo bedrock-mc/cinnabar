@@ -176,20 +176,25 @@ impl UiRuntime {
             })
     }
 
-    /// The changed name sent with an authoritative take; empty text clears a custom name.
+    /// The name-box text a take of `result` sends: always, unless it is the result's default
+    /// name. The server keeps an equal custom name and reads no text as clearing one.
     pub(super) fn anvil_rename(
         &self,
         player_runtime: &player_state::PlayerState,
+        result: &NetworkItemStack,
     ) -> Option<std::sync::Arc<str>> {
-        let current = self.anvil_target_name(player_runtime);
         let name = self.screen_state().anvil_name.as_str();
-        if current.as_deref() == Some(name)
-            || (name.is_empty() && self.anvil_target_custom_name(player_runtime).is_none())
-        {
-            None
-        } else {
-            Some(std::sync::Arc::from(name))
-        }
+        let default = self
+            .inventory_ledger(player_runtime)
+            .negotiated_item_entry(result.network_id)
+            .map(|entry| {
+                super::presentation::inventory_tooltip::default_name(
+                    self,
+                    &entry.identifier,
+                    result.metadata,
+                )
+            });
+        (default.as_deref() != Some(name)).then(|| std::sync::Arc::from(name))
     }
 
     /// Prefills the name box with the target's name whenever a different target is placed,
