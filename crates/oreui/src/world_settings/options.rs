@@ -80,7 +80,7 @@ pub(super) fn draw(
                     segmented(canvas, view, [inner[0], y, inner[2], y + height], &choices)?;
                     Ok(y + height)
                 }
-                Control::Number { min, max, step } => {
+                Control::Number { min, max } => {
                     let y = label(canvas, definition.label, inner, inner[1])?;
                     let bounds = [inner[0], y, inner[2], y + canvas.r(FIELD)];
                     let value = local_view
@@ -98,13 +98,7 @@ pub(super) fn draw(
                         enabled.then_some(local(A::OptionField(id))),
                     )?;
                     let valid = value.parse().is_ok_and(|value| id.accepts(value));
-                    let range = if max == i32::MAX {
-                        format!("{min} or greater")
-                    } else if step > 1 {
-                        format!("{min}–{max}, in steps of {step}")
-                    } else {
-                        format!("{min}–{max}")
-                    };
+                    let range = format!("{min}–{max}");
                     caption(
                         canvas,
                         &if valid {

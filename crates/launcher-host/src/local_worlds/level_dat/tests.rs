@@ -160,3 +160,37 @@ fn world_options_always_day_preserves_existing_days_and_saved_clock() {
         Some(246_000)
     );
 }
+
+#[test]
+fn world_options_player_permissions_preserve_the_separate_command_permission() {
+    let world = test_support::world();
+    let bytes = configured(&world, &[]).unwrap();
+    let mut fields = read_fields(&bytes[8..]).unwrap();
+    put(&mut fields, "permissionsLevel", 3, &1i32.to_le_bytes());
+    put(
+        &mut fields,
+        "playerPermissionsLevel",
+        3,
+        &0i32.to_le_bytes(),
+    );
+    let mut body = vec![10, 0, 0];
+    for (_, tag) in fields {
+        body.extend(tag);
+    }
+    body.push(0);
+    let mut fixture = bytes[..4].to_vec();
+    fixture.extend((body.len() as u32).to_le_bytes());
+    fixture.extend(body);
+    let dir = test_support::scratch();
+    fs::write(dir.path().join("level.dat"), &fixture).unwrap();
+    assert_eq!(
+        read_options(&dir.path().join("level.dat")).get(O::PlayerPermissions),
+        0
+    );
+    let mut changed = world;
+    changed.options.set(O::PlayerPermissions, 2);
+    let updated = configured(&changed, &fixture).unwrap();
+    let fields = read_fields(&updated[8..]).unwrap();
+    assert_eq!(scalar(&fields, "permissionsLevel"), Some(1));
+    assert_eq!(scalar(&fields, "playerPermissionsLevel"), Some(2));
+}

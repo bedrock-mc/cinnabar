@@ -251,3 +251,31 @@ pub(super) fn world_create(tab: usize) -> Fixture {
     view.local.tab = launcher::local_worlds::Tab::ALL[tab];
     Fixture::Menu(Box::new(view))
 }
+
+/// Shows saved BDS generation settings beside editable advanced rules.
+pub(super) fn world_edit_advanced() -> Fixture {
+    use launcher::local_worlds::{
+        form::EditForm,
+        world::{Difficulty, Generator, World},
+    };
+    let Fixture::Menu(mut view) = world_create(1) else {
+        unreachable!()
+    };
+    let world = World {
+        id: "fixture".into(),
+        name: "Fixture World".into(),
+        game_mode: bridge::GameMode::Survival,
+        generator: Generator::Normal,
+        difficulty: Difficulty::Normal,
+        backend: bridge::Backend::Bds,
+        seed: -42,
+        options: Default::default(),
+        created_unix: 0,
+        last_played_unix: 0,
+        size_bytes: 0,
+    };
+    view.local.screen = launcher::local_worlds::Screen::Edit;
+    view.local.edit = Some(EditForm::of(&world));
+    view.local.edited = Some(world);
+    Fixture::Menu(view)
+}

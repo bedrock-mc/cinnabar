@@ -91,6 +91,8 @@ pub struct EditForm {
     pub game_mode: GameMode,
     pub difficulty: Difficulty,
     pub options: super::options::WorldOptions,
+    /// The values shown when this form opened, used to isolate user edits.
+    pub(super) original_options: super::options::WorldOptions,
 }
 
 impl EditForm {
@@ -101,6 +103,7 @@ impl EditForm {
             game_mode: world.game_mode,
             difficulty: world.difficulty,
             options: world.options.clone(),
+            original_options: world.options.clone(),
         }
     }
 }

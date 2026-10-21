@@ -659,6 +659,12 @@ const STATES: &[State] = &[
         fixture: || out_of_game::world_create(1),
     },
     State {
+        name: "world-edit-advanced",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::world_edit_advanced,
+    },
+    State {
         name: "world-edit-after-delete-back",
         size: SIZE,
         gui_scale: GUI_SCALE,

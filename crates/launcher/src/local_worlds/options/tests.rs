@@ -60,3 +60,30 @@ fn world_options_daylight_modes_and_lan_compose() {
     options.set(WorldOption::LanVisible, 0);
     assert!(!options.lan_visible());
 }
+
+#[test]
+fn world_options_deltas_keep_explicit_defaults_without_copying_unchanged_rules() {
+    let mut previous = WorldOptions::default();
+    previous.set(WorldOption::ShowCoordinates, 1);
+    let mut edited = previous.clone();
+    edited.set(WorldOption::ShowCoordinates, 0);
+    let changes = edited.changes_from(&previous);
+    assert_eq!(changes.get(WorldOption::ShowCoordinates), Some(0));
+    assert_eq!(changes.get(WorldOption::RandomTickSpeed), None);
+    let mut current = previous;
+    current.set(WorldOption::RandomTickSpeed, 42);
+    current.apply_changes(&changes);
+    assert!(!current.enabled(WorldOption::ShowCoordinates));
+    assert_eq!(current.get(WorldOption::RandomTickSpeed), 42);
+}
+
+#[test]
+fn world_options_numeric_bounds_reject_values_the_server_cannot_apply() {
+    assert!(WorldOption::RandomTickSpeed.accepts(4096));
+    assert!(!WorldOption::RandomTickSpeed.accepts(4097));
+    assert!(WorldOption::RespawnRadius.accepts(128));
+    assert!(!WorldOption::RespawnRadius.accepts(129));
+    assert!(WorldOption::SimulationDistance.accepts(5));
+    assert!(!WorldOption::SimulationDistance.accepts(3));
+    assert!(!WorldOption::SimulationDistance.accepts(13));
+}

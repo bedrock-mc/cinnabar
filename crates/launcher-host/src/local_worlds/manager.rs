@@ -189,8 +189,16 @@ impl Manager {
         self.inner.store.reclaim_abandoned_imports();
     }
 
-    /// Saved worlds, most recently played first.
+    /// Saved worlds after pending server saves finish, most recently played first.
     pub fn list(&self) -> Result<Vec<World>, WorldError> {
+        let after: Vec<_> = lock(&self.inner.life)
+            .retiring
+            .iter()
+            .map(|retiring| retiring.done.clone())
+            .collect();
+        for done in after {
+            let _ = done.recv();
+        }
         self.inner.store.list()
     }
 
@@ -416,10 +424,20 @@ impl Manager {
                 break;
             }
         }
+        let mut fresh_world = None;
         let started = if cancel.is_cancelled() {
             Err(WorldError::Cancelled)
         } else {
-            self.inner.runners.start(spec, cancel)
+            self.inner.store.get(&spec.world.id).and_then(|world| {
+                let fresh = StartSpec {
+                    world,
+                    dir: spec.dir.clone(),
+                    view_distance: spec.view_distance,
+                };
+                let started = self.inner.runners.start(&fresh, cancel);
+                fresh_world = Some(fresh.world);
+                started
+            })
         };
         let mut life = lock(&self.inner.life);
         if cancel.is_cancelled() {
@@ -439,6 +457,9 @@ impl Manager {
                 return;
             }
         };
+        if let Some(world) = fresh_world {
+            life.world = Some(world);
+        }
         life.instance = Some(Arc::clone(&instance));
         let paused = life.paused && instance.can_pause();
         life.paused = paused;

@@ -385,6 +385,8 @@ pub(crate) struct FakeRunner {
     pub error: Option<fn() -> WorldError>,
     pub can_pause: Option<bool>,
     pub made: Mutex<Vec<Arc<FakeInstance>>>,
+    /// The effective world passed to each started server.
+    pub started: Mutex<Vec<World>>,
     /// Passed to each instance as its save.
     pub save: Option<Receiver<()>>,
     /// Passed to each instance as its cleanup.
@@ -438,7 +440,7 @@ impl FakeRunner {
 }
 
 impl Runner for FakeRunner {
-    fn start(&self, _spec: &StartSpec, cancel: &Cancel) -> Result<Arc<dyn Instance>, WorldError> {
+    fn start(&self, spec: &StartSpec, cancel: &Cancel) -> Result<Arc<dyn Instance>, WorldError> {
         if let Some(gate) = &self.gate {
             crossbeam_channel::select! {
                 recv(gate) -> _ => {}
@@ -448,6 +450,7 @@ impl Runner for FakeRunner {
         if let Some(error) = self.error {
             return Err(error());
         }
+        lock(&self.started).push(spec.world.clone());
         let mut made = lock(&self.made);
         if made.iter().any(|instance| !instance.finished()) {
             self.overlapped

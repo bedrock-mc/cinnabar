@@ -181,6 +181,9 @@ impl LocalWorlds {
         self.playing = false;
         self.paused = false;
         self.dispatch(vec![Effect::Close]);
+        if self.client.is_some() {
+            self.input(Input::Refresh);
+        }
     }
 
     /// The pause menu is open over the world; single-player pauses the game behind it.

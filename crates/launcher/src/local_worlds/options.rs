@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 pub enum Control {
     Toggle,
     Choice(&'static [Choice]),
-    Number { min: i32, max: i32, step: i32 },
+    Number { min: i32, max: i32 },
 }
 
 /// One supported value of a named world option.
@@ -108,12 +108,12 @@ options! {
     LimitedCrafting: "Limited crafting", Advanced, 0, Toggle, false, Rule("dolimitedcrafting"), false;
     Pvp: "Friendly fire (PvP)", Advanced, 1, Toggle, false, Rule("pvp"), false;
     SleepSkipNight: "Sleep through the night", Advanced, 1, Toggle, false, Combined, false;
-    SleepPercentage: "Players sleeping percentage", Advanced, 100, Number { min: 0, max: 100, step: 1 }, false, Rule("playerssleepingpercentage"), false;
-    RespawnRadius: "Respawn radius", Advanced, 10, Number { min: 0, max: i32::MAX, step: 1 }, false, Rule("spawnradius"), false;
-    SimulationDistance: "Simulation distance", Advanced, 4, Number { min: 4, max: 12, step: 2 }, false, Property("tick-distance", "serverChunkTickRange"), false;
+    SleepPercentage: "Players sleeping percentage", Advanced, 100, Number { min: 0, max: 100 }, false, Rule("playerssleepingpercentage"), false;
+    RespawnRadius: "Respawn radius", Advanced, 10, Number { min: 0, max: 128 }, false, Rule("spawnradius"), false;
+    SimulationDistance: "Simulation distance", Advanced, 4, Number { min: 4, max: 12 }, false, Property("tick-distance", "serverChunkTickRange"), false;
     Multiplayer: "Multiplayer game", Multiplayer, 1, Toggle, false, Level("MultiplayerGame"), false;
     LanVisible: "Visible to LAN players", Multiplayer, 1, Toggle, false, Property("enable-lan-visibility", "LANBroadcast"), false;
-    PlayerPermissions: "Default player permission", Multiplayer, 1, Control::Choice(PERMISSIONS), false, Property("default-player-permission-level", "permissionsLevel"), false;
+    PlayerPermissions: "Default player permission", Multiplayer, 1, Control::Choice(PERMISSIONS), false, Property("default-player-permission-level", "playerPermissionsLevel"), false;
     PlayerWaypoints: "Player waypoints", Multiplayer, 1, Control::Choice(WAYPOINTS), false, Rule("playerwaypoints"), false;
     ActivateCheats: "Activate cheats", Cheats, 0, Toggle, false, Property("allow-cheats", "cheatsEnabled"), false;
     AlwaysDay: "Always day", Cheats, 0, Toggle, true, Combined, false;
@@ -124,7 +124,7 @@ options! {
     EntitiesDropLoot: "Entities drop loot", Cheats, 1, Toggle, true, Rule("doentitydrops"), false;
     WeatherCycle: "Weather cycle", Cheats, 1, Toggle, true, Rule("doweathercycle"), false;
     CommandBlocks: "Command blocks enabled", Cheats, 1, Toggle, true, Rule("commandblocksenabled"), false;
-    RandomTickSpeed: "Random tick speed", Cheats, 1, Number { min: 0, max: i32::MAX, step: 1 }, true, Rule("randomtickspeed"), false;
+    RandomTickSpeed: "Random tick speed", Cheats, 1, Number { min: 0, max: 4096 }, true, Rule("randomtickspeed"), false;
 }
 
 /// Saved overrides; missing options inherit their defaults for older worlds.
@@ -196,7 +196,7 @@ impl WorldOption {
         match self.definition().control {
             Toggle => matches!(value, 0 | 1),
             Control::Choice(choices) => choices.iter().any(|choice| choice.value == value),
-            Number { min, max, step } => (min..=max).contains(&value) && (value - min) % step == 0,
+            Number { min, max } => (min..=max).contains(&value),
         }
     }
 }
@@ -213,3 +213,60 @@ impl PartialEq for WorldOptions {
     }
 }
 impl Eq for WorldOptions {}
+
+/// Individual menu edits, including explicit changes back to a default value.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct OptionChanges(BTreeMap<WorldOption, i32>);
+
+impl OptionChanges {
+    /// Whether the menu changed any effective value.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+    /// Adds newer edits without discarding unrelated pending changes.
+    pub fn extend(&mut self, newer: &Self) {
+        self.0
+            .extend(newer.0.iter().map(|(&id, &value)| (id, value)));
+    }
+    /// Returns an explicitly edited value.
+    pub fn get(&self, id: WorldOption) -> Option<i32> {
+        self.0.get(&id).copied()
+    }
+}
+
+impl WorldOptions {
+    /// Captures only values changed since a form was opened.
+    pub fn changes_from(&self, previous: &Self) -> OptionChanges {
+        OptionChanges(
+            WorldOption::ALL
+                .iter()
+                .filter_map(|&id| {
+                    let value = self.get(id);
+                    (value != previous.get(id)).then_some((id, value))
+                })
+                .collect(),
+        )
+    }
+    /// Applies recorded menu edits without re-running toggle side effects.
+    pub fn apply_changes(&mut self, changes: &OptionChanges) {
+        for (&id, &value) in &changes.0 {
+            if id.accepts(value) {
+                self.0.insert(id, value);
+            }
+        }
+    }
+    /// Refreshes active game rules while retaining launcher preferences and inactive values.
+    pub fn merge_server_rules(&mut self, saved: &Self) {
+        for &id in WorldOption::ALL {
+            if matches!(
+                id.definition().storage,
+                Storage::Rule(_) | Storage::Combined
+            ) && (id != WorldOption::SleepPercentage
+                || saved.enabled(WorldOption::SleepSkipNight))
+            {
+                self.0.insert(id, saved.get(id));
+            }
+        }
+    }
+}

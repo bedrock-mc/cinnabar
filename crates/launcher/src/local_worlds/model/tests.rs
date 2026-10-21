@@ -376,7 +376,7 @@ fn prefs_are_polled_until_docker_detection_settles() {
     );
     assert!(menu.update(Input::BeginCreate).is_empty());
     assert_eq!(menu.screen(), Screen::Create);
-    assert_eq!(menu.create_form().backend, Backend::Dragonfly);
+    assert_eq!(menu.create_form().backend, Backend::Bds);
 }
 
 #[test]
@@ -546,7 +546,7 @@ fn accept_eula_outside_the_eula_screen_does_nothing() {
 }
 
 #[test]
-fn create_defaults_to_dragonfly_and_normal_independent_of_bds_availability() {
+fn create_defaults_to_bds_and_normal_independent_of_availability() {
     for state in [SetupState::Ready, SetupState::Unsupported] {
         let mut menu = loaded(&[]);
         let mut idle = status(WorldState::Idle, "");
@@ -554,7 +554,7 @@ fn create_defaults_to_dragonfly_and_normal_independent_of_bds_availability() {
         menu.apply(Event::Prefs(Prefs::default(), idle));
         menu.update(Input::BeginCreate);
         assert_eq!(menu.create_form().generator, Generator::Normal);
-        assert_eq!(menu.create_form().backend, Backend::Dragonfly);
+        assert_eq!(menu.create_form().backend, Backend::Bds);
     }
 }
 
@@ -723,16 +723,15 @@ fn template_create_action_opens_the_create_form() {
 }
 
 #[test]
-fn new_world_backend_defaults_to_dragonfly_without_a_docker_gate() {
+fn new_world_backend_defaults_to_bds_and_requires_docker() {
     let mut menu = docker_menu(UnavailableReason::DockerMissing, &[]);
     menu.update(Input::BeginCreate);
     assert_eq!(menu.screen(), Screen::Create);
-    let effects = menu.update(Input::SubmitCreate);
-    let [Effect::Create(spec)] = effects.as_slice() else {
-        panic!("Dragonfly creation must not be blocked by Docker");
-    };
-    assert_eq!(spec.backend, Some(Backend::Dragonfly));
-    assert_eq!(spec.generator, Generator::Normal);
+    assert_eq!(menu.create_form().backend, Backend::Bds);
+    assert_eq!(menu.create_form().generator, Generator::Normal);
+    assert!(menu.update(Input::SubmitCreate).is_empty());
+    assert_eq!(menu.screen(), Screen::BackendPrompt);
+    assert_eq!(menu.prompt().unwrap().blocking, PromptFor::CreateBds);
 }
 
 /// An import holds the list behind its modal until the worker reports, then lists the world first.
@@ -829,7 +828,10 @@ fn world_options_flow_through_create_and_edit_with_cheat_activation() {
     let Effect::Update { update, .. } = &effects[0] else {
         panic!("expected update");
     };
-    assert!(!update.options.as_ref().unwrap().enabled(O::KeepInventory));
+    assert_eq!(
+        update.options.as_ref().unwrap().get(O::KeepInventory),
+        Some(0)
+    );
 }
 
 #[test]
@@ -842,4 +844,24 @@ fn world_options_reject_controls_for_existing_dragonfly_worlds() {
     assert_eq!(menu.view().tab, Tab::General);
     menu.update(Input::SetOption(O::KeepInventory, 1));
     assert!(!menu.edit_form().unwrap().options.enabled(O::KeepInventory));
+}
+
+#[test]
+fn world_options_edits_keep_the_form_baseline_when_the_list_refreshes() {
+    use crate::local_worlds::options::WorldOption as O;
+    let mut original = world("fixture", "Options");
+    original.backend = Backend::Bds;
+    let mut menu = WorldsMenu::default();
+    menu.apply(Event::Listed(vec![original.clone()]));
+    menu.update(Input::BeginEdit(0));
+    menu.update(Input::SetOption(O::ShowCoordinates, 1));
+    original.options.set(O::RandomTickSpeed, 42);
+    menu.apply(Event::Listed(vec![original]));
+    let effects = menu.update(Input::SubmitEdit);
+    let Effect::Update { update, .. } = &effects[0] else {
+        panic!("option update");
+    };
+    let changes = update.options.as_ref().unwrap();
+    assert_eq!(changes.get(O::ShowCoordinates), Some(1));
+    assert_eq!(changes.get(O::RandomTickSpeed), None);
 }

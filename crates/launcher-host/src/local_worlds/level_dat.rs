@@ -53,18 +53,19 @@ fn configured(world: &World, bytes: &[u8]) -> Option<Vec<u8>> {
             })
             .to_le_bytes(),
         );
-        put(
-            &mut fields,
-            "GameType",
-            3,
-            &(world.game_mode as i32).to_le_bytes(),
-        );
-        put(
-            &mut fields,
-            "Difficulty",
-            3,
-            &(world.difficulty as i32).to_le_bytes(),
-        );
+        let game_mode: i32 = match world.game_mode {
+            bridge::GameMode::Survival => 0,
+            bridge::GameMode::Creative => 1,
+            bridge::GameMode::Adventure => 2,
+        };
+        put(&mut fields, "GameType", 3, &game_mode.to_le_bytes());
+        let difficulty: i32 = match world.difficulty {
+            launcher::local_worlds::world::Difficulty::Peaceful => 0,
+            launcher::local_worlds::world::Difficulty::Easy => 1,
+            launcher::local_worlds::world::Difficulty::Normal => 2,
+            launcher::local_worlds::world::Difficulty::Hard => 3,
+        };
+        put(&mut fields, "Difficulty", 3, &difficulty.to_le_bytes());
     }
     put(&mut fields, "LevelName", 8, &string(&world.name));
     let was_always_day = scalar(&fields, "daylightCycle") == Some(1);
@@ -249,17 +250,33 @@ mod tests;
 
 /// Recovers options from worlds saved before the option catalog was introduced.
 pub(super) fn read_options(path: &Path) -> launcher::local_worlds::options::WorldOptions {
+    try_read_options(path).unwrap_or_default()
+}
+
+/// Reads options only from a complete, well-formed level-data file.
+pub(super) fn try_read_options(
+    path: &Path,
+) -> Option<launcher::local_worlds::options::WorldOptions> {
     let mut options = launcher::local_worlds::options::WorldOptions::default();
-    let Some(fields) = fs::read(path)
-        .ok()
-        .and_then(|bytes| read_fields(bytes.get(8..)?))
-    else {
-        return options;
-    };
+    let bytes = fs::read(path).ok()?;
+    let size = u32::from_le_bytes(bytes.get(4..8)?.try_into().ok()?) as usize;
+    if bytes.len() - 8 != size {
+        return None;
+    }
+    let fields = read_fields(bytes.get(8..)?)?;
     for &id in O::ALL {
         let key = match id.definition().storage {
             Storage::Rule(key) | Storage::Level(key) | Storage::Property(_, key) => key,
             Storage::Combined => continue,
+        };
+        let key = match id {
+            O::LanVisible if scalar(&fields, "LANBroadcastIntent").is_some() => {
+                "LANBroadcastIntent"
+            }
+            O::Multiplayer if scalar(&fields, "MultiplayerGameIntent").is_some() => {
+                "MultiplayerGameIntent"
+            }
+            _ => key,
         };
         if let Some((_, tag)) = fields.iter().find(|(name, _)| name == key.as_bytes()) {
             let data = &tag[3 + key.len()..];
@@ -278,12 +295,14 @@ pub(super) fn read_options(path: &Path) -> launcher::local_worlds::options::Worl
         }
     }
     // Reading existing rules must preserve the saved cheats switch, not simulate UI activation.
-    if fields.iter().any(|(name, tag)| {
-        name == b"daylightCycle"
-            && tag
-                .last_chunk::<4>()
-                .is_some_and(|bytes| i32::from_le_bytes(*bytes) == 1)
-    }) {
+    if !options.enabled(O::DaylightCycle)
+        && fields.iter().any(|(name, tag)| {
+            name == b"daylightCycle"
+                && tag
+                    .last_chunk::<4>()
+                    .is_some_and(|bytes| i32::from_le_bytes(*bytes) == 1)
+        })
+    {
         options.set(O::AlwaysDay, 1);
     }
     let enabled = fields
@@ -294,7 +313,7 @@ pub(super) fn read_options(path: &Path) -> launcher::local_worlds::options::Worl
         .unwrap_or(0)
         != 0;
     options.restore_cheats(enabled);
-    options
+    Some(options)
 }
 
 /// Reads a scalar field without changing its encoded payload.

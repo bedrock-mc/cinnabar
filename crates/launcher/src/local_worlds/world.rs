@@ -84,7 +84,7 @@ pub struct WorldUpdate {
     pub name: Option<String>,
     pub game_mode: Option<GameMode>,
     pub difficulty: Option<Difficulty>,
-    pub options: Option<super::options::WorldOptions>,
+    pub options: Option<super::options::OptionChanges>,
 }
 
 /// Settings for a new world; a `None` seed is random.

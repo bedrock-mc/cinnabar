@@ -852,7 +852,10 @@ fn edit_changes(edit: &EditForm, saved: &World, name: String) -> WorldUpdate {
         name: (name != saved.name).then_some(name),
         game_mode: (edit.game_mode != saved.game_mode).then_some(edit.game_mode),
         difficulty: (edit.difficulty != saved.difficulty).then_some(edit.difficulty),
-        options: (edit.options != saved.options).then(|| edit.options.clone()),
+        options: {
+            let changes = edit.options.changes_from(&edit.original_options);
+            (!changes.is_empty()).then_some(changes)
+        },
     }
 }
 

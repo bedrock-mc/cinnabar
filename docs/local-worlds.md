@@ -26,12 +26,14 @@ use the shared option catalog in `launcher::local_worlds::options`. The catalog 
 defaults, bounds, cheat gating and BDS destinations. Changing a cheat setting enables cheats;
 turning cheats off restores the gated rules' defaults.
 
-World metadata stores pending edits. After a successful open, the world file supplies the current
+World metadata stores individual pending edits and inactive preferences. After a successful open,
+the world file supplies the current
 rules, including changes saved during play. Before BDS starts, the host updates the owned fields
 in `level.dat` and preserves other tags. Game rules, starting map, bonus chest, sleep settings,
 respawn radius and daylight settings use level data. Server properties apply cheats, simulation
 distance, default player permissions and LAN discovery to both native and container servers. Turning multiplayer off limits
-the server to its host, withdraws friend hosting and disables discovery. Seed and terrain apply during creation; starting
+the server to its host, withdraws friend hosting and disables discovery. Reopening waits for the prior
+server to finish saving before it reloads rules and applies pending edits. Seed and terrain apply during creation; starting
 map and bonus chest are also fixed after creation. The edit screen exposes the remaining options.
 Older and imported worlds recover their options from level data.
 

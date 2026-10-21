@@ -107,7 +107,16 @@ pub(super) fn draw(
         route,
         grid.narrow,
     )?;
-    let key = format!("world_{route:?}_{:?}", view.local.tab);
+    let key = format!(
+        "world_{}_{:?}",
+        if route == Screen::Edit {
+            "edit"
+        } else {
+            "create"
+        },
+        view.local.tab
+    )
+    .to_ascii_lowercase();
     let scroll = canvas.begin_scroll(&key, [content[0], top, content[1], bottom])?;
     let entrance = canvas.begin_entrance(super::motion::Surface::WorldTab(route, view.local.tab));
     let area = [content[0], top - scroll.offset, content[1], bottom];
@@ -116,6 +125,9 @@ pub(super) fn draw(
         Tab::General if editing => edit_general(canvas, view, &view.local, area)?,
         Tab::General => create_general(canvas, view, &view.local, area)?,
         Tab::Advanced if !editing => advanced::draw(canvas, view, &view.local, area)?,
+        Tab::Advanced if view.local.options_available() => {
+            advanced::edit(canvas, view, &view.local, area)?
+        }
         tab if tab.supported() => options::draw(canvas, view, &view.local, area, area[1], editing)?,
         _ => sections::row(canvas, area, area[1], |canvas, inner| {
             caption(canvas, "Not available yet", inner, inner[1])

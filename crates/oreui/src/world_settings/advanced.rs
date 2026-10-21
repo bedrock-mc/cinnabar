@@ -70,3 +70,24 @@ pub(super) fn draw(
     })?;
     options::draw(canvas, view, local_view, area, y, false)
 }
+
+/// Shows the saved seed and terrain without allowing generation settings to change.
+pub(super) fn edit(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    local_view: &WorldsView,
+    area: Bounds,
+) -> Result<f32, PaintError> {
+    let Some(world) = local_view.edited.as_ref() else {
+        return Ok(area[1]);
+    };
+    let y = sections::row(canvas, area, area[1], |canvas, inner| {
+        let y = label(canvas, "World seed", inner, inner[1])?;
+        caption(canvas, &world.seed.to_string(), inner, y)
+    })?;
+    let y = sections::row(canvas, area, y, |canvas, inner| {
+        let y = label(canvas, "World type", inner, inner[1])?;
+        caption(canvas, world_type_label(world.generator), inner, y)
+    })?;
+    options::draw(canvas, view, local_view, area, y, true)
+}

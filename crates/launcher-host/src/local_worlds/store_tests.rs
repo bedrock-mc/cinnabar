@@ -415,7 +415,7 @@ fn world_options_persist_every_value_through_create_and_edit() {
             .update(
                 &world.id,
                 &WorldUpdate {
-                    options: Some(edited.clone()),
+                    options: Some(edited.changes_from(&reopened.options)),
                     ..Default::default()
                 },
             )
@@ -442,13 +442,14 @@ fn world_options_reopen_server_saved_rules_and_keep_pending_menu_edits() {
     super::super::level_dat::configure(&played, &level).unwrap();
     let reopened = store.get(&original.id).unwrap();
     assert_eq!(reopened.options.get(O::RandomTickSpeed), 42);
+    let baseline = reopened.options.clone();
     let mut edited = reopened.options;
     edited.set(O::RandomTickSpeed, 7);
     store
         .update(
             &original.id,
             &WorldUpdate {
-                options: Some(edited),
+                options: Some(edited.changes_from(&baseline)),
                 ..Default::default()
             },
         )
@@ -474,4 +475,66 @@ fn world_options_reopen_server_saved_rules_and_keep_pending_menu_edits() {
             .get(O::RandomTickSpeed),
         7
     );
+}
+
+#[test]
+fn world_options_inactive_preferences_survive_configuration_and_reload() {
+    use launcher::local_worlds::options::WorldOption as O;
+    let dir = scratch();
+    let store = store(&dir);
+    let mut new = new_world("Preferences");
+    new.options.set(O::SleepPercentage, 35);
+    new.options.set(O::SleepSkipNight, 0);
+    new.options.set(O::Multiplayer, 0);
+    let world = store.create(&new).unwrap();
+    let level = store.dir(&world.id).unwrap().join(LEVEL_DIR);
+    fs::create_dir_all(&level).unwrap();
+    super::super::level_dat::configure(&world, &level).unwrap();
+    store.touch(&world.id).unwrap();
+    let loaded = store.get(&world.id).unwrap();
+    assert_eq!(loaded.options.get(O::SleepPercentage), 35);
+    assert!(!loaded.options.enabled(O::SleepSkipNight));
+    assert!(loaded.options.enabled(O::LanVisible));
+    assert!(!loaded.options.enabled(O::Multiplayer));
+    let mut server = loaded;
+    server.options.set(O::Multiplayer, 1);
+    server.options.set(O::LanVisible, 0);
+    server.options.set(O::FireSpreads, 0);
+    super::super::level_dat::configure(&server, &level).unwrap();
+    let loaded = store.get(&world.id).unwrap();
+    assert!(!loaded.options.enabled(O::Multiplayer));
+    assert!(loaded.options.enabled(O::LanVisible));
+    assert!(!loaded.options.enabled(O::FireSpreads));
+}
+
+#[test]
+fn world_options_menu_deltas_preserve_rules_changed_after_the_cached_list() {
+    use launcher::local_worlds::{Effect, Event, Input, WorldsMenu, options::WorldOption as O};
+    let dir = scratch();
+    let store = store(&dir);
+    let mut new = new_world("Current rules");
+    new.backend = Some(Backend::Bds);
+    let original = store.create(&new).unwrap();
+    let level = store.dir(&original.id).unwrap().join(LEVEL_DIR);
+    fs::create_dir_all(&level).unwrap();
+    super::super::level_dat::configure(&original, &level).unwrap();
+    store.touch(&original.id).unwrap();
+    let mut menu = WorldsMenu::default();
+    menu.apply(Event::Listed(vec![original.clone()]));
+    let mut played = original.clone();
+    played.options.set(O::RandomTickSpeed, 42);
+    super::super::level_dat::configure(&played, &level).unwrap();
+    menu.update(Input::BeginEdit(0));
+    menu.update(Input::SetOption(O::ShowCoordinates, 1));
+    let effects = menu.update(Input::SubmitEdit);
+    let Effect::Update { id, update } = &effects[0] else {
+        panic!("settings update");
+    };
+    assert_eq!(
+        update.options.as_ref().unwrap().get(O::RandomTickSpeed),
+        None
+    );
+    let saved = store.update(id, update).unwrap();
+    assert_eq!(saved.options.get(O::RandomTickSpeed), 42);
+    assert!(saved.options.enabled(O::ShowCoordinates));
 }

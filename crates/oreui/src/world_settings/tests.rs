@@ -189,3 +189,50 @@ fn advanced_world_form_exposes_terrain_and_catalog_options() {
         }
     }
 }
+
+#[test]
+fn world_options_edit_shows_the_saved_seed_without_generation_inputs() {
+    use launcher::local_worlds::{Event, Input, WorldsMenu, world::World};
+    let world = World {
+        id: "fixture".into(),
+        name: "Fixture".into(),
+        game_mode: GameMode::Survival,
+        generator: Generator::Normal,
+        difficulty: Difficulty::Normal,
+        backend: bridge::Backend::Bds,
+        seed: -42,
+        options: Default::default(),
+        created_unix: 0,
+        last_played_unix: 0,
+        size_bytes: 0,
+    };
+    let mut menu = WorldsMenu::default();
+    menu.apply(Event::Listed(vec![world]));
+    menu.update(Input::BeginEdit(0));
+    menu.update(Input::SelectTab(Tab::Advanced));
+    let mut view = MenuView::new(true, "Fixture".into());
+    view.local = menu.view();
+    let (_, hits, nodes) = paint(Default::default(), |canvas| {
+        draw(canvas, &view, [1280.0, 900.0], Screen::Edit).unwrap();
+    });
+    assert!(
+        !hits
+            .iter()
+            .any(|(action, _)| matches!(action, MenuAction::LocalWorld(A::SeedField | A::Flat(_))))
+    );
+    let text: String = nodes
+        .iter()
+        .filter_map(|node| match node.visual() {
+            ui::UiVisual::Text { layout, .. } => Some(
+                layout
+                    .glyphs()
+                    .iter()
+                    .map(|glyph| glyph.codepoint)
+                    .collect::<String>(),
+            ),
+            _ => None,
+        })
+        .collect();
+    assert!(text.contains("-42"));
+    assert!(text.contains(launcher::local_worlds::NORMAL_WORLD_LABEL));
+}

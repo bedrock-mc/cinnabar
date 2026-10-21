@@ -93,7 +93,7 @@ struct Record<'a> {
     backend: Backend,
     seed: i64,
     options: &'a launcher::local_worlds::options::WorldOptions,
-    options_pending: bool,
+    pending_options: &'a launcher::local_worlds::options::OptionChanges,
     created_unix: i64,
     last_played_unix: i64,
 }
@@ -117,7 +117,7 @@ struct Saved {
     #[serde(default)]
     options: Option<launcher::local_worlds::options::WorldOptions>,
     #[serde(default)]
-    options_pending: bool,
+    pending_options: launcher::local_worlds::options::OptionChanges,
     #[serde(default)]
     created_unix: i64,
     #[serde(default)]
@@ -237,13 +237,17 @@ impl Store {
             seed: saved.seed,
             options: {
                 let path = self.root.join(id).join(LEVEL_DIR).join("level.dat");
-                if saved.options_pending || !path.is_file() {
-                    saved
-                        .options
-                        .unwrap_or_else(|| super::level_dat::read_options(&path))
-                } else {
-                    super::level_dat::read_options(&path)
-                }
+                let mut options = match saved.options {
+                    Some(mut options) => {
+                        if let Some(current) = super::level_dat::try_read_options(&path) {
+                            options.merge_server_rules(&current);
+                        }
+                        options
+                    }
+                    None => super::level_dat::read_options(&path),
+                };
+                options.apply_changes(&saved.pending_options);
+                options
             },
             created_unix: saved.created_unix,
             last_played_unix: saved.last_played_unix,
@@ -251,11 +255,15 @@ impl Store {
         })
     }
 
-    fn write(&self, world: &World, options_pending: bool) -> Result<(), WorldError> {
+    fn write(
+        &self,
+        world: &World,
+        pending_options: &launcher::local_worlds::options::OptionChanges,
+    ) -> Result<(), WorldError> {
         let dir = self.dir(&world.id)?;
         create_private_dir(&dir)
             .map_err(|error| failed(format!("create world directory: {error}")))?;
-        write_record(&dir, world, options_pending)
+        write_record(&dir, world, pending_options)
     }
 
     /// Validates `world` and saves it with a fresh id.
@@ -263,7 +271,7 @@ impl Store {
         let id = format!("{:016x}", u64::from_be_bytes(random_bytes()?));
         let state = self.lock();
         let world = new_record(&state, id, world)?;
-        self.write(&world, true)?;
+        self.write(&world, &Default::default())?;
         Ok(world)
     }
 
@@ -333,7 +341,7 @@ impl Store {
             id = format!("{:016x}", u64::from_be_bytes(random_bytes()?));
         }
         let mut world = new_record(&state, id, world)?;
-        write_record(&staging.dir, &world, false)?;
+        write_record(&staging.dir, &world, &Default::default())?;
         let dir = self.root.join(&world.id);
         fs::rename(&staging.dir, &dir)
             .map_err(|error| failed(format!("publish imported world: {error}")))?;
@@ -386,10 +394,13 @@ impl Store {
             world.difficulty = difficulty;
         }
         if let Some(options) = &update.options {
-            world.options = options.clone();
+            world.options.apply_changes(options);
         }
-        let pending = update.options.is_some() || self.saved(id)?.options_pending;
-        self.write(&world, pending)?;
+        let mut pending = self.saved(id)?.pending_options;
+        if let Some(changes) = &update.options {
+            pending.extend(changes);
+        }
+        self.write(&world, &pending)?;
         Ok(world)
     }
 
@@ -398,7 +409,7 @@ impl Store {
         let state = self.lock();
         let mut world = self.read(id)?;
         world.last_played_unix = state.now();
-        self.write(&world, false)
+        self.write(&world, &Default::default())
     }
 
     /// Removes a world and all of its saved data.
@@ -451,7 +462,11 @@ fn valid_id(id: &str) -> bool {
 }
 
 /// Writes `world.json` for `world` into `dir`.
-fn write_record(dir: &Path, world: &World, options_pending: bool) -> Result<(), WorldError> {
+fn write_record(
+    dir: &Path,
+    world: &World,
+    pending_options: &launcher::local_worlds::options::OptionChanges,
+) -> Result<(), WorldError> {
     let raw = serde_json::to_vec_pretty(&Record {
         id: &world.id,
         name: &world.name,
@@ -461,7 +476,7 @@ fn write_record(dir: &Path, world: &World, options_pending: bool) -> Result<(), 
         backend: world.backend,
         seed: world.seed,
         options: &world.options,
-        options_pending,
+        pending_options,
         created_unix: world.created_unix,
         last_played_unix: world.last_played_unix,
     })
