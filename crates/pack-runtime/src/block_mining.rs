@@ -6,10 +6,11 @@ use std::{collections::HashMap, sync::Arc};
 
 type MiningCondition<'a> = (Option<BlockMolang>, &'a Arc<CustomBlockMining>);
 
-/// Resolves every admitted state's mining component; admission already bounds the state count.
+/// Resolves every admitted state's mining component; admission and the permutation bound limit
+/// the work, and a truncated mining definition stays unknown without evaluation.
 pub(crate) fn resolve(blocks: &mut CustomBlocks) {
     for block in Arc::make_mut(&mut blocks.blocks) {
-        if block.visual.materialization_disabled {
+        if block.visual.materialization_disabled || block.visual.mining_truncated {
             continue;
         }
         let conditions: Vec<_> = block

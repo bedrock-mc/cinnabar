@@ -793,42 +793,56 @@ fn connection_states_select_per_state_collision() {
     assert_eq!(selection, CustomSelection::Box(north));
 }
 
-// A disabling mining override past the permutation bound must still apply, not leave an
-// instant-break base.
+// A disabling mining override past the permutation bound cannot be read, so mining stays
+// unknown instead of allowing an instant break; a huge truncated definition does no mining work.
 #[test]
-fn custom_mining_overrides_past_the_permutation_bound_still_apply() {
-    let count: u32 = 1025;
-    let mut encoded = named(10, "");
-    encoded.extend(named(9, "permutations"));
-    encoded.push(10);
-    let mut length = count << 1;
-    while length >= 0x80 {
-        encoded.push((length as u8 & 0x7f) | 0x80);
-        length >>= 7;
-    }
-    encoded.push(length as u8);
-    for index in 0..count {
-        encoded.extend(named(8, "condition"));
-        encoded.extend(text("1"));
-        if index + 1 == count {
-            encoded.extend(named(10, "components"));
-            encoded.extend(named(10, "minecraft:destructible_by_mining"));
-            encoded.extend(named(5, "value"));
-            encoded.extend((-1.0_f32).to_le_bytes());
-            encoded.extend([0, 0]);
+fn custom_mining_truncated_definitions_stay_unknown_without_evaluation() {
+    for properties in [0_u32, 16] {
+        let permutations: u32 = 1025;
+        let mut encoded = named(10, "");
+        encoded.extend(named(9, "properties"));
+        encoded.push(10);
+        encoded.extend(varint(properties << 1));
+        for index in 0..properties {
+            encoded.extend(named(8, "name"));
+            encoded.extend(text(&format!("test:bit{index}")));
+            encoded.extend(named(9, "enum"));
+            encoded.extend([1, 4, 0, 1]);
+            encoded.push(0);
+        }
+        encoded.extend(named(9, "permutations"));
+        encoded.push(10);
+        encoded.extend(varint(permutations << 1));
+        for index in 0..permutations {
+            encoded.extend(named(8, "condition"));
+            encoded.extend(text("1"));
+            if index + 1 == permutations {
+                encoded.extend(named(10, "components"));
+                encoded.extend(named(10, "minecraft:destructible_by_mining"));
+                encoded.extend(named(5, "value"));
+                encoded.extend((-1.0_f32).to_le_bytes());
+                encoded.extend([0, 0]);
+            }
+            encoded.push(0);
         }
         encoded.push(0);
+        let mut blocks = CustomBlocks::from_definitions([("test:many", encoded.as_slice())]);
+        assert_eq!(blocks.blocks[0].state_count, 1 << properties);
+        resolve(&mut blocks);
+        crate::block_mining::resolve(&mut blocks);
+        let block = &blocks.blocks[0];
+        assert!(block.state_mining.is_empty(), "no state is evaluated");
+        assert!(block.mining_for_state(0).is_none());
     }
-    encoded.push(0);
-    let mut blocks = CustomBlocks::from_definitions([("test:many", encoded.as_slice())]);
-    assert!(blocks.blocks[0].mining_for_state(0).is_none(), "unprepared");
-    resolve(&mut blocks);
-    crate::block_mining::resolve(&mut blocks);
-    assert_eq!(
-        blocks.blocks[0]
-            .mining_for_state(0)
-            .unwrap()
-            .seconds_to_destroy,
-        -1.0
-    );
+}
+
+/// Encodes an unsigned network VarInt.
+fn varint(mut value: u32) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    while value >= 0x80 {
+        bytes.push((value as u8 & 0x7f) | 0x80);
+        value >>= 7;
+    }
+    bytes.push(value as u8);
+    bytes
 }

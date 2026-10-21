@@ -18,7 +18,7 @@ use physical::{
 /// States one custom block may contribute before it is treated as malformed.
 const MAX_STATES_PER_BLOCK: u64 = 1 << 16;
 
-/// Permutations one custom block may define before extras keep only their mining overrides.
+/// Permutations one custom block may define before extras are ignored.
 const MAX_PERMUTATIONS: usize = 1024;
 /// Bone visibility entries one geometry component may define before extras are ignored.
 const MAX_BONE_VISIBILITY: usize = 256;
@@ -96,6 +96,8 @@ pub struct CustomBlockVisuals {
     pub permutations: Box<[CustomPermutation]>,
     /// Physical or placement data was discarded while parsing the definition.
     pub components_incomplete: bool,
+    /// A permutation past the bound set mining, so no state's mining value is known.
+    pub mining_truncated: bool,
     /// Block states in palette order: placement trait states, then properties in list order.
     /// The first axis varies fastest across the block's palette run.
     pub state_axes: Box<[CustomStateAxis]>,
@@ -261,7 +263,9 @@ impl CustomBlock {
 
     /// Borrows resolved mining data; `None` only before a mining permutation is prepared.
     pub fn mining_for_state(&self, index: u32) -> Option<&Arc<CustomBlockMining>> {
-        if let Some(mining) = self.state_mining.get(index as usize) {
+        if self.visual.mining_truncated {
+            None
+        } else if let Some(mining) = self.state_mining.get(index as usize) {
             Some(mining)
         } else if self
             .visual
@@ -654,6 +658,7 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
         friction_component(components.and_then(|set| set.field("minecraft:friction")));
     let mut permutation_skips = 0;
     let mut physical_permutation_skips = 0;
+    let mut mining_truncated = false;
     let permutations = root
         .list("permutations")
         .iter()
@@ -663,20 +668,10 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
             if index >= MAX_PERMUTATIONS {
                 permutation_skips += 1;
                 physical_permutation_skips += usize::from(!mining::only_component(components));
-                // Mining overrides past the bound still resolve, since the client has no bound.
-                let (mining, _) =
-                    mining::component(components.and_then(|set| set.field(mining::COMPONENT)));
-                let Some(Nbt::String(condition)) = permutation.field("condition") else {
-                    return None;
-                };
-                return mining.map(|mining| CustomPermutation {
-                    condition: condition.as_str().into(),
-                    components: CustomVisualComponents::default(),
-                    physical: CustomPhysicalComponents {
-                        mining: Some(mining),
-                        ..CustomPhysicalComponents::default()
-                    },
-                });
+                mining_truncated |= components
+                    .and_then(|set| set.field(mining::COMPONENT))
+                    .is_some();
+                return None;
             }
             placement::components(&mut placement, components);
             // A missing condition evaluates as an empty expression, which never holds.
@@ -738,6 +733,7 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
                 }),
             permutations,
             components_incomplete: physical_skips > 0 || physical_permutation_skips > 0,
+            mining_truncated,
             state_axes: state_axes.into_boxed_slice(),
             state_identity_incomplete,
             materialization_disabled: false,
