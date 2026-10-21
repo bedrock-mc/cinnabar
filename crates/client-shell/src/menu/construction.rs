@@ -103,6 +103,7 @@ impl MenuRuntime {
             hovered: initial.hovered,
             pressed: initial.pressed,
             pointer_down: false,
+            touch_available: cfg!(target_os = "android"),
             server_tab: initial.server_tab,
             profile_tab: initial.profile_tab,
             dialog: initial.dialog,

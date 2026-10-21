@@ -420,6 +420,8 @@ pub struct MenuView {
     /// Keyboard and gamepad focus draws an outline; pointer focus still navigates.
     pub navigation_focus_visible: bool,
     pub gamepad_input: bool,
+    /// Touch hardware remains available when a mouse or controller becomes active.
+    pub touch_available: bool,
     pub server_tab: MenuServerTab,
     pub profile_tab: super::ProfileTab,
     pub dialog: Option<MenuDialog>,
@@ -686,6 +688,7 @@ impl MenuView {
             pressed: None,
             navigation_focus_visible: true,
             gamepad_input: false,
+            touch_available: cfg!(target_os = "android"),
             server_tab: MenuServerTab::Featured,
             profile_tab: super::ProfileTab::default(),
             dialog: None,

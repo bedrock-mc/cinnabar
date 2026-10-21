@@ -99,6 +99,7 @@ pub struct MenuRuntime {
     hovered: Option<MenuAction>,
     pressed: Option<MenuAction>,
     pointer_down: bool,
+    touch_available: bool,
     server_tab: MenuServerTab,
     profile_tab: launcher::menu::ProfileTab,
     dialog: Option<MenuDialog>,
@@ -372,38 +373,6 @@ impl MenuRuntime {
             return None;
         }
         self.intents.join.take()
-    }
-
-    /// The session is live: the menu gives way to the world.
-    pub fn show_world(&mut self) {
-        self.reset_death();
-        self.visible = false;
-        self.navigation_focus = navigation::NavigationFocus::default();
-        self.history.reset(MenuScreen::Home);
-        self.screen = MenuScreen::Home;
-        self.message = None;
-        self.field = None;
-    }
-
-    pub fn show_connecting(&mut self) {
-        self.reset_death();
-        self.visible = true;
-        self.navigation_focus = navigation::NavigationFocus::default();
-        self.history.reset(MenuScreen::Home);
-        self.history.push(MenuScreen::Play);
-        self.screen = MenuScreen::Play;
-        self.message = Some("Connecting…".to_owned());
-    }
-
-    pub fn show_home(&mut self) {
-        self.reset_death();
-        self.visible = true;
-        self.navigation_focus = navigation::NavigationFocus::default();
-        self.history.reset(MenuScreen::Home);
-        self.screen = MenuScreen::Home;
-        self.focused = 0;
-        self.field = None;
-        self.dialog = None;
     }
 
     /// A cancelled join drops any queued join and returns to the play screen.
