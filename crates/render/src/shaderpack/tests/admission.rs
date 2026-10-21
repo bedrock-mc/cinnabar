@@ -47,6 +47,7 @@ fn shadow_colour_feedback_is_rejected_before_recording() {
             None,
             &gpu,
             &Default::default(),
+            &Default::default(),
         );
         if output == 0 {
             let Err(error) = result else {
@@ -92,6 +93,7 @@ fn geometry_storage_attachment_aliases_fail_view_admission() {
             JAVA_DIMENSIONS[0],
             None,
             &gpu,
+            &Default::default(),
             &Default::default(),
         )
         .unwrap();

@@ -43,6 +43,7 @@ fn pack_load_keeps_depth_copies_at_float32_without_filtering() {
         None,
         &gpu,
         &VanillaTextures::default(),
+        &Default::default(),
     )
     .unwrap_or_else(|error| panic!("depth fixture: {error}"));
     assert_eq!(loaded.depth_format, TextureFormat::R32Float);
@@ -60,6 +61,7 @@ fn pack_load_returns_an_error_on_allocation_failure() {
         None,
         &gpu,
         &VanillaTextures::default(),
+        &Default::default(),
     );
     let error = result
         .err()
@@ -101,6 +103,7 @@ fn unfilterable_float_mipmaps_create_valid_bindings_and_average_texels() {
             None,
             &gpu,
             &VanillaTextures::default(),
+            &Default::default(),
         )
         .unwrap_or_else(|error| panic!("mipmap fixture: {error}")),
     );
@@ -213,6 +216,7 @@ fn custom_image_samplers_use_placeholders_for_mismatched_view_dimensions() {
                 None,
                 &gpu,
                 &VanillaTextures::default(),
+                &Default::default(),
             )
             .unwrap_or_else(|error| panic!("{sampler}: {error}")),
         );
