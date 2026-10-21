@@ -19,7 +19,7 @@ use super::{
 };
 
 /// Discriminants are the legacy `SkullType` ordinals.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum SkullKind {
     Skeleton = 0,
     WitherSkeleton = 1,
@@ -63,9 +63,12 @@ impl SkullKind {
 
     /// Iterates packed head models across the legacy byte ordinal domain.
     pub fn packed_kinds() -> impl Iterator<Item = Self> {
-        (0..=u8::MAX)
-            .filter_map(|value| Self::from_nbt(i64::from(value)))
-            .filter(|kind| kind.packed_rig_index().is_some())
+        Self::kinds().filter(|kind| kind.packed_rig_index().is_some())
+    }
+
+    /// Every supported head model, including heads built from entity geometry.
+    pub fn kinds() -> impl Iterator<Item = Self> {
+        (0..=u8::MAX).filter_map(|value| Self::from_nbt(i64::from(value)))
     }
 
     /// The head's packed texture and the size its UVs were authored against.
