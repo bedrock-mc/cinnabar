@@ -274,7 +274,9 @@ fn effect_coverage(
 
 #[path = "native_scene.rs"]
 mod native_scene;
-use native_scene::{NativeSceneLayers, needs_native_scene, replacement_ready};
+#[cfg(test)]
+use native_scene::needs_native_scene;
+use native_scene::{NativeSceneLayers, replacement_ready};
 
 /// Hands out the revisions [`ShaderpackBlockIds`] are published under, each one no earlier
 /// table had. The geometry adapter keeps the revision it last derived terrain attributes from
