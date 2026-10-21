@@ -140,6 +140,7 @@ fn shadow_depth_copy_matches_unfilterable_float_targets() {
         None,
         &gpu,
         &Default::default(),
+        &Default::default(),
     )
     .unwrap();
     assert_eq!(loaded.depth_format, wgpu::TextureFormat::R32Float);
