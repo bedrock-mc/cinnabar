@@ -13,6 +13,7 @@ use super::resources::{ImageSource, TextureSource};
 use shaderpack::ProgramKind;
 
 pub(super) mod admission;
+mod image_clears;
 use std::sync::Arc;
 use wgpu::{Device, TextureFormat, TextureUsages, TextureView};
 
@@ -181,6 +182,7 @@ pub(crate) struct ViewTargets {
     pub depth_compare: [Option<Target>; 3],
     pub screen: Target,
     pub images: Vec<(wgpu::Texture, TextureView)>,
+    image_clears: Option<image_clears::ImageClears>,
     pub storage: Vec<(u32, wgpu::Buffer)>,
     /// Per colour buffer, the copy sampled by programs that also write it as an image.
     pub snapshots: Vec<Option<ColorBuffer>>,
@@ -401,10 +403,31 @@ impl ViewTargets {
             depth_compare,
             screen,
             images,
+            image_clears: pack
+                .custom_images
+                .iter()
+                .any(|image| image.clear)
+                .then(|| image_clears::ImageClears::new(device)),
             storage,
             snapshots,
             image_snapshots,
             parity: 0,
+        }
+    }
+
+    /// Clears only custom images that request per-frame clearing, before any programs run.
+    pub(crate) fn clear_images(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        images: &[shaderpack::CustomImage],
+    ) {
+        let Some(clears) = &self.image_clears else {
+            return;
+        };
+        for (image, (texture, _)) in images.iter().zip(&self.images) {
+            if image.clear {
+                clears.record(encoder, texture);
+            }
         }
     }
 

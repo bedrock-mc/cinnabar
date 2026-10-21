@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use assets::facts::JavaBlockMapping;
+use render_scene::shaderpack::ShaderPackIdMaps;
 use shaderpack::NamedIdMap;
 
 /// The pack's entity and item ids, keyed by Java id.
@@ -43,6 +44,17 @@ impl ActorIdMaps {
             Some(mapping) => self.items.bedrock_item_id(mapping, bedrock_identifier),
             None => self.items.id(bedrock_identifier),
         }
+    }
+
+    /// The main-world lookups the app resolves actors and held items with.
+    pub(crate) fn lookups(self: &Arc<Self>, revision: u64) -> ShaderPackIdMaps {
+        let entities = Arc::clone(self);
+        let items = Arc::clone(self);
+        ShaderPackIdMaps::new(
+            Arc::new(move |name: &str| entities.entity_id(name)),
+            Arc::new(move |name: &str| items.item_id(name)),
+            revision,
+        )
     }
 }
 

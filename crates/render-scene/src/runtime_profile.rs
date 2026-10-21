@@ -58,6 +58,12 @@ pub enum RuntimeStage {
     Particles,
     Audio,
     BlockEntities,
+    /// Shader-pack terrain expansion planning and per-view draw lists, in the render world.
+    ShaderpackGeometry,
+    /// Shader-pack per-view uniform evaluation and packing for every program and draw.
+    ShaderpackUniforms,
+    /// Recording a view's shader-pack frame: shadow, geometry and full-screen passes.
+    ShaderpackRecord,
     /// Render-world wall time for one frame, excluding the drawable-acquisition wait.
     RenderFrame,
     /// Update start, when input is sampled, to the end of that frame's render extraction.
@@ -114,6 +120,18 @@ pub enum RuntimeStage {
     GpuModPass7,
     GpuModPrimitives,
     GpuFarTerrain,
+    /// Shader-pack terrain expansion compute and vertex page growth copies.
+    GpuShaderpackExpansion,
+    /// Shader-pack shadow pass with its depth copies and `shadowcomp` passes.
+    GpuShaderpackShadow,
+    /// Shader-pack `prepare`, sky, opaque geometry, actors, effects and depth copies.
+    GpuShaderpackOpaque,
+    /// Shader-pack `deferred` passes.
+    GpuShaderpackDeferred,
+    /// Shader-pack translucent geometry, late effects and the Vanilla overlay.
+    GpuShaderpackTranslucent,
+    /// Shader-pack `composite`, `final`, copy-back and presentation.
+    GpuShaderpackComposite,
     /// GPU time between the previous frame's last timestamp and this frame's first, when both
     /// frames were timed; untimed work between them (uploads, presentation) counts as idle.
     GpuIdle,
@@ -122,7 +140,7 @@ pub enum RuntimeStage {
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 84] = [
+    pub const ALL: [Self; 93] = [
         Self::ActorSessionSetup,
         Self::PackReload,
         Self::WorldPoll,
@@ -161,6 +179,9 @@ impl RuntimeStage {
         Self::Particles,
         Self::Audio,
         Self::BlockEntities,
+        Self::ShaderpackGeometry,
+        Self::ShaderpackUniforms,
+        Self::ShaderpackRecord,
         Self::RenderFrame,
         Self::InputAge,
         Self::InputPacingWait,
@@ -205,12 +226,18 @@ impl RuntimeStage {
         Self::GpuModPass7,
         Self::GpuModPrimitives,
         Self::GpuFarTerrain,
+        Self::GpuShaderpackExpansion,
+        Self::GpuShaderpackShadow,
+        Self::GpuShaderpackOpaque,
+        Self::GpuShaderpackDeferred,
+        Self::GpuShaderpackTranslucent,
+        Self::GpuShaderpackComposite,
         Self::GpuIdle,
         Self::GpuFrameCompletionLatency,
     ];
 
     /// GPU diagnostics, including labelled completion latency, in the tail of [`Self::ALL`].
-    pub const GPU: [Self; 42] = [
+    pub const GPU: [Self; 48] = [
         Self::GpuFrame,
         Self::GpuShadows,
         Self::GpuOpaque,
@@ -251,6 +278,12 @@ impl RuntimeStage {
         Self::GpuModPass7,
         Self::GpuModPrimitives,
         Self::GpuFarTerrain,
+        Self::GpuShaderpackExpansion,
+        Self::GpuShaderpackShadow,
+        Self::GpuShaderpackOpaque,
+        Self::GpuShaderpackDeferred,
+        Self::GpuShaderpackTranslucent,
+        Self::GpuShaderpackComposite,
         Self::GpuIdle,
         Self::GpuFrameCompletionLatency,
     ];
@@ -329,6 +362,9 @@ impl RuntimeStage {
             Self::Particles => "particles",
             Self::Audio => "audio",
             Self::BlockEntities => "block_entities",
+            Self::ShaderpackGeometry => "shaderpack_geometry",
+            Self::ShaderpackUniforms => "shaderpack_uniforms",
+            Self::ShaderpackRecord => "shaderpack_record",
             Self::RenderFrame => "render_frame",
             Self::InputAge => "input_age",
             Self::InputPacingWait => "input_pacing_wait",
@@ -375,6 +411,12 @@ impl RuntimeStage {
             Self::GpuModPass7 => "gpu_mod_pass_7",
             Self::GpuModPrimitives => "gpu_mod_primitives",
             Self::GpuFarTerrain => "gpu_far_terrain",
+            Self::GpuShaderpackExpansion => "gpu_shaderpack_expansion",
+            Self::GpuShaderpackShadow => "gpu_shaderpack_shadow",
+            Self::GpuShaderpackOpaque => "gpu_shaderpack_opaque",
+            Self::GpuShaderpackDeferred => "gpu_shaderpack_deferred",
+            Self::GpuShaderpackTranslucent => "gpu_shaderpack_translucent",
+            Self::GpuShaderpackComposite => "gpu_shaderpack_composite",
         }
     }
 }

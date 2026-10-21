@@ -9,6 +9,7 @@ struct DepthParameters {
     gl_near: f32,
     gl_far: f32,
     _padding: f32,
+    viewport: vec4<f32>,
 }
 
 @group(0) @binding(0) var source_colour: texture_2d<f32>;
@@ -55,8 +56,7 @@ struct SceneColourOut {
 // The scene (linear values) into colortex0, gamma-encoded and bottom-up.
 @fragment
 fn scene_colour(in: Fullscreen) -> SceneColourOut {
-    let size = textureDimensions(source_colour);
-    let texel = flipped_texel(in.uv, size);
+    let texel = vec2<i32>(depth_parameters.viewport.xy) + flipped_texel(in.uv, vec2<u32>(depth_parameters.viewport.zw));
     let colour = textureLoad(source_colour, texel, 0);
     var out: SceneColourOut;
     out.colour = vec4<f32>(linear_to_srgb(colour.rgb), colour.a);
@@ -65,8 +65,7 @@ fn scene_colour(in: Fullscreen) -> SceneColourOut {
 
 // OpenGL window depth of the scene sample under this bottom-up pixel; the sky stays at 1.
 fn gl_depth(in: Fullscreen) -> f32 {
-    let size = textureDimensions(source_depth);
-    let texel = flipped_texel(in.uv, size);
+    let texel = vec2<i32>(depth_parameters.viewport.xy) + flipped_texel(in.uv, vec2<u32>(depth_parameters.viewport.zw));
     let reverse = textureLoad(source_depth, texel, 0);
     if (reverse <= 0.0) {
         return 1.0;
@@ -109,6 +108,12 @@ fn present(in: Fullscreen) -> @location(0) vec4<f32> {
 @fragment
 fn downsample(in: Fullscreen) -> @location(0) vec4<f32> {
     return textureSampleLevel(source_colour, source_sampler, in.uv, 0.0);
+}
+
+// Preserve the other cameras' pixels across the post-process target swap.
+@fragment
+fn preserve(in: Fullscreen) -> @location(0) vec4<f32> {
+    return textureLoad(source_colour, vec2<i32>(in.position.xy), 0);
 }
 
 // The same clamped bilinear average for formats without hardware filtering support.

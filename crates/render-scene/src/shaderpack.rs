@@ -1,8 +1,52 @@
-//! Main-world state of the experimental Java shader-pack render mode: the game state packs
-//! read through their standard uniforms. The renderer behind it compiles only with the
-//! `shaderpacks` feature; without it these types stay unused.
+//! Main-world state of the experimental Java shader-pack render mode: which pack the player
+//! selected, how loading went, the per-camera opt-in, and the game state packs read through
+//! their standard uniforms. The renderer behind it compiles only with the `shaderpacks`
+//! feature; without it these types stay unused.
 
-use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
+use std::{fmt, path::PathBuf, sync::Arc};
+
+use bevy::{
+    prelude::{Component, Resource},
+    render::{extract_component::ExtractComponent, extract_resource::ExtractResource},
+};
+
+/// The pack the settings ask for. The render host loads it on a worker whenever `pack`
+/// changes and reports progress through [`ShaderPackStatus`].
+#[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]
+pub struct ShaderPackRequest {
+    /// Pack folder or zip; `None` unloads the current pack.
+    pub pack: Option<PathBuf>,
+    /// Private directory for cached translations; `None` disables the cache.
+    pub cache_dir: Option<PathBuf>,
+}
+
+/// Load state of the requested pack, written by the render host.
+#[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]
+pub enum ShaderPackStatus {
+    /// No pack requested.
+    #[default]
+    Idle,
+    /// Translation is running for this pack.
+    Loading(PathBuf),
+    /// The pack is translated and its programs are ready to bind.
+    Ready(PathBuf),
+    /// The pack could not be used; cameras stay on Vanilla.
+    Failed { pack: PathBuf, reason: String },
+}
+
+impl ShaderPackStatus {
+    /// Whether cameras may opt into the loaded pack.
+    #[must_use]
+    pub const fn is_ready(&self) -> bool {
+        matches!(self, Self::Ready(_))
+    }
+}
+
+/// Per-camera opt-in: the camera's world passes run through the loaded pack.
+#[derive(Component, ExtractComponent, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[extract_app(bevy::render::RenderApp)]
+#[require(bevy::render::view::Msaa::Off)]
+pub struct ShaderPackRendering;
 
 /// The most biomes [`ShaderPackFrameInputs::sky_biomes`] carries; the Gaussian blend's
 /// lighter biomes beyond these are dropped.
@@ -122,5 +166,57 @@ impl Default for ShaderPackFrameInputs {
             on_fire: false,
             on_ground: true,
         }
+    }
+}
+
+/// Resolves a Bedrock identifier (`minecraft:ender_crystal`) to the loaded pack's id.
+pub type ShaderPackIdLookup = Arc<dyn Fn(&str) -> Option<i32> + Send + Sync>;
+
+/// The loaded pack's `entity.properties` and `item.properties` ids by Bedrock identifier,
+/// through the pinned Java mapping. Published by the render host when a pack loads (empty
+/// without one).
+#[derive(Resource, Clone, Default)]
+pub struct ShaderPackIdMaps {
+    entity: Option<ShaderPackIdLookup>,
+    item: Option<ShaderPackIdLookup>,
+    /// Changes whenever the lookups do.
+    pub revision: u64,
+}
+
+impl ShaderPackIdMaps {
+    #[must_use]
+    pub fn new(entity: ShaderPackIdLookup, item: ShaderPackIdLookup, revision: u64) -> Self {
+        Self {
+            entity: Some(entity),
+            item: Some(item),
+            revision,
+        }
+    }
+
+    /// The pack's `entityId` of a Bedrock entity identifier.
+    #[must_use]
+    pub fn entity_id(&self, bedrock_identifier: &str) -> Option<i32> {
+        self.entity.as_ref()?(bedrock_identifier)
+    }
+
+    /// The pack's item id (`heldItemId`, `currentRenderedItemId`) of a Bedrock item identifier.
+    #[must_use]
+    pub fn item_id(&self, bedrock_identifier: &str) -> Option<i32> {
+        self.item.as_ref()?(bedrock_identifier)
+    }
+
+    /// Whether a pack's maps are loaded.
+    #[must_use]
+    pub fn is_loaded(&self) -> bool {
+        self.entity.is_some()
+    }
+}
+
+impl fmt::Debug for ShaderPackIdMaps {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ShaderPackIdMaps")
+            .field("loaded", &self.is_loaded())
+            .field("revision", &self.revision)
+            .finish()
     }
 }
