@@ -16,7 +16,9 @@ fn effect(uv: vec2<f32>) -> vec3<f32> {
     let edge = clamp(max(near, diagonal) - coverage, 0.0, 1.0) * param(3u);
     let halo = clamp(mask(1u, uv) - coverage, 0.0, 1.0) * param(7u);
     let original = scene(uv);
-    if (edge == 0.0 && halo == 0.0) { return original; }
-    let with_glow = mix(display_from_linear(original), vec3<f32>(param(4u), param(5u), param(6u)), halo);
+    let fill = coverage * param(12u);
+    if (edge == 0.0 && halo == 0.0 && fill == 0.0) { return original; }
+    let with_fill = mix(display_from_linear(original), vec3<f32>(param(9u), param(10u), param(11u)), fill);
+    let with_glow = mix(with_fill, vec3<f32>(param(4u), param(5u), param(6u)), halo);
     return linear_from_display(mix(with_glow, vec3<f32>(param(0u), param(1u), param(2u)), edge));
 }

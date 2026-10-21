@@ -426,6 +426,39 @@ pub(super) fn draw_spans(
     }
 }
 
+/// Splits main-pass spans at coverage-only actors; mask preparation retains the complete spans.
+pub(super) fn visible_spans(
+    spans: &[ActorDrawSpan],
+    manifest: &[render_model::ActorDrawManifestEntry],
+    hidden: &[u64],
+) -> Vec<ActorDrawSpan> {
+    let mut visible = Vec::with_capacity(spans.len());
+    for span in spans {
+        let mut run = None;
+        for first in span.first..span.first + span.count {
+            if hidden.contains(&manifest[first as usize].identity.runtime_id) {
+                if let Some(first_run) = run.take() {
+                    visible.push(ActorDrawSpan {
+                        first: first_run,
+                        count: first - first_run,
+                        ..*span
+                    });
+                }
+            } else {
+                run.get_or_insert(first);
+            }
+        }
+        if let Some(first) = run {
+            visible.push(ActorDrawSpan {
+                first,
+                count: span.first + span.count - first,
+                ..*span
+            });
+        }
+    }
+    visible
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

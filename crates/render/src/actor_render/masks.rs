@@ -1,6 +1,7 @@
 //! Bounded owner-only actor coverage, using the scene's exact meshes, poses and cutouts.
 
 use super::*;
+use bevy::render::render_resource::BufferInitDescriptor;
 use bevy::{
     camera::{MainPassResolutionOverride, Viewport},
     core_pipeline::{Core3d, Core3dSystems},
@@ -36,16 +37,28 @@ struct MaskSpecializer;
 fn dissolve_layout(multisampled: bool) -> BindGroupLayoutDescriptor {
     BindGroupLayoutDescriptor::new(
         "mask dissolve depth",
-        &[BindGroupLayoutEntry {
-            binding: 0,
-            visibility: ShaderStages::FRAGMENT,
-            ty: BindingType::Texture {
-                sample_type: TextureSampleType::Depth,
-                view_dimension: TextureViewDimension::D2,
-                multisampled,
+        &[
+            BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: BufferSize::new(16),
+                },
+                count: None,
             },
-            count: None,
-        }],
+            BindGroupLayoutEntry {
+                binding: 1,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Depth,
+                    view_dimension: TextureViewDimension::D2,
+                    multisampled,
+                },
+                count: None,
+            },
+        ],
     )
 }
 
@@ -65,6 +78,13 @@ impl Specializer<RenderPipeline> for MaskSpecializer {
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Key>, BevyError> {
         let contract = ActorPipelineSpecializer.specialize(key.actor, descriptor)?;
+        descriptor
+            .layout
+            .push(dissolve_layout(key.actor.msaa.samples() > 1));
+        descriptor
+            .vertex
+            .shader_defs
+            .push(bevy::shader::ShaderDefVal::Bool("ACTOR_MASK".into(), true));
         if dissolve_depth(key.actor.material) {
             descriptor
                 .depth_stencil
@@ -86,9 +106,6 @@ impl Specializer<RenderPipeline> for MaskSpecializer {
         let dissolve = key.actor.material & assets::EntityRenderMaterialState::KIND_MASK
             == assets::EntityRenderMaterial::DissolveColor as u32;
         if dissolve {
-            descriptor
-                .layout
-                .push(dissolve_layout(key.actor.msaa.samples() > 1));
             fragment.shader_defs.push(bevy::shader::ShaderDefVal::Bool(
                 "MASK_DISSOLVE".into(),
                 true,
@@ -128,6 +145,7 @@ pub(crate) struct MaskTarget {
     pub(crate) view: TextureView,
     dissolve_view: TextureView,
     dissolve_binding: Option<BindGroup>,
+    placement: Buffer,
     draws: Vec<Vec<(crate::actor::gpu::ActorDrawSpan, CachedRenderPipelineId)>>,
     frame_generation: u64,
     ready: bool,
@@ -181,6 +199,11 @@ impl MaskTarget {
             view,
             dissolve_view: dissolve.create_view(&default()),
             dissolve_binding: None,
+            placement: device.create_buffer_with_data(&BufferInitDescriptor {
+                label: Some("mask placement"),
+                contents: bytemuck::cast_slice(&[0.0f32; 4]),
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            }),
             draws: Vec::new(),
             frame_generation: 0,
             ready: false,
@@ -286,6 +309,7 @@ fn compatible(a: &mod_render::masks::Mask, b: &mod_render::masks::Mask) -> bool 
         && a.session.dimension == b.session.dimension
         && a.depth == b.depth
         && a.entities == b.entities
+        && a.position == b.position
 }
 
 /// Keeps fitting coverage groups, offering each owner one group before its next.
@@ -322,7 +346,7 @@ fn selection(
     }
     let mut draws = Vec::new();
     let mut vertices = 0u64;
-    for span in &gpu.spans {
+    for span in &gpu.mask_spans {
         for first in span.first..span.first.checked_add(span.count)? {
             let entry = gpu.manifest.get(first as usize)?;
             if !selected(mask, &entry.identity) {
@@ -342,12 +366,35 @@ fn selection(
     Some(draws)
 }
 
+/// Reuses the body's final render root for every layer of a translated mask.
+fn displacement(mask: &mod_render::masks::Mask, gpu: &ActorGpu) -> [f32; 4] {
+    let Some(position) = mask.position else {
+        return [0.; 4];
+    };
+    gpu.manifest
+        .iter()
+        .zip(gpu.instances.iter())
+        .find(|(entry, _)| {
+            entry.identity.layer == render_model::ACTOR_LAYER_BODY
+                && selected(mask, &entry.identity)
+        })
+        .map_or([0.; 4], |(_, instance)| {
+            [
+                position[0] - instance.world_from_actor[0][3],
+                position[1] - instance.world_from_actor[1][3],
+                position[2] - instance.world_from_actor[2][3],
+                0.,
+            ]
+        })
+}
+
 /// Reclaims revoked owners/views before charging a complete frame's attachments.
 pub(crate) fn prepare(
     scene: Option<Res<render_scene::ModRenderScene>>,
     gpu: Option<Res<ActorGpu>>,
     mut masks: ResMut<MaskGpu>,
     device: Res<RenderDevice>,
+    queue: Res<RenderQueue>,
     cache: Res<PipelineCache>,
     views: Query<(Entity, &Msaa, &ViewDepthStencilTexture)>,
 ) {
@@ -451,16 +498,24 @@ pub(crate) fn prepare(
                 draws.entry(owner).or_default().push((span, id));
             }
             let target = masks.targets.get_mut(&key).unwrap();
+            let displacement = displacement(mask, &gpu);
+            queue.write_buffer(&target.placement, 0, bytemuck::cast_slice(&displacement));
             if target.dissolve_binding.is_none() {
                 target.dissolve_binding =
                     gpu_allocation::checked(&device, "mask dissolve binding", 0, || {
                         device.create_bind_group(
                             "mask dissolve binding",
                             &cache.get_bind_group_layout(&dissolve_layout(msaa.samples() > 1)),
-                            &[BindGroupEntry {
-                                binding: 0,
-                                resource: BindingResource::TextureView(&target.dissolve_view),
-                            }],
+                            &[
+                                BindGroupEntry {
+                                    binding: 0,
+                                    resource: target.placement.as_entire_binding(),
+                                },
+                                BindGroupEntry {
+                                    binding: 1,
+                                    resource: BindingResource::TextureView(&target.dissolve_view),
+                                },
+                            ],
                         )
                     });
             }
@@ -617,9 +672,7 @@ fn draw(
                     };
                     pass.set_render_pipeline(pipeline);
                     pass.set_bind_group(0, binding, &[offset.offset]);
-                    if !prepass && paired {
-                        pass.set_bind_group(2, target.dissolve_binding.as_ref().unwrap(), &[]);
-                    }
+                    pass.set_bind_group(2, target.dissolve_binding.as_ref().unwrap(), &[]);
                     pass.draw(0..span.vertex_count, span.first..span.first + span.count);
                 }
             }

@@ -182,6 +182,7 @@ fn appearance_is_bounded_and_foreign_bindings_are_rejected() {
     let (mut store, _) = store(1);
     let mask = store.create(MaskDepth::Test).unwrap();
     let style = mod_api::drawing::MaskStyle {
+        fill: None,
         outline: [1.0; 4],
         outline_radius: 1.0,
         glow: [1.0; 4],
@@ -192,6 +193,7 @@ fn appearance_is_bounded_and_foreign_bindings_are_rejected() {
         store.set_style(
             mask,
             Some(mod_api::drawing::MaskStyle {
+                fill: None,
                 outline_radius: f32::NAN,
                 ..style
             })
@@ -202,6 +204,7 @@ fn appearance_is_bounded_and_foreign_bindings_are_rejected() {
         store.set_style(
             mask,
             Some(mod_api::drawing::MaskStyle {
+                fill: None,
                 glow_radius: style.glow_radius + 1.0,
                 ..style
             })

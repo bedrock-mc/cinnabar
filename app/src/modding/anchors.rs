@@ -79,13 +79,21 @@ pub(super) fn reconcile(hosts: &mut ModHosts, context: &GameplayContext<'_>) {
 /// Publishes only exact, still-live body roots after the actor renderer's same-frame commit.
 pub(super) fn publish(
     runtime: Option<ResMut<ModRuntime>>,
-    packet_drawing: Option<Res<super::packet_render::Drawing>>,
+    packet_drawing: Option<ResMut<super::packet_render::Drawing>>,
     context: GameplayContext,
     mut scene: ResMut<render_scene::ModRenderScene>,
     actors: Option<Res<render_scene::ActorRenderFrame>>,
     mut drawing: ResMut<DrawingFrame>,
     cameras: Query<&GlobalTransform, With<client_presentation::camera::FlyCamera>>,
 ) {
+    let mut packet_drawing = packet_drawing;
+    if let (Some(drawing), Some(actors), Ok(camera)) = (
+        packet_drawing.as_deref_mut(),
+        actors.as_deref(),
+        cameras.single(),
+    ) {
+        drawing.follow_anchors(actors, camera);
+    }
     let Some(mut runtime) = runtime else {
         *drawing = Default::default();
         if let Some(packet_drawing) = packet_drawing.as_deref() {

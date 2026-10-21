@@ -145,6 +145,9 @@ fn instance_row(base: u32, row: u32) -> vec4<f32> {
     );
 }
 
+@if(ACTOR_MASK)
+@group(2) @binding(0) var<uniform> mask_displacement: vec4<f32>;
+
 @vertex
 fn actor_vertex(
     @builtin(vertex_index) vertex_index: u32,
@@ -233,7 +236,9 @@ fn actor_vertex(
         instance_row(instance_base, 1u),
         instance_row(instance_base, 2u),
     );
-    let world = vec4(placed_point(placement, posed), 1.0);
+    var world = vec4(placed_point(placement, posed), 1.0);
+    @if(ACTOR_MASK)
+    { world = vec4(world.xyz + mask_displacement.xyz, 1.0); }
     out.position = view.clip_from_world * world;
     @if(ACTOR_MOTION)
     {
@@ -409,9 +414,9 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
 }
 
 @if(MASK_DISSOLVE && !MASK_DISSOLVE_MSAA)
-@group(2) @binding(0) var mask_dissolve_depth: texture_depth_2d;
+@group(2) @binding(1) var mask_dissolve_depth: texture_depth_2d;
 @if(MASK_DISSOLVE_MSAA)
-@group(2) @binding(0) var mask_dissolve_depth: texture_depth_multisampled_2d;
+@group(2) @binding(1) var mask_dissolve_depth: texture_depth_multisampled_2d;
 
 @fragment
 fn actor_mask_fragment(input: VertexOutput, @builtin(front_facing) front: bool,

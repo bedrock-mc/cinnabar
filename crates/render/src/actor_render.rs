@@ -184,6 +184,7 @@ pub(crate) struct ActorGpu {
     color_mask_material: Buffer,
     multitexture_material: Buffer,
     spans: Vec<crate::actor::gpu::ActorDrawSpan>,
+    mask_spans: Vec<crate::actor::gpu::ActorDrawSpan>,
     sorted: dissolve::SortedDraws,
     instances: std::sync::Arc<[ActorGpuInstance]>,
     executed_instances: std::sync::atomic::AtomicU32,
@@ -281,6 +282,7 @@ fn create_actor_gpu(render_device: &RenderDevice, render_queue: &RenderQueue) ->
             BufferUsages::UNIFORM,
         )?,
         spans: Vec::new(),
+        mask_spans: Vec::new(),
         sorted: dissolve::SortedDraws::default(),
         instances: std::sync::Arc::from([]),
         executed_instances: std::sync::atomic::AtomicU32::new(0),
@@ -503,6 +505,12 @@ fn prepare_actor_resources(
                 &rig.geometry_spans,
                 prepared.manifest.iter().map(|entry| entry.identity.layer),
             );
+            gpu.mask_spans = gpu.spans.clone();
+            gpu.spans = artwork::visible_spans(
+                &gpu.spans,
+                &prepared.manifest,
+                &frame.mask_only_runtime_ids,
+            );
             gpu.manifest = prepared.manifest;
             gpu.instances = prepared.instances;
             let ActorGpu {
@@ -518,6 +526,7 @@ fn prepare_actor_resources(
             gpu.maximum_vertex_count = 0;
             gpu.manifest = std::sync::Arc::from([]);
             gpu.spans.clear();
+            gpu.mask_spans.clear();
             gpu.sorted.prepare(&[], &[]);
             gpu.instances = std::sync::Arc::from([]);
             gate.clear();

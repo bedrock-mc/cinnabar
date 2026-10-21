@@ -60,6 +60,7 @@ fn mask_selection_keeps_the_dissolve_companion() {
     draw_frame(&mut app, &frame);
     let identity = frame.rig.manifest[0].identity;
     let mask = mod_render::masks::Mask {
+        position: None,
         handle: DrawingHandle {
             owner: 1,
             generation: 1,
@@ -145,6 +146,7 @@ fn mask_selection_suppresses_failed_actor_uploads_and_recovers() {
     assert_eq!(draw_frame(&mut app, &control).len(), 1);
     let identity = &control.rig.manifest[0].identity;
     let mut mask = mod_render::masks::Mask {
+        position: None,
         handle: DrawingHandle {
             owner: 1,
             generation: 1,
@@ -505,6 +507,7 @@ fn masks_split_shared_coverage_after_membership_changes() {
         })
         .collect();
     let mut first = mod_render::masks::Mask {
+        position: None,
         handle: DrawingHandle {
             owner: 1,
             generation: 1,
@@ -582,6 +585,7 @@ fn attachment_pressure_preserves_fitting_groups_and_shares_owner_turns() {
         .into_iter()
         .enumerate()
         .map(|(i, owner)| mod_render::masks::Mask {
+            position: None,
             handle: DrawingHandle {
                 owner,
                 generation: owner,
@@ -613,4 +617,49 @@ fn attachment_pressure_preserves_fitting_groups_and_shares_owner_turns() {
     let mut groups: Vec<_> = masks.iter().collect();
     assert_eq!(admit_groups(&mut groups, None), 0);
     assert!(groups.is_empty());
+}
+
+#[test]
+fn hidden_local_body_is_available_to_translated_masks_without_main_pass_draws() {
+    let mut app = fixture();
+    let mut frame = publication(1, &[20], 1);
+    let identity = frame.rig.manifest[0].identity;
+    frame.mask_only_runtime_ids = std::sync::Arc::from([identity.runtime_id]);
+    draw_frame(&mut app, &frame);
+    let gpu = app.sub_app(RenderApp).world().resource::<ActorGpu>();
+    assert!(gpu.spans.is_empty());
+    assert!(!gpu.mask_spans.is_empty());
+    let mask = mod_render::masks::Mask {
+        handle: DrawingHandle {
+            owner: 1,
+            generation: 1,
+            slot: 1,
+        },
+        position: Some([5., 64., 3.]),
+        style: None,
+        depth: MaskDepth::Always,
+        session: mod_api::drawing::DrawingSession {
+            connection: identity.session_id,
+            dimension: identity.dimension,
+            local: true,
+            permissions: mod_api::drawing::DrawingPermissions::ALL,
+        },
+        entities: vec![MaskEntity {
+            connection: identity.session_id,
+            dimension: identity.dimension,
+            runtime_id: identity.runtime_id,
+            spawn_revision: identity.spawn_revision,
+        }],
+    };
+    assert!(!selection(&mask, gpu).unwrap().is_empty());
+    let root = &gpu.instances[0].world_from_actor;
+    assert_eq!(
+        displacement(&mask, gpu),
+        [5. - root[0][3], 64. - root[1][3], 3. - root[2][3], 0.]
+    );
+    let ordinary = mod_render::masks::Mask {
+        position: None,
+        ..mask.clone()
+    };
+    assert!(!compatible(&mask, &ordinary));
 }

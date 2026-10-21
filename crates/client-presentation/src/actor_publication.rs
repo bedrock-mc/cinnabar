@@ -128,6 +128,7 @@ pub struct ActorFramePublication<'w, 's> {
     time: Res<'w, Time<Real>>,
     actor_style: Option<Res<'w, ActorPresentationStyle>>,
     state: ResMut<'w, ActorFrameState>,
+    coverage: Option<Res<'w, render_scene::mod_scene::ActorCoverageRequests>>,
     scene: ResMut<'w, ActorRenderScene>,
     prepared: ResMut<'w, PreparedActorPublication>,
     presentation: ActorPresentationState<'w, 's>,
@@ -250,10 +251,15 @@ pub fn prepare_actor_render_frame(
         );
     }
     let camera_position = cull_view.map(|view| view.camera_position.to_array());
+    let coverage_local = params.coverage.as_deref().is_some_and(|requests| {
+        requests.connection == bodies.actor_session_id
+            && requests.dimension == bodies.dimension
+            && requests.runtime_ids.contains(&bodies.local_runtime_id)
+    });
     // Remote bodies passed frame-model admission before bounded skin registration.
     let mut batch = select_actor_presentations(
         bodies.local_runtime_id,
-        local_visible,
+        local_visible || coverage_local,
         local,
         bodies.remotes,
     );

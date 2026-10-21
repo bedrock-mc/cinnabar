@@ -84,6 +84,11 @@ pub fn publish_actor_render_frame(
         .as_deref()
         .map(|profiler| profiler.time(render_scene::RuntimeStage::ActorRigBuild));
     *frame = update_actor_rig_scene(&mut scene, prepared.partial_tick, prepared.batch).clone();
+    frame.mask_only_runtime_ids = if prepared.witness.local_visible {
+        Arc::from([])
+    } else {
+        Arc::from([prepared.witness.expected_runtime_id])
+    };
     prepared.witness.local_route = frame
         .rig
         .manifest

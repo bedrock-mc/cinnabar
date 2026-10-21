@@ -1144,6 +1144,20 @@ edges share the block-highlight budget and do not consume retained box slots.
 Guests must negotiate `native_render::BLOCK_OUTLINES` before sending `outline`;
 older hosts accept only the existing position and colour fields. The optional
 bit requires the same `block_highlights` consent, not another permission.
+Face-adjacent highlights form a continuous surface. Shared faces and coplanar
+outline seams are removed; isolated blocks and exterior creases retain their edges.
+
+Packet guests negotiating `native_render::ACTOR_ANCHORS` may set a line's
+`camera_start: true` and `entity_end: {"runtime_id":42,"offset":[0,1.62,0]}`.
+The host resolves these from the same interpolated actor body and camera used
+for rendering, dropping the line when its target is unavailable. Offsets use
+world axes. This bit requires entity observation and highlight consent in
+addition to the existing world drawing grants.
+An entity group selecting exactly one actor may also supply `position:[x,y,z]`
+to place its current animated mesh at those feet. `style.fill:[r,g,b,a]` adds
+translucent silhouette coverage independently of the outline and halo. A hidden
+local body is prepared only for requested coverage and stays out of main passes.
+Omit all these optional fields when the host does not advertise the bit.
 
 ## Fullbright
 
