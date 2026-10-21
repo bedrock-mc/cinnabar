@@ -81,3 +81,84 @@ fn server_sneak_updates_preserve_controls_and_correct_the_next_input() {
         }
     }
 }
+
+/// Metadata cannot suppress local stance changes still waiting behind queued inputs.
+#[test]
+fn server_sneak_updates_preserve_queued_start_and_stop_actions() {
+    let (mut physics, mut ticker) = walked_physics(0);
+    let mut locals = LocomotionState::default();
+    let mut effects = LocalMovementEffectTimeline::default();
+    let mut speed = LocalMovementSpeedAuthority::default();
+    let frame = |held, changed| {
+        let mut frame = speed_frame(Default::default());
+        frame.sneak = semantic_input::ActionPhase {
+            held,
+            pressed: held && changed,
+            released: !held && changed,
+        };
+        frame
+    };
+    assert!(locals.advance(
+        frame(true, true),
+        &mut physics,
+        &mut ticker,
+        &mut effects,
+        &mut speed,
+        &VersionedFloor(1),
+    ));
+    assert!(matches!(
+        flush_player_auth_inputs(&mut ticker, 4, Some(evidence_context()), |_, _| Err("full")),
+        Err(MovementSendError::Transport("full")),
+    ));
+    for (held, server) in [(false, Some(false)), (true, Some(true)), (true, None)] {
+        if let Some(sneaking) = server {
+            physics.apply_server_movement_flags(0, flags(|flags| flags.sneaking = Some(sneaking)));
+        }
+        assert!(locals.advance(
+            frame(held, server.is_some()),
+            &mut physics,
+            &mut ticker,
+            &mut effects,
+            &mut speed,
+            &VersionedFloor(1),
+        ));
+    }
+    let expected: Vec<_> = ticker
+        .pending_snapshots()
+        .into_iter()
+        .zip([
+            PlayerInputFlags::START_SNEAKING,
+            PlayerInputFlags::STOP_SNEAKING,
+            PlayerInputFlags::START_SNEAKING,
+            PlayerInputFlags::NONE,
+        ])
+        .map(|(mut snapshot, action)| {
+            snapshot.flags = snapshot.flags.with_mask(
+                PlayerInputFlags::START_SNEAKING | PlayerInputFlags::STOP_SNEAKING,
+                false,
+            ) | action;
+            protocol::player_auth_input(snapshot).unwrap()
+        })
+        .collect();
+    let mut sent = Vec::new();
+    let mut identities = Vec::new();
+    assert_eq!(
+        flush_player_auth_inputs(
+            &mut ticker,
+            4,
+            Some(evidence_context()),
+            |identity, packet| {
+                identities.push(identity);
+                sent.push(packet);
+                Ok::<_, &str>(())
+            }
+        )
+        .unwrap(),
+        4,
+    );
+    for identity in identities {
+        assert!(ticker.acknowledge_physics_send(identity));
+    }
+    assert_eq!(ticker.pending_count(), 0);
+    assert_eq!(sent, expected);
+}

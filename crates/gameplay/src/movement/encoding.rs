@@ -82,8 +82,13 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
         )
         .with_mask(PlayerInputFlags::SPRINT_DOWN, sample.input.sprint_down)
         .with_mask(PlayerInputFlags::SPRINTING, sample.input.sprint_down);
-    let previous_sneaking = sample.input.server_sneaking.unwrap_or(previous.sneaking);
-    if sample.processed.sneaking != previous_sneaking {
+    // Older queued inputs still need the local transition even if metadata agrees with this tick.
+    let sneak_changed = sample.processed.sneaking != previous.sneaking
+        || sample
+            .input
+            .server_sneaking
+            .is_some_and(|sneaking| sneaking != sample.processed.sneaking);
+    if sneak_changed {
         flags |= if sample.processed.sneaking {
             PlayerInputFlags::START_SNEAKING
         } else {
