@@ -127,6 +127,9 @@ pub struct DrawNode {
     pub clip: RectOut,
     pub layer: i32,
     pub alpha: f32,
+    /// The inherited application-owned paint region, if one was declared.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paint_region: Option<std::num::NonZeroU64>,
     /// Animations reaching this draw; see [`DrawNode::animate`].
     #[serde(skip)]
     pub anim: Option<std::sync::Arc<crate::anim::NodeAnim>>,
@@ -263,6 +266,14 @@ pub(crate) fn emit_own(
         // A primitive wholly outside its clip (a scrolled-away cell) draws nothing;
         // a hover tooltip draws beside the pointer instead of in its rect.
         let paint = match &draw {
+            Draw::Custom { renderer, data } if renderer == crate::rounded::RENDERER => {
+                crate::rounded::paint_bounds(
+                    data,
+                    env.text.paint_rect(dest),
+                    env.text.physical_pixel_size(),
+                    node.paint.transform,
+                )
+            }
             Draw::Custom { renderer, data } if renderer == crate::vector_path::RENDERER => {
                 crate::vector_path::bounds(data).map_or(dest, |bounds| {
                     bounds.at(env.text.paint_rect(dest), env.text.physical_pixel_size())
@@ -301,6 +312,7 @@ pub(crate) fn emit_own(
                 clip: clip.into(),
                 layer: node.layer,
                 alpha: node.alpha,
+                paint_region: node.paint.region,
                 anim: node.anim.clone(),
                 draw,
                 gates: Vec::new(),

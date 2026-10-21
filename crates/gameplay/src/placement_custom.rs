@@ -114,9 +114,11 @@ pub(crate) fn predict(
     if !definition.visual.permutations.is_empty()
         && (!definition.state_physics_complete
             || definition.state_physics.len() != definition.state_count as usize)
-        && definition.visual.permutations.iter().any(|permutation| {
-            permutation.physical != protocol::CustomPhysicalComponents::default()
-        })
+        && definition
+            .visual
+            .permutations
+            .iter()
+            .any(|permutation| permutation.physical.affects_physics())
     {
         return None;
     }

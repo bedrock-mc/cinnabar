@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::borrow::Borrow;
 
 /// Every `math.*` function the vanilla client registers.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -158,10 +159,16 @@ impl MolangFunction {
 /// Evaluates a `math.*` call with vanilla single-precision semantics: trigonometry takes and
 /// returns degrees, `mod` by zero is zero, and NaN propagates. `random` yields values in
 /// `[0, 1]` for the random family.
+/// Arguments may be owned or borrowed numbers; absent arguments read as zero.
 #[must_use]
-pub fn molang_call(function: MolangFunction, args: &[f32], random: &mut dyn FnMut() -> f32) -> f32 {
-    let arg = |index: usize| args.get(index).copied().unwrap_or(0.0);
-    let (a, b, c) = (arg(0), arg(1), arg(2));
+pub fn molang_call(
+    function: MolangFunction,
+    args: impl IntoIterator<Item: Borrow<f32>>,
+    random: &mut dyn FnMut() -> f32,
+) -> f32 {
+    let mut args = args.into_iter();
+    let mut arg = || args.next().map_or(0.0, |value| *value.borrow());
+    let (a, b, c) = (arg(), arg(), arg());
     match function {
         MolangFunction::Abs => a.abs(),
         MolangFunction::Acos => clamp_unit(a).acos().to_degrees(),

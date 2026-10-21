@@ -29,8 +29,8 @@
 //! # PBR atlases
 //! `normals` and `specular` share the colour layout and hold LabPBR 1.3 texels: neutral
 //! `(128, 128, 255, 255)` and `(0, 0, 0, 0)` without authored maps. Enhanced builds with
-//! authored maps convert them through the carrier slot table; material-specific overrides
-//! are ignored because one atlas sprite serves every material sharing a layer.
+//! authored maps resolve carrier slots and agreeing material/frame overrides. Conflicting
+//! overrides stay neutral because one atlas sprite serves every material sharing a layer.
 
 mod animate;
 mod blend;
@@ -51,6 +51,7 @@ use super::{geometry::ShaderpackGeometrySettings, plugin::LoadedShaderPack};
 use animate::AtlasAnimations;
 use bevy::{
     asset::load_internal_asset,
+    ecs::system::SystemParam,
     math::UVec2,
     prelude::{App, Commands, IntoScheduleConfigs, Plugin, Query, Res, ResMut, Resource, With},
     render::{
@@ -242,10 +243,12 @@ fn build_atlas(
             .unwrap_or(1),
     };
     #[cfg(feature = "enhanced")]
-    let authored = assets.enhanced().map(|enhanced| plan::AuthoredPbr {
-        normal_pages: [&enhanced.normal_pages[0], &enhanced.normal_pages[1]],
-        mer_pages: [&enhanced.mer_pages[0], &enhanced.mer_pages[1]],
-        refs: &enhanced.texture_refs,
+    let authored = assets.enhanced().map(|enhanced| {
+        plan::AuthoredPbr::new(
+            enhanced.normal_pages.each_ref(),
+            enhanced.mer_pages.each_ref(),
+            &enhanced.texture_refs,
+        )
     });
     #[cfg(not(feature = "enhanced"))]
     let authored = None;
@@ -338,6 +341,13 @@ fn publish(built: BuiltAtlas, generation: u64) -> (ShaderpackAtlas, AtlasAnimati
     (atlas, animations)
 }
 
+/// Optional blend resources used while animation pipelines are compiling.
+#[derive(SystemParam)]
+struct AnimationBlendResources<'w> {
+    pipelines: Option<Res<'w, blend::AtlasBlendPipelines>>,
+    cache: Option<Res<'w, PipelineCache>>,
+}
+
 /// Refreshes animated display sprites for the extracted world animation clock. The refresh
 /// joins the frame's graph submission ahead of the graph's own command buffers.
 fn update_shaderpack_animations(
@@ -345,14 +355,16 @@ fn update_shaderpack_animations(
     clock: Option<Res<ChunkAnimationClock>>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
-    pipelines: Option<Res<blend::AtlasBlendPipelines>>,
-    cache: Option<Res<PipelineCache>>,
+    blend_resources: AnimationBlendResources,
     mut pending: ResMut<PendingCommandBuffers>,
 ) {
     let (Some(mut animations), Some(clock)) = (animations, clock) else {
         return;
     };
-    let compiled = pipelines.as_deref().zip(cache.as_deref());
+    let compiled = blend_resources
+        .pipelines
+        .as_deref()
+        .zip(blend_resources.cache.as_deref());
     if animations.needs_blend_sources()
         && let Some((pipelines, cache)) = compiled
     {

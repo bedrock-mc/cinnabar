@@ -1,0 +1,22 @@
+{
+  "id": "15:1", "name": "Button States", "type": "FRAME", "width": 200, "height": 60,
+  "children": [
+    { "id": "15:2", "name": "Plain @button", "type": "FRAME", "x": 0, "y": 0, "width": 60, "height": 20,
+      "fills": [{ "type": "SOLID", "color": [0.2, 0.2, 0.2] }] },
+    { "id": "15:3", "name": "Pair @button", "type": "FRAME", "x": 70, "y": 0, "width": 60, "height": 20,
+      "children": [
+        { "id": "15:4", "name": "Default", "type": "RECTANGLE", "x": 0, "y": 0, "width": 60, "height": 20,
+          "fills": [{ "type": "SOLID", "color": [0.4, 0, 0] }] },
+        { "id": "15:5", "name": "Hover", "type": "RECTANGLE", "visible": false, "x": 0, "y": 0, "width": 60, "height": 20,
+          "fills": [{ "type": "SOLID", "color": [0.8, 0, 0] }] }
+      ] },
+    { "id": "15:6", "name": "Auto @button", "type": "FRAME", "x": 140, "y": 0, "width": 60, "height": 40,
+      "layout": { "mode": "VERTICAL" },
+      "children": [
+        { "id": "15:7", "name": "Default", "type": "RECTANGLE", "x": 0, "y": 0, "width": 60, "height": 20,
+          "fills": [{ "type": "SOLID", "color": [0, 0.4, 0] }] },
+        { "id": "15:8", "name": "Hover", "type": "RECTANGLE", "visible": false, "x": 0, "y": 0, "width": 60, "height": 20,
+          "positioning": "ABSOLUTE", "fills": [{ "type": "SOLID", "color": [0, 0.8, 0] }] }
+      ] }
+  ]
+}

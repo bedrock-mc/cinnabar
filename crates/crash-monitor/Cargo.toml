@@ -9,7 +9,7 @@ publish = false
 platform-specific = ["macos", "windows"]
 reads = [
     "assets/fonts/CinnanglesSans.ttf",
-    "website/index.html.in",
+    "assets/branding/discord.path",
 ]
 
 [dependencies]

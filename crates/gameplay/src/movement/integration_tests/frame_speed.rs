@@ -5,6 +5,7 @@ fn speed_frame(sprint: semantic_input::ActionPhase) -> super::PhysicsFrameInput 
         now: Duration::from_secs(1),
         active: true,
         input_authority_released: false,
+        resolved_movement: false,
         movement: [0.0, 1.0],
         raw_movement: [0.0, 1.0],
         analogue_movement: [0.0, 1.0],

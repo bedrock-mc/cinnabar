@@ -1,38 +1,104 @@
 //! Private, retained JSON-UI cards supplied as bounded cosmetic data.
 
+mod cards;
 mod cells;
 mod compass;
+pub(super) mod sources;
 pub(super) mod template;
 pub(crate) mod text_plate;
 mod world_labels;
 
 use crate::{ModUi, RowIcons};
-use json_ui::{Catalog, Context, DataSource, Scalar, ViewState};
+use json_ui::{Catalog, DataSource};
 use std::sync::Arc;
 use ui::{
-    FONT_DESIGN_PIXEL_TEXELS, IconRef,
+    IconRef,
     mod_hud::{Crosshair, Hud},
 };
 use ui_engine::{
     cached_screen::CachedScreen,
-    engine::{
-        FormEngine, ScreenArt,
-        item_renderer::ItemRenderer,
-        screen::{CustomRenderer, PaintFrame},
-    },
+    engine::{FormEngine, screen::PaintFrame},
 };
 
 pub(super) struct ModWidgets {
     published: Arc<Hud>,
-    content: Hud,
+    pub(crate) content: Hud,
     pub(super) catalog: Arc<Catalog>,
     screen: CachedScreen,
     data: Arc<DataSource>,
-    icons: Vec<IconRef>,
-    resolved: Vec<Option<IconRef>>,
     pub(super) viewport: [f64; 2],
     projection: Option<[f32; 16]>,
+    pub(crate) cards: Vec<cards::CardPaint>,
+    card_indices: std::collections::BTreeMap<String, usize>,
 }
+impl ModWidgets {
+    /// Builds one catalog and bounded card cache for a newly published guest HUD.
+    fn new(content: Arc<Hud>) -> Result<Self, String> {
+        Ok(Self {
+            catalog: Arc::new(template::catalog(&content)?),
+            data: Arc::new(template::data(&content, [0.; 2])),
+            cards: cards::entries(&content),
+            card_indices: content
+                .cards
+                .iter()
+                .enumerate()
+                .map(|(index, card)| (card.id.clone(), index))
+                .collect(),
+            content: content.as_ref().clone(),
+            published: content,
+            screen: CachedScreen::default(),
+            viewport: [0.; 2],
+            projection: None,
+        })
+    }
+
+    /// Looks up a local identifier in the current admitted card set.
+    pub(crate) fn card_index(&self, id: &str) -> Option<usize> {
+        self.card_indices.get(id).copied()
+    }
+
+    /// Updates live values while preserving geometry and prepared card output when possible.
+    fn publish(&mut self, content: Arc<Hud>) -> Result<(), String> {
+        if self.published == content {
+            self.published = content;
+            return Ok(());
+        }
+        let mut next = content.as_ref().clone();
+        if !template::same_shape(&self.content, &content) {
+            self.catalog = Arc::new(template::catalog(&content)?);
+            self.screen = CachedScreen::default();
+            self.cards = cards::entries(&content);
+            self.card_indices = content
+                .cards
+                .iter()
+                .enumerate()
+                .map(|(index, card)| (card.id.clone(), index))
+                .collect();
+        } else {
+            for (index, ((entry, old), new)) in self
+                .cards
+                .iter_mut()
+                .zip(&self.content.cards)
+                .zip(&mut next.cards)
+                .enumerate()
+            {
+                if old != new {
+                    entry.publish(new, index);
+                } else if let Some(plate) = &mut new.text_plate {
+                    plate.layout = old
+                        .text_plate
+                        .as_ref()
+                        .and_then(|plate| plate.layout.clone());
+                }
+            }
+        }
+        self.published = content;
+        self.content = next;
+        self.data = Arc::new(template::data(&self.content, self.viewport));
+        Ok(())
+    }
+}
+
 impl ModUi {
     /// Native food presentation preferences of the published component.
     pub fn mod_hunger_overlay(&self) -> Option<&ui::mod_hud::HungerOverlay> {
@@ -80,31 +146,11 @@ impl ModUi {
         };
         content.validate()?;
         if let Some(widgets) = &mut self.mod_widgets {
-            if widgets.published == content {
-                widgets.published = content;
-                return Ok(());
-            }
-            if !template::same_shape(&widgets.content, &content) {
-                widgets.catalog = Arc::new(template::catalog(&content)?);
-                widgets.screen = CachedScreen::default();
-            }
-            widgets.published = content.clone();
-            widgets.content = content.as_ref().clone();
-            widgets.data = Arc::new(template::data(&content, widgets.viewport));
-            widgets.resolved.clear();
+            widgets.publish(content)?;
         } else {
-            self.mod_widgets = Some(ModWidgets {
-                published: content.clone(),
-                content: content.as_ref().clone(),
-                catalog: Arc::new(template::catalog(&content)?),
-                screen: CachedScreen::default(),
-                data: Arc::new(template::data(&content, [0.; 2])),
-                icons: Vec::new(),
-                resolved: Vec::new(),
-                viewport: [0.; 2],
-                projection: None,
-            });
+            self.mod_widgets = Some(ModWidgets::new(content)?);
         }
+        self.refresh_hud_card_sources();
         Ok(())
     }
 
@@ -166,79 +212,7 @@ impl ModUi {
         paint_frame: &mut PaintFrame<'_>,
         resolved: &RowIcons,
     ) {
-        let resolved = resolved.as_slice();
-        let Some(widgets) = self.mod_widgets.as_mut() else {
-            return;
-        };
-        let px = paint_frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
-        let content = paint_frame.content;
-        let viewport = [f64::from(content[0] / px), f64::from(content[1] / px)];
-        if widgets.viewport != viewport {
-            widgets.viewport = viewport;
-            widgets.data = Arc::new(template::data(&widgets.content, viewport));
-            widgets.resolved.clear();
-        }
-        if widgets.resolved.as_slice() != resolved {
-            widgets.icons.clear();
-            let data = Arc::make_mut(&mut widgets.data);
-            for (index, icon) in resolved.iter().enumerate() {
-                let scalar = match icon {
-                    Some(icon) => {
-                        let id = widgets.icons.len();
-                        widgets.icons.push(*icon);
-                        Scalar::Num(id as f64)
-                    }
-                    None => Scalar::Json(serde_json::Value::Null),
-                };
-                data.set_global(format!("#row_{index}_icon"), scalar);
-            }
-            widgets.resolved.clear();
-            widgets.resolved.extend_from_slice(resolved);
-        }
-        if !widgets.content.world_labels.is_empty() {
-            world_labels::data(
-                Arc::make_mut(&mut widgets.data),
-                &widgets.content,
-                viewport,
-                widgets.projection,
-            );
-        }
-        let Some(renderer) = engine else {
-            return;
-        };
-        let rollback = (paint_frame.nodes.len(), *paint_frame.next);
-        let language = paint_frame.language;
-        let mut items = ItemRenderer {
-            icons: &widgets.icons,
-            id_aux: &[],
-        };
-        let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut items];
-        let result = renderer.draw(
-            ScreenArt::default(),
-            &mut paint_frame.with_renderers(&mut renderers),
-            |env, root| {
-                if text_plate::measure(&mut widgets.content, env.text) {
-                    for (n, card) in widgets.content.cards.iter().enumerate() {
-                        text_plate::data(Arc::make_mut(&mut widgets.data), card, n, viewport);
-                    }
-                }
-                widgets.screen.render_shared_with(
-                    "cinnabar_personal_hud.cards",
-                    &widgets.catalog,
-                    &Context::default(),
-                    Arc::clone(&widgets.data),
-                    (root, px, language),
-                    env,
-                    &ViewState::default(),
-                )
-            },
-        );
-        if let Err(error) = result {
-            paint_frame.nodes.truncate(rollback.0);
-            *paint_frame.next = rollback.1;
-            self.mod_widgets = None;
-            tracing::warn!(%error, "personal HUD cards disabled after rendering failure");
-        }
+        self.paint_hud_cards(engine, paint_frame, resolved);
     }
 }
 

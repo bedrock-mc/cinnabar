@@ -88,6 +88,27 @@ pub(crate) struct PlannedProgram {
     pub partial: u32,
 }
 
+impl PlannedProgram {
+    /// Rejects unsupported buffer indices before a planner constructs bit masks.
+    fn validate(&self) -> Result<(), String> {
+        for &index in self
+            .outputs
+            .iter()
+            .flatten()
+            .chain(&self.reads)
+            .chain(&self.mipmaps)
+        {
+            if index >= MAX_COLOR_BUFFERS {
+                return Err(format!(
+                    "{} references unsupported color buffer {index}; expected an index below {MAX_COLOR_BUFFERS}",
+                    self.name
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Which side of every buffer a pass or draw samples, and which of those sides show their
 /// mip levels.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -223,7 +244,13 @@ pub(crate) fn color_buffer_of(name: &str) -> Option<u32> {
 
 /// Plans the passes of a frame; `programs` are the runnable prepare/deferred/composite/final
 /// programs in frame order.
-pub(crate) fn plan_frame(programs: &[PlannedProgram], flips: &[FlipRule]) -> FramePlan {
+pub(crate) fn plan_frame(
+    programs: &[PlannedProgram],
+    flips: &[FlipRule],
+) -> Result<FramePlan, String> {
+    for program in programs {
+        program.validate()?;
+    }
     // The side each buffer reads, and per side the mip chains generated so far.
     type State = (u32, [u32; 2]);
     let step = |index: usize, program: &PlannedProgram, (flipped, mips): &mut State| {
@@ -295,7 +322,7 @@ pub(crate) fn plan_frame(programs: &[PlannedProgram], flips: &[FlipRule]) -> Fra
     }
     let (composite_start, (translucent_alt, translucent_mips)) =
         translucent.unwrap_or((post.len(), state));
-    FramePlan {
+    Ok(FramePlan {
         prepare,
         scene_alt: scene.0,
         scene_mips: scene.1,
@@ -307,7 +334,7 @@ pub(crate) fn plan_frame(programs: &[PlannedProgram], flips: &[FlipRule]) -> Fra
             .filter(|b| state.0 & (1 << b) != 0)
             .collect(),
         exchange: vec![],
-    }
+    })
 }
 
 /// Leaves out of `frame.swap_back` the buffers cleared at the start of every frame: nothing
@@ -340,7 +367,10 @@ pub(crate) fn exchange_swap_back(
     frame: &mut FramePlan,
     programs: &[PlannedProgram],
     geometry: &[PlannedProgram],
-) {
+) -> Result<(), String> {
+    for program in programs.iter().chain(geometry) {
+        program.validate()?;
+    }
     let mut geometry_reads = 0u32;
     let mut copied = 0u32;
     for program in geometry {
@@ -387,6 +417,7 @@ pub(crate) fn exchange_swap_back(
         .partition(|&&b| copied & (1 << b) != 0);
     frame.swap_back = copy;
     frame.exchange = exchange;
+    Ok(())
 }
 
 /// Plans the colour buffers the passes and the `gbuffers_*` programs in `geometry` touch
@@ -398,7 +429,10 @@ pub(crate) fn plan_buffers(
     frame: &FramePlan,
     directives: &BufferDirectives,
     sizes: &[shaderpack::BufferSize],
-) -> Vec<BufferPlan> {
+) -> Result<Vec<BufferPlan>, String> {
+    for program in programs.iter().chain(geometry) {
+        program.validate()?;
+    }
     let final_alternate = frame
         .swap_back
         .iter()
@@ -433,7 +467,7 @@ pub(crate) fn plan_buffers(
             }
         }
     }
-    (0..MAX_COLOR_BUFFERS)
+    Ok((0..MAX_COLOR_BUFFERS)
         .filter(|b| used & (1 << b) != 0)
         .map(|index| {
             let settings = directives.buffers.get(&BufferId::Color(index));
@@ -462,7 +496,7 @@ pub(crate) fn plan_buffers(
                 alternate: alternate & (1 << index) != 0,
             }
         })
-        .collect()
+        .collect())
 }
 
 #[cfg(test)]
@@ -490,6 +524,39 @@ mod tests {
     }
 
     #[test]
+    fn unsupported_buffer_indices_fail_before_planning_masks() {
+        let directives = BufferDirectives::default();
+        let frame = plan_frame(&[], &[]).unwrap();
+        for index in [MAX_COLOR_BUFFERS - 1, MAX_COLOR_BUFFERS, 32, u32::MAX] {
+            for field in ["output", "read", "mipmap"] {
+                let mut pass = program("composite", ProgramGroup::Composite, &[]);
+                match field {
+                    "output" => pass.outputs = vec![Some(index)],
+                    "read" => pass.reads = vec![index],
+                    _ => pass.mipmaps = vec![index],
+                }
+                let programs = [pass];
+                let supported = index < MAX_COLOR_BUFFERS;
+                assert_eq!(
+                    plan_frame(&programs, &[]).is_ok(),
+                    supported,
+                    "{field} {index}"
+                );
+                assert_eq!(
+                    plan_buffers(&[], &programs, &frame, &directives, &[]).is_ok(),
+                    supported,
+                    "geometry {field} {index}"
+                );
+                assert_eq!(
+                    exchange_swap_back(&mut frame.clone(), &[], &programs).is_ok(),
+                    supported,
+                    "exchange {field} {index}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn relative_extents_truncate_odd_screen_dimensions() {
         assert_eq!(Extent::Relative([0.5; 2]).resolve([1921, 1081]), [960, 540]);
         assert_eq!(Extent::Relative([0.25; 2]).resolve([7, 3]), [1, 1]);
@@ -503,7 +570,7 @@ mod tests {
             program("composite1", ProgramGroup::Composite, &[4]),
             program("final", ProgramGroup::Final, &[0]),
         ];
-        let plan = plan_frame(&programs, &[]);
+        let plan = plan_frame(&programs, &[]).unwrap();
         let deferred = &plan.post[0];
         assert_eq!(deferred.read_alt, 0);
         assert_eq!(deferred.writes, [Some((0, true)), Some((4, true))]);
@@ -530,7 +597,7 @@ mod tests {
             flip("composite", "colortex3", false),
             flip("composite1", "gaux2", true),
         ];
-        let plan = plan_frame(&programs, &rules);
+        let plan = plan_frame(&programs, &rules).unwrap();
         assert_eq!(plan.post[0].writes, [Some((3, true))]);
         assert_eq!(plan.post[1].read_alt, 0, "colortex3 did not flip");
         assert_eq!(plan.post[2].read_alt, (1 << 2) | (1 << 5));
@@ -543,7 +610,7 @@ mod tests {
             program("prepare", ProgramGroup::Prepare, &[0]),
             program("deferred", ProgramGroup::Deferred, &[1]),
         ];
-        let plan = plan_frame(&programs, &[]);
+        let plan = plan_frame(&programs, &[]).unwrap();
         assert_eq!(plan.prepare.len(), 1);
         assert_eq!(plan.scene_alt, 1);
         assert_eq!(plan.post[0].read_alt, 1);
@@ -566,13 +633,13 @@ mod tests {
             program("deferred", ProgramGroup::Deferred, &[1]),
         ];
         let buffers = [buffer(0, cleared), buffer(1, cleared)];
-        let mut plan = plan_frame(&programs, &[]);
+        let mut plan = plan_frame(&programs, &[]).unwrap();
         skip_cleared_swap_back(&mut plan, &buffers, &programs);
         assert_eq!(plan.swap_back, [0], "without final, colortex0 is presented");
 
         programs.push(program("final", ProgramGroup::Final, &[0]));
         let buffers = [buffer(0, cleared), buffer(1, None)];
-        let mut plan = plan_frame(&programs, &[]);
+        let mut plan = plan_frame(&programs, &[]).unwrap();
         skip_cleared_swap_back(&mut plan, &buffers, &programs);
         assert_eq!(plan.swap_back, [1], "only the buffer kept across frames");
     }
@@ -600,9 +667,9 @@ mod tests {
         let rules = [flip("composite1", "colortex7", true)];
         let mut water = program("gbuffers_water", ProgramGroup::Gbuffers, &[6]);
         water.reads = vec![2];
-        let mut plan = plan_frame(&programs, &rules);
+        let mut plan = plan_frame(&programs, &rules).unwrap();
         assert_eq!(plan.swap_back, [2, 5, 6, 7]);
-        exchange_swap_back(&mut plan, &programs, &[water]);
+        exchange_swap_back(&mut plan, &programs, &[water]).unwrap();
         assert_eq!(
             plan.exchange,
             [2, 5],
@@ -614,8 +681,8 @@ mod tests {
             "geometry draws into colortex6; colortex7's alternate is never written"
         );
         let plan_without = |programs: &[PlannedProgram]| {
-            let mut plan = plan_frame(programs, &rules);
-            exchange_swap_back(&mut plan, programs, &[]);
+            let mut plan = plan_frame(programs, &rules).unwrap();
+            exchange_swap_back(&mut plan, programs, &[]).unwrap();
             plan
         };
         let plan = plan_without(&programs[1..3]);
@@ -635,8 +702,8 @@ mod tests {
             reads(program("composite", ProgramGroup::Composite, &[2]), &[2]),
             program("composite1", ProgramGroup::Composite, &[2]),
         ];
-        let mut plan = plan_frame(&programs, &[flip("deferred", "colortex2", true)]);
-        exchange_swap_back(&mut plan, &programs, &[]);
+        let mut plan = plan_frame(&programs, &[flip("deferred", "colortex2", true)]).unwrap();
+        exchange_swap_back(&mut plan, &programs, &[]).unwrap();
         assert_eq!(
             plan.swap_back,
             [2],
@@ -653,7 +720,7 @@ mod tests {
             program("composite", ProgramGroup::Composite, &[0]),
             program("final", ProgramGroup::Final, &[0]),
         ];
-        let plan = plan_frame(&programs, &[]);
+        let plan = plan_frame(&programs, &[]).unwrap();
         assert_eq!(plan.composite_start, 2);
         assert_eq!(
             plan.translucent_alt, 1,
@@ -668,14 +735,15 @@ mod tests {
             &plan,
             &BufferDirectives::default(),
             &[],
-        );
+        )
+        .unwrap();
         let indices: Vec<u32> = buffers.iter().map(|b| b.index).collect();
         assert_eq!(indices, [0, 2, 5]);
         assert!(
             buffers[2].alternate,
             "a buffer a geometry program reads and writes gets a second side"
         );
-        let plan = plan_frame(&programs[..2], &[]);
+        let plan = plan_frame(&programs[..2], &[]).unwrap();
         assert_eq!(
             plan.composite_start, 2,
             "no composite: translucents draw last"
@@ -691,7 +759,7 @@ mod tests {
             program("composite1", ProgramGroup::Composite, &[3]),
         ];
         programs[1].mipmaps = vec![0];
-        let plan = plan_frame(&programs, &[]);
+        let plan = plan_frame(&programs, &[]).unwrap();
         let mipmapped: Vec<u32> = plan.post.iter().map(|s| s.mipmapped & 1).collect();
         assert_eq!(
             mipmapped,
@@ -735,8 +803,8 @@ mod tests {
                 height: SizeValue::Absolute(32),
             },
         ];
-        let frame = plan_frame(&programs, &[]);
-        let buffers = plan_buffers(&programs, &[], &frame, &directives, &sizes);
+        let frame = plan_frame(&programs, &[]).unwrap();
+        let buffers = plan_buffers(&programs, &[], &frame, &directives, &sizes).unwrap();
         let indices: Vec<u32> = buffers.iter().map(|b| b.index).collect();
         assert_eq!(indices, [0, 1, 2, 3, 6]);
         let get = |i| buffers.iter().find(|b| b.index == i).unwrap();
@@ -775,10 +843,10 @@ mod tests {
         let render = program("composite", ProgramGroup::Composite, &[0]);
         let programs = [compute.clone(), render];
         let rules = [flip("composite", "colortex5", true)];
-        let frame = plan_frame(&programs, &rules);
+        let frame = plan_frame(&programs, &rules).unwrap();
         assert_eq!(frame.post[1].read_alt, 0);
         assert!(frame.swap_back.contains(&5));
-        let alone = plan_frame(&[compute], &rules);
+        let alone = plan_frame(&[compute], &rules).unwrap();
         assert!(alone.swap_back.contains(&5));
     }
 
@@ -797,8 +865,8 @@ mod tests {
             if !reads_buffer {
                 programs[0].reads.clear();
             }
-            let mut frame = plan_frame(&programs, &[flip("composite", "colortex5", true)]);
-            let buffers = plan_buffers(&programs, &[], &frame, &directives, &[]);
+            let mut frame = plan_frame(&programs, &[flip("composite", "colortex5", true)]).unwrap();
+            let buffers = plan_buffers(&programs, &[], &frame, &directives, &[]).unwrap();
             assert!(
                 buffers
                     .iter()
@@ -808,8 +876,8 @@ mod tests {
             );
             skip_cleared_swap_back(&mut frame, &buffers, &programs);
             assert!(frame.swap_back.contains(&5));
-            exchange_swap_back(&mut frame, &programs, &[]);
-            let exchanged = plan_buffers(&programs, &[], &frame, &directives, &[]);
+            exchange_swap_back(&mut frame, &programs, &[]).unwrap();
+            let exchanged = plan_buffers(&programs, &[], &frame, &directives, &[]).unwrap();
             assert!(
                 exchanged
                     .iter()

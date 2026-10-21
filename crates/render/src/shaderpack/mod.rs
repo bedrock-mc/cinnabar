@@ -57,6 +57,8 @@ pub(crate) mod plugin;
 #[cfg(feature = "shaderpacks")]
 mod resources;
 #[cfg(feature = "shaderpacks")]
+mod scene_bindings;
+#[cfg(feature = "shaderpacks")]
 mod shadow_maps;
 #[cfg(feature = "shaderpacks")]
 mod sky;

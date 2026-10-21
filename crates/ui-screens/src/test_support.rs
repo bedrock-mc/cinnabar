@@ -44,6 +44,7 @@ pub fn history_node(text: &str, width: f64) -> json_ui::DrawNode {
         layer: 1,
         alpha: 1.0,
         anim: None,
+        paint_region: None,
         gates: Vec::new(),
         draw: Draw::Text {
             text: text.into(),

@@ -82,7 +82,7 @@ fn enabled_full_screen_programs_run_in_frame_order() {
     let (runnable, plans) = runnable_programs(&translation).expect("fixture programs translate");
     let names: Vec<&str> = runnable.iter().map(|p| p.program.name.as_str()).collect();
     assert_eq!(names, ["deferred", "composite", "composite2", "final"]);
-    let frame = plan_frame(&plans, &translation.properties.flips);
+    let frame = plan_frame(&plans, &translation.properties.flips).unwrap();
     let writes: Vec<_> = frame.post.iter().map(|s| s.writes.clone()).collect();
     assert_eq!(
         writes,
@@ -1037,3 +1037,5 @@ fn an_available_adapter_cannot_silently_skip_frame_fixtures() {
         Err(error) => panic!("fixture-device admission adapter: {error}"),
     }
 }
+
+mod admission;

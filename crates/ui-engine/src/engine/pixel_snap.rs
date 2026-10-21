@@ -31,6 +31,27 @@ pub fn positioned(rect: [f64; 4], pixels: f32, logical: f32) -> [f32; 4] {
     [x0, y0, x0 + w * to_logical, y0 + h * to_logical]
 }
 
+/// Snaps in the original coordinate system while returning to the cached canvas afterward.
+/// The zero-offset path keeps ordinary screens' placement arithmetic unchanged.
+pub(super) fn translated(
+    rect: [f64; 4],
+    offset: [f64; 2],
+    logical: f32,
+    place: impl FnOnce([f64; 4]) -> [f32; 4],
+) -> [f32; 4] {
+    if offset == [0.; 2] {
+        return place(rect);
+    }
+    let placed = place([rect[0] + offset[0], rect[1] + offset[1], rect[2], rect[3]]);
+    let offset = offset.map(|axis| axis as f32 * logical);
+    [
+        placed[0] - offset[0],
+        placed[1] - offset[1],
+        placed[2] - offset[0],
+        placed[3] - offset[1],
+    ]
+}
+
 /// The grid, in 1/65536 logical pixels, that vanilla truncates a label's per-line alignment
 /// offsets onto: it snaps them to whole physical pixels in the label's unscaled text space, so a
 /// label at text scale `scale` steps by `scale` physical pixels.

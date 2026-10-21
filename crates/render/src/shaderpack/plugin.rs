@@ -61,7 +61,7 @@ type LoadResult = Result<PackGpu, String>;
 /// The pack being loaded or shown, identified by path and dimension.
 #[derive(Resource, Default)]
 struct Loader {
-    key: Option<(PathBuf, i32)>,
+    key: Option<(PathBuf, i32, u64)>,
     job: Option<Mutex<mpsc::Receiver<LoadResult>>>,
 }
 
@@ -85,12 +85,15 @@ fn drive_loader(
     gpu: MainWorldGpu,
     atmosphere: Option<Res<render_scene::AtmosphereTextureAssets>>,
 ) {
-    let wanted = request
-        .pack
-        .clone()
-        .map(|path| (path, inputs.dimension.clamp(0, 2)));
+    let wanted = request.pack.clone().map(|path| {
+        (
+            path,
+            inputs.dimension.clamp(0, 2),
+            request.reload_generation,
+        )
+    });
     if wanted != loader.key {
-        let Some((path, dimension)) = wanted.clone() else {
+        let Some((path, dimension, _)) = wanted.clone() else {
             loader.key = None;
             loader.job = None;
             status.set_if_neq(ShaderPackStatus::Idle);
@@ -127,7 +130,7 @@ fn drive_loader(
         match spawned {
             Ok(_) => loader.job = Some(Mutex::new(receive)),
             Err(error) => {
-                if let Some((path, _)) = &loader.key {
+                if let Some((path, _, _)) = &loader.key {
                     *status = ShaderPackStatus::Failed {
                         pack: path.clone(),
                         reason: error.to_string(),
@@ -147,7 +150,7 @@ fn drive_loader(
         Err(mpsc::TryRecvError::Disconnected) => Err("the load worker stopped".to_string()),
     };
     loader.job = None;
-    let Some((path, _)) = loader.key.clone() else {
+    let Some((path, _, _)) = loader.key.clone() else {
         return;
     };
     match outcome {
@@ -246,24 +249,9 @@ fn effect_coverage(
     }
 }
 
-/// Whether native layers need the scene-copy path until the geometry host can compose them.
-fn needs_native_scene(
-    atmosphere: Option<&render_scene::AtmosphereFrame>,
-    particles: Option<&render_scene::ParticleGpuFrame>,
-    weather: Option<&render_scene::PrecipitationScene>,
-    covered: impl Fn(Effect) -> bool,
-) -> bool {
-    atmosphere.is_some_and(|frame| {
-        frame.sky_kind() == render_scene::SkyKind::Overworld
-            && [Effect::Sun, Effect::Moon, Effect::Stars, Effect::Clouds]
-                .into_iter()
-                .any(|effect| !covered(effect))
-    }) || particles.is_some_and(|frame| {
-        (!frame.opaque.is_empty() && !covered(Effect::Particles))
-            || (!frame.blend.is_empty() && !covered(Effect::ParticlesTranslucent))
-            || (!frame.add.is_empty() && !covered(Effect::ParticlesAdditive))
-    }) || weather.is_some_and(|scene| !scene.layers.is_empty() && !covered(Effect::Weather))
-}
+#[path = "native_scene.rs"]
+mod native_scene;
+use native_scene::{NativeSceneLayers, needs_native_scene, replacement_ready};
 
 /// Hands out the revisions [`ShaderpackBlockIds`] are published under, each one no earlier
 /// table had. The geometry adapter keeps the revision it last derived terrain attributes from
@@ -300,9 +288,7 @@ fn configure_replacement(
     mut drawn: ResMut<ShaderPackDrawnCategories>,
     mut replaced: ResMut<ShaderPackEffects>,
     textures: Option<Res<ShaderpackEffectTextures>>,
-    atmosphere: Option<Res<render_scene::AtmosphereFrame>>,
-    particles: Option<Res<render_scene::ParticleGpuFrame>>,
-    weather: Option<Res<render_scene::PrecipitationScene>>,
+    native: NativeSceneLayers,
 ) {
     let states = views.states.lock().unwrap_or_else(|e| e.into_inner());
     let ready = pack
@@ -318,23 +304,15 @@ fn configure_replacement(
         });
     let draws = |kind| ready.is_some_and(|pack| pack.draws.iter().any(|draw| draw.kind == kind));
     drawn.set_if_neq(ShaderPackDrawnCategories {
-        terrain: geometry.is_some_and(|geometry| {
-            geometry.supported() && geometry.origin().is_some() && geometry.all_sections_fit()
-        }) && super::draws::complete_terrain(draws)
-            && !needs_native_scene(
-                atmosphere.as_deref(),
-                particles.as_deref(),
-                weather.as_deref(),
-                |effect| {
-                    ready.is_some_and(|pack| {
-                        !pack.effects.draws(effect)
-                            || (draws(DrawKind::Effect(effect))
-                                && textures
-                                    .as_ref()
-                                    .is_some_and(|textures| textures.views(effect).is_some()))
-                    })
-                },
-            ),
+        terrain: ready.is_some_and(|pack| {
+            replacement_ready(
+                pack,
+                cameras.iter(),
+                geometry.as_deref(),
+                &states,
+                native.needed(pack, textures.as_deref()),
+            )
+        }),
     });
     replaced.set_if_neq(
         ready
@@ -373,6 +351,7 @@ fn prepare_views(
     atlas: Option<Res<ShaderpackAtlas>>,
     effect_textures: Option<Res<ShaderpackEffectTextures>>,
     profiler: Option<Res<RuntimeStageProfiler>>,
+    native: NativeSceneLayers,
 ) {
     let _timer = profiler
         .as_deref()
@@ -386,7 +365,6 @@ fn prepare_views(
     };
     states.retain(|entity, _| cameras.contains(*entity));
     let render_distance = inputs.render_distance;
-    let inputs = pack_inputs(&inputs, geometry.as_deref());
     if let Some(geometry) = geometry.as_deref_mut() {
         geometry.retain_shadow_views(|view| cameras.contains(view) && pack.shadow.is_some());
     }
@@ -419,7 +397,23 @@ fn prepare_views(
                 }
             }
         }
-        let state = states.get_mut(&entity).expect("the view was prepared");
+    }
+    let replacement = replacement_ready(
+        &pack,
+        cameras.iter().map(|(entity, _)| entity),
+        geometry.as_deref(),
+        states,
+        native.needed(&pack, effect_textures.as_deref()),
+    );
+    let horizon = geometry
+        .as_deref()
+        .and_then(ShaderpackGeometry::budget_horizon);
+    let inputs = pack_inputs(&inputs, horizon, replacement);
+    for (entity, view) in &cameras {
+        let Some(state) = states.get_mut(&entity) else {
+            continue;
+        };
+        let screen = [view.viewport.z.max(1), view.viewport.w.max(1)];
         let (_, rotation, position) = view.world_from_view.to_scale_rotation_translation();
         let camera = ViewCamera {
             position,
@@ -469,19 +463,15 @@ type PostQuery = (
     &'static ExtractedView,
 );
 
-/// The game state the pack sees. `far` is the render distance, as Iris gives it, except
-/// that it stops where the vertex budget leaves terrain undrawn: Iris draws terrain to `far`
-/// and packs fade it into the sky there, so a larger `far` would leave the edge of what
-/// the pack draws unfogged against the sky.
+/// Restricts the far plane to expanded terrain only while the pack replaces that terrain.
+/// Scene-copy frames retain the native scene's full distance for projection and depth reads.
 fn pack_inputs(
     inputs: &ShaderPackFrameInputs,
-    geometry: Option<&ShaderpackGeometry>,
+    horizon: Option<f32>,
+    replacement: bool,
 ) -> ShaderPackFrameInputs {
     let mut inputs = *inputs;
-    if let Some(horizon) = geometry
-        .filter(|geometry| geometry.all_sections_fit())
-        .and_then(ShaderpackGeometry::budget_horizon)
-    {
+    if let Some(horizon) = horizon.filter(|_| replacement) {
         inputs.render_distance = inputs.render_distance.min(horizon.max(MIN_PACK_FAR));
     }
     inputs
@@ -557,7 +547,12 @@ fn shaderpack_post(
             .get_resource::<ShaderPackFrameInputs>()
             .copied()
             .unwrap_or_default(),
-        world.get_resource::<ShaderpackGeometry>(),
+        world
+            .get_resource::<ShaderpackGeometry>()
+            .and_then(ShaderpackGeometry::budget_horizon),
+        world
+            .get_resource::<ShaderPackDrawnCategories>()
+            .is_some_and(|drawn| drawn.terrain),
     );
     let render_device = world.resource::<RenderDevice>();
     let device = render_device.wgpu_device().clone();
@@ -570,6 +565,9 @@ fn shaderpack_post(
         ),
     );
     let destination_format = target.main_texture_format();
+    if !state.supports_presentation(destination_format) {
+        return Ok(());
+    }
     let terrain = pack_terrain(world).map(|geometry| ViewTerrain {
         geometry,
         view: entity,
@@ -768,6 +766,10 @@ pub(super) fn finish(app: &mut App) {
 }
 
 #[cfg(test)]
+#[path = "plugin_tests.rs"]
+mod post_tests;
+
+#[cfg(test)]
 mod camera_tests {
     use super::*;
     use bevy::render::view::Msaa;
@@ -797,14 +799,83 @@ mod camera_tests {
         assert!(!coverage.particles_opaque);
         assert!(coverage.particles_translucent && coverage.particles_additive);
         let native = render_scene::AtmosphereFrame::default();
-        assert!(!needs_native_scene(Some(&native), None, None, |_| true));
+        assert!(!needs_native_scene(
+            Some(&native),
+            None,
+            None,
+            None,
+            None,
+            |_| true
+        ));
+    }
+
+    #[test]
+    fn depthless_native_layers_keep_the_scene_copy_path() {
+        let mut overlays = render_scene::ScreenOverlayScene::default();
+        let mut nametags = render_scene::NametagSceneResource::default();
+        assert!(!needs_native_scene(
+            None,
+            None,
+            None,
+            Some(&overlays),
+            Some(&nametags),
+            |_| true
+        ));
+        overlays.layers.push(render_scene::ScreenOverlayLayer {
+            kind: render_scene::ScreenOverlayKind::SpyglassScope,
+            rgb: [1.0; 3],
+            alpha: 1.0,
+        });
+        assert!(needs_native_scene(
+            None,
+            None,
+            None,
+            Some(&overlays),
+            None,
+            |_| true
+        ));
+        nametags
+            .0
+            .records
+            .push(render_model::NametagRecord::default());
+        assert!(needs_native_scene(
+            None,
+            None,
+            None,
+            None,
+            Some(&nametags),
+            |_| true
+        ));
+    }
+
+    #[test]
+    fn scene_copy_inputs_retain_the_native_far_plane() {
+        let inputs = ShaderPackFrameInputs {
+            render_distance: MIN_PACK_FAR * 8.0,
+            ..default()
+        };
+        let horizon = MIN_PACK_FAR * 2.0;
+        assert_eq!(
+            pack_inputs(&inputs, Some(horizon), false).render_distance,
+            inputs.render_distance
+        );
+        assert_eq!(
+            pack_inputs(&inputs, Some(horizon), true).render_distance,
+            horizon
+        );
+        assert_eq!(
+            pack_inputs(&inputs, None, true).render_distance,
+            inputs.render_distance
+        );
     }
 
     #[test]
     fn unresolved_native_layers_keep_the_scene_copy_path() {
-        assert!(!needs_native_scene(None, None, None, |_| false));
+        assert!(!needs_native_scene(None, None, None, None, None, |_| false));
         assert!(needs_native_scene(
             Some(&render_scene::AtmosphereFrame::default()),
+            None,
+            None,
             None,
             None,
             |_| false
@@ -817,7 +888,14 @@ mod camera_tests {
             } else {
                 particles.blend = instances;
             }
-            assert!(needs_native_scene(None, Some(&particles), None, |_| false));
+            assert!(needs_native_scene(
+                None,
+                Some(&particles),
+                None,
+                None,
+                None,
+                |_| false
+            ));
         }
     }
 

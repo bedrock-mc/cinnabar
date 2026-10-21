@@ -36,6 +36,7 @@ mod pack;
 pub mod position;
 mod predicate;
 mod resolve;
+pub mod rounded;
 mod scene;
 mod screens;
 mod sidecar;
@@ -169,4 +170,9 @@ fn resolve_in(catalog: &Catalog, reference: &str, root: &env::Env) -> Resolution
         control,
         diagnostics: resolver.into_diagnostics(),
     }
+}
+
+/// Returns the property names read by a binding expression, excluding quoted text.
+pub fn expression_properties(expression: &str) -> Vec<String> {
+    predicate::property_tokens(expression)
 }
