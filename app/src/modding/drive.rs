@@ -4,7 +4,7 @@ use super::*;
 
 /// Native presentation facts and retained observers available to one mod frame.
 #[derive(SystemParam)]
-struct ModObservation<'w, 's> {
+pub(super) struct ModObservation<'w, 's> {
     packets: Option<Res<'w, packets::PacketMods>>,
     watcher: Option<Res<'w, registration::Watcher>>,
     render_scene: Option<ResMut<'w, render_scene::ModRenderScene>>,
