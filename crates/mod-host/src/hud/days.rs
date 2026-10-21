@@ -27,7 +27,11 @@ pub(super) fn hydrate(hud: &mut Hud, day: Option<WorldDay>) {
         card.rows = vec![super::sources::row(
             source,
             "",
-            day.map_or_else(|| "-- Days".into(), |day| format!("{} Days", day.day)),
+            if card.sample {
+                "12 Days".into()
+            } else {
+                day.map_or_else(|| "-- Days".into(), |day| format!("{} Days", day.day))
+            },
         )];
         card.source = None;
     }

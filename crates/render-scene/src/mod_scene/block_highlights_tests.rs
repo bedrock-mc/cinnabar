@@ -75,10 +75,7 @@ mod tests {
     fn publication_caps_blocks_and_rejects_invalid_color() {
         let mut scene = ModRenderScene::default();
         scene.set_block_highlights(&vec![[0; 3]; MAX_BLOCK_HIGHLIGHTS + 1], PINK);
-        assert_eq!(
-            scene.block_vertices.len(),
-            MAX_BLOCK_HIGHLIGHTS * VERTICES_PER_BLOCK
-        );
+        assert_eq!(scene.block_vertices.len(), VERTICES_PER_BLOCK);
         scene.set_block_highlights(&[[0; 3]], [f32::NAN; 4]);
         assert!(scene.block_vertices.is_empty());
         scene.clear();

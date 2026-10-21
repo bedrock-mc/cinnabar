@@ -226,6 +226,12 @@ pub struct Card {
     /// Reserves a card for panel previews without showing it during gameplay.
     #[serde(default)]
     pub preview_only: bool,
+    /// Uses representative native observations only for an explicitly preview-only card.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sample: bool,
+    /// Requests an isolated native sample of this same source policy under a separate identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview_id: Option<String>,
     #[serde(default)]
     pub title: String,
     #[serde(default)]
@@ -280,6 +286,9 @@ pub struct Card {
     /// A native compass uses current-session motion instead of guest-sampled geometry.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compass: Option<Compass>,
+    /// Shares the gameplay crosshair painter with isolated menu artwork.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crosshair: Option<Crosshair>,
     /// Native measured text with independently colored brackets, background and border.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text_plate: Option<TextPlate>,
@@ -294,6 +303,8 @@ impl Default for Card {
             id: String::new(),
             visible: true,
             preview_only: false,
+            sample: false,
+            preview_id: None,
             title: String::new(),
             editor_label: String::new(),
             editor_native: false,
@@ -315,6 +326,7 @@ impl Default for Card {
             rows: Vec::new(),
             source: None,
             compass: None,
+            crosshair: None,
             text_plate: None,
             cells: Vec::new(),
         }
@@ -643,7 +655,8 @@ impl Hud {
         {
             return Err("invalid world labels".into());
         }
-        if self.cards.len() > MAX_HUD_CARDS
+        if self.cards.len() + self.cards.iter().filter(|c| c.preview_id.is_some()).count()
+            > MAX_HUD_CARDS
             || self
                 .cards
                 .iter()
@@ -651,16 +664,33 @@ impl Hud {
                     c.source
                         .as_ref()
                         .map_or(c.rows.len(), |s| usize::from(s.limit))
+                        * if c.preview_id.is_some() { 2 } else { 1 }
                 })
                 .sum::<usize>()
                 > MAX_HUD_ROWS
             || self.cards.iter().map(|c| c.cells.len()).sum::<usize>() > MAX_HUD_CELLS
-            || self.cards.iter().filter(|c| c.compass.is_some()).count() > MAX_HUD_COMPASSES
+            || self
+                .cards
+                .iter()
+                .filter(|c| c.compass.is_some())
+                .map(|c| if c.preview_id.is_some() { 2 } else { 1 })
+                .sum::<usize>()
+                > MAX_HUD_COMPASSES
         {
             return Err("HUD has too many cards, rows or cells".into());
         }
         let mut ids = HashSet::new();
         for card in &self.cards {
+            if let Some(id) = &card.preview_id
+                && (!valid_card_id(id)
+                    || !ids.insert(id)
+                    || card.sample
+                    || card.source.is_none() && card.compass.is_none())
+            {
+                return Err(
+                    "native preview identities require a unique, bounded source policy".into(),
+                );
+            }
             if let Some(plate) = &card.text_plate {
                 plate.validate(card)?;
             }
@@ -678,6 +708,21 @@ impl Hud {
                 source.validate()?;
                 if !card.cells.is_empty() || card.rows.len() > usize::from(source.limit) {
                     return Err("native HUD source exceeds its reserved rows or has cells".into());
+                }
+            }
+            if card.sample && !card.preview_only {
+                return Err("sample observations require a preview-only card".into());
+            }
+            if let Some(crosshair) = &card.crosshair {
+                crosshair.validate()?;
+                if !card.preview_only
+                    || card.source.is_some()
+                    || card.compass.is_some()
+                    || card.text_plate.is_some()
+                    || !card.cells.is_empty()
+                    || !card.rows.is_empty()
+                {
+                    return Err("crosshair previews require their own preview-only card".into());
                 }
             }
             if !valid_card_id(&card.id) || !ids.insert(&card.id) {

@@ -8,6 +8,8 @@ pub const ENTITY_HIGHLIGHTS: u32 = 16;
 pub const BLOCK_HIGHLIGHTS: u32 = 32;
 /// Optional per-block outlines; requires the same block-highlight consent.
 pub const BLOCK_OUTLINES: u32 = 128;
+/// Optional actor-relative lines and repositioned mesh coverage under entity consent.
+pub const ACTOR_ANCHORS: u32 = 256;
 /// Complete scenes have separate bounds from the small input snapshot.
 pub const MAX_BYTES: usize = 256 << 10;
 /// A wire box may expand to twelve admitted line instances.
@@ -38,14 +40,32 @@ pub struct BoxVolume {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Line {
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub camera_start: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entity_end: Option<EntityLineEnd>,
     pub start: [f32; 3],
     pub end: [f32; 3],
     pub colour: [f32; 4],
+}
+/// Omits inactive optional anchors for earlier SDK consumers.
+fn is_false(value: &bool) -> bool {
+    !value
+}
+/// A target offset in world axes, resolved from the actor's interpolated body root.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EntityLineEnd {
+    pub runtime_id: u64,
+    pub offset: [f32; 3],
 }
 /// One bounded union of actual actor meshes, composed by the existing mask renderer.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EntityHighlight {
+    /// Places a single selected mesh at these feet, preserving its current animated pose.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<[f32; 3]>,
     pub runtime_ids: Vec<u64>,
     pub style: crate::drawing::MaskStyle,
 }
@@ -99,6 +119,9 @@ impl Scene {
             && self.entities.len() <= crate::drawing::MAX_MASKS
             && self.entities.iter().all(|group| {
                 group.style.valid()
+                    && group
+                        .position
+                        .is_none_or(|position| group.runtime_ids.len() == 1 && point(position))
                     && group.runtime_ids.len() <= crate::drawing::MAX_MASK_ENTITIES
                     && group.runtime_ids.iter().all(|id| *id != 0)
             })
@@ -118,10 +141,17 @@ impl Scene {
                     && b.yaw.is_finite()
                     && colour(b.colour)
             })
-            && self
-                .lines
-                .iter()
-                .all(|l| point(l.start) && point(l.end) && colour(l.colour))
+            && self.lines.iter().all(|l| {
+                point(l.start)
+                    && point(l.end)
+                    && colour(l.colour)
+                    && l.entity_end.as_ref().is_none_or(|anchor| {
+                        anchor.runtime_id != 0
+                            && anchor.offset.iter().all(|v| {
+                                v.is_finite() && v.abs() <= crate::MAX_PRIMITIVE_EXTENT_BLOCKS
+                            })
+                    })
+            })
     }
 }
 /// Drawing coordinates use the existing native world-primitives extent.
@@ -162,6 +192,25 @@ mod tests {
         }
         scene.blocks[0].outline.as_mut().unwrap().width = 1.5;
         scene.blocks[0].outline.as_mut().unwrap().colour[3] = 1.1;
+        assert!(!scene.is_valid());
+    }
+    #[test]
+    fn actor_anchors_and_filled_meshes_require_bounded_unambiguous_targets() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../native-render-v1.json")).unwrap();
+        assert_eq!(fixture["actor_anchor_capability"], ACTOR_ANCHORS);
+        let mut scene: Scene = serde_json::from_value(fixture["anchored_scene"].clone()).unwrap();
+        assert!(scene.is_valid());
+        scene.entities[0].runtime_ids.push(43);
+        assert!(!scene.is_valid());
+        scene.entities[0].runtime_ids.pop();
+        scene.entities[0].style.fill.as_mut().unwrap()[3] = 1.1;
+        assert!(!scene.is_valid());
+        scene.entities[0].style.fill.as_mut().unwrap()[3] = 0.3;
+        scene.lines[0].entity_end.as_mut().unwrap().runtime_id = 0;
+        assert!(!scene.is_valid());
+        scene.lines[0].entity_end.as_mut().unwrap().runtime_id = 42;
+        scene.lines[0].entity_end.as_mut().unwrap().offset[0] = f32::NAN;
         assert!(!scene.is_valid());
     }
     #[test]

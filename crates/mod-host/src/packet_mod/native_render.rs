@@ -43,6 +43,18 @@ impl PacketMod {
             if let Some(scene) = &scene {
                 let bits = guest.native_render_capabilities();
                 ensure!(
+                    bits & mod_api::native_render::ACTOR_ANCHORS != 0
+                        || (scene
+                            .lines
+                            .iter()
+                            .all(|l| !l.camera_start && l.entity_end.is_none())
+                            && scene
+                                .entities
+                                .iter()
+                                .all(|e| e.position.is_none() && e.style.fill.is_none())),
+                    "actor anchor authority denied"
+                );
+                ensure!(
                     scene.entities.is_empty()
                         || bits & mod_api::native_render::ENTITY_HIGHLIGHTS != 0,
                     "actor highlight authority denied"
@@ -73,6 +85,7 @@ mod tests {
             mod_api::native_render::CAPABILITY
                 | if highlights {
                     mod_api::native_render::ENTITY_HIGHLIGHTS
+                        | mod_api::native_render::ACTOR_ANCHORS
                         | mod_api::native_render::BLOCK_HIGHLIGHTS
                         | mod_api::native_render::BLOCK_OUTLINES
                 } else {

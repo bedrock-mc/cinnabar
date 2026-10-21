@@ -99,7 +99,7 @@ impl HudEditor {
                     preview_card(
                         published
                             .iter()
-                            .find(|card| card.id == old.id)
+                            .find(|card| card.id == old.id && (!old.sample || card.sample))
                             .unwrap_or(old),
                         Some(old),
                     )

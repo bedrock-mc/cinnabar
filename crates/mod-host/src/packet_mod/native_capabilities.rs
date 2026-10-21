@@ -166,7 +166,8 @@ impl NativeExports {
         }
         if bits & mod_api::native_render::CAPABILITY != 0 {
             if granted.entity_observe && granted.entity_highlight {
-                bits |= mod_api::native_render::ENTITY_HIGHLIGHTS;
+                bits |= mod_api::native_render::ENTITY_HIGHLIGHTS
+                    | mod_api::native_render::ACTOR_ANCHORS;
             }
             if granted.block_highlights {
                 bits |= mod_api::native_render::BLOCK_HIGHLIGHTS

@@ -3,7 +3,7 @@
 use std::{cell::RefCell, collections::HashMap, sync::Arc};
 use ui::{
     UiBlendMode, UiLimits, UiMesh, UiMeshBatch, UiMeshVertex, UiVisual,
-    mod_hud::{Crosshair, CrosshairShape},
+    mod_hud::{Crosshair, CrosshairShape, MAX_CARD_SCALE, MIN_CARD_SCALE},
 };
 use ui_engine::engine::{
     Canvas,
@@ -44,6 +44,39 @@ impl CustomRenderer for CrosshairRenderer<'_> {
         Ok(node.renderer == "cursor_renderer"
             && self.visible
             && self.spec.is_some_and(|spec| paint(canvas, spec, node.dest)))
+    }
+}
+
+/// Uses the identical cached coverage mesh for a declarative, noninteractive card sample.
+pub(crate) struct PreviewRenderer;
+
+impl CustomRenderer for PreviewRenderer {
+    fn paint(
+        &mut self,
+        node: &CustomDraw<'_>,
+        canvas: &mut Canvas<'_>,
+    ) -> Result<bool, PaintError> {
+        if node.renderer != "cinnabar_crosshair_preview" {
+            return Ok(false);
+        }
+        let scale = node
+            .data
+            .get("crosshair_scale")
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(1.) as f32;
+        if scale.is_finite()
+            && (MIN_CARD_SCALE..=MAX_CARD_SCALE).contains(&scale)
+            && let Some(value) = node.data.get("crosshair")
+            && let Ok(mut spec) = serde_json::from_value::<Crosshair>(value.clone())
+            && spec.validate().is_ok()
+        {
+            spec.size *= scale;
+            spec.gap *= scale;
+            spec.thickness *= scale;
+            spec.outline *= scale;
+            paint(canvas, &spec, node.dest);
+        }
+        Ok(true)
     }
 }
 

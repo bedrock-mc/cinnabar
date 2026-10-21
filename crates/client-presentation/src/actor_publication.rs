@@ -129,6 +129,7 @@ pub struct ActorFramePublication<'w, 's> {
     time: Res<'w, Time<Real>>,
     actor_style: Option<Res<'w, ActorPresentationStyle>>,
     state: ResMut<'w, ActorFrameState>,
+    coverage: Option<Res<'w, render_scene::mod_scene::ActorCoverageRequests>>,
     scene: ResMut<'w, ActorRenderScene>,
     prepared: ResMut<'w, PreparedActorPublication>,
     presentation: ActorPresentationState<'w, 's>,
@@ -191,12 +192,23 @@ pub fn prepare_actor_render_frame(
     let cull_view = params.presentation.cull_view();
     let mut new_geometries = Vec::new();
     // The hand and body share controller sampling before local placement.
+    let coverage = params
+        .coverage
+        .as_deref()
+        .filter(|requests| {
+            stream.is_some_and(|stream| {
+                requests.connection == stream.authority().actor_session_id()
+                    && requests.dimension == stream.current_dimension()
+            })
+        })
+        .map_or(&[][..], |requests| requests.runtime_ids.as_slice());
     let mut bodies = bodies::sample(
         stream,
         &input,
         (pose_view, cull_view),
         artwork,
         bodies::BodyCaches {
+            coverage,
             poses: &mut state.poses,
             java_poses: &mut state.java_poses,
             native_pose: &mut state.java_hand.native_pose,
@@ -228,6 +240,13 @@ pub fn prepare_actor_render_frame(
             equipment: params.equipment.as_deref_mut(),
         },
     );
+    let coverage_local = coverage.contains(&bodies.local_runtime_id);
+    if state.first_person
+        && coverage_local
+        && let Some(stream) = stream
+    {
+        bodies::apply_local_coverage_pose(&mut bodies, stream, &mut state.coverage_poses);
+    }
     let visibility = params.presentation.local_visibility.snapshot().copied();
     let (local_visible, local) = bodies::place_local(
         &mut bodies,
@@ -277,7 +296,7 @@ pub fn prepare_actor_render_frame(
     // Remote bodies passed frame-model admission before bounded skin registration.
     let mut batch = select_actor_presentations(
         bodies.local_runtime_id,
-        local_visible,
+        local_visible || coverage_local,
         local,
         bodies.remotes,
     );
@@ -304,6 +323,7 @@ pub fn prepare_actor_render_frame(
             local_emote_pose: bodies.local_emote_pose.as_ref(),
             remote_emote_poses: &bodies.remote_emote_poses,
             native_body_sampled: bodies.native_body_sampled,
+            local_coverage: state.first_person && coverage_local,
             remote_skin_layers: &bodies.remote_skin_layers,
             native_pose: &state.java_hand.native_pose,
         },
@@ -380,6 +400,12 @@ pub fn prepare_actor_render_frame(
         selected_count,
         bodies.unrigged_actors,
     ));
+    if let Some(pending) = params.prepared.0.as_mut() {
+        pending.mask_only_runtime_ids = bodies.mask_only_runtime_ids;
+        if !local_visible && coverage_local {
+            pending.mask_only_runtime_ids.push(bodies.local_runtime_id);
+        }
+    }
     let hand_light = hand_frame::lighting(
         stream,
         bodies.local_runtime_id,

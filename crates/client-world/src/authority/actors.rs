@@ -354,6 +354,13 @@ impl WorldAuthority {
     pub fn actor_ui_pose(&self, runtime_id: u64) -> Option<&[actor_animation::BoneTransform]> {
         self.actors.actor_ui_pose(runtime_id)
     }
+    /// Full-body controller layers paired with the actor's UI pose.
+    pub fn actor_ui_layers(
+        &self,
+        runtime_id: u64,
+    ) -> Option<actor_animation::ActorRenderLayers<'_>> {
+        self.actors.actor_ui_layers(runtime_id)
+    }
     /// The rig's pose at the frame fraction with `targets` replacing their joints in model space;
     /// other bones keep their animated offsets from their parents.
     pub fn actor_retargeted_pose(

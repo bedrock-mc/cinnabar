@@ -594,3 +594,55 @@ fn studio_cancellation_cannot_replace_pending_reset_intent() {
     };
     assert!(result.validate().is_err());
 }
+/// Representative facts cannot be admitted as a real gameplay card.
+#[test]
+fn samples_require_preview_only_and_crosshairs_require_isolation() {
+    use super::{Crosshair, Hud};
+    let mut hud: Hud =
+        serde_json::from_str(r#"{"cards":[{"id":"sample","sample":true,"rows":[]}] }"#).unwrap();
+    assert!(hud.validate().is_err());
+    hud.cards[0].preview_only = true;
+    hud.validate().unwrap();
+    hud.cards[0].crosshair = Some(Crosshair::default());
+    hud.validate().unwrap();
+    hud.cards[0].preview_only = false;
+    assert!(hud.validate().is_err());
+    hud.cards[0].preview_only = true;
+    hud.cards[0]
+        .rows
+        .push(serde_json::from_value(serde_json::json!({"label":"","value":"1"})).unwrap());
+    assert!(hud.validate().is_err());
+}
+
+/// Aliases reserve their complete native output and cannot collide or recursively expand.
+#[test]
+fn native_sample_aliases_reserve_rows_and_unique_card_identities() {
+    use super::{Card, Hud, MAX_HUD_CARDS, MAX_HUD_ROWS};
+    let mut hud:Hud=serde_json::from_str(r#"{"cards":[{"id":"inventory","preview_id":"inventory_sample","rows":[],"source":{"kind":{"kind":"inventory","hotbar":true},"limit":36}}]}"#).unwrap();
+    hud.validate().unwrap();
+    hud.cards[0].preview_id = Some("inventory".into());
+    assert!(hud.validate().is_err());
+    hud.cards[0].preview_id = Some("preview".into());
+    hud.cards[0].sample = true;
+    hud.cards[0].preview_only = true;
+    assert!(hud.validate().is_err());
+    hud.cards[0].sample = false;
+    let template = hud.cards[0].clone();
+    hud.cards = (0..MAX_HUD_CARDS / 2 + 1)
+        .map(|index| Card {
+            id: format!("card_{index}"),
+            preview_id: Some(format!("sample_{index}")),
+            ..template.clone()
+        })
+        .collect();
+    assert!(hud.validate().is_err());
+    hud.cards.truncate(MAX_HUD_CARDS / 2);
+    assert!(
+        hud.cards
+            .iter()
+            .map(|card| usize::from(card.source.as_ref().unwrap().limit) * 2)
+            .sum::<usize>()
+            > MAX_HUD_ROWS
+    );
+    assert!(hud.validate().is_err());
+}

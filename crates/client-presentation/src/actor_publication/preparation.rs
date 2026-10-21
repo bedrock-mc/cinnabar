@@ -24,6 +24,7 @@ pub struct ActorFrameState {
     pub(super) skin_rigs: crate::presentation::skin_rig::SkinRigCache,
     pub(super) skin_layers: crate::presentation::skin_layers::SkinLayerCache,
     pub(super) poses: crate::presentation::actors::PoseConversions,
+    pub(super) coverage_poses: crate::presentation::actors::PoseConversions,
     pub(super) layer_poses: crate::presentation::entity_layers::LayerPoseCache,
     pub(super) hand_revision: u64,
     pub(super) java_hand: java::HandCache,
@@ -139,6 +140,7 @@ pub fn advance_actor_frame(
         cape_state,
         hat_state,
         poses,
+        coverage_poses,
         layer_poses,
         java_hand,
         java_poses,
@@ -248,6 +250,7 @@ pub fn advance_actor_frame(
     partial_tick.0 = step.partial_tick;
     skin_rigs.begin_frame();
     poses.begin_frame();
+    coverage_poses.begin_frame();
     java_poses.begin_frame();
     if let Some(equipment) = equipment.as_deref_mut() {
         equipment.begin_frame();

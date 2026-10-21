@@ -16,6 +16,13 @@ pub(super) fn hydrate(
             continue;
         };
         compass.frame = None;
+        if card.sample {
+            compass.frame = Some(CompassFrame {
+                heading: 45.,
+                position: [0., 64., 0.],
+            });
+            continue;
+        }
         let (Some(world), Some(motion)) = (world, motion) else {
             continue;
         };

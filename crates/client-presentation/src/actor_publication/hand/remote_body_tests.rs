@@ -176,6 +176,7 @@ fn remote_body_and_persona_publish_sampled_clamps_and_preserve_java_overrides() 
                     ),
                     &artwork,
                     super::super::bodies::BodyCaches {
+                        coverage: &[],
                         poses: &mut poses,
                         java_poses: &mut java_poses,
                         native_pose: &mut native_pose,
@@ -213,6 +214,7 @@ fn remote_body_and_persona_publish_sampled_clamps_and_preserve_java_overrides() 
                         local_emote_pose: None,
                         remote_emote_poses: &bodies.remote_emote_poses,
                         native_body_sampled: false,
+                        local_coverage: false,
                         native_pose: &native_pose,
                         remote_skin_layers: &bodies.remote_skin_layers,
                     },
@@ -543,6 +545,7 @@ fn sample_shared_bodies<'a>(
         ),
         artwork,
         super::super::bodies::BodyCaches {
+            coverage: &[],
             poses: &mut Default::default(),
             java_poses: &mut Default::default(),
             native_pose: &mut Default::default(),

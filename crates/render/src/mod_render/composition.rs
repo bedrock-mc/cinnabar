@@ -244,6 +244,7 @@ fn style_uniform(view: &ExtractedView, style: MaskStyle, size: Extent3d) -> Fram
     params[..4].copy_from_slice(&style.outline);
     params[4..8].copy_from_slice(&style.glow);
     params[8] = style.outline_radius;
+    params[9..13].copy_from_slice(&style.fill.unwrap_or([0.; 4]));
     let mut frame = passes::frame_uniform(view, 0.0, 0.0, 0, params);
     frame.resolution = [
         size.width as f32,

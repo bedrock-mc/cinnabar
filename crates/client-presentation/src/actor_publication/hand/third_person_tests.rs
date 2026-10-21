@@ -12,6 +12,8 @@ enum BodyCase {
     Emote,
     InvalidEmote,
     Persona,
+    Coverage,
+    CoverageEmpty,
 }
 
 /// Runs the actual early and final publication owners with independent interpolation clocks.
@@ -19,11 +21,17 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
     for duration in [6.0f32, 4.0, 8.0] {
         for (actor_alpha, physics_alpha) in [(0.1, 0.75), (0.9, 0.25)] {
             let ((mut stream, equipment, artwork, input), entities) =
-                super::native_tests::fixture_with_appearance(
-                    Some("minecraft:shield"),
-                    false,
-                    case == BodyCase::Persona,
-                );
+                if matches!(case, BodyCase::Coverage | BodyCase::CoverageEmpty) {
+                    super::native_tests::fixture_with_hidden_body(
+                        (case == BodyCase::Coverage).then_some("minecraft:shield"),
+                    )
+                } else {
+                    super::native_tests::fixture_with_appearance(
+                        Some("minecraft:shield"),
+                        false,
+                        case == BodyCase::Persona,
+                    )
+                };
             if case == BodyCase::JavaFallback {
                 stream
                     .submit(
@@ -76,10 +84,22 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 1,
             );
             world.insert_resource(avatar);
+            if matches!(case, BodyCase::Coverage | BodyCase::CoverageEmpty) {
+                world.insert_resource(render_scene::mod_scene::ActorCoverageRequests {
+                    connection: stream.authority().actor_session_id(),
+                    dimension: stream.current_dimension(),
+                    runtime_ids: vec![1],
+                });
+            }
             world.init_resource::<crate::local_player::LocalAvatarVisibilityCarrier>();
             let mut settings = crate::camera::CameraSettingsAuthority::default();
             let mut user = ui::UserSettings::default();
-            user.gameplay.default_perspective = semantic_input::PerspectiveMode::ThirdPersonBack;
+            user.gameplay.default_perspective =
+                if matches!(case, BodyCase::Coverage | BodyCase::CoverageEmpty) {
+                    semantic_input::PerspectiveMode::FirstPerson
+                } else {
+                    semantic_input::PerspectiveMode::ThirdPersonBack
+                };
             user.video.java_animations = case == BodyCase::JavaFallback;
             settings.replace(1, &user).unwrap();
             world.insert_resource(settings);
@@ -164,6 +184,42 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 .find(|draw| draw.input.identity.layer == render_model::ACTOR_LAYER_BODY)
                 .unwrap()
                 .clone();
+            if matches!(case, BodyCase::Coverage | BodyCase::CoverageEmpty) {
+                let full = crate::presentation::actors::convert_bones(
+                    stream.authority().actor_ui_pose(1).unwrap(),
+                )
+                .unwrap();
+                let body_bone = rig
+                    .bone_names
+                    .iter()
+                    .position(|name| name.as_ref() == "body")
+                    .unwrap();
+                assert_ne!(
+                    full[body_bone],
+                    crate::presentation::actors::convert_bones(rig.current).unwrap()[body_bone],
+                    "fixture must hide the body in first person"
+                );
+                assert_eq!(
+                    body.input.current_bones, full,
+                    "coverage must use the retained full-body pose"
+                );
+                let hand = world
+                    .resource::<render_scene::HandRigScene>()
+                    .frame
+                    .as_ref()
+                    .expect("first-person hand remains available");
+                assert!(!hand.rig.instances.is_empty());
+                let unchanged = stream.authority().actor_rig(1).unwrap();
+                assert_eq!(
+                    (
+                        unchanged.completed_tick,
+                        unchanged.previous.to_vec(),
+                        unchanged.current.to_vec()
+                    ),
+                    committed
+                );
+                continue;
+            }
             if case == BodyCase::Emote {
                 let pose = actor_animation::sample_custom_emote(
                     &rig,
@@ -343,4 +399,10 @@ fn native_third_person_invalid_emote_keeps_native_sampling() {
 #[test]
 fn native_third_person_persona_layer_samples_its_own_physics_pose() {
     assert_native_body_sample(false, BodyCase::Persona);
+}
+
+#[test]
+fn first_person_coverage_uses_full_body_pose_without_changing_hand_or_actor_state() {
+    assert_native_body_sample(false, BodyCase::Coverage);
+    assert_native_body_sample(false, BodyCase::CoverageEmpty);
 }

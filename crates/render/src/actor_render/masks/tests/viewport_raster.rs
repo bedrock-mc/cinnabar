@@ -13,7 +13,7 @@ use bevy::{
 };
 
 /// Records the production mask draw with a reduced main pass and an occluded left half.
-fn pixels(device: &RenderDevice, queue: &RenderQueue, mode: MaskDepth) -> Vec<u8> {
+fn pixels(device: &RenderDevice, queue: &RenderQueue, mode: MaskDepth, paired: bool) -> Vec<u8> {
     use crate::gpu_snapshot::SNAPSHOT_SIDE as SIDE;
     let mut app = App::new();
     app.init_resource::<Assets<Shader>>();
@@ -57,7 +57,7 @@ fn pixels(device: &RenderDevice, queue: &RenderQueue, mode: MaskDepth) -> Vec<u8
         Some(0.0),
         None,
     );
-    let mut target = MaskTarget::new(device, &depth).unwrap();
+    let mut target = MaskTarget::new(device, world.resource::<PipelineCache>(), &depth).unwrap();
     target.texture = texture(
         FORMAT,
         TextureUsages::RENDER_ATTACHMENT | TextureUsages::COPY_SRC,
@@ -144,9 +144,17 @@ fn pixels(device: &RenderDevice, queue: &RenderQueue, mode: MaskDepth) -> Vec<u8
     scene.fragment.as_mut().unwrap().targets.clear();
     scene.depth_stencil.as_mut().unwrap().depth_write_enabled = Some(true);
     scene.depth_stencil.as_mut().unwrap().depth_compare = Some(CompareFunction::Always);
+    let mut prepass = descriptor.clone();
+    prepass.fragment.as_mut().unwrap().targets.clear();
+    prepass.depth_stencil.as_mut().unwrap().depth_write_enabled = Some(true);
+    prepass.depth_stencil.as_mut().unwrap().depth_compare = Some(CompareFunction::GreaterEqual);
+    let prepass_id = cache.queue_render_pipeline(prepass);
+    if paired {
+        descriptor.layout.push(dissolve_layout(false));
+    }
     let mask_id = cache.queue_render_pipeline(descriptor);
     let scene_id = cache.queue_render_pipeline(scene);
-    for id in [mask_id, scene_id] {
+    for id in [mask_id, scene_id, prepass_id] {
         cache.block_on_render_pipeline(id);
         assert!(
             cache.get_render_pipeline(id).is_some(),
@@ -170,16 +178,42 @@ fn pixels(device: &RenderDevice, queue: &RenderQueue, mode: MaskDepth) -> Vec<u8
     world.resource_mut::<ActorGpu>().bind_group = Some(binding);
     target.frame_generation = world.resource::<ActorGpu>().frame_generation;
     target.ready = true;
-    target.draws = vec![vec![(
-        crate::actor::gpu::ActorDrawSpan {
-            material: assets::EntityRenderMaterial::Default as u32,
-            page: 0,
-            first: 0,
-            count: 1,
-            vertex_count: 3,
-        },
-        mask_id,
-    )]];
+    let span = |material| crate::actor::gpu::ActorDrawSpan {
+        material,
+        page: 0,
+        first: 0,
+        count: 1,
+        vertex_count: 3,
+    };
+    target.draws = if paired {
+        target.dissolve_binding = Some(
+            device.create_bind_group(
+                "mask sampled depth fixture",
+                &world
+                    .resource::<PipelineCache>()
+                    .get_bind_group_layout(&dissolve_layout(false)),
+                &[BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::TextureView(&target.dissolve_view),
+                }],
+            ),
+        );
+        vec![vec![
+            (
+                span(assets::EntityRenderMaterial::DissolveDepth as u32),
+                prepass_id,
+            ),
+            (
+                span(assets::EntityRenderMaterial::DissolveColor as u32),
+                mask_id,
+            ),
+        ]]
+    } else {
+        vec![vec![(
+            span(assets::EntityRenderMaterial::Default as u32),
+            mask_id,
+        )]]
+    };
     let (_, commands) = crate::render_test_support::record(world, device, |world, context| {
         let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
             depth_stencil_attachment: Some(depth.get_attachment(wgpu::StoreOp::Store)),
@@ -201,6 +235,7 @@ fn pixels(device: &RenderDevice, queue: &RenderQueue, mode: MaskDepth) -> Vec<u8
             &world.resource::<crate::lighting::LightmapGpu>().bind_group,
             &[],
         );
+        pass.set_bind_group(2, &target.placement_binding, &[]);
         pass.draw(0..3, 0..1);
     });
     queue.submit(commands);
@@ -261,7 +296,7 @@ fn mask_pixels_use_main_pass_resolution_for_coverage_and_scene_depth() {
     let device = RenderDevice::from(gpu.device);
     let queue = RenderQueue::new(gpu.queue);
     for mode in [MaskDepth::Test, MaskDepth::Always] {
-        let pixels = pixels(&device, &queue, mode);
+        let pixels = pixels(&device, &queue, mode, false);
         gpu_snapshot::save(&format!("mask-main-pass-{mode:?}"), &pixels);
         for (index, pixel) in pixels.as_chunks::<4>().0.iter().enumerate() {
             let x = index as u32 % SNAPSHOT_SIDE;
@@ -275,5 +310,20 @@ fn mask_pixels_use_main_pass_resolution_for_coverage_and_scene_depth() {
                 "{mode:?} at ({x}, {y})"
             );
         }
+    }
+}
+
+#[test]
+fn translated_mask_dissolve_prepass_does_not_sample_its_writable_depth() {
+    let Some(gpu) = crate::gpu_snapshot::Gpu::for_fixture("translated mask private depth") else {
+        return;
+    };
+    let device = RenderDevice::from(gpu.device);
+    let queue = RenderQueue::new(gpu.queue);
+    for mode in [MaskDepth::Test, MaskDepth::Always] {
+        assert_eq!(
+            pixels(&device, &queue, mode, true),
+            pixels(&device, &queue, mode, false)
+        );
     }
 }

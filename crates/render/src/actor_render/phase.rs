@@ -156,7 +156,7 @@ pub(super) fn queue_actors(
                 geometry_revision: params.gpu.geometry_revision,
                 frame_generation: params.gpu.frame_generation,
                 draw_generation,
-                manifest: std::sync::Arc::clone(&params.gpu.manifest),
+                manifest: std::sync::Arc::clone(&params.gpu.main_manifest),
             },
             intended_view.expect("queued view exists"),
             &params.gpu.spans,
@@ -204,7 +204,7 @@ impl ActorGpu {
             && draw.skin_revision == self.skin_revision
             && draw.geometry_revision == self.geometry_revision
             && draw.frame_generation == self.frame_generation
-            && std::sync::Arc::ptr_eq(&draw.manifest, &self.manifest))
+            && std::sync::Arc::ptr_eq(&draw.manifest, &self.main_manifest))
         .then(|| batch.clone())
     }
 }
