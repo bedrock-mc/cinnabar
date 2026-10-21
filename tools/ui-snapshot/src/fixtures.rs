@@ -17,12 +17,6 @@ mod updates;
 
 use std::sync::Arc;
 
-#[cfg(feature = "test-support")]
-use chat::chat_server_content;
-use chat::{
-    chat_background, chat_command_background, chat_command_targets, chat_completion,
-    chat_history_width, chat_mentions,
-};
 use launcher::menu::{
     MenuAction, MenuScreen, MenuView, settings_options::SettingId,
     settings_sections::SettingSection,
