@@ -6,6 +6,11 @@ The conversion is deterministic Rust (`tools/jsonui-editor/src/figma`) running a
 WebAssembly, so the same frame always gives the same pack. It uses only the free
 plugin API.
 
+## Download
+
+A build of the latest `dev` is at <https://jsonui.cinnabar.gg/figma-plugin.zip>.
+Unzip it and import its `manifest.json` as below; no toolchain is needed.
+
 ## Build
 
 Needs the `wasm32-unknown-unknown` target, the `wasm-bindgen` CLI version that
@@ -21,7 +26,8 @@ Cinnangles Sans font for the preview, and writes `tools/figma-plugin/dist/`.
 ## Load it in Figma
 
 In the Figma desktop app, open **Plugins → Development → Import plugin from
-manifest…** and choose `tools/figma-plugin/manifest.json`. Run it from
+manifest…** and choose `manifest.json` (in the unzipped download, or
+`tools/figma-plugin/` after a build). Run it from
 **Plugins → Development → Figma to JSON-UI**, then select a frame.
 
 The window shows the preview, every warning (click a layer name to select it)

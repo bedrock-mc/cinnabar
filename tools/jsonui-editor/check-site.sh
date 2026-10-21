@@ -7,7 +7,7 @@ here="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 expected="$(
     printf '%s\n' .nojekyll pkg/jsonui_editor.js pkg/jsonui_editor_bg.wasm \
         pkg/jsonui_editor.d.ts pkg/jsonui_editor_bg.wasm.d.ts \
-        cinnangles-sans.mcbefont examples/files.json
+        cinnangles-sans.mcbefont examples/files.json figma-plugin.zip
     (cd "$here/web" && find . -type f | sed 's|^\./||')
     (cd "$here/examples" && find . -type f | sed 's|^\./|examples/|')
 )"
