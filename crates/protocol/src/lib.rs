@@ -172,10 +172,9 @@ pub use inventory::{
     IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
 };
 pub use inventory::{
-    InventoryLayout, InventoryOptions, InventoryRightTab, InventoryTab, inventory_options_packet,
+    InventoryLayout, InventoryOptions, InventoryRightTab, InventoryTab, MineBlockRequest,
+    MineBlockRequestError, RecipeRegistryError, RecipeRegistrySnapshot, inventory_options_packet,
 };
-pub use inventory::{MineBlockRequest, MineBlockRequestError};
-pub use inventory::{RecipeRegistryError, RecipeRegistrySnapshot};
 pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, EquipmentEvent,
     FoodProperties, HOTBAR_SLOT_COUNT, ItemActorEvent, ItemAttackCooldown, ItemAttackTiming,
