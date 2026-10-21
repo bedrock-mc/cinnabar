@@ -25,6 +25,20 @@ enum Direction {
     None,
 }
 
+/// Counts whole cells fitting an axis, keeping one slot when the cell has no size.
+fn cells_fitting(extent: f64, cell: f64) -> f64 {
+    if cell == 0.0 {
+        1.0
+    } else {
+        (extent / cell).floor().max(1.0)
+    }
+}
+
+/// The effective wrap width of a templated grid without vertical rescaling.
+pub fn grid_template_columns(width: f64, cell_width: f64) -> usize {
+    cells_fitting(width, cell_width) as usize
+}
+
 fn direction(control: &ResolvedControl, key: &str) -> Direction {
     match control.properties.get(key).and_then(Value::as_str) {
         Some("horizontal") => Direction::Horizontal,
@@ -114,13 +128,7 @@ pub(crate) fn fixed_dimensions(control: &ResolvedControl) -> [f64; 2] {
 
 /// `[columns, rows]` for a grid of `grid` extent over cells of `cell` extent.
 fn dimensions(control: &ResolvedControl, grid: [f64; 2], cell: [f64; 2]) -> [f64; 2] {
-    let fit = |axis: usize| {
-        if cell[axis] == 0.0 {
-            1.0
-        } else {
-            (grid[axis] / cell[axis]).floor().max(1.0)
-        }
-    };
+    let fit = |axis: usize| cells_fitting(grid[axis], cell[axis]);
     match direction(control, "grid_rescaling_type") {
         Direction::Horizontal => {
             let columns = fit(0);
@@ -285,19 +293,13 @@ impl Layout {
         if !self.templated {
             return int_pair(child, "grid_position").unwrap_or([0.0; 2]);
         }
-        let fit = |axis: usize| {
-            if size[axis] == 0.0 {
-                1.0
-            } else {
-                (self.extent[axis] / size[axis]).floor().max(1.0)
-            }
-        };
         let columns = if self.rescaling == Some(1) {
-            (count as f64 / fit(1)).ceil()
+            (count as f64 / cells_fitting(self.extent[1], size[1]))
+                .ceil()
+                .max(1.0) as usize
         } else {
-            fit(0)
+            grid_template_columns(self.extent[0], size[0])
         };
-        let columns = columns.max(1.0) as usize;
         [(index % columns) as f64, (index / columns) as f64]
     }
 

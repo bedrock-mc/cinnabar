@@ -17,8 +17,8 @@ pub(crate) struct HostPipelines {
     pub scene_depth: Option<wgpu::RenderPipeline>,
     /// Writes scene depth into comparison textures and the geometry depth attachment.
     pub scene_depth_attachment: Option<wgpu::RenderPipeline>,
-    /// Copies the geometry depth attachment into a float `depthtex`/`shadowtex`.
-    pub depth_copy: wgpu::RenderPipeline,
+    /// Copies geometry depth into float `depthtex`/`shadowtex`, per destination format.
+    pub depth_copy: Vec<(TextureFormat, wgpu::RenderPipeline)>,
     /// Overlays what the Vanilla scene draws in front of the pack's opaque geometry (actors,
     /// particles, clouds) onto `colortex0` and the depth attachment.
     pub vanilla_overlay: wgpu::RenderPipeline,
@@ -33,9 +33,22 @@ pub(crate) struct HostPipelines {
     pub constant_stream: wgpu::Buffer,
 }
 
+impl HostPipelines {
+    /// Selects the copy pipeline built for the destination texture's format.
+    pub(crate) fn depth_copy_for(&self, format: TextureFormat) -> &wgpu::RenderPipeline {
+        &self
+            .depth_copy
+            .iter()
+            .find(|(candidate, _)| *candidate == format)
+            .expect("depth copy pipelines cover every allocated destination format")
+            .1
+    }
+}
+
 /// Builds the host passes for a pack's buffer and depth formats; `depth_targets` when the
 /// pack has a geometry depth or comparison `depthtex*` for the scene depth to fill, and
 /// `float_depths` the float `depthtex*` copies it allocates (`targets::float_depths`).
+/// `shadow_depth_formats` comes from the allocated float shadow textures.
 pub(super) fn host_pipelines(
     device: &wgpu::Device,
     buffer_formats: &[Option<TextureFormat>; MAX_COLOR_BUFFERS as usize],
@@ -43,6 +56,7 @@ pub(super) fn host_pipelines(
     depth_targets: bool,
     float_depths: [bool; 3],
     mipmap_formats: &[TextureFormat],
+    shadow_depth_formats: &[TextureFormat],
 ) -> HostPipelines {
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("shader pack host passes"),
@@ -87,13 +101,22 @@ pub(super) fn host_pipelines(
     let colour0 = buffer_formats[0].unwrap_or(TextureFormat::Rgba8Unorm);
     let mut formats: Vec<TextureFormat> = mipmap_formats.to_vec();
     formats.dedup();
+    let mut depth_copy = vec![(
+        depth_format,
+        pipeline("depth_copy", &[target(depth_format)], false),
+    )];
+    for &format in shadow_depth_formats {
+        if !depth_copy.iter().any(|(existing, _)| *existing == format) {
+            depth_copy.push((format, pipeline("depth_copy", &[target(format)], false)));
+        }
+    }
     HostPipelines {
         scene_colour: pipeline("scene_colour", &[target(colour0)], false),
         scene_depth: depth_copy_targets(depth_format, float_depths)
             .map(|targets| pipeline("scene_depth", &targets, false)),
         scene_depth_attachment: depth_targets
             .then(|| pipeline("scene_depth_attachment", &[], true)),
-        depth_copy: pipeline("depth_copy", &[target(depth_format)], false),
+        depth_copy,
         vanilla_overlay: pipeline("vanilla_overlay", &[target(colour0)], true),
         present: [
             render_scene::SCENE_COLOR_FORMAT,
@@ -190,6 +213,7 @@ mod tests {
             TextureFormat::R32Float,
             false,
             [false; 3],
+            &[],
             &[],
         );
         assert!(host.scene_depth.is_none());

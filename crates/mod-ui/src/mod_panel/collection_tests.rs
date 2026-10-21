@@ -6,7 +6,7 @@ use std::{collections::BTreeSet, sync::Arc};
 use ui::mod_panel::{Panel, PanelPatch};
 use ui_engine::cached_screen::CachedScreen;
 
-struct Metrics;
+pub(super) struct Metrics;
 
 /// Native hover values reach an unchanged collection and remain eased between pointer events.
 #[test]
@@ -85,7 +85,7 @@ impl TextureSource for Metrics {
 }
 
 /// Makes an independently actionable 99-item catalogue behind one small tile template.
-fn catalogue() -> Panel {
+pub(super) fn catalogue() -> Panel {
     let template = json!({"screen":"tile.root", "bindings":{}, "document":json!({
         "namespace":"tile","root":{"type":"button","size":[100,40],
             "button_mappings":[{"from_button_id":"button.menu_select","mapping_type":"pressed","to_button_id":"mod.item:open"}],
@@ -101,7 +101,7 @@ fn catalogue() -> Panel {
 }
 
 /// Makes four columns of independently bound artwork behind the native viewport.
-fn four_column_catalogue() -> Panel {
+pub(super) fn four_column_catalogue() -> Panel {
     let mut panel = catalogue();
     let surface = panel.surface.as_mut().unwrap();
     surface.document = json!({"namespace":"list","root":{"type":"panel","size":[452,289],

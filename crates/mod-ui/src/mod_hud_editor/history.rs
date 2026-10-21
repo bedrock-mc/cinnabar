@@ -50,9 +50,9 @@ pub(super) struct History {
 
 impl History {
     /// Seeds the first state when the editor opens.
-    pub(super) fn new(hud: &Hud) -> Self {
+    pub(super) fn new(hud: &Hud, hidden: &HashSet<String>) -> Self {
         Self {
-            current: Layout::capture(hud, &HashSet::new(), false),
+            current: Layout::capture(hud, hidden, false),
             undo: VecDeque::new(),
             redo: Vec::new(),
         }

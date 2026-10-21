@@ -55,30 +55,36 @@ pub(super) struct Growable {
 }
 
 impl Growable {
+    /// Retains the old buffer if growth runs out of memory; callers must skip publication.
     pub(super) fn ensure(
         &mut self,
         device: &Device,
         label: &str,
         size: u64,
         usage: wgpu::BufferUsages,
-    ) -> &wgpu::Buffer {
+    ) -> Option<&wgpu::Buffer> {
         let size = size.max(16).next_multiple_of(16);
         if self.buffer.as_ref().is_none_or(|b| b.size() < size) {
-            self.buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(label),
-                size: super::pages::allocation_size(
+            let size = super::pages::allocation_size(
+                size,
+                if usage.contains(wgpu::BufferUsages::STORAGE) {
+                    device.limits().max_storage_buffer_binding_size
+                } else {
+                    device.limits().max_buffer_size
+                },
+            );
+            let render_device = bevy::render::renderer::RenderDevice::from(device.clone());
+            let buffer = crate::gpu_allocation::checked(&render_device, label, size, || {
+                device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some(label),
                     size,
-                    if usage.contains(wgpu::BufferUsages::STORAGE) {
-                        device.limits().max_storage_buffer_binding_size
-                    } else {
-                        device.limits().max_buffer_size
-                    },
-                ),
-                usage,
-                mapped_at_creation: false,
-            }));
+                    usage,
+                    mapped_at_creation: false,
+                })
+            })?;
+            self.buffer = Some(buffer);
         }
-        self.buffer.as_ref().expect("just ensured")
+        self.buffer.as_ref()
     }
 }
 
@@ -123,6 +129,8 @@ pub(crate) struct ViewActors {
     pub(super) pages: Vec<PageBuffers>,
     pub(super) neutral: Option<NeutralTextures>,
     pub(super) frame: u64,
+    /// A failed stream disables replacement until this view is rebuilt.
+    pub(crate) allocation_failed: bool,
     pub(super) scratch: Vec<u8>,
 }
 
@@ -295,7 +303,7 @@ impl ViewActors {
             let item_id = match instance.held {
                 Some(Hand::Main) => sources.held_items[0],
                 Some(Hand::Off) => sources.held_items[1],
-                None => -1,
+                None => 0,
             };
             let values = DrawValues {
                 entity_id,

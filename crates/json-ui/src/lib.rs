@@ -98,7 +98,8 @@ pub use input::{
 };
 pub use label::{LabelShape, TextOptions};
 pub use layout::{
-    LaidOut, LayoutEnv, MeasureCache, Rect, TextMeasure, TextureSource, layout, layout_with,
+    LaidOut, LayoutEnv, MeasureCache, Rect, SiblingKeys, TextMeasure, TextureSource, child_key,
+    grid_template_columns, layout, layout_with,
 };
 pub use layout_cache_key::LayoutCacheKey;
 pub use localize::{localize_text, localize_text_chars, localize_text_prefix};

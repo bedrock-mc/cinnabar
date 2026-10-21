@@ -669,11 +669,7 @@ pub(super) fn append_overlay(
             let y = (rect[1] + (rect[3] - height) * 0.5).clamp(4., viewport[1] - height - 4.);
             let mut raised = palette;
             raised.card = palette.raised;
-            raised.border = if *invalid {
-                palette.accent
-            } else {
-                palette.text
-            };
+            raised.border = palette.accent;
             let mut field = chrome([width, height], raised, 3.);
             field.push(named(
                 "value",
