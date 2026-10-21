@@ -925,7 +925,7 @@ mod tests {
         assert_eq!(DrawKind::HandWater.render_stage(), 23);
         let after: Vec<_> = DrawKind::ALL
             .into_iter()
-            .filter(|k| k.after_deferred())
+            .filter(|k| !matches!(k, DrawKind::Effect(_)) && k.after_deferred(&settings))
             .collect();
         assert_eq!(
             after,
