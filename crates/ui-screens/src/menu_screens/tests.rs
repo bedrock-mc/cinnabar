@@ -497,6 +497,37 @@ fn spatial_antialiasing_choices_bind_shared_labels_and_edit_the_saved_setting() 
     }
 }
 
+/// Each bobbing radio saves its own mode and displays the selected shared caption.
+#[test]
+fn view_bobbing_choices_bind_and_edit_the_saved_mode() {
+    use launcher::menu::settings_options::{SettingId, VIEW_BOBBING_CHOICES};
+    let mut view = view(MenuScreen::Settings);
+    let id = SettingId::ViewBobbing;
+    for mode in ui::ViewBobbing::ALL {
+        Arc::make_mut(&mut view.settings_options).set(id.index(), mode as i32);
+        let mut actual = DataSource::default();
+        super::super::settings_controls::bind(&view, &mut actual, &str::to_owned);
+        let mut expected = actual.clone();
+        expected.set_global(
+            format!("#{}_dropdown_toggle_label", id.name()),
+            Scalar::Text(mode.label().into()),
+        );
+        for (value, choice) in VIEW_BOBBING_CHOICES.iter().enumerate() {
+            expected.set_global(
+                format!("#{}", choice.name),
+                Scalar::Bool(value == mode as usize),
+            );
+            let mut radio = region(HitKind::Toggle, None);
+            radio.control_name = Some(choice.name.into());
+            assert_eq!(
+                super::super::settings_controls::action(&view, &radio),
+                Some(MenuAction::SettingsOption(id.index() as u16, value as i32))
+            );
+        }
+        assert_eq!(actual, expected);
+    }
+}
+
 #[test]
 fn automatic_update_binding_uses_the_persisted_opt_out() {
     let mut shown = view(MenuScreen::Settings);

@@ -55,7 +55,7 @@ pub use settings::{
     DEFAULT_SMAA_MODE, GameplaySettings, MAX_FOV_DEGREES, MIN_FOV_DEGREES,
     MIN_RENDER_DISTANCE_CHUNKS, MOTION_BLUR_REFERENCE_FPS, MotionBlurQuality,
     RenderDistanceDefaults, RenderDistanceDevice, RenderMode, SmaaMode, UserSettings,
-    VideoSettings,
+    VideoSettings, ViewBobbing,
 };
 pub use text::{
     BedrockColor, ColorDescriptor, FONT_ASCENT_TEXELS, FONT_DESIGN_PIXEL_TEXELS, FONT_INK_TEXELS,

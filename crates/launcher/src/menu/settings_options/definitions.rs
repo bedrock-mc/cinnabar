@@ -67,6 +67,22 @@ pub const ANIMATION_CHOICES: &[SettingChoice] = &[
 /// Bedrock animation is the default; Java 1.7 stays selectable.
 pub const ANIMATIONS_OPTION: SettingDefinition = SettingId::Animations.definition();
 
+/// Bobbing choices retain the saved toggle values and append the hand-only mode.
+pub const VIEW_BOBBING_CHOICES: &[SettingChoice] = &[
+    SettingChoice {
+        name: "view_bobbing_radio_off",
+        label: ui::ViewBobbing::Off.label(),
+    },
+    SettingChoice {
+        name: "view_bobbing_radio_full",
+        label: ui::ViewBobbing::Full.label(),
+    },
+    SettingChoice {
+        name: "view_bobbing_radio_minimal",
+        label: ui::ViewBobbing::Minimal.label(),
+    },
+];
+
 /// Native placement is enabled; disabling it centers the authored cube.
 pub const NATIVE_SKYBOX_OFFSET_OPTION: SettingDefinition =
     SettingId::NativeSkyboxOffset.definition();
@@ -394,7 +410,7 @@ settings! {
         [(SettingPanel::VideoCustomization, 6)], [SettingsGroup::Video], None, None;
     IngamePlayerNames => "ingame_player_names", toggle("options.ingamePlayerNames", true),
         [(SettingPanel::VideoCustomization, 7)], [SettingsGroup::Video], None, Some("options.ingamePlayerNames.name");
-    ViewBobbing => "view_bobbing", toggle("options.viewBobbing", true),
+    ViewBobbing => "view_bobbing", dropdown("options.viewBobbing", VIEW_BOBBING_CHOICES, ui::ViewBobbing::Full as i32),
         [(SettingPanel::VideoAccessibility, 4)], [SettingsGroup::Video], None, None;
     Animations => "animations", dropdown("Animations", ANIMATION_CHOICES, 1),
         [(SettingPanel::VideoAccessibility, 5)], [SettingsGroup::Video], None, None;

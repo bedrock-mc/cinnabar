@@ -200,6 +200,10 @@ is a broader claim than the presence of these features.
   Touch remains open even when an owner-deprioritized touch witness does not gate a
   narrower scenario verdict.
 
+View Bobbing offers Off, Full and Minimal. Minimal retains first-person hand bobbing
+with a steady movement camera in both animation modes; hurt and death effects remain
+independent. In-world rendered acceptance evidence for this client option remains outstanding.
+
 Historical movement acceptance scope includes sprint/double-tap/toggle timing, forced
 sneak/crawl, mode entry/exit, flight, swimming/gliding, liquid correction and scaffolding
 descent. Reconcile each case with current code and evidence before calling it a missing
