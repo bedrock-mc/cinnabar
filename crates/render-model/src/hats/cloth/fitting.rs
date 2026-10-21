@@ -139,6 +139,48 @@ mod tests {
     }
 
     #[test]
+    fn raised_jacket_layers_keep_pinned_particles_outside_the_drawn_surface() {
+        let item = crate::hats::fixture::cloth();
+        let model = rig(item);
+        let root = RenderBoneTransform {
+            rotation: Quat::IDENTITY.to_array(),
+            translation_scale: [0.0, 1.5, 0.0, 1.0],
+            axis_scale: UNIT_AXIS_SCALE,
+        };
+        let base = model.pose(root, super::super::super::Motion::default());
+        let actor = [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+        ];
+        for depth in [2.25 / 16.0, 4.0 / 16.0] {
+            let overlay = ActorRigGeometry::synthetic_cuboid(
+                EntityRigId(2),
+                [-0.25, -0.75, -depth],
+                [0.25, 0.0, depth],
+                1,
+            )
+            .unwrap();
+            let jacket = Collider::geometry("jacket", &overlay, 0, root, Mat4::IDENTITY).unwrap();
+            let mut state = ClothState::default();
+            state
+                .pose(
+                    item,
+                    [base.clone(), base.clone()],
+                    actor,
+                    (0.0, 1.0),
+                    &[torso(2.0 / 16.0, root), jacket],
+                )
+                .unwrap();
+            assert!(
+                state.points[..=model.cloth.as_ref().unwrap().columns]
+                    .iter()
+                    .all(|point| point.z >= depth + CONTACT_MARGIN)
+            );
+        }
+    }
+
+    #[test]
     fn pins_and_mounts_fit_bare_standard_and_thick_armor_after_rotation() {
         let item = crate::hats::fixture::cloth();
         let model = rig(item);

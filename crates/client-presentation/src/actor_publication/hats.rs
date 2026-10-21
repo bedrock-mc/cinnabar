@@ -35,6 +35,33 @@ pub struct CosmeticEmitterPlacement {
 #[derive(Resource, Default)]
 pub struct CosmeticEmitterPlacements(pub Vec<CosmeticEmitterPlacement>);
 
+/// Geometry and render-only skeletons sampled for the current attachment frame.
+#[derive(Default)]
+pub(super) struct AttachmentFrame<'a> {
+    pub geometries: &'a [render_model::ActorRigGeometry],
+    pub equipment: Option<&'a crate::presentation::equipment::EquipmentRuntime>,
+    pub local_emote: Option<&'a actor_animation::CustomEmotePose>,
+    pub remote_emotes:
+        Option<&'a bevy::platform::collections::HashMap<u64, actor_animation::CustomEmotePose>>,
+}
+
+impl<'a> AttachmentFrame<'a> {
+    /// Uses the same articulated skeleton as the submitted body during custom playback.
+    pub(super) fn rig(
+        &'a self,
+        rig: actor_animation::ActorRigSnapshot<'a>,
+        local: bool,
+    ) -> actor_animation::ActorRigSnapshot<'a> {
+        let emote = if local {
+            self.local_emote
+        } else {
+            self.remote_emotes
+                .and_then(|poses| poses.get(&rig.actor.runtime_id))
+        };
+        emote.map_or(rig, |pose| pose.snapshot(rig))
+    }
+}
+
 /// Bedrock's emissive-alpha state for fullbright catalog items. Other material fields, culling
 /// and overlay suppression follow the body, so player cosmetics stay two-sided as before.
 fn emissive_material(body: ActorMaterial) -> ActorMaterial {
@@ -208,10 +235,7 @@ impl HatState {
         items: &[RemoteHat],
         scene: &mut render_scene::ActorRenderScene,
         partial_tick: f32,
-        geometry: (
-            &[render_model::ActorRigGeometry],
-            Option<&crate::presentation::equipment::EquipmentRuntime>,
-        ),
+        frame: AttachmentFrame<'_>,
     ) {
         self.drawn.clear();
         let Some(stream) = stream else {
@@ -246,6 +270,7 @@ impl HatState {
                 let Some(rig) = stream.authority().actor_rig(id) else {
                     continue;
                 };
+                let rig = frame.rig(rig, local);
                 let attachment = if local {
                     let attachment = self.local_attachments.entry(item).or_default();
                     attachment.set_visible(true);
@@ -273,7 +298,7 @@ impl HatState {
                         &batch.submissions,
                         scene,
                         partial_tick,
-                        geometry,
+                        (frame.geometries, frame.equipment),
                     ));
                 }
                 let Some((previous, current)) = attachment.pose(

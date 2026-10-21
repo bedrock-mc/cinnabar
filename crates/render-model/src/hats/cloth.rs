@@ -223,7 +223,9 @@ impl Collider {
             inverse: world.inverse(),
             min: Vec3::from_array(min) - Vec3::splat(margin),
             max: Vec3::from_array(max) + Vec3::splat(margin),
-            back_only: name.eq_ignore_ascii_case("body"),
+            back_only: name.split('.').next().is_some_and(|root| {
+                root.eq_ignore_ascii_case("body") || root.eq_ignore_ascii_case("jacket")
+            }),
         })
     }
 

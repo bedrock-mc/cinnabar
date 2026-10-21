@@ -244,6 +244,10 @@ pub fn prepare_actor_render_frame(
         && let (Some(body), Some(stream)) = (local.as_ref(), stream)
         && let Some(rig) = stream.authority().actor_rig(bodies.local_runtime_id)
     {
+        let rig = bodies
+            .local_emote_pose
+            .as_ref()
+            .map_or(rig, |pose| pose.snapshot(rig));
         let contacts = cloth_contacts::hidden(
             &body.submission,
             &rig,
@@ -323,7 +327,12 @@ pub fn prepare_actor_render_frame(
         &input.remote_hats,
         &mut params.scene,
         step.partial_tick,
-        (&new_geometries, params.equipment.as_deref()),
+        hats::AttachmentFrame {
+            geometries: &new_geometries,
+            equipment: params.equipment.as_deref(),
+            local_emote: bodies.local_emote_pose.as_ref(),
+            remote_emotes: Some(&bodies.remote_emote_poses),
+        },
     );
     layers::apply_style_and_visibility(&mut batch, stream, params.actor_style.as_deref());
     if let Some(placements) = params.cosmetic_emitters.as_deref_mut() {
