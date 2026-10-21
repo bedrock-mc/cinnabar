@@ -685,6 +685,23 @@ fn late_rejection_of_a_request_abandoned_by_a_server_close_lifts_its_recovery() 
     assert_eq!(ledger.cursor_stack(), None);
 }
 
+/// Every error result answers an abandoned request, not only the generic error code.
+#[test]
+fn a_specific_error_code_lifts_an_abandoned_request_recovery() {
+    let (mut ledger, request) = closing_with_pending(960);
+    ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
+        container: ContainerIdentity::window(1),
+        window_type: 0,
+        server_initiated: true,
+    }));
+    assert!(ledger.resync_required());
+
+    // BDS answers a destination it cannot validate with its own result code.
+    ledger.apply(&response(request, StackResponseStatus::Unknown(50)));
+    assert!(!ledger.resync_required());
+    assert_eq!(ledger.cursor_stack(), None);
+}
+
 #[test]
 fn replacing_the_window_clears_a_closing_state_immediately() {
     let (mut ledger, request) = closing_with_pending(950);
