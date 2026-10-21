@@ -269,7 +269,6 @@ impl Session {
         let anchor = nametags::extract_nametag(
             actor,
             nametags::NametagView {
-                viewer_position: Vec3::new(0.0, 64.0, -12.0),
                 camera_position: Vec3::new(0.0, 66.0, -12.0),
                 camera_forward: Vec3::Z,
             },
