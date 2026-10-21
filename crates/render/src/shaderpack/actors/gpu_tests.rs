@@ -56,6 +56,7 @@ fn skin_fixture(
 }
 
 /// Runs either production conversion entry with explicit authored corners.
+#[allow(clippy::too_many_arguments, reason = "explicit kernel fixture inputs")]
 fn skin_corners(
     name: &str,
     uv: [f32; 4],
@@ -830,9 +831,13 @@ fn actor_stream_failure_disables_native_queue_replacement() {
             entries: &descriptor.entries,
         })
     };
-    let rig_layout = layout(super::skin::rig_layout());
-    let block_layout = layout(super::skin::block_entity_layout());
-    let output_layout = layout(super::skin::output_layout());
+    let rig_layout =
+        bevy::render::render_resource::BindGroupLayout::from(layout(super::skin::rig_layout()));
+    let block_layout = bevy::render::render_resource::BindGroupLayout::from(layout(
+        super::skin::block_entity_layout(),
+    ));
+    let output_layout =
+        bevy::render::render_resource::BindGroupLayout::from(layout(super::skin::output_layout()));
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: None,
         source: wgpu::ShaderSource::Wgsl("@compute @workgroup_size(1) fn main() {}".into()),
@@ -845,6 +850,7 @@ fn actor_stream_failure_disables_native_queue_replacement() {
         compilation_options: Default::default(),
         cache: None,
     });
+    let pipeline = bevy::render::render_resource::ComputePipeline::from(pipeline);
     let texture = bevy::render::render_resource::Texture::from(device.create_texture(
         &wgpu::TextureDescriptor {
             label: None,
