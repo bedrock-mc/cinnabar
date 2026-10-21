@@ -21,6 +21,7 @@ pub(super) fn drive(
             let position = touch.position();
             if let Ok(point) = UiPoint::new(position.x, position.y)
                 && presentation.settings_slider_thumb_hit_test(point).is_none()
+                && !shader_slider_at(presentation, point)
                 && presentation.begin_menu_touch_scroll(point)
             {
                 *captured = Some(touch.id());
@@ -40,4 +41,15 @@ pub(super) fn drive(
         *captured = None;
     }
     consumed.then_some(id)
+}
+
+/// Shader sliders own their whole track, independently of the built-in thumb hit regions.
+fn shader_slider_at(presentation: &UiPresentationRuntime, point: UiPoint) -> bool {
+    use launcher::{
+        menu::MenuAction,
+        shader_options::{Action, Input},
+    };
+    matches!(presentation.hit_test_menu(point), Some(MenuAction::ShaderOptions(Action::Element {
+        screen, index, input: Input::Select(_),
+    })) if presentation.shader_option_slider_drag_action(screen, index, point).is_some())
 }

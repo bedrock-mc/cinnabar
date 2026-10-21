@@ -24,6 +24,12 @@ fn settings_swipe_moves_content_without_activating_the_pressed_row() {
     let (mut app, window) = shader_fixture();
     app.world_mut()
         .resource_mut::<MenuRuntime>()
+        .sync_shader_options(None);
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .set_named_option(SettingId::ScreenAnimations, 0);
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
         .activate(MenuAction::SettingsSection(
             launcher::menu::settings_sections::SettingSection::Accessibility
                 .definition()

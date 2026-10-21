@@ -12,6 +12,7 @@ pub(super) struct TouchScroll {
     last: UiPoint,
     consumed: bool,
     scrollbar: bool,
+    thumb_drag: Option<(String, f32)>,
 }
 
 impl<F: PartialEq> MenuScrolls<F> {
@@ -29,6 +30,7 @@ impl<F: PartialEq> MenuScrolls<F> {
             last: point,
             consumed: scrollbar,
             scrollbar,
+            thumb_drag: self.drag.take(),
         });
         true
     }
@@ -45,7 +47,9 @@ impl<F: PartialEq> MenuScrolls<F> {
         }
         if let Some(point) = point {
             if touch.scrollbar {
+                self.drag = touch.thumb_drag.take();
                 self.drag(Some(point), true);
+                touch.thumb_drag = self.drag.take();
             } else {
                 touch.consumed |= (point.y() - touch.start.y()).abs() > DRAG_DISTANCE;
                 if touch.consumed {
@@ -108,6 +112,9 @@ mod tests {
         let mut scrolls = MenuScrolls::<()>::default();
         scrolls.set_areas(vec![area()]);
         assert!(scrolls.begin_touch(point(97.0, 10.0)));
+        scrolls.drag(None, false);
+        assert!(scrolls.move_touch(Some(point(97.0, 40.0)), true));
+        scrolls.drag(None, false);
         assert!(scrolls.move_touch(Some(point(97.0, 85.0)), false));
         assert_eq!(scrolls.offsets()["list"], 150.0);
         assert!(!scrolls.dragging());
