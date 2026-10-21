@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,15 +13,19 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/internal/latencytrace"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
-	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
+
+// sessionReadAheadFrames bounds queued small frames; payloads share one maximum-frame byte budget.
+const sessionReadAheadFrames = 256
 
 // sessionConn is the client leg of one session, shaped as the relay's downstream: batches in and
 // out are Batch frames, and an upstream Transfer or final Disconnect becomes a terminal message.
 type sessionConn struct {
 	conn       *streamnet.FramedConn
 	frames     chan sessionRead // the reader's frames, in order
+	readSpace  chan struct{}    // a dequeue may allow another payload into the byte budget
+	readBytes  atomic.Int64     // admitted payload bytes, including a frame waiting for a queue slot
 	done       chan struct{}
 	readDone   chan struct{}
 	closeOnce  sync.Once
@@ -33,11 +36,6 @@ type sessionConn struct {
 	runtimeID  atomic.Uint64 // the player's runtime ID from the upstream StartGame
 
 	terminalDelivered atomic.Bool // a complete terminal frame reached the local transport
-
-	respawnMu          sync.Mutex
-	immediateRespawn   atomic.Bool
-	injectedUpstream   [][]byte
-	lastRespawnTrigger time.Time
 
 	writeMu sync.Mutex
 	pending []byte // the Batch frame being formed, kind byte included
@@ -58,7 +56,8 @@ type sessionRead struct {
 func newSessionConn(conn *streamnet.FramedConn) *sessionConn {
 	session := &sessionConn{
 		conn:       conn,
-		frames:     make(chan sessionRead, 256),
+		frames:     make(chan sessionRead, sessionReadAheadFrames),
+		readSpace:  make(chan struct{}, 1),
 		done:       make(chan struct{}),
 		readDone:   make(chan struct{}),
 		clientPool: minecraft.DefaultProtocol.Packets(true),
@@ -75,9 +74,7 @@ func (session *sessionConn) read() {
 	defer close(session.readDone)
 	for {
 		frame, err := session.conn.ReadPacket()
-		select {
-		case session.frames <- sessionRead{frame: frame, err: err}:
-		case <-session.done:
+		if !session.queueRead(sessionRead{frame: frame, err: err}) {
 			if err == nil && session.terminalDelivered.Load() {
 				// The session has ended; consume in-flight client bytes until its close.
 				_, _ = io.Copy(io.Discard, session.conn.Conn)
@@ -87,6 +84,45 @@ func (session *sessionConn) read() {
 		if err != nil {
 			return
 		}
+	}
+}
+
+// queueRead waits for byte and frame capacity without dropping valid client data.
+// One further frame may be held by read while the queued payload budget is full.
+func (session *sessionConn) queueRead(read sessionRead) bool {
+	size := int64(len(read.frame))
+	for {
+		select {
+		case <-session.done:
+			return false
+		default:
+		}
+		// Only the reader adds bytes; consumers can only reduce this snapshot.
+		if session.readBytes.Load()+size <= int64(streamnet.MaxFrameLen) {
+			break
+		}
+		select {
+		case <-session.readSpace:
+		case <-session.done:
+			return false
+		}
+	}
+	session.readBytes.Add(size)
+	select {
+	case session.frames <- read:
+		return true
+	case <-session.done:
+		session.releaseRead(read)
+		return false
+	}
+}
+
+// releaseRead returns a dequeued payload's byte capacity and wakes a waiting reader.
+func (session *sessionConn) releaseRead(read sessionRead) {
+	session.readBytes.Add(-int64(len(read.frame)))
+	select {
+	case session.readSpace <- struct{}{}:
+	default:
 	}
 }
 
@@ -103,6 +139,7 @@ func (session *sessionConn) watchPeer(cancel func(error)) (stop func()) {
 		defer close(done)
 		select {
 		case read := <-session.frames:
+			session.releaseRead(read)
 			cause := read.err
 			if cause == nil {
 				cause = fmt.Errorf("%w: client message before handoff", errMalformedSession)
@@ -117,47 +154,20 @@ func (session *sessionConn) watchPeer(cancel func(error)) (stop func()) {
 	})
 }
 
-func encodeSessionPacket(pk packet.Packet, shieldID int32) []byte {
-	buf := new(bytes.Buffer)
-	(&packet.Header{PacketID: pk.ID()}).Write(buf)
-	pk.Marshal(minecraft.DefaultProtocol.NewWriter(buf, shieldID))
-	return buf.Bytes()
-}
-
-func (session *sessionConn) triggerRespawnCompletion() {
-	runtimeID := session.runtimeID.Load()
-	if runtimeID == 0 {
-		return
-	}
-	session.respawnMu.Lock()
-	defer session.respawnMu.Unlock()
-	if time.Since(session.lastRespawnTrigger) < 400*time.Millisecond {
-		return
-	}
-	session.lastRespawnTrigger = time.Now()
-
-	actionPk := encodeSessionPacket(&packet.PlayerAction{
-		EntityRuntimeID: runtimeID,
-		ActionType:      protocol.PlayerActionRespawn,
-		BlockFace:       -1,
-	}, session.shieldID.Load())
-
-	respawnPk := encodeSessionPacket(&packet.Respawn{
-		EntityRuntimeID: runtimeID,
-		State:           packet.RespawnStateClientReadyToSpawn,
-	}, session.shieldID.Load())
-
-	session.injectedUpstream = append(session.injectedUpstream, actionPk, respawnPk)
-}
-
 // ReadBatchRaw returns the next client batch; only Batch frames may follow the handoff.
 func (session *sessionConn) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.RawPacket, error) {
+	select {
+	case <-session.done:
+		return nil, net.ErrClosed
+	default:
+	}
 	var read sessionRead
 	select {
 	case read = <-session.frames:
 	case <-session.done:
 		return nil, net.ErrClosed
 	}
+	session.releaseRead(read)
 	if read.err != nil {
 		return nil, read.err
 	}
@@ -168,44 +178,6 @@ func (session *sessionConn) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.
 	if err != nil {
 		return nil, err
 	}
-
-	session.respawnMu.Lock()
-	if len(session.injectedUpstream) > 0 {
-		packets = append(packets, session.injectedUpstream...)
-		session.injectedUpstream = nil
-	}
-	session.respawnMu.Unlock()
-
-	for _, raw := range packets {
-		if id, ok := sessionPacketID(raw); ok {
-			switch id {
-			case packet.IDRespawn:
-				runtimeID := session.runtimeID.Load()
-				if runtimeID != 0 {
-					actionPk := encodeSessionPacket(&packet.PlayerAction{
-						EntityRuntimeID: runtimeID,
-						ActionType:      protocol.PlayerActionRespawn,
-						BlockFace:       -1,
-					}, session.shieldID.Load())
-					packets = append(packets, actionPk)
-				}
-			case packet.IDPlayerAction:
-				if pk, ok := decodeSessionPacket(session.clientPool, raw, 0, false).(*packet.PlayerAction); ok {
-					if pk.ActionType == protocol.PlayerActionRespawn {
-						runtimeID := session.runtimeID.Load()
-						if runtimeID != 0 {
-							respawnPk := encodeSessionPacket(&packet.Respawn{
-								EntityRuntimeID: runtimeID,
-								State:           packet.RespawnStateClientReadyToSpawn,
-							}, session.shieldID.Load())
-							packets = append(packets, respawnPk)
-						}
-					}
-				}
-			}
-		}
-	}
-
 	return rawSessionPackets(packets, decode, session.clientPool, session.shieldID.Load())
 }
 
@@ -227,47 +199,6 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 					return session.endLocked(bridgecontract.SessionKindTransfer, sessionTransfer{
 						Address: transfer.Address, Port: transfer.Port, ReloadWorld: transfer.ReloadWorld,
 					})
-				}
-			}
-		case packet.IDStartGame:
-			if pk, ok := decodeSessionPacket(session.serverPool, data, 0, false).(*packet.StartGame); ok {
-				if pk.EntityRuntimeID != 0 {
-					session.runtimeID.Store(pk.EntityRuntimeID)
-				}
-				for _, rule := range pk.GameRules {
-					if strings.EqualFold(rule.Name, "doimmediaterespawn") {
-						if val, ok := rule.Value.(bool); ok {
-							session.immediateRespawn.Store(val)
-						}
-					}
-				}
-			}
-		case packet.IDGameRulesChanged:
-			if pk, ok := decodeSessionPacket(session.serverPool, data, 0, false).(*packet.GameRulesChanged); ok {
-				for _, rule := range pk.GameRules {
-					if strings.EqualFold(rule.Name, "doimmediaterespawn") {
-						if val, ok := rule.Value.(bool); ok {
-							session.immediateRespawn.Store(val)
-						}
-					}
-				}
-			}
-		case packet.IDRespawn:
-			if pk, ok := decodeSessionPacket(session.serverPool, data, 0, false).(*packet.Respawn); ok {
-				if pk.State == packet.RespawnStateReadyToSpawn {
-					session.triggerRespawnCompletion()
-				}
-			}
-		case packet.IDUpdateAttributes:
-			if pk, ok := decodeSessionPacket(session.serverPool, data, 0, false).(*packet.UpdateAttributes); ok {
-				if pk.EntityRuntimeID == session.runtimeID.Load() {
-					for _, attr := range pk.Attributes {
-						if attr.Name == "minecraft:health" && attr.Value <= 0.0 {
-							if session.immediateRespawn.Load() {
-								session.triggerRespawnCompletion()
-							}
-						}
-					}
 				}
 			}
 		}

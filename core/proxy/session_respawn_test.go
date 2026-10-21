@@ -7,219 +7,88 @@ import (
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
-	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
+// newTestSessionConn connects a session to a framed peer and joins its reader on cleanup.
 func newTestSessionConn(t *testing.T) (*sessionConn, *streamnet.FramedConn) {
-	c1, c2 := net.Pipe()
-	framed1 := streamnet.NewFramedConn(c1)
-	framed2 := streamnet.NewFramedConn(c2)
-	session := newSessionConn(framed1)
+	t.Helper()
+	local, remote := net.Pipe()
+	session := newSessionConn(streamnet.NewFramedConn(local))
+	peer := streamnet.NewFramedConn(remote)
 	session.runtimeID.Store(12345)
 	t.Cleanup(func() {
 		_ = session.Close()
-		_ = framed2.Close()
+		_ = peer.Close()
+		<-session.readDone
 	})
-	return session, framed2
+	return session, peer
 }
 
-func sendBatchFromClient(t *testing.T, peer *streamnet.FramedConn, pks ...packet.Packet) {
-	var batch []byte
-	batch = append(batch, bridgecontract.SessionKindBatch)
-	for _, pk := range pks {
-		buf := new(bytes.Buffer)
-		(&packet.Header{PacketID: pk.ID()}).Write(buf)
-		pk.Marshal(minecraft.DefaultProtocol.NewWriter(buf, 0))
-		batch = appendSessionBatchPacket(batch, buf.Bytes())
+// sessionTestBatch encodes the supplied packets as one client batch.
+func sessionTestBatch(packets ...packet.Packet) []byte {
+	batch := []byte{bridgecontract.SessionKindBatch}
+	for _, pk := range packets {
+		batch = appendSessionBatchPacket(batch, encodeTestPacket(pk))
 	}
-	_, err := peer.Write(batch)
-	if err != nil {
-		t.Fatalf("failed to write client batch: %v", err)
-	}
+	return batch
 }
 
-func TestSessionFramesBuffered(t *testing.T) {
-	session, _ := newTestSessionConn(t)
-	if cap(session.frames) < 256 {
-		t.Fatalf("expected frames channel capacity to be at least 256 to prevent client drop choking, got %d", cap(session.frames))
-	}
-}
-
-func TestClientRespawnPacketInjectsPlayerActionRespawn(t *testing.T) {
-	session, peer := newTestSessionConn(t)
-
-	// Client sends only Respawn packet (e.g. ClientReadyToSpawn)
-	clientPk := &packet.Respawn{
-		EntityRuntimeID: 12345,
-		State:           packet.RespawnStateClientReadyToSpawn,
-	}
-	go sendBatchFromClient(t, peer, clientPk)
-
-	rawPackets, err := session.ReadBatchRaw(func(uint32) bool { return true })
-	if err != nil {
-		t.Fatalf("ReadBatchRaw failed: %v", err)
-	}
-
-	if len(rawPackets) < 2 {
-		t.Fatalf("expected at least 2 packets (Respawn + PlayerActionRespawn), got %d", len(rawPackets))
-	}
-
-	hasActionRespawn := false
-	for _, raw := range rawPackets {
-		for _, decoded := range raw.Decoded {
-			if action, ok := decoded.(*packet.PlayerAction); ok {
-				if action.ActionType == protocol.PlayerActionRespawn && action.EntityRuntimeID == 12345 {
-					hasActionRespawn = true
+func TestSessionRespawnPreservesClientHandshake(t *testing.T) {
+	request := &packet.Respawn{EntityRuntimeID: 12345, State: packet.RespawnStateClientReadyToSpawn}
+	completion := &packet.PlayerAction{EntityRuntimeID: 12345, ActionType: protocol.PlayerActionRespawn, BlockFace: -1}
+	for name, packets := range map[string][]packet.Packet{
+		"request waits for server readiness":  {request},
+		"completion does not restart respawn": {completion},
+		"complete pair stays unchanged":       {request, completion},
+	} {
+		t.Run(name, func(t *testing.T) {
+			session, peer := newTestSessionConn(t)
+			if _, err := peer.Write(sessionTestBatch(packets...)); err != nil {
+				t.Fatal(err)
+			}
+			got, err := session.ReadBatchRaw(nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != len(packets) {
+				t.Fatalf("forwarded %d packets, want %d", len(got), len(packets))
+			}
+			for i, pk := range packets {
+				if !bytes.Equal(got[i].Data, encodeTestPacket(pk)) {
+					t.Fatalf("packet %d changed", i)
 				}
 			}
-		}
-	}
-
-	if !hasActionRespawn {
-		t.Fatalf("expected injected PlayerActionRespawn packet in batch, but not found")
+		})
 	}
 }
 
-func TestClientPlayerActionRespawnInjectsRespawnPacket(t *testing.T) {
-	session, peer := newTestSessionConn(t)
-
-	// Client sends PlayerAction with PlayerActionRespawn
-	clientPk := &packet.PlayerAction{
-		EntityRuntimeID: 12345,
-		ActionType:      protocol.PlayerActionRespawn,
-		BlockFace:       -1,
-	}
-	go sendBatchFromClient(t, peer, clientPk)
-
-	rawPackets, err := session.ReadBatchRaw(func(uint32) bool { return true })
-	if err != nil {
-		t.Fatalf("ReadBatchRaw failed: %v", err)
-	}
-
-	if len(rawPackets) < 2 {
-		t.Fatalf("expected at least 2 packets (PlayerActionRespawn + Respawn), got %d", len(rawPackets))
-	}
-
-	hasRespawnState := false
-	for _, raw := range rawPackets {
-		for _, decoded := range raw.Decoded {
-			if respawn, ok := decoded.(*packet.Respawn); ok {
-				if respawn.State == packet.RespawnStateClientReadyToSpawn && respawn.EntityRuntimeID == 12345 {
-					hasRespawnState = true
+func TestSessionRespawnServerControlsLeaveCompletionToClient(t *testing.T) {
+	for _, immediate := range []bool{false, true} {
+		t.Run(map[bool]string{false: "ordinary", true: "immediate"}[immediate], func(t *testing.T) {
+			session, peer := newTestSessionConn(t)
+			for _, pk := range []packet.Packet{
+				&packet.GameRulesChanged{GameRules: []protocol.GameRule{{Name: "doimmediaterespawn", Value: immediate}}},
+				&packet.UpdateAttributes{EntityRuntimeID: 12345, Attributes: []protocol.Attribute{{AttributeValue: protocol.AttributeValue{Name: "minecraft:health", Value: 0, Max: 20}}}},
+				&packet.Respawn{EntityRuntimeID: 12345, State: packet.RespawnStateReadyToSpawn},
+			} {
+				if err := session.WritePacketRaw(encodeTestPacket(pk)); err != nil {
+					t.Fatal(err)
 				}
 			}
-		}
-	}
-
-	if !hasRespawnState {
-		t.Fatalf("expected injected Respawn packet with ClientReadyToSpawn, but not found")
-	}
-}
-
-func TestImmediateRespawnTriggeredOnHealthZero(t *testing.T) {
-	session, peer := newTestSessionConn(t)
-
-	// Server enables doimmediaterespawn
-	rulesPk := &packet.GameRulesChanged{
-		GameRules: []protocol.GameRule{
-			{Name: "doimmediaterespawn", Value: true},
-		},
-	}
-	buf := new(bytes.Buffer)
-	(&packet.Header{PacketID: rulesPk.ID()}).Write(buf)
-	rulesPk.Marshal(minecraft.DefaultProtocol.NewWriter(buf, 0))
-	if err := session.WritePacketRaw(buf.Bytes()); err != nil {
-		t.Fatalf("WritePacketRaw failed: %v", err)
-	}
-
-	if !session.immediateRespawn.Load() {
-		t.Fatalf("expected immediateRespawn to be true")
-	}
-
-	// Server sends UpdateAttributes with health <= 0
-	attrPk := &packet.UpdateAttributes{
-		EntityRuntimeID: 12345,
-		Attributes: []protocol.Attribute{
-			{AttributeValue: protocol.AttributeValue{Name: "minecraft:health", Value: 0.0, Max: 20.0, Min: 0.0}},
-		},
-	}
-	buf.Reset()
-	(&packet.Header{PacketID: attrPk.ID()}).Write(buf)
-	attrPk.Marshal(minecraft.DefaultProtocol.NewWriter(buf, 0))
-	if err := session.WritePacketRaw(buf.Bytes()); err != nil {
-		t.Fatalf("WritePacketRaw failed: %v", err)
-	}
-
-	// Now client sends an ordinary packet
-	dummyPk := &packet.RequestChunkRadius{
-		ChunkRadius: 8,
-	}
-	go sendBatchFromClient(t, peer, dummyPk)
-
-	rawPackets, err := session.ReadBatchRaw(func(uint32) bool { return true })
-	if err != nil {
-		t.Fatalf("ReadBatchRaw failed: %v", err)
-	}
-
-	// Should contain the injected auto-respawn packets
-	hasActionRespawn := false
-	hasRespawnState := false
-	for _, raw := range rawPackets {
-		for _, decoded := range raw.Decoded {
-			if action, ok := decoded.(*packet.PlayerAction); ok && action.ActionType == protocol.PlayerActionRespawn {
-				hasActionRespawn = true
+			// Unrelated traffic must not acknowledge a ready control the client has not applied.
+			latency := &packet.NetworkStackLatency{Timestamp: 77}
+			if _, err := peer.Write(sessionTestBatch(latency)); err != nil {
+				t.Fatal(err)
 			}
-			if respawn, ok := decoded.(*packet.Respawn); ok && respawn.State == packet.RespawnStateClientReadyToSpawn {
-				hasRespawnState = true
+			got, err := session.ReadBatchRaw(nil)
+			if err != nil {
+				t.Fatal(err)
 			}
-		}
-	}
-
-	if !hasActionRespawn || !hasRespawnState {
-		t.Fatalf("expected both auto-respawn packets injected, got hasActionRespawn=%v, hasRespawnState=%v", hasActionRespawn, hasRespawnState)
-	}
-}
-
-func TestServerReadyToSpawnTriggersCompletion(t *testing.T) {
-	session, peer := newTestSessionConn(t)
-
-	// Server sends Respawn with ReadyToSpawn
-	serverPk := &packet.Respawn{
-		EntityRuntimeID: 12345,
-		State:           packet.RespawnStateReadyToSpawn,
-	}
-	buf := new(bytes.Buffer)
-	(&packet.Header{PacketID: serverPk.ID()}).Write(buf)
-	serverPk.Marshal(minecraft.DefaultProtocol.NewWriter(buf, 0))
-	if err := session.WritePacketRaw(buf.Bytes()); err != nil {
-		t.Fatalf("WritePacketRaw failed: %v", err)
-	}
-
-	// Client sends a frame
-	dummyPk := &packet.RequestChunkRadius{ChunkRadius: 8}
-	go sendBatchFromClient(t, peer, dummyPk)
-
-	rawPackets, err := session.ReadBatchRaw(func(uint32) bool { return true })
-	if err != nil {
-		t.Fatalf("ReadBatchRaw failed: %v", err)
-	}
-
-	hasActionRespawn := false
-	hasRespawnState := false
-	for _, raw := range rawPackets {
-		for _, decoded := range raw.Decoded {
-			if action, ok := decoded.(*packet.PlayerAction); ok && action.ActionType == protocol.PlayerActionRespawn {
-				hasActionRespawn = true
+			if len(got) != 1 || !bytes.Equal(got[0].Data, encodeTestPacket(latency)) {
+				t.Fatalf("server controls altered unrelated client traffic: %d packets", len(got))
 			}
-			if respawn, ok := decoded.(*packet.Respawn); ok && respawn.State == packet.RespawnStateClientReadyToSpawn {
-				hasRespawnState = true
-			}
-		}
-	}
-
-	if !hasActionRespawn || !hasRespawnState {
-		t.Fatalf("expected both respawn completion packets injected on ReadyToSpawn, got hasAction=%v, hasRespawn=%v", hasActionRespawn, hasRespawnState)
+		})
 	}
 }

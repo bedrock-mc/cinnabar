@@ -55,6 +55,10 @@ The Go core and local stream boundary are implemented. Keep authentication,
 encryption and upstream transports with the core, and client behavior with Rust.
 Changes still need current protocol conformance, bounded framing and lifecycle coverage.
 The pinned target comes from [the target manifest](assets/bedrock-target.json).
+Downstream session reads buffer bursts within frame-count and byte budgets, preserving
+packet order and applying backpressure without dropping frames. Respawn handshakes
+remain client-owned; third-party immediate-respawn recovery and combat-load queue
+performance still need live acceptance evidence.
 Invalid saved-token contents recover through device sign-in, preserving the cache
 until authentication succeeds. Filesystem failures retain credential-free operation
 and numeric OS diagnostics. Live Windows recovery acceptance remains open.
