@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/internal/latencytrace"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
@@ -31,6 +33,11 @@ type sessionConn struct {
 	runtimeID  atomic.Uint64 // the player's runtime ID from the upstream StartGame
 
 	terminalDelivered atomic.Bool // a complete terminal frame reached the local transport
+
+	respawnMu          sync.Mutex
+	immediateRespawn   atomic.Bool
+	injectedUpstream   [][]byte
+	lastRespawnTrigger time.Time
 
 	writeMu sync.Mutex
 	pending []byte // the Batch frame being formed, kind byte included
@@ -51,7 +58,7 @@ type sessionRead struct {
 func newSessionConn(conn *streamnet.FramedConn) *sessionConn {
 	session := &sessionConn{
 		conn:       conn,
-		frames:     make(chan sessionRead),
+		frames:     make(chan sessionRead, 256),
 		done:       make(chan struct{}),
 		readDone:   make(chan struct{}),
 		clientPool: minecraft.DefaultProtocol.Packets(true),
@@ -110,6 +117,39 @@ func (session *sessionConn) watchPeer(cancel func(error)) (stop func()) {
 	})
 }
 
+func encodeSessionPacket(pk packet.Packet, shieldID int32) []byte {
+	buf := new(bytes.Buffer)
+	(&packet.Header{PacketID: pk.ID()}).Write(buf)
+	pk.Marshal(minecraft.DefaultProtocol.NewWriter(buf, shieldID))
+	return buf.Bytes()
+}
+
+func (session *sessionConn) triggerRespawnCompletion() {
+	runtimeID := session.runtimeID.Load()
+	if runtimeID == 0 {
+		return
+	}
+	session.respawnMu.Lock()
+	defer session.respawnMu.Unlock()
+	if time.Since(session.lastRespawnTrigger) < 400*time.Millisecond {
+		return
+	}
+	session.lastRespawnTrigger = time.Now()
+
+	actionPk := encodeSessionPacket(&packet.PlayerAction{
+		EntityRuntimeID: runtimeID,
+		ActionType:      protocol.PlayerActionRespawn,
+		BlockFace:       -1,
+	}, session.shieldID.Load())
+
+	respawnPk := encodeSessionPacket(&packet.Respawn{
+		EntityRuntimeID: runtimeID,
+		State:           packet.RespawnStateClientReadyToSpawn,
+	}, session.shieldID.Load())
+
+	session.injectedUpstream = append(session.injectedUpstream, actionPk, respawnPk)
+}
+
 // ReadBatchRaw returns the next client batch; only Batch frames may follow the handoff.
 func (session *sessionConn) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.RawPacket, error) {
 	var read sessionRead
@@ -128,6 +168,44 @@ func (session *sessionConn) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.
 	if err != nil {
 		return nil, err
 	}
+
+	session.respawnMu.Lock()
+	if len(session.injectedUpstream) > 0 {
+		packets = append(packets, session.injectedUpstream...)
+		session.injectedUpstream = nil
+	}
+	session.respawnMu.Unlock()
+
+	for _, raw := range packets {
+		if id, ok := sessionPacketID(raw); ok {
+			switch id {
+			case packet.IDRespawn:
+				runtimeID := session.runtimeID.Load()
+				if runtimeID != 0 {
+					actionPk := encodeSessionPacket(&packet.PlayerAction{
+						EntityRuntimeID: runtimeID,
+						ActionType:      protocol.PlayerActionRespawn,
+						BlockFace:       -1,
+					}, session.shieldID.Load())
+					packets = append(packets, actionPk)
+				}
+			case packet.IDPlayerAction:
+				if pk, ok := decodeSessionPacket(session.clientPool, raw, 0, false).(*packet.PlayerAction); ok {
+					if pk.ActionType == protocol.PlayerActionRespawn {
+						runtimeID := session.runtimeID.Load()
+						if runtimeID != 0 {
+							respawnPk := encodeSessionPacket(&packet.Respawn{
+								EntityRuntimeID: runtimeID,
+								State:           packet.RespawnStateClientReadyToSpawn,
+							}, session.shieldID.Load())
+							packets = append(packets, respawnPk)
+						}
+					}
+				}
+			}
+		}
+	}
+
 	return rawSessionPackets(packets, decode, session.clientPool, session.shieldID.Load())
 }
 
@@ -149,6 +227,47 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 					return session.endLocked(bridgecontract.SessionKindTransfer, sessionTransfer{
 						Address: transfer.Address, Port: transfer.Port, ReloadWorld: transfer.ReloadWorld,
 					})
+				}
+			}
+		case packet.IDStartGame:
+			if pk, ok := decodeSessionPacket(session.serverPool, data, 0, false).(*packet.StartGame); ok {
+				if pk.EntityRuntimeID != 0 {
+					session.runtimeID.Store(pk.EntityRuntimeID)
+				}
+				for _, rule := range pk.GameRules {
+					if strings.EqualFold(rule.Name, "doimmediaterespawn") {
+						if val, ok := rule.Value.(bool); ok {
+							session.immediateRespawn.Store(val)
+						}
+					}
+				}
+			}
+		case packet.IDGameRulesChanged:
+			if pk, ok := decodeSessionPacket(session.serverPool, data, 0, false).(*packet.GameRulesChanged); ok {
+				for _, rule := range pk.GameRules {
+					if strings.EqualFold(rule.Name, "doimmediaterespawn") {
+						if val, ok := rule.Value.(bool); ok {
+							session.immediateRespawn.Store(val)
+						}
+					}
+				}
+			}
+		case packet.IDRespawn:
+			if pk, ok := decodeSessionPacket(session.serverPool, data, 0, false).(*packet.Respawn); ok {
+				if pk.State == packet.RespawnStateReadyToSpawn {
+					session.triggerRespawnCompletion()
+				}
+			}
+		case packet.IDUpdateAttributes:
+			if pk, ok := decodeSessionPacket(session.serverPool, data, 0, false).(*packet.UpdateAttributes); ok {
+				if pk.EntityRuntimeID == session.runtimeID.Load() {
+					for _, attr := range pk.Attributes {
+						if attr.Name == "minecraft:health" && attr.Value <= 0.0 {
+							if session.immediateRespawn.Load() {
+								session.triggerRespawnCompletion()
+							}
+						}
+					}
 				}
 			}
 		}
