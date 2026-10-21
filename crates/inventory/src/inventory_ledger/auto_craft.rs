@@ -4,12 +4,12 @@
 use std::sync::Arc;
 
 use protocol::{
-    AutoCraftIngredient, CraftResult, NetworkItemStack, RecipeHandle, RecipeIngredientView,
-    StackItemDescriptor, StackRequestAction,
+    AutoCraftIngredient, NetworkItemStack, RecipeHandle, RecipeIngredientView, StackItemDescriptor,
+    StackRequestAction,
 };
-use sha2::{Digest, Sha256};
 
 use super::cells::{Cell, Held};
+use super::crafting::{ExtraDestination, created_stack};
 use super::gesture::Submission;
 use super::helpers::request_slot;
 use super::overlay::DeltaGroup;
@@ -202,20 +202,7 @@ impl PlayerInventoryLedger {
             .ok_or(InventoryGestureError::InvalidRequest)?;
         let total = output.count * crafts;
         let request_id = self.peek_request_id()?;
-        let user_data: Arc<[u8]> = if output.empty_envelope {
-            Arc::from([0; 10])
-        } else {
-            Arc::from([])
-        };
-        let created = NetworkItemStack {
-            network_id: output.network_id,
-            metadata: u32::from(output.aux),
-            stack_network_id: request_id,
-            count: u16::from(total),
-            nbt_digest: Sha256::digest(&user_data).into(),
-            block_runtime_id: i32::from_ne_bytes(output.block_runtime_id.to_ne_bytes()),
-            extra_data: Arc::clone(&user_data),
-        };
+        let created = created_stack(output, u16::from(total), request_id);
         // Each ingredient is listed once with count 1 and empty grid cells are skipped;
         // the sources above still consume every ingredient's full count per craft.
         let ingredients: Arc<[AutoCraftIngredient]> = recipe
@@ -242,13 +229,9 @@ impl PlayerInventoryLedger {
             },
             // Declares one craft's results; the times-crafted field carries the repeat.
             StackRequestAction::CraftResultsDeprecated {
-                results: Arc::from([CraftResult {
-                    identifier: Arc::clone(&entry.identifier),
-                    aux: i32::from(output.aux),
-                    count: u16::from(output.count),
-                    block_runtime_id: output.block_runtime_id,
-                    user_data,
-                }]),
+                results: self
+                    .craft_results(recipe)
+                    .ok_or(InventoryGestureError::InvalidRequest)?,
                 crafts,
             },
         ];
@@ -267,7 +250,27 @@ impl PlayerInventoryLedger {
             });
             consumed.push((cell, amount));
         }
-        let plan = self.spread_plan_partial(&created, capacity, &consumed);
+        // Extra results are placed before the main one, which is then created by index too.
+        let mut registry_bound_merge = false;
+        let mut filled = Vec::new();
+        if recipe.extra_outputs().len() != 0 {
+            (registry_bound_merge, filled) = self.push_extra_outputs(
+                recipe,
+                crafts,
+                request_id,
+                ExtraDestination::Inventory,
+                &consumed,
+                &[],
+                &mut actions,
+                &mut groups,
+            )?;
+            actions.push(StackRequestAction::Create { results_index: 0 });
+        }
+        let plan: Vec<_> = self
+            .spread_plan_partial(&created, capacity, &consumed)
+            .into_iter()
+            .filter(|(cell, ..)| !filled.contains(cell))
+            .collect();
         let placed: u16 = plan.iter().map(|(_, amount, _)| *amount).sum();
         let remainder = created.count - placed;
         if remainder != 0 && self.view().get(Cell::Cursor).is_some() {
@@ -284,7 +287,7 @@ impl PlayerInventoryLedger {
                 acknowledged_request_id: None,
             },
         });
-        let registry_bound_merge = plan.iter().any(|(_, _, into)| into.is_some());
+        registry_bound_merge |= plan.iter().any(|(_, _, into)| into.is_some());
         for (cell, amount, into) in plan {
             actions.push(StackRequestAction::Place {
                 amount: u8::try_from(amount).map_err(|_| InventoryGestureError::InvalidRequest)?,

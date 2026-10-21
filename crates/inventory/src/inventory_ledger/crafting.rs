@@ -6,13 +6,15 @@ use std::sync::Arc;
 
 use crate::CraftGridItem;
 use protocol::{CraftResult, NetworkItemStack, RecipeHandle, StackRequestAction};
-use sha2::{Digest, Sha256};
 
 use super::cells::{Cell, FIRST_CRAFT_SLOT, Held};
 use super::gesture::Submission;
 use super::overlay::DeltaGroup;
 use super::registry::{entry_capacity, plain_stack, recipe_input_valid};
 use super::{InventoryGestureError, PlayerInventoryLedger, WORKBENCH_WINDOW_TYPE, helpers};
+
+mod extra_outputs;
+pub(super) use extra_outputs::{ExtraDestination, created_stack};
 
 /// Which crafting grid the open screen offers.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -196,14 +198,18 @@ impl PlayerInventoryLedger {
             .ok_or(InventoryGestureError::InvalidRequest)?;
         let assignment = ingredient_assignment(recipe, &cells, crafts)
             .ok_or(InventoryGestureError::InvalidRequest)?;
-        let output = recipe.output();
-        let capacity = self
-            .negotiated_item_entry(output.network_id)
-            .and_then(entry_capacity)
-            .ok_or(InventoryGestureError::InvalidRequest)?;
-        let per_scope = capacity
-            .checked_div(output.count)
-            .filter(|limit| *limit != 0)
+        // Each scope crafts no more than every result's stack holds.
+        let per_scope = std::iter::once(recipe.output())
+            .chain(recipe.extra_outputs())
+            .map(|output| {
+                self.negotiated_item_entry(output.network_id)
+                    .and_then(entry_capacity)
+                    .and_then(|capacity| capacity.checked_div(output.count))
+                    .filter(|limit| *limit != 0)
+            })
+            .try_fold(u8::MAX, |limit, result| {
+                result.map(|result| limit.min(result))
+            })
             .ok_or(InventoryGestureError::InvalidRequest)?;
         let mut planned = self.clone();
         let mut remaining = crafts;
@@ -325,37 +331,22 @@ impl PlayerInventoryLedger {
             .filter(|total| *total <= capacity)
             .ok_or(InventoryGestureError::InvalidRequest)?;
         let request_id = self.peek_request_id()?;
-        let user_data: Arc<[u8]> = if output.empty_envelope {
-            Arc::from([0; 10])
-        } else {
-            Arc::from([])
-        };
-        let created = NetworkItemStack {
-            network_id: output.network_id,
-            metadata: u32::from(output.aux),
-            stack_network_id: request_id,
-            count: u16::from(total),
-            nbt_digest: Sha256::digest(&user_data).into(),
-            block_runtime_id: i32::from_ne_bytes(output.block_runtime_id.to_ne_bytes()),
-            extra_data: Arc::clone(&user_data),
-        };
+        let created = created_stack(output, u16::from(total), request_id);
         let mut actions = vec![
             StackRequestAction::CraftRecipe {
                 recipe_network_id: recipe.network_id(),
                 crafts,
             },
+            // One craft's results, every one of them, under a single times-crafted count.
             StackRequestAction::CraftResultsDeprecated {
-                results: Arc::from([CraftResult {
-                    identifier: Arc::clone(&entry.identifier),
-                    aux: i32::from(output.aux),
-                    count: u16::from(output.count),
-                    block_runtime_id: output.block_runtime_id,
-                    user_data,
-                }]),
+                results: self
+                    .craft_results(recipe)
+                    .ok_or(InventoryGestureError::InvalidRequest)?,
                 crafts: 1,
             },
         ];
         let mut groups = Vec::new();
+        let mut consumed_amounts = Vec::new();
         for (cell, amount, id) in consumed {
             actions.push(StackRequestAction::Consume {
                 amount,
@@ -366,6 +357,12 @@ impl PlayerInventoryLedger {
                 amount: u16::from(amount),
                 source_id: id,
             });
+            consumed_amounts.push((cell, u16::from(amount)));
+        }
+        let extras = recipe.extra_outputs().len() != 0;
+        if extras {
+            // With several results the main one is created by index too.
+            actions.push(StackRequestAction::Create { results_index: 0 });
         }
         let output_slot = helpers::request_slot(Cell::CreatedOutput, request_id, None)?;
         groups.push(DeltaGroup::Set {
@@ -379,6 +376,7 @@ impl PlayerInventoryLedger {
             },
         });
         let mut registry_bound_merge = false;
+        let mut taken = Vec::new();
         match destination {
             Some(cell) => {
                 let into = self.view().get(cell);
@@ -420,6 +418,7 @@ impl PlayerInventoryLedger {
                     destination_id,
                     capacity: destination_id.map(|_| u16::from(capacity)),
                 });
+                taken.push(cell);
             }
             None => {
                 let plan = self
@@ -427,6 +426,7 @@ impl PlayerInventoryLedger {
                     .ok_or(InventoryGestureError::InvalidRequest)?;
                 for (cell, amount, into) in plan {
                     registry_bound_merge |= into.is_some();
+                    taken.push(cell);
                     actions.push(StackRequestAction::Place {
                         amount: u8::try_from(amount)
                             .map_err(|_| InventoryGestureError::InvalidRequest)?,
@@ -447,6 +447,20 @@ impl PlayerInventoryLedger {
                     });
                 }
             }
+        }
+        if extras {
+            registry_bound_merge |= self
+                .push_extra_outputs(
+                    recipe,
+                    crafts,
+                    request_id,
+                    ExtraDestination::Grid,
+                    &consumed_amounts,
+                    &taken,
+                    &mut actions,
+                    &mut groups,
+                )?
+                .0;
         }
         Ok(Submission {
             actions,
