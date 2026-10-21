@@ -1,5 +1,6 @@
 //! Static authoring geometry shared by placed block entities and their inventory models.
 
+pub mod chalkboard;
 pub mod heads;
 
 pub type ModelBox = ([f32; 3], [f32; 3], [f32; 2]);
