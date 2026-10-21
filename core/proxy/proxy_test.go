@@ -291,7 +291,7 @@ func TestNewUpstreamDialerOfflinePreservesIdentity(t *testing.T) {
 func TestNewUpstreamDialerAuthenticatedUsesTokenAndOmitsOfflineIdentity(t *testing.T) {
 	downstream := dialerTestDownstream{
 		identity: login.IdentityData{Identity: "offline-identity", DisplayName: "Offline Player"},
-		client:   login.ClientData{DeviceModel: "client-data-sentinel"},
+		client:   login.ClientData{DeviceModel: "client-data-sentinel", ThirdPartyName: "Transport Player"},
 		protocol: minecraft.DefaultProtocol,
 	}
 	source := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "sentinel"})
@@ -308,6 +308,12 @@ func TestNewUpstreamDialerAuthenticatedUsesTokenAndOmitsOfflineIdentity(t *testi
 	}
 	if dialer.ClientData.DeviceModel != downstream.client.DeviceModel {
 		t.Fatalf("ClientData.DeviceModel = %q, want %q", dialer.ClientData.DeviceModel, downstream.client.DeviceModel)
+	}
+	if dialer.ClientData.ThirdPartyName != "" {
+		t.Fatal("the downstream name overrides the token's login identity")
+	}
+	if downstream.client.ThirdPartyName != "Transport Player" {
+		t.Fatal("the upstream dialer changed the downstream client data")
 	}
 	if dialer.Protocol != downstream.protocol {
 		t.Fatal("Protocol was not preserved")

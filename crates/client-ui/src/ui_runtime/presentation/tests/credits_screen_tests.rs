@@ -250,7 +250,7 @@ fn credits_hide_inherited_container_overlays_without_container_bindings() {
 fn runtime_credits_scroll_the_painted_text_and_new_screen_retires_scroll_end() {
     let player = player_state::PlayerState::new(1);
     let mut runtime = UiRuntime::new(1);
-    runtime.set_chat_source_name(Arc::from("Reader"));
+    runtime.set_local_player_display_name(Arc::from("Reader"));
     runtime.credits_mut().open(41, 7, 0);
     let mut presentation = fixture();
     let build = |presentation: &mut UiPresentationRuntime, runtime: &UiRuntime, now| {

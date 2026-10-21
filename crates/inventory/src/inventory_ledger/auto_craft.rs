@@ -187,8 +187,7 @@ impl PlayerInventoryLedger {
             stack_network_id: request_id,
             count: u16::from(total),
             nbt_digest: Sha256::digest(&user_data).into(),
-            block_runtime_id: i32::try_from(output.block_runtime_id)
-                .map_err(|_| InventoryGestureError::InvalidRequest)?,
+            block_runtime_id: i32::from_ne_bytes(output.block_runtime_id.to_ne_bytes()),
             extra_data: Arc::clone(&user_data),
         };
         // Vanilla lists only the recipe's real ingredients, each with count 1, and skips empty

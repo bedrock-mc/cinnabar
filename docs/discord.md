@@ -1,7 +1,8 @@
 # Discord integration
 
 Discord presence is enabled by default using the built-in application; turn it off with
-**Discord Rich Presence** in Video settings. To use another application, set
+**Discord Rich Presence** in Settings → Social → Discord. The same panel controls whether
+server/world details, party size, elapsed time and Discord joins are shared. To use another application, set
 `CINNABAR_DISCORD_APPLICATION_ID` to its numeric Application ID before launching. No bot token or
 client secret is needed. Setting the override to `0` disables presence entirely.
 

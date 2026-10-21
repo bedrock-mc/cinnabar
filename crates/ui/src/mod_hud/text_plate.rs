@@ -135,6 +135,12 @@ mod tests {
             ..Default::default()
         };
         assert!(card.text_plate.as_ref().unwrap().validate(&card).is_ok());
+        for radius in [f32::NAN, -1., MAX_TEXT_PLATE_HEIGHT] {
+            card.text_plate.as_mut().unwrap().style.radius = radius;
+            assert!(card.text_plate.as_ref().unwrap().validate(&card).is_err());
+        }
+        card.text_plate.as_mut().unwrap().style.radius = 3.;
+        assert!(card.text_plate.as_ref().unwrap().validate(&card).is_ok());
         card.source.as_mut().unwrap().limit = 2;
         assert!(card.text_plate.as_ref().unwrap().validate(&card).is_err());
         card.source.as_mut().unwrap().limit = 1;
