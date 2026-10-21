@@ -2,7 +2,7 @@
 use std::sync::Arc;
 
 use crate::runtime::network::resource_packs::PackApplication;
-use bevy::prelude::{Local, Transform, Vec3};
+use bevy::prelude::{Local, Transform};
 use client_runtime::network::NetworkHandle;
 use inventory::inventory_ledger::PlayerInventorySlot;
 use {super::*, client_presentation::camera::CameraSettingsAuthority};
