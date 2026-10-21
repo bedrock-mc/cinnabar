@@ -44,15 +44,21 @@ attack and use; use also opens a held book. The top-right buttons open pause and
 and tapping a hotbar slot selects it. Screens without touch handling of their own, such as the
 inventory, containers, server forms, the bed, the sign editor and the credits, take one finger
 as the pointer; the inventory's close button closes it. Drop items by releasing a held stack
-outside the inventory. Settings > Touch adjusts look sensitivity and explains the on-screen controls. A hardware keyboard and mouse also drive gameplay.
+outside the inventory. Swipe Settings content or drag its scrollbar to scroll. Tapping a setting
+still activates it; a swipe does not. Settings > Touch adjusts look sensitivity and explains
+the on-screen controls. A hardware keyboard and mouse also drive gameplay.
+
+Launcher text fields, including server addresses and the People drawer, request the on-screen
+keyboard. People search filters friends currently playing; it does not search Xbox users.
 
 ## Not supported yet
 
-An on-screen keyboard: typing chat, commands, sign text or a server address needs a hardware
-keyboard, while featured servers need only sign-in, whose code you enter on another device.
+Typing chat, commands or sign text still needs a hardware keyboard. Featured servers need only
+sign-in, whose code you enter on another device.
 These stay keyboard, mouse or controller only: dropping the held item from the hotbar, pick
 block, the emote wheel, the player list, perspective, and mod or server Experience key
 bindings. Also missing are the Back gesture, clipboard, opening links, local worlds, Microsoft
-sign-in while the app is in the background, touch scrolling in menus and forms, and the native
-touch layouts, remapping and control customization. Device performance, audio and suspend/resume are untested. See
+sign-in while the app is in the background, touch scrolling in forms and menus outside Settings,
+and the native touch layouts, remapping and control customization. Device performance, audio
+and suspend/resume are untested. See
 `plan.md`.

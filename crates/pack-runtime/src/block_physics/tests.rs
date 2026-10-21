@@ -78,7 +78,10 @@ fn mining_and_physics_reservations_are_independent_for_mixed_permutations() {
 
 #[test]
 fn custom_mining_uncertainty_does_not_make_known_physics_incomplete() {
-    for condition in ["return 1;", "q.block_state('test:missing')"] {
+    for condition in [
+        "loop(1, { t.x = 1; }); return t.x;",
+        "q.block_state('test:missing')",
+    ] {
         let mut block = slab();
         Arc::make_mut(&mut block.visual).permutations = [protocol::CustomPermutation {
             condition: condition.into(),
@@ -182,7 +185,10 @@ fn custom_mining_permutations_replace_the_whole_component() {
 
 #[test]
 fn custom_mining_unresolved_conditions_keep_the_state_unresolved() {
-    for condition in ["return 1;", "q.block_state('test:missing')"] {
+    for condition in [
+        "loop(1, { t.x = 1; }); return t.x;",
+        "q.block_state('test:missing')",
+    ] {
         let mut block = slab();
         Arc::make_mut(&mut block.visual).permutations = [protocol::CustomPermutation {
             condition: condition.into(),

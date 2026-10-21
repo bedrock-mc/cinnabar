@@ -213,7 +213,7 @@ pub struct BlockEntityScene {
 impl BlockEntityScene {
     /// Returns the artwork preparer for a join or reload worker.
     pub fn artwork_preparer(&self) -> BlockEntityArtworkPreparer {
-        BlockEntityArtworkPreparer::new(&[])
+        BlockEntityArtworkPreparer::new(&[]).with_heads(self.heads.clone())
     }
 
     /// Shares the installed static artwork as the startup fallback for pack workers.
@@ -276,6 +276,10 @@ impl BlockEntityScene {
     /// Builds block models from the entity catalog's geometry.
     pub fn install_entity_assets(&mut self, assets: &assets::RuntimeEntityAssets) {
         self.heads = HeadModels::from_assets(assets);
+        self.prepared = self
+            .prepared
+            .as_ref()
+            .map(|prepared| prepared.with_heads(&self.heads));
         self.bed = assets
             .geometries()
             .iter()

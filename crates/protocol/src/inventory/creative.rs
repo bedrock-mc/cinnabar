@@ -23,6 +23,22 @@ pub enum CreativeCategory {
     Unknown(u8),
 }
 
+impl CreativeCategory {
+    /// Converts the legacy `item_properties.creative_category` value to the
+    /// category used by the CreativeContent packet.
+    #[must_use]
+    pub const fn from_legacy_value(value: u8) -> Self {
+        match value {
+            1 => Self::Construction,
+            2 => Self::Nature,
+            3 => Self::Equipment,
+            4 => Self::Items,
+            5 => Self::CommandOnly,
+            value => Self::Unknown(value),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreativeGroup {
     pub category: CreativeCategory,

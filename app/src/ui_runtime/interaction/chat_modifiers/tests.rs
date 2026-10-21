@@ -8,6 +8,57 @@ use std::sync::{
 mod command_chat;
 mod focus;
 
+#[test]
+fn mouse_back_closes_the_chat_popup_before_chat_and_consumes_its_press() {
+    use bevy::{input::mouse::MouseButtonInput, window::WindowEvent};
+    for ordered in [false, true] {
+        let mut h = Harness::new();
+        h.app
+            .add_message::<WindowEvent>()
+            .insert_resource(UiPresentationResource(
+                UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap(),
+            ));
+        h.press(KeyCode::KeyT, None);
+        assert!(h.app.world().resource::<UiRuntimeResource>().chat_focused());
+        h.app
+            .world_mut()
+            .resource_mut::<UiPresentationResource>()
+            .set_chat_settings_open(true);
+        for popup in [true, false] {
+            h.app
+                .world_mut()
+                .resource_mut::<ButtonInput<MouseButton>>()
+                .press(MouseButton::Back);
+            if ordered {
+                h.app
+                    .world_mut()
+                    .write_message(WindowEvent::MouseButtonInput(MouseButtonInput {
+                        button: MouseButton::Back,
+                        state: ButtonState::Pressed,
+                        window: h.window,
+                    }));
+            }
+            h.app.update();
+            assert_eq!(
+                h.app.world().resource::<UiRuntimeResource>().chat_focused(),
+                popup
+            );
+            assert!(
+                !h.app
+                    .world()
+                    .resource::<UiPresentationResource>()
+                    .chat_settings_open()
+            );
+            assert!(
+                !h.app
+                    .world()
+                    .resource::<ButtonInput<MouseButton>>()
+                    .just_pressed(MouseButton::Back)
+            );
+        }
+    }
+}
+
 struct Harness {
     app: App,
     window: Entity,

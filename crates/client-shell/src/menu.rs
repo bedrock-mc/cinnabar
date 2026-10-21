@@ -61,7 +61,7 @@ use {auth::AuthSupervisor, launcher::menu::auth::AuthState};
 use core_process::{auth_cache_path, core_executable};
 pub use input::clipboard::MenuClipboard;
 pub(crate) use input::context::observe_keyboard_labels;
-pub use input::{HOTKEY_OPTIONS, drive_menu_input};
+pub use input::{HOTKEY_OPTIONS, drive_menu_ime, drive_menu_input};
 use launcher::menu::view::{CatalogFile, MenuFeeds};
 
 use launcher::menu::view::{
@@ -117,6 +117,7 @@ pub struct MenuRuntime {
     address: ui::ChatEditor,
     port: ui::ChatEditor,
     skin_name: ui::ChatEditor,
+    friend_query: ui::ChatEditor,
     /// Command macro command boxes; edits write through to persisted settings.
     macro_commands: [ui::ChatEditor; launcher::menu::settings_options::COMMAND_MACRO_COUNT],
     message: Option<String>,
@@ -684,7 +685,8 @@ impl MenuRuntime {
             MenuAction::AddName
             | MenuAction::AddAddress
             | MenuAction::AddPort
-            | MenuAction::EditSkinName => {}
+            | MenuAction::EditSkinName
+            | MenuAction::SearchFriends => {}
             MenuAction::AddSave => {
                 // Saving pops the form back to the tab that opened it.
                 if self.save_draft() {
