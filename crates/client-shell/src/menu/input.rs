@@ -275,7 +275,8 @@ pub fn drive_menu_input(
         mut focus,
         driven,
     } = context;
-    if !window.1.focused
+    if driven.is_none()
+        && (!window.1.focused || focus.as_ref().is_some_and(|focus| !focus.available()))
         || !menu.is_visible()
         || consent.as_ref().is_some_and(|consent| consent.0)
         || runtime.as_ref().is_some_and(|runtime| {
