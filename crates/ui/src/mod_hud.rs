@@ -315,6 +315,11 @@ impl Default for Card {
 }
 
 impl Card {
+    /// Keeps disabled and preview-only artwork out of gameplay while retaining explicit previews.
+    pub fn gameplay_visible(&self) -> bool {
+        self.visible && !self.preview_only
+    }
+
     /// Names editor rows and feedback consistently, falling back to the stable card ID.
     pub fn editor_name(&self) -> &str {
         if self.editor_label.is_empty() {

@@ -38,6 +38,8 @@ pub(super) fn fixture(edited: bool) -> Fixture {
         json!({"toast":label("#hud_toast",[240,300],true)}),
     ]);
     if edited {
+        let background = json!({"type":"custom","renderer":"cinnabar_rounded_rectangle",
+            "radius":10,"size":[180,112],"color":[0.06,0.075,0.1,0.98]});
         controls.push(json!({"inspector_column":{
             "type":"stack_panel","orientation":"horizontal","size":["100%","100%"],
             "anchor_from":"top_left","anchor_to":"top_left","controls":[
@@ -45,7 +47,7 @@ pub(super) fn fixture(edited: bool) -> Fixture {
                 {"column":{"type":"stack_panel","size":[180,"100%"],"controls":[
                     {"y":{"type":"panel","size":[180,0],"bindings":[{"binding_name":"#hud_inspector_y","binding_name_override":"#size_binding_y_absolute"}]}},
                     {"settings":{"type":"panel","size":[180,112],"controls":[
-                        {"background":{"type":"custom","renderer":"cinnabar_rounded_rectangle","radius":10,"size":[180,112],"color":[0.06,0.075,0.1,0.98]}},
+                        {"background":background},
                         {"heading":label("Frame rate settings",[12,12],false)},
                         {"scale":label("#hud_selected_scale_text",[12,38],true)},
                         {"hint":label("Anchor · Center",[12,64],false)},

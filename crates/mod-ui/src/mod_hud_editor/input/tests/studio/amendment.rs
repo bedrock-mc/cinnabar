@@ -178,8 +178,10 @@ fn amendment_live_inspector_size_updates_bindings_without_rebuilding_catalog() {
     editor.catalog = Some(Arc::clone(&catalog));
     let mut preview = editor.draft.clone();
     preview.inspector_size = Some([200., 140.]);
-    let mut ui = ModUi::default();
-    ui.mod_hud_editor = Some(editor);
+    let mut ui = ModUi {
+        mod_hud_editor: Some(editor),
+        ..Default::default()
+    };
     ui.update_mod_hud_editor(&preview).unwrap();
     let editor = ui.mod_hud_editor.as_mut().unwrap();
     assert!(Arc::ptr_eq(editor.catalog.as_ref().unwrap(), &catalog));

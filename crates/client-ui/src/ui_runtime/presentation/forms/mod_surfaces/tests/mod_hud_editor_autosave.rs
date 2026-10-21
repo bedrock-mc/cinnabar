@@ -512,6 +512,7 @@ fn guides_align_both_edges_and_center_above_below_and_beside_center_axes() {
         for fraction in [0., 0.5, 1.] {
             let mut p = presentation(false);
             autosave_editor(&mut p);
+            click(&mut p, "hud.snap");
             let editor = p.mod_ui().mod_hud_editor_state().unwrap();
             let origin = card_origin(&editor.draft.cards[0], editor.viewport);
             let size = card_dimensions(&editor.draft.cards[0]);
