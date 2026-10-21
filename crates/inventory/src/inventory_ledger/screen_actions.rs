@@ -61,6 +61,13 @@ pub enum ScreenCraft {
         recipe_network_id: u32,
         output: RecipeOutput,
     },
+    /// A cartography table result predicted from its recipe. `name` is sent as the filter
+    /// string; the server clears the map's custom name when it is empty.
+    Cartography {
+        recipe_network_id: u32,
+        output: RecipeOutput,
+        name: Arc<str>,
+    },
 }
 
 impl ScreenCraft {
@@ -73,6 +80,7 @@ impl ScreenCraft {
             Self::Anvil { .. } => &[WindowKind::Anvil],
             Self::Grindstone { .. } => &[WindowKind::Grindstone],
             Self::Loom { .. } => &[WindowKind::Loom],
+            Self::Cartography { .. } => &[WindowKind::Cartography],
             Self::Recipe { .. } | Self::Predicted { .. } => &[
                 WindowKind::Stonecutter,
                 WindowKind::Smithing,
@@ -260,6 +268,7 @@ impl PlayerInventoryLedger {
             craft,
             ScreenCraft::Trade { .. }
                 | ScreenCraft::Predicted { .. }
+                | ScreenCraft::Cartography { .. }
                 | ScreenCraft::Loom { .. }
                 | ScreenCraft::Anvil {
                     output: Some(_),
@@ -271,7 +280,7 @@ impl PlayerInventoryLedger {
                 }
         );
         let (preview, predicted_set) = match craft {
-            ScreenCraft::Predicted { output, .. } => {
+            ScreenCraft::Predicted { output, .. } | ScreenCraft::Cartography { output, .. } => {
                 if self.negotiated_item_entry(output.network_id).is_none() {
                     return Err(InventoryGestureError::InvalidRequest);
                 }
@@ -400,6 +409,17 @@ impl PlayerInventoryLedger {
                     crafts: 1,
                 },
                 Vec::new(),
+            ),
+            ScreenCraft::Cartography {
+                recipe_network_id,
+                name,
+                ..
+            } => (
+                StackRequestAction::CraftRecipeOptional {
+                    recipe_network_id: *recipe_network_id,
+                    filtered_string_index: 0,
+                },
+                vec![name.to_string()],
             ),
             ScreenCraft::Recipe { recipe_network_id }
             | ScreenCraft::Trade {

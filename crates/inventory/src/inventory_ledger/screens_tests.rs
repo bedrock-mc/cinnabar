@@ -848,7 +848,7 @@ fn anvil_shift_take_places_into_the_inventory_and_rolls_back() {
 }
 
 /// The stonecutter and cartography table derive their results on the server, so their takes
-/// send no result list.
+/// send no result list; the cartography table names its map through an optional-recipe craft.
 #[test]
 fn server_derived_screens_send_no_result_list() {
     for (window_type, input) in [
@@ -876,15 +876,24 @@ fn server_derived_screens_send_no_result_list() {
                 output: None,
             }
         } else {
-            ScreenCraft::Predicted {
-                recipe_network_id: 9,
-                output: protocol::RecipeOutput {
-                    network_id: 6,
-                    aux: 0,
-                    count: 1,
-                    block_runtime_id: 0,
-                    empty_envelope: false,
-                },
+            let output = protocol::RecipeOutput {
+                network_id: 6,
+                aux: 0,
+                count: 1,
+                block_runtime_id: 0,
+                empty_envelope: false,
+            };
+            if window_type == protocol::WINDOW_TYPE_CARTOGRAPHY {
+                ScreenCraft::Cartography {
+                    recipe_network_id: 9,
+                    output,
+                    name: Arc::from(""),
+                }
+            } else {
+                ScreenCraft::Predicted {
+                    recipe_network_id: 9,
+                    output,
+                }
             }
         };
         ledger.begin_screen_output(&craft).unwrap();
@@ -899,5 +908,16 @@ fn server_derived_screens_send_no_result_list() {
             window_type == protocol::WINDOW_TYPE_GRINDSTONE,
             "window type {window_type}"
         );
+        if window_type == protocol::WINDOW_TYPE_CARTOGRAPHY {
+            let request = ledger.newest_request().unwrap();
+            assert_eq!(
+                request.actions[0],
+                StackRequestAction::CraftRecipeOptional {
+                    recipe_network_id: 9,
+                    filtered_string_index: 0,
+                }
+            );
+            assert_eq!(request.filter_strings, [String::new()]);
+        }
     }
 }
