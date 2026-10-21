@@ -44,6 +44,24 @@ pub fn named_bunny(id: &str) -> Item {
     .unwrap()
 }
 
+/// Admits a paid synthetic item without granting session ownership.
+pub fn locked_bunny() -> Item {
+    static ITEM: OnceLock<Item> = OnceLock::new();
+    *ITEM.get_or_init(|| {
+        let mut descriptor = bunny().descriptor().clone();
+        descriptor.id = "fixture:locked_bunny".into();
+        descriptor.display_name = "Locked bunny ears".into();
+        descriptor.free = false;
+        super::admit(
+            descriptor,
+            include_bytes!("bunny_ears.geo.json"),
+            include_bytes!("bunny_ears.png"),
+            include_bytes!("fixture/animation.json"),
+        )
+        .unwrap()
+    })
+}
+
 /// Admits a second slot using the same original surface with no movement animation.
 pub fn rigid() -> Item {
     static ITEM: OnceLock<Item> = OnceLock::new();

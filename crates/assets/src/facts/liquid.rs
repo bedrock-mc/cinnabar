@@ -4,17 +4,20 @@ use std::sync::OnceLock;
 
 use crate::{
     NetworkIdMode,
-    facts::{BlockProperty, StateValue},
+    facts::{BlockProperty, StateValue, pack::PackBlock},
     registry::BlockTraits,
 };
 
-/// Admitted primary-block properties needed to maintain the secondary water layer.
+/// Admitted primary-block properties for secondary water and neighbouring liquids.
 #[derive(Clone, Copy, Debug)]
 pub struct BlockLiquidFacts {
     pub air: bool,
     pub water: bool,
     pub water_source: bool,
     pub can_contain_liquid_source: bool,
+    /// Whether the cell is excluded from liquid height and downhill-flow samples.
+    /// `None` leaves families without an admitted classification unresolved.
+    pub full_cell_barrier: Option<bool>,
 }
 
 /// Looks up built-in facts in the session's internal ID space; custom states stay unresolved.
@@ -38,6 +41,8 @@ pub fn pinned_facts(mode: NetworkIdMode, runtime_id: u32) -> Option<BlockLiquidF
                     can_contain_liquid_source: record
                         .traits
                         .contains(BlockTraits::CAN_CONTAIN_LIQUID_SOURCE),
+                    full_cell_barrier: (record.name.as_ref() == PackBlock::Beacon.identifier())
+                        .then_some(true),
                 }
             })
         })

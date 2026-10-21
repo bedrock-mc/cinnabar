@@ -4,9 +4,14 @@ pub(super) mod clipboard;
 pub(super) mod command_macros;
 pub mod context;
 mod death;
+mod modifiers;
+use modifiers::MenuModifiers;
 pub(super) mod fields;
+mod ime;
+pub use ime::drive_menu_ime;
 mod preview;
 mod remapping;
+mod scroll;
 mod server_list;
 mod settings_pointer;
 
@@ -38,9 +43,6 @@ pub const HOTKEY_OPTIONS: [(KeyCode, SettingId); 2] = [
     (KeyCode::F1, SettingId::HideHud),
     (KeyCode::F8, SettingId::HidePaperdoll),
 ];
-
-#[derive(Default)]
-pub struct MenuModifiers(u8);
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) enum MenuInputMode {
@@ -79,65 +81,7 @@ pub struct GuiScaleDrag {
     touch_press: Option<(u64, launcher::menu::MenuAction)>,
     preview_touch: Option<u64>,
     server_list_touch: Option<u64>,
-}
-
-impl MenuModifiers {
-    const CONTROL_LEFT: u8 = 1 << 0;
-    const CONTROL_RIGHT: u8 = 1 << 1;
-    const SUPER_LEFT: u8 = 1 << 2;
-    const SUPER_RIGHT: u8 = 1 << 3;
-    const ALT_LEFT: u8 = 1 << 4;
-    const ALT_RIGHT: u8 = 1 << 5;
-    const SHIFT_LEFT: u8 = 1 << 6;
-    const SHIFT_RIGHT: u8 = 1 << 7;
-
-    fn capture_pressed(&mut self, keys: &ButtonInput<KeyCode>) {
-        for key in [
-            KeyCode::ControlLeft,
-            KeyCode::ControlRight,
-            KeyCode::SuperLeft,
-            KeyCode::SuperRight,
-            KeyCode::AltLeft,
-            KeyCode::AltRight,
-            KeyCode::ShiftLeft,
-            KeyCode::ShiftRight,
-        ] {
-            if keys.pressed(key) {
-                self.0 |= Self::mask(key);
-            }
-        }
-    }
-
-    fn observe(&mut self, input: &KeyboardInput) {
-        let mask = Self::mask(input.key_code);
-        if input.state == ButtonState::Pressed {
-            self.0 |= mask;
-        } else {
-            self.0 &= !mask;
-        }
-    }
-
-    fn shortcut(&self) -> bool {
-        self.0 & 0b0000_1111 != 0 && self.0 & 0b0011_0000 == 0
-    }
-
-    fn shift(&self) -> bool {
-        self.0 & 0b1100_0000 != 0
-    }
-
-    const fn mask(key: KeyCode) -> u8 {
-        match key {
-            KeyCode::ControlLeft => Self::CONTROL_LEFT,
-            KeyCode::ControlRight => Self::CONTROL_RIGHT,
-            KeyCode::SuperLeft => Self::SUPER_LEFT,
-            KeyCode::SuperRight => Self::SUPER_RIGHT,
-            KeyCode::AltLeft => Self::ALT_LEFT,
-            KeyCode::AltRight => Self::ALT_RIGHT,
-            KeyCode::ShiftLeft => Self::SHIFT_LEFT,
-            KeyCode::ShiftRight => Self::SHIFT_RIGHT,
-            _ => 0,
-        }
-    }
+    scroll_touch: Option<u64>,
 }
 
 impl MenuRuntime {
@@ -153,6 +97,7 @@ impl MenuRuntime {
 
     fn editor(&self, field: MenuField) -> &ChatEditor {
         match field {
+            MenuField::FriendQuery => &self.friend_query,
             MenuField::RealmCode => &self.realm_membership.code,
             MenuField::Name => &self.name,
             MenuField::Address => &self.address,
@@ -167,6 +112,7 @@ impl MenuRuntime {
 
     fn editor_mut(&mut self, field: MenuField) -> &mut ChatEditor {
         match field {
+            MenuField::FriendQuery => &mut self.friend_query,
             MenuField::RealmCode => &mut self.realm_membership.code,
             MenuField::Name => &mut self.name,
             MenuField::Address => &mut self.address,
@@ -339,6 +285,21 @@ pub fn drive_menu_input(
         mut focus,
         driven,
     } = context;
+    if driven.is_none()
+        && (!window.1.focused || focus.as_ref().is_some_and(|focus| !focus.available()))
+        || !menu.is_visible()
+        || consent.as_ref().is_some_and(|consent| consent.0)
+        || runtime.as_ref().is_some_and(|runtime| {
+            runtime.server_forms().owns_input() || runtime.credits().owns_input()
+        })
+    {
+        scroll::drive(
+            &mut presentation,
+            &touches,
+            false,
+            &mut gui_scale_drag.scroll_touch,
+        );
+    }
     if let Some(time) = time {
         menu.advance_death_controls(time.delta_secs_f64());
     }
@@ -528,6 +489,24 @@ pub fn drive_menu_input(
         return;
     }
 
+    if mouse_buttons.just_pressed(MouseButton::Back) {
+        menu.go_back_from_input();
+        gui_scale_drag.cancel_pointer(&mut menu, &mut presentation);
+        modifiers.capture_pressed(&keys);
+        for input in keyboard_messages.read() {
+            modifiers.observe(input);
+        }
+        keys.reset_all();
+        mouse_buttons.reset_all();
+        if !menu.is_visible()
+            && !menu.intents.disconnect
+            && let Some(focus) = focus.as_deref_mut()
+        {
+            focus.authorize_screen_return();
+        }
+        return;
+    }
+
     let gameplay_pending = menu.gameplay_return_pending();
     let respawn_pending = menu.death_loading;
     modifiers.capture_pressed(&keys);
@@ -639,6 +618,16 @@ pub fn drive_menu_input(
     if on_scrollbar {
         menu.hovered = None;
     }
+    let scrolled = scroll::drive(
+        &mut presentation,
+        &touches,
+        native_settings && menu.dialog.is_none(),
+        &mut gui_scale_drag.scroll_touch,
+    );
+    if scrolled.is_some() {
+        gui_scale_drag.touch_press = None;
+        menu.pressed = None;
+    }
     let press = |menu: &mut MenuRuntime, action| {
         let action = if native_settings {
             menu.live_settings_action(action)
@@ -714,10 +703,14 @@ pub fn drive_menu_input(
         caret_press = pointer.zip(action.text_field());
     }
     if touches.any_just_pressed() {
+        menu.touch_available = true;
         menu.input_mode = MenuInputMode::Touch;
     }
     for touch in touches.iter_just_pressed() {
-        if server_list_owns_pointer || gui_scale_drag.preview_touch == Some(touch.id()) {
+        if server_list_owns_pointer
+            || gui_scale_drag.preview_touch == Some(touch.id())
+            || scrolled == Some(touch.id())
+        {
             continue;
         }
         let position = touch.position();

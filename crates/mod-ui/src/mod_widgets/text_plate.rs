@@ -315,6 +315,7 @@ mod tests {
     #[test]
     fn rendered_plate_keeps_span_colors_border_and_catalog_on_text_changes() {
         let mut hud = fixture();
+        hud.cards[0].text_plate.as_mut().unwrap().style.radius = 3.;
         measure(&mut hud, &Metrics);
         let catalog = std::sync::Arc::new(super::super::template::catalog(&hud).unwrap());
         let mut screen = CachedScreen::default();
@@ -337,6 +338,8 @@ mod tests {
                 .clone()
         };
         let nodes = render(&hud);
+        assert!(nodes.iter().any(|node| matches!(&node.draw, Draw::Custom { renderer, data }
+            if renderer == "cinnabar_rounded_rectangle" && data.get("radius").and_then(Value::as_f64) == Some(3.))));
         for (word, color) in [
             ("[", [0, 255, 0, 128]),
             ("12:05 AM", [255, 0, 0, 128]),

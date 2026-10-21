@@ -189,7 +189,7 @@ fn build_items(
         icon: SessionData::icon_key(entry.network_id, aux),
         name: name(&entry.identifier, aux),
         group: None,
-        category: None,
+        category: registry_category(entry),
         max_stack: entry.negotiated_max_stack_size.unwrap_or(DEFAULT_MAX_STACK),
         tags: Vec::new(),
     };
@@ -209,13 +209,14 @@ fn build_items(
                 .get(usize::try_from(creative_item.group).ok()?)
         });
         listed.insert(stack.network_id);
-        items.push(Item {
-            group: group
-                .filter(|group| !group.name.is_empty())
-                .map(|group| group.name.to_string()),
-            category: group.and_then(|group| category(group.category)),
-            ..item(entry, aux)
-        });
+        let mut item = item(entry, aux);
+        item.group = group
+            .filter(|group| !group.name.is_empty())
+            .map(|group| group.name.to_string());
+        item.category = group
+            .and_then(|group| category(group.category))
+            .or(item.category);
+        items.push(item);
     }
     items.extend(
         registry
@@ -235,6 +236,17 @@ fn category(category: CreativeCategory) -> Option<Category> {
         CreativeCategory::CommandOnly => Category::CommandOnly,
         CreativeCategory::Unknown(_) => return None,
     })
+}
+
+/// Resolves the category retained in a component registry entry for an item
+/// that was not included in the server's creative publication.
+fn registry_category(entry: &ItemRegistryEntry) -> Option<Category> {
+    entry
+        .components
+        .as_deref()
+        .and_then(|components| components.creative_category)
+        .map(CreativeCategory::from_legacy_value)
+        .and_then(category)
 }
 
 /// Tag members: the registry's tags, then the vanilla table's for every other tag a recipe
