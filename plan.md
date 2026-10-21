@@ -463,6 +463,11 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Server-day HUD rows now consume scoped native clock observations and leave missing
   or stale clocks unknown. Clock/host regressions are included; executed checks and
   populated-world acceptance remain pending.
+  acceptance remain unverified in a displayed client. Packet-extension world
+  drawing uses the retained geometry/depth owners, actor-mask compositor and
+  full-block highlight renderer. Headless camera, box/tracer and menu captures
+  exist; actor silhouettes, coloured full-block highlights and broad platform /
+  hardware-performance acceptance still require validation.
 - Enhanced rendering remains restricted until its GPU faults and freezes are resolved.
   Diagnostics or bounded fixtures do not establish safe general gameplay use. Java
   shader-pack source loading and configuration metadata are implemented in

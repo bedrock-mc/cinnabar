@@ -110,6 +110,7 @@ pub(crate) fn advance_local_physics(
         now: time.elapsed(),
         active,
         input_authority_released: semantic.is_none_or(|snapshot| snapshot.authority_released),
+        resolved_movement: input.movement_is_resolved(),
         movement,
         raw_movement,
         analogue_movement,

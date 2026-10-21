@@ -11,6 +11,7 @@ mod limits;
 pub(crate) mod native_capabilities;
 mod native_frame;
 pub mod native_menu;
+mod native_render;
 mod wasi;
 
 pub use adapt::packet_mod_component;
@@ -73,6 +74,19 @@ trait Guest: Send {
     }
     /// Exchanges bounded generic camera effects, independently of legacy rotation support.
     fn camera_frame(&mut self, _json: &[u8]) -> Result<Result<Option<Vec<u8>>, String>> {
+        Ok(Ok(None))
+    }
+    /// Whether startup admitted the independent drawing callback.
+    /// Consent bits for optional actor and block output in the drawing callback.
+    fn native_render_capabilities(&self) -> u32 {
+        0
+    }
+
+    fn has_native_render(&self) -> bool {
+        false
+    }
+    /// Exchanges a bounded desired world scene.
+    fn render_frame(&mut self, _json: &[u8]) -> Result<Result<Option<Vec<u8>>, String>> {
         Ok(Ok(None))
     }
     /// Whether startup negotiated the optional focused menu capability.

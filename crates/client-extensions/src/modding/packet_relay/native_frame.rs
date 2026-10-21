@@ -9,9 +9,17 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     mpsc::Sender,
 };
+use std::time::{Duration, Instant};
 
 /// Relative rotations older than two client frames cannot move a new camera pose.
 const MAX_RESULT_AGE: u64 = 2;
+
+/// Independent effects published from one serialized guest observation.
+#[derive(Default)]
+pub struct FrameOutput {
+    pub camera: Option<Effects>,
+    pub drawing: Option<Arc<mod_api::native_render::Scene>>,
+}
 
 /// A session-owned sender, weakly reachable by the app without retaining the session.
 pub(super) struct FrameLink {
@@ -31,13 +39,25 @@ impl FrameLink {
     }
 
     /// Publishes without blocking; a busy worker sees only the newest pending input.
-    pub(super) fn exchange(&self, frame: Option<Frame>) -> Option<Effects> {
+    pub(super) fn exchange(&self, frame: Option<Frame>) -> Option<FrameOutput> {
+        let scope = frame
+            .as_ref()
+            .filter(|frame| frame.is_valid())
+            .map(|frame| (frame.session, frame.dimension));
         let (output, wake) = self.frames.exchange(frame)?;
         if wake && self.requests.send(Request::NativeFrame).is_err() {
             self.frames.deactivate();
             return None;
         }
-        output
+        let drawing = self.frames.drawing.load_full().filter(|scene| {
+            self.frames.available()
+                && !self.frames.invalidate.load(Ordering::Acquire)
+                && scope == Some((scene.session, scene.dimension))
+        });
+        Some(FrameOutput {
+            camera: output,
+            drawing,
+        })
     }
 
     /// Revokes native work synchronously when the session requests stop.
@@ -59,6 +79,7 @@ struct State {
 pub(super) struct Input {
     pub(super) epoch: u64,
     sequence: u64,
+    observed_at: Instant,
     pub(super) frame: Option<Frame>,
 }
 
@@ -78,6 +99,7 @@ impl Input {
 }
 
 struct Output {
+    observed_at: Instant,
     sequence: u64,
     scope: (u64, i32, bool),
     attack_held: bool,
@@ -89,6 +111,7 @@ struct Output {
 pub(super) struct NativeFrames {
     state: Mutex<State>,
     output: ArcSwapOption<Output>,
+    drawing: ArcSwapOption<mod_api::native_render::Scene>,
     sequence: AtomicU64,
     ready: AtomicBool,
     stopped: AtomicBool,
@@ -111,6 +134,7 @@ impl NativeFrames {
         Self {
             state: Mutex::new(State::default()),
             output: ArcSwapOption::empty(),
+            drawing: ArcSwapOption::empty(),
             sequence: AtomicU64::new(0),
             ready: AtomicBool::new(false),
             stopped: AtomicBool::new(false),
@@ -137,6 +161,7 @@ impl NativeFrames {
         state.epoch = state.epoch.wrapping_add(1);
         state.pending = None;
         self.output.store(None);
+        self.drawing.store(None);
         state.wake_pending = false;
     }
 
@@ -160,6 +185,15 @@ impl NativeFrames {
             return None;
         }
         let mut effects = output.effects.clone();
+        if self.suspend.load(Ordering::Acquire)
+            || frame.suspended
+            || output.scope.2
+            || output.attack_held != frame.attack_held
+            || output.observed_at.elapsed() > Duration::from_millis(250)
+        {
+            effects.look = None;
+            effects.movement = None;
+        }
         if self.suspend.load(Ordering::Acquire) || frame.suspended || output.scope.2 {
             effects.detached = None;
         }
@@ -212,6 +246,9 @@ impl NativeFrames {
                 .scope
                 .zip(scope)
                 .is_some_and(|(old, new)| (old.0, old.1) == (new.0, new.1));
+            if !same_world || invalidated {
+                self.drawing.store(None);
+            }
             state.epoch = state.epoch.wrapping_add(1);
             state.scope = scope;
             let passive = if same_world {
@@ -219,7 +256,10 @@ impl NativeFrames {
                     let mut effects = output.effects.clone();
                     effects.rotation = None;
                     effects.detached = None;
+                    effects.look = None;
+                    effects.movement = None;
                     Arc::new(Output {
+                        observed_at: output.observed_at,
                         sequence,
                         scope: scope.unwrap(),
                         attack_held: attack_held.unwrap(),
@@ -236,6 +276,7 @@ impl NativeFrames {
         self.suspend.store(false, Ordering::Release);
         let output = self.read_output(frame.as_ref(), sequence);
         state.pending = Some(Input {
+            observed_at: Instant::now(),
             epoch: state.epoch,
             sequence,
             frame,
@@ -253,6 +294,25 @@ impl NativeFrames {
         self.available().then_some(input).flatten()
     }
 
+    /// Publishes immutable drawings without turning camera-input suspension into world loss.
+    pub(super) fn complete_drawing(
+        &self,
+        input: &Input,
+        scene: Option<mod_api::native_render::Scene>,
+    ) {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if !self.available()
+            || self.invalidate.load(Ordering::Acquire)
+            || state.epoch != input.epoch
+        {
+            return;
+        }
+        let previous = self.drawing.load_full();
+        if previous.as_deref() != scene.as_ref() {
+            self.drawing.store(scene.map(Arc::new));
+        }
+    }
+
     /// Publishes configuration for the current scope, aging only the relative rotation.
     pub(super) fn complete(&self, input: Input, effects: Option<Effects>) {
         let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
@@ -265,6 +325,7 @@ impl NativeFrames {
             self.output.store(effects.and_then(|effects| {
                 let frame = input.frame.as_ref()?;
                 Some(Arc::new(Output {
+                    observed_at: input.observed_at,
                     sequence: input.sequence,
                     scope: (frame.session, frame.dimension, frame.suspended),
                     attack_held: frame.attack_held,
@@ -285,6 +346,40 @@ mod tests {
         let fixture: serde_json::Value =
             serde_json::from_str(include_str!("../../../../mod-api/native-frame-v1.json")).unwrap();
         serde_json::from_value(fixture["frame"].clone()).unwrap()
+    }
+
+    #[test]
+    fn drawings_survive_input_suspension_but_not_coalesced_world_loss() {
+        let mailbox = NativeFrames::new(Arc::new(AtomicBool::new(true)));
+        mailbox.activate(true);
+        let observation = frame();
+        mailbox.exchange(Some(observation.clone()));
+        let input = mailbox.take_input().unwrap();
+        let scene = mod_api::native_render::Scene {
+            version: 1,
+            session: observation.session,
+            dimension: observation.dimension,
+            ..Default::default()
+        };
+        mailbox.complete_drawing(&input, Some(scene.clone()));
+        let first = mailbox.drawing.load_full().unwrap();
+        mailbox.complete_drawing(&input, Some(scene));
+        assert!(Arc::ptr_eq(&first, &mailbox.drawing.load_full().unwrap()));
+        let mut suspended = observation.clone();
+        suspended.suspended = true;
+        suspended.players.clear();
+        suspended.attack_held = false;
+        mailbox.exchange(Some(suspended));
+        assert!(mailbox.drawing.load_full().is_some());
+        {
+            let _worker = mailbox.state.lock().unwrap();
+            mailbox.exchange(None);
+        }
+        mailbox.exchange(Some(observation));
+        assert!(mailbox.drawing.load_full().is_none());
+        mailbox.deactivate();
+        mailbox.complete_drawing(&input, Some((*first).clone()));
+        assert!(mailbox.drawing.load_full().is_none());
     }
 
     #[test]
@@ -580,5 +675,110 @@ mod tests {
                     .is_some()
             );
         }
+    }
+    #[test]
+    fn retained_input_survives_relative_step_consumption_and_expires() {
+        let mailbox = NativeFrames::new(Arc::new(AtomicBool::new(true)));
+        mailbox.activate(true);
+        mailbox.exchange(Some(frame()));
+        let input = mailbox.take_input().unwrap();
+        let effects = Effects {
+            look: Some(mod_api::native_camera::LookIntent {
+                yaw: 0.5,
+                pitch: 0.0,
+                speed: 3.0,
+            }),
+            movement: Some(mod_api::native_camera::MovementIntent {
+                yaw: 0.5,
+                axes: [0.0, 1.0],
+                jump: false,
+                sneak: false,
+                sprint: true,
+            }),
+            ..Default::default()
+        };
+        mailbox.complete(input, Some(effects.clone()));
+        for _ in 0..5 {
+            mailbox.fence_guest_state();
+            assert_eq!(
+                mailbox.exchange(Some(frame())).unwrap().0,
+                Some(effects.clone())
+            );
+        }
+        let mut suspended = frame();
+        suspended.suspended = true;
+        suspended.attack_held = false;
+        suspended.players.clear();
+        assert_eq!(mailbox.exchange(Some(suspended)).unwrap().0, None);
+        mailbox.exchange(Some(frame()));
+        let mut input = mailbox.take_input().unwrap();
+        input.observed_at -= Duration::from_secs(1);
+        mailbox.complete(input, Some(effects));
+        assert_eq!(mailbox.exchange(Some(frame())).unwrap().0, None);
+    }
+    #[test]
+    fn contended_suspension_retires_cached_and_inflight_controls() {
+        let mailbox = NativeFrames::new(Arc::new(AtomicBool::new(true)));
+        mailbox.activate(true);
+        mailbox.exchange(Some(frame()));
+        let old = mailbox.take_input().unwrap();
+        let effects = Effects {
+            movement: Some(mod_api::native_camera::MovementIntent {
+                yaw: 0.0,
+                axes: [0.0, 1.0],
+                jump: true,
+                sneak: false,
+                sprint: false,
+            }),
+            ..Default::default()
+        };
+        mailbox.complete(old, Some(effects.clone()));
+        mailbox.exchange(Some(frame()));
+        let inflight = mailbox.take_input().unwrap();
+        {
+            let _worker = mailbox.state.lock().unwrap();
+            let mut suspended = frame();
+            suspended.suspended = true;
+            suspended.attack_held = false;
+            suspended.players.clear();
+            assert_eq!(mailbox.exchange(Some(suspended)).unwrap().0, None);
+            assert_eq!(mailbox.exchange(Some(frame())).unwrap().0, None);
+        }
+        mailbox.complete(inflight, Some(effects));
+        assert_eq!(mailbox.exchange(Some(frame())).unwrap().0, None);
+        let fresh = mailbox.take_input().unwrap();
+        mailbox.complete(
+            fresh,
+            Some(Effects {
+                look: Some(mod_api::native_camera::LookIntent {
+                    yaw: 0.1,
+                    pitch: 0.0,
+                    speed: 2.0,
+                }),
+                ..Default::default()
+            }),
+        );
+        assert!(mailbox.exchange(Some(frame())).unwrap().0.is_some());
+    }
+    #[test]
+    fn consecutive_suspended_frames_keep_the_drawing_publication_epoch() {
+        let mailbox = NativeFrames::new(Arc::new(AtomicBool::new(true)));
+        mailbox.activate(true);
+        let mut suspended = frame();
+        suspended.suspended = true;
+        suspended.attack_held = false;
+        suspended.players.clear();
+        mailbox.exchange(Some(suspended.clone()));
+        let input = mailbox.take_input().unwrap();
+        mailbox.exchange(Some(suspended));
+        let scene = mod_api::native_render::Scene {
+            version: 1,
+            session: frame().session,
+            dimension: frame().dimension,
+            ..Default::default()
+        };
+        mailbox.complete_drawing(&input, Some(scene));
+        assert!(mailbox.drawing.load_full().is_some());
+        assert_eq!(mailbox.take_input().unwrap().epoch, input.epoch);
     }
 }

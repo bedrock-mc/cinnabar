@@ -52,3 +52,51 @@ retains only passive damage and teleport-view policies; it releases detached
 input immediately. Revocation, dimension/session changes, failure and stop
 invalidate every effect. Omission
 restores the player's current camera settings and perspective.
+
+
+### Retained input intents
+
+Capability bit `64` additionally permits `look` and `movement` in camera effects.
+`look` supplies absolute yaw/pitch in radians and a turn speed in radians per
+second. The host evaluates it against its current pose on every render frame.
+It excludes both relative rotation and detached views. `movement` supplies unit
+axes (`+X` right, `+Y` forward), their yaw frame, and held jump/sneak/sprint
+requests. The host rotates these axes after camera updates and feeds its ordinary
+semantic input and physics; physical movement takes priority. Resolved held
+requests preserve the player's separate toggle settings. Detached views exclude
+walking requests. Input loss releases controls and fences older callbacks;
+unchanged suspended frames still permit world drawing. Retained input expires
+250 ms after its observation. Session/world replacement, revocation, failure and
+stop release it as well. Guests must omit these fields without bit `64`.
+
+## World drawing
+
+The independent `render-frame` callback uses native-init bit `8` when both
+`world_draw` and `render_through_walls` are explicitly granted. Its canonical ABI,
+optional `cabi_post_render-frame` and serialization match the other frame callbacks.
+Input remains bounded to 64 KiB; complete drawing output is bounded to 256 KiB. Its JSON input is `native_render::Frame`: version, session
+and dimension only, or `null` outside a current world. Drawing does not require
+camera/movement/player observation and continues while gameplay input is suspended.
+
+Successful output is `null` or a complete `native_render::Scene` with the matching
+session/dimension. It contains at most 64 oriented boxes and 128 world lines, using
+existing retained-drawing colour and coordinate bounds. The renderer reuses unit
+geometry and instance handles and splits long lines into bounded retained pieces.
+A line exceeding the remaining per-owner instance budget is omitted whole.
+Optional `entities` groups select actual animated actor meshes with a validated
+`MaskStyle`; native-init bit `16` additionally requires `entity_observe` and
+`entity_highlight`. Up to eight styles share the existing actor-mask compositor,
+with at most 32 actors per group and the existing vertex/attachment budgets.
+When attachments exceed the GPU budget, fitting groups remain visible. Admission
+offers each owner one coverage group before its next, then follows stable owner
+and handle order. This also applies to component masks sharing the compositor.
+Optional `blocks` contains at most 1024 integer positions and per-block colours;
+bit `32` requires `block_highlights`. These use the same full-block overlay as
+host-discovered loaded-block selections. The independent consent bits do not
+change which ordinary box/line callbacks are admitted. Unknown or removed actor
+incarnations cannot keep an old mesh selected.
+Retained geometry and depth permissions are admitted by the same drawing store
+used by component extensions. Invalid wire output quarantines its producer;
+resource-admission failure clears its scene atomically. World loss, revocation,
+callback failure and stop release every drawing. Unchanged scenes preserve their
+resource identity. The shared `native-render-v1.json` fixture records the wire ABI.

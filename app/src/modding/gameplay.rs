@@ -14,13 +14,14 @@ use {crate::runtime::world::ClientWorld, client_state::SemanticInputSnapshot};
 
 #[derive(SystemParam)]
 pub(super) struct GameplayContext<'w> {
+    pub(super) native_input: Option<ResMut<'w, super::native_input::NativeInput>>,
     pub(super) world: Option<Res<'w, ClientWorld>>,
     pub(super) view: Option<ResMut<'w, LocalViewPose>>,
     pub(super) input: Option<ResMut<'w, SemanticInputSnapshot>>,
     auto_fly: Option<Res<'w, AutoFly>>,
     server_camera: Option<Res<'w, ServerCameraView>>,
     time: Option<Res<'w, Time>>,
-    real_time: Option<Res<'w, Time<Real>>>,
+    pub(super) real_time: Option<Res<'w, Time<Real>>>,
     clock: Option<Res<'w, client_presentation::environment::WorldClock>>,
     pub(super) physics: Option<ResMut<'w, client_interaction::movement::LocalPhysicsController>>,
     pub(super) movement: Option<Res<'w, client_interaction::movement::MovementTicker>>,
@@ -175,7 +176,10 @@ impl GameplayContext<'_> {
     }
 
     /// Returns walking ownership independently of temporary server input permissions.
-    fn walking_scope(&self, ui: &client_ui::ui_runtime::UiRuntime) -> Option<(u64, i32)> {
+    pub(super) fn walking_scope(
+        &self,
+        ui: &client_ui::ui_runtime::UiRuntime,
+    ) -> Option<(u64, i32)> {
         self.input.as_ref()?.snapshot()?;
         let world = self.world.as_ref()?;
         if world.dimension_transfer.active()

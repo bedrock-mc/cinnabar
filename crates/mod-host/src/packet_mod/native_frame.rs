@@ -8,7 +8,10 @@ use mod_api::native_frame::{Delta, Frame, MAX_BYTES};
 impl PacketMod {
     /// Whether this instance negotiated the native player-camera frame capability.
     pub fn has_native_frame(&self) -> bool {
-        self.is_active() && (self.guest.has_native_frame() || self.guest.has_native_camera())
+        self.is_active()
+            && (self.guest.has_native_frame()
+                || self.guest.has_native_camera()
+                || self.guest.has_native_render())
     }
 
     /// Runs one coalesced native frame and validates its once-consumed local output.
@@ -64,9 +67,12 @@ impl PacketMod {
             );
             ensure!(
                 frame.is_none_or(|frame| !frame.suspended)
-                    || effects.as_ref().is_none_or(
-                        |effects| effects.rotation.is_none() && effects.detached.is_none()
-                    ),
+                    || effects
+                        .as_ref()
+                        .is_none_or(|effects| effects.rotation.is_none()
+                            && effects.detached.is_none()
+                            && effects.look.is_none()
+                            && effects.movement.is_none()),
                 "active camera effects without gameplay input"
             );
             ensure!(
@@ -203,7 +209,7 @@ mod tests {
         // The legacy fixture checks the init bit before returning any effect.
         wat = wat.replace(
             "(i32.const 1)) (then unreachable)",
-            "(i32.const 4)) (then unreachable)",
+            "(i32.const 68)) (then unreachable)",
         );
         // A camera-only guest must receive an empty player list even when the host has nearby players.
         wat = wat.replace("(i32.store (i32.const 128)", "(if (i32.ne (i32.load8_u (i32.add (local.get $input) (i32.sub (local.get $length) (i32.const 3)))) (i32.const 91)) (then (if (i32.ne (i32.load8_u (local.get $input)) (i32.const 110)) (then unreachable)))) (i32.store (i32.const 128)");
@@ -277,9 +283,11 @@ mod tests {
                 _ => None,
             })
             .expect("PACKET_MOD_NATIVE_CAPTURE fixture needs a start record");
-        for movement in [false, true] {
+        for (movement, drawing) in [(false, false), (true, false), (true, true)] {
             let grants = ModGrants {
                 movement,
+                world_draw: drawing,
+                render_through_walls: drawing,
                 packets: true,
                 wasi: true,
                 players: true,
@@ -300,6 +308,12 @@ mod tests {
                     .frame(Some(&frame()))
                     .expect("exchange native Go frame"),
                 movement.then(Effects::default)
+            );
+            assert!(
+                guest
+                    .render_frame(Some(&frame()))
+                    .expect("exchange native Go drawing frame")
+                    .is_none()
             );
             assert!(guest.is_active());
 

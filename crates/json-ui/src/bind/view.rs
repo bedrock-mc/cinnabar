@@ -79,21 +79,56 @@ fn first_by_name(root: &Node, wanted: &HashSet<&str>) -> HashMap<String, Path> {
     names
 }
 
-/// The first control named `name` breadth-first from the control at `start`.
-fn breadth_first(root: &Node, start: &[usize], name: &str) -> Option<Path> {
-    let mut queue = VecDeque::from([start.to_vec()]);
-    while let Some(path) = queue.pop_front() {
-        let node = node_at(root, &path);
-        if node.src.name() == name {
-            return Some(path);
+/// Named view sources for one stable tree, searched once per scope. Expansion
+/// between settling rounds rebuilds this index before any new source is read.
+struct SourceNames {
+    global: HashMap<String, Path>,
+    siblings: HashMap<Path, HashMap<String, Path>>,
+}
+
+impl SourceNames {
+    /// Gather only the names this round's bindings request, preserving the
+    /// breadth-first winner inside each sibling's parent subtree.
+    fn new(root: &Node, list: &[(Path, usize)]) -> Self {
+        let mut global = HashSet::new();
+        let mut siblings: HashMap<&[usize], HashSet<&str>> = HashMap::new();
+        for (path, index) in list {
+            let Kind::View { control, scope, .. } = &node_at(root, path).bindings[*index].kind
+            else {
+                continue;
+            };
+            match scope {
+                ViewScope::Global => {
+                    global.insert(control.as_str());
+                }
+                ViewScope::Sibling => {
+                    if let Some((_, parent)) = path.split_last() {
+                        siblings.entry(parent).or_default().insert(control.as_str());
+                    }
+                }
+                ViewScope::Own | ViewScope::Ancestor => {}
+            }
         }
-        for index in 0..node.children.len() {
-            let mut child = path.clone();
-            child.push(index);
-            queue.push_back(child);
+        Self {
+            global: first_by_name(root, &global),
+            siblings: siblings
+                .into_iter()
+                .map(|(parent, wanted)| {
+                    (
+                        parent.to_vec(),
+                        first_by_name(node_at(root, parent), &wanted),
+                    )
+                })
+                .collect(),
         }
     }
-    None
+
+    /// Resolve a sibling source relative to its parent, including the parent itself.
+    fn sibling(&self, path: &[usize], name: &str) -> Option<Path> {
+        let (_, parent) = path.split_last()?;
+        let relative = self.siblings.get(parent)?.get(name)?;
+        Some(parent.iter().chain(relative).copied().collect())
+    }
 }
 
 /// Whether `control`'s authored subtree holds a control named `name`.
@@ -152,21 +187,7 @@ impl Binder<'_> {
         if list.is_empty() {
             return (missed, true);
         }
-        let wanted: HashSet<&str> = list
-            .iter()
-            .filter_map(
-                |(path, index)| match &node_at(root, path).bindings[*index].kind {
-                    Kind::View {
-                        control,
-                        scope: ViewScope::Global,
-                        ..
-                    } => Some(control.as_str()),
-                    _ => None,
-                },
-            )
-            .collect();
-        let names = first_by_name(root, &wanted);
-        drop(wanted);
+        let names = SourceNames::new(root, &list);
         let sources: Vec<_> = list
             .iter()
             .map(|(path, index)| {
@@ -285,7 +306,7 @@ impl Binder<'_> {
     fn source_of(
         &self,
         root: &Node,
-        names: &HashMap<String, Path>,
+        names: &SourceNames,
         path: &Path,
         index: usize,
     ) -> Result<Path, String> {
@@ -295,10 +316,8 @@ impl Binder<'_> {
         };
         let found = match scope {
             ViewScope::Own => Some(path.clone()),
-            ViewScope::Global => names.get(control).cloned(),
-            ViewScope::Sibling => path
-                .split_last()
-                .and_then(|(_, parent)| breadth_first(root, parent, control)),
+            ViewScope::Global => names.global.get(control).cloned(),
+            ViewScope::Sibling => names.sibling(path, control),
             ViewScope::Ancestor => (0..path.len())
                 .rev()
                 .map(|depth| path[..depth].to_vec())
