@@ -61,7 +61,7 @@ use {auth::AuthSupervisor, launcher::menu::auth::AuthState};
 use core_process::{auth_cache_path, core_executable};
 pub use input::clipboard::MenuClipboard;
 pub(crate) use input::context::observe_keyboard_labels;
-pub use input::{HOTKEY_OPTIONS, drive_menu_input};
+pub use input::{HOTKEY_OPTIONS, drive_menu_ime, drive_menu_input};
 use launcher::menu::view::{CatalogFile, MenuFeeds};
 
 use launcher::menu::view::{
@@ -116,6 +116,7 @@ pub struct MenuRuntime {
     address: ui::ChatEditor,
     port: ui::ChatEditor,
     skin_name: ui::ChatEditor,
+    friend_query: ui::ChatEditor,
     /// Command macro command boxes; edits write through to persisted settings.
     macro_commands: [ui::ChatEditor; launcher::menu::settings_options::COMMAND_MACRO_COUNT],
     message: Option<String>,
@@ -372,38 +373,6 @@ impl MenuRuntime {
             return None;
         }
         self.intents.join.take()
-    }
-
-    /// The session is live: the menu gives way to the world.
-    pub fn show_world(&mut self) {
-        self.reset_death();
-        self.visible = false;
-        self.navigation_focus = navigation::NavigationFocus::default();
-        self.history.reset(MenuScreen::Home);
-        self.screen = MenuScreen::Home;
-        self.message = None;
-        self.field = None;
-    }
-
-    pub fn show_connecting(&mut self) {
-        self.reset_death();
-        self.visible = true;
-        self.navigation_focus = navigation::NavigationFocus::default();
-        self.history.reset(MenuScreen::Home);
-        self.history.push(MenuScreen::Play);
-        self.screen = MenuScreen::Play;
-        self.message = Some("Connecting…".to_owned());
-    }
-
-    pub fn show_home(&mut self) {
-        self.reset_death();
-        self.visible = true;
-        self.navigation_focus = navigation::NavigationFocus::default();
-        self.history.reset(MenuScreen::Home);
-        self.screen = MenuScreen::Home;
-        self.focused = 0;
-        self.field = None;
-        self.dialog = None;
     }
 
     /// A cancelled join drops any queued join and returns to the play screen.
@@ -715,7 +684,8 @@ impl MenuRuntime {
             MenuAction::AddName
             | MenuAction::AddAddress
             | MenuAction::AddPort
-            | MenuAction::EditSkinName => {}
+            | MenuAction::EditSkinName
+            | MenuAction::SearchFriends => {}
             MenuAction::AddSave => {
                 // Saving pops the form back to the tab that opened it.
                 if self.save_draft() {

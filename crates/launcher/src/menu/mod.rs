@@ -93,6 +93,8 @@ pub enum MenuDialog {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MenuField {
+    /// Filters the friends drawer by gamertag.
+    FriendQuery,
     Name,
     Address,
     Port,
@@ -154,6 +156,7 @@ pub enum MenuAction {
     AddAddress,
     AddPort,
     EditSkinName,
+    SearchFriends,
     AddSave,
     AddSaveConnect,
     AddBack,
@@ -235,6 +238,7 @@ impl MenuAction {
             Self::AddAddress => Some(MenuField::Address),
             Self::AddPort => Some(MenuField::Port),
             Self::EditSkinName => Some(MenuField::SkinName),
+            Self::SearchFriends => Some(MenuField::FriendQuery),
             Self::LocalWorld(action) => action.field(),
             _ => None,
         }

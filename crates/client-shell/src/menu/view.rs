@@ -37,6 +37,7 @@ impl MenuRuntime {
             profile_tab: self.profile_tab,
             dialog: self.dialog,
             field: self.field,
+            friend_query: self.friend_query.as_str().to_owned(),
             caret: self.caret(),
             name: self.name.as_str().to_owned(),
             address: self.address.as_str().to_owned(),
