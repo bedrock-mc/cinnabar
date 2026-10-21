@@ -18,6 +18,7 @@ pub use error::UiRuntimeError;
 pub mod forms;
 pub mod gameplay_authority;
 pub mod gameplay_hud;
+pub mod grindstone;
 pub mod hud_adapter;
 pub mod interaction;
 pub mod inventory_actions;

@@ -192,7 +192,7 @@ pub use item::{
 pub use item::{
     ItemAnvilData, ItemNbtEdit, book_init_extra, book_needs_init, edit_item_extra, item_anvil_data,
     item_custom_name, item_extra_lock, item_extra_slot_locked, item_filtered_custom_name,
-    item_repair_cost, item_user_data_equal,
+    item_has_trim, item_repair_cost, item_user_data_equal,
 };
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
 pub use respawn::{respawn_ready_packet, respawn_request_packet};

@@ -698,6 +698,7 @@ fn server_previewed_grindstone_result_can_be_taken() {
             .begin_screen_output(&ScreenCraft::Grindstone {
                 recipe_network_id: 50,
                 repair_cost: 0,
+                output: None,
             })
             .unwrap();
         assert_eq!(ledger.cursor_stack().unwrap().count, 1);
@@ -872,6 +873,7 @@ fn server_derived_screens_send_no_result_list() {
             ScreenCraft::Grindstone {
                 recipe_network_id: 40,
                 repair_cost: 0,
+                output: None,
             }
         } else {
             ScreenCraft::Predicted {

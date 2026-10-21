@@ -596,15 +596,24 @@ impl UiRuntime {
                         sink,
                     )
             }
-            Some(WindowKind::Grindstone) => self
-                .inventory_ledger_mut(player_runtime)
-                .begin_screen_output_into(
-                    &ScreenCraft::Grindstone {
-                        recipe_network_id: 0,
-                        repair_cost: 0,
-                    },
-                    sink,
-                ),
+            Some(WindowKind::Grindstone) => {
+                // A server-previewed result is taken as stated, even without a prediction.
+                let preview = self.grindstone_preview(player_runtime);
+                let server_output = self
+                    .inventory_ledger(player_runtime)
+                    .created_output_stack()
+                    .is_some();
+                if preview.is_none() && !server_output {
+                    return Err(InventoryGestureError::EmptyGesture);
+                }
+                let craft = ScreenCraft::Grindstone {
+                    recipe_network_id: preview.as_ref().map_or(0, |p| p.source_stack_id),
+                    repair_cost: preview.as_ref().map_or(0, |p| p.repair_cost),
+                    output: preview.filter(|_| !server_output).map(|p| p.stack),
+                };
+                self.inventory_ledger_mut(player_runtime)
+                    .begin_screen_output_into(&craft, sink)
+            }
             Some(WindowKind::Loom) => {
                 let pattern = self
                     .screen_state()

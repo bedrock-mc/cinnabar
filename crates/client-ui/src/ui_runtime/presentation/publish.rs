@@ -184,6 +184,11 @@ pub fn hovered_stack(
                     .anvil_output(player_runtime)
                     .map(|stack| (stack, None));
             }
+            Hit::CraftOutput if ledger.window_kind() == Some(protocol::WindowKind::Grindstone) => {
+                return runtime
+                    .grindstone_output(player_runtime)
+                    .map(|stack| (stack, None));
+            }
             Hit::CraftOutput
                 if matches!(
                     ledger.window_kind(),

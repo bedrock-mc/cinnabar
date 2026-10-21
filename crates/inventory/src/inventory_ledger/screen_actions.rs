@@ -41,9 +41,13 @@ pub enum ScreenCraft {
         output: Option<protocol::NetworkItemStack>,
         material_used: u16,
     },
+    /// Grindstone result. `recipe_network_id` is the server stack id of the input the result
+    /// copies and `repair_cost` the result's penalty; `output` supplies a prediction when the
+    /// server previews no result.
     Grindstone {
         recipe_network_id: i32,
         repair_cost: i32,
+        output: Option<protocol::NetworkItemStack>,
     },
     Loom {
         pattern: Arc<str>,
@@ -261,6 +265,10 @@ impl PlayerInventoryLedger {
                     output: Some(_),
                     ..
                 }
+                | ScreenCraft::Grindstone {
+                    output: Some(_),
+                    ..
+                }
         );
         let (preview, predicted_set) = match craft {
             ScreenCraft::Predicted { output, .. } => {
@@ -291,6 +299,10 @@ impl PlayerInventoryLedger {
                 (held.clone(), Some(held))
             }
             ScreenCraft::Anvil {
+                output: Some(output),
+                ..
+            }
+            | ScreenCraft::Grindstone {
                 output: Some(output),
                 ..
             }
@@ -373,6 +385,7 @@ impl PlayerInventoryLedger {
             ScreenCraft::Grindstone {
                 recipe_network_id,
                 repair_cost,
+                ..
             } => (
                 StackRequestAction::Grindstone {
                     recipe_network_id: *recipe_network_id,
