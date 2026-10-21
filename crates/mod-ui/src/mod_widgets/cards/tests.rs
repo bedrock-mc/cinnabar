@@ -513,6 +513,7 @@ fn amendment_hidden_gameplay_cards_keep_explicit_previews_and_live_visibility() 
     hud.cards[0].visible = true;
     ui.set_mod_hud_sources([(OWNER, 2, &hud)].into_iter())
         .unwrap();
+    ui.set_mod_hud(Some(&hud)).unwrap();
     harness.paint(&mut ui, false);
     assert!(!harness.drawn().vertices.is_empty());
     assert!(Arc::ptr_eq(
@@ -522,6 +523,7 @@ fn amendment_hidden_gameplay_cards_keep_explicit_previews_and_live_visibility() 
     hud.cards[0].visible = false;
     ui.set_mod_hud_sources([(OWNER, 3, &hud)].into_iter())
         .unwrap();
+    ui.set_mod_hud(Some(&hud)).unwrap();
     harness.paint(&mut ui, false);
     assert!(harness.drawn().vertices.is_empty());
 }
