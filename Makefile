@@ -65,7 +65,7 @@ LOCAL_FONT_ASSET_COMPILE = $(ASSETC) font-assets --pack "$(FONT_PACK_DIR)" --sou
 LOCAL_HUD_ASSET_COMPILE = $(ASSETC) hud-assets --pack "$(HUD_PACK_DIR)" --source-manifest "$(HUD_SOURCE_MANIFEST)" --out "$(LOCAL_ASSET_DIR)/vanilla-v1.mcbehud" --report "$(LOCAL_ASSET_DIR)/hud-assets.json"
 
 .PHONY: help vanilla-assets assets font-assets-local hud-assets-local physics-assets local-server play dist-local
-.PHONY: registry-foundation-check jsonui-editor
+.PHONY: registry-foundation-check jsonui-editor figma-plugin
 
 help:
 	@echo make registry-foundation-check - Validate the exact protocol-2193 registry foundation
@@ -80,6 +80,7 @@ help:
 	@echo make play TRACY=1    - Run with opt-in Tracy frame attribution
 	@echo make dist-local      - Stage an unsigned local-development-only bundle under .local/dist
 	@echo make jsonui-editor   - Build the static JSON-UI editor site into JSONUI_EDITOR_OUT
+	@echo make figma-plugin    - Build the Figma to JSON-UI plugin into tools/figma-plugin/dist
 	@echo Override optional settings with NO_VSYNC=1
 	@echo Set CINNABAR_CLOUDS_PNG to the exact local-only Bedrock 1.26.33.1 clouds.png
 
@@ -92,6 +93,9 @@ jsonui-editor: $(FONT_SOURCE)
 	bash tools/jsonui-editor/build.sh "$(abspath $(JSONUI_EDITOR_OUT))" "$(abspath $(FONT_SOURCE))"
 	@echo Serve it locally with: python3 -m http.server --directory $(JSONUI_EDITOR_OUT) 8000
 	@echo then open http://localhost:8000/
+
+figma-plugin: $(FONT_SOURCE)
+	bash tools/figma-plugin/build.sh "$(abspath $(FONT_SOURCE))"
 
 vanilla-assets: $(PACK_SENTINEL)
 

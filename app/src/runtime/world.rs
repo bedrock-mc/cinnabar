@@ -126,6 +126,8 @@ pub(crate) struct ClientWorld {
         Option<Arc<client_presentation::prepared_actor_artwork::PreparedActorArtwork>>,
     /// The session's custom item facts and pack icons for held and worn items.
     pub(crate) session_items: Option<Arc<client_presentation::session_assets::SessionItems>>,
+    /// Item tag programs compiled with this session's block registries.
+    pub(crate) mining_filters: Arc<pack_runtime::CustomMiningFilters>,
     pub(crate) pending_surface_spawn: Option<[i32; 2]>,
     pub(crate) dimension_transfer: dimension::DimensionTransfer,
     pub(crate) respawn: respawn::RespawnLifecycle,
@@ -154,6 +156,7 @@ impl ClientWorld {
             terrain_resource_identity: [0; 32],
             prepared_actor_artwork: None,
             session_items: None,
+            mining_filters: Arc::default(),
             pending_surface_spawn: None,
             dimension_transfer: dimension::DimensionTransfer::default(),
             respawn: respawn::RespawnLifecycle::default(),

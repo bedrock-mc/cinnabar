@@ -58,7 +58,7 @@ type LoadResult = Result<PackGpu, String>;
 /// The pack being loaded or shown, identified by path and dimension.
 #[derive(Resource, Default)]
 struct Loader {
-    key: Option<(PathBuf, i32)>,
+    key: Option<(PathBuf, i32, u64)>,
     job: Option<Mutex<mpsc::Receiver<LoadResult>>>,
 }
 
@@ -82,12 +82,15 @@ fn drive_loader(
     gpu: MainWorldGpu,
     atmosphere: Option<Res<render_scene::AtmosphereTextureAssets>>,
 ) {
-    let wanted = request
-        .pack
-        .clone()
-        .map(|path| (path, inputs.dimension.clamp(0, 2)));
+    let wanted = request.pack.clone().map(|path| {
+        (
+            path,
+            inputs.dimension.clamp(0, 2),
+            request.reload_generation,
+        )
+    });
     if wanted != loader.key {
-        let Some((path, dimension)) = wanted.clone() else {
+        let Some((path, dimension, _)) = wanted.clone() else {
             loader.key = None;
             loader.job = None;
             status.set_if_neq(ShaderPackStatus::Idle);
@@ -124,7 +127,7 @@ fn drive_loader(
         match spawned {
             Ok(_) => loader.job = Some(Mutex::new(receive)),
             Err(error) => {
-                if let Some((path, _)) = &loader.key {
+                if let Some((path, _, _)) = &loader.key {
                     *status = ShaderPackStatus::Failed {
                         pack: path.clone(),
                         reason: error.to_string(),
@@ -144,7 +147,7 @@ fn drive_loader(
         Err(mpsc::TryRecvError::Disconnected) => Err("the load worker stopped".to_string()),
     };
     loader.job = None;
-    let Some((path, _)) = loader.key.clone() else {
+    let Some((path, _, _)) = loader.key.clone() else {
         return;
     };
     match outcome {
@@ -547,6 +550,9 @@ fn shaderpack_post(
     let device = render_device.wgpu_device().clone();
     let queue: wgpu::Queue = (**world.resource::<RenderQueue>()).clone();
     let destination_format = target.main_texture_format();
+    if !state.supports_presentation(destination_format) {
+        return Ok(());
+    }
     let terrain = pack_terrain(world).map(|geometry| ViewTerrain {
         geometry,
         view: entity,
@@ -706,6 +712,10 @@ pub(super) fn finish(app: &mut App) {
         );
     install_graph(render_app.world_mut());
 }
+
+#[cfg(test)]
+#[path = "plugin_tests.rs"]
+mod post_tests;
 
 #[cfg(test)]
 mod camera_tests {

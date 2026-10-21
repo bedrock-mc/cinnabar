@@ -12,13 +12,15 @@ use bevy::{
 };
 
 /// The pack the settings ask for. The render host loads it on a worker whenever `pack`
-/// changes and reports progress through [`ShaderPackStatus`].
+/// changes or is explicitly reselected, and reports progress through [`ShaderPackStatus`].
 #[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]
 pub struct ShaderPackRequest {
     /// Pack folder or zip; `None` unloads the current pack.
     pub pack: Option<PathBuf>,
     /// Private directory for cached translations; `None` disables the cache.
     pub cache_dir: Option<PathBuf>,
+    /// Explicit menu selections reload even when the pack path is unchanged.
+    pub reload_generation: u64,
 }
 
 /// Load state of the requested pack, written by the render host.
@@ -113,8 +115,9 @@ pub struct ShaderPackFrameInputs {
     /// Frozen `frameTimeCounter` in seconds for captures (developer `--frame-time-counter`);
     /// `None` counts real time.
     pub frame_time_counter: Option<f32>,
-    /// Blocks from the camera along its view direction to the first non-air block, `None`
-    /// when nothing is in range; `centerDepthSmooth` smooths its depth-buffer value.
+    /// Blocks along the camera ray to terrain geometry; models use their surfaces, while
+    /// cubes and liquids use cell boundaries. `None` when nothing is in range.
+    /// `centerDepthSmooth` smooths the corresponding depth-buffer value.
     pub center_distance: Option<f32>,
     /// Fog start and end distances in blocks (`fogStart`, `fogEnd`).
     pub fog_range: [f32; 2],

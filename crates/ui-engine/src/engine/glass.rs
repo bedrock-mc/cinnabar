@@ -21,7 +21,7 @@ use super::{
 };
 
 /// Default glass corner radius in GUI pixels, matching `cinnabar_rounded_rectangle`.
-const DEFAULT_RADIUS: f64 = 6.0;
+const DEFAULT_RADIUS: f64 = json_ui::rounded::DEFAULT_RADIUS as f64;
 /// Default top highlight width in GUI pixels, like CSS `inset 0 1px 0`.
 const DEFAULT_HIGHLIGHT_WIDTH: f64 = 1.0;
 

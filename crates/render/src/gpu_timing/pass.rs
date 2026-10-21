@@ -50,6 +50,47 @@ pub(crate) fn ui_pass_timestamps(
 }
 
 impl GpuTimestamps {
+    /// Times an owned pack render pass on detailed Metal frames without marker passes.
+    #[cfg(feature = "shaderpacks")]
+    pub(crate) fn shaderpack_render_pass(
+        &self,
+        stage: RuntimeStage,
+    ) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
+        let span = self.shaderpack_owned_span(stage, cfg!(target_os = "macos"))?;
+        Some(wgpu::RenderPassTimestampWrites {
+            query_set: span.queries,
+            beginning_of_pass_write_index: Some(span.begin),
+            end_of_pass_write_index: Some(span.begin + 1),
+        })
+    }
+
+    /// Claims pack queries only when the backend needs owned passes and detail is requested.
+    #[cfg(feature = "shaderpacks")]
+    pub(super) fn shaderpack_owned_span(
+        &self,
+        stage: RuntimeStage,
+        owned_passes: bool,
+    ) -> Option<Span<'_>> {
+        if !owned_passes || !self.pass_detail {
+            return None;
+        }
+        self.open_pass(stage)
+    }
+
+    /// Times an owned pack compute pass under the same policy as pack render passes.
+    #[cfg(feature = "shaderpacks")]
+    pub(crate) fn shaderpack_compute_pass(
+        &self,
+        stage: RuntimeStage,
+    ) -> Option<wgpu::ComputePassTimestampWrites<'_>> {
+        let writes = self.shaderpack_render_pass(stage)?;
+        Some(wgpu::ComputePassTimestampWrites {
+            query_set: writes.query_set,
+            beginning_of_pass_write_index: writes.beginning_of_pass_write_index,
+            end_of_pass_write_index: writes.end_of_pass_write_index,
+        })
+    }
+
     /// UI diagnostics replace enclosing graph spans to avoid counting the same work twice.
     pub(super) fn graph_span_enabled(&self, stage: RuntimeStage) -> bool {
         !cfg!(target_os = "macos")

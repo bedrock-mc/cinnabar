@@ -195,10 +195,17 @@ pub(super) fn compile_block_overlay_with_textures(
                     Some(&state.values),
                     &mut builder.gaps,
                 );
-                visual.components.random_offset =
-                    block.physics_for_state(index as u32).random_offset;
+                let physics = block.physics_for_state(index as u32);
+                visual.components.random_offset = physics.random_offset;
                 legacy.apply(&block.name, &mut visual.components);
-                builder.push_state(&visual, &geometries);
+                builder.push_state(
+                    &visual,
+                    &geometries,
+                    block,
+                    block
+                        .mining_for_state(index as u32)
+                        .map(|mining| mining.seconds_to_destroy),
+                );
                 builder.overlay.hashes.push(Some(state.hash));
             }
             continue;
@@ -207,9 +214,17 @@ pub(super) fn compile_block_overlay_with_textures(
             let values = block.state_values(state);
             let mut visual =
                 condition::state_visual(block, &expressions, values.as_deref(), &mut builder.gaps);
-            visual.components.random_offset = block.physics_for_state(state).random_offset;
+            let physics = block.physics_for_state(state);
+            visual.components.random_offset = physics.random_offset;
             legacy.apply(&block.name, &mut visual.components);
-            builder.push_state(&visual, &geometries);
+            builder.push_state(
+                &visual,
+                &geometries,
+                block,
+                block
+                    .mining_for_state(state)
+                    .map(|mining| mining.seconds_to_destroy),
+            );
             builder
                 .overlay
                 .hashes
@@ -298,10 +313,25 @@ struct Builder<'a> {
 }
 
 impl Builder<'_> {
-    /// Appends one state while borrowing the immutable geometry catalog across visual variants.
-    fn push_state(&mut self, state: &StateVisual, geometries: &HashMap<String, Geometry>) {
+    /// Appends a state's mining value after reusing equivalent visual geometry.
+    fn push_state(
+        &mut self,
+        state: &StateVisual,
+        geometries: &HashMap<String, Geometry>,
+        block: &protocol::CustomBlock,
+        seconds_to_destroy: Option<f32>,
+    ) {
         let light = state_light(&state.components);
-        let visual = self.visual(state, geometries);
+        let mut visual = self.visual(state, geometries);
+        visual.destroy = seconds_to_destroy.map_or(
+            assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
+            |seconds| assets::compiled::block_destroy::BlockDestroyFacts::Custom {
+                seconds_to_destroy_bits: seconds.to_bits(),
+                effective_tools: assets::facts::block::custom_block_effective_tools(
+                    block.tags.iter().map(AsRef::as_ref),
+                ),
+            },
+        );
         if state.components.random_offset.is_some()
             && matches!(
                 state.components.geometry.as_deref(),

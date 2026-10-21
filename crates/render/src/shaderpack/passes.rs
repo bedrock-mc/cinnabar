@@ -30,6 +30,9 @@ pub(crate) struct DrawContext {
     pub atlas_size: [i32; 2],
 }
 
+/// Conversion planes and viewport rectangle uploaded to the host scene-copy shaders.
+pub(super) type SceneDepthParameters = [f32; 12];
+
 /// One view's resources and per-frame state for a loaded pack.
 pub(crate) struct ViewState {
     pub pack: Arc<PackGpu>,
@@ -37,6 +40,7 @@ pub(crate) struct ViewState {
     pub bindings: ViewBindings,
     /// View-local scene conversion planes and source rectangle.
     pub(super) depth_parameters: wgpu::Buffer,
+    scene_bindings: super::scene_bindings::SceneBindingCache,
     pub history: super::uniforms::UniformHistory,
     custom: CustomUniforms,
     scratch: Vec<u8>,
@@ -83,11 +87,12 @@ impl ViewState {
         Ok(Self {
             depth_parameters: device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("shader pack view depth parameters"),
-                size: 48,
+                size: std::mem::size_of::<SceneDepthParameters>() as u64,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             }),
             pack,
+            scene_bindings: Default::default(),
             targets,
             bindings,
             history: Default::default(),
@@ -134,6 +139,14 @@ impl ViewState {
                 extent.is_some_and(|extent| super::frame_geometry::admit_extent(&mut size, extent))
             })
         })
+    }
+
+    /// Whether both the presentation pipeline and its view bindings support this format.
+    pub(crate) fn supports_presentation(&self, format: TextureFormat) -> bool {
+        self.pack.host.present.iter().any(|(f, _)| *f == format)
+            && self.bindings.present[self.targets.parity]
+                .iter()
+                .any(|(f, _)| *f == format)
     }
 
     /// Restarts every smoothed uniform (`smooth()` custom uniforms, `wetness`,
@@ -322,12 +335,23 @@ pub(crate) fn pass<'a>(
     attachments: &[Option<wgpu::RenderPassColorAttachment<'_>>],
     depth: Option<wgpu::RenderPassDepthStencilAttachment<'_>>,
 ) -> wgpu::RenderPass<'a> {
+    pass_with_timestamps(encoder, label, attachments, depth, None)
+}
+
+/// Opens an owned render pass with optional queries on the existing pass boundaries.
+fn pass_with_timestamps<'a>(
+    encoder: &'a mut CommandEncoder,
+    label: &str,
+    attachments: &[Option<wgpu::RenderPassColorAttachment<'_>>],
+    depth: Option<wgpu::RenderPassDepthStencilAttachment<'_>>,
+    timestamps: Option<wgpu::RenderPassTimestampWrites<'_>>,
+) -> wgpu::RenderPass<'a> {
     encoder
         .begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some(label),
             color_attachments: attachments,
             depth_stencil_attachment: depth,
-            timestamp_writes: None,
+            timestamp_writes: timestamps,
             occlusion_query_set: None,
             multiview_mask: None,
         })
@@ -343,6 +367,14 @@ pub(crate) fn record_frame(
     io: &FrameIo<'_>,
 ) {
     let pack = Arc::clone(&state.pack);
+    state.scene_bindings.prepare(
+        device,
+        &pack.host,
+        &state.depth_parameters,
+        io.scene_colour,
+        io.scene_depth,
+        io.destination_format,
+    );
     write_depth_parameters(queue, &state.depth_parameters, io);
     state.targets.clear_images(encoder, &pack.custom_images);
     for plan in &pack.buffers {
@@ -377,7 +409,7 @@ pub(crate) fn record_frame(
                     state.targets.screen_size,
                     pack.shadow.as_ref().map(|shadow| shadow.slots.resolution),
                 );
-                run_steps(encoder, state, Steps::Shadowcomp, shadow_size);
+                run_steps(encoder, state, Steps::Shadowcomp, shadow_size, timestamps);
             },
         );
     }
@@ -386,17 +418,22 @@ pub(crate) fn record_frame(
         RuntimeStage::GpuShaderpackOpaque,
         encoder,
         |encoder| {
-            run_steps(encoder, state, Steps::Prepare, state.targets.screen_size);
+            run_steps(
+                encoder,
+                state,
+                Steps::Prepare,
+                state.targets.screen_size,
+                timestamps,
+            );
             match geometry {
                 Some(geometry) => {
                     record_opaque(device, queue, encoder, state, geometry, timestamps);
                 }
                 None => copy_scene(
-                    device,
                     encoder,
                     &pack,
                     &state.targets,
-                    &state.depth_parameters,
+                    state.scene_bindings.current(),
                     io,
                 ),
             }
@@ -406,7 +443,15 @@ pub(crate) fn record_frame(
         timestamps,
         RuntimeStage::GpuShaderpackDeferred,
         encoder,
-        |encoder| run_steps(encoder, state, Steps::Deferred, state.targets.screen_size),
+        |encoder| {
+            run_steps(
+                encoder,
+                state,
+                Steps::Deferred,
+                state.targets.screen_size,
+                timestamps,
+            )
+        },
     );
     if let Some(geometry) = geometry {
         within_stage(
@@ -428,20 +473,21 @@ pub(crate) fn record_frame(
         timestamps,
         RuntimeStage::GpuShaderpackComposite,
         encoder,
-        |encoder| record_composite(device, encoder, state, io),
+        |encoder| record_composite(encoder, state, io),
     );
 }
 
 /// `composite*` and `final`, the copy-back of buffers that end flipped (or the exchange of
 /// their textures), and the screen's presentation into the view.
-fn record_composite(
-    device: &Device,
-    encoder: &mut CommandEncoder,
-    state: &mut ViewState,
-    io: &FrameIo<'_>,
-) {
+fn record_composite(encoder: &mut CommandEncoder, state: &mut ViewState, io: &FrameIo<'_>) {
     let pack = Arc::clone(&state.pack);
-    run_steps(encoder, state, Steps::Composite, state.targets.screen_size);
+    run_steps(
+        encoder,
+        state,
+        Steps::Composite,
+        state.targets.screen_size,
+        io.timestamps,
+    );
     let targets = &state.targets;
     for &index in &pack.frame.swap_back {
         let Some(buffer) = targets.buffers[index as usize].as_ref() else {
@@ -464,22 +510,23 @@ fn record_composite(
             .iter()
             .find(|(f, _)| *f == io.destination_format)
     {
-        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("shader pack preserve viewport exterior"),
-            layout: &pipeline.get_bind_group_layout(0),
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(io.scene_colour),
-            }],
-        });
-        let mut render = pass(
+        let group = state
+            .scene_bindings
+            .current()
+            .preserve
+            .as_ref()
+            .expect("the preserve pipeline has bindings");
+        let mut render = pass_with_timestamps(
             encoder,
             "shader pack preserve viewport exterior",
             &[load_attachment(io.destination)],
             None,
+            io.timestamps.and_then(|timestamps| {
+                timestamps.shaderpack_render_pass(RuntimeStage::GpuShaderpackComposite)
+            }),
         );
         render.set_pipeline(pipeline);
-        render.set_bind_group(0, &group, &[]);
+        render.set_bind_group(0, group, &[]);
         render.draw(0..3, 0..1);
     }
     let present = pack
@@ -491,11 +538,14 @@ fn record_composite(
         .iter()
         .find(|(f, _)| *f == io.destination_format);
     if let (Some((_, pipeline)), Some((_, group))) = (present, group) {
-        let mut render = pass(
+        let mut render = pass_with_timestamps(
             encoder,
             "shader pack present",
             &[load_attachment(io.destination)],
             None,
+            io.timestamps.and_then(|timestamps| {
+                timestamps.shaderpack_render_pass(RuntimeStage::GpuShaderpackComposite)
+            }),
         );
         let [x, y, w, h] = io.viewport.map(|v| v as f32);
         render.set_viewport(x, y, w, h, 0.0, 1.0);
@@ -516,7 +566,7 @@ fn write_depth_parameters(queue: &Queue, buffer: &wgpu::Buffer, io: &FrameIo<'_>
         .map_or(f32::MAX, |g| g.overlay_radius)
         .min(io.render_distance.max(16.0));
     let [x, y, w, h] = io.viewport.map(|v| v as f32);
-    let parameters = [
+    let parameters: SceneDepthParameters = [
         io.scene_near,
         GL_NEAR,
         far,
@@ -530,8 +580,7 @@ fn write_depth_parameters(queue: &Queue, buffer: &wgpu::Buffer, io: &FrameIo<'_>
         w,
         h,
     ];
-    let bytes: Vec<u8> = parameters.iter().flat_map(|v| v.to_le_bytes()).collect();
-    queue.write_buffer(buffer, 0, &bytes);
+    queue.write_buffer(buffer, 0, bytemuck::bytes_of(&parameters));
 }
 
 /// Which of the pack's pass lists to run.
@@ -544,14 +593,36 @@ enum Steps {
 }
 
 /// Runs one pass list; compute passes size their dispatch from `size`.
-fn run_steps(encoder: &mut CommandEncoder, state: &mut ViewState, steps: Steps, size: [u32; 2]) {
+fn run_steps(
+    encoder: &mut CommandEncoder,
+    state: &mut ViewState,
+    steps: Steps,
+    size: [u32; 2],
+    timestamps: Option<&GpuTimestamps>,
+) {
     let pack = Arc::clone(&state.pack);
     let start = pack.frame.composite_start;
-    let (steps, groups) = match steps {
-        Steps::Shadowcomp => (&pack.shadowcomp[..], &state.bindings.shadowcomp[..]),
-        Steps::Prepare => (&pack.frame.prepare[..], &state.bindings.prepare[..]),
-        Steps::Deferred => (&pack.frame.post[..start], &state.bindings.post[..start]),
-        Steps::Composite => (&pack.frame.post[start..], &state.bindings.post[start..]),
+    let (steps, groups, stage) = match steps {
+        Steps::Shadowcomp => (
+            &pack.shadowcomp[..],
+            &state.bindings.shadowcomp[..],
+            RuntimeStage::GpuShaderpackShadow,
+        ),
+        Steps::Prepare => (
+            &pack.frame.prepare[..],
+            &state.bindings.prepare[..],
+            RuntimeStage::GpuShaderpackOpaque,
+        ),
+        Steps::Deferred => (
+            &pack.frame.post[..start],
+            &state.bindings.post[..start],
+            RuntimeStage::GpuShaderpackDeferred,
+        ),
+        Steps::Composite => (
+            &pack.frame.post[start..],
+            &state.bindings.post[start..],
+            RuntimeStage::GpuShaderpackComposite,
+        ),
     };
     let parity = state.targets.parity;
     for (step, groups) in steps.iter().zip(groups) {
@@ -564,6 +635,8 @@ fn run_steps(encoder: &mut CommandEncoder, state: &mut ViewState, steps: Steps, 
             &groups[parity],
             &mut state.skipped,
             size,
+            timestamps,
+            stage,
         );
     }
 }
@@ -571,70 +644,55 @@ fn run_steps(encoder: &mut CommandEncoder, state: &mut ViewState, steps: Steps, 
 /// Copies the scene colour into `colortex0` and the scene depth into `depthtex*` and the
 /// geometry depth, which `depthtex0` reads.
 fn copy_scene(
-    device: &Device,
     encoder: &mut CommandEncoder,
     pack: &PackGpu,
     targets: &ViewTargets,
-    depth_parameters: &wgpu::Buffer,
+    bindings: &super::scene_bindings::SceneBindings,
     io: &FrameIo<'_>,
 ) {
     let host = &pack.host;
     if let Some(buffer) = targets.buffers[0].as_ref() {
         let view = &buffer.attachment[buffer.side(pack.frame.scene_alt & 1 != 0)];
-        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("shader pack scene colour"),
-            layout: &host.scene_colour.get_bind_group_layout(0),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(io.scene_colour),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: depth_parameters.as_entire_binding(),
-                },
-            ],
-        });
-        let mut render = pass(
+        let mut render = pass_with_timestamps(
             encoder,
             "shader pack scene colour",
             &[load_attachment(view)],
             None,
+            io.timestamps.and_then(|timestamps| {
+                timestamps.shaderpack_render_pass(RuntimeStage::GpuShaderpackOpaque)
+            }),
         );
         render.set_pipeline(&host.scene_colour);
-        render.set_bind_group(0, &group, &[]);
+        render.set_bind_group(0, &bindings.colour, &[]);
         render.draw(0..3, 0..1);
     }
-    let depth_group = |pipeline: &wgpu::RenderPipeline| {
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("shader pack scene depth"),
-            layout: &pipeline.get_bind_group_layout(0),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(io.scene_depth),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: depth_parameters.as_entire_binding(),
-                },
-            ],
-        })
-    };
     if let Some(pipeline) = &host.scene_depth {
-        let group = depth_group(pipeline);
-        let attachments: Vec<_> = targets
+        let group = bindings
             .depth
-            .iter()
-            .map(|d| d.as_ref().and_then(|d| load_attachment(&d.view)))
-            .collect();
-        let mut render = pass(encoder, "shader pack scene depth", &attachments, None);
+            .as_ref()
+            .expect("the depth pipeline has bindings");
+        let attachments = targets
+            .depth
+            .each_ref()
+            .map(|d| d.as_ref().and_then(|d| load_attachment(&d.view)));
+        let mut render = pass_with_timestamps(
+            encoder,
+            "shader pack scene depth",
+            &attachments,
+            None,
+            io.timestamps.and_then(|timestamps| {
+                timestamps.shaderpack_render_pass(RuntimeStage::GpuShaderpackOpaque)
+            }),
+        );
         render.set_pipeline(pipeline);
-        render.set_bind_group(0, &group, &[]);
+        render.set_bind_group(0, group, &[]);
         render.draw(0..3, 0..1);
     }
     if let Some(pipeline) = &host.scene_depth_attachment {
-        let group = depth_group(pipeline);
+        let group = bindings
+            .comparison_depth
+            .as_ref()
+            .expect("the comparison depth pipeline has bindings");
         let depths = targets.depth_compare.iter().flatten();
         for target in depths.chain(&targets.geometry_depth) {
             let depth = wgpu::RenderPassDepthStencilAttachment {
@@ -645,20 +703,27 @@ fn copy_scene(
                 }),
                 stencil_ops: None,
             };
-            let mut render = pass(
+            let mut render = pass_with_timestamps(
                 encoder,
                 "shader pack scene comparison depth",
                 &[],
                 Some(depth),
+                io.timestamps.and_then(|timestamps| {
+                    timestamps.shaderpack_render_pass(RuntimeStage::GpuShaderpackOpaque)
+                }),
             );
             render.set_pipeline(pipeline);
-            render.set_bind_group(0, &group, &[]);
+            render.set_bind_group(0, group, &[]);
             render.draw(0..3, 0..1);
         }
     }
 }
 
 /// Regenerates the mip chain of a buffer's current side.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one buffer mip chain and its timing"
+)]
 fn generate_mipmaps(
     encoder: &mut CommandEncoder,
     pack: &PackGpu,
@@ -666,6 +731,8 @@ fn generate_mipmaps(
     bindings: &ViewBindings,
     index: u32,
     read_alt: u32,
+    timestamps: Option<&GpuTimestamps>,
+    stage: RuntimeStage,
 ) {
     let Some(buffer) = targets.buffers[index as usize].as_ref() else {
         return;
@@ -685,11 +752,12 @@ fn generate_mipmaps(
     };
     for (level, group) in groups.iter().enumerate() {
         let target = &buffer.levels[side][level + 1];
-        let mut render = pass(
+        let mut render = pass_with_timestamps(
             encoder,
             "shader pack mipmap",
             &[load_attachment(target)],
             None,
+            timestamps.and_then(|timestamps| timestamps.shaderpack_render_pass(stage)),
         );
         render.set_pipeline(pipeline);
         render.set_bind_group(0, group, &[]);
@@ -710,9 +778,20 @@ fn run_step(
     groups: &Groups,
     skipped: &mut BTreeSet<String>,
     size: [u32; 2],
+    timestamps: Option<&GpuTimestamps>,
+    stage: RuntimeStage,
 ) {
     for &index in &step.mipmaps {
-        generate_mipmaps(encoder, pack, targets, bindings, index, step.read_alt);
+        generate_mipmaps(
+            encoder,
+            pack,
+            targets,
+            bindings,
+            index,
+            step.read_alt,
+            timestamps,
+            stage,
+        );
     }
     let program = &pack.programs[step.program];
     targets.take_snapshots(encoder, program, step.read_alt);
@@ -726,7 +805,8 @@ fn run_step(
             let mut compute = encoder
                 .begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: Some(&program.name),
-                    timestamp_writes: None,
+                    timestamp_writes: timestamps
+                        .and_then(|timestamps| timestamps.shaderpack_compute_pass(stage)),
                 })
                 .forget_lifetime();
             compute.set_pipeline(pipeline);
@@ -778,7 +858,13 @@ fn run_step(
                 }
                 return;
             };
-            let mut render = pass(encoder, &program.name, &attachments, None);
+            let mut render = pass_with_timestamps(
+                encoder,
+                &program.name,
+                &attachments,
+                None,
+                timestamps.and_then(|timestamps| timestamps.shaderpack_render_pass(stage)),
+            );
             if let Some(scale) = &program.scale {
                 // Rows are stored bottom-up, so the GL viewport origin maps unchanged.
                 let [w, h] = extent.map(|v| v as f32);

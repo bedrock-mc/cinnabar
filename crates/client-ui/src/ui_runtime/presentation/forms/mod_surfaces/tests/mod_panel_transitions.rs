@@ -15,6 +15,7 @@ use mod_ui::test_support::sample_panel as panel;
 /// a quarter second, and to `exit` when the panel closes.
 fn sliding_panel(x: f64, exit: Option<f64>) -> Panel {
     let mut panel = panel();
+    panel.motion = true;
     let button = json!({"type":"button","size":[40,20],"offset":[0,20],
         "anchor_from":"top_left","anchor_to":"top_left",
         "bindings":[{"binding_name":"#slide","binding_name_override":"#offset"}],
@@ -212,4 +213,85 @@ fn native_feedback_works_with_screen_animations_off() {
         !presentation.mod_ui().mod_panel_motion_active(),
         "a mod can still disable its feedback"
     );
+}
+
+/// A panel's own preference snaps rendered geometry and closes without retaining an exit.
+#[test]
+fn panel_motion_preference_snaps_geometry_and_resumes_future_value_changes() {
+    let mut presentation = mini_engine_presentation();
+    let owner = PanelUiOwner::Environment(0);
+    let mut panel = sliding_panel(100.0, Some(0.0));
+    panel.motion = false;
+    presentation
+        .mod_ui_mut()
+        .set_mod_panel(owner, Some(&panel))
+        .unwrap();
+    presentation.mod_ui_mut().set_mod_panel_open(true);
+    frame_at(&mut presentation, 1_000);
+    let settled = button_x(&presentation);
+    let state = presentation.mod_ui().mod_panel_state().unwrap();
+    let catalog = std::sync::Arc::clone(state.catalog.unwrap());
+    let passes = state.passes;
+    assert!(!presentation.mod_ui().mod_panel_motion_active());
+    panel.motion = true;
+    presentation
+        .mod_ui_mut()
+        .set_mod_panel(owner, Some(&panel))
+        .unwrap();
+    frame_at(&mut presentation, 1_000);
+    assert_eq!(button_x(&presentation), settled);
+    let state = presentation.mod_ui().mod_panel_state().unwrap();
+    assert!(std::sync::Arc::ptr_eq(state.catalog.unwrap(), &catalog));
+    assert_eq!(
+        state.passes, passes,
+        "preference changes retain the template"
+    );
+    assert!(!presentation.mod_ui().mod_panel_motion_active());
+    panel
+        .surface
+        .as_mut()
+        .unwrap()
+        .bindings
+        .insert("#slide".into(), SurfaceValue::Vector(vec![0.0, 20.0]));
+    presentation
+        .mod_ui_mut()
+        .set_mod_panel(owner, Some(&panel))
+        .unwrap();
+    frame_at(&mut presentation, 1_000);
+    assert_eq!(button_x(&presentation), settled);
+    frame_at(&mut presentation, 1_125);
+    assert_eq!(button_x(&presentation), settled - 50.0);
+    assert!(presentation.mod_ui().mod_panel_motion_active());
+    panel.motion = false;
+    presentation
+        .mod_ui_mut()
+        .set_mod_panel(owner, Some(&panel))
+        .unwrap();
+    assert!(!presentation.mod_ui().mod_panel_motion_active());
+    frame_at(&mut presentation, 1_125);
+    assert_eq!(button_x(&presentation), settled - 100.0);
+    panel
+        .surface
+        .as_mut()
+        .unwrap()
+        .bindings
+        .insert("#slide".into(), SurfaceValue::Vector(vec![100.0, 20.0]));
+    presentation
+        .mod_ui_mut()
+        .set_mod_panel(owner, Some(&panel))
+        .unwrap();
+    frame_at(&mut presentation, 1_125);
+    assert_eq!(button_x(&presentation), settled);
+    assert!(!presentation.mod_ui().mod_panel_motion_active());
+    let passes = presentation.mod_ui().mod_panel_state().unwrap().passes;
+    frame_at(&mut presentation, 2_000);
+    let state = presentation.mod_ui().mod_panel_state().unwrap();
+    assert!(std::sync::Arc::ptr_eq(state.catalog.unwrap(), &catalog));
+    assert_eq!(
+        state.passes, passes,
+        "steady frames do not rebuild the template"
+    );
+    presentation.mod_ui_mut().set_mod_panel_open(false);
+    assert!(!presentation.mod_ui().mod_panel_painting());
+    assert!(!presentation.mod_ui().mod_panel_motion_active());
 }

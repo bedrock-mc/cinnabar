@@ -6,7 +6,6 @@ use super::widgets::Palette;
 
 pub(super) fn control_data(panel: &Panel) -> DataSource {
     let mut data = DataSource::new();
-    data.set_global(super::edit::FIELD_TEXT, Scalar::Text(String::new()));
     let palette = Palette::for_panel(panel);
     for (index, control) in panel.controls.iter().enumerate() {
         let value = match control {

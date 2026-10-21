@@ -1,0 +1,122 @@
+{
+  "id": "10:1",
+  "name": "Fill Test",
+  "type": "FRAME",
+  "width": 100,
+  "height": 60,
+  "children": [
+    {
+      "id": "10:2",
+      "name": "Row",
+      "type": "FRAME",
+      "x": 0,
+      "y": 0,
+      "width": 100,
+      "height": 20,
+      "layout": {
+        "mode": "HORIZONTAL",
+        "primary_align": "CENTER"
+      },
+      "children": [
+        {
+          "id": "10:3",
+          "name": "G",
+          "type": "FRAME",
+          "x": 0,
+          "y": 0,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "id": "10:4",
+          "name": "H",
+          "type": "FRAME",
+          "x": 20,
+          "y": 0,
+          "width": 80,
+          "height": 20,
+          "sizing": [
+            "FILL",
+            "FIXED"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "10:5",
+      "name": "Hidden Fill Row",
+      "type": "FRAME",
+      "x": 0,
+      "y": 20,
+      "width": 100,
+      "height": 20,
+      "layout": {
+        "mode": "HORIZONTAL",
+        "primary_align": "CENTER"
+      },
+      "children": [
+        {
+          "id": "10:6",
+          "name": "G2",
+          "type": "FRAME",
+          "x": 40,
+          "y": 0,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "id": "10:7",
+          "name": "H2",
+          "type": "FRAME",
+          "visible": false,
+          "x": 60,
+          "y": 0,
+          "width": 40,
+          "height": 20,
+          "sizing": [
+            "FILL",
+            "FIXED"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "10:8",
+      "name": "Bound Fill Row",
+      "type": "FRAME",
+      "x": 0,
+      "y": 40,
+      "width": 100,
+      "height": 20,
+      "layout": {
+        "mode": "HORIZONTAL",
+        "primary_align": "CENTER"
+      },
+      "children": [
+        {
+          "id": "10:9",
+          "name": "G3",
+          "type": "FRAME",
+          "x": 40,
+          "y": 0,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "id": "10:10",
+          "name": "H3 $visible=#show_h3",
+          "type": "FRAME",
+          "visible": false,
+          "x": 60,
+          "y": 0,
+          "width": 80,
+          "height": 20,
+          "sizing": [
+            "FILL",
+            "FIXED"
+          ]
+        }
+      ]
+    }
+  ]
+}

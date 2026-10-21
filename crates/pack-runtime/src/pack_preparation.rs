@@ -89,6 +89,7 @@ pub fn prepare_session_packs(
 ) -> PackPreparation {
     let mut blocks = game_data.custom_blocks.clone();
     crate::block_physics::resolve(&mut blocks);
+    crate::block_mining::resolve(&mut blocks);
     let block_items = custom_block_items(&game_data.items, &blocks);
     let hashed = game_data.world.block_network_ids_are_hashes;
     tracing::info!(
