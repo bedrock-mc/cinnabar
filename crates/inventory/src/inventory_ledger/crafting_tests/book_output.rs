@@ -110,7 +110,8 @@ fn a_book_craft_needs_room_before_consuming_anything() {
     );
     assert_eq!(ledger.pending_request_count(), pending);
 
-    // A partial stack with room for one craft is enough; consumed slots then take the rest.
+    // A partial stack with room for one craft is enough. The slot the craft empties never
+    // takes output, so the rest goes to the empty cursor.
     full[0] = (0, PLANKS, 100, 63);
     full[35].3 = 3;
     let mut ledger = stocked(&full);
@@ -119,8 +120,8 @@ fn a_book_craft_needs_room_before_consuming_anything() {
         .into_iter()
         .map(|(slot, stack)| (slot, stack.count))
         .collect();
-    assert_eq!(placed, [(0, 64), (35, 2)]);
-    assert!(ledger.cursor_stack().is_none());
+    assert_eq!(placed, [(0, 64)]);
+    assert_eq!(ledger.cursor_stack().unwrap().count, 2);
 }
 
 #[test]
@@ -213,4 +214,31 @@ fn room_for_a_multi_item_output_is_one_cell_that_holds_all_of_it() {
         ledger.begin_auto_craft(&four_planks(), false),
         Err(InventoryGestureError::InvalidRequest)
     );
+}
+
+#[test]
+fn output_never_goes_into_a_slot_the_same_request_empties() {
+    // An earlier queued drop may still rename the slot, so a consumed slot is never reused.
+    let mut ledger = stocked(&[(0, LOG, 101, 2)]);
+    ledger
+        .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
+        .unwrap();
+    ledger.begin_auto_craft(&planks(), false).unwrap();
+    let consumed: Vec<_> = ledger
+        .newest_request()
+        .unwrap()
+        .actions
+        .iter()
+        .filter_map(|action| match action {
+            StackRequestAction::Consume { source, .. } => Some(source.slot),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(consumed, [0]);
+    let placed: Vec<_> = placed_outputs(&ledger)
+        .into_iter()
+        .map(|(slot, _)| slot)
+        .collect();
+    assert_eq!(placed, [1]);
+    assert!(ledger.displayed_stack(0).is_none());
 }

@@ -423,7 +423,7 @@ impl PlayerInventoryLedger {
             }
             None => {
                 let plan = self
-                    .spread_plan(&created, capacity, &[])
+                    .spread_plan(&created, capacity)
                     .ok_or(InventoryGestureError::InvalidRequest)?;
                 for (cell, amount, into) in plan {
                     registry_bound_merge |= into.is_some();
@@ -493,42 +493,34 @@ impl PlayerInventoryLedger {
             && !self.awaiting_identity(into)
     }
 
-    /// Splits `created` over player cells: compatible partial stacks first,
-    /// then empty cells, both in hotbar-first player slot order, after the
-    /// same request's earlier `consumed` amounts and away from cells it already
-    /// `taken`. Each entry is `(cell, amount, occupied destination stack id and
-    /// count)`. The plan stops short when the inventory cannot hold the whole stack.
+    /// Splits `created` over player cells as they stand before the request: compatible
+    /// partial stacks first, then empty cells, both in hotbar-first player slot order, never
+    /// into `taken` cells (such as ones the request itself consumes from). Each entry is
+    /// `(cell, amount, occupied destination stack id and count)`, at most one action's amount.
+    /// The plan stops short when the inventory cannot hold the whole stack.
     pub(super) fn spread_plan_partial(
         &self,
         created: &NetworkItemStack,
         capacity: u8,
-        consumed: &[(Cell, u16)],
         taken: &[Cell],
     ) -> Vec<OutputPlacement> {
         let capacity = u16::from(capacity);
+        let limit = action_amount_limit(capacity);
         let mut remaining = created.count;
         let mut plan = Vec::new();
         let cells = self.player_cells(taken);
-        let left = |cell: Cell, held: &Held| {
-            let used: u16 = consumed
-                .iter()
-                .filter(|(consumed, _)| *consumed == cell)
-                .map(|(_, amount)| *amount)
-                .sum();
-            held.stack.count.saturating_sub(used)
-        };
         for cell in &cells {
-            let Some(into) = self.view().get(*cell).filter(|held| left(*cell, held) > 0) else {
-                continue;
-            };
             if remaining == 0 {
                 break;
             }
+            let Some(into) = self.view().get(*cell) else {
+                continue;
+            };
             if !self.merges_into(into, created) {
                 continue;
             }
-            let count = left(*cell, into);
-            let amount = remaining.min(capacity.saturating_sub(count));
+            let count = into.stack.count;
+            let amount = remaining.min(capacity.saturating_sub(count)).min(limit);
             if amount > 0 {
                 remaining -= amount;
                 plan.push((*cell, amount, Some((into.stack.stack_network_id, count))));
@@ -538,12 +530,8 @@ impl PlayerInventoryLedger {
             if remaining == 0 {
                 break;
             }
-            if self
-                .view()
-                .get(*cell)
-                .is_none_or(|held| left(*cell, held) == 0)
-            {
-                let amount = remaining.min(capacity);
+            if self.view().get(*cell).is_none() {
+                let amount = remaining.min(limit);
                 remaining -= amount;
                 plan.push((*cell, amount, None));
             }
@@ -556,9 +544,8 @@ impl PlayerInventoryLedger {
         &self,
         created: &NetworkItemStack,
         capacity: u8,
-        consumed: &[(Cell, u16)],
     ) -> Option<Vec<OutputPlacement>> {
-        let plan = self.spread_plan_partial(created, capacity, consumed, &[]);
+        let plan = self.spread_plan_partial(created, capacity, &[]);
         let placed: u16 = plan.iter().map(|(_, amount, _)| *amount).sum();
         (placed == created.count).then_some(plan)
     }
@@ -686,6 +673,11 @@ impl PlayerInventoryLedger {
             registry_bound_merge: false,
         })
     }
+}
+
+/// The most one placement or drop moves: a whole stack, bounded by what one action encodes.
+pub(super) fn action_amount_limit(capacity: u16) -> u16 {
+    capacity.min(u16::from(protocol::MAX_STACK_REQUEST_AMOUNT))
 }
 
 /// Finds a complete ingredient assignment, allowing broad matches to move for specific ones.

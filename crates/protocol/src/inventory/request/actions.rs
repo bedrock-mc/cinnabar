@@ -155,7 +155,7 @@ pub enum StackRequestAction {
 
 /// Largest count one stack-request action moves: the codec's bound, which a test pins to the
 /// generated encoder.
-const MAX_STACK_REQUEST_AMOUNT: u8 = 64;
+pub const MAX_STACK_REQUEST_AMOUNT: u8 = 64;
 
 fn amount(amount: u8) -> Result<u8, InventoryPacketError> {
     if !(1..=MAX_STACK_REQUEST_AMOUNT).contains(&amount) {

@@ -122,8 +122,8 @@ fn both_buttons_craft_from_engine_and_fallback_recipe_books() {
                     },
                 );
                 let ledger = player.inventory.ledger();
-                // The consumed ingredient's slot is the first free one and takes the output.
-                let crafted = ledger.displayed_stack(0).expect("recipe click must craft");
+                // The slot the craft empties never takes its output.
+                let crafted = ledger.displayed_stack(1).expect("recipe click must craft");
                 assert_eq!(crafted.network_id, output.network_id);
                 assert_eq!(crafted.count, u16::from(output.count));
                 assert_eq!(
@@ -131,6 +131,7 @@ fn both_buttons_craft_from_engine_and_fallback_recipe_books() {
                     output.block_runtime_id
                 );
                 assert!(ledger.cursor_stack().is_none());
+                assert!(ledger.displayed_stack(0).is_none());
                 assert_eq!(ledger.pending_request_count(), 1);
                 assert!(ledger.pending_batch().unwrap().is_some());
             }
@@ -177,7 +178,7 @@ fn a_held_stack_stops_a_secondary_recipe_click_and_shift_crafts_a_stack() {
         runtime.perform_pointer_action(&mut player, PointerAction::QuickMove(hit));
         let ledger = player.inventory.ledger();
         assert_eq!(ledger.pending_request_count(), 1);
-        let crafted = ledger.displayed_stack(0).expect("shift-click must craft");
+        let crafted = ledger.displayed_stack(1).expect("shift-click must craft");
         assert_eq!(
             (crafted.network_id, crafted.count),
             (output.network_id, u16::from(output.count))

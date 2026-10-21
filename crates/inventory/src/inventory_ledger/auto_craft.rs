@@ -275,9 +275,10 @@ impl PlayerInventoryLedger {
                 amount,
                 source_id: id,
             });
-            consumed.push((cell, amount));
+            consumed.push(cell);
         }
-        let plan = self.spread_plan_partial(&created, capacity, &consumed, &[]);
+        // Never into a cell this request empties: a queued earlier request may still rename it.
+        let plan = self.spread_plan_partial(&created, capacity, &consumed);
         let placed: u16 = plan.iter().map(|(_, amount, _)| *amount).sum();
         let remainder = created.count - placed;
         if remainder != 0 && self.view().get(Cell::Cursor).is_some() {
