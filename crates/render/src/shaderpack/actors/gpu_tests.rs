@@ -52,6 +52,20 @@ fn skin_fixture(
     span: [f32; 2],
     flags: u32,
 ) -> Option<Vec<u32>> {
+    skin_corners(name, uv, origin, span, flags, &CORNERS, false)
+}
+
+/// Runs either production conversion entry with explicit authored corners.
+#[allow(clippy::too_many_arguments, reason = "explicit kernel fixture inputs")]
+fn skin_corners(
+    name: &str,
+    uv: [f32; 4],
+    origin: [f32; 2],
+    span: [f32; 2],
+    flags: u32,
+    corners: &[([f32; 3], [f32; 2], [f32; 2])],
+    blocks: bool,
+) -> Option<Vec<u32>> {
     let gpu = Gpu::for_fixture(name)?;
     let mut instance = vec![0_u32; ACTOR_GPU_INSTANCE_WORDS];
     // `world_from_actor` rows: a translation to ACTOR.
@@ -69,8 +83,8 @@ fn skin_fixture(
     for (index, value) in glint.into_iter().enumerate() {
         instance[glint_base + index] = value.to_bits();
     }
-    let mut vertices = vec![0_u32; CORNERS.len() * ACTOR_RIG_VERTEX_WORDS];
-    for (index, (position, uv, back_uv)) in CORNERS.into_iter().enumerate() {
+    let mut vertices = vec![0_u32; corners.len() * ACTOR_RIG_VERTEX_WORDS];
+    for (index, (position, uv, back_uv)) in corners.iter().copied().enumerate() {
         let base = index * ACTOR_RIG_VERTEX_WORDS;
         let floats = [
             position[0],
@@ -104,7 +118,7 @@ fn skin_fixture(
     let job = SkinJob {
         instance: 0,
         first_output: 0,
-        vertex_count: 3,
+        vertex_count: corners.len() as u32,
         flags,
         light: BLOCK_LIGHT | (SKY_LIGHT << 4),
         colour: u32::MAX,
@@ -113,7 +127,11 @@ fn skin_fixture(
     };
     let params = SkinParams {
         camera: [CAMERA.x, CAMERA.y, CAMERA.z, 0.0],
-        counts: [1, 0, 3, 0],
+        counts: if blocks {
+            [corners.len() as u32, 0, 0, 0]
+        } else {
+            [1, 0, corners.len() as u32, 0]
+        },
     };
     let storage = |words: &[u32]| {
         gpu.device
@@ -126,7 +144,7 @@ fn skin_fixture(
     let sources = [
         storage(&instance),
         storage(&vertices),
-        storage(&[0, 3]),
+        storage(&[0, corners.len() as u32]),
         storage(&identity_bone),
         storage(&identity_bone),
     ];
@@ -164,7 +182,14 @@ fn skin_fixture(
             label: None,
             source: wgpu::ShaderSource::Wgsl(source.into()),
         });
-    let rig_layout = layout(&gpu, &rig_layout());
+    let rig_layout = layout(
+        &gpu,
+        &if blocks {
+            super::skin::block_entity_layout()
+        } else {
+            rig_layout()
+        },
+    );
     let output_layout = layout(&gpu, &output_layout());
     let pipeline_layout = gpu
         .device
@@ -179,18 +204,40 @@ fn skin_fixture(
             label: None,
             layout: Some(&pipeline_layout),
             module: &module,
-            entry_point: Some("skin_rig"),
+            entry_point: Some(if blocks {
+                "convert_block_entities"
+            } else {
+                "skin_rig"
+            }),
             compilation_options: Default::default(),
             cache: None,
         });
-    let source_entries: Vec<_> = sources
+    let block_vertices: Vec<_> = corners
         .iter()
-        .enumerate()
-        .map(|(binding, buffer)| wgpu::BindGroupEntry {
-            binding: binding as u32,
-            resource: buffer.as_entire_binding(),
+        .map(|(position, uv, _)| render_model::BlockEntityVertex {
+            position: *position,
+            uv: *uv,
+            color: [1.0; 4],
+            normal: [0.0, 0.0, 1.0],
+            actor_light: 0,
         })
         .collect();
+    let block_buffer = storage(bytemuck::cast_slice(&block_vertices));
+    let source_entries: Vec<_> = if blocks {
+        vec![wgpu::BindGroupEntry {
+            binding: 5,
+            resource: block_buffer.as_entire_binding(),
+        }]
+    } else {
+        sources
+            .iter()
+            .enumerate()
+            .map(|(binding, buffer)| wgpu::BindGroupEntry {
+                binding: binding as u32,
+                resource: buffer.as_entire_binding(),
+            })
+            .collect()
+    };
     let source_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,
         layout: &rig_layout,
@@ -615,4 +662,237 @@ fn scalar_lit_block_entity_top_faces_keep_outward_normals() {
     for vertex in words.as_chunks::<{ ACTOR_VERTEX_WORDS as usize }>().0 {
         assert_eq!(vertex[NORMAL.word as usize].to_le_bytes(), [0, 127, 0, 0]);
     }
+}
+
+#[test]
+fn ordinary_actor_draws_use_the_no_item_sentinel() {
+    let (device, _) = wgpu::Device::noop(&Default::default());
+    let texture = bevy::render::render_resource::Texture::from(device.create_texture(
+        &wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        },
+    ));
+    let source = GlintSource {
+        data: Default::default(),
+        texture: &texture,
+    };
+    let mut actors = super::view::ViewActors::default();
+    actors.plan_rig(
+        &source,
+        false,
+        &super::ActorSources::default(),
+        &|_| true,
+        &mut 0,
+    );
+    assert!(!actors.draws.is_empty());
+    assert!(actors.draws.iter().all(|draw| draw.values.item_id == 0));
+}
+
+#[test]
+fn failed_actor_stream_growth_keeps_the_previous_allocation() {
+    use std::cell::Cell;
+    use std::rc::Rc;
+    let (device, _) = wgpu::Device::noop(&Default::default());
+    let mut stream = super::view::Growable::default();
+    let usage = wgpu::BufferUsages::STORAGE;
+    let _ = stream.ensure(&device, "actor stream fixture", 16, usage);
+    let previous = stream.buffer.as_ref().unwrap().clone();
+    let called = Rc::new(Cell::new(false));
+    let injected = Rc::clone(&called);
+    let _failure = crate::gpu_allocation::inject(move |label, _| {
+        if label == "actor stream fixture" {
+            injected.set(true);
+            true
+        } else {
+            false
+        }
+    });
+    let _ = stream.ensure(&device, "actor stream fixture", 32, usage);
+    assert!(
+        called.get(),
+        "actor stream growth must use a recoverable error scope"
+    );
+    assert_eq!(stream.buffer.as_ref(), Some(&previous));
+}
+
+#[test]
+fn actor_quad_midpoints_match_across_both_triangles_and_back_faces() {
+    let corners = [
+        ([0., 0., 0.], [0., 0.], [0.5, 0.]),
+        ([1., 0., 0.], [0.25, 0.], [0.75, 0.]),
+        ([1., 1., 0.], [0.3, 0.25], [0.8, 0.25]),
+        ([0., 1., 0.], [0., 0.2], [0.5, 0.2]),
+    ];
+    let triangles = [0, 1, 2, 0, 2, 3].map(|index| corners[index]);
+    for blocks in [false, true] {
+        let Some(words) = skin_corners(
+            "shader-pack quad centres",
+            [0., 0., 1., 1.],
+            [0.; 2],
+            [1.; 2],
+            0,
+            &triangles,
+            blocks,
+        ) else {
+            return;
+        };
+        let front: [f32; 2] =
+            std::array::from_fn(|axis| corners.iter().map(|c| c.1[axis]).sum::<f32>() / 4.0);
+        let back: [f32; 2] =
+            std::array::from_fn(|axis| corners.iter().map(|c| c.2[axis]).sum::<f32>() / 4.0);
+        for index in 0..if blocks { 6 } else { 12 } {
+            let base =
+                index * ACTOR_VERTEX_WORDS as usize + super::layout::ACTOR_MID_UV_WORD as usize;
+            let expected = if index < 6 { front } else { back };
+            for axis in 0..2 {
+                assert!(
+                    (f32::from_bits(words[base + axis]) - expected[axis]).abs() < 1e-6,
+                    "blocks={blocks}, vertex={index}, axis={axis}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn actor_kernel_workgroup_sizes_match_host_dispatch() {
+    let source = crate::shader_source::composed_prepared_with(
+        &skin_shader_source(include_str!("skin.wesl")),
+        &[],
+        Vec::new(),
+    );
+    let module = naga::front::wgsl::parse_str(&source).unwrap();
+    assert_eq!(module.entry_points.len(), 2);
+    for entry in &module.entry_points {
+        assert_eq!(
+            entry.workgroup_size,
+            [super::skin::SKIN_WORKGROUP_SIZE, 1, 1]
+        );
+    }
+}
+
+#[test]
+fn actor_stream_failure_disables_native_queue_replacement() {
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::NOOP,
+        backend_options: wgpu::BackendOptions {
+            noop: wgpu::NoopBackendOptions {
+                enable: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    let adapter = bevy::tasks::block_on(instance.request_adapter(&Default::default())).unwrap();
+    let gpu = crate::shaderpack::pipelines::GpuContext {
+        device: device.clone(),
+        queue: queue.clone(),
+        adapter,
+    };
+    let pack = shaderpack::ShaderPack::new(shaderpack::PackSource::from_files([
+        (
+            "gbuffers_basic.vsh",
+            "#version 120\nvoid main() { gl_Position = ftransform(); }",
+        ),
+        (
+            "gbuffers_basic.fsh",
+            "#version 120\nvoid main() { gl_FragColor = vec4(1.0); }",
+        ),
+    ]));
+    let pack = crate::shaderpack::loader::build(
+        &pack,
+        "actor allocation",
+        "",
+        None,
+        &gpu,
+        &Default::default(),
+    )
+    .unwrap();
+    let mut state =
+        crate::shaderpack::passes::ViewState::new(&device, std::sync::Arc::new(pack), [4, 4])
+            .unwrap();
+    assert!(state.geometry_targets_ready());
+    let layout = |descriptor: bevy::render::render_resource::BindGroupLayoutDescriptor| {
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &descriptor.entries,
+        })
+    };
+    let rig_layout =
+        bevy::render::render_resource::BindGroupLayout::from(layout(super::skin::rig_layout()));
+    let block_layout = bevy::render::render_resource::BindGroupLayout::from(layout(
+        super::skin::block_entity_layout(),
+    ));
+    let output_layout =
+        bevy::render::render_resource::BindGroupLayout::from(layout(super::skin::output_layout()));
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: None,
+        source: wgpu::ShaderSource::Wgsl("@compute @workgroup_size(1) fn main() {}".into()),
+    });
+    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: None,
+        layout: None,
+        module: &shader,
+        entry_point: Some("main"),
+        compilation_options: Default::default(),
+        cache: None,
+    });
+    let pipeline = bevy::render::render_resource::ComputePipeline::from(pipeline);
+    let texture = bevy::render::render_resource::Texture::from(device.create_texture(
+        &wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        },
+    ));
+    let source = GlintSource {
+        data: Default::default(),
+        texture: &texture,
+    };
+    let sources = super::ActorSources {
+        actors: Some(&source),
+        kernels: Some(super::skin::SkinKernels {
+            rig: &pipeline,
+            block_entities: &pipeline,
+            rig_layout: &rig_layout,
+            block_entity_layout: &block_layout,
+            output_layout: &output_layout,
+        }),
+        ..Default::default()
+    };
+    let _failure = crate::gpu_allocation::inject(|label, _| label == "shader-pack actor vertices");
+    let mut encoder = device.create_command_encoder(&Default::default());
+    super::prepare(&device, &queue, &mut encoder, &mut state, &sources);
+    assert!(state.actors.draws.is_empty());
+    assert!(
+        !state.geometry_targets_ready(),
+        "native queues must resume after allocation failure"
+    );
+    super::prepare(&device, &queue, &mut encoder, &mut state, &sources);
+    assert!(
+        !state.geometry_targets_ready(),
+        "failure stays latched until view reconstruction"
+    );
 }

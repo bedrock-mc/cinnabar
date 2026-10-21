@@ -611,6 +611,16 @@ unbounded artwork, nested collections and tiles escaping their cell clip are
 rejected before publication. Templates cannot contain surface bindings or
 transitions of their own. Collections are currently supported on personal panels.
 
+Use `"collection_reveal": { "collection": "modules", "item": 8 }` to reveal an
+immutable item index through the current filtered order. The host scrolls by the
+minimum distance needed to show its whole cell, including the template's card
+padding, before preparing the visible grid window. Reveals are instant, including
+under reduced motion, and cancel pending wheel easing. Each request is consumed
+once; wheel scrolling then stays under pointer control. Sending the same request
+again reveals the item again. Unknown collections and out-of-range item indexes
+reject the patch atomically. An admitted item excluded by the current filter is
+ignored and counted in one warning for that request.
+
 ```json
 {
   "controls": [{ "id": "enabled", "value": true }],
