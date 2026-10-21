@@ -8,6 +8,26 @@ mod controller_inventory;
 mod network;
 
 #[test]
+fn mouse_back_dismisses_the_emote_wheel_and_consumes_its_press() {
+    let _catalog = cosmetics::test_support::playback_catalog();
+    let mut h = Harness::new();
+    h.press(KeyCode::KeyB);
+    assert!(h.runtime().emotes().is_open());
+    h.app
+        .world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Back);
+    h.app.update();
+    assert!(!h.runtime().emotes().is_open());
+    assert!(
+        !h.app
+            .world()
+            .resource::<ButtonInput<MouseButton>>()
+            .just_pressed(MouseButton::Back)
+    );
+}
+
+#[test]
 fn catalog_shortcut_honors_the_configured_xy_button_swap() {
     let _catalog = cosmetics::test_support::playback_catalog();
     for swapped in [false, true] {

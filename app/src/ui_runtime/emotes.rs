@@ -281,7 +281,13 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
             });
         }
         input.observed.pointer = pointer;
-        if input.mouse.just_pressed(MouseButton::Left) {
+        if input.mouse.just_pressed(MouseButton::Back) {
+            input
+                .runtime
+                .emotes_mut()
+                .handle_action(UiAction::Cancel, now);
+            dismissed |= !input.runtime.emotes().is_open();
+        } else if input.mouse.just_pressed(MouseButton::Left) {
             match hit {
                 Some(EmoteHit::Slot(slot)) => {
                     input.runtime.emotes_mut().activate_slot(slot, now);

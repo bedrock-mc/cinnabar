@@ -30,6 +30,25 @@ use {
 };
 
 use launcher::menu::settings_options::BindingId;
+
+/// Consumes Back on a vanilla inventory, saving book edits before closing it.
+pub(super) fn cancel_from_mouse_back(
+    player: &mut player_state::PlayerState,
+    runtime: &mut UiRuntime,
+    presentation: Option<&UiPresentationRuntime>,
+) -> bool {
+    if !runtime.inventory_open()
+        || presentation
+            .is_some_and(|view| view.mod_ui().mod_view_shown() || view.mod_ui().mod_text_focused())
+    {
+        return false;
+    }
+    if runtime.commit_book(false) {
+        runtime.close_inventory(player);
+    }
+    true
+}
+
 /// In-world inventory keys: Q drops one item from the selected hotbar cell
 /// (Control+Q the whole stack) and a right-click with a book in hand opens it.
 #[allow(

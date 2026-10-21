@@ -522,6 +522,22 @@ pub fn drive_menu_input(
         return;
     }
 
+    if mouse_buttons.just_pressed(MouseButton::Back) {
+        menu.go_back_from_input();
+        gui_scale_drag.cancel_pointer(&mut menu, &mut presentation);
+        *modifiers = MenuModifiers::default();
+        keyboard_messages.clear();
+        keys.reset_all();
+        mouse_buttons.reset_all();
+        if !menu.is_visible()
+            && !menu.intents.disconnect
+            && let Some(focus) = focus.as_deref_mut()
+        {
+            focus.authorize_screen_return();
+        }
+        return;
+    }
+
     let gameplay_pending = menu.gameplay_return_pending();
     let respawn_pending = menu.death_loading;
     modifiers.capture_pressed(&keys);

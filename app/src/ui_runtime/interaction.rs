@@ -173,6 +173,14 @@ fn route_press(
     let mod_view = presentation
         .as_deref()
         .is_some_and(|view| view.mod_ui().mod_view_shown());
+    if button == MouseButton::Back
+        && inventory::cancel_from_mouse_back(player_runtime, runtime, presentation.as_deref())
+    {
+        return (PressRoute::Binding, true);
+    }
+    if button == MouseButton::Back && chat::cancel_from_mouse_back(runtime, presentation) {
+        return (PressRoute::Binding, false);
+    }
     if !runtime.chat_focused() && (!runtime.screen_state().text_focused() || mod_view) && !mod_text
     {
         if binding_mouse_button(menu, BindingId::Inventory, button) {
@@ -292,6 +300,7 @@ pub(crate) fn drive_chat_keyboard_input(
         let had_active_credits = runtime.credits().active().is_some();
         if input_available {
             let cancel = keys.just_pressed(KeyCode::Escape)
+                || mouse_buttons.just_pressed(MouseButton::Back)
                 || gamepads
                     .iter()
                     .any(|pad| pad.just_pressed(GamepadButton::East));
@@ -419,6 +428,24 @@ pub(crate) fn drive_chat_keyboard_input(
     let mod_view = presentation
         .as_deref()
         .is_some_and(|view| view.mod_ui().mod_view_shown());
+    if mouse_bindings && mouse_buttons.just_pressed(MouseButton::Back) {
+        let inventory_cancelled = inventory::cancel_from_mouse_back(
+            &mut player_runtime,
+            &mut runtime,
+            presentation.as_deref().map(|view| &view.0),
+        );
+        if inventory_cancelled
+            || chat::cancel_from_mouse_back(
+                &mut runtime,
+                presentation.as_deref_mut().map(|view| &mut view.0),
+            )
+        {
+            dismissed |= !runtime.ui_focused(&player_runtime);
+            inventory_ownership_changed |= inventory_cancelled;
+            consumed_gameplay = true;
+            mouse_buttons.clear_just_pressed(MouseButton::Back);
+        }
+    }
     if !runtime.chat_focused() && (!runtime.screen_state().text_focused() || mod_view) && !mod_text
     {
         if (mouse_bindings && binding_mouse(menu.as_deref(), BindingId::Inventory, &mouse_buttons))
@@ -476,6 +503,7 @@ pub(crate) fn drive_chat_keyboard_input(
                 PressRoute::Binding => {
                     // The binding's transition holds for every later input.
                     router.observe(runtime.inventory_open());
+                    dismissed |= !runtime.ui_focused(&player_runtime);
                     consumed.push(button);
                     consumed_gameplay = true;
                     if toggled_inventory {
@@ -773,6 +801,7 @@ pub(crate) fn drive_chat_keyboard_input(
                 PressRoute::Binding => {
                     // The binding's transition holds for every later input.
                     router.observe(runtime.inventory_open());
+                    dismissed |= !runtime.ui_focused(&player_runtime);
                     consumed.push(button);
                     consumed_gameplay = true;
                     if toggled_inventory {
