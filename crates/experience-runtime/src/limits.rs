@@ -43,10 +43,10 @@ pub const MAX_DISPLAY_NAME_BYTES: usize = 64;
 pub const MAX_NAME_BYTES: usize = 64;
 /// Values one string state may take (`Values.json`: 1 to 16).
 pub const MAX_STATE_VALUES: usize = 16;
-/// State combinations one block registers: its states' and placement traits' value counts
-/// multiplied. The client's own bound per block, `MAX_STATES_PER_BLOCK` in
-/// `crates/protocol/src/world/custom_blocks/states.rs`, must admit it, which a test checks.
-pub const MAX_STATE_COMBINATIONS: usize = 65_536;
+/// State bits one block's states and placement traits take, each `ceil(log2(values))` bits and at
+/// least one, as the client packs them. It equals the client's `STATE_BITS` in
+/// `crates/protocol/src/world/custom_blocks/states.rs`, which a test checks.
+pub const MAX_STATE_BITS: u32 = 16;
 /// Bones whose visibility one visual or permutation sets (`Detailed Geometry.json`).
 pub const MAX_BONES: usize = 64;
 /// Permutations one block declares.

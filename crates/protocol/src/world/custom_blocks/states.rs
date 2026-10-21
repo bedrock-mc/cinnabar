@@ -1,10 +1,12 @@
 //! A custom block's state axes from its traits and properties, packed as the client packs them.
 
+use std::collections::HashSet;
+
 use super::{Arc, CustomStateAxis, CustomStateValue, Nbt};
 
 /// Bits the client packs one block's states into; a state that does not fit always reads its
 /// first value.
-const STATE_BITS: u32 = 16;
+pub(super) const STATE_BITS: u32 = 16;
 /// The most states one custom block can have.
 pub(super) const MAX_STATES_PER_BLOCK: u64 = 1 << STATE_BITS;
 
@@ -141,6 +143,10 @@ pub(super) fn state_axes(root: &Nbt, traits: &[(Option<&str>, &Nbt)]) -> StateAx
         .iter()
         .map(|axis| axis.values.len())
         .collect::<Vec<_>>();
+    let mut names = axes
+        .iter()
+        .map(|axis| Arc::clone(&axis.name))
+        .collect::<HashSet<_>>();
     for property in root.list("properties") {
         // A property without an enum list adds no state; a missing name is the empty name.
         let Some(Nbt::List(values)) = property.field("enum") else {
@@ -154,7 +160,7 @@ pub(super) fn state_axes(root: &Nbt, traits: &[(Option<&str>, &Nbt)]) -> StateAx
             .and_then(Nbt::as_str)
             .unwrap_or_default()
             .into();
-        if axes.iter().any(|axis| axis.name == name) {
+        if !names.insert(Arc::clone(&name)) {
             continue;
         }
         let parsed = values.iter().filter_map(state_value).collect::<Box<[_]>>();
