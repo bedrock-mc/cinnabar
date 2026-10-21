@@ -175,6 +175,7 @@ fn full_screen_packs_keep_held_item_mappings() {
         None,
         &gpu,
         &Default::default(),
+        &Default::default(),
     )
     .unwrap();
     assert!(loaded.draws.is_empty());
