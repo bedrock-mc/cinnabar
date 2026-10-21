@@ -413,6 +413,10 @@ impl UiRuntime {
             return self.recipe_book_click(player_runtime, index, false, Some(1));
         }
         if let InventoryCellHit::Widget(widget @ Widget::BookRecipe(_)) = hit {
+            // A secondary click crafts once only with an empty cursor.
+            if player_runtime.inventory.ledger().cursor_stack().is_some() {
+                return Err(InventoryGestureError::InvalidRequest);
+            }
             return self.activate_widget(player_runtime, widget);
         }
         let Some(target) = gesture_target(hit) else {

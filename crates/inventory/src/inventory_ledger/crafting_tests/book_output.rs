@@ -171,3 +171,46 @@ fn book_crafts_consume_and_place_under_the_combined_inventory_name() {
     assert_eq!(named, 3);
     assert!(protocol::item_stack_request_packet(-1, actions).is_ok());
 }
+
+/// A one-log recipe making four planks.
+fn four_planks() -> protocol::RecipeHandle {
+    use protocol::test_support::recipes::{
+        CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture,
+    };
+    let mut fixture = RecipeFixture::shaped(
+        "test:four_planks",
+        1,
+        1,
+        vec![IngredientFixture::named("minecraft:oak_log", 0)],
+        vec![OutputFixture::new(PLANKS, 4)],
+    );
+    fixture.net_id = 78;
+    let mut catalog = RecipeCatalog::default();
+    catalog.begin_session(1);
+    assert!(catalog.apply(1, 1, &CraftingDataFixture::clearing(vec![fixture]).update()));
+    catalog.recipe(78).unwrap()
+}
+
+#[test]
+fn room_for_a_multi_item_output_is_one_cell_that_holds_all_of_it() {
+    // A nearly full matching stack beside an empty slot still has room for the whole output.
+    let mut ledger = stocked(&[(0, PLANKS, 100, 63), (12, LOG, 101, 1)]);
+    ledger.begin_auto_craft(&four_planks(), false).unwrap();
+    let placed: Vec<_> = placed_outputs(&ledger)
+        .into_iter()
+        .map(|(slot, stack)| (slot, stack.count))
+        .collect();
+    assert_eq!(placed, [(0, 64), (1, 3)]);
+
+    // Only a partial stack with room for part of it is not enough.
+    let mut full: Vec<_> = (1..36)
+        .map(|slot| (slot, COBBLE, 100 + i32::from(slot), 64))
+        .collect();
+    full[34] = (35, LOG, 200, 1);
+    full.push((0, PLANKS, 300, 61));
+    let mut ledger = stocked(&full);
+    assert_eq!(
+        ledger.begin_auto_craft(&four_planks(), false),
+        Err(InventoryGestureError::InvalidRequest)
+    );
+}
