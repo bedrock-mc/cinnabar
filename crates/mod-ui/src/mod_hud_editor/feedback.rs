@@ -10,7 +10,6 @@ use ui_engine::engine::{
 /// Strokes stay at least one physical pixel wide at every GUI scale and DPI.
 pub(super) struct KeepOutRenderer<'a> {
     pub rects: &'a [[f64; 4]],
-    pub dragging: bool,
 }
 
 impl CustomRenderer for KeepOutRenderer<'_> {
@@ -22,34 +21,32 @@ impl CustomRenderer for KeepOutRenderer<'_> {
         if node.renderer != "cinnabar_hud_keep_out" {
             return Ok(false);
         }
-        if self.dragging {
-            let px = f64::from(canvas.px());
-            let hatch_width = GUIDE_WIDTH.max(1. / f64::from(canvas.metrics().gui_scale));
-            for rect in self.rects {
-                let x = rect[0].max(0.);
-                let y = rect[1].max(0.);
-                let right = (rect[0] + rect[2]).min(f64::from(node.dest[2] - node.dest[0]) / px);
-                let bottom = (rect[1] + rect[3]).min(f64::from(node.dest[3] - node.dest[1]) / px);
-                if x >= right || y >= bottom {
-                    continue;
-                }
-                let bounds = |a: f64, b: f64, c: f64, d: f64| {
-                    [
-                        node.dest[0] + (a * px) as f32,
-                        node.dest[1] + (b * px) as f32,
-                        node.dest[0] + (c * px) as f32,
-                        node.dest[1] + (d * px) as f32,
-                    ]
-                };
-                canvas.solid(bounds(x, y, right, bottom), node.alpha([255, 191, 105, 12]))?;
-                let mut line = y;
-                while line < bottom {
-                    canvas.solid(
-                        bounds(x, line, right, (line + hatch_width).min(bottom)),
-                        node.alpha([255, 191, 105, 48]),
-                    )?;
-                    line += snapping::GRID;
-                }
+        let px = f64::from(canvas.px());
+        let hatch_width = GUIDE_WIDTH.max(1. / f64::from(canvas.metrics().gui_scale));
+        for rect in self.rects {
+            let x = rect[0].max(0.);
+            let y = rect[1].max(0.);
+            let right = (rect[0] + rect[2]).min(f64::from(node.dest[2] - node.dest[0]) / px);
+            let bottom = (rect[1] + rect[3]).min(f64::from(node.dest[3] - node.dest[1]) / px);
+            if x >= right || y >= bottom {
+                continue;
+            }
+            let bounds = |a: f64, b: f64, c: f64, d: f64| {
+                [
+                    node.dest[0] + (a * px) as f32,
+                    node.dest[1] + (b * px) as f32,
+                    node.dest[0] + (c * px) as f32,
+                    node.dest[1] + (d * px) as f32,
+                ]
+            };
+            canvas.solid(bounds(x, y, right, bottom), node.alpha([255, 191, 105, 12]))?;
+            let mut line = y;
+            while line < bottom {
+                canvas.solid(
+                    bounds(x, line, right, (line + hatch_width).min(bottom)),
+                    node.alpha([255, 191, 105, 48]),
+                )?;
+                line += snapping::GRID;
             }
         }
         Ok(true)

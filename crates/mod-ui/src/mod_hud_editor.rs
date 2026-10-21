@@ -37,6 +37,7 @@ const SCREEN: &str = "cinnabar_hud_editor.layout";
 const GUIDE_WIDTH: f64 = 0.75;
 const MEASUREMENT_PILL: [f64; 2] = [36., 12.];
 const AXIS_SNAP_DISTANCE: f64 = 6.;
+const GEOMETRY_EPSILON: f64 = 0.001;
 
 pub(super) struct HudEditor {
     draft: Hud,
@@ -48,6 +49,7 @@ pub(super) struct HudEditor {
     anchor_motion: Option<motion::AnchorMotion>,
     pub(super) autosave: bool,
     pub(super) close_requested: bool,
+    /// Reset intent for the next result; autosave clears it after publication.
     reset: bool,
     snap: bool,
     bypass_snap: bool,
@@ -303,10 +305,7 @@ impl ModUi {
             id_aux: &[],
         };
         let mut glass = GlassRenderer::new(world);
-        let mut zones = feedback::KeepOutRenderer {
-            rects: &keep_out,
-            dragging: editor.drag.is_some(),
-        };
+        let mut zones = feedback::KeepOutRenderer { rects: &keep_out };
         let mut renderers: [&mut dyn CustomRenderer; 3] = [&mut items, &mut glass, &mut zones];
         // Keep pointer feedback outside the editor borrow while measuring native hit bounds.
         let view = std::mem::take(&mut editor.view);
@@ -318,7 +317,10 @@ impl ModUi {
             art,
             &mut paint_frame.with_renderers(&mut renderers),
             |env, root| {
-                if crate::mod_widgets::text_plate::measure(&mut editor.draft, env.text) {
+                let previous = editor.pending_measurement_size();
+                let measured = crate::mod_widgets::text_plate::measure(&mut editor.draft, env.text);
+                editor.finish_measurement(previous);
+                if measured {
                     editor.catalog = None;
                     let mut data = Arc::clone(&editor.data);
                     let values = Arc::make_mut(&mut data);

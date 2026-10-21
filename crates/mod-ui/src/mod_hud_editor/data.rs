@@ -16,6 +16,20 @@ impl HudEditor {
             "#grid_label",
             Scalar::Text(if self.snap { "Grid: ON" } else { "Grid: OFF" }.into()),
         );
+        for (name, value) in [
+            ("#hud_can_undo", self.history.available()[0]),
+            ("#hud_can_redo", self.history.available()[1]),
+        ] {
+            data.set_global(name, Scalar::Bool(value));
+        }
+        data.set_global("#hud_toast", Scalar::Text(self.toast.text.clone()));
+        self.write_geometry(&mut data);
+        data
+    }
+
+    /// Shares displayed geometry and hidden-card filtering between paint and text measurement.
+    pub(super) fn write_geometry(&self, data: &mut DataSource) {
+        data.set_global("#hud_dragging", Scalar::Bool(self.drag.is_some()));
         for axis in 0..2 {
             let guide = self.drag.as_ref().and_then(|drag| drag.guides[axis]);
             data.set_global(
@@ -29,20 +43,6 @@ impl HudEditor {
                 Scalar::Json(serde_json::json!(at)),
             );
         }
-        for (name, value) in [
-            ("#hud_can_undo", self.history.available()[0]),
-            ("#hud_can_redo", self.history.available()[1]),
-            ("#hud_dragging", self.drag.is_some()),
-        ] {
-            data.set_global(name, Scalar::Bool(value));
-        }
-        data.set_global("#hud_toast", Scalar::Text(self.toast.text.clone()));
-        self.write_geometry(&mut data);
-        data
-    }
-
-    /// Shares displayed geometry and hidden-card filtering between paint and text measurement.
-    pub(super) fn write_geometry(&self, data: &mut DataSource) {
         let style = self.draft.editor_style.unwrap_or_default();
         for (index, card) in self.draft.cards.iter().enumerate() {
             let visible = !self.hidden.contains(&card.id);

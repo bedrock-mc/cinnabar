@@ -426,6 +426,7 @@ fn snapping_highlight_and_measurements_update_through_bindings() {
     editor.drag = Some(Drag {
         index: 0,
         before: Placement::capture(&editor.draft.cards[0]),
+        measurement_pending: false,
         grab: [0.; 2],
         start: [0.; 2],
         last: [0.; 2],

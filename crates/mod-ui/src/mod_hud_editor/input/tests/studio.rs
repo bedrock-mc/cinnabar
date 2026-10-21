@@ -585,3 +585,21 @@ fn studio_pointer_cancellation_rolls_back_unfinished_gestures_in_both_save_modes
         assert_eq!(editor.draft.cards[0], original);
     }
 }
+
+#[test]
+fn studio_reset_metadata_round_trips_through_undo_redo_and_save() {
+    for move_first in [false, true] {
+        let mut editor = editor(false);
+        editor.selected = Some(0);
+        if move_first {
+            editor.key("ArrowRight");
+        }
+        editor.reset_layout();
+        assert!(editor.snapshot(true).reset);
+        editor.step_history(false);
+        assert!(!editor.snapshot(true).reset);
+        editor.step_history(true);
+        editor.finish(true);
+        assert!(editor.result.take().unwrap().reset);
+    }
+}

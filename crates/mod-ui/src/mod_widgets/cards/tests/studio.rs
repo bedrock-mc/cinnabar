@@ -77,3 +77,48 @@ fn studio_deselected_arrow_settles_the_animated_card_in_retained_bindings() {
     assert!((hit.rect.x - target[0]).abs() < 0.001);
     assert!((hit.rect.y - target[1]).abs() < 0.001);
 }
+
+#[test]
+fn studio_live_text_measurement_preserves_the_opposite_resize_corner() {
+    let mut hud: Hud = serde_json::from_value(json!({"resizable":true,"cards":[{
+        "id":"plate","offset":[100,100],"rows":[{"label":"","value":"1"}],"text_plate":{}
+    }]}))
+    .unwrap();
+    let mut ui = installed(&hud, &panel(false));
+    ui.open_mod_hud_editor(&hud).unwrap();
+    let mut harness = Harness::new();
+    paint_at(&mut harness, &mut ui, 0.);
+    let frame = ui.mod_hud_editor_state().unwrap().frame.unwrap();
+    let hit = frame
+        .hits
+        .iter()
+        .find(|hit| hit.pressed.as_deref() == Some("hud.resize:0:3"))
+        .unwrap();
+    let scale = frame.scale;
+    let point = [
+        frame.origin[0] + (hit.rect.x + hit.rect.w * 0.5) as f32 * scale,
+        frame.origin[1] + (hit.rect.y + hit.rect.h * 0.5) as f32 * scale,
+    ];
+    ui.mod_panel_events(point, true, true);
+    let moved = point.map(|value| value + 10. * scale);
+    ui.mod_panel_events(moved, false, true);
+    paint_at(&mut harness, &mut ui, 0.);
+    let state = ui.mod_hud_editor_state().unwrap();
+    let fixed = crate::test_support::card_origin(&state.draft.cards[0], state.viewport);
+    hud.cards[0].rows[0].value = "999999".into();
+    ui.set_mod_hud_sources([(OWNER, 2, &hud)].into_iter())
+        .unwrap();
+    paint_at(&mut harness, &mut ui, 0.);
+    for release in [false, true] {
+        if release {
+            ui.mod_panel_events(moved.map(|value| value + 2. * scale), false, false);
+            paint_at(&mut harness, &mut ui, 0.);
+        }
+        let state = ui.mod_hud_editor_state().unwrap();
+        assert_eq!(state.draft.cards[0].rows[0].value, "999999");
+        let at = crate::test_support::card_origin(&state.draft.cards[0], state.viewport);
+        for axis in 0..2 {
+            assert!((at[axis] - fixed[axis]).abs() < 0.01);
+        }
+    }
+}

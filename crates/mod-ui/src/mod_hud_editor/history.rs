@@ -10,14 +10,17 @@ const HISTORY_LIMIT: usize = 64;
 struct Layout {
     placements: Vec<Placement>,
     hidden: HashSet<String>,
+    /// Whether this draft still includes a reset after undo and redo.
+    reset: bool,
 }
 
 impl Layout {
     /// Captures authored placement values without cloning card content or native caches.
-    fn capture(hud: &Hud, hidden: &HashSet<String>) -> Self {
+    fn capture(hud: &Hud, hidden: &HashSet<String>, reset: bool) -> Self {
         Self {
             placements: hud.cards.iter().map(Placement::capture).collect(),
             hidden: hidden.clone(),
+            reset,
         }
     }
 
@@ -49,15 +52,16 @@ impl History {
     /// Seeds the first state when the editor opens.
     pub(super) fn new(hud: &Hud) -> Self {
         Self {
-            current: Layout::capture(hud, &HashSet::new()),
+            current: Layout::capture(hud, &HashSet::new(), false),
             undo: VecDeque::new(),
             redo: Vec::new(),
         }
     }
 
-    /// Adds one completed edit, discarding redo only when the placement actually changed.
-    pub(super) fn record(&mut self, hud: &Hud, hidden: &HashSet<String>) {
-        let next = Layout::capture(hud, hidden);
+    /// Adds one completed edit, discarding redo only when the draft state actually changed.
+    pub(super) fn record(&mut self, hud: &Hud, hidden: &HashSet<String>, reset: bool) {
+        // Autosave clears outgoing intent; later edits still belong to the reset history point.
+        let next = Layout::capture(hud, hidden, reset || self.current.reset);
         if next == self.current {
             return;
         }
@@ -76,7 +80,7 @@ impl History {
 
     /// Reconciles live IDs without promoting an unfinished gesture to the completed baseline.
     pub(super) fn refresh(&mut self, hud: &Hud, hidden: &HashSet<String>) {
-        let mut next = Layout::capture(hud, hidden);
+        let mut next = Layout::capture(hud, hidden, self.current.reset);
         for placement in &mut next.placements {
             if let Some(old) = self
                 .current
@@ -96,7 +100,12 @@ impl History {
     }
 
     /// Restores one completed edit without recording the restoration as a new edit.
-    fn step(&mut self, redo: bool, hud: &mut Hud, hidden: &mut HashSet<String>) -> Option<bool> {
+    fn step(
+        &mut self,
+        redo: bool,
+        hud: &mut Hud,
+        hidden: &mut HashSet<String>,
+    ) -> Option<(bool, bool)> {
         let next = if redo {
             self.redo.pop()
         } else {
@@ -109,8 +118,8 @@ impl History {
             self.redo.push(previous);
         }
         let resized = self.current.restore(hud, hidden);
-        self.current = Layout::capture(hud, hidden);
-        Some(resized)
+        self.current = Layout::capture(hud, hidden, self.current.reset);
+        Some((resized, self.current.reset))
     }
 }
 
@@ -119,13 +128,13 @@ impl HudEditor {
     pub(super) fn step_history(&mut self, redo: bool) {
         self.cancel_pointer_input();
         self.settle_anchor_motion();
-        if let Some(resized) = self.history.step(redo, &mut self.draft, &mut self.hidden) {
+        if let Some((resized, reset)) = self.history.step(redo, &mut self.draft, &mut self.hidden) {
             if resized {
                 self.catalog = None;
             }
             self.toast = Default::default();
             self.data_dirty = true;
-            self.reset = false;
+            self.reset = reset;
             self.persist();
         }
     }

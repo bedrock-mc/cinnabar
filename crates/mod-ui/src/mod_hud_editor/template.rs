@@ -69,7 +69,8 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
         "keep_out",
         json!({
             "type":"custom", "renderer":"cinnabar_hud_keep_out", "size":viewport,
-            "anchor_from":"top_left", "anchor_to":"top_left", "layer":1
+            "anchor_from":"top_left", "anchor_to":"top_left", "layer":1,
+            "bindings":[{"binding_name":"#hud_dragging","binding_name_override":"#visible"}]
         }),
     ));
     for axis in 0..2 {

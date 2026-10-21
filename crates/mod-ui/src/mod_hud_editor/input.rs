@@ -7,6 +7,7 @@ mod tests;
 pub(in super::super) struct Drag {
     index: usize,
     before: Placement,
+    measurement_pending: bool,
     grab: [f64; 2],
     start: [f64; 2],
     last: [f64; 2],
@@ -37,12 +38,22 @@ impl HudEditor {
         let index = self.drag.as_ref().and_then(|drag| {
             super::publication::matching_geometry(&self.draft.cards[drag.index], next)
         });
+        let measurement_pending = self.drag.as_ref().zip(index).is_some_and(|(drag, index)| {
+            let old = &self.draft.cards[drag.index];
+            let new = &next[index];
+            new.text_plate.is_some()
+                && (old.rows != new.rows
+                    || old.text_plate != new.text_plate
+                    || old.font != new.font
+                    || old.text_scale != new.text_scale)
+        });
         if self.drag.is_some() && index.is_none() {
             let previous = self.drag.as_ref().expect("captured card").index;
             self.cancel_drag();
             return Some(previous);
         } else if let Some(drag) = &mut self.drag {
             drag.index = index.expect("matched captured card");
+            drag.measurement_pending |= measurement_pending;
             if reordered {
                 drag.guides = [None; 2];
                 drag.targets = [None; 2];
@@ -50,6 +61,28 @@ impl HudEditor {
             }
         }
         None
+    }
+
+    /// Captures bounds only when a publication may change deferred native text geometry.
+    pub(super) fn pending_measurement_size(&self) -> Option<[f64; 2]> {
+        self.drag
+            .as_ref()
+            .filter(|drag| drag.measurement_pending)
+            .map(|drag| cards::dimensions(&self.draft.cards[drag.index]))
+    }
+
+    /// Ends capture when measured live content invalidates its original resize or grab geometry.
+    pub(super) fn finish_measurement(&mut self, previous: Option<[f64; 2]>) {
+        let Some(drag) = self.drag.as_mut().filter(|drag| drag.measurement_pending) else {
+            return;
+        };
+        drag.measurement_pending = false;
+        let size = cards::dimensions(&self.draft.cards[drag.index]);
+        if previous.is_some_and(|before| {
+            (0..2).any(|axis| (before[axis] - size[axis]).abs() > GEOMETRY_EPSILON)
+        }) {
+            self.cancel_drag();
+        }
     }
 
     /// Ends capture once; later presentation failures stop painting without replacing the result.
@@ -147,7 +180,7 @@ impl HudEditor {
     }
     /// Persists completed opted-in gestures while retaining the live editor.
     pub(super) fn checkpoint(&mut self) {
-        self.history.record(&self.draft, &self.hidden);
+        self.history.record(&self.draft, &self.hidden, self.reset);
         self.persist();
     }
     /// Coalesces autosaved output without adding an undo or redo restoration to history.
@@ -385,6 +418,7 @@ impl HudEditor {
                 Drag {
                     index,
                     before: before.expect("captured placement"),
+                    measurement_pending: false,
                     grab: std::array::from_fn(|axis| point[axis] - at[axis]),
                     start: point,
                     last: point,
@@ -409,7 +443,8 @@ impl HudEditor {
             self.selected = self.drag.as_ref().map(|drag| drag.index);
         }
         if let Some(drag) = &mut self.drag {
-            drag.moved |= (0..2).any(|axis| (point[axis] - drag.start[axis]).abs() > 0.001);
+            drag.moved |=
+                (0..2).any(|axis| (point[axis] - drag.start[axis]).abs() > GEOMETRY_EPSILON);
             let index = drag.index;
             let at = std::array::from_fn(|axis| point[axis] - drag.grab[axis]);
             let changed = drag.last != point || self.snap_dirty;
