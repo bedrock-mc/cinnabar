@@ -9,8 +9,6 @@ use render_model::{
 
 use super::{UiPresentationError, UiPresentationRuntime, session_glyphs};
 
-const MAX_PRIVATE_GLYPHS: usize = 256;
-
 pub(super) struct InstalledFont {
     source: Arc<RuntimeFontCatalog>,
     pub(super) alias: RuntimeFontCatalog,
@@ -68,7 +66,7 @@ fn prepare(
     page: usize,
 ) -> Result<InstalledFont, UiPresentationError> {
     if source.pages().len() != 1
-        || source.glyphs().len() > MAX_PRIVATE_GLYPHS
+        || source.glyphs().len() > ui::mod_panel::MAX_FONT_GLYPHS
         || !source.named_fonts().is_empty()
     {
         return Err(UiPresentationError::InvalidFontTexture);
