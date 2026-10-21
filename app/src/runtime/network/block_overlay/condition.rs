@@ -86,7 +86,7 @@ pub(super) fn state_visual(
             .as_ref()
             .and_then(|condition| condition.evaluate(&block_state))
         {
-            Some(value) if value != 0.0 => {
+            Some(value) if BlockMolang::holds(value) => {
                 if permutation.components.geometry.is_some() {
                     bone_set = index + 1;
                 }

@@ -37,78 +37,70 @@ pub enum CustomMiningItem {
     Tags(Arc<str>),
 }
 
-/// Reads network values and accepts the authored numeric spelling used by older servers.
+/// Reads the component as the client's network intake does: only a compound is a component,
+/// `value` and `destroy_speed` count only as float tags, and other values read as zero.
+/// Returns the mining values and the count of malformed item entries, which never match.
 pub(super) fn component(component: Option<&Nbt>) -> (Option<Arc<CustomBlockMining>>, usize) {
-    let Some(component) = component else {
+    let Some(component @ Nbt::Compound(_)) = component else {
         return (None, 0);
     };
     let mut skipped = 0;
-    let seconds = match component {
-        Nbt::Byte(0) => -1.0,
-        Nbt::Byte(1) => 0.0,
-        Nbt::Compound(_) => component
-            .field("value")
-            .or_else(|| component.field("seconds_to_destroy"))
-            .and_then(Nbt::number)
-            .unwrap_or(0.0) as f32,
-        _ => component.number().unwrap_or(0.0) as f32,
-    };
-    if !seconds.is_finite() {
-        return (None, 1);
-    }
     let speeds = component
         .list("item_specific_speeds")
         .iter()
+        .filter(|entry| matches!(entry, Nbt::Compound(_)))
         .filter_map(|entry| {
-            let item = entry.field("item").and_then(item);
-            let speed = entry
-                .field("destroy_speed")
-                .and_then(Nbt::number)
-                .unwrap_or(0.0) as f32;
-            match item {
-                Some(item) if speed.is_finite() => Some(CustomMiningSpeed {
-                    item,
-                    destroy_speed: speed,
-                }),
-                _ => {
-                    skipped += 1;
-                    None
-                }
-            }
+            let Some(item) = entry.field("item").and_then(item) else {
+                skipped += 1;
+                return None;
+            };
+            Some(CustomMiningSpeed {
+                item,
+                destroy_speed: float(entry.field("destroy_speed")),
+            })
         })
         .collect();
     (
         Some(Arc::new(CustomBlockMining {
-            seconds_to_destroy: seconds,
+            seconds_to_destroy: float(component.field("value")),
             item_specific_speeds: speeds,
         })),
         skipped,
     )
 }
 
-/// Keeps wire descriptor precedence and the wildcard metadata distinct from an exact value.
+/// A float tag's value, zero for any other tag; a non-finite value never completes a destroy,
+/// which the indestructible sentinel reproduces.
+fn float(value: Option<&Nbt>) -> f32 {
+    match value {
+        Some(Nbt::Float(value)) if value.is_finite() => *value as f32,
+        Some(Nbt::Float(_)) => -1.0,
+        _ => 0.0,
+    }
+}
+
+/// Reads an item descriptor in the client's precedence: a Molang `Tags` expression when it
+/// carries a `MolangVersion`, then an `ItemTag`, then a `Name` with optional `Aux`.
 fn item(value: &Nbt) -> Option<CustomMiningItem> {
-    if let Some(expression) = value
-        .field("Tags")
-        .or_else(|| value.field("tags"))
-        .and_then(Nbt::as_str)
+    if value.field("MolangVersion").is_some()
+        && let Some(expression) = value.field("Tags").and_then(Nbt::as_str)
     {
         return Some(CustomMiningItem::Tags(expression.into()));
     }
     if let Some(tag) = value.field("ItemTag").and_then(Nbt::as_str) {
         return Some(CustomMiningItem::Tag(tag.into()));
     }
-    let name = value
-        .as_str()
-        .or_else(|| value.field("Name").and_then(Nbt::as_str))?;
+    let name = value.field("Name").and_then(Nbt::as_str)?;
     if name.is_empty() {
         return None;
     }
     let metadata = match value.field("Aux") {
-        Some(Nbt::Short(value)) if *value != i64::from(crate::RECIPE_ANY_AUX) => Some(
-            u16::from_ne_bytes(i16::try_from(*value).ok()?.to_ne_bytes()),
-        ),
-        _ => None,
+        None => None,
+        Some(Nbt::Short(value)) if *value == i64::from(crate::RECIPE_ANY_AUX) => None,
+        Some(Nbt::Short(value)) => Some(u16::from_ne_bytes(
+            i16::try_from(*value).ok()?.to_ne_bytes(),
+        )),
+        Some(_) => Some(0),
     };
     Some(CustomMiningItem::Item {
         name: name.into(),
@@ -131,34 +123,26 @@ mod tests {
     }
 
     #[test]
-    fn custom_mining_keeps_network_and_authored_values() {
-        for (key, value) in [("value", 2.0), ("seconds_to_destroy", 0.5)] {
-            let (mining, skipped) = component(Some(&compound(vec![(key, Nbt::Float(value))])));
-            assert_eq!(mining.unwrap().seconds_to_destroy, value as f32);
-            assert_eq!(skipped, 0);
+    fn custom_mining_reads_only_float_values() {
+        let (mining, skipped) = component(Some(&compound(vec![("value", Nbt::Float(2.0))])));
+        assert_eq!(mining.unwrap().seconds_to_destroy, 2.0);
+        assert_eq!(skipped, 0);
+        for other in [
+            compound(vec![("value", Nbt::Int(3))]),
+            compound(vec![("seconds_to_destroy", Nbt::Float(0.5))]),
+        ] {
+            assert_eq!(component(Some(&other)).0.unwrap().seconds_to_destroy, 0.0);
         }
-        let (mining, _) = component(Some(&Nbt::Float(3.0)));
-        assert_eq!(mining.unwrap().seconds_to_destroy, 3.0);
     }
 
     #[test]
-    fn custom_mining_default_and_disabled_are_resolved() {
-        assert_eq!(
-            component(None).0.unwrap_or_default().seconds_to_destroy,
-            0.0
-        );
-        for value in [
-            Nbt::Byte(0),
-            Nbt::Byte(-1),
-            Nbt::Float(-1.0),
-            compound(vec![("value", Nbt::Float(-4.0))]),
-        ] {
-            assert!(component(Some(&value)).0.unwrap().seconds_to_destroy < 0.0);
+    fn custom_mining_scalar_components_are_absent() {
+        assert!(component(None).0.is_none());
+        for scalar in [Nbt::Byte(0), Nbt::Byte(1), Nbt::Float(3.0)] {
+            assert_eq!(component(Some(&scalar)), (None, 0));
         }
-        assert_eq!(
-            component(Some(&Nbt::Byte(1))).0.unwrap().seconds_to_destroy,
-            0.0
-        );
+        let disabled = compound(vec![("value", Nbt::Float(-4.0))]);
+        assert!(component(Some(&disabled)).0.unwrap().seconds_to_destroy < 0.0);
     }
 
     #[test]
@@ -175,16 +159,17 @@ mod tests {
                     "ItemTag",
                     Nbt::String("test:tools".into()),
                 )])),
-                entry(compound(vec![(
-                    "Tags",
-                    Nbt::String("q.any_tag('test:tools')".into()),
-                )])),
+                entry(compound(vec![
+                    ("Tags", Nbt::String("q.any_tag('test:tools')".into())),
+                    ("MolangVersion", Nbt::Int(12)),
+                ])),
                 entry(compound(vec![])),
+                Nbt::String("test:not_a_compound".into()),
             ]),
         )]);
         let (mining, skipped) = component(Some(&value));
         let mining = mining.unwrap();
-        assert_eq!(skipped, 1);
+        assert_eq!(skipped, 1, "only the malformed compound entry is counted");
         assert_eq!(mining.item_specific_speeds.len(), 3);
         assert_eq!(
             mining.item_specific_speeds[0].item,
@@ -204,8 +189,26 @@ mod tests {
     }
 
     #[test]
-    fn custom_mining_skips_nonfinite_values() {
-        assert_eq!(component(Some(&Nbt::Float(f64::NAN))), (None, 1));
+    fn custom_mining_tags_without_a_molang_version_fall_back_to_the_name() {
+        let descriptor = compound(vec![
+            ("Tags", Nbt::String("q.any_tag('test:tools')".into())),
+            ("Name", Nbt::String("test:tool".into())),
+            ("Aux", Nbt::Int(3)),
+        ]);
+        assert_eq!(
+            item(&descriptor),
+            Some(CustomMiningItem::Item {
+                name: "test:tool".into(),
+                metadata: Some(0)
+            })
+        );
+    }
+
+    #[test]
+    fn custom_mining_nonfinite_values_never_complete() {
+        let (mining, skipped) = component(Some(&compound(vec![("value", Nbt::Float(f64::NAN))])));
+        assert!(mining.unwrap().seconds_to_destroy < 0.0);
+        assert_eq!(skipped, 0);
     }
 
     #[test]

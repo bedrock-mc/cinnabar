@@ -339,13 +339,12 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   combat, hotbar selection, stack/network-ID reconciliation and container/crafting
   prediction, acknowledgements, rollback and stale-session behavior.
   Native block requirements now cover every catalog identifier, including no-tool
-  beds; recipe tags share the pinned native catalog. Custom block mining retains
-  default, disabled and item-specific component values, including state overrides.
-  Discarded mining data stays unresolved, and item-tag filters compile during
-  session preparation for allocation-free evaluation.
-  Mining uncertainty leaves known physics and local placement prediction usable.
-  Mining states use separate storage and admission, preserving the physical state budget.
-  Complex item-tag scripts and live custom-block mining acceptance remain incomplete.
+  beds; recipe tags share the pinned native catalog. Custom block mining reads the
+  client's float `value` and item-specific overrides for every admitted state.
+  Malformed item entries never match, and conditions the client reads as zero keep
+  the base value; item-tag filters compile during session preparation for
+  allocation-free evaluation, and an unsupported filter matches no item.
+  Complex Molang conditions and item-tag scripts read as zero, which is incomplete.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
   Trading screens admit server offers and support purchases with manually placed inputs.

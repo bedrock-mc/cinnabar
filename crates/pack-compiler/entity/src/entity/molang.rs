@@ -45,6 +45,13 @@ impl BlockMolang {
         }
     }
 
+    /// Whether a permutation condition's value applies the permutation: it must round, half
+    /// away from zero, to a nonzero value.
+    #[must_use]
+    pub fn holds(value: f32) -> bool {
+        value.round() != 0.0
+    }
+
     /// The value for one block state; `None` when it reads a state the block lacks or uses a
     /// string where a number is needed.
     #[must_use]

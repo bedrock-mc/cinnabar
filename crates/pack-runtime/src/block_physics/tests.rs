@@ -46,7 +46,7 @@ fn mining_only_states_do_not_consume_physics_reservation() {
 }
 
 #[test]
-fn mining_and_physics_reservations_are_independent_for_mixed_permutations() {
+fn mining_resolves_independently_of_the_physics_reservation() {
     let mut block = slab();
     Arc::make_mut(&mut block.visual).permutations[0]
         .physical
@@ -54,25 +54,20 @@ fn mining_and_physics_reservations_are_independent_for_mixed_permutations() {
         seconds_to_destroy: 0.5,
         ..Default::default()
     }));
-    for (physics_budget, mining_budget) in [(0, 4), (4, 0), (4, 4)] {
+    for physics_budget in [0, 4] {
         let mut blocks = CustomBlocks {
             blocks: [block.clone()].into(),
             ..Default::default()
         };
         resolve_bounded(&mut blocks, physics_budget);
-        crate::block_mining::resolve_bounded(&mut blocks, mining_budget);
+        crate::block_mining::resolve(&mut blocks);
         let block = &blocks.blocks[0];
         assert_eq!(block.state_physics_complete, physics_budget > 0);
         assert_eq!(
             block.physics_for_state(1).collision_boxes.as_ref().unwrap()[0].min[1],
             if physics_budget > 0 { 0.5 } else { 0.0 }
         );
-        assert_eq!(
-            block
-                .mining_for_state(1)
-                .map(|mining| mining.seconds_to_destroy),
-            (mining_budget > 0).then_some(0.5)
-        );
+        assert_eq!(block.mining_for_state(1).unwrap().seconds_to_destroy, 0.5);
     }
 }
 
@@ -105,17 +100,19 @@ fn custom_mining_uncertainty_does_not_make_known_physics_incomplete() {
                 "mining cannot invalidate physical completeness"
             );
             for state in 0..block.state_count {
-                assert!(block.mining_for_state(state).is_none());
+                assert_eq!(
+                    block.mining_for_state(state).unwrap().seconds_to_destroy,
+                    0.0
+                );
             }
         }
     }
 }
 
 #[test]
-fn custom_mining_discarded_data_stays_unresolved_after_physics_merge() {
+fn custom_mining_resolves_beside_incomplete_physics() {
     let mut block = slab();
     let visual = Arc::make_mut(&mut block.visual);
-    visual.mining_incomplete = true;
     visual.components_incomplete = true;
     visual.permutations = [protocol::CustomPermutation {
         condition: "1".into(),
@@ -139,7 +136,10 @@ fn custom_mining_discarded_data_stays_unresolved_after_physics_merge() {
     assert!(block.state_physics.is_empty());
     assert!(!block.state_physics_complete);
     for state in 0..block.state_count {
-        assert!(block.mining_for_state(state).is_none());
+        assert_eq!(
+            block.mining_for_state(state).unwrap().seconds_to_destroy,
+            0.5
+        );
     }
 }
 
@@ -181,7 +181,7 @@ fn custom_mining_permutations_replace_the_whole_component() {
 }
 
 #[test]
-fn custom_mining_unresolved_conditions_keep_the_state_unresolved() {
+fn custom_mining_unevaluated_conditions_read_as_zero() {
     for condition in ["return 1;", "q.block_state('test:missing')"] {
         let mut block = slab();
         Arc::make_mut(&mut block.visual).permutations = [protocol::CustomPermutation {
@@ -205,7 +205,8 @@ fn custom_mining_unresolved_conditions_keep_the_state_unresolved() {
         crate::block_mining::resolve(&mut blocks);
         assert!(blocks.blocks[0].state_physics_complete);
         for state in 0..blocks.blocks[0].state_count {
-            assert!(blocks.blocks[0].mining_for_state(state).is_none());
+            let mining = blocks.blocks[0].mining_for_state(state).unwrap();
+            assert_eq!(mining.seconds_to_destroy, 0.0, "{condition} must not apply");
         }
     }
 }

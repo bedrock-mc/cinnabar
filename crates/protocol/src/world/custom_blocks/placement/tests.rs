@@ -57,7 +57,6 @@ fn omitted_permutations_and_physical_components_are_marked_incomplete() {
         (0..=super::super::MAX_PERMUTATIONS)
             .map(|_| compound([("condition", Nbt::String("1".into()))]))
             .collect(),
-        vec![compound([])],
         vec![compound([
             ("condition", Nbt::String("1".into())),
             (
@@ -86,6 +85,11 @@ fn omitted_permutations_and_physical_components_are_marked_incomplete() {
     }
     let complete = parse_definition(&compound([])).unwrap();
     assert!(!complete.visual.components_incomplete);
+    // A permutation without a condition never applies, so it leaves nothing unknown.
+    let conditionless =
+        parse_definition(&compound([("permutations", Nbt::List(vec![compound([])]))])).unwrap();
+    assert!(!conditionless.visual.components_incomplete);
+    assert!(conditionless.skipped > 0);
 }
 
 #[test]

@@ -4,20 +4,12 @@ use pack_entity_compiler::BlockMolang;
 use protocol::{CustomBlock, CustomBlockMining, CustomBlocks, CustomMiningItem};
 use std::{collections::HashMap, sync::Arc};
 
-/// Bounds mining cache records without reserving or consuming physical state records.
-const MAX_RESOLVED_MINING_STATES: usize = 1 << 18;
-
 type MiningCondition<'a> = (Option<BlockMolang>, &'a Arc<CustomBlockMining>);
 
-/// Resolves the effective mining component without changing physical state admission.
+/// Resolves every admitted state's mining component; admission already bounds the state count.
 pub(crate) fn resolve(blocks: &mut CustomBlocks) {
-    resolve_bounded(blocks, MAX_RESOLVED_MINING_STATES);
-}
-
-/// Applies the independent mining reservation, leaving unprepared overrides unknown.
-pub(super) fn resolve_bounded(blocks: &mut CustomBlocks, mut remaining: usize) {
     for block in Arc::make_mut(&mut blocks.blocks) {
-        if block.visual.materialization_disabled || block.visual.mining_incomplete {
+        if block.visual.materialization_disabled {
             continue;
         }
         let conditions: Vec<_> = block
@@ -32,52 +24,37 @@ pub(super) fn resolve_bounded(blocks: &mut CustomBlocks, mut remaining: usize) {
         if conditions.is_empty() {
             continue;
         }
-        if block.visual.state_identity_incomplete || block.state_count as usize > remaining {
-            blocks.skipped += 1;
-            continue;
-        }
-        let mut complete = true;
-        let resolved = (0..block.state_count)
-            .map(|state| evaluate_state(block, state, &conditions, &mut complete))
-            .collect::<Option<Vec<_>>>();
-        if !complete {
-            blocks.skipped += 1;
-        }
-        if let Some(resolved) = resolved {
-            remaining -= resolved.len();
-            block.state_mining = resolved.into();
-        } else {
-            blocks.skipped += 1;
-        }
+        let mut unevaluated = false;
+        block.state_mining = (0..block.state_count)
+            .map(|state| evaluate_state(block, state, &conditions, &mut unevaluated))
+            .collect();
+        blocks.skipped += usize::from(unevaluated);
     }
 }
 
-/// Applies ordered mining overrides; an unknown condition cannot fall back to the base value.
+/// Applies ordered overrides whose condition holds; one that cannot be evaluated reads as zero,
+/// as the client treats a failed or empty condition.
 fn evaluate_state(
     block: &CustomBlock,
     state: u32,
     conditions: &[MiningCondition<'_>],
-    complete: &mut bool,
-) -> Option<Option<Arc<CustomBlockMining>>> {
-    let values = block.state_values(state)?;
-    let mut mining = Some(Arc::clone(&block.mining));
+    unevaluated: &mut bool,
+) -> Arc<CustomBlockMining> {
+    let values = block.state_values(state).unwrap_or_default();
+    let mut mining = &block.mining;
     for (condition, override_mining) in conditions {
-        match condition
+        let value = condition
             .as_ref()
-            .and_then(|condition| crate::block_condition::evaluate(condition, block, &values))
-        {
-            Some(0.0) => {}
-            Some(_) => mining = Some(Arc::clone(override_mining)),
-            None => {
-                *complete = false;
-                mining = None;
-            }
+            .and_then(|condition| crate::block_condition::evaluate(condition, block, &values));
+        *unevaluated |= value.is_none();
+        if value.is_some_and(BlockMolang::holds) {
+            mining = override_mining;
         }
     }
-    Some(mining)
+    Arc::clone(mining)
 }
 
-/// Session-owned item tag programs, including failed compilations that must stay unresolved.
+/// Session-owned item tag programs; a failed compilation matches no item.
 #[derive(Debug, Default)]
 pub struct CustomMiningFilters(HashMap<Arc<str>, Option<pack_entity_compiler::ItemTagMolang>>);
 
@@ -93,7 +70,7 @@ impl CustomMiningFilters {
                         .iter()
                         .filter_map(|permutation| permutation.physical.mining.as_deref()),
                 )
-                .chain(block.state_mining.iter().filter_map(Option::as_deref))
+                .chain(block.state_mining.iter().map(AsRef::as_ref))
         }))
     }
 
@@ -112,21 +89,24 @@ impl CustomMiningFilters {
         Self(filters)
     }
 
-    /// Evaluates only prepared programs; a missing or unsupported filter stays unresolved.
-    fn evaluate(&self, source: &str, has_tag: &dyn Fn(&str) -> bool) -> Option<bool> {
-        self.0.get(source)?.as_ref()?.evaluate(has_tag)
+    /// Evaluates prepared programs; a missing or unsupported filter matches no item.
+    fn matches(&self, source: &str, has_tag: &dyn Fn(&str) -> bool) -> bool {
+        self.0
+            .get(source)
+            .and_then(Option::as_ref)
+            .and_then(|filter| filter.evaluate(has_tag))
+            .unwrap_or(false)
     }
 }
 
-/// Selects the first matching item override, or the block's base value.
-/// An unsupported tag expression returns `None` rather than predicting an early break.
+/// Selects the first matching item override's value, or the block's base value.
 pub fn custom_mining_seconds(
     mining: &CustomBlockMining,
     filters: &CustomMiningFilters,
     identifier: Option<&str>,
     metadata: u32,
     has_tag: &dyn Fn(&str) -> bool,
-) -> Option<f32> {
+) -> f32 {
     for speed in mining.item_specific_speeds.iter() {
         let matches = match &speed.item {
             CustomMiningItem::Item {
@@ -138,14 +118,14 @@ pub fn custom_mining_seconds(
             }
             CustomMiningItem::Tag(tag) => identifier.is_some() && has_tag(tag),
             CustomMiningItem::Tags(expression) => {
-                identifier.is_some() && filters.evaluate(expression, has_tag)?
+                identifier.is_some() && filters.matches(expression, has_tag)
             }
         };
         if matches {
-            return Some(speed.destroy_speed);
+            return speed.destroy_speed;
         }
     }
-    Some(mining.seconds_to_destroy)
+    mining.seconds_to_destroy
 }
 
 #[cfg(test)]
@@ -154,7 +134,7 @@ mod tests {
     use protocol::CustomMiningSpeed;
 
     #[test]
-    fn custom_mining_unprepared_and_unsupported_filters_stay_unresolved_without_allocating() {
+    fn custom_mining_unprepared_and_unsupported_filters_match_no_item_without_allocating() {
         let mining = CustomBlockMining {
             seconds_to_destroy: 4.0,
             item_specific_speeds: [CustomMiningSpeed {
@@ -169,10 +149,10 @@ mod tests {
         ] {
             let evaluate =
                 || custom_mining_seconds(&mining, &filters, Some("test:tool"), 0, &|_| true);
-            assert_eq!(evaluate(), None);
+            assert_eq!(evaluate(), 4.0);
             let before = test_alloc::thread_allocations();
             for _ in 0..16 {
-                assert_eq!(evaluate(), None);
+                assert_eq!(evaluate(), 4.0);
             }
             assert_eq!(test_alloc::thread_allocations() - before, 0);
         }
@@ -197,7 +177,7 @@ mod tests {
             let filters = CustomMiningFilters::from_profiles([&mining]);
             let evaluate =
                 || custom_mining_seconds(&mining, &filters, Some("test:tool"), 0, &|_| true);
-            assert_eq!(evaluate(), Some(0.5));
+            assert_eq!(evaluate(), 0.5);
             let before = test_alloc::thread_allocations();
             for _ in 0..16 {
                 std::hint::black_box(evaluate());
@@ -233,19 +213,16 @@ mod tests {
         let tag = |value: &str| value == "test:fast";
         assert_eq!(
             custom_mining_seconds(&mining, &filters, Some("test:tool"), 2, &tag),
-            Some(0.5)
+            0.5
         );
         assert_eq!(
             custom_mining_seconds(&mining, &filters, Some("test:tool"), 3, &tag),
-            Some(1.0)
+            1.0
         );
-        assert_eq!(
-            custom_mining_seconds(&mining, &filters, None, 2, &tag),
-            Some(4.0)
-        );
+        assert_eq!(custom_mining_seconds(&mining, &filters, None, 2, &tag), 4.0);
         assert_eq!(
             custom_mining_seconds(&mining, &filters, Some("test:other"), 2, &|_| false),
-            Some(4.0)
+            4.0
         );
     }
 
@@ -265,15 +242,15 @@ mod tests {
         assert_eq!(
             custom_mining_seconds(&mining, &filters, Some("test:tool"), 0, &|tag| tag
                 == "test:tools"),
-            Some(0.25)
+            0.25
         );
         assert_eq!(
             custom_mining_seconds(&mining, &filters, Some("test:other"), 0, &|_| false),
-            Some(-1.0)
+            -1.0
         );
         assert_eq!(
             custom_mining_seconds(&mining, &filters, Some("test:tool"), 0, &|_| true),
-            Some(-1.0)
+            -1.0
         );
         for query in ["q.any_tag()", "q.all_tags()"] {
             let empty = CustomBlockMining {
@@ -287,7 +264,7 @@ mod tests {
             let filters = CustomMiningFilters::from_profiles([&empty]);
             assert_eq!(
                 custom_mining_seconds(&empty, &filters, Some("test:tool"), 0, &|_| true),
-                Some(2.0)
+                2.0
             );
         }
     }

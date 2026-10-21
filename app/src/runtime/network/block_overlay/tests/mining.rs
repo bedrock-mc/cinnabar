@@ -68,30 +68,7 @@ fn custom_mining_prepared_state_overrides_reach_both_overlay_modes() {
 }
 
 #[test]
-fn custom_mining_discarded_data_stays_unresolved_in_shared_materials() {
-    let mut incomplete = block("test:incomplete_mining", 1, CustomBlockVisuals::default());
-    Arc::make_mut(&mut incomplete.visual).mining_incomplete = true;
-    let blocks = CustomBlocks {
-        blocks: [
-            incomplete,
-            block("test:complete_mining", 1, CustomBlockVisuals::default()),
-        ]
-        .into(),
-        ..Default::default()
-    };
-    for hashed in [false, true] {
-        let compiled = compile_block_overlay(&view(), &blocks, hashed, None).unwrap();
-        assert!(sim::BlockDestroyInfo::from_facts(compiled.overlay.visuals[0].destroy).is_none());
-        let known = sim::BlockDestroyInfo::from_facts(compiled.overlay.visuals[1].destroy).unwrap();
-        assert_eq!(
-            sim::destroy_progress_per_tick(&known, &Default::default()),
-            Some(1.0)
-        );
-    }
-}
-
-#[test]
-fn custom_mining_unresolved_permutation_cannot_use_an_instant_base() {
+fn custom_mining_unprepared_permutation_cannot_use_an_instant_base() {
     let block = block(
         "test:unknown_mining",
         1,
@@ -123,8 +100,110 @@ fn custom_mining_unresolved_permutation_cannot_use_an_instant_base() {
 
 /// Encodes a named tag in a small network NBT fixture.
 fn named(tag: u8, name: &str, bytes: &mut Vec<u8>) {
-    bytes.extend([tag, u8::try_from(name.len()).unwrap()]);
-    bytes.extend(name.as_bytes());
+    bytes.push(tag);
+    string(name, bytes);
+}
+
+/// Encodes a short network NBT string: a one-byte VarInt length, then the text.
+fn string(text: &str, bytes: &mut Vec<u8>) {
+    bytes.push(u8::try_from(text.len()).unwrap());
+    bytes.extend(text.as_bytes());
+}
+
+/// A server lucky block: a `value` the client reads, a malformed item override, and a
+/// permutation whose condition reads a state the block lacks, which the client treats as zero.
+fn lucky_block_definition() -> Vec<u8> {
+    let mut bytes = Vec::new();
+    named(10, "", &mut bytes);
+    // List lengths and int values are zigzag VarInts: [10, 2] is one compound.
+    named(9, "properties", &mut bytes);
+    bytes.extend([10, 2]);
+    named(8, "name", &mut bytes);
+    string("test:variant", &mut bytes);
+    named(9, "enum", &mut bytes);
+    bytes.extend([3, 4, 0, 2]);
+    bytes.push(0);
+    named(10, "components", &mut bytes);
+    named(10, "minecraft:destructible_by_mining", &mut bytes);
+    named(5, "value", &mut bytes);
+    bytes.extend(0.5_f32.to_le_bytes());
+    named(9, "item_specific_speeds", &mut bytes);
+    bytes.extend([10, 2]);
+    named(5, "destroy_speed", &mut bytes);
+    bytes.extend(0.05_f32.to_le_bytes());
+    bytes.extend([0, 0, 0]);
+    named(9, "permutations", &mut bytes);
+    bytes.extend([10, 2]);
+    named(8, "condition", &mut bytes);
+    string("q.block_state('test:missing') == 1", &mut bytes);
+    named(10, "components", &mut bytes);
+    named(10, "minecraft:destructible_by_mining", &mut bytes);
+    named(5, "value", &mut bytes);
+    bytes.extend((-1.0_f32).to_le_bytes());
+    bytes.extend([0, 0, 0, 0]);
+    bytes
+}
+
+// Definitions the client fully understands must never leave mining unresolved.
+#[test]
+fn custom_lucky_block_with_odd_entries_and_absent_states_breaks_at_its_value() {
+    use gameplay::survival_mining::{
+        BlockBreakingAuthority, DestroyInput, DestroyMachine, DestroyTarget, TickMotion,
+    };
+    let bytes = lucky_block_definition();
+    let data = protocol::GameData {
+        custom_blocks: CustomBlocks::from_definitions([("test:lucky_block", bytes.as_slice())]),
+        ..Default::default()
+    };
+    assert_eq!(data.custom_blocks.blocks[0].state_count, 2);
+    let prepared = pack_runtime::prepare_session_packs(
+        protocol::ResourcePackHandoff::from_archives(vec![]),
+        &data,
+        u64::MAX,
+    );
+    for hashed in [false, true] {
+        let compiled =
+            compile_block_overlay(&view(), &prepared.inputs.blocks, hashed, None).unwrap();
+        for visual in &compiled.overlay.visuals {
+            let item = protocol::NetworkItemStack::empty();
+            let target = DestroyTarget {
+                position: [0; 3],
+                face: 1,
+                runtime_id: 1,
+                wire_runtime_id: 1,
+                relative_hit: [0.5; 3],
+                block: sim::BlockDestroyInfo::from_facts(visual.destroy),
+                conditions: sim::DestroyConditions::default(),
+                selection: gameplay::mining::FrozenMiningSelection {
+                    slot: 0,
+                    item: protocol::VerifiedNetworkItemStack::try_new(
+                        item.clone(),
+                        item.nbt_digest,
+                    )
+                    .unwrap(),
+                },
+                wear: None,
+                instant: false,
+            };
+            let motion = TickMotion {
+                on_ground: true,
+                moved: 0.0,
+            };
+            let mut machine = DestroyMachine::default();
+            let predicted = (0..=15).position(|_| {
+                machine
+                    .step(
+                        DestroyInput::Held(Some(&target)),
+                        motion,
+                        BlockBreakingAuthority::Server,
+                    )
+                    .actions
+                    .iter()
+                    .any(|action| action.kind == protocol::BlockActionKind::PredictDestroy)
+            });
+            assert_eq!(predicted, Some(15), "hashed {hashed}");
+        }
+    }
 }
 
 #[test]
@@ -136,7 +215,7 @@ fn custom_mining_wire_seconds_complete_after_the_expected_ticks() {
     named(10, "", &mut bytes);
     named(10, "components", &mut bytes);
     named(10, "minecraft:destructible_by_mining", &mut bytes);
-    named(5, "seconds_to_destroy", &mut bytes);
+    named(5, "value", &mut bytes);
     bytes.extend(2.0_f32.to_le_bytes());
     bytes.extend([0, 0, 0]);
     let blocks = CustomBlocks::from_definitions([("test:mineable", bytes.as_slice())]);

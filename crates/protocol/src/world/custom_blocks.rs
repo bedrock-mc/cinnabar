@@ -51,8 +51,8 @@ pub struct CustomBlock {
     /// `minecraft:custom_components` declares a player-interact handler, so using the block
     /// interacts with it rather than placing the held block against it.
     pub player_interact: bool,
-    /// Resolved mining components in palette order; an absent component is unknown.
-    pub state_mining: Arc<[Option<Arc<CustomBlockMining>>]>,
+    /// Resolved mining components in palette order; empty until session preparation.
+    pub state_mining: Arc<[Arc<CustomBlockMining>]>,
     /// Resolved palette-order physical components; empty until session preparation.
     pub state_physics: Arc<[CustomBlockPhysics]>,
     /// Every physical permutation was parsed and evaluated for every state.
@@ -96,8 +96,6 @@ pub struct CustomBlockVisuals {
     pub permutations: Box<[CustomPermutation]>,
     /// Physical or placement data was discarded while parsing the definition.
     pub components_incomplete: bool,
-    /// Discarded component data or permutations could change this block's mining value.
-    pub mining_incomplete: bool,
     /// Block states in palette order: placement trait states, then properties in list order.
     /// The first axis varies fastest across the block's palette run.
     pub state_axes: Box<[CustomStateAxis]>,
@@ -261,12 +259,10 @@ impl CustomBlock {
             .unwrap_or_else(|| self.base_physics())
     }
 
-    /// Borrows resolved mining data; an unprepared mining permutation cannot use the base value.
+    /// Borrows resolved mining data; `None` only before a mining permutation is prepared.
     pub fn mining_for_state(&self, index: u32) -> Option<&Arc<CustomBlockMining>> {
-        if self.visual.mining_incomplete {
-            None
-        } else if let Some(mining) = self.state_mining.get(index as usize) {
-            mining.as_ref()
+        if let Some(mining) = self.state_mining.get(index as usize) {
+            Some(mining)
         } else if self
             .visual
             .permutations
@@ -658,33 +654,26 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
         friction_component(components.and_then(|set| set.field("minecraft:friction")));
     let mut permutation_skips = 0;
     let mut physical_permutation_skips = 0;
-    let mut mining_incomplete = mining_skips > 0;
     let permutations = root
         .list("permutations")
         .iter()
         .enumerate()
         .filter_map(|(index, permutation)| {
             let components = permutation.field("components");
-            let changes_mining = components
-                .and_then(|set| set.field(mining::COMPONENT))
-                .is_some();
             if index >= MAX_PERMUTATIONS {
                 permutation_skips += 1;
                 physical_permutation_skips += usize::from(!mining::only_component(components));
-                mining_incomplete |= changes_mining;
                 return None;
             }
             placement::components(&mut placement, components);
+            // A missing condition evaluates as an empty expression, which never holds.
             let Some(Nbt::String(condition)) = permutation.field("condition") else {
                 permutation_skips += 1;
-                physical_permutation_skips += usize::from(!mining::only_component(components));
-                mining_incomplete |= changes_mining;
                 return None;
             };
             let (physical, skipped, mining_skips) = physical_components(components);
             permutation_skips += skipped + mining_skips;
             physical_permutation_skips += skipped;
-            mining_incomplete |= mining_skips > 0;
             Some(CustomPermutation {
                 condition: condition.as_str().into(),
                 components: visual_components(permutation.field("components")),
@@ -730,7 +719,6 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
                 }),
             permutations,
             components_incomplete: physical_skips > 0 || physical_permutation_skips > 0,
-            mining_incomplete,
             state_axes: state_axes.into_boxed_slice(),
             state_identity_incomplete,
             materialization_disabled: false,
