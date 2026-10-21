@@ -729,6 +729,8 @@ impl MenuRuntime {
             }
             MenuAction::AddBack => self.go_back(),
             MenuAction::SelectRenderer(choice) => self.select_renderer(choice),
+            MenuAction::ReloadShaders => self.activate_shader_reload(),
+            MenuAction::SettingsShaders => self.activate_shaders_tab(),
             MenuAction::ToggleRenderMode => {
                 if render_model::ENHANCED_RENDERING_ENABLED {
                     self.render_mode = self.render_mode.toggled();

@@ -55,10 +55,10 @@ fn pack_folder(root: &Path, name: &str) -> PathBuf {
 }
 
 #[test]
-fn a_pack_dropped_on_video_settings_is_copied_in_and_listed() {
+fn a_pack_dropped_on_shader_settings_is_copied_in_and_listed() {
     let root = tempfile::tempdir().unwrap();
     let packs = root.path().join("shaderpacks");
-    let mut app = app(&packs, SettingSection::Video);
+    let mut app = app(&packs, SettingSection::Shaders);
     drop_file(&mut app, pack_folder(root.path(), "Dusk"));
     test_time::eventually("the dropped pack to be listed", || {
         app.update();
@@ -74,11 +74,11 @@ fn drops_elsewhere_are_left_to_other_importers() {
     let mut app = app(&packs, SettingSection::GlobalTexturePack);
     drop_file(&mut app, pack_folder(root.path(), "Dusk"));
     app.update();
-    // Leaving for Video settings does not replay a drop made elsewhere.
+    // Leaving for the Shaders tab does not replay a drop made elsewhere.
     app.world_mut()
         .resource_mut::<MenuRuntime>()
         .activate(MenuAction::SettingsSection(
-            SettingSection::Video.definition().index,
+            SettingSection::Shaders.definition().index,
         ));
     app.update();
     app.update();

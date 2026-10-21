@@ -137,6 +137,30 @@ fn shared_section_metadata_drives_titles_tabs_and_reset_routes() {
 }
 
 #[test]
+fn shaders_tab_is_visible_only_in_shader_pack_builds() {
+    let shaders = SettingSection::Shaders.definition();
+    assert_eq!(shaders.tab_title.is_some(), super::SHADER_PACK_BINDINGS);
+    assert_eq!(
+        SETTINGS_TABS.iter().any(|(name, _)| *name == shaders.name),
+        super::SHADER_PACK_BINDINGS
+    );
+    let position = |section: SettingSection| {
+        SECTION_DEFINITIONS
+            .iter()
+            .position(|row| row.id == section)
+            .unwrap()
+    };
+    assert_eq!(
+        position(SettingSection::Shaders),
+        position(SettingSection::GlobalTexturePack) + 1
+    );
+    assert_eq!(
+        position(SettingSection::Mods),
+        position(SettingSection::Shaders) + 1
+    );
+}
+
+#[test]
 fn persisted_setting_and_binding_names_survive_reload_with_host_values_excluded() {
     let saved = br#"{"schema":1,"values":{"gamma":65,"camera_shake":0,"full_screen":1,"gui_scale":3},"keys":{"key.drop":69,"key.screenshot":70,"gamepad:key.emote":521}}"#;
     let options = SettingsOptions::decode(saved).unwrap();

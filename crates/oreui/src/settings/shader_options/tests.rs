@@ -73,7 +73,14 @@ fn grid_offset(scrolls: &MenuScrolls<MenuAction>) -> f32 {
 
 #[test]
 fn footer_buttons_leave_the_grid_scrolled_where_it_was() {
-    let mut view = settings_view("video_forced_index");
+    if !render_model::SHADER_PACKS_ENABLED {
+        return;
+    }
+    let mut view = settings_view(
+        launcher::menu::settings_sections::SettingSection::Shaders
+            .definition()
+            .name,
+    );
     view.shader_options = Some(Arc::new(View {
         pack: "Fixture".into(),
         title: "Lighting".into(),
@@ -131,7 +138,14 @@ fn footer_buttons_leave_the_grid_scrolled_where_it_was() {
 
 #[test]
 fn hovered_option_help_remains_scrollable_after_the_pointer_leaves_the_option() {
-    let mut view = settings_view("video_forced_index");
+    if !render_model::SHADER_PACKS_ENABLED {
+        return;
+    }
+    let mut view = settings_view(
+        launcher::menu::settings_sections::SettingSection::Shaders
+            .definition()
+            .name,
+    );
     let mut options = View::loading("Fixture");
     options.status = Status::Ready;
     options.elements.push(Element {
@@ -176,7 +190,11 @@ fn hovered_option_help_remains_scrollable_after_the_pointer_leaves_the_option() 
 
 #[test]
 fn long_comments_scroll_above_the_footer_buttons() {
-    let view = settings_view("video_forced_index");
+    let view = settings_view(
+        launcher::menu::settings_sections::SettingSection::Shaders
+            .definition()
+            .name,
+    );
     let element = Element {
         label: "Lighting".into(),
         comment: Some("Long option help. ".repeat(100)),

@@ -105,7 +105,7 @@ pub enum MenuField {
     MacroCommand(usize),
 }
 
-/// One Video-section renderer choice. Shader packs carry their list revision so an old
+/// One renderer or shader-pack choice. Shader packs carry their list revision so an old
 /// picker action cannot select a different pack after discovery changes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum RendererChoice {
@@ -179,8 +179,12 @@ pub enum MenuAction {
     SettingsAdvancedGraphics,
     /// The JSON-UI Enhanced switch: Vanilla and Enhanced flip; a shader pack turns into Enhanced.
     ToggleRenderMode,
-    /// The OreUI Video renderer picker.
+    /// The OreUI renderer and shader-pack pickers.
     SelectRenderer(RendererChoice),
+    /// Opens the Shaders settings tab from Video.
+    SettingsShaders,
+    /// Re-lists shader packs and reloads the selected pack with its saved options.
+    ReloadShaders,
     PauseResume,
     PauseDisconnect,
     OpenDeathQuit,
@@ -217,7 +221,7 @@ pub enum MenuAction {
     Invite(invite::Action),
     /// Answers the oldest Discord join request: Accept (true) or Decline.
     JoinRequest(bool),
-    /// A press on the Shader Pack Settings screen or its Renderer-row button.
+    /// A press on the Shader Pack Settings screen or its Shaders-tab button.
     ShaderOptions(crate::shader_options::Action),
 }
 

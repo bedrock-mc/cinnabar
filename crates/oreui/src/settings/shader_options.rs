@@ -1,4 +1,4 @@
-//! The Shader Pack Settings screen in the Video panel: the pack's option grid, a fixed footer
+//! The Shader Pack Settings screen in the Shaders tab: the pack's option grid, a fixed footer
 //! describing the hovered or focused element, and Back, Reset, Cancel, Apply and Done.
 //!
 //! Cells follow the pack's columns while each stays readable, and fill rows in reading order

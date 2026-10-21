@@ -31,7 +31,10 @@ fn mods_follow_resource_packs_in_the_same_group() {
     let position = |section: &str| TABS.iter().position(|tab| tab.section == section).unwrap();
     let packs = position("global_texture_pack_forced_index");
     let mods = position(launcher::mods::SECTION);
-    assert_eq!(mods, packs + 1);
+    assert_eq!(
+        mods,
+        packs + 1 + usize::from(launcher::menu::settings_options::SHADER_PACK_BINDINGS)
+    );
     assert!(TABS[mods].group.is_none());
     assert_ne!(section_index(launcher::mods::SECTION), 0);
 }
@@ -331,7 +334,8 @@ fn focused_category_outline_stays_clipped_to_its_sidebar_viewport() {
 #[test]
 fn account_is_followed_by_resources_without_an_empty_category_row() {
     use crate::review_tests::paint;
-    let view = MenuView::new(true, "Player".into());
+    let mut view = MenuView::new(true, "Player".into());
+    view.over_world = true;
     let (_, hits, _) = paint(HashMap::new(), |canvas| {
         draw(canvas, &view, [20.0, 20.0, 420.0, 1100.0], &|_| None, None).unwrap();
     });

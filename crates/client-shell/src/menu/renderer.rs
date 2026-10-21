@@ -1,10 +1,28 @@
-//! The Video renderer picker: Off, Enhanced and the discovered Java shader packs. Choices
-//! for renderers this build does not compile are ignored.
+//! Renderer and shader-pack settings choices.
+//! Choices for renderers this build does not compile are ignored.
 
 use super::{MenuRuntime, RenderMode};
 use launcher::menu::{MenuScreen, RendererChoice};
 
 impl MenuRuntime {
+    /// Opens the pack controls through the normal settings navigation path.
+    pub(super) fn activate_shaders_tab(&mut self) {
+        if render_model::SHADER_PACKS_ENABLED {
+            self.activate_settings_section(
+                launcher::menu::settings_sections::SettingSection::Shaders
+                    .definition()
+                    .index,
+            );
+        }
+    }
+
+    /// Routes the Shaders tab's reload button to the render host in shader-pack builds.
+    pub(super) fn activate_shader_reload(&mut self) {
+        if render_model::SHADER_PACKS_ENABLED {
+            self.request_shader_pack_reload();
+        }
+    }
+
     /// Replaces the discovered shader-pack names the picker offers, in display order. Names
     /// past `u16::MAX` are dropped so every listed pack stays addressable by its choice.
     pub fn sync_shader_packs(&mut self, mut names: Vec<String>) {
@@ -42,14 +60,14 @@ impl MenuRuntime {
     }
 
     /// Whether files dropped on the window go to the shader-pack folder: in shader-pack
-    /// builds while Video settings, which lists the packs, is on screen.
+    /// builds while the Shaders tab, which lists the packs, is on screen.
     #[must_use]
     pub fn takes_shader_pack_drops(&self) -> bool {
         use launcher::menu::settings_sections::SettingSection;
         render_model::SHADER_PACKS_ENABLED
             && self.visible
             && self.screen == MenuScreen::Settings
-            && SettingSection::from_index(self.settings.section) == Some(SettingSection::Video)
+            && SettingSection::from_index(self.settings.section) == Some(SettingSection::Shaders)
     }
 
     /// The highlighted choice; `None` while the selected pack is not in the synced list.
@@ -103,6 +121,7 @@ mod tests {
     use super::*;
     use launcher::menu::MenuAction;
 
+    /// Creates a menu with two discovered packs.
     fn menu() -> MenuRuntime {
         let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
         menu.sync_shader_packs(vec!["Dusk.zip".to_owned(), "Lumen".to_owned()]);
@@ -201,6 +220,7 @@ mod tests {
         assert_eq!(menu.view().shader_packs[..], ["Lumen".to_owned()]);
         menu.sync_shader_packs(Vec::new());
         assert_eq!(menu.view().renderer, None);
+        assert_eq!(menu.view().shader_pack.as_deref(), Some("Lumen"));
     }
 
     #[test]
@@ -240,7 +260,7 @@ mod tests {
     }
 
     #[test]
-    fn only_video_settings_takes_dropped_shader_packs() {
+    fn only_shader_settings_takes_dropped_shader_packs() {
         use launcher::menu::settings_sections::SettingSection;
         let mut menu = menu();
         menu.screen = MenuScreen::Settings;
@@ -248,16 +268,55 @@ mod tests {
             SettingSection::General,
             SettingSection::GlobalTexturePack,
             SettingSection::Video,
+            SettingSection::Shaders,
         ] {
             menu.settings.section = section.definition().index;
             assert_eq!(
                 menu.takes_shader_pack_drops(),
-                render_model::SHADER_PACKS_ENABLED && section == SettingSection::Video,
+                render_model::SHADER_PACKS_ENABLED && section == SettingSection::Shaders,
                 "{section:?}"
             );
         }
+        menu.visible = false;
+        assert!(!menu.takes_shader_pack_drops());
+        menu.visible = true;
         menu.screen = MenuScreen::Play;
         assert!(!menu.takes_shader_pack_drops());
+    }
+
+    #[test]
+    fn the_shaders_tab_reload_action_uses_the_existing_request() {
+        let mut menu = menu();
+        menu.activate(MenuAction::ReloadShaders);
+        assert_eq!(
+            menu.take_shader_pack_reload(),
+            render_model::SHADER_PACKS_ENABLED
+        );
+        assert!(!menu.take_shader_pack_reload());
+    }
+
+    #[test]
+    fn the_video_shortcut_opens_shaders_without_changing_the_pack() {
+        use launcher::menu::settings_sections::SettingSection;
+        let mut menu = menu();
+        menu.sync_render_mode(RenderMode::ShaderPack);
+        menu.sync_shader_pack(Some("Lumen"));
+        menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+        menu.activate(MenuAction::SettingsSection(
+            SettingSection::Video.definition().index,
+        ));
+        menu.activate(MenuAction::SettingsShaders);
+        assert_eq!(
+            menu.view().settings.section,
+            if render_model::SHADER_PACKS_ENABLED {
+                SettingSection::Shaders.definition().index
+            } else {
+                SettingSection::Video.definition().index
+            }
+        );
+        assert_eq!(menu.take_shader_pack_request(), None);
+        assert_eq!(menu.take_render_mode_request(), None);
+        assert_eq!(menu.view().shader_pack.as_deref(), Some("Lumen"));
     }
 
     /// The reload key's row follows the same build switch as the renderer it reloads.
