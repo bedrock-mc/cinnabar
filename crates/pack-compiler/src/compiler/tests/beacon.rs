@@ -13,7 +13,7 @@ fn fixture(shared_sprite: bool) -> (RuntimeAssets, RegistryRecord) {
         .unwrap()
         .clone();
     let mut blocks = serde_json::json!({});
-    blocks[PackBlock::Beacon.identifier()] = if shared_sprite {
+    blocks[PackBlock::Beacon.identifier().split_once(':').unwrap().1] = if shared_sprite {
         serde_json::json!({"textures":"core"})
     } else {
         serde_json::json!({"textures":{"down":"base","up":"core","side":"shell"}})
@@ -23,7 +23,8 @@ fn fixture(shared_sprite: bool) -> (RuntimeAssets, RegistryRecord) {
         (PackBlock::Obsidian, "base"),
         (PackBlock::Glass, "shell"),
     ] {
-        blocks[block.identifier()] = serde_json::json!({"textures":texture});
+        blocks[block.identifier().split_once(':').unwrap().1] =
+            serde_json::json!({"textures":texture});
     }
     let directory = tempfile::tempdir().unwrap();
     write(directory.path().join("blocks.json"), blocks.to_string());
